@@ -31,8 +31,9 @@ func configRefText(t *testing.T) string {
 	return configRefContent
 }
 
-// TestConfigRefDocumentsEveryLiveKey: every key yolo ACCEPTS appears literally
-// in the reference.
+// TestConfigRefDocumentsEveryLiveKey: every key yolo ACCEPTS has a section of its
+// own, or at least one `<key>.<sub>` section — `network` and `security` are
+// documented entirely through their sub-keys, which is real documentation and passes.
 //
 // MEASURED 2026-09-09, before this test existed: `required_capabilities` was
 // accepted by the schema and documented nowhere in config_ref.txt — so the one
@@ -40,29 +41,65 @@ func configRefText(t *testing.T) string {
 // (The design doc predicted `repo_path`, `host_processes` and `prune` instead.
 // Two of the three went away by RETIREMENT rather than by documentation — they
 // are in config.RetiredConfigKeys() now, and the test below therefore does not
-// ask about them at all — while the one it named that IS still live, `prune`, is
-// the one hole this check does not close: `prune` is accepted by the schema,
-// carries `prune.warn_threshold_gb`, has no validator of its own, and appears
-// nowhere in config_ref.txt. The loop below passes it anyway, because the
-// reference documents `programs.autoprune` and a substring match cannot tell the
-// two apart. docs/design/minimal-disk-footprint.md reached the same conclusion
-// independently on 2026-08-25.
+// ask about them at all — while the one it named that IS still live, `prune`, was
+// the one hole this check did not close. docs/design/minimal-disk-footprint.md
+// reached the same conclusion independently on 2026-08-25.
 //
 // So the predicted list was wrong in both directions, which is the argument for
-// deriving the check rather than listing the gaps — and the substring match is
-// the weakest assertion in this file. Tightening it to a titled section per key
-// is the right shape and has to WAIT for config-ref to grow a `prune` entry,
-// since a skip-list here is the drifting second copy this file exists to
-// refuse.)
+// deriving the check rather than listing the gaps.)
+//
+// ⚠ THE ASSERTION WAS `strings.Contains(ref, key)` UNTIL 2026-09-16, AND THAT MADE IT
+// VACUOUS FOR THE KEY IT WAS WRITTEN ABOUT. "prune" is a substring of "autoprune", so a
+// `programs.autoprune` mention satisfied the assertion for a DIFFERENT key and `prune`
+// stayed undocumented behind a green check. Substring containment cannot express
+// "documented": every short key name is a substring of something (`kvm`, `packs`,
+// `mounts`, `devices`), so the check has to find a SECTION.
+//
+// THE WAIT THIS COMMENT DESCRIBED IS OVER, and the order it named is why the tightening
+// is safe. It said the section form "has to WAIT for config-ref to grow a `prune` entry,
+// since a skip-list here is the drifting second copy this file exists to refuse" — so the
+// entry was written first, in the same commit as this change, and no skip-list exists.
+// `network` and `security` need none either: they are documented entirely through
+// `<key>.<sub>` titles, which is real documentation and passes. G24 in
+// docs/plans/setup-support-gaps.md.
 func TestConfigRefDocumentsEveryLiveKey(t *testing.T) {
-	ref := configRefText(t)
+	titles := configRefSectionTitles(t)
 	for _, key := range config.TopLevelConfigKeys() {
-		if !strings.Contains(ref, key) {
-			t.Errorf("`yolo config-ref` never mentions the accepted config key %q. "+
-				"config-ref is the CLI's only concept surface for the schema, so an "+
-				"undocumented key is a key an in-jail agent cannot discover at all.", key)
+		documented := false
+		for _, title := range titles {
+			if title == key || strings.HasPrefix(title, key+".") {
+				documented = true
+				break
+			}
+		}
+		if !documented {
+			t.Errorf("`yolo config-ref` has no section for the accepted config key %q "+
+				"(neither %q nor any %q.<sub> entry). config-ref is the CLI's only concept "+
+				"surface for the schema, so an undocumented key is a key an in-jail agent "+
+				"cannot discover at all. A passing mention elsewhere in the text does not "+
+				"count: that is what let `prune` hide inside `programs.autoprune`.",
+				key, key, key)
 		}
 	}
+}
+
+// configRefSectionTitles is every bold key title in the reference, dotted sub-key
+// entries INCLUDED — the difference from configRefSectionBodies, which drops them
+// because its callers ask about a whole key's section body. Here the dotted ones are
+// the evidence that `network` and `security` are documented.
+func configRefSectionTitles(t *testing.T) []string {
+	t.Helper()
+	var out []string
+	for _, line := range strings.Split(configRefText(t), "\n") {
+		if name, ok := sectionTitle(line); ok {
+			out = append(out, name)
+		}
+	}
+	if len(out) == 0 {
+		t.Fatal("no bold key sections parsed out of config_ref.txt; the assertion above " +
+			"would pass for nothing and fail for everything")
+	}
+	return out
 }
 
 // TestConfigRefAnnouncesTheRefusalForEveryRetiredKey is the other direction, and

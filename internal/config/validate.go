@@ -90,6 +90,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateAgentProfilesRetired(config, errs, warns)
 	validateUseProfiles(config, errs)
 	validateProfiles(workspace, errs)
+	validatePrune(config, errs)
 	validateRequiredCapabilities(config, errs)
 	validateDevices(config, errs, warns)
 	validateGPU(config, errs, warns)
@@ -1387,6 +1388,60 @@ func unknownProfileCLIMessage(key string, installed []string) string {
 	return fmt.Sprintf("no pack installs a CLI named %q (installed: %s) — a use_profiles "+
 		"key selects a profile by the binary a pack installs, not by pack or agent name",
 		key, have)
+}
+
+// validatePrune checks the `prune` block: an object, a one-key census, and a positive
+// number for the threshold.
+//
+// WHY IT DID NOT EXIST, since the absence is the interesting part: `prune` was added to
+// knownTopLevelConfigKeys (config.go) and never given a validator, so the top-level
+// census accepted the NAME and nothing looked inside. `prune: "hello"` validated. The
+// coverage test that should have caught the missing documentation passed on a substring
+// — "prune" is inside "autoprune" — so both halves of the gap held each other up.
+//
+// The threshold is compared against `>= 15.0` GiB by checkDiskUsage, which silently
+// ignores a zero or negative value (`f > 0`). That ignoring is correct at the read site
+// and is why the refusal belongs here: a user who writes 0 meaning "never warn" has
+// asked for something this key cannot express, and the honest answer is to say so
+// rather than to apply 15.
+func validatePrune(config *jsonx.OrderedMap, errs *[]string) {
+	v, present := config.Get("prune")
+	if !present || v == nil {
+		return
+	}
+	prune, ok := asMap(v)
+	if !ok {
+		add(errs, "config.prune: expected an object")
+		return
+	}
+	reportUnknownKeys(prune, knownPruneKeys, "config.prune", errs)
+	raw, ok := prune.Get("warn_threshold_gb")
+	if !ok || raw == nil {
+		return
+	}
+	// int or float only, matching what the READER accepts — checkDiskUsage's
+	// numberFloat takes a decoded JSON int or float and deliberately not a bool, so a
+	// validator that accepted a string here would pass a value the reader then ignores,
+	// which is the silent drop this whole function exists to end.
+	const msg = "config.prune.warn_threshold_gb: expected a positive number of GiB (e.g. 25)"
+	switch {
+	case isBool(raw):
+		add(errs, msg)
+	default:
+		if n, ok := jsonx.AsInt(raw); ok {
+			if n <= 0 {
+				add(errs, msg)
+			}
+			return
+		}
+		if f, ok := raw.(float64); ok {
+			if f <= 0 {
+				add(errs, msg)
+			}
+			return
+		}
+		add(errs, msg)
+	}
 }
 
 func validateRequiredCapabilities(config *jsonx.OrderedMap, errs *[]string) {

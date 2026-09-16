@@ -143,6 +143,20 @@ var ephemeralStorageModes = []string{"volume", "tmpfs"}
 // pack-declared form of an endpoint carries (packdecl.ProviderEndpoint).
 var knownEndpointKeys = set("base_url", "wire_api")
 
+// knownPruneKeys is the census for the `prune` block — ONE key, because one key is
+// all anything reads (`yolo check`'s disk-usage nudge, sections_misc.go's
+// checkDiskUsage). The block was accepted with NO validator at all until 2026-09-16,
+// so `prune: "hello"` and `prune: {"warn_threshold": 40}` both passed and did nothing:
+// the shape was unchecked and a misspelled sub-key was silence, on a key whose only
+// job is a number. G24 in docs/plans/setup-support-gaps.md.
+//
+// The one-key census is the point rather than an accident of size. `yolo prune`'s
+// behaviour is flag-driven (--image-cache-keep, --cache-age, --nix-gc-max), so a
+// reader who assumes this block mirrors those flags is exactly the reader a census
+// catches — they get "unknown key" naming their spelling instead of a threshold that
+// never applied.
+var knownPruneKeys = set("warn_threshold_gb")
+
 var (
 	knownNetworkKeys     = set("mode", "ports", "forward_host_ports")
 	knownSecurityKeys    = set("blocked_tools")

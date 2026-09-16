@@ -1408,6 +1408,21 @@
     Default: [] (declares nothing).
     Example: {"required_capabilities": ["web_search"]}
 
+  [bold]prune[/bold] (object): Disk-usage nudge settings for `yolo check`.  ONE key, and
+    the block is host-side only — an in-jail `yolo check` skips the disk section, so a
+    threshold written in a jail snapshot does nothing there.
+    • [bold]warn_threshold_gb[/bold] (number, [bold]default 15[/bold]): total yolo-jail
+      footprint, in GiB, above which `yolo check` warns and points at `yolo prune`.  It
+      changes WHEN YOU ARE TOLD, never what `yolo prune` reclaims: every reclaim policy
+      is a flag (--image-cache-keep, --cache-age, --nix-gc-max), so nothing else belongs
+      under this key and any other sub-key is refused as unknown.
+    ⚠ THE BLOCK HAD NO VALIDATOR AT ALL UNTIL 2026-09-16, so `prune: "hello"` and a
+    misspelled sub-key were both accepted in silence — and this reference had no section
+    for it, which is how it stayed that way: the coverage test that should have caught
+    the omission was satisfied by the substring "prune" inside `programs.autoprune`.
+    Both halves are fixed; the value is now checked and a typo names itself.
+    Example: {"prune": {"warn_threshold_gb": 40}}
+
   [bold]lsp_servers[/bold] (object): Additional language servers for Copilot (Claude uses its own tools).
     Default servers (always present): python (pyright), typescript, go (gopls).
     Workspace servers are merged with defaults — add new ones or override existing.
