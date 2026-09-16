@@ -50,9 +50,9 @@ The audit crossed **four setups** — `podman`/Linux, `podman`/macOS, `container
 
 > [!NOTE]
 > **This table is as the grid was audited, and 15 of the 22 `unknown` cells have since been settled** by the
-> 2026-09-16 measurement pass in [§5.1](#51-what-is-now-measured) — which also found one defect the grid had
-> classified as working (G34, G35). It is left un-recomputed on purpose: re-deriving 705 cells from 15 answers would
-> mean re-reading the other 690, and a table that mixes audited and estimated counts is worse than one with a
+> 2026-09-16 measurement pass in [§5.1](#51-what-is-now-measured) — which also found two defects the grid had
+> classified as working (G34, G35). It is left un-recomputed on purpose: re-deriving 705 cells from 15 answers
+> would mean re-reading the other 690, and a table that mixes audited and estimated counts is worse than one with a
 > date on it. [§5](#5-measured-cells-and-what-is-still-unmeasured) is the current answer wherever the two disagree.
 
 Then every `impossible` and `ruled-wontfix` cell — 46 of them, the ones that say *stop looking* — was handed to
