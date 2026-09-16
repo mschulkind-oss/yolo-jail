@@ -202,11 +202,19 @@ func appliedNetMode(rt, netMode string, inContainer bool) string {
 // Container refuses a `:ro` bind it would otherwise make, and macos-user makes no bind at
 // all — it has no container to mount anything into. Folding it into the `:ro` predicate
 // would have that predicate answer a question nobody asked it (DP-B1 / DP-L7).
+//
+// ⚠ THE NATIVE MARKER BELOW READ `Warned` WHILE NOTHING WARNED, and that is what changed
+// here. Filtering the mounts out tells the AGENT the truth and says nothing to the HUMAN,
+// and a disposition is `Warned` only when the launch SAYS SO — a silent absence is `Dropped`.
+// The human's half is noteMacosUserCtxMountGaps (macosctxtree.go), which is also where the
+// pack `mount` grant with the identical shape is named. Built rather than the marker
+// downgraded, because the repo rules this class the other way: a key that is accepted and
+// does nothing is worse than one that refuses (the `workspace_readonly` ruling).
 func (o *Options) appliedCtxMounts(rt string, descriptions []string) []string {
 	if o.roBindsUnsupported(rt) != "" {
 		return nil
 	}
-	if inStrSlice(paths.NativeRuntimes, rt) { // parity: Warned — macos-user binds nothing, and a directory-shaped ctx delivery is named rather than copied (DP-D15)
+	if inStrSlice(paths.NativeRuntimes, rt) { // parity: Warned — macos-user binds nothing; noteMacosUserCtxMountGaps is the line (DP-D15)
 		return nil
 	}
 	return descriptions

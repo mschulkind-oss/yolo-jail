@@ -296,6 +296,94 @@ func TestMacosUserDryRunStillComposesTheContextTree(t *testing.T) {
 	}
 }
 
+// THE TWO /ctx DECLARATIONS A COPY CANNOT CARRY, and the human's half of them. Both were
+// accepted, validated and then dropped in SILENCE on this backend: the config `mounts` loop
+// and hostMountArgs are the only readers either has, and both sit below the macos-user
+// return, so nothing on this arm mentioned either key. appliedCtxMounts kept the mounts out
+// of the AGENT's briefing while its own parity marker claimed a `Warned` disposition — a
+// disposition is `Warned` only when the launch says so.
+//
+// ⚠ Run(), for macosctxtree_test.go's own reason and one sharper: the printer is a pure
+// function of the config and a pack list, so a unit test of it passes with the call deleted —
+// and a missing call is EXACTLY the defect, since every other reader of these two keys is
+// below the arm's return.
+func TestMacosUserNamesTheConfigMountsItCannotBind(t *testing.T) {
+	home := ctxLaunchHome(t, `, "mounts": ["~/code/ref-repo", "`+t.TempDir()+`:/ctx/logs"]`)
+	// The source EXISTS, so config validation's own "host path does not exist and will be
+	// skipped" line cannot be what the assertions below are reading.
+	if err := os.MkdirAll(filepath.Join(home, "code", "ref-repo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, out := runMacosUserCapturingCtx(t, t.TempDir(), nil)
+
+	for _, want := range []string{
+		"`mounts` is not honored on macos-user",
+		"/ctx/ref-repo", // the bare-path entry, at the destination it would have taken
+		"/ctx/logs",     // the host:container entry, at the one it named
+		"COPY",          // the reason, which is this backend's own and not the AC :ro rule
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the launch never mentioned %q — the user declared a context mount and "+
+				"gets nothing at that path with no reason given:\n%s", want, out)
+		}
+	}
+	// Not the container path's sentence borrowed: Apple Container refuses a `:ro` bind it
+	// would otherwise make, and this backend makes no bind at all. Asserting the absence
+	// keeps a later "just reuse the existing string" from stating the wrong reason.
+	if strings.Contains(out, "read-only (:ro)") {
+		t.Errorf("the macos-user notice borrowed Apple Container's `:ro` reason:\n%s", out)
+	}
+}
+
+// A PACK `mount` GRANT IS THE SAME DROP, and it is named the same way — the matched half of
+// the pair above. No pack yolo ships declares one, so this drives a fetched (file://) pack,
+// which is also the case where silence costs most: that grant was approved by a human
+// against a sentence about reading their home.
+func TestMacosUserNamesAPackMountGrantItCannotBind(t *testing.T) {
+	home := packHome(t)
+	src := filepath.Join(t.TempDir(), "acme")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeHostFileAt(t, filepath.Join(src, "pack.json"),
+		`{"name":"acme","contributes":[{"kind":"mount","host":"datasets/acme","into":"acme"}]}`,
+		0o644)
+	writeUserPacks(t, home, `["file://`+src+`"]`)
+	if err := os.MkdirAll(filepath.Join(home, "datasets", "acme"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, out := runMacosUserCapturingCtx(t, t.TempDir(), nil)
+
+	for _, want := range []string{
+		"pack `mount` grant is not honored on macos-user",
+		"~/datasets/acme",
+		"/ctx/acme",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the launch never mentioned %q. The banner on this same arm discloses "+
+				"the grant as a host READ, so without this line the launch's only word on "+
+				"the subject is the one that overclaims:\n%s", want, out)
+		}
+	}
+}
+
+// THE CONTROL, and it is the difference between a disclosure and the warning OQ-BP-3 says
+// people learn to skip: a launch that declared no context mount says nothing about one.
+func TestMacosUserSaysNothingAboutContextMountsNobodyDeclared(t *testing.T) {
+	ctxLaunchHome(t, "")
+
+	_, out := runMacosUserCapturingCtx(t, t.TempDir(), nil)
+
+	for _, unwanted := range []string{"`mounts` is not honored", "pack `mount` grant"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("a launch with no `mounts` and no pack grant still printed %q:\n%s",
+				unwanted, out)
+		}
+	}
+}
+
 // containsString is a local membership test — the run package has no generic helper and
 // one comparison does not earn an import.
 func containsString(list []string, want string) bool {

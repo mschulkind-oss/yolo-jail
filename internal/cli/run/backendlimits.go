@@ -28,14 +28,18 @@ import (
 // PROSE differs on purpose — the human gets an explanation at launch, the agent gets
 // a standing constraint — but the conditions do not.
 //
-// ⚠ ONE ENTRY BREAKS THAT TODAY, stated rather than hidden: the network sentence at the
-// bottom has no note* counterpart, because nothing on the launch path says anything about
-// `network.ports` or `forward_host_ports` on this backend at all. The per-key stderr
-// notice that pairs with it is the other half of DP-L2
-// (docs/design/declaration-parity.md §5.1.1 (2)) and is NOT built — it needs a call site
-// beside noteMacosUserContentGaps on the macos-user arm of run.Run. Until it lands the
-// agent is told this and the human is not, which is the right direction to be wrong in
-// (the agent is the one that binds the port) and is still an asymmetry.
+// ⚠ ONE ENTRY IS HALF-PAIRED, and this passage used to say it was not paired at all: that
+// the network sentence at the bottom "has no note* counterpart, because nothing on the
+// launch path says anything about `network.ports` or `forward_host_ports` on this backend at
+// all", with DP-L2's stderr half (docs/design/declaration-parity.md §5.1.1 (2)) unbuilt. It
+// is built — noteMacosUserPortKeys prints one line per non-empty key, called from the
+// macos-user arm of run.Run.
+//
+// What survives is a difference in CONDITIONALITY rather than in source, and it is deliberate
+// on both ends: the human hears it only when they DECLARED a port key, because a warning
+// about a key nobody wrote is the one OQ-BP-3 says readers learn to skip, while the sentence
+// below is unconditional — the agent binds ports whether the config ever mentioned them
+// or not.
 
 // backendLimits returns the standing constraints of `rt` for the agent's briefing,
 // or nil when the backend imposes none (every container backend today).

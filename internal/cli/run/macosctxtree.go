@@ -53,15 +53,22 @@ import (
 // one — this repo's own yolo-jail.jsonc mounts a growing log directory. Those are DP-D15,
 // ruled separately ("we can't do /ctx by copying, some of these directories are huge").
 //
-// ⚠ ONLY ONE OF THE THREE IS NAMED WHEN IT IS DROPPED, and the other two are gaps rather
-// than that ruling being applied. A directory `host_files` entry reaches this function and
-// comes back in undeliveredDirs for noteMacosUserHostByteGaps to print. Config `mounts` and
-// pack `mount` grants never reach it: their only readers are container-side — the assembler's
-// own `mounts` loop, and hostMountArgs (packhostgrants.go), the sole non-test reader of
-// HonoredMounts — so on this backend both are accepted, validated and dropped in silence.
+// ⚠ ALL THREE ARE NAMED WHEN THEY ARE DROPPED, and this passage said until today that only
+// one was. A directory `host_files` entry reaches this function and comes back in
+// undeliveredDirs for noteMacosUserHostByteGaps to print. Config `mounts` and pack `mount`
+// grants never reach it: their only readers are container-side — the assembler's own
+// `mounts` loop, and hostMountArgs (packhostgrants.go), the sole non-test reader of
+// HonoredMounts — so on this backend both were accepted, validated and dropped in SILENCE.
 // appliedCtxMounts keeps config `mounts` out of the AGENT's briefing, which is a different
-// job from telling the HUMAN; nothing tells the human. That silence covers the single-FILE
-// form of a pack `mount` too, which a copy would scale to perfectly well.
+// job from telling the HUMAN, and nothing told the human at all while appliedCtxMounts' own
+// parity marker claimed a `Warned` disposition. noteMacosUserCtxMountGaps below is that
+// warning: the repo already rules this class in the `workspace_readonly` direction — a key
+// that is accepted and does nothing is worse than one that refuses — so the line was built
+// rather than the marker downgraded.
+//
+// STILL A GAP THAT ONE LINE DOES NOT CLOSE: the single-FILE form of a pack `mount` is a copy
+// this tree would scale to perfectly well, so naming it is the honest interim rather than the
+// answer. DP-D15 rules only the directory-shaped delivery out.
 //
 // The same shape one destination over, noted here because this is where a reader comes
 // looking: a pack `files` contribution lands in the HOME rather than /ctx, so it belongs to
@@ -105,6 +112,12 @@ func (o *Options) buildMacosCtxTree(staging string, packs []*packload.Pack,
 	cfg *jsonx.OrderedMap) (macosCtxDelivery, error) {
 	var out macosCtxDelivery
 	tree := filepath.Join(staging, macosCtxTreeLeaf)
+
+	// WHAT NO TREE CAN CARRY, said before one is composed. Every "did not cross" line this
+	// backend prints then lands together on the launch stream: this one here, and the
+	// directory `host_files` line from noteMacosUserHostByteGaps immediately after the
+	// caller gets this delivery back.
+	o.noteMacosUserCtxMountGaps(cfg, packs)
 
 	// Rebuilt from scratch every launch, for buildMacosHomeOverlay's reason and one
 	// sharper: a grant the user REVOKED — a pack dropped from `packs`, a `host_files`
@@ -215,6 +228,83 @@ func (o *Options) buildMacosCtxTree(staging string, packs []*packload.Pack,
 	sort.Strings(out.ctx.Delivered)
 	out.ctx.Tree = tree
 	return out, nil
+}
+
+// noteMacosUserCtxMountGaps names the /ctx declarations this backend accepts, validates and
+// then does not deliver: the config `mounts` key and a pack's `mount` grant.
+//
+// WHY IT PRINTS FROM THE COMPOSER instead of joining the note* printers on the arm. The
+// undeliveredDirs indirection above exists because that fact is only settled DURING the
+// composition — the copy loop is what visits the entry — so it has to be carried out to be
+// printed once. These two are settled by the DECLARATION ALONE: no reader on this backend,
+// and no state a composition could change. There is nothing to carry, so the line sits with
+// the reading, in the file that is the authority on what reaches /ctx here. Both audiences
+// still get one source: appliedCtxMounts is the briefing-side projection of this same
+// absence, and it says so.
+//
+// ONE LINE PER DECLARED KEY, and none for a key the config never mentions — the rule every
+// sibling printer follows, and what keeps this from being the warning OQ-BP-3 says people
+// learn to skip.
+//
+// NO STAT, which is where it differs from the container path's own skip message ("mount path
+// does not exist, skipping"). There the stat picks between two outcomes; here the outcome is
+// identical whether the host path exists or not, so consulting it would make the sentence
+// depend on host state that cannot change the answer.
+func (o *Options) noteMacosUserCtxMountGaps(cfg *jsonx.OrderedMap, packs []*packload.Pack) {
+	out := o.pr(o.Stderr)
+
+	// The reason is shared because it IS one fact, stated once: there is no container, so
+	// there is no bind, and the copy that replaces a bind here (this file) does not scale to
+	// the arbitrary directory a context mount is allowed to name.
+	const why = " A context mount is a read-only BIND into a container and this backend " +
+		"starts none; host bytes arrive here by COPY, which does not scale to an arbitrary " +
+		"directory. Nothing appears at those /ctx paths, and this launch arranges no other " +
+		"route to them: the sandbox runs as its own user, so whether it can read the host " +
+		"path at all is that path's own POSIX permissions rather than something yolo set " +
+		"up. Use a container runtime (`runtime: \"podman\"` or `\"container\"`) for context " +
+		"mounts."
+
+	// Labelled the way the container path's own skip message labels them — the resolved host
+	// path and the /ctx destination — for deviceLabels' reason: what a reader needs from
+	// either surface is which entry of theirs is being talked about.
+	var declared []string
+	for _, mAny := range cfgList(cfg, "mounts") {
+		mount, ok := mAny.(string)
+		if !ok {
+			continue
+		}
+		hostPath, containerPath := splitMountSpec(mount)
+		declared = append(declared, resolveExpand(hostPath)+" → "+containerPath)
+	}
+	if len(declared) > 0 {
+		out.print("[yellow]Warning: `mounts` is not honored on macos-user[/yellow] — " +
+			strings.Join(declared, ", ") + "." + why)
+	}
+
+	// THE PACK HALF, said the same way rather than left as the other half of a matched pair.
+	// No pack yolo ships declares a `mount`, so this fires only for a pack the user fetched —
+	// and that is the case where silence costs most, because a fetched pack's grant was
+	// approved by a human against a sentence about reading their home.
+	//
+	// ⚠ IT CONTRADICTS A DISCLOSURE THIS ARM ALSO PRINTS: notePackHostAccess classifies a
+	// `mount` as a host READ, so the banner announces bytes that never cross. The banner is
+	// where that gets fixed — a disclosure of a read that does not happen is worse than
+	// silence — and until it does, this is the one of the two lines that is true.
+	var grants []string
+	for _, p := range packs {
+		if p == nil {
+			continue
+		}
+		granted, _ := p.HonoredMounts()
+		for _, mt := range granted {
+			grants = append(grants, "pack "+p.Name+" ~/"+mt.From+
+				" → /ctx/"+strings.TrimPrefix(mt.To, "/"))
+		}
+	}
+	if len(grants) > 0 {
+		out.print("[yellow]Warning: a pack `mount` grant is not honored on macos-user[/yellow] — " +
+			strings.Join(grants, ", ") + "." + why)
+	}
 }
 
 // copyCtxFile copies one host file into the tree at its /ctx destination, creating the
