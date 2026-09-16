@@ -130,8 +130,9 @@ func TestCodexDeriveSetsModelProviderName(t *testing.T) {
 }
 
 // TestPiDeriveHandlesLocalProviderContextAndKey pins that an unkeyed local provider
-// receives apiKey: "local" (so pi can resolve its saved default) and maps context_window
-// into contextWindow and maxTokens on each model entry.
+// receives apiKey: "local" (so pi can resolve its saved default), maps context_window
+// into contextWindow without setting maxTokens unless explicitly configured (avoiding 400
+// errors on endpoints with output token limits), and maps max_tokens when specified.
 func TestPiDeriveHandlesLocalProviderContextAndKey(t *testing.T) {
 	script, s := deriveSurface(t, "pi", "pi/models")
 	got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, map[string]map[string]any{
@@ -140,6 +141,11 @@ func TestPiDeriveHandlesLocalProviderContextAndKey(t *testing.T) {
 				"base_url": "http://host.containers.internal:8080/v1",
 				"models":   map[string]any{"default": "qwen3.8-27b"},
 				"options":  map[string]any{"context_window": "180224"},
+			},
+			"local_with_max": map[string]any{
+				"base_url": "http://host.containers.internal:8080/v1",
+				"models":   map[string]any{"default": "qwen3.8-27b"},
+				"options":  map[string]any{"context_window": "180224", "max_tokens": "8192"},
 			},
 		},
 	})
@@ -159,8 +165,89 @@ func TestPiDeriveHandlesLocalProviderContextAndKey(t *testing.T) {
 	if model["contextWindow"] != float64(180224) && model["contextWindow"] != int64(180224) && model["contextWindow"] != 180224 {
 		t.Errorf("contextWindow = %v, want 180224", model["contextWindow"])
 	}
-	if model["maxTokens"] != float64(180224) && model["maxTokens"] != int64(180224) && model["maxTokens"] != 180224 {
-		t.Errorf("maxTokens = %v, want 180224", model["maxTokens"])
+	if mt, ok := model["maxTokens"]; ok {
+		t.Errorf("maxTokens should be omitted when not explicitly set, got %v", mt)
+	}
+
+	localWithMax := provs["local_with_max"].(map[string]any)
+	modelsWithMax := localWithMax["models"].([]any)
+	if len(modelsWithMax) == 0 {
+		t.Fatal("no models in local_with_max provider")
+	}
+	modelWithMax := modelsWithMax[0].(map[string]any)
+	if modelWithMax["maxTokens"] != float64(8192) && modelWithMax["maxTokens"] != int64(8192) && modelWithMax["maxTokens"] != 8192 {
+		t.Errorf("maxTokens = %v, want 8192", modelWithMax["maxTokens"])
+	}
+}
+
+// TestPiDeriveSettingsScopesDeclaredModels verifies that pi settings derive scopes enabledModels
+// to the declared curated models of the active provider instead of wildcarding, hiding uncurated models.
+func TestPiDeriveSettingsScopesDeclaredModels(t *testing.T) {
+	script, s := deriveSurface(t, "pi", "pi/settings")
+
+	// 1. Provider with declared models (like zai)
+	got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{
+		Profile:  "zai",
+		Provider: "zai",
+	}, map[string]map[string]any{
+		manifest.SourceProviders: {
+			"zai": map[string]any{
+				"base_url": "https://api.z.ai/api/coding/paas/v4",
+				"models": map[string]any{
+					"glm-4.6":       "glm-4.6",
+					"glm-5.3":       "glm-5.3",
+					"glm-5.3-flash": "glm-5.3-flash",
+				},
+				"options": map[string]any{
+					"model": "glm-5.3",
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	enabled, ok := got["enabledModels"].([]any)
+	if !ok {
+		t.Fatalf("enabledModels missing or not a slice: %#v", got)
+	}
+	want := []string{"zai/glm-4.6", "zai/glm-5.3", "zai/glm-5.3-flash"}
+	if len(enabled) != len(want) {
+		t.Fatalf("enabledModels = %v, want %v", enabled, want)
+	}
+	for i, w := range want {
+		if enabled[i] != w {
+			t.Errorf("enabledModels[%d] = %v, want %s", i, enabled[i], w)
+		}
+	}
+	sel, ok := got["selection"].(map[string]any)
+	if !ok {
+		t.Fatalf("selection missing or not a map: %#v", got)
+	}
+	if sel["defaultProvider"] != "zai" {
+		t.Errorf("selection.defaultProvider = %v, want 'zai'", sel["defaultProvider"])
+	}
+	if sel["defaultModel"] != "glm-5.3" {
+		t.Errorf("selection.defaultModel = %v, want 'glm-5.3'", sel["defaultModel"])
+	}
+
+	// 2. Provider without declared models (like kilo) falls back to wildcard
+	gotKilo, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{
+		Profile:  "kilo",
+		Provider: "kilo",
+	}, map[string]map[string]any{
+		manifest.SourceProviders: {
+			"kilo": map[string]any{
+				"base_url": "https://api.kilo.ai/api/gateway",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kiloEnabled, ok := gotKilo["enabledModels"].([]any)
+	if !ok || len(kiloEnabled) != 1 || kiloEnabled[0] != "kilo/*" {
+		t.Errorf("kilo enabledModels = %v, want ['kilo/*']", gotKilo["enabledModels"])
 	}
 }
 

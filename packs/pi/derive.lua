@@ -107,10 +107,16 @@ yolo.derive("pi", "models", function(ctx)
       local maxTokens = nil
       if type(prov.options) == "table" then
         cw = tonumber(prov.options.context_window or prov.options.max_context_tokens)
-        maxTokens = tonumber(prov.options.max_tokens) or cw
+        maxTokens = tonumber(prov.options.max_tokens or prov.options.max_output_tokens)
       end
       if type(prov.models) == "table" then
-        for alias, modelId in pairs(prov.models) do
+        local aliases = {}
+        for alias in pairs(prov.models) do
+          table.insert(aliases, alias)
+        end
+        table.sort(aliases)
+        for _, alias in ipairs(aliases) do
+          local modelId = prov.models[alias]
           local m = { id = modelId, name = alias }
           if cw then
             m.contextWindow = cw
@@ -236,10 +242,38 @@ yolo.derive("pi", "settings", function(ctx)
   if not piReachable(p) then
     return {}
   end
-  local alias = (ctx.profile and ctx.profile.model) or "default"
+  local alias = (ctx.profile and ctx.profile.model) or (type(p) == "table" and type(p.options) == "table" and p.options.model) or "default"
   local sel = { defaultProvider = ctx.selected_provider }
-  if type(p) == "table" and type(p.models) == "table" and p.models[alias] then
-    sel.defaultModel = p.models[alias]
+  if type(p) == "table" and type(p.models) == "table" then
+    if p.models[alias] then
+      sel.defaultModel = p.models[alias]
+    elseif p.models["default"] then
+      sel.defaultModel = p.models["default"]
+    else
+      for _, modelId in pairs(p.models) do
+        if modelId == alias then
+          sel.defaultModel = modelId
+          break
+        end
+      end
+    end
   end
-  return { enabledModels = { ctx.selected_provider .. "/*" }, selection = sel }
+  local enabled = {}
+  if type(p) == "table" and type(p.models) == "table" and next(p.models) ~= nil then
+    local seen = {}
+    local modelIds = {}
+    for _, modelId in pairs(p.models) do
+      if not seen[modelId] then
+        table.insert(modelIds, modelId)
+        seen[modelId] = true
+      end
+    end
+    table.sort(modelIds)
+    for _, modelId in ipairs(modelIds) do
+      table.insert(enabled, ctx.selected_provider .. "/" .. modelId)
+    end
+  else
+    table.insert(enabled, ctx.selected_provider .. "/*")
+  end
+  return { enabledModels = enabled, selection = sel }
 end)

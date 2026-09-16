@@ -80,8 +80,32 @@ func TestPiExplicitProfileScopesModelsAndNoProfilePreservesUserScope(t *testing.
 	r.render(t, `{"pi":"zai"}`)
 	settings := r.piSettings(t)
 	enabled, ok := settings["enabledModels"].([]any)
-	if !ok || len(enabled) != 1 || enabled[0] != "zai/*" {
-		t.Fatalf("zai profile enabledModels = %#v, want only zai/*", settings["enabledModels"])
+	if !ok {
+		t.Fatalf("zai profile enabledModels missing: %#v", settings)
+	}
+	wantEnabled := []any{"zai/glm-4.6", "zai/glm-5.3", "zai/glm-5.3-flash"}
+	if !reflect.DeepEqual(enabled, wantEnabled) {
+		t.Fatalf("zai profile enabledModels = %#v, want %#v", enabled, wantEnabled)
+	}
+
+	models := r.piModels(t)
+	provs, ok := models["providers"].(map[string]any)
+	if !ok {
+		t.Fatalf("pi models providers missing: %#v", models)
+	}
+	zaiProv, ok := provs["zai"].(map[string]any)
+	if !ok {
+		t.Fatalf("pi models zai provider missing: %#v", provs)
+	}
+	zaiModels, ok := zaiProv["models"].([]any)
+	if !ok || len(zaiModels) != 3 {
+		t.Fatalf("pi models zai models = %#v, want 3 models", zaiProv["models"])
+	}
+	for _, m := range zaiModels {
+		entry := m.(map[string]any)
+		if mt, ok := entry["maxTokens"]; ok {
+			t.Errorf("model %v has maxTokens = %v, want omitted", entry["id"], mt)
+		}
 	}
 
 	settings["enabledModels"] = []any{"cerebras/*", "zai/*"}
