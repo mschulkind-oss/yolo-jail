@@ -47,10 +47,10 @@ yolo.derive("claude", "settings", function(ctx)
   if ctx.selected_provider == "openai-codex" then
     out.modelPicker = {
       options = {
-        { model = "gpt-5.6-luna",  label = "GPT-5.6 Luna",  description = "Fast" },
-        { model = "gpt-5.6-terra", label = "GPT-5.6 Terra", description = "Balanced" },
-        { model = "gpt-5.6-sol",   label = "GPT-5.6 Sol",   description = "Most capable" },
         { model = "gpt-6-astra",   label = "GPT-6 Astra",   description = "Frontier" },
+        { model = "gpt-5.6-sol",   label = "GPT-5.6 Sol",   description = "Most capable" },
+        { model = "gpt-5.6-terra", label = "GPT-5.6 Terra", description = "Balanced" },
+        { model = "gpt-5.6-luna",  label = "GPT-5.6 Luna",  description = "Fast" },
       },
       replaceBuiltInOptions = true,
     }
@@ -81,6 +81,13 @@ yolo.env("claude", function(ctx)
       -- intentional per-session choice.
       ANTHROPIC_MODEL = (ctx.profile and ctx.profile.model) or "gpt-5.6-terra",
       CLAUDE_CODE_SUBAGENT_MODEL = (ctx.profile and ctx.profile.model) or "gpt-5.6-terra",
+      -- Claude Code retains its own Default row even when custom picker
+      -- options replace the built-ins. Pin and label that row as Terra too,
+      -- so choosing it cannot silently return to the Claude subscription
+      -- model advertised by the local client.
+      ANTHROPIC_DEFAULT_OPUS_MODEL = "gpt-5.6-terra",
+      ANTHROPIC_DEFAULT_OPUS_MODEL_NAME = "GPT-5.6 Terra",
+      ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION = "Balanced (default)",
       -- These are the Responses models' real 1.05M-token context capacity and
       -- Claude Code's documented 1M maximum proactive-compaction threshold.
       -- Stating both is necessary for an unrecognised custom model ID.
