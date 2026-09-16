@@ -379,10 +379,29 @@ func BriefingContent(in BriefingInput) string {
 		// (DP-B3 / DP-L2). The sentence has to be true of both, so it names neither.
 		networkLine = "- **Network**: Host networking — this environment shares the host's network stack. `localhost` / `127.0.0.1` resolves directly to the host. No port mapping needed."
 	} else {
+		// NO NUMERIC ADDRESS HERE, and that is a correction rather than a style choice.
+		// This line used to say "(169.254.1.2)", which is the address yolo asks pasta for
+		// — one of three answers, and wrong on the other two. Under slirp4netns podman
+		// aims the name at the host's GLOBAL address (hostloopback.go's own table says
+		// so), and on a macOS podman machine it is gvproxy's 192.168.127.254 (measured
+		// 2026-09-16 on podman 6.0.2/applehv). The NAME is the contract; the number is a
+		// property of a host stack the briefing cannot see, so it tells the agent how to
+		// look instead of asserting one.
+		//
+		// The $YOLO_HOST_LOOPBACK sentence gained its `unknown` case for the same
+		// measurement: on macOS podman the launcher excludes itself from the decision by
+		// name and always says `unknown`, while the Mac's loopback IS forwarded (by
+		// gvproxy, with no flag asked for). "requested/shared = forwarding is in place"
+		// alone therefore reads as "unknown = it is not", which is false exactly where
+		// the value is always unknown — and an agent that believes it skips a route that
+		// works. See docs/plans/setup-support-gaps.md G8.
 		networkLine = "- **Network**: Bridge mode. `localhost` in here is the JAIL's loopback. Reach the host at " +
-			"`host.containers.internal` (169.254.1.2) — including host services bound to the host's own " +
-			"`127.0.0.1`, which yolo has the network stack forward in. `$YOLO_HOST_LOOPBACK` says what it decided " +
-			"(`requested`/`shared` = forwarding is in place)."
+			"`host.containers.internal` — including host services bound to the host's own `127.0.0.1`, which yolo " +
+			"has the network stack forward in. Which ADDRESS that name resolves to depends on the host's network " +
+			"stack, so read it (`getent hosts host.containers.internal`) rather than assuming one. " +
+			"`$YOLO_HOST_LOOPBACK` says what the launcher decided: `requested`/`shared` mean forwarding is in " +
+			"place, and `unknown` means the launcher did not ask — on a macOS podman machine that is the normal " +
+			"value and the hop usually works anyway, so probe it before concluding it does not."
 	}
 
 	// Both port sections are suppressed under host networking, where the stacks are

@@ -229,11 +229,14 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	//
 	// WHAT IS LEFT, stated so the next reader does not have to re-derive it:
 	//
-	//   - The bridge paragraph's own claims — host.containers.internal at 169.254.1.2,
+	//   - The bridge paragraph's own claims — the `host.containers.internal` hop and
 	//     `$YOLO_HOST_LOOPBACK` — are podman's shape and are rendered for Apple Container
-	//     too. Whether an AC container reaches a host loopback listener AT ALL is
-	//     OQ-BP-4, and a Mac settles it; nothing here can (AGENTS.md's nested-jail
-	//     carve-out).
+	//     too. Whether an AC container reaches a host loopback listener AT ALL was OQ-BP-4;
+	//     a Mac settled it on 2026-09-16 and the answer is NO, in both directions and for
+	//     published ports as well (docs/plans/setup-support-gaps.md §5.1 rows 6-7), so this
+	//     paragraph is still rendered to a jail for which it is false. Nothing here can see
+	//     that (AGENTS.md's nested-jail carve-out); the paragraph's own numeric address is
+	//     gone, which is a smaller lie rather than none.
 	//   - podman's own `--pids-limit 32768` is applied and not briefed, on purpose —
 	//     briefedResourceLimits says why.
 	//   - macos-user REACHES ALL OF THIS, and the sentence that stood here saying it
