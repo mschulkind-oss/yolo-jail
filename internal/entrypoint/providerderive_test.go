@@ -129,6 +129,41 @@ func TestCodexDeriveSetsModelProviderName(t *testing.T) {
 	}
 }
 
+// TestPiDeriveHandlesLocalProviderContextAndKey pins that an unkeyed local provider
+// receives apiKey: "local" (so pi can resolve its saved default) and maps context_window
+// into contextWindow and maxTokens on each model entry.
+func TestPiDeriveHandlesLocalProviderContextAndKey(t *testing.T) {
+	script, s := deriveSurface(t, "pi", "pi/models")
+	got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, map[string]map[string]any{
+		manifest.SourceProviders: {
+			"local": map[string]any{
+				"base_url": "http://host.containers.internal:8080/v1",
+				"models":   map[string]any{"default": "qwen3.8-27b"},
+				"options":  map[string]any{"context_window": "180224"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provs := got["providers"].(map[string]any)
+	local := provs["local"].(map[string]any)
+	if local["apiKey"] != "local" {
+		t.Errorf("apiKey = %v, want 'local' for unkeyed local provider", local["apiKey"])
+	}
+	models := local["models"].([]any)
+	if len(models) == 0 {
+		t.Fatal("no models in local provider")
+	}
+	model := models[0].(map[string]any)
+	if model["contextWindow"] != float64(180224) && model["contextWindow"] != int64(180224) && model["contextWindow"] != 180224 {
+		t.Errorf("contextWindow = %v, want 180224", model["contextWindow"])
+	}
+	if model["maxTokens"] != float64(180224) && model["maxTokens"] != int64(180224) && model["maxTokens"] != 180224 {
+		t.Errorf("maxTokens = %v, want 180224", model["maxTokens"])
+	}
+}
+
 // TestZaiCodingPlanPackCuratesItsThreeModels pins the Coding Plan contract rather
 // than Z.ai's much broader PAYG catalog. The default must be GLM-5.3, whose 1M
 // context window is the provider-level value Claude's derive uses for a selected

@@ -85,6 +85,15 @@ local function piReachable(prov)
   return nil
 end
 
+local function isLocalEndpoint(url)
+  if type(url) ~= "string" then return false end
+  return string.find(url, "://localhost") or
+         string.find(url, "://127%.0%.0%.1") or
+         string.find(url, "://host%.containers%.internal") or
+         string.find(url, "://169%.254%.1%.2") or
+         string.find(url, "://0%.0%.0%.0")
+end
+
 yolo.derive("pi", "models", function(ctx)
   if not ctx.providers or next(ctx.providers) == nil then
     return {}
@@ -94,9 +103,22 @@ yolo.derive("pi", "models", function(ctx)
     local baseUrl, api = piReachable(prov)
     if baseUrl then
       local modelList = {}
+      local cw = nil
+      local maxTokens = nil
+      if type(prov.options) == "table" then
+        cw = tonumber(prov.options.context_window or prov.options.max_context_tokens)
+        maxTokens = tonumber(prov.options.max_tokens) or cw
+      end
       if type(prov.models) == "table" then
         for alias, modelId in pairs(prov.models) do
-          table.insert(modelList, { id = modelId, name = alias })
+          local m = { id = modelId, name = alias }
+          if cw then
+            m.contextWindow = cw
+          end
+          if maxTokens then
+            m.maxTokens = maxTokens
+          end
+          table.insert(modelList, m)
         end
       end
       local entry = {
@@ -110,10 +132,16 @@ yolo.derive("pi", "models", function(ctx)
       -- read as the thing delivering the credential. pi's env indirection is the config-value
       -- syntax ON apiKey (`${VAR}`; docs/custom-provider.md — the maintainer's own hand-written
       -- models.json uses it), and pi expands it at read time, so yolo writes the reference
-      -- verbatim and the consumer resolves it. Written only when the provider names a var, so
-      -- a key-less provider stays key-less rather than claiming an empty one.
+      -- verbatim and the consumer resolves it. For an unkeyed local provider, pi filters out
+      -- models without a credential unless a dummy apiKey is provided (docs/research/local-model-endpoints.md).
       if prov.api_key_env_name then
         entry.apiKey = "${" .. prov.api_key_env_name .. "}"
+      elseif prov.api_key then
+        entry.apiKey = prov.api_key
+      elseif type(prov.options) == "table" and prov.options.api_key then
+        entry.apiKey = prov.options.api_key
+      elseif isLocalEndpoint(baseUrl) then
+        entry.apiKey = "local"
       end
       providers[name] = entry
     end
