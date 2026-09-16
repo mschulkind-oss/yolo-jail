@@ -422,6 +422,29 @@ therefore deliberately NOT a closed enum: the vendors disagree, and core hardcod
 how `yolo pack update` came to skip the installer class entirely. `update` is read on
 `program` alone and refused by name on every other kind.
 
+`platforms` is **where the vendor publishes a build**: a list of `<goos>` or
+`<goos>/<goarch>` entries, spelled as Go spells them. Absent means every platform, which is
+what almost every pack wants and what every manifest written before the key kept meaning. A
+bare GOOS matches every architecture on it (`"linux"`), because a Node CLI is OS-shaped far
+more often than machine-shaped; an empty list `[]` is refused, since it declares support for
+nothing. The same field, the same grammar, is what a [`service`](#service) declares about
+where its daemon can run — one question asked of two kinds.
+
+When this machine is not in the list, `GenerateAgentLaunchers` writes **no launcher** and
+says so, naming what *is* published beside what this jail is. That is the same disposition
+the collision check above takes, and the same one a platform-excluded loophole gets
+(one disclosed line, and the launch continues): a pack is more than its program, so refusing
+the launch would turn a degraded pack into an unusable one, and the platform is the one
+fault class no user can act on.
+
+> [!NOTE]
+> **`omp` is the case that bought the field.** Its vendor publishes `darwin-arm64` and
+> `linux-x64` only. Without the declaration an arm64 Linux jail selecting `omp` installed
+> nothing, said nothing, and handed the agent the vendor's own `oh-omp: unsupported platform
+> linux-arm64` the first time it ran — a fact the manifest knew statically, discovered
+> dynamically and misattributed. Found by CI, whose arm64 install job was red while the
+> x86-64 one was green.
+
 `install_hints` maps a host package manager to the package that provides `bin` there. Used
 below the `jail` notch, where yolo bakes no image, by `yolo check-deps` / `apply` to probe
 for the binary and emit a runnable manifest. One key names an installer *flavor* rather than
@@ -718,6 +741,11 @@ is unrepresentable, and the footprint marks it never review-worthy for that reas
 than as an omission. A daemon that DOES cross is a `loophole` declaration with the
 per-crossing review that kind carries. What a service runs is in-jail, and its claim Detail
 says what, so a reader sees the argv without opening the manifest.
+
+It carries a [`platforms`](#program) list too — the same field and the same grammar,
+answering the same question for the daemon that `program` answers for the vendor's build.
+The service half is **declared and carried**: nothing reads it yet, so a service is started
+on every platform whatever it says.
 
 #### `blocked-tool`
 

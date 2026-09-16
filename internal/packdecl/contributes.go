@@ -36,6 +36,10 @@ type Contribution struct {
 	Package string   `json:"package,omitempty"` // program via npm: the npm package
 	URL     string   `json:"url,omitempty"`     // program via installer: the curl-to-shell URL
 	Flags   []string `json:"flags,omitempty"`   // program: extra install flags
+	// `platforms` is a program field too — WHERE THE VENDOR PUBLISHES A BUILD. It is
+	// declared once, in the service block below, because the two kinds ask one question
+	// of one grammar; read its doc there rather than adding a second spelling here.
+
 	// Update is the argv that makes the program update ITSELF, with the bin omitted:
 	// `"update": ["install"]` for claude, `["update", "--self"]` for pi. Read only on
 	// `program`, and refused on every other kind.
@@ -303,13 +307,31 @@ type Contribution struct {
 	// publishes nothing (a pure worker) declares none, and the wire-bridge pack
 	// — whose whole discovery story is the file — declares one.
 	Endpoint string `json:"endpoint,omitempty"`
-	// Platforms is WHERE the service can run at all (the loophole half's same-named
-	// field, same semantics: GOOS/GOARCH entries, absent = everywhere). CARRIED
-	// VERBATIM, not consumed by this build — no consumer reads it yet — and its
-	// closed GOOS/GOARCH vocabulary is deliberately NOT re-enumerated here:
+	// Platforms is WHERE THE THING CAN EXIST AT ALL (the loophole half's same-named
+	// field, same semantics: `<goos>` or `<goos>/<goarch>` entries, absent =
+	// everywhere). Read by TWO kinds, and the field is declared once because it is one
+	// question: for `service` it is where the daemon can run, and for `program` it is
+	// where the VENDOR PUBLISHES A BUILD.
+	//
+	// The service half is still CARRIED VERBATIM — no consumer reads it yet. The
+	// program half has one: GenerateAgentLaunchers declines to write a launcher for a
+	// program this machine is not in the list of, which is what the field bought (this
+	// doc said "not consumed by this build" of both halves until the program half
+	// landed). Until then `platforms` on a `program` decoded clean and was dropped by
+	// InstallContributions — accepted-and-ignored, the shape this schema refuses
+	// everywhere else, and it cost a red CI job: an arm64 Linux jail selecting `omp`
+	// ran the install and met the vendor's own `unsupported platform linux-arm64`
+	// refusal the first time the agent was used.
+	//
+	// Its closed GOOS/GOARCH vocabulary is deliberately NOT re-enumerated here:
 	// packdecl is dependency-free, and a second spelling of
 	// internal/loopholedecl's list is exactly the drift the one-vocabulary rule
-	// exists to prevent. Whoever builds the consumer imports the same list.
+	// exists to prevent. Whoever builds the consumer imports the same list. What IS
+	// checked here is the shape a list can be wrong in without the vocabulary
+	// (validateContribution) — and the reason a misspelled GOOS is not the silent
+	// nothing loopholedecl's closed list exists to prevent is that the decline NAMES
+	// the declared set beside this machine's platform, so `linux-x64` is read next to
+	// `linux/amd64` in one sentence.
 	Platforms []string `json:"platforms,omitempty"`
 	// Serves is the CAPABILITIES — named jobs — this service implements
 	// (docs/reference/pack-system.md), the same open vocabulary the loophole
@@ -534,6 +556,13 @@ func (m *Manifest) InstallContributions() []Install {
 		// and a projection that only carried it for installers would silently discard
 		// it (OQ-PD14).
 		in.UpdateVerb = c.Update
+		// The platform list is projected for EVERY via, for UpdateVerb's reason: it
+		// names where the VENDOR publishes, which is a fact about the program rather
+		// than about how it arrives. An npm package with per-platform optional
+		// dependencies and a curl-piped installer refuse on the same machine for the
+		// same reason, and a projection carrying it for one of them would leave the
+		// other's decline unexpressible.
+		in.Platforms = c.Platforms
 		switch c.Via {
 		case "npm":
 			in.Package = c.Package
@@ -1316,6 +1345,58 @@ func (m *Manifest) validateContributions() []string {
 	return problems
 }
 
+// platformsProblems checks the `platforms` list: which kinds may carry it, and the ways
+// one can be wrong WITHOUT the closed GOOS/GOARCH vocabulary this package may not import
+// (the field's own doc records that ruling).
+//
+// The kind gate is `update`'s and `profile`'s, in their position and for their reason: a
+// field no consumer reads on this kind is a declaration that silently does nothing. It is
+// the two kinds that ask "where can this exist at all" — `service` (where the daemon runs)
+// and `program` (where the vendor publishes) — and nothing else has an answer to give.
+//
+// EMPTY-LIST AND ENTRY SHAPE ARE loopholedecl.parsePlatforms', argument for argument. An
+// empty list is refused rather than read as "everywhere": a list the author wrote and left
+// empty declares support for nothing, so honoring it literally makes the declaration inert
+// on every machine while honoring it loosely ignores what they wrote — neither is a good
+// silence, so it is an error with both fixes in it. `null` and an absent key are the same
+// thing (nil), which is what keeps every manifest written before the key meaning what it
+// meant.
+func platformsProblems(label string, c Contribution) []string {
+	if c.Platforms == nil {
+		return nil
+	}
+	if c.Kind != KindProgram && c.Kind != KindService {
+		return []string{fmt.Sprintf(
+			"%s: kind %q does not take \"platforms\" — the list answers \"where can this "+
+				"exist at all\", which only \"program\" (where the vendor publishes a build) "+
+				"and \"service\" (where the daemon runs) have an answer to; no consumer reads "+
+				"it on this kind", label, c.Kind)}
+	}
+	if len(c.Platforms) == 0 {
+		return []string{label + ": \"platforms\" is an empty list, which declares support " +
+			"for nothing — omit the key to mean every platform, or name the ones that work " +
+			"(e.g. [\"linux/amd64\", \"darwin/arm64\"])"}
+	}
+	var problems []string
+	for i, entry := range c.Platforms {
+		if strings.TrimSpace(entry) == "" {
+			problems = append(problems, fmt.Sprintf(
+				"%s.platforms[%d]: empty entry — each one is \"<goos>\" or \"<goos>/<goarch>\", "+
+					"spelled as Go spells them", label, i))
+			continue
+		}
+		// One '/' at most: the entry is a pair, not a path, and "linux/amd64/v3" is an
+		// author reaching for a microarchitecture the grammar has no room for — it would
+		// otherwise match no machine at all, quietly.
+		if strings.Count(entry, "/") > 1 {
+			problems = append(problems, fmt.Sprintf(
+				"%s.platforms[%d]=%q has more than one \"/\" — an entry is \"<goos>\" or "+
+					"\"<goos>/<goarch>\", nothing deeper", label, i, entry))
+		}
+	}
+	return problems
+}
+
 // knownRestart reports whether v names a supervisor restart policy. The values are
 // spelled here and NOT re-read from internal/loopholedecl (whose ValidRestarts is
 // the loophole manifest's authority) for the reason the package doc states:
@@ -1502,6 +1583,7 @@ func validateContribution(label string, c Contribution) []string {
 			"%s: kind %q does not take \"update\" — the verb runs the installed PROGRAM "+
 				"against itself, so only \"program\" has anything to run it on", label, c.Kind))
 	}
+	problems = append(problems, platformsProblems(label, c)...)
 	// `agent`/`agents` are the AUDIENCE pair, and they are refused everywhere else for
 	// `profile`'s reason and in `profile`'s position — ahead of the kind switch, so a kind
 	// added tomorrow inherits the refusal instead of accepting a field nothing reads on it.

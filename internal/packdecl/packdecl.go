@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/json5"
@@ -170,6 +171,52 @@ type Install struct {
 	// quoting rules the launcher has no business owning; and §6.2's `via` tolerance does
 	// not apply, because there is no mechanism here for a later build to learn.
 	UpdateVerb []string `json:"update,omitempty"`
+	// Platforms is WHERE THE VENDOR PUBLISHES A BUILD: `<goos>` or `<goos>/<goarch>`
+	// entries, absent meaning every platform. The Contribution field of the same name
+	// carries the grammar and the reasoning; this is its projection, and
+	// SupportsPlatform below is the predicate every consumer must ask before installing.
+	Platforms []string `json:"platforms,omitempty"`
+}
+
+// SupportsPlatform reports whether this program's vendor publishes a build for the
+// given GOOS/GOARCH pair.
+//
+// The SAME PREDICATE loopholedecl.Manifest.SupportsPlatform is, spelled here for the
+// reason knownRestart's values are (this package imports none of the repo's world), and
+// with the same two properties: an install declaring no `platforms` supports every
+// platform, so a caller may ask unconditionally; an entry naming only a GOOS matches
+// every architecture on it, because a Node CLI is OS-shaped far more often than it is
+// machine-shaped. PURE, and passed the pair rather than reading runtime.GOOS, so every
+// combination is testable from one process.
+//
+// The two spellings are held together by a test in the package that imports BOTH
+// schemas (internal/entrypoint, the consumer) — the mechanism packload's
+// TestCapabilityNameRulesAgree uses for the other rule this package may not import.
+func (in Install) SupportsPlatform(goos, goarch string) bool {
+	if len(in.Platforms) == 0 {
+		return true
+	}
+	for _, entry := range in.Platforms {
+		want, wantArch, _ := strings.Cut(entry, "/")
+		if want != goos {
+			continue
+		}
+		if wantArch == "" || wantArch == goarch {
+			return true
+		}
+	}
+	return false
+}
+
+// PlatformsDeclared returns the declared platform strings, sorted, for a message that
+// has to say what IS published. Empty when the install declares none (i.e. every
+// platform), so a caller rendering "publishes for <joined>" must check that first
+// rather than reading an empty list as "nothing" — loopholedecl's same-named accessor
+// carries the identical caveat.
+func (in Install) PlatformsDeclared() []string {
+	out := append([]string(nil), in.Platforms...)
+	sort.Strings(out)
+	return out
 }
 
 // Mount stages one of the pack's own files or directories and mounts it read-only.

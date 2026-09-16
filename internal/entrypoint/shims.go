@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -396,6 +397,18 @@ func GenerateAgentLaunchers(e *Env) error {
 				e.warn("pack " + p.Name + ": no launcher for " + inst.Bin + " — " + why +
 					", and a lazy installer must never shadow it (declare it as `requires` " +
 					"instead if the assertion is what you meant)")
+				continue
+			}
+			// The PLATFORM axis of the same question, asked second on purpose
+			// (launchercollision.go carries the order's reasoning). A launcher for a program
+			// whose vendor publishes no build here installs nothing and can only fail: it
+			// used to be written anyway, so an arm64 Linux jail selecting `omp` met the
+			// vendor's own `unsupported platform linux-arm64` refusal the first time the
+			// agent was used, on a fact the manifest could have stated. runtime.GOOS/GOARCH
+			// is the jail's own platform because this binary IS the jail's — nothing here
+			// may take it from the environment, or a wrong answer becomes configurable.
+			if why := launcherUnpublished(inst, runtime.GOOS, runtime.GOARCH); why != "" {
+				e.warn("pack " + p.Name + ": no launcher for " + inst.Bin + " — " + why)
 				continue
 			}
 			launcherPath := filepath.Join(launcherDir, inst.Bin)
