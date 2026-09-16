@@ -636,8 +636,16 @@ there is no sync step.
   version, now because the check declines to write the launcher. Right for `fzf`;
   re-check it before baking a package whose name a pack also claims (no shipped
   pack collides today).
-  **`macos-user` carries a THIRD copy of this order** (`macosuser.SandboxPath`), which moves
-  with the other two.
+  **`macos-user` carries a THIRD list** (`macosuser.SandboxPath`) and it is **NOT this
+  order** — do not read the two-copy rule as covering three. Verified 2026-09-16:
+  `$HOME/.local/bin` is THIRD there and SIXTH in `BootPath`, and `/usr/bin` precedes `/bin`
+  where `BootPath` has `/bin` first. So a pipx/pip-installed tool outranks a mise shim on
+  that backend and loses to it on every container backend, which is a real cross-backend
+  resolution difference and not a spelling difference. The entry-by-entry comparison exists
+  only between `BootPath` and the `.bashrc` export; nothing compares `SandboxPath` to either,
+  which is why the divergence went unnoticed while the sentence here said it moved with them.
+  Left as a divergence rather than quietly reordered: which order is right is a ruling
+  (`BootPath`'s, most likely), and PATH order decides which binary an agent executes.
 - **Env hygiene** (agents can't handle interactive UI): `PAGER`/`GIT_PAGER`
   =`cat`, `BAT_PAGER=""`; `EDITOR=cat` (stops `git commit` hanging) but
   `VISUAL=nvim` (human ctrl-g editing); the host's `TERM` is forwarded so color
@@ -653,7 +661,14 @@ there is no sync step.
   instead of eating it. Core cannot tell an agent launch from `yolo -- bash`, so a
   consumed handoff is announced on stderr with the `mv` that restores it — see
   [docs/reference/host-to-jail-handoff.md](docs/reference/host-to-jail-handoff.md#consuming-the-pointer).
-  Skill priority: built-in < host user-level < workspace.
+  Skill priority: built-in < shared packs < **the conventional local pack**
+  (`~/.config/yolo-jail/local`, appended LAST by `config.LoadPacks`, so a personal skill
+  outranks every shared pack's and every built-in). ⚠ The middle term used to read "host
+  user-level", and there is no such tree: `SkillTarget.HostSource` was deleted because it
+  named the DESTINATION — a jail read yolo's own generated output back in as "the user's
+  tree" — and a skill sitting in `~/.claude/skills` on the host does not reach the jail by
+  any path ([`internal/jailcontent/skills.go`](./internal/jailcontent/skills.go) states this where the field was). G32 in
+  [docs/plans/setup-support-gaps.md](docs/plans/setup-support-gaps.md).
 
 ## Where things live
 
