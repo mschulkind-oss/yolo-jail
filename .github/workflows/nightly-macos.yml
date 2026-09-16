@@ -545,11 +545,30 @@ jobs:
         #
         # A darwin `yolo run` used to realise `.#ociImage` unconditionally, and
         # that realisation always has to BUILD at least one x86_64-linux
-        # derivation no public cache serves (nix-ld is an overrideAttrs of
-        # nixpkgs', and this project's own cachix is unconfigured — publish.yml
-        # is a no-op without CACHIX_AUTH_TOKEN). So it offloads to a Linux
-        # builder container, and that has never worked on this runner: every
-        # test failed as IMAGE BUILD FAILED from 2026-09-09 on.
+        # derivation NO PUBLIC cache serves (nix-ld is an overrideAttrs of
+        # nixpkgs'). So it offloads to a Linux builder container, and that has
+        # never worked on this runner: every test failed as IMAGE BUILD FAILED
+        # from 2026-09-09 on.
+        #
+        # ⚠ ONE HALF OF THAT PARENTHETICAL IS NOW FALSE, and it is the half that
+        # sends a reader the wrong way. It used to add "and this project's own
+        # cachix is unconfigured — publish.yml is a no-op without
+        # CACHIX_AUTH_TOKEN". THIS PROJECT'S CACHIX IS CONFIGURED AND POPULATED:
+        # `build-image` above pushes on EVERY run (un-gated from release-only in
+        # 1006fe6d) and `push-arm-image-cache` publishes the aarch64 closure
+        # nightly — both observed succeeding. So "no cache serves it" is true of
+        # cache.nixos.org and false of ours, and concluding from this comment that
+        # a shard MUST build rather than substitute is the mistake it now invites.
+        #
+        # What is NOT established, and should be measured before anyone acts on
+        # it: whether a macOS shard actually substitutes those paths. The pieces
+        # are all present — internal/image/nixflags.go passes
+        # `--accept-flake-config`, flake.nix's nixConfig declares
+        # `extra-substituters = https://yolo-jail.cachix.org`, and
+        # install-nix-action makes the runner a trusted user so a restricted
+        # setting from flake config is honored — but no run has been instrumented
+        # to show a substitution rather than a build. TestExtraPackageLibFarm still
+        # spends up to its 40-minute budget here, which is the symptom to explain.
         #
         # `internal/image/stockimage.go` gives the launch a question to ask
         # first: does the runtime already hold the STOCK image — the default
