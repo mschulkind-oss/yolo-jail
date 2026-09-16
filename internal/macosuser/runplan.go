@@ -1158,7 +1158,15 @@ func getSectionOrEmptyList(cfg *jsonx.OrderedMap, key string) any {
 	return []any{}
 }
 
-// macosLogMode returns config["macos_log"] as a string, defaulting to "off".
+// macosLogMode returns config["macos_log"] as a string. An ABSENT key resolves to "off"
+// here, which is why a jail whose config predates the key and one that sets it off are the
+// same jail.
+//
+// It deliberately does not enum-check what it finds. config.validateMacosLog judges the
+// value on the host (the key is in the schema since 2026-09-16 — before that every config
+// declaring it was refused outright), and MacosLogWrapperScript rewrites anything it does
+// not recognise to "off" downstream. A third check here would only shadow whichever of
+// those two was wrong.
 func macosLogMode(cfg *jsonx.OrderedMap) string {
 	if cfg != nil {
 		if v, ok := cfg.Get("macos_log"); ok {

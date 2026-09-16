@@ -63,7 +63,7 @@ var knownTopLevelConfigKeys = set(
 	"per_side_paths", "network", "security", "mise_tools", "lsp_servers",
 	"mcp_servers", "mcp_presets", "devices", "gpu", "resources", "env_sources",
 	"loopholes", "host_processes", "journal",
-	"kvm", "prune", "programs", "ephemeral_storage", "include_if_found", "agents_md_extra",
+	"kvm", "prune", "programs", "ephemeral_storage", "macos_log", "include_if_found", "agents_md_extra",
 	"cache_relocations", "writable_home_dirs", "host_files", "host_wrappers",
 	"host_apply_on_launch", "host_management", "agent_updates", "packs", "perf_logging",
 	"promotion_target",
@@ -137,6 +137,23 @@ func RetiredConfigKeys() []string {
 // at all.
 
 var ephemeralStorageModes = []string{"volume", "tmpfs"}
+
+// MacosLogModes is the `macos_log` vocabulary: off (the yolo-log helper is a stub that
+// prints how to enable it), user (a scoped wrapper around Apple's `log`), full (bare
+// passthrough). The default is off, applied at the read site (macosuser.macosLogMode).
+//
+// The SAME off/user/full spelling the retired `journal` key carried, and deliberately not
+// the same fate: `journal`'s mode became a loophole setting because that feature grew a
+// manifest to declare it in. This one has no loophole — macos-user runs the host's own
+// `/usr/bin/log`, with no daemon and no bridge to hang a declaration off — so the schema
+// is where its vocabulary lives.
+//
+// EXPORTED so the implementation does not carry a second copy of it.
+// macosuser.MacosLogWrapperScript silently rewrites an unrecognised mode to "off", so a
+// value this validator accepted and that generator did not would hand the user a jail
+// whose yolo-log claims logging is disabled right after they enabled it, with nothing
+// printed anywhere; macosuser derives its own lookup from this list.
+var MacosLogModes = []string{"off", "user", "full"}
 
 // knownEndpointKeys is the census for ONE protocol's entry inside a provider's
 // `endpoints` map — the two keys a derive can consume, which is also what the

@@ -1637,6 +1637,28 @@
     memory, respectively). Apple Container always uses tmpfs (its volume
     syntax differs and isn't a drop-in replacement).
 
+  [bold]macos_log[/bold] (string, default "off"): Apple unified-log access, through a
+    generated [cyan]yolo-log[/cyan] helper.  [bold]macos-user backend only.[/bold]
+    The macOS analog of the Linux jail's [cyan]yolo-journalctl[/cyan], and a much
+    smaller thing than it: there is no loophole, no host daemon and no bridge here —
+    the sandbox account runs the machine's own [cyan]/usr/bin/log[/cyan].  This key
+    decides only what the helper installed at [cyan]~/.local/bin/yolo-log[/cyan] does.
+      • "off" (default) — the helper is a stub: it prints how to turn logging on
+        and exits 1.
+      • "user" — the helper wraps [cyan]log[/cyan].  Bare, it shows the last five
+        minutes compact; the [cyan]show[/cyan], [cyan]stream[/cyan], [cyan]collect[/cyan],
+        [cyan]config[/cyan] and [cyan]help[/cyan] subcommands pass straight through;
+        anything else becomes arguments to [cyan]log show[/cyan].
+      • "full" — the helper is [cyan]log[/cyan], argv for argv.
+    [yellow]It is a convenience, not a boundary.[/yellow] The Seatbelt profile is
+    [cyan](allow default)[/cyan] plus targeted write and read denials, and none of them
+    cover exec: an agent under "off" can still run [cyan]/usr/bin/log[/cyan] itself.
+    So "off" makes the helper refuse — it does not make the log unreadable.  Do not
+    read this key as a permission.
+    On [cyan]podman[/cyan] and [cyan]container[/cyan] the key is inert (nothing there
+    reads it), the same way [bold]kvm[/bold] is inert on macOS — declared so one config
+    file can serve both of your machines.
+
 [bold cyan]EXAMPLE CONFIG[/bold cyan]
 
   {

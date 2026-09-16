@@ -261,6 +261,12 @@ var inheritCensus = map[string]keyDisposition{
 	// Linux container names a runtime that cannot exist in here, and an inner launcher
 	// must pick its own (YOLO_RUNTIME and auto-detect already decide it).
 	"runtime": {reason: "an in-jail launcher detects its own runtime; a host value names a machine that is not this one"},
+	// `macos_log`: `runtime`'s class, one notch narrower. It dials how much of the Mac's
+	// unified log the Seatbelt profile lets the sandbox reach, so its whole referent is a
+	// facility a Linux container does not have — there is no `log` to read and no profile to
+	// widen. The nested half is empty for a second, independent reason: macos-user composes
+	// no container, so nothing in here can spawn the sandbox this key describes.
+	"macos_log": {reason: "dials a macOS Seatbelt profile's access to the unified log; the jail has neither"},
 	// `workspace_readonly`: paths inside the WORKSPACE, which is the one scope that
 	// crosses live through the /workspace bind. A user-scope entry naming another
 	// project's paths is meaningless here, and the workspace's own config carries the

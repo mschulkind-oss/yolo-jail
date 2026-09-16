@@ -79,6 +79,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateJournalRetired(config, errs, warns)
 	validateKVM(config, errs)
 	validateEphemeralStorage(config, errs)
+	validateMacosLog(config, errs)
 	validateNetwork(config, errs, warns)
 	validateSecurity(config, errs)
 	validateHostProcessesRetired(config, errs, warns)
@@ -692,6 +693,33 @@ func validateEphemeralStorage(config *jsonx.OrderedMap, errs *[]string) {
 	if !ok || !inStrSlice(ephemeralStorageModes, s) {
 		add(errs, fmt.Sprintf("config.ephemeral_storage: expected one of %s (got %s)",
 			pyListRepr(ephemeralStorageModes), pyReprValue(v)))
+	}
+}
+
+// validateMacosLog shape-checks the `macos_log` dial (MacosLogModes; default off).
+//
+// THE KEY HAD NO ENTRY IN knownTopLevelConfigKeys UNTIL 2026-09-16, which made it the
+// one dial yolo instructed a user into and then refused. Everything else about the
+// feature shipped — the read site, the generator in all three modes, the native
+// bootstrap that installs the helper — so the only observable behaviour was the generic
+// `config.macos_log: unknown key`, a FATAL pre-flight error, printed at the launch after
+// the one where yolo-log's own `off` stub told the user to write
+// `"macos_log": "user"` (docs/plans/setup-support-gaps.md F1).
+//
+// NOT GATED ON THE RUNTIME, like `kvm` on macOS: only the macos-user backend reads the
+// value (macosuser.buildBootstrapEnv is the sole writer of YOLO_DARWIN_MACOS_LOG), so on
+// a container backend it is inert. Refusing it there would make one config file unusable
+// across two of the user's own machines, which is the opposite of what a backend-shaped
+// key is for.
+func validateMacosLog(config *jsonx.OrderedMap, errs *[]string) {
+	v, present := config.Get("macos_log")
+	if !present || v == nil {
+		return
+	}
+	s, ok := asStr(v)
+	if !ok || !inStrSlice(MacosLogModes, s) {
+		add(errs, fmt.Sprintf("config.macos_log: expected one of %s (got %s)",
+			pyListRepr(MacosLogModes), pyReprValue(v)))
 	}
 }
 
