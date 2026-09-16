@@ -5,8 +5,8 @@ package integration
 // container can say:
 //
 //  1. the launch is ACCEPTED with a user-declared profile over a shipped provider pack —
-//     packs/zai declares `options: {model: default}`, so the census DOES run here, and
-//     `model` is a declared option rather than a free string;
+//     packs/zai declares a `model` option, so the census DOES run here, and `model` is a
+//     declared option rather than a free string;
 //  2. YOLO_PROFILES actually CROSSED. The variable is written by the launcher onto the
 //     container argv and parsed by the entrypoint, and the two halves deploy on different
 //     cadences — a unit tier can pin each side, only a launch can pin them together;
@@ -38,7 +38,7 @@ func TestUserProfilesEntryLaunchesAndTheTableCrosses(t *testing.T) {
 
 	dir := writeProject(t, `{}`)
 	packHome(t, `{"packs": ["claude", "zai"], `+
-		`"profiles": {"zai-fast": {"provider": "zai", "model": "fast"}}}`)
+		`"profiles": {"zai-fast": {"provider": "zai", "model": "glm-5.3-flash"}}}`)
 	// zai ships api_key_env_name = ZAI_API_KEY, and the selected-pack credential pre-flight
 	// refuses a launch whose environment cannot deliver it — the same provision
 	// TestProvidersRenderInTheAgentsOwnVocabulary makes. That refusal is correct behaviour;
@@ -53,15 +53,18 @@ func TestUserProfilesEntryLaunchesAndTheTableCrosses(t *testing.T) {
 	for _, want := range []string{
 		// The brief's own entry, resolved: `model` is one of the options zai's `options`
 		// declares, the census passes, and the profile's own value stays on top of the
-		// declared default ("default") rather than being re-spelled by it.
+		// declared default rather than being re-spelled by it.
 		// ⚠ These are EXACT shapes on purpose — the comment above says "every option zai
-		// carries", so a new option must break this test rather than slip past it. It did:
-		// `3d9b1aa2` gave zai the full env block Z.AI recommends, adding api_timeout_ms and
-		// context_window, and these fragments were not updated with it.
-		`"zai-fast": {"provider": "zai", "api_timeout_ms": "3000000", "context_window": "1000000", "model": "fast"}`,
+		// carries", so a new option must break this test rather than slip past it. It has,
+		// twice: `3d9b1aa2` gave zai the full env block Z.AI recommends, adding
+		// api_timeout_ms and context_window, and `f7b14308` replaced zai's alias vocabulary
+		// (default/fast/haiku/sonnet) with an identity map of the wire-true ids and moved
+		// the `model` default with it. Neither commit updated these fragments. The values
+		// below are read off packs/zai's `options` block, so read it before changing them.
+		`"zai-fast": {"provider": "zai", "api_timeout_ms": "3000000", "context_window": "1000000", "model": "glm-5.3-flash"}`,
 		// The pack's own shipped profile, resolving to its provider and the declared
 		// default of every option zai carries.
-		`"zai": {"provider": "zai", "api_timeout_ms": "3000000", "context_window": "1000000", "model": "default"}`,
+		`"zai": {"provider": "zai", "api_timeout_ms": "3000000", "context_window": "1000000", "model": "glm-5.3"}`,
 	} {
 		if !strings.Contains(r.stdout, want) {
 			t.Errorf("YOLO_PROFILES should carry %s, got:\n%s", want, r.stdout)
@@ -94,59 +97,71 @@ func TestUndeclaredProfileNameRefusesTheLaunch(t *testing.T) {
 	}
 }
 
-// The option half, end to end: a profile that states `model: "fast"` puts the id under
-// zai's `fast` alias into pi's defaultModel — read out of the file pi itself reads, which
-// is the only place the whole chain (user config → ResolveProfiles → YOLO_PROFILES → the
-// entrypoint's ctx.profile → packs/pi/derive.lua) can be seen agreeing. The unit tiers pin
-// each link; only a launch proves the links are joined.
+// The option half, end to end: a profile that states an option value which is an ALIAS puts
+// the id that alias names into pi's defaultModel — read out of the file pi itself reads,
+// which is the only place the whole chain (user config → ResolveProfiles → YOLO_PROFILES →
+// the entrypoint's ctx.profile → packs/pi/derive.lua) can be seen agreeing. The unit tiers
+// pin each link; only a launch proves the links are joined.
+//
+// ⚠ THE PROVIDER HERE MUST DECLARE A NON-IDENTITY ALIAS, and that is why this test measures
+// against packs/cerebras rather than packs/zai. It used to use zai's `fast` → glm-5.3-flash,
+// and `f7b14308` replaced zai's whole alias vocabulary with an identity map of wire-true ids
+// (glm-5.3 → glm-5.3, …). Against an identity map this test cannot fail: deleting the
+// alias-lowering entirely would leave defaultModel reading the same string either way, and a
+// test that passes with its subject deleted is not a test. cerebras still declares
+// `models: {default: qwen-3.8-27b}`, so the resolved id and the alias are different strings
+// and the lowering is observable. If cerebras's map ever becomes identity too, move this
+// test to whichever provider still has an alias — do NOT settle for the identity spelling.
 //
 // The same launch selects the same profile at codex's CLI name, where the answer is the
-// negative one: z.ai speaks chat completions and codex speaks responses, so no catalog row
-// exists for the selection to name and the derive writes nothing selection-shaped — an
+// negative one: cerebras speaks chat completions and codex speaks responses, so no catalog
+// row exists for the selection to name and the derive writes nothing selection-shaped — an
 // option resolving cleanly on one agent does not revive a provider another cannot reach.
 func TestProfileOptionSelectsTheAliasInTheAgentsOwnFile(t *testing.T) {
 	requireJail(t)
 
-	t.Setenv("ZAI_API_KEY", "integration-probe-not-a-real-key")
+	t.Setenv("CEREBRAS_API_KEY", "integration-probe-not-a-real-key")
 
 	// The codex-speakable neighbour is the vacuity guard (codex_selection_test.go): with
 	// llamacpp cataloged in the same render, "codex wrote nothing" cannot be mistaken for
 	// "the provider table never reached codex's derive".
 	dir := writeProject(t, codexProbeProject)
-	packHome(t, `{"packs": ["pi", "codex", "zai"], `+
-		`"profiles": {"zai-fast": {"provider": "zai", "model": "fast"}}}`)
+	packHome(t, `{"packs": ["pi", "codex", "cerebras"], `+
+		`"profiles": {"cb-alias": {"provider": "cerebras", "model": "default"}}}`)
 
 	// runCommand rather than runYolo: the flag goes BEFORE the `--` that starts the
 	// container command, which runYolo's shape does not allow. Both CLIs in one flag, the
 	// spelling a user types.
 	r := runCommand(t, dir, append(jailRunArgs(),
-		"-p", "pi=zai-fast,codex=zai-fast", "--", "true"))
+		"-p", "pi=cb-alias,codex=cb-alias", "--", "true"))
 	if r.rc != 0 {
 		t.Fatalf("profiled three-pack launch failed: rc %d\n%s", r.rc, r.combined())
 	}
 
 	piSettings := readPioencodeSurface(t, dir, "pi", "agent", "settings.json")
-	if piSettings.provider != "zai" {
+	if piSettings.provider != "cerebras" {
 		t.Errorf("pi settings.json defaultProvider = %q, want the provider the profile "+
 			"selects", piSettings.provider)
 	}
-	// ⚠ NO `[1m]` SUFFIX HERE, and that is the assertion rather than an omission. `8e901423`
-	// found glm-5.3[1m] is a 400 on BOTH z.ai routes and that pi and opencode carry no [1m]
-	// handling at all, so the suffix is now appended by packs/claude's derive alone, for the
-	// ids CLAUDE emits. This test asserted the suffixed id for PI — i.e. it pinned the exact
-	// wire failure that commit fixed — and was not updated with it.
-	if piSettings.model != "glm-5.3-flash" {
-		t.Errorf("pi settings.json defaultModel = %q, want glm-5.3-flash — the wire-true id under "+
-			"the alias the profile's `model` option names (packs/zai declares models: "+
-			"{default: glm-5.3, fast: glm-5.3-flash}), not the declared default glm-5.3, and "+
-			"never the claude-only [1m] spelling",
+	// The alias, not the alias's name: `default` is what the profile states and
+	// `qwen-3.8-27b` is what cerebras's `models` map says it means. Reading back the alias
+	// name here would mean the lowering never ran.
+	//
+	// ⚠ NO `[1m]` SUFFIX ON A PI ID, and that is an assertion rather than an omission.
+	// `8e901423` found the suffixed spelling is a 400 on both z.ai routes and that pi and
+	// opencode carry no `[1m]` handling at all, so the suffix is appended by packs/claude's
+	// derive alone, for the ids CLAUDE emits.
+	if piSettings.model != "qwen-3.8-27b" {
+		t.Errorf("pi settings.json defaultModel = %q, want qwen-3.8-27b — the wire-true id "+
+			"under the alias the profile's `model` option names, never the alias name "+
+			"itself and never a claude-only suffixed spelling",
 			piSettings.model)
 	}
 	// The vacuity guard reads the file the catalog lands in: pi's providers table is
 	// yolo's computed models.json, not settings.json, which holds only the selection pair
 	// (packs/pi declares the two surfaces separately).
 	piModels := readPioencodeSurface(t, dir, "pi", "agent", "models.json")
-	requireCataloged(t, piModels.raw, "providers", "zai", "pi models.json")
+	requireCataloged(t, piModels.raw, "providers", "cerebras", "pi models.json")
 
 	config := string(renderedSurface(t, dir, "codex", "config.toml"))
 	if m := codexModelProviderAssign.FindStringSubmatch(config); m != nil {
@@ -159,8 +174,8 @@ func TestProfileOptionSelectsTheAliasInTheAgentsOwnFile(t *testing.T) {
 			"not exist", m[1])
 	}
 	for _, row := range codexProviderRow.FindAllStringSubmatch(config, -1) {
-		if row[1] == "zai" {
-			t.Errorf("codex config.toml carries a model_providers.zai row, which the " +
+		if row[1] == "cerebras" {
+			t.Errorf("codex config.toml carries a model_providers.cerebras row, which the " +
 				"catalog half drops for an unspeakable protocol")
 		}
 	}

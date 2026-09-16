@@ -2,11 +2,28 @@ package integration
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 )
+
+// upstreamBody is the openai-shaped request the bridge is expected to make: the
+// fields this test asserts on, and no more.
+type upstreamBody struct {
+	Model     string `json:"model"`
+	MaxTokens int    `json:"max_tokens"`
+	Messages  []struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	} `json:"messages"`
+}
 
 // TestWireBridgeTranslatesAnthropicToOpenai is the end-to-end tier for the wire
 // bridge (docs/reference/wire-bridge.md): one real launch — user config selecting
@@ -21,19 +38,76 @@ import (
 //	YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT                          → registered, so the
 //	  reachability witness covered the listener before this command ever ran.
 //
-// NO agent binary runs and NO external API is called: the upstream is a python3
-// stub the command itself starts on the jail's loopback, and the bridge dials
-// it because the user `providers` override re-points cerebras's openai base_url
-// at it (`endpoints.<protocol>.base_url` is the override spelling when a pack
-// ships an endpoints table). Assertions read files the command wrote into the
-// live-mounted workspace — the same host-side reading renderedSurface uses.
+// NO agent binary runs and NO external API is called: the upstream is a stub this
+// test serves on the HOST's loopback, and the bridge dials it because the user
+// `providers` override re-points cerebras's openai base_url at it
+// (`endpoints.<protocol>.base_url` is the override spelling when a pack ships an
+// endpoints table).
+//
+// ⚠ THE STUB IS ON THE HOST BECAUSE THAT IS WHAT THE URL MEANS, and it did not use
+// to be. `bf6a6e52` ruled that a USER provider URL at loopback names an inference
+// server on the machine that launches yolo — a local Ollama, say — not something
+// inside the jail's own network namespace, and it implements that by adding an
+// implicit `forward_host_ports` entry for the port. Packs are excluded from that
+// rule on purpose (a pack such as wire-bridge legitimately names jail loopback),
+// but this fixture overrides through the USER key, so the rule applies to it. The
+// stub therefore has to live where the URL now points; a stub started on the jail's
+// own loopback loses the port to the forwarder, and the bridge dials past it to a
+// host port with nothing behind it (measured: a 502 and no upstream record).
+// A consequence worth knowing: this test now also covers the forward.
+//
+// The port is claimed from the kernel rather than written down, so a busy 18099 on
+// a runner cannot make this test flake. The response assertion reads the file the
+// in-jail curl wrote into the live-mounted workspace; the upstream assertion reads
+// what the host-side handler recorded in memory.
 func TestWireBridgeTranslatesAnthropicToOpenai(t *testing.T) {
 	requireJail(t)
 
-	const (
-		sentinel = "wirebridge-integration-sentinel"
-		stubAddr = "127.0.0.1:18099"
-	)
+	const sentinel = "wirebridge-integration-sentinel"
+
+	// The host-side upstream: bound before the launch so the implicit forward has
+	// something behind it, and recording the one request the bridge makes.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("binding the host-side upstream stub: %v", err)
+	}
+	stubPort := ln.Addr().(*net.TCPAddr).Port
+
+	var mu sync.Mutex
+	var record struct {
+		seen          bool
+		Path          string
+		Authorization string
+		ContentType   string
+		Body          upstreamBody
+	}
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		raw, _ := io.ReadAll(req.Body)
+		var body upstreamBody
+		_ = json.Unmarshal(raw, &body)
+		mu.Lock()
+		record.seen, record.Path, record.Body = true, req.URL.Path, body
+		record.Authorization = req.Header.Get("Authorization")
+		record.ContentType = req.Header.Get("Content-Type")
+		mu.Unlock()
+
+		resp := map[string]any{
+			"id":    "chatcmpl-wirebridge-stub",
+			"model": body.Model,
+			"choices": []map[string]any{{
+				"index": 0, "finish_reason": "stop",
+				"message": map[string]string{"role": "assistant", "content": "bridge says hello"},
+			}},
+			"usage": map[string]int{"prompt_tokens": 3, "completion_tokens": 5, "total_tokens": 8},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(resp)
+	})}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+
+	stubAddr := fmt.Sprintf("127.0.0.1:%d", stubPort)
 
 	dir := writeProject(t, `{}`)
 	// `packs` is user-scope only, and so are use_profiles/providers/env_sources.
@@ -46,35 +120,10 @@ func TestWireBridgeTranslatesAnthropicToOpenai(t *testing.T) {
 		"providers": {"cerebras": {"endpoints": {"openai": {"base_url": "http://`+stubAddr+`/v1"}}}}
 	}`)
 
-	const stubPy = `import json, http.server
-class Stub(http.server.BaseHTTPRequestHandler):
-    def do_POST(self):
-        body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
-        with open("/workspace/wirebridge-upstream.json", "w") as f:
-            json.dump({"path": self.path,
-                       "authorization": self.headers.get("Authorization", ""),
-                       "content_type": self.headers.get("Content-Type", ""),
-                       "body": json.loads(body)}, f)
-        resp = {"id": "chatcmpl-wirebridge-stub", "model": json.loads(body).get("model", ""),
-                "choices": [{"index": 0, "finish_reason": "stop",
-                             "message": {"role": "assistant", "content": "bridge says hello"}}],
-                "usage": {"prompt_tokens": 3, "completion_tokens": 5, "total_tokens": 8}}
-        data = json.dumps(resp).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
-    def log_message(self, *a):
-        pass
-http.server.HTTPServer(("127.0.0.1", 18099), Stub).serve_forever()`
-
 	script := `set -u
-cat > /tmp/wirebridge-stub.py <<'STUBPY'
-` + stubPy + `
-STUBPY
-python3 /tmp/wirebridge-stub.py &
-for i in $(seq 1 50); do (exec 3<>/dev/tcp/127.0.0.1/18099) 2>/dev/null && break; sleep 0.1; done
+# The implicit forward for the provider's port is set up before this command runs;
+# wait for it rather than assuming, so a slow forwarder cannot read as a bridge fault.
+for i in $(seq 1 50); do (exec 3<>/dev/tcp/127.0.0.1/` + strconv.Itoa(stubPort) + `) 2>/dev/null && break; sleep 0.1; done
 msg=$(curl -sS -o /workspace/wirebridge-resp.json -w '%{http_code}' \
   "$ANTHROPIC_BASE_URL/v1/messages" \
   -H 'content-type: application/json' \
@@ -86,10 +135,7 @@ count=$(curl -sS -o /dev/null -w '%{http_code}' \
   -d '{"model":"qwen-3.8-27b","messages":[]}')
 echo "MSGS=$msg COUNT=$count"
 env | grep -E '^YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT='
-kill %1 2>/dev/null
-wait 2>/dev/null
 true`
-
 	r := runYolo(t, dir, script)
 	if r.rc != 0 {
 		t.Fatalf("bridged launch failed: rc %d\n%s", r.rc, r.combined())
@@ -125,25 +171,12 @@ true`
 
 	// What the UPSTREAM received: an openai-shaped request, the provider's key
 	// as its bearer, the model id passthrough.
-	upRaw, err := os.ReadFile(filepath.Join(dir, "wirebridge-upstream.json"))
-	if err != nil {
-		t.Fatalf("reading the stub's record of the upstream request: %v", err)
-	}
-	var upstream struct {
-		Path          string `json:"path"`
-		Authorization string `json:"authorization"`
-		ContentType   string `json:"content_type"`
-		Body          struct {
-			Model     string `json:"model"`
-			MaxTokens int    `json:"max_tokens"`
-			Messages  []struct {
-				Role    string `json:"role"`
-				Content string `json:"content"`
-			} `json:"messages"`
-		} `json:"body"`
-	}
-	if err := json.Unmarshal(upRaw, &upstream); err != nil {
-		t.Fatalf("parsing the stub's record: %v\n%s", err, upRaw)
+	mu.Lock()
+	upstream := record
+	mu.Unlock()
+	if !upstream.seen {
+		t.Fatalf("the host-side upstream stub was never called, so the bridge did not reach " +
+			"the address the user provider names")
 	}
 	if upstream.Path != "/v1/chat/completions" {
 		t.Errorf("upstream path = %q, want the bridge's one chat-completions dial", upstream.Path)
