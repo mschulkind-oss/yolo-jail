@@ -10,9 +10,21 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
-// TestNativeLauncherPreparesDeclaredAuthView exercises the generated launcher,
-// including its failure-to-login fallback. It uses fake yolo and agent binaries;
-// no vendor agent starts and no network request is made.
+// TestNativeLauncherPreparesDeclaredAuthView exercises the generated launcher end to end
+// with fake yolo and agent binaries; no vendor agent starts and no network request is made.
+//
+// ⚠ ITS CONTRACT CHANGED, and the change is the point. This asserted `token, login, token`
+// — the failure-to-login fallback — in a test whose stdin is not a terminal, which is the
+// one context where that fallback cannot work: a login prints a URL and waits for a browser
+// callback, so with no terminal it can only hang. It did, in CI: `codex --version` blocked
+// for fifteen minutes on five jobs before the deadline killed them. The prelaunch now
+// declines to start a browser flow it cannot finish, so the sequence here is ONE token
+// attempt, no login, and the agent still runs.
+//
+// What that leaves untested is the interactive fallback itself (terminal present, token
+// call failing), which needs a pty and a browser; `TestAuthPrelaunchDoesNotLoginWithoutATerminal`
+// pins the guard that keeps anything from reaching it unattended, including a mutation check.
+// The claim THIS test owns and that one does not: the agent is exec'd anyway.
 func TestNativeLauncherPreparesDeclaredAuthView(t *testing.T) {
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash not found")
@@ -71,11 +83,13 @@ exit 1
 	}
 	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
 	wantPath := "--codex-auth=" + filepath.Join(home, ".agent", "auth.json")
-	if len(lines) != 3 ||
-		!strings.Contains(lines[0], "openai-auth-client token "+wantPath) ||
-		!strings.Contains(lines[1], "openai-auth-client login") ||
-		!strings.Contains(lines[2], "openai-auth-client token "+wantPath) {
-		t.Fatalf("auth calls = %q, want token, login, token", lines)
+	if len(lines) != 1 || !strings.Contains(lines[0], "openai-auth-client token "+wantPath) {
+		t.Fatalf("auth calls = %q, want exactly one token attempt: with no terminal the "+
+			"prelaunch must not start a browser login it cannot finish", lines)
+	}
+	if !strings.Contains(string(out), "not an interactive terminal") {
+		t.Errorf("the launcher must say why it did not log in, so a missing credential is "+
+			"diagnosable rather than silent:\n%s", out)
 	}
 	for _, line := range lines {
 		if !strings.HasSuffix(line, "|bypass=1") {

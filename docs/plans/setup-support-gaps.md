@@ -408,3 +408,33 @@ Three things a re-run should do differently:
    `boot.go:242`) and one about AGENTS.md's own PATH-order claim. Drift clusters at status lines and at exactly
    the numbers a reader stops checking. The re-runnable sweeps and their allowlists are in
    [docs/plans/README.md](README.md#keeping-this-corpus-honest--the-five-checks-so-they-are-re-runnable).
+---
+
+## 7. Found while fixing the docs (2026-09-16)
+
+Fourteen agents were sent to fix the false claims this audit produced, one owner per file, each told
+to verify before editing. What they hit on the way is listed here, because a false doc claim is
+sometimes the visible end of a live defect. Nothing below is fixed; each is small and each has a
+named site.
+
+| # | Defect | Where | Why it matters |
+|---|---|---|---|
+| F1 | **`macos_log` is unreachable, and the code tells you to enable it.** The feature is wired end to end, but the key is not in `knownTopLevelConfigKeys`, and an unknown key is fatal — measured `[FAIL] config.macos_log: unknown key`. `internal/macosuser/macosuser.go` prints *"Enable it by setting `macos_log`: `user` … then restart"*: following yolo's own instruction refuses the next launch. | `internal/config/config.go`, `internal/macosuser/macosuser.go` | The one defect here that actively instructs a user into a broken state. Fix is the key, a `config-ref` entry and a test that a `macos_log` config launches. |
+| F2 | **The openai-auth broker spawns on `macos-user` with no host-exec disclosure.** `notePackHostExec` has one call site, inside `startLoopholesDisclosed`, which runs below the macos-user arm's return; that arm reaches the daemon through `startLoopholesMatching` instead. So pack code runs on the user's real machine and *"This launch runs pack code on your machine"* never prints. The guard test greps for the literal `o.startLoopholes(` only, so the sibling bypasses it. | `internal/cli/run/run.go`, `internal/cli/run/packloopholes.go`, `internal/cli/run/packhostdisclosure_test.go` | AGENTS.md: the read/exec banners **are** the trust boundary. Also the exact callee-pinned/call-site-unpinned shape the repo names. The fix needs an openai-auth-scoped variant, mirroring `withoutOpenAIAuthPack`. |
+| F3 | **Apple Container promises a broker endpoint nothing can write.** The `container` branch emits `YOLO_SERVICE_CLAUDE_OAUTH_BROKER_ENDPOINT` whenever the broker loophole is active, but the broker singleton is only ensured off that runtime and AC's allow-list admits `openai-auth-broker` alone. | `internal/cli/run/assemble_parts.go`, `internal/cli/run/run.go` | On an AC jail with `packs: ["claude", "codex"]` the in-jail terminator dials a file that never appears — and with the fatal reachability witness, possibly a refused launch. Same unbackable-promise shape `brokerEndpointIsUnpublishable` exists for, one axis over. |
+| F4 | **A nested GPU launch is neither supported nor prevented.** `podmanNestingArgs` tests `inContainer` first and returns, so the GPU branch's `--runtime runc` and identity uid/gid maps are never emitted — while `gpuArgs` still puts the CDI device flags on the argv. | `internal/cli/run/assemble_parts.go`, `internal/cli/run/helpers.go` | The user guide says it is not available; nothing enforces that, so the failure is a runtime error rather than yolo's warn-and-skip. |
+| F5 | **`yolo check`'s orphan-cleanup prompt asks a question nothing can answer.** It reads a `Stdin` that no caller assigns, so it always proceeds as if the answer were N — then prints the command to run, which is the one it just declined to run. | `internal/cli/check/helpers.go`, `internal/cli/commands.go` | A prompt that cannot be answered is the class the config-change gate already rules on: never prompt where a prompt cannot land. |
+| F6 | **`yolo check` preflights the wrong image on every store-packages host.** `BuildOCIImage` builds the default attr unconditionally, so on a launch that would realize `.#ociImageLean` + `.#yoloImageExtras`, check proves neither. | `internal/cli/check/builder.go`, `internal/image/build.go` | Structurally green on the wrong artifact — the Image section cannot fail for the hosts it matters most to. |
+| F7 | **Loopback-TLS is silently broken on rootful podman + netavark.** Measured from this jail: a host listener on `0.0.0.0` is reachable through the bridge gateway and one on `127.0.0.1` is not, and `svcendpoint` binds `127.0.0.1` unconditionally. The probe ladder has no rung for rootful, so the disposition is `unknown` and the fatal witness never fires. | `internal/cli/run/hostloopback.go`, `internal/svcendpoint/listen.go` | Every jail-facing service is down on such a host with nothing printed — the four-day-outage shape the subsystem exists to end. **Wants a ruling, not a patch:** an `unsupported`-style disposition plus a warning is the cheap honest option. |
+
+Two stale comments worth a sweep rather than a row: `internal/svcendpoint/preamble.go` still opens
+*"NOTHING CALLS ANY OF THIS YET"* while `listenWith` and `ServeFrontWithOptions` consume it today, and
+`internal/cli/run/backendcaps.go`'s parity marker for config `mounts` on macos-user reads `Warned`
+where nothing warns — it should read `Dropped`, or the warning should be built.
+
+**One defect found this way is already fixed** (`85517b97`, and it is why this section exists): the
+agent auth prelaunch began an interactive OpenAI browser login with no terminal to answer it, so
+`codex --version` printed an auth URL and blocked until the job deadline killed it — five CI jobs on
+both arches, ~15 minutes each. It now says what is missing and lets the command run, since a
+`--version` needs no credential. The regression test runs the real generated shell and fails when the
+guard is deleted.

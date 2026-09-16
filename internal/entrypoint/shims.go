@@ -898,6 +898,22 @@ _refresh_agent_auth() {
         "$auth_flag=$auth_path" >/dev/null; then
         return 0
     fi
+    # A login is a BROWSER flow: it prints a URL and waits for the callback. With no
+    # terminal there is nobody to open it, so starting one cannot succeed — it can only
+    # hang until something else times out. Say what is missing and let the command run:
+    # plenty of invocations ('--version', '--help', anything cached) need no credential at
+    # all, and one that does gets the agent's own auth error immediately instead of a wait.
+    # Returning 0 is load-bearing — these launchers run under 'set -euo pipefail', so a
+    # nonzero return here would abort before exec'ing the agent.
+    #
+    # This is the same rule the config-change gate follows: never prompt where a prompt
+    # cannot be answered. It is also a regression fix — 'codex --version' in CI printed an
+    # auth URL and blocked for fifteen minutes before the job's deadline killed it.
+    if [ ! -t 0 ]; then
+        echo "  $BIN: OpenAI login is required, and this is not an interactive terminal" >&2
+        echo "  → run '$BIN' once from a terminal to log in; continuing without a credential." >&2
+        return 0
+    fi
     echo "  $BIN: OpenAI login is required." >&2
     YOLO_BYPASS_SHIMS=1 yolo internal openai-auth-client login >/dev/null
     YOLO_BYPASS_SHIMS=1 yolo internal openai-auth-client token \
