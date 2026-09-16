@@ -19,7 +19,9 @@ yolo's host daemons bind the **host's loopback** and advertise `host.containers.
 the assumption that the container runtime forwards that name to the host's loopback. **It does
 not, by default.** Where the name lands is a property of *which networking stack is in use*, and
 pasta — podman's default since 5.0 — aims it at the host's **global** address instead. A **rootful**
-podman lands there too, and is quieter about it: see [the mode table](#the-networking-modes).
+podman lands there too, and there is no option the launcher can ask it for — so such a host is
+**told**, not fixed: see [the mode table](#the-networking-modes) and
+[A rootful podman](#a-rootful-podman-is-told-not-fixed).
 
 The fix is in the **launcher**, not the transport: ask the runtime what it is, then tell it to
 forward the loopback. The bind address, the certificate pinning, the per-jail bearer token and
@@ -100,7 +102,7 @@ does the packet actually arrive?**
 | **pasta** + `--map-host-loopback` | the same tunnel address | the host's **loopback** | No — and it does not need to | ✅ **the fix** |
 | **slirp4netns** (rootless; the older default) | the host's **global** address ⚠ — *not* its userspace gateway | the host's global address | **No** | ❌ broken, the same way |
 | **slirp4netns** + `allow_host_loopback` **+ a pinned hosts entry** | its userspace gateway | the host's **loopback** | No — and it does not need to | ✅ the older-passt fallback |
-| **netavark bridge** (rootful) | the host's **global** address ⚠ — podman's own answer here too, *not* the bridge gateway | the host's global address. The gateway does reach the host over a real bridge interface, but nothing in the jail dials it | **The gateway, yes** — a genuine host interface — but it is not what the jail resolves, and nothing binds it either way | ❌ broken, **quietly** |
+| **netavark bridge** (rootful) | the host's **global** address ⚠ — podman's own answer here too, *not* the bridge gateway | the host's global address. The gateway does reach the host over a real bridge interface, but nothing in the jail dials it | **The gateway, yes** — a genuine host interface — but it is not what the jail resolves, and nothing binds it either way | ❌ broken — [disclosed since 2026-09-16](#a-rootful-podman-is-told-not-fixed), silent before |
 | **`--net=host`** (no namespace) | n/a — the jail *shares* the host's stack | itself | Yes, trivially | ✅ works |
 | **nested jail** (podman-in-podman) | forced onto `--net=host` | itself | Yes | ✅ works — **and this is why nobody caught it** |
 | **Apple Container / `macos-user`** | a VM hop, not pasta | out of scope | — | not affected |
@@ -122,14 +124,10 @@ does the packet actually arrive?**
 > binds `127.0.0.1:0` unconditionally, and the "Yes" in the fourth column is a statement about an
 > address nothing binds.
 >
-> What makes it quiet rather than loud is that the launcher's decision returns on its very first
-> line for a rootful podman — `rootlessNetworkCmd` is a value rootful still reports and never uses,
-> so emitting a forwarding option there would swap out a working bridge for a mode the host has no
-> reason to support. No option, and therefore no positive fact, so the jail is told `unknown` and
-> [`OQ-R6`](#oq-r6) keeps `unknown` from escalating: the witness records the dead service and
-> launches anyway. That is the right disposition under [`OQ-R3`](#oq-r3) for a host yolo *could not*
-> ask — and a rootful host is one yolo simply *has not asked*, because no rung of
-> [the ladder](#the-ladder) covers it. The hole is open; there is no shipped fix to describe.
+> **What made it quiet has been fixed; what makes it broken has not.** The forwarding stays
+> unfixable — see [A rootful podman](#a-rootful-podman-is-told-not-fixed) for the disclosure that
+> now ships in its place, and the [CAUTION below](#why-bind-somewhere-else-has-nowhere-to-go) for
+> why the gateway is not the way out.
 >
 > The instrument is the one the [nested-jail carve-out](#a-nested-jail-is-structurally-blind-to-this)
 > names, and rootful is the one row it can settle rather than the row it is blind to: a nested
@@ -234,6 +232,36 @@ below podman 5.0 slirp4netns is the rootless default and only the forwarding opt
 refuses, so the launch note states both readings and names the podman version that lets yolo read
 the stack instead of asking for one.
 
+### A rootful podman is told, not fixed
+
+**Rootless is the gate on the argv, and it is not the gate on the message.** Every rung above is a
+rootless option: `--network=pasta:…` on a rootful podman would swap a working netavark bridge for a
+mode that host has no reason to support, and the address that *would* work there is the bridge
+gateway, which the [CAUTION above](#why-bind-somewhere-else-has-nowhere-to-go) rejects. So a rootful
+host gets no argv from the launcher, and no rung of the ladder will ever cover it.
+
+What it used to get on top of that was **silence**, with `unknown` on the wire — and `unknown` is
+the one value the fatal witness never escalates. Every jail-facing service down, nothing printed at
+launch, nothing printed at boot: the four-day-outage shape this whole subsystem exists to end,
+reproduced by a host class nobody had measured.
+
+The fix is [`OQ-R3`](#oq-r3) applied rather than a new ruling — *degrade and launch, and the
+requirement lands on the message*:
+
+- **the disposition is `unsupported`, not `unknown`.** "yolo identified the stack and could not make
+  it forward" is exactly what a rootful bridge is; `unknown` claims yolo never asked. Neither value
+  escalates, so **no launch starts refusing that did not before** — what changes is which diagnosis
+  the witness prints and that the launch says anything at all.
+- **the launch warns**, naming the services that will not work and the two things that do: a
+  *rootless* podman, where the ladder applies, or `network.mode: "host"`, where there is no
+  forwarding hop left because the jail is on the host's own stack. The second one's cost — the
+  jail's network isolation — is stated in the same breath, because a message that recommended it
+  quietly would trade the reader's network boundary for their broker.
+- **the fact is positive**, like every other fact here: podman *answering* `security.rootless:
+  false`. An answer that parses and carries no security block (`{}`, `null`) leaves the same
+  `false` behind and is owed no claim at all, which is why the field is read as a present-or-absent
+  value rather than as a boolean.
+
 ## The in-jail witness
 
 **A host-side check structurally cannot answer this.** The host-side dialer keeps the published
@@ -278,8 +306,8 @@ with every state spelled:
 | :--- | :--- | :--- |
 | `requested` | the forwarding option reached the argv | ✅ |
 | `shared` | the jail shares the launcher's netns — nothing to forward | ✅ |
-| `unsupported` | yolo identified the stack and could not make it forward | ❌ — a known limitation |
-| `unknown` | no conclusion: rootful, unrecognised backend, an explicit network mode, or the opt-out | ❌ |
+| `unsupported` | yolo identified the stack and could not make it forward — an old passt, or a [rootful podman](#a-rootful-podman-is-told-not-fixed) | ❌ — a known limitation |
+| `unknown` | no conclusion: an unrecognised backend, an explicit network mode, the opt-out, or a podman that would not answer | ❌ |
 | *absent* | the launcher predates the variable | ❌ — same default as `unknown` |
 
 **Only positive facts escalate** — the discipline that governs the argv, applied to severity. An
@@ -387,6 +415,8 @@ underlying asymmetry is not closed and cannot be: a host-side check still cannot
 - **Not a revival of a second transport.** A bind-mounted socket works and is LAN-free, and it
   reopens a decision retired on purpose.
 - **Not macOS work.** Apple Container and `macos-user` do not use pasta.
+- **Not a rootful fix.** A rootful podman is [disclosed, not repaired](#a-rootful-podman-is-told-not-fixed):
+  the launch says what will not work and names the two configurations that do.
 - **Not an override of an explicit network mode.** A user who chose one keeps it, and keeps the
   bug, and is told.
 
@@ -397,7 +427,7 @@ underlying asymmetry is not closed and cannot be: a host-side check still cannot
 | <a id="oq-r0"></a>[**OQ-R0**](#oq-r0) — pasta forwards its tunnel address to the host's **global** address, not its loopback | Measured with a differential probe: SSH answers on the tunnel address, a neighbouring address times out, yolo's own ports come back *refused* rather than timing out. That single fact kills the whole "bind somewhere else" family. |
 | <a id="oq-r1"></a>[**OQ-R1**](#oq-r1) — yolo may emit a network option on the default path; unrecognised backends emit nothing | A transport that works by luck of the host's stack is not a transport. Emitting nothing when unproven keeps the argv byte-identical, because a wrong option is a container that does not start. |
 | <a id="oq-r2"></a>[**OQ-R2**](#oq-r2) — an enabled jail-facing service the jail cannot reach is a **failed launch**, not a warning | Nothing is enabled unless it was asked for, so the contradiction is genuine. The outage this replaced survived four days of all-green host-side checks. |
-| <a id="oq-r3"></a>[**OQ-R3**](#oq-r3) — a host yolo cannot fix **degrades and launches** | It is never refused for what it cannot help; the requirement lands on the message instead. |
+| <a id="oq-r3"></a>[**OQ-R3**](#oq-r3) — a host yolo cannot fix **degrades and launches** | It is never refused for what it cannot help; the requirement lands on the message instead. Applied to [rootful podman](#a-rootful-podman-is-told-not-fixed) on 2026-09-16: no rung of the ladder can ever cover it, so it degrades — and, per the second half of this ruling, is *told*, which is the half it was missing. |
 | <a id="oq-r4"></a>[**OQ-R4**](#oq-r4) — **all three** fault classes escalate, not just the dial failing | Every one of them means "enabled and unusable"; what differs is where to look, and that belongs in the diagnosis rather than in the severity. |
 | <a id="oq-r5"></a>[**OQ-R5**](#oq-r5) — a jail sharing the launcher's netns **is** escalatable | There is no host-stack excuse in that mode: the advertise address is the loopback and it is the only thing that works, so a failure has nothing to hide in. |
 | <a id="oq-r6"></a>[**OQ-R6**](#oq-r6) — the launcher's decision rides on the wire with **every** state spelled; only positive facts escalate | From inside the jail, "this host cannot forward loopback" and "yolo asked and the service is still down" are the same observation. Spelling every state is what keeps an absent variable from meaning anything but "older launcher". |

@@ -189,9 +189,19 @@ func TestAssembleRunCmdAdverseHostsKeepTodaysArgv(t *testing.T) {
 	}, {
 		// rootlessNetworkCmd is a containers.conf value a ROOTFUL podman still reports
 		// and never uses. `--network=pasta` there would swap out a working bridge.
-		name:     "a rootful podman that still reports pasta",
-		rt:       "podman",
-		lookPath: map[string]string{"podman": "/usr/bin/podman"},
+		//
+		// The ARGV half of this case is the point and has never moved. The DISPOSITION
+		// half did: rootful used to report `unknown`, the value that means "yolo could not
+		// ask", and it was wrong in the quiet direction — yolo asked, got a clear answer,
+		// and the answer is that this host cannot forward its loopback into a bridged jail
+		// at all. `unknown` made the in-jail witness decline to escalate a total outage of
+		// every jail-facing service. It reports `unsupported` now, which is the value for
+		// a stack yolo identified and could not make forward, and which OQ-R3 still keeps
+		// out of the escalating set — so the launch continues, it just says so.
+		name:            "a rootful podman that still reports pasta",
+		rt:              "podman",
+		lookPath:        map[string]string{"podman": "/usr/bin/podman"},
+		wantDisposition: paths.HostLoopbackUnsupported,
 		exec: map[string]ExecResult{
 			podmanInfoCmd:           {Ran: true, RC: 0, Stdout: podmanInfoRootful},
 			pastaExe + " --help":    {Ran: true, RC: 0, Stdout: pastaHelpWithFlag},

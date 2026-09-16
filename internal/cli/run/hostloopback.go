@@ -38,7 +38,9 @@ package run
 //   - **Rootless is REQUIRED, not assumed.** `--network=pasta` means something
 //     different from "the rootless default" on a rootful podman: there it would
 //     replace a netavark bridge with a mode that host has no reason to support.
-//     `host.security.rootless` gates the whole thing.
+//     `host.security.rootless` gates the whole thing — the ARGV, and only the argv.
+//     A rootful host still gets told what will not work on it: see the rootful
+//     section below.
 //   - **An explicit `network.mode` is never overridden** (OQ-R1). The user owns
 //     that setting; they keep the bug and get told so.
 //   - **YOLO_NO_HOST_LOOPBACK is the escape hatch**, mirroring
@@ -110,6 +112,33 @@ package run
 // (actions/runner-images#14642) and `TestInJailServiceReachability` went red on
 // both arches with nothing in this repo having changed.
 //
+// # A ROOTFUL PODMAN IS A HOST YOLO CANNOT FIX, AND IT MUST STILL SAY SO
+//
+// Rootful podman gets no argv from this file and never will — nothing above
+// applies to it, and the reachability doc's own CAUTION rejects the one address that
+// would (binding the netavark gateway: unbindable from a rootless launcher, and
+// not what a jail resolves either way). What it used to get instead was SILENCE,
+// and that silence was an outage: measured 2026-09-16 on podman 5.8.6, rootful,
+// netavark, the default bridge — a host listener on 0.0.0.0 answers at the bridge
+// gateway, the SAME listener on 127.0.0.1 answers nowhere, and every yolo daemon
+// is the second kind (svcendpoint.Listen binds 127.0.0.1 unconditionally, by
+// design). So every jail-facing service is down on such a host.
+//
+// The rung it takes is OQ-R3's, unchanged: DEGRADE AND LAUNCH — a host yolo cannot
+// fix is never refused for what it cannot help — with the requirement landing on
+// the MESSAGE. Two things follow, and the second is the whole of the fix here:
+//
+//   - the disposition is `unsupported`, not `unknown`. This passage used to read
+//     "`unknown` for … a rootful podman", and that was the wrong half of the pair:
+//     "yolo identified the stack and could not make it forward" is exactly what a
+//     rootful bridge is, while `unknown` claims yolo never asked. Neither escalates
+//     (reachability.go's escalates() allowlists `requested` and `shared` only), so
+//     no launch starts refusing that did not before — what changes is which
+//     diagnosis the in-jail witness prints, and that a launch says anything at all.
+//   - the fact is POSITIVE, like every other fact here: `rootfulPodman` is podman
+//     ANSWERING `security.rootless: false`. A podman that never ran leaves
+//     `rootless` false too, and that host is owed no claim about its networking.
+//
 // # What this decision TELLS THE JAIL, and why it has to
 //
 // "Unsupported is not broken" is a distinction only this file can draw. From
@@ -119,9 +148,9 @@ package run
 // container as paths.HostLoopbackEnvVar: `requested` when the option above went
 // out on the argv (an unreachable service is then a FAULT), `unsupported` when
 // yolo identified the stack and could not get it to forward (a KNOWN LIMITATION,
-// never a launch failure), and `unknown` for every path that reached no conclusion
-// — a rootful podman, an unrecognised backend, an explicit network.mode, the
-// opt-out, a podman that would not answer.
+// never a launch failure — an old passt, and a ROOTFUL podman since 2026-09-16),
+// and `unknown` for every path that reached no conclusion — an unrecognised
+// backend, an explicit network.mode, the opt-out, a podman that would not answer.
 //
 // UNKNOWN IS SPELLED RATHER THAN OMITTED (OQ-R6), and the safety argument is
 // unchanged by that. It used to be the absence of the variable, which forced
@@ -275,8 +304,19 @@ type hostLoopbackFacts struct {
 	// not run, would not answer, answered non-JSON, or is ROOTFUL never sets it,
 	// so every one of those keeps today's silence.
 	backendUnnamed bool
-	// rootless is host.security.rootless. False disables everything here.
+	// rootless is host.security.rootless. False disables every ARGV here.
 	rootless bool
+	// rootfulPodman is podman ANSWERING and saying it is rootful: `podman info`
+	// parsed and host.security.rootless was false. It is the same shape as
+	// backendUnnamed and exists for the same reason — one layer down, `rootless ==
+	// false` is also what a podman that never ran, would not answer, or answered
+	// non-JSON leaves behind, and those hosts are owed no claim about their
+	// networking at all.
+	//
+	// It carries no argv (nothing yolo can emit makes a rootful bridge forward the
+	// host's loopback) and exists only to make the launch SAY so, which is the half
+	// that was missing until 2026-09-16.
+	rootfulPodman bool
 	// support is the capability verdict for backend.
 	support hostLoopbackSupport
 	// fallbackSupport is the capability verdict for slirp4netns AS A FALLBACK —
@@ -319,9 +359,9 @@ type hostLoopbackPlan struct {
 	// unreachable) — only the second may ever fail a launch, which is OQ-R2 as
 	// scoped by OQ-R3. See paths.HostLoopbackEnvVar.
 	//
-	// "" means NO CONCLUSION — an unrecognised backend, a rootful podman, an
-	// explicit network.mode, the opt-out, a podman that would not answer — and it is
-	// the ZERO VALUE on purpose: every such path returns a bare hostLoopbackPlan{}
+	// "" means NO CONCLUSION — an unrecognised backend, an explicit network.mode, the
+	// opt-out, a podman that would not answer — and it is the ZERO VALUE on purpose:
+	// every such path returns a bare hostLoopbackPlan{}
 	// and lands on the witness's safe default without having to be enumerated here.
 	// It reaches the jail as paths.HostLoopbackUnknown rather than as an absent
 	// variable; jailEnvArgs is where that translation lives and why.
@@ -390,12 +430,36 @@ func decideHostLoopback(f hostLoopbackFacts) hostLoopbackPlan {
 // hostLoopbackPlanFor is decideHostLoopback minus the opt-out, split out so the
 // opt-out can report what it suppressed rather than guessing.
 func hostLoopbackPlanFor(f hostLoopbackFacts) hostLoopbackPlan {
-	// Rootless is the gate on everything: `rootlessNetworkCmd` is a
+	// Rootless is the gate on every ARGV: `rootlessNetworkCmd` is a
 	// containers.conf value that a rootful podman still reports and never uses,
 	// and emitting `--network=pasta` there would swap out a working bridge for a
 	// mode that host has no reason to support.
+	//
+	// It is NOT the gate on the disclosure. A rootful bridge does not forward the
+	// host's loopback either (measured — see the rootful section at the top of this
+	// file), so this used to be the one host class that lost every jail-facing
+	// service with NOTHING printed and `unknown` on the wire: the four-day-outage
+	// shape the whole subsystem exists to end. OQ-R3's degrade-and-launch is
+	// unchanged — no argv, no refusal — but the ruling's other half applies here as
+	// much as to an old passt, and its other half is that the launch says so.
 	if !f.rootless {
-		return hostLoopbackPlan{}
+		// The positive fact only. `rootless == false` on facts that were never
+		// gathered (a non-podman runtime, macOS, a podman that would not answer) is
+		// the absence of a reading, and claiming a limitation for a host yolo never
+		// looked at is the invented fact this file exists to refuse.
+		//
+		// And only on the DEFAULT path: an explicit network.mode is the user's
+		// (OQ-R1), `host` shares this machine's stack so there is nothing wrong to
+		// report, and the mode warning below would be a lie here — it promises pasta
+		// or slirp4netns forwarding on the default path, which a rootful host does not
+		// get.
+		if !f.rootfulPodman || f.netMode != "bridge" {
+			return hostLoopbackPlan{}
+		}
+		return hostLoopbackPlan{
+			warning:     rootfulUnsupportedWarning(f),
+			disposition: paths.HostLoopbackUnsupported,
+		}
 	}
 
 	// An explicit network.mode belongs to the user (OQ-R1): they keep control and
@@ -568,6 +632,37 @@ func pastaUnsupportedWarning(f hostLoopbackFacts) string {
 		"  docs/reference/loopback-tls-reachability.md[/yellow]"
 }
 
+// rootfulUnsupportedWarning is pastaUnsupportedWarning's rootful twin, and it is
+// held to the same three requirements OQ-R3 puts on that message: name what
+// breaks, name what fixes it, and never read as an error — the launch is correct
+// and the user has done nothing wrong.
+//
+// The difference is that "what fixes it" is not a version here. There is no flag
+// yolo can emit: the rootless options do not apply, and the one address that would
+// work is the netavark gateway, which the reachability doc's CAUTION rejects (unbindable
+// from a rootless launcher, and not the address a jail resolves anyway). So the two
+// remedies it names are the two the product already has — a rootless podman, where
+// the ladder above applies, and `network.mode: "host"`, where there is no
+// forwarding hop at all because the jail is on this machine's own stack
+// (sharesLauncherNetns, which is also what makes the daemons publish 127.0.0.1 for
+// it). The second one's COST is stated in the same breath: it is a real reduction in
+// the jail's isolation, and a message that recommended it silently would be trading
+// the reader's network boundary for their broker.
+func rootfulUnsupportedWarning(f hostLoopbackFacts) string {
+	return "[yellow]Warning: this host's podman" + podmanVersionSuffix(f) + " is ROOTFUL, and a rootful\n" +
+		"  bridge does not forward the host's LOOPBACK into a jail — its gateway reaches\n" +
+		"  the host, but only for a listener bound globally, and yolo's daemons bind\n" +
+		"  127.0.0.1 by construction. So jail-facing services (Claude OAuth broker,\n" +
+		"  yolo-ps, yolo-journalctl) will be unreachable from inside this jail.\n" +
+		"  There is no flag yolo can ask a rootful podman for; the two things that do\n" +
+		"  work are a ROOTLESS podman, where yolo asks pasta or slirp4netns to forward\n" +
+		"  the loopback for you, or network.mode \"host\", which puts the jail on this\n" +
+		"  machine's own network stack — the services then work because there is no hop\n" +
+		"  left to forward, at the cost of the jail's network isolation.\n" +
+		"  Launching either way — nothing else changes.\n" +
+		"  docs/reference/loopback-tls-reachability.md[/yellow]"
+}
+
 // slirpFallbackPhrase says why the OTHER stack was not used, which is the
 // question this warning now invites: yolo has a fallback, so a user reading "your
 // pasta is too old" is owed the reason it was not taken here. Both not-confirmed
@@ -694,7 +789,14 @@ type podmanInfo struct {
 	Host struct {
 		RootlessNetworkCmd string `json:"rootlessNetworkCmd"`
 		Security           struct {
-			Rootless bool `json:"rootless"`
+			// Rootless is a POINTER, and it is the one field here that has to be:
+			// "podman said false" and "podman's answer carried no security block at
+			// all" are the same `false` to a plain bool, and the second is `{}`,
+			// `null`, or any answer whose shape yolo did not recognise. A plan is owed
+			// to the first (rootfulPodman) and silence to the second, so the two may
+			// not collapse. Every other field's zero value already reads as "do
+			// nothing", which is why none of them needs this.
+			Rootless *bool `json:"rootless"`
 		} `json:"security"`
 		Pasta       podmanHelperInfo `json:"pasta"`
 		Slirp4netns podmanHelperInfo `json:"slirp4netns"`
@@ -767,9 +869,22 @@ func (o *Options) hostLoopbackFactsFor(rt, netMode string) hostLoopbackFacts {
 		return f
 	}
 	f.backend = info.Host.RootlessNetworkCmd
-	f.rootless = info.Host.Security.Rootless
+	rootless := info.Host.Security.Rootless
+	f.rootless = rootless != nil && *rootless
 	f.podmanVersion = firstLine(info.Version.Version)
 	if !f.rootless {
+		// Recorded HERE for the reason backendUnnamed is, one branch down: this is the
+		// last point at which "podman answered and said rootful" can be told apart from
+		// "there was no such answer to read", and the decision owes a message to the
+		// first and silence to the second. The nil check IS that distinction — an
+		// answer of `{}` or `null` parses, so f.rootless would be false for a host
+		// nothing was learned about.
+		//
+		// No capability is probed on the way out: nothing pasta or slirp4netns can say
+		// changes a rootful host's answer, and
+		// TestHostLoopbackFactsForProbesOnlyWhereTheAnswerIsRead is what keeps that
+		// early return a real gate rather than a discarded answer.
+		f.rootfulPodman = rootless != nil
 		return f
 	}
 	// Recorded HERE, where "podman answered and is rootless" is still in hand.

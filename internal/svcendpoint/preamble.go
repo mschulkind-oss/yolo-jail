@@ -2,10 +2,17 @@ package svcendpoint
 
 // The connection preamble — docs/design/broker-as-a-pack.md §5.5.
 //
-// NOTHING CALLS ANY OF THIS YET. The producer is listenWith's accepted-connection
-// wrapper and the consumers are yolo's own daemons; both arrive in the next
-// commit. This file is the codec alone, so that the frame has exactly one
-// encoder and exactly one reader before anything depends on either.
+// THIS FILE IS THE CODEC ALONE, so that the frame has exactly one encoder and
+// exactly one reader however many daemons grow to depend on it. The producer is
+// listenWith, which encodes one preamble per LISTENER and lets countingConn serve
+// it as a prefix on each connection's read stream (crossing.go); ServeFrontWithOptions
+// turns it on for every fronted daemon unless that daemon set NoPreamble. The
+// consumers are yolo's own daemons — internal/hostservice and internal/journald read
+// it with ReadPreamble.
+//
+// This header said "NOTHING CALLS ANY OF THIS YET … both arrive in the next commit"
+// until 2026-09-16; both arrived, and the sentence outlived them by long enough to be
+// found by a doc audit rather than by a reader.
 //
 // The imports below are stdlib ONLY, and that is a package invariant, not an
 // accident of this file: `go list -deps ./internal/svcendpoint | rg yolo-jail`
