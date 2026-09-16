@@ -303,4 +303,18 @@ func TestCheckOptionsWiring(t *testing.T) {
 	if _, ok := checkOptions([]string{"check", "--format", "yaml"}, io.Discard); ok {
 		t.Error("checkOptions accepted --format yaml")
 	}
+	// Stdin, because the orphan-cleanup prompt reads it and nothing assigned it until
+	// 2026-09-16: check.Options.Stdin was nil on every real invocation, so the prompt
+	// printed, answered itself "N", and the report then prescribed the command it had
+	// just declined. This is the assembly line the doc comment above exists for — the
+	// engine cannot be driven end-to-end here, so only inspecting the options catches
+	// its deletion.
+	opts, _ = checkOptions([]string{"check"}, io.Discard)
+	if opts.Stdin == nil {
+		t.Error("checkOptions leaves Stdin nil, so `yolo check`'s orphan-cleanup prompt " +
+			"can never read an answer and always declines")
+	}
+	if opts.Stdin != os.Stdin {
+		t.Errorf("checkOptions wired Stdin to %T, want the process's own os.Stdin", opts.Stdin)
+	}
 }

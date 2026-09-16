@@ -769,6 +769,15 @@ func runPs(args []string) int {
 func checkOptions(args []string, errw io.Writer) (check.Options, bool) {
 	opts := check.NewDefaultOptions()
 	opts.Color = true
+	// The orphan-cleanup prompt's input. Missing until 2026-09-16, which made that
+	// prompt UNREACHABLE: check.Options.Stdin defaulted to nil, the prompt printed,
+	// the nil branch answered "N" every time, and the report then prescribed the
+	// command it had just declined to run. This one line is the fix, and it is the
+	// exact line the doc comment above says a test would otherwise never miss.
+	//
+	// Unconditional here, gated at the prompt: orphanCleanupPrompt asks only on a
+	// terminal, so a piped stdin cannot be read as an implicit yes.
+	opts.Stdin = os.Stdin
 	// Before the sections, one of which is a nix image build: a rejected --format
 	// must not cost minutes. See outputformat.go.
 	format, ok := parseOutputFormat("check", args, errw)

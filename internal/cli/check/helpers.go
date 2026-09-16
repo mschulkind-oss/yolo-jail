@@ -95,14 +95,30 @@ func loadConfigLoose(workspace string) *jsonx.OrderedMap {
 	return cfg
 }
 
-// orphanCleanupPrompt runs the y/N prompt in the Running
-// Jails block. Returns true iff the user answered y/yes. No Stdin => "N".
+// orphanCleanupPrompt runs the y/N prompt in the Running Jails block. Returns true
+// iff the user answered y/yes.
+//
+// THE PROMPT WAS UNREACHABLE FOR ITS WHOLE LIFE, and the shape of that is worth
+// keeping: nothing in internal/cli assigned `Options.Stdin`, so the nil branch below
+// ran on every real invocation — the question printed, the answer was always "N", and
+// the report then told you to run the command it had just declined to run for you.
+// A reader checking the feature found a prompt, a reader checking the wiring found
+// nothing to fix, and the two never met. `checkOptions` assigns Stdin now
+// (TestCheckOptionsWiring pins it), which is the whole fix for the interactive case.
+//
+// The non-interactive case needed the OTHER half, or assigning Stdin would trade one
+// wrong behaviour for a worse one: reading a piped stdin means `yolo check < script`
+// in CI could answer "y" to a destructive prompt nobody saw. So the question is asked
+// only on a terminal, and the pipe gets a statement of fact plus the command — the
+// same shape run's own reclaim offer uses (run/offer.go: "No prompt, no deletion, one
+// line. Never an implicit yes.").
 func (o *Options) orphanCleanupPrompt(r *reporter, n int) bool {
-	prompt := "  " + r.style(pluralOrphansPrompt(n), ansiYellow) + " "
-	r.line(prompt)
-	if o.Stdin == nil {
+	if o.Stdin == nil || !o.IsTTYStdout() {
+		r.line("  " + r.style(nonTTYOrphansLine(n), ansiYellow))
 		return false
 	}
+	prompt := "  " + r.style(pluralOrphansPrompt(n), ansiYellow) + " "
+	r.line(prompt)
 	scanner := bufio.NewScanner(o.Stdin)
 	if !scanner.Scan() {
 		return false
@@ -113,6 +129,14 @@ func (o *Options) orphanCleanupPrompt(r *reporter, n int) bool {
 
 func pluralOrphansPrompt(n int) string {
 	return "Stop " + itoa(n) + " orphaned jail(s)? [y/N]"
+}
+
+// nonTTYOrphansLine is what a pipe gets instead of a question it cannot answer: what
+// is true, and the command that acts on it. Never a prompt, so nothing can read an
+// implicit yes out of redirected input.
+func nonTTYOrphansLine(n int) string {
+	return itoa(n) + " orphaned jail(s) are still here. Run `yolo prune --apply` to remove them; " +
+		"this check will not."
 }
 
 // pyStrOf renders a human string for a non-string cmd[0] element (rare/never
