@@ -240,7 +240,7 @@ func TestAssembleEmitsCodexBridgeProfileEnv(t *testing.T) {
 		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "ANTHROPIC_AUTH_TOKEN")
 	want := []string{
 		"ANTHROPIC_BASE_URL=http://127.0.0.1:8215",
-		"ANTHROPIC_DEFAULT_OPUS_MODEL=terra",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL=gpt-5.6-terra",
 		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
 	}
 	if len(got) != len(want) {

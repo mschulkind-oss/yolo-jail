@@ -24,7 +24,10 @@ func TranslateResponsesRequest(body []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := responsesRequest{Model: req.Model, MaxOutputTokens: req.MaxTokens, Temperature: req.Temperature, TopP: req.TopP, Stream: req.Stream}
+	// ChatGPT's subscription Responses endpoint requires store=false. The bridge
+	// has no need for server-side response retention, so this is both required
+	// for compatibility and the least-retentive request shape.
+	out := responsesRequest{Model: req.Model, MaxOutputTokens: req.MaxTokens, Temperature: req.Temperature, TopP: req.TopP, Stream: req.Stream, Store: false}
 	if system != "" {
 		out.Instructions = system
 	}
@@ -85,6 +88,7 @@ type responsesRequest struct {
 	Temperature     *float64            `json:"temperature,omitempty"`
 	TopP            *float64            `json:"top_p,omitempty"`
 	Stream          *bool               `json:"stream,omitempty"`
+	Store           bool                `json:"store"`
 	Reasoning       *responsesReasoning `json:"reasoning,omitempty"`
 }
 

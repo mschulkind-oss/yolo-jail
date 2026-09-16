@@ -68,7 +68,7 @@ func NewResponsesHandler(upstreamBaseURL, apiKey string) http.Handler {
 // relayed to Claude.
 func NewCodexResponsesHandler(upstreamBaseURL, brokerEndpoint string) http.Handler {
 	h := newHandler(upstreamBaseURL, "/responses", "",
-		wirebridge.TranslateResponsesRequest, wirebridge.TranslateResponsesResponse,
+		translateCodexResponsesRequest, wirebridge.TranslateResponsesResponse,
 		func() streamTranslator { return wirebridge.NewResponsesStreamTranslator() }).(*bridgeHandler)
 	h.accessToken = func() (string, string, error) {
 		view, err := openauthclient.RequestAccessToken(brokerEndpoint, io.Discard)
@@ -79,6 +79,26 @@ func NewCodexResponsesHandler(upstreamBaseURL, brokerEndpoint string) http.Handl
 	}
 	h.retryUnauthorized = true
 	return h
+}
+
+// translateCodexResponsesRequest adapts the generic Responses request to the
+// ChatGPT subscription endpoint. That endpoint rejects max_output_tokens;
+// Claude's cap therefore cannot be expressed on this route and is omitted.
+func translateCodexResponsesRequest(body []byte) ([]byte, error) {
+	translated, err := wirebridge.TranslateResponsesRequest(body)
+	if err != nil {
+		return nil, err
+	}
+	var request map[string]json.RawMessage
+	if err := json.Unmarshal(translated, &request); err != nil {
+		return nil, fmt.Errorf("decode translated Codex Responses request: %w", err)
+	}
+	delete(request, "max_output_tokens")
+	out, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("encode Codex Responses request: %w", err)
+	}
+	return out, nil
 }
 
 type streamTranslator interface {

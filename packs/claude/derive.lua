@@ -54,11 +54,12 @@ yolo.env("claude", function(ctx)
   -- openai-codex is a broker-backed subscription identity, like Pi's native
   -- provider. It deliberately has no YOLO_PROVIDERS row: the wire bridge gets
   -- its short-lived access-token view from openai-auth, never from a generated
-  -- configuration file. `terra` is the profile's explicit default alias.
+  -- configuration file. The Responses subscription endpoint accepts concrete
+  -- Codex model IDs, so this must stay aligned with Pi's Codex default.
   if ctx.selected_provider == "openai-codex" then
     return {
       ANTHROPIC_BASE_URL = "http://127.0.0.1:8215",
-      ANTHROPIC_DEFAULT_OPUS_MODEL = (ctx.profile and ctx.profile.model) or "terra",
+      ANTHROPIC_DEFAULT_OPUS_MODEL = (ctx.profile and ctx.profile.model) or "gpt-5.6-terra",
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1",
     }
   end

@@ -14,9 +14,11 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
 	"github.com/mschulkind-oss/yolo-jail/internal/wirebridge"
 )
 
@@ -201,6 +203,57 @@ func TestResponsesRouteAcceptsAdaptiveThinking(t *testing.T) {
 	}
 	if request.Reasoning != nil {
 		t.Fatalf("adaptive thinking must not pin an OpenAI reasoning effort: %s", up.gotBody)
+	}
+}
+
+func TestTranslateCodexResponsesRequestOmitsSubscriptionUnsupportedFields(t *testing.T) {
+	out, err := translateCodexResponsesRequest([]byte(`{"model":"gpt-5.6-terra","max_tokens":64,"messages":[{"role":"user","content":"hello"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out)
+	}
+	if _, present := got["max_output_tokens"]; present {
+		t.Fatalf("Codex subscription request retained unsupported max_output_tokens: %s", out)
+	}
+	if string(got["store"]) != "false" {
+		t.Fatalf("Codex subscription request must set store=false: %s", out)
+	}
+}
+
+// TestCodexResponsesLiveSmoke exercises the production subscription route
+// without launching an agent. It is deliberately opt-in: it spends a small
+// subscription request and needs the jail's access-only broker endpoint. The
+// broker token remains in the handler process and never reaches test output.
+func TestCodexResponsesLiveSmoke(t *testing.T) {
+	if os.Getenv("YOLO_TEST_CODEX_RESPONSES") != "1" {
+		t.Skip("set YOLO_TEST_CODEX_RESPONSES=1 to run the authenticated Codex Responses smoke test")
+	}
+	endpoint := os.Getenv(openauthclient.EndpointEnv)
+	if endpoint == "" {
+		t.Skipf("%s is not available", openauthclient.EndpointEnv)
+	}
+	srv := httptest.NewServer(NewCodexResponsesHandler(CodexResponsesBaseURL, endpoint))
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL+"/v1/messages", "application/json", strings.NewReader(`{"model":"gpt-5.6-terra","max_tokens":64,"stream":true,"thinking":{"type":"adaptive"},"messages":[{"role":"user","content":"Reply with OK."}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d: %s", resp.StatusCode, body)
+	}
+	if strings.Contains(string(body), "event: error") {
+		t.Fatalf("bridge reported an upstream stream translation error: %s", body)
+	}
+	for _, want := range []string{"event: message_start", "event: message_stop"} {
+		if !strings.Contains(string(body), want) {
+			t.Fatalf("bridge stream is missing %q: %s", want, body)
+		}
 	}
 }
 

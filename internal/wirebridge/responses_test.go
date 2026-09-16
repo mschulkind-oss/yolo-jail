@@ -20,6 +20,7 @@ func TestTranslateResponsesRequestPreservesToolConversation(t *testing.T) {
 		Model        string `json:"model"`
 		Instructions string `json:"instructions"`
 		Max          int    `json:"max_output_tokens"`
+		Store        *bool  `json:"store"`
 		Reasoning    struct {
 			Effort string `json:"effort"`
 		} `json:"reasoning"`
@@ -35,7 +36,7 @@ func TestTranslateResponsesRequestPreservesToolConversation(t *testing.T) {
 	if err := json.Unmarshal(out, &got); err != nil {
 		t.Fatalf("output is not JSON: %v\n%s", err, out)
 	}
-	if got.Model != "terra" || got.Instructions != "be brief" || got.Max != 64 || got.Reasoning.Effort != "high" {
+	if got.Model != "terra" || got.Instructions != "be brief" || got.Max != 64 || got.Store == nil || *got.Store || got.Reasoning.Effort != "high" {
 		t.Fatalf("top-level mapping = %#v", got)
 	}
 	if len(got.Input) != 3 || got.Input[1].Type != "function_call" || got.Input[1].CallID != "toolu_1" || got.Input[1].Name != "ls" || got.Input[1].Args != `{"path":"."}` || got.Input[2].Type != "function_call_output" || got.Input[2].CallID != "toolu_1" || got.Input[2].Output != "a.go\n" {

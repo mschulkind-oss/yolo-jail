@@ -196,6 +196,7 @@ The bridge implements **what the agent sends**, not the whole Anthropic API.
 | `tools[]` with an input schema | rename the schema field; **never request strict mode** | `tools[]` |
 | tool-use / tool-result blocks | bidirectional mapping | tool calls / tool-role messages |
 | thinking config and beta headers | chat-completions route: **strip**; Responses route: translate `enabled` budget to a conservative effort, while every non-budget mode leaves the provider default | documented Responses reasoning option, when explicit |
+| response retention and token cap | Codex subscription Responses route: set `store: false` and omit Claude's token cap; other Responses routes preserve their documented cap mapping | ChatGPT subscription endpoint requires no retention and rejects `max_output_tokens` |
 | upstream reasoning content | **drop, do not surface** | plain text deltas only |
 | token and stop-sequence limits | map | the upstream's equivalents |
 | stop reasons | map onto the upstream's finish reasons | finish reason |
@@ -227,6 +228,12 @@ provider's key, read once at boot.
 > coding-agent value. The chat-completions route always leaves the upstream reasoning default
 > alone. On the Responses route, an explicit `enabled` budget maps conservatively to `medium`
 > or `high`; every other thinking mode omits the option, so the provider chooses its default.
+
+> [!NOTE]
+> **The ChatGPT subscription Responses route is narrower than the public Responses API.** It
+> requires `store: false` and rejects `max_output_tokens`. The bridge always requests no
+> retention and omits Claude's token cap on this route; a model's own output limit remains in
+> force.
 
 ## Lifecycle and failure behavior
 
