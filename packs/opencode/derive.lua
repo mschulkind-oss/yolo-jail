@@ -20,6 +20,15 @@ local function providerEndpoint(prov)
   return nil
 end
 
+local function isLocalEndpoint(url)
+  if type(url) ~= "string" then return false end
+  return string.find(url, "://localhost") or
+         string.find(url, "://127%.0%.0%.1") or
+         string.find(url, "://host%.containers%.internal") or
+         string.find(url, "://169%.254%.1%.2") or
+         string.find(url, "://0%.0%.0%.0")
+end
+
 yolo.derive("opencode", "config", function(ctx)
   local res = {}
 
@@ -46,9 +55,22 @@ yolo.derive("opencode", "config", function(ctx)
       local baseUrl = providerEndpoint(prov)
       if baseUrl then
         local models = {}
+        local cw = nil
+        local maxTokens = nil
+        if type(prov.options) == "table" then
+          cw = tonumber(prov.options.context_window or prov.options.max_context_tokens)
+          maxTokens = tonumber(prov.options.max_tokens or prov.options.max_output_tokens)
+        end
         if type(prov.models) == "table" then
           for alias, modelId in pairs(prov.models) do
-            models[modelId] = { name = alias }
+            local m = { name = alias }
+            if cw or maxTokens then
+              local limit = {}
+              if cw then limit.context = cw end
+              if maxTokens then limit.output = maxTokens end
+              m.limit = limit
+            end
+            models[modelId] = m
           end
         end
         -- D10: opencode's Info schema declares baseURL/apiKey inside `options` only
@@ -66,6 +88,12 @@ yolo.derive("opencode", "config", function(ctx)
         entry.options = { baseURL = baseUrl }
         if prov.api_key_env_name then
           entry.options.apiKey = "{env:" .. prov.api_key_env_name .. "}"
+        elseif prov.api_key then
+          entry.options.apiKey = prov.api_key
+        elseif type(prov.options) == "table" and prov.options.api_key then
+          entry.options.apiKey = prov.options.api_key
+        elseif isLocalEndpoint(baseUrl) then
+          entry.options.apiKey = "local"
         end
         provOut[name] = entry
       end
@@ -136,7 +164,18 @@ yolo.derive("opencode", "config", function(ctx)
         end
       end
       if modelID then
-        res.selection = { model = ctx.selected_provider .. "/" .. modelID }
+        local sel = { model = ctx.selected_provider .. "/" .. modelID }
+        local smallAlias = (ctx.profile and ctx.profile.small_model)
+        local smallID = nil
+        if smallAlias and type(p.models) == "table" then
+          smallID = p.models[smallAlias] or smallAlias
+        elseif type(p.models) == "table" then
+          smallID = p.models.haiku or p.models.fast or p.models.small or modelID
+        else
+          smallID = modelID
+        end
+        sel.small_model = ctx.selected_provider .. "/" .. smallID
+        res.selection = sel
       end
     end
   end

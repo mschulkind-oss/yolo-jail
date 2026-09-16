@@ -164,6 +164,68 @@ func TestPiDeriveHandlesLocalProviderContextAndKey(t *testing.T) {
 	}
 }
 
+// TestOpenCodeDeriveHandlesLocalProviderLimitAndSmallModel pins that an unkeyed local
+// endpoint receives apiKey: "local", context_window maps to limit.context on model entries,
+// and selection sets small_model to prevent opencode from phoning home to gpt-5-nano.
+func TestOpenCodeDeriveHandlesLocalProviderLimitAndSmallModel(t *testing.T) {
+	script, s := deriveSurface(t, "opencode", "opencode/config")
+	got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{
+		Profile:  "local",
+		Provider: "local",
+	}, map[string]map[string]any{
+		manifest.SourceProviders: {
+			"local": map[string]any{
+				"base_url": "http://host.containers.internal:8080/v1",
+				"models":   map[string]any{"default": "qwen3.8-27b"},
+				"options":  map[string]any{"context_window": "180224"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provs, ok := got["provider"].(map[string]any)
+	if !ok {
+		t.Fatalf("opencode/config produced no provider table: %#v", got)
+	}
+	localProv, ok := provs["local"].(map[string]any)
+	if !ok {
+		t.Fatalf("provider.local missing: %#v", provs)
+	}
+	opts, ok := localProv["options"].(map[string]any)
+	if !ok {
+		t.Fatalf("provider.local has no options table: %#v", localProv)
+	}
+	if opts["apiKey"] != "local" {
+		t.Errorf("options.apiKey = %v, want 'local' for unkeyed local endpoint", opts["apiKey"])
+	}
+	models, ok := localProv["models"].(map[string]any)
+	if !ok {
+		t.Fatalf("provider.local has no models table: %#v", localProv)
+	}
+	m, ok := models["qwen3.8-27b"].(map[string]any)
+	if !ok {
+		t.Fatalf("model qwen3.8-27b missing: %#v", models)
+	}
+	limit, ok := m["limit"].(map[string]any)
+	if !ok {
+		t.Fatalf("model qwen3.8-27b has no limit table: %#v", m)
+	}
+	if limit["context"] != float64(180224) && limit["context"] != int64(180224) && limit["context"] != 180224 {
+		t.Errorf("limit.context = %v, want 180224", limit["context"])
+	}
+	sel, ok := got["selection"].(map[string]any)
+	if !ok {
+		t.Fatalf("opencode selection missing: %#v", got)
+	}
+	if sel["model"] != "local/qwen3.8-27b" {
+		t.Errorf("selection.model = %v, want local/qwen3.8-27b", sel["model"])
+	}
+	if sel["small_model"] != "local/qwen3.8-27b" {
+		t.Errorf("selection.small_model = %v, want local/qwen3.8-27b", sel["small_model"])
+	}
+}
+
 // TestZaiCodingPlanPackCuratesItsThreeModels pins the Coding Plan contract rather
 // than Z.ai's much broader PAYG catalog. The default must be GLM-5.3, whose 1M
 // context window is the provider-level value Claude's derive uses for a selected
