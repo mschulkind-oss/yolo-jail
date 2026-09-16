@@ -2,8 +2,8 @@
 title: "Backend gap tracker: the 705-cell audit, its 32 overturned hard claims, and the ranked backlog they produce"
 date: 2026-09-16
 status: current
-tags: [gap-tracker, backend-parity, macos-user, apple-container, podman, silent-drops, refutation, unmeasured]
-summary: "Four setups crossed with every closed vocabulary yolo has — config keys, pack contribution kinds, shipped loopholes — plus the user-facing capabilities that are not keys, audited cell by cell (705 cells, 14 agents), then every 'impossible' and 'ruled-wontfix' claim handed to an adversarial refuter. 33 hard claims were attacked and 32 fell; exactly one survived (NVIDIA passthrough on Apple Container). What is left is a backlog of 33 ranked gaps — most of them small, several of them silent losses of a shipped default — a silent-drop table naming the file that should print each missing notice, and 22 cells no reading can settle, 12 of them in podman/macOS, the column with zero measured cells out of 141."
+tags: [gap-tracker, backend-parity, macos-user, apple-container, podman, silent-drops, refutation, measured]
+summary: "Four setups crossed with every closed vocabulary yolo has — config keys, pack contribution kinds, shipped loopholes — plus the user-facing capabilities that are not keys, audited cell by cell (705 cells, 14 agents), then every 'impossible' and 'ruled-wontfix' claim handed to an adversarial refuter. 33 hard claims were attacked and 32 fell; exactly one survived (NVIDIA passthrough on Apple Container). What is left is a backlog of 34 ranked gaps — most of them small, several of them silent losses of a shipped default, one of them launch-breaking — and a silent-drop table naming the file that should print each missing notice. A measurement pass on 2026-09-16 settled 15 of the 22 cells no reading could settle, including the whole podman/macOS column that had zero measured cells out of 141: the Mac's loopback IS forwarded, the DNAT fixup is NOT, and on Apple Container TCP crosses in neither direction while a published unix socket crosses in the wrong one."
 ---
 
 # Backend gap tracker
@@ -48,6 +48,13 @@ The audit crossed **four setups** — `podman`/Linux, `podman`/macOS, `container
 | `unknown` | 22 | | `NotApplicable` | 25 |
 | `ruled-wontfix` | 20 | | `Refused` | 10 |
 
+> [!NOTE]
+> **This table is as the grid was audited, and 15 of the 22 `unknown` cells have since been settled** by the
+> 2026-09-16 measurement pass in [§5.1](#51-what-is-now-measured) — which also found one defect the grid had
+> classified as working (G34). It is left un-recomputed on purpose: re-deriving 705 cells from 15 answers would
+> mean re-reading the other 690, and a table that mixes audited and estimated counts is worse than one with a
+> date on it. [§5](#5-measured-cells-and-what-is-still-unmeasured) is the current answer wherever the two disagree.
+
 Then every `impossible` and `ruled-wontfix` cell — 46 of them, the ones that say *stop looking* — was handed to
 an **adversarial refuter** whose brief was to defeat the claim by naming a mechanism, however worse, that reaches
 the same user-visible outcome, with a size estimate.
@@ -85,6 +92,11 @@ Ranked by **user impact**, not by size. Rows merge every cell that describes one
 Size is the *build* estimate the refuters and auditors gave, not the measurement cost. `Design doc?` is decisive:
 "yes" means a ruling is missing, not that the change is large.
 
+**Ids are stable; the ORDER is not re-derived.** G34 was added by the 2026-09-16 measurement pass
+([§5.1](#51-what-is-now-measured) row 8) and ranks second by impact — it is a launch-breaking defect, not a
+missing feature — but it sits at the end of the table so that every id already cited downstream keeps its
+meaning. Rows whose disposition that pass CHANGED carry a **Measured 2026-09-16** note.
+
 | # | Gap | Setups affected | User impact | Size | Design doc? |
 |---|---|---|---|---|---|
 | G1 | **A re-entry silently ignores every edited config key, and the agent's briefing is refreshed to describe the edit anyway** | podman/Linux, podman/macOS, container/macOS | Highest. "You add an MCP server / an LSP / a mise tool / raise memory, re-run `yolo`, watch the boot regenerate everything, and get the old value — with no message anywhere." The briefing half is worse than silent: it tells the agent the new limit is in force. | medium (small for the notice, medium for the env-carried half) | **yes** — the re-entry contract |
@@ -92,14 +104,14 @@ Size is the *build* estimate the refuters and auditors gave, not the measurement
 | G3 | **`macos-user` runs no pack `service`, so `wire-bridge` is absent — on a default composition** | macos-user/macOS | cerebras's `needs` joins wire-bridge whenever claude or copilot is selected, and cerebras declares its anthropic endpoint as `http://127.0.0.1:8214`. Nothing listens, nothing warns, no witness runs. Claude Code fails to connect while every launch-time surface reports success. | medium (delivery only — `internal/wirebridged` is portable Go) | no |
 | G4 | **Two known macOS-15 Apple Container vmnet faults are detected only by `yolo check`, never by the launch** | container/macOS | The jail boots perfectly and cannot reach any API: `npm install` hangs, the agent's first request times out. You learn it only if you happen to run `yolo check`. | small (one call site) | no |
 | G5 | **Terminate hooks are unwired everywhere except a Linux TTY, and one of the things they clean up is a credentials file** | macos-user, podman/macOS, container/macOS + podman/Linux non-TTY | Ctrl-C out of a `macos-user` session leaves `<stateDir>/env/<cname>.env` — root-owned 0600, holding every resolved `env_sources` value and provider credential — on disk. Elsewhere: orphaned socats, stale endpoint files, uncaptured config edits, no timing report. On AC, a jail no yolo command can then stop. | small (~30 lines) | no |
-| G6 | **On Apple Container the openai-auth broker starts and the jail cannot reach it** | container/macOS | `codex`/`pi` print "OpenAI login is required", the interactive login *also* fails through the same dead hop, and nothing names Apple Container. The launch says nothing at all — this is the one loophole allow-listed on AC, so the inert report never covers it. | small (disclosure) / medium (file-shaped delivery) | **yes** — credential delivery without a network hop |
+| G6 | **On Apple Container the openai-auth broker starts and the jail cannot reach it** | container/macOS | `codex`/`pi` print "OpenAI login is required", the interactive login *also* fails through the same dead hop, and nothing names Apple Container. The launch says nothing at all — this is the one loophole allow-listed on AC, so the inert report never covers it. **Measured 2026-09-16:** the dead hop is confirmed with bytes and generalises (TCP establishes both ways, carries data neither — [§5.1](#51-what-is-now-measured) rows 6-7), and a **working transport now exists**: a published unix socket crosses, host→container (row 8). So the second size below is no longer the only route — see G34. | small (disclosure) / medium (file-shaped delivery, or the host-initiated socket relay G34 names) | **yes** — credential delivery without a network hop |
 | G7 | **`macos-user` never delivers the pack `files` kind, which breaks a shipped pack** | macos-user/macOS | `packs: ["pi"]` silently omits `~/.pi/agent/extensions/yolo-openai-auth.js`. The broker starts and is disclosed as running; the extension that dials it never arrives. | small (~15 lines in `buildMacosHomeOverlayFor`) | no |
-| G8 | **podman/macOS reports its host-loopback disposition wrong in *both* directions** | podman/macOS | On bridge, `YOLO_HOST_LOOPBACK` is always `unknown`, so the fatal reachability witness never escalates and a total loophole outage is silent — the exact shape of the four-day outage the subsystem exists to end. On `mode: host`, it is `shared`, which is false (the shared namespace is the VM's), so a launch can be refused for a boundary that was never crossed. | small code + one measurement | no |
+| G8 | **podman/macOS reports its host-loopback disposition wrong in *both* directions** — **Measured 2026-09-16** | podman/macOS | On bridge, `YOLO_HOST_LOOPBACK` is always `unknown`, so the fatal reachability witness never escalates and a total loophole outage is silent — the exact shape of the four-day outage the subsystem exists to end. On `mode: host`, it is `shared`, which is false (the shared namespace is the VM's), so a launch can be refused for a boundary that was never crossed. **The measurement removes the excuse for the bridge half:** the Mac's loopback IS forwarded, by gvproxy, with no flag ([§5.1](#51-what-is-now-measured) row 1) — so `unknown` is not merely uninformative, it is PESSIMISTIC about a hop that works, and it switches off escalation on the one column that has it available. The fix is a disposition mapping, not plumbing: podman/macOS + bridge is a *forwarded* host, arrived at by a mechanism yolo did not have to ask for. The agent briefing tells the same lie twice — see the code note below. | small code, **no measurement left** | no |
 | G9 | **`required_capabilities` is validated, exported, and read by nothing** | all four | A config declaring `["web_search"]` launches happily on a jail with nothing that provides it; the agent discovers the gap at its first API call. `config_ref.txt:1401-1404` is honest about this, so it is a trap only for someone who reads the key name. | medium (~150 lines + a census) | **yes** — nobody has settled what *satisfies* a capability ([`OQ-CAP2`](../design/agent-auth-modes.md#12-decision-ledger)) |
 | G10 | **The `macos-user` declaration-silence set: keys accepted, dropped, and never mentioned** | macos-user/macOS | `mounts`, `network.mode`, `perf_logging`, `programs.autoprune`, `loopholes.<name>.jail_env`, `required_capabilities`, `YOLO_STORE_PACKAGES`, the inherited user scope, `workspace_readonly`'s implicit `yolo-jail.jsonc` lock, and `MISE_ENV`'s whole `mise.jail.toml` mechanism all vanish without a line. DP-D15 already **ruled** the answer (fatal refusal keyed on the declaration being present) and it is not built. | small each; medium as one sweep | no — the ruling exists |
-| G11 | **Apple Container is invisible to yolo's own lifecycle commands** | container/macOS | `yolo stop` says "No jail running" while it runs, and exits 0 — so every message prescribing `yolo stop` is unactionable. `yolo prune` reports "none" affirmatively with stopped containers present. Orphans are never reaped. The attach-skew warning and the broken-prefix post-mortem can never fire. | small–medium (one AC inspect/ls JSON reader; several early returns deleted) | no |
+| G11 | **Apple Container is invisible to yolo's own lifecycle commands** — **Measured 2026-09-16** | container/macOS | `yolo stop` says "No jail running" while it runs, and exits 0 — so every message prescribing `yolo stop` is unactionable. `yolo prune` reports "none" affirmatively with stopped containers present. Orphans are never reaped. The attach-skew warning and the broken-prefix post-mortem can never fire. **The gate is lifted:** `container inspect`'s payload is measured ([§5.1](#51-what-is-now-measured) row 5) and carries everything the reader needs — `status.state`, `status.startedDate`, `configuration.mounts` as a real array, and a `labels` dict yolo can key on. The strict `mountsArrayFrom` guard is now a *checkable* default rather than a hedge against an unknown shape. | small–medium (one AC inspect/ls JSON reader; several early returns deleted) | no |
 | G12 | **`macos-user` enforces no `resources` limit at all** | macos-user/macOS | An agent build can take the whole machine; a fork bomb is unbounded. All three sub-keys were `ruled-wontfix` and all three were overturned. | medium (300-450 lines for the memory watchdog; ~50 for the cooperative env) | **yes** — advisory-vs-enforced and the kill policy |
-| G13 | **`macos-user` reads neither port key** | macos-user/macOS | A declared remap (`"9090:8080"`) does nothing, and a host service does not answer at the sandbox's `localhost:<port>`. Both were `impossible`; both fell to a launcher-side loopback proxy. | small (~60-250 lines) | no |
+| G13 | **`macos-user` reads neither port key** | macos-user/macOS | A declared remap (`"9090:8080"`) does nothing, and a host service does not answer at the sandbox's `localhost:<port>`. Both were `impossible`; both fell to a launcher-side loopback proxy. **Measured 2026-09-16:** the optional confinement half is expressible — SBPL `network-bind` has PORT granularity ([§5.1](#51-what-is-now-measured) row 13), which was the one thing no reading could settle. | small (~60-250 lines) | no |
 | G14 | **The agent can rewrite its own skills and its own briefing** | macos-user/macOS, container/macOS | On `macos-user` both are writable copies; on AC the briefing is a 0644 file in the writable home, and below `acROBindsFloor` the *skills* bind lands writable onto the launcher's own staging dir. Nothing prints. An agent that edits its own instructions between launches is the failure the `:ro` bind exists to prevent. | small (~150 lines incl. tests) | no |
 | G15 | **The platform-inert loophole report reads the manifest default instead of the merged config, and `host-processes` declares no platform at all** | podman/macOS (+ macos-user for the `env` half) | A user who *enables* a Linux-only loophole on a Mac gets a clean launch and no line. Worse, `host-processes` has no `platforms` key, so on macOS the daemon **starts**, the front publishes, the witness passes, and every `yolo-ps` call fails on GNU-procps argv. And `audio`'s pack `env` half still crosses, so `PULSE_SERVER` names a socket that does not exist. | small (one line in the manifest; one resolver fix) | no |
 | G16 | **`copilot` and `omp` logins never persist across workspaces, because their manifests never asked** | all four | Every new workspace demands a fresh `copilot` login. The mechanism (`scope: machine` state + a `shared_credentials` hook) is fully built and simply not declared. | small (manifest lines, no Go) | no — but a **fact-finding** blocker: the hook symlinks a single *file* |
@@ -107,19 +119,20 @@ Size is the *build* estimate the refuters and auditors gave, not the measurement
 | G18 | **`providers` has no workspace-scope containment** | all four | A repo-committed, agent-editable `yolo-jail.jsonc` can rewrite the `base_url` of a provider a user-scope profile selects — i.e. point the agent's API traffic at an endpoint of the repo's choosing. Nothing warns; the disclosure line reads identically. This is exactly what [`OQ-CS5`](../reference/providers.md#why-its-this-way)'s refusal text says a committed file must not do, applied to the sibling key that carries the address. | small (~15 lines, mirroring `validateProfiles`) | no |
 | G19 | **The `macos-user` bootstrap env is a hand-maintained two-name wire, and four things fall off it** | macos-user/macOS | `YOLO_PROFILES` is missing, so every pack *config surface* renders as if no profile were selected while the agent's own env is correct. `env_sources` do not reach the bootstrap, so `mcp_servers.requires_env` deletes servers whose variable the agent **will** have. `YOLO_PACK_ROOT` is bootstrap-only, so in-sandbox `yolo programs ls` says "run it there" to someone who is there. `YOLO_VERSION` is unset, so `config.InJail()` is false and `yolo host apply` inside the sandbox is not refused — it renders into the shared sandbox home while every message says "your real home". | small (each is 1-15 lines) | no |
 | G20 | **`macos-user` has no host-side observability at all** | macos-user/macOS | No `boot.log` (so a scrolled-away provisioning failure is undiagnosable — the exact case the log exists for), no `--timing` table (so the up-to-30-minute nix build, this backend's entire cost, is unmeasured), no housekeeping slot (nothing is ever reclaimed or offered), no `config-boot.json` (so `yolo config drift` answers "cannot determine" forever), no E3 config capture, and `yolo ps` prints a red "Could not query the macos-user runtime" on a healthy machine. | small each (~5-30 lines) | no |
-| G21 | **Nix inside the jail: four independent breaks, one of them three lines** | podman/Linux, podman/macOS, container/macOS, macos-user | `nix build` in a jail is refused for `experimental-features` (measured), because the image bakes no `nix.conf` — three lines, the precedent is already in `flake.nix:1717-1721` for the builder image. On AC there is no store mount and no notice. An in-jail build's output gets **no GC root**, so a host `nix-collect-garbage` can delete the store path a running jail is executing from, silently. On `macos-user`, the one backend that *requires* a host nix for every launch is the one whose sandbox cannot see it (`nix: command not found`). A refuter measured a fully working in-jail nix with two podman volumes + that same 3-line `nix.conf`. | small (each break) / medium (store lifecycle) | **yes** — where the in-jail store lives, and who reaps it |
+| G21 | **Nix inside the jail: four independent breaks, one of them three lines** | podman/Linux, podman/macOS, container/macOS, macos-user | `nix build` in a jail is refused for `experimental-features` (measured), because the image bakes no `nix.conf` — three lines, the precedent is already in `flake.nix:1717-1721` for the builder image. On AC there is no store mount and no notice. An in-jail build's output gets **no GC root**, so a host `nix-collect-garbage` can delete the store path a running jail is executing from, silently. On `macos-user`, the one backend that *requires* a host nix for every launch is the one whose sandbox cannot see it (`nix: command not found`). A refuter measured a fully working in-jail nix with two podman volumes + that same 3-line `nix.conf`. **Measured 2026-09-16, and the macos-user arm is smaller than it looked:** inside the shipped profile shape, `connect(2)` to the daemon socket survives the write-deny, `nix build nixpkgs#hello` returns RC=0, and an indirect gcroot IS created because the daemon writes it as root ([§5.1](#51-what-is-now-measured) rows 10-12). Nothing about confinement blocks it — the whole macos-user break is that `nix` is not on the sandbox's PATH. | small (each break) / medium (store lifecycle) | **yes** — where the in-jail store lives, and who reaps it |
 | G22 | **Store-delivered packages and the lean image's extras are refused on both Mac container backends** | podman/macOS, container/macOS | Every distinct `packages:` list costs a full Linux-builder-offloaded image build — the cost C4/C5 exists to remove, absent exactly where it is largest. All four cells were hard claims; all four fell. | small (podman/macOS: ~4 lines deleted, 2 added) / medium (AC: 200-400 lines) | **yes** — the whole-store-bind hazard and the additive fallback |
 | G23 | **A `packages:` entry that cannot be built fails as a raw nix trace, three layers from the config line** | podman/Linux, podman/macOS, container/macOS | A typo names its attribute (workable); an unfree or platform-unsupported package surfaces as a check-meta trace from inside `buildEnv`. On a Mac it is worse: a bad package and a missing Linux builder produce failures in the same place, so each reads as the other. | medium-small (~2-3 days) | no |
 | G24 | **`prune` is accepted with no validator, is undocumented, and the coverage test that should have caught it passes vacuously** | all four | `prune: {"warn_threshold": 40}` is accepted, does nothing, and cannot be looked up — `config-ref` has no `prune` section. `TestConfigRefDocumentsEveryLiveKey` does `strings.Contains(ref, key)` and "prune" is a substring of "autoprune", so the check is satisfied by a mention of a *different key*. | small (~20 lines + a doc section + the test tightening) | no |
 | G25 | **`--network <mode>` is not an override** | all four | `yolo --network bridge` against a workspace whose config says `"mode": "host"` silently launches host-networked, contradicting `yolo run --help`. `resolveNetMode` lets the config win because the flag's default and an explicit flag are indistinguishable. | small (~10 lines, but every `NewDefaultOptions` caller must be checked) | no |
 | G26 | **`macos-user` `host_files`: directory sources are dropped, and a home-root destination is shared across every workspace on the machine** | macos-user/macOS | A directory-shaped `host_files` entry (a host nvim config) is warned and never delivered. And a destination at the home *root* (`~/.npmrc`, `~/.netrc`) lands in the single `_yolojail` account home, so workspace A's launch overwrites workspace B's file, silently. | small (~30-50 lines each) | no — the real fix is the already-open per-workspace home design |
-| G27 | **Apple Container's dropped keys: `pids_limit`, `ephemeral_storage`, the DNAT fixup, captures materialize, pack `mount`** | container/macOS | A fork bomb is unbounded with nothing printed. `"ephemeral_storage": "volume"` silently gets RAM-backed scratch and can OOM under exactly the workload the key exists to move off RAM. A 127.0.0.1-bound jail service is unreachable on its published port with the same config that works on podman. `yolo capture claude` succeeds and every launch still downloads. A pack `mount` is **disclosed** in the banner and never arrives. | small each — captures materialize is a **five-line** predicate swap | no |
+| G27 | **Apple Container's dropped keys: `pids_limit`, `ephemeral_storage`, the DNAT fixup, captures materialize, pack `mount` — and `network.ports` itself, which was believed to work** | container/macOS | A fork bomb is unbounded with nothing printed. `"ephemeral_storage": "volume"` silently gets RAM-backed scratch and can OOM under exactly the workload the key exists to move off RAM. `yolo capture claude` succeeds and every launch still downloads. A pack `mount` is **disclosed** in the banner and never arrives. **Measured 2026-09-16, and this row grew:** `network.ports` does not work here **at all**, not merely for a loopback-bound service — AC records the mapping and the published address carries no data, while the container's own IP does ([§5.1](#51-what-is-now-measured) row 6). So the DNAT sub-row is moot on this backend (there is nothing to fix up) and the KEY is the drop. Every doc that says AC publishes ports needs correcting, not just annotating. | small each — captures materialize is a **five-line** predicate swap | no for the drops; **yes** for `network.ports`, which now needs a ruling like G34's |
 | G28 | **podman/Linux's own small defects** | podman/Linux | `gpu.mode: cdi` for AMD passes a probe that never checks for a CDI spec, so the launch dies on a raw runtime error instead of yolo's warn-and-skip (measured: `unresolvable CDI devices amd.com/gpu=all`). `yolo check` prints "Stop N orphaned jail(s)? [y/N]", reads a `Stdin` nothing assigns, always proceeds as N, then tells you to run the command that just declined. A nested launch drops both port keys and says "NOT applied" where the truth is "already reachable at localhost:H". | tiny each (10 lines, 1 line, 40-70 lines) | no |
 | G29 | **`confinement: "guest"` is refused on all four setups** | all four | rc 1, including on a re-entry into a running jail. The refusal is right (the briefing's guest prose would be false of what launched), but the notch is the one a `macos-user` user is most likely to think they already have. | large (Linux: bwrap+Landlock, a whole backend arm) / medium (macOS: mostly a home-tier decision on a backend that ships) | **yes** — exists, [`handoff-guest-notch-macos.md`](./handoff-guest-notch-macos.md) |
 | G30 | **`macos-user`'s posture inversions: the confinement keys are advisory and the userland surprise is unannounced** | macos-user/macOS | `host-processes` exists to show *nothing* by default plus an opt-in allowlist; here the sandbox runs the host's own `ps` under `(allow default)` and sees every process on the machine including other users' command lines, gated by no config key. `macos_log: "off"` is likewise advisory — the agent can exec `/usr/bin/log` directly. And [`OQ-P2`](../design/macos-user-provisioning.md#decision-ledger)'s no-GNU-userland ruling is invisible: `sed -i`, `find -printf`, `grep -P` and `tar --wildcards` all fail here and work on every container backend, with nothing at launch or in the briefing to predict it. | small (a `(deny process-info*)` + wrapper; one briefing sentence) | **yes** — is the allowlist a boundary or a convenience? |
 | G31 | **Device and GPU keys on macOS: three cells that were `impossible` and are not** | macos-user, podman/macOS | `devices` on `macos-user` can at minimum carve the declared node out of yolo's own SBPL deny. `gpu` on podman/macOS: libkrun/krunkit exposes virtio-gpu with Venus, so `--device /dev/dri` gets Vulkan **compute** via MoltenVK — but `deviceArgs` refuses every entry by host OS before any path check, and `validate.go` accepts only `nvidia`/`amd`, so the one GPU an Apple silicon Mac has cannot be named. `kvm` on podman/macOS probes the **Mac** for `/dev/kvm` when the device would live in the VM. | small each (+ a real-Mac verification) | no |
 | G32 | **The host user-level skills tree does not exist, and AGENTS.md still documents it** | all four | A skill in `~/.claude/skills` on the host does not reach the jail. `SkillTarget.HostSource` was removed by S3 because it was set to the *destination*; the middle term of "built-in < host user-level < workspace" is gone. Two routes already reach the outcome (the conventional local pack; a filtered `packs` entry pointing at `~/.claude`), and **no OQ, ledger row or comment rules the literal path out on purpose**. | zero (document route 1) / small (~tens of lines for route 2's robustness fix) | no — but fix the AGENTS.md sentence either way |
 | G33 | **An inline `loopholes.<name>` record gets no container-side plumbing** | all four | No bind, device, intercept, CA or `jail_env`. Currently harmless because the inline key census cannot *express* any of it — an attempt is an unknown-key error, so the filter and the census agree. A user reaches the full outcome today with zero code by declaring the loophole in the conventional local pack at `~/.config/yolo-jail/local`. | zero (workaround) / small-medium (~200-350 lines for the inline spelling) | no |
+| G34 | **`forward_host_ports` on Apple Container emits an inverted `--publish-socket` for a socket AC then refuses, so the container never starts** — **Measured 2026-09-16** | container/macOS | Ranks with G2 by impact: this is a **launch-breaking** row, the only one in the table. Two independent faults, both measured ([§5.1](#51-what-is-now-measured) row 8). (1) `run.go:1137` starts host-side socat **before** the container and waits for its socket file; AC then refuses the flag naming that path — `Error: host socket <path> already exists and may be in use` — so a config with `forward_host_ports` cannot create a container at all, and the error names a socket the user never wrote. (2) Even with no socat (not installed → no socket), the DIRECTION is wrong: AC's `--publish-socket host_path:container_path` creates `host_path` and forwards a HOST connection inward to a container-side listener, while the key needs jail→host, so the jail's connect to `/tmp/yolo-fwd/port-<n>.sock` reaches nothing. Note what this buys: a unix socket is the ONE transport measured to cross this boundary (TCP crosses in neither direction, rows 6-7), so the mechanism for G6 is *here*, inverted — a host-initiated relay into a jail-side listener. | small to make it honest (drop the flag, warn, ~20 lines) / medium for the host-initiated relay | **yes** — the relay inverts the loophole model, which is a ruling not a patch |
 
 ### Build notes — the refuters' mechanisms, carried forward
 
@@ -172,7 +185,7 @@ entries — vacuously satisfied, and a proxy there collides with the host servic
 because this backend bakes nothing. ~60-100 lines. `network.ports`: the mirror image, host-side, plus an optional
 confinement upgrade — `(deny network-bind (local ip "*:*"))` + a loopback re-allow in `SeatbeltProfile`, which is
 already last-match-wins and already takes per-launch config. Whether SBPL's `network-bind` filter has port
-granularity is **unmeasured**; the one-command probe is in [§5](#5-unmeasured-cells).
+granularity is **measured and present** ([§5.1](#51-what-is-now-measured) row 13).
 
 **G14 (skills/briefing read-only).** Per-destination Seatbelt write denies: `buildMacosHomeOverlay` already holds
 the home-relative destination list (`internal/cli/run/macoshomeoverlay.go:42-53,:64-76`); thread it into
@@ -295,69 +308,67 @@ runs through Hypervisor.framework, which requires a code-signing entitlement on 
 Seatbelt profile cannot grant an entitlement — so that route is a different feature request rather than a worse
 mechanism for the same key.
 
-## 5. Unmeasured cells
+## 5. Measured cells, and what is still unmeasured
 
-**Of 705 cells, 40 are `measured`, 11 are `inferred`, and 654 are `read-the-code`.** Twenty-two are classified
-`unknown` — meaning no amount of further reading settles them.
+The audit shipped with **40 `measured`, 11 `inferred` and 654 `read-the-code` cells, and 22 classified `unknown`** —
+meaning no amount of further reading settles them. **On 2026-09-16 a measurement pass on a real Mac settled 15 of
+the 22**, so the classification table in [§1](#1-what-this-is) is PRE-MEASUREMENT and this section is the current
+answer where the two disagree.
 
-**The least-measured column is podman/macOS: 0 measured cells out of 141, and 12 of the 22 unknowns.** That is
-also the column where the launch's disposition is `unknown` by construction (`hostLoopbackFactsFor` returns bare
-facts on `rt != "podman" || o.IsMacOS`), which means the **fatal reachability witness never escalates there** —
-the one column where the escalation that exists to prevent a silent loophole outage is switched off. Every other
-column is between 4.7% and 11.7% measured.
+The instrument was one machine holding all three macOS setups at once: macOS 25.5 (Darwin 25.5.0, arm64), podman
+6.0.2 on an `applehv` machine (inside the VM: `rootless: true | netavark | pasta | cgroups v2`), `container`
+1.1.0, a running nix daemon, and `sandbox-exec`. Two probe rules earned their keep and belong in any re-run:
+**read bytes, never just connect** ([§5.1](#51-what-is-now-measured) row 1 was a false `CONNECT` on the first attempt — the exact class
+[loopholeinert.go](../../internal/cli/run/loopholeinert.go)'s reason describes), and **name the direction**, because
+the one AC mechanism that carries data carries it the other way ([§5.1](#51-what-is-now-measured) row 8).
 
-| Setup | Cells | measured | inferred | `unknown` |
-|---|---:|---:|---:|---:|
-| podman/Linux | 180 | 21 | 0 | 1 |
-| container/macOS | 163 | 8 | 4 | 6 |
-| macos-user/macOS | 169 | 8 | 3 | 3 |
-| **podman/macOS** | **141** | **0** | 4 | **12** |
-| all (backend-independent) | 52 | 3 | 0 | 0 |
+### 5.1. What is now measured
 
-### Grouped by the instrument that settles them
+| # | Question | Answer, measured 2026-09-16 |
+|---|---|---|
+| 1 | Can a podman/macOS jail reach a host service on the Mac's own `127.0.0.1`? | **YES, and data crosses both ways.** `/etc/hosts` carries `192.168.127.254 host.containers.internal`; the Mac-side listener accepted from `('127.0.0.1', 64269)` and both banners arrived. Default bridge, **no `--net` flag and no `--map-host-loopback`** — gvproxy forwards it. Settles `claude-oauth-broker` (`default_enabled: true`), `openai-auth-broker`, `serial` and every inline config-declared loophole: the hop works. |
+| 2 | Is a `127.0.0.1`-bound jail service publishable on podman/macOS — does the DNAT fixup work across the VM hop? | **NO for the fixup; the doc claims are RIGHT.** With `route_localnet=1`, `--cap-add NET_ADMIN` and the exact `PREROUTING … -j DNAT --to-destination 127.0.0.1:9000` rule installed and a listener confirmed on `127.0.0.1:9000`, the Mac's dial connects and receives **nothing**; the `0.0.0.0` control returns its banner. So `config-ref` and the agent briefing are correct and G23's "bind `0.0.0.0`" advice stands. **Hypothesis worth one CI run:** rootless port forwarding is a userspace splice *inside* the netns, so it never traverses `PREROUTING` — which would make the fixup inert on every rootless podman, including podman/Linux (the reference setup's own remaining `unknown`). |
+| 3 | Who owns files the agent writes in a podman/macOS workspace bind? | **Your own uid.** In-jail `stat` says `0 0`; on the Mac the same file is `501 20`. No VM `core` uid, no unfamiliar numeric owner. |
+| 4 | Does `network.ports` publish on podman/macOS? | **YES for a `0.0.0.0`-bound service** (banner returned through `-p 18096:9000`). Only the loopback-bound half fails, which is row 2. |
+| 5 | Apple Container: the shape of `container inspect`'s payload, which gates G11 wholesale | **Measured.** A top-level ARRAY of objects, each with `id`, `status.state`, `status.startedDate`, `status.networks[].ipv4Address`/`ipv4Gateway`, and under `configuration`: `mounts` (a real array — so the strict `mountsArrayFrom` guard is the right default *and* now a checkable one), `labels` (a dict, so a yolo label is available for discovery), `publishedPorts`, `publishedSockets`, `resources`, `initProcess.environment`. `container list --all --format json` is the companion surface. |
+| 6 | Apple Container: does `network.ports` publish at the address yolo believes? | **NO.** `container inspect` records `{"hostAddress": "0.0.0.0", "hostPort": 18097, "containerPort": 9000}` and dialling the Mac's `127.0.0.1:18097` **connects and carries nothing** (the container-side `socat` logged `Connection reset by peer`, so the connection reaches the jail and the data does not cross). Dialling the container's own `192.168.64.23:9000` returns the banner. The reachable address is the container IP; the published one is inert. |
+| 7 | Apple Container: is the container→host outage still real on 1.1.0? | **YES — re-verified, and now with bytes.** The host *accepts* (peer is the container's IP `192.168.64.3`), then `sendall` raises `BrokenPipeError` and the client reads nothing. `backendInertReason`'s expiry check has been run: the reason still holds on 1.1.0 / macOS 25.5. Together with row 6 the finding generalises — **on AC, host↔container TCP establishes in both directions and carries data in neither.** |
+| 8 | Apple Container: does `--publish-socket` work? | **YES, it carries data both ways — and its direction is host→container**, which is the opposite of the use yolo puts it to. AC *creates* the host socket (`srwxr-xr-x`) and forwards a Mac process's connection to a **container-side listener**: `HOST_READ b'JAIL_SOCK_HELLO\n'`, `JAIL_GOT b'HOST_HELLO\n'`. So a unix socket is the one transport that crosses this boundary, and `forward_host_ports` is wired backwards through it — see G34. |
+| 9 | Apple Container: does headless chromium launch and serve CDP? | **YES.** In the `yolo-jail` image under AC, `chromium --headless --no-sandbox --disable-gpu --remote-debugging-port=9222` answered `/json/version` with `Chrome/152.0.7977.82` **after 1s**. The predicted shared-memory death did not occur. |
+| 10 | macos-user: does `connect(2)` to `/nix/var/nix/daemon-socket/socket` survive `(deny file-write* (subpath "/"))`? | **YES.** `CONNECT ok` under the shipped profile shape, while `touch /nix/var/nix/gcroots/auto/…` under the same profile is `Operation not permitted` — so the deny is live and unix-socket connect is simply not governed by it. |
+| 11 | macos-user: does an in-sandbox `nix build` therefore work? | **YES, RC=0.** `nix build nixpkgs#hello` inside `sandbox-exec`, substituted from cache.nixos.org. G21's macos-user arm is a **delivery** problem (`nix` is not on the sandbox's PATH), not a confinement one. |
+| 12 | macos-user: is an indirect gcroot into `/nix/var/nix/gcroots/auto` denied? | **NO — it is created.** `gcroots/auto/jfp33… -> /tmp/…/ws/result` appeared for a sandboxed `--out-link`, because the DAEMON does that write as root. The sandbox's own write-deny is irrelevant to it. |
+| 13 | Does SBPL `network-bind` have port granularity (G13's confinement half)? | **YES.** `(deny network-bind (local ip "*:8000"))` blocks 8000 (`PermissionError`) and permits 8001; a bare `(deny network-bind)` blocks both. The confinement upgrade G13 proposes is expressible. |
+| 14 | Does `claude` start with an unwritable `~/.claude/skills` on darwin (G14)? | **YES.** With the deny confirmed live (`touch` → `Operation not permitted`), `claude --version` prints `2.1.269` and `claude mcp list` answers normally. Bounded honestly: neither exercises a session that *writes* skills, but the "it refuses to start" worry is refuted. |
 
-**A real Mac running podman machine** (the gvproxy/VM hop — 12 cells, the whole least-measured column):
+### 5.2. Still unmeasured
 
-- Can the jail reach a host service on the Mac's own `127.0.0.1`? One command:
-  `(exec 3<>/dev/tcp/host.containers.internal/<port>)` from a podman/macOS jail against a listener on the Mac's
-  loopback. This single answer settles `claude-oauth-broker` (**`default_enabled: true`**, so every macOS podman
-  user selecting the claude pack is exercising an unmeasured hop by default), `openai-auth-broker`, `serial`,
-  every inline config-declared loophole, and G8's disposition.
-- Whether the DNAT fixup works at all across the VM hop, and whether the two doc claims that say a 127.0.0.1
-  listener is *not* publishable are true (`config-ref` and the agent briefing both say so; if the DNAT works,
-  both are false and every agent is told to widen its bind for no reason).
-- Who owns the files the agent writes in `/workspace` — your uid, or the VM's `core` uid appearing as an
-  unfamiliar numeric owner.
+Seven of the 22 `unknown` cells stand, and all seven need something this pass could not reach — a **real yolo
+launch** rather than a bare container, an interactive TTY, or a rootless Linux host.
+
+**A real Mac running podman machine** (4 cells):
+
 - Whether Window A's number is trustworthy: the die/cleanup timestamps come from inside the VM while
   `podmanExited` is a host-side mark, so VM/host clock skew lands directly in the reported gap.
 - Whether a vendor-installer capture share is present (an absent share and an empty store are the same observation).
 - `cache_relocations` onto an unshared volume — expected to fail the *launch* rather than no-op silently, which
   is the safe direction, unconfirmed.
+- Whether the in-jail `iptables` DNAT fixup can be written at all under Apple Container (the rule was installed
+  fine under podman/macOS in row 2, so this is now AC-specific).
 
-**A real Mac running Apple Container ≥ 1.1.0** (6 unknowns plus most of [§2](#2-ranked-gap-backlog)'s AC rows):
+**A real Mac running Apple Container ≥ 1.1.0** (2 cells):
 
-- Whether `network.ports` publishes at the address yolo believes.
-- Whether the in-jail `iptables` DNAT fixup can be written at all.
-- Whether headless chromium launches and serves CDP (plausible failure: it starts and dies on shared memory,
-  surfacing as an MCP tool that times out rather than a launch error).
 - What `^Z` does — nobody has pressed it in an AC jail and written down the answer; the doc explicitly refuses to
-  let podman's behaviour be inherited.
-- The shape of `container inspect`'s payload, which gates G11 wholesale (the strict `mountsArrayFrom` guard is
-  currently the right default precisely because the payload is unmeasured).
+  let podman's behaviour be inherited. Needs an interactive TTY.
 - Whether AC exec succeeds against a container wedged mid-provision — the reason to prefer the host-side
-  log-freshness detector, which cannot hang.
-- Whether `--publish-socket` works, which gates the best of the four host-mode substitutes.
+  log-freshness detector, which cannot hang. Exec against a *healthy* container works (measured), which is the
+  easy half and not the one that matters.
 
-**A real Mac, Seatbelt probes** (3 unknowns, plus the confinement claims in G13/G14):
+**A real rootless Linux host, or CI** (1 cell, plus row 2's hypothesis):
 
-- Whether `connect(2)` to `/nix/var/nix/daemon-socket/socket` survives `(deny file-write* (subpath "/"))` —
-  Seatbelt governs unix-socket connect through a different operation, and nobody has run it.
-- Whether an in-sandbox `nix build` therefore works or dies on permissions.
-- Whether an indirect gcroot symlink into `/nix/var/nix/gcroots/auto` is denied.
-- One-line probes that settle two backlog rows:
-  `sandbox-exec -p '(version 1)(allow default)(deny network-bind (local ip "*:8000"))' python3 -m http.server 8000`
-  next to the same on 8001 (G13's confinement half); and whether `claude`/`copilot` start cleanly with an
-  unwritable `~/.claude/skills` on darwin (G14).
+- Whether the DNAT fixup works in a **non-nested** podman jail. Row 2's mechanism predicts it does not on a
+  ROOTLESS host and does on a rootful one, which would make this a two-row answer rather than one. Report
+  `podman info --format '{{.Host.Security.Rootless}} {{.Host.CgroupsVersion}}'` with whatever comes back.
 
 **A real rootless Linux host, or CI** (the reference setup's own blind spots — this is CARVE-OUT 2 territory and a
 nested jail reports `rootless: false`):
@@ -399,9 +410,15 @@ Three things a re-run should do differently:
 
 1. **Attack the remaining 13**, starting with the ELF/loader five. A 32-of-33 kill rate is a statement about how
    this corpus writes the word "impossible".
-2. **Close the measurement gap in the podman/macOS column before auditing it again.** A second reading pass over
-   141 cells with zero measured facts produces a second set of `read-the-code` cells, and the one question that
-   unblocks a dozen of them is a single `/dev/tcp` probe from a real Mac.
+2. **DONE for the reachable half, on 2026-09-16 — read [§5.1](#51-what-is-now-measured) before re-reading any
+   macOS cell.** The instruction was to close the measurement gap in the podman/macOS column before auditing it
+   again, because a second reading pass over 141 cells with zero measured facts only produces a second set of
+   `read-the-code` cells. One Mac holding all three macOS setups settled 15 of the 22 unknowns in under an hour of
+   probes, and the cheapest of them (`/dev/tcp` against a Mac loopback listener) overturned the column's whole
+   premise. Two lessons for the next pass: the first attempt at that very probe returned a FALSE `CONNECT`
+   because it never read a byte, and the AC finding that matters most was found by asking which DIRECTION a
+   mechanism runs, not whether it works. What remains needs a real `yolo` launch, a TTY, or rootless
+   Linux — [§5.2](#52-still-unmeasured) names which for each.
 3. **Re-verify every `file:line` in this document against the tree before citing it downstream.** The audit found
    more than fifty false doc claims as a by-product — including one this document repeats as a finding
    (`yolo-cglimit`'s non-existent nice/ulimit fallback, asserted in both `config_ref.txt:1608` and
