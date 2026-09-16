@@ -118,8 +118,10 @@ to manage it.
 
 [Apple Container](https://github.com/apple/container) uses Apple's
 Virtualization.framework directly — each container runs in its own lightweight
-VM with native resource limits (`--cpus`, `--memory`) and native Unix socket
-forwarding (`--publish-socket`).
+VM with native resource limits (`--cpus`, `--memory`, integers only) and native
+Unix socket forwarding (`--publish-socket`). ⚠ yolo's use of that last one is
+broken today, and both port keys are worse than they look here — see
+[what Apple Container does not do](#apple-container-runtime-container--what-it-does-not-do) below.
 
 ```bash
 brew install container
@@ -508,7 +510,8 @@ those you have to know about, because nothing tells you.
 | `network.mode: "bridge"` (the default) | **honored.** Apple Container gives each container its own `vmnet` namespace and yolo emits no `--net` — which is correct here | `run/assemble.go` → `assembleRunCmd` (network-mode block) |
 | `network.mode: "host"` | **not honored — and asking for it is worse than leaving it unset.** Warns | see the warning below |
 | `network.mode: "none"` (or any other value) | **not a legal value on any backend.** The key accepts `bridge` and `host` only; anything else is a config error that refuses the launch before a backend is even chosen | `config/validate.go` (the `network.mode` check) |
-| `network.ports`, `network.forward_host_ports` | **honored under `bridge`** — published ports via `-p`, host-port forwarding via native `--publish-socket` (no socat, no TCP gateway). Both keys are read *only* in `bridge` mode | `run/assemble.go` → `assembleRunCmd`; `run/assemble_parts.go` → `forwardHostPortsArgs` |
+| `network.ports` | **emitted and inert — measured 2026-09-16** on `container` 1.1.0 / macOS 25.5. `container inspect` records the mapping (`hostAddress: 0.0.0.0`) and the published address carries no data: the Mac's dial connects, the jail-side listener sees it arrive and reset, nothing crosses. The container's own vmnet IP answers normally, so the reachable address is not the one yolo publishes. Nothing warns | `run/assemble.go` → `assembleRunCmd` |
+| `network.forward_host_ports` | **breaks the launch — measured 2026-09-16.** yolo starts host-side `socat` before creating the container (`run.go`, "Start host-side port forwarding BEFORE the container") and AC refuses the flag naming that socket: `Error: host socket <path> already exists and may be in use`. The direction is inverted too — `--publish-socket host_path:container_path` creates the host socket and forwards a *host* connection inward to a container-side listener, which is the opposite of this key. A published socket does carry data both ways, so it is the material for a fix, not a dead end | `run/assemble_parts.go` → `forwardHostPortsArgs` |
 | Pack `state` at `scope: machine` (e.g. `~/.claude-shared-credentials`) | **honored as of 2026-08-24.** It was never mounted before that, so cross-jail credential sharing silently degraded to per-workspace — see the warning below | `run/assemble_parts.go` → `appleContainerBaseMounts` |
 | Any single-**file** read-only mount | **copied, not mounted** — by choice, not by necessity. This was attributed to [apple/container#1089](https://github.com/apple/container/issues/1089) ("cannot bind a single file"), which is **false on `container` 1.1.0** — measured 2026-09-14: a regular-file bind arrives, propagates writes and honors `:ro`. yolo keeps copying because a copy works on every version with no version floor to get wrong, and every consumer here reads its file at boot, so a snapshot is equivalent. yolo copies each one into the jail's home — your `yolo-user-env.sh`, pack briefings, pack `files`, your global gitignore, pack `reads-host` grants and `host_files` file sources. You should not notice; the files arrive with the same contents. **The one exception is a pack `mount` whose source is a file**, which is skipped rather than copied — see the row above for why | `run/helpers.go` → `acMaterialize` |
 
@@ -871,8 +874,12 @@ support them). This is automatic — if port forwarding fails, ensure:
 3. `host.containers.internal` resolves inside the container:
    `podman exec <container> ping -c1 host.containers.internal`
 
-**Apple Container:** Uses native `--publish-socket` for direct Unix socket
-forwarding. No TCP gateway or socat needed.
+**Apple Container:** ⚠ **Both port keys are broken here, measured 2026-09-16.**
+`network.ports` is emitted and carries nothing; `forward_host_ports` refuses the
+launch outright, because yolo hands `--publish-socket` a socket `socat` has
+already created and because AC's own direction for that flag is host→container.
+Neither has a workaround on this backend today; the working route for reaching a
+host service is a different backend.
 
 ### Apple Container: no outbound internet (macOS 15 vmnet limitation)
 
