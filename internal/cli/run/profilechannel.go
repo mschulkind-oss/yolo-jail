@@ -66,6 +66,10 @@ type packChannel struct {
 	// handed to the env-derive runner, so both consumers of a profile's body — the jail's
 	// derives and the host notch's env composition — read ONE resolution.
 	resolvedProfiles map[string]packload.ResolvedProfile
+	// localProviderForwards are implicit host-loopback forwards requested by user
+	// provider URLs. They originate only in user config, never in a pack endpoint;
+	// see localProviderForwards for why that boundary matters.
+	localProviderForwards []any
 }
 
 // composePackChannel composes the channel from the config and the STAGED pack set.
@@ -115,11 +119,12 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 		return nil, err
 	}
 	c := &packChannel{
-		profiles:         profiles,
-		providers:        providers,
-		packEnv:          packload.EnvVarsFor(packs, packload.ProfileTable(profiles)),
-		userEnv:          userEnv,
-		resolvedProfiles: resolved,
+		profiles:              profiles,
+		providers:             providers,
+		packEnv:               packload.EnvVarsFor(packs, packload.ProfileTable(profiles)),
+		userEnv:               userEnv,
+		resolvedProfiles:      resolved,
+		localProviderForwards: localProviderForwards(cfgMap(cfg, "providers")),
 	}
 	// The provider environment, one pass over the profile table in table order — the
 	// same iteration the channel file writer makes, so the two spellings emit the same

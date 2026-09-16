@@ -280,6 +280,13 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 				"to publish. Launch from the host for published ports.")
 		}
 	}
+	// A user provider URL at localhost names the launcher host, not this jail's
+	// private loopback. The channel has already extracted those ports from user
+	// config (never pack endpoints) and the usual forward_host_ports machinery
+	// carries them without making a runtime gateway name part of that config.
+	if applied == "bridge" {
+		forwardHostPorts = mergeHostForwards(forwardHostPorts, in.envChannel(o).localProviderForwards)
+	}
 
 	normalizedBlocked := config.NormalizeBlockedToolsWith(cfgMap(cfg, "security"), packload.BlockedTools(in.packs))
 	blockedConfigJSON := jsonDumps(normalizedBlocked)

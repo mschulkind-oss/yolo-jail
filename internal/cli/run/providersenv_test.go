@@ -115,3 +115,43 @@ func TestAssembleEmitsEmptyProvidersTableWithoutProviders(t *testing.T) {
 		t.Errorf("an unprofiled, provider-less launch must carry YOLO_PROVIDERS={}; got %q", got)
 	}
 }
+
+// TestAssembleAutomaticallyForwardsUserLocalProvider pins the launch call site:
+// a user spelling localhost in a provider URL must leave that URL intact for the
+// agent while adding the existing host-loopback forward that makes it mean the
+// launcher host from a bridged jail. A pack endpoint is intentionally not part
+// of this test — pack-local loopback is an in-jail service fact, not user intent.
+func TestAssembleAutomaticallyForwardsUserLocalProvider(t *testing.T) {
+	providers := jsonx.NewOrderedMap()
+	local := jsonx.NewOrderedMap()
+	local.Set("base_url", "http://localhost:11434/v1")
+	providers.Set("ollama", local)
+	la := assembleWithPacksAndConfigAssembled(t, nil, newConfig("providers", providers))
+	argv := strings.Join(la.argv, "\n")
+	channel := strings.Join(la.channelEnv(t, "YOLO_PROVIDERS"), "\n")
+	if want := "YOLO_PROVIDERS={\"ollama\": {\"base_url\": \"http://localhost:11434/v1\"}}"; !strings.Contains(channel, want) {
+		t.Errorf("provider URL was rewritten instead of remaining local\nchannel:\n%s", channel)
+	}
+	for _, want := range []string{
+		"YOLO_FORWARD_HOST_PORTS=[11434]",
+		"/tmp/yolo-fwd-yolo-ws-abcd1234:/tmp/yolo-fwd:rw",
+	} {
+		if !strings.Contains(argv, want) {
+			t.Errorf("automatic local-provider forward missing %q\nargv:\n%s", want, argv)
+		}
+	}
+}
+
+func TestAssembleLeavesUserLocalProviderDirectOnHostNetworking(t *testing.T) {
+	providers := jsonx.NewOrderedMap()
+	local := jsonx.NewOrderedMap()
+	local.Set("base_url", "http://127.0.0.1:8080/v1")
+	providers.Set("llama", local)
+	network := jsonx.NewOrderedMap()
+	network.Set("mode", "host")
+	la := assembleWithPacksAndConfigAssembled(t, nil, newConfig("providers", providers, "network", network))
+	argv := strings.Join(la.argv, "\n")
+	if strings.Contains(argv, "YOLO_FORWARD_HOST_PORTS=") || strings.Contains(argv, "/tmp/yolo-fwd-") {
+		t.Errorf("host-networked localhost provider must not create a forward\nargv:\n%s", argv)
+	}
+}

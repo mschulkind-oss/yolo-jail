@@ -1122,6 +1122,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// reading the shared predicate (see the method's comment for both failures that
 	// caused).
 	forwardHostPorts := o.hostForwardPorts(cfg, rt)
+	if appliedNetMode(rt, o.resolveNetMode(cfg), o.inContainer()) == "bridge" {
+		forwardHostPorts = mergeHostForwards(forwardHostPorts, channel.localProviderForwards)
+	}
 	var portSocketDir string
 	if len(forwardHostPorts) > 0 && (rt == "container" || !o.IsMacOS) {
 		portSocketDir = o.fwdSocketDir(cname)

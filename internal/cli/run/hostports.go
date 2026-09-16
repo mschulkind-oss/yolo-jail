@@ -79,6 +79,39 @@ func ParsePortForwards(entries []any, warn func(string)) ([]PortForward, error) 
 	return result, nil
 }
 
+// mergeHostForwards appends implicit localhost-provider forwards to the user's
+// explicit forwards. An explicit local port wins: it is a deliberate legacy
+// remap (for example, jail 8080 -> host 9090), whereas the implicit spelling
+// means same-port host loopback. Keeping the explicit mapping avoids changing a
+// working configuration when automatic local-provider forwarding is introduced.
+func mergeHostForwards(declared, implicit []any) []any {
+	if len(implicit) == 0 {
+		return declared
+	}
+	out := append([]any(nil), declared...)
+	used := map[int]bool{}
+	if parsed, err := ParsePortForwards(declared, nil); err == nil {
+		for _, p := range parsed {
+			used[p.LocalPort] = true
+		}
+	}
+	for _, raw := range implicit {
+		var port int
+		switch v := raw.(type) {
+		case int:
+			port = v
+		default:
+			continue
+		}
+		if port < 1 || port > 65535 || used[port] {
+			continue
+		}
+		used[port] = true
+		out = append(out, port)
+	}
+	return out
+}
+
 // indexByte returns the index of the first b in s, or -1. Only the first ':'
 // splits (like split(":", 1)), so we need its first index.
 func indexByte(s string, b byte) int {

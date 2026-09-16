@@ -949,6 +949,26 @@ core change, not a pack.
 `llm-gateway` loophole ever lands, the projection layer is unchanged — the derive
 just emits a different `base_url`.
 
+### Localhost provider URLs — implemented 2026-09-15
+
+`providers.<name>.base_url` and
+`providers.<name>.endpoints.<protocol>.base_url` now treat a loopback hostname
+(`localhost`, IPv4 loopback, or IPv6 loopback) as the **launcher host**. The
+URL is intentionally left unchanged when delivered to the agent. On a bridged
+container launch, yolo discovers its port and adds the existing
+`forward_host_ports` Unix-socket transport implicitly, so the agent's own
+`localhost:<port>` resolves to a local listener that forwards to the host's
+`127.0.0.1:<port>`.
+
+This is a better fit than rewriting the URL to `host.containers.internal`:
+that name is runtime-specific, and Apple Container's socket publication has a
+different viable path. The same spelling therefore works on Linux Podman,
+Apple Container, and host-network/native launches (where no forward is needed).
+Only user configuration is scanned. A pack-declared loopback endpoint remains a
+jail-local service fact — for example, the wire bridge — and must never start a
+host forward. An explicit `network.forward_host_ports` mapping for the same
+jail port wins, preserving existing deliberate remaps.
+
 ---
 
 ## Part 4 — What it would actually take
