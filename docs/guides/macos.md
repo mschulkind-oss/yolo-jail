@@ -468,30 +468,18 @@ are the whole list.
 
 ### Backend feature parity at a glance
 
-| Config key | Podman | Apple Container | macos-user |
-|---|---|---|---|
-| `loopholes` (incl. the Claude OAuth broker) | ✅ | ❌ none start | ❌ none start |
-| `mounts` (context mounts under `/ctx`) | ✅ | ❌ skipped, warns | ❌ skipped, **silent** |
-| Pack `mount` grants (under `/ctx`) | ✅ | ❌ skipped, warns *(since 2026-08-24)* | ❌ skipped, **silent** |
-| Pack `reads-host` grants | ✅ | ✅ copied *(since 2026-08-24)* | ✅ copied *(since 2026-09-13)* |
-| `host_files` entries with a `source` | ✅ | ✅ copied *(since 2026-08-24)* | ⚠️ a **file** source is copied *(since 2026-09-13)*; a **directory** source is skipped, warns |
-| Host `~/.config/nvim` → `/ctx/host-nvim-config` | ✅ | ❌ skipped, warns *(since 2026-08-24)* | ❌ not read at all |
-| `cache_relocations` | ⚠️ wired, [untested on a Mac](#cache-relocation-cache_relocations) | ❌ skipped, warns | ❌ skipped, warns |
-| `ephemeral_storage` | ✅ | ❌ always `tmpfs` | ❌ not read at all |
-| `resources.memory` / `.cpus` | ✅ | ✅ | ❌ warns |
-| `resources.pids_limit` | ✅ | ❌ not emitted | ❌ warns |
-| `network.mode` | ✅ all three | ⚠️ `bridge` only | ❌ not read at all |
-| `network.ports` / `forward_host_ports` | ✅ | ✅ under `bridge` | ❌ not wired |
-| `workspace_readonly` | ✅ | ✅ from `container` 1.1.0; ❌ below it | ✅ as Seatbelt deny rules |
-| `per_side_paths` | ✅ | ✅ | ❌ warns |
-| Pack briefings + skills | ✅ | ✅ | ⚠️ delivered by copy, and writable |
-| Pack `state`, `scope: machine` | ✅ | ✅ *(since 2026-08-24)* | ✅ |
-| Pack `state`, `scope: workspace` | ✅ | ✅ | ✅ *(symlinked into the workspace's own `.yolo/home`)* |
+**Moved.** The per-setup grid now lives once, in
+[the user guide's *What works in each setup*](USER_GUIDE.md#what-works-in-each-setup) — it covers all
+four setups (this page's three plus `podman` on Linux, the parity reference), every top-level config
+key rather than a selection, and a *takes effect* column for the frozen-at-launch keys. It also
+carries the pre-flight gates that can refuse a launch outright, which are not macOS-specific.
 
-Each ❌ and ⚠️ is explained in the two tables below. `macos-user` reads none of
-the network or scratch-storage keys at all — it is a native process on your own
-machine, so there is no network namespace to configure and no container
-filesystem to make ephemeral.
+This page keeps what is genuinely macOS-only: the two per-backend explanations below, which say
+*why* each cell is what it is, and the platform sections after them.
+
+`macos-user` reads none of the network or scratch-storage keys at all — it is a native process on
+your own machine, so there is no network namespace to configure and no container filesystem to make
+ephemeral.
 
 ### Apple Container (`runtime: container`) — what it does not do
 
@@ -516,7 +504,7 @@ Everything below is announced at launch **except** the three rows marked
 | `resources.pids_limit` | **not emitted, silently.** Apple Container has no equivalent flag | `run/assemble_parts.go` → `resourceArgs` |
 | `network.mode: "bridge"` (the default) | **honored.** Apple Container gives each container its own `vmnet` namespace and yolo emits no `--net` — which is correct here | `run/assemble.go` → `assembleRunCmd` (network-mode block) |
 | `network.mode: "host"` | **not honored — and asking for it is worse than leaving it unset.** Warns | see the warning below |
-| `network.mode: "none"` | **not honored, silently.** No `--net` flag is emitted on this backend at all, so you get bridge networking regardless | `run/assemble.go` → `assembleRunCmd` (network-mode block) |
+| `network.mode: "none"` (or any other value) | **not a legal value on any backend.** The key accepts `bridge` and `host` only; anything else is a config error that refuses the launch before a backend is even chosen | `config/validate.go` (the `network.mode` check) |
 | `network.ports`, `network.forward_host_ports` | **honored under `bridge`** — published ports via `-p`, host-port forwarding via native `--publish-socket` (no socat, no TCP gateway). Both keys are read *only* in `bridge` mode | `run/assemble.go` → `assembleRunCmd`; `run/assemble_parts.go` → `forwardHostPortsArgs` |
 | Pack `state` at `scope: machine` (e.g. `~/.claude-shared-credentials`) | **honored as of 2026-08-24.** It was never mounted before that, so cross-jail credential sharing silently degraded to per-workspace — see the warning below | `run/assemble_parts.go` → `appleContainerBaseMounts` |
 | Any single-**file** read-only mount | **copied, not mounted** — by choice, not by necessity. This was attributed to [apple/container#1089](https://github.com/apple/container/issues/1089) ("cannot bind a single file"), which is **false on `container` 1.1.0** — measured 2026-09-14: a regular-file bind arrives, propagates writes and honors `:ro`. yolo keeps copying because a copy works on every version with no version floor to get wrong, and every consumer here reads its file at boot, so a snapshot is equivalent. yolo copies each one into the jail's home — your `yolo-user-env.sh`, pack briefings, pack `files`, your global gitignore, pack `reads-host` grants and `host_files` file sources. You should not notice; the files arrive with the same contents. **The one exception is a pack `mount` whose source is a file**, which is skipped rather than copied — see the row above for why | `run/helpers.go` → `acMaterialize` |
