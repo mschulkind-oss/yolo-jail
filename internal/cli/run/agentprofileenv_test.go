@@ -319,3 +319,59 @@ func TestAssembleEmitsLocalLLMClaudeEnv(t *testing.T) {
 		}
 	}
 }
+
+// TestAssembleEmitsKiloClaudeEnv pins that Kilo profile normalizes bare deepseek model IDs
+// (e.g. deepseek-v4.1-flash -> deepseek/deepseek-v4.1-flash[1m]), defaults context window
+// to 1,048,576 for auto-compact and max context tokens, and provides dummy auth token "local"
+// over the wire-bridge endpoint.
+func TestAssembleEmitsKiloClaudeEnv(t *testing.T) {
+	sec := jsonx.NewOrderedMap()
+	sec.Set("blocked_tools", []any{})
+	profiles := jsonx.NewOrderedMap()
+	profiles.Set("claude", "kilo")
+	provs := jsonx.NewOrderedMap()
+	kiloProv := jsonx.NewOrderedMap()
+	eps := jsonx.NewOrderedMap()
+	anth := jsonx.NewOrderedMap()
+	anth.Set("base_url", "http://127.0.0.1:8216")
+	eps.Set("anthropic", anth)
+	openai := jsonx.NewOrderedMap()
+	openai.Set("base_url", "https://api.kilo.ai/api/gateway")
+	openai.Set("wire_api", "openai-chat-completions")
+	eps.Set("openai", openai)
+	kiloProv.Set("endpoints", eps)
+	kiloProv.Set("models", map[string]any{"default": "deepseek-v4.1-flash"})
+	provs.Set("kilo", kiloProv)
+
+	la := assembleWithConfigAssembled(t, newConfig(
+		"agents", []any{"claude"}, "security", sec, "use_profiles", profiles, "providers", provs),
+		func() {
+			writeProfilesAtHome(t, `{"kilo": {"provider": "kilo"}}`)
+		})
+	got := la.channelEnv(t,
+		"ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN",
+		"ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+		"ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
+		"CLAUDE_CODE_AUTO_COMPACT_WINDOW", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC")
+	want := []string{
+		"ANTHROPIC_AUTH_TOKEN=local",
+		"ANTHROPIC_BASE_URL=http://127.0.0.1:8216",
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek/deepseek-v4.1-flash[1m]",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL=deepseek/deepseek-v4.1-flash[1m]",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL=deepseek/deepseek-v4.1-flash[1m]",
+		"ANTHROPIC_MODEL=deepseek/deepseek-v4.1-flash[1m]",
+		"ANTHROPIC_SMALL_FAST_MODEL=deepseek/deepseek-v4.1-flash[1m]",
+		"CLAUDE_CODE_AUTO_COMPACT_WINDOW=1048576",
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
+		"CLAUDE_CODE_MAX_CONTEXT_TOKENS=1048576",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("kilo claude profile env = %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("kilo claude profile env %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}

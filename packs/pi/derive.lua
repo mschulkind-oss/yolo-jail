@@ -94,6 +94,19 @@ local function isLocalEndpoint(url)
          string.find(url, "://0%.0%.0%.0")
 end
 
+local function isKiloEndpoint(url)
+  if type(url) ~= "string" then return false end
+  return string.find(url, "api%.kilo%.ai") ~= nil
+end
+
+local function normalizeKiloModel(modelId)
+  if type(modelId) ~= "string" or modelId == "" then return modelId end
+  if string.find(modelId, "^deepseek%-") and not string.find(modelId, "/") then
+    return "deepseek/" .. modelId
+  end
+  return modelId
+end
+
 yolo.derive("pi", "models", function(ctx)
   if not ctx.providers or next(ctx.providers) == nil then
     return {}
@@ -102,12 +115,19 @@ yolo.derive("pi", "models", function(ctx)
   for name, prov in pairs(ctx.providers) do
     local baseUrl, api = piReachable(prov)
     if baseUrl then
+      local isKilo = (name == "kilo" or isKiloEndpoint(baseUrl))
       local modelList = {}
       local cw = nil
       local maxTokens = nil
       if type(prov.options) == "table" then
         cw = tonumber(prov.options.context_window or prov.options.max_context_tokens)
         maxTokens = tonumber(prov.options.max_tokens or prov.options.max_output_tokens)
+      end
+      if not cw and ctx.selected_provider == name and type(ctx.profile) == "table" then
+        cw = tonumber(ctx.profile.context_window or ctx.profile.max_context_tokens)
+      end
+      if not maxTokens and ctx.selected_provider == name and type(ctx.profile) == "table" then
+        maxTokens = tonumber(ctx.profile.max_tokens or ctx.profile.max_output_tokens)
       end
       if type(prov.models) == "table" then
         local aliases = {}
@@ -116,16 +136,36 @@ yolo.derive("pi", "models", function(ctx)
         end
         table.sort(aliases)
         for _, alias in ipairs(aliases) do
-          local modelId = prov.models[alias]
+          local rawModelId = prov.models[alias]
+          local modelId = isKilo and normalizeKiloModel(rawModelId) or rawModelId
           local m = { id = modelId, name = alias }
-          if cw then
-            m.contextWindow = cw
+          local modelCw = cw
+          if not modelCw and isKilo and (modelId == "deepseek/deepseek-v4.1-flash" or string.find(modelId, "^deepseek/")) then
+            modelCw = 1048576
+          end
+          if modelCw then
+            m.contextWindow = modelCw
           end
           if maxTokens then
             m.maxTokens = maxTokens
           end
           table.insert(modelList, m)
         end
+      end
+      if #modelList == 0 and isKilo and ctx.selected_provider == name and type(ctx.profile) == "table" and ctx.profile.model then
+        local modelId = normalizeKiloModel(ctx.profile.model)
+        local modelCw = cw
+        if not modelCw and (modelId == "deepseek/deepseek-v4.1-flash" or string.find(modelId, "^deepseek/")) then
+          modelCw = 1048576
+        end
+        local m = { id = modelId, name = ctx.profile.model }
+        if modelCw then
+          m.contextWindow = modelCw
+        end
+        if maxTokens then
+          m.maxTokens = maxTokens
+        end
+        table.insert(modelList, m)
       end
       local entry = {
         baseUrl = baseUrl,
@@ -242,6 +282,7 @@ yolo.derive("pi", "settings", function(ctx)
   if not piReachable(p) then
     return {}
   end
+  local isKilo = (ctx.selected_provider == "kilo" or (type(p) == "table" and type(p.base_url) == "string" and isKiloEndpoint(p.base_url)))
   local alias = (ctx.profile and ctx.profile.model) or (type(p) == "table" and type(p.options) == "table" and p.options.model) or "default"
   local sel = { defaultProvider = ctx.selected_provider }
   if type(p) == "table" and type(p.models) == "table" then
@@ -258,11 +299,20 @@ yolo.derive("pi", "settings", function(ctx)
       end
     end
   end
+  if not sel.defaultModel and isKilo and (type(p.models) ~= "table" or next(p.models) == nil) and alias ~= "default" then
+    sel.defaultModel = alias
+  end
+  if isKilo and sel.defaultModel then
+    sel.defaultModel = normalizeKiloModel(sel.defaultModel)
+  end
   local enabled = {}
   if type(p) == "table" and type(p.models) == "table" and next(p.models) ~= nil then
     local seen = {}
     local modelIds = {}
     for _, modelId in pairs(p.models) do
+      if isKilo then
+        modelId = normalizeKiloModel(modelId)
+      end
       if not seen[modelId] then
         table.insert(modelIds, modelId)
         seen[modelId] = true
@@ -272,6 +322,8 @@ yolo.derive("pi", "settings", function(ctx)
     for _, modelId in ipairs(modelIds) do
       table.insert(enabled, ctx.selected_provider .. "/" .. modelId)
     end
+  elseif sel.defaultModel then
+    table.insert(enabled, ctx.selected_provider .. "/" .. sel.defaultModel)
   else
     table.insert(enabled, ctx.selected_provider .. "/*")
   end

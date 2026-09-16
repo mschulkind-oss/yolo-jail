@@ -83,6 +83,21 @@ func TestTranslateRequestRows(t *testing.T) {
 			in:   `{"model":"Qwen/qwen3-27b-not-a-real-id","max_tokens":1,"messages":[{"role":"user","content":"x"}]}`,
 			want: `{"model":"Qwen/qwen3-27b-not-a-real-id","messages":[{"role":"user","content":"x"}],"max_tokens":1}`,
 		},
+		{
+			name: "model id strips [1m] suffix and normalizes bare deepseek prefix",
+			in:   `{"model":"deepseek/deepseek-v4.1-flash[1m]","max_tokens":1,"messages":[{"role":"user","content":"x"}]}`,
+			want: `{"model":"deepseek/deepseek-v4.1-flash","messages":[{"role":"user","content":"x"}],"max_tokens":1}`,
+		},
+		{
+			name: "bare deepseek model id prefixes deepseek/",
+			in:   `{"model":"deepseek-v4.1-flash","max_tokens":1,"messages":[{"role":"user","content":"x"}]}`,
+			want: `{"model":"deepseek/deepseek-v4.1-flash","messages":[{"role":"user","content":"x"}],"max_tokens":1}`,
+		},
+		{
+			name: "bare deepseek model id with [1m] suffix normalizes to deepseek/*",
+			in:   `{"model":"deepseek-v4.1-flash[1m]","max_tokens":1,"messages":[{"role":"user","content":"x"}]}`,
+			want: `{"model":"deepseek/deepseek-v4.1-flash","messages":[{"role":"user","content":"x"}],"max_tokens":1}`,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

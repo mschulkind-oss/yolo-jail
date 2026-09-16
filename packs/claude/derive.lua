@@ -145,20 +145,35 @@ yolo.env("claude", function(ctx)
   --     CLAUDE_CODE_MAX_CONTEXT_TOKENS so Claude Code knows the model's capacity;
   --   api_timeout_ms -> claude's per-request ceiling, for providers whose reasoning
   --     turns run long, plus CLAUDE_STREAM_IDLE_TIMEOUT_MS to prevent streaming drops.
-  if ctx.profile then
-    local cw = ctx.profile.context_window or ctx.profile.max_context_tokens
-    if cw then
-      out.CLAUDE_CODE_MAX_CONTEXT_TOKENS = cw
-      out.CLAUDE_CODE_AUTO_COMPACT_WINDOW = cw
+  local isKilo = (ctx.selected_provider == "kilo" or (type(p) == "table" and type(p.endpoints) == "table" and type(p.endpoints.openai) == "table" and string.find(p.endpoints.openai.base_url or "", "api%.kilo%.ai") ~= nil) or (type(p) == "table" and type(p.base_url) == "string" and string.find(p.base_url, "api%.kilo%.ai") ~= nil))
+
+  local function normalizeKiloModel(modelId)
+    if type(modelId) ~= "string" or modelId == "" then return modelId end
+    if string.find(modelId, "^deepseek%-") and not string.find(modelId, "/") then
+      return "deepseek/" .. modelId
     end
-    if ctx.profile.api_timeout_ms then
-      out.API_TIMEOUT_MS = ctx.profile.api_timeout_ms
-    end
-    local streamTimeout = ctx.profile.stream_idle_timeout_ms or ctx.profile.api_timeout_ms
-    if streamTimeout then
-      out.CLAUDE_STREAM_IDLE_TIMEOUT_MS = streamTimeout
-    end
+    return modelId
   end
+
+  local profileOpts = (type(ctx.profile) == "table" and ctx.profile) or {}
+  local provOpts = (type(p) == "table" and type(p.options) == "table" and p.options) or {}
+  local cw = profileOpts.context_window or profileOpts.max_context_tokens or provOpts.context_window or provOpts.max_context_tokens
+  if not cw and isKilo then
+    cw = "1048576"
+  end
+  if cw then
+    out.CLAUDE_CODE_MAX_CONTEXT_TOKENS = tostring(cw)
+    out.CLAUDE_CODE_AUTO_COMPACT_WINDOW = tostring(cw)
+  end
+  local timeout = profileOpts.api_timeout_ms or provOpts.api_timeout_ms
+  if timeout then
+    out.API_TIMEOUT_MS = tostring(timeout)
+  end
+  local streamTimeout = profileOpts.stream_idle_timeout_ms or timeout
+  if streamTimeout then
+    out.CLAUDE_STREAM_IDLE_TIMEOUT_MS = tostring(streamTimeout)
+  end
+
   -- The model ids the provider declares are WIRE-TRUE — every agent's catalog sends
   -- them verbatim, and z.ai's routes reject claude-only spellings (measured
   -- 2026-09-04: "glm-5.3[1m]" is a 400 on both routes; pi and opencode have no
@@ -168,8 +183,8 @@ yolo.env("claude", function(ctx)
   -- claude uses, from the provider's own context_window fact: a provider declaring
   -- a 1,000,000-token window gets the beta requested; anything smaller gets the
   -- bare id.
-  local cw = tonumber((ctx.profile and (ctx.profile.context_window or ctx.profile.max_context_tokens)) or "")
-  local suffix = (cw and cw >= 1000000) and "[1m]" or ""
+  local cwNum = tonumber(cw or "")
+  local suffix = (cwNum and cwNum >= 1000000) and "[1m]" or ""
   if routed then
     -- Z.AI's recommended Claude Code config disables claude's nonessential traffic
     -- (telemetry, update checks) on a routed launch: that traffic targets
@@ -186,16 +201,28 @@ yolo.env("claude", function(ctx)
   -- z.ai translates claude's own tier names server-side (measured 2026-09-04:
   -- claude-sonnet-* serves as glm-5.3-flash — the FAST model), because the aliases pin
   -- each tier to the model the provider actually intends for it.
-  local alias = (ctx.profile and ctx.profile.model) or "default"
-  local selected = m[alias]
+  local alias = (ctx.profile and ctx.profile.model) or (type(p) == "table" and type(p.options) == "table" and p.options.model) or "default"
+  local selected = m[alias] or m["default"]
+  if not selected and alias ~= "default" then
+    selected = alias
+  end
   if selected then
+    if isKilo then
+      selected = normalizeKiloModel(selected)
+    end
     out.ANTHROPIC_MODEL = selected .. suffix
     out.ANTHROPIC_DEFAULT_OPUS_MODEL = selected .. suffix
     -- A curated provider can publish real picker IDs instead of Claude-tier aliases.
     -- Keep all tiers on the selected model rather than falling back upstream.
-    out.ANTHROPIC_DEFAULT_SONNET_MODEL = (m.sonnet or selected) .. suffix
-    out.ANTHROPIC_DEFAULT_HAIKU_MODEL = (m.haiku or selected) .. suffix
-    out.ANTHROPIC_SMALL_FAST_MODEL = (m.haiku or selected) .. suffix
+    local sonnet = m.sonnet or selected
+    local haiku = m.haiku or selected
+    if isKilo then
+      sonnet = normalizeKiloModel(sonnet)
+      haiku = normalizeKiloModel(haiku)
+    end
+    out.ANTHROPIC_DEFAULT_SONNET_MODEL = sonnet .. suffix
+    out.ANTHROPIC_DEFAULT_HAIKU_MODEL = haiku .. suffix
+    out.ANTHROPIC_SMALL_FAST_MODEL = haiku .. suffix
   end
   return out
 end)

@@ -24,12 +24,20 @@ import (
 // closed with an error naming it (WB-D5) — except the text-only system message
 // form Claude Code emits in its conversation, which maps to the equivalent
 // OpenAI role and keeps its position.
+func normalizeModel(model string) string {
+	model = strings.TrimSuffix(model, "[1m]")
+	if strings.HasPrefix(model, "deepseek-") && !strings.Contains(model, "/") {
+		model = "deepseek/" + model
+	}
+	return model
+}
+
 func TranslateRequest(body []byte) ([]byte, error) {
 	var req anthropicRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("wirebridge: decoding anthropic request: %w", err)
 	}
-	out := openaiRequest{Model: req.Model, Messages: []openaiMessage{}}
+	out := openaiRequest{Model: normalizeModel(req.Model), Messages: []openaiMessage{}}
 	system, err := flattenSystem(req.System)
 	if err != nil {
 		return nil, err

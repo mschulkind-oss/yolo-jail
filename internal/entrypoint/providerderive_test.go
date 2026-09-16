@@ -771,3 +771,77 @@ func TestProviderDerivesSkipAProviderWithNoURLForThem(t *testing.T) {
 		}
 	}
 }
+
+// TestPiDeriveHandlesKiloGatewayNormalizationAndContextWindow pins that Kilo gateway model IDs
+// (e.g. deepseek-v4.1-flash) are normalized to deepseek/deepseek-v4.1-flash, the context window
+// defaults to 1,048,576 for DeepSeek models, and settings.json selection matches the normalized ID.
+func TestPiDeriveHandlesKiloGatewayNormalizationAndContextWindow(t *testing.T) {
+	scriptModels, sModels := deriveSurface(t, "pi", "pi/models")
+	gotModels, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, sModels, scriptModels, surfaceSelection{
+		Profile:  "kilo",
+		Provider: "kilo",
+	}, map[string]map[string]any{
+		manifest.SourceProviders: {
+			"kilo": map[string]any{
+				"base_url": "https://api.kilo.ai/api/gateway",
+				"models":   map[string]any{"default": "deepseek-v4.1-flash"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provs := gotModels["providers"].(map[string]any)
+	kilo := provs["kilo"].(map[string]any)
+	models := kilo["models"].([]any)
+	if len(models) == 0 {
+		t.Fatal("no models in kilo provider")
+	}
+	model := models[0].(map[string]any)
+	if model["id"] != "deepseek/deepseek-v4.1-flash" {
+		t.Errorf("model id = %v, want deepseek/deepseek-v4.1-flash", model["id"])
+	}
+	if model["contextWindow"] != float64(1048576) && model["contextWindow"] != int64(1048576) && model["contextWindow"] != 1048576 {
+		t.Errorf("contextWindow = %v, want 1048576", model["contextWindow"])
+	}
+
+	scriptSettings, sSettings := deriveSurface(t, "pi", "pi/settings")
+	gotSettings, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, sSettings, scriptSettings, surfaceSelection{
+		Profile:  "kilo",
+		Provider: "kilo",
+	}, map[string]map[string]any{
+		manifest.SourceProviders: {
+			"kilo": map[string]any{
+				"base_url": "https://api.kilo.ai/api/gateway",
+				"models":   map[string]any{"default": "deepseek-v4.1-flash"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sel, ok := gotSettings["selection"].(map[string]any)
+	if !ok {
+		t.Fatalf("selection missing or not a map: %#v", gotSettings)
+	}
+	if sel["defaultProvider"] != "kilo" {
+		t.Errorf("defaultProvider = %v, want 'kilo'", sel["defaultProvider"])
+	}
+	if sel["defaultModel"] != "deepseek/deepseek-v4.1-flash" {
+		t.Errorf("defaultModel = %v, want 'deepseek/deepseek-v4.1-flash'", sel["defaultModel"])
+	}
+	enabled, ok := gotSettings["enabledModels"].([]any)
+	if !ok {
+		t.Fatalf("enabledModels missing: %#v", gotSettings)
+	}
+	found := false
+	for _, em := range enabled {
+		if em == "kilo/deepseek/deepseek-v4.1-flash" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("enabledModels = %v, want it to contain kilo/deepseek/deepseek-v4.1-flash", enabled)
+	}
+}

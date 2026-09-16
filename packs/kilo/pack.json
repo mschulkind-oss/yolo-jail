@@ -14,6 +14,9 @@
       "kind": "provider",
       "name": "kilo",
       "options": {
+        "api_timeout_ms": null,
+        "context_window": null,
+        "max_tokens": null,
         "model": null
       }
     },
