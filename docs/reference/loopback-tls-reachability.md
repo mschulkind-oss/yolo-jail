@@ -17,8 +17,9 @@ summary: "How a jail reaches a host daemon: yolo's daemons bind the host's loopb
 
 yolo's host daemons bind the **host's loopback** and advertise `host.containers.internal` — on
 the assumption that the container runtime forwards that name to the host's loopback. **It does
-not, by default.** Where the name lands is a property of *which rootless networking stack is in
-use*, and pasta — podman's default since 5.0 — aims it at the host's **global** address instead.
+not, by default.** Where the name lands is a property of *which networking stack is in use*, and
+pasta — podman's default since 5.0 — aims it at the host's **global** address instead. A **rootful**
+podman lands there too, and is quieter about it: see [the mode table](#the-networking-modes).
 
 The fix is in the **launcher**, not the transport: ask the runtime what it is, then tell it to
 forward the loopback. The bind address, the certificate pinning, the per-jail bearer token and
@@ -99,7 +100,7 @@ does the packet actually arrive?**
 | **pasta** + `--map-host-loopback` | the same tunnel address | the host's **loopback** | No — and it does not need to | ✅ **the fix** |
 | **slirp4netns** (rootless; the older default) | the host's **global** address ⚠ — *not* its userspace gateway | the host's global address | **No** | ❌ broken, the same way |
 | **slirp4netns** + `allow_host_loopback` **+ a pinned hosts entry** | its userspace gateway | the host's **loopback** | No — and it does not need to | ✅ the older-passt fallback |
-| **netavark bridge** (rootful) | the bridge gateway | the host, over a real bridge interface | **Yes** — a genuine host interface | ✅ works |
+| **netavark bridge** (rootful) | the host's **global** address ⚠ — podman's own answer here too, *not* the bridge gateway | the host's global address. The gateway does reach the host over a real bridge interface, but nothing in the jail dials it | **The gateway, yes** — a genuine host interface — but it is not what the jail resolves, and nothing binds it either way | ❌ broken, **quietly** |
 | **`--net=host`** (no namespace) | n/a — the jail *shares* the host's stack | itself | Yes, trivially | ✅ works |
 | **nested jail** (podman-in-podman) | forced onto `--net=host` | itself | Yes | ✅ works — **and this is why nobody caught it** |
 | **Apple Container / `macos-user`** | a VM hop, not pasta | out of scope | — | not affected |
@@ -111,6 +112,29 @@ does the packet actually arrive?**
 > Note the third and fourth rows: for slirp4netns the forwarding option alone is **not**
 > sufficient, because it forwards a loopback that nothing in the jail dials — podman aims the
 > host name at the host's global address there. **Both flags are load-bearing, or neither.**
+
+> [!WARNING]
+> **The rootful row said ✅ until 2026-09-16, and it is the QUIET failure.** Measured that day on
+> podman 5.8.6, rootful, netavark, the default `10.88.0.0/16` bridge: a host listener on
+> `0.0.0.0:P` answered both at the gateway `10.88.0.1` and at `host.containers.internal` — which
+> podman resolved to the host's LAN address, not the gateway — while the *same* listener on
+> `127.0.0.1:P` answered at neither. Every yolo daemon is the second kind: `svcendpoint.Listen`
+> binds `127.0.0.1:0` unconditionally, and the "Yes" in the fourth column is a statement about an
+> address nothing binds.
+>
+> What makes it quiet rather than loud is that the launcher's decision returns on its very first
+> line for a rootful podman — `rootlessNetworkCmd` is a value rootful still reports and never uses,
+> so emitting a forwarding option there would swap out a working bridge for a mode the host has no
+> reason to support. No option, and therefore no positive fact, so the jail is told `unknown` and
+> [`OQ-R6`](#oq-r6) keeps `unknown` from escalating: the witness records the dead service and
+> launches anyway. That is the right disposition under [`OQ-R3`](#oq-r3) for a host yolo *could not*
+> ask — and a rootful host is one yolo simply *has not asked*, because no rung of
+> [the ladder](#the-ladder) covers it. The hole is open; there is no shipped fix to describe.
+>
+> The instrument is the one the [nested-jail carve-out](#a-nested-jail-is-structurally-blind-to-this)
+> names, and rootful is the one row it can settle rather than the row it is blind to: a nested
+> podman runs as **root**, so a bare `podman run` from inside a jail is a faithful rootful-netavark
+> host.
 
 ## Why "bind somewhere else" has nowhere to go
 

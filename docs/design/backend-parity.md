@@ -9,7 +9,12 @@ summary: "Issue #39 was not one bug. A 48-agent sweep found 42 candidates and co
 # Three backends, one pipeline, and no census — why a mechanism goes missing quietly
 
 **Status:** DESIGN, 2026-08-24 — a diagnosis and a proposal. **Fourteen fixes are shipped** ([§5](#5-what-is-already-fixed-2026-08-24)); the census
-in [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset) is proposed and unbuilt. Every code claim was verified against the tree on 2026-08-24
+in [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset) is unbuilt **as a data structure** and **built as an
+enforced annotation** — `internal/cli/run/backendparity_test.go` (2026-09-14) has required a
+`// parity: <Disposition> — <reason>` on every runtime-gated line in the run pipeline since,
+which is [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset)'s vocabulary made
+executable without its `Cell` type ([§4.1](#41-what-shipped-instead-the-census-as-an-annotation)).
+Every code claim was verified against the tree on 2026-08-24
 unless dated otherwise.
 
 > [!NOTE]
@@ -17,10 +22,15 @@ unless dated otherwise.
 > delivered to macos-user since 2026-09-03 (`ef0282ab`), on the leaning's own terms, and the
 > question sat open for six days describing a gap that no longer existed. Recorded in the
 > [Decision Ledger](#decision-ledger); [Open Questions](#open-questions) item 2 has the chain and the smaller warning that
-> survives. **Three questions remain live** — [OQ-BP-1](#open-questions) (the census), [OQ-BP-3](#open-questions) (suppressible
+> survives. **Three questions were live that day** — [OQ-BP-1](#open-questions) (the census), [OQ-BP-3](#open-questions) (suppressible
 > warnings) and [OQ-BP-4](#open-questions) (the Apple Container loophole skip). The census in [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset) is
 > untouched by this: the fix moved one cell from `Warned` to `HonoredBy`, which is the
 > [§3](#3-the-dispositions--the-most-important-section) vocabulary doing exactly what [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset) argues it is for.
+>
+> **Two are live now.** [OQ-BP-4](#decision-ledger) was ruled on 2026-09-14 and
+> [OQ-BP-5](#OQ-BP-5), which that ruling opened, was answered by code on 2026-09-15 — the second
+> question in this file to be settled by a commit rather than by a decision, which is why the
+> [Decision Ledger](#decision-ledger) is the only place to read the current state from.
 
 **The short version.** yolo has three backends. `podman` and `container` (Apple Container)
 share `runContainer`; `macos-user` returns from `Run()` before it and re-implements a
@@ -198,6 +208,34 @@ it. Call it 2–3 days including the exhaustiveness test.
    silent loss or a useless error message.
 4. **The affirmative lies** — [§6](#6-the-second-shared-fix-compose-the-briefing-from-what-was-applied).
 
+### 4.1 What shipped instead: the census as an annotation
+
+**2026-09-14 (`180c7cf1`).** No `Cell`, no `Disposition` type, no leaf package — and the
+enforcement this section asks for exists anyway. `internal/cli/run/backendparity_test.go` scans
+`internal/cli/run` for every line that branches on the runtime's identity and requires each one
+to carry a trailing `// parity: <Disposition> — <reason>` drawn from
+[§3](#3-the-dispositions--the-most-important-section)'s six, or to be counted in a written-down
+`parityBacklog` as NOT YET CLASSIFIED. A new undeclared branch fails the test, naming its file,
+its line and what to write. It is the census
+[§3](#3-the-dispositions--the-most-important-section) already credits with driving `Dropped` and
+`NotApplicable` into that vocabulary; this sub-section is where its relationship to the proposal
+above is stated.
+
+**What it changes about [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset)'s
+proposal.** The keying is different in the way that decides the cost: the shipped census is per
+CODE SITE, enumerated out of the tree, so only the CARVE-OUTS are maintained — where
+[§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset) proposes a table per
+`(backend, config key or pack kind)` that a human keeps in step with the code.
+
+**What it does NOT deliver, so read [OQ-BP-1](#open-questions) as still open.** It cannot see a
+divergence with **no branch** (issue #39 was an ABSENT mount, and an absent thing has no line to
+mark), it marks a branch that is DECLARED AND WRONG as classified (#44's site is declared), it
+ignores forks on `o.IsMacOS` / `runtime.GOOS` / a capability probe, and its scope is
+`internal/cli/run` only — `internal/cli/check`, `internal/prune`, `internal/runtime` and
+`internal/image` all branch on the runtime and are outside it. The test's own header says all
+four; in one sentence, it makes an UNCLASSIFIED branch impossible, not a WRONG one — which is
+residue 1 of this section, unmoved.
+
 ---
 
 ## 5. What is already fixed (2026-08-24)
@@ -350,8 +388,9 @@ applies, not the config"* — its commit message names this section), and this p
 updated. `appliedNetMode`, `appliedCtxMounts` and `appliedResourceLimits` live in
 `internal/cli/run/backendcaps.go:52-208`, wired through `assemble.go`, which is exactly the
 "feed `BriefingContent` from what `assembleRunCmd` actually emitted" fix this section asked for.
-*(Verified 2026-09-02; the census in [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset) remains unbuilt — no `Cell`/`Disposition` type exists
-anywhere in the tree.)*
+*(Verified 2026-09-02. No `Cell`/`Disposition` TYPE exists anywhere in the tree, and that is no
+longer the same statement as "the census is unbuilt": since 2026-09-14 the dispositions are
+enforced as line annotations instead — [§4.1](#41-what-shipped-instead-the-census-as-an-annotation).)*
 
 **Why this outranked the census in sequencing:** an absent capability is a jail that is
 missing something. A false briefing is a jail that **told the agent something untrue**, and
@@ -386,7 +425,7 @@ an agent plans around it.
 
 ## Open Questions
 
-1. <a id="OQ-BP-5"></a>💬 **[OQ-BP-5](#OQ-BP-5): which uid may read a loophole's endpoint file, once the jail is not root in a container?**
+1. <a id="OQ-BP-5"></a>✅ **[OQ-BP-5](#OQ-BP-5): which uid may read a loophole's endpoint file, once the jail is not root in a container? — ANSWERED BY CODE 2026-09-15**, see the [Decision Ledger](#decision-ledger). The question stood open for one day and was settled by a fifth candidate nobody had listed: a **macOS ACL entry**, so the mode never widens and nothing is copied.
 
    Opened 2026-09-14 by [`OQ-BP-4`](#decision-ledger)'s ruling — *loopholes as fully as possible on
    every backend* — which this is the last thing standing between and the **macos-user** half. Filed
@@ -432,6 +471,27 @@ an agent plans around it.
    `Publish`'s file is per-jail, but if one file carries several services' tokens then (b) copies more
    than the sandbox needs and (c) becomes the only clean answer.
 
+   **Answer (2026-09-15, `6d118252`): (e) — an ACE. None of the four.** The macos-user arm now
+   starts the `openai-auth-broker` and `macosuser.BuildRunPlan` stages
+   `macosuser.EndpointGrantCommands` for its published endpoint file: two `chmod +a` entries, `user:`
+   and not `group:` — `read,readattr,readextattr,readsecurity` on the FILE, and `search` (traverse,
+   not list) on the one ancestor that blocks the sandbox, the 0700 sockets directory yolo created.
+   **The file stays 0600 and stays the publisher's**, so the ⚠ above dissolves rather than being
+   traded off: `yolo check`'s probe reads it exactly as before, and there is no second copy to leak
+   or to sweep. The sub-question is answered too — the endpoint file is per-jail **per service**
+   (`<sockets-dir>/<service><paths.ServiceEndpointExt>`), so the grant names one service's token.
+
+   **What this does and does not settle.** It is the MINIMAL form of the grant (a) described and
+   the reason (a) was rejected is intact: an ACE naming one uid does not widen the token to
+   `SandboxGroup`, which contains the host user. What it does not dissolve is the substance of (a)'s
+   objection — the sandbox account, which is where untrusted agent code runs, can read that
+   service's bearer token, because dialling the service is what the jail is being given. (c) remains
+   the shape to grow into for exactly that reason, and it is now the only candidate left with
+   anything to add. ⚠ **Untested on hardware:** `chmod +a` is a macOS ACL extension, so
+   `EndpointGrantCommands` is unit-tested on the argv it emits and has never executed —
+   [§5.1](#51-confirmed-drops-i-deliberately-did-not-warn-about)'s standing caveat, with the
+   consequence that a wrong right-set fails closed as a jail that cannot reach its own broker.
+
 1. 💬 **OQ-BP-1: Is the census worth 2–3 days, given it cannot catch the two worst findings?**
    [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset)'s residue is real: the P0s in [§5](#5-what-is-already-fixed-2026-08-24) (`reads-host`, `host_files`) emitted an argv and were
    *wrong*, not silent, and a census marks both Honored. What it buys is that the other
@@ -442,6 +502,17 @@ an agent plans around it.
    twenty of them were found by a human noticing. The twenty-first was found by an invariant
    ([§5.2](#52-the-rule-that-had-no-home)) — one narrow one, written in an afternoon, over a single argv shape. The census converts that into a compile-or-test-time
    answer, and the deciding work is already done.
+
+   ⚠ **2026-09-14: part of the leaning was taken, in a cheaper shape, and the question survives
+   it.** `internal/cli/run/backendparity_test.go` enforces the dispositions as LINE ANNOTATIONS
+   over the run pipeline ([§4.1](#41-what-shipped-instead-the-census-as-an-annotation)) — an
+   afternoon rather than 2–3 days, no `Cell` type, and it makes an unclassified BRANCH impossible.
+   What it does not buy is the part this question was actually about: a per-`(backend, key)` table
+   that can be walked to ask *"what does this backend owe?"*, which is the surface
+   [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset)'s two existing call sites and
+   [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md)'s
+   hand-maintained matrix both want. So the question narrows to **whether the DATA STRUCTURE is
+   worth the remaining days now that the enforcement is not** — and it is no longer the whole 2–3.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -551,5 +622,6 @@ Fourteen new launch lines exist as of today — the number was ten when this que
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| OQ-BP-4 | **The reason is STALE; the goal is loopholes as fully as possible on EVERY backend** (maintainer's direction). The blanket skip is justified in `loopholeinert.go` by *"no socket bind-mount there"*, and that is true of almost nothing shipped: **four of six shipped loopholes declare `transport: loopback-tls`** — `claude-oauth-broker`, `host-processes`, `journal`, `serial` — which reach the host over the NETWORK and learn their endpoint from a 0600 file in a bind-mounted DIRECTORY, which Apple Container mounts fine. The other two (`audio`, `cgroup-delegate`) declare `transport: none`, so there is no socket to mount for them either. The socket-era reason survives for **zero** of the six. ⚠ **macos-user's reason is different and only half wrong:** *"a native process already reaches the host directly, so the whole mechanism is bypassed"* answers REACHABILITY and is silent on SERIALIZATION — the broker exists to serialise refreshes of a single-use OAuth token across concurrent jails, which reaching the host directly does not do, so that race is live on macos-user too. **The real limits are per-LOOPHOLE, not per-backend:** `--add-host` is unsupported on AC (apple/container#673), which blocks an *intercepting* loophole only; `cgroup-delegate` is Linux + cgroup-v2 and AF_UNIX + SO_PEERCRED, hence NotApplicable on both macOS backends; `audio`'s sockets do not exist on macOS. **Sequencing is part of the ruling:** whether an AC container reaches a host loopback listener is the one thing no Linux test can answer, and it must be MEASURED before the skip is lifted — the in-jail reachability witness is FATAL, so enabling an unreachable service converts a working AC launch into a refusing one. ⚠ **MEASURED 2026-09-15, AND THE ANSWER INVERTS THIS FOR APPLE CONTAINER: the skip is CONFIRMED, for a reason nobody had.** On `container` 1.1.0 a container→host connection completes its TCP handshake and then carries nothing — two mechanisms alternating on the same address: *TEARDOWN* (the host reads `ENOTCONN` on a socket `Accept()` had just returned) and *PHANTOM* (the container reports CONNECTED to a port the test holds bound while no accept ever happens, so the runtime's NAT answered it). **No bind address helps** — `bridge` and `wildcard` connect and die exactly like `127.0.0.1`, and `host.containers.internal` does not resolve there at all. Verified with **no yolo in the path** (a `python3` listener holding the connection open reads `Broken pipe`; a bare `container run … /dev/tcp` prints CONNECTED then instant EOF), and BOUNDED in the same session so it is not the larger claim: container→internet WORKS, Mac→container WORKS, container→Mac does not. `TestAppleContainerReachesHostLoopback` records it as a passing measurement. **So the ruling's direction stands and its consequence for THIS backend is: do not split.** The old reason (*"no socket bind-mount there"*) was still wrong, and the true one is narrower and testable — it will expire with an upstream release, which is why the test's positive branches are already written. **macos-user is untouched by this**: a native process is not a container, so none of it applies there, and [`OQ-BP-5`](#OQ-BP-5) remains the live path. Original sequencing, kept as the record: measure first, then split. ⚠ **The two backends have DIFFERENT blockers and only one is a measurement** (established 2026-09-14): **AC** waits on the reachability probe (`TestAppleContainerReachesHostLoopback`, unrun). **macos-user does NOT** — `sharesLauncherNetns` already returns true for it (`paths.NativeRuntimes`), the jail is a native process on the host so `127.0.0.1` IS the host loopback, and the Seatbelt profile is `(allow default)`, which permits network. Its blocker is a CREDENTIAL-BOUNDARY decision instead: `svcendpoint.Publish` writes the endpoint file **0600**, and `DialLocal` documents the property that mode buys — *"it reads the same 0600 file as the same uid that published it"*. On podman and AC the jail is root in a container with that file bind-mounted; on macos-user it runs as `_yolojail`, **a different uid from the human who published it**, so a 0600 file is unreadable and there is no mount to reshape. The token in that file is the whole reason for the mode, so widening it, adding a group, or copying it per jail is a decision about the credential boundary and not a hoist. **Whoever builds the macos-user half rules that first** | 2026-09-14 | the OQ above; [§7](#7-what-this-does-not-propose) |
+| OQ-BP-5 | **An ACE — a fifth candidate, and the mode never widens.** ANSWERED BY CODE one day after being opened: `6d118252` starts the `openai-auth-broker` on the macos-user arm and `macosuser.BuildRunPlan` stages `macosuser.EndpointGrantCommands` for its endpoint file — two `chmod +a` entries, `user:` and not `group:`, granting `read,readattr,readextattr,readsecurity` on the file and `search` on its 0700 directory. The file stays **0600 and the publisher's**, so the two-readers-two-uids objection dissolves instead of being traded off: `yolo check`'s probe is unaffected and there is no second copy to leak or sweep. (b) — publish twice — was the leaning and is not what shipped; the ACE is the minimal form of (a) with (a)'s actual defect removed, since it names one uid rather than a group containing the host user. (c) survives as the shape to grow into, for the part an ACE cannot fix: the sandbox account can read that service's token, because dialling the service is the capability being granted. ⚠ **Never executed** — `chmod +a` is macOS-only, so this is argv verified by unit test and nothing more; a wrong right-set fails closed, as a jail that cannot reach its own broker | 2026-09-15 | [`OQ-BP-5`](#OQ-BP-5); `internal/macosuser/runplan.go`, `internal/macosuser/macosuser.go` |
+| OQ-BP-4 | **The reason is STALE; the goal is loopholes as fully as possible on EVERY backend** (maintainer's direction). The blanket skip is justified in `loopholeinert.go` by *"no socket bind-mount there"*, and that is true of almost nothing shipped: **four of six shipped loopholes declare `transport: loopback-tls`** — `claude-oauth-broker`, `host-processes`, `journal`, `serial` — which reach the host over the NETWORK and learn their endpoint from a 0600 file in a bind-mounted DIRECTORY, which Apple Container mounts fine. The other two (`audio`, `cgroup-delegate`) declare `transport: none`, so there is no socket to mount for them either. The socket-era reason survives for **zero** of the six. ⚠ **macos-user's reason is different and only half wrong:** *"a native process already reaches the host directly, so the whole mechanism is bypassed"* answers REACHABILITY and is silent on SERIALIZATION — the broker exists to serialise refreshes of a single-use OAuth token across concurrent jails, which reaching the host directly does not do, so that race is live on macos-user too. **The real limits are per-LOOPHOLE, not per-backend:** `--add-host` is unsupported on AC (apple/container#673), which blocks an *intercepting* loophole only; `cgroup-delegate` is Linux + cgroup-v2 and AF_UNIX + SO_PEERCRED, hence NotApplicable on both macOS backends; `audio`'s sockets do not exist on macOS. **Sequencing is part of the ruling:** whether an AC container reaches a host loopback listener is the one thing no Linux test can answer, and it must be MEASURED before the skip is lifted — the in-jail reachability witness is FATAL, so enabling an unreachable service converts a working AC launch into a refusing one. ⚠ **MEASURED 2026-09-15, AND THE ANSWER INVERTS THIS FOR APPLE CONTAINER: the skip is CONFIRMED, for a reason nobody had.** On `container` 1.1.0 a container→host connection completes its TCP handshake and then carries nothing — two mechanisms alternating on the same address: *TEARDOWN* (the host reads `ENOTCONN` on a socket `Accept()` had just returned) and *PHANTOM* (the container reports CONNECTED to a port the test holds bound while no accept ever happens, so the runtime's NAT answered it). **No bind address helps** — `bridge` and `wildcard` connect and die exactly like `127.0.0.1`, and `host.containers.internal` does not resolve there at all. Verified with **no yolo in the path** (a `python3` listener holding the connection open reads `Broken pipe`; a bare `container run … /dev/tcp` prints CONNECTED then instant EOF), and BOUNDED in the same session so it is not the larger claim: container→internet WORKS, Mac→container WORKS, container→Mac does not. `TestAppleContainerReachesHostLoopback` records it as a passing measurement. **So the ruling's direction stands and its consequence for THIS backend is: do not split.** The old reason (*"no socket bind-mount there"*) was still wrong, and the true one is narrower and testable — it will expire with an upstream release, which is why the test's positive branches are already written. **macos-user is untouched by this**: a native process is not a container, so none of it applies there, and [`OQ-BP-5`](#OQ-BP-5) remains the live path. Original sequencing, kept as the record: measure first, then split. ⚠ **The two backends have DIFFERENT blockers and only one is a measurement** (established 2026-09-14): **AC** waits on the reachability probe (`TestAppleContainerReachesHostLoopback`, unrun). **macos-user does NOT** — `sharesLauncherNetns` already returns true for it (`paths.NativeRuntimes`), the jail is a native process on the host so `127.0.0.1` IS the host loopback, and the Seatbelt profile is `(allow default)`, which permits network. Its blocker is a CREDENTIAL-BOUNDARY decision instead: `svcendpoint.Publish` writes the endpoint file **0600**, and `DialLocal` documents the property that mode buys — *"it reads the same 0600 file as the same uid that published it"*. On podman and AC the jail is root in a container with that file bind-mounted; on macos-user it runs as `_yolojail`, **a different uid from the human who published it**, so a 0600 file is unreadable and there is no mount to reshape. The token in that file is the whole reason for the mode, so widening it, adding a group, or copying it per jail is a decision about the credential boundary and not a hoist. **Whoever builds the macos-user half rules that first** — and they did, one day later: [`OQ-BP-5`](#OQ-BP-5) is answered by an ACE (the row above), and the macos-user half is now started **one loophole deep** — `openai-auth-broker` alone, through a hardcoded allow-list, with every other pack loophole still reported inert there | 2026-09-14 | the OQ above; [§7](#7-what-this-does-not-propose) |
 | OQ-BP-2 | **Deliver them, and they are delivered** — ANSWERED BY CODE. The host composes skills + briefings by destination (`buildMacosHomeOverlay`), the launch stages the tree as `YOLO_DARWIN_HOME_OVERLAY`, the boot copies it over the sandbox home (`InstallHomeOverlay`). Disposition moves `Warned` → `HonoredBy`; [§5](#5-what-is-already-fixed-2026-08-24)'s fourteen is unchanged. What survives is smaller: the copy is writable where a bind is `:ro`, and the home is machine-wide | shipped 2026-09-03 (`ef0282ab`), noticed here 2026-09-09 | [Open Questions](#open-questions) item 2 |

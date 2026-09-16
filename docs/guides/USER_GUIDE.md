@@ -421,7 +421,12 @@ YOLO Jail is configured via JSONC (JSON with comments) files:
 
 ```jsonc
 {
-  // Container runtime: "podman" or "container" (Apple Container)
+  // Packs. Nothing is active by default, so without this key the jail
+  // starts with no coding agent in it and the launch says so.
+  "packs": ["claude"],
+
+  // Runtime: "podman", "container" (Apple Container), or "macos-user"
+  // (a sandboxed native macOS process — no container, and never auto-selected)
   "runtime": "podman",
 
   // Extra nix packages baked into the image
@@ -852,7 +857,7 @@ python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_
 
 - **Podman:** the NVIDIA branch passes identity uid/gid maps (`0:0:1` plus `1:1:65536`) and `--runtime runc`, because crun has CDI bugs. It also omits `/dev/fuse`, which the ordinary branch passes.
 - **Nested podman-in-podman with GPU is not supported, and is not currently *prevented*:** the nesting branch is chosen first, so a nested GPU launch gets the nesting flags while the CDI device flags are still emitted. Don't rely on it.
-- **Shared memory:** The jail uses `--shm-size=2g` for PyTorch multi-process data loading.
+- **Shared memory:** `/dev/shm` is a tmpfs sized 2 GB (`--tmpfs /dev/shm:size=2g`, not `--shm-size`) for PyTorch multi-process data loading. On Apple Container it is a tmpfs with no size argument, so the guest default applies.
 - **CUDA forward compatibility:** CUDA in the container can be newer than the host driver, but not the reverse.
 
 ### AWS EC2
@@ -977,9 +982,9 @@ ROCm exposes the AMD GPU through PyTorch's `torch.cuda` API, so `torch.cuda.is_a
 
 **A way to split the jail boundary cleanly.** A *spawned* loophole is a process that runs on the host (outside the jail) and publishes an address the jail can reach through a per-jail directory bind-mounted at `/run/yolo-services/`. The agent inside the jail can talk to the loophole without ever holding its secrets, credentials, or privileges. See [docs/guides/loopholes.md](loopholes.md) for the broader loophole system (including intercepting loopholes like the Claude OAuth broker).
 
-> **Two shapes, and this section documents the second.** A loophole shipped as a `manifest.jsonc` uses the framework's `loopback-tls` transport: it publishes `/run/yolo-services/<name>.endpoint`, a `0600` file naming a `127.0.0.1` listener plus the certificate to pin and this jail's bearer token. A service declared in the `loopholes:` config block below still gets a plain Unix socket at `/run/yolo-services/<name>.sock`, because its daemon is a program yolo did not write and nothing yolo ships lets an external daemon publish an endpoint file. Everything below describes the socket shape, which is what you get here.
+> **Two shapes, one transport.** A loophole shipped as a `manifest.jsonc` uses the framework's `loopback-tls` transport: it publishes `/run/yolo-services/<name>.endpoint`, a `0600` file naming a `127.0.0.1` listener plus the certificate to pin and this jail's bearer token. A service declared in the `loopholes:` config block below **gets the same thing** — it used to get a plain Unix socket at `/run/yolo-services/<name>.sock`, on the reasoning that nothing yolo shipped let a daemon it did not write publish an endpoint file. yolo's *front* removed that objection: the daemon still binds an ordinary AF_UNIX socket, now at a host-only path, and yolo runs an authenticated front over it and publishes the endpoint file itself. So the **daemon** side of this section is unchanged from the socket era, and the **client** side is not: from inside the jail you dial a TCP address with a pinned certificate and a bearer token, never a socket file.
 
-This is exactly the pattern used by the built-in cgroup delegate daemon: a host-side process performs privileged cgroup operations on behalf of the container so the jail itself doesn't need `CAP_SYS_ADMIN` or rw cgroup mounts. The `loopholes` config block lets you define your own in the same shape.
+The privileged-operations pattern this generalizes is the cgroup delegate — a host-side listener performs cgroup operations on behalf of the container so the jail itself doesn't need `CAP_SYS_ADMIN` or rw cgroup mounts. The delegate is not itself one of the services below (it runs in-process in `yolo` and is the one service still on a bind-mounted socket, for the reason under [Security model](#security-model)), but the `loopholes` config block lets you define your own host-side trust in the same shape.
 
 ### When to use it
 
@@ -995,9 +1000,11 @@ This is exactly the pattern used by the built-in cgroup delegate daemon: a host-
   "loopholes": {
     "auth-broker": {
       // Command to launch on the host when the jail starts.
-      // "{socket}" is substituted with the host-side socket path the
-      // service should bind.
-      "command": ["~/code/auth-broker/serve.py", "--socket", "{socket}"],
+      // "{endpoint}" is substituted with the HOST-ONLY socket path the
+      // service should bind — under /tmp, deliberately outside the
+      // directory the jail sees, so the jail reaches the daemon only
+      // through yolo's front.  ("{socket}" is an accepted alias.)
+      "command": ["~/code/auth-broker/serve.py", "--socket", "{endpoint}"],
 
       // Optional environment variables for the host daemon (NOT the jail).
       "env": {
@@ -1005,10 +1012,12 @@ This is exactly the pattern used by the built-in cgroup delegate daemon: a host-
         "LOG_LEVEL": "info"
       },
 
-      // Optional override of where the socket appears inside the jail.
-      // Must start with /run/yolo-services/ — that's the only directory
-      // that gets bind-mounted in.  Default: /run/yolo-services/<name>.sock
-      "jail_socket": "/run/yolo-services/auth-broker.sock"
+      // Optional override of where the ENDPOINT FILE appears inside the
+      // jail.  Must start with /run/yolo-services/ — that's the only
+      // directory that gets bind-mounted in, and the prefix is validated.
+      // Default: /run/yolo-services/<name>.endpoint
+      // ("jail_socket" is the older spelling of this key, still accepted.)
+      "jail_endpoint": "/run/yolo-services/auth-broker.endpoint"
     }
   }
 }
@@ -1021,10 +1030,10 @@ The service name (`auth-broker` above) must match `^[a-zA-Z][a-zA-Z0-9_-]{0,63}$
 For each service, on `yolo run`:
 
 1. Per-jail directory `/tmp/yolo-host-services-<8hex>/` is created on the host, mode `0700`, and bind-mounted into the jail at `/run/yolo-services/`. (It is **not** under your workspace — an earlier revision of this page said `<workspace>/.yolo/host-services/`, which was never true and is actively misleading now that a manifest loophole's endpoint file in there is a credential.)
-2. yolo substitutes `{socket}` in the service's command with the host-side path, e.g. `/tmp/yolo-host-services-a1b2c3d4/auth-broker.sock`. (`{endpoint}` is the canonical spelling and an accepted alias here.)
+2. yolo substitutes `{endpoint}` in the service's command with the path the daemon should bind, e.g. `/tmp/yolo-front-a1b2c3d4-auth-broker.sock`. (`{socket}` is an accepted alias.) That path is **not** in the directory from step 1: leaving it there would keep a raw socket reachable from inside the jail, and would let the jail unlink the daemon's own socket.
 3. yolo launches the command as a child process. The service is expected to bind the socket at the substituted path.
-4. yolo waits up to 5 seconds for the service to become reachable — for a socket, that the file appears; for a manifest loophole's endpoint file, that it *parses*, since a truncated file would otherwise read as healthy forever. If the service exits early or doesn't publish in time, yolo logs the failure and continues without that service.
-5. The container starts. The agent inside sees `/run/yolo-services/auth-broker.sock` and can connect.
+4. yolo waits up to 5 seconds for the service to become reachable — for a daemon that binds a socket, that the socket accepts a *connect*, never that the file exists, which a leftover from a dead predecessor would satisfy instantly; for a daemon that publishes its own endpoint file, that the file *parses*, since a truncated file would otherwise read as healthy forever. If the service exits early or doesn't publish in time, yolo logs the failure and continues without that service.
+5. yolo starts its own authenticated front over the daemon's socket, which publishes `/run/yolo-services/auth-broker.endpoint`. This happens only *after* step 4 succeeds: a front that bound earlier would make the endpoint look healthy while nothing was behind it, and every authenticated connection would be dropped at the dial. The container starts, and the agent inside reads that file.
 6. When the container exits, yolo sends `SIGTERM` to each service, waits 5 seconds, then `SIGKILL`.
 7. The per-jail directory is removed — which is also how a manifest loophole's bearer token is retired, since the token lives only in the file inside it.
 
@@ -1035,12 +1044,12 @@ Service stdout and stderr are captured to `~/.local/share/yolo-jail/logs/host-se
 For each service, yolo injects an env var so the agent doesn't need to hard-code the path:
 
 ```
-YOLO_SERVICE_AUTH_BROKER_SOCKET=/run/yolo-services/auth-broker.sock
+YOLO_SERVICE_AUTH_BROKER_ENDPOINT=/run/yolo-services/auth-broker.endpoint
 ```
 
-The variable name is `YOLO_SERVICE_<UPPERCASED-NAME>_SOCKET`, with non-alphanumeric characters replaced by underscores.
+The variable name is `YOLO_SERVICE_<UPPERCASED-NAME>_ENDPOINT`, with non-alphanumeric characters replaced by underscores, and it is the same variable for both shapes. Its value is always a **path to the endpoint file** and never an address — the address lives inside the file, so it can change without relaunching the jail, whose environment is frozen at container start.
 
-A loophole shipped as a `manifest.jsonc` gets `YOLO_SERVICE_<NAME>_ENDPOINT` instead, naming its endpoint **file**. The two names are deliberately distinct rather than one being reused: the value's meaning differs, and a client that dials a regular file as though it were a socket reports something obscure, where a client that finds its variable absent reports "not wired up in this jail" and exits cleanly.
+The `_SOCKET` spelling still exists, for exactly one service: the cgroup delegate, whose value really is a socket path (see [Security model](#security-model) for why that one cannot be fronted). It is a retiring spelling, not a second mechanism. The two suffixes are deliberately distinct rather than one being reused: the value's meaning differs, and a client that dials a regular file as though it were a socket reports something obscure, where a client that finds its variable absent reports "not wired up in this jail" and exits cleanly.
 
 ### Minimal example service
 
@@ -1083,21 +1092,14 @@ Hook it up in your workspace config:
 {
   "loopholes": {
     "auth-broker": {
-      "command": ["python3", "~/code/auth-broker/serve.py", "--socket", "{socket}"],
+      "command": ["python3", "~/code/auth-broker/serve.py", "--socket", "{endpoint}"],
       "env": {"KEYS_FILE": "~/secrets/keys.json"}
     }
   }
 }
 ```
 
-Inside the jail, the agent uses `$YOLO_SERVICE_AUTH_BROKER_SOCKET`:
-
-```bash
-echo '{"key": "OPENAI_API_KEY"}' | nc -U "$YOLO_SERVICE_AUTH_BROKER_SOCKET"
-# {"value": "sk-..."}
-```
-
-That one-liner works **because a config-declared service is still a socket**. It does not generalize: against a manifest loophole's `_ENDPOINT` there is nothing for `nc` to do — a client there must read the endpoint file, pin the certificate named in it, and present the token in it, which needs a TLS library. See [`loophole-protocol.md`](../reference/loophole-protocol.md) §"Writing a client from scratch".
+The daemon above needs no change from what it would have been on the retired socket transport — it binds a socket and speaks its own newline-JSON protocol, and yolo's front splices bytes without translating them. **The client does.** This page used to show a `nc -U "$YOLO_SERVICE_AUTH_BROKER_SOCKET"` one-liner here, and there is no shell equivalent of what replaced it: a client reads `$YOLO_SERVICE_AUTH_BROKER_ENDPOINT`, reads *that file*, TLS-dials the address in it with the certificate in it as its only trust root, writes the token in it as a length-prefixed frame, and only then speaks the daemon's protocol. That needs a TLS library. `cmd/yolo-ps` is the reference implementation and the steps are enumerated in [`loophole-protocol.md`](../reference/loophole-protocol.md) §["Writing a client from scratch"](../reference/loophole-protocol.md#writing-a-client-from-scratch).
 
 The secret never enters the jail filesystem, env vars, or any bind mount.
 
@@ -1105,11 +1107,11 @@ The secret never enters the jail filesystem, env vars, or any bind mount.
 
 **The boundary is "whatever runs as your user", on either shape.** That matches the host — anything running as you can already read your credentials or act as you — and a jail extends it unchanged. What differs is how it is enforced:
 
-- **A socket service** (config-declared): the per-jail directory is the isolation. Other jails cannot see it, because it is a separate mount. Nothing else authenticates the caller, so anything on the host running as you can connect.
-- **A manifest loophole** (`loopback-tls`): the per-jail bearer token in its `0600` endpoint file is the enforcement, because a loopback TCP port has no "can connect implies authorized" property to inherit. `0600` on a path and a pre-shared token on a port say the same thing.
-- On Linux, a socket service can use `SO_PEERCRED` on accepted connections to attest the caller's host PID — same mechanism the cgroup delegate uses. It cannot separate the jail from a same-user host process, though: rootless podman maps the container's UID 0 to your uid, so both arrive carrying the same one. Treat it as attribution, not as a boundary.
+- **A fronted service** (config-declared): the per-jail directory is one half of the isolation — other jails cannot see it, because it is a separate mount — and the per-jail bearer token in its `0600` endpoint file is the other. The daemon's own socket is host-only, so nothing inside the jail can reach it at all; what the jail can reach is the front, which authenticates.
+- **A manifest loophole** (`loopback-tls`): identical, minus the front — the daemon publishes the endpoint file itself. Either way the token is the enforcement, because a loopback TCP port has no "can connect implies authorized" property to inherit. `0600` on a path and a pre-shared token on a port say the same thing.
+- **`SO_PEERCRED` does not survive a front, and that is why one service refused to move.** On a bind-mounted socket, a Linux service can read the connecting peer's host PID off the kernel; put a front in between and it reads *yolo's* PID instead, because yolo is the process that dialled. The cgroup delegate needs the real one (it writes the caller into a cgroup), so it is the one service still on a bind-mounted socket and the one still named by a `_SOCKET` variable. Even there the credential cannot separate the jail from a same-user host process: rootless podman maps the container's UID 0 to your uid, so both arrive carrying the same one. Treat it as attribution, not as a boundary.
 - What the service does with secrets, scopes, audit logging, and rate limiting is entirely up to the service. yolo just wires the plumbing.
-- The cgroup delegate daemon is one of these services internally — proof that the pattern is enough to support privileged operations safely.
+- The cgroup delegate is this pattern applied to a privileged operation — proof that host-side trust in front of a jail is enough to carry one safely — though it is a listener inside `yolo` rather than a spawned child, so it is not literally one of the services configured here.
 
 ### Validation
 
@@ -1117,9 +1119,9 @@ The secret never enters the jail filesystem, env vars, or any bind mount.
 
 ### Apple Container caveat
 
-Host services are skipped entirely on the `container` runtime. Use `podman` if you need this feature on macOS.
+Every host service but one is skipped on the `container` runtime. The allowance is by name — `openai-auth-broker`, the OpenAI credential broker — and it is the reason the services directory is mounted there at all; every other service, yours included, prints one yellow inert line per launch and does not start. Use `podman` if you need this feature on macOS.
 
-The reason **used to be** the transport: Apple Container doesn't bind-mount Unix sockets through virtiofs. The `loopback-tls` transport removes that obstacle — it is a TCP connection, not a socket file — but how the endpoint file itself crosses into an Apple Container guest is a mount decision nobody has made yet. So this is now **explicitly deferred rather than blocked**: an unclaimed win with a named blocker, not something that quietly started working.
+The reason **used to be** the transport: Apple Container doesn't bind-mount Unix sockets through virtiofs. The `loopback-tls` transport removes that obstacle — it is a TCP connection, not a socket file — and the mount question is answered too, since an endpoint file crosses in an ordinary directory bind that this backend handles. What holds the skip in place now is a **measurement**: on `container` 1.1.0 a container→host connection completes its handshake and then carries nothing (by two alternating mechanisms), no bind address helps, and `host.containers.internal` does not resolve. A loopback-TLS loophole needs exactly that dial, so it could not be reached from the jail even if it were started. This is **deferred on a measured blocker an upstream release can expire**, not a design decision — `integration/applecontainer_test.go`'s host-loopback witness is what to re-run before believing it still holds.
 
 ---
 
@@ -1787,16 +1789,7 @@ Two corrections to a belief this table exists to kill. It is widely said that **
 [^maclog]: macos-user offers Apple's unified log instead, behind its own `macos_log` key (`off` / `user` / `full`) and a `yolo-log` helper. It is a convenience, not a boundary: the sandbox can run `/usr/bin/log` directly, so `off` is advisory.
 [^unserialized]: Claude auth still works on macos-user — the sandbox reaches the API directly — but refreshes are not serialized. Two concurrent sessions, or one macos-user session beside a container jail, can race the single-use refresh token; the symptom is a logged-out Claude with nothing pointing at concurrency.
 [^acbroker]: The daemon and its in-jail adapter both run, the reachability check warns without refusing, and the agent's briefing omits the one loophole this backend does start. Either the allowlist entry or the silence needs to go; until then, treat Codex/pi login on Apple Container as unverified.
-[^muborker]: See the next note.
-[^muborker2]: See the next note.
-[^muboker]: See the next note.
-[^muborker3]: See the next note.
-[^muboker2]: See the next note.
-[^muborker4]: See the next note.
-[^muborkerx]: See the next note.
-[^muborker5]: See the next note.
 [^mubroker]: On macos-user the broker is started by hand and the launch is **refused** if it does not come up, so a broken broker takes the backend down rather than failing quietly. Credentials are handed over by a per-file macOS access-control grant to the sandbox account, which is built and unit-tested but has never been executed end to end outside a real Mac. One live defect rides along: the agent's briefing still tells it no host services are running here.
-[^muborker6]: See the previous note.
 
 ### Permanent limits, and what to do instead
 
@@ -1976,7 +1969,7 @@ Set `YOLO_REPO_ROOT` in your shell profile if you always want a live checkout �
 
 **Apple Container: "virtual machine failed to start"**
 
-- VZ.framework caps bind mounts at ~22. YOLO Jail consolidates the workspace state into a single `/home/agent` mount to stay under this, but if you add many custom `mounts` entries you may still hit it.
+- VZ.framework caps how many bind mounts a guest can take. YOLO Jail consolidates the workspace state into a single `/home/agent` mount to stay well under it, but many custom `mounts` entries can still reach it. The cap is real and yolo does not know its value: the issue that reported this named a specific number, nothing in the codebase measures or asserts one, so the number is deliberately not repeated here.
 - Try `YOLO_RUNTIME=podman` to sidestep the limit.
 
 **Apple Container: image load fails**
@@ -1986,6 +1979,6 @@ Set `YOLO_REPO_ROOT` in your shell profile if you always want a live checkout �
 
 **`/tmp` bind mounts fail**
 
-- macOS `/tmp` → `/private/tmp` is a symlink. `cli.py` resolves this automatically.
+- macOS `/tmp` → `/private/tmp` is a symlink. The CLI resolves this automatically when it builds a mount path. (This line named a `cli.py` until 2026-09-16; nothing in yolo is Python any more.)
 
 See [What works in each setup](#what-works-in-each-setup) for the per-setup support reference, and [docs/guides/macos.md](macos.md) for the full macOS-specific setup and the per-backend explanations behind those cells.

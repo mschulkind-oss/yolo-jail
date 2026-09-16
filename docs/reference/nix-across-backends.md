@@ -168,7 +168,7 @@ tolerated absences to maintain.
 
 | | Container | macos-user |
 | :--- | :--- | :--- |
-| Baked image | yes | **no** — but there is a FLOOR: the same core set, realized natively (see below) |
+| Baked image | yes | **no** — but there is a FLOOR: the image *core* set, realized natively; not the full baked set (see below) |
 | `/lib` farm + `LD_LIBRARY_PATH` | yes | **no** — no composed filesystem to farm into |
 | Nix usable *inside* the jail | yes, via the daemon socket | **no** — the sandbox has no daemon socket mount |
 | Rebuild/reload cost model | store-path diff, reload on change | none — build every launch, nix short-circuits |
@@ -191,9 +191,18 @@ not guessed), and the GNU userland, which is excluded by POLICY because this
 backend's proposition is *"your Mac, confined"*. A package that is neither
 buildable nor excluded is a **fatal** in the flake, never a silent skip.
 
-What still differs is the delivery, not the contents: the floor is a nix profile
-on PATH rather than a composed filesystem, so `/bin/<tool>` is not a path that
-resolves there and an absolute-path assumption still breaks.
+Two things still differ, and only one of them is delivery. **Delivery:** the floor
+is a nix profile on PATH rather than a composed filesystem, so `/bin/<tool>` is not
+a path that resolves there and an absolute-path assumption still breaks.
+**Contents:** the floor is the image's `coreFloorNames`, which is not everything a
+default image bakes. The `fullPackages` list beside it — chromium, the toolchain
+(`gcc`, `gnumake`, `binutils`), `podman`, `nix`, `tmux`, `fzf`, `bat`, `htop`,
+`strace`, `lsof`, `openssh` and the network tools among them — is read by the image
+variants and by `yoloImageExtras`, and by no `noncontainer*` attr at all. Those are
+**absent** on macos-user, not delivered differently: `packages:` is the only way to
+get one there. Which half a given name falls in is `flake.nix`'s to state, and only
+the floor's half is restated in Go — `internal/darwinpkg/floor.go`, held to the flake
+by a drift gate that parses it. `fullPackages` has no such mirror, so read the flake.
 
 ## Current values
 

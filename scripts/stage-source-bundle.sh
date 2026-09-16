@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Stage the "two files and a binary" bundle that ships beside an installed
-# `yolo` so a checkout-less install (Homebrew bottle, release archive) can build
+# `yolo` so a checkout-less install (Homebrew formula, release archive) can build
 # the jail image without a Go toolchain or the source tree.
 #
 # `yolo -- <cmd>` runs `nix build .#ociImage` against a flake. An installed
@@ -11,8 +11,8 @@
 # THE BUNDLE IS PREBUILT, NOT SOURCE. It contains exactly:
 #   flake.nix
 #   flake.lock
-#   bin/linux-amd64/{yolo,yolo-entrypoint,yolo-jaild,yolo-ps}
-#   bin/linux-arm64/{yolo,yolo-entrypoint,yolo-jaild,yolo-ps}
+#   bin/linux-amd64/  — one file per name in SHIPPED_BINARIES below
+#   bin/linux-arm64/  — the same names, cross-compiled
 #
 # When the flake evaluates from this bundle (a `path:` flake), it hits its own
 # prebuilt short-circuit — `builtins.pathExists ./bin/linux-<arch>` in
@@ -23,8 +23,12 @@
 # docs/research/repo-root-and-distribution.md.
 #
 # goprobe is EXCLUDED — it is a dev-only deployment tripwire that must never
-# reach a runtime PATH. The shippable set is the same four binaries the image
-# bakes (flake.nix:shippedBinaries).
+# reach a runtime PATH. The shippable set is SHIPPED_BINARIES below, the same
+# names flake.nix:shippedBinaries lists. The image itself bakes NO yolo binary
+# any more (since the mounted-prefix change): a launch bind-mounts
+# <prefix>/bin at /opt/yolo-jail/bin and the image holds only the /bin/<name>
+# symlinks pointing into that mount (flake.nix:jailPrefixLinks) — driven by the
+# very same list, which is why one list still serves both sides.
 #
 # Cross-compiling needs a Go toolchain (build-go.sh). The SHIPPED bundle is
 # arch-agnostic on purpose: one bundle serves amd64 and arm64 hosts, and the
@@ -89,8 +93,8 @@ if [ -e "$DEST" ]; then
   fi
 fi
 
-# The image bakes exactly these (flake.nix:shippedBinaries). goprobe is
-# intentionally absent.
+# The names the mounted prefix ships and the image symlinks into it
+# (flake.nix:shippedBinaries). goprobe is intentionally absent.
 #
 # THIS LIST MUST TRACK flake.nix's. It is not a convenience copy: a bundle
 # staged here IS the source flake.nix's prebuilt short-circuit input, and that

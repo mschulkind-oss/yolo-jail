@@ -146,9 +146,16 @@ var inheritCensus = map[string]keyDisposition{
 	// REFUSAL (config.validateProfiles errors on a workspace spelling). The host CLI
 	// resolves both into the YOLO_PROFILES/YOLO_USE_PROFILES tables for THIS jail, and an
 	// inner launcher composes the same tables for the jail it spawns.
-	"profiles":              {preflight: true, nested: true, reason: "user-declared profiles over provider-declared options; the launch resolves them into YOLO_PROFILES here and in nested launches"},
-	"use_profiles":          {preflight: true, nested: true, reason: "active CLI-to-profile-name selections for this jail and nested launches (keys are CLI names: core knows packs, not agents)"},
-	"required_capabilities": {preflight: true, nested: true, reason: "required capabilities validated at pre-flight and passed to nested launches"},
+	"profiles":     {preflight: true, nested: true, reason: "user-declared profiles over provider-declared options; the launch resolves them into YOLO_PROFILES here and in nested launches"},
+	"use_profiles": {preflight: true, nested: true, reason: "active CLI-to-profile-name selections for this jail and nested launches (keys are CLI names: core knows packs, not agents)"},
+	// `required_capabilities` earns its preflight seat on SHAPE ALONE, and the distinction
+	// matters to whoever re-decides it: pre-flight checks the key is a string list
+	// (validateRequiredCapabilities) and NOTHING reads the capability names. The launch hands
+	// the jail YOLO_REQUIRED_CAPABILITIES and no consumer of that variable exists — the fatal
+	// refusal for an unmet capability (docs/design/agent-auth-modes.md OQ-CAP2, which
+	// config_ref.txt cites for exactly this) is unbuilt. So the key is in both files as a
+	// DECLARATION that survives the boundary, not as a check either side performs.
+	"required_capabilities": {preflight: true, nested: true, reason: "shape-validated as a string list at pre-flight (nothing reads the names yet) and passed to nested launches"},
 
 	// ---- Preflight only ---------------------------------------------------------
 	// `agents_md_extra` is briefing prose rendered into this jail's own AGENTS.md.

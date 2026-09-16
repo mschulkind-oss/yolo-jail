@@ -100,13 +100,25 @@ func (o *Options) advertiseHostFor(rt string, cfg *jsonx.OrderedMap) string {
 // it has. The briefing said "Bridge mode … reach the host at host.containers.internal"
 // to an agent whose `localhost` already WAS the host's.
 //
-// THE WIDENING CANNOT MOVE AN ADVERTISE ADDRESS OR A DISPOSITION, which is what the
-// paragraph above would otherwise put at risk. Of the three readers only appliedNetMode
-// is live on this backend: advertiseHostFor is reached only from startLoopholes, whose
-// one caller (startLoopholesDisclosed) runs inside runContainer, and assembleRunCmd's
-// paths.HostLoopbackShared is written in the same function — and run.Run returns on the
-// macos-user arm several hundred lines above both. That arm calls notePackLoopholesInert
-// directly for exactly this reason: no host service starts here to publish anything.
+// THE WIDENING DOES MOVE AN ADVERTISE ADDRESS ON THIS BACKEND, and it is supposed to.
+// The paragraph above used to end by saying it could not, on the grounds that only
+// appliedNetMode was live here; that stopped being true when the macos-user arm started
+// the OpenAI credential service itself (run.Run → startOpenAIAuth →
+// startLoopholesMatching, which calls advertiseHostFor). startLoopholes and its one
+// disclosed caller do still sit inside runContainer, below that arm's return, so it is the
+// subset path and not the full one — but the subset publishes, and this predicate decides
+// what it publishes. "Always true" is what makes that 127.0.0.1: the sandboxed process is
+// an ordinary child of the launcher on the launcher's own stack, so the listener's loopback
+// IS the sandbox's, and a gateway name would be an address nothing is listening on.
+//
+// A DISPOSITION IT STILL CANNOT MOVE. assembleRunCmd's paths.HostLoopbackShared is written
+// in the assembler, several hundred lines below the macos-user return, so this backend
+// emits no disposition at all — which is why the widening cannot manufacture the refused
+// launch the pair-drift hazard above describes.
+//
+// The arm calls notePackLoopholesInert directly for a separate reason, spelled out at that
+// call site: every OTHER pack-shipped service is inert here, and no wrapper on the subset
+// path reports it.
 func sharesLauncherNetns(rt, netMode string, inContainer bool) bool {
 	if rt == "container" {
 		return false
@@ -449,8 +461,16 @@ func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt 
 // (NSpid translation, or a credential the transport can carry) is a security
 // decision with its own design, not a transport swap — so it is deliberately
 // NOT bundled into the transport retirement. This service stays on AF_UNIX
-// until that decision is made, and on macOS + podman it is therefore still
-// broken for the virtiofs reason the unification exists to fix.
+// until that decision is made.
+//
+// ⚠ macOS IS UNSERVED FOR AN EARLIER REASON THAN THE TRANSPORT, and this comment
+// used to name the wrong one ("still broken for the virtiofs reason the
+// unification exists to fix"). The delegate is cgroup v2, so the in-process start
+// is Linux-only — off Linux startCgroupDelegateInProc returns false
+// (cgddaemon_other.go) and no socket is bound at all. The virtiofs limitation is
+// therefore never reached there, and retiring AF_UNIX would not serve macOS: only
+// a kernel with cgroups would. The AF_UNIX argument above is about what keeps this
+// service off loopback-TLS on the platform where it DOES run.
 func (o *Options) startCgroupDelegate(cname, rt, socketsDir string) (loopholeDaemon, bool) {
 	sockPath := filepath.Join(socketsDir, paths.CgdSocketName)
 	stop, ok := o.startCgroupDelegateInProc(cname, rt, sockPath)

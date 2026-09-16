@@ -49,10 +49,26 @@ import (
 // # What is NOT here
 //
 // Directory-shaped deliveries. Config `mounts`, a pack `mount` grant and a directory
-// `host_files` entry all name an arbitrary user tree, and a copy does not scale to one —
-// this repo's own yolo-jail.jsonc mounts a growing log directory. Those are DP-D15, ruled
-// separately ("we can't do /ctx by copying, some of these directories are huge"), and a
-// directory entry that reaches here is left undelivered and NAMED rather than copied.
+// `host_files` entry can each name an arbitrary user tree, and a copy does not scale to
+// one — this repo's own yolo-jail.jsonc mounts a growing log directory. Those are DP-D15,
+// ruled separately ("we can't do /ctx by copying, some of these directories are huge").
+//
+// ⚠ ONLY ONE OF THE THREE IS NAMED WHEN IT IS DROPPED, and the other two are gaps rather
+// than that ruling being applied. A directory `host_files` entry reaches this function and
+// comes back in undeliveredDirs for noteMacosUserHostByteGaps to print. Config `mounts` and
+// pack `mount` grants never reach it: their only readers are container-side — the assembler's
+// own `mounts` loop, and hostMountArgs (packhostgrants.go), the sole non-test reader of
+// HonoredMounts — so on this backend both are accepted, validated and dropped in silence.
+// appliedCtxMounts keeps config `mounts` out of the AGENT's briefing, which is a different
+// job from telling the HUMAN; nothing tells the human. That silence covers the single-FILE
+// form of a pack `mount` too, which a copy would scale to perfectly well.
+//
+// The same shape one destination over, noted here because this is where a reader comes
+// looking: a pack `files` contribution lands in the HOME rather than /ctx, so it belongs to
+// the home overlay and not to this tree — and the overlay carries skills and briefings only
+// (macoshomeoverlay.go), while `files` has one non-test reader and it is container-side
+// (packfiles.go). packs/pi's `extensions/yolo-openai-auth.js`, the file that registers the
+// openai-codex provider, is the live victim.
 
 // macosCtxTreeLeaf is the staging-dir subdir the tree is composed into. It sits beside
 // the home overlay's own leaf, in the same per-jail staging dir, because both are

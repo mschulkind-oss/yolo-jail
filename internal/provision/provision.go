@@ -116,6 +116,15 @@ func SetupBypassingShims(steps ...string) string {
 // where there is nobody to ask — completes with status 0, because a jail whose tools did
 // not install is still a jail the user asked for and the record is in the log. Only the
 // `n` answer propagates.
+//
+// ⚠ THE TTY TEST IS THE ONLY LIVE HALF OF THE PROMPT'S GATE. `${YOLO_PROVISION_PROMPT:-1}`
+// beside it has NO WRITER: the container's launcher emits every `-e` by name and never this
+// one, the image bakes it nowhere, and macos-user runs the stage under `env -i` behind a
+// closed allowlist (macosuser.SandboxArgvEnvProblems) that excludes it — so it reads its
+// default on every backend and `[ -t 0 ]` decides alone. Recorded rather than reworded
+// because the clause reads like a supported knob and is not one: whoever needs it should
+// wire a writer, and whoever does not should delete the clause (the container's golden
+// moves with it).
 func Script(logPath, setup string) string {
 	log := shquote.Quote(logPath)
 	return "" +

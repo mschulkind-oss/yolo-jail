@@ -227,9 +227,13 @@ func (o *AutoLoadOptions) stockImageLoaded(identity string) string {
 // Best effort and non-fatal, exactly like pointLatestAt beside it: the ref this
 // launch runs was decided by the load. A failure costs one future build.
 //
-// Apple Container is skipped for the same reason pointLatestAt skips it — there
-// is no `container image tag` argv this repo can verify — so that backend keeps
-// building every launch, as it does today.
+// Apple Container is skipped for the reason ImageTagCmd states — there is no
+// `container image tag` argv this repo can verify — so that backend keeps
+// building every launch, as it does today. It is skipped TWICE: the caller
+// declines to call this at all for that runtime, in the same
+// `o.Runtime != "container"` branch that skips pointLatestAt beside it — that
+// branch is pointLatestAt's ONLY guard, it carries none of its own — and the
+// guard below repeats the decision so a second caller cannot lose it.
 func (o *AutoLoadOptions) tagStockImage(contentRef, identity string) {
 	if o.Runtime == "container" {
 		return

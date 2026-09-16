@@ -37,10 +37,23 @@ func configRefText(t *testing.T) string {
 // MEASURED 2026-09-09, before this test existed: `required_capabilities` was
 // accepted by the schema and documented nowhere in config_ref.txt — so the one
 // surface an agent can interrogate about the config was silent about a live key.
-// (The design doc predicted `repo_path`, `host_processes` and `prune` instead;
-// all three have since been resolved, two by documentation and one by
-// retirement. That is the argument for deriving the check rather than listing
-// the gaps: the list of gaps was wrong within weeks, and the derivation was not.)
+// (The design doc predicted `repo_path`, `host_processes` and `prune` instead.
+// Two of the three went away by RETIREMENT rather than by documentation — they
+// are in config.RetiredConfigKeys() now, and the test below therefore does not
+// ask about them at all — while the one it named that IS still live, `prune`, is
+// the one hole this check does not close: `prune` is accepted by the schema,
+// carries `prune.warn_threshold_gb`, has no validator of its own, and appears
+// nowhere in config_ref.txt. The loop below passes it anyway, because the
+// reference documents `programs.autoprune` and a substring match cannot tell the
+// two apart. docs/design/minimal-disk-footprint.md reached the same conclusion
+// independently on 2026-08-25.
+//
+// So the predicted list was wrong in both directions, which is the argument for
+// deriving the check rather than listing the gaps — and the substring match is
+// the weakest assertion in this file. Tightening it to a titled section per key
+// is the right shape and has to WAIT for config-ref to grow a `prune` entry,
+// since a skip-list here is the drifting second copy this file exists to
+// refuse.)
 func TestConfigRefDocumentsEveryLiveKey(t *testing.T) {
 	ref := configRefText(t)
 	for _, key := range config.TopLevelConfigKeys() {

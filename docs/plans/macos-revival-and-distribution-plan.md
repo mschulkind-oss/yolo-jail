@@ -123,7 +123,7 @@ reading code or `git log`; nothing here is carried over on trust.
 | A1 (config-diff on macos-user) | **DONE 2026-08-18, by the rejected alternative** | `bb825486`, `fb19e8ed`; `internal/cli/run/run.go:144` |
 | A2 (hard error + `linux-only`) | **DONE 2026-09-04** | both pieces shipped: `platforms: ["linux"]` on the package object form filters in `EffectivePackages(cfg, platform)` BEFORE materialize, and a declared package still missing from the build aborts the launch naming every one at once (`internal/macosuser/orchestrator.go`). The plan's `linux-only` spelling became `platforms`, a list — see A2 below |
 | A3 (drop `macos_shared_root`) | **DONE 2026-07-23** | `68026c61`; `rg macos_shared_root internal/` is empty; message at `internal/macosuser/runplan.go:286` |
-| Track L part 1 (framework plumbing) | **NOT STARTED** | re-checked 2026-09-10: `startLoopholesDisclosed` is called once, at `internal/cli/run/run.go:1049`, inside `runContainer` (`run.go:668`); `macosuser.EndpointGrantCommands` (`macosuser.go:597`) still has **zero call sites** outside its own tests |
+| Track L part 1 (framework plumbing) | **STARTED 2026-09-15, one loophole deep** | `6d118252` wired the **openai-auth broker** — and only it — into the macos-user arm: `run.Run` calls `startOpenAIAuth` (`internal/cli/run/openaiauthbackend.go`, a `startLoopholesMatching` whose allow-list is that one name) and refuses the launch if it does not come up, while `notePackLoopholesInert` still reports every OTHER pack loophole as inert on this backend. `macosuser.EndpointGrantCommands` now has a production caller — `BuildRunPlan` (`internal/macosuser/runplan.go`) stages its two ACEs for the broker's endpoint file, which is [`backend-parity.md`](../design/backend-parity.md)'s [OQ-BP-5](../design/backend-parity.md#OQ-BP-5) answered in code. What is still unbuilt is the FRAMEWORK: the generic lifecycle (`startLoopholesDisclosed`) remains reachable only from `runContainer`, above which this arm returns |
 | Track L part 2 (scoping proxy) | **BLOCKED on [OQ-L1](#open-questions-blocking)** | unchanged |
 | check's python3 probe | **DELETED 2026-09-03** | it hard-FAILed a python-less Mac for a requirement J2 dropped on 2026-07-21 (`544a8069`); `internal/cli/check/sections_macos.go` |
 | macos-user repo-root gate for `packages:` | **FIXED 2026-09-03** | an unresolved root reached `darwinpkg.Materialize("")` → empty `cmd.Dir` → nix evaluated the user's cwd; `internal/cli/run/run.go`, `internal/darwinpkg/materialize.go` |
@@ -767,7 +767,7 @@ The bullets below are the original plan; see that runbook for what actually ran.
 
 ## Track L — loophole framework on macos-user (future; use-case-gated)
 
-> **Status: NOT STARTED. Sequencing UNCHANGED** — recorded 2026-07-23 from the
+> **Status: STARTED 2026-09-15, one loophole deep. Sequencing UNCHANGED** — recorded 2026-07-23 from the
 > `macos-user-nix-and-features.md` [§3.5](../reference/macos-user-nix-and-features.md#loopholes-mostly-moot-and-the-framework-ports-better) discussion, still a forward-looking
 > capability and not a revival blocker.
 >
@@ -782,15 +782,23 @@ The bullets below are the original plan; see that runbook for what actually ran.
 > the distinction — a daemon that does one bounded thing vs. one that does whatever
 > the caller describes — is the line part 1 must not cross.
 >
-> **Still NOT STARTED, rechecked 2026-08-23.** The loophole host-service
-> lifecycle is called exactly once, at `internal/cli/run/run.go:569`
-> (`startLoopholesDisclosed`), which is inside `runContainer`
-> (`internal/cli/run/run.go:308`) — so the macos-user arm, which returns above
-> it, starts no host service at all. One primitive of part 1 was built ahead of
-> the rest and is **uncalled**: `macosuser.EndpointGrantCommands`
-> (`internal/macosuser/macosuser.go:430`) grants the sandbox uid READ on a
-> published endpoint file by ACE, and `rg -n EndpointGrantCommands` finds no
-> non-test caller.
+> **ONE host service now starts here, and the framework still does not** — the
+> record below said "NOT STARTED, and `EndpointGrantCommands` is uncalled" from
+> 2026-08-23 until `6d118252` (2026-09-15) made both halves false. What changed:
+> the macos-user arm of `run.Run` calls `startOpenAIAuth`, a
+> `startLoopholesMatching` whose allow-list is the single name
+> `openai-auth-broker`, and refuses the launch if that daemon does not come up;
+> `macosuser.BuildRunPlan` then stages `EndpointGrantCommands` for its published
+> endpoint file, so the primitive built ahead of the rest has a production caller
+> and the ACE grant it emits is [`backend-parity.md`](../design/backend-parity.md)'s
+> [OQ-BP-5](../design/backend-parity.md#OQ-BP-5) answered in code rather than by a
+> ruling. What has NOT changed is the part that makes this a *framework*: the
+> generic lifecycle (`startLoopholesDisclosed` → `startLoopholes`) is still
+> reachable only from `runContainer`, this arm still returns above it, and
+> `notePackLoopholesInert` still reports every other pack loophole as inert here.
+> So part 1's remaining work is widening a hardcoded allow-list of one name into
+> the disclosure-bound gate every other backend's loopholes go through — not
+> building the transport, which now exists and runs.
 
 > [!WARNING]
 > **The "three bundled loopholes" framing below is superseded, and the count is
@@ -1054,7 +1062,7 @@ DONE:  J1.1 J1.2 J1.3† J1.4  D1‡ ─►  J2.1 J2.2 J2.3 J2.4 + D2✗ ──�
 mac:                           └─ M0 (SandVault)     └─ M1 (e2e verify) ──► M2 (dogfood, docs)
 
 DONE (A-track):  A1 ✅ 2026-08-18   A2 ✅ 2026-09-04   A3 ✅ 2026-07-23
-NOW:             Track L part 1 (framework plumbing on the macos-user launch path) — NOT STARTED
+NOW:             Track L part 1 (framework plumbing on the macos-user launch path) — STARTED, one loophole deep
 LATER:           Track L part 2 (the scoping proxy) — gated on OQ-L1
 
 † J1.3's fix landed and was then deleted with `internal/builder` (Open Decision #3).

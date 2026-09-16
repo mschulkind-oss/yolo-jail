@@ -49,7 +49,7 @@ backend.
 | Runtime | What it is | Choose it for |
 |---------|------------|---------------|
 | **Podman** | Linux container in a Podman Machine VM | The portable default; Podman-in-Podman; **full feature parity with Linux hosts** — nothing in [Limitations](#limitations) is skipped for backend reasons |
-| **Apple Container** | Linux container, one lightweight VM per container | Per-container CPU/memory limits, native socket forwarding (macOS 15+). Drops loopholes; context mounts and read-only protection arrive from `container` 1.1.0 and are declined below it — see [what it does not do](#apple-container-runtime-container--what-it-does-not-do) |
+| **Apple Container** | Linux container, one lightweight VM per container | Per-container CPU/memory limits, native socket forwarding (macOS 15+). Drops every loophole but one — the OpenAI credential broker starts, and the jail cannot reach it; context mounts and read-only protection arrive from `container` 1.1.0 and are declined below it — see [what it does not do](#apple-container-runtime-container--what-it-does-not-do) |
 | **macos-user** | Native macOS user + Seatbelt, **no VM, no image** | Fastest startup; no container runtime to install; `packages:` via native darwin nix. Weaker isolation than a VM (Seatbelt, no cgroups) — see [Trade-offs](#macos-user-trade-offs) and [what it does not do](#macos-user-native-no-vm--what-it-does-not-do) |
 
 The container runtimes are native arm64 on Apple Silicon. Set the runtime with
@@ -483,17 +483,20 @@ ephemeral.
 
 ### Apple Container (`runtime: container`) — what it does not do
 
-The headline is **loopholes**: this backend starts no host service for any of
-them, so the whole loophole surface is off. If you use Claude with an OAuth
-login, that is the row to read first.
+The headline is **loopholes**: this backend starts a host service for exactly one
+of them — the OpenAI credential broker, which starts and then cannot be reached
+from the jail — and for none of the others, so treat the surface as off. If you
+use Claude with an OAuth login, or Codex/pi with an OpenAI subscription, those are
+the rows to read first.
 
-Everything below is announced at launch **except** the three rows marked
-*silent* — those you have to know about, because nothing tells you.
+Everything below is announced at launch **except** the rows marked *silent* —
+those you have to know about, because nothing tells you.
 
 | Config key / feature | On Apple Container | Where it is decided |
 |---|---|---|
-| `loopholes` — all of them, from packs and from your own config | **inert.** No host service starts, whatever the loophole declares. One yellow line per loophole at every launch, naming the pack, the loophole and the reason | `run/loopholesruntime.go` → `startLoopholes`; `run/loopholeinert.go` → `backendInertReason` |
+| `loopholes` — from packs and from your own config | **inert, with exactly one exception.** No host service starts, whatever the loophole declares; the one that does start is `openai-auth-broker`, two rows down. One yellow line per inert loophole at every launch, naming the pack, the loophole and the reason. The reason is measured on `container` 1.1.0 and is expected to expire with an upstream release: a container→host connection completes its handshake and then carries nothing, so a `loopback-tls` loophole could not be dialled from the jail even if its daemon ran | `run/loopholesruntime.go` → `startLoopholes`; `run/loopholeinert.go` → `backendInertReason` |
 | `claude-oauth-broker` in particular | **not running.** Refreshes of your Claude OAuth token are not serialized between jails — see the warning below | `run/run.go` → `runContainer` (the broker-singleton gate) |
+| `openai-auth-broker` in particular (the `openai-auth` pack, which the `codex` and `pi` packs join automatically) | **starts — and the jail cannot reach it, silently.** It is the single name `startLoopholes` admits on this backend: the host daemon runs, its endpoint directory is mounted, and no inert line is printed for it. The dead hop above then swallows every request, so `codex` says `OpenAI login is required.` and an interactive login fails the same way, with nothing naming Apple Container as the cause. The in-jail reachability witness warns rather than refusing, because it escalates only for a host loopback yolo itself asked to have forwarded | `run/loopholesruntime.go` → `startLoopholes` (the `openAIAuthBrokerName` allowance); `run/assemble_parts.go` → `hostServicesMountArgs` |
 | `mounts` | **honored from `container` 1.1.0; skipped with a warning below it.** Older versions accepted `:ro` and ignored it, so the mount would arrive *writable* and yolo declined rather than hand a UID-0 jail a writable window onto your host. yolo reads `container --version` once per launch and decides from it — and an unreadable version **declines**, because the safe answer is the one that costs a feature rather than the one that costs the guarantee | `run/backendcaps.go` → `roBindsUnsupported` |
 | Pack `mount` grants | **honored from `container` 1.1.0; skipped with a warning below it.** Same root cause and version gate as `mounts` above — and this one is a grant a human approved at `pack install` against the word *read-only*, so honoring it writably would have made the approval untrue. ⚠ A single-**file** pack `mount` is skipped at **every** version: that is [apple/container#1089](https://github.com/apple/container/issues/1089), a different limitation from the `:ro` one and not covered by the floor | `run/packhostgrants.go` → `hostMountArgs` |
 | Your host `~/.config/nvim` | **honored from `container` 1.1.0.** Podman binds it `:ro` at `/ctx/host-nvim-config` and the jail copies it into the agent's home at boot. Below the floor the ignored `:ro` would leave a live write channel into your real editor config for the whole session, so it was skipped with a warning (2026-08-24 to 2026-09-14); the visible symptom of the skip is nvim starting unconfigured | `run/assemble.go` → `assembleRunCmd` (nvim block) |
@@ -524,8 +527,9 @@ single-file limitation is specifically about files.
 > [!WARNING]
 > **Claude OAuth refreshes are not serialized on this backend.** The
 > `claude-oauth-broker` loophole is what stops two jails burning the same
-> single-use refresh token, and no loophole host service runs under Apple
-> Container. Your Claude credentials file *is* shared across every workspace on
+> single-use refresh token, and this backend does not start it — the OpenAI
+> credential broker is the only loophole host service it starts at all. Your
+> Claude credentials file *is* shared across every workspace on
 > the machine, so two jails refreshing at the same time are racing on one token.
 > If you run several jails concurrently against one Claude login, use
 > `YOLO_RUNTIME=podman`.
@@ -552,7 +556,7 @@ It is the fastest backend and the one that delivers the least.
 
 | Config key / feature | On `macos-user` | Where it is decided |
 |---|---|---|
-| `loopholes` (all of them) | **inert** — the whole loophole surface is off. One yellow line per loophole at launch, same as Apple Container | `run/loopholeinert.go` → `backendInertReason` |
+| `loopholes` | **inert, with exactly one exception** — the surface is off and one yellow line per inert loophole is printed at launch, same as Apple Container. `openai-auth-broker` is the exception and it genuinely **works**: the macos-user arm starts that one service by hand before the early return, and **refuses the launch** if it does not come up, so a broken broker takes the backend down instead of failing quietly. Reaching it needs no bind mount, which is why this backend can carry it at all: the endpoint file gets a per-file macOS ACL grant (`chmod +a`) for the sandbox account and its path is written into the session env the confined stage sources. ⚠ NOT MEASURED on hardware — the handover is unit-tested only | `run/run.go` → `Run` (the macos-user arm's `startOpenAIAuth` call); `macosuser/macosuser.go` → `EndpointGrantCommands`; `run/loopholeinert.go` → `backendInertReason` |
 | `mounts` | **silently ignored, with no warning** | consumed in `run/assemble.go` → `assembleRunCmd` and `run/prepare.go` → `refreshJailBriefings`, both after the early return |
 | `cache_relocations` | not delivered (it is a nested bind mount) — **warns**. A hand-made symlink is not a workaround either: the sandbox profile denies writes outside the workspace and sandbox home, and denies reads under `/Volumes` | `macosuser/orchestrator.go` → `buildPlan` |
 | `forward_host_ports` | not wired (container-side only) | `run/assemble.go` → `assembleRunCmd`; `run/hostports.go` → `ParsePortForwards` |
@@ -615,8 +619,11 @@ the host-side cgroup delegation daemon are unavailable. This means:
 
 - `yolo-cglimit --cpu 50 --name job -- command` will not enforce CPU limits
 - The cgroup delegate socket (`/run/yolo-services/cgroup-delegate.sock`) is not
-  created because no daemon listens; the host services directory is still mounted
-  so the container volume mount succeeds
+  created because no daemon listens; on Podman the host services directory is
+  still mounted so the container volume mount succeeds. Apple Container mounts
+  that directory only when the `openai-auth` loophole is active — the one host
+  service it starts — and otherwise mounts nothing there
+  (`run/assemble_parts.go` → `hostServicesMountArgs`)
 
 **Workaround:** Use Podman Machine's built-in resource controls to limit
 the VM's CPU/memory instead:
@@ -1029,4 +1036,5 @@ sudo launchctl kickstart -k system/systems.determinate.nix-daemon
 - [9f082ebf] Added a "Choosing a runtime" section that leads with why (performance + native arch) before the model details, and retitled the macos-user section around that
 - [78c23f1a] Replaced "never auto-detected" with "never selected automatically or by default — including when no container runtime is installed"
 - [8a7a2d41] Split Prerequisites into "always required" vs "pick ONE runtime" (Podman / Apple Container / macos-user), so the runtimes read as options not co-requirements
+- [2026-09-16] Corrected "no loophole host service runs on either macOS-native backend": exactly one does, on both — `openai-auth-broker`, which starts and cannot be dialled on Apple Container and genuinely works (refusing the launch if it fails to start) on `macos-user`
 - [2026-08-24] Restructured Limitations into platform-wide vs per-backend, added the Apple Container disabled-feature table (loopholes, `mounts`, `cache_relocations`, `ephemeral_storage`, `pids_limit`, `network.mode`, single-file mounts) and an at-a-glance parity table beside the existing `macos-user` one; recorded what each backend DOES honor so a working backend stops reading as broken

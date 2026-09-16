@@ -18,8 +18,9 @@ summary: "The macos-user backend as built: nix materializing packages: natively 
 
 `macos-user` runs the agent as a **real macOS process** — the hidden `_yolojail` account,
 confined by an Apple Seatbelt profile — with **no container, no VM and no OCI image**. nix's
-job here is not to build an image: it materializes `packages:` as native `aarch64-darwin`
-binaries and the launch prepends their store `bin` to the agent's PATH.
+job here is not to build an image: it materializes the tool closure as native darwin binaries —
+for the running Mac's own system double, Apple Silicon or Intel — and the launch prepends their
+store `bin` to the agent's PATH.
 
 Almost everything absent on this backend follows mechanically from *no container*: a feature
 implemented as a container flag or a bind mount has no host to attach to.
@@ -30,7 +31,7 @@ implemented as a container flag or a bind mount has no host to attach to.
 | The run plan and its self-checks | `internal/macosuser` (`BuildRunPlan`, `RunPlan`, `PlanInvariants`) |
 | Sandbox identity, paths, and the shared root | `internal/macosuser` (`SandboxUser`, `SandboxHome`, `SandboxGroup`, `SharedRootDefault`, `SandboxPath`) |
 | The Seatbelt profiles | `internal/macosuser` (`SeatbeltProfile`, `ancestorLiterals`, `SeatbeltCaptureProfile`) |
-| Native package realization | `internal/darwinpkg` (`MaterializeDarwin`, `ProfilePaths`, `BuildProfileArgv`, `skippedNames`) |
+| Native package realization | `internal/darwinpkg` (`Materialize`, `ProfilePaths`, `BuildFloorProfileArgv`, `skippedNames`); `macosuser.Deps.MaterializeDarwin` is the seam the orchestrator calls it through |
 | The native bootstrap, and the home-overlay install | `internal/entrypoint` (`RunDarwinBootstrap`, `DarwinEnvFrom`, `InstallHomeOverlay`) |
 | Host-side composition of the delivered content tree | `internal/cli/run` (`buildMacosHomeOverlay`) |
 | The inert-feature reports | `internal/cli/run` (`loopholeinert.go`), `internal/macosuser` (`orchestrator.go`) |
@@ -94,9 +95,14 @@ whole value:
 
 ### What nix produces
 
-Not an image. A `buildEnv` profile of `packages:` only, realized natively for this Mac, whose
-`bin` the launch prepends to the agent's PATH (plus a `pkg-config` path when that directory
-exists). **`yolo` never execs the build output** — it reads the out-path and builds a PATH.
+Not an image. A `buildEnv` profile realized natively for this Mac, whose `bin` the launch
+prepends to the agent's PATH (plus a `pkg-config` path when that directory exists). **`yolo`
+never execs the build output** — it reads the out-path and builds a PATH.
+
+What is in the profile is the non-container **floor plus** `packages:`, not the declared
+packages alone: a backend with no baked image has no other way to reach mise, node, git or
+ripgrep. The floor joined the profile after this doc's verified commit, which is why the older
+"`packages:` only" reading was true once and is not now.
 
 There is therefore **no Linux builder and no image download** in this backend's launch. Those
 exist only for the container runtimes.
@@ -468,18 +474,29 @@ only place the values themselves are stated.
 | Sandbox home | `/Users/_yolojail` — a constant, no workspace component | `macosuser.SandboxHome` |
 | Neutral shared workspace root | `/Users/Shared/yolo` | `macosuser.SharedRootDefault` |
 | Root-owned state dir for the staged binary and pack tree | under the sandbox state root, named per session | `macosuser.BuildRunPlan` (`StagedDir`, `StagedYolo`, `PackRoot`) |
-| Nix build target | `.#packages.<darwin system>.yoloDarwinPackages` | `internal/darwinpkg/darwinpkg.go` |
+| Nix build target | `.#packages.<system>.yoloNoncontainerProfile` — the non-container **floor** plus the declared `packages:`, for the system `NativeSystem()` reports rather than a hardcoded double. The declared-alone `yoloNoncontainerPackages` is the *container* store-delivery path's attr, not this one | `darwinpkg.FloorProfileAttr` (`ProfileAttr` is the other), `darwinpkg.NativeSystem`, floor list in `darwinpkg/floor.go` |
 | Skip-list eval, and its bound | the darwin-unavailable list, timeout-bounded, non-fatal | `darwinpkg.skippedNames` |
 | PATH additions from the profile | `<out>/bin`, plus `PKG_CONFIG_PATH=<out>/lib/pkgconfig` when present | `darwinpkg.ProfilePaths` |
 | Content-overlay wire var | `YOLO_DARWIN_HOME_OVERLAY` | `internal/cli/run/macoshomeoverlay.go`, `entrypoint.InstallHomeOverlay` |
 | Pack tree wire var | `YOLO_PACK_ROOT`, baked onto the bootstrap argv | `macosuser.BuildRunPlan`, asserted by `PlanInvariants` |
 | Login-rc PATH var | `YOLO_DARWIN_LOGIN_PATH`, assembled from `macosuser.SandboxPath` | `entrypoint.DarwinBootstrapOptions`, `WriteLoginRC` |
-| Unified-logging dial | `macos_log`: `off` / `user` / `full` | `macosuser.MacosLogWrapperScript`, `entrypoint.InstallYoloLog` |
+| Unified-logging dial | `macos_log`: `off` / `user` / `full` — ⚠ **pinned at `off`; the key has no way in**, see the warning below | `macosuser.MacosLogWrapperScript`, `macosuser.macosLogMode`, `entrypoint.InstallYoloLog` |
 | Seatbelt write policy | deny all, re-allow the workspace, the sandbox home, and the temp dirs | `macosuser.SeatbeltProfile` |
 | Seatbelt read denials | under the users root (with intermediate literals re-allowed), under `/Volumes` except the boot volume, and the keychain dir | `macosuser.SeatbeltProfile`, `ancestorLiterals` |
 | Process visibility | allowed wholesale | `macosuser.SeatbeltProfile` |
 | The narrower capture profile | drops the workspace and the sandbox home from the write set | `macosuser.SeatbeltCaptureProfile` |
 | Host nix daemon opt-in (container backends only) | `YOLO_NIX_HOST_DAEMON` | `internal/cli/run/hostprobes.go` |
+
+> [!WARNING]
+> **`macos_log` is a dial with no way in.** Every piece of the feature ships — `macosLogMode`
+> reads the key, `MacosLogWrapperScript` generates the `yolo-log` helper in all three modes, the
+> native bootstrap installs it — but `macos_log` is **not in core's accepted top-level key set**
+> (`config.knownTopLevelConfigKeys`), and an unrecognized key is a **fatal** config error, not a
+> warning. So a workspace that declares it never launches (`config.macos_log: unknown key`,
+> measured 2026-09-16) and every workspace that does launch gets the `off` default — whose own
+> remedy text tells the user to set the key yolo refuses. Reachable through nothing else: no
+> `security` subkey, no env var a user is meant to set. The fix is core's, not this backend's:
+> one entry in that key set plus the `config-ref` row an accepted key owes.
 
 ## Why it's this way
 

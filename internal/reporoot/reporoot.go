@@ -25,7 +25,7 @@
 // already set, now the only way to point yolo at source it was not built from.
 // Nothing infers it: an in-jail agent verifying a Go or flake change against the
 // live /workspace checkout sets `YOLO_REPO_ROOT=/workspace` and can see, in the
-// launch's own "Image source:" line, that it took.
+// launch's own "Flake source:" line, that it took.
 //
 // The old user-config `repo_path` fallback was retired earlier (2026-07-23), and
 // is not coming back for the same reason: a config pointer drifts silently.
@@ -39,9 +39,9 @@ import (
 )
 
 // Source names WHICH candidate produced a root. It exists so a launch can REPORT
-// where its image source came from rather than leaving the reader to infer it
-// from a path — the reporting half of the cwd removal above. Callers render it
-// with Describe.
+// which candidate gave it the flake it builds from, rather than leaving the reader
+// to infer it from a path — the reporting half of the cwd removal above. Callers
+// render it with Describe, into the `Flake source:` line.
 type Source string
 
 const (

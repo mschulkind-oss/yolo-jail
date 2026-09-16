@@ -102,8 +102,14 @@ const (
 	// KindMount: a host-home dir (or file) mounted read-only into the jail at a
 	// /ctx destination. Like reads-host but the source may be a whole directory and
 	// the destination is an arbitrary /ctx path (mount just makes the tree visible).
-	// Reads the host home, so it is origin-gated exactly like reads-host — a fetched
-	// pack is refused. Many packs may mount; no combine (each is an independent read).
+	// Reads the host home, so it is review-worthy exactly like reads-host — and, like
+	// reads-host, NO LONGER ORIGIN-GATED: a fetched pack's mount used to be refused
+	// until OQ-TP9 (docs/design/trust-paths.md) deleted the gate on 2026-09-04, since
+	// naming a pack at all means writing user-scope config as the host user, which is
+	// the stronger authority the refusal was standing in for. packload.HonoredMounts
+	// refuses nothing now; what bounds the grant is DISCLOSURE — every mount is named
+	// on the launch banner and by `yolo pack footprint`.
+	// Many packs may mount; no combine (each is an independent read).
 	KindMount Kind = "mount"
 	// KindEnv: static environment variables set in the jail. Values are literal
 	// strings only (no interpolation, no host reads), so it is NOT origin-gated. A
@@ -466,7 +472,7 @@ func RetiredKind(k Kind) string { return retiredKinds[k] }
 // A RETIRED kind gets its own message instead, naming the replacement rather than the
 // whole vocabulary (retiredKinds). One message, not two: the retirement text is returned
 // in place of the generic one so a manifest that has not been migrated yet reads as the
-// migration it needs and not as a typo beside a list of fifteen names.
+// migration it needs and not as a typo beside the whole kind list.
 func ValidateKind(k Kind) string {
 	if KnownKind(k) {
 		return ""

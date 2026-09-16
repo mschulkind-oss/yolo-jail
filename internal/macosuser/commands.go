@@ -119,14 +119,23 @@ func MacosSetup(deps Deps) int {
 		out.print("• Apple Seatbelt (sandbox-exec): [green]available[/green]")
 	}
 
+	// NIX IS REQUIRED FOR EVERY LAUNCH, not only for a config that declares
+	// `packages:`. This warning said "configs with packages get no declared tools"
+	// while the closure was built under `if len(pkgs) > 0`; since the FLOOR landed
+	// (2026-09-12) the build is unconditional and a launch that cannot run nix is
+	// REFUSED host-side, so the old wording told the owner of an empty
+	// `yolo-jail.jsonc` they were ready when no launch could start.
 	if !deps.Which("nix") {
 		warnings = append(warnings,
-			"nix not found on PATH — the backend materializes `packages:` via "+
-				"native nix; install it (https://nixos.org/download) or configs "+
-				"with packages get no declared tools.")
-		out.print("• nix (native darwin packages): [yellow]not found[/yellow]")
+			"nix not found on PATH — every launch materializes the package floor "+
+				"(mise, node, git, ripgrep, …) plus any `packages:` via native "+
+				"nix, so without it NO launch starts, not just one that declares "+
+				"packages; install it (https://nixos.org/download).")
+		out.print("• nix (native package floor; required by every launch): " +
+			"[yellow]not found[/yellow]")
 	} else {
-		out.print("• nix (native darwin packages): [green]available[/green]")
+		out.print("• nix (native package floor; required by every launch): " +
+			"[green]available[/green]")
 	}
 
 	// 3. One clear verdict + next steps.

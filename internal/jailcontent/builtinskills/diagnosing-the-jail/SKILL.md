@@ -143,8 +143,12 @@ jail, no port mapping was ever going to help.
 
 Config edits refresh on the next `yolo` invocation, but the running container's
 mounts/limits do NOT change until a restart — the briefing text can be ahead of
-reality. Re-run `YOLO_DEBUG=1 <cmd>` for verbose output when a command behaves
-unexpectedly.
+reality. `YOLO_DEBUG=1` is a knob on the **launch**, not on an arbitrary
+command: set on a `yolo` invocation on the host it prints the assembled
+container argv, which is the ground truth for the mounts, limits and env a
+restart would actually apply. From in here, the launch that started this jail
+already wrote its own transcript — read `<workspace>/.yolo/launch.log` and the
+entrypoint's `boot.log` beside it.
 
 ## 7. Orphans and logs
 

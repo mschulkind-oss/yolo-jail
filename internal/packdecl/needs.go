@@ -14,8 +14,9 @@ package packdecl
 // rule saying how two claims on that target resolve. A need delivers nothing and
 // owns no target: its effect is to EXTEND SELECTION, and its conflict rule is
 // "already present = no-op" (WB-D10's join) — a rule about the selected SET, which
-// no per-target combine rule can state. It would be a 16th entry in the exclusions
-// list supersedes.go already pays for. The shape it matches is `supersedes` and
+// no per-target combine rule can state. It would be one more entry in the
+// hand-written exclusions supersedes.go already pays for, at each of the generic
+// passes listed there. The shape it matches is `supersedes` and
 // `skills_tier`: a per-pack fact about how the pack relates to its environment,
 // declared once, beside `name`.
 //
@@ -67,7 +68,11 @@ type PackNeed struct {
 	// in use".
 	//
 	// Absent (or empty) means UNCONDITIONAL — the named pack joins whenever this
-	// one is selected. Allowed; nothing ships one yet (checked 2026-09-04).
+	// one is selected. That is the shape a STRUCTURAL dependency takes, and the agent
+	// packs ship it: each needs `openai-auth`, whose broker is not conditional on
+	// anything but the agent being there. A condition is for a need that turns on
+	// something OTHER than this pack's presence — cerebras needing the wire bridge
+	// only when an anthropic-wire agent is in the launch.
 	WhenBins []string `json:"when_bins,omitempty"`
 }
 

@@ -19,8 +19,11 @@ import (
 // on the backend the README recommends for macOS) — were the same shape: a branch in the
 // run pipeline that does one thing on podman and something else, or nothing, on another
 // backend, with nobody having decided that was correct. Both were found by a human on
-// hardware, because NO CI JOB RUNS APPLE CONTAINER: every job that sets YOLO_RUNTIME sets
-// podman (ci.yml, nightly-macos.yml, packs.yml ×2), and macos-user.yml sets none.
+// hardware, because NO PUSH-TRIGGERED CI JOB RUNS APPLE CONTAINER: every job that sets
+// YOLO_RUNTIME job-wide sets podman (ci.yml, nightly-macos.yml, packs.yml), macos-user.yml
+// sets none because that backend starts no container, and the one workflow that does run the
+// backend — apple-container.yml — is dispatch-only on a self-hosted Mac that is off much of
+// the time, so a push still merges with nothing having exercised it.
 //
 // So this test makes the census EXECUTABLE, in the shape
 // TestThePreflightRunsEveryBootGenerator and TestEveryFlaggedBinGetsACarrier already use:
@@ -39,13 +42,15 @@ import (
 //     TestMachineWideMountsReachBothContainerBackends (machinetierparity_test.go),
 //     TestNoHostHomeBindSurvivesOnAppleContainer (hosthometier_test.go) and
 //     TestNoJailEnvVarNamesAnUnreachableHostPath (hostpathenv_test.go).
-//  2. **A branch that is DECLARED and WRONG.** #44's site is declared — assemble.go's
-//     `rt == "container"` arm sets YOLO_PACK_ROOT to a host path on the belief that Apple
-//     Container can read the host filesystem. A census marks it Honored and is wrong. This
-//     is backend-parity.md §4's residue 1, and it is why hostpathenv_test.go exists.
+//  2. **A branch that is DECLARED and WRONG.** #44's site was declared and wrong at once —
+//     assemble.go's `rt == "container"` arm set YOLO_PACK_ROOT to a HOST path, on the belief
+//     that Apple Container can read the host filesystem, and a census would have marked that
+//     Honored and been satisfied. (The arm now materializes the tree into ws_state and names
+//     an in-jail path, marked HonoredBy; the class did not go away with it.) This is
+//     backend-parity.md §4's residue 1, and it is why hostpathenv_test.go exists.
 //  3. **A fork on something other than the runtime.** `o.IsMacOS`, `runtime.GOOS`, a map
 //     keyed by backend, a capability probe. Those are HOST-PLATFORM questions, not backend
-//     questions — podman runs on macOS too — and folding them in would bury the 68 real
+//     questions — podman runs on macOS too — and folding them in would bury the real
 //     sites in probe noise. A line that mixes them (`if o.IsMacOS || rt == "container"`) is
 //     caught by its `rt` half.
 //  4. **Anything outside internal/cli/run.** parityScope is one directory on purpose: it is
@@ -120,13 +125,14 @@ var parityMarker = regexp.MustCompile(`//\s*parity:\s*(\w+)\s*[-—:]*\s*(.*)$`)
 //     fails telling you to lower the number;
 //   - delete a file's last gate line and its row is stale, so the test fails.
 //
-// The counts are DERIVED, not judged: nothing here says these 62 sites are correct. It says
-// nobody has looked. Every row is work, and the file is the unit because a per-line key
-// would rot on the next gofmt.
+// The counts are DERIVED, not judged: nothing in these rows says the sites they cover are
+// correct. They say nobody has looked. Every row is work, and the file is the unit because a
+// per-line key would rot on the next gofmt.
 //
-// Only backendcaps.go is classified today, as the worked example of what a declaration looks
-// like. The rest could not be touched in the change that added this test — four of them are
-// held by another agent — so they are recorded rather than silently blessed.
+// backendcaps.go was the first file classified, as the worked example of what a declaration
+// looks like; the markers elsewhere in the package were written since. The rest could not be
+// touched in the change that added this test — several of those files were held by another
+// agent — so they are recorded rather than silently blessed.
 var parityBacklog = map[string]int{
 	"assemble.go":            10,
 	"assemble_parts.go":      6,
@@ -159,11 +165,14 @@ func TestEveryBackendBranchIsClassified(t *testing.T) {
 
 	// Self-check, the same one the preflight-generator test carries: if the shape this
 	// scanner matches ever changes, it stops reading the authority it claims to read and
-	// then passes by finding nothing.
+	// then passes by finding nothing. 50 is a FLOOR, not a census: it sits well under what
+	// the pipeline holds, so classifying sites never trips it and only a scanner that has
+	// gone blind does.
 	if len(sites) < 50 {
-		t.Fatalf("found only %d runtime-gated lines in %s — the run pipeline has ~68 of them, "+
-			"so parityGate has stopped matching the code and this test is now vacuous",
-			len(sites), parityScope)
+		t.Fatalf("found only %d runtime-gated lines in %s — the run pipeline holds far more than "+
+			"that (parityBacklog alone records %d still unclassified), so parityGate has stopped "+
+			"matching the code and this test is now vacuous",
+			len(sites), parityScope, parityBacklogTotal())
 	}
 
 	undeclared := map[string][]paritySite{}
@@ -329,6 +338,16 @@ func siteLines(sites []paritySite) string {
 	return b.String()
 }
 
+// parityBacklogTotal is the backlog's own sum, so the self-check above can quote a number
+// that moves with the rows instead of one written down beside them.
+func parityBacklogTotal() int {
+	total := 0
+	for _, n := range parityBacklog {
+		total += n
+	}
+	return total
+}
+
 func sortedDispositions() []string {
 	out := make([]string, 0, len(parityDispositions))
 	for k := range parityDispositions {
@@ -353,14 +372,26 @@ func sortedDispositions() []string {
 // produces there is correct today and is documented at paths.HostLoopbackEnvVar, one file
 // away from where a reader of the branch would look. Writing each backend's answer down
 // HERE, beside the value, means a backend whose answer changes has to change this table, and
-// a backend added later has no row and fails.
+// a backend added to paths.SupportedRuntimes later has no row and fails.
+//
+// ⚠ ITS SCOPE IS THE CONTAINER BACKENDS, and that is a real hole, not a formality. The
+// variable is emitted while ASSEMBLING A CONTAINER ARGV (jailLoopbackEnvArgs, called from
+// assemble.go), and run.go's macos-user arm returns before an argv is ever built — so that
+// backend emits no disposition at all and there is nothing here to pin. This test iterates
+// paths.SupportedRuntimes rather than paths.AllRuntimes for exactly that reason: a
+// macos-user row could only be satisfied by a fixture pretending that backend builds a
+// container argv, which would assert a code path no launch takes. What follows is the honest
+// statement of the gap: a NATIVE backend that grows a jail-facing service, and therefore a
+// disposition to carry, is not covered by anything here, and adding it needs a fixture over
+// that backend's own plan (internal/macosuser) rather than a row in this table.
 //
 // ⚠ IT PINS THE SPELLING, NOT THE JUDGEMENT. That `unknown` is the right answer for Apple
 // Container is an open question — OQ-BP-4 in docs/design/backend-parity.md asks whether the
 // loophole skip on that backend is still justified, and if the answer is "run them", this
 // row becomes wrong and this test is what says so.
 func TestEveryBackendDeclaresALoopbackDisposition(t *testing.T) {
-	// Every backend, and what it tells the jail. A backend absent from this table fails.
+	// Every container backend, and what it tells the jail. One that is in
+	// paths.SupportedRuntimes and absent from this table fails.
 	//
 	// The value is a SET, and a set with more than one member must say why it is not one
 	// value — because a single-member set is the useful kind and a wide one has to earn its
@@ -391,7 +422,7 @@ func TestEveryBackendDeclaresALoopbackDisposition(t *testing.T) {
 		},
 	}
 
-	for _, rt := range []string{"podman", "container"} {
+	for _, rt := range paths.SupportedRuntimes {
 		t.Run(rt, func(t *testing.T) {
 			env, _, _ := jailEnvForRuntime(t, rt)
 			got, ok := env[paths.HostLoopbackEnvVar]

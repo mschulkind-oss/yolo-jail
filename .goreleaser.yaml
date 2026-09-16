@@ -66,9 +66,15 @@ archives:
       # goreleaser places the contents under `dst` keeping the tree — so files
       # land at share/yolo-jail/… beside the root binary. NO glob + strip_parent
       # (that flattens the tree and breaks the flake's prebuilt-bin layout).
-      # NOTE: goreleaser is not installed in the dev jail, so this mapping is
-      # validated on a real release, not here — the Homebrew bottle path
-      # (release.yml) is the primary bundle delivery.
+      # NOTE: what is covered and what is not. The LAYOUT this must produce is
+      # asserted — internal/reporoot's TestBundledSourceDirFrom builds the
+      # release-archive fixture (<root>/yolo + <root>/share/yolo-jail/flake.nix)
+      # and requires the resolver to find it. That this src/dst mapping actually
+      # produces that layout is NOT: goreleaser is not installed in the dev jail,
+      # so nothing runs it until a real release. Homebrew is the primary bundle
+      # delivery and does not go through here at all — release.yml generates a
+      # SOURCE-BUILD formula (depends_on go) that calls
+      # scripts/stage-source-bundle.sh itself; there is no bottle.
       - src: "bundle/share/yolo-jail"
         dst: "share/yolo-jail"
 

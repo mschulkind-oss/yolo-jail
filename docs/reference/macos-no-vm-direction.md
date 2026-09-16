@@ -8,7 +8,7 @@ covers:
   - internal/containerbuilder/
   - internal/config/validate.go
 tags: [macos, backends, nix, decision, packages, builder]
-summary: "The standing macOS direction: runtime, builder and packages are three orthogonal axes, and the two macOS backends compose into one product rather than competing — macos-user as the fast native default, an Apple Container cell as the fallback that needs real Linux. Includes the acceptance bar that separates a yolo backend from a sandbox wrapper, and why Colima is refused."
+summary: "The standing macOS direction: runtime, builder and packages are three orthogonal axes, and the two macOS backends compose into one product rather than competing — macos-user as the fast native path and the intended default (explicit opt-in today; auto-detection still picks Apple Container), an Apple Container cell as the fallback that needs real Linux. Includes the acceptance bar that separates a yolo backend from a sandbox wrapper, and why Colima is refused."
 ---
 
 # The macOS direction — three axes, one composed product
@@ -16,9 +16,18 @@ summary: "The standing macOS direction: runtime, builder and packages are three 
 **Status:** CURRENT as of 2026-09-09, verified against `d8cf1cf8`.
 
 yolo ships **two** macOS paths and they are not competing backends: `macos-user` is the fast
-native default, and an Apple Container cell is the fallback for what native darwin cannot
-cover. This document is the standing decision behind that shape, and the vocabulary that keeps
-the recurring argument from restarting.
+native one, and an Apple Container cell is the fallback for what native darwin cannot cover.
+This document is the standing decision behind that shape, and the vocabulary that keeps the
+recurring argument from restarting.
+
+> [!IMPORTANT]
+> **"Native default" here is the DIRECTION, not today's selection.** Auto-detection on macOS
+> still tries `container` then `podman`, and `macos-user` is reachable only by naming it —
+> `runtime: "macos-user"` or `YOLO_RUNTIME=macos-user` — because it lives in
+> `paths.NativeRuntimes` rather than `paths.SupportedRuntimes` and is deliberately never
+> probed. So the *shipped* macOS default is Apple Container. Everything below that calls the
+> native path "the default" is stating where the default is going, and flipping the
+> auto-detect order is the step that has not been taken.
 
 **The problem it answers.** On Linux a jail starts in seconds and just works. On macOS every
 container runtime interposes a **Linux VM**: slow to start, a RAM ceiling you have to guess
@@ -58,7 +67,8 @@ image to produce. "Which builder?" is a question *inside* the container track.
 
 ### They compose into one product
 
-- **`macos-user` is the fast native default.** No VM, `packages:` through darwin nix.
+- **`macos-user` is the fast native path, and the intended default.** No VM, `packages:`
+  through darwin nix. Selecting it is still explicit (see the note at the top).
 - **The container cell is the fallback** for what native darwin cannot cover: a declared
   package with no darwin build, or a user who wants VM-grade isolation over Seatbelt.
 
@@ -156,7 +166,7 @@ fallback cell — but it is not the answer to the stated problem.
 ## What this does not license
 
 - **Not** two competing macOS backends with a user-facing choice between them. One composed
-  product: native default, container fallback.
+  product: native path as the intended default, container fallback.
 - **Not** a macOS backend that reads a different subset of config than Linux. Cross-platform
   sameness is on the must-survive list, and a divergence has to be **said** at the launch.
 - **Not** a second hypervisor for builds. The builder runs as a container on the runtime that
@@ -172,6 +182,7 @@ only place the values themselves are stated.
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |
 | Resolvable runtimes | `podman`, `container`, `macos-user` — and `docker` is a refusal naming its replacement | `internal/config/validate.go` |
+| macOS auto-detection order | `container`, then `podman`. `macos-user` is never probed — it is a *native* runtime, reachable only when named | `run.resolveRuntime`, `paths.NativeRuntimes` / `paths.SupportedRuntimes` |
 | Package realization, `macos-user` | a darwin `buildEnv` profile, **not** an imperative nix profile | `internal/darwinpkg` |
 | Linux builder for the container runtimes | an ephemeral nix-plus-sshd container, driven over nix's remote-builder protocol | `internal/containerbuilder` (`BuilderImage`, `BuilderContainer`, `BuilderHostPort`) |
 | Builder key material | a per-machine key dir under the machine storage root | `containerbuilder.BuilderKeyDir`, `BuilderKey` |
@@ -183,7 +194,7 @@ Forward-facing rulings a maintainer would otherwise undo.
 
 | Ruling | Why it stays |
 | :--- | :--- |
-| **Pursue both, as one composed product** — not two competing backends | Framing them as competitors forces a user-facing choice between "fast" and "works for this package", which is exactly the matrix cell the happy-path principle says should have one path. The container is the *escape hatch*, and naming it that is what keeps the native path the default. |
+| **Pursue both, as one composed product** — not two competing backends | Framing them as competitors forces a user-facing choice between "fast" and "works for this package", which is exactly the matrix cell the happy-path principle says should have one path. The container is the *escape hatch*, and naming it that is what makes the native path the default it is headed for. |
 | **The builder axis exists only for the container runtime** | Every argument that starts "which builder should macOS use?" is a container-track question. Blurring it is what makes a VM-based builder look like an answer to a no-VM goal. |
 | **A darwin `buildEnv` profile, not an imperative nix profile** | An imperative profile accumulates state nobody declared and drifts from the config that was supposed to define it. A `buildEnv` is a pure function of the declared list. |
 | **The persistent on-demand VM builder is gone; the ephemeral container builder is the only shipped one** | A VM builder needs idle-stop logic, a RAM commitment and `sudo`. A builder that exists only during a build is zero-idle by construction, so the whole idle-stop concern disappears rather than being managed. |

@@ -337,9 +337,11 @@ generated Codex wrapper delegates to the same command. The managed home links `c
 state, and cache stay separate. A direct `codex` launch and `~/.codex/auth.json` are untouched.
 
 > [!WARNING]
-> The OpenAI service is currently a host-service loophole. A backend that skips loopholes also
-> skips this service; the agent pack dependency alone does not create a second credential path.
-> See [the backend table](#per-backend-differences) before claiming parity.
+> The OpenAI service is currently a host-service loophole, and it is the **one** loophole the two
+> macOS backends carry: Apple Container allow-lists it out of an otherwise total loophole skip, and
+> the `macos-user` arm starts it by hand. Neither is parity — starting the service is not the same
+> as the jail reaching it, and the agent pack dependency alone creates no second credential path.
+> See [the backend table](#per-backend-differences) for what each backend actually delivers.
 
 ### Git-identity composition
 
@@ -423,10 +425,10 @@ fully open.
 | `env_sources` | file mounted, sourced | file **materialized**, sourced | baked onto the launch argv via `env -i` |
 | Per-agent host settings grant | `/ctx/host-<pack>/` `:ro` mount, then boot compose | materialized copy, then boot compose | boot compose, fail-open — no `/ctx`, same pure generators |
 | User `host_files` | source-bearing: `/ctx/host-user/<slug>` `:ro`; source-less: composed | source-less composes; single-file `:ro` for `/ctx/host-user` unhandled upstream | source-less composes; a **file** `source` is copied into a root-owned `/ctx` tree (2026-09-13); a **directory** `source` is skipped and warned |
-| Claude shared credentials | shared bind + relative symlink | not mounted — one whole-home bind, so creds live in that per-workspace home | free — one real credentials file in the shared home |
-| claude-oauth-broker | active when the `claude` pack is selected | **skipped** — it declares `intercepts`, which need `--add-host` | skipped by default; the shared home is already one creds file |
-| OpenAI subscription credentials | canonical host-service state; Codex and Pi get workspace views | **skipped** with all loopholes | **not wired yet**; the backend starts no loophole host service |
-| Host-service loopholes | endpoint file + `YOLO_SERVICE_*_ENDPOINT` | how the endpoint file crosses into an AC guest is an unmade mount decision | not wired — the loophole runtime lives in the container launch path |
+| Claude shared credentials | shared bind + relative symlink | shared bind **nested inside** the whole-home bind, then the same relative symlink — one mount per declared shared dir (2026-08-24; before that the single bind put the creds in the per-workspace home) | free — one real credentials file in the shared home |
+| claude-oauth-broker | active when the `claude` pack is selected | **skipped whole** — no singleton is ensured on this backend, the host-service start admits only the OpenAI service, and the container args drop the loophole for its `intercepts` (which need `--add-host`) | **skipped** — the arm returns before any broker ensure; the shared home is already one creds file, but nothing serializes two concurrent sessions |
+| OpenAI subscription credentials | canonical host-service state; Codex and Pi get workspace views | the **one** service this backend starts, endpoint file mounted — and measured unreachable from the guest, so the agent sees "OpenAI login is required" with nothing naming the backend ([G6](../plans/setup-support-gaps.md#2-ranked-gap-backlog)) | started on the arm itself, and a launch that cannot start it is **refused**; the endpoint path rides the sandbox env instead of a mount |
+| Host-service loopholes | endpoint file + `YOLO_SERVICE_*_ENDPOINT` | only the OpenAI credential service starts; its endpoint file crosses in the host-services dir bind, gated on the loophole being active and its pack cleared to run host code. Every other pack host daemon is skipped and each one is reported inert | the same one service and nothing else — the general loophole runtime lives in the container launch path, and every other loophole is reported inert |
 | Per-workspace cred isolation | per-workspace `.yolo/home` overlay | one whole-home bind per workspace, but the claude dir is shared across workspaces there | **one shared home for all sessions** |
 | Isolation boundary | userns (Linux) / VM (macOS) + read-only root | VM + read-only root | Unix user + Seatbelt — weaker, deliberately |
 
@@ -449,12 +451,14 @@ The sharper question than "what can a live session reach."
   inversion. Full analysis in
   [`../design/macos-user-build-step-threat-model.md`](../design/macos-user-build-step-threat-model.md).
 
-> [!WARNING]
-> **The launch-time config-change approval is not reached on `macos-user`.** `CheckConfigChanges`
-> has exactly one caller, in the container launch pre-flight, so the y/N prompt that would flag a
-> poisoned `packages:` edit does not run on the backend where the unconfined host-side build
-> happens — the worst place to lose it. Anything relying on that prompt as a control must not
-> assume it on that backend.
+> [!NOTE]
+> **The launch-time config-change approval does reach `macos-user`** — since 2026-08-18 (`bb825486`),
+> and the gap is worth remembering because of where it was: the y/N prompt that flags a poisoned
+> `packages:` edit was missing on exactly the backend whose host-side build is unconfined. The
+> approval now has a call site on each arm — the container one gates the FRESH-LAUNCH path only
+> (attaching to a running jail deliberately skips it), and the `macos-user` arm has no attach, so
+> every invocation of that backend is gated. `--dry-run` is the one exemption on it: nothing
+> launches, so there is no change to approve.
 
 ## What this does not license
 

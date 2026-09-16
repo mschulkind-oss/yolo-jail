@@ -319,10 +319,15 @@ func Run(opts Options) (rc int) {
 		// either, and the native backend is where a "where is my agent?" is hardest to
 		// diagnose (no image, no provisioning output to read back).
 		o.warnIfNoPacks()
-		// INERT LOOPHOLES, on this arm too. Every pack-shipped loophole is inert here —
-		// this backend never reaches startLoopholes at all — and until 2026-08-24 that
-		// was the ONE inert backend that said nothing about it, because the report hangs
-		// off startLoopholesDisclosed inside runContainer and this arm returns above it.
+		// INERT LOOPHOLES, on this arm too — every pack-shipped loophole EXCEPT ONE. The
+		// OpenAI credential service starts here, a few lines below, through startOpenAIAuth;
+		// startLoopholes proper is still never reached, so its per-runtime allow list is not
+		// what decides this arm's subset, and notePackLoopholesInert is handed
+		// withoutOpenAIAuthPack so the one pack whose service DID start is not reported inert.
+		//
+		// Until 2026-08-24 this was the ONE inert backend that said nothing about the rest,
+		// because the report hangs off startLoopholesDisclosed inside runContainer and this
+		// arm returns above it.
 		//
 		// The gap survived because the test for it called notePackLoopholesInert
 		// DIRECTLY for both backends, so the macos-user half asserted a line no launch
@@ -331,10 +336,19 @@ func Run(opts Options) (rc int) {
 		// same shape one layer down ("a pack whose whole purpose is a loophole must not
 		// look installed on a backend that ignores it").
 		//
-		// It is NOT routed through startLoopholesDisclosed: that wrapper exists to make
-		// disclosure inseparable from the SPAWN, and nothing spawns here. Disclosing
-		// beside warnIfNoPacks is the honest placement — both answer "what will this
-		// launch not do for you", which is the only question this backend can raise.
+		// It is NOT routed through startLoopholesDisclosed, and that wrapper's reason —
+		// disclosure inseparable from the SPAWN — has stopped being free here: this arm DOES
+		// spawn pack-declared host code now (the OpenAI broker's `host_daemon`), while
+		// notePackHostExec has exactly one call site and it is inside that wrapper. ⚠ SO THE
+		// "This launch runs pack code on your machine" LINE DOES NOT PRINT ON macos-user
+		// while the daemon it describes starts. That is an open gap, not a ruling: the READ
+		// half of the boundary is printed by this arm itself (notePackHostAccess, below the
+		// context-tree composition), and the exec half needs the same treatment scoped to the
+		// one pack that spawns — handing notePackHostExec the whole pack set here would
+		// announce daemons this arm leaves inert.
+		//
+		// Placing the inert REPORT beside warnIfNoPacks is still the honest choice for it:
+		// both answer "what will this launch not do for you".
 		launchEnv := channel.launchEnv()
 		if openAIAuthLoopholeActive(cfg) {
 			socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
