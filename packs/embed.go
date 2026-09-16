@@ -18,8 +18,8 @@
 // build is hermetic and only sees the paths that fileset names, so a pack dir missing
 // from it VANISHES from the image while `go build` stays green.
 //
-// NOT EVERY OFFICIAL PACK IS AN AGENT. Seventeen packs are embedded here (counted against
-// `ls packs/` 2026-09-15): seven install a CLI and ten do not, in four kinds. Six of
+// NOT EVERY OFFICIAL PACK IS AN AGENT. Nineteen packs are embedded here (counted against
+// `ls packs/` 2026-09-15): seven install a CLI and twelve do not, in four kinds. Six of
 // those ten — `audio`, `host-processes`, `journal`, `cgroup-delegate`, `serial` and
 // `openai-auth` —
 // ship a LOOPHOLE (one of
@@ -27,10 +27,10 @@
 // `audio` also contributes an `env` block, the only one of the six that ships anything
 // beside its loophole — and they are the dogfood for docs/design/loophole-packaging.md
 // §7 / OQ-LP11, whose prize is that "AGENTS ARE PACKS" becomes true of loopholes too.
-// `zai` and `cerebras` ship neither CLI nor loophole: a provider and a profile —
-// zai was the first pack whose whole content is declarative facts, cerebras the second
-// (and the first to carry a `needs` entry — the wire-bridge it joins when claude or
-// copilot is selected). `guardrails` ships neither either: blocked-tool refusals and install
+// `zai`, `cerebras`, `openrouter`, and `kilo` ship neither CLI nor loophole: provider/profile
+// packs. zai was the first pack whose whole content is declarative facts; cerebras was the
+// first to carry a `needs` entry — the wire-bridge it joins when claude or copilot is selected;
+// kilo repeats that shape, while OpenRouter reaches its Anthropic route directly. `guardrails` ships neither either: blocked-tool refusals and install
 // requirements (9caba669 moved the blocked tools out of core — core blocks nothing by
 // default), the third kind of CLI-less pack. `wire-bridge` is the fourth kind and the
 // first of it: a `kind: "service"` pack, one in-jail daemon and its endpoint file,
@@ -69,5 +69,5 @@ package packs
 
 import "embed"
 
-//go:embed all:claude all:copilot all:opencode all:pi all:codex all:agy all:omp all:zai all:cerebras all:audio all:host-processes all:journal all:cgroup-delegate all:serial all:guardrails all:wire-bridge all:openai-auth
+//go:embed all:claude all:copilot all:opencode all:pi all:codex all:agy all:omp all:zai all:cerebras all:openrouter all:kilo all:audio all:host-processes all:journal all:cgroup-delegate all:serial all:guardrails all:wire-bridge all:openai-auth
 var FS embed.FS

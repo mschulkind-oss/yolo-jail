@@ -1,0 +1,33 @@
+{
+  "contributes": [
+    {
+      "api_key_env_name": "KILO_API_KEY",
+      "endpoints": {
+        "anthropic": {
+          "base_url": "http://127.0.0.1:8216"
+        },
+        "openai": {
+          "base_url": "https://api.kilo.ai/api/gateway",
+          "wire_api": "openai-chat-completions"
+        }
+      },
+      "kind": "provider",
+      "name": "kilo",
+      "options": {
+        "model": null
+      }
+    },
+    {
+      "kind": "profile",
+      "name": "kilo",
+      "provider": "kilo"
+    }
+  ],
+  "name": "kilo",
+  "needs": [
+    {
+      "pack": "wire-bridge",
+      "when_bins": ["claude", "copilot"]
+    }
+  ]
+}

@@ -473,6 +473,45 @@ YOLO Jail is configured via JSONC (JSON with comments) files:
 
 Run `yolo config-ref` for the complete field reference.
 
+### Gateway providers and curated models
+
+OpenRouter and Kilo are opt-in packs. They declare one endpoint and credential
+variable each, but deliberately ship no model list: gateway catalogs change too
+quickly for yolo to choose models for you. Put a finite alias-to-model-id map in
+your **user** config, then have profiles select the aliases you want as defaults:
+
+```jsonc
+{
+  "packs": ["openrouter", "kilo"],
+  "providers": {
+    "openrouter": {
+      "models": {
+        "coding": "~anthropic/claude-sonnet-latest",
+        "reasoning": "~openai/gpt-latest"
+      }
+    },
+    "kilo": {
+      "models": { "economy": "kilo-auto/efficient" }
+    }
+  },
+  "profiles": {
+    "router-coding": { "provider": "openrouter", "model": "coding" },
+    "kilo-economy": { "provider": "kilo", "model": "economy" }
+  },
+  "use_profiles": {
+    "claude": "router-coding",
+    "pi": "kilo-economy"
+  }
+}
+```
+
+Put `OPENROUTER_API_KEY` and `KILO_API_KEY` in an existing `env_sources` file or
+the launching environment; never put a key value in the JSONC file. OpenRouter
+works directly with Claude, Codex, Pi, OpenCode, and Copilot. Kilo works with
+Claude and Copilot through yolo's local wire bridge, and directly with Pi and
+OpenCode; it is not offered to Codex because Kilo documents Chat Completions,
+not the Responses API Codex requires.
+
 ---
 
 ## Network & Ports

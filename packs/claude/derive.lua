@@ -163,14 +163,13 @@ yolo.env("claude", function(ctx)
   -- claude-sonnet-* serves as glm-5.3-flash — the FAST model), because the aliases pin
   -- each tier to the model the provider actually intends for it.
   local alias = (ctx.profile and ctx.profile.model) or "default"
-  if m[alias] then
-    out.ANTHROPIC_DEFAULT_OPUS_MODEL = m[alias] .. suffix
-  end
-  if m.sonnet then
-    out.ANTHROPIC_DEFAULT_SONNET_MODEL = m.sonnet .. suffix
-  end
-  if m.haiku then
-    out.ANTHROPIC_DEFAULT_HAIKU_MODEL = m.haiku .. suffix
+  local selected = m[alias]
+  if selected then
+    out.ANTHROPIC_DEFAULT_OPUS_MODEL = selected .. suffix
+    -- A curated provider can publish real picker IDs instead of Claude-tier aliases.
+    -- Keep all tiers on the selected model rather than falling back upstream.
+    out.ANTHROPIC_DEFAULT_SONNET_MODEL = (m.sonnet or selected) .. suffix
+    out.ANTHROPIC_DEFAULT_HAIKU_MODEL = (m.haiku or selected) .. suffix
   end
   return out
 end)

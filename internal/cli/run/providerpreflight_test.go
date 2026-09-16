@@ -377,14 +377,14 @@ func TestShippedPacksRequireNoCredential(t *testing.T) {
 			"launch:\n%s", strings.Join(lines, "\n"))
 	}
 
-	// The exceptions, named: zai and cerebras (the two purely-declarative provider packs
-	// — cerebras joined 2026-09-04, docs/design/cerebras-pack-and-copilot-delivery.md),
+	// The exceptions, named: zai, cerebras, openrouter and kilo (the purely-declarative
+	// provider packs),
 	// and both install no CLI, so each is delivered only to a launch that selected it —
 	// which is the launch that also owes it a key. The next credential-bearing pack
 	// needs the same property and a line here, or this narrow guard has to become an
 	// explicit allowlist instead.
 	for _, p := range requiring {
-		if p.Name != "zai" && p.Name != "cerebras" {
+		if p.Name != "zai" && p.Name != "cerebras" && p.Name != "openrouter" && p.Name != "kilo" {
 			t.Errorf("shipped pack %q requires a credential — the set of credential-bearing "+
 				"shipped packs is deliberate, and a new entry is a decision to make here, "+
 				"not drift", p.Name)

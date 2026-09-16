@@ -10,8 +10,8 @@ vantage:
 
 # Roadmap
 
-**Status:** CURRENT — 2026-09-15. **43 rows**: 4 to rule first, 19 needing a decision,
-12 ready to build, 6 waiting, 2 iced.
+**Status:** CURRENT — 2026-09-15. **44 rows**: 4 to rule first, 19 needing a decision,
+13 ready to build, 6 waiting, 2 iced.
 
 This file is a **routing table, not a place to think**: one line per open decision, naming
 the doc that holds it and what a ruling releases. It is **not a record of what happened** —
@@ -97,6 +97,7 @@ Ruled, unblocked, and implementable cold — no memory of any conversation requi
 | 8 | Prove a pack-shipped jail binary with a throwaway hello pack | ruled *"do this even if…"*; the path has never executed | [§10](../design/broker-as-a-pack.md#10-sequencing) |
 | 9 | Serialise image copies across launches, with a machine-wide *image-copy* lock (a host flock, **not** the housekeeping lock) around re-inspecting the ref and then copying | no ruling needed. Layer-aware delivery skips only the layers already committed when a copy starts, and nothing serialises copies across workspaces (`internal/image/autoload.go:772`). Measured 2026-09-14: a reboot launched 11 jails, **5 copied one identical 3.45 GB image at once**, and each spent ~4 min in the store write. The comment at `:594` says a lock across the load would *"buy nothing"*, which was true only of the deleted stream; rewrite it in the same change | `internal/image/autoload.go:594` · test: a stubbed `LayerCopy`, two concurrent loads of one ref → exactly one copy. A nested jail is rootful and cannot verify this; use a rootless host |
 | 10 | Finish the OpenAI subscription credential service on `macos-user` and Apple Container, add trusted host-only import/logout, then run the real-host expiry and browser checks | the canonical transaction, podman transport, Codex and Pi adapters, managed host launches, browser login, status and self-check are implemented; nested verification cannot establish rootless reachability or either macOS backend | [`openai-auth-broker.md`](../design/openai-auth-broker.md) · [`openai-auth-broker-plan.md`](../design/openai-auth-broker-plan.md) |
+| 11 | Add OpenRouter and Kilo provider packs | protocol routes and user-owned model curation are settled; Codex's existing credential-field defect lands with the pack | [`gateway-provider-packs.md`](../design/gateway-provider-packs.md) · [`gateway-provider-packs-plan.md`](../design/gateway-provider-packs-plan.md) |
 
 ## 🔒 Waiting
 

@@ -118,7 +118,7 @@ func TestZaiPackFiresClaudeAtGLM(t *testing.T) {
 	want := []string{
 		"ANTHROPIC_AUTH_TOKEN=tok-9",
 		"ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic",
-		"ANTHROPIC_DEFAULT_HAIKU_MODEL=glm-5.3-flash[1m]",
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL=glm-5.3[1m]",
 		"ANTHROPIC_DEFAULT_OPUS_MODEL=glm-5.3[1m]",
 		"ANTHROPIC_DEFAULT_SONNET_MODEL=glm-5.3[1m]",
 		"API_TIMEOUT_MS=3000000",
@@ -182,7 +182,7 @@ func TestZaiPackShipsTheCatalogTheDerivesRead(t *testing.T) {
 	if mapStr(anthropic, "base_url") != "https://api.z.ai/api/anthropic" {
 		t.Errorf("anthropic endpoint = %v, want the measured base URL", anthropic)
 	}
-	if mapStr(openai, "base_url") != "https://api.z.ai/api/paas/v4" ||
+	if mapStr(openai, "base_url") != "https://api.z.ai/api/coding/paas/v4" ||
 		mapStr(openai, "wire_api") != "openai-chat-completions" {
 		t.Errorf("openai endpoint = %v, want the canonical name for the chat-completions route "+
 			"the probe measured (OQ-Z1: /v4/responses 404s there) — yolo's vocabulary, which the "+
@@ -196,7 +196,7 @@ func TestZaiPackShipsTheCatalogTheDerivesRead(t *testing.T) {
 	if !ok {
 		t.Fatalf("zai ships no models map: %v", zai.Keys())
 	}
-	for _, alias := range []string{"default", "fast", "sonnet", "haiku"} {
+	for _, alias := range []string{"glm-4.6", "glm-5.3", "glm-5.3-flash"} {
 		id := mapStr(models, alias)
 		if id == "" {
 			t.Errorf("zai models.%s is empty — claude's derive resolves it and pi/opencode list it", alias)

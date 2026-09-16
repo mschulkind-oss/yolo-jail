@@ -20,7 +20,9 @@ covers:
   - packs/zai/pack.json
   - packs/cerebras/pack.json
   - packs/claude/pack.json
-tags: [providers, profiles, packs, derives, selection, zai, cerebras]
+  - packs/openrouter/pack.json
+  - packs/kilo/pack.json
+tags: [providers, profiles, packs, derives, selection, zai, cerebras, openrouter, kilo]
 ---
 
 # The provider system — catalog, composition, and selection
@@ -46,7 +48,7 @@ presence, selection is an explicit act.
 | Selection namespace: edge-triggered apply | `internal/agentcfg` (`SelectionKey`, `ApplySelection`) |
 | Surface render + selection lift | `internal/entrypoint` (`ConfigurePackSurfaces`, prism stateful render) |
 | User config: `providers`, `profiles`, `use_profiles` | `internal/config` (`profiles.go`) |
-| The five derives + the provider packs | `packs/{claude,codex,pi,opencode,copilot,zai,cerebras}` |
+| The five derives + the provider packs | `packs/{claude,codex,pi,opencode,copilot,zai,cerebras,openrouter,kilo}` |
 
 **Reads with:** [`pack-system.md`](../reference/pack-system.md) (what a pack is, how derives are
 loaded), [`local-model-endpoints.md`](../research/local-model-endpoints.md) (the
@@ -369,8 +371,9 @@ place the exact spellings are stated.
 | Selection record path | `<workspace>/.yolo/prism/<agent>-<name>.selection.json` | entrypoint stateful render |
 | User config keys | `providers` (merged-scope), `profiles` / `use_profiles` (user-scope-only) | `internal/config` |
 | Missing-provider hatch | `YOLO_ALLOW_MISSING_PROVIDERS=1` | `internal/paths` |
-| zai model aliases | `default`/`sonnet`: `glm-5.3`, `fast`/`haiku`: `glm-5.3-flash` — WIRE-TRUE ids; claude's derive alone appends its `[1m]` spelling when `context_window` ≥ 1000000 (the suffix is a 400 on both z.ai routes for anyone else, measured 2026-09-04) | `packs/zai/pack.json` |
-| zai provider options | `model: default`, `context_window: 1000000`, `api_timeout_ms: 3000000` | `packs/zai/pack.json` |
+| zai model IDs | `glm-4.6`, `glm-5.3`, `glm-5.3-flash`; the default is `glm-5.3`. These are wire-true IDs; Claude alone appends `[1m]` when `context_window` ≥ 1000000. | `packs/zai/pack.json` |
+| zai Coding Plan OpenAI endpoint | `https://api.z.ai/api/coding/paas/v4` (`openai-chat-completions`) | `packs/zai/pack.json` |
+| zai provider options | `model: glm-5.3`, `context_window: 1000000`, `api_timeout_ms: 3000000` | `packs/zai/pack.json` |
 | zai credential variable | `ZAI_API_KEY` | `packs/zai/pack.json` |
 | `needs` vocabulary | top-level manifest key — `needs: [{pack, when_bins}]`, conditional pack dependency resolved as a transitive closure at selection (the added pack prints its cause line on the banner); manifests only, never user config | `internal/packdecl/needs.go`, `internal/packload/needs.go` |
 | cerebras model aliases | `default: qwen-3.8-27b` — the one alias; `gpt-oss-120b` deliberately absent (hallucinated tool calls have no tier) | `packs/cerebras/pack.json` |
@@ -378,3 +381,9 @@ place the exact spellings are stated.
 | cerebras provider options | `model: default`, `context_window: "65536"` (the free-tier window; claude's auto-compact triggers at it, and a paid-tier user overrides to `131072` in their own profile) | `packs/cerebras/pack.json` |
 | cerebras needs | `wire-bridge` when `claude` or `copilot` is selected — the two agents whose derives read an anthropic endpoint (claude directly; copilot by its D-3 preference), so the launch that composes the loopback URL is the one that stages its listener | `packs/cerebras/pack.json` |
 | cerebras credential variable | `CEREBRAS_API_KEY` | `packs/cerebras/pack.json` |
+| OpenRouter endpoints | `openai`: `https://openrouter.ai/api/v1` (`openai-responses`); `anthropic`: `https://openrouter.ai/api` | `packs/openrouter/pack.json` |
+| OpenRouter credential variable | `OPENROUTER_API_KEY` | `packs/openrouter/pack.json` |
+| Kilo endpoints | `openai`: `https://api.kilo.ai/api/gateway` (`openai-chat-completions`); `anthropic`: `http://127.0.0.1:8216`, the wire bridge's local endpoint | `packs/kilo/pack.json` |
+| Kilo reachability | Claude and Copilot use the wire bridge; Pi and OpenCode use the direct OpenAI route; Codex has no documented Responses route and receives no entry | `packs/kilo/pack.json`, `packs/{claude,codex,pi,opencode,copilot}/derive.lua` |
+| Kilo credential variable | `KILO_API_KEY` | `packs/kilo/pack.json` |
+| Gateway model catalogs | Neither gateway pack declares a model or model default. The user supplies `providers.<gateway>.models`; profiles name an alias with their `model` option. | `packs/{openrouter,kilo}/pack.json` |

@@ -7,6 +7,128 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
+// TestGatewayProviderPacksDeclareOnlyStableFacts pins the two gateway packs' boundary:
+// yolo owns the endpoint and credential-variable facts, while the user owns every model
+// id. Reading the real embedded manifests makes a missing embed entry, a renamed pack, or
+// a tempting shipped "recommended model" fail here rather than looking like a working
+// provider catalog in one agent only.
+func TestGatewayProviderPacksDeclareOnlyStableFacts(t *testing.T) {
+	tests := []struct {
+		pack, key, openAIURL, openAIWire, anthropicURL string
+		needsBridge                                    bool
+	}{
+		{"openrouter", "OPENROUTER_API_KEY", "https://openrouter.ai/api/v1", "openai-responses", "https://openrouter.ai/api", false},
+		{"kilo", "KILO_API_KEY", "https://api.kilo.ai/api/gateway", "openai-chat-completions", "http://127.0.0.1:8216", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.pack, func(t *testing.T) {
+			p, err := embeddedPack(tt.pack)
+			if err != nil {
+				t.Fatalf("embedded %s: %v", tt.pack, err)
+			}
+			providers := p.Decl.Providers()
+			if len(providers) != 1 {
+				t.Fatalf("%s contributes %d providers, want one", tt.pack, len(providers))
+			}
+			provider := providers[0]
+			if provider.Name != tt.pack || provider.APIKeyEnvName != tt.key {
+				t.Fatalf("provider = %+v, want %q with %s", provider, tt.pack, tt.key)
+			}
+			if len(provider.Models) != 0 {
+				t.Errorf("%s ships models %#v; gateway model ids are user-curated", tt.pack, provider.Models)
+			}
+			if provider.Options["model"].Defaulted {
+				t.Errorf("%s defaults a model; selecting its profile must not silently choose one", tt.pack)
+			}
+			openai := provider.Endpoints["openai"]
+			if openai.BaseURL != tt.openAIURL || openai.WireAPI != tt.openAIWire {
+				t.Errorf("openai endpoint = %+v, want %s (%s)", openai, tt.openAIURL, tt.openAIWire)
+			}
+			if got := provider.Endpoints["anthropic"].BaseURL; got != tt.anthropicURL {
+				t.Errorf("anthropic endpoint = %q, want %q", got, tt.anthropicURL)
+			}
+			profiles := p.Decl.Profiles()
+			if len(profiles) != 1 || profiles[0].Name != tt.pack || profiles[0].Provider != tt.pack {
+				t.Errorf("profiles = %+v, want one same-named provider profile", profiles)
+			}
+			bridge := false
+			for _, need := range p.Decl.DeclaredNeeds() {
+				if need.Pack == "wire-bridge" && len(need.WhenBins) == 2 && need.WhenBins[0] == "claude" && need.WhenBins[1] == "copilot" {
+					bridge = true
+				}
+			}
+			if bridge != tt.needsBridge {
+				t.Errorf("wire-bridge need = %v, want %v", bridge, tt.needsBridge)
+			}
+		})
+	}
+}
+
+// TestCodexDeriveUsesCodexCredentialField is a regression test for custom-provider
+// credentials. Codex reads `env_key`; `api_key_env` looks plausible but is ignored, so
+// every routed provider becomes an anonymous first request.
+func TestCodexDeriveUsesCodexCredentialField(t *testing.T) {
+	script, s := deriveSurface(t, "codex", "codex/config")
+	got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, map[string]map[string]any{
+		manifest.SourceProviders: {
+			"router": map[string]any{
+				"api_key_env_name": "ROUTER_API_KEY",
+				"endpoints": map[string]any{
+					"openai": map[string]any{"base_url": "https://router.example/v1", "wire_api": "openai-responses"},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := got["model_providers"].(map[string]any)["router"].(map[string]any)
+	if entry["env_key"] != "ROUTER_API_KEY" {
+		t.Errorf("env_key = %v, want ROUTER_API_KEY", entry["env_key"])
+	}
+	if _, present := entry["api_key_env"]; present {
+		t.Errorf("api_key_env = %v, but Codex ignores that field", entry["api_key_env"])
+	}
+}
+
+// TestZaiCodingPlanPackCuratesItsThreeModels pins the Coding Plan contract rather
+// than Z.ai's much broader PAYG catalog. The default must be GLM-5.3, whose 1M
+// context window is the provider-level value Claude's derive uses for a selected
+// default profile.
+func TestZaiCodingPlanPackCuratesItsThreeModels(t *testing.T) {
+	p, err := embeddedPack("zai")
+	if err != nil {
+		t.Fatalf("embedded zai: %v", err)
+	}
+	providers := p.Decl.Providers()
+	if len(providers) != 1 {
+		t.Fatalf("zai contributes %d providers, want one", len(providers))
+	}
+	provider := providers[0]
+	if got := provider.Endpoints["openai"].BaseURL; got != "https://api.z.ai/api/coding/paas/v4" {
+		t.Errorf("openai endpoint = %q, want Coding Plan endpoint", got)
+	}
+	wantModels := map[string]string{
+		"glm-4.6":       "glm-4.6",
+		"glm-5.3":       "glm-5.3",
+		"glm-5.3-flash": "glm-5.3-flash",
+	}
+	if len(provider.Models) != len(wantModels) {
+		t.Fatalf("models = %#v, want exactly %#v", provider.Models, wantModels)
+	}
+	for alias, model := range wantModels {
+		if got := provider.Models[alias]; got != model {
+			t.Errorf("models[%q] = %q, want %q", alias, got, model)
+		}
+	}
+	if got := provider.Options["model"]; !got.Defaulted || got.Value != "glm-5.3" {
+		t.Errorf("model option = %+v, want default glm-5.3", got)
+	}
+	if got := provider.Options["context_window"]; !got.Defaulted || got.Value != "1000000" {
+		t.Errorf("context_window option = %+v, want 1000000 for GLM-5.3", got)
+	}
+}
+
 // The provider half of the three derives that read ctx.providers. pi/models, codex/config
 // and opencode/config each project the one provider table into their own dialect, and the
 // tests here run each pack's REAL derive.lua through deriveComputedLayer — the same entry

@@ -7,22 +7,21 @@
           "base_url": "https://api.z.ai/api/anthropic"
         },
         "openai": {
-          "base_url": "https://api.z.ai/api/paas/v4",
+          "base_url": "https://api.z.ai/api/coding/paas/v4",
           "wire_api": "openai-chat-completions"
         }
       },
       "kind": "provider",
       "models": {
-        "default": "glm-5.3",
-        "fast": "glm-5.3-flash",
-        "haiku": "glm-5.3-flash",
-        "sonnet": "glm-5.3"
+        "glm-4.6": "glm-4.6",
+        "glm-5.3": "glm-5.3",
+        "glm-5.3-flash": "glm-5.3-flash"
       },
       "name": "zai",
       "options": {
         "api_timeout_ms": "3000000",
         "context_window": "1000000",
-        "model": "default"
+        "model": "glm-5.3"
       }
     },
     {

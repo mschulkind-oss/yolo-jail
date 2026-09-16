@@ -1,0 +1,27 @@
+{
+  "contributes": [
+    {
+      "api_key_env_name": "OPENROUTER_API_KEY",
+      "endpoints": {
+        "anthropic": {
+          "base_url": "https://openrouter.ai/api"
+        },
+        "openai": {
+          "base_url": "https://openrouter.ai/api/v1",
+          "wire_api": "openai-responses"
+        }
+      },
+      "kind": "provider",
+      "name": "openrouter",
+      "options": {
+        "model": null
+      }
+    },
+    {
+      "kind": "profile",
+      "name": "openrouter",
+      "provider": "openrouter"
+    }
+  ],
+  "name": "openrouter"
+}

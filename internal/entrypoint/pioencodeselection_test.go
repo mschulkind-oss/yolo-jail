@@ -36,14 +36,14 @@ import (
 // zaiReachableJSON is packs/zai's provider fact, spelled the way the composed table
 // carries it. Both agents under test reach it through the openai endpoint — pi
 // translating its openai-chat-completions wire_api into its own openai-completions,
-// opencode consuming no wire_api at all — and it carries the `default` alias whose id is
-// the model half of both selections.
+// opencode consuming no wire_api at all — and it carries GLM-5.3, the profile default,
+// as the model half of both selections.
 const zaiReachableJSON = `{"zai":{
   "api_key_env_name":"ZAI_API_KEY",
-  "models":{"default":"glm-5.3[1m]","fast":"glm-5.3-flash[1m]"},
+  "models":{"glm-4.6":"glm-4.6","glm-5.3":"glm-5.3","glm-5.3-flash":"glm-5.3-flash"},
   "endpoints":{
     "anthropic":{"base_url":"https://api.z.ai/api/anthropic"},
-    "openai":{"base_url":"https://api.z.ai/api/paas/v4","wire_api":"openai-chat-completions"}
+    "openai":{"base_url":"https://api.z.ai/api/coding/paas/v4","wire_api":"openai-chat-completions"}
   }
 }}`
 
@@ -289,8 +289,9 @@ func TestPiDeriveWritesTheSelectionPair(t *testing.T) {
 			name:         "a pi-reachable provider is selected with its default alias",
 			providers:    zaiReachableJSON,
 			profiles:     `{"pi":"zai"}`,
+			wire:         `{"zai": {"provider": "zai", "model": "glm-5.3"}}`,
 			wantProvider: "zai",
-			wantModel:    "glm-5.3[1m]",
+			wantModel:    "glm-5.3",
 		},
 		{
 			// OQ-CS4's arrival at pi's own key: the profile's `model` option names an alias
@@ -300,9 +301,9 @@ func TestPiDeriveWritesTheSelectionPair(t *testing.T) {
 			name:         "the profile's model option names the alias",
 			providers:    zaiReachableJSON,
 			profiles:     `{"pi":"zai"}`,
-			wire:         `{"zai": {"provider": "zai", "model": "fast"}}`,
+			wire:         `{"zai": {"provider": "zai", "model": "glm-5.3-flash"}}`,
 			wantProvider: "zai",
-			wantModel:    "glm-5.3-flash[1m]",
+			wantModel:    "glm-5.3-flash",
 		},
 		{
 			// An option naming an alias the provider does not declare is not a licence to
@@ -419,7 +420,8 @@ func TestOpencodeDeriveWritesTheSelectionKey(t *testing.T) {
 			name:      "an opencode-reachable provider is selected with its default alias",
 			providers: zaiReachableJSON,
 			profiles:  `{"opencode":"zai"}`,
-			wantModel: "zai/glm-5.3[1m]",
+			wire:      `{"zai": {"provider": "zai", "model": "glm-5.3"}}`,
+			wantModel: "zai/glm-5.3",
 		},
 		{
 			// OQ-CS4 at opencode's key: the option names the alias, the id under it joins
@@ -428,8 +430,8 @@ func TestOpencodeDeriveWritesTheSelectionKey(t *testing.T) {
 			name:      "the profile's model option names the alias",
 			providers: zaiReachableJSON,
 			profiles:  `{"opencode":"zai"}`,
-			wire:      `{"zai": {"provider": "zai", "model": "fast"}}`,
-			wantModel: "zai/glm-5.3-flash[1m]",
+			wire:      `{"zai": {"provider": "zai", "model": "glm-5.3-flash"}}`,
+			wantModel: "zai/glm-5.3-flash",
 		},
 		{
 			// An option naming an alias the provider does not declare asks a question the
@@ -523,13 +525,14 @@ func TestOpencodeDeriveWritesTheSelectionKey(t *testing.T) {
 func TestPiAndOpencodeSelectionDeactivatesAcrossRenders(t *testing.T) {
 	r := newPioencodeRender(t, zaiReachableJSON)
 
+	r.wireProfiles(`{"zai": {"provider": "zai", "model": "glm-5.3"}}`)
 	r.render(t, `{"pi":"zai","opencode":"zai"}`)
-	requirePiSelection(t, r.piSettings(t), r.piModels(t), "zai", "glm-5.3[1m]")
-	requireOpencodeSelection(t, r.ocConfig(t), "zai/glm-5.3[1m]")
+	requirePiSelection(t, r.piSettings(t), r.piModels(t), "zai", "glm-5.3")
+	requireOpencodeSelection(t, r.ocConfig(t), "zai/glm-5.3")
 
 	r.render(t, ``)
-	requirePiSelection(t, r.piSettings(t), r.piModels(t), "zai", "glm-5.3[1m]")
-	requireOpencodeSelection(t, r.ocConfig(t), "zai/glm-5.3[1m]")
+	requirePiSelection(t, r.piSettings(t), r.piModels(t), "zai", "glm-5.3")
+	requireOpencodeSelection(t, r.ocConfig(t), "zai/glm-5.3")
 }
 
 // TestPiSelectionSurvivesAUserEdit is the hazard OQ-CS2 exists for, on pi's surface: pi
@@ -541,12 +544,13 @@ func TestPiSelectionSurvivesAUserEdit(t *testing.T) {
 	r := newPioencodeRender(t, zaiReachableJSON)
 	piSettings := []string{".pi", "agent", "settings.json"}
 
+	r.wireProfiles(`{"zai": {"provider": "zai", "model": "glm-5.3"}}`)
 	r.render(t, `{"pi":"zai"}`)
-	requirePiSelection(t, r.piSettings(t), r.piModels(t), "zai", "glm-5.3[1m]")
+	requirePiSelection(t, r.piSettings(t), r.piModels(t), "zai", "glm-5.3")
 
-	r.edit(t, piSettings, "defaultModel", "glm-5.3-flash[1m]")
+	r.edit(t, piSettings, "defaultModel", "glm-5.3-flash")
 
-	requirePiSelection(t, r.piSettings(t), r.piModels(t), "zai", "glm-5.3-flash[1m]")
+	requirePiSelection(t, r.piSettings(t), r.piModels(t), "zai", "glm-5.3-flash")
 }
 
 // TestPiAndOpencodeWriteNoRecordWhenNothingIsSelected pins the quiet half for these two
