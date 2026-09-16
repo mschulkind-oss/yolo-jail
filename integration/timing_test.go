@@ -85,19 +85,56 @@ func TestTimingEnvVarRecordsWithoutReporting(t *testing.T) {
 	assertRecordedQuietly(t, dir, res.stderr)
 }
 
+// quietLaunchProblems reports what a quietly-recording launch printed that it must
+// not have. Empty means the stderr honors D12's quiet contract.
+//
+// ⚠ "QUIET" MEANS NO REPORT, NOT NO SPAN NAMES, and getting that wrong cost four
+// nightly-macOS runs. This list carried `"shutdown.stop_loopholes"` with the comment
+// "any span row at all" from 2026-09-08 (`5e26aaf6`) — one day before the reference
+// stated that a quiet launch "keeps the live slow-span notices" (`baab8199`) and two
+// before it printed the example `yolo: shutdown.window_a took 8.400s` as the expected
+// output of a quiet quit (`312119af`). So the canary contradicted a ruling made after
+// it, and nothing failed until a machine was slow enough to prove it:
+//
+//	yolo: shutdown.stop_loopholes took 1.142s
+//
+// measured on the 2026-09-16 nightly, one span crossing perf.SlowSpanThreshold (1 s)
+// on a macOS runner where a Linux runner's shutdown finishes well under it. The launch
+// was CORRECT — the notice is the culprit announced live, which is the whole reason the
+// threshold exists — and the test was wrong, on a difference in machine speed rather
+// than in behaviour.
+//
+// WHY THESE FOUR AND NOT THE OBVIOUS ONES. The report's row shape (`  %7.3fs  %9s …`)
+// and its `  Total:` line both look like ideal canaries and are unusable: the
+// ENTRYPOINT's boot profile prints the same two things (`internal/entrypoint/boot.go`),
+// deliberately — the reference describes the table as being in "the same register as
+// the entrypoint's boot log" — so either would fail a quiet launch for the jail's own
+// output. What is left is report-only: its two headers, and the footer pair
+// `emitTimingReportLocked` prints under every table it renders (`run.go`). The footer
+// also catches rows printed without a header, which is what the deleted canary was
+// really guarding.
+func quietLaunchProblems(stderr string) []string {
+	var problems []string
+	for _, unwanted := range []string{
+		"--- Host-side timing",      // the host table's header
+		"=== YOLO Jail Profile ===", // the in-container half YOLO_JAIL_TIMING=1 switches on
+		"host file: ",               // the report footer, printed with every table…
+		"jail half: ",               // …and only there
+	} {
+		if strings.Contains(stderr, unwanted) {
+			problems = append(problems, unwanted)
+		}
+	}
+	return problems
+}
+
 // assertRecordedQuietly is D12's quiet contract, for whichever persistent opt-in
 // a caller turned on: the run block is in the file, both printed halves are
 // absent, and the one dim discoverability line names the file.
 func assertRecordedQuietly(t *testing.T, dir, stderr string) {
 	t.Helper()
-	for _, unwanted := range []string{
-		"--- Host-side timing",      // the host table
-		"=== YOLO Jail Profile ===", // the in-container half YOLO_JAIL_TIMING=1 switches on
-		"shutdown.stop_loopholes",   // any span row at all
-	} {
-		if strings.Contains(stderr, unwanted) {
-			t.Errorf("a silently-recording launch printed %q;\nstderr:\n%s", unwanted, stderr)
-		}
+	for _, unwanted := range quietLaunchProblems(stderr) {
+		t.Errorf("a silently-recording launch printed %q;\nstderr:\n%s", unwanted, stderr)
 	}
 	if !strings.Contains(stderr, "timings recorded in") {
 		t.Errorf("the quiet launch never named its log file, so the data is undiscoverable;"+
