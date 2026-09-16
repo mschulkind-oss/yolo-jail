@@ -10,8 +10,8 @@ vantage:
 
 # Roadmap
 
-**Status:** CURRENT — 2026-09-16. **45 rows**: 4 to rule first, 20 needing a decision,
-13 ready to build, 6 waiting, 2 iced.
+**Status:** CURRENT — 2026-09-16. **45 rows**: 4 to rule first, 19 needing a decision,
+14 ready to build, 6 waiting, 2 iced.
 
 This file is a **routing table, not a place to think**: one line per open decision, naming
 the doc that holds it and what a ruling releases. It is **not a record of what happened** —
@@ -23,7 +23,7 @@ derived rather than carried forward; re-derive the live-question totals with che
 $ rg -c '^(#{2,4} |\s*[0-9]+[a-z]?\. |\s*[-*] )(<a id="[^"]*"></a> ?)?💬' docs/ --sort path
 ```
 
-**110 live questions across 30 docs**, plus one 🔒 that command cannot see.
+**109 live questions across 30 docs**, plus one 🔒 that command cannot see.
 
 ## Rule these first
 
@@ -61,7 +61,6 @@ sitting. All four below are the first class.
 | 19 | What an attach does with the attacher's pack set | [`agent-config-packs.md`](agent-config-packs.md) · overtaken | 4 | [`OQ-ACP3`](agent-config-packs.md#-oq-acp3--whether-the-prism-should-become-a-standalone-tool-that-also-manages-host-configs) | **defect** — `internal/cli/run/run.go:766` re-renders before the attach branch at `:774` |
 | 20 | Whether `yolo host apply` is a convenience or the path | [`host-render-target.md`](../design/host-render-target.md) · no frontmatter | 3 | 9.2, [§9](../design/host-render-target.md#9-open-questions--the-discussion-part) | **doc** — product posture; [§8](../design/host-render-target.md#8-what-i-would-actually-do-in-order) step 3 is in 📦 regardless |
 | 21 | Whether the jail mounts the workspace at the host's path | [`workspace-path-mirroring.md`](../design/workspace-path-mirroring.md) · draft | 12 | [`OQ-WP8`](../design/workspace-path-mirroring.md#OQ-WP8) | **doc** — ratify the no |
-| 22 | Which agent receives Tavily when Kilo is selected | [`kilo-tavily-profile-gating.md`](../research/kilo-tavily-profile-gating.md) · draft | 1 | [`OQ-KT1`](../research/kilo-tavily-profile-gating.md#OQ-KT1) | **build** — per-agent profile-gated MCP delivery; Pi additionally needs an MCP adapter |
 
 **Rule together, or not at all.** [`E1`](BACKLOG.md#-e1--collapse-host_files-modes-43-copy-merges-into-readonly) · [`E2`](BACKLOG.md#-e2--readonly-as-a-real-ro-mount-instead-of-0o444) · [`OQ-B`](pack-host-management-plan.md#open-questions) are one asymmetry seen three times, and each doc says so.
 [`OQ-BR3`](../design/bedrock-plumbing.md#OQ-BR3) and [`OQ-PS3`](../design/provider-switching.md#OQ-PS3) are the same decision in two files.
@@ -99,6 +98,7 @@ Ruled, unblocked, and implementable cold — no memory of any conversation requi
 | 9 | Serialise image copies across launches, with a machine-wide *image-copy* lock (a host flock, **not** the housekeeping lock) around re-inspecting the ref and then copying | no ruling needed. Layer-aware delivery skips only the layers already committed when a copy starts, and nothing serialises copies across workspaces (`internal/image/autoload.go:772`). Measured 2026-09-14: a reboot launched 11 jails, **5 copied one identical 3.45 GB image at once**, and each spent ~4 min in the store write. The comment at `:594` says a lock across the load would *"buy nothing"*, which was true only of the deleted stream; rewrite it in the same change | `internal/image/autoload.go:594` · test: a stubbed `LayerCopy`, two concurrent loads of one ref → exactly one copy. A nested jail is rootful and cannot verify this; use a rootless host |
 | 10 | Finish the OpenAI subscription credential service on `macos-user` and Apple Container, add trusted host-only import/logout, then run the real-host expiry and browser checks | the canonical transaction, podman transport, Codex and Pi adapters, managed host launches, browser login, status and self-check are implemented; nested verification cannot establish rootless reachability or either macOS backend | [`openai-auth-broker.md`](../design/openai-auth-broker.md) · [`openai-auth-broker-plan.md`](../design/openai-auth-broker-plan.md) |
 | 11 | Add OpenRouter and Kilo provider packs | protocol routes and user-owned model curation are settled; Codex's existing credential-field defect lands with the pack | [`gateway-provider-packs.md`](../design/gateway-provider-packs.md) · [`gateway-provider-packs-plan.md`](../design/gateway-provider-packs-plan.md) |
+| 12 | Compute MCP delivery from authentication-source capabilities | settled 2026-09-16: resolve the selected source per agent render; suppress a server only when that source already declares its `provides` job. Codex, Z.AI, Claude, and agy declare `web_search`; Kilo therefore receives Tavily when its key is present | [`kilo-tavily-profile-gating.md`](../research/kilo-tavily-profile-gating.md) |
 
 ## 🔒 Waiting
 
