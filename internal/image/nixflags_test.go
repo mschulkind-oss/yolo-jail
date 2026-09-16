@@ -54,7 +54,7 @@ func TestFlakeInvocationsCarryAcceptFlakeConfig(t *testing.T) {
 				[]string{"--builders", "ssh://b"}, nil)
 		}},
 		{"check preflight (BuildOCIImage)", func(repoRoot, _ string) {
-			_, _ = BuildOCIImage(repoRoot, nil)
+			_, _ = BuildOCIImage(OCIBuildRequest{RepoRoot: repoRoot})
 		}},
 	}
 	for _, tc := range cases {

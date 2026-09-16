@@ -2,12 +2,101 @@ package check
 
 import (
 	"bytes"
+	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/containerbuilder"
+	"github.com/mschulkind-oss/yolo-jail/internal/image"
 )
+
+// storeDeliveryHost is the filesystem half of an eligible host: both nix paths the
+// launch would bind-mount are present.
+func storeDeliveryHost(p string) bool {
+	return p == hostNixDaemonSocket || p == hostNixStore
+}
+
+// TestPreflightBuildRequestFollowsTheLaunch is §7 F6's regression. The preflight built
+// image.ImageAttrDefault unconditionally, so on a host whose next launch realizes the
+// LEAN image plus the store-delivered extras, the Image section proved neither — green
+// on an artifact that host will not build.
+//
+// MUTATION: make preflightBuildRequest return the baked shape always (i.e. delete the
+// storeDeliveryLaunch branch) and the "store delivery" case fails on the attr.
+func TestPreflightBuildRequestFollowsTheLaunch(t *testing.T) {
+	optIn := func(name string) string {
+		if name == storeDeliveryOptInEnv {
+			return "1"
+		}
+		return ""
+	}
+	none := func(string) string { return "" }
+	noPaths := func(string) bool { return false }
+	pkgs := []any{"zbar"}
+
+	for _, tc := range []struct {
+		name       string
+		getenv     func(string) string
+		exists     func(string) bool
+		isMacOS    bool
+		wantAttr   string
+		wantExtras bool // .#yoloImageExtras proven beside the image
+		wantPkgs   bool // the config's packages reach YOLO_EXTRA_PACKAGES
+	}{
+		{"default host bakes", none, storeDeliveryHost, false,
+			image.ImageAttrDefault, false, true},
+		{"store delivery", optIn, storeDeliveryHost, false,
+			image.ImageAttrLean, true, false},
+		// The three ways an opt-in launch falls back to baking, and the preflight has
+		// to fall back with it or it proves the wrong pair on each.
+		{"opt-in without a mounted store", optIn, noPaths, false,
+			image.ImageAttrDefault, false, true},
+		{"opt-in on macOS", optIn, storeDeliveryHost, true,
+			image.ImageAttrDefault, false, true},
+		{"opt-in spelled falsely", func(string) string { return "please" }, storeDeliveryHost, false,
+			image.ImageAttrDefault, false, true},
+	} {
+		req := preflightBuildRequest(tc.getenv, tc.exists, tc.isMacOS, "/repo", pkgs)
+		if req.Attr != tc.wantAttr {
+			t.Errorf("%s: attr = %q, want %q", tc.name, req.Attr, tc.wantAttr)
+		}
+		if got := slices.Contains(req.AlsoBuild, image.ImageExtrasAttr); got != tc.wantExtras {
+			t.Errorf("%s: builds %s = %v, want %v — a lean image without its extras "+
+				"is half a launch", tc.name, image.ImageExtrasAttr, got, tc.wantExtras)
+		}
+		if got := len(req.ExtraPackages) > 0; got != tc.wantPkgs {
+			t.Errorf("%s: passes `packages:` = %v, want %v", tc.name, got, tc.wantPkgs)
+		}
+		// The lean image reads YOLO_EXTRA_PACKAGES too (flake.nix), so an ambient one
+		// must be scrubbed on that path and left alone on the baked one — where the
+		// launch inherits it as well, and check has to prove the same image.
+		if wantScrub := tc.wantAttr == image.ImageAttrLean; req.NoExtraPackagesEnv != wantScrub {
+			t.Errorf("%s: NoExtraPackagesEnv = %v, want %v",
+				tc.name, req.NoExtraPackagesEnv, wantScrub)
+		}
+	}
+}
+
+// TestStoreDeliveryOptInMatchesTheLauncherSpellings: the dial accepts what every other
+// launcher opt-in accepts (run.envTruthy), because two dials that disagree about what
+// "true" looks like turn "I set the variable and nothing happened" into a legitimate
+// bug report — and here it would silently preflight the wrong image.
+func TestStoreDeliveryOptInMatchesTheLauncherSpellings(t *testing.T) {
+	for _, yes := range []string{"1", "true", "yes", "TRUE", " Yes "} {
+		getenv := func(string) string { return yes }
+		if !storeDeliveryLaunch(getenv, storeDeliveryHost, false) {
+			t.Errorf("%q must count as an opt-in", yes)
+		}
+	}
+	for _, no := range []string{"", "0", "false", "no", "off", "maybe"} {
+		getenv := func(string) string { return no }
+		if storeDeliveryLaunch(getenv, storeDeliveryHost, false) {
+			t.Errorf("%q must not count as an opt-in", no)
+		}
+	}
+}
 
 // preflightExec builds an Exec seam returning canned results for the two
 // subprocess probes preflightBuilderNeeds drives: `nix build … --dry-run`
@@ -32,6 +121,36 @@ const buildStderr = "these 2 derivations will be built:\n" +
 	"  /nix/store/aaa-yolo-jail-conf.json.drv\n" +
 	"  /nix/store/bbb-foo.drv\n" +
 	"these paths will be fetched:\n  /nix/store/ccc\n"
+
+// TestBuildImageRealAsksWhichArtifactsToProve pins the CALL SITE the two tests above
+// would otherwise leave free: preflightBuildRequest could be perfect and unused, and
+// `yolo check` would go back to proving image.ImageAttrDefault on every host with the
+// unit gate green. That shape — callee pinned, call site unpinned — is named in
+// AGENTS.md as the thing this repo has shipped five times.
+//
+// Source-level for the reason internal/cli/captureinteractive_test.go is: the
+// alternative is running a real multi-minute nix build to observe an argv. What it
+// pins is the DECISION, which is the part a future edit drops.
+func TestBuildImageRealAsksWhichArtifactsToProve(t *testing.T) {
+	b, err := os.ReadFile("builder.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	i := strings.Index(src, "func buildImageReal(")
+	if i < 0 {
+		t.Fatal("buildImageReal is gone — this pin has lost its subject and is now vacuous")
+	}
+	body := src[i:]
+	if j := strings.Index(body[1:], "\nfunc "); j > 0 {
+		body = body[:j+1]
+	}
+	if !strings.Contains(body, "preflightBuildRequest(") {
+		t.Error("buildImageReal no longer asks preflightBuildRequest which artifacts a " +
+			"launch on this host implies, so the Image section is back to proving the " +
+			"default image on a store-delivery host (setup-support-gaps.md §7 F6)")
+	}
+}
 
 // TestPreflightBuilderNeeds_MacOSNoBuilder is the core rewire regression: on
 // macOS, when a package must be built from source and the user has NO Linux
