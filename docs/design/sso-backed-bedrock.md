@@ -187,6 +187,34 @@ agreed on, it is an AWS SDK feature four vendors inherited.
 
 ---
 
+### 3.3 Four AWS words this doc leans on
+
+The [§6](#6-narrowing--shape-scoped-and-policy-scoped) ladder is unreadable if these four
+blur together, and two of them are named confusingly by AWS itself.
+
+| Term | What it is | Where it is configured |
+| :--- | :--- | :--- |
+| **Policy** | a JSON document listing allowed and denied actions. It attaches to things; it is not an identity and nothing assumes it | IAM, or inline wherever it is attached |
+| **IAM role** | an identity inside **one** AWS account with no long-term credentials, carrying two policies: a **permissions policy** (what it may do) and a **trust policy** (who may assume it). You assume it and get temporary credentials for a **role session** | IAM, per account — `arn:aws:iam::<account>:role/<name>` |
+| **Permission set** | a role **template**, defined once centrally and **assigned** to a user or group × account. On assignment Identity Center creates a real IAM role in that account, named `AWSReservedSSO_*`, with the permission set's policies attached and a trust policy only it can use. Takes up to 10 managed policies plus one inline policy, and carries its own **1–12h** session duration | the Identity Center console, once — not per account |
+| **Session policy** | a policy passed **at `AssumeRole` time**, attached to nothing and living only for that session. Effective permissions are its **intersection** with the role's own | nowhere — it is an API parameter |
+
+And one that is not an AWS-side object at all:
+
+> **A profile** (`~/.aws/config`) is **client-side only** and has no permissions. It is a named
+> block saying which permission set, in which account, this machine should ask for. ⚠ Its key
+> is spelled **`sso_role_name`** and AWS defines it as *"The name of a permission set
+> provisioned as an IAM role … Use the role name, not the role Amazon Resource Name (ARN)"* —
+> the setting says role, the value is a **permission set name**. Everything in this doc that
+> says "point the daemon at a profile" means this file and nothing in AWS.
+
+**N3 and N4 differ on exactly this distinction.** N3 is a role **you** create in IAM and
+assume — a *second* role session, so chained, so an hour. N4 is a permission set an admin
+**assigns** you, whose role you receive directly from `sso:GetRoleCredentials` — a *first*
+role session, so not chained, so up to twelve hours. Same policies, same narrowing; the
+difference is entirely which of these two objects holds them.
+
+
 ## 4. Five options
 
 The grid from [§2](#2-two-requirements-two-axes--and-they-do-not-share-a-mechanism), populated.
@@ -844,12 +872,16 @@ and model ids; none of them touch credentials, by that doc's own
    **The stakes are larger than they first looked, and the deciding fact is unmeasured.**
    Minting needs a valid access token, and refreshing that token *is* the write in question
    ([§7](#7-refresh--what-happens-when-you-log-in-again)). So read-only does not cost "a
-   re-login every 8 hours" — it costs *a re-login every access-token lifetime*, and nobody
-   here knows what that is: AWS's own prose says *"the hourly access token"*, a widely-cited
-   teardown says a non-configurable 8 hours. If it tracks the portal session, read-only is
-   free and obviously right. If it is hourly, read-only means the daemon stops an hour into an
-   8-hour session unless the human happens to run `aws` commands, which fails the requirement
-   this whole design exists for.
+   re-login every 8 hours" — it costs *a re-login every access-token lifetime*, and that
+   number depends on which of two config forms the machine uses. Under the **legacy
+   non-refreshable** profile AWS is unambiguous — *"your session is fixed at eight hours and
+   cannot be refreshed automatically"* — so nothing refreshes, there is nothing to race, and
+   read-only is free. Under **`sso-session`** the token *is* refreshed against the portal
+   session, AWS's own prose calls it *"the hourly access token"*, and a read-only daemon can
+   only ride a token somebody else renewed. The second form is the one the 90-day extension
+   requires, so the interesting case is exactly the one that is unresolved. Look at
+   `~/.aws/config` first: if there is no `[sso-session]` block, this question is already
+   answered.
 
    > [!WARNING]
    > **The obvious escape does not work.** Refreshing in memory and discarding the rotated

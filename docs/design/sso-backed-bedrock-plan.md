@@ -103,7 +103,9 @@ the part most likely to be wrong from a teardown — get it from the generator.
 
 **The access-token lifetime, on the real machine.** It is one observation and it rules
 [OQ-SSO3](sso-backed-bedrock.md#OQ-SSO3), which in turn decides whether the daemon can be
-read-only. Log in, then watch `~/.aws/sso/cache/*.json`'s `expiresAt` against the portal
+read-only. **Check which config form is in use before measuring anything**: no `[sso-session]`
+block in `~/.aws/config` means the legacy fixed-8h non-refreshable form, and the question is
+already answered — nothing refreshes, so read-only costs nothing. Log in, then watch `~/.aws/sso/cache/*.json`'s `expiresAt` against the portal
 session's own expiry, touching nothing in between — the question is whether a cached token
 nobody refreshes survives as long as the session does. Do it before writing the resolver:
 the two implementations below are not a refactor apart.
