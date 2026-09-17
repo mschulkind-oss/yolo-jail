@@ -853,6 +853,9 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	if term := o.Getenv("TERM"); term != "" {
 		runCmd = append(runCmd, "-e", "TERM="+term)
 	}
+	if ct := o.Getenv("COLORTERM"); ct != "" {
+		runCmd = append(runCmd, "-e", "COLORTERM="+ct)
+	}
 	if o.timingReporting() {
 		// Renamed from YOLO_PROFILE (design D13). It was named for the flag that used
 		// to own this meaning (--profile, before docs/reference/providers.md OQ-PT5

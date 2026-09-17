@@ -883,3 +883,61 @@ func treeDiff(t *testing.T, want, got string) string {
 	slices.Sort(problems)
 	return strings.Join(problems, "\n")
 }
+
+func TestAssembleForwardsTermAndColorterm(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	emptyLoopholeDirs(t)
+
+	cases := []struct {
+		name          string
+		term          string
+		colorterm     string
+		wantTerm      bool
+		wantColorterm bool
+	}{
+		{"both present", "xterm-kitty", "truecolor", true, true},
+		{"only term", "xterm-256color", "", true, false},
+		{"only colorterm", "", "24bit", false, true},
+		{"neither", "", "", false, false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			o := goldenOptions("/ws", home)
+			o.Getenv = func(k string) string {
+				switch k {
+				case "TERM":
+					return tc.term
+				case "COLORTERM":
+					return tc.colorterm
+				default:
+					return ""
+				}
+			}
+
+			sec := jsonx.NewOrderedMap()
+			sec.Set("blocked_tools", []any{})
+			got := o.assembleRunCmd(&assembleInput{
+				cfg:          newConfig("agents", []any{"claude"}, "security", sec),
+				rt:           "podman",
+				cname:        "yolo-ws-abcd1234",
+				packs:        claudePackFixture(t),
+				agentsPath:   "/agents/yolo-ws-abcd1234",
+				wsState:      "/ws/.yolo/home",
+				miseStore:    "/mise-store",
+				yoloVersion:  "9.9.9-test",
+				mountTargets: map[string]struct{}{},
+			})
+
+			hasTerm := tc.term != "" && slices.Contains(got, "TERM="+tc.term)
+			if hasTerm != tc.wantTerm {
+				t.Errorf("TERM=%q present=%v, want %v; argv: %v", tc.term, hasTerm, tc.wantTerm, got)
+			}
+			hasColorterm := tc.colorterm != "" && slices.Contains(got, "COLORTERM="+tc.colorterm)
+			if hasColorterm != tc.wantColorterm {
+				t.Errorf("COLORTERM=%q present=%v, want %v; argv: %v", tc.colorterm, hasColorterm, tc.wantColorterm, got)
+			}
+		})
+	}
+}
