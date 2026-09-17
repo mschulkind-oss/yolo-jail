@@ -50,7 +50,6 @@ if ! curl -s "$CHROME_URL/json/version" >/dev/null 2>&1; then
     "$CHROMIUM_BIN" \
         --headless=new \
         --no-sandbox \
-        --disable-dev-shm-usage \
         --disable-setuid-sandbox \
         --disable-gpu \
         --disable-blink-features=AutomationControlled \

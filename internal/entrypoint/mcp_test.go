@@ -179,3 +179,26 @@ func TestChromeDevtoolsKeepsASoftwareRenderer(t *testing.T) {
 		t.Fatal("chrome-devtools wrapper disables Chromium's only renderer")
 	}
 }
+
+// TestChromeDevtoolsOmitsDisableDevShmUsage pins that --disable-dev-shm-usage is
+// not passed to Chromium. yolo-jail mounts a 2 GB tmpfs at /dev/shm, and Linux
+// Chromium uses memfd_create for anonymous shared memory without filesystem access.
+// Passing --disable-dev-shm-usage forces Chromium to create temp shared-memory files
+// in /tmp, which fails when /tmp is read-only for capability-dropped child processes.
+func TestChromeDevtoolsOmitsDisableDevShmUsage(t *testing.T) {
+	v, ok := presetEnv(t, nil).LoadMCPServers().Get("chrome-devtools")
+	if !ok {
+		t.Fatal("LoadMCPServers dropped the chrome-devtools preset")
+	}
+	cfg := v.(*jsonx.OrderedMap)
+	rawArgs, _ := cfg.Get("args")
+	args := rawArgs.([]any)
+	for _, arg := range args {
+		if arg == "--chrome-arg=--disable-dev-shm-usage" {
+			t.Fatalf("wired chrome-devtools argv forces Chromium shared memory into /tmp: %v", args)
+		}
+	}
+	if strings.Contains(chromeWrapper, "--disable-dev-shm-usage") {
+		t.Fatal("chrome-devtools wrapper forces Chromium shared memory into /tmp")
+	}
+}

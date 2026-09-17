@@ -119,7 +119,6 @@ func (e *Env) chromeDevtoolsArgs() []any {
 		"--executablePath",
 		chromiumExecutablePath(e),
 		"--chrome-arg=--no-sandbox",
-		"--chrome-arg=--disable-dev-shm-usage",
 		"--chrome-arg=--disable-setuid-sandbox",
 		"--chrome-arg=--disable-gpu",
 	}
