@@ -29,10 +29,11 @@ adapter serves the **AWS container-credentials protocol** on jail loopback; two 
 variables in the jail env name it. Both halves are the shapes `packs/openai-auth` already
 ships.
 
-**Cost.** One more host daemon and one more `yolo-jaild` subcommand. Full narrowing needs one
-IAM role somebody has to create; without it the service can only be honest about serving the
-whole permission set ([OQ-SSO1](#OQ-SSO1)). The jail still holds a credential — "zero
-credential in the jail" is [option E](#4-five-options) and it is not what I am recommending.
+**Cost.** One more host daemon and one more `yolo-jaild` subcommand. Scoping down to
+*inference only* needs one IAM role to assume — often self-serve, but somebody has to create
+it, and until it exists the service can narrow to the Bedrock **service** but not to
+`InvokeModel` ([OQ-SSO1](#OQ-SSO1) decides what it does in the meantime). Nothing here
+reaches `macos-user`.
 
 **Start at [§2](#2-two-requirements-two-axes--and-they-do-not-share-a-mechanism)** — the two
 axes. Every option below is a point on that grid and nothing else in this doc makes sense
@@ -335,6 +336,14 @@ again.
 **N1 and N2 compose**, and composed they are the actual answer to the question as asked:
 assume the scoped role, then presign from the scoped session, and the result is a credential
 that is Bedrock-only by shape *and* invoke-only by policy.
+
+**A real token in the jail is the target state, not a compromise.** The jail holding a
+short-lived credential it can use for nothing but Bedrock inference is what "no more than
+Bedrock" means here, and N2 alone gets there — it is precisely the thing the pull channel
+in [§5](#5-the-recommended-shape) is built to deliver and keep fresh. Holding *no* credential
+at all is a different and stronger property, and it costs a wire implementation and the host
+seeing every prompt; it is priced as [option E](#4-five-options) and deliberately not
+pursued. Do not read the presence of a token in the jail as this design falling short of one.
 
 What the service does when neither is configured is [OQ-SSO1](#OQ-SSO1), and it is the
 security posture of the whole feature: serving an un-narrowed SSO session over a beautifully
