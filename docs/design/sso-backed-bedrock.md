@@ -35,6 +35,13 @@ it, and until it exists the service can narrow to the Bedrock **service** but no
 `InvokeModel` ([OQ-SSO1](#OQ-SSO1) decides what it does in the meantime). Nothing here
 reaches `macos-user`.
 
+**Scope note, 2026-09-17.** **N4 — a Bedrock-only permission set — is deferred**, by the
+maintainer's call: v1 targets what an ordinary SSO profile gives you today, and the admin ask
+is chased only if that proves insufficient. It costs nothing in build order
+([§12](#12-what-i-would-build-in-order)) and it does not remove N4 from
+[§6](#6-narrowing--shape-scoped-and-policy-scoped), which is where it waits. What it does
+change is that [OQ-SSO1](#OQ-SSO1) is now a day-one question rather than a later one.
+
 **Start at [§2](#2-two-requirements-two-axes--and-they-do-not-share-a-mechanism)** — the two
 axes. Every option below is a point on that grid and nothing else in this doc makes sense
 first.
@@ -854,6 +861,11 @@ accounts* for the permission set range (*"minimum … is 1 hour, and can be set 
 
 ## 12. What I would build, in order
 
+**The N4 deferral does not reorder any of this.** Narrowing is a config shape read by the
+service, and it is the last thing wired — steps 1, 3, 4 and 5 are identical whichever rung
+[§6](#6-narrowing--shape-scoped-and-policy-scoped) ends up on, so deferring the admin ask
+delays nothing. It only sharpens step 2.
+
 1. **The host service, standalone and host-only.** `yolo internal daemon aws-auth` plus a
    `--self-check` that mints once against the configured profile and prints what it got, with
    the credential elided. Nothing crosses a boundary yet, and it is the half that can be
@@ -891,9 +903,17 @@ and model ids; none of them touch credentials, by that doc's own
    `role_arn` and no session policy configured, the service can still mint from the SSO
    profile directly — a perfectly refreshing pull channel delivering the entire permission
    set. That is option A's blast radius with better ergonomics. The alternative is refusing to
-   start without a narrowing configured, which makes the feature unusable until someone
-   creates an IAM role. **This is the closure question for the whole design**: it decides
-   whether "no more than Bedrock" is a property or an aspiration.
+   start without a narrowing configured. **This is the closure question for the whole
+   design**: it decides whether "no more than Bedrock" is a property or an aspiration.
+
+   **The N4 deferral makes this a day-one question.** Without a Bedrock-only permission set,
+   "narrowing configured" can still mean two things — an IAM role you create and assume
+   (N2/N3), or a profile pointed at a narrower permission set you are **already** assigned
+   ([§6](#6-narrowing--shape-scoped-and-policy-scoped)'s first row). So refusing by default
+   does not make the feature unusable; it makes one of those two a prerequisite. Weigh that
+   against the likelihood that the opt-in is simply what gets used on day one — in which case
+   the **disclosure banner**, not the refusal, is the thing actually protecting anybody, and
+   its wording deserves more care than the flag.
 
    <!-- vantage: oq id=OQ-SSO1 leaning="Refuse by default: no narrowing configured, no service. Provide one named opt-in — a `scope: inherit` setting — that the launch banner discloses by name on every launch, for the user who genuinely wants the whole role. A silent default that serves everything is the feature quietly not doing its job, and the disclosure banner is the repo's existing answer to 'allowed but loud'." -->
 
