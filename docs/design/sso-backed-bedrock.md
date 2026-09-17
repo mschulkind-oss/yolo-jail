@@ -448,16 +448,36 @@ worth having in one place: the daemon does **less** work under N4 — no `Assume
 just resolve a profile — the duration dial becomes per-role after all, and the window goes
 from one hour to twelve.
 
-**So: can you get the `+12`?** Yes, three ways, and the table below is the whole answer.
-What does not exist is a **chained** credential that lasts longer than an hour — that cell is
-empty and no configuration fills it.
+**What you get, keyed on what you can get changed in AWS.** The ladder above is ordered
+by how narrow each mechanism is. That is not the order a reader needs, because the binding constraint is rarely preference — it is **what somebody will
+create for you**. Same mechanisms, keyed on that instead.
 
-| | Narrowed to | Tail past the portal session | Refreshes |
-| :--- | :--- | :--- | :--- |
-| N2 / N3 — chained | named actions | **+1h**, and not raisable | yes |
-| N4 — a Bedrock-only permission set | the permission set's policy | **up to +12h** | yes |
-| Un-narrowed permission set credentials | nothing ([OQ-SSO1](#OQ-SSO1)) | up to +12h | yes |
-| N1 — the presigned bearer | the Bedrock **service** | 12h total, not a tail | **no** |
+| What you can get changed | Use | Narrowed to | Tail past the portal session | Refreshes |
+| :--- | :--- | :--- | :--- | :--- |
+| **nothing — but you hold more than one permission set** | point the profile at the narrowest one **you are already assigned** | that permission set | up to +12h | yes |
+| a **permission set** | **N4** | named actions | up to +12h | yes |
+| an **IAM role** in the account | N2 / N3 — chained | named actions | **+1h**, not raisable | yes |
+| **nothing**, and narrowing matters more | N1 — the presigned bearer | the Bedrock **service** | 12h total, not a tail | **no** |
+| **nothing**, and refresh matters more | un-narrowed permission-set credentials ([OQ-SSO1](#OQ-SSO1)) | whatever your permission set grants | up to +12h | yes |
+
+**The first row is the one people miss, and it costs nothing.** AWS's own guidance is that
+*"you can assign multiple permission sets to the same user"* and that an administrative user
+*"should also be assigned additional, more restrictive, permission sets."* If your org
+already assigns you a narrow one beside the broad one, pointing the daemon's profile at the
+narrow one **is** the narrowing — a different `sso_role_name`, no AWS-side change, nobody
+asked. Do this before asking for anything, because it also changes what the last row costs:
+"un-narrowed" means "as wide as the permission set you picked", so its blast radius is a fact
+about **which one you pointed at**, not about this design.
+
+**Without any AWS-side access, the two requirements finally collide.** P1 says narrowing and
+refreshing are different problems with different mechanisms, and that holds — but it needs
+*two* mechanisms, and the last two rows are the case where only one is available at a time.
+There you choose: Bedrock-scoped and relaunch every 12 hours, or refreshing and as wide as
+your permission set. That is the one genuinely forced trade in this design, and it is forced
+by the AWS account, not by the architecture.
+
+**What does not exist**, at any row: a **chained** credential that lasts longer than an hour.
+That cell is empty and no configuration fills it.
 
 **N1 and N2 compose**, and composed they are the actual answer to the question as asked:
 assume the scoped role, then presign from the scoped session, and the result is a credential
