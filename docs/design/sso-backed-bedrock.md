@@ -169,7 +169,7 @@ Vendor facts, all dated in [§11](#11-evidence-and-how-to-re-check-it).
 | :--- | :--- |
 | `aws sso login` caches an access token plus a rotating refresh token under `~/.aws/sso/cache/`; the portal session defaults to 8h and can run to 90 days, while a permission set's role credentials last 1–12h | the host has a live thing to derive from, and re-login replaces it in place |
 | A **session policy** on `AssumeRole` yields the **intersection** of the role's policy and the session policy | policy-scoping, and it needs a role to assume |
-| **Role chaining caps `DurationSeconds` at 1 hour**, whatever the role's `MaxSessionDuration` | a scoped session is a 1-hour object, re-minted; it is not a thing you hand over once |
+| SSO permission-set credentials are **already a role session**, so any `AssumeRole` from them is **role chaining**, which *"limits your … role session to a maximum of one hour … regardless of the maximum session duration configured for individual roles"* | the scoped credential is a 1-hour object, and **creating the role does not raise that** — a `MaxSessionDuration` of 12h on it changes nothing. It is re-minted rather than handed over once, which is why the ceiling costs nothing ([§6](#6-narrowing--shape-scoped-and-policy-scoped)) |
 | `GetFederationToken` takes a session policy but requires IAM **user** credentials | unavailable from SSO — a dead end worth not re-deriving |
 | A **short-term Bedrock API key** is a base64'd SigV4 presign, ≤12h, *"inherit[s] the permissions attached to the principal"*, and *"can be used only in the AWS Region from which you generated it"* | shape-scoping, with zero AWS-side configuration |
 | Bedrock API keys are *"limited to Amazon Bedrock and Amazon Bedrock Runtime actions"* | the shape genuinely is the boundary, not a policy someone has to get right |
@@ -317,8 +317,8 @@ along **different** dimensions.
 | | Mechanism | Needs from AWS | Narrows to | Ceiling |
 | :--- | :--- | :--- | :--- | :--- |
 | **N1** | short-term Bedrock API key (presign) | nothing | **the Bedrock service**, one region | 12h |
-| **N2** | `AssumeRole` + inline session policy | one role whose trust policy names the SSO role | **named actions**, e.g. `InvokeModel*` only | 1h per mint, re-minted |
-| **N3** | a purpose-built IAM role with only Bedrock permissions | an admin-ish change | the role's own policy | the role's `MaxSessionDuration` |
+| **N2** | `AssumeRole` + inline session policy | one role whose trust policy names the SSO role | **named actions**, e.g. `InvokeModel*` only | 1h, not raisable — re-minted |
+| **N3** | a purpose-built IAM role with only Bedrock permissions | an admin-ish change | the role's own policy | 1h, not raisable — same chaining cap as N2 |
 
 **N1 costs nothing and is stronger than it sounds.** The credential scope string a SigV4
 presign signs is `<akid>/<date>/<region>/bedrock/aws4_request`, and the signature covers it —
@@ -328,10 +328,20 @@ permissions, so a permission set that can delete a guardrail mints a key that ca
 guardrail.
 
 **N2 is the only one that narrows inside Bedrock**, and the role it needs may well be
-self-serve — `iam:CreateRole` is in many developer permission sets. Its 1-hour cap is a
-non-issue here precisely because the channel is pull: a 1-hour object re-minted by a daemon is
-invisible to the agent, where a 1-hour object handed over at launch would be the whole problem
-again.
+self-serve — `iam:CreateRole` is in many developer permission sets.
+
+> [!IMPORTANT]
+> **The 1-hour ceiling is not raisable, and it does not matter.** Setting
+> `MaxSessionDuration: 12h` on the role you create buys nothing: IAM Identity Center has
+> already handed you a role session, so your `AssumeRole` is role chaining and STS caps the
+> result at an hour whatever the role says. It costs nothing because
+> [§7](#7-refresh--what-happens-when-you-log-in-again)'s channel makes a credential's TTL
+> invisible — the SDK re-fetches five minutes out, the daemon re-mints from the still-live
+> SSO session, and nobody is interrupted. **The only lifetime a human ever feels is the SSO
+> session's**, and that is the one `aws sso login` renews. Note which way the asymmetry runs,
+> because it is backwards from the intuition: N1 can reach twelve hours *precisely because it
+> is a presign rather than an `AssumeRole`*, so the **less** narrow arm is the longer-lived
+> one. A push channel would have to trade those off; this one does not.
 
 **N1 and N2 compose**, and composed they are the actual answer to the question as asked:
 assume the scoped role, then presign from the scoped session, and the result is a credential
@@ -574,8 +584,11 @@ short-term key's wire shape — `bedrock-api-key-` + base64 of a presign of
 `bedrock.amazonaws.com/?Action=CallWithBearerToken` with `X-Amz-Expires` up to 43200 — from the
 `aws-bedrock-token-generator` packages and third-party teardowns, **not** from an AWS
 specification; treat it as reimplementable but verify against the official generator before
-trusting a hand-rolled presign. Role chaining's 1-hour `DurationSeconds` cap, session-policy
-intersection, and `GetFederationToken`'s IAM-user requirement from the STS API reference. SSO
+trusting a hand-rolled presign. **Role chaining** is defined in the IAM User Guide's roles
+terms and concepts — *"when you use a role to assume a second role"*, and the cap *"applies
+regardless of the maximum session duration configured for individual roles"* — which is what
+makes it bind on an Identity Center permission-set session; session-policy intersection and
+`GetFederationToken`'s IAM-user requirement are from the STS API reference. SSO
 token caching, the hourly refresh check and the 8h-default/90d-max portal session from the AWS
 CLI and SDK reference guides.
 
@@ -585,6 +598,7 @@ CLI and SDK reference guides.
 [Bedrock API keys reference](https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys-reference.html) ·
 [How Bedrock API keys work](https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys-how.html) ·
 [STS AssumeRole](https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRole.html) ·
+[Roles terms and concepts — role chaining](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_terms-and-concepts.html) ·
 [IAM Identity Center credential provider](https://docs.aws.amazon.com/sdkref/latest/guide/feature-sso-credentials.html) ·
 [AWS CLI IAM Identity Center concepts](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sso-concepts.html)
 
