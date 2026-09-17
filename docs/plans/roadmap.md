@@ -10,7 +10,7 @@ vantage:
 
 # Roadmap
 
-**Status:** CURRENT — 2026-09-16. **48 rows**: 5 to rule first, 21 needing a decision,
+**Status:** CURRENT — 2026-09-17. **49 rows**: 5 to rule first, 22 needing a decision,
 14 ready to build, 6 waiting, 2 iced.
 
 This file is a **routing table, not a place to think**: one line per open decision, naming
@@ -23,7 +23,7 @@ derived rather than carried forward; re-derive the live-question totals with che
 $ rg -c '^(#{2,4} |\s*[0-9]+[a-z]?\. |\s*[-*] )(<a id="[^"]*"></a> ?)?💬' docs/ --sort path
 ```
 
-**119 live questions across 32 docs**, plus one 🔒 that command cannot see.
+**120 live questions across 33 docs**, plus one 🔒 that command cannot see.
 
 ## Rule these first
 
@@ -64,6 +64,7 @@ sitting. All five below are the first class.
 | 21 | Whether the jail mounts the workspace at the host's path | [`workspace-path-mirroring.md`](../design/workspace-path-mirroring.md) · draft | 12 | [`OQ-WP8`](../design/workspace-path-mirroring.md#OQ-WP8) | **doc** — ratify the no |
 | 22 | Whether `macos-user`'s workspace root becomes configurable, and what the profile has to derive from it | [`configurable-workspace-root.md`](../design/configurable-workspace-root.md) · in-review | 4 | [`OQ-CW1`](../design/configurable-workspace-root.md#OQ-CW1) | **build** — the read-deny derived from the root, plus the whitelist that closes four lexical bypasses. ⚠ The whitelist wants to land before anyone relies on the current blacklist; withdrawing an accepted path later is a breaking change |
 | 22 | Which home a `yolo config` verb is about, and whether it says so | [`config-target-resolution.md`](../design/config-target-resolution.md) · draft | 6 | [`OQ-CR1`](../design/config-target-resolution.md#oq-cr1) | **defect** — four measured and all silent: one report describes two homes, a `cd` changes the answer at rc 0, an owned host's `diff` and `reset` disagree ([row 5](#rule-these-first)), and `render` previews with the wrong home's `host` layer |
+| 23 | Whether a Copilot subscription can back Claude Code — closed, or parked | [`copilot-as-a-provider.md`](../research/copilot-as-a-provider.md) · accepted | 1 | [`OQ-CP1`](../research/copilot-as-a-provider.md#-oq-cp1--is-the-copilot-as-provider-thread-closed-or-parked-pending-counsel) | **doc** — researched 2026-09-17 and ruled out on two independent grounds: GitHub retired its only documented inference API on 2026-07-30, and at Business rates the included credits are break-even against Anthropic list, so the legal half is moot rather than pending |
 
 **Rule together, or not at all.** [`E1`](BACKLOG.md#-e1--collapse-host_files-modes-43-copy-merges-into-readonly) · [`E2`](BACKLOG.md#-e2--readonly-as-a-real-ro-mount-instead-of-0o444) · [`OQ-B`](pack-host-management-plan.md#open-questions) are one asymmetry seen three times, and each doc says so.
 [`OQ-BR3`](../design/bedrock-plumbing.md#OQ-BR3) and [`OQ-PS3`](../design/provider-switching.md#OQ-PS3) are the same decision in two files.
