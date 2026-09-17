@@ -272,8 +272,35 @@ discipline `openai-auth` records in a comment, *"keep this list nonempty or cred
 would cross into every jail."*
 
 **The jail adapter** is one more `yolo-jaild` subcommand beside the three that exist
-(`cmd/yolo-jaild/main.go:34-40`). It speaks the AWS container-credentials protocol on jail
+(`cmd/yolo-jaild/main.go:34-40`). It speaks the container-credentials protocol on jail
 loopback and forwards through the authenticated front. It holds nothing across a request.
+
+**The container-credentials protocol**, since the name oversells it. It is how ECS task roles
+and EKS Pod Identity hand a container its credentials — AWS generalised it from those two
+fixed link-local addresses (`169.254.170.2`, `169.254.170.23`) to any address the SDK will
+accept, which is what `AWS_CONTAINER_CREDENTIALS_FULL_URI` names. In full:
+
+| | |
+| :--- | :--- |
+| **Request** | one HTTP `GET` to that URI. No body, no signing, no handshake, no negotiation |
+| **Auth** | an optional `Authorization` header, sent verbatim from `AWS_CONTAINER_AUTHORIZATION_TOKEN` (or the contents of `…_TOKEN_FILE`). Set neither and the SDK sends no header |
+| **Success** | `200` with `{"AccessKeyId": …, "SecretAccessKey": …, "Token": …, "Expiration": "<RFC3339>"}` — all four required strings, nothing else read |
+| **Failure** | `4xx` with `{"Code": …, "Message": …}`, both surfaced on the error the SDK raises; any other status is a bare failure |
+| **Retry** | 3 attempts, each with a 1000 ms timeout, 1000 ms apart |
+
+So: **an unauthenticated loopback endpoint that returns whatever credentials it likes, which
+every AWS SDK already knows how to ask.** That is the whole appeal — no CA, no new file
+surface, no per-agent code — and it is worth being plain that it is also the whole hazard.
+
+> [!WARNING]
+> **The boundary is positional, and the position is the network namespace.** The SDK speaks
+> plain `http` only to `127.0.0.0/8` or those two link-local addresses (`checkUrl.js`), so the
+> endpoint is unreachable from outside the jail, and *that* is what protects it. **Inside the
+> jail there is no boundary at all**: every MCP server, every command the agent runs, every
+> `curl` can `GET` the same credentials. Nothing can change that — see the token paragraph
+> below — so the blast radius of this endpoint is exactly *"whatever the credential can do."*
+> That is the reason [OQ-SSO1](#OQ-SSO1) is the closure question for the design rather than a
+> configuration detail: the narrowing is not defence in depth here, it is the only defence.
 
 **What lands in the jail environment** is two pointers and a region, through the pack's
 `kind: "env"` contribution — the loophole cannot set them itself
