@@ -203,7 +203,7 @@ func TestDescribeReportsPackageProfile(t *testing.T) {
 	// host (no baked image), root present → names the resolved store path AND the root.
 	var buf bytes.Buffer
 	pr := richtext.Printer{W: &buf}
-	printPackageProfile(pr, render.HostProfile(), pkgs, root)
+	printPackageProfile(pr, render.HostProfile(), pkgs, root, true)
 	if !strings.Contains(buf.String(), store) {
 		t.Errorf("a resolved profile must be named by its store path:\n%s", buf.String())
 	}
@@ -214,28 +214,63 @@ func TestDescribeReportsPackageProfile(t *testing.T) {
 	// Root ABSENT → declared, not yet resolved. Must not print a bogus path.
 	buf.Reset()
 	printPackageProfile(richtext.Printer{W: &buf}, render.HostProfile(), pkgs,
-		filepath.Join(t.TempDir(), "nope"))
+		filepath.Join(t.TempDir(), "nope"), true)
 	if !strings.Contains(buf.String(), "2 declared") {
 		t.Errorf("an unresolved profile should still report the declared count:\n%s", buf.String())
 	}
 	if strings.Contains(buf.String(), "/nix/store") {
 		t.Errorf("an unresolved profile must not name a store path:\n%s", buf.String())
 	}
+	if strings.Contains(buf.String(), "yolo apply") {
+		t.Errorf("`yolo apply` materializes the profile at no notch — darwinpkg.Materialize's "+
+			"one caller is the macos-user run seam — so it must not be offered as the "+
+			"remedy:\n%s", buf.String())
+	}
 
 	// jail: a baked image supplies the packages, so there is NO profile to report. This is
 	// the gate the mechanism's rename is about — printing a nix profile path for a jail
 	// would name a closure the launch does not use.
 	buf.Reset()
-	printPackageProfile(richtext.Printer{W: &buf}, render.JailProfile(false), pkgs, root)
+	printPackageProfile(richtext.Printer{W: &buf}, render.JailProfile(false), pkgs, root, true)
 	if buf.Len() != 0 {
 		t.Errorf("a jail's packages come from the image; nothing should be printed:\n%s", buf.String())
 	}
 
 	// No packages declared → nothing to report at any notch.
 	buf.Reset()
-	printPackageProfile(richtext.Printer{W: &buf}, render.HostProfile(), nil, root)
+	printPackageProfile(richtext.Printer{W: &buf}, render.HostProfile(), nil, root, true)
 	if buf.Len() != 0 {
 		t.Errorf("no declared packages => no line:\n%s", buf.String())
+	}
+}
+
+// A notch with NO provisioner must not describe its absent GC root as a pending state. The
+// absent root is the steady answer there — `guest` and `host` have no package layer yet
+// (docs/design/provisioner-sets.md §6.4) — so offering a command to fill it would name a
+// remedy that does not exist, which report-tiers.md P2 forbids. `check` states the same
+// inertness for itself (check/section_packageprofile.go's `materializes`).
+func TestAnUnprovisionedNotchReportsPackagesAsInertRatherThanPending(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "profile-root")
+	pkgs := []any{"ripgrep", "fd"}
+
+	var buf bytes.Buffer
+	printPackageProfile(richtext.Printer{W: &buf}, render.HostProfile(), pkgs, root, false)
+	got := buf.String()
+
+	if !strings.Contains(got, "2 declared") {
+		t.Errorf("the declared count is still the useful half of the line:\n%s", got)
+	}
+	if !strings.Contains(got, "inert") {
+		t.Errorf("a notch that never materializes a profile should say the entries are "+
+			"inert, not that one is pending:\n%s", got)
+	}
+	// The two spellings of a remedy this branch must not offer. Both were printed here
+	// before the materializes gate existed, and `yolo apply` was false at every notch —
+	// darwinpkg.Materialize's one caller is the macos-user run seam.
+	for _, remedy := range []string{"yolo apply", "not resolved yet", "no nix profile resolved yet"} {
+		if strings.Contains(got, remedy) {
+			t.Errorf("no provisioner here, so %q must not be offered as a remedy:\n%s", remedy, got)
+		}
 	}
 }
 

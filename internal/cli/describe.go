@@ -103,7 +103,8 @@ func describeMain(args []string, out, errw io.Writer, color bool) int {
 	// a linux-only package listed on a Mac would be a description of someone else's
 	// jail.
 	printPackageProfile(pr, prof, config.EffectivePackages(cfg, runtime.GOOS),
-		darwinpkg.ProfileRootLink(paths.Home()))
+		darwinpkg.ProfileRootLink(paths.Home()),
+		jailcontent.MechanismHasNoContainer(resolvedMechanism(cfg)))
 	if packs, perr := config.LoadPacks(nil); perr == nil && len(packs) > 0 {
 		names := make([]string, 0, len(packs))
 		for _, p := range packs {
@@ -185,16 +186,34 @@ func printConfinementVector(pr richtext.Printer, prof render.Profile) {
 // the question "where does my toolset come from" has a nix-profile answer only below the
 // jail notch. A jail's packages come from the image, so printing a profile path there would
 // name a closure the launch does not use.
-func printPackageProfile(pr richtext.Printer, prof render.Profile, packages []any, rootLink string) {
+//
+// materializes says whether anything at this notch BUILDS the profile, and it is what makes
+// the absent-root branch honest. Only the macos-user backend materializes one today
+// (darwinpkg.Materialize has exactly one caller, that backend's run seam); `guest` and `host`
+// have no package layer yet (docs/design/provisioner-sets.md §6.4). Without it this branch
+// offered "a launch or `yolo apply` materializes it" at every notch — a remedy that does not
+// exist below jail, and one `yolo apply` does not perform at ANY notch. `check` corrected the
+// same cell for itself (check/section_packageprofile.go's `materializes`), and both follow
+// report-tiers.md P2: a loss with no remedy says so rather than borrowing one it cannot cash.
+func printPackageProfile(pr richtext.Printer, prof render.Profile, packages []any, rootLink string, materializes bool) {
 	if prof.Has(render.PrimBakedImage) || len(packages) == 0 {
 		return
 	}
 	target, err := os.Readlink(rootLink)
 	if err != nil {
+		if !materializes {
+			// The absent root is the STEADY state here, not a pending one: no provisioner
+			// at this notch would ever fill it, so there is no command to name. The entries
+			// are inert, which is not the same as wrong — they are what a notch that grew a
+			// package layer would use.
+			pr.Printf("[bold]packages[/bold]     %d declared [dim](inert at this notch — "+
+				"nothing here materializes a nix profile)[/dim]", len(packages))
+			return
+		}
 		// Declared but never materialized (or the root was collected/removed). Not a
-		// warning: `apply`/a launch resolves it, and describe does not provision.
+		// warning: a run resolves it, and describe does not provision.
 		pr.Printf("[bold]packages[/bold]     %d declared [dim](no nix profile resolved yet — "+
-			"a launch or `yolo apply` materializes it)[/dim]", len(packages))
+			"a run materializes it)[/dim]", len(packages))
 		return
 	}
 	pr.Printf("[bold]packages[/bold]     %d declared, resolved to [cyan]%s[/cyan]", len(packages), target)

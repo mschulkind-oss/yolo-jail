@@ -21,11 +21,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/darwinpkg"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -285,6 +288,11 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		// two lines ahead of it.
 		pr.Printf("[dim]No packs configured — nothing to apply, so this run only retires " +
 			"what dropped packs left behind.[/dim]")
+		// HERE TOO, and for the reason this whole branch exists: `packages:` is a config key,
+		// not a pack kind, so an empty `packs` says nothing about it. Reporting it only in the
+		// branch below would leave the one config that declares packages and no pack — which
+		// `describe` reports in full — as the one config this command is silent about.
+		reportHostPackages(pr, errw, home)
 		// The BRANCH, recorded: "no packs are configured" and "every configured pack changed
 		// nothing" are different results with different next actions, and both reach the
 		// survey as an empty changed set. Nothing can derive it downstream, so it is stated
@@ -350,6 +358,12 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		posture = fmt.Sprintf("applying into %s", home)
 	}
 	pr.Printf("[bold]host apply[/bold] — %s", posture)
+	// The `packages:` key, said the way `describe` says it. Second line of the run because it
+	// is a fact about the NOTCH and the CONFIG rather than about any destination below — the
+	// one thing in this report that does not depend on which packs are selected — and because
+	// every refusal further down returns before the render loop, where a reader who asked
+	// "where do my tools come from here?" would never reach it.
+	reportHostPackages(pr, errw, home)
 
 	hostFields := render.HostFields()
 	rc := 0
@@ -776,6 +790,64 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// with no summary at all, having just written into a real home.
 	printHostApplyVerdict(pr, survey, write)
 	return rc
+}
+
+// reportHostPackages says what `yolo describe` says about `packages:`, at the host notch
+// (docs/design/provisioner-sets.md §9 step 3, the narrow half of its OQ-NX8).
+//
+// TWO SHIPPED COMMANDS DISAGREED, which is the whole defect. `packages` is a config KEY and
+// not a pack KIND, so the host FieldSet census never sees it and this command printed nothing
+// at all about it — the silently-absent failure mode render.HostUnimplemented exists to
+// prevent, for the one key that has a real off-container implementation — while `describe`
+// has reported the resolved profile whenever PrimBakedImage is absent since 2026-08-05. OQ-NX8
+// also retires the env-manager design's promised `✗ packages  yolo does not manage packages
+// here` line: it is contradicted by the command that already reports one, so the agreement is
+// reached by reporting, never by declaring the key inapplicable.
+//
+// IT IS describe's OWN RENDERER, not a second one. printPackageProfile (describe.go) is called
+// with the arguments describe computes for this notch, so parity is a property of the call
+// rather than of two wordings kept in step by inspection — the same reason mcpEntryRemedy is
+// one body every emitter of that sentence reads. The three arguments:
+//
+//   - render.ProfileFor(render.KindHost), which is jailcontent.ConfinementProfile's answer for
+//     KindHost at every mechanism and platform (both return render.HostProfile()). The host
+//     composes no PrimBakedImage, so the gate is open here by construction: a jail's packages
+//     come from the image, and the host's come from wherever a provisioner put them.
+//   - config.EffectivePackages(cfg, runtime.GOOS) — describe's own platform filter, so a
+//     darwin-only entry is not counted into a Linux host's closure.
+//   - the GC root under THIS apply's home rather than paths.Home(). The two cannot differ
+//     where this runs: paths.Home() falls back to the passwd database only when $HOME is
+//     unset, and os.UserHomeDir() errors there, so applyHostSurveyed has already returned.
+//     The home this command renders into is the one it should report about.
+//
+// The config is re-read rather than threaded down from applyMain: applyHost's signature is
+// the one the launch gate and every command-level test hold, and this is the same read
+// describe makes for the same line.
+//
+//   - materializes, DERIVED THE WAY describe DERIVES IT rather than hardcoded. This command
+//     provisions no packages, which makes a constant false tempting — and wrong: whether an
+//     absent GC root is a pending state or a permanent one is a fact about the MECHANISM, not
+//     about which command is asking. A `confinement: host` workspace whose runtime is
+//     macos-user does have a provisioner (darwinpkg.Materialize's one caller is that backend's
+//     run seam), so a constant here would make apply and describe disagree on exactly the
+//     configs this function exists to make agree. `check` corrected the same cell for itself in
+//     §9 step 2 (section_packageprofile.go's `materializes`) and reads the same mechanism.
+//
+// ⚠ WHAT THIS DOES NOT CLAIM. This command reports; it provisions nothing. `packages:` is
+// delivered by a baked image or by the boot-written farm at /run/yolo/packages, and the host
+// notch has neither (§6.4).
+func reportHostPackages(pr richtext.Printer, errw io.Writer, home string) {
+	cfg, err := config.LoadConfig("", false, func(string) {})
+	if err != nil {
+		// Named, not swallowed: a report that cannot read the config is exactly the silence
+		// this function exists to end, and the apply itself is unaffected — it resolved its
+		// packs from the same config through its own load.
+		fmt.Fprintf(errw, "yolo host apply: cannot read `packages:` for this report: %v\n", err)
+		return
+	}
+	printPackageProfile(pr, render.ProfileFor(render.KindHost),
+		config.EffectivePackages(cfg, runtime.GOOS), darwinpkg.ProfileRootLink(home),
+		jailcontent.MechanismHasNoContainer(resolvedMechanism(cfg)))
 }
 
 // confirmHostLosses gates a WRITING host apply on an explicit confirmation when it would
