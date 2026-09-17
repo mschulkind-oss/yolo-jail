@@ -1077,17 +1077,19 @@ func truncateSurfaceToPureRender(s manifest.Surface) ([]byte, error) {
 	if hostOwnsSurfaces() {
 		return truncateHostSurfaceToPureRender(s, path)
 	}
-	sub := agentcfg.SubstituteWorkspace(s, containerWorkspace)
 	// Surface.HasHostLayer, not a table beside this file: the surfaces the boot render
 	// hands host bytes to are the ones whose HostSource is set, and re-rendering WITHOUT
 	// the host layer for a surface that has one would write yolo's defaults over the
 	// user's own keys. This was the fourth reader of the retired surfaceHasHostLayer map
 	// (docs/design/host-render-target.md §3.4).
 	var hostBytes []byte
-	if sub.HasHostLayer() {
+	if s.HasHostLayer() {
 		hostBytes, _ = os.ReadFile(path)
 	}
-	res, err := agentcfg.Compose(agentcfg.Inputs{Surface: sub, HostBytes: hostBytes})
+	// The jail notch's own Target does the ${workspace} substitution and the fold — the
+	// same render.Target.Compose the boot render calls, which is what makes "the pure
+	// render" one definition rather than this file's opinion of one.
+	sub, res, err := localTarget().Compose(s, render.Layers{HostBytes: hostBytes})
 	if err != nil {
 		return nil, err
 	}
@@ -1099,16 +1101,19 @@ func truncateSurfaceToPureRender(s manifest.Surface) ([]byte, error) {
 	return text, nil
 }
 
-// pureRenderText is the file body for a composed surface at this notch: the encoded bytes plus
-// the object codecs' trailing newline. It is entrypoint.surfaceText's rule, restated here
-// because that one is unexported — and stated ONCE for both truncation notches, which is what
-// makes "reset's bytes and reset's baseline are the same bytes" a fact rather than a
-// coincidence of two hand-copied `if Kind() == KindObject` blocks.
+// pureRenderText is the file body for a composed surface at this notch: render.SurfaceText,
+// as []byte for the writers below. It RESTATED entrypoint.surfaceText's rule until the two
+// render paths were collapsed — the docstring said so, which is what made it findable — and
+// now calls the one definition, so "reset's bytes, reset's baseline, and the boot render's
+// bytes are the same bytes" is a fact rather than three blocks agreeing by hand.
+//
+// Deliberately the BODY and not render.FileText: what this returns is written to the file AND
+// returned to reseed the §5 baseline (see the caller), and the baseline must hold what the
+// engine produced, without the generated header. A toml surface therefore comes back from a
+// reset without its banner and regains it on the next boot render, which the capture diff
+// cannot see either way — it runs on decoded values.
 func pureRenderText(s manifest.Surface, encoded []byte) []byte {
-	if s.Kind() == codec.KindObject {
-		return append(append([]byte(nil), encoded...), '\n')
-	}
-	return append([]byte(nil), encoded...)
+	return []byte(render.SurfaceText(s, encoded))
 }
 
 // truncateHostSurfaceToPureRender is truncateSurfaceToPureRender at the host notch under
@@ -1133,8 +1138,12 @@ func truncateHostSurfaceToPureRender(s manifest.Surface, path string) ([]byte, e
 	if hs, ok := hostSurfaceManifest().Lookup(s.Agent, s.Name); ok {
 		s = hs
 	}
+	// PRUNE, then compose at the host Target — which substitutes nothing, because a host
+	// notch has no ${workspace} referent to substitute against (render.Target.Prepare).
+	// The two steps are the same pair entrypoint.RenderHostPack performs, in the same
+	// order, which is the whole reason PruneWorkspaceKeyed is exported.
 	sub, _ := entrypoint.PruneWorkspaceKeyed(s)
-	res, err := agentcfg.Compose(agentcfg.Inputs{Surface: sub})
+	sub, res, err := render.Host(paths.Home(), nil, hostOwnership()).Compose(sub, render.Layers{})
 	if err != nil {
 		return nil, err
 	}
@@ -1246,11 +1255,11 @@ func captureSurfaceAt(s manifest.Surface, at captureLocation) (int, error) {
 	}
 	overlayJSON, _ := os.ReadFile(at.overlay)
 
-	// Reuse the ENGINE's capture path rather than reimplementing the diff: a second
+	// Reuse the RENDERER's capture path rather than reimplementing the diff: a second
 	// implementation would be free to disagree with the boot render, which is the one
-	// thing this must not do.
-	out, err := agentcfg.ComposeStateful(agentcfg.StatefulInputs{
-		Base:              agentcfg.Inputs{Surface: agentcfg.SubstituteWorkspace(s, containerWorkspace)},
+	// thing this must not do. Same entry the boot render calls, at the jail notch's
+	// Target — no layers, because capture only compares what is on disk (see above).
+	_, out, err := localTarget().ComposeStateful(s, render.Layers{}, render.State{
 		CurrentBytes:      current,
 		LastRenderPresent: true,
 		LastRenderBytes:   lastRender,

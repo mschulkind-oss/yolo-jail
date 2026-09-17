@@ -340,9 +340,17 @@ func composeStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, 
 	// A11: resolve ${workspace} in the surface's layer DATA before composing. The
 	// workspace root is not always "/workspace" (YOLO_WORKSPACE; macos-user has no
 	// /workspace), so a literal in the manifest would assert keys under a path the
-	// agent never looks at.
-	surface = agentcfg.SubstituteWorkspace(surface, e.WorkspaceDir())
-	surfacePath := expandHomePath(e, surface.Path)
+	// agent never looks at. THE TARGET decides it now (render.Target.Prepare) rather than
+	// this function reading Env.WorkspaceDir() — the placeholder has one resolution per
+	// notch, and the host notch's is "prune it, do not bind it".
+	//
+	// Done here as well as inside the render below, because the lines between the two read
+	// the surface: Prepare is a no-op on an already-prepared surface (nothing is keyed on
+	// the placeholder any more), so stating it at the top costs a deep copy and buys a
+	// function whose `surface` means one thing throughout.
+	t := e.renderTarget()
+	surface = t.Prepare(surface)
+	surfacePath := t.SurfacePath(surface)
 
 	// THE READ FAILS CLOSED ON ANYTHING BUT ABSENCE, and the three-way distinction is the
 	// whole point (OQ-CO7's D2, docs/design/config-ownership-and-promotion.md §6.3.3):
@@ -410,18 +418,14 @@ func composeStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, 
 		selectionRecord = next
 	}
 
-	out, err := agentcfg.ComposeStateful(agentcfg.StatefulInputs{
-		Base: agentcfg.Inputs{
-			Surface:   surface,
-			HostBytes: hostBytes,
-			Overlays:  overlays,
-			Computed:  computed,
-		},
-		CurrentBytes:      current,
-		LastRenderPresent: lastErr == nil,
-		LastRenderBytes:   lastRenderBytes,
-		OverlayJSON:       overlayJSON,
-	})
+	surface, out, err := t.ComposeStateful(surface,
+		render.Layers{HostBytes: hostBytes, Overlays: overlays, Computed: computed},
+		render.State{
+			CurrentBytes:      current,
+			LastRenderPresent: lastErr == nil,
+			LastRenderBytes:   lastRenderBytes,
+			OverlayJSON:       overlayJSON,
+		})
 	if err != nil {
 		return nil, err
 	}
@@ -550,45 +554,25 @@ func overlayEntryCount(overlayJSON []byte) int {
 	}
 }
 
-// surfaceText renders a surface's encoded bytes as the exact file text to write.
-// Object codecs (json/toml) emit no trailing newline, so one is appended to make
-// a well-formed text file (matching the bespoke writers' dumpJSONIndent2 "+\n").
-// Keyless codecs must NOT get an appended newline: raw promises a byte-exact
-// Decode→Encode round-trip (a stray "\n" corrupts it), and lines already
-// terminates every line with "\n" (a second one decodes back as a spurious
-// trailing empty element, which would also poison the §5 last_render baseline).
+// surfaceText is render.SurfaceText under this package's name — the boot path's spelling
+// of the rule, kept so the call sites here read as they did while the RULE lives in one
+// place. It moved because internal/cli held a hand-copy of it (pureRenderText, whose
+// docstring said so), and two spellings of "what bytes does a render produce" is how the
+// file and its §5 baseline come to disagree.
 func surfaceText(surface manifest.Surface, encoded []byte) string {
-	if surface.Kind() == codec.KindObject {
-		return string(encoded) + "\n"
-	}
-	return string(encoded)
+	return render.SurfaceText(surface, encoded)
 }
 
-// generatedHeader is the "yolo generated this" banner prepended to a composed
-// surface FILE (A10). It exists so an agent that opens the file sees, in the file
-// itself, that hand-editing it is the wrong move and where to look instead —
-// steering, not enforcement (§8: an agent is a directed writer, so a legible
-// signal beats a permission bit it can work around).
+// generatedHeader is render.GeneratedHeader under this package's name (A10 — the banner
+// telling an agent that hand-editing this file is the wrong move). See that function for
+// why it is TOML-only and why it is separate from surfaceText.
 //
-// TOML ONLY, and the constraint is real, not conservatism:
-//   - json has NO comment syntax, so a banner would make the file invalid;
-//   - raw promises a byte-exact Decode→Encode round-trip and lines round-trips
-//     element-for-element, so ANY inserted text corrupts the contract.
-//
-// It is applied to the SURFACE write only, never to the last_render sidecar: that
-// sidecar is the §5 capture baseline and must match what the ENGINE produced, or
-// the next boot's mergeDiff sees the banner itself as a user edit. Verified by
-// probe that a leading TOML comment yields an empty overlay ({}) rather than a
-// captured change — the diff runs on decoded values, so the comment is invisible
-// to it either way; keeping it out of the baseline is belt-and-braces plus it
-// keeps the sidecar a faithful record of the render.
+// One probe result worth keeping where the boot path can see it: a leading TOML comment
+// yields an empty overlay ({}) rather than a captured change, because the §5 diff runs on
+// decoded values. So keeping the banner out of the last_render baseline is belt-and-braces
+// on top of that, plus it keeps the sidecar a faithful record of what the engine produced.
 func generatedHeader(surface manifest.Surface) string {
-	if surface.Codec != "toml" {
-		return ""
-	}
-	return "# Generated by yolo-jail — composed at jail start; hand edits may be\n" +
-		"# reverted or lost. Run `yolo config ls` to see how, and change the config\n" +
-		"# input instead (`yolo config-ref`).\n"
+	return render.GeneratedHeader(surface)
 }
 
 // renderSurfaceStatelessSurface is the surface-taking core of the stateless
@@ -598,26 +582,21 @@ func generatedHeader(surface manifest.Surface) string {
 // — silently losing the file's actual content. It writes ONLY the surface file
 // (no sidecars) and returns the Result so a caller can chmod or inspect it.
 func renderSurfaceStatelessSurface(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any, overlays []agentcfg.Overlay) (*agentcfg.Result, error) {
-	surface = agentcfg.SubstituteWorkspace(surface, e.WorkspaceDir()) // A11, see the stateful core
-
-	res, err := agentcfg.Compose(agentcfg.Inputs{
-		Surface:   surface,
-		HostBytes: hostBytes,
-		Overlays:  overlays,
-		Computed:  computed,
-	})
+	t := e.renderTarget()
+	surface, res, err := t.Compose(surface, // A11 (${workspace}) is the target's, see the stateful core
+		render.Layers{HostBytes: hostBytes, Overlays: overlays, Computed: computed})
 	if err != nil {
 		return nil, err
 	}
 
-	surfacePath := expandHomePath(e, surface.Path)
+	surfacePath := t.SurfacePath(surface)
 	if IsMountPoint(surfacePath) {
 		return res, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(surfacePath), 0o755); err != nil {
 		return nil, err
 	}
-	if err := writeInPlaceString(surfacePath, generatedHeader(surface)+surfaceText(surface, res.Encoded)); err != nil {
+	if err := writeInPlaceString(surfacePath, render.FileText(surface, res.Encoded)); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -631,26 +610,13 @@ func (e *missingSurfaceError) Error() string {
 	return "agentcfg builtin manifest missing surface " + e.agent + "/" + e.name
 }
 
-// expandHomePath expands a leading "~/" in a manifest surface path against the
-// Env's resolved Home (the jail home, or the native-macOS home). Mirrors
-// internal/cli.expandHome but keyed on the Env rather than the process $HOME.
+// expandHomePath expands a leading "~/" in a manifest surface path against the Env's
+// resolved Home (the jail home, or the native-macOS home), by projecting the Env onto its
+// Target and asking that. It used to say it "mirrors internal/cli.expandHome" — the mirror
+// is gone: render.Target.ExpandHome is the one resolver, and internal/cli's expandHome
+// reaches the same code through a Target of its own.
 func expandHomePath(e *Env, p string) string {
-	return targetExpandHome(e.renderTarget(), p)
-}
-
-// targetExpandHome resolves a "~"-relative surface path against the TARGET's home. This
-// is the seam that lets a host/preview target write into a different home than the jail;
-// the boot path reaches it via expandHomePath(e, p) over e.renderTarget(). It replaces
-// the old "mirrors internal/cli.expandHome but keyed on Env" duplication with one
-// Target-keyed resolver both sides can converge on.
-func targetExpandHome(t render.Target, p string) string {
-	if p == "~" {
-		return t.Home
-	}
-	if strings.HasPrefix(p, "~/") {
-		return filepath.Join(t.Home, p[2:])
-	}
-	return p
+	return e.renderTarget().ExpandHome(p)
 }
 
 // renderSurfaceRMWSurface is the surface-taking core of the RMW render, so a

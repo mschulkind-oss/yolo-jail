@@ -1,8 +1,9 @@
 // config.go implements `yolo config <subcommand>` — the runnable window into
 // the generated-config composition pipeline (docs/plans/agent-settings-composition.md
-// §6). Today it provides `yolo config render`, which runs the SAME engine the
-// entrypoint boot render calls (internal/agentcfg.Compose) and prints what it
-// would write, touching no live config. It runs host-side (the edit-before-launch
+// §6). Today it provides `yolo config render`, which runs the SAME renderer the
+// entrypoint boot render calls — render.Target.Compose, one implementation over a
+// notch parameter, rather than the hand-copy that claim used to rest on — and prints
+// what it would write, touching no live config. It runs host-side (the edit-before-launch
 // loop) and in-jail (the operating agent's "what is my config, and why?" aid),
 // and it is the CLI surface that makes the composition pipeline discoverable
 // and operable by interrogation — the self-documenting-CLI gap
@@ -13,12 +14,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
@@ -290,11 +290,11 @@ const containerWorkspace = "/workspace"
 // captured `overlay`: that is per-workspace state
 // under <workspace>/.yolo/prism/, and `yolo config diff` is the command for it.
 func renderSurface(s manifest.Surface, explain bool, out io.Writer, color bool) error {
-	// A11: resolve ${workspace} exactly as the boot path does, so what `render`
-	// prints is what the jail gets (§6). The jail composes with ITS OWN workspace
-	// root — "/workspace" on a container backend — so that is what we substitute
-	// here, not the host checkout path: this command previews the jail's file.
-	s = agentcfg.SubstituteWorkspace(s, containerWorkspace)
+	// A11 (${workspace}) and "~" are both the TARGET's now, resolved by the same
+	// render.Target.Compose the boot path calls (host-render-target.md §8 step 3). This
+	// command previews the JAIL's file, so localTarget carries the container workspace
+	// rather than the host checkout path — see that function for the other half.
+	t := localTarget()
 
 	// A7: read a `host` layer ONLY for the surfaces that actually get one at boot.
 	//
@@ -309,13 +309,10 @@ func renderSurface(s manifest.Surface, explain bool, out io.Writer, color bool) 
 	// two-entry map here until docs/design/host-render-target.md §3.4's payoff landed.
 	var hostBytes []byte
 	if s.HasHostLayer() {
-		hostBytes, _ = os.ReadFile(expandHome(s.Path)) // absent host file => empty layer
+		hostBytes, _ = os.ReadFile(t.SurfacePath(s)) // absent host file => empty layer
 	}
 
-	res, err := agentcfg.Compose(agentcfg.Inputs{
-		Surface:   s,
-		HostBytes: hostBytes,
-	})
+	s, res, err := t.Compose(s, render.Layers{HostBytes: hostBytes})
 	if err != nil {
 		return err
 	}
@@ -366,13 +363,34 @@ func colorLayer(layer string) string {
 	return layer
 }
 
-// expandHome expands a leading "~/" in a manifest path to the resolved home dir.
+// localTarget is the render.Target the `yolo config` verbs compose at: the notch these
+// commands are ABOUT, which is the jail's.
+//
+// Its two halves answer to different things, and that is the point rather than an
+// inconsistency. "~" resolves against the PROCESS home, because that is the home whose
+// files these verbs read — in-jail the jail's, host-side the invoking human's, which is
+// exactly why the writers among them refuse host-side (refuseHostSideWrite) instead of
+// pretending the two are the same. "${workspace}" resolves against the CONTAINER
+// workspace, because a preview of a jail file must show the keys the jail will get, not
+// keys under the host checkout path the jail never sees.
+//
+// A function rather than a package var: paths.Home() is read per call, so a test that
+// moves $HOME moves the target with it.
+//
+// ⚠ COMPOSE ONLY. The two paths above are right; this target's SIDECAR paths would not
+// be, because the §5 sidecars live under the workspace the invocation is actually in
+// (workspaceRoot(), deliberately not /workspace — see its docstring for the nested-jail
+// case that rule exists for), and this one carries the container workspace instead. The
+// readers that need them resolve that one directly: prismSidecarDir joins workspaceRoot(),
+// and configdiff.go builds its own render.Jail from it for the store's file mode. Nothing
+// here may reach for Target.SidecarDir and friends.
+func localTarget() render.Target {
+	return render.Jail(paths.Home(), containerWorkspace, nil)
+}
+
+// expandHome expands a leading "~/" in a manifest path to the resolved home dir. One line
+// over localTarget, so the CLI and the boot render resolve "~" through the same code
+// (render.Target.ExpandHome) instead of through two implementations that agreed by hand.
 func expandHome(p string) string {
-	if p == "~" {
-		return paths.Home()
-	}
-	if strings.HasPrefix(p, "~/") {
-		return filepath.Join(paths.Home(), p[2:])
-	}
-	return p
+	return localTarget().ExpandHome(p)
 }
