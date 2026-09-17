@@ -520,7 +520,10 @@ func podmanLinuxGolden(home string) []string {
 		// provider state for a later exec to inherit — per-entry delivery. The
 		// tables still cross on every launch (bedrock's empty shape included,
 		// because packs/claude ships it); the file is where.
-		"-e", "YOLO_REQUIRED_CAPABILITIES=[]",
+		// No YOLO_REQUIRED_CAPABILITIES: `required_capabilities` is judged on the HOST
+		// now (preflight.go's refuseUnmetCapabilities, OQ-CAP2) and nothing in the jail
+		// ever read the variable. This golden is what pins the absence — re-adding the
+		// export fails here, which is the only place that would notice.
 		"-e", "YOLO_RUNTIME=podman",
 	)
 	// yolo-user-env.sh mount.

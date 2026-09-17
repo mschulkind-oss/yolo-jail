@@ -136,7 +136,14 @@ var inheritCensus = map[string]keyDisposition{
 	"mcp_servers": {preflight: true, nested: true, reason: "MCP processes run in the jail; the check dry-run renders their wrappers and a launcher passes them on"},
 	"mcp_presets": {preflight: true, nested: true, reason: "MCP presets the check dry-run resolves and an inner launcher passes on"},
 	"lsp_servers": {preflight: true, nested: true, reason: "LSP servers installed in the jail; the check dry-run renders their config"},
-	"providers":   {preflight: true, nested: true, reason: "cloud provider declarations for agent configuration and nested launches"},
+	// `providers` is merged-scope EXCEPT for its address half: `base_url` and
+	// `endpoints.<protocol>.base_url` are user-scope only (OQ-LM3,
+	// validate.go's validateProviderAddressScope). The distinction survives the crossing
+	// for free rather than by care — this file is a generated config an inner launcher
+	// reads as its own USER scope, the same property `packs` five entries up depends on —
+	// so an inherited address arrives at the scope it was written at, and the inner
+	// launch's own gate still refuses one the inner WORKSPACE adds.
+	"providers": {preflight: true, nested: true, reason: "cloud provider declarations for agent configuration and nested launches"},
 	// `profiles` and `use_profiles` are user-scope-only (OQ-CS5 ruled BOTH keys), exactly
 	// like `packs` three entries up — so a workspace spelling can never reach the render
 	// that this census classifies, because the launch refuses it first. The two keys
@@ -148,14 +155,20 @@ var inheritCensus = map[string]keyDisposition{
 	// inner launcher composes the same tables for the jail it spawns.
 	"profiles":     {preflight: true, nested: true, reason: "user-declared profiles over provider-declared options; the launch resolves them into YOLO_PROFILES here and in nested launches"},
 	"use_profiles": {preflight: true, nested: true, reason: "active CLI-to-profile-name selections for this jail and nested launches (keys are CLI names: core knows packs, not agents)"},
-	// `required_capabilities` earns its preflight seat on SHAPE ALONE, and the distinction
-	// matters to whoever re-decides it: pre-flight checks the key is a string list
-	// (validateRequiredCapabilities) and NOTHING reads the capability names. The launch hands
-	// the jail YOLO_REQUIRED_CAPABILITIES and no consumer of that variable exists — the fatal
-	// refusal for an unmet capability (docs/design/agent-auth-modes.md OQ-CAP2, which
-	// config_ref.txt cites for exactly this) is unbuilt. So the key is in both files as a
-	// DECLARATION that survives the boundary, not as a check either side performs.
-	"required_capabilities": {preflight: true, nested: true, reason: "shape-validated as a string list at pre-flight (nothing reads the names yet) and passed to nested launches"},
+	// `required_capabilities` earns its NESTED seat on a check an inner launch performs,
+	// and its preflight seat on SHAPE ALONE — the distinction matters to whoever
+	// re-decides it, and it stopped being "shape alone on both sides" on 2026-09-17.
+	// OQ-CAP2's fatal refusal (docs/design/agent-auth-modes.md, which config_ref.txt
+	// cites for exactly this key) is BUILT: a LAUNCH now refuses when nothing the config
+	// declares satisfies a required name, from inside the config gate
+	// (internal/cli/run/preflight.go refuseUnmetCapabilities), which is why the key has
+	// to reach an inner launcher — it composes a jail the same gate judges. The
+	// PREFLIGHT seat is still shape alone, because the in-jail read-only commands are
+	// not that gate: `yolo check` validates the list's type and nothing evaluates the
+	// names. It travelled to the jail as YOLO_REQUIRED_CAPABILITIES until the gate
+	// landed; that export is gone, because the requirement is judged before a container
+	// starts and no in-jail consumer of the variable ever existed.
+	"required_capabilities": {preflight: true, nested: true, reason: "shape-validated as a string list by the in-jail readers, and passed to nested launches, whose own launch gate refuses a capability nothing declares"},
 
 	// ---- Preflight only ---------------------------------------------------------
 	// `agents_md_extra` is briefing prose rendered into this jail's own AGENTS.md.

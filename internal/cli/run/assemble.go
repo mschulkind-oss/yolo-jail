@@ -992,7 +992,20 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		// provider state for a later exec to inherit — per-entry delivery. The channel
 		// below is still composed once, above the backend dispatch, and is what the
 		// file section and the macos-user plan env both consume.
-		"-e", "YOLO_REQUIRED_CAPABILITIES="+jsonDumpsOrEmptyList(cfgList(cfg, "required_capabilities")),
+		//
+		// YOLO_REQUIRED_CAPABILITIES IS NOT HERE ANY MORE (2026-09-17), and the reason
+		// is the gate that replaced it. The variable carried `required_capabilities`
+		// into the jail "so a jail can read what was asked for" and no reader ever
+		// appeared — the key was validated, exported, and consumed by nothing on any
+		// backend (setup-support-gaps.md G9; declaration-parity.md DP-B30, which also
+		// records that macos-user never set it at all, because this writer sits below
+		// that arm's return). OQ-CAP2's fatal refusal now answers the requirement on the
+		// HOST, above the backend dispatch (preflight.go's refuseUnmetCapabilities), so
+		// by the time a container starts the declaration has already been judged and an
+		// unread copy of it on the argv would be a promise nothing keeps. What a nested
+		// launch needs still crosses: `required_capabilities` is in BOTH inherit scopes
+		// (config/inherit.go), so an inner jail inherits the declaration in its config
+		// and re-runs the same gate over it.
 		"-e", "YOLO_RUNTIME=podman",
 	)
 	// programs.autoprune (OQ-PD4's third clause, program-delivery.md §10 step four) —
