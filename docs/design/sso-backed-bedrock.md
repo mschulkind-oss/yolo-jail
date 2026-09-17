@@ -429,6 +429,26 @@ The headline requirement, stated as a sequence.
 4. The adapter forwards; the service mints from whatever session is live **now**; the agent
    gets a fresh credential and never learns that anything happened.
 
+**And when the session is not live.** It **never fires a login** — that is P2, and
+[OQ-SSO6](#OQ-SSO6) is the question of whether it ever should. It errors, and the remedy is
+the ordinary gesture:
+
+1. The SSO session lapses. **Nothing breaks yet**: the credential the agent is holding is
+   good for up to an hour more and does not care that the session behind it is gone. The
+   daemon's next re-mint is the first thing to fail, so the lapse is felt late and at a
+   moment unrelated to the logout.
+2. That re-mint fails, the adapter answers `4xx`, and the SDK raises an error carrying the
+   `Message` below. **The turn in progress fails** — the SDK's three retries are a second
+   apart, which is not a human's login, and nothing should pretend otherwise.
+3. The human runs `aws sso login --profile X` on the host. Exactly as normal; yolo is not
+   involved and does not need to be.
+4. The agent's next turn re-resolves the chain, hits the adapter, and works. **No jail
+   restart, no relaunch, no re-attach** — Claude Code clears its credential cache on a
+   credential error, so there is no poisoned state to clear by hand.
+
+So: one failed turn, one `aws sso login`, carry on. The only thing the human has to know is
+which command to run, which is why the error text carries it verbatim.
+
 Two timing facts the implementation has to respect, both measured from the vendored provider
 rather than from documentation:
 
@@ -533,6 +553,12 @@ provider already owns is how the Bedrock region got confusing in the first place
   [OQ-SSO4](#OQ-SSO4) for where that is configured instead).
 - Never refresh or rotate the host's SSO token as a side effect of serving a jail, unless
   [OQ-SSO3](#OQ-SSO3) rules otherwise.
+- **Never set `awsAuthRefresh` or `awsCredentialExport`** in the composed claude settings.
+  Both are push-shaped and belong to a host where `aws` and `~/.aws` exist; in the jail
+  neither does, so `awsAuthRefresh` would fire a command that is not there at exactly the
+  moment the session lapsed, turning a clear error into a confusing one. Claude Code's own
+  docs also record `awsAuthRefresh` looping indefinitely when a browser flow is interrupted —
+  a failure mode a jail can only reproduce, never resolve.
 
 **What done looks like.** Seven observable outcomes, in order of what they prove.
 
@@ -544,8 +570,13 @@ provider already owns is how the Bedrock region got confusing in the first place
 3. Leave the session idle past that expiry; the next turn succeeds with no human action.
 4. **The headline:** let the SSO session lapse, re-run `aws sso login` on the host, and the
    *already-running* jail's next turn succeeds with no restart and no relaunch.
-5. With those same credentials, an `sts:GetCallerIdentity` or an `s3 ls` from inside the jail
-   is **denied** — the narrowing demonstrated rather than asserted.
+5. With those same credentials, an `aws s3 ls` from inside the jail is **denied** — the
+   narrowing demonstrated rather than asserted. ⚠ **Do not probe with
+   `sts:GetCallerIdentity`**: *"No permissions are required to perform this operation. If an
+   administrator attaches a policy … that explicitly denies access to `sts:GetCallerIdentity`,
+   you can still perform this operation."* It succeeds against a correctly narrowed credential
+   and would read as the narrowing having failed. Probe with a call that a policy can actually
+   refuse.
 6. With the SSO session lapsed and not renewed, the next turn fails with an error whose text
    contains `aws sso login --profile X`.
 7. The same jail with `-- codex`, `-- pi` and `-- opencode` each completes a turn on the same
@@ -644,7 +675,10 @@ trusting a hand-rolled presign. **Role chaining** is defined in the IAM User Gui
 terms and concepts — *"when you use a role to assume a second role"*, and the cap *"applies
 regardless of the maximum session duration configured for individual roles"* — which is what
 makes it bind on an Identity Center permission-set session; session-policy intersection and
-`GetFederationToken`'s IAM-user requirement are from the STS API reference. SSO
+`GetFederationToken`'s IAM-user requirement are from the STS API reference. The same reference
+carries the `GetCallerIdentity` trap quoted in [§8](#8-behaviour-this-design-specifies): *"No permissions are required to perform this
+operation"*, and it succeeds even under an explicit deny — so it is useless as a proof of
+narrowing. SSO
 token caching and the hourly refresh check are from the AWS CLI and SDK reference guides. The
 three duration dials in [§6](#6-narrowing--shape-scoped-and-policy-scoped) are from the IAM
 Identity Center user guide: *user interactive sessions* for the portal range
@@ -661,6 +695,7 @@ accounts* for the permission set range (*"minimum … is 1 hour, and can be set 
 [Bedrock API keys reference](https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys-reference.html) ·
 [How Bedrock API keys work](https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys-how.html) ·
 [STS AssumeRole](https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRole.html) ·
+[STS GetCallerIdentity](https://docs.aws.amazon.com/STS/latest/APIReference/API_GetCallerIdentity.html) ·
 [Roles terms and concepts — role chaining](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_terms-and-concepts.html) ·
 [Identity Center user interactive sessions](https://docs.aws.amazon.com/singlesignon/latest/userguide/user-interactive-sessions.html) ·
 [Set session duration for AWS accounts](https://docs.aws.amazon.com/singlesignon/latest/userguide/howtosessionduration.html) ·
