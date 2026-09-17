@@ -346,7 +346,8 @@ along **different** dimensions.
 | :--- | :--- | :--- | :--- | :--- |
 | **N1** | short-term Bedrock API key (presign) | nothing | **the Bedrock service**, one region | 12h |
 | **N2** | `AssumeRole` + inline session policy | one role whose trust policy names the SSO role | **named actions**, e.g. `InvokeModel*` only | 1h, not raisable — re-minted |
-| **N3** | a purpose-built IAM role with only Bedrock permissions | an admin-ish change | the role's own policy | 1h, not raisable — same chaining cap as N2 |
+| **N3** | a purpose-built IAM role with only Bedrock permissions, **assumed** | a role, plus its trust policy | the role's own policy | 1h, not raisable — same chaining cap as N2 |
+| **N4** | a purpose-built **permission set** with only Bedrock permissions, **assigned** | an admin creates and assigns it | the permission set's own policy | **up to 12h** — no chaining, and per-permission-set |
 
 **N1 costs nothing and is stronger than it sounds.** The credential scope string a SigV4
 presign signs is `<akid>/<date>/<region>/bedrock/aws4_request`, and the signature covers it —
@@ -355,8 +356,9 @@ Bedrock-only. What it does **not** narrow is which Bedrock actions: it inherits 
 permissions, so a permission set that can delete a guardrail mints a key that can delete a
 guardrail.
 
-**N2 is the only one that narrows inside Bedrock**, and the role it needs may well be
-self-serve — `iam:CreateRole` is in many developer permission sets.
+**N2 is the cheapest one that narrows inside Bedrock**, and the role it needs may well be
+self-serve — `iam:CreateRole` is in many developer permission sets. It is not the *best* one;
+N4 below is, and the only reason N2 leads is that it needs nothing from anybody else.
 
 > [!IMPORTANT]
 > **The 1-hour ceiling is not raisable, and it does not matter.** Setting
@@ -397,6 +399,27 @@ raising that one permission set to 12h is a real change nobody else feels.
 > need the **`sso-session` token-provider** config plus AWS CLI v2 ≥ 2.9; the legacy
 > profile-only SSO form does not refresh. Measure the session you actually get before designing
 > around the number in the console.
+
+**N4 is the one to ask your admin for, and it is not N3 with different words.** N3 is a role
+you *assume*, so it is chained and capped at an hour; N4 is a permission set you are
+*assigned*, so the credentials come straight out of `sso:GetRoleCredentials` and are the
+**first** role session rather than a second one. Nothing is chained, so the cap does not
+apply and the permission set's own 1–12h dial does. A permission set takes an inline policy
+like any other, so "Bedrock inference only" is an ordinary thing to build. Three consequences
+worth having in one place: the daemon does **less** work under N4 — no `AssumeRole` at all,
+just resolve a profile — the duration dial becomes per-role after all, and the window goes
+from one hour to twelve.
+
+**So: can you get the `+12`?** Yes, three ways, and the table below is the whole answer.
+What does not exist is a **chained** credential that lasts longer than an hour — that cell is
+empty and no configuration fills it.
+
+| | Narrowed to | Tail past the portal session | Refreshes |
+| :--- | :--- | :--- | :--- |
+| N2 / N3 — chained | named actions | **+1h**, and not raisable | yes |
+| N4 — a Bedrock-only permission set | the permission set's policy | **up to +12h** | yes |
+| Un-narrowed permission set credentials | nothing ([OQ-SSO1](#OQ-SSO1)) | up to +12h | yes |
+| N1 — the presigned bearer | the Bedrock **service** | 12h total, not a tail | **no** |
 
 **N1 and N2 compose**, and composed they are the actual answer to the question as asked:
 assume the scoped role, then presign from the scoped session, and the result is a credential
@@ -458,7 +481,9 @@ and nothing should be built expecting it: the daemon mints on its **own** clock,
 50 minutes ([§8](#8-behaviour-this-design-specifies)), so the last mint before expiry lands
 somewhere in the preceding 50 minutes and the usable window is **~8h10m to ~9h, depending on
 phase**. Document the behaviour so the tail is not filed as a bug — "it kept working for
-forty minutes after I logged out" is this, working correctly.
+forty minutes after I logged out" is this, working correctly. **The `+1` is the chained arm's
+number, not the design's**: on N4 the tail is the permission set's own duration, so the same
+8-hour session yields up to 20 hours ([§6](#6-narrowing--shape-scoped-and-policy-scoped)).
 
 > [!WARNING]
 > **That tail assumes the daemon can still mint at T+7:59:59, and that assumption has a
@@ -730,6 +755,7 @@ accounts* for the permission set range (*"minimum … is 1 hour, and can be set 
 [Roles terms and concepts — role chaining](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_terms-and-concepts.html) ·
 [Identity Center user interactive sessions](https://docs.aws.amazon.com/singlesignon/latest/userguide/user-interactive-sessions.html) ·
 [Set session duration for AWS accounts](https://docs.aws.amazon.com/singlesignon/latest/userguide/howtosessionduration.html) ·
+[Custom permissions for permission sets](https://docs.aws.amazon.com/singlesignon/latest/userguide/permissionsetcustom.html) ·
 [Session duration considerations](https://docs.aws.amazon.com/singlesignon/latest/userguide/user-session-duration-prereqs-considerations.html) ·
 [How IAM Identity Center authentication is resolved](https://docs.aws.amazon.com/sdkref/latest/guide/understanding-sso.html) ·
 [IAM Identity Center credential provider](https://docs.aws.amazon.com/sdkref/latest/guide/feature-sso-credentials.html) ·

@@ -133,12 +133,19 @@ user-scope-only, and both may move.
 ```jsonc
 // ~/.config/yolo-jail/config.jsonc — user scope only
 "aws_auth": {
-  "profile": "my-sso-profile",
+  "profile": "my-bedrock-profile",            // N4: a profile naming a Bedrock-only permission set
   "region": "us-east-1",
+  // N2/N3 only — omit both under N4, where the permission set IS the narrowing
   "role_arn": "arn:aws:iam::123456789012:role/yolo-bedrock",
   "session_policy": "bedrock-invoke-only"     // a named built-in, or an inline policy document
 }
 ```
+
+**Two shapes, and N4 is the smaller one.** Under N4 the daemon makes no `AssumeRole` call at
+all — it resolves a profile and serves what comes back — so `role_arn`/`session_policy` are
+the N2/N3 path only. Whether the schema should make that an explicit mode rather than three
+optional keys is a real question; do not invent an answer here, it is
+[OQ-SSO1](sso-backed-bedrock.md#OQ-SSO1)-adjacent.
 
 A shipped `bedrock-invoke-only` session policy would be `bedrock:InvokeModel`,
 `bedrock:InvokeModelWithResponseStream`, `bedrock:ListInferenceProfiles`,
