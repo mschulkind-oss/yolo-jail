@@ -10,7 +10,7 @@ vantage:
 
 # Roadmap
 
-**Status:** CURRENT — 2026-09-16. **47 rows**: 5 to rule first, 20 needing a decision,
+**Status:** CURRENT — 2026-09-16. **48 rows**: 5 to rule first, 21 needing a decision,
 14 ready to build, 6 waiting, 2 iced.
 
 This file is a **routing table, not a place to think**: one line per open decision, naming
@@ -23,7 +23,7 @@ derived rather than carried forward; re-derive the live-question totals with che
 $ rg -c '^(#{2,4} |\s*[0-9]+[a-z]?\. |\s*[-*] )(<a id="[^"]*"></a> ?)?💬' docs/ --sort path
 ```
 
-**115 live questions across 31 docs**, plus one 🔒 that command cannot see.
+**119 live questions across 32 docs**, plus one 🔒 that command cannot see.
 
 ## Rule these first
 
@@ -62,6 +62,7 @@ sitting. All five below are the first class.
 | 19 | What an attach does with the attacher's pack set | [`agent-config-packs.md`](agent-config-packs.md) · overtaken | 4 | [`OQ-ACP3`](agent-config-packs.md#-oq-acp3--whether-the-prism-should-become-a-standalone-tool-that-also-manages-host-configs) | **defect** — `internal/cli/run/run.go:766` re-renders before the attach branch at `:774` |
 | 20 | Whether `yolo host apply` is a convenience or the path | [`host-render-target.md`](../design/host-render-target.md) · no frontmatter | 3 | 9.2, [§9](../design/host-render-target.md#9-open-questions--the-discussion-part) | **doc** — product posture; [§8](../design/host-render-target.md#8-what-i-would-actually-do-in-order) step 3 is in 📦 regardless |
 | 21 | Whether the jail mounts the workspace at the host's path | [`workspace-path-mirroring.md`](../design/workspace-path-mirroring.md) · draft | 12 | [`OQ-WP8`](../design/workspace-path-mirroring.md#OQ-WP8) | **doc** — ratify the no |
+| 22 | Whether `macos-user`'s workspace root becomes configurable, and what the profile has to derive from it | [`configurable-workspace-root.md`](../design/configurable-workspace-root.md) · in-review | 4 | [`OQ-CW1`](../design/configurable-workspace-root.md#OQ-CW1) | **build** — the read-deny derived from the root, plus the whitelist that closes four lexical bypasses. ⚠ The whitelist wants to land before anyone relies on the current blacklist; withdrawing an accepted path later is a breaking change |
 | 22 | Which home a `yolo config` verb is about, and whether it says so | [`config-target-resolution.md`](../design/config-target-resolution.md) · draft | 6 | [`OQ-CR1`](../design/config-target-resolution.md#oq-cr1) | **defect** — four measured and all silent: one report describes two homes, a `cd` changes the answer at rc 0, an owned host's `diff` and `reset` disagree ([row 5](#rule-these-first)), and `render` previews with the wrong home's `host` layer |
 
 **Rule together, or not at all.** [`E1`](BACKLOG.md#-e1--collapse-host_files-modes-43-copy-merges-into-readonly) · [`E2`](BACKLOG.md#-e2--readonly-as-a-real-ro-mount-instead-of-0o444) · [`OQ-B`](pack-host-management-plan.md#open-questions) are one asymmetry seen three times, and each doc says so.
