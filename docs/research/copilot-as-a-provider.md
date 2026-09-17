@@ -259,7 +259,7 @@ documents and supports.
 
 ## 6. Open questions
 
-### 💬 OQ-CP1 — is the Copilot-as-provider thread closed, or parked pending counsel?
+### ✅ OQ-GC1 — is the Copilot-as-provider thread closed, or parked pending counsel? — RESOLVED (2026-09-17)
 
 **Stakes.** §4.2 found that GitHub has *not* written the prohibition everyone quotes. The
 case against rests on AUP §6 plus enforcement behaviour, which is strong enough to act on
@@ -271,7 +271,12 @@ would need re-checking.
 _Leaning:_ close it. The economics at Business rates are break-even, so even a favourable
 legal reading buys nothing — which makes the legal question moot rather than pending.
 
-> **Answer:**
+> **Answer:** Closed, 2026-09-17 — *"forget that, seems like a dead end."* No counsel review
+> was sought and none is needed: the economics ruling (§2, break-even at Business rates)
+> disposes of the thread on its own, so the legal reading in §4 never becomes load-bearing.
+> **What would reopen it:** a Copilot plan whose included credits materially beat Anthropic
+> list, or a documented GitHub inference endpoint returning. Either one reopens the legal
+> half too — re-verify §4 before acting, since the Generative AI Services Terms are new.
 
 ## 7. Fast-moving — verify before building
 
