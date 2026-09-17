@@ -69,8 +69,13 @@ func ConfigurePackByName(e *Env, name string) error {
 	// overlay on the same selection the boot loop's gate reads.
 	overlays := packoverlay.Collect([]*packload.Pack{p}, autonomy, profiles)
 	for _, s := range surfaces {
+		// The single-pack view again, and the same reading as the overlays above: the
+		// selection's BUILT-IN capability half resolves by bin ownership, so it answers
+		// for a surface whose agent this pack installs — every shipped one — and answers
+		// nothing for a surface an agent pack elsewhere would speak for. "Render this
+		// pack" is what the entry means; the boot loop is what sees the whole set.
 		if err := renderDeclaredSurface(e, s, tables, deriveScript,
-			surfaceSelectionFor(resolved, profiles, s),
+			surfaceSelectionFor([]*packload.Pack{p}, resolved, profiles, s),
 			overlays.For(s.Agent, s.Name)); err != nil {
 			return err
 		}

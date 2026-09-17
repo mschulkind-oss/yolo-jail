@@ -2,6 +2,9 @@
   "contributes": [
     {
       "bin": "claude",
+      "capabilities": [
+        "web_search"
+      ],
       "install_hints": {
         "brew-cask": "claude-code"
       },

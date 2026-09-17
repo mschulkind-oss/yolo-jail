@@ -78,7 +78,22 @@ type DeriveCtx struct {
 	// (manifest.SourceMCPServers / SourceLSPServers). Exposed read-only as
 	// ctx.<name>. Absent source => an empty table (a jail with no MCP configured
 	// and one with an empty table are the same world — matches BuildComputed).
+	//
+	// ctx.mcp_servers is the one table this layer FILTERS before exposing: capability-
+	// driven MCP delivery drops every server the active authentication source already
+	// performs the job of (buildDeriveCtxTable). What arrives here is the configured
+	// table; what a derive sees is the ELIGIBLE one.
 	Tables map[string]map[string]any
+
+	// NativeCapabilities is the capability set of the agent's BUILT-IN authentication
+	// source — the first-party login its CLI uses when SelectedProvider is "" — resolved
+	// by the caller through packload.NativeCapabilities (bin ownership).
+	//
+	// It is the only half of the source resolution that needs a field: when a provider IS
+	// selected, its capabilities are already in Tables["providers"] under the same
+	// `capabilities` key a user's config declares, so the resolver reads what it was
+	// handed rather than asking for the same fact twice.
+	NativeCapabilities []string
 
 	// UnknownAPI, when non-nil, makes an unknown `yolo.<name>` member TOLERATED
 	// instead of fatal, and is the callback that reports each one (once per name per
@@ -411,10 +426,14 @@ func buildDeriveCtxTable(L *lua.LState, ctx *DeriveCtx, sentinel, emptyArr *lua.
 		L.SetField(profile, k, lua.LString(ctx.Profile[k]))
 	}
 	L.SetField(t, "profile", profile)
+	have := sourceCapabilities(ctx)
 	for _, src := range knownDeriveSources {
 		table := ctx.Tables[src]
 		if table == nil {
 			table = map[string]any{}
+		}
+		if src == sourceMCPServers {
+			table = eligibleMCPServers(table, have)
 		}
 		lv, err := goToLua(L, table)
 		if err != nil {
@@ -423,6 +442,84 @@ func buildDeriveCtxTable(L *lua.LState, ctx *DeriveCtx, sentinel, emptyArr *lua.
 		L.SetField(t, src, lv)
 	}
 	return t, nil
+}
+
+// sourceCapabilities resolves the ACTIVE authentication source's capability set —
+// agent-auth-modes.md §6.1's "if the active agent/mode already has capability C" — as a
+// set, for eligibleMCPServers to ask membership of.
+//
+// An authentication source (docs/research/kilo-tavily-profile-gating.md coins the term)
+// is the credential-and-endpoint mode this render's agent runs under. There are exactly
+// two, and the selection is what tells them apart rather than the agent's name:
+//
+//   - a SELECTED PROVIDER, whose capabilities are a field of its row in the composed
+//     providers table — pack default under user override, one key, already in ctx;
+//   - the agent's BUILT-IN login, when no profile selects a provider at its CLI name.
+//     It has no row to carry anything, which is why NativeCapabilities exists.
+//
+// A selected provider that the composed table has no row for resolves to the EMPTY set,
+// not to the built-in one. The two are different sources — an absent row means the
+// launcher composed nothing for that name, never that the agent fell back to its own
+// login — and silently substituting the agent's capabilities there would suppress an MCP
+// server on a source that never claimed to replace it.
+func sourceCapabilities(ctx *DeriveCtx) map[string]bool {
+	names := ctx.NativeCapabilities
+	if ctx.SelectedProvider != "" {
+		names = nil
+		if entry, ok := ctx.Tables[sourceProviders][ctx.SelectedProvider].(map[string]any); ok {
+			if list, ok := entry["capabilities"].([]any); ok {
+				for _, v := range list {
+					if s, ok := v.(string); ok {
+						names = append(names, s)
+					}
+				}
+			}
+		}
+	}
+	have := make(map[string]bool, len(names))
+	for _, n := range names {
+		if n != "" {
+			have[n] = true
+		}
+	}
+	return have
+}
+
+// eligibleMCPServers is capability-driven MCP delivery: the configured servers minus the
+// ones whose declared job the active source already does.
+//
+// THE RULE IS THE SERVER'S `provides` AGAINST THE SOURCE'S CAPABILITIES, and nothing
+// else. A server with no `provides` is not making a claim this rule can answer, so it
+// passes; a server providing a capability the source does not declare passes; only the
+// exact-name match is dropped. That is what makes it generic — the same resolver
+// suppresses a future `code_search` server for a source that declares `code_search`,
+// with no edit here and none in any pack.
+//
+// It sits at the ctx boundary rather than in each agent's derive because this is the one
+// place BOTH production callers pass through (packsurfaces.go's surface render and
+// packload's env composition), so no agent can opt out and no agent has to opt in. The
+// per-agent `provides == "web_search"` branches this replaced were the opt-in shape, and
+// one of them had drifted: claude's suppressed web search for every profile that was not
+// bedrock or codex, so a Kilo launch — a source with no native search — lost its search
+// MCP because of the agent it was running under.
+//
+// Returns the input unchanged when the source declares nothing, which is the overwhelming
+// case (no provider capabilities, no built-in declaration) and keeps the render
+// byte-identical for it.
+func eligibleMCPServers(servers map[string]any, have map[string]bool) map[string]any {
+	if len(have) == 0 || len(servers) == 0 {
+		return servers
+	}
+	out := make(map[string]any, len(servers))
+	for name, v := range servers {
+		if cfg, ok := v.(map[string]any); ok {
+			if provides, ok := cfg["provides"].(string); ok && have[provides] {
+				continue
+			}
+		}
+		out[name] = v
+	}
+	return out
 }
 
 // sortedStringKeys returns a string map's keys sorted — a Go map has no order, and the
@@ -440,7 +537,17 @@ func sortedStringKeys(m map[string]string) []string {
 // Kept in step with manifest's Source* constants by the caller (which builds the
 // Tables map from exactly these); listed here so a derive always sees every
 // source as at least an empty table, never a nil index.
-var knownDeriveSources = []string{"mcp_servers", "lsp_servers", "providers", "use_profiles"}
+var knownDeriveSources = []string{sourceMCPServers, "lsp_servers", sourceProviders, "use_profiles"}
+
+// The two source names this file reads by hand — the table it FILTERS and the table it
+// resolves the filter's input from. Named because the strings appear twice each and a
+// typo in one of them would silently disable capability-driven MCP delivery rather than
+// fail: an unknown key reads as an absent table, which is the "source declares nothing"
+// answer.
+const (
+	sourceMCPServers = "mcp_servers"
+	sourceProviders  = "providers"
+)
 
 // deriveTableToGo is luaTableToGo specialized for the derive return: a value
 // equal to the tombstone sentinel decodes to Go nil (the RFC-7386 delete marker

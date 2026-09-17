@@ -11,8 +11,12 @@ just one that declares a `kind: "program"` surface** — `rg -l '"kind": "progra
 packs/*/pack.json` is the list, and writing the members down here is what rots — and
 **most shipped packs install no CLI at all**, in four kinds:
 `audio`, `host-processes`, `journal`, `cgroup-delegate`, `serial` and `openai-auth`
-ship a LOOPHOLE each (`audio` also contributes two env vars — the only loophole pack
-that ships anything beside its loophole); `zai`, `cerebras`, `kilo` and `openrouter`
+ship a LOOPHOLE each (two of them ship something beside it: `audio` contributes two env
+vars, and `openai-auth` declares the `openai-codex` PROVIDER — a capabilities-only row,
+no endpoint and no credential pointer, for the subscription identity its broker logs in;
+it lives here rather than in an agent pack because `claude` and `pi` each ship a `codex`
+profile selecting that provider and both `needs` this one); `zai`, `cerebras`,
+`kilo` and `openrouter`
 ship neither CLI nor loophole — a provider and a profile apiece, the packs whose whole
 content is declarative facts (`zai` was the first); `guardrails` ships blocked-tool
 refusals and install requirements (core blocks nothing by default since 9caba669 — the

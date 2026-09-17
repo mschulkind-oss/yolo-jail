@@ -245,8 +245,11 @@ yolo.derive("pi", "settings", function(ctx)
   end
   local p = ctx.providers and ctx.providers[ctx.selected_provider] or nil
   -- openai-codex is Pi's built-in subscription provider, so it deliberately has no
-  -- row in YOLO_PROVIDERS or models.json. The shipped codex profile selects the stable
-  -- default below; a user profile may state another exact Pi model id as `model`.
+  -- ADDRESS and no models.json row. Its YOLO_PROVIDERS entry (packs/openai-auth) states
+  -- the source's `capabilities` and nothing else, which names no URL — so piReachable
+  -- drops it from the catalog above, and this branch stays the only thing that speaks
+  -- for it. The shipped codex profile selects the stable default below; a user profile
+  -- may state another exact Pi model id as `model`.
   if ctx.selected_provider == "openai-codex" then
     -- The subscription catalog currently exposes these as the supported 5.6-or-newer
     -- choices. Keep the list explicit: the provider wildcard would also make retired

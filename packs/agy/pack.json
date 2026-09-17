@@ -2,6 +2,9 @@
   "contributes": [
     {
       "bin": "agy",
+      "capabilities": [
+        "web_search"
+      ],
       "install_hints": {
         "brew-cask": "antigravity-cli"
       },

@@ -137,6 +137,31 @@ func (p *Pack) installsBin(bin string) bool {
 	return false
 }
 
+// NativeCapabilities returns the capability set declared for agent's BUILT-IN
+// authentication source — the first-party login its CLI uses when no profile selects a
+// provider for it (packdecl.Manifest.NativeCapabilities is the declaration).
+//
+// Discovered by BIN OWNERSHIP, which is the same rule AgentEnv finds an agent's env
+// producer by: the one selected pack that installs the agent's CLI is the one that can
+// speak for how that CLI authenticates on its own. A pack that installs nothing owns no
+// built-in source, so a jail of pure declarative-facts packs answers nothing here.
+//
+// Returns nil when no selected pack installs agent, which is the same answer as "the
+// pack installs it and declares no capabilities" — deliberately. Both mean the source
+// claims no job, and a resolver that distinguished them would be deciding what an
+// UNDECLARED source does, which is the one thing a declaration-driven rule must not do.
+func NativeCapabilities(packs []*Pack, agent string) []string {
+	if agent == "" {
+		return nil
+	}
+	for _, p := range packs {
+		if p.installsBin(agent) {
+			return p.Decl.NativeCapabilities(agent)
+		}
+	}
+	return nil
+}
+
 // requiredProviders is what the COMPOSED CATALOG demands of this launch's environment
 // (docs/reference/providers.md, OQ-PT4): every entry of the composed providers
 // table that is cataloged — present AND carrying at least one endpoint — in catalog order,
@@ -342,6 +367,20 @@ func shippedProviderEntry(prov packdecl.ProviderContribution) *jsonx.OrderedMap 
 			endpoints.Set(proto, ep)
 		}
 		entry.Set("endpoints", endpoints)
+	}
+	// The capability set the provider declares for itself (§6.1 clause 1). It lands under
+	// the key a USER's entry already spells — `providers.<name>.capabilities`, validated
+	// by internal/config since before anything read it — so the pack default and the user
+	// override are one field with one merge rule, not a second channel with a second
+	// reader. []any and not []string because that is what the JSONC decoder produces for
+	// the user's half: the two layers meet in mergeUnder, where a list REPLACES, and a
+	// type the user's side cannot produce would be a shape only pack defaults ever have.
+	if len(prov.Capabilities) > 0 {
+		caps := make([]any, 0, len(prov.Capabilities))
+		for _, c := range prov.Capabilities {
+			caps = append(caps, c)
+		}
+		entry.Set("capabilities", caps)
 	}
 	// LAST, matching the order the design's own example spells the surface in (§5.2) —
 	// the declared options are the profile half of the entry, after its service facts.

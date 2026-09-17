@@ -136,6 +136,13 @@ func AgentEnv(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map[string
 		ProfileName:      profile,
 		SelectedProvider: ProviderFor(cfg.resolved, profile),
 		Profile:          cfg.profileOptions(profile),
+		// The built-in source's capabilities, resolved the same way the surface path
+		// resolves them (surfaceSelectionFor) — `owner` is by construction the pack bin
+		// ownership would find. It changes nothing HERE, because this ctx carries no
+		// mcp_servers table for capability-driven delivery to filter; it is set so the two
+		// derive paths cannot grow different answers to "what is the active source", which
+		// is the rule SelectedProvider and Profile above already follow.
+		NativeCapabilities: owner.Decl.NativeCapabilities(agent),
 		Tables: map[string]map[string]any{
 			manifest.SourceProviders:   hydrateProviders(providers, lookup),
 			manifest.SourceUseProfiles: plainProfiles(useProfiles),

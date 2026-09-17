@@ -288,6 +288,32 @@ type Contribution struct {
 	// and means something no other null in this config means (see that type).
 	Options map[string]OptionDefault `json:"options,omitempty"`
 
+	// Capabilities are the NAMED JOBS an AUTHENTICATION SOURCE performs for itself —
+	// agent-auth-modes.md §6.1 clause 1, "Agents / Modes declare native capabilities in
+	// pack.json or provider blocks". An authentication source is the credential-and-
+	// endpoint mode an agent runs under for a launch (docs/research/
+	// kilo-tavily-profile-gating.md coins the term), and this is the field it says
+	// `web_search` with.
+	//
+	// READ BY TWO KINDS, declared once, for the reason Platforms is: it is ONE question
+	// asked of two sources, not two fields that happen to share a spelling.
+	//   - on `provider`, it is that provider's own capability set, and it composes into
+	//     the launch's providers table as `providers.<name>.capabilities` — the SAME key
+	//     a user's config already declares and validates, so a pack default and a user
+	//     override are one vocabulary with one reader, not two.
+	//   - on `program`, it is the capability set of the agent's BUILT-IN source: the
+	//     first-party login the CLI uses when no profile selects a provider for it. That
+	//     half has no provider row to hang anything on — a default claude launch and
+	//     every agy launch resolve to no provider at all — so the pack that installs the
+	//     CLI is what can speak for it, which is the same bin-ownership rule
+	//     packload.AgentEnv already answers "whose derive is this" with.
+	//
+	// The vocabulary is OPEN, like `serves` and unlike the kinds: a capability core does
+	// not know is one nothing declares a `provides` for, which is inert. What is NOT
+	// inert is the field on a kind that has no source to speak for, so validateContribution
+	// refuses it there rather than accepting-and-ignoring.
+	Capabilities []string `json:"capabilities,omitempty"`
+
 	// --- service (docs/reference/wire-bridge.md §2.1, WB-D16) ---
 	// The service half of the §2.1 decomposition table, exactly — the fields a
 	// daemon needs to run and be found, and nothing from the table's loophole
@@ -865,6 +891,11 @@ type ProviderContribution struct {
 	// it may carry, with each option's default. The profile-schema owner (OQ-CS4); see
 	// the field's own comment on Contribution for why it is flat and what null means.
 	Options map[string]OptionDefault
+	// Capabilities are the named jobs this provider performs for itself — §6.1 clause 1's
+	// provider-block half. It composes into the launch's providers table under the same
+	// `capabilities` key a user's own entry declares, so the two layers merge like every
+	// other field rather than needing a reader each.
+	Capabilities []string
 }
 
 // Providers returns every provider the pack ships, in declaration order.
@@ -887,9 +918,35 @@ func (m *Manifest) Providers() []ProviderContribution {
 			Region:        c.Region,
 			Models:        c.Models,
 			Options:       c.Options,
+			Capabilities:  c.Capabilities,
 		})
 	}
 	return out
+}
+
+// NativeCapabilities returns the capability set this pack declares for the BUILT-IN
+// authentication source of the program it installs at bin — §6.1 clause 1's pack.json
+// half, and the only declaration a launch with no active profile can resolve to.
+//
+// Keyed by BIN rather than by an agent field, because a program contribution has no
+// `agent`: the bin IS the agent's name in this vocabulary, which is the same identity
+// packload.AgentEnv discovers its env producer through ("the one selected pack that
+// installs the agent's CLI"). A pack that installs no CLI declares no built-in source
+// and answers nothing here — right for the declarative-facts packs (zai, kilo), whose
+// whole content is a provider and a profile.
+//
+// First match wins and the loop does not merge two: `program` is CombineExclusive per
+// bin, so a second contribution naming one bin is a collision the loader already refuses.
+func (m *Manifest) NativeCapabilities(bin string) []string {
+	if bin == "" {
+		return nil
+	}
+	for _, c := range m.Contributions() {
+		if c.Kind == KindProgram && c.Bin == bin {
+			return c.Capabilities
+		}
+	}
+	return nil
 }
 
 // ServiceJailDaemon is a service's IN-JAIL half: an argv run under the existing
@@ -1361,6 +1418,44 @@ func (m *Manifest) validateContributions() []string {
 // silence, so it is an error with both fixes in it. `null` and an absent key are the same
 // thing (nil), which is what keeps every manifest written before the key meaning what it
 // meant.
+// capabilitiesProblems checks the `capabilities` list — the two-kind field's guard,
+// written in platformsProblems' shape because it is the same shape of mistake: a list
+// declared on a kind that has no consumer for it is a fact nothing can ever read.
+//
+// The two kinds are the two AUTHENTICATION SOURCES a launch can resolve to (the field's
+// own doc has the split): a `provider` speaks for itself, and a `program` speaks for the
+// built-in login its CLI uses when no profile selects a provider. No third kind names a
+// source, so no third kind takes the field.
+//
+// The NAMES are not checked, deliberately, and this is the same open-vocabulary ruling
+// `serves` and the provider `endpoints` keys carry: a capability core does not know is
+// one no `mcp_servers.<name>.provides` names, which suppresses nothing and refuses
+// nothing. Closing the set here would make the next capability the `tier` incident again
+// — a manifest a newer host staged refusing an older baked entrypoint's boot.
+func capabilitiesProblems(label string, c Contribution) []string {
+	if c.Capabilities == nil {
+		return nil
+	}
+	if c.Kind != KindProgram && c.Kind != KindProvider {
+		return []string{fmt.Sprintf(
+			"%s: kind %q does not take \"capabilities\" — the list names the jobs an "+
+				"AUTHENTICATION SOURCE performs for itself, which only \"provider\" (the "+
+				"source a profile selects) and \"program\" (the built-in login the CLI uses "+
+				"when no profile does) have an answer to; no consumer reads it on this kind",
+			label, c.Kind)}
+	}
+	var problems []string
+	for i, entry := range c.Capabilities {
+		if strings.TrimSpace(entry) == "" {
+			problems = append(problems, fmt.Sprintf(
+				"%s.capabilities[%d]: empty entry — each one is a capability NAME, the same "+
+					"vocabulary an mcp_servers entry's \"provides\" is spelled in "+
+					"(e.g. \"web_search\")", label, i))
+		}
+	}
+	return problems
+}
+
 func platformsProblems(label string, c Contribution) []string {
 	if c.Platforms == nil {
 		return nil
@@ -1584,6 +1679,7 @@ func validateContribution(label string, c Contribution) []string {
 				"against itself, so only \"program\" has anything to run it on", label, c.Kind))
 	}
 	problems = append(problems, platformsProblems(label, c)...)
+	problems = append(problems, capabilitiesProblems(label, c)...)
 	// `agent`/`agents` are the AUDIENCE pair, and they are refused everywhere else for
 	// `profile`'s reason and in `profile`'s position — ahead of the kind switch, so a kind
 	// added tomorrow inherits the refusal instead of accepting a field nothing reads on it.

@@ -191,7 +191,7 @@ func ConfigurePackSurfaces(e *Env, packs []*packload.Pack) {
 			surface := s
 			genStep(e, "configure_"+surface.Agent+"_"+surface.Name, func() error {
 				return renderDeclaredSurface(e, surface, tables, deriveScript,
-					surfaceSelectionFor(resolved, profiles, surface),
+					surfaceSelectionFor(packs, resolved, profiles, surface),
 					overlays.For(surface.Agent, surface.Name))
 			})
 		}
@@ -245,6 +245,13 @@ type surfaceSelection struct {
 	// Provider is what that variant delivers — ctx.selected_provider; "" when no
 	// variant is active.
 	Provider string
+	// NativeCapabilities is what this surface's agent's BUILT-IN authentication source
+	// performs for itself (§6.1 clause 1's pack.json half). It belongs beside the other
+	// two because it completes the same answer: Provider names the source when a profile
+	// selects one, and this names it when none does. The derive layer picks whichever
+	// applies (luahook.sourceCapabilities) — resolving it here would put the rule in the
+	// caller the same way the per-agent Lua branches used to.
+	NativeCapabilities []string
 }
 
 // surfaceSelectionFor resolves one surface's selection: packload.ProviderFor — the ONE
@@ -253,17 +260,21 @@ type surfaceSelection struct {
 // render surfaces call this (ConfigurePackSurfaces on the boot path, ConfigurePackByName
 // for `yolo check`), so there is no second place to spell the resolution differently.
 //
-// The packs are NOT an input, and their absence from this signature is the fix rather
-// than a shortcut: resolving off the loaded packs' manifests answered only the names a
-// PACK declared, so a user-declared profile launched cleanly (the OQ-CS6 declaration
-// check reads user entries) and still selected nothing — the manifest walk fell back to
-// the bare name. The launcher's table is the one source that holds every declared name,
-// pack under user; the manifests are only what fed it.
-func surfaceSelectionFor(resolved map[string]packload.ResolvedProfile,
+// The packs are an input for ONE of the three fields, and the split is worth stating
+// because the old signature had none. The PROFILE resolution deliberately does not read
+// them: resolving off the loaded packs' manifests answered only the names a PACK
+// declared, so a user-declared profile launched cleanly (the OQ-CS6 declaration check
+// reads user entries) and still selected nothing — the manifest walk fell back to the
+// bare name. The launcher's table is the one source that holds every declared name, pack
+// under user; the manifests are only what fed it. A BUILT-IN source is the opposite case:
+// no user config declares one, there is no launcher table for it to be in, and the only
+// statement of it is the manifest of the pack that installs the CLI (§6.1 clause 1).
+func surfaceSelectionFor(packs []*packload.Pack, resolved map[string]packload.ResolvedProfile,
 	profiles map[string]string, s manifest.Surface) surfaceSelection {
 	return surfaceSelection{
-		Profile:  profiles[s.Agent],
-		Provider: packload.ProviderFor(resolved, profiles[s.Agent]),
+		Profile:            profiles[s.Agent],
+		Provider:           packload.ProviderFor(resolved, profiles[s.Agent]),
+		NativeCapabilities: packload.NativeCapabilities(packs, s.Agent),
 	}
 }
 
@@ -291,13 +302,14 @@ func deriveComputedLayer(e *Env, surface manifest.Surface, deriveScript string, 
 		return nil, nil
 	}
 	out, err := (luahook.GopherLuaVM{}).Derive(deriveScript, &luahook.DeriveCtx{
-		Agent:            surface.Agent,
-		Surface:          surface.Name,
-		ProfileName:      sel.Profile,
-		SelectedProvider: sel.Provider,
-		Profile:          activeProfileOptions(e, sel.Profile),
-		Tables:           tables,
-		UnknownAPI:       func(name string) { e.warnOnce(unknownDeriveAPINote(surface.Agent, name)) },
+		Agent:              surface.Agent,
+		Surface:            surface.Name,
+		ProfileName:        sel.Profile,
+		SelectedProvider:   sel.Provider,
+		Profile:            activeProfileOptions(e, sel.Profile),
+		NativeCapabilities: sel.NativeCapabilities,
+		Tables:             tables,
+		UnknownAPI:         func(name string) { e.warnOnce(unknownDeriveAPINote(surface.Agent, name)) },
 	})
 	if err != nil {
 		return nil, fmt.Errorf("surface %s/%s: derive: %w", surface.Agent, surface.Name, err)

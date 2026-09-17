@@ -174,6 +174,23 @@ func TestValidateContributes(t *testing.T) {
 		{"provider userinfo base_url", Contribution{Kind: KindProvider, Name: "acme",
 			Endpoints: map[string]ProviderEndpoint{"openai": {BaseURL: "https://user:tok@api.acme.dev/v4"}}},
 			"must not carry userinfo"},
+		// capabilities: the two-kind field. Both AUTHENTICATION SOURCES take it — a
+		// provider speaks for itself, a program for the built-in login its CLI uses — and
+		// nothing else does, because nothing else names a source for it to describe.
+		{"provider with capabilities", Contribution{Kind: KindProvider, Name: "acme",
+			Capabilities: []string{"web_search"}}, ""},
+		{"program with capabilities", Contribution{Kind: KindProgram, Bin: "acme", Via: "npm",
+			Package: "acme-cli", Capabilities: []string{"web_search"}}, ""},
+		// An open vocabulary, so an unrecognized NAME is fine; a source that declares it
+		// twice is fine too (the reader is a set).
+		{"provider unknown capability name", Contribution{Kind: KindProvider, Name: "acme",
+			Capabilities: []string{"time_travel"}}, ""},
+		{"capabilities on another kind", Contribution{Kind: KindEnv,
+			Vars: map[string]string{"A": "b"}, Capabilities: []string{"web_search"}},
+			"does not take \"capabilities\""},
+		{"empty capability name", Contribution{Kind: KindProvider, Name: "acme",
+			Capabilities: []string{"web_search", " "}},
+			"capabilities[1]: empty entry"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

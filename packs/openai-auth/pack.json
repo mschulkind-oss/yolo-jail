@@ -3,6 +3,13 @@
     {
       "from": "loopholes/openai-auth-broker",
       "kind": "loophole"
+    },
+    {
+      "capabilities": [
+        "web_search"
+      ],
+      "kind": "provider",
+      "name": "openai-codex"
     }
   ],
   "description": "One machine-wide owner for OpenAI subscription login and refresh-token rotation.",

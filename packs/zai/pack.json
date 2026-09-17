@@ -2,6 +2,9 @@
   "contributes": [
     {
       "api_key_env_name": "ZAI_API_KEY",
+      "capabilities": [
+        "web_search"
+      ],
       "endpoints": {
         "anthropic": {
           "base_url": "https://api.z.ai/api/anthropic"

@@ -61,9 +61,11 @@ const ServiceName = "wire-bridge"
 
 // CodexResponsesListenAddr is the one fixed jail-local endpoint for the
 // Claude=codex profile. Unlike ordinary bridged providers, openai-codex is a
-// built-in subscription provider and deliberately has no YOLO_PROVIDERS row.
-// The Claude derive and this boot selector share this constant's value as the
-// route contract; it is not a user-configurable listener.
+// built-in subscription provider and deliberately has no ADDRESS in
+// YOLO_PROVIDERS — its row (packs/openai-auth) carries the source's
+// `capabilities` and nothing else, so there is no endpoint for routeFor to read
+// and this constant remains the only route contract. The Claude derive and this
+// boot selector share its value; it is not a user-configurable listener.
 const CodexResponsesListenAddr = "127.0.0.1:8215"
 
 // CodexResponsesBaseURL is the subscription Responses API base. The handler

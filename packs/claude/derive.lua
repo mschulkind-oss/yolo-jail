@@ -1,17 +1,18 @@
--- config (~/.claude.json, RMW): the mcpServers managed table.
--- In subscription mode (default), Claude has native web search, so servers providing
--- "web_search" are omitted. In Bedrock mode, search MCPs pass through.
+-- config (~/.claude.json, RMW): the mcpServers managed table — a passthrough of the
+-- servers this launch is eligible for.
+--
+-- The suppression that used to live here is GONE, and not because it was unwanted: which
+-- MCP servers a launch needs is a fact about the active AUTHENTICATION SOURCE, and core
+-- resolves it before ctx.mcp_servers is exposed (capability-driven MCP delivery). This
+-- derive's own version asked "is the profile bedrock or codex?", which is a different
+-- question with the same answer for exactly two profiles — it suppressed web search for
+-- every OTHER profile too, so a Kilo launch lost its search MCP to a source that has no
+-- native search. The declarations replacing it: packs/claude's program contribution says
+-- the claude subscription performs web_search, and each provider says for itself.
 yolo.derive("claude", "config", function(ctx)
-  local claudeProfile = (ctx.use_profiles and ctx.use_profiles.claude) or "default"
-  local isBedrock = (claudeProfile == "bedrock")
-  local isCodex = (claudeProfile == "codex")
   local servers = {}
   for name, cfg in pairs(ctx.mcp_servers or {}) do
-    if type(cfg) == "table" and cfg.provides == "web_search" and not isBedrock and not isCodex then
-      -- native search is available in 1st-party subscription mode; suppress MCP
-    else
-      servers[name] = cfg
-    end
+    servers[name] = cfg
   end
   return { mcpServers = servers }
 end)
@@ -79,10 +80,13 @@ end)
 yolo.env("claude", function(ctx)
   local p = ctx.providers[ctx.selected_provider]
   -- openai-codex is a broker-backed subscription identity, like Pi's native
-  -- provider. It deliberately has no YOLO_PROVIDERS row: the wire bridge gets
-  -- its short-lived access-token view from openai-auth, never from a generated
-  -- configuration file. The Responses subscription endpoint accepts concrete
-  -- Codex model IDs, so this must stay aligned with Pi's Codex default.
+  -- provider. Its YOLO_PROVIDERS row (packs/openai-auth) carries the source's
+  -- `capabilities` and deliberately nothing else — no endpoint, no credential
+  -- pointer — because the wire bridge gets its short-lived access-token view from
+  -- openai-auth, never from a generated configuration file. So `p` is a table with
+  -- no address in it, and every value below is stated here rather than read off it.
+  -- The Responses subscription endpoint accepts concrete Codex model IDs, so this
+  -- must stay aligned with Pi's Codex default.
   if ctx.selected_provider == "openai-codex" then
     return {
       ANTHROPIC_BASE_URL = "http://127.0.0.1:8215",
