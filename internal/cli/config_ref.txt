@@ -1326,10 +1326,16 @@
     selected packs ship, per field — overriding one model alias, one region or one URL
     keeps every other field the pack shipped.  Each key is a provider NAME, and the name
     is sole-owned across packs and config together: two packs shipping one is a launch
-    error.  Per entry:
+    error.
+    ⚠ THE ADDRESS IS USER-SCOPE ONLY.  `base_url` and `endpoints.<protocol>.base_url`
+    are REFUSED in a workspace `yolo-jail.jsonc` or `yolo-jail.local.jsonc`; write them
+    in your user config instead.  The workspace file is agent-editable, and the address
+    decides where inference goes — an agent that can repoint its own model endpoint can
+    send everything it reads to a server you did not choose.  Every OTHER field in an
+    entry still merges from either scope.  Per entry:
       base_url       shorthand for a single-endpoint provider; refused together with
                      `endpoints` (one provider carrying both is an ambiguity no
-                     consumer could resolve).
+                     consumer could resolve).  User scope only — see above.
       endpoints      {protocol:{base_url, wire_api}} — where each wire protocol points.
                      A URL carrying userinfo is refused: a base_url routes an ADDRESS,
                      never a credential.
@@ -1342,7 +1348,13 @@
                      The agent pack's own derive.lua decides which alias each of the
                      agent's keys reads; `default` is the alias used when a profile
                      states no option, and it is an ordinary name, not a keyword.
-      capabilities   strings describing what the provider speaks.
+      capabilities   the named jobs this provider performs for itself, e.g.
+                     ["web_search"].  A launch that selects it OMITS every
+                     `mcp_servers` entry whose "provides" names one of them — the
+                     server would be a second implementation of something the
+                     provider already does.  Same vocabulary `provides` and
+                     `required_capabilities` are spelled in; the packs that ship a
+                     provider declare it, and an entry here overrides that.
       options        {option: default} the profile surface this provider DECLARES —
                      the only schema a `profiles` entry answers to.  A default value
                      is what a profile inherits when it does not state the option;
@@ -1398,13 +1410,22 @@
     environment DECLARES it needs, e.g. ["web_search"].  Validated as a string list
     at pre-flight, and passed through to a nested launch (it is one of the keys an
     inner jail inherits).
-    It reaches the jail as YOLO_REQUIRED_CAPABILITIES, a JSON array — so a jail can
-    read what was asked for.  ⚠ NOTHING ENFORCES IT YET: the design's fatal refusal
-    for an unmet capability (docs/design/agent-auth-modes.md OQ-CAP2) is not built,
-    so declaring a capability today records the requirement and does not check that
-    anything satisfies it.  Written here rather than left undocumented because a key
-    yolo ACCEPTS and this reference never mentions is a key an agent cannot discover
-    at all.
+    ENFORCED: a launch that declares a capability nothing satisfies is REFUSED
+    (docs/design/agent-auth-modes.md OQ-CAP2).  A capability is satisfied by a
+    declaration — `providers.<name>.capabilities` naming it, or an `mcp_servers.<name>`
+    entry whose "provides" is it — or by the baseline every agent meets
+    (code_editing, command_execution), which needs no declaration.  A server set to
+    null satisfies nothing: the jail deletes it.
+    The refusal runs above the backend dispatch, so it fires on every backend.
+    YOLO_ALLOW_UNMET_CAPABILITIES=1 launches anyway, loudly.  It is there because
+    this gate reads YOUR config and nothing else: a pack DOES state its agent's and
+    its provider's native capabilities, but those join the launch below this check,
+    so a capability you really have can still read as unsatisfied here — not because
+    the gate is wrong.  Writing the same name under `providers.<name>.capabilities`
+    states it in the place this gate reads.
+    The key is no longer exported to the jail: nothing in a jail read
+    YOLO_REQUIRED_CAPABILITIES, and the check it stood in for now happens on the host
+    before the launch.
     Default: [] (declares nothing).
     Example: {"required_capabilities": ["web_search"]}
 
@@ -1454,6 +1475,16 @@
         (after [bold]env_sources[/bold] is loaded), so a secret can live in one
         unsynced file and be scoped to a single server. Undefined names
         are left as the literal [bold]${VAR}[/bold] and logged as a warning.
+      • provides (string): the named JOB this server implements, e.g.
+        "web_search".  Two things read it, and they are different questions.
+        DELIVERY: the authentication source your launch resolves to — the
+        provider a profile selects, or the agent's own built-in login — omits
+        this server when it already does that job, so a search MCP is delivered
+        on a gateway that has no native search and dropped on one that does.
+        REQUIREMENT: it also satisfies a `required_capabilities` entry naming
+        it.  Two servers declaring one name refuse the launch: which one
+        implements the job is not something to pick at random.  Optional; a
+        server without it makes no claim and is always delivered.
       • requires_env (array of strings): Conditional loading gate. The
         server is only configured when every listed variable is set
         (and non-empty) in the jail's startup env. If any is missing,
