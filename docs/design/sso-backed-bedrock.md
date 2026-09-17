@@ -167,7 +167,8 @@ Vendor facts, all dated in [§11](#11-evidence-and-how-to-re-check-it).
 
 | Fact | Consequence here |
 | :--- | :--- |
-| `aws sso login` caches an access token plus a rotating refresh token under `~/.aws/sso/cache/`; the portal session defaults to 8h and can run to 90 days, while a permission set's role credentials last 1–12h | the host has a live thing to derive from, and re-login replaces it in place |
+| `aws sso login` caches an access token plus a rotating refresh token under `~/.aws/sso/cache/`, and the SDKs refresh the access token against the portal session | the host has a live thing to derive from, and re-login replaces it in place |
+| **Three separate duration limits stack here, and only one is per-role.** See [§6](#6-narrowing--shape-scoped-and-policy-scoped) for which dial moves what | the answer to *"can we just issue longer tokens?"* is different for each arm |
 | A **session policy** on `AssumeRole` yields the **intersection** of the role's policy and the session policy | policy-scoping, and it needs a role to assume |
 | SSO permission-set credentials are **already a role session**, so any `AssumeRole` from them is **role chaining**, which *"limits your … role session to a maximum of one hour … regardless of the maximum session duration configured for individual roles"* | the scoped credential is a 1-hour object, and **creating the role does not raise that** — a `MaxSessionDuration` of 12h on it changes nothing. It is re-minted rather than handed over once, which is why the ceiling costs nothing ([§6](#6-narrowing--shape-scoped-and-policy-scoped)) |
 | `GetFederationToken` takes a session policy but requires IAM **user** credentials | unavailable from SSO — a dead end worth not re-deriving |
@@ -342,6 +343,33 @@ self-serve — `iam:CreateRole` is in many developer permission sets.
 > because it is backwards from the intuition: N1 can reach twelve hours *precisely because it
 > is a presign rather than an `AssumeRole`*, so the **less** narrow arm is the longer-lived
 > one. A push channel would have to trade those off; this one does not.
+
+**The three duration dials, and which one you can actually move.** *"Can we just issue longer
+tokens?"* has a different answer per dial, and only the middle one is per-role.
+
+| Dial | Range | Default | Set where | Per role? |
+| :--- | :--- | :--- | :--- | :--- |
+| **User interactive (portal) session** — how long before `aws sso login` is needed again | 15 min – **90 days** | 8h | Identity Center **Settings → Authentication**, once | **No — instance-wide**, every user and every application |
+| **Permission set session** — how long `sso:GetRoleCredentials` output lives | 1h – **12h** | 1h | per permission set, reprovisioned on save | **Yes** |
+| **Role chaining** — the ceiling on an `AssumeRole` made from either of the above | **1h**, fixed | 1h | nowhere | No, and not configurable |
+
+Reading that against the arms: **for N2/N3 the only dial that changes anything is the portal
+session**, because the daemon's ability to keep re-minting lasts exactly as long as the
+refresh token behind it, and the credential itself is chained at an hour either way — so the
+dial that helps is the one you *cannot* scope to a single role. **For N1 the per-role dial is
+the useful one**: a short-term Bedrock API key lives for the shorter of 12h and the principal's
+remaining session, so a permission set left at the 1h default caps the bearer at an hour, and
+raising that one permission set to 12h is a real change nobody else feels.
+
+> [!WARNING]
+> **A long portal session is not always the number you set.** With AWS Managed Microsoft AD as
+> the identity source the Kerberos ticket lifetime is fixed at 10 hours and the session becomes
+> *"the shorter of the IAM Identity Center setting and 10 hours"* — so a 28-hour setting is
+> silently a 10-hour one. With an external IdP that passes `SessionNotOnOrAfter`, the effective
+> value is the shorter of the IdP's session and the Identity Center setting. And long sessions
+> need the **`sso-session` token-provider** config plus AWS CLI v2 ≥ 2.9; the legacy
+> profile-only SSO form does not refresh. Measure the session you actually get before designing
+> around the number in the console.
 
 **N1 and N2 compose**, and composed they are the actual answer to the question as asked:
 assume the scoped role, then presign from the scoped session, and the result is a credential
@@ -535,6 +563,7 @@ provider already owns is how the Bedrock region got confusing in the first place
 | **R4** | A future AWS SDK tightens the loopback carve-out and plain HTTP stops being accepted. | `checkUrl.js` is 40 lines and re-checkable in seconds ([§11](#11-evidence-and-how-to-re-check-it)); the fallback is the per-jail TLS front, which is already published — it costs a CA-trust question per SDK, not a redesign. |
 | **R5** | Four agents are claimed to work from string evidence, and only claude is exercised. | Done-condition 7 is a live turn on each. This is the standing weakness of every provider integration in this repo and the answer is the same: the done-conditions are turns, not greps. |
 | **R6** | The nested-jail netns sharing in [§5](#5-the-recommended-shape) is discovered by someone reasoning about process isolation and read as a vulnerability. | It is documented here and belongs in the pack README. A nested jail shares the home already; the netns is not the widest thing it shares. |
+| **R7** | The one dial that would make a human log in less often is **instance-wide**: extending the portal session past 8h changes it for every user and every application of that Identity Center instance. "I re-authenticate too much" therefore escalates into an org-wide security change. | Name it in the pack README rather than letting someone discover it in a change-request. The per-role dial ([§6](#6-narrowing--shape-scoped-and-policy-scoped)) helps only N1, and the honest alternative for a genuinely long-lived non-interactive credential is not an SSO dial at all — it is not using SSO as the daemon's source, which is a different threat model and not designed here. |
 
 ---
 
@@ -589,8 +618,15 @@ terms and concepts — *"when you use a role to assume a second role"*, and the 
 regardless of the maximum session duration configured for individual roles"* — which is what
 makes it bind on an Identity Center permission-set session; session-policy intersection and
 `GetFederationToken`'s IAM-user requirement are from the STS API reference. SSO
-token caching, the hourly refresh check and the 8h-default/90d-max portal session from the AWS
-CLI and SDK reference guides.
+token caching and the hourly refresh check are from the AWS CLI and SDK reference guides. The
+three duration dials in [§6](#6-narrowing--shape-scoped-and-policy-scoped) are from the IAM
+Identity Center user guide: *user interactive sessions* for the portal range
+(*"default … is 8 hours … from a minimum of 15 minutes to a maximum of 90 days"*, configured
+under **Settings → Authentication** with no per-role scope), *set session duration for AWS
+accounts* for the permission set range (*"minimum … is 1 hour, and can be set to a maximum of
+12 hours"*, *"For each permission set"*), and *session duration considerations* for the AD
+10-hour Kerberos cap, the external-IdP `SessionNotOnOrAfter` rule, and the CLI v2 ≥ 2.9 plus
+`sso-session` token-provider prerequisite.
 
 **Sources:**
 [Container credential provider](https://docs.aws.amazon.com/sdkref/latest/guide/feature-container-credentials.html) ·
@@ -599,6 +635,9 @@ CLI and SDK reference guides.
 [How Bedrock API keys work](https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys-how.html) ·
 [STS AssumeRole](https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRole.html) ·
 [Roles terms and concepts — role chaining](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_terms-and-concepts.html) ·
+[Identity Center user interactive sessions](https://docs.aws.amazon.com/singlesignon/latest/userguide/user-interactive-sessions.html) ·
+[Set session duration for AWS accounts](https://docs.aws.amazon.com/singlesignon/latest/userguide/howtosessionduration.html) ·
+[Session duration considerations](https://docs.aws.amazon.com/singlesignon/latest/userguide/user-session-duration-prereqs-considerations.html) ·
 [IAM Identity Center credential provider](https://docs.aws.amazon.com/sdkref/latest/guide/feature-sso-credentials.html) ·
 [AWS CLI IAM Identity Center concepts](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sso-concepts.html)
 
