@@ -10,7 +10,7 @@ vantage:
 
 # Roadmap
 
-**Status:** CURRENT — 2026-09-16. **48 rows**: 5 to rule first, 21 needing a decision,
+**Status:** CURRENT — 2026-09-17. **49 rows**: 5 to rule first, 22 needing a decision,
 14 ready to build, 6 waiting, 2 iced.
 
 This file is a **routing table, not a place to think**: one line per open decision, naming
@@ -23,7 +23,7 @@ derived rather than carried forward; re-derive the live-question totals with che
 $ rg -c '^(#{2,4} |\s*[0-9]+[a-z]?\. |\s*[-*] )(<a id="[^"]*"></a> ?)?💬' docs/ --sort path
 ```
 
-**119 live questions across 32 docs**, plus one 🔒 that command cannot see.
+**125 live questions across 33 docs**, plus one 🔒 that command cannot see.
 
 ## Rule these first
 
@@ -64,6 +64,7 @@ sitting. All five below are the first class.
 | 21 | Whether the jail mounts the workspace at the host's path | [`workspace-path-mirroring.md`](../design/workspace-path-mirroring.md) · draft | 12 | [`OQ-WP8`](../design/workspace-path-mirroring.md#OQ-WP8) | **doc** — ratify the no |
 | 22 | Whether `macos-user`'s workspace root becomes configurable, and what the profile has to derive from it | [`configurable-workspace-root.md`](../design/configurable-workspace-root.md) · in-review | 4 | [`OQ-CW1`](../design/configurable-workspace-root.md#OQ-CW1) | **build** — the read-deny derived from the root, plus the whitelist that closes four lexical bypasses. ⚠ The whitelist wants to land before anyone relies on the current blacklist; withdrawing an accepted path later is a breaking change |
 | 22 | Which home a `yolo config` verb is about, and whether it says so | [`config-target-resolution.md`](../design/config-target-resolution.md) · draft | 6 | [`OQ-CR1`](../design/config-target-resolution.md#oq-cr1) | **defect** — four measured and all silent: one report describes two homes, a `cd` changes the answer at rc 0, an owned host's `diff` and `reset` disagree ([row 5](#rule-these-first)), and `render` previews with the wrong home's `host` layer |
+| 23 | How an `aws sso login` becomes Bedrock-only access inside a jail, and what refreshes it | [`sso-backed-bedrock.md`](../design/sso-backed-bedrock.md) · draft | 6 | [`OQ-SSO1`](../design/sso-backed-bedrock.md#OQ-SSO1) | **build** — a host credential service and a pull channel; [`OQ-SSO1`](../design/sso-backed-bedrock.md#OQ-SSO1) decides whether "no more than Bedrock" is a property or an aspiration, and nothing should be built under a guess at it |
 
 **Rule together, or not at all.** [`E1`](BACKLOG.md#-e1--collapse-host_files-modes-43-copy-merges-into-readonly) · [`E2`](BACKLOG.md#-e2--readonly-as-a-real-ro-mount-instead-of-0o444) · [`OQ-B`](pack-host-management-plan.md#open-questions) are one asymmetry seen three times, and each doc says so.
 [`OQ-BR3`](../design/bedrock-plumbing.md#OQ-BR3) and [`OQ-PS3`](../design/provider-switching.md#OQ-PS3) are the same decision in two files.
@@ -127,7 +128,7 @@ Ruled, unblocked, and implementable cold — no memory of any conversation requi
 
 | | The uncertainty | What would thaw it |
 |---|---|---|
-| [`boundary-broker.md`](../design/boundary-broker.md) — a generic approval broker | its own [§5](../design/boundary-broker.md#5-three-tiers-not-two--and-git-wants-the-middle-one) half-undercuts the premise: the motivating GitHub case probably wants a proxy, not a human | a concrete instance the current model blocks |
+| [`boundary-broker.md`](../design/boundary-broker.md) — a generic approval broker | its own [§5](../design/boundary-broker.md#5-three-tiers-not-two--and-git-wants-the-middle-one) half-undercuts the premise: the motivating GitHub case probably wants a proxy, not a human | a concrete instance the current model blocks — [`OQ-SSO6`](../design/sso-backed-bedrock.md#OQ-SSO6) is the first candidate: a lapsed AWS SSO session that the jail can only report, where a request-and-approve tier would let it ask |
 | [`cache-relocation.md`](cache-relocation.md) — `yolo cache relocate` | all three questions are HELD by choice: what is undecided is whether we want the feature | ruling [`OQ-CR1`](cache-relocation.md#-oq-cr1--is-cache_relocations-the-right-level-held), which carries CR2 with it |
 
 ## What this file does not cover
