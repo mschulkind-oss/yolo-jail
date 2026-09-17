@@ -152,6 +152,27 @@ jobs:
           # carries no version stamp and reports a LIVE `git describe` of this checkout
           # instead (internal/version). Depth 1 has no tags to describe.
           fetch-depth: 0
+          # DO NOT LET THIS JOB EDIT THE RUNNER OWNER'S ~/.gitconfig. With the default
+          # (`true`), checkout runs `git config --global --add safe.directory
+          # <workspace>` — harmless on a GitHub-hosted runner, whose VM is discarded,
+          # and a real edit to a PERSON'S dotfiles here, because a self-hosted runner
+          # executes as that person. Measured 2026-09-16 on the runner Mac: this Mac's
+          # ~/.gitconfig is a symlink into a tracked dotfiles repo, the job's checkout
+          # appended `[safe] directory = …` at 01:29:19Z (the same second the runner's
+          # Worker log evaluates `set-safe-directory`), and the dotfiles repo went
+          # dirty. `--add` APPENDS and the paired removal does not stick, so every run
+          # left one more identical line — 116 of them had accumulated when it was
+          # noticed.
+          #
+          # Turning it off costs nothing HERE and would not be safe everywhere: the
+          # setting exists for git's dubious-ownership check, which only fires when the
+          # repo is owned by a different uid than the one running git. On this runner
+          # both are the same user — the workspace and its `.git` are `matt:staff` and
+          # `Runner.Worker` runs as `matt` (verified) — so the entry was pure noise.
+          # A future self-hosted runner that checks out as one user and builds as
+          # another would need the ownership granted some other way, NOT by handing
+          # this back: the entry it writes is machine-wide and permanent.
+          set-safe-directory: false
 
       - uses: actions/setup-go@v7
         with:
