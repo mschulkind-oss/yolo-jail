@@ -185,6 +185,20 @@ type AutoLoadOptions struct {
 	// locking, which is the right default for a caller that has no host-side
 	// lock (tests, and the in-jail path where nothing else is reaping).
 	LockHousekeeping func() func()
+	// LockImageCopy takes the machine-wide IMAGE-COPY lock and returns the
+	// release. It brackets the re-inspect-and-copy step — copylock.go carries the
+	// measurement that forced it and why it is a second lock rather than a wider
+	// LockHousekeeping, and the call site says what the re-inspect is for.
+	//
+	// nil => THE REAL FLOCK, which is the one place this seam deliberately
+	// diverges from LockHousekeeping beside it. That one defaults to no locking
+	// because it protects the load path against the HOST's reaper, and in-jail
+	// there is no reaper to lose a race with and the lock file is not even on a
+	// shared filesystem. This one protects a launch against other LAUNCHES
+	// writing the same image store, and a nested jail's podman store is shared by
+	// every launch out of that jail exactly as a host's is — so a caller with
+	// nothing to decide here should get the lock, not silence.
+	LockImageCopy func() func()
 	// EvalIdentity evaluates (never builds) the image identity the flake at
 	// repoRoot describes — the oracle behind the pre-build stock-image check
 	// (stockimage.go). nil => the real `nix eval --raw .#imageIdentity`.
@@ -284,6 +298,21 @@ func (o *AutoLoadOptions) fill() {
 	}
 	if o.RegisterRoot == nil {
 		o.RegisterRoot = func(string) {} // no-op: no host-side rooting available
+	}
+	if o.LockImageCopy == nil {
+		o.LockImageCopy = func() func() {
+			// THE WAIT NOTICE GOES TO THE LAUNCH STREAM, not to Out, and the two
+			// lines this lock adds are deliberately split across the two writers.
+			// Out is the jail command's OWN STDOUT on the run path (see the Out
+			// field), so a "this launch is paused" notice written there is invisible
+			// to the human whose terminal is stalled — which is the entire failure
+			// the notice exists to prevent. The copy's own report stays on Out
+			// beside the copied/skipped line it belongs with.
+			return lockImageCopy(ImageCopyLockPath(), copyLockNotices{
+				waiting: func(s string) { fmt.Fprintln(o.reportWriter(o.Out), s) },
+				warn:    func(s string) { fmt.Fprintln(o.reportWriter(o.Out), "Warning: "+s) },
+			})
+		}
 	}
 	if o.LookupEnv == nil {
 		o.LookupEnv = os.LookupEnv
@@ -591,11 +620,34 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 	// no container on it and no sentinel entry, remove it, and leave this
 	// launch's `podman run` failing on an image that existed a moment ago.
 	//
-	// The lock brackets the INSPECT and the RECORD, and deliberately not the
-	// stream between them: holding it across a multi-gigabyte load would
-	// serialise every image load on the machine to buy nothing, since a load in
-	// progress is not what the reaper can misread. nil => unlocked (tests, and
-	// any caller with no host-side lock to take).
+	// THIS LOCK BRACKETS THE INSPECT AND THE RECORD, AND NOTHING ELSE — but the
+	// reason is no longer the one that used to be written here, and the old one
+	// is preserved because it is the argument against what replaced it:
+	//
+	//     "holding it across a multi-gigabyte load would serialise every image
+	//      load on the machine to buy nothing, since a load in progress is not
+	//      what the reaper can misread."
+	//
+	// THE SECOND HALF OF THAT SENTENCE STILL HOLDS AND THE FIRST HALF INVERTED,
+	// because the mechanism it described was deleted. The C3 STREAM shipped every
+	// byte on every load, so two concurrent loads cost exactly what two
+	// sequential ones cost: serialising them really did buy nothing but a wait.
+	// The C9 COPY negotiates per blob, and containers-storage can only answer for
+	// a layer it has already COMMITTED — a copy in flight is invisible to every
+	// other copy — so N launches copying one image at once do N times the work
+	// that one copy plus N-1 no-ops would. MEASURED 2026-09-14: a reboot launched
+	// 11 jails and 5 of them copied one identical 3.45 GB image simultaneously,
+	// ~4 minutes each in the store write.
+	//
+	// So serialising the COPY now buys a great deal — and it is still not this
+	// lock's job. The answer is a SECOND, SEPARATE lock (copylock.go) taken
+	// around the re-inspect-and-copy further down, rather than a widening of this
+	// one, for the reason the unchanged half of the old sentence gives: a copy in
+	// progress is not what the reaper can misread, so holding the HOUSEKEEPING
+	// lock across it would park every reaper pass on the machine behind a
+	// four-minute copy for nothing.
+	//
+	// nil => unlocked (tests, and any caller with no host-side lock to take).
 	unlock := func() {}
 	if o.LockHousekeeping != nil {
 		unlock = o.LockHousekeeping()
@@ -675,15 +727,52 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 			return LoadResult{}
 		}
 
-		// The already-present probe runs BEFORE the copy or it measures nothing.
-		// It is reporting only — see the seam doc.
-		present := o.PresentDigests()
+		// The layer inventory reads the NIX MANIFEST, which is content-addressed
+		// and which no other launch can change, so it is read out here rather than
+		// under the copy lock below. The store-side half of the report (which
+		// digests the runtime already holds) is not like that and has moved — see
+		// the probe under the lock.
 		layers, invErr := ReadLayerInventory(currentPath)
 		if invErr != nil {
 			// A manifest we cannot parse is not a reason to refuse: skopeo reads it
 			// itself and is the authority. Losing the report costs a printed line.
 			fmt.Fprintln(out, "Note: could not read the image manifest's layer list ("+
 				invErr.Error()+"); the copied/skipped figures below are omitted.")
+		}
+
+		// SERIALISED AGAINST EVERY OTHER LAUNCH ON THIS MACHINE (copylock.go),
+		// which is a different lock, a different window and a different argument
+		// from the housekeeping lock above.
+		//
+		// WHY THE COPIER BUILD STAYS OUTSIDE IT. A waiter that finds the image
+		// already delivered will have compiled skopeo for nothing — but that build
+		// is a nix derivation every launch on the machine shares, so the peer we
+		// waited for has just populated the store it reads and nix serialises two
+		// identical derivations by itself. Pulling it inside would put a cold
+		// 2m27s compile in front of every other launch's copy to save a cache hit.
+		//
+		// THE SPAN IS SEPARATE FROM image.layer_copy, deliberately: that span is
+		// the acceptance criterion layer-aware-image-delivery.md §3.10 sets a 15 s
+		// budget against for a warm launch, and folding a lock wait into it would
+		// make a launch that behaved perfectly read as a regression.
+		clsp := o.Perf.Span("image.copy_lock")
+		copyUnlock := o.LockImageCopy()
+		clsp.End()
+
+		// RE-INSPECT UNDER THE LOCK, because the whole reason for waiting is that
+		// the answer can have changed while we waited. The inspect further up
+		// decided this launch needed a copy; if the peer we just queued behind was
+		// delivering the SAME content ref, that decision is now stale and acting
+		// on it would copy 3.45 GB over an identical image. Without this the lock
+		// would turn five simultaneous copies into five sequential ones — slower
+		// than the bug it was added to fix.
+		//
+		// The ref is content-addressed, so "present" is the whole question: an
+		// image under this name IS the image this store path builds, and nothing
+		// about which launch put it there can make it the wrong one.
+		peerDelivered := false
+		if rc, ran := o.Run(ImageInspectCmd(o.Runtime, contentRef)); ran && rc == 0 {
+			peerDelivered = true
 		}
 
 		// WHICH DESTINATION, decided from facts the launcher already has and never
@@ -693,10 +782,31 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 		// is not, and says why each is a property of the backend rather than a
 		// preference.
 		lcp := o.Perf.Span("image.layer_copy")
-		delivered := false
-		if o.Runtime == "container" || o.IsMacOS {
+		delivered := peerDelivered
+		var present map[string]struct{}
+		switch {
+		case peerDelivered:
+			// Nothing to copy and nothing to undo. The image is in the store under
+			// the ref this launch is about to run, which is the only thing the copy
+			// was ever for.
+		case o.Runtime == "container" || o.IsMacOS:
+			// THE ARCHIVE ARM GAINS MORE FROM THE LOCK THAN THE COPY ARM DOES, and
+			// it is worth saying because it is not a waste-of-bytes argument. The
+			// transient archive's name is keyed by the STORE PATH ALONE
+			// (archiveTempPath) with no pid and no random suffix, so two launches
+			// delivering one image here were not duplicating work — they were
+			// writing the same file at the same time, and then each loading
+			// whatever the interleaving left.
+			present = o.PresentDigests()
 			delivered = o.deliverViaArchive(currentPath, contentRef)
-		} else {
+		default:
+			// The already-present probe runs BEFORE the copy or it measures nothing,
+			// and now AFTER the wait as well — asked here it describes the store
+			// this copy is about to negotiate with, where its old position ahead of
+			// the lock described the store as it was before whichever peer we
+			// queued behind finished landing its layers. Reporting only, so the
+			// move is worth a truer number and nothing else (see the seam doc).
+			present = o.PresentDigests()
 			// AND FROM WHICH NAMESPACE, the second half of the same decision and made
 			// on the same terms: asked before the copy starts, answered from what
 			// podman IS, never from a failed attempt (storewrite.go). A rootless store
@@ -709,6 +819,11 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 			_, delivered = o.LayerCopy(currentPath, ContainersStorageDest(contentRef), prefix)
 		}
 		lcp.End()
+		// RELEASED AS SOON AS THE STORE WRITE IS DONE, and before the tags and the
+		// report below: a tag is a name, the next launch's copy is 3.45 GB, and
+		// holding the lock across anything that is not the write itself spends the
+		// waiter's time on work that cannot collide.
+		copyUnlock()
 		if !delivered {
 			// The seam already printed skopeo's own words and said that no image
 			// was written; this line is the headline it hangs under.
@@ -716,11 +831,25 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 			_ = os.Remove(outLink)
 			return LoadResult{}
 		}
-		if invErr == nil {
+		switch {
+		case peerDelivered:
+			// SAID, not silently skipped. The copied/skipped ratio is a claim this
+			// branch owes the reader (§3.10), and "no bytes moved" is an answer to
+			// it — one whose reason a human otherwise cannot recover, since the
+			// launch that did the work was in another terminal.
+			fmt.Fprintln(out, "  Copied image: nothing — "+contentRef+" was delivered by a "+
+				"concurrent launch while this one waited for the image-copy lock")
+		case invErr == nil:
 			// §3.10: the copied-vs-skipped ratio IS the claim, so it is printed
 			// rather than left to a timing span someone has to enable.
 			fmt.Fprintln(out, "  Copied image: "+ReportFor(layers, present).String())
 		}
+		// RUN ON THE PEER-DELIVERED PATH TOO, which is a choice and not an
+		// oversight: both calls are best-effort names for an image that is now in
+		// the store either way, both are idempotent, and both cost one podman call
+		// against a copy that cost minutes. Re-asserting them also self-heals the
+		// case where the peer delivered the bytes and its own tag failed — the
+		// launch that skipped the copy is the cheapest possible place to fix that.
 		if o.Runtime != "container" {
 			o.pointLatestAt(contentRef)
 			// The SECOND name, and the one that lets the next launch skip the
