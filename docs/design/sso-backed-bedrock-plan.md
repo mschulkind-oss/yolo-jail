@@ -99,6 +99,15 @@ token = "bedrock-api-key-" + base64(<query string without scheme/host>) + <versi
 Pure `crypto/hmac` + `crypto/sha256`; no AWS SDK needed for this half. The version suffix is
 the part most likely to be wrong from a teardown — get it from the generator.
 
+## Measure this before anything else
+
+**The access-token lifetime, on the real machine.** It is one observation and it rules
+[OQ-SSO3](sso-backed-bedrock.md#OQ-SSO3), which in turn decides whether the daemon can be
+read-only. Log in, then watch `~/.aws/sso/cache/*.json`'s `expiresAt` against the portal
+session's own expiry, touching nothing in between — the question is whether a cached token
+nobody refreshes survives as long as the session does. Do it before writing the resolver:
+the two implementations below are not a refactor apart.
+
 ## Resolving the host session
 
 Two implementations, and the choice is

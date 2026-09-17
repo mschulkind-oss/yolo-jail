@@ -449,6 +449,29 @@ the ordinary gesture:
 So: one failed turn, one `aws sso login`, carry on. The only thing the human has to know is
 which command to run, which is why the error text carries it verbatim.
 
+**How much you get out of one login, and why it is not a round number.** The tail in step 1
+is real and AWS documents the stacking with its own worked example — a 20-hour portal session
+and a 12-hour permission set *"runs for the maximum of 20 hours plus 12 hours for a total of
+32 hours"* if you mint just before the session dies. Here the second term is the chained
+hour, so an 8-hour session tops out a second short of **nine hours**. You will not get that,
+and nothing should be built expecting it: the daemon mints on its **own** clock, roughly every
+50 minutes ([§8](#8-behaviour-this-design-specifies)), so the last mint before expiry lands
+somewhere in the preceding 50 minutes and the usable window is **~8h10m to ~9h, depending on
+phase**. Document the behaviour so the tail is not filed as a bug — "it kept working for
+forty minutes after I logged out" is this, working correctly.
+
+> [!WARNING]
+> **That tail assumes the daemon can still mint at T+7:59:59, and that assumption has a
+> dependency the rest of this section does not state.** Minting needs a valid Identity Center
+> **access token**, and AWS calls it *"the hourly access token … automatically refreshed
+> using the refresh token."* Refreshing it is exactly the write to `~/.aws/sso/cache` that
+> [OQ-SSO3](#OQ-SSO3) is about — so under the read-only reading the daemon can only mint while
+> a token somebody **else** refreshed is still valid, and the window could be the access
+> token's life rather than the portal session's. Public sources disagree on that raw lifetime
+> (AWS's own text says hourly; a widely-cited teardown says a non-configurable 8 hours), and
+> it is not settleable from here. **Measure it on the real machine before ruling
+> [OQ-SSO3](#OQ-SSO3)** — it is the difference between an 8-hour window and a 1-hour one.
+
 Two timing facts the implementation has to respect, both measured from the vendored provider
 rather than from documentation:
 
@@ -679,7 +702,15 @@ makes it bind on an Identity Center permission-set session; session-policy inter
 carries the `GetCallerIdentity` trap quoted in [§8](#8-behaviour-this-design-specifies): *"No permissions are required to perform this
 operation"*, and it succeeds even under an explicit deny — so it is useless as a proof of
 narrowing. SSO
-token caching and the hourly refresh check are from the AWS CLI and SDK reference guides. The
+token caching and the refresh flow are from the AWS SDK reference's *how IAM Identity Center
+authentication is resolved*, which is also where *"the hourly access token … is automatically
+refreshed using the refresh token"* and *"if the IAM Identity Center access portal session is
+expired, then no new access token is granted … [access] will expire … whenever the cached
+permission set session length times out"* come from — the second being the tail in
+[§7](#7-refresh--what-happens-when-you-log-in-again). ⚠ **The raw access-token lifetime is the
+one number here that is NOT settled**: that page says hourly, a widely-cited third-party
+teardown says a non-configurable 8 hours, and [OQ-SSO3](#OQ-SSO3) turns on which is true.
+Measure it; do not cite either. The
 three duration dials in [§6](#6-narrowing--shape-scoped-and-policy-scoped) are from the IAM
 Identity Center user guide: *user interactive sessions* for the portal range
 (*"default … is 8 hours … from a minimum of 15 minutes to a maximum of 90 days"*, configured
@@ -700,6 +731,7 @@ accounts* for the permission set range (*"minimum … is 1 hour, and can be set 
 [Identity Center user interactive sessions](https://docs.aws.amazon.com/singlesignon/latest/userguide/user-interactive-sessions.html) ·
 [Set session duration for AWS accounts](https://docs.aws.amazon.com/singlesignon/latest/userguide/howtosessionduration.html) ·
 [Session duration considerations](https://docs.aws.amazon.com/singlesignon/latest/userguide/user-session-duration-prereqs-considerations.html) ·
+[How IAM Identity Center authentication is resolved](https://docs.aws.amazon.com/sdkref/latest/guide/understanding-sso.html) ·
 [IAM Identity Center credential provider](https://docs.aws.amazon.com/sdkref/latest/guide/feature-sso-credentials.html) ·
 [AWS CLI IAM Identity Center concepts](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sso-concepts.html)
 
@@ -780,18 +812,33 @@ and model ids; none of them touch credentials, by that doc's own
    profile — it is the user's own tool, agreeing with their own config by construction — and it
    will silently refresh and **rotate** the SSO refresh token when it can, writing the user's
    cache and racing the user's own `aws` invocations, which take no lock. Reading the cache
-   read-only and failing when it is expired removes the race and matches P2, at the cost of
-   forcing a re-login roughly every 8 hours where a silent refresh was available. A middle
-   exists: shell out, but under a host-wide lock, accepting that the human's CLI is outside it.
-   Stakes: an 8-hourly human interruption against a yolo daemon writing the host's credential
-   cache.
+   read-only removes the race and matches P2. A middle exists: shell out, but under a host-wide
+   lock, accepting that the human's CLI is outside it.
 
-   <!-- vantage: oq id=OQ-SSO3 leaning="Read-only consumption: never refresh, never write. It matches P2, removes the only race in the design, and 're-run aws sso login' is the gesture the requirement was stated in terms of. The middle option is the one to avoid — a lock only one of two writers takes reads as serialized and is not." -->
+   **The stakes are larger than they first looked, and the deciding fact is unmeasured.**
+   Minting needs a valid access token, and refreshing that token *is* the write in question
+   ([§7](#7-refresh--what-happens-when-you-log-in-again)). So read-only does not cost "a
+   re-login every 8 hours" — it costs *a re-login every access-token lifetime*, and nobody
+   here knows what that is: AWS's own prose says *"the hourly access token"*, a widely-cited
+   teardown says a non-configurable 8 hours. If it tracks the portal session, read-only is
+   free and obviously right. If it is hourly, read-only means the daemon stops an hour into an
+   8-hour session unless the human happens to run `aws` commands, which fails the requirement
+   this whole design exists for.
 
-   _Leaning:_ Read-only consumption — never refresh, never write. It matches P2, removes the
-   only race in the design, and re-running `aws sso login` is the gesture the requirement was
-   stated in terms of. The middle option is the one to avoid: a lock only one of two writers
-   takes reads as serialized and is not.
+   > [!WARNING]
+   > **The obvious escape does not work.** Refreshing in memory and discarding the rotated
+   > refresh token — "write nothing, take nothing" — kills the human's cached refresh token,
+   > because the rotation invalidates the one still on disk. It is strictly worse than either
+   > option, and it is the first thing a reader invents.
+
+   <!-- vantage: oq id=OQ-SSO3 leaning="Measure the access-token lifetime on the real machine before ruling — it decides this. If the cached token tracks the portal session, take read-only: it matches P2 and removes the only race in the design. If it is genuinely hourly, read-only is not viable and shelling out is the honest answer, because a daemon that stops one hour into an eight-hour session fails the requirement the design exists for. Avoid the middle option either way: a lock only one of two writers takes reads as serialized and is not." -->
+
+   _Leaning:_ **Measure the access-token lifetime before ruling** — it decides this, and it is
+   one observation. If the cached token tracks the portal session, take read-only: it matches
+   P2 and removes the only race in the design. If it is genuinely hourly, read-only is not
+   viable and shelling out is the honest answer, because a daemon that stops an hour into an
+   eight-hour session fails the requirement the design exists for. Avoid the middle option
+   either way: a lock only one of two writers takes reads as serialized and is not.
 
    **Answer:**
    > _(empty — fill in when decided)_
