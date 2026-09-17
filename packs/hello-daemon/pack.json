@@ -1,0 +1,9 @@
+{
+  "name": "hello-daemon",
+  "contributes": [
+    {
+      "from": "loopholes/hello-daemon",
+      "kind": "loophole"
+    }
+  ]
+}

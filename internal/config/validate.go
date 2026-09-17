@@ -87,7 +87,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateLSPServers(config, errs)
 	validateMCPPresets(config, errs)
 	validateMCPServers(config, errs)
-	validateProviders(config, errs, warns)
+	validateProviders(config, workspace, errs, warns)
 	validateAgentProfilesRetired(config, errs, warns)
 	validateUseProfiles(config, errs)
 	validateProfiles(workspace, errs)
@@ -1115,8 +1115,15 @@ func validateMCPServers(config *jsonx.OrderedMap, errs *[]string) {
 	}
 }
 
-func validateProviders(config *jsonx.OrderedMap, errs, warns *[]string) {
-	v, present := config.Get("providers")
+func validateProviders(config *jsonx.OrderedMap, workspace string, errs, warns *[]string) {
+	// ABOVE the presence gate, not below it. The scope check reads the workspace FILE and
+	// the gate below asks the MERGED map — normally the same answer, since a workspace
+	// `providers` key survives the merge, but "normally" is not a security boundary: any
+	// caller handing this a map that was filtered, snapshotted or hand-built would switch
+	// the refusal off without switching the feature off. Measured while writing the test
+	// that pins it, with an empty merged map.
+	validateProviderAddressScope(workspace, errs)
+	v, present := config.Get(providersKey)
 	if !present || v == nil {
 		return
 	}
@@ -1196,6 +1203,90 @@ func validateProviders(config *jsonx.OrderedMap, errs, warns *[]string) {
 			validateStringList(c, path+".capabilities", errs)
 		}
 	}
+}
+
+// providersKey is the top-level config key validateProviders reads.
+const providersKey = "providers"
+
+// validateProviderAddressScope refuses a provider ADDRESS written at workspace scope
+// (OQ-LM3, docs/research/local-model-endpoints.md): `base_url` and
+// `endpoints.<protocol>.base_url` in a workspace `yolo-jail.jsonc` are errors naming the
+// user config.
+//
+// It is the same boundary `profiles`/`use_profiles` draw one step further in
+// (profiles.go's userScopeOnlyMessage, OQ-CS5), for a reason that is stronger here rather
+// than merely analogous: a profile decides WHICH declared provider an agent talks to, and
+// this field decides WHERE that provider is. The workspace file travels with the repo and
+// is writable by the agent running inside the jail, so an address that agent can rewrite
+// is the agent choosing the host that receives every prompt, every file it has read, and
+// every credential the derives hydrate for that provider — silently, because a local
+// model server and an attacker's proxy are the same shape from the inside.
+//
+// THE REST OF THE ENTRY STILL MERGES, deliberately, and the line is drawn at the address
+// rather than at the key: `models`, `options`, `region`, `capabilities` and
+// `api_key_env_name` steer a request that still goes to the user's own endpoint, while a
+// URL steers the endpoint itself. Widening it to the whole `providers` key is a separate
+// ruling rather than an obvious tightening — it would refuse every workspace that pins a
+// model alias for its own repo, which is what the key is ordinarily for.
+//
+// It reads the WORKSPACE config directly rather than the merged map, for validatePacks'
+// reason: in the merged map an entry from either scope looks identical, and only the
+// workspace one is wrong. A `null` asserts no address — it drops the entry or the
+// endpoint — so it passes: this refuses steering, never removal.
+func validateProviderAddressScope(workspace string, errs *[]string) {
+	wsCfg, err := LoadWorkspaceConfig(workspace, false, func(string) {})
+	if err != nil || wsCfg == nil {
+		return
+	}
+	v, present := wsCfg.Get(providersKey)
+	if !present || v == nil {
+		return
+	}
+	providers, ok := asMap(v)
+	if !ok {
+		return // shape problems are the merged pass's to report, once
+	}
+	for _, name := range providers.Keys() {
+		entryV, _ := providers.Get(name)
+		entry, ok := asMap(entryV)
+		if !ok {
+			continue
+		}
+		path := "config." + providersKey + "." + name
+		if u, has := entry.Get("base_url"); has && u != nil {
+			add(errs, providerAddressScopeMessage(path+".base_url"))
+		}
+		endpointsV, has := entry.Get("endpoints")
+		if !has || endpointsV == nil {
+			continue
+		}
+		endpoints, ok := asMap(endpointsV)
+		if !ok {
+			continue
+		}
+		for _, proto := range endpoints.Keys() {
+			epV, _ := endpoints.Get(proto)
+			ep, ok := asMap(epV)
+			if !ok {
+				continue
+			}
+			if u, has := ep.Get("base_url"); has && u != nil {
+				add(errs, providerAddressScopeMessage(path+".endpoints."+proto+".base_url"))
+			}
+		}
+	}
+}
+
+// providerAddressScopeMessage is the ONE refusal both address spellings give, so the
+// shorthand and the per-protocol form cannot word the same rule differently — the reason
+// packdecl.ProviderAddressConflictMessage is one constant and not two literals.
+func providerAddressScopeMessage(path string) string {
+	return path + ": user-scope only — move it to " + paths.UserConfigPath() +
+		". A workspace config travels with the repo and is agent-editable, and this is the " +
+		"field that decides WHERE an agent's inference goes: every prompt, every file the " +
+		"agent has read, and every credential hydrated for this provider are sent to this " +
+		"address. The rest of the entry — models, options, region, api_key_env_name — " +
+		"still merges from either scope."
 }
 
 // providerURLProblem returns what is wrong with a provider base_url, or "" when it is a

@@ -838,9 +838,18 @@ func copyEmbeddedTree(embedded fs.FS, sub, dest string) error {
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}
-		// 0o644 always: pack content is content, and an exec bit arriving through a
-		// content channel is a different trust question (packstage enforces the same
-		// rule for configured packs).
+		// 0o644 always, and it is NOT a policy choice any more — it is the only
+		// reachable value. embed.FS cannot represent an exec bit: an embedded file
+		// reads back as 0444 whatever its mode in the tree (measured 2026-09-17), so
+		// there is no bit here to carry even if we wanted to.
+		//
+		// ⚠ The old justification — "packstage enforces the same rule for configured
+		// packs" — is false and was the misleading half: packstage.copyFile carries
+		// 0o111 now, as does run.copyTree. A pack shipping an executable therefore
+		// works when it is CONFIGURED BY PATH and silently does not when it is
+		// EMBEDDED, which is what packs/hello-daemon exists to pin
+		// (internal/packload/packshippedjailbinary_test.go). Nothing here can fix
+		// that; closing it means not shipping such a binary through embed.FS.
 		return os.WriteFile(target, data, 0o644)
 	})
 }

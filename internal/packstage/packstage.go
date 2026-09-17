@@ -74,9 +74,14 @@ type Result struct {
 
 // Stage copies the selected files from spec.Root into spec.Dest.
 //
-// Returns an error on a refused file (exec bit, escaping symlink) rather than
-// skipping it: those are authoring or trust problems the user must see, and under
-// the A12 fatal-generator policy the caller turns them into a halt.
+// Returns an error on a refused file (an escaping symlink) rather than skipping it:
+// that is a trust problem the user must see, and under the A12 fatal-generator policy
+// the caller turns it into a halt.
+//
+// The exec bit is CARRIED, not refused — copyFile preserves 0o111. It was in the
+// refusal list above until a pack needed to ship a program; the embedded path cannot
+// follow (see packload.copyEmbeddedTree), so the two routes disagree about what a
+// pack can deliver.
 func Stage(spec Spec) (*Result, error) {
 	rootAbs, err := filepath.Abs(spec.Root)
 	if err != nil {

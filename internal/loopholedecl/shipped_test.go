@@ -36,6 +36,12 @@ var shippedManifestHome = map[string]string{
 	"cgroup-delegate":     "cgroup-delegate",
 	"serial":              "serial",
 	"openai-auth-broker":  "openai-auth",
+	// A throwaway that exists to EXERCISE the pack-shipped jail-binary path rather than to
+	// serve a user (docs/design/broker-as-a-pack.md §10 step two). It belongs in this table
+	// for the table's own reason — every shipped loophole gets the decode bar and the field
+	// pins — and the experiment is worth MORE covered, since what it measures is a delivery
+	// gap that the manifest half must not also have.
+	"hello-daemon": "hello-daemon",
 }
 
 // TestShippedManifestHomeIsTotal is the forcing function the table above needs to be

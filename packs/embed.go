@@ -18,19 +18,29 @@
 // build is hermetic and only sees the paths that fileset names, so a pack dir missing
 // from it VANISHES from the image while `go build` stays green.
 //
-// NOT EVERY OFFICIAL PACK IS AN AGENT. Nineteen packs are embedded here (counted against
-// `ls packs/` 2026-09-15): seven install a CLI and twelve do not, in four kinds. Six of
-// those ten — `audio`, `host-processes`, `journal`, `cgroup-delegate`, `serial` and
-// `openai-auth` —
+// NOT EVERY OFFICIAL PACK IS AN AGENT. Most of what is embedded here installs no CLI at
+// all (`ls packs/` is the list; a count written down here is one more thing to keep true,
+// and the last one drifted inside its own sentence), in four kinds.
+// `audio`, `host-processes`, `journal`, `cgroup-delegate`, `serial`, `openai-auth` and
+// `hello-daemon` —
 // ship a LOOPHOLE (one of
 // nineteen contribution kinds, a count pinned by `internal/packdecl/kinds_test.go`) —
-// `audio` also contributes an `env` block, the only one of the six that ships anything
+// `audio` also contributes an `env` block, the only one of them that ships anything
 // beside its loophole — and they are the dogfood for docs/design/loophole-packaging.md
 // §7 / OQ-LP11, whose prize is that "AGENTS ARE PACKS" becomes true of loopholes too.
-// `zai`, `cerebras`, `openrouter`, and `kilo` ship neither CLI nor loophole: provider/profile
+// `hello-daemon` is the odd one in that group and is an EXPERIMENT rather than a
+// capability: it is the only loophole here with no host daemon at all, and it exists to
+// answer broker-as-a-pack.md §10's second sequencing step — can a pack ship the
+// EXECUTABLE its jail-side daemon runs? Its README records what that measured, including
+// the part this file is responsible for: `embed.FS` reports 0444 for every file whatever
+// its mode on disk, so nothing delivered through THIS channel can ever be executable.
+// `zai`, `cerebras`, `openrouter`, `kilo` and `llamacpp` ship neither CLI nor loophole:
+// provider/profile
 // packs. zai was the first pack whose whole content is declarative facts; cerebras was the
 // first to carry a `needs` entry — the wire-bridge it joins when claude or copilot is selected;
-// kilo repeats that shape, while OpenRouter reaches its Anthropic route directly. `guardrails` ships neither either: blocked-tool refusals and install
+// kilo repeats that shape, while OpenRouter reaches its Anthropic route directly. `llamacpp`
+// is the first whose provider names NO credential variable and NO remote host: a local
+// llama-server, whose Anthropic endpoint is the server's own rather than a bridge's. `guardrails` ships neither either: blocked-tool refusals and install
 // requirements (9caba669 moved the blocked tools out of core — core blocks nothing by
 // default), the third kind of CLI-less pack. `wire-bridge` is the fourth kind and the
 // first of it: a `kind: "service"` pack, one in-jail daemon and its endpoint file,
@@ -69,5 +79,5 @@ package packs
 
 import "embed"
 
-//go:embed all:claude all:copilot all:opencode all:pi all:codex all:agy all:omp all:zai all:cerebras all:openrouter all:kilo all:audio all:host-processes all:journal all:cgroup-delegate all:serial all:guardrails all:wire-bridge all:openai-auth
+//go:embed all:claude all:copilot all:opencode all:pi all:codex all:agy all:omp all:zai all:cerebras all:openrouter all:kilo all:llamacpp all:audio all:host-processes all:journal all:cgroup-delegate all:serial all:guardrails all:wire-bridge all:openai-auth all:hello-daemon
 var FS embed.FS

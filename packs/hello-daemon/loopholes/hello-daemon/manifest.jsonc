@@ -1,0 +1,69 @@
+// The `hello-daemon` loophole — the EXPERIMENT broker-as-a-pack.md §10 step 2 asks
+// for: "a throwaway local pack whose `jail_daemon.cmd` is
+// `["{jail_loophole_dir}/bin/hello"]`, carrying a statically linked two-line binary".
+//
+// It exists to answer one question and nothing else: can a PACK ship the executable
+// its jail-side daemon runs?  §3 says yes on inventory — the module dir is bind
+// mounted `:ro` without `noexec`, `{jail_loophole_dir}` is legal in `jail_daemon.cmd`,
+// the pack-shipped subset never constrained `jail_daemon`, and `yolo-jaild supervise`
+// spawns the argv generically — and then says the honest thing about it: "nothing has
+// ever tried."  This is the trying.  See ../../README.md for what it measured.
+//
+// WHAT IT SHIPS IS A SHELL SCRIPT, NOT A COMPILED BINARY, and that substitution is
+// deliberate rather than a shortcut.  Every property under test here — a file the pack
+// ships, delivered through pack staging, mounted `:ro`, named by the token, and
+// EXECUTED BY THE KERNEL from that mount — is identical for a `#!` script and an ELF
+// image; both need the exec bit and both run off the same read-only bind.  What a
+// script cannot exercise is the ELF/nix-ld half (§3's "a runtime for a non-nix
+// binary"), which is named as unproven rather than quietly implied.  What a committed
+// ELF would cost is in the README, and it is not small: `packs/` is inside flake.nix's
+// `goSrc` fileset AND inside packs/embed.go, so the blob would ride in every yolo
+// binary and every hermetic image build, once per platform, forever.
+{
+  "name": "hello-daemon",
+  "description": "Experiment: runs a two-line program this pack ships, to prove a pack can deliver a jail-side daemon's executable (broker-as-a-pack.md §3/§10).",
+  "version": 1,
+  // NO DAEMON ON THE HOST, so there is no transport to speak of.  `none` is the
+  // enum's own word for it (loopholedecl/enums.go: "TransportNone means NO DAEMON,
+  // not a different transport"), and declaring it rather than letting the default
+  // stand keeps this manifest from claiming a loopback-TLS endpoint nothing
+  // publishes — an endpoint the in-jail reachability witness would then be entitled
+  // to look for.  (It would not, in fact: the witness enumerates the
+  // YOLO_SERVICE_*_ENDPOINT variables a host daemon's front publishes, and this
+  // loophole has no host daemon. Saying `none` makes that agreement a declaration
+  // instead of a coincidence.)
+  "transport": "none",
+  // OFF, like every other loophole that ships in a pack, and here the reason is not
+  // host access — this loophole crosses NOTHING: no host_daemon, no bind mount, no
+  // device, no ca_cert, no requires probe.  It is off because it is an EXPERIMENT and
+  // running one should be a deliberate act.  Selecting the pack is not that act; the
+  // switch is `"loopholes": {"hello-daemon": {"enabled": true}}`.
+  //
+  // Written out rather than omitted even though absent already means false, for the
+  // reason packs/host-processes states: this is the file a reader checks when they
+  // wonder why nothing happened, and a key that is not there answers nothing.
+  "default_enabled": false,
+  "jail_daemon": {
+    // THE LITERAL SHAPE §10 ASKS FOR.  `{jail_loophole_dir}` resolves (in
+    // internal/loopholes' resolve) to /etc/yolo-jail/loopholes/hello-daemon — the
+    // container mount point RuntimeArgsFor emits the `-v` for whenever a loophole
+    // declares a jail_daemon at all.  So the argv the supervisor receives names a path
+    // that exists only because this key is here.
+    "cmd": [
+      "{jail_loophole_dir}/bin/hello"
+    ],
+    // ONE SHOT.  The evidence is a line in
+    // ~/.local/state/yolo-jail-daemons/hello-daemon.log; re-running it would only
+    // append the same line.  A real jail daemon stays alive and takes the default
+    // ("on-failure").
+    //
+    // ⚠ `no` DOES NOT COVER A FAILED EXEC, and that is measured, not assumed:
+    // supervisor.superviseOne consults the restart policy only in
+    // waitAndMaybeRestart, which is reached after a SUCCESSFUL start — a start that
+    // fails (a non-executable file is `permission denied` from cmd.Start) takes the
+    // `if err := c.start(); err != nil` arm, which sleeps, doubles the backoff and
+    // retries forever, with the error discarded and the log file created empty.  That
+    // is the failure mode of the gap the README records, and it is silent.
+    "restart": "no"
+  }
+}

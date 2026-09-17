@@ -1,0 +1,39 @@
+{
+  "contributes": [
+    {
+      "endpoints": {
+        "anthropic": {
+          "base_url": "http://localhost:8080"
+        },
+        "openai": {
+          "base_url": "http://localhost:8080/v1",
+          "wire_api": "openai-chat-completions"
+        }
+      },
+      "kind": "provider",
+      "models": {
+        "default": "llama"
+      },
+      "name": "llamacpp",
+      "options": {
+        "api_timeout_ms": null,
+        "context_window": "32768",
+        "max_tokens": "8192",
+        "model": "default"
+      }
+    },
+    {
+      "kind": "profile",
+      "name": "llamacpp",
+      "provider": "llamacpp"
+    },
+    {
+      "kind": "env",
+      "profile": "llamacpp",
+      "vars": {
+        "CLAUDE_CODE_ATTRIBUTION_HEADER": "0"
+      }
+    }
+  ],
+  "name": "llamacpp"
+}
