@@ -10,7 +10,7 @@ vantage:
 
 # Roadmap
 
-**Status:** CURRENT — 2026-09-16. **46 rows**: 4 to rule first, 20 needing a decision,
+**Status:** CURRENT — 2026-09-16. **45 rows**: 4 to rule first, 19 needing a decision,
 14 ready to build, 6 waiting, 2 iced.
 
 This file is a **routing table, not a place to think**: one line per open decision, naming
@@ -23,7 +23,7 @@ derived rather than carried forward; re-derive the live-question totals with che
 $ rg -c '^(#{2,4} |\s*[0-9]+[a-z]?\. |\s*[-*] )(<a id="[^"]*"></a> ?)?💬' docs/ --sort path
 ```
 
-**116 live questions across 31 docs**, plus one 🔒 that command cannot see.
+**109 live questions across 30 docs**, plus one 🔒 that command cannot see.
 
 ## Rule these first
 
@@ -61,7 +61,6 @@ sitting. All four below are the first class.
 | 19 | What an attach does with the attacher's pack set | [`agent-config-packs.md`](agent-config-packs.md) · overtaken | 4 | [`OQ-ACP3`](agent-config-packs.md#-oq-acp3--whether-the-prism-should-become-a-standalone-tool-that-also-manages-host-configs) | **defect** — `internal/cli/run/run.go:766` re-renders before the attach branch at `:774` |
 | 20 | Whether `yolo host apply` is a convenience or the path | [`host-render-target.md`](../design/host-render-target.md) · no frontmatter | 3 | 9.2, [§9](../design/host-render-target.md#9-open-questions--the-discussion-part) | **doc** — product posture; [§8](../design/host-render-target.md#8-what-i-would-actually-do-in-order) step 3 is in 📦 regardless |
 | 21 | Whether the jail mounts the workspace at the host's path | [`workspace-path-mirroring.md`](../design/workspace-path-mirroring.md) · draft | 12 | [`OQ-WP8`](../design/workspace-path-mirroring.md#OQ-WP8) | **doc** — ratify the no |
-| 22 | What an internal rollout on `macos-user` promises on day one — where repos live, the Claude auth default, Copilot's credential, the Bedrock env bundle, and the two MDM edges | [`internal-rollout-macos-user.md`](internal-rollout-macos-user.md) · in-review | 7 | [`OQ-IR1`](internal-rollout-macos-user.md#OQ-IR1) | **build** — the whole announcement. Two of its fifteen promises are hard blockers with zero-code routes ([`P7`](internal-rollout-macos-user.md#p7) git refuses to operate in the workspace; [`P10`](internal-rollout-macos-user.md#p10) the Claude login stops sticking on day two), and no onboarding doc can be written until [`OQ-IR1`](internal-rollout-macos-user.md#OQ-IR1) is ruled |
 
 **Rule together, or not at all.** [`E1`](BACKLOG.md#-e1--collapse-host_files-modes-43-copy-merges-into-readonly) · [`E2`](BACKLOG.md#-e2--readonly-as-a-real-ro-mount-instead-of-0o444) · [`OQ-B`](pack-host-management-plan.md#open-questions) are one asymmetry seen three times, and each doc says so.
 [`OQ-BR3`](../design/bedrock-plumbing.md#OQ-BR3) and [`OQ-PS3`](../design/provider-switching.md#OQ-PS3) are the same decision in two files.
