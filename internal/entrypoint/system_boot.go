@@ -93,3 +93,19 @@ func generateLdCache(extraDirs ...string) {
 		<-done
 	}
 }
+
+// configureScratchPermissions ensures /tmp and /var/tmp are mode 01777 (sticky + world-writable).
+// On container backends where /tmp is backed by an anonymous volume (-v /tmp), podman initializes
+// permissions from the image's /tmp, which Nix derivations set to 0555 (read-only). Processes
+// that drop capabilities (such as Chromium child processes) cannot write to mode 0555 directories.
+func configureScratchPermissions() {
+	configureScratchPermissionsDirs("/tmp", "/var/tmp")
+}
+
+func configureScratchPermissionsDirs(dirs ...string) {
+	for _, dir := range dirs {
+		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
+			_ = os.Chmod(dir, os.ModeSticky|0o777)
+		}
+	}
+}

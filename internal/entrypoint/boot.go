@@ -513,6 +513,10 @@ func Main(args []string) error {
 	configureTimezone(e)
 	p.mark("configure_timezone")
 
+	// Ensure scratch directories (/tmp and /var/tmp) are mode 1777.
+	configureScratchPermissions()
+	p.mark("scratch_permissions")
+
 	// C4/C5's jail half: link the store-delivered package profiles into the
 	// /run/yolo/packages farm. THIS RUNS FIRST AMONG THE GENERATORS, and both things
 	// below it depend on that:
