@@ -7,26 +7,34 @@ package run
 // # This is the B-0 rule applied to a new kind
 //
 // run.go records B-0 as "a backend that looked provisioned and configured nothing", and the
-// whole run pipeline was restructured to end it. Two shipped backends make the loophole kind
-// a silent no-op, and both skips are WIDER than draft 1 of the design claimed:
-//
-//   - Apple Container: startLoopholes returns nil for rt == "container" BEFORE any external
-//     service starts, so EVERY pack-shipped host daemon is skipped there, intercepting or not.
-//     A different skip from the container-ARGS one draft 1 cited (loopholes/runtime.go's
-//     `intercepts` check, which only drops --add-host).
-//   - macos-user: the branch returns from Run() long before startLoopholes is reached, so the
-//     kind is inert on that backend ENTIRELY. macos-user-nix-and-features.md already states
-//     it; nothing printed it.
+// whole run pipeline was restructured to end it. ONE shipped backend makes the loophole kind
+// a silent no-op, and that skip is WIDER than draft 1 of the design claimed: on Apple
+// Container, startLoopholes returns nil for rt == "container" BEFORE any external service
+// starts, so EVERY pack-shipped host daemon is skipped there, intercepting or not. A
+// different skip from the container-ARGS one draft 1 cited (loopholes/runtime.go's
+// `intercepts` check, which only drops --add-host).
 //
 // So a pack whose whole purpose is a loophole could be installed, selected, and completely
 // inert, with the jail reporting a successful launch.
 //
+// ⚠ THERE WERE TWO SUCH BACKENDS UNTIL THE LIFECYCLE WAS GENERALISED, and macos-user's entry
+// is gone because the gap it named is CLOSED rather than because it became inconvenient. It
+// read "the branch returns from Run() long before startLoopholes is reached, so the kind is
+// inert on that backend ENTIRELY" — true of an arm that started one credential service by
+// hand, and false of one that goes through startLoopholesDisclosed like every container
+// launch (run.go's macos-user arm). What the report says there now is the PLATFORM axis
+// alone, which is the axis that still has something to say on a Mac: `audio`, `journal`,
+// `host-processes` and `cgroup-delegate` all declare `platforms: ["linux"]`. Keeping the
+// backend line would be the failure loopholeinert.go's own rule names one function down — a
+// warning that describes a closed gap teaches the reader to distrust the ones still true.
+//
 // # ONE MECHANISM, TWO AXES
 //
 // §3.1 is explicit that the platform declaration and the inert-backend report share one
-// mechanism, because platform (darwin vs linux) and backend (container, macos-user) are two
-// axes with ONE answer shape: "this loophole does nothing here, and here is why." Two
-// half-messages for one user-visible situation is how B-0 happened in the first place.
+// mechanism, because platform (darwin vs linux) and backend (container today; macos-user
+// until its lifecycle was generalised) are two axes with ONE answer shape: "this loophole
+// does nothing here, and here is why." Two half-messages for one user-visible situation is
+// how B-0 happened in the first place.
 //
 // The platform half is the PRODUCER's whole answer — loopholes.PlatformInertNotes, selection
 // included, not just its rendering. That is a correction: for a batch this file did its own
@@ -47,15 +55,18 @@ import (
 
 // backendInertReason says why a backend runs NO loophole host service, or "" when it does.
 //
-// Both answers are measured, and both are wider than draft 1 of the design claimed:
+// ONE backend answers non-empty, and its answer is wider than draft 1 of the design claimed:
+// on container (Apple Container), startLoopholes returns nil for rt == "container" before any
+// external service starts, so EVERY pack-shipped host daemon is skipped there, intercepting
+// or not. That is a different skip from the container-ARGS one (loopholes/runtime.go's
+// `intercepts` skip), which only drops --add-host.
 //
-//   - container (Apple Container): startLoopholes returns nil for rt == "container" before
-//     any external service starts, so EVERY pack-shipped host daemon is skipped there,
-//     intercepting or not. That is a different skip from the container-ARGS one
-//     (loopholes/runtime.go's `intercepts` skip), which only drops --add-host.
-//   - macos-user: the branch returns from Run() long before startLoopholes is reached, so
-//     the kind is inert on that backend ENTIRELY. macos-user-nix-and-features.md already
-//     states it; nothing printed it.
+// ⚠ macos-user ANSWERED TOO UNTIL THE LIFECYCLE WAS GENERALISED, on the grounds that its arm
+// "returns from Run() long before startLoopholes is reached". That arm now goes through
+// startLoopholesDisclosed, so the reason expired with the structure it described and the case
+// is deleted rather than reworded: a backend that starts every host service has no
+// backend-shaped reason to give, and leaving one would report a pack inert in the same launch
+// whose exec disclosure names its daemon. The file header carries the longer note.
 //
 // This is the B-0 rule applied to a new kind — run.go records B-0 as "a backend that looked
 // provisioned and configured nothing", and the pipeline was restructured to end it. A pack
@@ -83,10 +94,6 @@ func backendInertReason(rt string) string {
 		return "inert on this backend — Apple Container carries no container→host connection " +
 			"(measured on 1.1.0: the handshake completes and nothing crosses), so a " +
 			"loopback-tls loophole could not be reached from the jail this launch"
-	case "macos-user":
-		return "inert on this backend — the macos-user backend starts no loophole host " +
-			"services; a native process already reaches the host directly, so the whole " +
-			"mechanism is bypassed"
 	}
 	return ""
 }
@@ -95,9 +102,9 @@ func backendInertReason(rt string) string {
 // launch, naming the axis that made it inert.
 //
 // ONE MECHANISM, TWO AXES (§3.1, §8). Platform (`darwin` vs `linux`) and backend
-// (`container`, `macos-user`) both answer "this loophole does nothing here, and here is
-// why", and the design is explicit that splitting them would produce two half-messages for
-// one user-visible situation.
+// (`container` — the one backend that still starts nothing) both answer "this loophole does
+// nothing here, and here is why", and the design is explicit that splitting them would
+// produce two half-messages for one user-visible situation.
 //
 // BACKEND BEATS PLATFORM when both apply, and that is not arbitrary: an inert backend
 // starts no host service whatever the platform says, so the platform answer would be a

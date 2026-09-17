@@ -22,7 +22,7 @@ import (
 // Asserted on the BRIEFING THAT GETS WRITTEN, not on briefingLoopholes, so it fails if
 // the gate is bypassed anywhere between the two.
 func TestBriefingOmitsLoopholesOnBackendsThatStartNone(t *testing.T) {
-	for _, rt := range []string{"container", "macos-user"} {
+	for _, rt := range []string{"container"} {
 		t.Run(rt, func(t *testing.T) {
 			if body := briefingBodyFor(t, rt); strings.Contains(body, "acme-proxy") {
 				t.Errorf("the %s briefing advertises a loophole that backend never starts.\n"+
@@ -30,6 +30,17 @@ func TestBriefingOmitsLoopholesOnBackendsThatStartNone(t *testing.T) {
 					"that do not exist:\n%s", rt, body)
 			}
 		})
+	}
+}
+
+// macos-user is the case that INVERTED, and it is asserted rather than merely dropped from
+// the loop above: on 2026-09-17 that arm started going through startLoopholesDisclosed, so
+// the briefing must now advertise the loopholes it really does start. Deleting the subtest
+// without adding this one would have left the inversion untested in both directions.
+func TestBriefingListsLoopholesOnMacosUserNowThatItStartsThem(t *testing.T) {
+	if body := briefingBodyFor(t, "macos-user"); !strings.Contains(body, "acme-proxy") {
+		t.Errorf("macos-user starts host services now, so the briefing must say so — an "+
+			"agent that believes it has no loopholes plans around a feature it has:\n%s", body)
 	}
 }
 

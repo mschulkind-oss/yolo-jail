@@ -7,9 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
-	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -26,43 +24,59 @@ func inertOutput(t *testing.T, rt string, packs ...*packload.Pack) string {
 	return errBuf.String()
 }
 
-// BOTH INERT BACKENDS PRINT (§8 item 2). This is the B-0 rule applied to the new kind: run.go
+// THE INERT BACKEND PRINTS (§8 item 2). This is the B-0 rule applied to the new kind: run.go
 // records B-0 as "a backend that looked provisioned and configured nothing", and the pipeline
 // was restructured to end it. A pack whose whole purpose is a loophole must not look
 // installed on a backend that ignores it.
 //
 // Draft 1 of the design scoped this to one narrow slice of one backend (the `intercepts`
-// container-args skip). Measured, both skips are much wider: Apple Container returns from
+// container-args skip). Measured, the Apple Container skip is much wider: it returns from
 // startLoopholes before ANY external service starts, so every pack-shipped host daemon is
-// skipped there whether it intercepts or not; and macos-user returns from Run() long before
-// startLoopholes is reached at all, so the kind is inert on that backend entirely.
-func TestBothInertBackendsReportByName(t *testing.T) {
-	for _, rt := range []string{"container", "macos-user"} {
-		t.Run(rt, func(t *testing.T) {
-			p := writeLoopholePack(t, "acme", "acme-proxy",
-				`{"name": "acme-proxy", "default_enabled": true, "transport": "none"}`)
-			got := inertOutput(t, rt, p)
-			// The EXACT line the report renders, built from the same inputs — so this cannot
-			// pass on a partial match, and cannot rot into matching nothing when either axis's
-			// wording changes (see inertLineFor).
-			want := inertLineFor("acme", loopholes.InertNote{
-				Name: "acme-proxy", Axis: loopholes.AxisBackend, Reason: backendInertReason(rt),
-			})
-			if !strings.Contains(got, want) {
-				t.Fatalf("backend %s did not print the inert line\n want: %s\n  got: %s", rt, want, got)
-			}
-			// BY NAME, both halves: which pack, and which loophole. A line naming neither is
-			// unactionable on a machine with several packs.
-			for _, want := range []string{"acme", "acme-proxy"} {
-				if !strings.Contains(got, want) {
-					t.Errorf("the inert line does not name %q:\n%s", want, got)
-				}
-			}
-			// ONE line, not a paragraph: this prints on every launch on that backend.
-			if lines := strings.Count(strings.TrimRight(got, "\n"), "\n") + 1; lines != 1 {
-				t.Errorf("the inert report is %d lines for one loophole:\n%s", lines, got)
-			}
-		})
+// skipped there whether it intercepts or not.
+//
+// ⚠ IT WAS TestBothInertBackendsReportByName, and macos-user was the second subject. That arm
+// goes through startLoopholesDisclosed now, so it starts every host service this machine
+// supports and has no backend-shaped reason to report; what it says instead is the PLATFORM
+// axis, asserted through a real launch by TestMacosUserLaunchReportsAPlatformInertLoophole
+// below. Keeping the subtest would have asserted a line no launch can produce — which is the
+// state the macos-user half of this file was already caught in once.
+func TestTheInertBackendReportsByName(t *testing.T) {
+	const rt = "container"
+	p := writeLoopholePack(t, "acme", "acme-proxy",
+		`{"name": "acme-proxy", "default_enabled": true, "transport": "none"}`)
+	got := inertOutput(t, rt, p)
+	// The EXACT line the report renders, built from the same inputs — so this cannot
+	// pass on a partial match, and cannot rot into matching nothing when either axis's
+	// wording changes (see inertLineFor).
+	want := inertLineFor("acme", loopholes.InertNote{
+		Name: "acme-proxy", Axis: loopholes.AxisBackend, Reason: backendInertReason(rt),
+	})
+	if !strings.Contains(got, want) {
+		t.Fatalf("backend %s did not print the inert line\n want: %s\n  got: %s", rt, want, got)
+	}
+	// BY NAME, both halves: which pack, and which loophole. A line naming neither is
+	// unactionable on a machine with several packs.
+	for _, want := range []string{"acme", "acme-proxy"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the inert line does not name %q:\n%s", want, got)
+		}
+	}
+	// ONE line, not a paragraph: this prints on every launch on that backend.
+	if lines := strings.Count(strings.TrimRight(got, "\n"), "\n") + 1; lines != 1 {
+		t.Errorf("the inert report is %d lines for one loophole:\n%s", lines, got)
+	}
+}
+
+// AND macos-user PRINTS NO BACKEND LINE AT ALL, which is the other half of the same fact and
+// is asserted here so the deletion cannot be undone by accident: a backend line here would
+// report a pack inert in the same launch whose exec disclosure names its daemon.
+func TestMacosUserDrawsNoBackendInertLine(t *testing.T) {
+	p := writeLoopholePack(t, "acme", "acme-proxy",
+		`{"name": "acme-proxy", "default_enabled": true, "transport": "none"}`)
+	if got := inertOutput(t, "macos-user", p); got != "" {
+		t.Errorf("macos-user reported a loophole inert by BACKEND. It goes through "+
+			"startLoopholesDisclosed and starts every host service this machine supports, so "+
+			"the only honest line left there is the platform one:\n%s", got)
 	}
 }
 
@@ -72,9 +86,6 @@ func TestInertBackendLineExplainsWhy(t *testing.T) {
 	p := writeLoopholePack(t, "acme", "acme-proxy", `{"name": "acme-proxy", "default_enabled": true, "transport": "none"}`)
 	if got := inertOutput(t, "container", p); !strings.Contains(got, "Apple Container") {
 		t.Errorf("the container line does not name the backend:\n%s", got)
-	}
-	if got := inertOutput(t, "macos-user", p); !strings.Contains(got, "macos-user") {
-		t.Errorf("the macos-user line does not name the backend:\n%s", got)
 	}
 }
 
@@ -197,12 +208,19 @@ func TestInertReportWritesToStderr(t *testing.T) {
 	}
 }
 
-// backendInertReason must answer for EVERY shipped backend, and only the two that are
-// actually inert may answer non-empty. A new backend added without a decision here would
-// silently inherit "not inert" — which is the right default, but the list is asserted so the
-// decision is visible.
+// backendInertReason must answer for EVERY shipped backend, and only the one that is actually
+// inert may answer non-empty. A new backend added without a decision here would silently
+// inherit "not inert" — which is the right default, but the list is asserted so the decision
+// is visible.
+//
+// macos-user reads FALSE, and that is the ruling rather than an omission: its arm starts host
+// services through the same wrapper every container launch uses, so the backend axis has
+// nothing to say there. Two other readers move with this value — prepare.go decides whether
+// the briefing may list loopholes at all, and backendlimits.go tells the agent its in-jail
+// loophole clients have nothing to talk to — which is the "one source, two renderings" rule
+// working, and is why flipping it back needs a reason rather than a keystroke.
 func TestBackendInertReasonCoversEveryShippedBackend(t *testing.T) {
-	want := map[string]bool{"podman": false, "container": true, "macos-user": true}
+	want := map[string]bool{"podman": false, "container": true, "macos-user": false}
 	for rt, inert := range want {
 		if got := backendInertReason(rt) != ""; got != inert {
 			t.Errorf("backendInertReason(%q) inert=%v, want %v", rt, got, inert)
@@ -328,45 +346,51 @@ func TestPackLoopholesNamesFromTheDirBasename(t *testing.T) {
 	}
 }
 
-// THE CALL SITE, not the callee. TestBothInertBackendsReportByName above calls
-// notePackLoopholesInert DIRECTLY for both backends, which is the shape AGENTS.md warns
-// about: it passed for macos-user while no launch on that backend could produce the line,
-// because the report hangs off startLoopholesDisclosed inside runContainer and the
-// macos-user arm returns above it. The callee was pinned; the call site did not exist.
+// THE CALL SITE, not the callee. Every test above calls notePackLoopholesInert DIRECTLY,
+// which is the shape AGENTS.md warns about: the macos-user half of that used to pass while no
+// launch on that backend could produce the line, because the report hung off
+// startLoopholesDisclosed inside runContainer and the arm returned above it. The callee was
+// pinned; the call site did not exist.
 //
-// This drives a REAL launch — Run() with runtime=macos-user, the real claude pack (which
-// ships the claude-oauth-broker loophole), a stub backend handler — and asserts the line
-// reaches the user. Delete the notePackLoopholesInert call from the macos-user arm and
-// this fails; the test above does not.
-func TestMacosUserLaunchReportsInertLoopholes(t *testing.T) {
+// This drives a REAL launch — Run() with runtime=macos-user, a local pack whose loophole
+// declares a platform this machine is not, a stub backend handler — and asserts the line
+// reaches the user. Delete the notePackLoopholesInert call from the macos-user arm (it is
+// inside startLoopholesDisclosed on the live path and beside it on the dry-run one) and this
+// fails; the tests above do not.
+//
+// THE PLATFORM AXIS RATHER THAN THE BACKEND ONE, which is what this arm has left to report.
+// It was the claude pack's broker reported inert by BACKEND until the lifecycle generalised —
+// an assertion that is now false in the useful direction: that daemon STARTS here, and
+// TestMacosUserLaunchDisclosesAndStartsAPackHostDaemon is where that is pinned.
+func TestMacosUserLaunchReportsAPlatformInertLoophole(t *testing.T) {
+	other := "darwin"
+	if runtime.GOOS == "darwin" {
+		other = "linux"
+	}
 	home := packHome(t)
-	writeUserPacks(t, home, `["claude"]`)
 	ws := t.TempDir()
+	// No host_daemon: a loophole this machine cannot support must not be spawned, so there is
+	// nothing to run and the test needs no process at all.
+	writeLocalLoopholePack(t, home, "acme-proxy", `{"name": "acme-proxy",
+		"description": "acme proxy", "default_enabled": true, "transport": "none",
+		"platforms": ["`+other+`"]}`)
+	writeUserConfigJSON(t, home, `{"packs": []}`)
 
-	var stdout, stderr bytes.Buffer
-	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
-	reached := false
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _, _ string, _ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
-		reached = true
-		return 0
+	got := macosUserLaunch(t, ws)
+	if got.rc != 0 {
+		t.Fatalf("Run() = %d, want 0\n%s", got.rc, got.out)
 	}
-
-	if rc := Run(*o); rc != 0 {
-		t.Fatalf("Run() = %d, want 0\nstdout:\n%s\nstderr:\n%s", rc, stdout.String(), stderr.String())
+	if got.env == nil {
+		t.Fatalf("Run() never reached the macos-user handler:\n%s", got.out)
 	}
-	if !reached {
-		t.Fatal("Run() never reached the macos-user handler")
-	}
-
-	got := stdout.String() + stderr.String()
-	// By NAME, both halves — which pack and which loophole — for the same reason the
-	// direct-call test asserts it: a line naming neither is unactionable.
-	for _, want := range []string{"claude", "claude-oauth-broker", "macos-user"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("a macos-user launch did not tell the user %q is inert (missing %q).\n"+
-				"Every pack-shipped loophole is inert on this backend — it never reaches\n"+
-				"startLoopholes — so a pack whose whole purpose is a loophole looks installed\n"+
-				"and does nothing.\noutput:\n%s", "claude-oauth-broker", want, got)
+	// BY NAME, both halves — which pack and which loophole — for the same reason the
+	// direct-call tests assert it: a line naming neither is unactionable.
+	for _, want := range []string{"local", "acme-proxy", "unsupported on " + runtime.GOOS} {
+		if !strings.Contains(got.out, want) {
+			t.Errorf("a macos-user launch did not tell the user %q about its platform-inert "+
+				"loophole.\nEvery pack-shipped loophole used to be reported inert here for the "+
+				"BACKEND; the ones that stay inert are the ones this machine cannot run, and "+
+				"that line is now the only one this arm has to give.\noutput:\n%s", want, got.out)
 		}
 	}
 }

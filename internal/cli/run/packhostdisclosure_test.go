@@ -291,10 +291,14 @@ func TestHostExecDisclosurePrecedesTheSpawn(t *testing.T) {
 func TestEverySpawnEntryDisclosesHostExecFirst(t *testing.T) {
 	// The functions that reach a real host spawn. startLoopholesMatching holds the loop;
 	// the other two are the per-backend entrances to it.
+	// `startOpenAIAuth` left this census on 2026-09-17 with the subset spawn path it named
+	// (openaiauthbackend.go records why). This guard's own non-vacuity check is what caught
+	// the stale entry — it refuses to name a function the package does not have, rather than
+	// silently guarding one fewer subject, which is the failure mode every census in this
+	// package is written against.
 	spawnEntries := map[string]bool{
 		"startLoopholes":         true,
 		"startLoopholesMatching": true,
-		"startOpenAIAuth":        true,
 	}
 	const discloser = "notePackHostExec"
 
@@ -431,10 +435,13 @@ func TestOpenAIAuthSubsetSpawnDisclosesBeforeItSpawns(t *testing.T) {
 	o.Stdout = discardBuf()
 	o.PathExists = func(string) bool { return false } // no cgroup delegate
 
-	o.startOpenAIAuthDisclosed(cname, "macos-user", newConfig(), []*packload.Pack{p})
+	// Repointed 2026-09-17 from the retired startOpenAIAuthDisclosed: the ORDERING property
+	// is unchanged and is the point of this test, but the macos-user arm reaches it through
+	// the general boundary now.
+	o.startLoopholesDisclosed(cname, "macos-user", newConfig(), []*packload.Pack{p})
 
 	if seen == "" {
-		t.Fatalf("the subset spawn path disclosed no host execution; it wrote:\n%s", errBuf.all)
+		t.Fatalf("the macos-user spawn path disclosed no host execution; it wrote:\n%s", errBuf.all)
 	}
 	if !strings.Contains(errBuf.all, "runs pack code on your machine") {
 		t.Errorf("the exec disclosure did not print its heading:\n%s", errBuf.all)
@@ -449,11 +456,18 @@ func TestOpenAIAuthSubsetSpawnDisclosesBeforeItSpawns(t *testing.T) {
 	}
 }
 
-// AND IT DISCLOSES ONLY WHAT IT STARTS. The subset path starts one service, so handing the
-// disclosure the whole pack set would announce daemon argvs this backend leaves inert — an
-// overclaim (OQ-10) that the inert report printed on the same arm then contradicts pack for
-// pack. The exec block's value is that every line in it is about to run.
-func TestOpenAIAuthSubsetDisclosureOmitsPacksItLeavesInert(t *testing.T) {
+// AND IT DISCLOSES EVERYTHING IT STARTS — which is the INVERSION of what this test asserted
+// until 2026-09-17, and it is kept in inverted form rather than deleted because the underlying
+// invariant never moved: the exec block names exactly the daemons about to run, no more and no
+// less.
+//
+// It used to assert the OMISSION. The macos-user arm could start one service (the OpenAI
+// broker), so handing the disclosure the whole pack set would have announced argvs that path
+// never started — OQ-10's overclaim, which the inert report on the same arm would then have
+// contradicted pack for pack. That arm now starts every admitted loophole, so the same
+// invariant demands the opposite output: a second pack's daemon is no longer an overclaim, it
+// is a daemon, and omitting it would be the silent spawn this disclosure exists to prevent.
+func TestMacosUserDisclosureNamesEveryPackItNowStarts(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
@@ -480,15 +494,17 @@ func TestOpenAIAuthSubsetDisclosureOmitsPacksItLeavesInert(t *testing.T) {
 	o.Stdout = discardBuf()
 	o.PathExists = func(string) bool { return false }
 
-	o.startOpenAIAuthDisclosed(cname, "macos-user", newConfig(),
+	o.startLoopholesDisclosed(cname, "macos-user", newConfig(),
 		[]*packload.Pack{broker, other})
 
 	if !strings.Contains(errBuf.String(), "openai-auth-broker") {
-		t.Errorf("the one daemon this path DOES start is not disclosed:\n%s", errBuf.String())
+		t.Errorf("the broker this path starts is not disclosed:\n%s", errBuf.String())
 	}
-	if strings.Contains(errBuf.String(), "acme-daemon.py") {
-		t.Errorf("a daemon this backend leaves inert is announced as running on the user's "+
-			"machine:\n%s", errBuf.String())
+	if !strings.Contains(errBuf.String(), "acme-daemon.py") {
+		t.Errorf("a second pack's daemon now STARTS on this backend and must be named — "+
+			"this assertion was inverted on 2026-09-17, and a failure here means either the "+
+			"arm stopped starting it (then restore the omission form) or the disclosure went "+
+			"silent about code running on the user's machine:\n%s", errBuf.String())
 	}
 }
 

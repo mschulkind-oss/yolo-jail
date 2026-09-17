@@ -168,18 +168,23 @@ func TestShippedAudioPackIsReportedInertOnDarwin(t *testing.T) {
 	}
 }
 
-// The BACKEND axis of the same report: on Apple Container and macos-user the pack is inert
-// for a reason that has nothing to do with the platform, and backend BEATS platform when
-// both apply (an inert backend starts no host service whatever the platform says, and the
-// actionable line is "switch backends", not "get a different machine").
+// The BACKEND axis of the same report: on Apple Container the pack is inert for a reason
+// that has nothing to do with the platform, and backend BEATS platform when both apply (an
+// inert backend starts no host service whatever the platform says, and the actionable line
+// is "switch backends", not "get a different machine").
 //
 // Asserted over the real pack because that is the combination a macOS user actually hits:
-// darwin AND a container/macos-user backend, where two reasons apply and only one should
-// print.
+// darwin AND an inert backend, where two reasons apply and only one should print.
+//
+// ⚠ macos-user LEFT this loop on 2026-09-17, and the loop is down to one member as a
+// result. It is not a degenerate test: `container` still carries both axes, and the
+// precedence rule is what is under test. macos-user now starts every admitted loophole, so
+// on it the audio pack is inert for the PLATFORM reason alone — which is the other half of
+// this report, covered by TestMacosUserLaunchReportsAPlatformInertLoophole.
 func TestShippedAudioPackInertBackendBeatsPlatform(t *testing.T) {
 	p := shippedAudioPack(t)
 	name := packLoopholeDecls([]*packload.Pack{p})[0].Name
-	for _, rt := range []string{"container", "macos-user"} {
+	for _, rt := range []string{"container"} {
 		reason := backendInertReason(rt)
 		if reason == "" {
 			t.Fatalf("backend %q must report a loophole as inert", rt)

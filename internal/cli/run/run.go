@@ -319,53 +319,91 @@ func Run(opts Options) (rc int) {
 		// either, and the native backend is where a "where is my agent?" is hardest to
 		// diagnose (no image, no provisioning output to read back).
 		o.warnIfNoPacks()
-		// INERT LOOPHOLES, on this arm too — every pack-shipped loophole EXCEPT ONE. The
-		// OpenAI credential service starts here, a few lines below, through startOpenAIAuth;
-		// startLoopholes proper is still never reached, so its per-runtime allow list is not
-		// what decides this arm's subset, and notePackLoopholesInert is handed
-		// withoutOpenAIAuthPack so the one pack whose service DID start is not reported inert.
+		// THE HOST SERVICES, on this arm too — the WHOLE set, through the same spawn
+		// boundary the container path uses.
 		//
-		// Until 2026-08-24 this was the ONE inert backend that said nothing about the rest,
-		// because the report hangs off startLoopholesDisclosed inside runContainer and this
-		// arm returns above it.
+		// WHAT THIS REPLACED, AND WHAT IT WAS RIGHT ABOUT. Until now this arm started ONE
+		// service (the OpenAI credential broker, through startOpenAIAuthDisclosed) and
+		// handed notePackLoopholesInert withoutOpenAIAuthPack, so the one pack whose
+		// service DID start was not also reported inert. That scoping is correct for a
+		// SUBSET and is an underclaim for the full set: the exec disclosure must name every
+		// daemon about to run, and a pack reported inert while its daemon starts is the
+		// same untruth with the sign flipped. Both halves therefore take the whole pack set
+		// now, and the pairing stays complementary by construction rather than by two
+		// filters agreeing.
 		//
-		// The gap survived because the test for it called notePackLoopholesInert
-		// DIRECTLY for both backends, so the macos-user half asserted a line no launch
-		// could produce: the callee was pinned and the call site did not exist. That is
-		// the shape AGENTS.md names, found in the code that was written to prevent the
-		// same shape one layer down ("a pack whose whole purpose is a loophole must not
-		// look installed on a backend that ignores it").
+		// NOTHING HERE NEEDED A REACHABILITY MEASUREMENT, which is why the subset was all
+		// that was left to generalise. sharesLauncherNetns is true for this backend by
+		// CONSTRUCTION (loopholesruntime.go), so every loopback-TLS daemon publishes
+		// 127.0.0.1 and the sandbox — an ordinary child of this process on this process's
+		// own network stack — dials the listener's own loopback; the Seatbelt profile
+		// contains no network operation at all. The credential boundary that a 0600
+		// endpoint file raises across the uid split is answered in code:
+		// macosuser.EndpointGrantCommands grants the sandbox account read on the file and
+		// search on its directory, staged by BuildRunPlan for every endpoint variable this
+		// launch carries.
 		//
-		// It is NOT routed through startLoopholesDisclosed, and that wrapper's reason —
-		// disclosure inseparable from the SPAWN — stopped being free here the moment this arm
-		// began spawning pack-declared host code of its own (the OpenAI broker's
-		// `host_daemon`). ⚠ THIS PARAGRAPH RECORDED AN OPEN GAP UNTIL 2026-09-16: the
-		// "This launch runs pack code on your machine" line did NOT print on macos-user while
-		// the daemon it describes started, because notePackHostExec's one call site was inside
-		// the wrapper this arm returns above. It is CLOSED — the spawn below goes through
-		// startOpenAIAuthDisclosed, the subset path's own boundary, whose disclosure is scoped
-		// to the openai-auth pack for the reason that file gives (announcing the whole set here
-		// would name daemons this arm leaves inert). The READ half is printed by this arm
-		// itself, below the context-tree composition (notePackHostAccess).
+		// IT IS ROUTED THROUGH startLoopholesDisclosed, and that is the generalisation
+		// rather than a tidier spelling of it. The paragraph this replaced said the wrapper
+		// was not used because "disclosure inseparable from the SPAWN stopped being free
+		// here" once this arm spawned pack code of its own — which argued for a second
+		// boundary while the arm started a second, smaller set. With one set there is one
+		// boundary, and inheriting it is strictly stronger than restating the ordering:
+		// notePackHostExec cannot be separated from the spawn by any later edit to this
+		// arm. The READ half is still printed by this arm itself, below the context-tree
+		// composition (notePackHostAccess).
 		//
 		// Placing the inert REPORT beside warnIfNoPacks is still the honest choice for it:
-		// both answer "what will this launch not do for you".
+		// both answer "what will this launch not do for you". What it has left to say here
+		// is the PLATFORM axis alone — a backend that starts every host service has no
+		// backend-shaped reason left, which is why loopholeinert.go no longer has a
+		// macos-user case.
+		//
+		// ⚠ NEVER EXECUTED ON HARDWARE. Every line of this is pinned by unit tests and none
+		// of it has run on a Mac; the self-hosted arm64 runner
+		// (docs/plans/runbooks/mac-actions-runner.md) is where that changes.
 		launchEnv := channel.launchEnv()
-		if openAIAuthLoopholeActive(cfg) {
-			socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
-			endpointPath := filepath.Join(socketsDir, openAIAuthBrokerName+paths.ServiceEndpointExt)
-			if !o.DryRun {
-				handles := o.startOpenAIAuthDisclosed(cname, rt, cfg, staged.packs)
-				if len(handles) != 1 {
-					o.pr(o.Stderr).print("[bold red]OpenAI credential service did not start; refusing the macos-user launch.[/bold red]")
-					return 1
-				}
-				endpointPath = handles[0].hostPath
-				defer o.stopLoopholes(handles, socketsDir, "", "")
+		if o.DryRun {
+			// A plan render starts nothing, so the spawn boundary is not crossed: there is
+			// no host EXECUTION to disclose (a line saying otherwise would name daemons this
+			// invocation will not run), and the inert half — the one about what the launch
+			// will NOT do — prints on its own.
+			//
+			// THE ONE ENDPOINT A DRY RUN STILL NAMES is the credential service's, at the
+			// path the spawn would publish, and it must not grow into a prediction of the
+			// rest: with no handles to read paths off, predicting the others means a second
+			// copy of startLoopholesMatching's selection, which is exactly the drift that
+			// lets a report and a lifecycle disagree. It is named because the plan is read
+			// to check the ACL grant it gets (macosuser.EndpointGrantCommands) — the one
+			// thing a dry run is the right instrument for here.
+			o.notePackLoopholesInert(rt, staged.packs, cfg)
+			if openAIAuthLoopholeActive(cfg) {
+				launchEnv.Set(hostServiceEnvVar(openAIAuthBrokerName),
+					filepath.Join(hostServiceSocketsDir(cname, o.IsMacOS),
+						openAIAuthBrokerName+paths.ServiceEndpointExt))
 			}
-			launchEnv.Set(hostServiceEnvVar(openAIAuthBrokerName), endpointPath)
+		} else {
+			socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
+			handles := o.startLoopholesDisclosed(cname, rt, cfg, staged.packs)
+			defer o.stopLoopholes(handles, socketsDir, "", "")
+			for _, h := range handles {
+				// THE HOST PATH, never the jail path: there is no jail filesystem here, so
+				// the file the daemon published IS the file the sandbox opens.
+				// insertHostServiceEnv's container twin passes h.jailPath for the mirror
+				// reason — its consumer reads the bind destination.
+				launchEnv.Set(hostServiceLaunchEnvVar(h), h.hostPath)
+			}
+			// THE CREDENTIAL SERVICE IS STILL FAIL-CLOSED, and it is deliberately the only
+			// one: a launch whose OpenAI loophole is active and whose broker did not start
+			// hands the agent a subscription it cannot refresh, silently. Every other
+			// service degrades to "the jail cannot reach it", which startLoopholesMatching
+			// already warns about by name and which no launch of this backend is refused
+			// for — this arm emits no reachability disposition at all (loopholesruntime.go).
+			if openAIAuthLoopholeActive(cfg) && !startedLoophole(handles, openAIAuthBrokerName) {
+				o.pr(o.Stderr).print("[bold red]OpenAI credential service did not start; refusing the macos-user launch.[/bold red]")
+				return 1
+			}
 		}
-		o.notePackLoopholesInert(rt, withoutOpenAIAuthPack(staged.packs), cfg)
 		// THE OTHER TIER COLLAPSE — #39's mirror image — USED TO BE WARNED ABOUT HERE, and
 		// is fixed rather than reported: the bootstrap now symlinks every scope:workspace
 		// state dir into <workspace>/.yolo/home, the sidecar the container backends bind
@@ -1477,6 +1515,43 @@ func insertHostServiceEnv(runCmd []string, imageRef string, services []loopholeD
 		runCmd = insertStrsAt(runCmd, idx, []string{"-e", svc.envVarName + "=" + svc.jailPath})
 	}
 	return runCmd
+}
+
+// hostServiceLaunchEnvVar names the variable a NATIVE launch carries for one started host
+// service — the macos-user counterpart of the `-e` pair insertHostServiceEnv splices into a
+// container argv.
+//
+// THE HANDLE'S OWN NAME WHEN IT HAS ONE, because the spelling describes the VALUE: a
+// loopback-TLS service publishes an endpoint file and a socket-transport one publishes a
+// socket, and hostServiceEnvVar/hostServiceSocketEnvVar exist so a client cannot read the
+// wrong kind of path out of the right-looking variable.
+//
+// AN EMPTY NAME IS THE HOST-SCOPED FRONT (startHostSingleton), which carries none because the
+// container path emits its variable much earlier, at argv-assembly time
+// (hostServicesMountArgs), optimistically and before the front has published. This backend
+// assembles no argv and has no in-jail reachability witness to refuse a broken promise, so the
+// handle is both the only source it has and the honest one: the variable is emitted for a
+// service that really did publish. Falling back to hostServiceEnvVar rather than skipping is
+// what keeps the credential daemons — the broker and the OpenAI service, both host-scoped —
+// from being the two this arm silently omits.
+func hostServiceLaunchEnvVar(h loopholeDaemon) string {
+	if h.envVarName != "" {
+		return h.envVarName
+	}
+	return hostServiceEnvVar(h.name)
+}
+
+// startedLoophole reports whether the lifecycle returned a handle for one service, which is
+// the only evidence a caller has that it published: every start path warns and returns no
+// handle rather than failing, so "did this one come up" is a question about the returned
+// slice and never about the config.
+func startedLoophole(handles []loopholeDaemon, name string) bool {
+	for _, h := range handles {
+		if h.name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // attachExisting runs the exec-into-existing-container branch (and the

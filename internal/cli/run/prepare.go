@@ -86,9 +86,14 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	// GATED ON THE BACKEND, because `Honored()` has no backend term. It answers "is this
 	// loophole enabled, supported here, and allowed to run host code" — all true on a
 	// backend that then starts none of them. Apple Container returns from startLoopholes
-	// before any host service starts and macos-user never reaches it at all, so on those
-	// two the unfiltered list renders a section headed "host capabilities wired into this
-	// jail" describing daemons that do not exist.
+	// before any host service starts, so there the unfiltered list renders a section headed
+	// "host capabilities wired into this jail" describing daemons that do not exist.
+	//
+	// macos-user was the second such backend until 2026-09-17 and is no longer one: it now
+	// routes through startLoopholesDisclosed and starts every admitted loophole, so the
+	// section is TRUE there and this gate correctly stops filtering it. The gate needed no
+	// edit for that — it asks the backend, and the backend's answer changed — which is the
+	// property to preserve if a third backend ever joins or leaves.
 	//
 	// That is the exact failure briefingLoopholes was already fixed once to prevent —
 	// its own comment records switching from Enabled() to Active() so an enabled-but-

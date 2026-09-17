@@ -6,8 +6,9 @@ package run
 //
 // Two things live here, in that order:
 //
-//  1. The DISCLOSURE CLASSIFICATION — which claim kinds cross the boundary, and whether a
-//     kind's crossing is a host READ or host EXECUTION. Data, not a hardcoded switch inside
+//  1. The DISCLOSURE CLASSIFICATION — which claim kinds cross the boundary, whether a
+//     kind's crossing is a host READ or host EXECUTION, and (since OQ-TP10) which claims
+//     execute inside the JAIL instead of crossing at all. Data, not a hardcoded switch inside
 //     the printer, because the printer's hardcoded set is exactly the defect §3.3 measured:
 //     "notePackHostAccess switches on KindMount, KindReadsHost, KindEnv and drops every
 //     other claim kind" — with no test to catch the next kind that gets dropped.
@@ -16,19 +17,23 @@ package run
 //     silent on success, so "a fetched pack's daemon could start on every launch for months
 //     with the only host-side record being a lockfile the user has to go read."
 //
-// THERE ARE TWO SPAWN BOUNDARIES, not one, and this file used to be written as if it held the
-// only one. The SUBSET path — a backend that starts the OpenAI credential service and nothing
-// else — has its own, startOpenAIAuthDisclosed in openaiauthbackend.go, because macos-user
-// returns from Run above the wrapper here and reached the daemon directly. Both call
-// notePackHostExec; the guard that keeps that true for any third path is
-// TestEverySpawnEntryDisclosesHostExecFirst, which asks the AST what encloses each spawn call
-// rather than grepping for one spelling of one of them.
+// THERE IS ONE SPAWN BOUNDARY AGAIN, as of 2026-09-17, and the history is worth keeping
+// because it is why the guard below exists. There were two: the SUBSET path — a backend that
+// started the OpenAI credential service and nothing else — had its own wrapper in
+// openaiauthbackend.go, because macos-user returned from Run above this one and reached the
+// daemon directly. That arm now routes through this wrapper like every other backend, so the
+// subset path and its wrapper are deleted (that file records the inversion). The guard that
+// would catch a third path appearing is TestEverySpawnEntryDisclosesHostExecFirst, which asks
+// the AST what encloses each spawn call rather than grepping for one spelling of one of them —
+// and which refuses to run against a name the package no longer has, so it cannot quietly
+// guard one fewer subject.
 //
 // The INERT REPORT the wrapper also calls is its own file (loopholeinert.go): it answers a
 // different question ("will this even run here?") on a different axis pair, and it is the one
 // half that has nothing to do with ordering.
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -49,14 +54,34 @@ import (
 // fails the moment a kind this file does not classify appears in packdecl's closed set.
 const packLoopholeKindName = "loophole"
 
-// disclosureClass says what a claim kind does to the user's machine, which is what decides
-// both WHETHER it is disclosed at launch and WHEN.
+// pluginClaimTargetPrefix is the Target a WRAPPED PLUGIN's claim carries — "plugin:<name>",
+// built in packload/footprint.go's Plugins loop. It is what distinguishes that claim from an
+// ordinary `skills` one, which the two share a kind with.
+//
+// Spelled as a STRING here for packLoopholeKindName's reason one file over: the value is the
+// contract between the producer and this classifier, and a prefix renamed on one side alone
+// would leave this class matching nothing — silently, which is the failure this whole file
+// exists to end. The guard is that the tests build the claim with the REAL producer
+// (packload.FootprintOf over a loaded pack) rather than by hand, so a rename fails there.
+//
+// It cannot collide with an ordinary `skills` claim, whose target is a manifest path:
+// footprint.go picks this shape because a manifest path may not contain a colon.
+const pluginClaimTargetPrefix = "plugin:"
+
+// disclosureClass says what a claim does — to the user's machine for the three host classes,
+// and inside the jail for the fourth — which is what decides WHETHER it is disclosed at
+// launch, WHEN, and in which block.
 type disclosureClass int
 
 const (
-	// disclosureSkip: nothing crosses the boundary. A jail-internal effect (a skills tree, a
-	// config surface, launch flags, a home subtree yolo owns) is not something the launch
-	// discloses — it is what the jail IS.
+	// disclosureSkip: nothing crosses the boundary and nothing runs. A jail-internal EFFECT
+	// (a skills tree, a config surface, launch flags, a home subtree yolo owns) is not
+	// something the launch discloses — it is what the jail IS.
+	//
+	// THAT DEFINITION IS ABOUT CONTENT, and reading it as "jail-internal, therefore silent"
+	// is what left a hole here until OQ-TP10: code an agent runs on its own lifecycle is
+	// jail-internal too, and "what the jail is" was never an argument for saying nothing
+	// about it. It has its own class below.
 	disclosureSkip disclosureClass = iota
 	// disclosureRead: the claim reads the user's host, or sets the jail's environment.
 	// Printed with the launch banner. For a read, printing after the fact is merely
@@ -67,6 +92,35 @@ const (
 	// after the spawn the line is not a disclosure, it is a notification that something
 	// already happened (§4.3 G4).
 	disclosureExec
+	// disclosureJailExec: the claim delivers CODE THAT RUNS INSIDE THE JAIL — today a wrapped
+	// plugin's `hooks`, `mcpServers` or `lspServers`, which the agent starts on its own
+	// lifecycle.
+	//
+	// THE FOURTH CLASS, and the axis is the whole point. The three above are axes of HOST
+	// crossing — nothing, a read, an execution — and this one crosses nothing on the host at
+	// all. trust-paths.md OQ-TP10 ruled (a), "plugin claims get their own disclosure class",
+	// and deliberately left WHICH class open: "a fourth class, or a changed definition of the
+	// first — a decision, not a lookup", with the warning that letting it default would reach
+	// disclosureExec and "announce 'runs code on the host' about code that does not". A fourth
+	// class is the decision, because the first three answer a question about the user's
+	// MACHINE and this claim's answer to that question is honestly "nothing".
+	//
+	// Rendered by packJailCodeLines, NOT by disclosedClaims. report-tiers.md decided the
+	// rendering before this was built — P5 (named, not itemized), P6 (count what the reader
+	// cares about: hooks and servers) and P1 (a property of the pack set is stated once per
+	// set) make it ONE COUNTED LINE PER PACK — so handing this class to the per-claim renderer
+	// would print the line-per-hook shape the ruling costed out and rejected.
+	//
+	// ⚠ A LOOPHOLE'S `jail_daemon` IS NOT CARRIED YET, and the ruling says this class covers
+	// it: trust-paths.md §3.2 measured that a loophole declaring only a `jail_daemon` produces
+	// ZERO claims, so a supervised UID-0 process in the jail is named nowhere, and a class
+	// that renders COUNTS can name a zero-claim crossing where one rendering claims could not.
+	// What it needs first is the per-launch answer to "will it actually run" — a declared
+	// daemon whose loophole is disabled, or whose backend is inert, starts nothing — and that
+	// answer belongs to notePackLoopholesInert's producer (loopholeinert.go), not to a second
+	// selection written here. Announcing a daemon that never starts is the overclaim the
+	// `autonomy` and `profile` rows below refuse to make.
+	disclosureJailExec
 )
 
 // disclosureClasses is the explicit classification of every kind in packdecl's closed set.
@@ -117,33 +171,22 @@ var disclosureClasses = map[packdecl.Kind]disclosureClass{
 	// the answer here is nothing. A blocked tool that the agent then discovers is blocked
 	// announces itself, by refusing, at the moment it matters.
 	packdecl.KindBlockedTool: disclosureSkip,
-	// skills: a prose tree an agent reads, which is squarely what disclosureSkip is for.
+	// skills: a prose tree an agent reads, which is squarely what disclosureSkip is for —
+	// AT THE KIND LEVEL, which is the only level this table speaks at.
 	//
-	// ⚠ AND IT IS THE KNOWN HOLE IN THIS TABLE — trust-paths.md OQ-TP10, RULED (a) on
-	// 2026-09-14 and NOT YET BUILT. A wrapped plugin's `hooks` and `mcpServers` are
-	// reported under this kind (packload/footprint.go, the Plugins loop), because what they
-	// declare lives in the plugin's own manifest rather than in pack.json — so code that
-	// runs on the agent's lifecycle inherits `skills`'s classification and reaches no
-	// banner. TP9 deleted the approval gate while KEEPING this banner as the compensating
-	// disclosure; that is the sentence the hole falsifies.
+	// A WRAPPED PLUGIN'S CLAIM IS REPORTED UNDER THIS KIND TOO (packload/footprint.go, the
+	// Plugins loop), because what a plugin declares lives in its own manifest rather than in
+	// pack.json — so `hooks`, `mcpServers` and `lspServers`, which the agent runs on its
+	// lifecycle, used to inherit this row and reach no banner at all. That was the known hole
+	// TP9's deletion of the approval gate made load-bearing: the banner it KEPT as the
+	// compensating disclosure was silent about exactly the contribution that runs code.
 	//
-	// Reclassifying THIS LINE is not the fix and the ruling says so: it would announce
-	// every skill file and bury the hooks in the noise that made disclosureSkip right here
-	// (option (c), rejected). The fix is a claim kind of its own, which packload already
-	// has the shape for — SupersedesClaimKind and ExecutablesClaimKind are display-only
-	// kinds outside packdecl's closed set.
-	//
-	// ⚠ WHAT THE RULING DID NOT SETTLE, so whoever builds this decides it: WHICH CLASS.
-	// All three below are axes of HOST crossing, and disclosureSkip's own definition calls
-	// a jail-internal effect "what the jail IS". A plugin hook runs in the JAIL. So this
-	// needs a fourth class, or a changed definition of the first — the ruling settled the
-	// RENDERING (one counted line per pack, itemization to boot.log, ungateable per
-	// report-tiers P4) and left the class open. Do not default it; the fail-closed default
-	// is disclosureExec, which would print "runs code on the host" about code that does not.
-	//
-	// Pinned meanwhile by TestWrappedPluginHooksAreDeliveredAndDisclosed
-	// (packnohostgate_test.go), which asserts the footprint claim and states the gap rather
-	// than papering over it.
+	// It is closed PER CLAIM, not by moving this row: pluginCodeClaim below routes those
+	// claims to disclosureJailExec (trust-paths.md OQ-TP10, ruled (a) on 2026-09-14). The row
+	// stays disclosureSkip because the ruling rejected reclassifying it — option (c), which
+	// "would announce every skill file and bury the hooks in the noise that made
+	// disclosureSkip right here" — and because a plugin shipping only skills, commands or
+	// output styles is prose, and belongs here with them.
 	packdecl.KindSkills:        disclosureSkip,
 	packdecl.KindFiles:         disclosureSkip,
 	packdecl.KindConfig:        disclosureSkip,
@@ -227,12 +270,34 @@ func disclosureClassOf(k packdecl.Kind) disclosureClass {
 // intercept's CA, a `:ro` bind, a passed-through device all cross the boundary and belong in
 // the disclosure, but none of them is code about to execute, so putting them in the
 // pre-spawn block would dilute the one block whose whole value is that it is short.
+//
+// THE JAIL AXIS IS DECIDED FIRST, because it is not a point on the host one. A plugin claim's
+// KIND is `skills` (disclosureSkip) and its RunsHostCode is false, so both host questions
+// below answer "nothing crosses your machine" — correctly, and that is precisely how code
+// that runs on the agent's lifecycle reached no banner for months.
 func disclosureClassOfClaim(c packload.Claim) disclosureClass {
+	if pluginCodeClaim(c) {
+		return disclosureJailExec
+	}
 	class := disclosureClassOf(c.Kind)
 	if class == disclosureExec && !c.RunsHostCode {
 		return disclosureRead
 	}
 	return class
+}
+
+// pluginCodeClaim reports whether a claim is a wrapped plugin's AND declares a component that
+// runs code.
+//
+// ReviewWorthy is the discriminator because on THIS claim it is the code question: the
+// producer sets it from pluginpack.Plugin.RunsCode (footprint.go's Plugins loop), which is
+// true exactly when the manifest declares `hooks`, `mcpServers` or `lspServers`. A plugin
+// shipping only skills, commands or output styles is prose, keeps `skills`'s disclosureSkip,
+// and stays off the launch — announcing it is option (c), which OQ-TP10 rejected for burying
+// the hooks in the noise.
+func pluginCodeClaim(c packload.Claim) bool {
+	return c.Kind == packdecl.KindSkills &&
+		strings.HasPrefix(c.Target, pluginClaimTargetPrefix) && c.ReviewWorthy
 }
 
 // disclosureLine is one claim rendered for the launch disclosure.
@@ -254,6 +319,10 @@ type disclosureLine struct{ pack, claim string }
 // Classified per CLAIM (disclosureClassOfClaim), not per kind, so a loophole's several claims
 // land in the right block each: the daemon argv before the spawn, its CA and binds with the
 // rest of the environment.
+//
+// ONE CLASS IS DELIBERATELY NOT RENDERED HERE. disclosureJailExec is a COUNTED line per pack
+// (packJailCodeLines) rather than a line per claim, so asking this function for it would
+// produce the per-hook shape OQ-TP10's rendering rejected. It answers for the two host blocks.
 //
 // THERE IS NOTHING LEFT TO SUBTRACT HERE, and this comment said otherwise until 2026-09-09.
 // One kind used to need the gate applied at this point, via a predicate called
@@ -339,6 +408,120 @@ func (o *Options) notePackHostExec(packs []*packload.Pack) {
 	}
 }
 
+// packJailCodeLines renders ONE LINE PER PACK saying how much pack-contributed code will run
+// INSIDE the jail, counted by component kind.
+//
+// THE SHAPE IS NOT DECIDED HERE. report-tiers.md decided it before this was built, which is
+// why OQ-TP10 could rule (a) without costing the launch a line per hook: P5 (the invariant is
+// *named*, not itemized — "appearing once is appearing"), P6 ("counts count what the reader
+// cares about", whose own examples include servers and skills) and P1 ("a property of the
+// pack set is stated once per set") together make it one counted line per pack. The
+// itemization is a command away — `yolo pack footprint` prints every plugin claim, naming the
+// plugin and the components it declares — and the header says so, rather than each line
+// repeating it (P1 again).
+//
+// THE FOOTPRINT DECIDES THE SET, the plugin tree only counts it. The loop takes the packs and
+// names the claims classified disclosureJailExec and then counts the components of exactly
+// those plugins, so this disclosure and `yolo pack footprint` cannot come to describe
+// different sets — the property disclosedClaims states for the host half.
+//
+// WHAT THE NUMBER BESIDE A COMPONENT COUNTS is how many of the pack's plugins DECLARE it, not
+// how many hook entries there are. yolo deliberately does not decode someone else's manifest
+// schema (pluginpack.Manifest keeps every component as a RawMessage, so that their next
+// release is not yolo's parse error), so the entry count is a fact this build does not have —
+// and a count that looked like one would be worse than the honest one.
+func packJailCodeLines(packs []*packload.Pack) []disclosureLine {
+	var lines []disclosureLine
+	for _, p := range packs {
+		disclosed := map[string]bool{}
+		for _, c := range packload.FootprintOf(p).Claims {
+			if disclosureClassOfClaim(c) != disclosureJailExec {
+				continue
+			}
+			disclosed[strings.TrimPrefix(c.Target, pluginClaimTargetPrefix)] = true
+		}
+		if len(disclosed) == 0 {
+			continue
+		}
+		var order []string
+		counts := map[string]int{}
+		for _, pl := range p.Plugins() {
+			if !disclosed[pl.Name()] {
+				continue
+			}
+			for _, comp := range pl.Components() {
+				if !comp.RunsCode {
+					continue
+				}
+				if counts[comp.Name] == 0 {
+					order = append(order, comp.Name)
+				}
+				counts[comp.Name]++
+			}
+		}
+		lines = append(lines, disclosureLine{p.Name, jailCodeSummary(len(disclosed), order, counts)})
+	}
+	return lines
+}
+
+// jailCodeSummary is one pack's counted line. The component order is the manifest's own
+// (pluginpack.Components returns a fixed order), so two launches of one pack print the same
+// line and a reader can compare them.
+func jailCodeSummary(plugins int, order []string, counts map[string]int) string {
+	s := strconv.Itoa(plugins) + " wrapped plugin runs code in the jail"
+	if plugins != 1 {
+		s = strconv.Itoa(plugins) + " wrapped plugins run code in the jail"
+	}
+	for i, name := range order {
+		sep := ", "
+		if i == 0 {
+			sep = " — "
+		}
+		s += sep + name + " (" + strconv.Itoa(counts[name]) + ")"
+	}
+	return s
+}
+
+// notePackJailCode prints, to stderr, the code each loaded pack delivers that runs INSIDE the
+// jail (disclosureJailExec).
+//
+// NOT [bold yellow]: that register is notePackHostExec's, and it means "this is the last
+// moment at which reading the line can change what runs on YOUR machine". Not [dim] either —
+// that is notePackHostAccess's register for environment facts, and this is code. The register
+// is the severity, so a third proposition gets the middle one.
+//
+// THE HEADER CARRIES THE POINTER, once, because the itemization is what the line leaves out
+// and a reader who wants it should not have to know where claims live (P1, P2). It is the
+// footprint report, and the spelling is deliberately left bare: `yolo pack footprint <name>`
+// resolves an EMBEDDED pack, while a pack the user fetched or wrote is footprinted by its
+// local path — a distinction that belongs in that command's help, not in a launch line.
+//
+// IT CANNOT BE GATED, and no flag may be added that could gate it (report-tiers.md P4, the
+// launch stream's "a launch has no quiet mode"; AGENTS.md states the same invariant). The
+// compression above IS the density control: one line per pack, not one per hook. A
+// suppressible disclosure would delete exactly what OQ-TP9 kept when it deleted the approval
+// gate — and this line is the half of that banner OQ-TP9's own sentence was false about.
+//
+// EVERY BACKEND PRINTS IT, and that became true the same day this was written. The caveat
+// here said macos-user would not: that arm returned from Run above this wrapper and disclosed
+// through a subset path scoped to what it SPAWNED on the host — the wrong set for this
+// question, since every selected pack's plugins reach that backend's agent too. The arm now
+// routes through this wrapper with the whole pack set, so the gap closed by removal rather
+// than by the second call site the caveat proposed. Nothing here is backend-conditional, and
+// nothing about it should become so: a plugin's hooks run inside whatever the jail is.
+func (o *Options) notePackJailCode(packs []*packload.Pack) {
+	lines := packJailCodeLines(packs)
+	if len(lines) == 0 {
+		return
+	}
+	out := o.pr(o.Stderr)
+	out.print("[yellow]This launch delivers pack code that runs inside the jail " +
+		"(`yolo pack footprint` names each one):[/yellow]")
+	for _, l := range lines {
+		out.print("[yellow]  " + l.pack + ": " + l.claim + "[/yellow]")
+	}
+}
+
 // startLoopholesDisclosed is the SPAWN BOUNDARY: disclose, report what will not run, then
 // start the host services.
 //
@@ -352,11 +535,17 @@ func (o *Options) notePackHostExec(packs []*packload.Pack) {
 // startLoopholes reachable through exactly one path that has already disclosed, so the
 // invariant cannot be broken by moving a line. TestStartLoopholesHasOneDisclosedCallSite
 // pins that there is no second call site. It is also where the inert-on-backend report hangs,
-// for the same reason: everything a user must know before host code runs (or before they
-// conclude it did) belongs at one boundary.
+// and since OQ-TP10 where the JAIL-execution disclosure hangs, for the same reason:
+// everything a user must know before any of this launch's code runs (or before they conclude
+// it did) belongs at one boundary.
 func (o *Options) startLoopholesDisclosed(cname, rt string, cfg *jsonx.OrderedMap,
 	packs []*packload.Pack) []loopholeDaemon {
 	o.notePackHostExec(packs)
+	// The JAIL half of the same question — pack code that runs, on the other side of the
+	// boundary — and it prints here because this wrapper is the last host-side moment before
+	// the container takes the terminal. A hook fires on the agent's lifecycle, which is after
+	// every line printed here, so a disclosure at this point still precedes what it names.
+	o.notePackJailCode(packs)
 	// The other half of the same honesty: on a backend that starts no host services at all,
 	// say so rather than printing an exec disclosure for a daemon that will never run.
 	inertPacks := packs

@@ -370,13 +370,7 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 	stageCommands = append(stageCommands, StagePackCommands(hostPackRoot, cname, "")...)
 	stageCommands = append(stageCommands, StageHomeOverlayCommands(hostHomeOverlay, cname, "")...)
 	stageCommands = append(stageCommands, StageCtxCommands(hostCtx.Tree, cname, "")...)
-	if sandboxEnv != nil {
-		if value, ok := sandboxEnv.Get("YOLO_SERVICE_OPENAI_AUTH_BROKER_ENDPOINT"); ok {
-			if endpoint, ok := value.(string); ok && endpoint != "" {
-				stageCommands = append(stageCommands, EndpointGrantCommands(endpoint, "")...)
-			}
-		}
-	}
+	stageCommands = append(stageCommands, endpointGrantCommands(sandboxEnv)...)
 
 	return RunPlan{
 		Workspace:   workspace,
@@ -410,6 +404,92 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 		DarwinSkipped:      darwinSkipped,
 		DarwinMaterialized: darwin != nil,
 	}
+}
+
+// endpointGrantCommands is the cross-uid grant for EVERY published host-service endpoint this
+// launch carries, read off the launch env rather than named one service at a time.
+//
+// IT USED TO NAME ONE VARIABLE, `YOLO_SERVICE_OPENAI_AUTH_BROKER_ENDPOINT`, because the
+// macos-user arm started exactly one host service. The arm goes through the whole lifecycle
+// now (internal/cli/run/run.go), so a hardcoded name would deliver the credential broker's
+// endpoint and silently withhold every other one — and a withheld grant is not a missing
+// feature but a service the sandbox is TOLD about and cannot open, which is the worst of the
+// three states available.
+//
+// THE ENV IS THE MANIFEST, for macoshomeoverlay.go's reason one layer over: the run pipeline
+// already decided which services published and wrote one variable per published endpoint, so
+// re-deriving the set here would be a second selector over the same launch. paths' own prefix
+// and suffix are the discriminator, never a literal — the producer (hostServiceEnvVar) and
+// this consumer must not be able to drift apart by a re-typing.
+//
+// ⚠ ENDPOINT FILES ONLY, never the `_SOCKET` spelling, and the exclusion is about the ACE
+// rather than about tidiness: a Unix socket needs WRITE to connect(2) and EndpointGrantCommands
+// grants READ (loophole-transport.md OQ-T5), so a socket handed to it would be granted an
+// access that cannot be used. No shipped loophole reaches that state on a Mac — the one
+// socket-transport service left is the cgroup delegate, which is Linux-only — so this is a
+// boundary being stated before it is crossed, not one being worked around.
+//
+// DEDUPED ON THE WHOLE COMMAND, because every endpoint of one launch lives in the SAME
+// per-jail services dir, so the directory's search ACE repeats once per service. A stage
+// command's failure is FATAL to the launch (orchestrator.go), so a repeated `chmod +a` is not
+// a cosmetic duplicate. Deduping the emitted argv rather than the parent path is what keeps
+// this from re-deriving what EndpointGrantCommands decided to emit.
+func endpointGrantCommands(sandboxEnv *jsonx.OrderedMap) [][]string {
+	if sandboxEnv == nil {
+		return nil
+	}
+	var out [][]string
+	seen := map[string]bool{}
+	for _, k := range sandboxEnv.Keys() {
+		if !isServiceEndpointVar(k) {
+			continue
+		}
+		value, _ := sandboxEnv.Get(k)
+		endpoint, ok := value.(string)
+		if !ok || endpoint == "" {
+			continue
+		}
+		for _, cmd := range EndpointGrantCommands(endpoint, "") {
+			key := strings.Join(cmd, "\x00")
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, cmd)
+		}
+	}
+	return out
+}
+
+// isServiceEndpointVar reports whether a variable name is a host service's ENDPOINT-FILE
+// variable — the producer's own two halves (paths.ServiceEnvVarPrefix/Suffix), never a
+// literal, so the grant here and the emission in internal/cli/run cannot drift apart by a
+// re-typing.
+//
+// The length guard rejects the one degenerate name the two halves overlap on
+// (`YOLO_SERVICE_ENDPOINT`), which no service can produce and which would otherwise be read
+// as an endpoint with an empty name.
+func isServiceEndpointVar(key string) bool {
+	return len(key) > len(paths.ServiceEnvVarPrefix)+len(paths.ServiceEnvVarSuffix) &&
+		strings.HasPrefix(key, paths.ServiceEnvVarPrefix) &&
+		strings.HasSuffix(key, paths.ServiceEnvVarSuffix)
+}
+
+// stageCommandsNameEnvValue reports whether some staged command names the exact value the
+// rendered env file exports for key.
+//
+// It offers each ARGUMENT back to the file's own renderer rather than cutting a value out of
+// the file, so the question is "did the thing the sandbox will read get staged" asked through
+// one notion of the file's syntax — the reason SandboxEnvFileSets exists at all.
+func stageCommandsNameEnvValue(cmds [][]string, content, key string) bool {
+	for _, cmd := range cmds {
+		for _, arg := range cmd {
+			if SandboxEnvFileSets(content, key, arg) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // buildBootstrapEnv composes the env baked onto the `yolo internal darwin-bootstrap` self-exec
@@ -838,6 +918,34 @@ func PlanInvariants(plan RunPlan) []string {
 					"provisioning stage reads its environment from that file, so it would "+
 					"exec the generated script, find an empty install list and exit 0 having "+
 					"installed no LSP server — while the agent's config names them")
+		}
+	}
+
+	// EVERY PUBLISHED ENDPOINT THE LAUNCH CARRIES MUST HAVE ITS CROSS-UID GRANT STAGED, and
+	// this is the check that survives the generalisation of the host-service lifecycle.
+	// Before it, one variable was named by hand in BuildRunPlan and one service started on
+	// this arm; now the arm starts every loophole the machine supports
+	// (internal/cli/run/run.go), so the failure to guard against is a NEW service whose
+	// endpoint reaches the env file with no ACE behind it.
+	//
+	// That state is worse than an absent service and is invisible everywhere else: the
+	// sandbox is TOLD where the endpoint is, the file is 0600 in a 0700 directory owned by
+	// the invoking user, and the client fails with a permission error naming a path that
+	// plainly exists — on the one backend whose entire point is the uid boundary. Nothing
+	// else in the plan shows it, because both halves look present.
+	//
+	// ASKED THROUGH THE RENDERED FILE (SandboxEnvFileSets), never by parsing a value out of
+	// it: each staged ARGUMENT is offered back to the writer's own renderer, so this and the
+	// env file cannot disagree about quoting rather than about the value.
+	for _, key := range SandboxEnvFileKeys(plan.EnvFileContent) {
+		if !isServiceEndpointVar(key) {
+			continue
+		}
+		if !stageCommandsNameEnvValue(plan.StageCommands, plan.EnvFileContent, key) {
+			problems = append(problems,
+				key+" carries a published endpoint that no stage command grants the sandbox "+
+					"account; the file is 0600 under the invoking user, so the sandbox would "+
+					"be told exactly where its service is and be unable to open it")
 		}
 	}
 

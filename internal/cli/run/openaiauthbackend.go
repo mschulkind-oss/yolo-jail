@@ -26,38 +26,30 @@ func openAIAuthLoopholeActive(cfg *jsonx.OrderedMap) bool {
 	return ok && lp.Active() && set.MayRunHostCode(lp)
 }
 
-func (o *Options) startOpenAIAuth(cname, rt string, cfg *jsonx.OrderedMap) []loopholeDaemon {
-	return o.startLoopholesMatching(cname, rt, cfg, func(name string) bool {
-		return name == openAIAuthBrokerName
-	})
-}
-
-// startOpenAIAuthDisclosed is the SPAWN BOUNDARY of the SUBSET path, and it is a wrapper for
-// the same reason startLoopholesDisclosed is one (packloopholes.go): the disclosure has to be
-// inseparable from the spawn rather than a statement above it that a later edit can move or a
-// backend arm can forget.
+// THE SUBSET SPAWN PATH IS GONE — retired 2026-09-17, and what it proved is kept.
 //
-// IT WAS FORGOTTEN, which is why this function exists. The macos-user arm returns from Run
-// above startLoopholesDisclosed and reached the broker through startOpenAIAuth directly, so
-// the only call site of notePackHostExec sat on a path that arm never takes: the broker's
-// `host_daemon` — pack-declared code, on the user's real machine, with no container anywhere
-// — spawned while "This launch runs pack code on your machine" never printed. AGENTS.md:
-// the read/exec banners ARE the trust boundary today (OQ-TP9 deleted the approval gate and
-// KEPT this banner as the compensating disclosure), so a silent spawn did not weaken the
-// boundary for that backend, it removed it. The arm's own comment recorded the gap as open;
-// this is the close.
+// `startOpenAIAuth` and `startOpenAIAuthDisclosed` lived here because the macos-user arm
+// returned from Run above `startLoopholesDisclosed` and could start exactly one host service:
+// the OpenAI credential broker. The wrapper existed to make that one spawn's disclosure
+// inseparable from it, after the arm had been shipping a SILENT spawn — pack-declared code on
+// the user's real machine with no container anywhere, while "This launch runs pack code on
+// your machine" never printed. AGENTS.md: the read/exec banners ARE the trust boundary today
+// (OQ-TP9 deleted the approval gate and KEPT this banner as the compensating disclosure), so
+// that silence had not weakened the boundary for that backend, it had removed it.
 //
-// SCOPED TO THE openai-auth PACK — the complement of the scoping withoutOpenAIAuthPack does
-// for the inert report printed on the same arm. Handing notePackHostExec the whole pack set
-// would announce daemon argvs this path never starts, which is the overclaim OQ-10 rules out
-// (a disclosure that names what is not happening is the silent skip wearing a badge), and the
-// inert report a few lines later would then contradict it pack for pack.
-func (o *Options) startOpenAIAuthDisclosed(cname, rt string, cfg *jsonx.OrderedMap,
-	packs []*packload.Pack) []loopholeDaemon {
-	spawning, _ := partitionOpenAIAuthPack(packs)
-	o.notePackHostExec(spawning)
-	return o.startOpenAIAuth(cname, rt, cfg)
-}
+// The arm now routes through `startLoopholesDisclosed` like every other backend, so both
+// functions lost their last production caller and were deleted rather than left behind as a
+// callee nothing calls — the shape AGENTS.md names as "a test that pins the CALLEE while the
+// CALL SITE is unpinned is not a test", which this repo has shipped five times.
+//
+// WHAT INVERTED WITH THEM, and it is the part worth reading before re-adding anything here:
+// the subset SCOPING was correct and is now an underclaim. `startOpenAIAuthDisclosed` handed
+// `notePackHostExec` only the openai-auth pack, because announcing daemon argvs that path
+// never started would have been OQ-10's overclaim. The arm starts every admitted loophole
+// now, so the whole pack set is exactly what it must announce, and `notePackLoopholesInert`
+// takes the whole set too — they stay complements by construction instead of by a pair of
+// hand-maintained filters. `partitionOpenAIAuthPack`/`withoutOpenAIAuthPack` are KEPT: the
+// container branch still uses them.
 
 // prepareOpenAIAuthMountSentinel creates the inert file named by the shipped
 // loophole's state_files list before container argv assembly. A nonempty list is

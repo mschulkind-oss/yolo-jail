@@ -89,8 +89,23 @@ func backendLimits(rt string, packs []*packload.Pack, cfg *jsonx.OrderedMap) []s
 			"overwrites them without warning. Edit the pack they came from instead.")
 	}
 
-	// No loophole host services, so the jail-side clients for them are inert.
-	if backendInertReason(rt) != "" {
+	// The jail-side loophole clients are unusable here — and the REASON changed on
+	// 2026-09-17 without the sentence needing to go. macos-user used to be an inert
+	// BACKEND (it started no host service at all), so `backendInertReason` was the right
+	// predicate. It now starts every admitted loophole, and gating on that predicate would
+	// have silently deleted this line from the one backend it is most true of.
+	//
+	// What is still true there is narrower and has nothing to do with inertness: these
+	// three clients belong to loopholes that declare `platforms: ["linux"]`, and their
+	// binaries are not staged into the sandbox at all — `StageBinaryCommands` stages `yolo`
+	// and nothing else. So the agent cannot run them whatever is running on the host.
+	switch {
+	case rt == "macos-user": // parity: Warned — the three clients belong to Linux-only loopholes and StageBinaryCommands stages only `yolo`, so the sandbox cannot run them whatever the host started
+		out = append(out, "The in-jail loophole clients (`yolo-ps`, `yolo-journalctl`, "+
+			"`yolo-cglimit`) are not available here: they belong to Linux-only loopholes "+
+			"and are not staged into this sandbox. Host services that DO run on this "+
+			"backend are reachable normally.")
+	case backendInertReason(rt) != "":
 		out = append(out, "No loophole host services are running, so their in-jail clients "+
 			"(`yolo-ps`, `yolo-journalctl`, `yolo-cglimit`) have nothing to talk to here.")
 	}

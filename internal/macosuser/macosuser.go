@@ -787,10 +787,13 @@ var macosLogModes = func() map[string]struct{} {
 // backend whose entire point is that boundary.
 //
 // NOT EXECUTABLE ON LINUX — `chmod +a` is a macOS ACL extension. This builds the
-// argv and is unit-tested on the emitted strings; only a Mac can run it. It has
-// no call site yet: macos-user does not start host services at all today (the
-// broker is unwired there — Thread B), so this is the piece that has to exist
-// before that wiring can, not a behaviour change.
+// argv and is unit-tested on the emitted strings; only a Mac can run it.
+//
+// WIRED 2026-09-17. It was written ahead of its caller ("no call site yet: macos-user
+// does not start host services at all today"); that arm now starts every admitted
+// loophole, and runplan.go derives a grant for EVERY `YOLO_SERVICE_*_ENDPOINT` in the
+// rendered env rather than the one hardcoded broker name. PlanInvariants refuses a plan
+// carrying an endpoint with no matching grant, so the two cannot drift apart silently.
 func EndpointGrantCommands(endpointPath, user string) [][]string {
 	if user == "" {
 		user = SandboxUser
