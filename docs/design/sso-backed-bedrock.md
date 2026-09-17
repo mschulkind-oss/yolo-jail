@@ -196,7 +196,7 @@ blur together, and two of them are named confusingly by AWS itself.
 | :--- | :--- | :--- |
 | **Policy** | a JSON document listing allowed and denied actions. It attaches to things; it is not an identity and nothing assumes it | IAM, or inline wherever it is attached |
 | **IAM role** | an identity inside **one** AWS account with no long-term credentials, carrying two policies: a **permissions policy** (what it may do) and a **trust policy** (who may assume it). You assume it and get temporary credentials for a **role session** | IAM, per account — `arn:aws:iam::<account>:role/<name>` |
-| **Permission set** | a role **template**, defined once centrally and **assigned** to a user or group × account. On assignment Identity Center creates a real IAM role in that account, named `AWSReservedSSO_*`, with the permission set's policies attached and a trust policy only it can use. Takes up to 10 managed policies plus one inline policy, and carries its own **1–12h** session duration | the Identity Center console, once — not per account |
+| **Permission set** | *"a template that you create and maintain that defines a collection of one or more IAM policies."* Assigning it to a user or group × account makes Identity Center *"create corresponding … IAM roles in each account"* — named `AWSReservedSSO_*`, policies attached, trust policy only it can use, and **re-provisioned on every edit**. Up to 10 managed policies plus one inline, and its own **1–12h** session duration | **the organization's single Identity Center instance**, once — see below |
 | **Session policy** | a policy passed **at `AssumeRole` time**, attached to nothing and living only for that session. Effective permissions are its **intersection** with the role's own | nowhere — it is an API parameter |
 
 And one that is not an AWS-side object at all:
@@ -207,6 +207,16 @@ And one that is not an AWS-side object at all:
 > provisioned as an IAM role … Use the role name, not the role Amazon Resource Name (ARN)"* —
 > the setting says role, the value is a **permission set name**. Everything in this doc that
 > says "point the daemon at a profile" means this file and nothing in AWS.
+
+> **Identity Center is organization-level, not per account.** The **organization instance**
+> is enabled in the AWS Organizations **management account** and is *"a single point from
+> which to manage user access across AWS"*; permission sets are defined there once and
+> provisioned outward. A member-account admin cannot make one. There is a second kind —
+> an **account instance**, *"bound to a single AWS account, and visible only within the AWS
+> account and AWS Region in which it is enabled"* — and **permission sets do not exist on
+> it**: they are *"available only for organization instances"*, and even there the instance
+> must have **multi-account permissions enabled**. So N4 has a precondition N2 and N3 do not:
+> an organization instance, and somebody with access to it.
 
 **N3 and N4 differ on exactly this distinction.** N3 is a role **you** create in IAM and
 assume — a *second* role session, so chained, so an hour. N4 is a permission set an admin
@@ -375,7 +385,7 @@ along **different** dimensions.
 | **N1** | short-term Bedrock API key (presign) | nothing | **the Bedrock service**, one region | 12h |
 | **N2** | `AssumeRole` + inline session policy | one role whose trust policy names the SSO role | **named actions**, e.g. `InvokeModel*` only | 1h, not raisable — re-minted |
 | **N3** | a purpose-built IAM role with only Bedrock permissions, **assumed** | a role, plus its trust policy | the role's own policy | 1h, not raisable — same chaining cap as N2 |
-| **N4** | a purpose-built **permission set** with only Bedrock permissions, **assigned** | an admin creates and assigns it | the permission set's own policy | **up to 12h** — no chaining, and per-permission-set |
+| **N4** | a purpose-built **permission set** with only Bedrock permissions, **assigned** | an **organization** Identity Center instance, and an admin on it | the permission set's own policy | **up to 12h** — no chaining, and per-permission-set |
 
 **N1 costs nothing and is stronger than it sounds.** The credential scope string a SigV4
 presign signs is `<akid>/<date>/<region>/bedrock/aws4_request`, and the signature covers it —
@@ -784,6 +794,8 @@ accounts* for the permission set range (*"minimum … is 1 hour, and can be set 
 [Identity Center user interactive sessions](https://docs.aws.amazon.com/singlesignon/latest/userguide/user-interactive-sessions.html) ·
 [Set session duration for AWS accounts](https://docs.aws.amazon.com/singlesignon/latest/userguide/howtosessionduration.html) ·
 [Custom permissions for permission sets](https://docs.aws.amazon.com/singlesignon/latest/userguide/permissionsetcustom.html) ·
+[Manage AWS accounts with permission sets](https://docs.aws.amazon.com/singlesignon/latest/userguide/permissionsetsconcept.html) ·
+[Organization and account instances](https://docs.aws.amazon.com/singlesignon/latest/userguide/identity-center-instances.html) ·
 [Session duration considerations](https://docs.aws.amazon.com/singlesignon/latest/userguide/user-session-duration-prereqs-considerations.html) ·
 [How IAM Identity Center authentication is resolved](https://docs.aws.amazon.com/sdkref/latest/guide/understanding-sso.html) ·
 [IAM Identity Center credential provider](https://docs.aws.amazon.com/sdkref/latest/guide/feature-sso-credentials.html) ·
