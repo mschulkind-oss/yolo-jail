@@ -209,3 +209,73 @@ func TestLaunchLogFailureLeavesTheLaunchAlone(t *testing.T) {
 		t.Errorf("the log failure was announced to the launch stream: %q", stderr.String())
 	}
 }
+
+// TestTheMacosUserBackendPrintsIntoTheLaunchLog is the call-site pin for the ONE writer
+// the tee never reached, and it fails on either half of that wiring.
+//
+// The backend composes its output writer three packages away — internal/cli/commands.go,
+// out of macosuser.RealDeps — and that writer was os.Stdout, so a macos-user launch left
+// a log holding this file's header and trailer with the whole launch missing between
+// them: the dry-run plan, the Seatbelt profile, the three argvs, every
+// `not enforced on macos-user` warning and every setup and teardown line, including the
+// pack read/exec banners that are the trust boundary
+// (docs/plans/handoff-macos-user-open-threads.md §7).
+//
+// The closure below builds its deps the way the front door does rather than taking a
+// writer the test chose, because the defect was in what the PRODUCTION composition
+// resolves Out to — a test that handed the backend its own buffer would pin nothing.
+// Delete `macosuser.SetLaunchWriter(o.Stdout)` from attachLaunchLog, or put os.Stdout
+// back in RealDeps, and the line goes to this test binary's own stdout and the assertion
+// below fails.
+func TestTheMacosUserBackendPrintsIntoTheLaunchLog(t *testing.T) {
+	home := packHome(t)
+	writeUserPacks(t, home, `["claude"]`)
+	ws := t.TempDir()
+
+	const disclosure = "sandbox profile: /var/db/yolo-jail/session.sb"
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
+	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, string, macosuser.HostContext, bool, *jsonx.OrderedMap, []packload.BlockedTool) int {
+		deps := macosuser.RealDeps(nil, nil, false)
+		fmt.Fprintln(deps.Out, disclosure)
+		return 0
+	}
+	if rc := Run(*o); rc != 0 {
+		t.Fatalf("Run() = %d\nstderr:\n%s", rc, stderr.String())
+	}
+
+	if got := readLaunchLog(t, ws); !strings.Contains(got, disclosure) {
+		t.Errorf("the macos-user backend printed %q and the launch log does not carry it:\n%s",
+			disclosure, got)
+	}
+	// The other half of the tee's contract: persisting a line must not take it off the
+	// launch stream, which has no quiet mode to take it off for.
+	if !strings.Contains(stdout.String(), disclosure) {
+		t.Errorf("the backend's line did not reach the launch's own stdout:\n%s", stdout.String())
+	}
+}
+
+// TestThePublishedWriterIsUndoneWhenTheRunBlockCloses: the writer is process-global for
+// the length of one launch and finish closes the file underneath it, so leaving it
+// published would hand the next macos-user Deps in this process a tee whose log half is a
+// closed file — and, in a test binary, one test's buffer to the next test.
+func TestThePublishedWriterIsUndoneWhenTheRunBlockCloses(t *testing.T) {
+	ws := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	o := &Options{Workspace: ws, Stdout: &stdout, Stderr: &stderr,
+		Getenv: func(string) string { return "" }}
+
+	// Against what was published BEFORE, not against os.Stdout: the property is that
+	// the attach leaves nothing behind, and asserting the process's own stdout would
+	// make this test a report on every other test in this binary.
+	before := macosuser.LaunchWriter()
+	l := attachLaunchLog(o)
+	if got := macosuser.LaunchWriter(); got != o.Stdout {
+		t.Fatalf("attachLaunchLog published %v, not the teed stdout it installed", got)
+	}
+	l.finish(0)
+	if got := macosuser.LaunchWriter(); got != before {
+		t.Errorf("the published writer outlived the run block (%T): a later `yolo macos-*` "+
+			"command would print into this launch's closed log", got)
+	}
+}

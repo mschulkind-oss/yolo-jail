@@ -49,6 +49,10 @@ package run
 // refuses before any side effect — including this one. And the jailed command's own
 // output: the container is spawned with the process's real stdout/stderr (proxy_other.go,
 // ttyproxy), never with Options.Stdout, so an interactive session cannot end up in here.
+// The macos-user backend draws the same line in the same place — its Deps take the teed
+// writer below, while every child it starts keeps the process's own streams
+// (internal/macosuser/real.go's runReal) — so "what the launcher said" and "what the
+// session did" stay as separate here as they are on the container backends.
 
 import (
 	"fmt"
@@ -60,6 +64,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
@@ -75,7 +80,12 @@ const launchRunPrefix = "=== yolo launch"
 
 // launchLog is the open per-launch log. A nil *launchLog is valid and does nothing,
 // which is what every failure path returns.
-type launchLog struct{ f *os.File }
+type launchLog struct {
+	f *os.File
+	// restoreOut un-publishes the macos-user backend's writer (see attachLaunchLog).
+	// nil on every path that published nothing.
+	restoreOut func()
+}
 
 // attachLaunchLog opens the log and INSTALLS the tee on o.Stdout and o.Stderr.
 //
@@ -90,6 +100,16 @@ type launchLog struct{ f *os.File }
 // the notices go to stderr and the nix build, the image delivery, the config diff and
 // its prompt go to stdout (§2.4). A log of one of them would be a log of half a launch,
 // and which half would depend on the line.
+//
+// AND IT PUBLISHES THE TEED STDOUT TO THE macos-user BACKEND, which is the one backend
+// the tee could not reach: it composes its own writer three packages away, in
+// internal/cli/commands.go out of macosuser.RealDeps, and that writer was os.Stdout — so
+// a macos-user launch left a log holding this header and the trailer with the whole
+// launch missing between them (docs/plans/handoff-macos-user-open-threads.md §7). A
+// PUBLISHED writer rather than an argument because the same RealDeps builds the deps for
+// `yolo macos-setup` and its three siblings, which have no pipeline to take one from and
+// must keep printing to the process; nothing publishes on their path. The undo rides on
+// the returned *launchLog, because finish closes the file this writer tees into.
 func attachLaunchLog(o *Options) *launchLog {
 	if o.Workspace == "" {
 		return nil
@@ -114,6 +134,7 @@ func attachLaunchLog(o *Options) *launchLog {
 	l.writeHeader(o)
 	o.Stdout = teeLog{w: o.Stdout, log: f}
 	o.Stderr = teeLog{w: o.Stderr, log: f}
+	l.restoreOut = macosuser.SetLaunchWriter(o.Stdout)
 	return l
 }
 
@@ -174,6 +195,11 @@ func (l *launchLog) finish(rc int) {
 		return
 	}
 	fmt.Fprintf(l.f, "=== launch done, rc=%d ===\n", rc)
+	// Before the close, so nothing can be handed a writer whose log half is a closed
+	// file — a launch is one process, but a test binary is many launches.
+	if l.restoreOut != nil {
+		l.restoreOut()
+	}
 	_ = l.f.Close()
 }
 

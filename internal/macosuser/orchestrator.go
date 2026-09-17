@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -790,6 +791,63 @@ func errStr(err error) string {
 	return err.Error()
 }
 
+// launchWriter is the writer a LAUNCH's Deps print through, published by the run
+// pipeline for the length of one launch and nil everywhere else.
+//
+// WHY IT IS NOT SIMPLY os.Stdout. Everything the launcher prints is teed into
+// <workspace>/.yolo/launch.log, and the tee is installed on the PIPELINE's writers
+// (internal/cli/run/launchlog.go) — which this backend never took. So its half of the
+// launch stream reached a terminal and nothing else: the dry-run plan, the Seatbelt
+// profile, the three argvs, every `not enforced on macos-user` warning and every setup
+// and teardown line, with the log holding that launch's header and trailer and nothing
+// between them (docs/plans/handoff-macos-user-open-threads.md §7). A launch has no quiet
+// mode by ruling and answers "too much on the terminal" by pointing at the file
+// (OQ-RO3), which is half a bargain when a backend's disclosures never reach it — the
+// pack read/exec banners among them, and those are the whole trust boundary.
+//
+// PUBLISHED RATHER THAN PASSED, which is what leaves `yolo macos-setup` and its three
+// siblings alone. They build their Deps from this same RealDeps with no pipeline to take
+// a writer from (internal/cli/commands.go), so a writer PARAMETER would have had to be
+// threaded through every one of them; nothing publishes on their path, LaunchWriter
+// answers os.Stdout, and not one of those call sites moves.
+var (
+	launchWriterMu sync.Mutex
+	launchWriter   io.Writer
+)
+
+// SetLaunchWriter publishes w as the writer the next RealDeps resolves Out from, and
+// returns the undo (never nil). The run pipeline calls it where it installs the launch
+// log's tee and undoes it when the run block closes — the log file is closed there, so a
+// writer that outlived it would be a half-closed tee.
+//
+// Mutex-guarded for SetCrossingSink's reason rather than for a launch's: one launch is
+// one call in one process, but a test binary restores this from one test while another
+// reads it, which a bare var cannot make safe.
+func SetLaunchWriter(w io.Writer) func() {
+	launchWriterMu.Lock()
+	defer launchWriterMu.Unlock()
+	prev := launchWriter
+	launchWriter = w
+	return func() {
+		launchWriterMu.Lock()
+		defer launchWriterMu.Unlock()
+		launchWriter = prev
+	}
+}
+
+// LaunchWriter returns the published writer, or os.Stdout when nothing published one —
+// which is every `yolo macos-*` command, every caller outside a launch, and a launch
+// whose log could not be opened (that failure degrades silently and leaves the launch
+// the writers it already had).
+func LaunchWriter() io.Writer {
+	launchWriterMu.Lock()
+	defer launchWriterMu.Unlock()
+	if launchWriter != nil {
+		return launchWriter
+	}
+	return os.Stdout
+}
+
 // RealDeps returns Deps backed by real subprocesses / filesystem. runProxy is
 // the TTY-proxy launcher the front door
 // supplies (internal/cli/run's runWithProxy is Linux/macOS-specific);
@@ -797,6 +855,10 @@ func errStr(err error) string {
 // in so this package needs no build-tagged syscall dependencies. color is the
 // resolved color capability (the caller's requested color AND a real TTY);
 // it drives ANSI vs. plain output.
+//
+// Out is NOT a parameter, deliberately: it is resolved from LaunchWriter, so a launch's
+// Deps take the run pipeline's teed stdout and every caller outside a launch keeps the
+// process's own.
 func RealDeps(runProxy func(argv []string) int, materialize func(repoRoot string, packages []any) (*Darwin, bool, error), color bool) Deps {
 	return Deps{
 		IsMacOS:           func() bool { return isMacOSReal() },
@@ -818,7 +880,7 @@ func RealDeps(runProxy func(argv []string) int, materialize func(repoRoot string
 		PathExists:        pathExistsReal,
 		ReadFile:          readFileReal,
 		RemoveFile:        removeFileReal,
-		Out:               os.Stdout,
+		Out:               LaunchWriter(),
 		Color:             color,
 	}
 }

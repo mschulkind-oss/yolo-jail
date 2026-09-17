@@ -66,6 +66,15 @@ func hostUserReal() string {
 
 // runReal runs argv inheriting stdio and returns the returncode. A start
 // failure yields 1 (the call sites treat non-zero as failure).
+//
+// INHERITING IS THE POINT, and it stayed that way when the backend's own printing moved
+// to the run pipeline's writers (orchestrator.go's launchWriter). These are CHILD
+// PROCESSES, not lines this backend is disclosing: sudo prompts for a password on the
+// real terminal, and the bootstrap and the login shell are interactive. Handing them a
+// wrapped io.Writer would put a pipe between the child and the tty — changing what sudo
+// asks and what every child resolves color against — and would copy an agent session's
+// bytes into a 0644 launch.log, which is the one thing that log excludes by name
+// (internal/cli/run/launchlog.go, *What it deliberately does not capture*).
 func runReal(argv []string) int {
 	if len(argv) == 0 {
 		return 1
