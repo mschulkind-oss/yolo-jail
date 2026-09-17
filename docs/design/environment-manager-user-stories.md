@@ -115,20 +115,22 @@ when the definition does not bind. If yolo's answer to "is this the environment 
    > **Gap 1 is STILL LIVE, and the tree is worse than this story claims — verified 2026-08-23.**
    > `HostSource` is intact (`internal/agentcfg/manifest/manifest.go:142`, written at
    > `internal/packload/packload.go:89`, read by the boot render at
-   > `internal/entrypoint/packsurfaces.go:328,331`). But the `LAYERS` column Maya reads above is
-   > **not derived from it**: `config ls` gets `host` from a hand-maintained two-entry map,
-   > `surfaceHasHostLayer` (`internal/cli/configls.go:196-202`), listing only `claude/settings`
-   > and `pi/settings`. A **pack** surface with a non-empty `HostSource` reads machine state at
-   > boot and `config ls` shows **no** `host` layer for it at all. `yolo describe` — which shipped
+   > `internal/entrypoint/packsurfaces.go`). The hand-maintained two-entry map this warning
+   > described — `surfaceHasHostLayer`, listing only `claude/settings` and `pi/settings` — is
+   > **GONE since 2026-09-09**: the `LAYERS` column now derives from `Surface.HasHostLayer`, so a
+   > pack surface with a host layer is shown as having one. `yolo describe` — which shipped
    > since (`internal/cli/describe.go`) — never mentions a host layer either; its only `host`
    > strings (`:129,214`) are the confinement *notch*, an unrelated concept. So the story's
    > "nothing surfaces that the environment has a machine-shaped input" is now literally true for
    > every pack surface, not just under-emphasised.
    >
-   > Note also the standing decision this collides with: the design doc's [§3.3](yolo-as-environment-manager.md#33-apply---sealed-the-definition-binds-or-the-apply-fails) resolved **[OQ-3](yolo-as-environment-manager.md#9-decision-ledger) —
-   > retire the read-in `host` layer entirely, express personal settings as a local pack**
-   > (2026-08-01). That is decided and **not implemented**; until it is, the layer and the display
-   > gap both persist.
+   > The standing decision this used to collide with is **gone the other way**:
+   > [OQ-3](yolo-as-environment-manager.md#9-decision-ledger) — *retire the read-in `host` layer,
+   > express personal settings as a local pack* (2026-08-01) — was **REVERSED 2026-09-12** by
+   > [`OQ-CO11`](config-ownership-and-promotion.md#13-decision-ledger), which ruled the layer
+   > **stays**: deciding its binding, failure direction and coverage is deciding that it exists.
+   > So the layer is permanent and the display gap it caused is closed; what remains of this
+   > story's complaint is `yolo describe`, which still never mentions a host layer.
 
    **Gap 2 — capture writes in-jail edits back, and they outrank the declaration.** This is the
    one that actually broke her:

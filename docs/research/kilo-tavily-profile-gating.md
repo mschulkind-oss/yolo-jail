@@ -60,7 +60,13 @@ The work is to make authentication-source capability declarations available to
 the common MCP input and apply the rule above there. The representation must
 cover both provider-backed profiles and built-in sources; individual MCP
 servers should not carry source-selection metadata. Existing
-`required_capabilities` remains a separate future enforcement path.
+`required_capabilities` remains a separate enforcement path — and as of
+2026-09-17 a built one, which sharpens rather than blurs the distinction: it
+refuses a launch whose declared requirement nothing satisfies, while the rule
+here chooses an implementation among things that already work. Note the shared
+vocabulary is real, not coincidental: both read an `mcp_servers.<name>.provides`
+and a `providers.<name>.capabilities`, so a change to either declaration moves
+both.
 
 ## Acceptance boundary
 

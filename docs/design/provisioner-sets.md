@@ -1147,9 +1147,19 @@ these are independent of every open question and should not wait on one.
    the reader cannot run. That cell states the inertness instead. The rest of
    [`OQ-NX9`](#OQ-NX9) — the nix daemon probes — is untouched and still waits on
    [`OQ-PS1`](#OQ-PS1).
-3. **Make `yolo host apply` say what `describe` says about `packages:`**
+3. ~~**Make `yolo host apply` say what `describe` says about `packages:`**
    ([`OQ-NX8`](#OQ-NX8)'s narrow half). Two yolo commands currently disagree about whether the
-   host manages packages; that is worth closing even if every policy question stays open.
+   host manages packages; that is worth closing even if every policy question stays open.~~
+   **SHIPPED 2026-09-17** as `cli.reportHostPackages`, which calls `describe`'s own
+   `printPackageProfile` with the arguments `describe` computes — parity is a property of the
+   call, not of two wordings kept in step by inspection. Two things the step did not anticipate.
+   It confirmed step 2's finding rather than merely inheriting it: `describe` was still offering
+   *"a launch or `yolo apply` materializes it"* at every notch, so the `materializes` flag
+   `check` invented for itself moved into the shared renderer, and `yolo apply` stopped being
+   named as a remedy it performs at NO notch (`darwinpkg.Materialize`'s one caller is the
+   macos-user run seam). And the flag had to be DERIVED in `apply` too, not passed as a constant
+   false — a `confinement: host` workspace whose runtime is macos-user does have a provisioner,
+   so a constant would have re-opened the disagreement on exactly those configs.
 4. **Then the precedence order, PRINT-ONLY** — the first increment of both rulings and the
    smallest thing that changes user-visible behaviour: a user-scope ordered preference replacing
    `detectManager`'s answer and re-ranking the recipes a pack already ships

@@ -369,12 +369,16 @@ place the exact spellings are stated.
 | Resolved-profiles env var | `YOLO_PROFILES` | same |
 | Selection namespace key | `selection` | `agentcfg.SelectionKey` |
 | Selection record path | `<workspace>/.yolo/prism/<agent>-<name>.selection.json` | entrypoint stateful render |
-| User config keys | `providers` (merged-scope), `profiles` / `use_profiles` (user-scope-only) | `internal/config` |
+| User config keys | `providers` (merged-scope — **except the ADDRESS**), `profiles` / `use_profiles` (user-scope-only) | `internal/config` |
+| Provider address scope | `base_url` and `endpoints.<protocol>.base_url` are **USER-SCOPE ONLY** since 2026-09-17: a workspace `yolo-jail.jsonc` or `yolo-jail.local.jsonc` carrying either is a fatal config error. The rest of a `providers` entry still merges from either scope. The reason is the workspace file is AGENT-EDITABLE, and the address decides where inference goes — [`OQ-LM3`](../research/local-model-endpoints.md#oq-lm3) calls it the one answer that cannot be revised later without a breaking config change | `internal/config/validate.go` |
 | Missing-provider hatch | `YOLO_ALLOW_MISSING_PROVIDERS=1` | `internal/paths` |
 | zai model IDs | `glm-4.6`, `glm-5.3`, `glm-5.3-flash`; the default is `glm-5.3`. These are wire-true IDs; Claude alone appends `[1m]` when `context_window` ≥ 1000000. | `packs/zai/pack.json` |
 | zai Coding Plan OpenAI endpoint | `https://api.z.ai/api/coding/paas/v4` (`openai-chat-completions`) | `packs/zai/pack.json` |
 | zai provider options | `model: glm-5.3`, `context_window: 1000000`, `api_timeout_ms: 3000000` | `packs/zai/pack.json` |
 | zai credential variable | `ZAI_API_KEY` | `packs/zai/pack.json` |
+| llamacpp endpoint | `http://localhost:8080` — a LOCAL inference server (llama.cpp `llama-server`), reached through `network.forward_host_ports` | `packs/llamacpp/pack.json` |
+| llamacpp credential | **none.** The provider declares no `api_key_env_name`, so the credential pre-flight requires nothing; each agent's derive supplies its own dummy, which every agent here accepts against a loopback server | `packs/llamacpp/pack.json` |
+| llamacpp model id | `llama` — the `--alias` the recipe tells the server to publish, so one id is true across all agents | `packs/llamacpp/pack.json`, `packs/llamacpp/README.md` |
 | `needs` vocabulary | top-level manifest key — `needs: [{pack, when_bins}]`, conditional pack dependency resolved as a transitive closure at selection (the added pack prints its cause line on the banner); manifests only, never user config | `internal/packdecl/needs.go`, `internal/packload/needs.go` |
 | cerebras model aliases | `default: qwen-3.8-27b` — the one alias; `gpt-oss-120b` deliberately absent (hallucinated tool calls have no tier) | `packs/cerebras/pack.json` |
 | cerebras endpoints | `openai`: `https://api.cerebras.ai/v1` (the native service); `anthropic`: `http://127.0.0.1:8214` — the wire bridge's loopback URL, whose port lives only in this manifest | `packs/cerebras/pack.json` |

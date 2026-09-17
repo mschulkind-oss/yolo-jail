@@ -7,7 +7,19 @@ that question. It covers the six shipped agents' provider surfaces, the server
 side, and which yolo machinery would carry the config.
 
 **Status:** findings gathered 2026-08-20; audited 2026-08-23 (OQ IDs given the
-`LM` prefix; findings NOT re-gathered). **Six open questions await a ruling** —
+`LM` prefix; findings NOT re-gathered). **BUILT 2026-09-17** as `packs/llamacpp`,
+under [OQ-LM1](#oq-lm1)'s *mode, not a parallel key* — so [Part 3](#part-3--the-yolo-side-what-would-carry-this)
+and [Part 4](#part-4--what-i-would-build) are history rather than a plan, and each
+carries a warning saying so. Re-verified against installed CLIs on 2026-09-17: pi
+**0.85.1** still emits `supportsUsageInStreaming` and derives `contextWindow` from
+`meta.n_ctx`/`n_ctx_train`; `CLAUDE_CODE_ATTRIBUTION_HEADER` is **present in claude
+2.1.274** and read as a falsey gate, which upgrades the blog-post citation below to
+source; copilot 1.0.48 matches, though this doc omits three real vars it sets
+(`COPILOT_PROVIDER_BEARER_TOKEN`, `_AZURE_API_VERSION`, `_MODEL_LIMITS_ID`).
+**One measured gap the build could not close from its own files:** `packs/pi/derive.lua`
+emits no `compat` block, and pi's auto-detection for an unknown loopback URL yields the
+INVERSE of pi's own llama.cpp provider flags — so that derive needs a `compat` block
+before the pi smoke test can pass. **Six open questions await a ruling** —
 see [Open Questions](#open-questions). Read §"Fast-moving — verify before
 building" first: this is the shortest-half-life doc in `docs/research/`, and
 several of its claims are expected to be stale within three months of the gather
@@ -66,9 +78,15 @@ Companion docs: [`agent-config-distribution.md`](./agent-config-distribution.md)
   closed, core-owned set of exactly two sources. Adding an `llm_endpoints` source
   clones the road `mcp_servers` already walks, then one `yolo.derive(...)` per
   agent pack.
-- **Prior art in this repo for any model or provider config: zero.** `rg` over
-  `internal/ packs/ cmd/` for `ANTHROPIC_|OPENAI_|base_url|BASE_URL` returns no
-  hits. Clean greenfield.
+- ~~**Prior art in this repo for any model or provider config: zero.**~~
+  **FALSE SINCE THE PROVIDER SYSTEM LANDED, and the correction is why this doc's
+  Part 3 and Part 4 are dead letters.** The same `rg` matched 65 files on
+  2026-09-17. `providers`/`profiles`, per-agent derives, and a loopback
+  `base_url` already triggering an implicit host forward
+  (`internal/cli/run/providerlocal.go`) are all shipped. This was written as
+  greenfield on 2026-08-20 and was overtaken; [OQ-LM1](#oq-lm1) then ruled local
+  endpoints INTO that system as a mode, so the greenfield designs below were never
+  built and should not be.
 - **The universal tool-calling fallback is gone from llama.cpp** (PR
   [#18675](https://github.com/ggml-org/llama.cpp/pull/18675), 2026-03-06). Tool
   calling now requires the model's own Jinja template to support it natively.
@@ -136,7 +154,7 @@ Knobs worth knowing:
 | `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU,FABLE}_MODEL` | Alias resolution — **the practical knob** |
 | `ANTHROPIC_SMALL_FAST_MODEL` | **Deprecated**, superseded by `ANTHROPIC_DEFAULT_HAIKU_MODEL` |
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` | Suppresses bootstrap/feature-flag/telemetry calls to `api.anthropic.com` |
-| `ANTHROPIC_UNIX_SOCKET` | **Undocumented.** Routes the API fetch over a unix socket instead of TCP `[verified from source: 2.1.220, fn Ih, 2026-08-20]` — potentially a cheaper jail wiring than TCP; see [OQ-LM5](#oq-lm5) |
+| `ANTHROPIC_UNIX_SOCKET` | **Undocumented.** Routes the API fetch over a unix socket instead of TCP `[verified from source: 2.1.220, fn Ih, 2026-08-20]` — potentially a cheaper jail wiring than TCP. (This cell pointed at `OQ-LM5` — the ship-order question — which is a dangling cross-ref left by the 2026-08-23 id minting; no open question covers the socket.) |
 
 > [!WARNING]
 > **Scope trap.** There are two settings-`env` application passes
@@ -821,9 +839,17 @@ accepts a path ending in `.sock` for a Unix socket.
 
 ## Part 3 — The yolo side: what would carry this
 
-**Prior art in this repo: none.** `rg 'ANTHROPIC_|OPENAI_|base_url|BASE_URL'`
-over `internal/ packs/ cmd/` returns zero hits. Nothing configures a model or a
-provider today.
+> [!WARNING]
+> **THIS WHOLE PART IS A DEAD LETTER — kept as the record of a rejected direction.**
+> Its premise (*"Prior art in this repo: none … Nothing configures a model or a
+> provider today"*) was true on 2026-08-20 and is not now: the provider/profile
+> system shipped, and the same `rg` matched 65 files on 2026-09-17.
+> [OQ-LM1](#oq-lm1) ruled local endpoints are a **MODE** inside that system, so the
+> "six mechanical edits" below and [Part 4](#part-4--what-i-would-build)'s Option 2
+> describe a surface that was deliberately not built. **What shipped instead is
+> `packs/llamacpp`** — one `kind: "provider"`, one `kind: "profile"`, one
+> profile-gated `kind: "env"`, exactly the `zai`/`cerebras` shape. Read the mechanism
+> verdicts below as history, not as a plan.
 
 ### Mechanism verdict table
 
@@ -1100,7 +1126,7 @@ Carry these forward; do not build on them without re-checking.
 ## Open Questions
 
 > IDs use the `LM` prefix (minted 2026-08-23; the only other `OQ-LM*` in the
-> repo is `docs/plans/roadmap.md:689`, which points back at these). They were bare numeric ids until then, which collided with the
+> repo is in `docs/plans/roadmap.md`, which points back at these). They were bare numeric ids until then, which collided with the
 > [`OQ-1`](../design/agent-auth-modes.md#12-decision-ledger)…[`OQ-9`](../design/agent-auth-modes.md#12-decision-ledger) in `docs/design/agent-auth-modes.md` — the very doc [OQ-LM1](#oq-lm1) is
 > about. Nothing outside this file cited the old spellings.
 

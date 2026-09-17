@@ -1,8 +1,8 @@
 # Managing host agent configs from yolo — the host as a reduced render target
 
-**Status:** DESIGN, 2026-07-27 — largely implemented, and three questions still live: steps 1, 4, 5 and 6 of [§8](#8-what-i-would-actually-do-in-order) shipped; step 3 shipped
-**half** (the `Target` abstraction exists and [§3.4](#34-what-this-buys-immediately-before-any-host-target-exists)'s payoff has now landed, but the two render paths were
-never collapsed).
+**Status:** DESIGN, 2026-07-27 — largely implemented, and three questions still live: steps 1, 3, 4, 5 and 6 of [§8](#8-what-i-would-actually-do-in-order) have shipped.
+**Step 3 completed 2026-09-17**: the two render paths are collapsed onto `render.Target`, and
+`agentcfg.Compose*` now has no non-test caller outside `internal/render` and `internal/agentcfg`.
 Written as design 2026-07-27, fact-checked 2026-07-30, **re-verified against the tree
 2026-08-23**, **[§3.4](#34-what-this-buys-immediately-before-any-host-target-exists)'s two tables retired 2026-09-09** (see the shipped-status postscript
 below).
@@ -17,7 +17,7 @@ below).
 > |---|---|---|
 > | 1. Refuse host-side `reset`/`capture` | ✅ **shipped** | `refuseHostSideWrite` (`internal/cli/configdiff.go`) aborts unless `surfacesAreLocal() \|\| force`; wired into `configReset` and `configCapture`. Probes 1–3 are no longer reachable without `--force`. |
 > | 2. Decide the capture-privacy question ([§9.3](#9-open-questions--the-discussion-part)) | ✅ **answered by step 1** | The refusal *is* the answer; no key-level redaction was invented. See the OQ ledger. |
-> | 3. `internal/render` with `Target` | ⚠ **half** | `Target` ships (`internal/render/target.go`) with `Jail`/`Preview`/`Host` constructors — plus two things this doc did not predict: a `Kind` notch enum with `SelectableNotches`, and `FieldSet`. **But `render.go`/`reconcile.go` were never written**: `internal/render/` is `target.go`, `fieldset.go`, `modes.go`, `confinement.go` and their tests — a *vocabulary*, not a renderer. **The collapse is PARTIAL, not absent** (corrected 2026-08-23): `internal/entrypoint/hostrender.go` exists, `Env` carries a `hostTarget` (`env.go`), and `Env.renderTarget()` dispatches on `render.Host`/`render.Jail` — so `apply --host` does run the entrypoint's writers keyed on a Target. What is still duplicated is the `internal/cli` config-verb path alone. **[§3.4](#34-what-this-buys-immediately-before-any-host-target-exists)'s stated payoff landed separately on 2026-09-09** — the two hand-maintained layer tables are retired without the renderer collapse, which is worth knowing about the argument: the tables were duplication of a DECLARATION, and only the writers were duplication of a RENDERER. |
+> | 3. `internal/render` with `Target` | ✅ **whole, 2026-09-17** (the ⚠ half below is what it was until then) | `Target` ships (`internal/render/target.go`) with `Jail`/`Preview`/`Host` constructors — plus two things this doc did not predict: a `Kind` notch enum with `SelectableNotches`, and `FieldSet`. **But `render.go`/`reconcile.go` were never written**: `internal/render/` is `target.go`, `fieldset.go`, `modes.go`, `confinement.go` and their tests — a *vocabulary*, not a renderer. **The collapse is PARTIAL, not absent** (corrected 2026-08-23): `internal/entrypoint/hostrender.go` exists, `Env` carries a `hostTarget` (`env.go`), and `Env.renderTarget()` dispatches on `render.Host`/`render.Jail` — so `apply --host` does run the entrypoint's writers keyed on a Target. What is still duplicated is the `internal/cli` config-verb path alone. **[§3.4](#34-what-this-buys-immediately-before-any-host-target-exists)'s stated payoff landed separately on 2026-09-09** — the two hand-maintained layer tables are retired without the renderer collapse, which is worth knowing about the argument: the tables were duplication of a DECLARATION, and only the writers were duplication of a RENDERER. |
 > | 4. macos-user gets a target row | ✅ **shipped** | `YOLO_PACK_ROOT` is now set on that backend (`buildBootstrapEnv`, `internal/macosuser/runplan.go`, asserted in `PlanInvariants`); it is the `guest` notch (`render.GuestProfileMacOS`, `confinement.go:130`). [§9.7](#9-open-questions--the-discussion-part)'s "zero surfaces, silently" is over. |
 > | 5. `FieldSet` | ✅ **shipped, and went further** | `internal/render/fieldset.go` with `Honors`/`Refuse`; plus a third state this doc never named — `HostUnimplemented`, *honored-but-unbuilt*, so a kind is never silently absent. |
 > | 6. `yolo config apply --host` | ✅ **shipped** | `applyHost` with `--assert`; end-to-end tests at `internal/cli/applyhostlocalpack_test.go` and `applyhostidempotent_test.go`. |
@@ -1071,9 +1071,12 @@ first.** Nothing here needs a new module or a decision about one.
 > these ever happens" bet at the end of this section was right about #1 and wrong about #3
 > in an instructive way: #3's payoff — retiring `surfaceHasHostLayer` and
 > `surfaceHasComputedLayer` — turned out **not to need #3**, and was done separately on
-> 2026-09-09 ([§3.4](#34-what-this-buys-immediately-before-any-host-target-exists)). The tables were duplication of a DECLARATION; only the writers are
-> duplication of a RENDERER, and that half is still outstanding. See the postscript at the
-> top of this doc for the full table.
+> 2026-09-09 ([§3.4](#34-what-this-buys-immediately-before-any-host-target-exists)). The tables were duplication of a DECLARATION; only the writers were
+> duplication of a RENDERER — **and that half landed 2026-09-17**, six call sites onto
+> `render.Target`, retiring three admitted hand-copies (`targetExpandHome`/`expandHome`,
+> `surfaceText`/`pureRenderText`, and two spellings of the `${workspace}` substitution). So the
+> bet was right about #1 and wrong about #3 only in ORDER: #3's payoff did not need #3, and #3
+> happened anyway. See the postscript at the top of this doc for the full table.
 
 1. **Fix probes 1–3, now, ahead of any refactor.** Host-side `reset` (`configReset`,
    `configdiff.go`) and `capture` (`configCapture`) must refuse (or require

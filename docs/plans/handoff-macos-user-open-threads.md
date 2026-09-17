@@ -305,7 +305,7 @@ attempt to the next hardware pass.
 
 ---
 
-## 7. Nothing the macos-user backend prints reaches `launch.log`
+## 7. Nothing the macos-user backend prints reaches `launch.log` — FIXED 2026-09-17
 
 **Found while answering [§6](#6-provider-secrets-rode-the-launch-argv--fixed-2026-09-13-and-the-framing-below-it-was-wrong)'s
 "is it on disk too?" question, and the answer is a different defect.** Everything the launcher
@@ -328,6 +328,19 @@ unrecoverable the moment the scrollback is gone.
 **Off-Mac work, and small.** The fix is to give the backend the pipeline's writers rather than the
 process's; the trap is that `yolo macos-setup` and its three siblings build their Deps separately
 and have no pipeline to take writers from, so whatever seam is added has to leave those alone.
+
+**Fixed 2026-09-17 by a PUBLISHED writer** (`macosuser.SetLaunchWriter`, which `attachLaunchLog`
+calls and `finish` undoes), not a threaded parameter: the writer is composed three packages away
+and the `run.Options.MacosUserRun` seam carries none, so threading one would have moved three more
+files — and publishing is also what handles the trap above, since nothing publishes on the
+`macos-setup` path and not one of those call sites had to change.
+
+**What did NOT change, and deliberately:** `real.go`'s two `cmd.Stdout = os.Stdout` sites. Those
+hand a CHILD PROCESS the parent's streams — `sudo`'s password prompt, the bootstrap, the login
+shell — so wrapping them would put an `os/exec` pipe between child and tty and would copy an agent
+session's bytes into a 0644 `launch.log`, which is the one thing that file excludes by name. The
+backend now draws the same launcher/session line the container backends draw. A Mac still owes
+one observation: that a live launch's plan, profile and argv lines actually land in the file.
 
 ## What to do first, if you want an order
 
