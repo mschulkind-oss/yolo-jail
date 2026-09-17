@@ -544,6 +544,34 @@ number, not the design's**: on N4 the tail is the permission set's own duration,
 8-hour session yields up to 20 hours ([§6](#6-narrowing--shape-scoped-and-policy-scoped)).
 
 > [!WARNING]
+> **Re-running `aws sso login` before the session expires does not extend it.** AWS is
+> explicit: *"If you already have an active session, the AWS CLI command reuses the existing
+> session and will expire whenever the existing session expires."* So the intuitive
+> automation — log in just before the window closes, never lose continuity — is very likely a
+> **no-op** that leaves you expiring at the original moment. You cannot lengthen an Identity
+> Center session; you can only begin a new one once the old one has ended. (`aws sso logout`
+> clears the local cache, and the CLI reference does **not** say it invalidates the
+> server-side session, so do not assume logout-then-login buys a fresh window either —
+> measure it before relying on it.)
+>
+> The pattern that does work is to log in **after** expiry, and it need not be interactive:
+> *"If the session duration of your IdP is longer than the one set in IAM Identity Center,
+> your users can start a new IAM Identity Center session without re-entering their
+> credentials, based on their still-valid login session with your IdP."* While the upstream
+> IdP session is alive, a re-login is a silent browser round-trip rather than a prompt.
+
+> [!TIP]
+> **What a long permission set is worth to someone with automated re-login — and it is not
+> duration.** It does not move the portal session; that dial is
+> [§6](#6-narrowing--shape-scoped-and-policy-scoped)'s instance-wide one and nothing here
+> touches it. What it buys is **slack**: with N4 at twelve hours, credentials minted just
+> before expiry stay good twelve hours past it, so the re-login can land *anywhere in that
+> window* instead of at one exact instant. It converts a brittle fire-at-the-right-moment
+> automation into a loose one, and the jail never observes the gap. Ask for the permission
+> set for the narrowing and the slack — not for how long you stay signed in, which it does
+> not change.
+
+> [!WARNING]
 > **That tail assumes the daemon can still mint at T+7:59:59, and that assumption has a
 > dependency the rest of this section does not state.** Minting needs a valid Identity Center
 > **access token**, and AWS calls it *"the hourly access token … automatically refreshed
@@ -810,6 +838,7 @@ accounts* for the permission set range (*"minimum … is 1 hour, and can be set 
 [How Bedrock API keys work](https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys-how.html) ·
 [STS AssumeRole](https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRole.html) ·
 [STS GetCallerIdentity](https://docs.aws.amazon.com/STS/latest/APIReference/API_GetCallerIdentity.html) ·
+[aws sso logout](https://docs.aws.amazon.com/cli/latest/reference/sso/logout.html) ·
 [Roles terms and concepts — role chaining](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_terms-and-concepts.html) ·
 [Identity Center user interactive sessions](https://docs.aws.amazon.com/singlesignon/latest/userguide/user-interactive-sessions.html) ·
 [Set session duration for AWS accounts](https://docs.aws.amazon.com/singlesignon/latest/userguide/howtosessionduration.html) ·
