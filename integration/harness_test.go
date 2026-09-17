@@ -745,6 +745,18 @@ func writeProject(t *testing.T, configJSON string) string {
 			"config naming one is a `yolo check` error. Use writeProjectWithPacks so the "+
 			"key lands in the user config where it is read:\n%s", configJSON)
 	}
+	// The same shape one key over: a provider ADDRESS (`base_url`, in either the shorthand
+	// or the `endpoints.<protocol>` spelling) is user-scope only too (OQ-LM3), and
+	// `base_url` is that field's only spelling anywhere in the config file. A fixture that
+	// wrote one here used to fail as an opaque `rc 1` from whatever launch came next, which
+	// is how two tests in this package went red for a launch nothing had started yet.
+	if strings.Contains(configJSON, `"base_url"`) {
+		t.Fatalf("writeProject got a `base_url`, which is USER SCOPE ONLY — a workspace "+
+			"config carries a provider's models and options, never its ADDRESS, and one "+
+			"there is a `yolo check` error that refuses the launch. Put the `providers` "+
+			"entry in the user config via packHome (codexProbeProvider is the worked "+
+			"example):\n%s", configJSON)
+	}
 	t.Cleanup(func() {
 		forceRemoveContainer(dir)
 		// Before t.TempDir()'s own RemoveAll runs (cleanups are LIFO, so this

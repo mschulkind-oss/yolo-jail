@@ -124,9 +124,10 @@ func TestProfileOptionSelectsTheAliasInTheAgentsOwnFile(t *testing.T) {
 
 	// The codex-speakable neighbour is the vacuity guard (codex_selection_test.go): with
 	// llamacpp cataloged in the same render, "codex wrote nothing" cannot be mistaken for
-	// "the provider table never reached codex's derive".
-	dir := writeProject(t, codexProbeProject)
-	packHome(t, `{"packs": ["pi", "codex", "cerebras"], `+
+	// "the provider table never reached codex's derive". It rides in the USER config with
+	// the packs, because a provider address is user-scope only — see codexProbeProvider.
+	dir := writeProject(t, `{}`)
+	packHome(t, `{"packs": ["pi", "codex", "cerebras"], `+codexProbeProvider+`, `+
 		`"profiles": {"cb-alias": {"provider": "cerebras", "model": "default"}}}`)
 
 	// runCommand rather than runYolo: the flag goes BEFORE the `--` that starts the

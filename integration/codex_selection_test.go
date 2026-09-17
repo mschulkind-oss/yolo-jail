@@ -29,16 +29,24 @@ var (
 	codexProviderRow = regexp.MustCompile(`(?m)^\[model_providers\.([^\]]+)\]`)
 )
 
-// codexProbeProject is the provider table every launch here carries: zai's pack-shipped
+// codexProbeProvider is the provider table every launch here carries: zai's pack-shipped
 // facts (selected by the pack set) beside a user-declared provider codex CAN speak — the
 // base_url shorthand with no wire_api, which is codex's own default (responses), the shape
 // a local llama.cpp entry takes (local-model-endpoints.md §"Codex CLI"). The neighbour is
 // not decoration: without one codex-speakable provider, "no selection keys" would be
 // indistinguishable from "the provider table never reached the derive".
-const codexProbeProject = `{"providers":{"llamacpp":{
-  "base_url":"http://127.0.0.1:8080/v1",
-  "models":{"default":"llama"}
-}}}`
+//
+// It is a USER-config fragment — the `providers` key and its value, spliced into a
+// packHome body — rather than a workspace config, because a provider ADDRESS is user-scope
+// only (OQ-LM3, internal/config's validateProviderAddressScope): the workspace file
+// travels with the repo and the agent can edit it, so `base_url` there is a `yolo check`
+// error and refuses the launch before a container starts. Which scope declares the
+// provider changes nothing this file measures — every other field of the entry merges
+// from either scope, and the derive reads the merged map.
+const codexProbeProvider = `"providers": {"llamacpp": {
+  "base_url": "http://127.0.0.1:8080/v1",
+  "models": {"default": "llama"}
+}}`
 
 func TestCodexSelectionFollowsTheActiveProfile(t *testing.T) {
 	requireJail(t)
@@ -49,11 +57,12 @@ func TestCodexSelectionFollowsTheActiveProfile(t *testing.T) {
 	t.Setenv("ZAI_API_KEY", "integration-probe-not-a-real-key")
 
 	t.Run("a selected provider codex cannot speak is never selected", func(t *testing.T) {
-		dir := writeProject(t, codexProbeProject)
+		dir := writeProject(t, `{}`)
 		// The five shipped packs that compose a provider table at all, and the zai
 		// profile activated at codex's CLI name — the flag spelling, scoped to this
 		// launch exactly as a user would type it.
-		packHome(t, `{"packs": ["claude", "zai", "codex", "pi", "opencode"]}`)
+		packHome(t, `{"packs": ["claude", "zai", "codex", "pi", "opencode"], `+
+			codexProbeProvider+`}`)
 		// runCommand rather than runYolo/runYoloDirect: the flag goes BEFORE the `--`
 		// that starts the container command, which neither wrapper's shape allows.
 		r := runCommand(t, dir, append(jailRunArgs(), "-p", "codex=zai", "--", "true"))
@@ -97,7 +106,7 @@ func TestCodexSelectionFollowsTheActiveProfile(t *testing.T) {
 	})
 
 	t.Run("a profile naming a provider codex can speak writes the pair", func(t *testing.T) {
-		dir := writeProject(t, codexProbeProject)
+		dir := writeProject(t, `{}`)
 		// Only the codex pack: the provider is the user's, so the launch needs the one
 		// pack that owns the surface. The profile is DECLARED beside the provider
 		// (OQ-CS6 — a name nothing declares refuses the launch, as the undeclared
@@ -105,7 +114,7 @@ func TestCodexSelectionFollowsTheActiveProfile(t *testing.T) {
 		// which is itself. The persistent spelling for the selection (use_profiles,
 		// OQ-CS5 — the same merge the flag above feeds), so both spellings of a
 		// selection are covered by one file.
-		packHome(t, `{"packs": ["codex"], `+
+		packHome(t, `{"packs": ["codex"], `+codexProbeProvider+`, `+
 			`"profiles": {"llamacpp": {"provider": "llamacpp"}}, `+
 			`"use_profiles": {"codex": "llamacpp"}}`)
 		r := runYolo(t, dir, "true")
@@ -138,8 +147,8 @@ func TestCodexSelectionFollowsTheActiveProfile(t *testing.T) {
 	})
 
 	t.Run("a launch with no profile writes nothing selection-shaped", func(t *testing.T) {
-		dir := writeProject(t, codexProbeProject)
-		packHome(t, `{"packs": ["codex"]}`)
+		dir := writeProject(t, `{}`)
+		packHome(t, `{"packs": ["codex"], `+codexProbeProvider+`}`)
 		r := runYolo(t, dir, "true")
 		if r.rc != 0 {
 			t.Fatalf("unprofiled codex launch failed: rc %d\n%s", r.rc, r.combined())
