@@ -343,9 +343,20 @@ func TestTheNightlyRetriesTheMachineStartWithoutReinitialising(t *testing.T) {
 			"minutes in. Put it behind `if`/`while` so a transient boot failure can be "+
 			"retried.", nightlyWorkflow, len(n))
 	}
-	if !guardedMachineStartRe.MatchString(code) {
-		t.Errorf("%s no longer runs `podman machine start` in a conditional position; this "+
-			"test cannot say whether a boot failure is handled.", nightlyWorkflow)
+	// EITHER guarded shape satisfies this; neither is required on its own. The property is
+	// "a boot failure is handled", not "the start is spelled the way it was in September".
+	backgrounded := backgroundMachineStartRe.MatchString(code) && waitedMachineStartRe.MatchString(code)
+	if !guardedMachineStartRe.MatchString(code) && !backgrounded {
+		t.Errorf("%s no longer runs `podman machine start` in a handled position — neither "+
+			"`if podman machine start` nor a backgrounded start whose `wait` collects the "+
+			"status with `||`. This test cannot say whether a boot failure is handled.",
+			nightlyWorkflow)
+	}
+	if backgroundMachineStartRe.MatchString(code) && !waitedMachineStartRe.MatchString(code) {
+		t.Errorf("%s backgrounds `podman machine start` but never handles the status of its "+
+			"`wait`. Backgrounding hides the failure from errexit; without a handled wait the "+
+			"failure is not retried, it is LOST — which is worse than the bare form this test "+
+			"was written for.", nightlyWorkflow)
 	}
 	// The RECOVERY, not the loop. A `for`/`while` check was written here first and was
 	// worthless: the share probe further down the same step opens its own `for share in …`
@@ -382,9 +393,25 @@ func TestTheNightlyRetriesTheMachineStartWithoutReinitialising(t *testing.T) {
 // test reads a file that talks about the thing it is looking for, it has to say which half
 // it means.
 var (
-	bareMachineStartRe    = regexp.MustCompile(`(?m)^[ \t]*podman machine start\b`)
-	guardedMachineStartRe = regexp.MustCompile(`(?m)^[ \t]*(?:if|while|until)[ \t]+podman machine start\b`)
-	machineInitCmdRe      = regexp.MustCompile(`(?m)^[ \t]*podman machine init\b`)
+	// A start on its own line, with nothing after it: the shape that ends the step under
+	// `bash -e`. A trailing `&` is deliberately NOT matched — backgrounding is itself a
+	// guard, because errexit never fires on an asynchronous command; what decides that
+	// shape's safety is whether the `wait` handles the status, which waitedMachineStartRe
+	// below requires.
+	bareMachineStartRe = regexp.MustCompile(`(?m)^[ \t]*podman machine start[ \t]*$`)
+	// THE TWO GUARDED SHAPES, and a change to either must add its own alternative here
+	// rather than widening these:
+	//   1. `if podman machine start; then …` — the failure is the condition.
+	//   2. `podman machine start &` + `wait "$pid" || rc=$?` — the status is collected and
+	//      handled, which is what a per-attempt deadline needs (the killer has to run
+	//      while the start is in flight, so the start cannot be the condition).
+	guardedMachineStartRe    = regexp.MustCompile(`(?m)^[ \t]*(?:if|while|until)[ \t]+podman machine start\b`)
+	backgroundMachineStartRe = regexp.MustCompile(`(?m)^[ \t]*podman machine start[ \t]*&[ \t]*$`)
+	// The CALL in conditional position, with its numeric deadline — not the definition,
+	// which survives the deletion of every caller.
+	deadlineCallRe       = regexp.MustCompile(`(?m)^[ \t]*(?:if|while|until)[ \t]+start_with_deadline[ \t]+[0-9]+`)
+	waitedMachineStartRe = regexp.MustCompile(`(?m)^[ \t]*wait[ \t]+"?\$\{?start_pid\}?"?[ \t]*\|\|`)
+	machineInitCmdRe     = regexp.MustCompile(`(?m)^[ \t]*podman machine init\b`)
 )
 
 // podmanMachineInits counts the `podman machine init` COMMANDS in code.
@@ -755,5 +782,48 @@ func TestTheNightlysInnerBoundsSurviveTheRaisedJobBudget(t *testing.T) {
 	// of failing with a log.
 	if !strings.Contains(uncommentedYAML(body), "timeout-minutes:") {
 		t.Errorf("%s has no timeout-minutes at all", nightlyWorkflow)
+	}
+}
+
+// THE STEP CAP CANNOT DELIVER THE RETRY, and that is why each attempt carries its own bound.
+//
+// The retry loop beside `podman machine start` was written for a start that FAILS FAST — the
+// 2026-09-14 `Error: EOF`, rc 125 at 3m34s. A start that HANGS is the other half of the same
+// fault and the loop had no answer for it: MEASURED 2026-09-18 (run 35335702509, shard 6) the
+// machine began starting at 10:43:39 and the step cap killed the whole step at 10:57:47, so
+// attempts 2 and 3 never ran and a three-attempt retry delivered exactly one.
+//
+// A step cap can only end the STEP. Bounding the attempt is what makes a second attempt
+// reachable, and that is what this pins — not the number, which is a measurement and will
+// move, but the existence of a per-attempt deadline inside the loop.
+//
+// It also pins that the bound is NOT `timeout(1)`: macOS ships no such binary (it is
+// coreutils, and this workflow has no brew step), so a `timeout 360 podman machine start`
+// would fail on every shard with `command not found` — passing this test while breaking the
+// step it protects.
+func TestTheNightlyBoundsEachPodmanMachineStartAttempt(t *testing.T) {
+	body := readWorkflow(t, nightlyWorkflow)
+
+	step, ok := stepContaining(body, "podman machine start")
+	if !ok {
+		t.Fatalf("%s no longer has a step running `podman machine start` — this test has "+
+			"lost its subject and would pass by finding nothing.", nightlyWorkflow)
+	}
+	script := uncommentedYAML(step)
+
+	// THE CALL, NOT THE DEFINITION. Written as a Contains on the function name first, and a
+	// mutation caught it: replacing the call with a bare `if podman machine start` left the
+	// helper defined and unused, and the check passed on a workflow whose retry was once
+	// again unreachable. Pin the call site in its conditional position.
+	if !deadlineCallRe.MatchString(script) {
+		t.Errorf("%s: the `podman machine start` retry has no per-attempt deadline.\n\n"+
+			"Without one a single hung start consumes the whole step budget and the remaining "+
+			"attempts never run — measured in run 35335702509, where a 14m08s hang reduced a "+
+			"three-attempt retry to one. The step cap cannot substitute: it ends the step, not "+
+			"the attempt.\n\nThe step:\n%s", nightlyWorkflow, step)
+	}
+	if strings.Contains(script, "timeout ") && !strings.Contains(script, "start_with_deadline") {
+		t.Errorf("%s: the attempt bound uses timeout(1), which macOS does not ship — the step "+
+			"would fail with `command not found` on every shard.", nightlyWorkflow)
 	}
 }

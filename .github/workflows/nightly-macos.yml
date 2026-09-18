@@ -383,11 +383,16 @@ jobs:
         # eating the whole `timeout-minutes: 50` job budget, so nothing after it ever ran and
         # the run said only that two shards were cancelled.
         #
-        # 15 is ~2.7x the slowest healthy run, the same basis integration/packages_test.go
-        # states for nixBuildJailTimeout. Raise it if a legitimate boot is ever measured past
-        # it; do not remove it, because an uncapped hang costs the whole shard and names
-        # nothing. Pinned by integration/macosmachineshares_test.go.
-        timeout-minutes: 15
+        # 25, up from 15 on 2026-09-18, and the number is now DERIVED rather than chosen:
+        # `podman machine start` is bounded at 6m per attempt below and retried three times,
+        # so the step needs 18m for the retries plus ~2m for the download, install and init —
+        # and at 15m the third attempt could never run. That was not theoretical: run
+        # 35335702509 lost shard 6 to a single 14m hang, with attempts 2 and 3 unreachable.
+        #
+        # The cap still exists for the reason it always did — an uncapped hang costs the whole
+        # shard and names nothing — and it is still far inside the 75m job budget. Pinned by
+        # integration/macosmachineshares_test.go.
+        timeout-minutes: 25
         run: |
           # No brew here: Homebrew ships no x86_64 macOS bottles for podman
           # 6.x (Tier 3 on Tahoe Intel → "no bottle available"), and podman
@@ -493,19 +498,56 @@ jobs:
           # second copy of four shares that nothing checks, which is the exact drift that
           # cost the 2026-09-13 nightly 47 tests. If a retry ever genuinely needs a fresh
           # machine, give the share list a variable and teach that test to read it.
+          # EACH ATTEMPT IS BOUNDED, and without that the retry above is unreachable.
+          #
+          # MEASURED 2026-09-18 (run 35335702509, shard 6): `Starting machine
+          # "podman-machine-default"` at 10:43:39, then nothing until the step cap killed it
+          # at 10:57:47 — 14m08s in one `podman machine start` that never returned. Attempts
+          # 2 and 3 never ran. The retry was written for the 2026-09-14 EOF, which FAILS FAST
+          # (3m34s, rc 125); a HANG is the other half of the same fault and the loop had no
+          # answer for it, because a step cap can only end the step, never an attempt.
+          #
+          # 6 minutes is ~2x a healthy start (the whole step, download and init included, ran
+          # 4m22s–5m30s on the shards where it worked) and comfortably past the 3m34s EOF, so
+          # a start that is merely slow, or failing in the way we have already measured, still
+          # reports its own error rather than being killed and mislabelled.
+          #
+          # A WATCHDOG RATHER THAN `timeout`: macOS ships no timeout(1) — it is coreutils, and
+          # this runner has no brew step. `sleep`+`kill` in a subshell needs nothing.
+          start_with_deadline() {
+            podman machine start &
+            start_pid=$!
+            ( sleep "$1"; kill -TERM "$start_pid" 2>/dev/null ) &
+            dog_pid=$!
+            start_rc=0
+            wait "$start_pid" || start_rc=$?
+            kill "$dog_pid" 2>/dev/null || true
+            wait "$dog_pid" 2>/dev/null || true
+            return "$start_rc"
+          }
+
           started=
           for attempt in 1 2 3; do
-            if podman machine start; then
+            attempt_started=$(date +%s)
+            if start_with_deadline 360; then
               started=yes
               break
             fi
-            echo "podman machine start failed (attempt ${attempt}/3) — stopping and retrying"
+            # A hang and an error are different faults with the same exit path, so SAY WHICH:
+            # the next reader of this log is deciding whether the VM handshake is broken or
+            # the CDN is, and "failed" alone does not tell them.
+            if [ "$(( $(date +%s) - attempt_started ))" -ge 360 ]; then
+              echo "podman machine start HUNG past its 6m deadline (attempt ${attempt}/3)" \
+                "— killed, stopping and retrying"
+            else
+              echo "podman machine start failed (attempt ${attempt}/3) — stopping and retrying"
+            fi
             podman machine stop || true
             sleep 5
           done
           if [ -z "$started" ]; then
-            echo "::error::podman machine start failed three times. The VM never came up, so" \
-              "every launch in this shard would exit 125 before pid1 ran."
+            echo "::error::podman machine start failed three times, each bounded at 6m. The VM" \
+              "never came up, so every launch in this shard would exit 125 before pid1 ran."
             exit 1
           fi
 
