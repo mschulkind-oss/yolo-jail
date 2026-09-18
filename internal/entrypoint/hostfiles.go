@@ -52,6 +52,13 @@ func hostUserPath(slug string) string {
 	return filepath.Join(ctxRootDir(), "host-user", slug)
 }
 
+// HostUserPath is hostUserPath for the host-side verbs, which resolve the same staged copy:
+// a `user` surface's host layer is the file a LAUNCH put at this path, never the destination
+// it was rendered into ([OQ-CR6](docs/design/config-target-resolution.md#oq-cr6)). Exported
+// rather than re-derived in internal/cli for the reason the unexported one exists: two
+// spellings of this join is how a reader ends up looking somewhere nothing wrote.
+func HostUserPath(slug string) string { return hostUserPath(slug) }
+
 // ConfigureHostFiles stages every host_files entry declared in YOLO_HOST_FILES.
 // It is the boot step (and, via RunDarwinBootstrap, the macos-user step) that
 // realizes the feature: decode the resolved entries, render each into the jail
@@ -107,7 +114,7 @@ func stageHostFile(e *Env, entry config.HostFileEntry) error {
 // asserting into a file the user declared for themselves, which is the opposite of the
 // consent direction every other pack claim runs in.
 func renderHostFileSurface(e *Env, entry config.HostFileEntry) error {
-	surface := hostFileSurface(entry)
+	surface := HostFileSurface(entry)
 	hostBytes := hostFileLayerBytes(entry)
 	dest := expandHomePath(e, surface.Path)
 
@@ -193,11 +200,18 @@ func hostSourceIsExecutable(entry config.HostFileEntry) bool {
 	return fi.Mode().Perm()&0o111 != 0
 }
 
-// hostFileSurface lowers a resolved entry into the manifest.Surface the engine
+// HostFileSurface lowers a resolved entry into the manifest.Surface the engine
 // composes. Owner is the fixed pseudo-agent "user" (no real agent is named
 // that), and the surface Name is the injective slug — together they key the §5
 // sidecars and keep every user surface distinct from every builtin.
-func hostFileSurface(entry config.HostFileEntry) manifest.Surface {
+//
+// EXPORTED for the host-side `yolo config reset` of a jail's captured edits
+// ([OQ-CR4](docs/design/config-target-resolution.md#oq-cr4)), which has to compose the pure
+// render of a `user` surface and until then had no codec for one at all — the
+// PruneWorkspaceKeyed precedent, a boot-render internal exported so the CLI's truncation
+// calls the one definition rather than a second one free to disagree about which layers an
+// entry contributes.
+func HostFileSurface(entry config.HostFileEntry) manifest.Surface {
 	return manifest.Surface{
 		Agent:    "user",
 		Name:     entry.Slug(),

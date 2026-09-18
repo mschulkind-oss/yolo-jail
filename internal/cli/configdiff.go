@@ -24,6 +24,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
@@ -128,6 +129,19 @@ func parseSurfaceIdentity(cmd, identity string, errw io.Writer) (agent, surface 
 // anyway (see configCapture, "for observability, not correctness"). Nothing depends on it the
 // way adoption depends on reset, and leaving it refused keeps the new store with exactly two
 // writers — the render, and the reset that discards. --force still reaches it.
+//
+// # A JAIL-NOTCH RESET IS THE THIRD WRITER, and the premise is false for it too
+//
+// [OQ-CR4](docs/design/config-target-resolution.md#oq-cr4) rules (a): a host-side `reset` of
+// a JAIL's captured edits exists, because the guard's premise — *"these surfaces resolve
+// against a real home"* — is true of a real home and false of a workspace's own home
+// overlay, which is what a workspace target now resolves (configTarget.surfaceFile, through
+// jailHomeHostLocation). Without it, discarding a stopped jail's captures required LAUNCHING
+// that jail, and a launch renders and captures first: the undo reachable only by performing
+// the act being undone.
+//
+// What replaces the guard for that one case is an ORDERING condition, not a weaker version
+// of it — see configrunningjail.go, which also states why `--force` reaches it.
 func refuseHostSideWrite(t configTarget, cmd string, force bool, errw io.Writer) bool {
 	if t.local || force {
 		return false
@@ -135,19 +149,20 @@ func refuseHostSideWrite(t configTarget, cmd string, force bool, errw io.Writer)
 	if cmd == "reset" && t.hostOwned() {
 		return false
 	}
+	if cmd == "reset" && t.notch == render.KindJail {
+		return refuseWhileJailRuns(t, cmd, errw)
+	}
 	fmt.Fprintf(errw, "yolo config %s: refusing — these surfaces resolve against a real "+
 		"home, not a jail's, so writing them could clobber your own config. This command "+
 		"is meant to run inside the jail that owns the workspace. Re-run with --force if you "+
 		"really mean to write the host's files.\n", cmd)
-	// THE `own` REMEDY, and it is not a courtesy. Before `--at`, a host-side `config reset`
-	// standing anywhere resolved the host notch, so an owned home's reset was reachable by
-	// being in the wrong directory. Now the cwd selects the target, so inside a workspace this
-	// verb is about that jail — and the owned home it used to reach needs saying, or a shipped
-	// path becomes unreachable without the user guessing the flag.
-	if cmd == "reset" && t.notch == render.KindJail && hostOwnership() == render.OwnershipOwn {
-		fmt.Fprintf(errw, "  Your real home is `host_management: own`, which yolo composes: "+
-			"`yolo config %s <agent> --at host` acts on THAT, and needs no --force.\n", cmd)
-	}
+	// ⚠ THE `own` REMEDY THAT SAT HERE IS GONE, and what removed it is the arm above rather
+	// than a change of mind. It told a user standing in a workspace that their owned real
+	// home was reachable with `--at host`, because before [OQ-CR4] a jail-notch reset refused
+	// and that shipped path would otherwise have become unreachable without guessing the
+	// flag. A jail-notch reset no longer refuses, so the branch was unreachable — and the
+	// sentence would have been wrong anyway: the user is now acting on the jail they asked
+	// about.
 	return true
 }
 
@@ -198,13 +213,7 @@ func userSidecarSurfaces(t configTarget, surface string) []manifest.Surface {
 		if surface != "" && slug != surface {
 			continue
 		}
-		// Path is filled in from the slug so the diff header names the FILE rather
-		// than the escaped slug — the slug is a reversible percent-escape of the
-		// destination (config.HostFileEntry.Slug), so this needs no config read and
-		// still works for an entry the user has since removed.
-		out = append(out, manifest.Surface{
-			Agent: "user", Name: slug, Path: "~/" + unslugHostFilePath(slug),
-		})
+		out = append(out, userSurfaceFor(slug))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
@@ -485,10 +494,16 @@ func configReset(t configTarget, args []string, out, errw io.Writer, color bool)
 		//
 		// Truncating also makes reset VISIBLE immediately rather than only after the
 		// next boot, which is what a user means by "reset".
-		baseline, err := truncateSurfaceToPureRender(t, s)
+		baseline, note, err := truncateSurfaceToPureRender(t, s)
 		if err != nil {
 			fmt.Fprintf(errw, "yolo config reset: %s/%s: %v\n", s.Agent, s.Name, err)
 			return 1
+		}
+		if note != "" {
+			// The truncation composed something other than the full pure render, and the
+			// file it just wrote looks exactly as correct either way — so say which
+			// ([OQ-CR6]: an unreachable layer is reported, never silently substituted).
+			pr.Printf("[dim]%s/%s: %s.[/dim]", s.Agent, s.Name, note)
 		}
 		// AND RE-SEED THE BASELINE THE TRUNCATION JUST MADE TRUE, rather than leaving the
 		// next render to infer one (OQ-CO7 D1). See reseedResetBaseline.
@@ -690,65 +705,86 @@ func sortedKeys(m *jsonx.OrderedMap) []string {
 //     as a layer (see the `stateful` arm of entrypoint.RenderHostPack). Feeding it back here
 //     would preserve exactly the keys the user asked to discard — reset as a no-op, which is
 //     the failure the truncation exists to prevent.
-func truncateSurfaceToPureRender(t configTarget, s manifest.Surface) ([]byte, error) {
+func truncateSurfaceToPureRender(t configTarget, s manifest.Surface) ([]byte, string, error) {
 	path, ok := t.surfaceFile(s.Path)
 	if !ok {
 		// NOT RESOLVABLE AT THIS NOTCH (§4.1's last row). Never a fallback to the process
 		// home: host-side that is the invoking human's own dotfile, and truncating it is the
 		// class that put a jail's autonomy posture into a real home once.
-		return nil, nil
+		return nil, "", nil
 	}
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, "", nil
 		}
-		return nil, err
+		return nil, "", err
 	}
 	if s.Codec == "" {
-		// A SURFACE NOBODY CAN RE-RENDER, so there is no "pure render" to truncate to.
-		// The `user` pseudo-agent's surfaces are synthesized from the sidecar FILE NAMES
-		// (userSidecarSurfaces), deliberately — that is what lets `reset user` clean up
-		// after a host_files entry the user has since removed — and a file name carries
-		// no codec. Composing one anyway fails as `unknown codec ""`.
+		// A SURFACE NOBODY CAN RE-RENDER, so there is no "pure render" to truncate to — and
+		// since [OQ-CR4] made a host-side jail-notch reset routine rather than
+		// --force-only, this is the ONE case left rather than every `user` surface.
 		//
-		// Discarding the sidecars above is the whole of reset for these, which is exactly
-		// what it was before the target resolution landed: host-side, `expandHome` pointed
-		// at the invoking human's home, the file was absent, and this function returned
-		// here. Resolution made the path CORRECT (a workspace target now finds the jail's
-		// own home overlay), which is what first brought a codec-less surface this far —
-		// so this guard restores the prior behaviour rather than inventing one.
-		//
-		// The better answer is to give these surfaces their codec, from the `host_files`
-		// entry whose Slug matches, and truncate for real when the entry still exists. It
-		// needs a config read this function does not do today; until then reset discards
-		// the capture and leaves the file, and the integration test says so.
-		return nil, nil
+		// A `user` surface now carries the codec, defaults and managed layers of the
+		// `host_files` entry whose Slug matches (userSurfaceFor), which is what the comment
+		// this replaces named as the better answer. What remains codec-less is an entry the
+		// user has SINCE REMOVED: its sidecars are still on disk — cleaning up after
+		// exactly that is why `reset user` discovers surfaces from file names rather than
+		// from config — and there is no declaration left to re-render from. Discarding the
+		// sidecars is the whole of reset for it, correctly.
+		return nil, "", nil
 	}
 	if t.hostOwned() {
-		return truncateHostSurfaceToPureRender(t, s, path)
+		text, err := truncateHostSurfaceToPureRender(t, s, path)
+		return text, "", err
 	}
-	// Surface.HasHostLayer, not a table beside this file: the surfaces the boot render
-	// hands host bytes to are the ones whose HostSource is set, and re-rendering WITHOUT
-	// the host layer for a surface that has one would write yolo's defaults over the
-	// user's own keys. This was the fourth reader of the retired surfaceHasHostLayer map
-	// (docs/design/host-render-target.md §3.4).
-	var hostBytes []byte
-	if s.HasHostLayer() {
-		hostBytes, _ = os.ReadFile(path)
-	}
+	// THE HOST LAYER IS THE PREVIEW'S, which is [OQ-CR4] inheriting [OQ-CR6]'s answer — the
+	// dependency the design states as *"the truncation writes the same layer"*.
+	//
+	// It read the surface's own DESTINATION until then, and for a `readsHost` surface that
+	// is the file being reset: the captured edit came straight back in as a `host` key and
+	// the reset was a no-op on the one surface class most likely to have one. (The trap is
+	// recorded from the other side in configls_test.go's withScratchHome, which noticed that
+	// a truncation of claude/settings "composes the same bytes back".) hostLayerFor reads
+	// the copy the LAUNCH staged instead, so an in-jail reset keeps the user's own host keys
+	// and discards only the capture — and host-side, where that copy is out of reach, it
+	// says so and composes without, which the next launch re-renders correctly.
+	hostBytes, note := hostLayerFor(t, s)
 	// The jail notch's own Target does the ${workspace} substitution and the fold — the
 	// same render.Target.Compose the boot render calls, which is what makes "the pure
 	// render" one definition rather than this file's opinion of one.
 	sub, res, err := t.composeTarget().Compose(s, render.Layers{HostBytes: hostBytes})
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	text := pureRenderText(sub, res.Encoded)
 	// Truncate in place: the file may be a bind-mount target whose inode matters.
 	if err := os.WriteFile(path, text, 0o644); err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return text, nil
+	return text, note, nil
+}
+
+// userSurfaceFor is the manifest.Surface a `user` host_files slug composes as: the declared
+// entry's codec, defaults and managed layers when the entry is still declared, and the bare
+// name-and-path synthesis when it is not.
+//
+// The PATH is derived from the slug either way — a reversible percent-escape of the
+// destination (config.HostFileEntry.Slug) — so a diff header names the FILE rather than the
+// escaped slug even for an entry that is gone, which is the case `reset user` exists to
+// clean up after.
+//
+// The LAYERS need the config, and that is the read the residue this replaces declined to do.
+// Without them a `user` surface has no codec, so the truncation could not run at all; with
+// them it composes exactly what the boot render composes for that entry
+// (entrypoint.HostFileSurface is the one lowering, so the two cannot disagree about which
+// layers an entry contributes).
+func userSurfaceFor(slug string) manifest.Surface {
+	if entry, ok := userHostFileEntry(slug); ok {
+		s := entrypoint.HostFileSurface(entry)
+		s.Path = "~/" + unslugHostFilePath(slug)
+		return s
+	}
+	return manifest.Surface{Agent: "user", Name: slug, Path: "~/" + unslugHostFilePath(slug)}
 }
 
 // pureRenderText is the file body for a composed surface at this notch: render.SurfaceText,
@@ -927,4 +963,33 @@ func captureSurfaceAt(s manifest.Surface, at captureLocation) (int, error) {
 		return 0, err
 	}
 	return overlayKeyCountAt(at.overlay), nil
+}
+
+// userHostFileEntry is the `host_files` entry a `user` surface slug came from, or ok=false
+// when the user no longer declares one.
+//
+// Read with probeSource=false, the same way `config ls` reads them: these are inspection and
+// undo commands, which must not differ (or fail) because a host path is absent, and in-jail
+// those paths are not in the mount namespace at all.
+//
+// DELIBERATELY UNCACHED, unlike surfaceManifest beside it. That cache is safe because a
+// manifest is a property of the BINARY; this answer is a property of the user's config on
+// disk, so a process-lifetime memo would pin whichever config was loaded first — invisible
+// in a one-shot CLI and wrong in anything that reads two (the test binary is the one that
+// exists today). A handful of loads per interactive invocation is not worth that.
+func userHostFileEntry(slug string) (config.HostFileEntry, bool) {
+	cfg, err := config.LoadConfig("", false, func(string) {})
+	if err != nil {
+		return config.HostFileEntry{}, false
+	}
+	entries, err := config.LoadHostFiles(cfg, func(string) {}, false)
+	if err != nil {
+		return config.HostFileEntry{}, false
+	}
+	for _, e := range entries {
+		if e.Slug() == slug {
+			return e, true
+		}
+	}
+	return config.HostFileEntry{}, false
 }

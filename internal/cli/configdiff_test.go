@@ -58,7 +58,7 @@ func TestResetTruncatesSurfaceSoAdoptionFindsNothing(t *testing.T) {
 	}
 
 	tgt, _ := withLocalSidecarDir(t)
-	written, err := truncateSurfaceToPureRender(tgt, s)
+	written, _, err := truncateSurfaceToPureRender(tgt, s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestResetTruncationLeavesAbsentFileAbsent(t *testing.T) {
 	t.Setenv("HOME", home)
 	s, _ := surfaceManifest().Lookup("copilot", "config")
 	tgt, _ := withLocalSidecarDir(t)
-	baseline, err := truncateSurfaceToPureRender(tgt, s)
+	baseline, _, err := truncateSurfaceToPureRender(tgt, s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,41 +176,44 @@ func TestConfigCaptureWithNoBaselineIsANoOp(t *testing.T) {
 }
 
 // Phase-0 data-loss guard: host-side (surfaces resolve against a REAL home, not a
-// jail's), `reset`/`capture` must REFUSE by default and only proceed with --force —
-// so a stray host-side invocation cannot truncate a real dotfile or copy host config
-// into a workspace. The resolved target's `local` is false when YOLO_VERSION is unset,
-// which is exactly the host-side condition.
+// jail's), `capture` must REFUSE by default and only proceed with --force — so a stray
+// host-side invocation cannot copy host config into a workspace. The resolved target's
+// `local` is false when YOLO_VERSION is unset, which is exactly the host-side condition.
+//
+// ⚠ IT USED TO COVER `reset` TOO, and [OQ-CR4] took that half away deliberately: a
+// host-side reset at a JAIL notch is the fourth disposition, and it acts on the workspace's
+// own home overlay rather than on a real home, so the premise this guard rests on is false
+// for it. What replaces the refusal there is an ordering condition — see
+// confighostjailreset_test.go. The asymmetry is the ownership design's own: capture's
+// premise is PRIVACY (a credential copied out of a real file), which `own` does not unlock
+// and a workspace target does not answer.
 //
 // It drives configRunW, so the RESOLUTION runs for real and the cwd has to be a scratch
 // workspace — see withWorkspaceCwd's ⚠ for what a `--force` reset would otherwise delete.
-func TestResetCaptureRefuseHostSideWithoutForce(t *testing.T) {
+func TestCaptureRefusesHostSideWithoutForce(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("YOLO_VERSION", "") // force the host-side branch (the target is not local)
 	_, dir := withWorkspaceCwd(t)
 	writeSidecar(t, dir, "claude", "settings", `{"theme":"dark"}`, `{"theme":"light"}`)
 
-	for _, cmd := range []string{"reset", "capture"} {
-		var out, errw bytes.Buffer
-		// Without --force: refused, and the sidecar is left intact.
-		rc := configRunW([]string{cmd, "claude/settings"}, &out, &errw)
-		if rc == 0 {
-			t.Errorf("%s host-side without --force should refuse, got rc=0", cmd)
-		}
-		if !strings.Contains(errw.String(), "refusing") {
-			t.Errorf("%s refusal message unclear:\n%s", cmd, errw.String())
-		}
-		if _, err := os.Stat(filepath.Join(dir, "claude-settings.overlay.json")); err != nil {
-			t.Errorf("%s without --force removed the sidecar (err=%v) — it must not touch anything", cmd, err)
-		}
+	var out, errw bytes.Buffer
+	// Without --force: refused, and the sidecar is left intact.
+	rc := configRunW([]string{"capture", "claude/settings"}, &out, &errw)
+	if rc == 0 {
+		t.Errorf("capture host-side without --force should refuse, got rc=0")
+	}
+	if !strings.Contains(errw.String(), "refusing") {
+		t.Errorf("capture refusal message unclear:\n%s", errw.String())
+	}
+	if _, err := os.Stat(filepath.Join(dir, "claude-settings.overlay.json")); err != nil {
+		t.Errorf("capture without --force removed the sidecar (err=%v) — it must not touch anything", err)
 	}
 
-	// With --force, reset proceeds (removes the sidecars) — the escape hatch works.
-	var out, errw bytes.Buffer
-	if rc := configRunW([]string{"reset", "claude/settings", "--force"}, &out, &errw); rc != 0 {
-		t.Fatalf("reset --force host-side should proceed, got rc=%d: %s", rc, errw.String())
-	}
-	if _, err := os.Stat(filepath.Join(dir, "claude-settings.overlay.json")); !os.IsNotExist(err) {
-		t.Errorf("reset --force did not remove the overlay sidecar (err=%v)", err)
+	// With --force it proceeds — the escape hatch works.
+	out.Reset()
+	errw.Reset()
+	if rc := configRunW([]string{"capture", "claude/settings", "--force"}, &out, &errw); rc != 0 {
+		t.Fatalf("capture --force host-side should proceed, got rc=%d: %s", rc, errw.String())
 	}
 }
 

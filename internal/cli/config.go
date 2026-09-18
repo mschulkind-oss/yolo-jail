@@ -53,7 +53,12 @@ Subcommands:
                            per-key layer provenance is 'config ls'.
   reset <agent[/surface]> [flags]
                            Discard those captured edits, so the surface returns
-                           to what its layers produce on the next launch.
+                           to what its layers produce on the next launch. It
+                           runs HOST-SIDE for a workspace too — it acts on that
+                           jail's own home overlay, never on your real home —
+                           and refuses while a jail for that workspace is
+                           running, naming the in-jail command, which is
+                           available exactly then.
   promote <agent[/surface]> [flags]
                            Turn captured in-jail edits into DECLARED ones: write them
                            into a pack (the conventional local pack by default, which
@@ -105,9 +110,13 @@ ls, render, diff, reset and capture also take:
                      cd into the project you meant.
 
 reset/capture also take:
-  --force            reset and capture WRITE files; run host-side (outside the jail
-                     that owns the workspace) they resolve against your REAL home and
-                     could clobber your own config, so they refuse there unless --force.
+  --force            reset and capture WRITE files. At the HOST notch they resolve
+                     against your REAL home and could clobber your own config, so
+                     they refuse there unless --force ('own' exempts reset, which
+                     yolo composes). A host-side reset of a WORKSPACE needs no
+                     --force — those files are that jail's, not yours — but it
+                     refuses while that jail is running, or while the container
+                     runtime cannot be asked whether it is; --force reaches both.
 
 promote flags:
   --keys a,b         Promote only these captured keys (default: all of them).
@@ -469,6 +478,9 @@ func renderSurface(t configTarget, s manifest.Surface, explain bool, out io.Writ
 // composes, so it drops that layer too — and says so, because the difference is otherwise
 // invisible in output that looks exactly as correct either way.
 func hostLayerFor(t configTarget, s manifest.Surface) ([]byte, string) {
+	if s.Agent == userSurfaceAgent {
+		return userHostLayerFor(t, s)
+	}
 	if !s.HasHostLayer() {
 		return nil, ""
 	}
@@ -555,4 +567,45 @@ func localTarget() render.Target {
 // (render.Target.ExpandHome) instead of through two implementations that agreed by hand.
 func expandHome(p string) string {
 	return localTarget().ExpandHome(p)
+}
+
+// userSurfaceAgent is the fixed pseudo-agent every `host_files` entry lowers to. No real
+// agent is named that, which is what keeps a user surface distinct from every pack's.
+const userSurfaceAgent = "user"
+
+// userHostLayerFor is hostLayerFor for a `host_files` surface, whose host layer is declared
+// rather than pack-derived: an inline `content` literal, or the copy a launch staged at
+// /ctx/host-user/<slug>. Same rule either way — the STAGED copy, never the destination,
+// which for these is the very file a reset is truncating.
+//
+// An entry the user has SINCE REMOVED has no layer to resolve and no declaration to
+// re-render from; the truncation declines on the missing codec before it reaches here, and
+// this says the same thing for a reader who gets here another way.
+func userHostLayerFor(t configTarget, s manifest.Surface) ([]byte, string) {
+	entry, ok := userHostFileEntry(s.Name)
+	if !ok {
+		return nil, "no `host_files` entry declares " + s.Path + " any more, so there is no " +
+			"`host` layer to compose"
+	}
+	if entry.HasContent {
+		// Declared inline, so it is reachable from either side and needs no /ctx at all.
+		return []byte(entry.Content), ""
+	}
+	if !entry.SourceBearing() {
+		return nil, "" // layers-only: defaults and managed are the whole surface
+	}
+	if t.notch != render.KindJail || !t.local {
+		return nil, "the `host` layer is unavailable here: a launch stages this entry's " +
+			"source at " + entrypoint.HostUserPath(entry.Slug()) + ", which exists only " +
+			"inside the jail it launches — this composes without it"
+	}
+	data, err := os.ReadFile(entrypoint.HostUserPath(entry.Slug()))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, ""
+		}
+		return nil, "the `host` layer could not be read at " +
+			entrypoint.HostUserPath(entry.Slug()) + ": " + err.Error()
+	}
+	return data, ""
 }
