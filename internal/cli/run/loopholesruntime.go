@@ -87,9 +87,14 @@ func (o *Options) advertiseHostFor(rt string, cfg *jsonx.OrderedMap) string {
 // its daemons never published — a refused launch manufactured out of a healthy host,
 // which is the one outcome the whole host-loopback path is built to avoid.
 //
-// Apple Container is excluded before the mode is read at all: it does its own
-// networking, takes no network selector from the assembler and gets no host-service
-// bind mount, so its jail never shares this namespace whatever `network.mode` says.
+// Apple Container is excluded before the mode is read at all: it does its own networking and
+// takes no network selector from the assembler, so its jail never shares this namespace
+// whatever `network.mode` says. ⚠ THIS ALSO SAID IT "gets no host-service bind mount", which
+// is FALSE and is retracted: hostServicesMountArgs emits that bind on every backend
+// (TestAppleContainerMountsOnlyActiveOpenAIAuthEndpoint asserts it), and the endpoint file the
+// one admitted loophole publishes really does cross it. What does not work there is the DIAL,
+// measured — nothing crosses container→host on `container` 1.1.0 — which is the fact
+// backendInertReason states and the launch now reports for every pack (packloopholes.go).
 //
 // MACOS-USER IS ALWAYS TRUE, and it is the only runtime here that is true by
 // CONSTRUCTION rather than by configuration (DP-L2, docs/design/declaration-parity.md

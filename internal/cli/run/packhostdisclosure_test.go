@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
@@ -508,33 +509,70 @@ func TestMacosUserDisclosureNamesEveryPackItNowStarts(t *testing.T) {
 	}
 }
 
-// The two scopings are COMPLEMENTS, and both print in one launch: the exec disclosure names the
-// pack whose service starts, notePackLoopholesInert names the rest. An overlap says a pack is
-// both running and inert; a gap leaves a pack in neither line.
-func TestOpenAIAuthPackFiltersPartitionThePackSet(t *testing.T) {
-	packs := []*packload.Pack{
-		{Name: "acme", Decl: &packdecl.Manifest{}},
-		{Name: openAIAuthPackName, Decl: &packdecl.Manifest{}},
-		{Name: "zed", Decl: &packdecl.Manifest{}},
-	}
-	spawning, inert := partitionOpenAIAuthPack(packs)
-	if len(spawning)+len(inert) != len(packs) {
-		t.Errorf("the split lost or duplicated a pack: %d spawning + %d inert != %d loaded",
-			len(spawning), len(inert), len(packs))
-	}
-	if len(spawning) != 1 || spawning[0].Name != openAIAuthPackName {
-		t.Errorf("the spawning half is %v, want just %q", names(spawning), openAIAuthPackName)
-	}
-	for _, p := range inert {
-		if p.Name == openAIAuthPackName {
-			t.Error("the openai-auth pack is in BOTH halves, so one launch says its service " +
-				"starts and also that it is inert")
+// NO PACK IS EXEMPT FROM THE INERT REPORT ON APPLE CONTAINER — and this REPLACES
+// TestOpenAIAuthPackFiltersPartitionThePackSet, which asserted the exemption.
+//
+// That test pinned `partitionOpenAIAuthPack`: the two scopings were "complements", the exec
+// disclosure naming the pack whose service starts and the inert report naming the rest, with
+// an overlap held to be an untruth ("this pack is both running and inert"). The premise was
+// measured false — the exec disclosure is CLAIM-shaped, so claude's broker is announced AND
+// reported inert in the same AC launch and always was — and the exemption's real effect was
+// that the ONE service Apple Container starts was the one the launch said nothing about, while
+// its measured state is that the daemon runs and the jail cannot reach it (openaiauthbackend.go
+// carries the reasoning; setup-support-gaps.md G6 is the symptom).
+//
+// Driven through startLoopholesDisclosed, the boundary that held the branch — not through
+// notePackLoopholesInert, which never had an exemption to lose. The fixture pack carries the
+// REAL pack and loophole names, because a name is exactly what the deleted filter keyed on, and
+// declares NO host_daemon so the boundary starts nothing while the report still has its
+// subject (the backend axis covers a loophole whatever its declaration says).
+func TestAppleContainerReportsEveryPackInert(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	emptyLoopholeDirs(t)
+
+	creds := writeRealLoopholePack(t, openAIAuthPackName, openAIAuthBrokerName, `{
+		"name": "`+openAIAuthBrokerName+`",
+		"transport": "loopback-tls"
+	}`)
+	other := writeRealLoopholePack(t, "acme", "acme-proxy", `{
+		"name": "acme-proxy",
+		"transport": "loopback-tls"
+	}`)
+
+	cname := "yolo-ac-inert-" + t.Name()
+	t.Cleanup(func() { _ = os.RemoveAll(hostServiceSocketsDir(cname, false)) })
+	var errBuf bytes.Buffer
+	o := &Options{}
+	fillDefaults(o)
+	o.Stderr = &errBuf
+	o.Stdout = discardBuf()
+	o.PathExists = func(string) bool { return false }
+
+	o.startLoopholesDisclosed(cname, "container", newConfig(), []*packload.Pack{creds, other})
+
+	out := errBuf.String()
+	// The EXACT line, built from the same inputs, for each pack — so this cannot pass on a
+	// partial match and cannot rot into matching nothing when the reason's wording changes.
+	for _, tc := range []struct{ pack, loophole string }{
+		{openAIAuthPackName, openAIAuthBrokerName},
+		{"acme", "acme-proxy"},
+	} {
+		want := inertLineFor(tc.pack, loopholes.InertNote{
+			Name: tc.loophole, Axis: loopholes.AxisBackend, Reason: backendInertReason("container"),
+		})
+		if !strings.Contains(out, want) {
+			t.Errorf("Apple Container did not report %s inert.\n want: %s\n  got: %s",
+				tc.pack, want, out)
 		}
 	}
-	// withoutOpenAIAuthPack is the inert half by construction, and the pre-existing call
-	// site (notePackLoopholesInert) must keep seeing exactly that set.
-	if got, want := names(withoutOpenAIAuthPack(packs)), names(inert); got != want {
-		t.Errorf("withoutOpenAIAuthPack returned %s, want the inert half %s", got, want)
+	// AND THE REASON IS VERSION-STAMPED, which is what makes the line retire itself rather
+	// than stand forever: nothing crosses container→host on the release it was measured on,
+	// and integration/applecontainer_test.go's host-loopback witness is what expires it.
+	if !strings.Contains(out, "1.1.0") {
+		t.Errorf("the reason does not name the version it was measured on, so a reader cannot "+
+			"tell when to re-measure:\n%s", out)
 	}
 }
 

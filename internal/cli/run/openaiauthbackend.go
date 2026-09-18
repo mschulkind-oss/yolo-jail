@@ -7,14 +7,16 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
-	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 const (
 	openAIAuthBrokerName = "openai-auth-broker"
-	// The PACK that ships the loophole above, which is a different name from the loophole
-	// and is the axis the disclosure/inert split below scopes on: a report about packs
-	// takes a pack name, a spawn allow-list takes a loophole name.
+	// The PACK that ships the loophole above, which is a different name from the loophole:
+	// a report about packs takes a pack name, a spawn allow-list takes a loophole name.
+	//
+	// It scopes NO report any more — that was the disclosure/inert split deleted below — and
+	// what still reads it is the fixtures that name a realistic pack. Kept because the
+	// distinction it records is the one a future per-pack scoping would get wrong again.
 	openAIAuthPackName             = "openai-auth"
 	openAIAuthMountSentinelName    = ".mount-sentinel"
 	openAIAuthMountSentinelContent = "yolo-openai-auth-mount-v1\n"
@@ -48,8 +50,8 @@ func openAIAuthLoopholeActive(cfg *jsonx.OrderedMap) bool {
 // never started would have been OQ-10's overclaim. The arm starts every admitted loophole
 // now, so the whole pack set is exactly what it must announce, and `notePackLoopholesInert`
 // takes the whole set too — they stay complements by construction instead of by a pair of
-// hand-maintained filters. `partitionOpenAIAuthPack`/`withoutOpenAIAuthPack` are KEPT: the
-// container branch still uses them.
+// hand-maintained filters. `partitionOpenAIAuthPack`/`withoutOpenAIAuthPack` were kept for the
+// container branch, and that branch is gone as well (see below).
 
 // prepareOpenAIAuthMountSentinel creates the inert file named by the shipped
 // loophole's state_files list before container argv assembly. A nonempty list is
@@ -105,32 +107,43 @@ func writeOpenAIAuthMountSentinel() error {
 	return nil
 }
 
-// partitionOpenAIAuthPack splits the loaded packs into the one pack whose host service a
-// SUBSET backend really starts and every other pack, which such a backend leaves inert.
+// THE SUBSET PARTITION IS GONE TOO — deleted 2026-09-18, and what it was wrong about is the
+// record worth keeping.
 //
-// ONE function returning BOTH halves, rather than two independent filters, because both halves
-// print in the SAME launch — the exec disclosure above and notePackLoopholesInert — and the two
-// lines contradict each other the moment the halves overlap (a pack announced as running AND
-// reported inert) or leave a gap (a pack neither line mentions). Complementary by construction
-// is cheaper than complementary by review; TestOpenAIAuthPackFiltersPartitionThePackSet pins it
-// anyway, since a later edit could still split them.
+// `partitionOpenAIAuthPack` and `withoutOpenAIAuthPack` split the loaded packs into "the one
+// pack whose host service a SUBSET backend really starts" and the rest. The macos-user half of
+// that job disappeared with the subset spawn path above; the last caller was the
+// `rt == "container"` branch in startLoopholesDisclosed, which handed the inert report every
+// pack EXCEPT this one — so on Apple Container the credential service was the single pack the
+// launch said nothing about, while its measured state is that the daemon starts and the jail
+// cannot reach it.
 //
-// PER PACK, not per loophole, and the imprecision is deliberate and bounded: the openai-auth
-// pack's whole content is the broker loophole, so its exec claims and the subset a macos-user
-// launch starts are the same set. If it ever ships a second loophole the two split — and the
-// inert report splits with it in the same direction, since it drops the pack whole.
-func partitionOpenAIAuthPack(packs []*packload.Pack) (spawning, inert []*packload.Pack) {
-	for _, p := range packs {
-		if p.Name == openAIAuthPackName {
-			spawning = append(spawning, p)
-			continue
-		}
-		inert = append(inert, p)
-	}
-	return spawning, inert
-}
-
-func withoutOpenAIAuthPack(packs []*packload.Pack) []*packload.Pack {
-	_, inert := partitionOpenAIAuthPack(packs)
-	return inert
-}
+// The argument for the exemption was that a pack "announced as running AND reported inert" is
+// an untruth. Measured, it is not, twice over: the exec disclosure is CLAIM-shaped (it names
+// what a pack DECLARES it runs), so claude's broker is announced and reported inert in the same
+// AC launch and always was; and on this backend the two statements — the daemon started, the
+// jail cannot reach it — are both true, with the second being the one a user can act on.
+// packloopholes.go carries the whole reasoning at the line that used to hold the branch.
+//
+// WHAT WAS DELIBERATELY NOT DONE WITH IT, so the next reader does not take it for an
+// oversight: openai-auth-broker-plan.md's step 10 also proposes WITHHOLDING
+// `YOLO_SERVICE_OPENAI_AUTH_BROKER_ENDPOINT` on Apple Container. That is not done here, and
+// the reason is not scope:
+//
+//   - the measurement is per BACKEND, not per service. Nothing crosses container→host on
+//     `container` 1.1.0, so EVERY loopback-TLS endpoint variable this backend emits is equally
+//     unreachable. Withholding one service's on that evidence is a per-service patch to a
+//     per-backend fact, and it would leave the next service to rediscover it.
+//   - it is not the shape brokerEndpointIsUnpublishable (assemble_parts.go) uses for the Claude
+//     broker, whatever the symmetry suggests. That one is withheld because NOTHING PUBLISHES —
+//     no singleton is ensured on AC and the allow list admits this service alone — so the
+//     variable names a file that never appears. Here the file does appear: the daemon runs and
+//     writes it. "Published but unreachable" and "never published" are different faults, and
+//     the witness classes them differently (OQ-R4's faultUnreachable vs faultUnpublished).
+//   - it has a cost the plan does not price. The jail-side adapter is still in this launch's
+//     YOLO_JAIL_DAEMONS payload; withholding the variable it reads turns "an adapter that
+//     cannot reach its front" into "an adapter with no front named at all", which on today's
+//     supervisor is an empty log and an endless respawn (roadmap 📦 row 2). A launch that says
+//     what is wrong beats a launch that removes the pointer and keeps the process.
+//
+// So the disclosure is the fix, and the transport is upstream.

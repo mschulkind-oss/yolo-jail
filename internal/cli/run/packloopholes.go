@@ -120,6 +120,13 @@ const (
 	// answer belongs to notePackLoopholesInert's producer (loopholeinert.go), not to a second
 	// selection written here. Announcing a daemon that never starts is the overclaim the
 	// `autonomy` and `profile` rows below refuse to make.
+	//
+	// ONE BACKEND HAS THAT ANSWER NOW, which is where a reader should start rather than
+	// re-deriving it: the composed payload is hoisted above the backend dispatch
+	// (packservices.go's jailDaemonsFor), and macos-user reads it to decline every entry by
+	// name (jaildaemondecline.go). What is still missing for this class is the answer for a
+	// backend that DOES run them, which is the per-launch "will it actually run" the paragraph
+	// above is waiting on.
 	disclosureJailExec
 )
 
@@ -546,12 +553,34 @@ func (o *Options) startLoopholesDisclosed(cname, rt string, cfg *jsonx.OrderedMa
 	// the container takes the terminal. A hook fires on the agent's lifecycle, which is after
 	// every line printed here, so a disclosure at this point still precedes what it names.
 	o.notePackJailCode(packs)
-	// The other half of the same honesty: on a backend that starts no host services at all,
-	// say so rather than printing an exec disclosure for a daemon that will never run.
-	inertPacks := packs
-	if rt == "container" { // parity: HonoredBy — Apple Container runs only the OpenAI auth loophole
-		inertPacks = withoutOpenAIAuthPack(packs)
-	}
-	o.notePackLoopholesInert(rt, inertPacks, cfg)
+	// The other half of the same honesty: on a backend whose jail cannot reach a host
+	// service, say so rather than leaving an exec disclosure to imply that starting the
+	// daemon was the whole job.
+	//
+	// ⚠ ONE PACK WAS EXEMPT FROM THIS REPORT UNTIL 2026-09-18, and the exemption is what made
+	// Apple Container silent about the credential service. `rt == "container"` handed this the
+	// set MINUS the openai-auth pack, on the reasoning that its host daemon is the one
+	// `startLoopholes` really starts there, so reporting it inert would contradict the exec
+	// line above. Measured, that reasoning does not hold and the silence it bought was the
+	// whole defect:
+	//
+	//   - the two lines were never complements on this backend anyway. The exec disclosure is
+	//     CLAIM-shaped — it names what each pack DECLARES it runs on your machine — so claude's
+	//     broker is announced there and reported inert in the same AC launch already, and has
+	//     been since both reports existed. Exempting one pack preserved nothing.
+	//   - "its daemon starts" and "the jail cannot reach it" are both true here, and the second
+	//     is the one the user needs: `backendInertReason` states exactly that (nothing crosses
+	//     container→host on `container` 1.1.0), so the line is true of the one loophole whose
+	//     daemon runs as much as of the ones whose daemons do not.
+	//   - nothing else told them. The endpoint variable and the services-dir mount are emitted
+	//     for this backend, and its host-loopback disposition is `unknown`, which the fatal
+	//     reachability witness never escalates — so `codex` printed `OpenAI login is required.`
+	//     with nothing naming Apple Container as the cause (setup-support-gaps.md G6).
+	//
+	// The reason is VERSION-GATED where it is written, not here: it names the release it was
+	// measured on, and integration/applecontainer_test.go's TestAppleContainerReachesHostLoopback
+	// is what expires it. No backend branch is left at this call site, which is the other half
+	// of the fix — a report that treats every pack alike cannot acquire a second exemption.
+	o.notePackLoopholesInert(rt, packs, cfg)
 	return o.startLoopholes(cname, rt, cfg)
 }
