@@ -11,8 +11,8 @@ vantage:
 # Roadmap
 
 **Status:** CURRENT — 2026-09-18. **42 rows**: 3 to rule first, 23 needing a decision,
-7 ready to build, 7 waiting, 2 iced. Three rows closed on 2026-09-18 and left the file: `OQ-2`,
-whose fix shipped as `bc16e8c3`, and the two protocol-resolution questions its design absorbed. Three 📦 rows CLOSED on 2026-09-18 and left the file
+7 ready to build, 7 waiting, 2 iced. Three rows closed on 2026-09-18 and left the file:
+[`OQ-2`](../design/cerebras-pack-and-copilot-delivery.md#decision-ledger), whose fix shipped as `bc16e8c3`, and the two protocol-resolution questions its design absorbed. Three 📦 rows CLOSED on 2026-09-18 and left the file
 (`eb02ad86`, `67cf4c81`, `f5c26899`): the supervisor's swallowed spawn failure, `provides`
 leaking into four agents' config files, and the capability gate `yolo check` never ran.
 
