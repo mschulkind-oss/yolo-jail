@@ -260,3 +260,39 @@ func TestShippedWireBridgePackIsServiceOnly(t *testing.T) {
 		t.Errorf("the bridge pack ships a grant — a service holds none (wire-bridge.md §2.1)")
 	}
 }
+
+// TestAUserMovesTheBridgesAddress pins the CALL SITE of the adapter address override
+// (protocol-resolution.md §6, build step 7), not the composer that honors it: the launch
+// must READ the user's `adapters` table, and deleting that read from composedProviders
+// leaves this test as the only thing that notices.
+//
+// WHY IT IS CONFIGURABLE AT ALL, and the reason is measured rather than hypothetical: in a
+// container `127.0.0.1` is the jail's own private loopback, so a collision is only possible
+// with another baked service. On `macos-user` there is no container and no network
+// namespace, so the bridge's ports are HOST ports and collide with whatever the user is
+// already running. What moves is the ADDRESS; the conversion stays the pack's claim.
+func TestAUserMovesTheBridgesAddress(t *testing.T) {
+	home := packHome(t)
+	writeUserConfig(t, home, `{"adapters": {"openai->anthropic": {"address": "http://127.0.0.1:9214"}}}`)
+	emptyLoopholeDirs(t)
+	packs := []*packload.Pack{
+		officialPack(t, "claude"), officialPack(t, "cerebras"), officialPack(t, "wire-bridge"),
+	}
+	o := goldenOptions("/ws", home)
+	o.ProfileName = "cerebras"
+
+	c, err := o.composePackChannel(bareConfig(), packs, cerebrasKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got string
+	for _, v := range c.shapeVars {
+		if v.Key == "ANTHROPIC_BASE_URL" {
+			got = v.Value
+		}
+	}
+	if got != "http://127.0.0.1:9214" {
+		t.Errorf("ANTHROPIC_BASE_URL = %q, want the user's moved address — the launch must "+
+			"read `adapters` from the user config, not only the pack's declared default", got)
+	}
+}

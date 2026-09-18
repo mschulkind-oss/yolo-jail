@@ -54,6 +54,33 @@ type Adaptation struct {
 	Address string
 }
 
+// AdapterKey is the SOLE-OWNED IDENTITY of an adaptation, spelled as one string: the pair,
+// and nothing about the pack that declared it.
+//
+// It is the key a user's `adapters` config entry is written under, and the key the
+// collision rule groups on — one spelling, because a config that named a conversion
+// differently from the way core identifies one would be a second vocabulary for one fact.
+func AdapterKey(from, to string) string { return from + "->" + to }
+
+// ComposeOption carries the optional inputs ComposeProviders grew after its call sites were
+// written. An OPTION and not a parameter for AgentEnv's reason: most callers have no
+// override table to hand over, and demanding it positionally would make every one of them
+// pass a nil it does not have.
+type ComposeOption func(*composeOpts)
+
+type composeOpts struct {
+	adapterAddresses map[string]string
+}
+
+// WithAdapterAddresses supplies the user's adapter address overrides, keyed by AdapterKey
+// (config.LoadAdapterAddresses reads them). An entry replaces the address the declaring
+// pack shipped and changes nothing else: the PAIR is the pack's claim, and a user who
+// wanted a different conversion would be declaring an adapter rather than moving one
+// (protocol-resolution.md §6).
+func WithAdapterAddresses(m map[string]string) ComposeOption {
+	return func(o *composeOpts) { o.adapterAddresses = m }
+}
+
 // Adaptations returns every conversion the given packs declare, in pack order then
 // declaration order.
 //
@@ -75,7 +102,7 @@ func Adaptations(packs []*Pack) []Adaptation {
 			if a.From == "" || a.To == "" || a.Address == "" {
 				continue
 			}
-			key := a.From + " -> " + a.To
+			key := AdapterKey(a.From, a.To)
 			if seen[key] {
 				continue
 			}

@@ -54,7 +54,11 @@ import (
 // exclusive loop reports it). This compose keeps the FIRST and never overwrites, so a
 // caller that skipped the pre-flight degrades to a stable table rather than to whichever
 // pack happened to sort last.
-func ComposeProviders(user *jsonx.OrderedMap, packs []*Pack) (*jsonx.OrderedMap, error) {
+func ComposeProviders(user *jsonx.OrderedMap, packs []*Pack, opts ...ComposeOption) (*jsonx.OrderedMap, error) {
+	cfg := composeOpts{}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
 	out := jsonx.NewOrderedMap()
 	shipper := map[string]string{}
 	for _, p := range packs {
@@ -70,7 +74,7 @@ func ComposeProviders(user *jsonx.OrderedMap, packs []*Pack) (*jsonx.OrderedMap,
 		// The adapter pass runs on EVERY return, not only the one with a user layer: a
 		// launch whose providers are entirely pack-shipped is the common bridged case, and
 		// an early return that skipped it would leave exactly that launch unresolved.
-		adaptEndpoints(out, packs)
+		adaptEndpoints(out, packs, cfg.adapterAddresses)
 		return orderedOrNil(out), nil
 	}
 	for _, name := range user.Keys() {
@@ -107,7 +111,7 @@ func ComposeProviders(user *jsonx.OrderedMap, packs []*Pack) (*jsonx.OrderedMap,
 	// address reads — each agent's derive, and the adapter's own daemon deciding where to
 	// listen. Below the user layer so an explicit `endpoints.<protocol>.base_url` always
 	// wins: an adapter fills a hole, and a user who wrote an address did not leave one.
-	adaptEndpoints(out, packs)
+	adaptEndpoints(out, packs, cfg.adapterAddresses)
 	return orderedOrNil(out), nil
 }
 
@@ -134,7 +138,7 @@ func ComposeProviders(user *jsonx.OrderedMap, packs []*Pack) (*jsonx.OrderedMap,
 // NOTHING IS OVERWRITTEN. A provider that offers the protocol itself keeps its own address:
 // an adapter is never preferred over a native endpoint (§4.1), so a provider with a real
 // anthropic route is reached directly even in a jail where the bridge is running.
-func adaptEndpoints(table *jsonx.OrderedMap, packs []*Pack) {
+func adaptEndpoints(table *jsonx.OrderedMap, packs []*Pack, addresses map[string]string) {
 	adapters := Adaptations(packs)
 	if len(adapters) == 0 {
 		return
@@ -157,7 +161,16 @@ func adaptEndpoints(table *jsonx.OrderedMap, packs []*Pack) {
 			if !wanted[a.To] || offered[a.To] || !offered[a.From] {
 				continue
 			}
-			addEndpoint(entry, a.To, a.Address)
+			// THE USER'S ADDRESS WINS, and it is the only field of an adaptation they may
+			// set (§6): the pair is the declaring pack's claim, and what a user needs to
+			// move is the PORT — harmless on a container's private loopback, a real
+			// collision on macos-user, where there is no network namespace and an adapter's
+			// ports are host ports.
+			address := a.Address
+			if override, ok := addresses[AdapterKey(a.From, a.To)]; ok && override != "" {
+				address = override
+			}
+			addEndpoint(entry, a.To, address)
 			offered[a.To] = true
 		}
 	}

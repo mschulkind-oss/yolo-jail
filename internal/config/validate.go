@@ -91,6 +91,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateAgentProfilesRetired(config, errs, warns)
 	validateUseProfiles(config, errs)
 	validateProfiles(workspace, errs)
+	validateAdapters(workspace, errs)
 	validatePrune(config, errs)
 	validateRequiredCapabilities(config, errs)
 	validateDevices(config, errs, warns)

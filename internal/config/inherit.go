@@ -155,6 +155,13 @@ var inheritCensus = map[string]keyDisposition{
 	// inner launcher composes the same tables for the jail it spawns.
 	"profiles":     {preflight: true, nested: true, reason: "user-declared profiles over provider-declared options; the launch resolves them into YOLO_PROFILES here and in nested launches"},
 	"use_profiles": {preflight: true, nested: true, reason: "active CLI-to-profile-name selections for this jail and nested launches (keys are CLI names: core knows packs, not agents)"},
+	// `adapters` is `profiles`' twin in scope and in crossing: user-scope-only BY
+	// CONSTRUCTION (config/adapters.go reads the user file directly) AND by refusal, and
+	// what it carries is an ADDRESS inside the jail — the port an adapted provider answers
+	// at. A nested launcher composes its own providers table and needs the same override,
+	// or the inner jail would silently use the shipped default while the outer one does
+	// not; the preflight seat is the same read, one command earlier.
+	"adapters": {preflight: true, nested: true, reason: "the address an adapted provider is reached at, for this jail's provider composition and a nested launcher's"},
 	// `required_capabilities` earns its NESTED seat on a check an inner launch performs,
 	// and its preflight seat on SHAPE ALONE — the distinction matters to whoever
 	// re-decides it, and it stopped being "shape alone on both sides" on 2026-09-17.

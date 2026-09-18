@@ -1403,6 +1403,21 @@
               "models": {"default": "glm-5.3[1m]", "fast": "glm-5.3-flash[1m]"},
               "options": {"model": "default"}}}
 
+  [bold]adapters[/bold] (object): Where an ADAPTED provider answers — the one field of an
+    adapter you may set.  [bold yellow]USER SCOPE ONLY[/bold yellow], for the same reason `providers`
+    addresses are: this decides where an agent's inference goes, and a workspace config
+    travels with the repo and is agent-editable.
+    An adapter is a pack declaration — it says which wire it converts into which, and at
+    what address — so a provider that offers only `openai` reaches an anthropic-speaking
+    agent with nothing in your config naming a port.  You need this key only when that
+    port collides with something: harmless inside a container, where 127.0.0.1 is the
+    jail's own private loopback, and real on `macos-user`, where there is no network
+    namespace and the adapter's ports are HOST ports.
+    Each key is the CONVERSION, spelled "<from>-><to>" — the same pair the declaring pack
+    claims, which is sole-owned.  The only field is `address`, an http/https URL; a key
+    naming a conversion nothing declares is inert, and a null drops the override.
+    Example: {"openai->anthropic": {"address": "http://127.0.0.1:9214"}}
+
   [bold]profiles[/bold] (object): Your own NAMED SELECTIONS over providers — profile
     name → {provider, ...option values}.  USER-SCOPE ONLY: the key is read from your
     user config directly, and a workspace config carrying it is REFUSED, because a

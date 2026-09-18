@@ -570,7 +570,11 @@ func composedHostProviders(cfg *jsonx.OrderedMap, packs []*packload.Pack) (*json
 	if v, ok := cfg.Get("providers"); ok {
 		user, _ = v.(*jsonx.OrderedMap)
 	}
-	return packload.ComposeProviders(user, packs)
+	// The adapter address overrides, read the same way the jail notch reads them
+	// (run.composedProviders): from the user file directly, so the two notches cannot
+	// disagree about where an adapted provider answers.
+	addresses, _ := config.LoadAdapterAddresses(nil)
+	return packload.ComposeProviders(user, packs, packload.WithAdapterAddresses(addresses))
 }
 
 // hostScopedEnvSources returns cfg with any still-RELATIVE env_sources file entry

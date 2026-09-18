@@ -291,3 +291,63 @@ func runAgentEnvWithProfile(t *testing.T, packs []*Pack, agent, profile string) 
 	return AgentEnv(packs, providers, map[string]string{agent: profile}, agent, profile,
 		func(string) (string, bool) { return "", false }, WithResolvedProfiles(resolved))
 }
+
+// THE ADDRESS IS CONFIGURABLE WITH A DEFAULT (§6, build step 7). The pair stays the
+// declaring pack's claim; what a user may move is the PORT, and the reason is
+// backend-shaped: harmless on a container's private loopback, real on macos-user, where
+// there is no network namespace and an adapter's ports are HOST ports.
+func TestAUserOverridesTheAdaptersAddress(t *testing.T) {
+	agent := protocolAgentPack(t, `,"protocols":["anthropic"]`)
+	vendor := providerPack(t, `,"endpoints":{"openai":{"base_url":"https://vendor.example/v1"}}`)
+	gateway := adapterPack(t, "openai", "anthropic", "https://gw.example/anthropic")
+	providers, err := ComposeProviders(nil, []*Pack{agent, vendor, gateway},
+		WithAdapterAddresses(map[string]string{
+			AdapterKey("openai", "anthropic"): "http://127.0.0.1:9214",
+		}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, _ := providers.Get("p")
+	if got := endpointURL(t, asOrdered(t, entry), "anthropic"); got != "http://127.0.0.1:9214" {
+		t.Errorf("anthropic endpoint = %q, want the user's override", got)
+	}
+}
+
+// AN OVERRIDE FOR A PAIR NOTHING DECLARES CHANGES NOTHING. The user table is a set of
+// addresses for conversions, not a way to declare one: which pairs exist is a pack's claim,
+// and an override that could conjure one would be a config key declaring an adapter.
+func TestAnOverrideCannotDeclareAnAdaptation(t *testing.T) {
+	agent := protocolAgentPack(t, `,"protocols":["anthropic"]`)
+	vendor := providerPack(t, `,"endpoints":{"openai":{"base_url":"https://vendor.example/v1"}}`)
+	providers, err := ComposeProviders(nil, []*Pack{agent, vendor},
+		WithAdapterAddresses(map[string]string{
+			AdapterKey("openai", "anthropic"): "http://127.0.0.1:9214",
+		}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, _ := providers.Get("p")
+	if got := endpointURL(t, asOrdered(t, entry), "anthropic"); got != "" {
+		t.Errorf("anthropic endpoint = %q, want none — no pack declares this conversion, and a "+
+			"config entry is an address for one, never a declaration of one", got)
+	}
+}
+
+// THE DEFAULT SURVIVES AN UNRELATED OVERRIDE: a table naming a different pair leaves this
+// one at the address its pack declared.
+func TestAnUnrelatedOverrideLeavesTheDefault(t *testing.T) {
+	agent := protocolAgentPack(t, `,"protocols":["anthropic"]`)
+	vendor := providerPack(t, `,"endpoints":{"openai":{"base_url":"https://vendor.example/v1"}}`)
+	gateway := adapterPack(t, "openai", "anthropic", "https://gw.example/anthropic")
+	providers, err := ComposeProviders(nil, []*Pack{agent, vendor, gateway},
+		WithAdapterAddresses(map[string]string{
+			AdapterKey("openai-responses", "anthropic"): "http://127.0.0.1:9215",
+		}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, _ := providers.Get("p")
+	if got := endpointURL(t, asOrdered(t, entry), "anthropic"); got != "https://gw.example/anthropic" {
+		t.Errorf("anthropic endpoint = %q, want the declared default", got)
+	}
+}

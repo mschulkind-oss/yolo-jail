@@ -947,7 +947,14 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 // base_url+endpoints pair every consumer would resolve differently, and handing the launch
 // a table like that is the defect the refusal exists to prevent.
 func composedProviders(cfg *jsonx.OrderedMap, packs []*packload.Pack) (*jsonx.OrderedMap, error) {
-	return packload.ComposeProviders(cfgMap(cfg, "providers"), packs)
+	// The user's adapter address overrides, read from the USER FILE DIRECTLY rather than
+	// from cfg — which is what makes workspace scope inexpressible for a key that decides
+	// where inference goes (config/adapters.go, the rule `packs` and `profiles` follow).
+	// A read problem is a warning and a skip there, so a launch degrades to the addresses
+	// the packs declared rather than refusing over a key it could not parse.
+	addresses, _ := config.LoadAdapterAddresses(nil)
+	return packload.ComposeProviders(cfgMap(cfg, "providers"), packs,
+		packload.WithAdapterAddresses(addresses))
 }
 
 // commonEnvBlock builds the big -e env block. Frozen contract (order and
