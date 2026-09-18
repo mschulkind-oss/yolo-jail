@@ -704,6 +704,26 @@ func truncateSurfaceToPureRender(t configTarget, s manifest.Surface) ([]byte, er
 		}
 		return nil, err
 	}
+	if s.Codec == "" {
+		// A SURFACE NOBODY CAN RE-RENDER, so there is no "pure render" to truncate to.
+		// The `user` pseudo-agent's surfaces are synthesized from the sidecar FILE NAMES
+		// (userSidecarSurfaces), deliberately — that is what lets `reset user` clean up
+		// after a host_files entry the user has since removed — and a file name carries
+		// no codec. Composing one anyway fails as `unknown codec ""`.
+		//
+		// Discarding the sidecars above is the whole of reset for these, which is exactly
+		// what it was before the target resolution landed: host-side, `expandHome` pointed
+		// at the invoking human's home, the file was absent, and this function returned
+		// here. Resolution made the path CORRECT (a workspace target now finds the jail's
+		// own home overlay), which is what first brought a codec-less surface this far —
+		// so this guard restores the prior behaviour rather than inventing one.
+		//
+		// The better answer is to give these surfaces their codec, from the `host_files`
+		// entry whose Slug matches, and truncate for real when the entry still exists. It
+		// needs a config read this function does not do today; until then reset discards
+		// the capture and leaves the file, and the integration test says so.
+		return nil, nil
+	}
 	if t.hostOwned() {
 		return truncateHostSurfaceToPureRender(t, s, path)
 	}
