@@ -214,7 +214,7 @@ they resolve.
 | D-3 | Copilot's producer prefers the `anthropic` endpoint when a provider declares both | The anthropic route is the richer surface and `anthropic` is copilot's first-class provider type. Cited from `internal/wirebridged` |
 | D-4 | **Reversed by the bridge.** Cerebras now declares a context window | D-4 ruled the option out when claude could not ride Cerebras. The bridge made claude and copilot reachable, and both consume the window — so the option is live, and the original reasoning (an option no reachable agent reads is dead weight) still stands as the *rule* |
 | OQ-1 | Ship a claude-wire translation proxy as its own pack, joined by `needs` | Shipped as the wire bridge; it is what gave Cerebras an anthropic endpoint. [`wire-bridge.md`](wire-bridge.md) is the reference |
-| OQ-2 | A credential is composed only when the provider's declaration does not name a protocol this agent cannot reach | Three provider shapes reach claude's env producer and only the middle one is wrong. **Interim by design:** [`protocol-resolution.md`](../design/protocol-resolution.md) makes the state unreachable, after which the branch is deleted rather than reworked |
+| OQ-2 | A credential is composed only when the provider's declaration does not name a protocol this agent cannot reach | Three provider shapes reach claude's env producer and only the middle one is wrong. **Interim by design, and now spent:** [`protocol-resolution.md`](protocol-resolution.md) made the state unreachable — the pairing is refused above the derive — and the branch was deleted rather than reworked |
 | OQ-3 | The pack README states the rate limits | A free tier that cannot sustain an agent loop must say so where the user chooses the pack |
 
 ## Current values
