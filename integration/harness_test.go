@@ -203,11 +203,18 @@ func warmJail() {
 		degraded("warmup: writing workspace config: %v", err)
 		return
 	}
-	home := filepath.Join(dir, "home")
-	if err := os.MkdirAll(home, 0o755); err != nil {
+	// A SIBLING of the workspace, never a child of it. A launch whose workspace CONTAINS
+	// the home is refused outright (paths.WorkspaceScopeBreach) — the jail would be handed
+	// ~/.ssh and every token inside its own mount — and that refusal is correct even when
+	// the home is a disposable temp dir, because nothing at launch time can tell those
+	// apart. The warmup used `filepath.Join(dir, "home")` and started failing the moment
+	// the guard landed; the shape was always wrong, it was just never refused before.
+	home, err := os.MkdirTemp("", "yolo-warmup-home-")
+	if err != nil {
 		degraded("warmup: creating temp home: %v", err)
 		return
 	}
+	defer os.RemoveAll(home)
 	if err := seedPackHome(home, os.Getenv("HOME"), `{}`); err != nil {
 		degraded("warmup: seeding temp home: %v", err)
 		return
