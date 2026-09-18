@@ -8,7 +8,15 @@ summary: "How GPT-5.6 (and anything else Bedrock serves) reaches codex, pi and o
 
 # Bedrock plumbing: one service, four agents, two arms
 
-**Status:** SKETCH, 2026-09-04. Nothing built. Every code claim verified against
+**Status:** SKETCH, 2026-09-04 — **this arm is still unbuilt, and the OTHER one is not** (amended
+2026-09-18). Bedrock now reaches yolo by two routes and this doc knows only one of them: the
+NATIVE arm below, where codex, opencode and pi each ship an `amazon-bedrock` provider on one
+credential, and the SSO-backed arm designed in
+[`sso-backed-bedrock.md`](sso-backed-bedrock.md), whose host credential service and jail-side
+adapter landed on 2026-09-18 (`b94351fe`, `e76e43b2`, `7cc946ea`). They are siblings, not
+alternatives: that one answers *where the credential comes from*, this one answers *which
+endpoint family and model-id spelling each agent needs*. Its plan's done-condition 7 is blocked
+on this doc. Nothing of THIS doc is built. Every code claim verified against
 `4c60a220`; every vendor claim carries its source and date in [§14](#14-evidence-and-how-to-re-check-it).
 
 **The short version.** Bedrock reaches an agent two ways, and yolo should build the first
@@ -616,10 +624,30 @@ provider the catalog dropped. Never carry a region allowlist or a model catalog 
    so in the briefing. Stakes: it is a correctness question about a shipped mechanism, and
    a cross-agent Bedrock profile is what turns it from theoretical into routine.
 
+   > [!WARNING]
+   > **It stopped being theoretical on 2026-09-18, and the stakes changed from a flag to a
+   > credential.** `packs/aws-auth` (`7cc946ea`) ships
+   > `{"kind":"env","profile":"bedrock","vars":{"AWS_CONTAINER_CREDENTIALS_FULL_URI":…}}`, and
+   > `packs/claude` ships a profile named `bedrock`. That pack installs no bin, so it takes the
+   > SECOND pass of the rule at [`contributes.go:153-170`](../../internal/packdecl/contributes.go)
+   > — *"the profile active for a bin the pack installs, else active for ANY bin … the second
+   > pass is what makes a CLI-less pack's gated env reachable"*. So selecting `bedrock` for
+   > claude points **every** AWS SDK in the jail at the credential adapter, whichever agent the
+   > user chose it for.
+   >
+   > **It is also the first case where both horns bite.** Narrowing the gate to the pack's own
+   > bins — this question's first option — would not merely break "the CLI-less pack case" in
+   > the abstract; it would break `aws-auth` specifically, since CLI-less is exactly what that
+   > pack is. So the first option is now disqualified by an instance rather than by an argument,
+   > and the choice is between scoping by agent and accepting a credential-shaped leak.
+
    _Leaning:_ Scope it, following `packoverlay.go:194`'s precedent — the wide pass was a
-   reachability fix for CLI-less packs, and "reachable" should not have meant "global". But
-   it is a change to a shipped rule with its own OQ history, so it is the maintainer's call
-   whether it rides this work or gets its own.
+   reachability fix for CLI-less packs, and "reachable" should not have meant "global". The
+   2026-09-18 instance strengthens this rather than changing it: `config-overlay` already keys
+   its gate on the target surface's owning agent, and the reason `env` cannot is stated in the
+   same comment — env has no surface to name an agent — which is the binding that has to be
+   invented. It remains a change to a shipped rule with its own OQ history, so it is the
+   maintainer's call whether it rides this work or gets its own.
 
    <!-- vantage: oq id=OQ-BR4 leaning="Scope the env gate by agent, following `packoverlay.go:194`'s precedent — the wide pass was a reachability fix for CLI-less packs, and 'reachable' should not have meant 'global'. But it changes a shipped rule with its own OQ history, so it is your call whether it rides this work or gets its own." -->
 
