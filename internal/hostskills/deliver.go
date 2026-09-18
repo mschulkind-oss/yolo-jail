@@ -30,6 +30,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/pluginpack"
 )
 
 // Action is what a delivery did (or would do) to one entry.
@@ -616,12 +618,19 @@ func skipSetUnder(src string, exclude []string) map[string]bool {
 // not a skill to any of these tools, and copying it would put unreadable content in a real
 // home. Entries listed in skip are left out (see Request.SkipSources).
 func collectSkills(sources, skip []string) (map[string]string, error) {
-	skipSet := map[string]bool{}
-	for _, s := range skip {
-		skipSet[filepath.Clean(s)] = true
+	isSkipped := func(path string) bool {
+		for _, s := range skip {
+			if pluginpack.Contains(s, path) {
+				return true
+			}
+		}
+		return false
 	}
 	out := map[string]string{}
 	for _, src := range sources {
+		if isSkipped(src) {
+			continue
+		}
 		entries, err := os.ReadDir(src)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -631,7 +640,7 @@ func collectSkills(sources, skip []string) (map[string]string, error) {
 		}
 		for _, e := range entries {
 			full := filepath.Join(src, e.Name())
-			if skipSet[filepath.Clean(full)] {
+			if isSkipped(full) {
 				continue
 			}
 			// Stat, not the DirEntry: a symlink to a directory is a legitimate skill (the

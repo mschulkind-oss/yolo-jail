@@ -436,3 +436,85 @@ func TestPluginManifestSurvivesOrdinarySkillsDelivery(t *testing.T) {
 		}
 	}
 }
+
+// A pack whose ROOT is a plugin (wrap-in-place) must not deliver its skills a second time
+// during the ordinary skills pass. DeliverPlugin already delivered them (as a plugin tree at
+// tier A, or flat skills at tier B), so Deliver must skip the plugin subtree.
+func TestRootPluginDoesNotDeliverSkillsTwice(t *testing.T) {
+	for _, tier := range []Tier{TierNamespaced, TierFlat} {
+		t.Run(tier.String(), func(t *testing.T) {
+			home := t.TempDir()
+			skillsDir := filepath.Join(home, ".claude", "skills")
+			packRoot := t.TempDir()
+
+			// Pack root carries the plugin manifest.
+			manifestDir := filepath.Join(packRoot, ".claude-plugin")
+			if err := os.MkdirAll(manifestDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			src := `{"name":"root-plugin","description":"wrap-in-place plugin"}`
+			if err := os.WriteFile(filepath.Join(manifestDir, "plugin.json"), []byte(src), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			writeSkill(t, filepath.Join(packRoot, "skills"), "my-skill", "a root plugin skill")
+
+			pl := pluginpack.Discover(packRoot)
+			if len(pl) != 1 {
+				t.Fatalf("Discover = %v; want exactly one plugin", pl)
+			}
+			if pl[0].Dir != packRoot {
+				t.Fatalf("pl[0].Dir = %q; want %q", pl[0].Dir, packRoot)
+			}
+
+			man := &Manifest{Entries: map[string]string{}}
+			claimed := map[string]string{}
+			preOwned := map[string]bool{}
+			archiveRoot := ArchiveRoot(filepath.Join(t.TempDir(), "a"))
+			stamp := "20260802-000000"
+
+			l := Layer{
+				Pack:        "root-plugin-pack",
+				Description: "wrap-in-place pack",
+				Plugins:     pl,
+				Sources:     []string{filepath.Join(packRoot, "skills")},
+				Tier:        tier,
+			}
+
+			// layerClaims must only claim the plugin's name (and its skills at flat tier),
+			// not the wrapping pack's name.
+			claims := layerClaims(l)
+			if tier == TierNamespaced {
+				if _, hasPack := claims[l.Pack]; hasPack {
+					t.Errorf("layerClaims claimed pack name %q when pack has no loose skills: %+v", l.Pack, claims)
+				}
+				if claims["root-plugin"] != packRoot {
+					t.Errorf("layerClaims missing plugin claim: %+v", claims)
+				}
+			}
+
+			// writeLayer must deliver the plugin and NOT run a second pass over my-skill.
+			results, err := writeLayer(skillsDir, l, ComposeRequest{
+				Composed: man, ArchiveRoot: archiveRoot, Stamp: stamp,
+			}, preOwned, claimed, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Count occurrences of my-skill in results.
+			count := 0
+			for _, r := range results {
+				if r.Name == "my-skill" || strings.HasSuffix(r.Name, ":my-skill") {
+					count++
+				}
+			}
+			// At TierFlat, my-skill is delivered once.
+			// At TierNamespaced, my-skill is inside the copied tree and not delivered as a separate flat skill.
+			if tier == TierFlat && count != 1 {
+				t.Errorf("my-skill appeared %d times in results, want exactly 1: %+v", count, results)
+			}
+			if tier == TierNamespaced && count != 0 {
+				t.Errorf("my-skill was delivered as loose skill at tier A (%d times), want 0 (inside tree only): %+v", count, results)
+			}
+		})
+	}
+}

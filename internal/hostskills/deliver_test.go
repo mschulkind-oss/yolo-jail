@@ -602,3 +602,34 @@ func TestExecBitOnlySourceConverges(t *testing.T) {
 		t.Errorf("losing the exec bit is a change: got %q (%s)", r.Action, r.Detail)
 	}
 }
+
+// collectSkills must skip skills that sit inside or under any skipped source directory
+// (e.g. a wrapped plugin's directory, whether the plugin sits inside skills/ or is the pack root).
+func TestCollectSkillsSkipsPluginSubtree(t *testing.T) {
+	packRoot := t.TempDir()
+	skillsDir := filepath.Join(packRoot, "skills")
+	writeSkill(t, skillsDir, "loose", "loose skill")
+	writeSkill(t, filepath.Join(skillsDir, "nested-plugin"), "nested", "nested skill")
+
+	// Case 1: Nested plugin directory inside skills/ is skipped.
+	got, err := collectSkills([]string{skillsDir}, []string{filepath.Join(skillsDir, "nested-plugin")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, hasNested := got["nested-plugin"]; hasNested {
+		t.Errorf("collectSkills should have skipped nested-plugin directory, got %+v", got)
+	}
+	if got["loose"] == "" {
+		t.Errorf("collectSkills dropped loose skill: %+v", got)
+	}
+
+	// Case 2: Pack root is skipped (wrap-in-place plugin).
+	// All skills inside packRoot/skills/ must be skipped because packRoot is skipped.
+	gotRoot, err := collectSkills([]string{skillsDir}, []string{packRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gotRoot) != 0 {
+		t.Errorf("collectSkills should have skipped everything under packRoot, got %+v", gotRoot)
+	}
+}
