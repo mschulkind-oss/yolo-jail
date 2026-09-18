@@ -391,10 +391,22 @@ are now two pack *kinds* (embedded, fetched) with different trust and update sto
 the "structurally identical" claim quietly weakens.
 
 **5. It is a migration on a system that just stabilized.** The prism cutover completed
-2026-07-22; `host_files` shipped 2026-07-25. Both are young, and the audit in
-[composed-file-permissions.md §4](composed-file-permissions.md) found five verified
-defects still open in what exists. Re-platforming agent support onto packs before those
-are fixed risks porting the defects into a new mechanism where they are harder to see.
+2026-07-22; `host_files` shipped 2026-07-25. Both were young, and the composed-file-permissions
+audit's defect register found five verified defects still open in what existed. Re-platforming
+agent support onto packs before those were fixed risked porting them into a new mechanism where
+they are harder to see.
+
+> [!NOTE]
+> **That argument is SPENT — all five are closed** (re-verified 2026-09-18). 4.2, 4.3, 4.5
+> and the umask row were fixed by 2026-08-23; 4.4's remaining half is deliberate; and 4.1,
+> the last live mechanism, was closed by `A5` — the composed `~/.config/git/config` now
+> `[include]`s a writable `config.local` sibling, so `git config --global` writes somewhere
+> real instead of failing on a decoy ([`internal/cli/run/assemble_parts.go`](../../internal/cli/run/assemble_parts.go),
+> `gitIncludeHeader`). ⚠ **The register itself no longer exists in the tree.** The citations
+> here pointed at a section that did NOT graduate with the rest of
+> [the posture reference](../reference/composed-file-permissions.md) — it was dropped because
+> nothing in it was still live. It survives in git history at `5add9e7e`, which is the only
+> place to read the five probes.
 
 **6. Versioning gets a new axis.** An official pack and the engine that reads it can now
 skew. Today they cannot: they are the same binary. That is a real simplification being
@@ -487,8 +499,9 @@ contributes a *layer*, not a whole subsystem. The sequencing that follows:
 1. Ship packs as designed (item 5) — user scope, opt-in, nothing depends on it.
 2. Extract **MCP presets** first. Pure data, immediately shareable, and it exercises the
    pack→prism-layer seam with something that cannot break boot.
-3. Fix the five open defects in the existing prism ([§4](composed-file-permissions.md))
-   *before* re-platforming anything, so they are not carried forward.
+3. ~~Fix the five open defects in the existing prism *before* re-platforming anything, so
+   they are not carried forward.~~ **Done — all five closed, the last by `A5`** (see the note
+   under item 5 above). This step no longer gates anything.
 4. Then extract per artifact — skills, briefings, blocked tools, LSP — each independently
    revertable, and each proving the seam a bit harder.
 5. Agent registry + surfaces last, and **`HostFiles` never**.
