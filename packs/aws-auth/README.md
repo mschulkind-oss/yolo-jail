@@ -174,8 +174,12 @@ a re-login is transparent. The manifest deliberately does **not** declare a
 loudly at spawn, not disappear from `yolo loopholes list`. If `aws` is absent the daemon
 says so and exits, and the launch reports it.
 
-**Linux/macOS host with a podman or container backend.** The `macos-user` backend runs
-no jail-side daemon, so the adapter does not start there and the launch says so.
+**A podman backend.** Two others are inert and both say so at launch. `macos-user` runs
+no jail-side daemon at all, so the adapter never starts. Apple Container
+(`runtime: "container"`) carries no container→host connection — measured on 1.1.0: the
+handshake completes and nothing crosses — so no loopback-TLS loophole is reachable
+there. That skip is expected to expire with an upstream release rather than stand
+forever.
 
 ## Where things live
 
