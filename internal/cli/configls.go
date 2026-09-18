@@ -322,7 +322,7 @@ var hostProvenancePath = func(agent, name string) string {
 // point it at a temp workspace — without that seam an in-jail test run would read
 // (and `reset` would DELETE) the real /workspace sidecars.
 var prismSidecarDir = func() string {
-	return filepath.Join(workspaceRoot(), ".yolo", "prism")
+	return filepath.Join(paths.WorkspaceStateDir(workspaceRoot()), "prism")
 }
 
 // workspaceRoot is the workspace whose sidecars this invocation is about: the
@@ -335,13 +335,28 @@ var prismSidecarDir = func() string {
 // `yolo config ls` runs against a temp workspace while /workspace is the outer
 // checkout. It silently read the wrong sidecars and `reset` would have deleted
 // them.
+// THE WALK STOPS AT A DIRECTORY THAT MAY NOT BE A WORKSPACE (paths.WorkspaceScopeBreach:
+// the home itself, or either of yolo's own two host dirs). A `.yolo` should never be there,
+// and nothing is allowed to create one any more — but machines already carry them from
+// before that was true, and a stray one does more damage here than anywhere else: it makes
+// the HOME the answer for every `yolo config` verb run in any directory below it that is not
+// itself a workspace, so `ls` and `diff` report a workspace the user is not in, and `reset`
+// DELETES that directory's sidecars (configdiff.go's os.Remove over the overlay and
+// last_render). Stopping means the walk gives up and the cwd stands — the same answer a
+// machine that never launched in its home gives.
+//
+// Stopping rather than skipping and continuing upward: every ancestor of a boundary root is
+// itself one (a parent of the home CONTAINS the home), so there is nothing above to find.
 func workspaceRoot() string {
 	wd, err := os.Getwd()
 	if err != nil {
 		return "."
 	}
 	for dir := wd; ; {
-		if st, err := os.Stat(filepath.Join(dir, ".yolo")); err == nil && st.IsDir() {
+		if paths.WorkspaceScopeBreach(dir) != nil {
+			break
+		}
+		if st, err := os.Stat(paths.WorkspaceStateDir(dir)); err == nil && st.IsDir() {
 			return dir
 		}
 		parent := filepath.Dir(dir)

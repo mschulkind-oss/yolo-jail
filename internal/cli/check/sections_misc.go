@@ -137,7 +137,7 @@ func diskUsageTotal(workspaces []string, globalStorage string) int64 {
 	}
 	var ws int64
 	for _, w := range workspaces {
-		ws += dirSizeBytes(filepath.Join(w, ".yolo"))
+		ws += dirSizeBytes(paths.WorkspaceStateDir(w))
 	}
 	return gs + ws
 }
