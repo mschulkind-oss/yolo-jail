@@ -9,8 +9,8 @@ import (
 )
 
 // The scope model for the `loopholes` block is RULED
-// (docs/design/loophole-packaging.md §4.3b): INSTALL is user-scope only, ENABLE
-// is either scope. Key by key:
+// (docs/reference/loophole-system.md#the-two-verbs): INSTALL is user-scope only,
+// ENABLE is either scope. Key by key:
 //
 //	command (inline)   install  user-only  — it IS the host execution
 //	doctor_cmd         install  user-only  — a second host execution, run by two

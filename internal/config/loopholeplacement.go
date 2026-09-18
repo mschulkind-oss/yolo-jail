@@ -1,7 +1,8 @@
 package config
 
-// The §4.3a PLACEMENT rule of docs/design/loophole-packaging.md, which every
-// other gate in that section leaves open:
+// The §4.3a PLACEMENT rule, whose as-built account is
+// docs/reference/loophole-system.md#the-placement-rule, and which every other
+// gate in that section leaves open:
 //
 //	G1 decides WHO may write command: ["python3", "/workspace/tool.py"].
 //	G2 records the string in the lockfile. G3 asks where the pack came from.
@@ -141,7 +142,8 @@ func LoopholePlacementProblems(label string, argv []string, workspace string) []
 			}
 			out = append(out, label+"["+itoa(i)+"]: "+target+" is inside "+tree.what+
 				", where an agent can rewrite it between launches — installed content "+
-				"may not live where an agent writes (loophole-packaging.md §4.3a). "+
+				"may not live where an agent writes (the §4.3a placement rule, "+
+				"docs/reference/loophole-system.md#the-placement-rule). "+
 				"Move the program outside that tree and name it there.")
 			break
 		}
@@ -223,7 +225,8 @@ func loopholeModuleDirProblem(name, moduleDir, workspace string) string {
 			}
 			return "loophole " + pytext.Repr(name) + ": module dir " + dir + " is inside " +
 				tree.what + ", where an agent can rewrite it between launches — installed " +
-				"content may not live where an agent writes (loophole-packaging.md §4.3a). " +
+				"content may not live where an agent writes (the §4.3a placement rule, " +
+				"docs/reference/loophole-system.md#the-placement-rule). " +
 				"This covers the WHOLE module, not just its entry point: {loophole_dir} " +
 				"resolves here, so every host-side field names something an agent can " +
 				"replace, including what no path check can see (a Python daemon's imports, " +

@@ -52,7 +52,8 @@ const (
 // host_daemon.publishes values: WHAT THE DAEMON ITSELF PUBLISHES. The retired
 // `unix-socket` transport conflated two facts — what the jail dials and what
 // the daemon binds — and this field is the honest split's second half
-// (loophole-packaging.md §2.1). `transport` stays loopback-tls either way,
+// (docs/reference/loophole-transport.md#two-server-shapes-and-how-a-manifest-selects-one).
+// `transport` stays loopback-tls either way,
 // because the transport is what the jail dials and that does not change.
 const (
 	// PublishesEndpoint (the default): the daemon publishes the loopback-TLS
@@ -66,7 +67,8 @@ const (
 )
 
 // host_daemon.request_end values: HOW A REQUEST ENDS on the daemon's socket,
-// meaningful under publishes:"socket" (loophole-packaging.md §2.1b hazard 2).
+// meaningful under publishes:"socket"
+// (docs/reference/loophole-transport.md#request_end--how-a-request-ends-behind-the-front).
 const (
 	// RequestEndFramed (the default): the protocol is length-prefixed (or
 	// otherwise self-delimiting), so the front never propagates the client's

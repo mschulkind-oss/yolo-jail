@@ -1,7 +1,7 @@
 package config
 
 // inherit.go answers "what does an inner `yolo` running INSIDE a jail get to read as its
-// user scope?" — OQ-LP9's three-part split (docs/design/loophole-packaging.md §OQ-LP9).
+// user scope?" — OQ-LP9's three-part split (docs/reference/loophole-system.md#oq-lp9).
 //
 // THE PROBLEM THIS REPLACES. Until now the answer was a raw single-file `:ro` bind of the
 // human's real ~/.config/yolo-jail/config.jsonc (userConfigMountArgs, internal/cli/run).

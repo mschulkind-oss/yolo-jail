@@ -1,6 +1,7 @@
 package loopholes
 
-// The HOST-SIDE half of the `platforms` declaration (loophole-packaging.md §3.1):
+// The HOST-SIDE half of the `platforms` declaration
+// (docs/reference/loophole-system.md#requires-platforms-and-the-difference):
 // the schema validates it statically, this package evaluates it against the machine
 // and folds the answer into Active()/InactiveReason().
 //

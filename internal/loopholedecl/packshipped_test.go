@@ -1,6 +1,8 @@
 package loopholedecl_test
 
-// The PACK-SHIPPED SUBSET (loophole-packaging.md §3.1 + §2.1's ruling).
+// The PACK-SHIPPED SUBSET (docs/reference/loophole-system.md#the-pack-shipped-subset,
+// plus the `publishes` ruling at
+// docs/reference/loophole-transport.md#two-server-shapes-and-how-a-manifest-selects-one).
 //
 // Every test here asserts the message NAMES THE FIX, not merely that an error
 // occurred. A refusal whose message does not say what to do instead is a bug report

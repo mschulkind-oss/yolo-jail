@@ -264,7 +264,8 @@ func TestConfigSynthesizedAsLoopholes(t *testing.T) {
 	// A command-bearing entry is a third-party daemon binding a plain AF_UNIX
 	// socket at {socket}. The record says what is TRUE of it — loopback-tls
 	// behind yolo's front (publishes "socket") — with the argv unchanged. This
-	// is the discover.go flip loophole-packaging.md §2.2 costs at "nothing":
+	// is the discover.go flip that cost "nothing"
+	// (docs/reference/loophole-transport.md#two-server-shapes-and-how-a-manifest-selects-one):
 	// the daemon is now WRAPPED rather than expected to publish.
 	s := byName["sockd"]
 	if s == nil {
@@ -721,7 +722,8 @@ func TestRetiredTransportRejectedWithMigrationHint(t *testing.T) {
 		// The unix-socket hint must send a migrating author down the EASY path:
 		// keep binding the socket at {socket}, declare publishes:"socket", and
 		// yolo fronts it — not "publish an endpoint file yourself", which is the
-		// harder of the two supported shapes (loophole-packaging.md §2.2).
+		// harder of the two supported shapes
+		// (docs/reference/loophole-transport.md#two-server-shapes-and-how-a-manifest-selects-one).
 		{loopholedecl.RetiredTransportUnixSocket, []string{"{socket}", "publishes"}},
 		{loopholedecl.RetiredTransportTLSIntercept, []string{"intercepts"}},
 	} {
@@ -756,7 +758,8 @@ func TestRetiredTransportRejectedWithMigrationHint(t *testing.T) {
 // the host_daemon's half of the transport contract — publishes:"socket" means
 // the daemon binds a plain AF_UNIX socket at {socket} and yolo runs the TLS
 // front; request_end:"eof" means the front half-closes upstream when the
-// client's request direction ends (loophole-packaging.md §2.1, §2.1b).
+// client's request direction ends (docs/reference/loophole-transport.md#two-server-shapes-and-how-a-manifest-selects-one
+// and docs/reference/loophole-transport.md#request_end--how-a-request-ends-behind-the-front).
 func TestHostDaemonPublishesAndRequestEndParsed(t *testing.T) {
 	md := modsDir(t)
 	mod := mkdir(t, filepath.Join(md, "fronted"))
@@ -969,7 +972,8 @@ func TestHostDaemonInvalidPublishesAndRequestEndRejected(t *testing.T) {
 // tokens DIVERGE — {socket} is the upstream path the daemon binds, {endpoint}
 // is the file yolo publishes in front of it. A manifest naming {endpoint} in
 // its argv under that mode would silently publish nothing, so it is refused at
-// load with the fix (loophole-packaging.md §2.1).
+// load with the fix
+// (docs/reference/loophole-transport.md#two-server-shapes-and-how-a-manifest-selects-one).
 func TestPublishesSocketRefusesEndpointToken(t *testing.T) {
 	md := modsDir(t)
 	mod := mkdir(t, filepath.Join(md, "confused"))
@@ -993,7 +997,7 @@ func TestPublishesSocketRefusesEndpointToken(t *testing.T) {
 // HOST-side absolute module dir in host_daemon.cmd and doctor_cmd. Before this,
 // the token was substituted in exactly one field (host_bind_mounts[].host) and
 // a daemon spawn would exec a literal "{loophole_dir}/srv.py"
-// (loophole-packaging.md §2.1a).
+// (docs/reference/loophole-system.md#two-module-dir-tokens-and-value-sanitation).
 func TestLoopholeDirTokenSubstitutedInHostCmds(t *testing.T) {
 	md := modsDir(t)
 	mod := mkdir(t, filepath.Join(md, "toked"))
@@ -1028,7 +1032,8 @@ func TestLoopholeDirTokenSubstitutedInHostCmds(t *testing.T) {
 // CONTAINER, where the module dir is bind-mounted at
 // /etc/yolo-jail/loopholes/<name> — so its token is {jail_loophole_dir}, a
 // different spelling on purpose: one token with two resolutions is the kind of
-// asymmetry an author discovers by debugging (loophole-packaging.md §2.1a).
+// asymmetry an author discovers by debugging
+// (docs/reference/loophole-system.md#two-module-dir-tokens-and-value-sanitation).
 func TestJailLoopholeDirTokenSubstitutedInJailDaemon(t *testing.T) {
 	md := modsDir(t)
 	mod := mkdir(t, filepath.Join(md, "jailed"))
