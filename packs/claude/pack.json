@@ -9,6 +9,9 @@
         "brew-cask": "claude-code"
       },
       "kind": "program",
+      "protocols": [
+        "anthropic"
+      ],
       "update": [
         "install"
       ],

@@ -8,6 +8,10 @@
         "darwin/arm64",
         "linux/amd64"
       ],
+      "protocols": [
+        "openai",
+        "anthropic"
+      ],
       "via": "npm"
     },
     {

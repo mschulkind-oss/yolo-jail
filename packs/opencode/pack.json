@@ -8,6 +8,9 @@
       },
       "kind": "program",
       "package": "opencode-ai",
+      "protocols": [
+        "openai"
+      ],
       "via": "npm"
     },
     {

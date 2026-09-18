@@ -314,6 +314,40 @@ type Contribution struct {
 	// refuses it there rather than accepting-and-ignoring.
 	Capabilities []string `json:"capabilities,omitempty"`
 
+	// Protocols are the WIRE PROTOCOLS THE INSTALLED PROGRAM SPEAKS, in preference order
+	// — the agent's half of the pairing every other party already declares
+	// (docs/design/protocol-resolution.md §3). A provider says which protocol each of its
+	// endpoints speaks; an adapter says which protocol it turns into which other one; this
+	// is the agent saying which ones it can be pointed at at all.
+	//
+	// THE NAMES ARE `endpoints` KEYS, not `wire_api` VALUES, and the difference is load
+	// bearing: `endpoints.anthropic` is the map key a provider declares its URL under and
+	// the key every derive reads, while `wire_api` is the closed canonical vocabulary
+	// (KnownWireAPIs) naming the dialect that URL speaks. The resolver pairs an agent with
+	// a provider by ADDRESS, so it compares the things addresses are filed under.
+	// Consequently the vocabulary is OPEN, exactly as the endpoint key set is: a protocol
+	// nothing declares an endpoint for resolves to nothing, which is inert — and closing it
+	// here would make a third protocol the `tier` incident again, since DecodeTolerant
+	// validates per entry and cannot skip a value it cannot see.
+	//
+	// ON `program` ALONE. The declaration is a fact about a PROGRAM — which wires that
+	// binary's process can be pointed at — so only the kind that installs a binary has an
+	// answer; on any other kind it would be a list no consumer reads
+	// (protocolsProblems refuses it there, in capabilitiesProblems' position and for its
+	// reason).
+	//
+	// ABSENT MEANS UNCONSTRAINED, and that is the compatibility shape rather than an
+	// oversight (§4.1's last row): an agent that states nothing constrains nothing, so a
+	// pack that has not been updated resolves DIRECT for every provider, exactly as it did
+	// before the field existed. An agent that DOES declare is the one whose broken pairings
+	// become refusals.
+	//
+	// ORDER IS PREFERENCE (§4.1): resolution walks the list and the first protocol that
+	// resolves wins, so a pack that speaks two wires says which one it would rather be
+	// given. `copilot` is the shipped case — it prefers `anthropic` and falls back to
+	// `openai`, which is what its derive already does by hand.
+	Protocols []string `json:"protocols,omitempty"`
+
 	// --- service (docs/reference/wire-bridge.md §2.1, WB-D16) ---
 	// The service half of the §2.1 decomposition table, exactly — the fields a
 	// daemon needs to run and be found, and nothing from the table's loophole
@@ -949,6 +983,35 @@ func (m *Manifest) NativeCapabilities(bin string) []string {
 	return nil
 }
 
+// SpokenProtocols returns the wire protocols the program this pack installs at bin
+// speaks, in the declared preference order — the agent half of the resolver's three
+// declarations (docs/design/protocol-resolution.md §3).
+//
+// Keyed by BIN, and discovered exactly as NativeCapabilities is, for that accessor's
+// reason: a `program` contribution has no `agent` field, the bin IS the agent's name in
+// this vocabulary, and it is the identity packload.AgentEnv already finds an env producer
+// through. A pack that installs no CLI answers nothing here — right for the
+// declarative-facts packs (zai, kilo), which speak for a provider and never for an agent.
+//
+// NIL IS "UNCONSTRAINED", not "speaks nothing": the empty list is refused at authoring
+// time (protocolsProblems), so nil can only mean the pack declared no preference, which
+// §4.1 resolves DIRECT for every provider. A caller must not read nil as an empty set and
+// refuse on it.
+//
+// First match wins and the loop does not merge two: `program` is CombineExclusive per bin,
+// so a second contribution naming one bin is a collision the loader already refuses.
+func (m *Manifest) SpokenProtocols(bin string) []string {
+	if bin == "" {
+		return nil
+	}
+	for _, c := range m.Contributions() {
+		if c.Kind == KindProgram && c.Bin == bin {
+			return c.Protocols
+		}
+	}
+	return nil
+}
+
 // ServiceJailDaemon is a service's IN-JAIL half: an argv run under the existing
 // `yolo-jaild supervise` machinery, composed into YOLO_JAIL_DAEMONS in the loophole
 // JailDaemon wire shape VERBATIM — {name, cmd, restart} (wire-bridge.md §5). The env
@@ -1456,6 +1519,60 @@ func capabilitiesProblems(label string, c Contribution) []string {
 	return problems
 }
 
+// protocolsProblems checks the `protocols` list — the agent's wire declaration
+// (docs/design/protocol-resolution.md §3), guarded in capabilitiesProblems' shape because
+// it is the same shape of mistake: a list declared on a kind that has no consumer for it
+// is a fact nothing can ever read.
+//
+// ONE KIND, and it is `program` rather than `program` + `requires`: the resolver asks the
+// pack that OWNS an agent's CLI which wires that agent speaks, and it finds that pack by
+// bin ownership over the INSTALL contributions (packload.AgentEnv's "the one selected pack
+// that installs the agent's CLI"). A `requires` declares a binary it does not install and
+// owns no launcher path for, so nothing resolves through it.
+//
+// The NAMES are not checked, and that is the endpoint key set's own open-vocabulary
+// ruling carried over — the field's doc has the argument. What IS checked is the shape a
+// list can be wrong in without a vocabulary, which is platformsProblems' rule: an empty
+// list declares support for nothing, so it is refused with both fixes in the message
+// rather than silently read as "everywhere" or as "nothing".
+func protocolsProblems(label string, c Contribution) []string {
+	if c.Protocols == nil {
+		return nil
+	}
+	if c.Kind != KindProgram {
+		return []string{fmt.Sprintf(
+			"%s: kind %q does not take \"protocols\" — the list names the wire protocols a "+
+				"PROGRAM can be pointed at, which only \"program\" (the kind that installs the "+
+				"agent's CLI) has an answer to; no consumer reads it on this kind", label, c.Kind)}
+	}
+	if len(c.Protocols) == 0 {
+		return []string{label + ": \"protocols\" is an empty list, which declares that this " +
+			"program speaks nothing — omit the key to leave the agent unconstrained (every " +
+			"provider resolves directly), or name the wires it speaks (e.g. [\"anthropic\"])"}
+	}
+	var problems []string
+	seen := map[string]int{}
+	for i, entry := range c.Protocols {
+		if strings.TrimSpace(entry) == "" {
+			problems = append(problems, fmt.Sprintf(
+				"%s.protocols[%d]: empty entry — each one is a protocol NAME, the key a "+
+					"provider files an endpoint under (e.g. \"anthropic\", \"openai\")", label, i))
+			continue
+		}
+		// A repeat is refused rather than deduplicated: the list is a PREFERENCE ORDER, and
+		// a name appearing twice states two different preferences for one wire — there is no
+		// reading of it that is not the author's mistake.
+		if first, dup := seen[entry]; dup {
+			problems = append(problems, fmt.Sprintf(
+				"%s.protocols[%d]: %q is already declared at [%d] — the list is a preference "+
+					"order, so one protocol may appear once", label, i, entry, first))
+			continue
+		}
+		seen[entry] = i
+	}
+	return problems
+}
+
 func platformsProblems(label string, c Contribution) []string {
 	if c.Platforms == nil {
 		return nil
@@ -1680,6 +1797,7 @@ func validateContribution(label string, c Contribution) []string {
 	}
 	problems = append(problems, platformsProblems(label, c)...)
 	problems = append(problems, capabilitiesProblems(label, c)...)
+	problems = append(problems, protocolsProblems(label, c)...)
 	// `agent`/`agents` are the AUDIENCE pair, and they are refused everywhere else for
 	// `profile`'s reason and in `profile`'s position — ahead of the kind switch, so a kind
 	// added tomorrow inherits the refusal instead of accepting a field nothing reads on it.

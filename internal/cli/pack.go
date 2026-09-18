@@ -69,7 +69,8 @@ A zero-ceremony pack needs no manifest: a skills/ dir and an AGENTS.md at the pa
 root are staged as-is. A pack.json adds a "contributes" list, one typed entry per
 effect, with a "kind" from a closed set:
 
-  program          install a tool onto PATH
+  program          install a tool onto PATH ("protocols" names the wire protocols
+                   that tool can be pointed at, in preference order)
   blocked-tool     refuse a tool in the jail, printing an alternative
                    (flags/allow_flags scope it; replacement gates it on the
                    alternative actually being present)

@@ -1104,6 +1104,14 @@
                     PATH, so it never shadows a baked binary).  Sole-owned by `bin`, so a
                     pack may declare SEVERAL programs (different bins) and each gets its
                     own launcher.
+                    Also takes `protocols`: the wire protocols this program can be
+                    POINTED AT, in preference order — the same names a provider files an
+                    endpoint under (`["anthropic"]`, `["anthropic", "openai"]`), not the
+                    `wire_api` dialect values.  It is the agent's half of the pairing a
+                    provider and an adapter already declare, and it is what lets a launch
+                    tell a provider this agent can use from one it cannot.  Omit it to
+                    leave the agent UNCONSTRAINED: every provider then resolves directly,
+                    which is what every pack did before the key existed.
       blocked-tool  {bin, message, suggestion, replacement, flags} — refuse a tool
                     inside the jail and print an alternative.  `flags` limits the block
                     to matching argv (absent = always); `replacement` names the binary
