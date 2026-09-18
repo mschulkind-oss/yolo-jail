@@ -102,13 +102,25 @@ func TestUnnarrowedByNameServesAndDisclosesOnce(t *testing.T) {
 	}
 }
 
+// TestPolicyWithoutARoleIsRefusedRatherThanIgnored: the generic "no narrowing"
+// refusal also fires for this input, so the assertion has to be on the SPECIFIC
+// message. A user who wrote a session policy and no role has not forgotten to
+// configure a narrowing — they have configured one that cannot be attached to
+// anything — and telling them to "set role_arn or unnarrowed" does not say why.
 func TestPolicyWithoutARoleIsRefusedRatherThanIgnored(t *testing.T) {
 	_, err := Settings{Profile: "p", SessionPolicy: `{"Statement":[]}`}.Resolve()
 	if err == nil {
 		t.Fatal("a session policy with no role resolved; it would have served un-narrowed")
 	}
-	if !strings.Contains(err.Error(), settingsScope(SettingRoleARN)) {
-		t.Errorf("refusal does not name the missing role key: %v", err)
+	for _, want := range []string{
+		settingsScope(SettingSessionPolicy),
+		settingsScope(SettingRoleARN),
+		"an argument to AssumeRole",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal does not contain %q — it is the generic no-narrowing message, "+
+				"which does not explain what is wrong here:\n%v", want, err)
+		}
 	}
 }
 
