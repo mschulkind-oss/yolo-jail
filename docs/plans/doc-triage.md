@@ -261,7 +261,7 @@ to archived docs repointed. They no longer read as in-flight work.
 > [the lesson for the next run](#the-lesson-for-the-next-run) asked of this one.
 
 A 138-commit sprint built five accepted designs: [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md),
-[`report-tiers.md`](../design/report-tiers.md), [`lua-transform-removal.md`](../design/lua-transform-removal.md),
+[`report-tiers.md`](../reference/report-tiers.md), [`lua-transform-removal.md`](../design/lua-transform-removal.md),
 [`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md) and
 [`macos-user-provisioning.md`](../design/macos-user-provisioning.md). The `design-doc` genre's
 last phase says a built design *graduates* into a `system-doc`; this run asks, for each, whether
@@ -577,7 +577,7 @@ references are invisible to `vantage-check`** and are the ones that go silently 
 | :--- | ---: | ---: | :--- |
 | [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md) | 57 | 47 | 8 |
 | [`macos-user-provisioning.md`](../design/macos-user-provisioning.md) | 53 | 27 | 3 |
-| [`report-tiers.md`](../design/report-tiers.md) | 36 | 50 | 6 |
+| `report-tiers.md` | 36 | 50 | 6 |
 | [`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md) | 34 | 17 | 1 |
 | [`lua-transform-removal.md`](../design/lua-transform-removal.md) | 32 | 20 | 1 |
 
@@ -591,7 +591,7 @@ not after it.
 1. **Re-stamp [`agent-auth-modes.md`](../design/agent-auth-modes.md) as superseded** by
    [`../reference/providers.md`](../reference/providers.md). One line, no dependencies, and it stops
    the only doc in the tree that lies about its own status.
-2. **Graduate [`report-tiers.md`](../design/report-tiers.md), alone.** It is the only one of the
+2. **Graduate `report-tiers.md`, alone.** It is the only one of the
    five whose behavior was reproduced with a control, its principles are already cited as law from
    [`AGENTS.md`](../../AGENTS.md), and it carries no unbuilt step. Archive
    `report-tiers-plan.md` in the same commit.
@@ -621,7 +621,7 @@ in both directions across three runs.
 
    <!-- vantage: oq id=OQ-DT1 leaning="Graduate report-tiers alone and now; the pair may wait months for a Mac and there is no benefit to coupling them." -->
 
-   _Leaning:_ Graduate [`report-tiers.md`](../design/report-tiers.md) alone, now. The macOS pair is
+   _Leaning:_ Graduate `report-tiers.md` alone, now. The macOS pair is
    blocked on hardware nobody can schedule, and holding a finished reference hostage to it keeps a
    shipped system described in the planning tree for months. The counter-argument is real but
    weaker: five graduations done together share one re-pointing sweep, and
@@ -718,13 +718,17 @@ Go half was the real work and it was **not** a path rewrite — see the finding 
 | [`macos-user-provisioning.md`](../design/macos-user-provisioning.md) | **Not assessable** | Held by another workflow throughout this pass. Assessed, not touched. |
 | `darwin-image-provenance.md` | **Folded 2026-09-18; stub DELETED** | Finding 3, carried out: the identity invariant and its placement rule, both safety rulings, the stale-hatch-in-CI trap, the pre-cutover diagnostic and all four `OQ-IP` ids are now in [`../reference/image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md). The design path was a **redirect stub**, and it is gone: the citations in `flake.nix`, `internal/image/`, `integration/` and `.github/workflows/` were repointed at the reference on 2026-09-18 (the last of them `5e2302a5`, which cost an image rebuild), leaving this record's own two as the last inbound links — they were dropped to prose in the same commit that deleted the file, which is why the name above is no longer one. Finding 3's last clause is **closed rather than routed**: a `macos-user` nightly exists now. |
 
-### The one loose end this graduation leaves
+### The one loose end this graduation left — closed
 
-The design doc's path is a **redirect stub** rather than a deletion, because two
+The design doc's path was a **redirect stub** rather than a deletion, because two
 [`OQ-RO3`](../reference/report-tiers.md#why-its-this-way) citations
-live in [`handoff-macos-user-open-threads.md`](handoff-macos-user-open-threads.md), which another
-workflow held for the whole pass. Point them at
+lived in [`handoff-macos-user-open-threads.md`](handoff-macos-user-open-threads.md), which another
+workflow held for the whole pass. They were repointed at
 [`../reference/report-tiers.md#why-its-this-way`](../reference/report-tiers.md#why-its-this-way)
-and delete [`../design/report-tiers.md`](../design/report-tiers.md). Every other inbound
-reference — Go, docs, [`../../AGENTS.md`](../../AGENTS.md) and this file — already resolves into
+on 2026-09-18, and `docs/design/report-tiers.md` is **deleted**. This file's own five citations
+were the last inbound links: four are plain prose now, because each names the design doc as the
+thing assessed, recommended or counted rather than as something to go read, and the fifth — the
+sprint's list of what it built — points at [`../reference/report-tiers.md`](../reference/report-tiers.md),
+where that design is described today. Every inbound
+reference — Go, docs, [`../../AGENTS.md`](../../AGENTS.md) and this file — resolves into
 the reference tree.
