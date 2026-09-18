@@ -117,11 +117,17 @@ type ProtocolResolution struct {
 // here, which is exactly what "the resolver picks an address that was declared" means in
 // practice.
 //
+// elsewhere is what an UNSELECTED pack declares (UnselectedAdaptations), and it is read
+// only on the failure path: it is the difference between outcome 3, which names the pack to
+// add, and outcome 4, which cannot. It never affects whether the pairing resolves — a
+// declaration in a pack this launch did not select is not in this launch, and the resolver
+// may not select one on the user's behalf (OQ-PR3).
+//
 // providerName and agent are carried for the MESSAGE only. A refusal that says which two
 // declarations disagreed is the whole discoverability argument (R3): the wrong one has to
 // be visible in the refusal rather than in a later request.
 func ResolveProtocol(agent string, spoken []string, providerName string,
-	entry *jsonx.OrderedMap) (ProtocolResolution, error) {
+	entry *jsonx.OrderedMap, elsewhere []Adaptation) (ProtocolResolution, error) {
 	// An agent that states nothing constrains nothing (§4.1's last row). This is the
 	// compatibility shape for a pack that has not been updated, and it must stay first: a
 	// pack declaring no protocols has to resolve DIRECT for every provider, including one
@@ -142,7 +148,52 @@ func ResolveProtocol(agent string, spoken []string, providerName string,
 			return ProtocolResolution{Protocol: p, Direct: true}, nil
 		}
 	}
-	return ProtocolResolution{}, unspeakableProvider(agent, spoken, providerName, offered)
+	return ProtocolResolution{}, unspeakableProvider(agent, spoken, providerName, offered, elsewhere)
+}
+
+// UnselectedAdaptations returns the conversions declared by packs yolo SHIPS and this
+// launch did NOT select — outcome 3's whole input, and nothing else's.
+//
+// IT READS THE EMBEDDED SET, which is deliberately not selection-gated (embedded.go states
+// the rule for the reservation lists, and this is the same shape of question: what is true
+// of everything yolo ships, regardless of what a particular jail loaded). The tree is
+// materialized once per process and already exists before argv is parsed, so this is a walk
+// over manifests in memory rather than a filesystem cost on a launch.
+//
+// WHAT IT BOUNDS, honestly: only a pack yolo ships can be named. A third-party pack the
+// user has not selected is invisible here, so its pairing gets outcome 4's message instead
+// of outcome 3's. That is a limit on the REMEDY, never on the rule — the pairing resolves
+// identically once either pack is selected (P6), and core can only name what it can see.
+func UnselectedAdaptations(selected []*Pack) []Adaptation {
+	chosen := map[string]bool{}
+	for _, p := range selected {
+		chosen[p.Name] = true
+	}
+	var rest []*Pack
+	for _, p := range Embedded() {
+		if !chosen[p.Name] {
+			rest = append(rest, p)
+		}
+	}
+	return Adaptations(rest)
+}
+
+// missingAdapterFor picks the conversion an unselected pack declares that WOULD resolve
+// this pairing: one whose `from` the provider offers and whose `to` the agent speaks.
+//
+// THE AGENT'S PREFERENCE ORDER DECIDES, the same order a direct resolution follows, so the
+// remedy names the adapter for the wire the agent would rather have been given rather than
+// whichever declaration happened to sort first.
+func missingAdapterFor(spoken []string, offered map[string]bool, elsewhere []Adaptation) *Adaptation {
+	for _, p := range spoken {
+		for i := range elsewhere {
+			a := elsewhere[i]
+			if a.To == p && offered[a.From] {
+				return &a
+			}
+		}
+	}
+	return nil
 }
 
 // refuseUnspeakableProvider is the gate AgentEnv puts above every derive: the selected
@@ -157,7 +208,8 @@ func ResolveProtocol(agent string, spoken []string, providerName string,
 // owner is the pack that installs agent's CLI, found by bin ownership: the same identity
 // AgentEnv discovers a producer through, so the pack that speaks for an agent's environment
 // is the pack that speaks for its wires.
-func refuseUnspeakableProvider(owner *Pack, agent, selected string, providers *jsonx.OrderedMap) error {
+func refuseUnspeakableProvider(packs []*Pack, owner *Pack, agent, selected string,
+	providers *jsonx.OrderedMap) error {
 	if selected == "" || providers == nil {
 		return nil
 	}
@@ -169,7 +221,8 @@ func refuseUnspeakableProvider(owner *Pack, agent, selected string, providers *j
 	if !ok {
 		return nil
 	}
-	_, err := ResolveProtocol(agent, owner.Decl.SpokenProtocols(agent), selected, entry)
+	_, err := ResolveProtocol(agent, owner.Decl.SpokenProtocols(agent), selected, entry,
+		UnselectedAdaptations(packs))
 	return err
 }
 
@@ -204,7 +257,8 @@ func providerProtocols(entry *jsonx.OrderedMap) map[string]bool {
 	return out
 }
 
-// unspeakableProvider is the refusal for a pairing nothing can serve — §3's outcome 4.
+// unspeakableProvider is the refusal for a pairing nothing this launch has can serve —
+// §3's outcomes 3 and 4, which differ only in whether a remedy can be named.
 //
 // A REFUSAL AND NOT A WARNING, for the capability gate's reason: the declarations' whole
 // content is "this configuration does not work", and a launch that says so and proceeds has
@@ -215,16 +269,27 @@ func providerProtocols(entry *jsonx.OrderedMap) map[string]bool {
 // without saying which declaration produced which half turns "an agent pack declares its
 // protocols wrongly" into an unfixable launch failure; with both halves quoted, the wrong
 // one is visible in the refusal itself.
+//
+// OUTCOME 3 NAMES THE PACK AND STOPS THERE. The resolver does not join it, does not offer
+// to, and does not fall back to it — choosing a provider must not decide what runs in your
+// jail (OQ-PR3). One line of remedy is what the ruling bought instead, and it teaches the
+// mechanism: the user learns that an adapter exists, which pack has it, and that adding it
+// is the whole fix.
 func unspeakableProvider(agent string, spoken []string, providerName string,
-	offered map[string]bool) error {
+	offered map[string]bool, elsewhere []Adaptation) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "provider %q speaks %s; agent %q speaks %s — this launch cannot point %s at it.",
 		providerName, quotedProtocols(sortedSet(offered)), agent, quotedProtocols(spoken), agent)
 	fmt.Fprintf(&b, "\n  The provider's protocols are the keys of its `endpoints`; the agent's are the "+
 		"`protocols` list on the pack that installs %s.", agent)
-	b.WriteString("\n  Nothing declares an adapter between them, so there is no address to " +
-		"give: choose a provider this agent speaks to, or select a pack that adapts one of " +
-		"the provider's protocols into one of the agent's.")
+	if m := missingAdapterFor(spoken, offered, elsewhere); m != nil {
+		fmt.Fprintf(&b, "\n  Pack %q adapts %s → %s. Add it to `packs` and this pairing resolves, "+
+			"with nothing else to configure.", m.Pack, strconv.Quote(m.From), strconv.Quote(m.To))
+		return errors.New(b.String())
+	}
+	b.WriteString("\n  Nothing this launch can see declares an adapter between them, so there " +
+		"is no address to give: choose a provider this agent speaks to, or select a pack that " +
+		"adapts one of the provider's protocols into one of the agent's.")
 	return errors.New(b.String())
 }
 

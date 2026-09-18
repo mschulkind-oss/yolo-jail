@@ -123,7 +123,13 @@ func TestLaunchWithoutTheBridgeRefusesThePairing(t *testing.T) {
 			"for the wire claude speaks, and composing one anyway is the dead URL this " +
 			"replaced")
 	}
-	for _, want := range []string{`provider "cerebras"`, `agent "claude"`} {
+	for _, want := range []string{
+		`provider "cerebras"`, `agent "claude"`,
+		// OUTCOME 3: the refusal names the pack to add, which is the discoverable half —
+		// and it stops there. The resolver never joins the pack itself, because choosing a
+		// provider must not decide what runs in your jail (OQ-PR3).
+		`Pack "wire-bridge" adapts`, "Add it to `packs`",
+	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the refusal must name both sides; %q missing from:\n%v", want, err)
 		}

@@ -103,7 +103,7 @@ func TestResolutionFollowsTheAgentsDeclarationOrder(t *testing.T) {
 	both := `,"endpoints":{"anthropic":{"base_url":"https://vendor.example/a"},` +
 		`"openai":{"base_url":"https://vendor.example/o"}}`
 	res, err := ResolveProtocol("claude", []string{"openai", "anthropic"}, "p",
-		composedEntry(t, providerPack(t, both)))
+		composedEntry(t, providerPack(t, both)), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestTheShorthandIsNotReadAsAProtocol(t *testing.T) {
 		t.Fatal(err)
 	}
 	entry, _ := providers.Get("p")
-	res, err := ResolveProtocol("claude", []string{"anthropic"}, "p", asOrdered(t, entry))
+	res, err := ResolveProtocol("claude", []string{"anthropic"}, "p", asOrdered(t, entry), nil)
 	if err != nil {
 		t.Errorf("a bare base_url must not resolve as a protocol mismatch: %v", err)
 	}

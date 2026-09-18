@@ -10,8 +10,10 @@ package packload
 // is the rule that makes that true for a pack nobody shipped.
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agentenv"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
@@ -194,4 +196,98 @@ func endpointURL(t *testing.T, entry *jsonx.OrderedMap, protocol string) string 
 	u, _ := m.Get("base_url")
 	s, _ := u.(string)
 	return s
+}
+
+// OUTCOME 3 — the refusal NAMES THE PACK TO ADD. The two halves are the whole user story
+// (OQ-PR3): with the adapter's pack absent the pairing refuses and says which pack to add;
+// with it present it just works, with no flag, no endpoint to write and nothing naming the
+// bridge. The resolver never closes the gap itself, because choosing a provider must not
+// change what runs in your jail.
+//
+// THE SHIPPED CASE, deliberately: what makes the message discoverable is that it names a
+// pack the user can actually select, and only the packs yolo ships can be named from a
+// launch that did not select them.
+func TestOutcomeThreeNamesThePackToAdd(t *testing.T) {
+	var claude, cerebras *Pack
+	for _, p := range Embedded() {
+		switch p.Name {
+		case "claude":
+			claude = p
+		case "cerebras":
+			cerebras = p
+		}
+	}
+	if claude == nil || cerebras == nil {
+		t.Fatal("the embedded claude and cerebras packs are what this test measures")
+	}
+	_, err := runAgentEnvWithProfile(t, []*Pack{claude, cerebras}, "claude", "cerebras")
+	if err == nil {
+		t.Fatal("claude beside cerebras with no adapter selected must refuse")
+	}
+	for _, want := range []string{
+		`provider "cerebras" speaks "openai"`,
+		`agent "claude" speaks "anthropic"`,
+		`Pack "wire-bridge" adapts "openai" → "anthropic"`,
+		"Add it to `packs`",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal must contain %q:\n%v", want, err)
+		}
+	}
+}
+
+// OUTCOME 4 KEEPS ITS OWN MESSAGE: when nothing yolo can see declares the conversion, the
+// refusal must not pretend a remedy exists. The agent speaks a wire no shipped adapter
+// produces, so there is no pack to name.
+func TestOutcomeFourSaysThereIsNoRemedy(t *testing.T) {
+	agent := protocolAgentPack(t, `,"protocols":["unobtainium"]`)
+	vendor := providerPack(t, `,"endpoints":{"openai":{"base_url":"https://vendor.example/v1"}}`)
+	_, err := runAgentEnv(t, agent, vendor)
+	if err == nil {
+		t.Fatal("a pairing nothing adapts must refuse")
+	}
+	if strings.Contains(err.Error(), "Add it to `packs`") {
+		t.Errorf("outcome 4 must not offer a remedy it cannot name:\n%v", err)
+	}
+	if !strings.Contains(err.Error(), "Nothing this launch can see declares an adapter") {
+		t.Errorf("outcome 4 must say the pairing has no adapter anywhere:\n%v", err)
+	}
+}
+
+// A SELECTED ADAPTER IS NEVER REPORTED AS MISSING: the remedy list is the UNSELECTED packs
+// alone, so a launch that already has the pack and still cannot resolve (a different pair)
+// is never told to add what it has.
+func TestASelectedPackIsNotNamedAsMissing(t *testing.T) {
+	var claude, cerebras, bridge *Pack
+	for _, p := range Embedded() {
+		switch p.Name {
+		case "claude":
+			claude = p
+		case "cerebras":
+			cerebras = p
+		case "wire-bridge":
+			bridge = p
+		}
+	}
+	got := UnselectedAdaptations([]*Pack{claude, cerebras, bridge})
+	for _, a := range got {
+		if a.Pack == "wire-bridge" {
+			t.Errorf("a SELECTED pack appears in the unselected remedy list: %#v", a)
+		}
+	}
+}
+
+// runAgentEnvWithProfile is runAgentEnv over an explicit pack set and profile name.
+func runAgentEnvWithProfile(t *testing.T, packs []*Pack, agent, profile string) ([]agentenv.Var, error) {
+	t.Helper()
+	providers, err := ComposeProviders(nil, packs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := ResolveProfiles(packs, nil, providers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return AgentEnv(packs, providers, map[string]string{agent: profile}, agent, profile,
+		func(string) (string, bool) { return "", false }, WithResolvedProfiles(resolved))
 }

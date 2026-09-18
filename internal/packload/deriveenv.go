@@ -137,7 +137,7 @@ func AgentEnv(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map[string
 	// the resolved selection in hand. Above DeriveScript on purpose — a pairing nothing can
 	// serve is broken whether or not the pack ships a producer, and a silent pass for a
 	// pack with no derive.lua would make the gate depend on a file's existence.
-	if err := refuseUnspeakableProvider(owner, agent, selected, providers); err != nil {
+	if err := refuseUnspeakableProvider(packs, owner, agent, selected, providers); err != nil {
 		return nil, err
 	}
 	script := DeriveScript(owner)
