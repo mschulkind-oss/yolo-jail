@@ -5,6 +5,7 @@
 //	yolo-jaild supervise          # read YOLO_JAIL_DAEMONS + supervise each entry
 //	yolo-jaild oauth-terminator   # in-jail TLS terminator for Claude OAuth
 //	yolo-jaild openai-auth-adapter # in-jail Codex refresh adapter
+//	yolo-jaild aws-credential-adapter # in-jail AWS container-credentials endpoint
 //	yolo-jaild wire-bridge        # anthropic→openai wire bridge (selection-lazy)
 //
 // This is a plain subcommand dispatch on args[0]; it is NOT argv[0]/symlink
@@ -15,6 +16,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/awscredadapter"
 	"github.com/mschulkind-oss/yolo-jail/internal/oauthterminator"
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthadapter"
 	"github.com/mschulkind-oss/yolo-jail/internal/supervisor"
@@ -37,6 +39,8 @@ func run(args []string) int {
 		return oauthterminator.Main(rest)
 	case "openai-auth-adapter":
 		return openaiauthadapter.Main(rest)
+	case "aws-credential-adapter":
+		return awscredadapter.Main(rest)
 	case "wire-bridge":
 		return wirebridged.Main(rest)
 	default:
@@ -45,6 +49,7 @@ func run(args []string) int {
 }
 
 func usage() int {
-	fmt.Fprintln(os.Stderr, "usage: yolo-jaild <supervise|oauth-terminator|openai-auth-adapter|wire-bridge> [args...]")
+	fmt.Fprintln(os.Stderr, "usage: yolo-jaild <supervise|oauth-terminator|openai-auth-adapter|"+
+		"aws-credential-adapter|wire-bridge> [args...]")
 	return 2
 }

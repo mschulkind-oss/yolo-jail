@@ -56,3 +56,17 @@ func TestDispatchRoutesOpenAIAuthAdapter(t *testing.T) {
 		t.Fatalf("openai-auth-adapter dispatch rc = %d, want adapter failure 1", rc)
 	}
 }
+
+// TestDispatchRoutesAWSCredentialAdapter pins the row packs/aws-auth's manifest
+// composes (`yolo-jaild aws-credential-adapter --listen 127.0.0.1:1461`).
+//
+// Same discriminator as its openai-auth sibling and for the same reason: a jail
+// daemon's spawn failure is otherwise SILENT — supervisor.superviseOne drops
+// start()'s error and backs off forever — so a deleted case here is an empty log
+// and no process, with every unit test of the adapter itself still green.
+func TestDispatchRoutesAWSCredentialAdapter(t *testing.T) {
+	if rc := run([]string{"aws-credential-adapter", "--listen", "bad address"}); rc != 1 {
+		t.Fatalf("aws-credential-adapter dispatch rc = %d, want adapter failure 1 "+
+			"(2 means it fell through to usage — the case is missing or misspelled)", rc)
+	}
+}
