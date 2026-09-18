@@ -200,7 +200,7 @@ func HardlinkDuplicateFiles(entries []Entry, apply bool) (bytesSaved int64, link
 //
 // OldImagesToRemove — the "keep the newest N by CreatedAt" selector this type
 // existed to feed — was DELETED by OQ-LS3
-// (docs/design/the-load-sentinel-is-not-a-liveness-oracle.md §6.2): retention is
+// (docs/reference/image-retention.md#why-its-this-way): retention is
 // the per-workspace current pointers, so nothing is selected by its position in
 // a sort any more. Created survives because PruneOldImages still orders its
 // report by it, and because it is the only timestamp that pass has.

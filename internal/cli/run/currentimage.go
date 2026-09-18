@@ -8,8 +8,8 @@ import (
 
 // recordCurrentImage records the image this launch made ready as THIS
 // WORKSPACE'S CURRENT IMAGE — the retention evidence OQ-LS3 replaced
-// `--keep-images` with (docs/design/the-load-sentinel-is-not-a-liveness-oracle.md
-// §6.2, ruled 2026-09-08).
+// `--keep-images` with (docs/reference/image-retention.md#why-its-this-way,
+// ruled 2026-09-08).
 //
 // It is one line of wiring and the whole feature depends on it. The reaper's
 // retention set is the union of these pointers (prune.CurrentImageTags): with

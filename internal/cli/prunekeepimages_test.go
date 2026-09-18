@@ -10,7 +10,7 @@ import (
 )
 
 // prunekeepimages_test.go pins the REMOVAL of `--keep-images` (OQ-LS3,
-// docs/design/the-load-sentinel-is-not-a-liveness-oracle.md §6.2).
+// docs/reference/image-retention.md#why-its-this-way).
 //
 // A removed flag has to REFUSE, and the reason is specific to this one.
 // pruneOptions' switch has no default case, so a dropped flag is silently

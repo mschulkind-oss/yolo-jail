@@ -10,7 +10,7 @@ import (
 )
 
 // currentimages.go is image retention after OQ-LS3
-// (docs/design/the-load-sentinel-is-not-a-liveness-oracle.md §6.2, ruled
+// (docs/reference/image-retention.md#why-its-this-way, ruled
 // 2026-09-08 and sharpened 2026-09-09): ONE POINTER PER WORKSPACE at the image
 // that workspace last launched against, and nothing else.
 //
@@ -41,7 +41,7 @@ import (
 //
 // # WHY THE POINTERS LIVE UNDER BuildDir() AND NOT IN THE WORKSPACE
 //
-// §6.2 names <workspace>/.yolo as the pointer's natural home, and for a single
+// The design named <workspace>/.yolo as the pointer's natural home, and for a single
 // pointer read by its own workspace it would be. THE REAPER NEEDS THE UNION,
 // and it has no way to enumerate workspaces that is not itself a registry: the
 // only two candidates are the runtime's container list (which `yolo prune`'s own

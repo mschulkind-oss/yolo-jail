@@ -14,7 +14,7 @@ import (
 // and on what evidence. It replaces probes_test.go's
 // TestProtectedImageTagsReadsTheLoadSentinel, which pinned the same property
 // against the load sentinel's LRU-10 before OQ-LS3 moved the evidence
-// (docs/design/the-load-sentinel-is-not-a-liveness-oracle.md §6.2).
+// (docs/reference/image-retention.md#why-its-this-way).
 //
 // What PruneOldImages does with the set is probes_test.go's; what the LAUNCH
 // writes into it is internal/cli/run/currentimage_test.go's.

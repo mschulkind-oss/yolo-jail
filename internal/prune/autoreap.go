@@ -13,7 +13,7 @@ import (
 // It was `--keep-images`'s default (2), and minimal-disk-footprint.md OQ-DF3
 // ruled the NUMBER unchanged on 2026-09-06 — as a small undo buffer sitting on
 // top of the sentinel-derived veto rather than the safety mechanism itself.
-// OQ-LS3 (docs/design/the-load-sentinel-is-not-a-liveness-oracle.md §6.2, ruled
+// OQ-LS3 (docs/reference/image-retention.md#why-its-this-way, ruled
 // 2026-09-08) then ruled the MECHANISM out rather than the number: the unit is
 // the CONFIGURATION and the superseded-per-config count is zero, so a global
 // count has no depth left to bound and there is no undo buffer to size. What

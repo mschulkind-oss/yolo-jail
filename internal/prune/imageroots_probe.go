@@ -33,7 +33,7 @@ func ProtectedImagePaths(buildDir string) map[string]struct{} {
 // It shipped with C2, which armed a pass that had never fired, and `4064f720`
 // gave it the tri-state that kept it from failing open.
 //
-// OQ-LS3 (docs/design/the-load-sentinel-is-not-a-liveness-oracle.md §6.2, ruled
+// OQ-LS3 (docs/reference/image-retention.md#why-its-this-way, ruled
 // 2026-09-08) replaced it with prune.CurrentImageTags — one CURRENT-IMAGE
 // POINTER per workspace, written by the launch path — for the reason the whole
 // doc is about: a bounded most-recently-used list answers "what would I like to

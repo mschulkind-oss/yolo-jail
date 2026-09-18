@@ -2,7 +2,7 @@ package run
 
 // currentimagecallsite_test.go is the call-site pin for the launch-path
 // current-image pointer (OQ-LS3,
-// docs/design/the-load-sentinel-is-not-a-liveness-oracle.md §6.2).
+// docs/reference/image-retention.md#why-its-this-way).
 //
 // currentimage_test.go covers the WRITE (what it records, the degraded launch,
 // the lock, a failed write) and internal/prune/currentimages_test.go covers the

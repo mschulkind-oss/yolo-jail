@@ -2,17 +2,19 @@ package prune
 
 // loopholestate.go reclaims the RETIRED per-loophole state archive: the generations the
 // launch path creates when a pack that shipped a loophole leaves `packs`
-// (docs/design/loophole-packaging.md §4.5, the third of the three missing artifacts).
+// (docs/reference/loophole-system.md#retirement-what-happens-when-a-pack-goes-away — the
+// third of the three missing artifacts).
 //
 // # Why this is its own sweeper and not the host-archive one
 //
 // Measured before this file existed: `rg -c loophole internal/prune/*.go` returned ZERO.
-// Nothing here knew loopholes existed, and §4.5 measured why the obvious precedent does not
-// reach:
+// Nothing here knew loopholes existed, and the design measured why the obvious precedent
+// does not reach:
 //
 //   - The `files` kind's host output is retired by cli.pruneDroppedPackOutput, called ONLY
-//     from `yolo host apply` — the exact command §3.4 refuses the loophole kind at, so it never
-//     sees a loophole contribution.
+//     from `yolo host apply` — the exact command that refuses the loophole kind
+//     (docs/reference/loophole-system.md#at-the-host-target-there-is-no-jail), so it
+//     never sees a loophole contribution.
 //   - PruneHostArchiveBuckets sweeps the HOST-RENDER archive (hostarchive.go), which is a
 //     different tree from <state>/.retired: the render's archive lives under
 //     GlobalStorage()/archive, the loophole state under GlobalStorage()/state.
