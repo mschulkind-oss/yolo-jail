@@ -28,6 +28,10 @@ func defaultStatePath() string {
 // HostSocketPath derives the private host-to-host socket from the daemon's
 // fronted socket. The fronted socket requires a jail-identity preamble; this
 // sibling accepts ordinary framed host requests and is protected by mode 0600.
+//
+// It is also the ONLY door the machine-wide mutations are served on: serveSockets gives this
+// path a handler that serves `import` and `logout`, and the fronted path one that refuses
+// them.
 func HostSocketPath(frontedSocket string) string { return frontedSocket + ".host" }
 
 // Main is the host OpenAI authentication daemon entry point.
@@ -73,21 +77,36 @@ func Main(argv []string) int {
 	if !*noBackground {
 		go runProactive(broker, *refreshInterval, stop)
 	}
-	handler := BuildHandler(HandlerConfig{
+	handlerConfig := HandlerConfig{
 		Broker: broker, Upstream: upstream, AuthorizeURL: *authorizeURL,
 		LoginTimeout: *loginTimeout,
-	})
-	if err := serveSockets(handler, *socket, HostSocketPath(*socket), stop, shutdown); err != nil {
+	}
+	if err := serveSockets(BuildHandler(handlerConfig), BuildHostHandler(handlerConfig),
+		*socket, HostSocketPath(*socket), stop, shutdown); err != nil {
 		fmt.Fprintln(os.Stderr, "yolo-openai-auth-host:", err)
 		return 1
 	}
 	return 0
 }
 
-func serveSockets(handler hostservice.Handler, frontedSocket, hostSocket string, stop <-chan struct{}, shutdown func()) error {
+// serveSockets runs both transports, and it takes TWO HANDLERS because there are two
+// authorizations and a handler cannot see which socket carried its bytes.
+//
+// It took ONE until 2026-09-18, and hostservice's own doc says why that could never be made
+// safe: "the handler still never learns which of the three carried its bytes", and on
+// ServeUnix `Session.JailID` falls back to the client's own `jail_id` field — a jail-supplied
+// string. So the only place the difference between the fronted socket and the private 0600 one
+// can be expressed is HERE, in the choice of handler, before any request exists.
+//
+//   - frontedSocket is jail-facing (svcendpoint's front authenticates and splices to it), and
+//     gets the handler that refuses every machine-wide mutation.
+//   - hostSocket is host-to-host at mode 0600, where the filesystem is the authorization, and
+//     gets the handler that also serves `import` and `logout`.
+func serveSockets(jailHandler, hostHandler hostservice.Handler,
+	frontedSocket, hostSocket string, stop <-chan struct{}, shutdown func()) error {
 	errs := make(chan error, 2)
-	go func() { errs <- hostservice.ServeFrontedUnix(handler, frontedSocket, stop) }()
-	go func() { errs <- hostservice.ServeUnix(handler, hostSocket, stop) }()
+	go func() { errs <- hostservice.ServeFrontedUnix(jailHandler, frontedSocket, stop) }()
+	go func() { errs <- hostservice.ServeUnix(hostHandler, hostSocket, stop) }()
 	err := <-errs
 	shutdown()
 	<-errs

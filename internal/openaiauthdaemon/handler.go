@@ -20,17 +20,41 @@ type HandlerConfig struct {
 	LoginTimeout time.Duration
 }
 
-// BuildHandler serves the agent-neutral local action protocol. "refresh" is
-// Codex-shaped; "token" is the Pi view and intentionally omits refresh and ID
-// tokens. Login streams its browser URL on stderr and emits one final JSON
-// completion record on stdout.
+// BuildHandler serves the JAIL-FACING protocol: the agent-neutral local actions, with every
+// machine-wide mutation refused. "refresh" is Codex-shaped; "token" is the Pi view and
+// intentionally omits refresh and ID tokens. Login streams its browser URL on stderr and emits
+// one final JSON completion record on stdout.
+//
+// ⚠ THE SOCKET IS THE AUTHORIZATION, AND A HANDLER CANNOT SEE ITS SOCKET. hostservice says so
+// in as many words — "the handler still never learns which of the three carried its bytes" —
+// and `Session.JailID` falls back to the client's OWN `jail_id` on the private socket, so it is
+// a jail-supplied string and can never gate anything. That is why the host-only actions live
+// behind a SECOND HANDLER (BuildHostHandler) that serveSockets hands to the private 0600
+// socket alone, rather than behind a check inside one handler. A `JailID`-based check would be
+// the boundary asking the untrusted side which side it is.
 func BuildHandler(config HandlerConfig) hostservice.Handler {
+	return buildHandler(config, jailActionAllowed)
+}
+
+// BuildHostHandler serves the PRIVATE HOST SOCKET: everything the jail-facing handler serves,
+// plus the machine-wide mutations (`import`, `logout`). Its authorization is the filesystem —
+// mode 0600 on a host-owned path, which is the same boundary hostservice.ServeUnix's doc
+// states for every host-to-host transport.
+//
+// Same body, different gate, so a new action cannot reach one handler and miss the other: the
+// switch is shared and the two gates are the only difference. jailActionAllowed stays the
+// refusing half and TestJailActionsExcludeMachineWideDestructiveOperations stays green.
+func BuildHostHandler(config HandlerConfig) hostservice.Handler {
+	return buildHandler(config, hostActionAllowed)
+}
+
+func buildHandler(config HandlerConfig, allowed func(string) bool) hostservice.Handler {
 	return func(session *hostservice.Session) {
 		action := field(session, "action")
 		if action == "" {
 			action = "token"
 		}
-		if !jailActionAllowed(action) {
+		if !allowed(action) {
 			session.Stderr("OpenAI credential action is unavailable from a jail: " + action + "\n")
 			session.Exit(2)
 			return
@@ -107,6 +131,32 @@ func BuildHandler(config HandlerConfig) hostservice.Handler {
 				return
 			}
 			_ = session.JSON(map[string]any{"ok": true, "generation": int64(state.Generation), "account_id": state.AccountID})
+		case "import":
+			// The FILE the host user names, never one this daemon goes looking for: a
+			// default path would make `import` a command that silently adopts whatever
+			// ~/.codex/auth.json happens to hold, and the whole point of the verb is that
+			// a human chose this grant.
+			tokens, err := ReadCodexAuthFile(field(session, "path"))
+			if err != nil {
+				replyError(session, err)
+				return
+			}
+			state, err := config.Broker.Replace(tokens)
+			if err != nil {
+				replyError(session, err)
+				return
+			}
+			_ = session.JSON(map[string]any{"ok": true, "generation": int64(state.Generation),
+				"account_id": state.AccountID, "expires_at": state.ExpiresAtMS})
+		case "logout":
+			if err := config.Broker.Logout(); err != nil {
+				replyError(session, err)
+				return
+			}
+			// IDEMPOTENT, and it reports the same thing either way: Broker.Logout treats
+			// missing state as already logged out, so a second logout is a success rather
+			// than an error a script has to special-case.
+			_ = session.JSON(map[string]any{"ok": true, "logged_out": true})
 		default:
 			session.Stderr("unknown action: " + action + "\n")
 			session.Exit(2)
@@ -120,6 +170,24 @@ func jailActionAllowed(action string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// hostActionAllowed is the private socket's gate: the jail's actions plus the two that mutate
+// the machine-wide grant for every workspace, every jail and the host user at once.
+//
+// `import` INSTALLS a grant a human already has (a real Codex `auth.json`) as the next
+// canonical generation; `logout` deletes the canonical state. Neither is destructive by
+// accident — both take the same lock Refresh and Replace take — but both are destructive by
+// DESIGN, which is why they are reachable only where the filesystem already says "host user",
+// and why the caller is expected to say what it is about to do before it sends one
+// (openaiauthhost's operator verb prints the consequence).
+func hostActionAllowed(action string) bool {
+	switch action {
+	case "import", "logout":
+		return true
+	default:
+		return jailActionAllowed(action)
 	}
 }
 

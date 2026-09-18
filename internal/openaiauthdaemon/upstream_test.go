@@ -33,12 +33,17 @@ func TestDaemonPublishesPrivateDirectHostSocketAndStreamsErrors(t *testing.T) {
 	stop := make(chan struct{})
 	var once sync.Once
 	shutdown := func() { once.Do(func() { close(stop) }) }
-	handler := BuildHandler(HandlerConfig{Broker: openaiauth.Broker{
+	config := HandlerConfig{Broker: openaiauth.Broker{
 		StatePath: filepath.Join(dir, "missing.json"),
 		LockPath:  filepath.Join(dir, "refresh.lock"),
-	}})
+	}}
 	done := make(chan error, 1)
-	go func() { done <- serveSockets(handler, fronted, hostSocket, stop, shutdown) }()
+	// BOTH handlers, as production builds them: this test dials the private socket, which is
+	// the host one. hostactions_test.go is where the two doors are told apart.
+	go func() {
+		done <- serveSockets(BuildHandler(config), BuildHostHandler(config),
+			fronted, hostSocket, stop, shutdown)
+	}()
 	deadline := time.Now().Add(time.Second)
 	for {
 		if _, err := os.Stat(hostSocket); err == nil {

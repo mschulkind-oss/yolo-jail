@@ -323,10 +323,32 @@ helps correlate generations without revealing the token.
 
 Browser login also runs in the host service. It binds host loopback port 1455, falling back to
 1457, prints the authorization URL through the client, validates the OAuth state on the exact
-callback path, exchanges the code with PKCE, and atomically replaces canonical state. Import and
-machine-wide logout are deliberately absent from the jail-facing action protocol: either would
-let any process in a selected jail change host-wide authentication. Directly launched host Codex
-and its credential file remain outside this service.
+callback path, exchanges the code with PKCE, and atomically replaces canonical state. Directly
+launched host Codex and its credential file remain outside this service.
+
+### Import and logout — the host's two verbs
+
+Import and machine-wide logout are absent from the **jail-facing** action protocol: either would
+let any process in a selected jail change host-wide authentication. Since 2026-09-18 they exist
+on the **host** one, as `yolo internal openai-auth import --from <auth.json>` and
+`yolo internal openai-auth logout`. The verb resolves the daemon's private socket (starting the
+daemon if it is not running) and states that the operation's scope is the whole machine before
+it acts.
+
+**The socket is the authorization, and it has to be**, because a handler cannot see which socket
+carried its bytes and `Session.JailID` falls back to the client's *self-asserted* value on the
+private one. So the daemon builds **two handlers** — the jail-facing socket gets the one that
+refuses these two actions, the private mode-`0600` socket gets the one that serves them — and the
+difference is expressed where the sockets are bound rather than inside a handler that would have
+to ask the untrusted side which side it is.
+
+Import reads a Codex `auth.json` a human already has and installs it as the next generation. It
+refuses a relative path, a symlink, a non-regular file, a file missing any of the three tokens,
+and — the one worth knowing — **a yolo broker view**: the `auth.json` yolo writes for an agent
+carries `yolo-broker:<generation>` where the refresh token goes, so importing one would replace
+the canonical grant with a marker nothing can redeem. It does **not** refuse a lapsed access
+token: the thing being imported is the refresh token, and the broker refreshes a generation that
+is already due. Logout deletes the canonical state under the same lock and is idempotent.
 
 Managed host launches share the service too. `yolo host -- pi` gives Pi's provider extension the
 private host Unix socket. `yolo host -- codex` writes the native credential view under

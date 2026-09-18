@@ -246,12 +246,110 @@ func TestRunMapsOperationalCommandsToBrokerActions(t *testing.T) {
 	}
 }
 
-func TestRunRefusesMachineWideMutations(t *testing.T) {
+// THE MACHINE-WIDE MUTATIONS NEVER TOUCH A JAIL'S DOOR.
+//
+// This asserted that `import` and `logout` were not verbs at all. They are verbs now — the
+// daemon serves them on its private host socket (openaiauthdaemon's two handlers) — so what
+// this pins is the property that survived: the client refuses to COMPOSE one without a private
+// socket, and in particular never sends it to the endpoint, which is the only door a jail has.
+// A client that fell back to the endpoint would turn a boundary into a round trip whose only
+// outcome is a refusal, and would read as though the endpoint served these.
+func TestRunRefusesMachineWideMutationsWithoutAPrivateHostSocket(t *testing.T) {
 	for _, action := range []string{"import", "logout"} {
+		argv := []string{action}
+		if action == "import" {
+			argv = append(argv, "--from", "/tmp/auth.json")
+		}
+		// No environment at all: refused, and the message names the variable and the flag.
 		var stdout, stderr bytes.Buffer
-		if rc := Run([]string{action}, func(string) string { return "" }, &stdout, &stderr); rc != 2 {
+		if rc := Run(argv, func(string) string { return "" }, &stdout, &stderr); rc != 2 {
 			t.Errorf("%s rc = %d, want usage refusal 2", action, rc)
 		}
+		if !strings.Contains(stderr.String(), "MACHINE-WIDE") ||
+			!strings.Contains(stderr.String(), HostSocketEnv) {
+			t.Errorf("%s refusal = %q, want it to name the operation's scope and the variable",
+				action, stderr.String())
+		}
+		// A JAIL'S SITUATION: the endpoint is set and the host socket is not. The endpoint
+		// here is a live one whose handler would answer anything — so if the client used it,
+		// this would succeed.
+		endpoint := clientEndpoint(t, func(s *hostservice.Session) {
+			_ = s.JSON(map[string]any{"ok": true})
+			s.Exit(0)
+		})
+		stdout.Reset()
+		stderr.Reset()
+		if rc := Run(argv, func(name string) string {
+			if name == EndpointEnv {
+				return endpoint
+			}
+			return ""
+		}, &stdout, &stderr); rc != 2 {
+			t.Errorf("%s with only the jail endpoint set: rc = %d, want refusal 2 — the client "+
+				"put a machine-wide mutation on a jail's door\nstdout: %s", action, rc, stdout.String())
+		}
+	}
+}
+
+// `import` needs the file NAMED. A default path would make the verb silently adopt whatever
+// ~/.codex/auth.json happens to hold, and the point of the verb is that a human chose this
+// grant; the daemon refuses an empty path too, which is the half that holds.
+func TestImportRequiresTheSourcePath(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	rc := Run([]string{"import"}, func(name string) string {
+		if name == HostSocketEnv {
+			return "/tmp/never-dialed.sock"
+		}
+		return ""
+	}, &stdout, &stderr)
+	if rc != 2 || !strings.Contains(stderr.String(), "--from") {
+		t.Fatalf("rc = %d, stderr = %q, want a usage refusal naming --from", rc, stderr.String())
+	}
+}
+
+// AND THE VERBS REACH THE PRIVATE SOCKET, with the wire keys the daemon reads: `import` carries
+// `path` and `logout` carries nothing but its action.
+func TestHostOnlyVerbsGoToThePrivateSocketWithTheirWireKeys(t *testing.T) {
+	for _, tc := range []struct {
+		action  string
+		args    []string
+		wantKey string
+	}{
+		{action: "import", args: []string{"import", "--from", "/host/auth.json"}, wantKey: "/host/auth.json"},
+		{action: "logout", args: []string{"logout"}},
+	} {
+		t.Run(tc.action, func(t *testing.T) {
+			socket := clientUnixSocket(t, func(s *hostservice.Session) {
+				action, _ := s.Get("action")
+				if action != tc.action {
+					s.Stderr("wrong action\n")
+					s.Exit(2)
+					return
+				}
+				path, present := s.Get("path")
+				if tc.wantKey == "" && present {
+					s.Stderr("logout must carry no path\n")
+					s.Exit(2)
+					return
+				}
+				if tc.wantKey != "" && path != tc.wantKey {
+					s.Stderr("wrong path\n")
+					s.Exit(2)
+					return
+				}
+				_ = s.JSON(map[string]any{"ok": true})
+				s.Exit(0)
+			})
+			var stdout, stderr bytes.Buffer
+			// THE FLAG, not the variable: a human running this has no $YOLO_OPENAI_AUTH_HOST_SOCKET
+			// (only `yolo host -- <agent>` sets one for its child), so the flag is the path a
+			// person actually takes.
+			rc := Run(append(tc.args, "--host-socket", socket),
+				func(string) string { return "" }, &stdout, &stderr)
+			if rc != 0 || strings.TrimSpace(stdout.String()) != `{"ok":true}` {
+				t.Fatalf("rc=%d stdout=%q stderr=%q", rc, stdout.String(), stderr.String())
+			}
+		})
 	}
 }
 

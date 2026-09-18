@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/awsauthdaemon"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/flakebundle"
@@ -17,6 +18,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/oauthbroker"
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthdaemon"
+	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthhost"
 	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/serialdaemon"
@@ -29,7 +31,7 @@ import (
 // rewrite semantics.
 func runInternal(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-materialize|capture-run|config-dump|daemon|darwin-bootstrap|migrate-host|openai-auth-client|refresh-servers|bundle-dir> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-materialize|capture-run|config-dump|daemon|darwin-bootstrap|migrate-host|openai-auth|openai-auth-client|refresh-servers|bundle-dir> [args...]")
 		return 2
 	}
 	switch args[0] {
@@ -52,6 +54,17 @@ func runInternal(args []string) int {
 		return runDarwinBootstrap(args[1:])
 	case "migrate-host":
 		return runMigrateHost(args[1:])
+	case "openai-auth":
+		// The HOST OPERATOR's verbs for the machine-wide OpenAI grant: status, import,
+		// logout. It resolves the daemon's PRIVATE socket (starting the daemon if needed)
+		// and states what a mutation is about to do, then delegates to the client below —
+		// openaiauthhost/operator.go carries both halves of why.
+		//
+		// ⚠ HIDDEN, AND THAT IS THE GAP: `logout` deletes a credential for every workspace,
+		// every jail and the host user at once, which is not something to discover in a
+		// hidden namespace. Promoting it to `yolo openai-auth` is a registry row plus the
+		// two help tables, and it is the remaining half of this work.
+		return openaiauthhost.RunOperator(args[1:], os.Stdout, os.Stderr)
 	case "openai-auth-client":
 		return openauthclient.Main(args[1:])
 	case "refresh-servers":
@@ -206,11 +219,13 @@ func firstNonEmptyEnv(keys ...string) string {
 // "unknown daemon", which is the right answer for an argv nothing emits any more.
 func runInternalDaemon(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal daemon <claude-oauth-broker|host-processes|journal|openai-auth-broker|serial> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal daemon <aws-auth|claude-oauth-broker|host-processes|journal|openai-auth-broker|serial> [args...]")
 		return 2
 	}
 	rest := args[1:]
 	switch args[0] {
+	case "aws-auth":
+		return awsauthdaemon.Main(rest)
 	case "claude-oauth-broker":
 		return oauthbroker.Main(rest)
 	case "host-processes":
