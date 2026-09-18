@@ -184,8 +184,9 @@ func TestConfigLsMarksUnrenderedSurface(t *testing.T) {
 	}
 	row := surfaceRow{Surface: "example/config", Path: s.Path, Codec: s.Codec,
 		Mode: surfaceModeUnrendered, Overlay: -1, Reserved: true}
+	tgt, _ := withSidecarDir(t)
 	var out bytes.Buffer
-	writeSurfaceTable(&out, []surfaceRow{row}, false)
+	writeSurfaceTable(&out, tgt, []surfaceRow{row}, false)
 	if !strings.Contains(out.String(), "not rendered at boot") {
 		t.Errorf("an unrendered surface must say so in the listing:\n%s", out.String())
 	}
@@ -389,23 +390,124 @@ func TestUnslugHostFilePath(t *testing.T) {
 	}
 }
 
-// TestSurfacePresenceNeverClaimsAbsenceElsewhere is the regression for a bug the nested-jail
-// run caught: presence was checked against the PROCESS home, so a host-side `config ls`
-// reported every jail-rendered file as absent, and an in-jail run for a DIFFERENT workspace
-// (a nested jail, and every integration test) did the same. Presence is only knowable when
-// the surfaces are this process's own.
-func TestSurfacePresenceNeverClaimsAbsenceElsewhere(t *testing.T) {
-	// Host-side: the target is not local, so it must never claim absence.
-	ws, _ := withSidecarDir(t)
-	if !ws.surfaceFileExists("~/definitely-not-a-real-file-xyz") {
-		t.Error("a non-local target's presence check claimed a jail file is absent")
+// TestSurfacePresenceReadsTheTargetsOwnHome is the inversion of a bug the nested-jail run
+// caught, and the point at which it stops being a choice between two wrong answers.
+//
+// Presence used to be checked against the PROCESS home, so a host-side `config ls` reported
+// every jail-rendered file as absent and every host dotfile the jail never wrote as present;
+// an in-jail run for a DIFFERENT workspace (a nested jail, and every integration test) did
+// the same. The fix was to DECLINE — never claim absence — which cost the existence filter
+// (§2.3 F2). With a home root on the resolved target the question is answerable: a workspace
+// target's files live at <workspace>/.yolo/home/…, which is reachable from the host.
+//
+// Both directions are asserted, because a test for the positive alone would still pass if
+// presence had simply gone back to reading the invoking user's own home.
+func TestSurfacePresenceReadsTheTargetsOwnHome(t *testing.T) {
+	home := withScratchHome(t)
+	t.Setenv("YOLO_VERSION", "")
+	t.Setenv("YOLO_RUNTIME", "podman")
+	tgt, _ := withSidecarDir(t)
+
+	s, ok := surfaceManifest().Lookup("claude", "settings")
+	if !ok {
+		t.Fatal("missing claude/settings in the surface manifest")
 	}
-	// A host target host-side is the same answer for the same reason: the surfaces it
-	// describes are the invoking user's, and yolo has not necessarily rendered them.
-	t.Setenv("HOME", t.TempDir())
-	if !hostTargetForTest().surfaceFileExists("~/definitely-not-a-real-file-xyz") {
-		t.Error("a host target's presence check claimed a file is absent")
+	// The jail's own copy, where the launch backs it: the leading dot of the first segment is
+	// the overlay's name and is stripped (run/prepare.go's prepareWsState).
+	writeFile(t, filepath.Join(paths.WorkspaceHomeState(tgt.workspace), "claude", "settings.json"),
+		`{"theme":"the jail's"}`)
+	if !tgt.surfaceFileExists(s.Path) {
+		t.Errorf("a file the jail DID render read as absent host-side. Presence is the "+
+			"target's, and a workspace target's home is reachable from the host at %s",
+			paths.WorkspaceHomeState(tgt.workspace))
 	}
+
+	// And a surface present ONLY in the invoking human's real home must read as absent: that
+	// direction is the half that makes this a resolution and not a fallback.
+	other, ok := surfaceManifest().Lookup("pi", "settings")
+	if !ok {
+		t.Fatal("missing pi/settings in the surface manifest")
+	}
+	writeFile(t, expandHome(other.Path), `{"theme":"the developer's own"}`)
+	if tgt.surfaceFileExists(other.Path) {
+		t.Errorf("a dotfile in the INVOKING user's home (%s) read as one this jail rendered — "+
+			"that is the wrong home, and reporting it is how a host-side listing came to "+
+			"describe the developer's own config as a jail's", home)
+	}
+}
+
+// NOT RESOLVABLE IS NOT ABSENT (§4.1's last row). A surface whose home this workspace does
+// not back at all must say so: "absent" sends the reader looking for a render that was never
+// going to land in the home they are asking about.
+func TestConfigLsSaysNotResolvableRatherThanAbsent(t *testing.T) {
+	withScratchHome(t)
+	t.Setenv("YOLO_VERSION", "")
+	t.Setenv("YOLO_RUNTIME", "podman")
+	tgt, _ := withSidecarDir(t)
+	// The workspace backs ~/.claude — the directory IS the mount source — and nothing else.
+	mkdirAllT(t, filepath.Join(paths.WorkspaceHomeState(tgt.workspace), "claude"))
+
+	var out, errw bytes.Buffer
+	if rc := configLs(tgt, []string{"--all"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("configLs rc=%d, stderr=%s", rc, errw.String())
+	}
+	got := out.String()
+	if !strings.Contains(got, "not resolvable at the jail notch") {
+		t.Errorf("a surface this workspace backs no home for must be reported as not "+
+			"resolvable at this notch, not as absent:\n%s", got)
+	}
+	// The one home it DOES back yields an ordinary absence, so the distinction is a
+	// measurement rather than a blanket label.
+	for _, line := range strings.Split(got, "\n") {
+		if strings.HasPrefix(line, "claude/settings") && !strings.Contains(line, "(absent)") {
+			t.Errorf("a missing file in a directory the workspace DOES back is an ordinary "+
+				"absence:\n%s", line)
+		}
+	}
+}
+
+// TestConfigLsDoesNotInflateRowsHostSide closes F2's measured symptom: `cd /workspace` listed
+// 11 surfaces and `cd /tmp/notaworkspace` listed 15, same jail, same files, only the cwd
+// different — because presence became unknowable and the existence filter stopped applying.
+// The filter applies at a workspace target now, so the default listing is what the jail has.
+func TestConfigLsDoesNotInflateRowsHostSide(t *testing.T) {
+	withScratchHome(t)
+	t.Setenv("YOLO_VERSION", "")
+	t.Setenv("YOLO_RUNTIME", "podman")
+	tgt, _ := withSidecarDir(t)
+	writeFile(t, filepath.Join(paths.WorkspaceHomeState(tgt.workspace), "claude", "settings.json"), `{}`)
+
+	var filtered, all bytes.Buffer
+	if rc := configLs(tgt, nil, &filtered, &filtered, false); rc != 0 {
+		t.Fatalf("configLs rc=%d", rc)
+	}
+	if rc := configLs(tgt, []string{"--all"}, &all, &all, false); rc != 0 {
+		t.Fatalf("configLs --all rc=%d", rc)
+	}
+	nFiltered, nAll := countSurfaceRows(filtered.String()), countSurfaceRows(all.String())
+	if nFiltered >= nAll {
+		t.Errorf("the default listing printed %d rows and --all printed %d: the existence "+
+			"filter is not applying, which is F2's four-row inflation — the same jail "+
+			"described differently depending on where the user stood:\n%s", nFiltered, nAll,
+			filtered.String())
+	}
+	if nFiltered != 1 {
+		t.Errorf("the default listing printed %d rows for a jail home holding ONE surface "+
+			"file:\n%s", nFiltered, filtered.String())
+	}
+}
+
+// countSurfaceRows counts the listing's data rows: every line naming an "<owner>/<name>"
+// surface, which excludes the header and the divergence footer.
+func countSurfaceRows(table string) int {
+	n := 0
+	for _, line := range strings.Split(table, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) > 1 && strings.Count(fields[0], "/") == 1 {
+			n++
+		}
+	}
+	return n
 }
 
 // TestWorkspaceRootWalksUp: the target's workspace must resolve from a SUBDIRECTORY of the

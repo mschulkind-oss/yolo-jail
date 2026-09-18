@@ -47,8 +47,13 @@ type surfaceRow struct {
 	Mode     string   // the posture: readonly | once | copy | capture
 	Layers   []string // contributing layers, lowest precedence first
 	Overlay  int      // captured overlay keys (-1 = surface writes no sidecar)
-	HasFile  bool     // the destination exists on disk
+	HasFile  bool     // the destination exists in the target's home
 	Reserved bool     // declared in the manifest but never rendered at boot
+	// Unreachable marks a surface whose destination THIS TARGET cannot resolve — §4.1's
+	// "not resolvable at this notch". It is not the same fact as HasFile==false and must not
+	// print as one: an absence sends the reader looking for a render, and this says the
+	// render was never going to land in the home they are asking about.
+	Unreachable bool
 }
 
 // The MODE strings `config ls` prints. They are the user-facing vocabulary, kept
@@ -97,9 +102,13 @@ func surfaceMode(s manifest.Surface) string {
 // PRESENCE IS THE TARGET'S, which is what closed the host-side row inflation
 // (docs/design/config-target-resolution.md §2.3 F2): a host-side `ls` in a workspace used to
 // find presence unknowable, stop applying the existence filter, and print four extra rows —
-// the same jail described differently depending on where the user stood. A workspace target
-// resolves its own home host-side (configTarget.surfaceFile), so the filter applies at every
-// target the resolution can produce.
+// the same jail described differently depending on where the user stood, at exit 0. A
+// workspace target resolves its own home host-side (configTarget.reachSurface), so the filter
+// applies at every target the resolution can produce.
+//
+// A surface the target cannot resolve at all is listed under --all as NOT RESOLVABLE rather
+// than as absent (§4.1's last row): the two look alike and mean different things, and calling
+// the second the first is what sends a reader hunting for a render that was never coming.
 func configLs(t configTarget, args []string, out, errw io.Writer, color bool) int {
 	all := false
 	for _, a := range args {
@@ -120,7 +129,7 @@ func configLs(t configTarget, args []string, out, errw io.Writer, color bool) in
 		fmt.Fprintln(out, "No composed surfaces found.")
 		return 0
 	}
-	writeSurfaceTable(out, rows, color)
+	writeSurfaceTable(out, t, rows, color)
 	return 0
 }
 
@@ -131,15 +140,17 @@ func collectSurfaceRows(t configTarget, all bool) []surfaceRow {
 	for _, s := range surfaceManifest().Surfaces() {
 		key := s.Agent + "/" + s.Name
 		mode := surfaceMode(s)
+		_, reach := t.reachSurface(s.Path)
 		row := surfaceRow{
-			Surface:  key,
-			Path:     s.Path,
-			Codec:    s.Codec,
-			Mode:     mode,
-			Layers:   builtinLayers(s),
-			Overlay:  -1,
-			HasFile:  t.surfaceFileExists(s.Path),
-			Reserved: mode == surfaceModeUnrendered,
+			Surface:     key,
+			Path:        s.Path,
+			Codec:       s.Codec,
+			Mode:        mode,
+			Layers:      builtinLayers(s),
+			Overlay:     -1,
+			HasFile:     reach == surfaceReachable,
+			Reserved:    mode == surfaceModeUnrendered,
+			Unreachable: reach == surfaceUnreachable,
 		}
 		if mode == "capture" {
 			row.Overlay = overlayKeyCountAt(t.overlayPath(s.Agent, s.Name))
@@ -166,14 +177,16 @@ func hostFileRows(t configTarget) []surfaceRow {
 	}
 	var rows []surfaceRow
 	for _, e := range entries {
+		_, reach := t.reachSurface("~/" + e.Path)
 		row := surfaceRow{
-			Surface: "user/" + e.Slug(),
-			Path:    "~/" + e.Path,
-			Codec:   e.Codec,
-			Mode:    e.Mode,
-			Layers:  hostFileLayers(e),
-			Overlay: -1,
-			HasFile: t.surfaceFileExists("~/" + e.Path),
+			Surface:     "user/" + e.Slug(),
+			Path:        "~/" + e.Path,
+			Codec:       e.Codec,
+			Mode:        e.Mode,
+			Layers:      hostFileLayers(e),
+			Overlay:     -1,
+			HasFile:     reach == surfaceReachable,
+			Unreachable: reach == surfaceUnreachable,
 		}
 		if e.IsDir {
 			row.Codec = "(dir)"
@@ -279,7 +292,7 @@ func overlayKeyCountAt(path string) int {
 }
 
 // writeSurfaceTable renders the listing plus the divergence footer.
-func writeSurfaceTable(out io.Writer, rows []surfaceRow, color bool) {
+func writeSurfaceTable(out io.Writer, t configTarget, rows []surfaceRow, color bool) {
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].Surface < rows[j].Surface })
 
 	widths := []int{len("SURFACE"), len("PATH"), len("CODEC"), len("MODE"), len("LAYERS")}
@@ -318,7 +331,10 @@ func writeSurfaceTable(out io.Writer, rows []surfaceRow, color bool) {
 			overlay = fmt.Sprintf("[yellow]%d %s ⚠[/yellow]", r.Overlay, plural(r.Overlay, "key", "keys"))
 		}
 		missing := ""
-		if !r.HasFile {
+		switch {
+		case r.Unreachable:
+			missing = " [dim](" + t.notResolvableHere() + ")[/dim]"
+		case !r.HasFile:
 			missing = " [dim](absent)[/dim]"
 		}
 		pr.Printf("%s  %s  %s  %s  %s  %s%s",

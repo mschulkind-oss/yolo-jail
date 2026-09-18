@@ -50,7 +50,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
@@ -93,11 +92,18 @@ type configTarget struct {
 	// retargeted by this design. Unconstructed (and therefore storeless) at a host target,
 	// where there is no workspace to key on.
 	wsStore render.Target
+	// runtime is the resolved container runtime, and it exists for exactly one question:
+	// WHERE a non-local workspace target's jail home holds a surface. The two container
+	// backends lay that home out differently (Apple Container binds ws_state AT the home;
+	// podman nests a per-dir overlay with the leading dot stripped), so the answer is the
+	// runtime's and not a filesystem guess. Empty at a local or host target, where the
+	// mapping cannot arise.
+	runtime string
 }
 
 // jailConfigTarget builds the target for a resolved workspace: that workspace's jail.
 func jailConfigTarget(workspace, chosenBy string) configTarget {
-	return configTarget{
+	t := configTarget{
 		notch:     render.KindJail,
 		workspace: workspace,
 		chosenBy:  chosenBy,
@@ -105,6 +111,15 @@ func jailConfigTarget(workspace, chosenBy string) configTarget {
 		store:     render.Jail(paths.Home(), workspace, nil),
 		wsStore:   render.Jail(paths.Home(), workspace, nil),
 	}
+	if !t.local {
+		// Resolved the way `yolo ps` resolves it — env > the workspace's `runtime` key >
+		// platform probe — so a report and a launch agree about which backend this
+		// workspace uses. Only the non-local case asks: in the jail that owns the
+		// workspace a surface resolves through the process home, which needs no backend
+		// knowledge at all.
+		t.runtime = detectListingRuntime(workspace)
+	}
+	return t
 }
 
 // hostConfigTarget builds the target for the invoking process's real home.
@@ -315,42 +330,75 @@ func (t configTarget) hostOwned() bool {
 // surfaceFile resolves a surface's declared path (`~/.claude/settings.json`) to the file THIS
 // target's home holds it at, with ok=false for a path this target cannot resolve.
 //
-// The PROCESS home, through the same render.Target.ExpandHome the boot render resolves "~"
-// with — which is right at a host target (whose home IS the process home) and in the jail
-// that owns the workspace. For a workspace target this process does NOT own it is the
-// invoking human's home rather than that jail's, which is why every write through it is
-// guarded (refuseHostSideWrite) instead of trusted.
+// Three cases, and the third is what §4.1's last row is about:
+//
+//   - the HOST target, or the jail that OWNS the workspace: the process home, through the
+//     same render.Target.ExpandHome the boot render resolves "~" with.
+//   - a NON-LOCAL workspace target: the host file backing that jail's home
+//     (<workspace>/.yolo/home/…), via jailHomeHostLocation — which is backend-aware and is
+//     the one definition of that mapping.
+//   - a path no jail home holds (an absolute surface path): ok=false.
+//
+// ⚠ IT MUST NEVER FALL BACK TO THE PROCESS HOME for a workspace target, and that is the whole
+// payoff. Host-side the process home is the invoking human's own dotfiles, so presence read
+// through it reported every file the jail DID render as absent and every host dotfile the jail
+// never wrote as present — which is why `ls` had to decline the column and why its existence
+// filter stopped applying (§2.3 F2's four-row inflation).
 func (t configTarget) surfaceFile(surfacePath string) (string, bool) {
-	return expandHome(surfacePath), true
+	if t.notch == render.KindHost || t.local {
+		return expandHome(surfacePath), true
+	}
+	return jailHomeHostLocation(t.workspace, t.runtime, surfacePath)
 }
 
-// surfaceFileExists reports whether this target's copy of a surface is present, DECLINING
-// to claim absence where the surfaces are not this process's own.
+// surfaceReach is what THIS target can honestly say about a surface's file. THREE answers,
+// because collapsing the last two is the misreport §4.1 names: a path this target cannot
+// resolve is not a file that is absent, and saying "absent" for it sends the reader looking
+// for a render that was never going to land here.
+type surfaceReach int
+
+const (
+	// surfaceReachable: resolved here, and the file is present.
+	surfaceReachable surfaceReach = iota
+	// surfaceMissing: resolved here, and the file is not present. A measurement.
+	surfaceMissing
+	// surfaceUnreachable: NOT RESOLVABLE AT THIS NOTCH — the surface's home is one this
+	// target does not back (a machine-scope `shared` dir, a home-root redirect, an absolute
+	// path), or this workspace has no jail home at all because nothing has launched in it.
+	surfaceUnreachable
+)
+
+// reachSurface resolves one surface's file and reports which of the three it is.
 //
-// A composed surface lives in the home of the jail the target's workspace launches, which is
-// the process home only when this process is that very jail. Two ways to get it wrong, both
-// observed:
-//
-//   - host-side, the process home is the developer's OWN dotfiles, so every file the jail did
-//     render reads as "absent" and a host dotfile the jail never wrote reads as "present";
-//   - in-jail but for a DIFFERENT workspace (a nested jail, and every integration test), the
-//     process home belongs to the outer jail while the surfaces belong to the inner one —
-//     same wrong answer.
-//
-// So it declines rather than printing a confidently wrong column. ⚠ Declining is not free:
-// `ls`'s existence filter stops applying, so a host-side listing prints rows for surfaces
-// that do not exist — the four-row inflation docs/design/config-target-resolution.md §2.3 F2
-// measures. Resolving a NON-LOCAL workspace target's own home is what removes the decline.
-func (t configTarget) surfaceFileExists(surfacePath string) bool {
-	if !t.local {
-		return true // unknowable here; never claim the file is missing
-	}
+// The workspace-target arm decides reachable-vs-unreachable from the DIRECTORY, and that is
+// the bind's own shape rather than a second derivation of it: `<ws>/.yolo/home/claude` exists
+// exactly when this workspace backs `~/.claude`, because that directory IS the mount source
+// (run/prepare.go's prepareWsState). So a missing file inside a directory that exists is a
+// genuine absence, and a directory that does not exist means this workspace never backed that
+// home at all.
+func (t configTarget) reachSurface(surfacePath string) (string, surfaceReach) {
 	path, ok := t.surfaceFile(surfacePath)
 	if !ok {
-		return false
+		return "", surfaceUnreachable
 	}
-	_, err := os.Lstat(path)
-	return err == nil
+	if _, err := os.Lstat(path); err == nil {
+		return path, surfaceReachable
+	}
+	if t.notch == render.KindJail && !t.local {
+		if st, err := os.Stat(filepath.Dir(path)); err != nil || !st.IsDir() {
+			return path, surfaceUnreachable
+		}
+	}
+	return path, surfaceMissing
+}
+
+// surfaceFileExists reports whether this target's copy of a surface is present. Knowable at
+// every target the resolution can produce, which is the payoff §3 predicted: with a home root
+// on the target, a workspace target's files are reachable host-side, so `ls` no longer has to
+// decline the column — and its existence filter applies again.
+func (t configTarget) surfaceFileExists(surfacePath string) bool {
+	_, reach := t.reachSurface(surfacePath)
+	return reach == surfaceReachable
 }
 
 // composeTarget is the render.Target a `yolo config` verb COMPOSES at, as distinct from the
@@ -479,8 +527,9 @@ func (t configTarget) describeHome() string {
 	return paths.Home()
 }
 
-// notResolvableHere is the sentence a verb prints for a surface this target cannot resolve —
-// §4.1's last row. It names the notch, because the same surface is resolvable at another one.
-func (t configTarget) notResolvableHere(s manifest.Surface) string {
-	return fmt.Sprintf("%s/%s (%s) is not resolvable at the %s notch", s.Agent, s.Name, s.Path, t.notch)
+// notResolvableHere is the phrase a report prints for a surface this target cannot resolve —
+// §4.1's last row. It names the notch, because the same surface IS resolvable at another one,
+// which is the actionable half of the fact.
+func (t configTarget) notResolvableHere() string {
+	return "not resolvable at the " + t.notch.String() + " notch"
 }

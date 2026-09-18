@@ -159,6 +159,27 @@ func terminateCaptureSurfaces(sidecarDir string) []manifest.Surface {
 // in a shared dir (they hold credentials). Declining is free here — the next boot,
 // which reads the real jail home, captures either way.
 func jailHomeHostPath(workspace, runtime, surfacePath string) (string, bool) {
+	path, ok := jailHomeHostLocation(workspace, runtime, surfacePath)
+	if !ok {
+		return "", false
+	}
+	if _, err := os.Stat(path); err != nil {
+		return "", false
+	}
+	return path, true
+}
+
+// jailHomeHostLocation is the MAPPING half of jailHomeHostPath, without the existence test:
+// where this workspace's jail home would hold surfacePath, and ok=false when the path is not
+// in a jail home at all.
+//
+// Split out for the reader `yolo config` needs and capture-on-terminate does not. A capture
+// only ever wants a file that IS there, so folding existence into the answer is right for it;
+// a REPORT has to tell *"this workspace does not back that path"* from *"it does and the file
+// is absent"*, which are §4.1's *"not resolvable at this notch"* and an ordinary absence
+// (docs/design/config-target-resolution.md). One answer cannot carry both, and re-deriving
+// the mapping beside this one is what the backend branch below must never have two of.
+func jailHomeHostLocation(workspace, runtime, surfacePath string) (string, bool) {
 	rel, ok := strings.CutPrefix(surfacePath, "~/")
 	if !ok {
 		return "", false // an absolute surface path is not in the jail home
@@ -174,9 +195,5 @@ func jailHomeHostPath(workspace, runtime, surfacePath string) (string, bool) {
 			rel = filepath.Join(seg, tail)
 		}
 	}
-	path := filepath.Join(paths.WorkspaceHomeState(workspace), rel)
-	if _, err := os.Stat(path); err != nil {
-		return "", false
-	}
-	return path, true
+	return filepath.Join(paths.WorkspaceHomeState(workspace), rel), true
 }
