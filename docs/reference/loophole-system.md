@@ -105,11 +105,18 @@ pack.** The dependency is structural, so selecting the pack *is* the dependency 
 `PATH` probe standing in for it can answer correctly. A separate pack would reinstate the
 selection step this deletes.
 
-The OpenAI credential service is the complementary multi-agent case: one service owns one
+The OpenAI credential service was the complementary multi-agent case: one service owns one
 rotating grant for Codex and Pi, so `openai-auth-broker` belongs to the separate `openai-auth`
 pack and both agent packs declare it through `needs`. Selecting either agent therefore joins the
 same dependency automatically; users still do not select an authentication implementation by
 hand, and selecting both does not declare two daemon owners.
+
+**There are two such cases now** (2026-09-18). `aws-auth` is the second, and it reaches the
+same answer from a different direction: its consumers are not all agents yet — claude's
+`bedrock` provider lives in `packs/claude` and the other three agents' would live in a
+`bedrock` pack — so a contribution of either would make one pack depend on the other. R6's
+test is about where the dependency SITS rather than about how many agents there are, which is
+what makes it give this answer here and the opposite one for the Claude broker.
 
 Three more principles come from the packaging half.
 

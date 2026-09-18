@@ -38,6 +38,7 @@ followed, and the commit says so. This file is advice, and the first thing to be
 | `internal/awscredadapter/` | **BUILT** — container-credentials HTTP on jail loopback; mirrors `internal/openaiauthadapter` |
 | `internal/cli/internal.go` | **BUILT** (`700d7699`) — one `case "aws-auth":` in `runInternalDaemon` |
 | `cmd/yolo-jaild/main.go` | **BUILT** — one `case "aws-credential-adapter":` plus the usage line |
+| `internal/cli/run/assemble_parts.go` | **OWED, and step 3 does not work without it** — `hostServicesMountArgs` emits `YOLO_SERVICE_<NAME>_ENDPOINT` for exactly TWO host-scoped loopholes, by name ([Blockers](#blockers) 7) |
 | `internal/cli/run/` | the exclusivity pre-flight (step 6), beside `providerpreflight.go` |
 | `internal/config/validate_loopholes.go` | the `~/.aws`-grant conflict (step 6), reading `hostfiles.go`'s entries |
 | `packs/claude/pack.json` | `needs: [{"pack": "aws-auth"}]` (step 5) |
@@ -135,7 +136,7 @@ Report a real-host result with `podman info --format '{{.Host.RootlessNetworkCmd
 | :--- | :--- | :--- | :--- |
 | 1 | **BUILT, less the dispatch row** ([Progress](#progress)) — `internal/awsauth` + `internal/awsauthdaemon`: resolve via `aws`, cache by profile, flock, pre-mint ticker, `--self-check` minting once and printing the four keys with the secret elided. The `runInternalDaemon` row and its dispatch test (mirror `TestInternalDaemonDispatchRoutesOpenAIAuthBroker`) are **still owed** | `go test ./internal/awsauth/... ./internal/awsauthdaemon/...`; `yolo internal daemon aws-auth --self-check --settings <file>` | unit; the self-check wants a host with an `aws` login |
 | 2 | **BUILT** — the narrowing setting, inside step 1's settings file: absent → refuse at spawn naming the key; un-narrowed by name → serve, plus the disclosure line. Two of its three call sites exist (spawn log, `--self-check` `NOTE:`); the LAUNCH line is a call to `Narrowing.DisclosureLine` from `writeLoopholeSettings` | unit cases: absent, N2 role + policy, un-narrowed by name | unit |
-| 3 | **BUILT** — `internal/awscredadapter` + the `yolo-jaild` row; the manifest; `packs/embed.go`; the census rows | `yolo pack lint packs/aws-auth`; in a nested jail selecting the pack, `curl -s $AWS_CONTAINER_CREDENTIALS_FULL_URI` returns the four keys, or the 4xx `Code`/`Message` with no session | nested proves the transport is **wired**; that the jail reaches the front is **real rootless host** only |
+| 3 | **BUILT**, and NOT YET REACHABLE ([Blockers](#blockers) 7) — `internal/awscredadapter` + the `yolo-jaild` row; the manifest; `packs/embed.go`; the census rows | `yolo pack lint packs/aws-auth`; in a nested jail selecting the pack, `curl -s $AWS_CONTAINER_CREDENTIALS_FULL_URI` returns the four keys, or the 4xx `Code`/`Message` with no session | nested proves the transport is **wired**; that the jail reaches the front is **real rootless host** only |
 | 4 | **BUILT** — `packs/aws-auth/pack.json` (the gated `env` pointer) and README | `yolo pack footprint packs/aws-auth`: one env key, one loophole, no host grant | unit |
 | 5 | `needs` on `packs/claude`; done-conditions 1 and 4 | a claude turn on Bedrock; lapse, `aws sso login`, next turn succeeds with no relaunch | **real rootless host** (an SSO login, a browser, the forwarding hop) |
 | 6 | Exclusivity refusal (aws-auth active **and** `AWS_BEARER_TOKEN_BEDROCK` in the delivered env); the `~/.aws`-grant conflict in `internal/config`, so `yolo check` and launch both report it | delete the pre-flight call site and the test fails | unit |
@@ -176,8 +177,20 @@ and 4 add to rather than shorten.
    already refuses to cache one, so reaching it is a bug — and it is the bug an SDK reports
    worst, rejecting a body with no `Token` without naming the field.
 
-**What a nested jail proved, and what it did not.** See
+**What a nested jail proved, measured 2026-09-18** with a FAKE `aws` on the launcher's
+PATH (`--version` plus one `--format process` body; no real login exists inside a jail):
+the pack is selected, the loophole is enabled, the host daemon spawns and mints, the front
+publishes `/run/yolo-services/aws-auth.endpoint` at `0600` inside the jail,
+`YOLO_JAIL_DAEMONS` carries the manifest's adapter argv verbatim, the supervisor starts it,
+and a `curl` inside the jail gets the four-key body with `Token` — design done-condition 2,
+short of a real credential. The lapse arm answers `400` with the login command verbatim, and
+an unknown path answers `404`. What a nested jail can never prove is the hop itself; see
 [What a real host still has to settle](#what-a-real-host-still-has-to-settle) item 6.
+
+⚠ **THE JAIL'S ADAPTER COULD NOT FIND THE FRONT ON ITS OWN**, and that is [Blockers](#blockers)
+7 rather than a defect in anything this round built. The `curl` above needed
+`YOLO_SERVICE_AWS_AUTH_ENDPOINT` exported by hand. Nothing else in the chain was touched, and
+the whole chain then worked through the real authenticated front.
 
 ---
 
@@ -383,7 +396,43 @@ above is spent. The other two are not: the shape that fits is still a declarativ
 tool name. It was not written. The disclosure therefore still has two of its three call sites,
 and this is now a gap in a SHIPPED feature rather than in an unbuilt one.
 
-Stop and ask on each: the tree forces a choice the design does not make. None blocks steps 1–3.
+⚠ **A seventh, MEASURED 2026-09-18 in a nested jail: no `YOLO_SERVICE_AWS_AUTH_ENDPOINT`
+reaches the jail, so the adapter cannot find its front.** Everything else works — the daemon
+spawns, the front publishes the endpoint file into the jail at `0600`, the supervisor starts
+the adapter — and the adapter then answers every request with its own `ServiceUnreachable`
+4xx, because the variable naming that file is never emitted.
+
+The reason is in [Reuse](#reuse)'s "write none of it" list, and that entry is wrong for a
+`scope: "host"` loophole. `startHostSingleton` returns a handle with an EMPTY `envVarName` on
+purpose — `insertHostServiceEnv` skips it and says why — because a host-scoped service's
+variable is emitted much earlier and OPTIMISTICALLY, at argv-assembly time, by
+`hostServicesMountArgs` (`internal/cli/run/assemble_parts.go`). That function names exactly
+two loopholes: `brokerLoopholeActive` → the Claude broker, and `openAIAuthLoopholeActive` →
+`openai-auth-broker`. `aws-auth` is the third host-scoped loophole ever and there is no third
+branch, so it is silent.
+
+Three things make it worth a Blocker rather than a patch:
+
+- **It cannot be a third hardcoded name.** Two is already a switch on tool names in the
+  launch path; a third would be the one this design has to stop adding to. The shape that
+  fits is the predicate those two already compute — *is this loophole ACTIVE and may it run
+  host code* — applied to every `scope: "host"` loophole in the set, which is what the
+  function's own comment argues for ("THE ENV IS GATED ON THE LOOPHOLE BEING ACTIVE").
+- **It is not silent in the jail, and it is silent at the launch.** The adapter's 4xx names
+  the missing variable, which is how this was found. But the in-jail reachability witness has
+  nothing to probe — it walks `YOLO_SERVICE_*_ENDPOINT`, and the whole fault is that there is
+  no such variable — so the launch reports a healthy jail
+  ([`loopback-tls-reachability.md` §7.3](../reference/loopback-tls-reachability.md) is the
+  rule that makes "never told" quieter than "told and broken").
+- **The emission carries the two exception shapes** (`brokerEndpointIsUnpublishable`: a
+  nested launch with no singleton, and Apple Container), so generalising it means deciding
+  whether those apply per loophole or per launch. That is a ruling, not wiring.
+
+`internal/cli/run` is step 6's file in the [Map](#map) and belongs to nobody this round, so
+this is reported rather than taken.
+
+Stop and ask on each: the tree forces a choice the design does not make. None blocked steps
+1–4; 7 blocks the feature WORKING, not the code landing.
 
 **Measured after steps 1 and 2: none of the five was hit.** They are all step-3-and-later
 facts, and the two packages reach none of them — 1 is a manifest spelling (`default_enabled`),

@@ -10,9 +10,11 @@ selected by BARE NAME — `"packs": ["claude"]`. **A pack that installs an agent
 just one that declares a `kind: "program"` surface** — `rg -l '"kind": "program"'
 packs/*/pack.json` is the list, and writing the members down here is what rots — and
 **most shipped packs install no CLI at all**, in four kinds:
-`audio`, `host-processes`, `journal`, `cgroup-delegate`, `serial` and `openai-auth`
-ship a LOOPHOLE each (two of them ship something beside it: `audio` contributes two env
-vars, and `openai-auth` declares the `openai-codex` PROVIDER — a capabilities-only row,
+`audio`, `host-processes`, `journal`, `cgroup-delegate`, `serial`, `openai-auth` and
+`aws-auth`
+ship a LOOPHOLE each (three of them ship something beside it: `audio` contributes two env
+vars, `aws-auth` one gated on the `bedrock` profile, and `openai-auth` declares the
+`openai-codex` PROVIDER — a capabilities-only row,
 no endpoint and no credential pointer, for the subscription identity its broker logs in;
 it lives here rather than in an agent pack because `claude` and `pi` each ship a `codex`
 profile selecting that provider and both `needs` this one); `zai`, `cerebras`,

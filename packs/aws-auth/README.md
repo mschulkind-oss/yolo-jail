@@ -174,6 +174,15 @@ a re-login is transparent. The manifest deliberately does **not** declare a
 loudly at spawn, not disappear from `yolo loopholes list`. If `aws` is absent the daemon
 says so and exits, and the launch reports it.
 
+> [!WARNING]
+> **Not reachable yet, as of 2026-09-18.** Every piece below is built and measured
+> working end to end, but the launch does not yet tell the jail where its credential
+> front is: `YOLO_SERVICE_AWS_AUTH_ENDPOINT` is emitted for exactly two host-scoped
+> loopholes by name, and this is the third. Until that is generalised, the adapter
+> answers every request with a `ServiceUnreachable` 4xx naming the missing variable.
+> Tracked as Blocker 7 of
+> [`sso-backed-bedrock-plan.md`](../../docs/design/sso-backed-bedrock-plan.md#blockers).
+
 **A podman backend.** Two others are inert and both say so at launch. `macos-user` runs
 no jail-side daemon at all, so the adapter never starts. Apple Container
 (`runtime: "container"`) carries no container→host connection — measured on 1.1.0: the
