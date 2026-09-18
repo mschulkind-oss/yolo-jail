@@ -576,14 +576,6 @@ func TestAppleContainerReportsEveryPackInert(t *testing.T) {
 	}
 }
 
-func names(packs []*packload.Pack) string {
-	var got []string
-	for _, p := range packs {
-		got = append(got, p.Name)
-	}
-	return strings.Join(got, ",")
-}
-
 // The exec disclosure is SILENT when nothing runs on the host — the ordinary case for every
 // pack shipped today, so it must not add a line to every launch.
 func TestHostExecDisclosureSilentWithNoExecClaims(t *testing.T) {

@@ -121,7 +121,7 @@ func decodeCodexAuth(data []byte, now time.Time) (openaiauth.Tokens, error) {
 	}
 	if t.AccessToken == "" || t.IDToken == "" || t.RefreshToken == "" {
 		return openaiauth.Tokens{}, errors.New(
-			"Codex credential file is missing an access, id or refresh token")
+			"codex credential file is missing an access, id or refresh token")
 	}
 	expires := jwtExpiry(t.AccessToken)
 	if expires.IsZero() {

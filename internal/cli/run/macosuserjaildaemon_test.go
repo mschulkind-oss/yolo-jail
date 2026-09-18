@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"go/ast"
 	"go/parser"
-	goprinter "go/printer"
 	"go/token"
 	"os"
 	"path/filepath"
@@ -280,14 +279,4 @@ func TestTheJailDaemonPayloadIsComposedAboveTheBackendDispatch(t *testing.T) {
 		t.Error("runContainer's assembleInput does not carry `jailDaemons`, so the container " +
 			"argv is being built from something other than the launch's one composed payload")
 	}
-}
-
-// exprText renders an expression back to source, for the one assertion that is about which
-// runtime a condition names rather than about the AST's shape.
-func exprText(fset *token.FileSet, e ast.Expr) string {
-	var b strings.Builder
-	if err := goprinter.Fprint(&b, fset, e); err != nil {
-		return ""
-	}
-	return b.String()
 }
