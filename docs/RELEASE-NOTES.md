@@ -570,8 +570,9 @@ two channels — a *bundled* manifest could declare `publishes: "endpoint"`, `ja
 `ca_cert` and an unscoped `requires.file_exists`; a pack-shipped one could not. With the bundled
 channel retired, **every module manifest yolo reads is held to the subset, including its own**.
 Two other rules changed shape with it: `loopholes.ReservedLoopholeNames` is deleted (no name is
-reserved any more — exclusivity across packs is what refuses a duplicate), and the §[4.3a](design/loophole-packaging.md#-oq-lp5--does-jail_env-stay-refused-for-pack-shipped-loopholes) placement
-rule no longer exempts anything, since yolo's own loopholes are staged outside every workspace.
+reserved any more — exclusivity across packs is what refuses a duplicate), and the
+[placement rule](reference/loophole-system.md#the-placement-rule) no longer exempts anything,
+since yolo's own loopholes are staged outside every workspace.
 
 ### ⚠️ The per-jail Claude OAuth broker relay is gone; `yolo broker status` reports differently
 
