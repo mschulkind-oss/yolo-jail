@@ -780,10 +780,13 @@ design touches is derived at read time.
    > blocks could no longer describe two homes, and now there is only one block.
 
 8. <a id="oq-cr8"></a>✅ **OQ-CR8: Should a jail read the host's own config file at all?**
-   *(Filed and closed on 2026-09-17. It was filed because I had searched the design docs and
-   not the plans, and reported finding no ruling; the review was right that one exists. There
-   are two, in opposite directions, and the second is current — so this question is answered
-   elsewhere and is recorded here only to point at them.)*
+   *(Filed and closed on 2026-09-17. It was filed because I reported finding no ruling, and the
+   review was right that one exists. There are two, in opposite directions, and the second is
+   current — so this question is answered elsewhere and is recorded here only to point at them.
+   The search failure is worth naming, because it is a repeatable one: I found the REVERSAL and
+   read it as the whole history. [`config-ownership-and-promotion.md`](config-ownership-and-promotion.md) states the current rule and
+   does not restate what it overturned, so stopping at the doc that governs today hid the
+   earlier ruling — which sat in a file my first grep had already listed and I did not open.)*
 
    Two shipped surfaces declare `readsHost: true` — `claude/settings` (`~/.claude/settings.json`)
    and `pi/settings` — and for those, a launch stages a read-only copy of the host's file at
@@ -832,9 +835,9 @@ design touches is derived at read time.
 ## 10. Decision Ledger
 
 **All eight ruled on 2026-09-17**, across two review rounds. Nothing is live, and nothing is
-built. [OQ-CR8](#oq-cr8) was filed and closed the same day on two earlier rulings' authority:
-the search that missed them covered `docs/design/` and not `docs/plans/`, which is where the
-one the review remembered lives.
+built. [OQ-CR8](#oq-cr8) was filed and closed the same day on two earlier rulings' authority: the
+search that missed them found the REVERSAL and read it as the whole history, because the doc
+that governs today does not restate what it overturned.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
