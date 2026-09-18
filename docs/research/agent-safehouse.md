@@ -17,6 +17,12 @@ vantage:
 tree the same day. Perishable facts are fenced in
 [Fast-moving](#11-fast-moving--verify-before-building).
 
+**Three of the five adoptions have shipped** — [§8.1](#81-a-policy-assertion-suite-for-macos-user--highest-value-moderate-cost),
+[§8.2](#82-tighten-the-profile-toward-deny-default--highest-ceiling-highest-cost)'s three
+incremental denies, and [§8.4](#84-pin-the-agent-launch-argv--tiny-cost-real-bug-class), on
+2026-09-18. What each one left standing is stated at its own heading; the yolo-side columns in
+[§3.1](#31-the-base-posture-is-inverted) moved with them.
+
 **Reads with:** [`sandbox-comparison.md`](./sandbox-comparison.md), which does the same job for
 Claude Code's own built-in sandbox and states the default-deny argument this doc does not
 repeat.
@@ -36,7 +42,7 @@ repeat.
 | Axis | Who is ahead | Confidence |
 | :--- | :--- | :--- |
 | Precision of the Seatbelt policy | **Safehouse, decisively** | High — read both sources |
-| Evidence the Seatbelt policy works | **Safehouse, decisively** | High — 389 policy assertions on macOS CI vs ours, which assert generated *text* |
+| Evidence the Seatbelt policy works | **Safehouse, still ahead** | High — 389 policy assertions on macOS CI against our 15 runtime cases, which [§8.1](#81-a-policy-assertion-suite-for-macos-user--highest-value-moderate-cost) added on 2026-09-18 and no macOS runner has yet executed |
 | Structural strength of the credential boundary | **yolo** | High — separate account and separate home vs. grants inside your own |
 | Predictable tooling inside the boundary | **yolo** | High — their own docs concede the category |
 | Human-readable per-agent knowledge | **Safehouse** | High — 10,020 lines of it, and yolo publishes none |
@@ -138,14 +144,14 @@ template anywhere in the tree, the profile is Go string concatenation.
 | | Safehouse | yolo `macos-user` |
 | :--- | :--- | :--- |
 | Base | `(deny default)` | `(allow default)` |
-| Shape | deny-all, then ~2,900 lines of enumerated allows | allow-all, then **8 directives** of targeted denies |
+| Shape | deny-all, then ~2,900 lines of enumerated allows | allow-all, then a short list of targeted denies, each carrying a `#seatbelt-test-id:` that a runtime case proves |
 | File **write** | denied by the base; granted per path | `(deny file-write* (subpath "/"))` then a 7-entry allowlist |
-| File **read** | denied by the base; granted per path | **allowed by default**, minus 4 denies |
+| File **read** | denied by the base; granted per path | **allowed by default**, minus the denies named in the rows below |
 | Network | `(allow network-outbound (remote ip))` — open, deliberately | no directive at all — open |
 | `process-exec` | `(allow process-exec)` — explicit | no directive — open |
 | `mach-lookup` | **enumerated allowlist of 16 global names** | no directive — open |
-| Cross-process argv/env | **denied**: `(deny sysctl-read (sysctl-name-regex #"procargs"))` + `(deny process-info-pidinfo)`, re-allowed only for `(target same-sandbox)` | no directive — `(allow process-info*)` is stated explicitly |
-| `file-ioctl` | restricted to tty/pty devices by literal and regex | no directive — open |
+| Cross-process argv/env | **denied**: `(deny sysctl-read (sysctl-name-regex #"procargs"))` + `(deny process-info-pidinfo)`, re-allowed only for `(target same-sandbox)` | **denied, since `26a38c74`** — the same three directives, appended AFTER the `(allow process-info*)` this column used to report, because last-match-wins |
+| `file-ioctl` | restricted to tty/pty devices by literal and regex | **restricted, since `26a38c74`** — the same shape, four tty/pty patterns |
 | `sysctl-write` | denied by the base | open |
 
 **The honest summary of ours:** yolo's `macos-user` profile is a **write-confinement profile
@@ -628,6 +634,13 @@ Ordered by value-to-cost. Each names the seam it lands on.
 
 ### 8.1 A policy-assertion suite for `macos-user` — **highest value, moderate cost**
 
+> **SHIPPED 2026-09-18** (`0c29418e`). `integration/macosuserseatbelt_test.go` runs 15 cases over
+> 11 rules under a real `sandbox-exec`, each paired with a bare control so a refusal is
+> attributed to the policy rather than to a missing file, and a registry pins every
+> `#seatbelt-test-id:` to its proving cases or to a written reason none can exist — enforced in
+> BOTH directions on Linux under `-short`. ⚠ **Nothing in the runtime half has executed**: it
+> was written blind from a Linux jail, and what the first macOS run settles is the controls.
+
 **What.** Tests that run a command under the *generated* profile on a macOS runner and assert
 the kernel refused it: writing outside the workspace, reading another user's home, reading
 `/Library/Keychains`, reading a raw disk device, and — once [§8.2](#82-tighten-the-profile-toward-deny-default--highest-ceiling-highest-cost)
@@ -650,6 +663,11 @@ greppable from the other. In our tree the natural spelling is a comment beside t
 [`internal/macosuser/seatbelt.go`](../../internal/macosuser/seatbelt.go).
 
 ### 8.2 Tighten the profile toward deny-default — **highest ceiling, highest cost**
+
+> **The three incremental denies SHIPPED 2026-09-18** (`26a38c74`) — items 1, 2 and 3 below,
+> appended at the END of the profile, which is the whole risk: `(allow process-info*)` includes
+> pidinfo and has always been last, so both new denies are inert anywhere above it. The base
+> stays `(allow default)`; the full inversion is still [OQ-AS1](#OQ-AS1) and is untouched.
 
 **What.** Move `macos-user` from `(allow default)` toward a deny-first posture, or — much
 cheaper, and where I would start — keep `(allow default)` and add the specific denies Safehouse
@@ -691,6 +709,10 @@ written about — and it is the one thing a launch does not name.
 *"Setting up the sandbox"* line; the stream already tees to `<workspace>/.yolo/launch.log`.
 
 ### 8.4 Pin the agent launch argv — **tiny cost, real bug class**
+
+> **SHIPPED 2026-09-18** (`e87aa538`). `PlanInvariants` now requires
+> `sandbox-exec -f <this session's profile>` on the agent's own `LaunchArgv`, consecutively, and
+> deleting those words from `LaunchArgv` turns a named test red — mutation-verified on Linux.
 
 `PlanInvariants` pins `sandbox-exec -f <profile>` for the provisioning stage and
 `CapturePlanInvariants` pins it for the capture driver; nothing pins it for the argv that runs
@@ -818,9 +840,9 @@ Re-check these before quoting them; everything here moved within the last six mo
 
    <!-- vantage: oq id=OQ-AS1 leaning="Take the incremental denies now, and only consider the full inversion once a policy-assertion suite exists to catch what it breaks." -->
 
-   Stakes: the profile is 8 directives against Safehouse's 2,919 lines, and the difference is
-   not cosmetic — network, exec, mach lookup, signals, IOKit and cross-process argv inspection
-   are all open on our side. The full inversion is a large, ongoing enumeration cost against a
+   Stakes: the profile is a short deny list against Safehouse's 2,919 lines, and the
+   difference is not cosmetic — network, exec, mach lookup, signals and IOKit are all open on
+   our side. (Cross-process argv inspection was on that list until `26a38c74` closed it.) The full inversion is a large, ongoing enumeration cost against a
    nix substrate theirs does not share; the incremental denies in
    [§8.2](#82-tighten-the-profile-toward-deny-default--highest-ceiling-highest-cost) are cheap
    and independently revertible. This is a ruling about how much this backend is meant to
