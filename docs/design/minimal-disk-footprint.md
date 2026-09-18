@@ -584,8 +584,12 @@ Concretely, on this machine on 2026-08-25, the fallback would not have fired no 
 > pick. The fallback survives as a *reader*: `newestTars` still loads any tar that exists, which is
 > what keeps an offline start working against the pre-C3 backlog.
 > **What the ruling did NOT cover, and the code respects the boundary:** pre-existing tars are not
-> swept (still [§10](#10-sequencing--what-i-would-build-in-order)'s work), and Apple Container still writes and retains one tar per store path
-> because its converters need a real path. See [§11.2](#112-open-questions) [OQ-DF1](#112-open-questions) for the full answer block.
+> swept (still [§10](#10-sequencing--what-i-would-build-in-order)'s work). ⚠ This sentence also said
+> *“and Apple Container still writes and retains one tar per store path because its converters need a
+> real path”* until 2026-09-18, contradicting its own paragraph two lines up: C9 gave the backends
+> that cannot stream a **temporary** archive the launch removes itself, so the retained write it
+> named is gone on every backend. See [§11.2](#112-open-questions) [OQ-DF1](#112-open-questions) for
+> the full answer block.
 
 > [!NOTE]
 > **The cachix work is what makes zero cheap.** A populated binary cache ([`../plans/handoff-cachix-cache.md`](../plans/handoff-cachix-cache.md)) does not reduce *retention* cost at all — it reduces the cost of having deleted something, by making the rebuild a download. It is a complement to keep-zero, not an alternative to it, and it is the surface [OQ-3](../reference/image-staging-vs-baking.md#why-its-this-way)'s *"we have plans on making cachix useful"* clause is about — the **nix binary cache**, not the podman image tag.
