@@ -88,6 +88,15 @@ ls flags:
                      declares every agent's surfaces; a jail composes only the
                      selected agents').
 
+ls, render, diff, reset and capture also take:
+  --at <notch>       Ask about a different notch than the cwd selected: jail (the
+                     workspace you are standing in) or host (your real home). The
+                     same flag, the same three names and the same refusals as
+                     'yolo apply --at'. 'guest' is refused by name — it is unbuilt —
+                     and '--at jail' outside a workspace is refused rather than
+                     silently answered about the host. There is no --workspace flag:
+                     cd into the project you meant.
+
 reset/capture also take:
   --force            reset and capture WRITE files; run host-side (outside the jail
                      that owns the workspace) they resolve against your REAL home and
@@ -156,13 +165,16 @@ func configRunW(args []string, out, errw io.Writer) int {
 		return 0
 	}
 	verb := args[0]
-	t, refusal := resolveConfigTarget()
+	rest, at, rc := extractAtFlag(verb, args[1:], errw)
+	if rc != 0 {
+		return rc
+	}
+	t, refusal := resolveConfigTarget(at)
 	if refusal != "" {
 		fmt.Fprintf(errw, "yolo config %s: %s\n", verb, refusal)
 		return 1
 	}
 	fmt.Fprintln(errw, t.disclosure())
-	rest := args[1:]
 	switch verb {
 	case "render":
 		return configRender(rest, out, errw, colorForWriter(out))
@@ -184,6 +196,59 @@ func configRunW(args []string, out, errw io.Writer) int {
 		fmt.Fprintf(errw, "yolo config: unknown subcommand %q\n\n%s\n", verb, configUsage)
 		return 2
 	}
+}
+
+// notchlessVerbs are the `yolo config` verbs no notch selects, with the reason each one gives
+// for refusing `--at`.
+//
+// REFUSED RATHER THAN ACCEPTED AND IGNORED. A flag a verb takes and does nothing with is the
+// declaration-parity defect (docs/design/declaration-parity.md): a surface that accepts a
+// declaration it does not honor. `--at host` on `promote` would be worse than inert — it
+// would resolve a target with no workspace store, so the verb would report nothing to promote
+// for a workspace full of captures.
+var notchlessVerbs = map[string]string{
+	"promote": "promote is host-only and its destination is user scope, which is not a notch. " +
+		"It reads the cwd's workspace store by design — lifting a jail's captured keys into a " +
+		"pack is the whole verb",
+	"drift": "drift compares THIS workspace's config against the baseline its own launch froze, " +
+		"so there is no notch to select",
+	"dump": "dump prints the effective merged config, which no notch selects",
+}
+
+// extractAtFlag pulls `--at <notch>` / `--at=<notch>` out of a verb's argv and returns the
+// rest unchanged, so the notch reaches the ONE resolution point above while each verb's own
+// parser keeps refusing every flag it does not know.
+//
+// It is `yolo apply`'s token shape, deliberately: `--at jail|guest|host` is the shipped answer
+// to "which notch does this verb act on"
+// ([P4](docs/design/config-target-resolution.md#1-the-verdict-and-the-principles-it-rests-on)),
+// and a second spelling for the read verbs would be a second vocabulary for one fact. The
+// VALUE is validated once, in resolveConfigTarget, through render.KindForNotch.
+func extractAtFlag(verb string, args []string, errw io.Writer) (rest []string, at string, rc int) {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--at":
+			if i+1 >= len(args) {
+				fmt.Fprintf(errw, "yolo config %s: --at needs a value (%s)\n",
+					verb, strings.Join(notchNames(), "|"))
+				return nil, "", 2
+			}
+			i++
+			at = args[i]
+		case strings.HasPrefix(a, "--at="):
+			at = a[len("--at="):]
+		default:
+			rest = append(rest, a)
+		}
+	}
+	if at != "" {
+		if why, notchless := notchlessVerbs[verb]; notchless {
+			fmt.Fprintf(errw, "yolo config %s: --at does not apply here — %s.\n", verb, why)
+			return nil, "", 2
+		}
+	}
+	return rest, at, 0
 }
 
 // isHelpToken reports whether tok requests help.

@@ -139,6 +139,15 @@ func refuseHostSideWrite(t configTarget, cmd string, force bool, errw io.Writer)
 		"home, not a jail's, so writing them could clobber your own config. This command "+
 		"is meant to run inside the jail that owns the workspace. Re-run with --force if you "+
 		"really mean to write the host's files.\n", cmd)
+	// THE `own` REMEDY, and it is not a courtesy. Before `--at`, a host-side `config reset`
+	// standing anywhere resolved the host notch, so an owned home's reset was reachable by
+	// being in the wrong directory. Now the cwd selects the target, so inside a workspace this
+	// verb is about that jail — and the owned home it used to reach needs saying, or a shipped
+	// path becomes unreachable without the user guessing the flag.
+	if cmd == "reset" && t.notch == render.KindJail && hostOwnership() == render.OwnershipOwn {
+		fmt.Fprintf(errw, "  Your real home is `host_management: own`, which yolo composes: "+
+			"`yolo config %s <agent> --at host` acts on THAT, and needs no --force.\n", cmd)
+	}
 	return true
 }
 

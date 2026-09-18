@@ -158,18 +158,80 @@ func processOwnsWorkspace(workspace string) bool {
 	return workspace == containerWorkspace
 }
 
-// resolveConfigTarget is THE resolution point: the cwd selects the target.
+// resolveConfigTarget is THE resolution point: `--at` where given, else the cwd.
 //
 // One call, at the top of the verb dispatch, before any verb's first read — which is what
 // [P2](docs/design/config-target-resolution.md#1-the-verdict-and-the-principles-it-rests-on)
 // ("one resolution per invocation") means in code. It returns a refusal STRING rather than an
 // error so the caller prints it verbatim: each one names what is missing, and per §4.2 none
 // of them may silently degrade to the other notch, because degrading is F1.
-func resolveConfigTarget() (configTarget, string) {
-	if ws, ok := resolveWorkspaceRoot(); ok {
-		return jailConfigTarget(ws, "the cwd"), ""
+//
+// THE VOCABULARY IS render's, and it is the one `yolo apply --at` already crosses. A notch
+// name resolves through render.KindForNotch, whose selectable set
+// render.TestEveryConfinementResolvesToADistinctSelectableKind pins against
+// config.KnownConfinements in both directions — so the read verbs and `apply` cannot come to
+// accept different sets, which is what
+// [P4](docs/design/config-target-resolution.md#1-the-verdict-and-the-principles-it-rests-on)
+// forbids ("a second spelling for the read verbs would be a second vocabulary for one fact").
+func resolveConfigTarget(at string) (configTarget, string) {
+	if at == "" {
+		if ws, ok := resolveWorkspaceRoot(); ok {
+			return jailConfigTarget(ws, "the cwd"), ""
+		}
+		return hostConfigTarget("the cwd resolving no workspace"), ""
 	}
-	return hostConfigTarget("the cwd resolving no workspace"), ""
+	notch, ok := render.KindForNotch(at)
+	if !ok {
+		return configTarget{}, fmt.Sprintf("--at %q is not a confinement level (%s)",
+			at, strings.Join(notchNames(), "|"))
+	}
+	switch notch {
+	case render.KindHost:
+		return hostConfigTarget("--at"), ""
+	case render.KindJail:
+		ws, found := resolveWorkspaceRoot()
+		if !found {
+			// AN EXPLICIT REQUEST FOR A THING THAT DOES NOT EXIST is a different case from an
+			// unstated default ([OQ-CR2](docs/design/config-target-resolution.md#oq-cr2)), so
+			// this refuses where a bare invocation answers about the host. Degrading silently
+			// to the other notch is F1.
+			//
+			// ⚠ EVERY REMEDY IS A `cd` OR AN `--at`, never a flag naming a workspace.
+			// internal/cli/run/run.go refuses a launch with *"there is no --workspace flag: cd
+			// into the project you meant"*, and a second way to name a workspace is exactly
+			// what that refusal rules out.
+			return configTarget{}, "--at jail needs a workspace, and " + describeCwd() +
+				" resolves none — no .yolo/config-boot.json and no " +
+				config.WorkspaceConfigName + " in it or above it. cd into the project you " +
+				"meant, or pass --at host to ask about your real home."
+		}
+		return jailConfigTarget(ws, "--at"), ""
+	default:
+		// render.NotchUnbuilt is the SENTENCE, not a literal: `yolo apply --at guest` and the
+		// launch gate both say it, and three spellings of one notch's status is the drift
+		// docs/design/declaration-parity.md exists to name (OQ-DP3).
+		return configTarget{}, render.NotchUnbuilt("config")
+	}
+}
+
+// notchNames is the selectable notches' names, for a refusal that lists what it would have
+// accepted. Read off render.SelectableNotches so it cannot drift from what KindForNotch
+// accepts — the vocabulary is render's and this is only its spelling.
+func notchNames() []string {
+	names := make([]string, 0, len(render.SelectableNotches()))
+	for _, k := range render.SelectableNotches() {
+		names = append(names, k.String())
+	}
+	return names
+}
+
+// describeCwd names the working directory for a refusal, or says it could not be read.
+func describeCwd() string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "the working directory"
+	}
+	return wd
 }
 
 // resolveWorkspaceRoot is the marker walk: the cwd, walked upward to the nearest directory

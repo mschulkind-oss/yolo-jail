@@ -471,3 +471,151 @@ func mkdirAllT(t *testing.T, dir string) {
 		t.Fatal(err)
 	}
 }
+
+// --- `--at` on the read verbs (design step 5) ----------------------------------------------
+
+// `--at` OVERRIDES THE CWD, AND THE DISCLOSURE SAYS IT DID. The flag is the shipped selector
+// (`yolo apply --at jail|guest|host`), and a second spelling for the read verbs would be a
+// second vocabulary for one fact ([P4]).
+func TestAtOverridesTheCwdAndIsDisclosedAsTheChooser(t *testing.T) {
+	home := scratchHostHome(t)
+	t.Setenv("YOLO_VERSION", "")
+	ws, _ := withWorkspaceCwd(t)
+
+	var out, errw bytes.Buffer
+	configRunW([]string{"ls", "--at", "host"}, &out, &errw)
+	line := disclosureLine(t, "ls --at host", errw.String())
+	if !strings.Contains(line, home) || !strings.Contains(line, "host notch") {
+		t.Errorf("`--at host` from inside a workspace disclosed %q, want the real home at the "+
+			"host notch", line)
+	}
+	if !strings.Contains(line, "from --at") {
+		t.Errorf("the disclosure must name WHAT CHOSE the target, and here it was the flag "+
+			"rather than the cwd: %q", line)
+	}
+
+	// The equals spelling is the same flag, and `--at jail` inside a workspace agrees with
+	// what the cwd would have chosen — so the flag is an override, not a second resolution.
+	out.Reset()
+	errw.Reset()
+	configRunW([]string{"ls", "--at=jail"}, &out, &errw)
+	line = disclosureLine(t, "ls --at=jail", errw.String())
+	if !strings.Contains(line, ws) || !strings.Contains(line, "from --at") {
+		t.Errorf("`--at=jail` disclosed %q, want the cwd's workspace chosen by the flag", line)
+	}
+}
+
+// `--at guest` IS REFUSED WITH THE SENTENCE `yolo apply` USES, verbatim apart from the verb.
+// render.NotchUnbuilt exists because two packages say it and neither can import the other;
+// a third spelling of one notch's status is the drift docs/design/declaration-parity.md
+// exists to name (OQ-DP3), so this compares the two commands' real output.
+func TestAtGuestIsRefusedWithApplysOwnSentence(t *testing.T) {
+	scratchHostHome(t)
+	t.Setenv("YOLO_VERSION", "")
+	withWorkspaceCwd(t)
+
+	var configOut, configErr bytes.Buffer
+	if rc := configRunW([]string{"ls", "--at", "guest"}, &configOut, &configErr); rc == 0 {
+		t.Fatalf("`config ls --at guest` succeeded; the notch is unbuilt:\n%s", configOut.String())
+	}
+	var applyOut, applyErr bytes.Buffer
+	applyMain([]string{"--at", "guest"}, &applyOut, &applyErr, false, nil)
+
+	configTail := afterVerb(configErr.String()+configOut.String(), "config")
+	applyTail := afterVerb(applyOut.String()+applyErr.String(), "apply")
+	if configTail == "" || configTail != applyTail {
+		t.Errorf("the two verbs refuse `guest` with different sentences.\nconfig: %q\napply:  %q\n"+
+			"Both must print render.NotchUnbuilt, parameterised by the verb and nothing else.",
+			configTail, applyTail)
+	}
+}
+
+// afterVerb returns what follows the first occurrence of verb + " at the guest notch" — the
+// part of render.NotchUnbuilt's sentence that must be identical across its callers.
+func afterVerb(output, verb string) string {
+	const marker = " at the guest notch"
+	i := strings.Index(output, verb+marker)
+	if i < 0 {
+		return ""
+	}
+	return strings.TrimSpace(output[i+len(verb):])
+}
+
+// `--at jail` WITH NO WORKSPACE REFUSES, NAMING WHAT IS MISSING. An explicit request for a
+// thing that does not exist is a different case from an unstated default, which answers about
+// the host ([OQ-CR2]); degrading silently to the other notch is F1.
+//
+// ⚠ AND THE REMEDY IS A `cd`, NEVER A FLAG. internal/cli/run/run.go refuses a launch with
+// "there is no --workspace flag: cd into the project you meant", so a second way to name a
+// workspace is exactly what this must not invent.
+func TestAtJailWithNoWorkspaceRefusesByName(t *testing.T) {
+	scratchHostHome(t)
+	t.Setenv("YOLO_VERSION", "")
+	elsewhere, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(elsewhere)
+
+	var out, errw bytes.Buffer
+	if rc := configRunW([]string{"diff", "claude", "--at", "jail"}, &out, &errw); rc == 0 {
+		t.Fatalf("`--at jail` with no workspace succeeded, so it answered about some other "+
+			"home without saying so:\n%s", out.String())
+	}
+	got := errw.String()
+	for _, want := range []string{elsewhere, config.WorkspaceConfigName, "cd into the project"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the refusal does not name %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "--workspace") {
+		t.Errorf("the refusal offers a --workspace flag, which does not exist and is not "+
+			"going to:\n%s", got)
+	}
+	if strings.Contains(out.String(), "Surfaces:") || strings.Contains(got, "Surfaces:") {
+		t.Errorf("a refused resolution still disclosed a target:\n%s%s", out.String(), got)
+	}
+}
+
+// THE READ VERBS AND `apply` ACCEPT THE SAME SET. Not by a copied list — by the same boundary:
+// config.KnownConfinements is what `apply` validates against and render.KindForNotch is what
+// this resolves through, and render.TestEveryConfinementResolvesToADistinctSelectableKind
+// pins those two to each other in both directions.
+func TestAtAcceptsExactlyTheConfinementVocabulary(t *testing.T) {
+	scratchHostHome(t)
+	t.Setenv("YOLO_VERSION", "")
+	withWorkspaceCwd(t)
+
+	for _, name := range config.KnownConfinements {
+		_, refusal := resolveConfigTarget(string(name))
+		if strings.Contains(refusal, "is not a confinement level") {
+			t.Errorf("`--at %s` is a confinement level `yolo apply` accepts, and this rejected "+
+				"it as an unknown name: %s", name, refusal)
+		}
+	}
+	if _, refusal := resolveConfigTarget("vm"); !strings.Contains(refusal, "is not a confinement level") {
+		t.Errorf("`--at vm` is not a notch and must be refused as one, got %q", refusal)
+	}
+}
+
+// `--at` IS REFUSED, NOT IGNORED, ON THE VERBS NO NOTCH SELECTS. A surface that accepts a
+// declaration it does not honor is the declaration-parity defect; and `--at host` on promote
+// would be worse than inert, since it would resolve a target with no workspace store and
+// report nothing to promote for a workspace full of captures.
+func TestAtIsRefusedOnTheVerbsNoNotchSelects(t *testing.T) {
+	scratchHostHome(t)
+	t.Setenv("YOLO_VERSION", "")
+	withWorkspaceCwd(t)
+
+	for verb := range notchlessVerbs {
+		var out, errw bytes.Buffer
+		if rc := configRunW([]string{verb, "--at", "host"}, &out, &errw); rc != 2 {
+			t.Errorf("`config %s --at host` = rc %d, want 2 (a flag a verb cannot honor is "+
+				"refused, never accepted and dropped)", verb, rc)
+		}
+		if !strings.Contains(errw.String(), "--at does not apply here") {
+			t.Errorf("`config %s --at host` did not say why the flag does not apply:\n%s",
+				verb, errw.String())
+		}
+	}
+}

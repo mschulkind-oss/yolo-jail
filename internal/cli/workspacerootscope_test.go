@@ -61,12 +61,12 @@ func TestWorkspaceRootStopsAtABoundaryDirectory(t *testing.T) {
 	// (docs/design/config-target-resolution.md [OQ-CR2]). This is the half that replaced
 	// "the cwd stands": a directory resolving no workspace used to become a workspace whose
 	// store does not exist, and every verb then reported its silence as an answer.
-	tgt, refusal := resolveConfigTarget()
+	tgt, refusal := resolveConfigTarget("")
 	if refusal != "" {
 		t.Fatalf("a directory with no workspace must resolve the host target, not refuse: %s", refusal)
 	}
 	if tgt.notch.String() != "host" {
-		t.Errorf("resolveConfigTarget() notch = %s, want host", tgt.notch)
+		t.Errorf("resolveConfigTarget notch = %s, want host", tgt.notch)
 	}
 }
 
