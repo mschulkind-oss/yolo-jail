@@ -30,7 +30,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
@@ -102,9 +101,15 @@ func parseSurfaceIdentity(cmd, identity string, errw io.Writer) (agent, surface 
 // resolve `~` against the INVOKING human's real home (expandHome → paths.Home()) and
 // write it — reset truncates a real dotfile to its (often empty) pure render; capture
 // copies real host config into the workspace sidecar tree. Both are destructive on a
-// file yolo does not own IN THAT CONTEXT. surfacesAreLocal() is true only in the jail
-// that owns /workspace; anywhere else (host-side, or a different workspace's surfaces)
-// a write is refused unless --force. Returns true when the caller must abort.
+// file yolo does not own IN THAT CONTEXT. configTarget.local is true only in the jail that
+// owns the resolved workspace; anywhere else (host-side, or a different workspace's
+// surfaces) a write is refused unless --force. Returns true when the caller must abort.
+//
+// IT READS THE RESOLVED TARGET, and that is the only change this design makes to the guard:
+// [OQ-CR2](docs/design/config-target-resolution.md#oq-cr2) is explicit that the resolution
+// produces a TARGET, NOT A PERMISSION. Nothing here is loosened — in particular a directory
+// that resolves no workspace gets the host target, where a write is refused exactly as it
+// was.
 //
 // # `host_management: own` answers the premise for RESET, and that is why reset is exempt
 //
@@ -127,11 +132,11 @@ func parseSurfaceIdentity(cmd, identity string, errw io.Writer) (agent, surface 
 // anyway (see configCapture, "for observability, not correctness"). Nothing depends on it the
 // way adoption depends on reset, and leaving it refused keeps the new store with exactly two
 // writers — the render, and the reset that discards. --force still reaches it.
-func refuseHostSideWrite(cmd string, force bool, errw io.Writer) bool {
-	if surfacesAreLocal() || force {
+func refuseHostSideWrite(t configTarget, cmd string, force bool, errw io.Writer) bool {
+	if t.local || force {
 		return false
 	}
-	if cmd == "reset" && hostOwnsSurfaces() {
+	if cmd == "reset" && t.hostOwned() {
 		return false
 	}
 	fmt.Fprintf(errw, "yolo config %s: refusing — these surfaces resolve against a real "+
@@ -141,52 +146,14 @@ func refuseHostSideWrite(cmd string, force bool, errw io.Writer) bool {
 	return true
 }
 
-// hostOwnsSurfaces reports whether THIS invocation's surfaces are ones yolo owns at the host
-// notch — i.e. host-side, under `host_management: own`. It is the predicate the reset guard
-// and the reset paths both read, so "which store does reset operate on" and "may reset run
-// at all" cannot answer differently.
-//
-// Spelled as "does the host target keep a capture store?" rather than as a comparison against
-// the config value, so it is the same render.Target answer the WRITER acted on. A contract
-// that composes nothing keeps no store and gets no reset.
-func hostOwnsSurfaces() bool {
-	return !surfacesAreLocal() && hostCaptureDir() != ""
-}
-
-// hostCaptureDir is the host notch's capture store for this invocation, or "" when this
-// contract keeps none. Resolved through render.Target.SidecarDir, never joined by hand — the
-// hazard hostProvenancePath's docstring names, one directory over.
-//
-// A var for hostProvenancePath's reason: tests point it at a temp state dir rather than
-// setting a real $HOME.
-var hostCaptureDir = func() string {
-	return render.Host(paths.Home(), nil, hostOwnership()).SidecarDir()
-}
-
-// resetCapturePaths is where `reset` finds one surface's two discardable sidecars: the
-// workspace prism tree in the jail that owns it, or the host capture store under `own`.
-//
-// The two are resolved through the notch's own Target rather than by the CLI's workspace-
-// keyed prism* twins, which stay what they are: `config diff`, `config ls` and `config
-// promote` read the WORKSPACE tree host-side on purpose — promote's whole job is lifting a
-// JAIL's captured keys into a pack (§5.2 step 1), and retargeting it at the host store would
-// silently make it a different verb.
-func resetCapturePaths(agent, name string) (overlay, lastRender string) {
-	if hostOwnsSurfaces() {
-		t := render.Host(paths.Home(), nil, hostOwnership())
-		return t.OverlayPath(agent, name), t.LastRenderPath(agent, name)
-	}
-	return prismOverlayPath(agent, name), prismLastRenderPath(agent, name)
-}
-
 // capturedSurfaces returns the (agent, name) pairs that can carry a capture
 // overlay for the given agent, honoring an optional surface filter. It works for
 // the pseudo-agent "user" too, whose surfaces are host_files slugs rather than
 // manifest entries — those are discovered from the sidecar files on disk, since
 // the CLI cannot know which entries a past boot staged.
-func capturedSurfaces(agent, surface string) []manifest.Surface {
+func capturedSurfaces(t configTarget, agent, surface string) []manifest.Surface {
 	if agent == "user" {
-		return userSidecarSurfaces(surface)
+		return userSidecarSurfaces(t, surface)
 	}
 	var out []manifest.Surface
 	for _, s := range surfaceManifest().ForAgent(agent) {
@@ -207,8 +174,12 @@ func capturedSurfaces(agent, surface string) []manifest.Surface {
 // The slug is opaque here (it is a percent-escaped destination path), so the
 // surfaces are synthesized from the file names rather than the config — which also
 // means `reset user` can clean up after an entry the user has since removed.
-func userSidecarSurfaces(surface string) []manifest.Surface {
-	entries, err := os.ReadDir(prismSidecarDir())
+func userSidecarSurfaces(t configTarget, surface string) []manifest.Surface {
+	dir := t.sidecarDir()
+	if dir == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
 	}
@@ -251,15 +222,25 @@ func userSidecarSurfaces(surface string) []manifest.Surface {
 // owner's managed layer, so it leaves no trace in the surface file at all. Provenance
 // nobody can read does not make an override legible, which was the entire justification
 // for the kind.
-func configDiff(args []string, out, errw io.Writer, color bool) int {
+func configDiff(t configTarget, args []string, out, errw io.Writer, color bool) int {
 	agent, surface, _, rc := surfaceArgs("diff", args, out, errw)
 	if rc >= 0 {
 		return rc
 	}
+	// THE STORE'S OWN STATE FIRST, because an unreadable store cannot be reported as an
+	// absence of edits (§4.2, [P3](docs/design/config-target-resolution.md#1-the-verdict-and-the-principles-it-rests-on)).
+	// It read as empty until this design: os.ReadDir's error became nil and the verb printed
+	// the same confident negative it prints for a store it really did read.
+	state, serr := t.storeState()
+	if state == storeUnreadable {
+		fmt.Fprintf(errw, "yolo config diff: cannot read the capture store %s: %v\n",
+			t.sidecarDir(), serr)
+		return 1
+	}
 	pr := richtext.Printer{W: out, Color: color}
-	overlaid, unresolved := overlayContributionRows(agent, surface)
+	overlaid, unresolved := overlayContributionRows(t, agent, surface)
 
-	surfaces := capturedSurfaces(agent, surface)
+	surfaces := capturedSurfaces(t, agent, surface)
 	if len(surfaces) == 0 && len(overlaid) == 0 && len(unresolved) == 0 {
 		fmt.Fprintf(errw, "yolo config diff: no capture surfaces or pack config-overlays "+
 			"for agent %q%s\n", agent, surfaceSuffix(surface))
@@ -275,13 +256,13 @@ func configDiff(args []string, out, errw io.Writer, color bool) int {
 
 	found := false
 	for _, s := range surfaces {
-		overlay := readOverlayValue(s.Agent, s.Name)
+		overlay := readOverlayValue(t.overlayPath(s.Agent, s.Name))
 		if overlayIsEmpty(overlay) {
 			continue
 		}
 		found = true
 		pr.Printf("[bold]# %s/%s → %s[/bold]", s.Agent, s.Name, surfacePathOrSidecar(s))
-		baseline := readLastRenderKeys(s)
+		baseline := readLastRenderKeys(t.lastRenderPath(s.Agent, s.Name), s)
 		for _, line := range overlayDiffLines(overlay, baseline) {
 			pr.Print(line)
 		}
@@ -289,6 +270,12 @@ func configDiff(args []string, out, errw io.Writer, color bool) int {
 	}
 	writeOverlayContributions(pr, overlaid)
 	if !found {
+		// WHICH negative this is. "No captured edits" is a measurement and may only be
+		// printed for a store that was actually read; the other two answers name themselves.
+		if reason := t.noCaptureReason(state); reason != "" {
+			pr.Printf("[dim]%s%s: %s.[/dim]", agent, surfaceSuffix(surface), reason)
+			return 0
+		}
 		pr.Printf("[dim]No captured in-jail edits for %s%s.[/dim]", agent, surfaceSuffix(surface))
 		return 0
 	}
@@ -365,19 +352,17 @@ type overlayContribution struct {
 // packs only (see internal/cli/surfaces.go). That limitation is exactly wrong here: a
 // third-party pack is the likely OWNER in the Layout C story, so keying on the embedded set
 // would leave the overlay case this command exists for unreportable.
-func overlayContributionRows(agent, surface string) ([]overlayContribution, []string) {
+func overlayContributionRows(t configTarget, agent, surface string) ([]overlayContribution, []string) {
 	packs, unresolved := configuredPacksForInspection()
 	if len(packs) == 0 {
 		return nil, unresolved
 	}
-	// WHICH NOTCH this invocation describes, resolved ONCE into a render.Kind rather than
-	// carried as a bool and re-labelled twice (plan §6c step 3). It was `host :=
-	// !surfacesAreLocal()`, and every downstream fact — the posture, the record to read, the
-	// name printed beside a winner — was re-derived from that bool with its own literal.
-	notch := render.KindJail
-	if !surfacesAreLocal() {
-		notch = render.KindHost
-	}
+	// WHICH NOTCH this invocation describes comes off the RESOLVED TARGET, which is the one
+	// place it is decided (docs/design/config-target-resolution.md §3). It was
+	// `notch := KindJail; if !surfacesAreLocal() { notch = KindHost }` — a second predicate,
+	// and the one that made a host-side report in a workspace read the invoking user's real
+	// home's provenance beside that jail's captures (§2.3 F1).
+	notch := t.notch
 	// The posture matches the notch whose surfaces we are describing: the jail renders
 	// autonomy ON, the host renders the guarded posture (§4.2). It only patches the owner's
 	// managed layer, so it changes which keys an overlay LOSES, not which surfaces exist —
@@ -395,7 +380,7 @@ func overlayContributionRows(agent, surface string) ([]overlayContribution, []st
 			Path:    s.Path,
 			Keys:    map[string]string{},
 		}
-		row.Winners, row.Notch, row.NoRecordReason = surfaceProvenance(s, notch)
+		row.Winners, row.Notch, row.NoRecordReason = surfaceProvenance(t, s)
 		row.Retired = retiredKeys(row.Winners)
 		// A surface with NEITHER a live overlay NOR a retired key has nothing to report here.
 		// The retired half is why this is not the old `len(overlays) == 0` skip: an orphaned
@@ -430,17 +415,18 @@ func overlayContributionRows(agent, surface string) ([]overlayContribution, []st
 // because an `rmw`/`computed` surface in a jail keeps no record by design (§8) and that
 // must not read as a loss.
 //
-// It switches on the render.Kind and LABELS with notch.String(), rather than taking a bool and
+// It reads the TARGET's notch and LABELS with notch.String(), rather than taking a bool and
 // spelling "host"/"jail" at five returns (plan §6c step 3). What the notch decides here is a
 // FILE LOCATION and a remedy — two things that genuinely differ per notch, which is why this
 // stays a switch; what it no longer decides is how the answer is spelled. A notch with no
 // stated record location gets the fail-closed answer rather than the jail's tree: `guest`
 // cannot reach here today (the caller resolves jail-or-host), and inheriting a location if it
 // ever does is the D2 bug in the reader.
-func surfaceProvenance(s manifest.Surface, notch render.Kind) (winners map[string]string, notchLabel, reason string) {
+func surfaceProvenance(t configTarget, s manifest.Surface) (winners map[string]string, notchLabel, reason string) {
+	notch := t.notch
 	switch notch {
 	case render.KindHost:
-		if w := readProvenance(hostProvenancePath(s.Agent, s.Name)); w != nil {
+		if w := readProvenance(t.provenancePath(s.Agent, s.Name)); w != nil {
 			return w, notch.String(), ""
 		}
 		// No mode split here: the host render is pure RMW and records every surface it
@@ -448,7 +434,7 @@ func surfaceProvenance(s manifest.Surface, notch render.Kind) (winners map[strin
 		// a remedy, unlike the by-design absences below.
 		return nil, notch.String(), "no `yolo host apply --assert` has rendered it yet"
 	case render.KindJail:
-		if w := readProvenance(prismProvenancePath(s.Agent, s.Name)); w != nil {
+		if w := readProvenance(t.provenancePath(s.Agent, s.Name)); w != nil {
 			return w, notch.String(), ""
 		}
 		if s.ResolvedMode() == manifest.ModeRMW || s.ResolvedMode() == manifest.ModeComputed {
@@ -749,7 +735,12 @@ func overlayDiffLines(overlay any, baseline map[string]string) []string {
 	return lines
 }
 
-// readLastRenderKeys decodes the last_render sidecar into per-key one-line JSON,
+// readLastRenderKeys decodes the last_render sidecar AT THE GIVEN PATH into per-key one-line
+// JSON — path-taking for readProvenance's reason, one function over: there are two stores to
+// read, and the CHOICE of which belongs to the caller holding the resolved target. A reader
+// that resolved its own is how `diff` and `reset` came to describe different stores on an
+// owned host (docs/design/config-target-resolution.md §2.3 F3).
+//
 // so a captured value can be compared against what yolo last wrote. An absent or
 // undecodable sidecar yields an empty map (everything reads as "added in-jail").
 //
@@ -767,9 +758,12 @@ func overlayDiffLines(overlay any, baseline map[string]string) []string {
 // would trade the TOML bug for a JSON one: an integer reaches the overlay side as a
 // jsonx integer literal ("5") and the codec side as float64 ("5.0"), so every
 // integer-valued key in a JSON surface would start misreporting instead.
-func readLastRenderKeys(s manifest.Surface) map[string]string {
+func readLastRenderKeys(lastRenderPath string, s manifest.Surface) map[string]string {
 	baseline := map[string]string{}
-	data, err := os.ReadFile(prismLastRenderPath(s.Agent, s.Name))
+	if lastRenderPath == "" {
+		return baseline
+	}
+	data, err := os.ReadFile(lastRenderPath)
 	if err != nil {
 		return baseline
 	}
@@ -814,15 +808,15 @@ func readLastRenderKeys(s manifest.Surface) map[string]string {
 // first is not incidental — a baseline left pointing at the pre-reset render would have the
 // next boot diff the truncated file against it and capture the discard as an edit — and
 // neither is writing the new one: see reseedResetBaseline for what deleting it cost.
-func configReset(args []string, out, errw io.Writer, color bool) int {
+func configReset(t configTarget, args []string, out, errw io.Writer, color bool) int {
 	agent, surface, force, rc := surfaceArgs("reset", args, out, errw)
 	if rc >= 0 {
 		return rc
 	}
-	if refuseHostSideWrite("reset", force, errw) {
+	if refuseHostSideWrite(t, "reset", force, errw) {
 		return 1
 	}
-	surfaces := capturedSurfaces(agent, surface)
+	surfaces := capturedSurfaces(t, agent, surface)
 	if len(surfaces) == 0 {
 		fmt.Fprintf(errw, "yolo config reset: no capture surfaces for agent %q%s\n",
 			agent, surfaceSuffix(surface))
@@ -832,7 +826,12 @@ func configReset(args []string, out, errw io.Writer, color bool) int {
 	pr := richtext.Printer{W: out, Color: color}
 	cleared := 0
 	for _, s := range surfaces {
-		overlayPath, lastRenderPath := resetCapturePaths(s.Agent, s.Name)
+		overlayPath, lastRenderPath := t.overlayPath(s.Agent, s.Name), t.lastRenderPath(s.Agent, s.Name)
+		if overlayPath == "" {
+			// A target that keeps no capture store has no sidecars to discard, and a bare
+			// os.Remove("") would report a confusing ENOENT for a path nobody named.
+			continue
+		}
 		had := overlayKeyCountAt(overlayPath)
 		removedAny := false
 		for _, p := range []string{overlayPath, lastRenderPath} {
@@ -858,14 +857,14 @@ func configReset(args []string, out, errw io.Writer, color bool) int {
 		//
 		// Truncating also makes reset VISIBLE immediately rather than only after the
 		// next boot, which is what a user means by "reset".
-		baseline, err := truncateSurfaceToPureRender(s)
+		baseline, err := truncateSurfaceToPureRender(t, s)
 		if err != nil {
 			fmt.Fprintf(errw, "yolo config reset: %s/%s: %v\n", s.Agent, s.Name, err)
 			return 1
 		}
 		// AND RE-SEED THE BASELINE THE TRUNCATION JUST MADE TRUE, rather than leaving the
 		// next render to infer one (OQ-CO7 D1). See reseedResetBaseline.
-		if err := reseedResetBaseline(lastRenderPath, baseline); err != nil {
+		if err := reseedResetBaseline(t, lastRenderPath, baseline); err != nil {
 			fmt.Fprintf(errw, "yolo config reset: %s/%s: %v\n", s.Agent, s.Name, err)
 			return 1
 		}
@@ -884,7 +883,7 @@ func configReset(args []string, out, errw io.Writer, color bool) int {
 	// WHICH COMMAND RE-RENDERS depends on the notch this reset ran at, and naming the wrong
 	// one sends a host-side user to relaunch a jail that has nothing to do with the file they
 	// just truncated.
-	if hostOwnsSurfaces() {
+	if t.hostOwned() {
 		pr.Printf("[dim]The next `yolo host apply --assert` re-renders these surfaces from " +
 			"their layers.[/dim]")
 	} else {
@@ -924,28 +923,25 @@ func configReset(args []string, out, errw io.Writer, color bool) int {
 // means "the exact bytes yolo wrote last", so a baseline for a file that does not exist is a
 // lie the next render would act on — it would read the absent file as an empty one, diff it
 // against the baseline, and capture a tombstone for every key.
-func reseedResetBaseline(lastRenderPath string, baseline []byte) error {
+func reseedResetBaseline(t configTarget, lastRenderPath string, baseline []byte) error {
 	if len(baseline) == 0 {
 		return nil
 	}
-	return os.WriteFile(lastRenderPath, baseline, resetBaselineMode())
+	// THE STORE'S OWN MODE, off the same target that decided where the store is — 0600 in a
+	// real home, 0644 in a workspace. Read through the Target rather than spelled here: a
+	// hand-copied 0644 would put a host user's own config bytes, credentials included, in a
+	// world-readable file.
+	return os.WriteFile(lastRenderPath, baseline, t.sidecarFileMode())
 }
 
-// resetBaselineMode is the mode the re-seeded baseline is written with: the STORE'S OWN mode,
-// taken from the same render.Target that decided where the store is — 0600 in a real home,
-// 0644 in a workspace. Read through the Target rather than spelled here for the reason
-// resetCapturePaths builds one: a hand-copied 0644 would put a host user's own config bytes,
-// credentials included, in a world-readable file.
-func resetBaselineMode() os.FileMode {
-	if hostOwnsSurfaces() {
-		return render.Host(paths.Home(), nil, hostOwnership()).SidecarFileMode()
+// readOverlayValue decodes the overlay sidecar AT path, or nil. Path-taking for
+// readLastRenderKeys' reason: which store is the resolved target's answer, not this
+// reader's.
+func readOverlayValue(path string) any {
+	if path == "" {
+		return nil
 	}
-	return render.Jail(paths.Home(), workspaceRoot(), nil).SidecarFileMode()
-}
-
-// readOverlayValue decodes a surface's overlay sidecar, or nil.
-func readOverlayValue(agent, name string) any {
-	data, err := os.ReadFile(prismOverlayPath(agent, name))
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
 	}
@@ -1066,16 +1062,22 @@ func sortedKeys(m *jsonx.OrderedMap) []string {
 //     as a layer (see the `stateful` arm of entrypoint.RenderHostPack). Feeding it back here
 //     would preserve exactly the keys the user asked to discard — reset as a no-op, which is
 //     the failure the truncation exists to prevent.
-func truncateSurfaceToPureRender(s manifest.Surface) ([]byte, error) {
-	path := expandHome(s.Path)
+func truncateSurfaceToPureRender(t configTarget, s manifest.Surface) ([]byte, error) {
+	path, ok := t.surfaceFile(s.Path)
+	if !ok {
+		// NOT RESOLVABLE AT THIS NOTCH (§4.1's last row). Never a fallback to the process
+		// home: host-side that is the invoking human's own dotfile, and truncating it is the
+		// class that put a jail's autonomy posture into a real home once.
+		return nil, nil
+	}
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	if hostOwnsSurfaces() {
-		return truncateHostSurfaceToPureRender(s, path)
+	if t.hostOwned() {
+		return truncateHostSurfaceToPureRender(t, s, path)
 	}
 	// Surface.HasHostLayer, not a table beside this file: the surfaces the boot render
 	// hands host bytes to are the ones whose HostSource is set, and re-rendering WITHOUT
@@ -1089,7 +1091,7 @@ func truncateSurfaceToPureRender(s manifest.Surface) ([]byte, error) {
 	// The jail notch's own Target does the ${workspace} substitution and the fold — the
 	// same render.Target.Compose the boot render calls, which is what makes "the pure
 	// render" one definition rather than this file's opinion of one.
-	sub, res, err := localTarget().Compose(s, render.Layers{HostBytes: hostBytes})
+	sub, res, err := t.composeTarget().Compose(s, render.Layers{HostBytes: hostBytes})
 	if err != nil {
 		return nil, err
 	}
@@ -1134,7 +1136,7 @@ func pureRenderText(s manifest.Surface, encoded []byte) []byte {
 // surface this lookup cannot find falls back to the one it was given — a pseudo-agent
 // "user" host_files slug, which declares no autonomy posture and so cannot carry the keys
 // this guards against.
-func truncateHostSurfaceToPureRender(s manifest.Surface, path string) ([]byte, error) {
+func truncateHostSurfaceToPureRender(t configTarget, s manifest.Surface, path string) ([]byte, error) {
 	if hs, ok := hostSurfaceManifest().Lookup(s.Agent, s.Name); ok {
 		s = hs
 	}
@@ -1143,7 +1145,7 @@ func truncateHostSurfaceToPureRender(s manifest.Surface, path string) ([]byte, e
 	// The two steps are the same pair entrypoint.RenderHostPack performs, in the same
 	// order, which is the whole reason PruneWorkspaceKeyed is exported.
 	sub, _ := entrypoint.PruneWorkspaceKeyed(s)
-	sub, res, err := render.Host(paths.Home(), nil, hostOwnership()).Compose(sub, render.Layers{})
+	sub, res, err := t.store.Compose(sub, render.Layers{})
 	if err != nil {
 		return nil, err
 	}
@@ -1170,15 +1172,15 @@ func truncateHostSurfaceToPureRender(s manifest.Surface, path string) ([]byte, e
 // re-render the surface, because re-rendering needs the computed layer, which is built
 // from jail paths (see renderSurface) — so a host-side re-render would write host paths
 // into the file. Capture needs none of that: it only compares what is there.
-func configCapture(args []string, out, errw io.Writer, color bool) int {
+func configCapture(t configTarget, args []string, out, errw io.Writer, color bool) int {
 	agent, surface, force, rc := surfaceArgs("capture", args, out, errw)
 	if rc >= 0 {
 		return rc
 	}
-	if refuseHostSideWrite("capture", force, errw) {
+	if refuseHostSideWrite(t, "capture", force, errw) {
 		return 1
 	}
-	surfaces := capturedSurfaces(agent, surface)
+	surfaces := capturedSurfaces(t, agent, surface)
 	if len(surfaces) == 0 {
 		fmt.Fprintf(errw, "yolo config capture: no capture surfaces for agent %q%s\n",
 			agent, surfaceSuffix(surface))
@@ -1187,7 +1189,7 @@ func configCapture(args []string, out, errw io.Writer, color bool) int {
 	pr := richtext.Printer{W: out, Color: color}
 	captured := 0
 	for _, s := range surfaces {
-		n, err := captureSurface(s)
+		n, err := captureSurface(t, s)
 		if err != nil {
 			fmt.Fprintf(errw, "yolo config capture: %s/%s: %v\n", s.Agent, s.Name, err)
 			return 1
@@ -1229,13 +1231,18 @@ type captureLocation struct {
 }
 
 // captureSurface folds one surface's on-disk state into its overlay, returning the
-// resulting overlay key count, or -1 when there is no baseline to diff against.
-// LOCAL resolution: the process home and the cwd's workspace.
-func captureSurface(s manifest.Surface) (int, error) {
+// resulting overlay key count, or -1 when there is no baseline to diff against. Every path
+// comes off the RESOLVED TARGET, which is what makes this and the diff that reports it read
+// one store.
+func captureSurface(t configTarget, s manifest.Surface) (int, error) {
+	path, ok := t.surfaceFile(s.Path)
+	if !ok {
+		return -1, nil // not resolvable at this notch: the same answer as "no baseline"
+	}
 	return captureSurfaceAt(s, captureLocation{
-		surface:    expandHome(s.Path),
-		lastRender: prismLastRenderPath(s.Agent, s.Name),
-		overlay:    prismOverlayPath(s.Agent, s.Name),
+		surface:    path,
+		lastRender: t.lastRenderPath(s.Agent, s.Name),
+		overlay:    t.overlayPath(s.Agent, s.Name),
 	})
 }
 

@@ -25,9 +25,9 @@ func localPackManifest(t *testing.T, home string) map[string]any {
 }
 
 // overlayKeysOf decodes a capture sidecar's top-level keys.
-func overlayKeysOf(t *testing.T, agent, name string) map[string]any {
+func overlayKeysOf(t *testing.T, w *promoteWorld, agent, name string) map[string]any {
 	t.Helper()
-	data, err := os.ReadFile(prismOverlayPath(agent, name))
+	data, err := os.ReadFile(w.sidecar(agent, name, ".overlay.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestPromoteDeclaresTheKeyLocallyAndClearsOnlyThatKey(t *testing.T) {
 		`{"model":"theirs"}`)
 	surfacePath := filepath.Join(w.home, ".claude", "settings.json")
 	writeFile(t, surfacePath, `{"model":"theirs","autoMemoryEnabled":true}`)
-	lastRenderBefore, err := os.ReadFile(prismLastRenderPath("claude", "settings"))
+	lastRenderBefore, err := os.ReadFile(w.sidecar("claude", "settings", ".last_render"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestPromoteDeclaresTheKeyLocallyAndClearsOnlyThatKey(t *testing.T) {
 		t.Errorf("the promoted VALUE did not land in the overlay body: %v", cfg)
 	}
 
-	overlay := overlayKeysOf(t, "claude", "settings")
+	overlay := overlayKeysOf(t, w, "claude", "settings")
 	if _, still := overlay["autoMemoryEnabled"]; still {
 		t.Errorf("the promoted key is STILL captured — declared and captured at once is the "+
 			"double declaration promotion exists to end: %v", overlay)
@@ -101,7 +101,7 @@ func TestPromoteDeclaresTheKeyLocallyAndClearsOnlyThatKey(t *testing.T) {
 		t.Errorf("an unpromoted captured key was reset too: %v", overlay)
 	}
 
-	lastRenderAfter, err := os.ReadFile(prismLastRenderPath("claude", "settings"))
+	lastRenderAfter, err := os.ReadFile(w.sidecar("claude", "settings", ".last_render"))
 	if err != nil {
 		t.Fatalf("promote removed the last_render sidecar: %v", err)
 	}

@@ -9,32 +9,96 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
-// withSidecarDir points the CLI's sidecar resolver at a temp dir. Without this
-// seam an in-jail test run would read — and `reset` would DELETE — the real
-// /workspace sidecars.
-func withSidecarDir(t *testing.T) string {
+// withSidecarDir mints a temp WORKSPACE, creates its capture store, and returns both the
+// config target a `yolo config` verb standing in that workspace resolves and the store's
+// directory.
+//
+// IT IS THE SEAM THE RETIRED PAIR WAS, collapsed into one. `prismSidecarDir` and
+// `surfacesAreLocal` were two independently stubbable predicates, and that is precisely how
+// the store and the home came to be resolvable independently
+// (docs/design/config-target-resolution.md §2.1): a test could pin one and leave the other
+// ambient. A test now constructs the whole ANSWER it means and hands it to the verb the way
+// configRunW does. Without the seam an in-jail `go test` would read — and `reset` would
+// DELETE — the real /workspace sidecars.
+//
+// HOST-SIDE by default (local=false), which is what a bare CI runner is: the write guard
+// refuses there, so a reset/capture happy path wants withLocalSidecarDir.
+func withSidecarDir(t *testing.T) (configTarget, string) {
 	t.Helper()
-	dir := t.TempDir()
-	orig := prismSidecarDir
-	prismSidecarDir = func() string { return dir }
-	t.Cleanup(func() { prismSidecarDir = orig })
-	return dir
+	return sidecarTarget(t, false)
 }
 
-// withLocalSurfaces pins surfacesAreLocal()==true for the duration of a test, so a
+// withLocalSidecarDir is withSidecarDir as the jail that OWNS the workspace sees it, so a
 // reset/capture happy path runs the in-jail-owner branch regardless of the ambient
-// environment. Without it these tests pass in a dev jail (YOLO_VERSION set,
-// /workspace mounted) but the Phase-0 guard refuses on a bare CI runner, where
-// neither holds — the classic passes-in-jail-fails-in-CI trap. Tests that model the
-// host-side branch (e.g. TestResetCaptureRefuseHostSideWithoutForce) must NOT call
-// this.
-func withLocalSurfaces(t *testing.T) {
+// environment. Without it these tests pass in a dev jail (YOLO_VERSION set, /workspace
+// mounted) and the Phase-0 guard refuses on a bare CI runner, where neither holds — the
+// classic passes-in-jail-fails-in-CI trap. Tests that model the host-side branch (e.g.
+// TestResetCaptureRefuseHostSideWithoutForce) must NOT call it.
+func withLocalSidecarDir(t *testing.T) (configTarget, string) {
 	t.Helper()
-	orig := surfacesAreLocal
-	surfacesAreLocal = func() bool { return true }
-	t.Cleanup(func() { surfacesAreLocal = orig })
+	return sidecarTarget(t, true)
+}
+
+// sidecarTarget builds the target through jailConfigTarget — the PRODUCTION constructor —
+// and overrides only the one ambient fact a bare runner cannot supply. Rebuilding the struct
+// by hand here would be a fixture free to disagree with the resolution it stands in for,
+// which is the shape this design exists to remove.
+func sidecarTarget(t *testing.T, local bool) (configTarget, string) {
+	t.Helper()
+	// EvalSymlinks where the path is MINTED: on darwin t.TempDir() hands back /var/folders/…,
+	// which IS a symlink to /private/var/folders/…, and this design compares resolved
+	// workspace paths. Resolving here rather than at each comparison is the fix the next
+	// comparison added cannot forget.
+	ws, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("resolve temp workspace: %v", err)
+	}
+	tgt := jailConfigTarget(ws, "the cwd")
+	tgt.local = local
+	dir := tgt.sidecarDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("create the capture store: %v", err)
+	}
+	return tgt, dir
+}
+
+// withWorkspaceCwd mints a temp workspace, MARKS it, chdirs into it, and creates its capture
+// store. It is the fixture for a test that drives configRunW, where the RESOLUTION is the
+// subject rather than an input.
+//
+// ⚠ NOT OPTIONAL for any test that reaches configRunW, and not hygiene. The resolution walks
+// the CWD, and this package's own directory sits under the live /workspace checkout, which
+// carries a yolo-jail.jsonc — so a `reset --force` driven through configRunW without this
+// resolves THIS session's own workspace and DELETES its real sidecars. That accident is
+// exactly what the retired prismSidecarDir seam existed to prevent, and handing a verb a
+// target no longer protects a test that lets configRunW resolve its own.
+func withWorkspaceCwd(t *testing.T) (ws, store string) {
+	t.Helper()
+	ws, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("resolve temp workspace: %v", err)
+	}
+	// The ruled marker: a workspace config file is enough, and a bare .yolo is not
+	// (docs/design/config-target-resolution.md [OQ-CR2]).
+	writeFile(t, filepath.Join(ws, config.WorkspaceConfigName), `{}`)
+	store = render.Jail(paths.Home(), ws, nil).SidecarDir()
+	if err := os.MkdirAll(store, 0o755); err != nil {
+		t.Fatalf("create the capture store: %v", err)
+	}
+	t.Chdir(ws)
+	return ws, store
+}
+
+// hostTargetForTest is what a directory resolving no workspace resolves: the invoking
+// process's own home, under whatever `host_management` it declares. Call it AFTER any
+// t.Setenv("HOME", …) — the contract and the store are read at construction, which is the
+// order the real resolution runs in.
+func hostTargetForTest() configTarget {
+	return hostConfigTarget("the cwd resolving no workspace")
 }
 
 // withScratchHome points $HOME at a temp dir for tests that RESET a surface.
@@ -74,11 +138,11 @@ func writeSidecar(t *testing.T, dir, agent, name, overlayJSON, lastRenderJSON st
 // overlay outranks every layer but `computed` and `managed` with no other user-facing
 // view. captureprecedence_test.go pins the footer's wording and that ceiling.
 func TestConfigLsListsSurfacesAndFlagsOverlay(t *testing.T) {
-	dir := withSidecarDir(t)
+	tgt, dir := withSidecarDir(t)
 	writeSidecar(t, dir, "claude", "settings", `{"theme":"dark","model":null}`, `{"theme":"light"}`)
 
 	var out, errw bytes.Buffer
-	if rc := configLs([]string{"--all"}, &out, &errw, false); rc != 0 {
+	if rc := configLs(tgt, []string{"--all"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("configLs rc=%d, stderr=%s", rc, errw.String())
 	}
 	got := out.String()
@@ -131,9 +195,9 @@ func TestConfigLsMarksUnrenderedSurface(t *testing.T) {
 // changed: ~/.claude.json IS rendered now (rmw, with its mcpServers table reconciled), so
 // the listing must not describe it as reserved.
 func TestConfigLsListsRenderedClaudeConfig(t *testing.T) {
-	withSidecarDir(t)
+	tgt, _ := withSidecarDir(t)
 	var out, errw bytes.Buffer
-	if rc := configLs([]string{"--all"}, &out, &errw, false); rc != 0 {
+	if rc := configLs(tgt, []string{"--all"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("rc=%d", rc)
 	}
 	for _, line := range strings.Split(out.String(), "\n") {
@@ -163,13 +227,13 @@ func TestConfigLsEveryBuiltinSurfaceHasAMode(t *testing.T) {
 // redundant capture (same value yolo last wrote) and from a deletion, because the
 // audit found most captured keys are noise.
 func TestConfigDiffShowsCapturedKeys(t *testing.T) {
-	dir := withSidecarDir(t)
+	tgt, dir := withSidecarDir(t)
 	writeSidecar(t, dir, "claude", "settings",
 		`{"theme":"dark","effortLevel":"xhigh","model":null,"added":1}`,
 		`{"theme":"light","effortLevel":"xhigh"}`)
 
 	var out, errw bytes.Buffer
-	if rc := configDiff([]string{"claude/settings"}, &out, &errw, false); rc != 0 {
+	if rc := configDiff(tgt, []string{"claude/settings"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("configDiff rc=%d, stderr=%s", rc, errw.String())
 	}
 	got := out.String()
@@ -188,11 +252,11 @@ func TestConfigDiffShowsCapturedKeys(t *testing.T) {
 // TestConfigDiffEmptyOverlayIsQuiet: an empty overlay is the normal state and must
 // not read as a problem.
 func TestConfigDiffEmptyOverlayIsQuiet(t *testing.T) {
-	dir := withSidecarDir(t)
+	tgt, dir := withSidecarDir(t)
 	writeSidecar(t, dir, "pi", "settings", `{}`, `{"theme":"dark"}`)
 
 	var out, errw bytes.Buffer
-	if rc := configDiff([]string{"pi"}, &out, &errw, false); rc != 0 {
+	if rc := configDiff(tgt, []string{"pi"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("rc=%d, stderr=%s", rc, errw.String())
 	}
 	if !strings.Contains(out.String(), "No captured in-jail edits") {
@@ -211,9 +275,8 @@ func TestConfigDiffEmptyOverlayIsQuiet(t *testing.T) {
 // a non-empty file is an ADOPTION, so the next render treated reset's own output as the user's
 // file and spent OQ-CO7's one-per-surface archive on a copy of it (§6.3.3, D1).
 func TestConfigResetDiscardsTheOverlayAndReSeedsTheBaseline(t *testing.T) {
-	withLocalSurfaces(t)
 	home := withScratchHome(t)
-	dir := withSidecarDir(t)
+	tgt, dir := withLocalSidecarDir(t)
 	writeSidecar(t, dir, "claude", "settings", `{"theme":"dark"}`, `{"theme":"light"}`)
 	writeSidecar(t, dir, "pi", "settings", `{"other":true}`, `{"other":false}`)
 	// The surface the edit lives in. Without a file there is nothing to truncate and nothing
@@ -222,7 +285,7 @@ func TestConfigResetDiscardsTheOverlayAndReSeedsTheBaseline(t *testing.T) {
 	writeFile(t, settings, `{"theme":"dark"}`)
 
 	var out, errw bytes.Buffer
-	if rc := configReset([]string{"claude/settings"}, &out, &errw, false); rc != 0 {
+	if rc := configReset(tgt, []string{"claude/settings"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("configReset rc=%d, stderr=%s", rc, errw.String())
 	}
 	if !strings.Contains(out.String(), "discarded 1 captured key") {
@@ -256,16 +319,15 @@ func TestConfigResetDiscardsTheOverlayAndReSeedsTheBaseline(t *testing.T) {
 // store — this surface has no file, so the first reset had no bytes to re-seed a baseline from
 // — and says so rather than reporting a discard it did not make.
 func TestConfigResetIsIdempotent(t *testing.T) {
-	withLocalSurfaces(t)
 	withScratchHome(t)
-	dir := withSidecarDir(t)
+	tgt, dir := withLocalSidecarDir(t)
 	writeSidecar(t, dir, "claude", "settings", `{"a":1}`, `{}`)
 	var out, errw bytes.Buffer
-	if rc := configReset([]string{"claude/settings"}, &out, &errw, false); rc != 0 {
+	if rc := configReset(tgt, []string{"claude/settings"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("first reset rc=%d", rc)
 	}
 	out.Reset()
-	if rc := configReset([]string{"claude/settings"}, &out, &errw, false); rc != 0 {
+	if rc := configReset(tgt, []string{"claude/settings"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("second reset rc=%d, stderr=%s", rc, errw.String())
 	}
 	if !strings.Contains(out.String(), "Nothing to reset") {
@@ -276,10 +338,10 @@ func TestConfigResetIsIdempotent(t *testing.T) {
 // TestConfigDiffResetRejectMissingAgent: both need an agent, and an agent with no
 // capture surfaces is an error rather than a silent success.
 func TestConfigDiffResetRejectMissingAgent(t *testing.T) {
-	withSidecarDir(t)
+	tgt, _ := withSidecarDir(t)
 	for _, fn := range []func([]string, *bytes.Buffer, *bytes.Buffer, bool) int{
-		func(a []string, o, e *bytes.Buffer, c bool) int { return configDiff(a, o, e, c) },
-		func(a []string, o, e *bytes.Buffer, c bool) int { return configReset(a, o, e, c) },
+		func(a []string, o, e *bytes.Buffer, c bool) int { return configDiff(tgt, a, o, e, c) },
+		func(a []string, o, e *bytes.Buffer, c bool) int { return configReset(tgt, a, o, e, c) },
 	} {
 		var out, errw bytes.Buffer
 		if rc := fn(nil, &out, &errw, false); rc != 2 {
@@ -297,13 +359,12 @@ func TestConfigDiffResetRejectMissingAgent(t *testing.T) {
 // an opaque slug, so `reset user` must discover its surfaces from the sidecar files
 // — which also lets it clean up after an entry the user has since removed.
 func TestConfigResetUserSurfacesFromSidecars(t *testing.T) {
-	withLocalSurfaces(t)
 	withScratchHome(t)
-	dir := withSidecarDir(t)
+	tgt, dir := withLocalSidecarDir(t)
 	writeSidecar(t, dir, "user", ".config_2fmytool_2fx.json", `{"k":"v"}`, `{}`)
 
 	var out, errw bytes.Buffer
-	if rc := configReset([]string{"user"}, &out, &errw, false); rc != 0 {
+	if rc := configReset(tgt, []string{"user"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("configReset user rc=%d, stderr=%s", rc, errw.String())
 	}
 	if _, err := os.Stat(filepath.Join(dir, "user-.config_2fmytool_2fx.json.overlay.json")); !os.IsNotExist(err) {
@@ -328,46 +389,49 @@ func TestUnslugHostFilePath(t *testing.T) {
 	}
 }
 
-// TestComposedFileExistsNeverClaimsAbsenceElsewhere is the regression for a bug the
-// nested-jail run caught: presence was checked against the PROCESS home, so a
-// host-side `config ls` reported every jail-rendered file as absent, and an in-jail
-// run for a DIFFERENT workspace (a nested jail, and every integration test) did the
-// same. Presence is only knowable when the surfaces are this jail's own.
-func TestComposedFileExistsNeverClaimsAbsenceElsewhere(t *testing.T) {
-	// Host-side (no YOLO_VERSION): must never claim absence.
-	t.Setenv("YOLO_VERSION", "")
-	if !composedFileExists("~/definitely-not-a-real-file-xyz") {
-		t.Error("host-side presence check claimed a jail file is absent")
+// TestSurfacePresenceNeverClaimsAbsenceElsewhere is the regression for a bug the nested-jail
+// run caught: presence was checked against the PROCESS home, so a host-side `config ls`
+// reported every jail-rendered file as absent, and an in-jail run for a DIFFERENT workspace
+// (a nested jail, and every integration test) did the same. Presence is only knowable when
+// the surfaces are this process's own.
+func TestSurfacePresenceNeverClaimsAbsenceElsewhere(t *testing.T) {
+	// Host-side: the target is not local, so it must never claim absence.
+	ws, _ := withSidecarDir(t)
+	if !ws.surfaceFileExists("~/definitely-not-a-real-file-xyz") {
+		t.Error("a non-local target's presence check claimed a jail file is absent")
 	}
-	// In-jail but resolved to a foreign workspace: same.
-	t.Setenv("YOLO_VERSION", "9.9.9")
-	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".yolo"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Chdir(dir)
-	if !composedFileExists("~/definitely-not-a-real-file-xyz") {
-		t.Error("in-jail-but-foreign-workspace check claimed a file is absent")
+	// A host target host-side is the same answer for the same reason: the surfaces it
+	// describes are the invoking user's, and yolo has not necessarily rendered them.
+	t.Setenv("HOME", t.TempDir())
+	if !hostTargetForTest().surfaceFileExists("~/definitely-not-a-real-file-xyz") {
+		t.Error("a host target's presence check claimed a file is absent")
 	}
 }
 
-// TestWorkspaceRootWalksUp: the sidecar dir must resolve from a SUBDIRECTORY of the
-// workspace (like git), and must not be hardcoded to /workspace — that shortcut
-// silently read another workspace's sidecars, and `reset` would have deleted them.
+// TestWorkspaceRootWalksUp: the target's workspace must resolve from a SUBDIRECTORY of the
+// workspace (like git), and must not be hardcoded to /workspace — that shortcut silently read
+// another workspace's sidecars, and `reset` would have deleted them.
+//
+// ⚠ THE FIXTURE IS A MARKER, NOT A `.yolo` DIRECTORY, and that is the ruled change: a bare
+// `.yolo/` matches `/home/agent` inside every jail, where it is the generated-script anchor
+// (docs/design/config-target-resolution.md [OQ-CR2]). This used to build the workspace as an
+// empty `.yolo/prism` and would now resolve nothing.
 func TestWorkspaceRootWalksUp(t *testing.T) {
-	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, ".yolo", "prism"), 0o755); err != nil {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
 		t.Fatal(err)
 	}
+	writeFile(t, filepath.Join(root, config.WorkspaceConfigName), `{}`)
 	sub := filepath.Join(root, "a", "b")
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(sub)
-	// EvalSymlinks: t.TempDir may hand back a symlinked path (/tmp -> /private/tmp).
-	want, _ := filepath.EvalSymlinks(root)
-	got, _ := filepath.EvalSymlinks(workspaceRoot())
-	if got != want {
-		t.Errorf("workspaceRoot() from a subdir = %q, want the workspace root %q", got, want)
+	got, ok := resolveWorkspaceRoot()
+	if !ok {
+		t.Fatalf("resolveWorkspaceRoot() from a subdir of %q found no workspace", root)
+	}
+	if got, _ = filepath.EvalSymlinks(got); got != root {
+		t.Errorf("resolveWorkspaceRoot() from a subdir = %q, want the workspace root %q", got, root)
 	}
 }

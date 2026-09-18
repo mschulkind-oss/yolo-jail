@@ -12,14 +12,21 @@ import (
 // promoteWorld is the host-side world one promotion runs in: a scratch HOME carrying a user
 // config, and a workspace whose prism sidecars hold the captures.
 //
+// THE CWD IS THE WORKSPACE, because `run` drives configRunW and the resolution walks the cwd
+// (docs/design/config-target-resolution.md §3). Pointing a stubbed resolver at the sidecars
+// while the process stood somewhere else is what the retired prismSidecarDir seam did; with
+// one resolved target the fixture has to BE the situation it models, and this one's workspace
+// carries the ruled marker rather than a bare `.yolo`.
+//
 // YOLO_VERSION is cleared deliberately — promote REFUSES in a jail, and the dev jail this
 // suite usually runs in would otherwise take that branch for every test. The refusal itself
 // is pinned separately (TestPromoteRefusesInsideAJail), which is what keeps clearing the
 // variable here from hiding it.
 type promoteWorld struct {
-	t    *testing.T
-	home string
-	ws   string
+	t     *testing.T
+	home  string
+	ws    string
+	store string
 }
 
 // newPromoteWorld builds the world with the given `packs` config value (raw JSON).
@@ -29,22 +36,22 @@ func newPromoteWorld(t *testing.T, packsJSON string) *promoteWorld {
 	t.Setenv("HOME", home)
 	t.Setenv("YOLO_VERSION", "")
 	t.Setenv("YOLO_USE_PROFILES", "")
-	ws := t.TempDir()
-	orig := prismSidecarDir
-	prismSidecarDir = func() string { return filepath.Join(ws, ".yolo", "prism") }
-	t.Cleanup(func() { prismSidecarDir = orig })
-	if err := os.MkdirAll(prismSidecarDir(), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
 		`{"packs":`+packsJSON+`}`)
-	return &promoteWorld{t: t, home: home, ws: ws}
+	ws, store := withWorkspaceCwd(t)
+	return &promoteWorld{t: t, home: home, ws: ws, store: store}
 }
 
 // capture seeds one surface's two sidecars.
 func (w *promoteWorld) capture(agent, name, overlayJSON, lastRender string) {
 	w.t.Helper()
-	writeSidecar(w.t, prismSidecarDir(), agent, name, overlayJSON, lastRender)
+	writeSidecar(w.t, w.store, agent, name, overlayJSON, lastRender)
+}
+
+// sidecar is one of this workspace's capture sidecars, by suffix. Joined off the store the
+// fixture created rather than re-resolved, so a test reads the file the verb wrote.
+func (w *promoteWorld) sidecar(agent, name, suffix string) string {
+	return filepath.Join(w.store, agent+"-"+name+suffix)
 }
 
 // pack writes a local pack directory with the given manifest and returns its file:// entry.
@@ -80,7 +87,7 @@ func dispositionOf(t *testing.T, report, key string) string {
 // overlayFor reads back a capture sidecar.
 func (w *promoteWorld) overlayFor(agent, name string) string {
 	w.t.Helper()
-	data, err := os.ReadFile(prismOverlayPath(agent, name))
+	data, err := os.ReadFile(w.sidecar(agent, name, ".overlay.json"))
 	if err != nil {
 		w.t.Fatal(err)
 	}
@@ -99,7 +106,11 @@ func (w *promoteWorld) overlayFor(agent, name string) string {
 func TestPromoteRefusesInsideAJail(t *testing.T) {
 	w := newPromoteWorld(t, `["claude"]`)
 	w.capture("claude", "settings", `{"model":"mine"}`, `{"model":"theirs"}`)
-	withLocalSurfaces(t) // surfacesAreLocal()==true: the jail that owns the workspace
+	// config.InJail() is the SECOND of refuseInJailPromote's two conditions, and the one a
+	// fixture can reach: the first asks whether this process is the jail that owns the
+	// workspace, which needs the container's own bind destination and is asserted directly
+	// by TestPromoteRefusesForTheOwningJailsTarget below.
+	t.Setenv("YOLO_VERSION", "9.9.9")
 
 	before := w.overlayFor("claude", "settings")
 	for _, args := range [][]string{{"claude"}, {"claude", "--plan"}, {"claude", "--accept-promotion"}} {

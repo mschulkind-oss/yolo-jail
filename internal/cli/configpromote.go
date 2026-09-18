@@ -247,19 +247,19 @@ func splitPromoteList(v string) []string {
 }
 
 // configPromote implements `yolo config promote`.
-func configPromote(args []string, out, errw io.Writer, color bool) int {
+func configPromote(t configTarget, args []string, out, errw io.Writer, color bool) int {
 	o, rc := parsePromoteArgs(args, out, errw)
 	if rc >= 0 {
 		return rc
 	}
-	if refuseInJailPromote(errw) {
+	if refuseInJailPromote(t, errw) {
 		return 1
 	}
 	dest, drc := resolvePromoteDest(o.dest, errw)
 	if drc != 0 {
 		return drc
 	}
-	plan, prc := buildPromotePlan(o, dest, errw)
+	plan, prc := buildPromotePlan(t, o, dest, errw)
 	if prc != 0 {
 		return prc
 	}
@@ -278,19 +278,24 @@ func configPromote(args []string, out, errw io.Writer, color bool) int {
 // refuses and prints the host command. The mirror image of refuseHostSideWrite, which
 // refuses host-side capture/reset and points into the jail.
 //
-// TWO CONDITIONS, and the second is not redundant. surfacesAreLocal() answers "is this the
+// TWO CONDITIONS, and the second is not redundant. The target's `local` answers "is this the
 // jail that owns the workspace", which is the mirror the design names — but it is FALSE in
 // a nested jail inspecting some other workspace, and that process still has a jail's
 // disposable home standing in for the host's config dir. config.InJail() closes that: a
 // promotion's destination is only meaningful in the home where the user's real
 // `~/.config/yolo-jail` lives, and no jail has one.
 //
+// BOTH CONDITIONS STAY under docs/design/config-target-resolution.md, which deliberately
+// does not retarget promote: host-side it reads the cwd's WORKSPACE store because lifting a
+// jail's captured keys into a pack is its whole job, and its destination is user scope,
+// which is not a notch.
+//
 // There is a jail-side REQUEST channel designed and deliberately unbuilt ([OQ-CO5]): the
 // transport is free (the host reads <workspace>/.yolo/ every launch), and what is not free
 // is the consent surface for a write an agent asked for and a human approves. Until it
 // exists the refusal names the command a human can run.
-func refuseInJailPromote(errw io.Writer) bool {
-	if !surfacesAreLocal() && !config.InJail() {
+func refuseInJailPromote(t configTarget, errw io.Writer) bool {
+	if !t.local && !config.InJail() {
 		return false
 	}
 	fmt.Fprintf(errw, "yolo config promote: refusing — promote is a HOST-side verb. Its "+
@@ -325,6 +330,12 @@ type promoteSurface struct {
 	// OverlayJSON is the capture sidecar's bytes, carried so the writer resets from the
 	// exact bytes the classification read (configpromotewrite.go's pre-image contract).
 	OverlayJSON []byte
+	// OverlayPath is the file those bytes came from, carried for the same contract: the
+	// writer must reset the sidecar the classification READ rather than re-resolve one. Two
+	// resolutions of one store is the defect docs/design/config-target-resolution.md removes
+	// — it is how `diff` and `reset` came to describe different stores (§2.3 F3) — and the
+	// write half of promote is the last place that could still grow it back.
+	OverlayPath string
 	Keys        []promoteKey
 	// Note is a caveat about what this classification could not see, or "".
 	Note string
@@ -353,7 +364,7 @@ func (k promoteKey) promotable() bool { return k.Disposition == promotionPromota
 // classify the rest, and check each survivor still wins at the destination. It writes
 // nothing. rc != 0 means a MISUSE the caller returns (a named key nothing captured, an
 // agent with no capture surfaces).
-func buildPromotePlan(o promoteOptions, dest promoteDest, errw io.Writer) (promotePlan, int) {
+func buildPromotePlan(t configTarget, o promoteOptions, dest promoteDest, errw io.Writer) (promotePlan, int) {
 	plan := promotePlan{Agent: o.agent, Dest: dest}
 	if o.agent == "user" {
 		// The `user` pseudo-agent's surfaces are host_files slugs, not surface IDENTITIES,
@@ -365,7 +376,7 @@ func buildPromotePlan(o promoteOptions, dest promoteDest, errw io.Writer) (promo
 			"a pack that owns a surface.\n")
 		return plan, 2
 	}
-	surfaces := capturedSurfaces(o.agent, o.surface)
+	surfaces := capturedSurfaces(t, o.agent, o.surface)
 	if len(surfaces) == 0 {
 		fmt.Fprintf(errw, "yolo config promote: no capture surfaces for agent %q%s%s\n",
 			o.agent, surfaceSuffix(o.surface), promoteNonCaptureHint(o.agent, o.surface))
@@ -380,7 +391,7 @@ func buildPromotePlan(o promoteOptions, dest promoteDest, errw io.Writer) (promo
 	}
 	seen := map[string]bool{}
 	for _, s := range surfaces {
-		ps := classifyPromoteSurface(s, o, dest, fold)
+		ps := classifyPromoteSurface(t, s, o, dest, fold)
 		for _, k := range ps.Keys {
 			seen[k.Key] = true
 		}
@@ -441,16 +452,17 @@ func promoteNonCaptureHint(agent, surface string) string {
 }
 
 // classifyPromoteSurface is §5.2 steps 1-4 for ONE surface.
-func classifyPromoteSurface(s manifest.Surface, o promoteOptions, dest promoteDest, fold promoteFold) promoteSurface {
+func classifyPromoteSurface(t configTarget, s manifest.Surface, o promoteOptions, dest promoteDest, fold promoteFold) promoteSurface {
 	ps := promoteSurface{Surface: s}
-	ps.OverlayJSON, _ = os.ReadFile(prismOverlayPath(s.Agent, s.Name))
+	ps.OverlayPath = t.wsOverlayPath(s.Agent, s.Name)
+	ps.OverlayJSON, _ = os.ReadFile(ps.OverlayPath)
 
 	// The DISPLAY reader (jsonx, key order and integer literals preserved) is the one the
 	// captured values are taken from, because those values are written back into a
 	// hand-readable pack.json — encoding/json would turn a port number into a float.
 	// agentcfg's own reader is used where the ENGINE's answer is wanted (dead keys).
-	overlay := readOverlayValue(s.Agent, s.Name)
-	states, isObject := overlayKeyStates(overlay, readLastRenderKeys(s))
+	overlay := readOverlayValue(ps.OverlayPath)
+	states, isObject := overlayKeyStates(overlay, readLastRenderKeys(t.wsLastRenderPath(s.Agent, s.Name), s))
 	if !isObject {
 		if !overlayIsEmpty(overlay) {
 			ps.Note = "keyless surface (" + s.Codec + "): the whole file is one captured " +

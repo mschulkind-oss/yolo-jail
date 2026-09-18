@@ -24,19 +24,29 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
-// withHostProvenanceDir points the host-record reader at a temp dir and returns it. Without
-// this seam the reader resolves against paths.Home(), so a test would read — and a future
-// writer could write — the invoking user's real state dir.
-func withHostProvenanceDir(t *testing.T) string {
+// withHostProvenanceDir returns the directory the host record reader resolves under the home
+// writeOverlayFixture just installed, creating it.
+//
+// IT IS NO LONGER A STUBBED PATH BUILDER. With one resolved target the record's location is
+// the TARGET's (render.Target.ProvenancePath, off the home its constructor was given), so the
+// seam is the HOME — which the fixture already points at a temp dir. A stubbable path builder
+// beside a stubbable notch predicate is exactly the pair
+// docs/design/config-target-resolution.md removed: a test could pin the record's location and
+// leave the notch ambient, which is how a reader came to report one notch's outcome as the
+// other's.
+func withHostProvenanceDir(t *testing.T, home string) string {
 	t.Helper()
-	dir := t.TempDir()
-	orig := hostProvenancePath
-	hostProvenancePath = func(agent, name string) string {
-		return filepath.Join(dir, agent+"-"+name+".provenance")
+	dir := render.Host(home, nil, render.OwnershipAssert).ProvenanceDir()
+	if dir == "" {
+		t.Fatal("render.Host(...).ProvenanceDir() is empty for a real home")
 	}
-	t.Cleanup(func() { hostProvenancePath = orig })
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	return dir
 }
 
@@ -49,33 +59,31 @@ func writeHostProvenance(t *testing.T, dir, agent, name, content string) {
 	}
 }
 
-// withHostSurfaces pins the HOST notch: surfacesAreLocal()==false is the host-side condition
-// (the process is not the jail that owns this workspace), which is what routes `config diff`
-// to the host record.
-func withHostSurfaces(t *testing.T) {
+// hostNotchTarget is the HOST target — what a directory resolving no workspace resolves, and
+// what routes `config diff` to the host record. It replaces a stub of the retired
+// surfacesAreLocal: the notch is now a FIELD of the one resolved answer, so a test states it
+// by constructing that answer rather than by pinning a predicate.
+func hostNotchTarget(t *testing.T) configTarget {
 	t.Helper()
-	orig := surfacesAreLocal
-	surfacesAreLocal = func() bool { return false }
-	t.Cleanup(func() { surfacesAreLocal = orig })
+	return hostTargetForTest()
 }
 
 // THE DEFECT, inverted: an overlay key with NO competing managed value must be reported as
 // won — and must NOT say "managed won".
 func TestConfigDiffHostNotchReportsTheMeasuredWinner(t *testing.T) {
-	writeOverlayFixture(t, map[string]string{
+	home := writeOverlayFixture(t, map[string]string{
 		"acme":     acmeOwnerPackJSON,
 		"acme-fzf": acmeFzfPackJSON,
 	})
-	withHostSurfaces(t)
-	withSidecarDir(t) // no JAIL record: this notch must not read one
-	dir := withHostProvenanceDir(t)
+	tgt := hostNotchTarget(t)
+	dir := withHostProvenanceDir(t, home)
 	// What `yolo host apply --assert` measured: the overlay won fileSuggestion (the owner does
 	// not declare that key at all), the owner's managed layer won telemetry.
 	writeHostProvenance(t, dir, "acme", "settings",
 		"fileSuggestion\tconfig-overlay:acme-fzf\ntelemetry\tmanaged\n")
 
 	var out, errw bytes.Buffer
-	if rc := configDiff([]string{"acme"}, &out, &errw, false); rc != 0 {
+	if rc := configDiff(tgt, []string{"acme"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("configDiff rc=%d, stderr=%s", rc, errw.String())
 	}
 	got := out.String()
@@ -100,16 +108,15 @@ func TestConfigDiffHostNotchReportsAGenuineLoss(t *testing.T) {
 	pushy := `{"name":"pushy","contributes":[
 	  {"kind":"config-overlay","surface":"acme/settings",
 	   "config":{"managed":{"telemetry":true}}}]}`
-	writeOverlayFixture(t, map[string]string{"acme": acmeOwnerPackJSON, "pushy": pushy})
-	withHostSurfaces(t)
-	withSidecarDir(t)
-	dir := withHostProvenanceDir(t)
+	home := writeOverlayFixture(t, map[string]string{"acme": acmeOwnerPackJSON, "pushy": pushy})
+	tgt := hostNotchTarget(t)
+	dir := withHostProvenanceDir(t, home)
 	// `telemetry` IS the owner's managed key, so the host render measured managed as the
 	// winner. This time "managed won" is the truth.
 	writeHostProvenance(t, dir, "acme", "settings", "telemetry\tmanaged\n")
 
 	var out, errw bytes.Buffer
-	if rc := configDiff([]string{"acme"}, &out, &errw, false); rc != 0 {
+	if rc := configDiff(tgt, []string{"acme"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("configDiff rc=%d, stderr=%s", rc, errw.String())
 	}
 	got := out.String()
@@ -122,16 +129,15 @@ func TestConfigDiffHostNotchReportsAGenuineLoss(t *testing.T) {
 // must not fall back to inferring, and it must not borrow the jail's message — the host
 // renders every surface, so "this mode keeps no record" is not the reason here.
 func TestConfigDiffHostNotchWithNoApplyYet(t *testing.T) {
-	writeOverlayFixture(t, map[string]string{
+	home := writeOverlayFixture(t, map[string]string{
 		"acme":     acmeOwnerPackJSON,
 		"acme-fzf": acmeFzfPackJSON,
 	})
-	withHostSurfaces(t)
-	withSidecarDir(t)
-	withHostProvenanceDir(t) // no record seeded
+	tgt := hostNotchTarget(t)
+	withHostProvenanceDir(t, home) // no record seeded
 
 	var out, errw bytes.Buffer
-	if rc := configDiff([]string{"acme"}, &out, &errw, false); rc != 0 {
+	if rc := configDiff(tgt, []string{"acme"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("configDiff rc=%d, stderr=%s", rc, errw.String())
 	}
 	got := out.String()
@@ -160,19 +166,19 @@ func TestConfigDiffHostNotchWithNoApplyYet(t *testing.T) {
 // into different homes, so reporting one as the other is the same class of wrong answer as
 // inferring — just sourced from a real file, which makes it more convincing and no more true.
 func TestConfigDiffHostNotchIgnoresTheJailSidecar(t *testing.T) {
-	writeOverlayFixture(t, map[string]string{
+	home := writeOverlayFixture(t, map[string]string{
 		"acme":     acmeOwnerPackJSON,
 		"acme-fzf": acmeFzfPackJSON,
 	})
-	withHostSurfaces(t)
-	jailDir := withSidecarDir(t)
-	withHostProvenanceDir(t) // the HOST record is absent
+	_, jailDir := withSidecarDir(t)
+	tgt := hostNotchTarget(t)
+	withHostProvenanceDir(t, home) // the HOST record is absent
 	// A jail record that says something the host's would not.
 	writeProvenanceSidecar(t, jailDir, "acme", "settings",
 		"fileSuggestion\tconfig-overlay:acme-fzf\n")
 
 	var out, errw bytes.Buffer
-	if rc := configDiff([]string{"acme"}, &out, &errw, false); rc != 0 {
+	if rc := configDiff(tgt, []string{"acme"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("configDiff rc=%d, stderr=%s", rc, errw.String())
 	}
 	if got := out.String(); strings.Contains(got, "set by acme-fzf") {
@@ -185,17 +191,16 @@ func TestConfigDiffHostNotchIgnoresTheJailSidecar(t *testing.T) {
 // absent would answer a measured question with "we do not know" — the mirror image of the
 // original defect.
 func TestConfigDiffHostNotchEmptyRecordIsNotUnmeasured(t *testing.T) {
-	writeOverlayFixture(t, map[string]string{
+	home := writeOverlayFixture(t, map[string]string{
 		"acme":     acmeOwnerPackJSON,
 		"acme-fzf": acmeFzfPackJSON,
 	})
-	withHostSurfaces(t)
-	withSidecarDir(t)
-	dir := withHostProvenanceDir(t)
+	tgt := hostNotchTarget(t)
+	dir := withHostProvenanceDir(t, home)
 	writeHostProvenance(t, dir, "acme", "settings", "") // rendered, nothing attributed
 
 	var out, errw bytes.Buffer
-	if rc := configDiff([]string{"acme"}, &out, &errw, false); rc != 0 {
+	if rc := configDiff(tgt, []string{"acme"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("configDiff rc=%d, stderr=%s", rc, errw.String())
 	}
 	got := out.String()

@@ -129,6 +129,17 @@ func runConfig(args []string) int {
 }
 
 // configRunW is the testable body: args is everything after `config`.
+//
+// THIS IS THE ONE RESOLUTION POINT (docs/design/config-target-resolution.md §3,
+// [P2](docs/design/config-target-resolution.md#1-the-verdict-and-the-principles-it-rests-on)).
+// The target is resolved here — after argv is parsed, because the selector is an input, and
+// before any verb's first read — DISCLOSED, and then handed to the verb. Nothing below
+// resolves a second time: two predicates resolved independently is how one report came to
+// describe two homes (§2.3 F1), and a verb free to resolve its own could grow that defect
+// back.
+//
+// The disclosure is printed for every VERB, and not above the usage text: help has no report
+// whose subject there is to disclose, and neither has an unknown subcommand.
 func configRunW(args []string, out, errw io.Writer) int {
 	if len(args) == 0 || isHelpToken(args[0]) {
 		// Bare `yolo config` and `yolo config --help` print help to stdout
@@ -136,25 +147,33 @@ func configRunW(args []string, out, errw io.Writer) int {
 		io.WriteString(out, configUsage+"\n")
 		return 0
 	}
-	switch args[0] {
+	verb := args[0]
+	t, refusal := resolveConfigTarget()
+	if refusal != "" {
+		fmt.Fprintf(errw, "yolo config %s: %s\n", verb, refusal)
+		return 1
+	}
+	fmt.Fprintln(errw, t.disclosure())
+	rest := args[1:]
+	switch verb {
 	case "render":
-		return configRender(args[1:], out, errw, colorForWriter(out))
+		return configRender(rest, out, errw, colorForWriter(out))
 	case "ls":
-		return configLs(args[1:], out, errw, colorForWriter(out))
+		return configLs(t, rest, out, errw, colorForWriter(out))
 	case "diff":
-		return configDiff(args[1:], out, errw, colorForWriter(out))
+		return configDiff(t, rest, out, errw, colorForWriter(out))
 	case "reset":
-		return configReset(args[1:], out, errw, colorForWriter(out))
+		return configReset(t, rest, out, errw, colorForWriter(out))
 	case "capture":
-		return configCapture(args[1:], out, errw, colorForWriter(out))
+		return configCapture(t, rest, out, errw, colorForWriter(out))
 	case "promote":
-		return configPromote(args[1:], out, errw, colorForWriter(out))
+		return configPromote(t, rest, out, errw, colorForWriter(out))
 	case "drift":
-		return configDrift(args[1:], out, errw, colorForWriter(out))
+		return configDrift(rest, out, errw, colorForWriter(out))
 	case "dump":
-		return configDump(args[1:], out, errw)
+		return configDump(rest, out, errw)
 	default:
-		fmt.Fprintf(errw, "yolo config: unknown subcommand %q\n\n%s\n", args[0], configUsage)
+		fmt.Fprintf(errw, "yolo config: unknown subcommand %q\n\n%s\n", verb, configUsage)
 		return 2
 	}
 }

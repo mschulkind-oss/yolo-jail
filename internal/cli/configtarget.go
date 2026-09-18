@@ -1,0 +1,486 @@
+package cli
+
+// configtarget.go resolves THE config target a `yolo config` invocation is about — one
+// answer, computed once, disclosed on every verb
+// (docs/design/config-target-resolution.md §3, §3.1).
+//
+// # What it replaced, and why the pair was the defect
+//
+// There used to be TWO predicates, resolved independently: `workspaceRoot()` picked the
+// capture store from the cwd, and `surfacesAreLocal()` picked the home — and therefore the
+// provenance record and the write guard — from `YOLO_VERSION`. They can disagree, so one
+// report could describe two homes: a host-side `yolo config diff claude` in a checkout
+// printed that jail's captured edits beside the INVOKING USER'S real home's provenance, as
+// two blocks of one report, with nothing in either naming a home (§2.3 F1). And because the
+// store was resolved a second time by `reset` through `render.Target` and a first time by
+// `diff` through the hand-joined twins, the shipped inspect-then-undo pair disagreed on an
+// owned host: `diff` reported no divergence and `reset` discarded an edit the user was never
+// shown (F3).
+//
+// The ruling keeps the INFERENCE and deletes the PAIR
+// ([OQ-CR1](docs/design/config-target-resolution.md#oq-cr1), (a), against its own leaning):
+// the cwd selects the TARGET — notch, workspace, store, home root and provenance all come
+// off it — and `--at` overrides. Choosing what a report is ABOUT is not the write-side hazard
+// `host-render-target.md` §6.6's *"the cwd selects nothing"* governs, and the cwd is the one
+// input that already names the jail a reader means by "this one".
+//
+// # The marker is an ARTIFACT, never a directory
+//
+// `.yolo/config-boot.json` OR a workspace config file
+// ([OQ-CR2](docs/design/config-target-resolution.md#oq-cr2)). A bare `.yolo/` cannot be the
+// test: `/home/agent/.yolo` exists in EVERY jail — it is the anchor for the generated
+// `bin/block` and `bin/launch` dirs — so `cd ~` used to describe a workspace at
+// `/home/agent` that has never existed. And the launch artifact cannot be the test alone,
+// because a freshly cloned repo carrying a committed `yolo-jail.jsonc` is a workspace before
+// its first launch — the directory the user is about to launch in, and the one they will run
+// `yolo config ls` in to see what they are about to get.
+//
+// A directory that resolves NEITHER gets the HOST target, under disclosure — not a refusal.
+// Outside a workspace the only home there is to describe is the host's, and standing there is
+// how the user says so. What the design removes is the CONFIDENT EMPTY ANSWER, and naming the
+// host target removes it exactly as well as an error does, with an answer instead. It is a
+// TARGET, NOT A PERMISSION: the write guard (refuseHostSideWrite, and the host contract it
+// consults) is untouched by anything in this file.
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
+)
+
+// configTarget is what one `yolo config` invocation resolves, once, before any verb runs:
+// which home the verb is about, which capture store describes it, and how that was decided.
+//
+// EVERY PATH READS THIS ONE ANSWER. That is what makes F1 and F3 unrepresentable rather than
+// fixed — there is no second predicate left to disagree with — so nothing outside this file
+// may resolve a store dir, a home root or a provenance path by hand
+// (§4.4: *"no verb resolves a home root or a store path by hand"*).
+type configTarget struct {
+	// notch is `jail` or `host`. `guest` is refused at the boundary (resolveConfigTarget),
+	// and `preview` is not a notch a report can be about.
+	notch render.Kind
+	// workspace is the jail being described, and is empty at the host notch.
+	workspace string
+	// chosenBy is the disclosure's second clause: what selected this target. A sentence
+	// fragment, not an enum — nothing decides on it.
+	chosenBy string
+	// ownership is the declared `host_management` contract, at the host notch only. It
+	// decides whether that notch keeps a capture store at all, which is why the store below
+	// is built from it rather than beside it.
+	ownership render.HostOwnership
+	// local reports whether THIS process's home is the target's home — the fact
+	// surfacesAreLocal() used to answer from `YOLO_VERSION` and a second workspace walk. It
+	// is what the write guard reads, and it is false at the host notch by construction: a
+	// `--at host` invocation inside a jail is about the jail's disposable home, and letting
+	// that count as local would let `reset` truncate it.
+	local bool
+	// store is the render.Target every capture sidecar comes off — resolved, never
+	// hand-joined ([OQ-CR3](docs/design/config-target-resolution.md#oq-cr3)). At the jail
+	// notch it is byte-identical to the retired prismSidecarDir; at the host notch it is ""
+	// unless the user declared `own`, which is the contract's decision and not a caller's.
+	store render.Target
+	// wsStore is the WORKSPACE store, which stays the subject of `promote` at every notch.
+	// Promote reads a jail's captured keys host-side BY DESIGN — that is its whole job — and
+	// its destination is user scope, which is not a notch, so it is deliberately not
+	// retargeted by this design. Unconstructed (and therefore storeless) at a host target,
+	// where there is no workspace to key on.
+	wsStore render.Target
+}
+
+// jailConfigTarget builds the target for a resolved workspace: that workspace's jail.
+func jailConfigTarget(workspace, chosenBy string) configTarget {
+	return configTarget{
+		notch:     render.KindJail,
+		workspace: workspace,
+		chosenBy:  chosenBy,
+		local:     processOwnsWorkspace(workspace),
+		store:     render.Jail(paths.Home(), workspace, nil),
+		wsStore:   render.Jail(paths.Home(), workspace, nil),
+	}
+}
+
+// hostConfigTarget builds the target for the invoking process's real home.
+//
+// The contract is read HERE and passed into the Target, rather than re-read by each store
+// query, so one invocation cannot describe two contracts — the same reason
+// render.Host takes ownership as a parameter instead of reading the user's config itself.
+func hostConfigTarget(chosenBy string) configTarget {
+	own := hostOwnership()
+	return configTarget{
+		notch:     render.KindHost,
+		chosenBy:  chosenBy,
+		ownership: own,
+		store:     render.Host(paths.Home(), nil, own),
+		// A bare render.Target, whose SidecarDir is "" by its own default arm — never a
+		// render.Jail with an empty workspace, which would join ".yolo/prism" against
+		// whatever directory the process happens to be sitting in.
+		wsStore: render.Target{},
+	}
+}
+
+// processOwnsWorkspace reports whether this process's home is the home of the jail launched
+// for workspace: in-jail AND for the workspace bind-mounted at the fixed destination.
+//
+// Deliberately NOT a package var any more. It was one half of the retired predicate pair, and
+// a stubbable predicate is how the store and the home came to be resolvable independently;
+// tests now construct the configTarget they mean, which is a seam on the whole answer rather
+// than on one of its inputs.
+func processOwnsWorkspace(workspace string) bool {
+	if os.Getenv("YOLO_VERSION") == "" {
+		return false // host-side
+	}
+	// In-jail the workspace is bind-mounted at the fixed dest; a resolved root anywhere else
+	// means we are inspecting some OTHER workspace's surfaces (a nested jail, and every
+	// integration test).
+	return workspace == containerWorkspace
+}
+
+// resolveConfigTarget is THE resolution point: the cwd selects the target.
+//
+// One call, at the top of the verb dispatch, before any verb's first read — which is what
+// [P2](docs/design/config-target-resolution.md#1-the-verdict-and-the-principles-it-rests-on)
+// ("one resolution per invocation") means in code. It returns a refusal STRING rather than an
+// error so the caller prints it verbatim: each one names what is missing, and per §4.2 none
+// of them may silently degrade to the other notch, because degrading is F1.
+func resolveConfigTarget() (configTarget, string) {
+	if ws, ok := resolveWorkspaceRoot(); ok {
+		return jailConfigTarget(ws, "the cwd"), ""
+	}
+	return hostConfigTarget("the cwd resolving no workspace"), ""
+}
+
+// resolveWorkspaceRoot is the marker walk: the cwd, walked upward to the nearest directory
+// carrying a workspace MARKER, with ok=false when there is none.
+//
+// Deliberately NOT hardcoded to the container workspace when in-jail. That shortcut is wrong
+// the moment the CLI runs from a DIFFERENT workspace than the one it is jailed for — exactly
+// what happens in a nested jail, and in the integration tests, where `yolo config ls` runs
+// against a temp workspace while /workspace is the outer checkout. It silently read the wrong
+// sidecars and `reset` would have deleted them (alternative B, rejected).
+//
+// THE WALK STILL STOPS AT A DIRECTORY THAT MAY NOT BE A WORKSPACE
+// (paths.WorkspaceScopeBreach: the home itself, or either of yolo's own two host dirs), and
+// the ruled marker does NOT make that stop redundant. The marker excludes a stray `.yolo`
+// anchor; the stop is the only thing that rejects a PRE-GUARD `~/.yolo/config-boot.json`,
+// which nothing can create any more (EnsureWorkspaceStateDir refuses) but which machines
+// already carry. Stopping rather than skipping and continuing upward: every ancestor of a
+// boundary root is itself one (a parent of the home CONTAINS the home), so there is nothing
+// above to find.
+func resolveWorkspaceRoot() (string, bool) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", false
+	}
+	for dir := wd; ; {
+		if paths.WorkspaceScopeBreach(dir) != nil {
+			break
+		}
+		if workspaceMarked(dir) {
+			return dir, true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return "", false
+}
+
+// workspaceRoot is `yolo apply --sealed`'s spelling: the resolved workspace, else the bare
+// cwd, which is the answer that verb has always been given.
+//
+// ⚠ IT IS DELIBERATELY NOT THE CONFIG TARGET, and that is an open question rather than a
+// choice this design made. `applySealed` reproduces F2 in a verb
+// docs/design/config-target-resolution.md never names — from a directory with no workspace it
+// resolves an empty store, finds nothing undeclared, and reports **"sealed"**, the confident
+// empty answer, in the one verb whose entire job is refusing on undeclared input. Whether it
+// takes the target or keeps the bare cwd is Blocker 3 of
+// docs/design/config-target-resolution-plan.md and is unruled, so this keeps its behaviour
+// byte-identical rather than letting the resolution decide it silently. `yolo config`'s own
+// verbs never call it.
+func workspaceRoot() string {
+	if ws, ok := resolveWorkspaceRoot(); ok {
+		return ws
+	}
+	if wd, err := os.Getwd(); err == nil {
+		return wd
+	}
+	return "."
+}
+
+// sealedWorkspaceStore is the ONE definition of the store `yolo apply --sealed` reads: the
+// render.Target for the CWD's workspace, whatever workspaceRoot resolved.
+//
+// It exists so the Blocker-3 path has a name rather than a hand-joined path at each call
+// site — the hazard docs/design/config-ownership-and-promotion.md §6.2 states as *"the
+// directory is RESOLVED, never hand-built"*. It is deliberately NOT the config target: see
+// workspaceRoot above for why that question is unruled.
+func sealedWorkspaceStore() render.Target {
+	return render.Jail(paths.Home(), workspaceRoot(), nil)
+}
+
+// workspaceMarked reports whether dir carries a workspace marker: the launch artifact
+// `.yolo/config-boot.json`, or any of the four workspace config file names.
+//
+// Either artifact is enough, and the four names are derived from config's own two constants
+// plus resolveWorkspaceConfigPath's `.jsonc`→`.json` fallback rather than spelled as four
+// literals here — the set has to be whatever config.LoadWorkspaceConfig would READ, or a
+// directory yolo will happily launch in fails to resolve.
+//
+// `config-boot.json` is a weaker signal than it looks, which is why it is not the only one:
+// it is written by a FRESH launch and never by an attach, and it is best-effort (a warning,
+// not a failure), so its absence does not even mean "never launched"
+// (config.WriteWorkspaceBootBaseline).
+//
+// Regular files only. A DIRECTORY named `yolo-jail.jsonc` is not a config, and neither is one
+// named `config-boot.json` — the whole reason the marker is an artifact rather than a
+// directory is that a directory's mere existence is what went wrong the first time.
+func workspaceMarked(dir string) bool {
+	if isRegularFile(config.WorkspaceConfigBootPath(dir)) {
+		return true
+	}
+	for _, name := range workspaceConfigNames() {
+		if isRegularFile(filepath.Join(dir, name)) {
+			return true
+		}
+	}
+	return false
+}
+
+// workspaceConfigNames is every file name config.LoadWorkspaceConfig reads, in its own
+// precedence order: the two base names and each one's `.json` fallback.
+func workspaceConfigNames() []string {
+	var names []string
+	for _, base := range []string{config.WorkspaceConfigName, config.WorkspaceLocalConfigName} {
+		names = append(names, base, strings.TrimSuffix(base, "c"))
+	}
+	return names
+}
+
+// isRegularFile reports whether path exists and is a plain file.
+func isRegularFile(path string) bool {
+	st, err := os.Stat(path)
+	return err == nil && st.Mode().IsRegular()
+}
+
+// --- what every verb reads off the one answer -------------------------------------------
+
+// sidecarDir is the capture store this invocation describes, or "" when the target keeps
+// none (a host home the user has not declared `own`).
+func (t configTarget) sidecarDir() string { return t.store.SidecarDir() }
+
+// overlayPath, lastRenderPath and provenancePath are one surface's records under THIS
+// target. All three come off the resolved store — the rule
+// docs/design/config-ownership-and-promotion.md §6.2 stated as *"the directory is RESOLVED,
+// never hand-built"* and that the readers then broke.
+func (t configTarget) overlayPath(agent, name string) string {
+	return t.store.OverlayPath(agent, name)
+}
+
+func (t configTarget) lastRenderPath(agent, name string) string {
+	return t.store.LastRenderPath(agent, name)
+}
+
+func (t configTarget) provenancePath(agent, name string) string {
+	return t.store.ProvenancePath(agent, name)
+}
+
+// sidecarFileMode is the mode a re-seeded sidecar is written with: the STORE'S own, 0600 in a
+// real home and 0644 in a workspace. Off the Target that decided where the store is, because
+// a hand-copied 0644 would put a host user's own config bytes, credentials included, in a
+// world-readable file.
+func (t configTarget) sidecarFileMode() os.FileMode { return t.store.SidecarFileMode() }
+
+// hostOwned reports whether this target's surfaces are ones yolo owns at the HOST notch —
+// i.e. a host target under `host_management: own`. It is what the reset guard and the reset
+// paths both read, so "which store does reset operate on" and "may reset run at all" cannot
+// answer differently.
+//
+// Spelled as *"does this target keep a capture store?"* rather than as a comparison against
+// the config value, so it is the same render.Target answer the WRITER acted on: a contract
+// that composes nothing keeps no store and gets no reset.
+func (t configTarget) hostOwned() bool {
+	return t.notch == render.KindHost && t.store.SidecarDir() != ""
+}
+
+// surfaceFile resolves a surface's declared path (`~/.claude/settings.json`) to the file THIS
+// target's home holds it at, with ok=false for a path this target cannot resolve.
+//
+// The PROCESS home, through the same render.Target.ExpandHome the boot render resolves "~"
+// with — which is right at a host target (whose home IS the process home) and in the jail
+// that owns the workspace. For a workspace target this process does NOT own it is the
+// invoking human's home rather than that jail's, which is why every write through it is
+// guarded (refuseHostSideWrite) instead of trusted.
+func (t configTarget) surfaceFile(surfacePath string) (string, bool) {
+	return expandHome(surfacePath), true
+}
+
+// surfaceFileExists reports whether this target's copy of a surface is present, DECLINING
+// to claim absence where the surfaces are not this process's own.
+//
+// A composed surface lives in the home of the jail the target's workspace launches, which is
+// the process home only when this process is that very jail. Two ways to get it wrong, both
+// observed:
+//
+//   - host-side, the process home is the developer's OWN dotfiles, so every file the jail did
+//     render reads as "absent" and a host dotfile the jail never wrote reads as "present";
+//   - in-jail but for a DIFFERENT workspace (a nested jail, and every integration test), the
+//     process home belongs to the outer jail while the surfaces belong to the inner one —
+//     same wrong answer.
+//
+// So it declines rather than printing a confidently wrong column. ⚠ Declining is not free:
+// `ls`'s existence filter stops applying, so a host-side listing prints rows for surfaces
+// that do not exist — the four-row inflation docs/design/config-target-resolution.md §2.3 F2
+// measures. Resolving a NON-LOCAL workspace target's own home is what removes the decline.
+func (t configTarget) surfaceFileExists(surfacePath string) bool {
+	if !t.local {
+		return true // unknowable here; never claim the file is missing
+	}
+	path, ok := t.surfaceFile(surfacePath)
+	if !ok {
+		return false
+	}
+	_, err := os.Lstat(path)
+	return err == nil
+}
+
+// composeTarget is the render.Target a `yolo config` verb COMPOSES at, as distinct from the
+// one it reads sidecars off. See localTarget: its "~" and its "${workspace}" answer to
+// different things, and collapsing the two either moves the store to /workspace/.yolo/prism
+// or previews host paths into a jail file.
+func (t configTarget) composeTarget() render.Target { return localTarget() }
+
+// wsOverlayPath is `promote`'s reader: the WORKSPACE store's overlay for one surface, or ""
+// at a host target. Promote is deliberately not retargeted by this design — host-side it
+// reads the cwd's workspace store because lifting a jail's captured keys into a pack is its
+// whole job — so it gets its own accessor rather than the target's store.
+func (t configTarget) wsOverlayPath(agent, name string) string {
+	return t.wsStore.OverlayPath(agent, name)
+}
+
+// wsLastRenderPath is wsOverlayPath's baseline twin, for the same reason.
+func (t configTarget) wsLastRenderPath(agent, name string) string {
+	return t.wsStore.LastRenderPath(agent, name)
+}
+
+// --- the three answers a store can give -------------------------------------------------
+
+// storeState is what a capture store can honestly say about itself. FOUR answers, not one,
+// and collapsing them is the failure
+// [P3](docs/design/config-target-resolution.md#1-the-verdict-and-the-principles-it-rests-on)
+// names: *"unknown is not empty"*. Today an absent store and an unreadable one both read as
+// no edits, stated with the same confidence as a real negative
+// (`os.ReadDir` error → nil, §4.2).
+type storeState int
+
+const (
+	// storeReadable: the store exists and was read. A negative from here is a measurement.
+	storeReadable storeState = iota
+	// storeNone: this target keeps no capture store BY CONTRACT — a host home the user has
+	// not declared `own`. Expected, and different from a store that should exist and does not.
+	storeNone
+	// storeAbsent: the store dir is not there, so nothing has ever rendered here. The state
+	// `capture` already reports ("never rendered here") and `diff` did not.
+	storeAbsent
+	// storeUnreadable: it is there and we could not read it (permissions). The third state,
+	// and the one that currently reads as empty.
+	storeUnreadable
+)
+
+// storeState reports which of the four this target's store is in, with the underlying error
+// for the unreadable case.
+//
+// It opens and reads ONE name rather than stat-ing: a directory can be stat-able and still
+// refuse to be listed (0600 on a directory lists nothing while `ls` shows the names —
+// render.Target.SidecarDirMode's ⚠ measures exactly that), which is the permission case this
+// distinguishes.
+func (t configTarget) storeState() (storeState, error) {
+	dir := t.sidecarDir()
+	if dir == "" {
+		return storeNone, nil
+	}
+	f, err := os.Open(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return storeAbsent, nil
+		}
+		return storeUnreadable, err
+	}
+	defer f.Close()
+	if _, err := f.Readdirnames(1); err != nil && !errors.Is(err, io.EOF) {
+		return storeUnreadable, err
+	}
+	return storeReadable, nil
+}
+
+// noCaptureReason is the sentence a verb prints when it found no captured edits and the store
+// is not simply empty — or "" when a plain negative is the honest answer.
+func (t configTarget) noCaptureReason(state storeState) string {
+	switch state {
+	case storeAbsent:
+		return "never rendered here — nothing has written " + t.sidecarDir()
+	case storeNone:
+		return "this target keeps no capture store (host_management: " + t.ownership.String() +
+			"), so there is nothing to have captured"
+	default:
+		return ""
+	}
+}
+
+// --- the disclosure ----------------------------------------------------------------------
+
+// disclosure is the one line every `yolo config` verb prints before its report
+// ([OQ-CR5](docs/design/config-target-resolution.md#oq-cr5): unconditional, on every
+// invocation, always). It matches the shape a launch already uses for
+// `Flake source: <path> (<what selected it>)`: what this is about, then what chose it.
+//
+// UNCONDITIONAL, AND THAT IS THE RULING. Not "only when surprising" — *surprising* is a
+// judgement the reader cannot check, so the line's ABSENCE would carry information they have
+// no way to decode, and a disclosure you have to know the rules to notice the lack of is not
+// a disclosure ([P4](docs/reference/report-tiers.md#principles): compression is allowed,
+// suppression is not).
+//
+// ⚠ IT GOES TO STDERR, and the design's transcripts do not say so because a terminal
+// conflates the two streams. `yolo config dump` emits canonical JSON on stdout and
+// `yolo config promote --format json` emits a document, so a prose line on stdout would make
+// this design break every machine consumer of those two verbs — which report-tiers.md's own
+// *"exit 2, stdout empty"* rule for the JSON postures exists to prevent. Routing is not
+// suppression: the line is emitted on every invocation either way.
+func (t configTarget) disclosure() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Surfaces: %s — %s notch, from %s", t.describeHome(), t.notch, t.chosenBy)
+	if t.notch == render.KindHost {
+		fmt.Fprintf(&b, " · host_management: %s", t.ownership)
+	}
+	if dir := t.sidecarDir(); dir != "" {
+		fmt.Fprintf(&b, " · store %s", dir)
+	} else {
+		b.WriteString(" · no capture store at this target")
+	}
+	return b.String()
+}
+
+// describeHome names what the report is about: the workspace at a jail target, the home at a
+// host one. The workspace rather than <workspace>/.yolo/home, because the workspace is the
+// name a reader means by "this jail" and the home overlay is an implementation of it.
+func (t configTarget) describeHome() string {
+	if t.notch == render.KindJail {
+		return t.workspace
+	}
+	return paths.Home()
+}
+
+// notResolvableHere is the sentence a verb prints for a surface this target cannot resolve —
+// §4.1's last row. It names the notch, because the same surface is resolvable at another one.
+func (t configTarget) notResolvableHere(s manifest.Surface) string {
+	return fmt.Sprintf("%s/%s (%s) is not resolvable at the %s notch", s.Agent, s.Name, s.Path, t.notch)
+}

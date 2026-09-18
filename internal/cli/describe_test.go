@@ -309,7 +309,9 @@ func TestApplyVerbRouting(t *testing.T) {
 func TestApplySealedClosure(t *testing.T) {
 	home, repo := withHomeAndCwd(t)
 	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{"packs":["claude"]}`)
-	// A .yolo dir so workspaceRoot() anchors on this repo.
+	// The yolo-jail.jsonc above is already the marker workspaceRoot() anchors on
+	// (docs/design/config-target-resolution.md [OQ-CR2]); the .yolo dir is kept because
+	// applySealed's first refusal reads a file beside it.
 	writeFile(t, filepath.Join(repo, ".yolo", "keep"), "x")
 	// The host-ownership contract, DECLARED — otherwise the third refusal fires and this
 	// test can no longer tell its own two refusals apart (see
@@ -348,7 +350,7 @@ func TestApplySealedClosure(t *testing.T) {
 	if !ok {
 		t.Fatal("missing claude/settings")
 	}
-	writeFile(t, prismOverlayPath(s.Agent, s.Name), `{"myEdit":"present"}`)
+	writeFile(t, sealedWorkspaceStore().OverlayPath(s.Agent, s.Name), `{"myEdit":"present"}`)
 	out.Reset()
 	errw.Reset()
 	if rc := applyMain([]string{"--sealed"}, &out, &errw, false, nil); rc != 1 {
@@ -365,7 +367,7 @@ func TestApplySealedClosure(t *testing.T) {
 
 	// An EMPTY overlay is not an outstanding edit: the sidecar exists (capture ran and
 	// found nothing), so its mere presence must not refuse.
-	writeFile(t, prismOverlayPath(s.Agent, s.Name), `{}`)
+	writeFile(t, sealedWorkspaceStore().OverlayPath(s.Agent, s.Name), `{}`)
 	out.Reset()
 	errw.Reset()
 	if rc := applyMain([]string{"--sealed"}, &out, &errw, false, nil); rc != 0 {

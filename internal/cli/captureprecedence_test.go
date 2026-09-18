@@ -61,11 +61,11 @@ func assertCaptureCeiling(t *testing.T, command, got string) {
 // NOT beat, by the spelling the LAYERS column above it uses, so the reader can tell which
 // of their own surfaces the warning actually applies to.
 func TestConfigLsStatesTheCaptureCeiling(t *testing.T) {
-	dir := withSidecarDir(t)
+	tgt, dir := withSidecarDir(t)
 	writeSidecar(t, dir, "claude", "settings", `{"theme":"dark"}`, `{"theme":"light"}`)
 
 	var out, errw bytes.Buffer
-	if rc := configLs([]string{"--all"}, &out, &errw, false); rc != 0 {
+	if rc := configLs(tgt, []string{"--all"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("configLs rc=%d, stderr=%s", rc, errw.String())
 	}
 	assertCaptureCeiling(t, "yolo config ls", out.String())
@@ -74,11 +74,11 @@ func TestConfigLsStatesTheCaptureCeiling(t *testing.T) {
 // TestConfigDiffStatesTheCaptureCeiling: the same clause closes the diff, where the user
 // is looking at the captured values themselves.
 func TestConfigDiffStatesTheCaptureCeiling(t *testing.T) {
-	dir := withSidecarDir(t)
+	tgt, dir := withSidecarDir(t)
 	writeSidecar(t, dir, "claude", "settings", `{"theme":"dark"}`, `{"theme":"light"}`)
 
 	var out, errw bytes.Buffer
-	if rc := configDiff([]string{"claude/settings"}, &out, &errw, false); rc != 0 {
+	if rc := configDiff(tgt, []string{"claude/settings"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("configDiff rc=%d, stderr=%s", rc, errw.String())
 	}
 	assertCaptureCeiling(t, "yolo config diff", out.String())
@@ -103,7 +103,7 @@ func TestApplySealedStatesTheCaptureCeiling(t *testing.T) {
 	if !ok {
 		t.Fatal("missing claude/settings")
 	}
-	writeFile(t, prismOverlayPath(s.Agent, s.Name), `{"myEdit":"present"}`)
+	writeFile(t, sealedWorkspaceStore().OverlayPath(s.Agent, s.Name), `{"myEdit":"present"}`)
 
 	var out, errw bytes.Buffer
 	if rc := applyMain([]string{"--sealed"}, &out, &errw, false, nil); rc != 1 {

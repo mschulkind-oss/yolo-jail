@@ -26,17 +26,16 @@ import (
 // THE READER, at the host notch: the retired key is listed, the layer that last claimed it is
 // named, and nothing claims the key is still being set.
 func TestConfigDiffReportsARetiredKeyAndNamesTheOwner(t *testing.T) {
-	writeOverlayFixture(t, map[string]string{"acme": acmeOwnerPackJSON})
-	withHostSurfaces(t)
-	withSidecarDir(t)
-	dir := withHostProvenanceDir(t)
+	home := writeOverlayFixture(t, map[string]string{"acme": acmeOwnerPackJSON})
+	tgt := hostNotchTarget(t)
+	dir := withHostProvenanceDir(t, home)
 	// What an apply AFTER the drop measured: `dropme` is gone from `packs`, so nothing declares
 	// fileSuggestion — but the key is in the file and yolo is the one that put it there.
 	writeHostProvenance(t, dir, "acme", "settings",
 		"fileSuggestion\tretired:config-overlay:dropme\ntelemetry\tmanaged\n")
 
 	var out, errw bytes.Buffer
-	if rc := configDiff([]string{"acme"}, &out, &errw, false); rc != 0 {
+	if rc := configDiff(tgt, []string{"acme"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("configDiff rc=%d, stderr=%s", rc, errw.String())
 	}
 	got := out.String()
@@ -69,14 +68,13 @@ func TestConfigDiffReportsARetiredKeyAndNamesTheOwner(t *testing.T) {
 // reporting.
 func TestConfigDiffReachesASurfaceWithOnlyRetiredKeys(t *testing.T) {
 	// ONLY the owner is configured — no contributor pack at all.
-	writeOverlayFixture(t, map[string]string{"acme": acmeOwnerPackJSON})
-	withHostSurfaces(t)
-	withSidecarDir(t)
-	dir := withHostProvenanceDir(t)
+	home := writeOverlayFixture(t, map[string]string{"acme": acmeOwnerPackJSON})
+	tgt := hostNotchTarget(t)
+	dir := withHostProvenanceDir(t, home)
 	writeHostProvenance(t, dir, "acme", "settings", "fileSuggestion\tretired:config-overlay:gone\n")
 
 	var out, errw bytes.Buffer
-	if rc := configDiff([]string{"acme"}, &out, &errw, false); rc != 0 {
+	if rc := configDiff(tgt, []string{"acme"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("configDiff rc=%d, stderr=%s", rc, errw.String())
 	}
 	got := out.String()
@@ -103,18 +101,17 @@ func TestConfigDiffReachesASurfaceWithOnlyRetiredKeys(t *testing.T) {
 // vocabulary. Neither may absorb the other: the live one has a winner and a precedence rule,
 // the retired one has neither.
 func TestConfigDiffReportsLiveAndRetiredKeysTogether(t *testing.T) {
-	writeOverlayFixture(t, map[string]string{
+	home := writeOverlayFixture(t, map[string]string{
 		"acme":     acmeOwnerPackJSON,
 		"acme-fzf": acmeFzfPackJSON,
 	})
-	withHostSurfaces(t)
-	withSidecarDir(t)
-	dir := withHostProvenanceDir(t)
+	tgt := hostNotchTarget(t)
+	dir := withHostProvenanceDir(t, home)
 	writeHostProvenance(t, dir, "acme", "settings",
 		"fileSuggestion\tconfig-overlay:acme-fzf\nlegacyKey\tretired:config-overlay:dropme\n")
 
 	var out, errw bytes.Buffer
-	if rc := configDiff([]string{"acme"}, &out, &errw, false); rc != 0 {
+	if rc := configDiff(tgt, []string{"acme"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("configDiff rc=%d, stderr=%s", rc, errw.String())
 	}
 	got := out.String()
@@ -137,18 +134,17 @@ func TestConfigDiffReportsLiveAndRetiredKeysTogether(t *testing.T) {
 // point of the writer's fix is that these two states stay distinguishable — a reader that
 // blurred them would undo it from the other end.
 func TestConfigDiffDoesNotReportPlainHostKeysAsRetired(t *testing.T) {
-	writeOverlayFixture(t, map[string]string{
+	home := writeOverlayFixture(t, map[string]string{
 		"acme":     acmeOwnerPackJSON,
 		"acme-fzf": acmeFzfPackJSON,
 	})
-	withHostSurfaces(t)
-	withSidecarDir(t)
-	dir := withHostProvenanceDir(t)
+	tgt := hostNotchTarget(t)
+	dir := withHostProvenanceDir(t, home)
 	writeHostProvenance(t, dir, "acme", "settings",
 		"fileSuggestion\tconfig-overlay:acme-fzf\nuserOwned\thost\n")
 
 	var out, errw bytes.Buffer
-	if rc := configDiff([]string{"acme"}, &out, &errw, false); rc != 0 {
+	if rc := configDiff(tgt, []string{"acme"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("configDiff rc=%d, stderr=%s", rc, errw.String())
 	}
 	got := out.String()
@@ -165,18 +161,17 @@ func TestConfigDiffDoesNotReportPlainHostKeysAsRetired(t *testing.T) {
 // behind it is not a retirement — the same closed-vocabulary rule the writer applies, so a
 // truncated record cannot make the reader announce an orphan that does not exist.
 func TestConfigDiffIgnoresATruncatedRetiredLabel(t *testing.T) {
-	writeOverlayFixture(t, map[string]string{
+	home := writeOverlayFixture(t, map[string]string{
 		"acme":     acmeOwnerPackJSON,
 		"acme-fzf": acmeFzfPackJSON,
 	})
-	withHostSurfaces(t)
-	withSidecarDir(t)
-	dir := withHostProvenanceDir(t)
+	tgt := hostNotchTarget(t)
+	dir := withHostProvenanceDir(t, home)
 	writeHostProvenance(t, dir, "acme", "settings",
 		"fileSuggestion\tconfig-overlay:acme-fzf\nmangled\tretired:\n")
 
 	var out, errw bytes.Buffer
-	if rc := configDiff([]string{"acme"}, &out, &errw, false); rc != 0 {
+	if rc := configDiff(tgt, []string{"acme"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("configDiff rc=%d, stderr=%s", rc, errw.String())
 	}
 	got := out.String()

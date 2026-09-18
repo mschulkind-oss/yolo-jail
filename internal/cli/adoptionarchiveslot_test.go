@@ -75,7 +75,7 @@ func TestResetDoesNotSpendTheAdoptionArchiveOnYolosOwnOutput(t *testing.T) {
 	}
 
 	var out, errw bytes.Buffer
-	if rc := configReset([]string{"claude/settings"}, &out, &errw, false); rc != 0 {
+	if rc := configReset(hostTargetForTest(), []string{"claude/settings"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("reset rc=%d\n%s%s", rc, out.String(), errw.String())
 	}
 

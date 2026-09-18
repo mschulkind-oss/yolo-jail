@@ -18,13 +18,14 @@ import (
 // This test pins the CODE side of that claim so the doc cannot drift back: reset
 // must not consider a non-capture surface.
 func TestResetOnlyCoversCaptureSurfaces(t *testing.T) {
-	for _, s := range capturedSurfaces("claude", "") {
+	tgt, _ := withSidecarDir(t)
+	for _, s := range capturedSurfaces(tgt, "claude", "") {
 		if surfaceMode(s) != "capture" {
 			t.Errorf("reset considered non-capture surface %s/%s", s.Agent, s.Name)
 		}
 	}
 	// claude/config is unrendered, so reset must never pick it up.
-	for _, s := range capturedSurfaces("claude", "config") {
+	for _, s := range capturedSurfaces(tgt, "claude", "config") {
 		t.Errorf("reset must not cover the unrendered claude/config: got %s/%s", s.Agent, s.Name)
 	}
 }
@@ -56,7 +57,8 @@ func TestResetTruncatesSurfaceSoAdoptionFindsNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	written, err := truncateSurfaceToPureRender(s)
+	tgt, _ := withLocalSidecarDir(t)
+	written, err := truncateSurfaceToPureRender(tgt, s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +88,8 @@ func TestResetTruncationLeavesAbsentFileAbsent(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	s, _ := surfaceManifest().Lookup("copilot", "config")
-	baseline, err := truncateSurfaceToPureRender(s)
+	tgt, _ := withLocalSidecarDir(t)
+	baseline, err := truncateSurfaceToPureRender(tgt, s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,39 +115,33 @@ func TestResetTruncationLeavesAbsentFileAbsent(t *testing.T) {
 func TestConfigCaptureFoldsCurrentEditsImmediately(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	ws := t.TempDir()
-	prev := prismSidecarDir
-	prismSidecarDir = func() string { return filepath.Join(ws, ".yolo", "prism") }
-	t.Cleanup(func() { prismSidecarDir = prev })
+	tgt, _ := withLocalSidecarDir(t)
 
 	s, ok := surfaceManifest().Lookup("claude", "settings")
 	if !ok {
 		t.Fatal("missing claude/settings")
 	}
 	// Seed a baseline (what yolo "last rendered") and an edited surface.
-	if err := os.MkdirAll(filepath.Join(ws, ".yolo", "prism"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	path := expandHome(s.Path)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	baseline := `{"model":"base"}`
-	if err := os.WriteFile(prismLastRenderPath("claude", "settings"), []byte(baseline), 0o644); err != nil {
+	if err := os.WriteFile(tgt.lastRenderPath("claude", "settings"), []byte(baseline), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, []byte(`{"model":"base","myEdit":"present"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	n, err := captureSurface(s)
+	n, err := captureSurface(tgt, s)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if n <= 0 {
 		t.Fatalf("captureSurface recorded %d keys, want at least 1", n)
 	}
-	data, err := os.ReadFile(prismOverlayPath("claude", "settings"))
+	data, err := os.ReadFile(tgt.overlayPath("claude", "settings"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,10 +156,7 @@ func TestConfigCaptureFoldsCurrentEditsImmediately(t *testing.T) {
 func TestConfigCaptureWithNoBaselineIsANoOp(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	ws := t.TempDir()
-	prev := prismSidecarDir
-	prismSidecarDir = func() string { return filepath.Join(ws, ".yolo", "prism") }
-	t.Cleanup(func() { prismSidecarDir = prev })
+	tgt, _ := withLocalSidecarDir(t)
 
 	s, _ := surfaceManifest().Lookup("claude", "settings")
 	path := expandHome(s.Path)
@@ -172,7 +166,7 @@ func TestConfigCaptureWithNoBaselineIsANoOp(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"model":"x"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	n, err := captureSurface(s)
+	n, err := captureSurface(tgt, s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,11 +178,15 @@ func TestConfigCaptureWithNoBaselineIsANoOp(t *testing.T) {
 // Phase-0 data-loss guard: host-side (surfaces resolve against a REAL home, not a
 // jail's), `reset`/`capture` must REFUSE by default and only proceed with --force —
 // so a stray host-side invocation cannot truncate a real dotfile or copy host config
-// into a workspace. surfacesAreLocal() is false when YOLO_VERSION is unset, which is
-// exactly the host-side condition.
+// into a workspace. The resolved target's `local` is false when YOLO_VERSION is unset,
+// which is exactly the host-side condition.
+//
+// It drives configRunW, so the RESOLUTION runs for real and the cwd has to be a scratch
+// workspace — see withWorkspaceCwd's ⚠ for what a `--force` reset would otherwise delete.
 func TestResetCaptureRefuseHostSideWithoutForce(t *testing.T) {
-	t.Setenv("YOLO_VERSION", "") // force the host-side branch (surfacesAreLocal()==false)
-	dir := withSidecarDir(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("YOLO_VERSION", "") // force the host-side branch (the target is not local)
+	_, dir := withWorkspaceCwd(t)
 	writeSidecar(t, dir, "claude", "settings", `{"theme":"dark"}`, `{"theme":"light"}`)
 
 	for _, cmd := range []string{"reset", "capture"} {
@@ -225,24 +223,18 @@ func TestResetCaptureRefuseHostSideWithoutForce(t *testing.T) {
 func diffFixture(t *testing.T, agent, name, lastRender, overlayJSON string) string {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
-	ws := t.TempDir()
-	prev := prismSidecarDir
-	prismSidecarDir = func() string { return filepath.Join(ws, ".yolo", "prism") }
-	t.Cleanup(func() { prismSidecarDir = prev })
-	if err := os.MkdirAll(prismSidecarDir(), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if len(capturedSurfaces(agent, name)) == 0 {
+	tgt, _ := withSidecarDir(t)
+	if len(capturedSurfaces(tgt, agent, name)) == 0 {
 		t.Fatalf("%s/%s is not a capture surface, so the fixture proves nothing", agent, name)
 	}
-	if err := os.WriteFile(prismLastRenderPath(agent, name), []byte(lastRender), 0o644); err != nil {
+	if err := os.WriteFile(tgt.lastRenderPath(agent, name), []byte(lastRender), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(prismOverlayPath(agent, name), []byte(overlayJSON), 0o644); err != nil {
+	if err := os.WriteFile(tgt.overlayPath(agent, name), []byte(overlayJSON), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if rc := configDiff([]string{agent + "/" + name}, &out, io.Discard, false); rc != 0 {
+	if rc := configDiff(tgt, []string{agent + "/" + name}, &out, io.Discard, false); rc != 0 {
 		t.Fatalf("config diff %s rc=%d\n%s", agent, rc, out.String())
 	}
 	return out.String()

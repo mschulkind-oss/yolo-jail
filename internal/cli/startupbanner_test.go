@@ -150,14 +150,18 @@ func TestMachineReadableStdoutIsByteIdenticalThroughDispatch(t *testing.T) {
 			direct: func(out, _ io.Writer) int { return configRefRun(out, false) },
 		},
 		{
-			name:   "config dump",
-			argv:   []string{"config", "dump"},
-			direct: func(out, errw io.Writer) int { return configDump(nil, out, errw) },
+			name: "config dump",
+			argv: []string{"config", "dump"},
+			// THROUGH configRunW, not configDump: `yolo config` resolves and DISCLOSES its
+			// target for every verb (docs/design/config-target-resolution.md [OQ-CR5]), and
+			// that line is the command's own stderr rather than something dispatch adds.
+			// Calling the verb body directly would compare a pipeline against half of it.
+			direct: func(out, errw io.Writer) int { return configRunW([]string{"dump"}, out, errw) },
 		},
 		{
 			name:   "config drift",
 			argv:   []string{"config", "drift"},
-			direct: func(out, errw io.Writer) int { return configDrift(nil, out, errw, false) },
+			direct: func(out, errw io.Writer) int { return configRunW([]string{"drift"}, out, errw) },
 		},
 		{
 			name:   "describe --json",

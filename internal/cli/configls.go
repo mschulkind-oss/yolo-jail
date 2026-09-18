@@ -30,15 +30,12 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
@@ -92,13 +89,18 @@ func surfaceMode(s manifest.Surface) string {
 
 // configLs implements `yolo config ls [--all]`.
 //
-// In-jail, only surfaces whose destination EXISTS are listed by default: the
-// builtin manifest declares every agent's surfaces while a jail configures only
-// the selected ones, so listing all 12 in a claude-only jail would report files
-// that do not and will not exist. --all lists the whole manifest. Host-side,
-// presence is unknowable (the destinations are in the JAIL home, not the
-// developer's), so everything is listed regardless — see composedFileExists.
-func configLs(args []string, out, errw io.Writer, color bool) int {
+// Only surfaces whose destination EXISTS are listed by default: the builtin manifest
+// declares every agent's surfaces while a jail configures only the selected ones, so
+// listing all 12 in a claude-only jail would report files that do not and will not exist.
+// --all lists the whole manifest.
+//
+// PRESENCE IS THE TARGET'S, which is what closed the host-side row inflation
+// (docs/design/config-target-resolution.md §2.3 F2): a host-side `ls` in a workspace used to
+// find presence unknowable, stop applying the existence filter, and print four extra rows —
+// the same jail described differently depending on where the user stood. A workspace target
+// resolves its own home host-side (configTarget.surfaceFile), so the filter applies at every
+// target the resolution can produce.
+func configLs(t configTarget, args []string, out, errw io.Writer, color bool) int {
 	all := false
 	for _, a := range args {
 		switch {
@@ -113,7 +115,7 @@ func configLs(args []string, out, errw io.Writer, color bool) int {
 		}
 	}
 
-	rows := collectSurfaceRows(all)
+	rows := collectSurfaceRows(t, all)
 	if len(rows) == 0 {
 		fmt.Fprintln(out, "No composed surfaces found.")
 		return 0
@@ -124,7 +126,7 @@ func configLs(args []string, out, errw io.Writer, color bool) int {
 
 // collectSurfaceRows builds the listing: every builtin surface, then every
 // user-declared host_files entry.
-func collectSurfaceRows(all bool) []surfaceRow {
+func collectSurfaceRows(t configTarget, all bool) []surfaceRow {
 	var rows []surfaceRow
 	for _, s := range surfaceManifest().Surfaces() {
 		key := s.Agent + "/" + s.Name
@@ -136,24 +138,24 @@ func collectSurfaceRows(all bool) []surfaceRow {
 			Mode:     mode,
 			Layers:   builtinLayers(s),
 			Overlay:  -1,
-			HasFile:  composedFileExists(s.Path),
+			HasFile:  t.surfaceFileExists(s.Path),
 			Reserved: mode == surfaceModeUnrendered,
 		}
 		if mode == "capture" {
-			row.Overlay = overlayKeyCount(s.Agent, s.Name)
+			row.Overlay = overlayKeyCountAt(t.overlayPath(s.Agent, s.Name))
 		}
 		if all || row.HasFile {
 			rows = append(rows, row)
 		}
 	}
-	rows = append(rows, hostFileRows()...)
+	rows = append(rows, hostFileRows(t)...)
 	return rows
 }
 
 // hostFileRows lists the user's host_files entries. Read with probeSource=false:
 // `config ls` is an inspection command and must never fail (or differ) because a
 // host path is absent, and in-jail those paths are not in the mount namespace.
-func hostFileRows() []surfaceRow {
+func hostFileRows(t configTarget) []surfaceRow {
 	cfg, err := config.LoadConfig("", false, func(string) {})
 	if err != nil {
 		cfg = jsonx.NewOrderedMap()
@@ -171,13 +173,13 @@ func hostFileRows() []surfaceRow {
 			Mode:    e.Mode,
 			Layers:  hostFileLayers(e),
 			Overlay: -1,
-			HasFile: composedFileExists("~/" + e.Path),
+			HasFile: t.surfaceFileExists("~/" + e.Path),
 		}
 		if e.IsDir {
 			row.Codec = "(dir)"
 		}
 		if e.Mode == config.HostFileModeCapture {
-			row.Overlay = overlayKeyCount("user", e.Slug())
+			row.Overlay = overlayKeyCountAt(t.overlayPath("user", e.Slug()))
 		}
 		rows = append(rows, row)
 	}
@@ -234,12 +236,16 @@ func hostFileLayers(e config.HostFileEntry) []string {
 	return layers
 }
 
-// overlayKeyCount reads a surface's capture-overlay sidecar and reports how many
-// keys it holds: 0 for an empty/absent overlay, and for a KEYLESS surface (raw /
-// lines, whose overlay is a whole-file scalar or list) 1 when it carries anything
-// at all — a file with no keys has exactly one "key", itself.
+// overlayKeyCount is `yolo apply --sealed`'s reader: how many captured keys the CWD's
+// workspace store holds for one surface.
+//
+// ⚠ IT IS DELIBERATELY NOT THE CONFIG TARGET'S. See workspaceRoot, one file over: whether
+// `applySealed` takes the resolved target is Blocker 3 of
+// docs/design/config-target-resolution-plan.md and is unruled, so this keeps the bare-cwd
+// answer that verb has always been given. Every `yolo config` verb reads
+// overlayKeyCountAt(configTarget.overlayPath(...)) instead.
 func overlayKeyCount(agent, name string) int {
-	return overlayKeyCountAt(prismOverlayPath(agent, name))
+	return overlayKeyCountAt(sealedWorkspaceStore().OverlayPath(agent, name))
 }
 
 // overlayKeyCountAt is overlayKeyCount over an explicit sidecar path — what
@@ -270,143 +276,6 @@ func overlayKeyCountAt(path string) int {
 	default:
 		return 1
 	}
-}
-
-// prismOverlayPath is the CLI-side twin of entrypoint.prismOverlayPath. The
-// sidecars are per-WORKSPACE (<workspace>/.yolo/prism/), so the CLI must resolve
-// them against the same workspace the entrypoint used — the cwd, which is the
-// workspace root for both a host-side and an in-jail invocation.
-func prismOverlayPath(agent, name string) string {
-	return filepath.Join(prismSidecarDir(), agent+"-"+name+".overlay.json")
-}
-
-// prismLastRenderPath is the CLI-side twin of entrypoint.prismLastRenderPath.
-func prismLastRenderPath(agent, name string) string {
-	return filepath.Join(prismSidecarDir(), agent+"-"+name+".last_render")
-}
-
-// prismProvenancePath is the CLI-side twin of entrypoint.prismProvenancePath: the
-// per-key "which layer set this key" record the boot render persists beside the surface.
-//
-// The boot render has written it since the provenance sidecar landed; nothing READ it,
-// which is the gap ruling R3 closes — a config-overlay folds in below the owner's managed
-// layer, so it leaves no trace in the surface file, and provenance nobody can read does
-// not make an override legible.
-//
-// JAIL notch only. The host render keeps its record elsewhere (it has no workspace to key
-// on) — see hostProvenancePath.
-func prismProvenancePath(agent, name string) string {
-	return filepath.Join(prismSidecarDir(), agent+"-"+name+".provenance")
-}
-
-// hostProvenancePath is the CLI-side reader for the record `yolo host apply --assert`
-// writes: the same per-key winning layers, for the surfaces in the invoking user's REAL
-// home, under that home's state dir rather than any workspace.
-//
-// Resolved through render.Host so there is ONE definition of where the record lives, used
-// by both the writer (internal/entrypoint, via the Target) and this reader. Two hand-copied
-// path builders is how the CLI's own prism* twins already work, and it is a standing hazard
-// — here the writer's location is a documented decision with an argument behind it
-// (render.Target.ProvenanceDir), so re-deriving it would put that argument in two places.
-//
-// A var so tests can point it at a temp state dir without setting a real $HOME — the same
-// seam, and for the same reason, as prismSidecarDir.
-var hostProvenancePath = func(agent, name string) string {
-	// The declared contract does not move this record — `assert` and `own` both keep it under
-	// host-provenance/ (§6.2) — but it is passed rather than faked, so this reader and the
-	// render that wrote it construct the same target from the same source.
-	return render.Host(paths.Home(), nil, hostOwnership()).ProvenancePath(agent, name)
-}
-
-// prismSidecarDir is the per-workspace sidecar directory. A var so tests can
-// point it at a temp workspace — without that seam an in-jail test run would read
-// (and `reset` would DELETE) the real /workspace sidecars.
-var prismSidecarDir = func() string {
-	return filepath.Join(paths.WorkspaceStateDir(workspaceRoot()), "prism")
-}
-
-// workspaceRoot is the workspace whose sidecars this invocation is about: the
-// CWD, walked upward to the nearest dir holding a .yolo/ (so the command works
-// from a subdirectory, like git does).
-//
-// Deliberately NOT hardcoded to /workspace when in-jail. That shortcut is wrong
-// the moment the CLI is run from a DIFFERENT workspace than the one it is jailed
-// for — exactly what happens in a nested jail, and in the integration tests, where
-// `yolo config ls` runs against a temp workspace while /workspace is the outer
-// checkout. It silently read the wrong sidecars and `reset` would have deleted
-// them.
-// THE WALK STOPS AT A DIRECTORY THAT MAY NOT BE A WORKSPACE (paths.WorkspaceScopeBreach:
-// the home itself, or either of yolo's own two host dirs). A `.yolo` should never be there,
-// and nothing is allowed to create one any more — but machines already carry them from
-// before that was true, and a stray one does more damage here than anywhere else: it makes
-// the HOME the answer for every `yolo config` verb run in any directory below it that is not
-// itself a workspace, so `ls` and `diff` report a workspace the user is not in, and `reset`
-// DELETES that directory's sidecars (configdiff.go's os.Remove over the overlay and
-// last_render). Stopping means the walk gives up and the cwd stands — the same answer a
-// machine that never launched in its home gives.
-//
-// Stopping rather than skipping and continuing upward: every ancestor of a boundary root is
-// itself one (a parent of the home CONTAINS the home), so there is nothing above to find.
-func workspaceRoot() string {
-	wd, err := os.Getwd()
-	if err != nil {
-		return "."
-	}
-	for dir := wd; ; {
-		if paths.WorkspaceScopeBreach(dir) != nil {
-			break
-		}
-		if st, err := os.Stat(paths.WorkspaceStateDir(dir)); err == nil && st.IsDir() {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-	return wd
-}
-
-// composedFileExists reports whether a surface's rendered file is present.
-//
-// A composed surface lives in the home of the jail THIS WORKSPACE launches, which
-// is the process home only when the command runs inside that very jail. Two ways
-// to get it wrong, both observed:
-//
-//   - host-side, expandHome points at the developer's OWN dotfiles, so every file
-//     the jail did render reads as "absent" and a host dotfile the jail never
-//     wrote reads as "present";
-//   - in-jail but for a DIFFERENT workspace (a nested jail, and every integration
-//     test), the process home belongs to the outer jail while the surfaces belong
-//     to the inner one — same wrong answer.
-//
-// So presence is only knowable when the resolved workspace is the one this jail was
-// launched for, which YOLO_HOST_DIR records. Otherwise we decline to claim absence
-// rather than print a confidently wrong column.
-func composedFileExists(surfacePath string) bool {
-	if !surfacesAreLocal() {
-		return true // unknowable here; never claim the file is missing
-	}
-	_, err := os.Lstat(expandHome(surfacePath))
-	return err == nil
-}
-
-// surfacesAreLocal reports whether the process home is the home of the jail that
-// owns the workspace we resolved. True only in-jail AND when YOLO_HOST_DIR (the
-// host path of the workspace this jail was launched for) matches it.
-//
-// It is a var, not a plain func, so tests can pin the answer: the real logic keys
-// off YOLO_VERSION and the /workspace mount, neither of which a bare CI runner has,
-// so tests that model the in-jail owner must stub this rather than depend on ambient
-// environment (see withLocalSurfaces in the test file).
-var surfacesAreLocal = func() bool {
-	if os.Getenv("YOLO_VERSION") == "" {
-		return false // host-side
-	}
-	// In-jail the workspace is bind-mounted at /workspace; a resolved root anywhere
-	// else means we are inspecting some OTHER workspace's surfaces.
-	return workspaceRoot() == "/workspace"
 }
 
 // writeSurfaceTable renders the listing plus the divergence footer.

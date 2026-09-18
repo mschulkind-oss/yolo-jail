@@ -364,7 +364,7 @@ func buildPromoteWrite(plan promotePlan) (promoteWrite, error) {
 			return w, derr
 		}
 		w.files = append(w.files, promoteFileWrite{
-			path:     prismOverlayPath(ps.Surface.Agent, ps.Surface.Name),
+			path:     ps.OverlayPath,
 			data:     append(updated, '\n'),
 			preImage: pre,
 			existed:  true,

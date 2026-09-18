@@ -33,7 +33,7 @@ func TestApplySealedNamesThePromoteVerb(t *testing.T) {
 	if !ok {
 		t.Fatal("missing claude/settings")
 	}
-	writeFile(t, prismOverlayPath(s.Agent, s.Name), `{"myEdit":"present"}`)
+	writeFile(t, sealedWorkspaceStore().OverlayPath(s.Agent, s.Name), `{"myEdit":"present"}`)
 
 	var out, errw bytes.Buffer
 	if rc := applyMain([]string{"--sealed"}, &out, &errw, false, nil); rc != 1 {
