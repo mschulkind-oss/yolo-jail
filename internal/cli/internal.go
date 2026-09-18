@@ -147,6 +147,27 @@ func runDarwinBootstrap(_ []string) int {
 	e := entrypoint.DarwinEnvFrom(envMap(os.Environ()), home)
 	e.Stderr = os.Stderr
 
+	// THE ONE HOST-SIDE GENERATION THAT IS NOT BEHIND THE LAUNCH GUARD. Everything
+	// RunDarwinBootstrap goes on to create — the home overlay under <ws>/.yolo/home, the
+	// prism sidecars, the adoption archive, the staged bootstrap script — is a bare mkdir
+	// under a workspace this process is TOLD about, and unlike every other host-side
+	// creator it does not run inside run.Run. A LAUNCH cannot arrive here with a bad
+	// workspace (the macos-user backend is a seam inside run.Run, downstream of the
+	// workspace-scope guard), so what this covers is a hand-run of the hidden self-exec
+	// target. Asked off e.Workspace rather than the env var directly: one spelling of
+	// "which workspace is this", the same one the generators below act on.
+	//
+	// ⚠ IT CHECKS THE SANDBOX IDENTITY'S ROOTS, NOT THE INVOKING HUMAN'S, and it cannot do
+	// otherwise. `sudo --user=_yolojail` without --set-home is an unreliable HOME source —
+	// the reason this function rebinds HOME above — so the home in scope here is
+	// /Users/_yolojail whichever way it resolved. Refusing to plant a .yolo inside the
+	// SANDBOX's own home or state dir is what this can honestly promise. The human's home
+	// is the launch guard's promise, upstream, where their HOME is what paths resolves.
+	if breach := paths.WorkspaceScopeBreach(e.WorkspaceDir()); breach != nil {
+		fmt.Fprintln(os.Stderr, "yolo internal darwin-bootstrap:", breach)
+		return 1
+	}
+
 	opts := entrypoint.DarwinBootstrapOptions{
 		MacosLog:      os.Getenv("YOLO_DARWIN_MACOS_LOG"),
 		YoloLogScript: macosuser.MacosLogWrapperScript(os.Getenv("YOLO_DARWIN_MACOS_LOG")),
