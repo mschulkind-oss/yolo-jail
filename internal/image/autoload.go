@@ -608,8 +608,8 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 	// prunecmd.go's UnrootedProtectedPaths, declines to collect the store while a
 	// recently-loaded closure lacks a durable root. It is NOT liveness evidence
 	// anywhere: PruneOrphanImageRoots lost its protected set to OQ-LS1 and image
-	// retention lost it to OQ-LS3 (docs/design/the-load-sentinel-is-not-a-liveness-
-	// oracle.md).
+	// retention lost it to OQ-LS3
+	// (docs/reference/image-retention.md#why-its-this-way).
 	//
 	// It is also not written by every success any more: a launch that matched the
 	// stock tag above built nothing and has no path to append (stockimage.go).

@@ -75,8 +75,9 @@ import (
 // registers no GC root and appends no load-sentinel entry: it has no store path
 // to name (LoadResult.StorePath stays empty, exactly as on the degraded
 // branches). Both of those are CACHE bookkeeping — a lost root costs a rebuild,
-// never a running container (docs/design/the-load-sentinel-is-not-a-liveness-
-// oracle.md §4, Consumer A) — and the workspace's current-image pointer, which
+// never a running container, which is the one thing the sentinel may be cited for
+// (docs/reference/image-retention.md#the-load-sentinel-and-what-it-may-be-cited-for:
+// "recency answering a cache question") — and the workspace's current-image pointer, which
 // is retention EVIDENCE, keeps naming the store path the launch that first
 // loaded this image recorded, because an unchanged identity means an unchanged
 // store path on that host.
