@@ -103,7 +103,7 @@ func parseSurfaceIdentity(cmd, identity string, errw io.Writer) (agent, surface 
 // surfaces) a write is refused unless --force. Returns true when the caller must abort.
 //
 // IT READS THE RESOLVED TARGET, and that is the only change this design makes to the guard:
-// [OQ-CR2](docs/design/config-target-resolution.md#oq-cr2) is explicit that the resolution
+// [OQ-CR2](docs/reference/config-target-resolution.md#oq-cr2) is explicit that the resolution
 // produces a TARGET, NOT A PERMISSION. Nothing here is loosened — in particular a directory
 // that resolves no workspace gets the host target, where a write is refused exactly as it
 // was.
@@ -132,7 +132,7 @@ func parseSurfaceIdentity(cmd, identity string, errw io.Writer) (agent, surface 
 //
 // # A JAIL-NOTCH RESET IS THE THIRD WRITER, and the premise is false for it too
 //
-// [OQ-CR4](docs/design/config-target-resolution.md#oq-cr4) rules (a): a host-side `reset` of
+// [OQ-CR4](docs/reference/config-target-resolution.md#oq-cr4) rules (a): a host-side `reset` of
 // a JAIL's captured edits exists, because the guard's premise — *"these surfaces resolve
 // against a real home"* — is true of a real home and false of a workspace's own home
 // overlay, which is what a workspace target now resolves (configTarget.surfaceFile, through
@@ -229,13 +229,13 @@ func userSidecarSurfaces(t configTarget, surface string) []manifest.Surface {
 // distinguishable from a real edit.
 //
 // IT REPORTS THE CAPTURED DIVERGENCE AND NOTHING ELSE
-// ([OQ-CR7](docs/design/config-target-resolution.md#oq-cr7), ruled (a) against its own
+// ([OQ-CR7](docs/reference/config-target-resolution.md#oq-cr7), ruled (a) against its own
 // leaning). It used to print a per-key config-overlay PROVENANCE block beside the capture;
 // that block now lives in `yolo config ls`, where the render is described — see
 // configprovenance.go's header for the argument. In short: provenance answers *"which layer
 // did this key come from"*, a property of the RENDER, so it would read identically before and
 // after the wipe this verb measures against — and it was the second reader that let one
-// report describe two homes (§2.3 F1).
+// report describe two homes (F1, docs/reference/config-target-resolution.md#the-config-target).
 //
 // The name was never the problem. *"What survives deleting every surface and regenerating
 // them"* IS a diff — current state against a regenerated baseline — so the word names this
@@ -246,7 +246,8 @@ func configDiff(t configTarget, args []string, out, errw io.Writer, color bool) 
 		return rc
 	}
 	// THE STORE'S OWN STATE FIRST, because an unreadable store cannot be reported as an
-	// absence of edits (§4.2, [P3](docs/design/config-target-resolution.md#1-the-verdict-and-the-principles-it-rests-on)).
+	// absence of edits ([P3](docs/reference/config-target-resolution.md#principles), and
+	// docs/reference/config-target-resolution.md#unknown-is-not-empty).
 	// It read as empty until this design: os.ReadDir's error became nil and the verb printed
 	// the same confident negative it prints for a store it really did read.
 	state, serr := t.storeState()
@@ -376,7 +377,7 @@ func overlayDiffLines(overlay any, baseline map[string]string) []string {
 // JSON — path-taking for readProvenance's reason, one function over: there are two stores to
 // read, and the CHOICE of which belongs to the caller holding the resolved target. A reader
 // that resolved its own is how `diff` and `reset` came to describe different stores on an
-// owned host (docs/design/config-target-resolution.md §2.3 F3).
+// owned host (F3, docs/reference/config-target-resolution.md#the-config-target).
 //
 // so a captured value can be compared against what yolo last wrote. An absent or
 // undecodable sidecar yields an empty map (everything reads as "added in-jail").

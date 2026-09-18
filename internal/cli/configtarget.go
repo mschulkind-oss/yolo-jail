@@ -2,7 +2,8 @@ package cli
 
 // configtarget.go resolves THE config target a `yolo config` invocation is about — one
 // answer, computed once, disclosed on every verb
-// (docs/design/config-target-resolution.md §3, §3.1).
+// (docs/reference/config-target-resolution.md#the-config-target and
+// docs/reference/config-target-resolution.md#the-disclosure).
 //
 // # What it replaced, and why the pair was the defect
 //
@@ -11,14 +12,14 @@ package cli
 // provenance record and the write guard — from `YOLO_VERSION`. They can disagree, so one
 // report could describe two homes: a host-side `yolo config diff claude` in a checkout
 // printed that jail's captured edits beside the INVOKING USER'S real home's provenance, as
-// two blocks of one report, with nothing in either naming a home (§2.3 F1). And because the
+// two blocks of one report, with nothing in either naming a home (F1). And because the
 // store was resolved a second time by `reset` through `render.Target` and a first time by
 // `diff` through the hand-joined twins, the shipped inspect-then-undo pair disagreed on an
 // owned host: `diff` reported no divergence and `reset` discarded an edit the user was never
 // shown (F3).
 //
 // The ruling keeps the INFERENCE and deletes the PAIR
-// ([OQ-CR1](docs/design/config-target-resolution.md#oq-cr1), (a), against its own leaning):
+// ([OQ-CR1](docs/reference/config-target-resolution.md#oq-cr1), (a), against its own leaning):
 // the cwd selects the TARGET — notch, workspace, store, home root and provenance all come
 // off it — and `--at` overrides. Choosing what a report is ABOUT is not the write-side hazard
 // `host-render-target.md` §6.6's *"the cwd selects nothing"* governs, and the cwd is the one
@@ -27,7 +28,7 @@ package cli
 // # The marker is an ARTIFACT, never a directory
 //
 // `.yolo/config-boot.json` OR a workspace config file
-// ([OQ-CR2](docs/design/config-target-resolution.md#oq-cr2)). A bare `.yolo/` cannot be the
+// ([OQ-CR2](docs/reference/config-target-resolution.md#oq-cr2)). A bare `.yolo/` cannot be the
 // test: `/home/agent/.yolo` exists in EVERY jail — it is the anchor for the generated
 // `bin/block` and `bin/launch` dirs — so `cd ~` used to describe a workspace at
 // `/home/agent` that has never existed. And the launch artifact cannot be the test alone,
@@ -82,7 +83,7 @@ type configTarget struct {
 	// that count as local would let `reset` truncate it.
 	local bool
 	// store is the render.Target every capture sidecar comes off — resolved, never
-	// hand-joined ([OQ-CR3](docs/design/config-target-resolution.md#oq-cr3)). At the jail
+	// hand-joined ([OQ-CR3](docs/reference/config-target-resolution.md#oq-cr3)). At the jail
 	// notch it is byte-identical to the retired prismSidecarDir; at the host notch it is ""
 	// unless the user declared `own`, which is the contract's decision and not a caller's.
 	store render.Target
@@ -161,18 +162,19 @@ func processOwnsWorkspace(workspace string) bool {
 // resolveConfigTarget is THE resolution point: `--at` where given, else the cwd.
 //
 // One call, at the top of the verb dispatch, before any verb's first read — which is what
-// [P2](docs/design/config-target-resolution.md#1-the-verdict-and-the-principles-it-rests-on)
+// [P2](docs/reference/config-target-resolution.md#principles)
 // ("one resolution per invocation") means in code. It returns a refusal STRING rather than an
 // error so the caller prints it verbatim: each one names what is missing, and per §4.2 none
 // of them may silently degrade to the other notch, because degrading is F1.
 //
 // THE VOCABULARY IS render's, and it is the one `yolo apply --at` already crosses. A notch
 // name resolves through render.KindForNotch, whose selectable set
-// render.TestEveryConfinementResolvesToADistinctSelectableKind pins against
+// render.TestNotchNamesMatchTheConfigVocabulary pins against
 // config.KnownConfinements in both directions — so the read verbs and `apply` cannot come to
 // accept different sets, which is what
-// [P4](docs/design/config-target-resolution.md#1-the-verdict-and-the-principles-it-rests-on)
-// forbids ("a second spelling for the read verbs would be a second vocabulary for one fact").
+// [P4](docs/reference/config-target-resolution.md#principles) — the SELECTOR rule,
+// not report-tiers.md's own P4 — forbids ("a second spelling for the read verbs would be a
+// second vocabulary for one fact").
 func resolveConfigTarget(at string) (configTarget, string) {
 	if at == "" {
 		if ws, ok := resolveWorkspaceRoot(); ok {
@@ -192,7 +194,7 @@ func resolveConfigTarget(at string) (configTarget, string) {
 		ws, found := resolveWorkspaceRoot()
 		if !found {
 			// AN EXPLICIT REQUEST FOR A THING THAT DOES NOT EXIST is a different case from an
-			// unstated default ([OQ-CR2](docs/design/config-target-resolution.md#oq-cr2)), so
+			// unstated default ([OQ-CR2](docs/reference/config-target-resolution.md#oq-cr2)), so
 			// this refuses where a bare invocation answers about the host. Degrading silently
 			// to the other notch is F1.
 			//
@@ -277,7 +279,7 @@ func resolveWorkspaceRoot() (string, bool) {
 //
 // ⚠ IT IS DELIBERATELY NOT THE CONFIG TARGET, and that is an open question rather than a
 // choice this design made. `applySealed` reproduces F2 in a verb
-// docs/design/config-target-resolution.md never names — from a directory with no workspace it
+// docs/reference/config-target-resolution.md never names — from a directory with no workspace it
 // resolves an empty store, finds nothing undeclared, and reports **"sealed"**, the confident
 // empty answer, in the one verb whose entire job is refusing on undeclared input. Whether it
 // takes the target or keeps the bare cwd is Blocker 3 of
@@ -486,7 +488,7 @@ func (t configTarget) wsLastRenderPath(agent, name string) string {
 
 // storeState is what a capture store can honestly say about itself. FOUR answers, not one,
 // and collapsing them is the failure
-// [P3](docs/design/config-target-resolution.md#1-the-verdict-and-the-principles-it-rests-on)
+// [P3](docs/reference/config-target-resolution.md#principles)
 // names: *"unknown is not empty"*. Today an absent store and an unreadable one both read as
 // no edits, stated with the same confidence as a real negative
 // (`os.ReadDir` error → nil, §4.2).
@@ -549,7 +551,7 @@ func (t configTarget) noCaptureReason(state storeState) string {
 // --- the disclosure ----------------------------------------------------------------------
 
 // disclosure is the one line every `yolo config` verb prints before its report
-// ([OQ-CR5](docs/design/config-target-resolution.md#oq-cr5): unconditional, on every
+// ([OQ-CR5](docs/reference/config-target-resolution.md#oq-cr5): unconditional, on every
 // invocation, always). It matches the shape a launch already uses for
 // `Flake source: <path> (<what selected it>)`: what this is about, then what chose it.
 //

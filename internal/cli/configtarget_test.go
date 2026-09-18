@@ -1,22 +1,23 @@
 package cli
 
 // configtarget_test.go pins the one resolved config target and its disclosure
-// (docs/design/config-target-resolution.md §3, §3.1).
+// (docs/reference/config-target-resolution.md#the-config-target and
+// docs/reference/config-target-resolution.md#the-disclosure).
 //
 // # Why these tests drive the VERB and read its printed line
 //
 // A test that resolves a target and asserts its fields PASSES WITH THE RESOLUTION DELETED
 // FROM EVERY VERB. That is the callee-pinned-while-the-call-site-is-unpinned shape AGENTS.md
-// names five shipped instances of, and this design's [§8](docs/design/config-target-resolution.md#8-what-i-would-build-in-order)
-// step 1 states its own test contract against it: *"its test is that deleting the resolution
-// call site fails something, not that a helper returns the right string"*. So the resolution
+// names five shipped instances of. So the contract these tests are written to is the
+// CALL-SITE one: deleting the resolution call site has to fail something, rather than a
+// helper being asserted to return the right string. So the resolution
 // and the disclosure landed together — the disclosure being the observable — and the tests
 // below run `yolo config <verb>` from two different directories and read what it printed.
 //
 // MUTATION-CHECKED: deleting the `fmt.Fprintln(errw, t.disclosure())` from configRunW fails
 // TestEveryConfigVerbDisclosesItsTarget for all eight verbs; deleting the
 // `resolveConfigTarget()` call cannot compile, because the verbs take the target as a
-// parameter — which is what makes [P2](docs/design/config-target-resolution.md#1-the-verdict-and-the-principles-it-rests-on)
+// parameter — which is what makes [P2](docs/reference/config-target-resolution.md#principles)
 // structural rather than a convention.
 
 import (
@@ -34,7 +35,7 @@ import (
 )
 
 // configVerbs is every `yolo config` subcommand that resolves a target, i.e. every one. The
-// disclosure is UNCONDITIONAL ([OQ-CR5](docs/design/config-target-resolution.md#oq-cr5)), so
+// disclosure is UNCONDITIONAL ([OQ-CR5](docs/reference/config-target-resolution.md#oq-cr5)), so
 // the list is the whole verb surface rather than the ones where it seemed interesting.
 var configVerbs = [][]string{
 	{"ls"},
@@ -137,7 +138,7 @@ func disclosureLine(t *testing.T, verb, stderr string) string {
 		return found[0]
 	case 0:
 		t.Fatalf("`yolo config %s` printed no disclosure line. It is UNCONDITIONAL "+
-			"(docs/design/config-target-resolution.md [OQ-CR5]): compression is allowed, "+
+			"(docs/reference/config-target-resolution.md [OQ-CR5]): compression is allowed, "+
 			"suppression is not, and a reader who has to know the rules to notice the line's "+
 			"absence has not been disclosed anything.\nstderr:\n%s", verb, stderr)
 	default:
@@ -173,7 +174,7 @@ func TestTheDisclosureNeverLandsOnAMachineReadableStdout(t *testing.T) {
 	}
 }
 
-// --- the marker ([OQ-CR2](docs/design/config-target-resolution.md#oq-cr2)) ----------------
+// --- the marker ([OQ-CR2](docs/reference/config-target-resolution.md#oq-cr2)) ----------------
 
 // TestTheMarkerIsAnArtifactNotADirectory is the ruling's load-bearing half. A bare `.yolo/`
 // matches `/home/agent` in EVERY jail — it is the anchor for the generated bin/block and
@@ -389,7 +390,8 @@ func TestTheRetiredPredicatesHaveNoOtherCallers(t *testing.T) {
 		if retired[name] {
 			t.Errorf("%s references the retired predicate %q. Every store dir, home root and "+
 				"provenance path comes off the ONE resolved configTarget "+
-				"(docs/design/config-target-resolution.md §3, [P2]); a second resolution is "+
+				"(docs/reference/config-target-resolution.md#the-config-target, [P2]); a second "+
+				"resolution is "+
 				"how one report came to describe two homes. If you need this answer, add a "+
 				"method to configtarget.go.", file, name)
 		}
@@ -408,7 +410,8 @@ func TestWorkspaceRootIsOnlyTheSealedVerbs(t *testing.T) {
 		if name == "workspaceRoot" && !allowed[file] {
 			t.Errorf("%s calls workspaceRoot(). It is `yolo apply --sealed`'s bare-cwd walk, "+
 				"not the config target: a config verb reads the resolved target, and mixing "+
-				"the two is the predicate pair docs/design/config-target-resolution.md "+
+				"the two is the predicate pair "+
+				"docs/reference/config-target-resolution.md "+
 				"removed.", file)
 		}
 	})
@@ -579,7 +582,7 @@ func TestAtJailWithNoWorkspaceRefusesByName(t *testing.T) {
 
 // THE READ VERBS AND `apply` ACCEPT THE SAME SET. Not by a copied list — by the same boundary:
 // config.KnownConfinements is what `apply` validates against and render.KindForNotch is what
-// this resolves through, and render.TestEveryConfinementResolvesToADistinctSelectableKind
+// this resolves through, and render.TestNotchNamesMatchTheConfigVocabulary
 // pins those two to each other in both directions.
 func TestAtAcceptsExactlyTheConfinementVocabulary(t *testing.T) {
 	scratchHostHome(t)

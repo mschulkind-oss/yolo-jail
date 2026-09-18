@@ -163,12 +163,13 @@ func runConfig(args []string) int {
 
 // configRunW is the testable body: args is everything after `config`.
 //
-// THIS IS THE ONE RESOLUTION POINT (docs/design/config-target-resolution.md §3,
-// [P2](docs/design/config-target-resolution.md#1-the-verdict-and-the-principles-it-rests-on)).
+// THIS IS THE ONE RESOLUTION POINT (docs/reference/config-target-resolution.md#the-config-target,
+// [P2](docs/reference/config-target-resolution.md#principles)).
 // The target is resolved here — after argv is parsed, because the selector is an input, and
 // before any verb's first read — DISCLOSED, and then handed to the verb. Nothing below
 // resolves a second time: two predicates resolved independently is how one report came to
-// describe two homes (§2.3 F1), and a verb free to resolve its own could grow that defect
+// describe two homes (F1, docs/reference/config-target-resolution.md#the-config-target), and a verb
+// free to resolve its own could grow that defect
 // back.
 //
 // The disclosure is printed for every VERB, and not above the usage text: help has no report
@@ -237,7 +238,7 @@ var notchlessVerbs = map[string]string{
 //
 // It is `yolo apply`'s token shape, deliberately: `--at jail|guest|host` is the shipped answer
 // to "which notch does this verb act on"
-// ([P4](docs/design/config-target-resolution.md#1-the-verdict-and-the-principles-it-rests-on)),
+// ([P4](docs/reference/config-target-resolution.md#principles) — the SELECTOR rule, not report-tiers.md's own P4),
 // and a second spelling for the read verbs would be a second vocabulary for one fact. The
 // VALUE is validated once, in resolveConfigTarget, through render.KindForNotch.
 func extractAtFlag(verb string, args []string, errw io.Writer) (rest []string, at string, rc int) {
@@ -449,7 +450,7 @@ func renderSurface(t configTarget, s manifest.Surface, explain bool, out io.Writ
 
 // hostLayerFor is the `host` layer a PREVIEW composes: the bytes, and the one-line note
 // explaining the answer whenever it is not simply "the user's own staged file"
-// ([OQ-CR6](docs/design/config-target-resolution.md#oq-cr6), ruled (a)).
+// ([OQ-CR6](docs/reference/config-target-resolution.md#oq-cr6), ruled (a)).
 //
 // # The staged copy, never the destination
 //
