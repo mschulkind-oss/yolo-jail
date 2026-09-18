@@ -21,7 +21,8 @@ import (
 // every other claim kind. Nothing caught it — not because the fix is hard, but because
 // "which kinds does the launch disclosure cover" was a fact only the printer knew, so a kind
 // added to packdecl's closed set was silently outside the transparency half of the approval
-// model (loophole-packaging.md §3.3, §4.3 G4).
+// model (docs/reference/loophole-system.md#the-crossing-enumeration and
+// docs/reference/loophole-system.md#the-per-launch-disclosure).
 //
 // This fails the moment a kind exists that the classification does not name. A new kind's
 // author then has to make one decision — does this cross the boundary, and is the crossing a

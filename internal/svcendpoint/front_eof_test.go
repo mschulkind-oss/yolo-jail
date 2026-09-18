@@ -34,7 +34,7 @@ func eofSocketDir(t *testing.T) string {
 // FrontOptions.HalfCloseUpstream serves exactly that daemon shape: when the
 // client's request direction ends, the front CloseWrites the upstream Unix
 // socket, the daemon's read returns, and its response still flows back
-// (loophole-packaging.md §2.1b hazard 2).
+// (docs/reference/loophole-transport.md#request_end--how-a-request-ends-behind-the-front).
 func TestFrontEOFModeHalfClosesUpstream(t *testing.T) {
 	dir := eofSocketDir(t)
 	upstream := filepath.Join(dir, "up.sock")

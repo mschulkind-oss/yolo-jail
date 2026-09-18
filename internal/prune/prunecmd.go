@@ -563,9 +563,11 @@ func Run(opts Options) int {
 
 	// --- Retired loophole state generations ---
 	// What a LAUNCH moves aside when a pack that shipped a loophole leaves `packs`
-	// (loophole-packaging.md §4.5). A separate section from the host-render archive above
+	// (docs/reference/loophole-system.md#retirement-what-happens-when-a-pack-goes-away).
+	// A separate section from the host-render archive above
 	// because it is a separate TREE and a separate writer: the render archive lives under
-	// GlobalStorage()/archive and is written by `yolo host apply` — the command §3.4 refuses
+	// GlobalStorage()/archive and is written by `yolo host apply` — the command
+	// (docs/reference/loophole-system.md#at-the-host-target-there-is-no-jail) refuses
 	// the loophole kind at — while a loophole's state lives under GlobalStorage()/state and
 	// is retired on the launch path, the only place deselection is observed.
 	//

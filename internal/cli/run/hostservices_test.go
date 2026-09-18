@@ -386,7 +386,7 @@ func frontUpstreamChildMain(mode, socketPath string) int {
 // svcendpoint front and publishes the endpoint file itself — so the jail sees
 // exactly what a self-publishing daemon gives it: the same env var name, the
 // same in-jail endpoint path, dialable with the same client
-// (loophole-packaging.md §2.1).
+// (docs/reference/loophole-transport.md#two-server-shapes-and-how-a-manifest-selects-one).
 func TestFrontedServiceComesUpBehindFront(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("spawns a host process")
@@ -680,7 +680,8 @@ func mustReadDir(t *testing.T, dir string) []string {
 }
 
 // TestConfigLoopholeComesUpBehindFront is the end-to-end proof of the
-// discover.go flip (loophole-packaging.md §2.2): a yolo-jail.jsonc `loopholes:`
+// discover.go flip
+// (docs/reference/loophole-transport.md#two-server-shapes-and-how-a-manifest-selects-one): a yolo-jail.jsonc `loopholes:`
 // entry whose daemon binds a plain unix socket, driven through the REAL
 // pipeline — Discover synthesis, startLoopholes' spec/transport/daemon plumbing,
 // the fronted spawn — comes up with a published endpoint file, dialable via
@@ -790,7 +791,8 @@ func TestConfigLoopholeComesUpBehindFront(t *testing.T) {
 // the enum parsing, the {socket} survival, and the FrontOptions wiring are all
 // on the path — serves a daemon that reads its request TO EOF. Without the
 // half-close mapping this daemon works on a bare socket and hangs forever
-// behind the front (loophole-packaging.md §2.1b hazard 2).
+// behind the front
+// (docs/reference/loophole-transport.md#request_end--how-a-request-ends-behind-the-front).
 func TestManifestEOFDaemonRoundTripsBehindFront(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("spawns a host process")
@@ -990,7 +992,7 @@ func TestStopLoopholesRetiresFrontSockets(t *testing.T) {
 // The spawn sets Setsid, so the daemon leads its own group — and the old
 // teardown signalled cmd.Process alone, so anything the daemon forked survived
 // deselection, the lockfile entry, and `yolo loopholes list` knowing the name
-// (loophole-packaging.md §4.5).
+// (docs/reference/loophole-system.md#retirement-what-happens-when-a-pack-goes-away).
 func TestExternalServiceTeardownKillsProcessGroup(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("spawns a host process")

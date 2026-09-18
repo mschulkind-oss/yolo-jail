@@ -431,7 +431,9 @@ func TestTeardownStillKillsTheProcessGroup(t *testing.T) {
 		if !strings.Contains(src, want) {
 			t.Errorf("loopholesruntime.go no longer contains %q — signalling only the direct "+
 				"child leaves anything the daemon forked running after deselection "+
-				"(loophole-packaging.md §4.5 accepted exactly this fix)", want)
+				"(docs/reference/loophole-system.md"+
+				"#retirement-what-happens-when-a-pack-goes-away accepted exactly "+
+				"this fix)", want)
 		}
 	}
 }

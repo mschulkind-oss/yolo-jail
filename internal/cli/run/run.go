@@ -648,7 +648,8 @@ type stagedPacks struct {
 // It also runs the loophole-state RETIREMENT pass, immediately after staging and its
 // staged-tree prune. That placement is the requirement, not a convenience: the launch is the
 // only thing that reads `packs`, compares it to what is staged, and prunes — so it is the only
-// place a DESELECTION is observed at all (loophole-packaging.md §4.5, and see
+// place a DESELECTION is observed at all
+// (docs/reference/loophole-system.md#retirement-what-happens-when-a-pack-goes-away, and see
 // loopholeretire.go for why `yolo host apply` and the host-render archive sweep cannot see it).
 // Never fatal: a bookkeeping failure over the host state dir must not cost the user a jail.
 //
@@ -735,7 +736,8 @@ func (o *Options) warnIfNoPacks() {
 // KindEnv` and DROP every other claim kind, with no test to catch it — so kinds that read
 // the host through a different declaration (`program via installer`, `briefing after
 // host:`) were never disclosed, and the next host-crossing kind would have been dropped the
-// same way (loophole-packaging.md §3.3, §4.3 G4). The classification is now exhaustive over
+// same way (docs/reference/loophole-system.md#the-crossing-enumeration and
+// docs/reference/loophole-system.md#the-per-launch-disclosure). The classification is now exhaustive over
 // packdecl.KnownKinds() by test.
 //
 // Host EXECUTION does NOT print here. It prints at the spawn boundary, BEFORE

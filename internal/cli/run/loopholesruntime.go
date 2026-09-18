@@ -522,7 +522,8 @@ func (o *Options) startCgroupDelegate(cname, rt, socketsDir string) (loopholeDae
 // negative pid reaches everything it forked. Signalling only the direct child —
 // what this replaces — left forked grandchildren running after deselection, the
 // lockfile entry, and `yolo loopholes list` all forgot the loophole
-// (loophole-packaging.md §4.5 accepted exactly this fix).
+// (docs/reference/loophole-system.md#retirement-what-happens-when-a-pack-goes-away
+// accepted exactly this fix).
 //
 // exited is the channel the spawn-side cmd.Wait() goroutine closes; waiting on
 // it rather than calling Wait here keeps the child reaped in exactly one place.
@@ -971,7 +972,7 @@ func (o *Options) startExternalService(
 		// publishes as soon as it binds, so starting it earlier would let the
 		// endpoint probe succeed while the daemon never came up, and every
 		// authenticated connection would then be silently dropped at the dial
-		// (loophole-packaging.md §2.1b hazard 1).
+		// (docs/reference/loophole-transport.md#two-server-shapes-and-how-a-manifest-selects-one).
 		frontStop := make(chan struct{})
 		// frontDone closes when the front's listener is actually closed. Without it
 		// stop() only ASKS the front to stop, so "the endpoint file is gone once
