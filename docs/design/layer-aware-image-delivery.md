@@ -16,6 +16,23 @@ commit on podman/Linux, plus one same-day fix. Every
 design question is ruled and compacted into [§9.1](#91-decision-ledger); the gate
 ([OQ-LI6](#92-open-questions)) cleared, and the build is done.
 
+> [!NOTE]
+> **PARTIALLY GRADUATED, 2026-09-18.** The two halves this doc held that the reference tree did
+> not — [§3.1](#31-the-layer-plan)'s **layer plan** (the three tiers, the ordering rule, and the
+> two traps: `deps` rather than `copyToRoot` in the lower tiers, and the layer budget not being a
+> popularity split) and [the namespace the copy writes from](#34b-the-namespace-the-copy-writes-from)'s **rootless namespace
+> requirement** (with the refuted allowlist theory, the refused AppArmor profile, the tri-state
+> `podman info` branch, and the nested-jail blindness that let it ship green) — are now in
+> [`../reference/image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md), which
+> already owned the delivery pipeline. [`OQ-LI1`](#91-decision-ledger),
+> [`OQ-LI5`](#91-decision-ledger) and [`OQ-LI7`](#91-decision-ledger) — the three ids the Go tree
+> and `flake.nix` cite — resolve in that reference's why-appendix too.
+>
+> **The rest is not graduated**, and the reason is mechanical rather than editorial: nine prose
+> citations of this path live in `flake.nix`, `Justfile`, `internal/image/` and
+> `internal/cli/run/`, several naming section numbers a reference would not inherit. Its macOS
+> half is also still **unmeasured** — two backends shipped blind and are what this doc owes.
+
 > [!CAUTION]
 > **The first shipped form worked only on a ROOTFUL podman, which is not how most hosts run it.**
 > Every container job in CI failed the same day — `Error during unshare(...): Operation not

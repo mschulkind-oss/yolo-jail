@@ -568,6 +568,48 @@ absent. That is the second link of the chain in
 content-addressed — breaking [OQ-IP1](#why-its-this-way)'s link was necessary and was not
 sufficient.
 
+### The layer plan
+
+**Layer plan** *(coined here — this document is the term's definition)* — the explicit, written
+assignment of the image's store paths to layers, in a fixed bottom-to-top order chosen by how often
+each group changes. It is not nixpkgs' popularity contest, which optimises for sharing between
+*unrelated* images and has no notion of which paths are ours, and it is not a base image, which
+would be a second artifact with its own identity.
+
+Three tiers, bottom to top:
+
+| Tier | Holds | Moves when |
+| :--- | :--- | :--- |
+| **Base** | the nixpkgs closure — the core and full package sets | `flake.lock` moves, or a package is added to the flake |
+| **Extras** | the launch's `packages:` closure | that workspace's `packages:` list changes |
+| **Top** | the name-only `/bin` links, the `/lib` farm, the image identity, the fake-root directories and `/etc` | any `flake.nix` edit |
+
+**The most volatile tier belongs on top**, because an overlay store chains layers: a layer's stored
+identity depends on every layer beneath it, so a deep first-differing layer re-stores everything
+behind it. By churn alone `packages:` is the most volatile — it varies per *workspace*, while the
+top tier moves only when yolo itself is upgraded — and it still sits below the top tier, because
+path precedence is a correctness constraint and outranks the churn argument.
+
+> [!WARNING]
+> **The lower tiers carry `deps`, never `copyToRoot`, and the difference is load-bearing.** A
+> `copyToRoot` entry carries a rewrite in its path options, and nix2container's cross-layer dedup
+> compares `{Path, Options}` rather than the path alone. A store path with a rewrite in one tier
+> and bare in the top tier's closure therefore does **not** dedup — it is tarred into both, and the
+> top layer becomes hundreds of megabytes that every `flake.nix` edit re-copies. With `deps` every
+> path in the lower tiers is bare, which is exactly the form the root tree's closure presents.
+
+> [!WARNING]
+> **The base tier's layer budget is a count, not a popularity split.** nix2container emits
+> `maxLayers - 1` single-path layers in closure-graph order and dumps the entire remainder into one
+> tail layer, so the knob buys many tiny layers plus one large tail that moves whenever any of its
+> paths moves. Do not write a comment claiming it sub-splits by popularity. A real sub-split needs
+> nested layer builds rather than a larger number, and nothing depends on one: a `flake.lock` bump
+> is *supposed* to move the base.
+
+Two store paths the `/lib` farm links are carried explicitly in the base tier rather than being
+discovered through the root tree's closure — the nix-ld override and the C++ standard library —
+because discovery would land them in the **top** tier, where every `flake.nix` edit re-tars them.
+
 ### Delivering into the runtime
 
 **The image is a manifest and the delivery is a copy that negotiates.**
@@ -595,6 +637,40 @@ Four properties, each a requirement rather than an observation:
   for yolo's own mechanism being broken, and a second path no launch exercises is broken by the
   time anyone reaches for it. `YOLO_ALLOW_STALE_IMAGE=1` still launches the image already
   loaded, which is orthogonal to how the next one is delivered.
+
+> [!WARNING]
+> **On a rootless podman the copy must run inside podman's own user namespace, and this is the
+> commonest configuration rather than an edge case.** A rootless `containers-storage` reproduces
+> each layer's file *ownership*, not only its content — uid 0 inside an image becomes the user's
+> mapped subuid on disk — so containers/storage creates an unprivileged user namespace for itself.
+> AppArmor 4 mediates exactly that, and Ubuntu 24.04 ships the mediation on, so the copy dies as
+> `Error during unshare(...): Operation not permitted`. podman itself is not subject to it because
+> it establishes the mapping through the setuid helpers instead. The fix borrows podman's own
+> machinery: the copy runs as `podman unshare -- <copier> copy …`, which does the privileged setup
+> and execs the child inside the finished namespace with the marker containers/storage reads to
+> know it must not unshare again.
+>
+> **It is not an allowlist story.** The first theory — that an unprofiled binary is denied while
+> podman's path is permitted — is disproved: a binary shipping its own AppArmor profile failed
+> identically, and so did a copy of it at an unprofiled path. The restriction is blanket.
+>
+> **Shipping a yolo AppArmor profile would also work and is refused**: it would need root and a
+> parser reload, it is per-distro, and it would have a launch mutate the host's security
+> configuration to win a privilege the podman it already invokes has.
+
+**The wrapper cannot be unconditional, and the third state is the interesting one.** `podman
+unshare` refuses on a **rootful** podman, and that refusal is right — a root store needs no
+mapping. So the branch is decided from `podman info` **before** the copy starts, never by retrying
+a failure, and when that cannot be read **nothing is added to the argv**: neither branch is
+universally safe, so the tie goes to today's behaviour, which cannot newly break a host that works.
+An archive destination is never wrapped, because an archive's recorded ownership is data rather
+than something the filesystem must represent — so macOS and Apple Container are untouched.
+
+> [!CAUTION]
+> **A nested jail is structurally blind to the wrapped path.** Podman-in-podman runs as root, so a
+> nested launch takes the rootful branch by construction and can prove only that the direct copy
+> works. This shipped green from a nested jail and took CI red on every container job. The
+> instruments that settle it are a real rootless host or CI.
 
 The launch prints the split, because the ratio is the whole claim:
 `Copied image: 1 layer(s), 26 MB copied; 91 layer(s), 3.2 GB already present`. The figures come
@@ -856,6 +932,9 @@ ones cited from sibling docs and code comments and are never renumbered.
 | OQ-5 | Retained image tars are a **bug**, not a configuration; the goal is minimal disk; yolo may delete cached tars without `--apply`. Executed in [`../design/minimal-disk-footprint.md`](../design/minimal-disk-footprint.md). | 2026-08-25 |
 | OQ-6 | A stable layer chain gets built by a **successor mechanism**, not by reordering `streamLayeredImage`, which cannot express a written layer plan; never a `fromImage` base, which re-emits the base layers into the stream. The go/no-go moved to [`../design/layer-aware-image-delivery.md`](../design/layer-aware-image-delivery.md) — and was GRANTED and BUILT there on 2026-09-09: nix2container plus a three-tier layer plan plus a negotiating `skopeo copy`, with `streamLayeredImage` deleted from the jail image in the same change. | 2026-09-08 |
 | OQ-7 | **Do not strip the `git describe` stamp from the bundle's binaries.** The stamp no longer moves the image (stamped bytes are prefix content), so removing it would buy a cheaper `runCommand` at the price of the fallback the in-jail version banner keeps. | 2026-09-06 |
+| OQ-LI1 | The patched copier's **binary cache is an optimisation and may never become load-bearing** — a miss builds it, and nothing is wired to the miss. | 2026-09-08 |
+| OQ-LI5 | **One delivery mechanism, no way back**: the legacy streamer is deleted rather than kept behind a flag, and a failed copy abandons the launch. A second path no launch exercises is broken by the time anyone reaches for it. | 2026-09-08 |
+| OQ-LI7 | The rootless copy is wrapped in podman's own namespace helper, **decided from `podman info` before the copy** and never by retrying a failure. This is not the fallback [OQ-LI5](#why-its-this-way) deleted: there is still exactly one mechanism and one destination. | 2026-09-09 |
 | OQ-8 | yolo's own binaries are delivered by **mount**, on all three backends in one pass, and the [security delta](#the-security-delta) is the accepted price. | 2026-09-06 |
 | OQ-IP1 | **Cross-system invariance of `imageIdentity` is a requirement, not a convenience** — and it is enforced by *placement*, outside the per-system scope, rather than by a promise. This is what licensed deleting the integration suite's darwin-only downgrade; `TestImageIdentityIsSystemInvariant` guards the relapse. | 2026-09-12 |
 | OQ-IP2 | The **Linux-builder-on-macOS gap is filed separately**, not coupled to the identity fix. Only the identity was on the critical path, and coupling would have kept the instrument dark until both landed. A Mac that cannot offload a Linux build still cannot *build* an image — it can now *verify* one it was handed. | 2026-09-12 |
