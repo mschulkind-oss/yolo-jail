@@ -4,6 +4,12 @@ package run
 // credential boundary inside the jail: the home directory itself, or either of yolo's own
 // two host directories.
 //
+// WHICH directories, and the containment rule that decides it, are paths.WorkspaceScopeBreach's
+// (internal/paths/workspacescope.go) — one authority, because the same three directories must
+// also never acquire a stray `.yolo`, and two copies of a boundary list is one copy that gets
+// out of step. What lives HERE is the MOUNT half: why a launch in particular cannot proceed,
+// and what the jail would have got.
+//
 // WHY THIS IS THE BOUNDARY AND NOT A TIDINESS RULE. The workspace is the one host
 // directory a jail can read and write by design — every backend binds it, read-write by
 // default, and `workspace_readonly` removes only the write half. Everything else yolo
@@ -26,20 +32,11 @@ package run
 //     "whatever can edit the config can rewrite the record of what was approved" reason),
 //     and the flake bundle every launch binds as pid1.
 //
-// So the rule is CONTAINMENT, checked in both directions on RESOLVED paths, because a home
-// is often itself a symlink:
-//
-//   - a workspace that IS, or CONTAINS, any of the three → refused. This is the accident,
-//     and it needs no mistake beyond a cd: there is no --workspace flag, the cwd is the
-//     workspace, so a bare `yolo` typed in the home is a launch on the home. Measured on
-//     the maintainer's host 2026-09-17 — a stray ~/.yolo holding config-snapshot.json,
-//     startup.log and a full home/ overlay, from a launch old enough that the approval
-//     record still lived in the mount (2ecbe0f5, 2026-08-18).
-//   - a workspace INSIDE either yolo-owned directory → refused too: the same write access
-//     to the same state, one level in, and no project belongs there.
-//
-// A workspace inside the HOME is the ordinary case and is never refused — ~/code/x is where
-// projects live, and ~/.dotfiles is the right way to put a dotfiles tree in a jail.
+// It needs no mistake beyond a cd: there is no --workspace flag, the cwd is the workspace,
+// so a bare `yolo` typed in the home is a launch on the home. Measured on the maintainer's
+// host 2026-09-17 — a stray ~/.yolo holding config-snapshot.json, startup.log and a full
+// home/ overlay, from a launch old enough that the approval record still lived in the mount
+// (2ecbe0f5, 2026-08-18).
 //
 // NO HATCH, where the two guards beside it have one (YOLO_ALLOW_LIVE_WORKSPACE,
 // YOLO_ALLOW_SOURCE_SKEW). A YOLO_ALLOW_* dial is for a case yolo got wrong about a
@@ -49,12 +46,10 @@ package run
 // the subdirectory that holds them.
 
 import (
-	"path/filepath"
-
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// workspaceScopeRefusal is one refusal: `what` names the path and the direction of the
+// workspaceScopeRefusal is one refusal: `what` names the paths and the direction of the
 // containment, `why` says what the jail would have got. Two fields rather than one
 // sentence so the caller owns the frame and the hint, as the live-overlay guard's caller
 // does.
@@ -63,64 +58,29 @@ type workspaceScopeRefusal struct {
 	why  string
 }
 
-// boundaryRoot is a host directory that must never be inside a jail's workspace mount.
-type boundaryRoot struct {
-	path string
-	name string
-	why  string
+// jailWouldGet is the MOUNT consequence of each boundary root — this file's half of the
+// message, keyed off the kind the shared predicate reports. A kind with no entry here
+// still refuses; it just says less, which is the right direction for a root added in
+// paths and not yet given its sentence.
+var jailWouldGet = map[paths.ScopeRootKind]string{
+	paths.RootHome: "every credential the jail is walled off from — ~/.ssh, ~/.gitconfig, " +
+		"cloud and agent tokens — would be inside the mount",
+	paths.RootStateDir: "the jail could rewrite every other workspace's home overlay, the " +
+		"fetched pack trees and the lockfile recording their host-read approvals, the " +
+		"approval snapshots, and the flake bundle every launch binds as pid1",
+	paths.RootUserConfigDir: "the jail could grant itself host_files reads, packs and " +
+		"providers for the NEXT launch, by editing the user-scope config that governs it",
 }
 
 // refuseWorkspaceScope returns the refusal for this launch, or nil to allow it.
-//
-// The three roots are derived from ONE home — paths.Home(), which every paths helper
-// resolves through — so they cannot disagree about which home this is.
 func refuseWorkspaceScope(o *Options) *workspaceScopeRefusal {
-	ws := resolvePath(o.Workspace)
-	home := resolvePath(paths.Home())
-	state := boundaryRoot{
-		path: resolvePath(paths.GlobalStorage()),
-		name: "yolo's own state directory",
-		why: "the jail could rewrite every other workspace's home overlay, the fetched " +
-			"pack trees and the lockfile recording their host-read approvals, the " +
-			"approval snapshots, and the flake bundle every launch binds as pid1",
+	breach := paths.WorkspaceScopeBreach(o.Workspace)
+	if breach == nil {
+		return nil
 	}
-	userConfig := boundaryRoot{
-		path: resolvePath(filepath.Dir(paths.UserConfigPath())),
-		name: "yolo's user config directory",
-		why: "the jail could grant itself host_files reads, packs and providers for the " +
-			"NEXT launch, by editing the user-scope config that governs it",
+	why, ok := jailWouldGet[breach.Kind]
+	if !ok {
+		why = "the jail would have host access yolo's boundary exists to withhold"
 	}
-
-	// Direction 1 — the workspace IS or CONTAINS a boundary root. Home first: it is the
-	// broadest breach and the one an accidental cd produces.
-	for _, r := range []boundaryRoot{
-		{
-			path: home,
-			name: "your home directory",
-			why: "every credential the jail is walled off from — ~/.ssh, ~/.gitconfig, " +
-				"cloud and agent tokens — would be inside the mount",
-		},
-		state, userConfig,
-	} {
-		if !isUnderOrEqual(r.path, ws) {
-			continue
-		}
-		what := "the workspace IS " + r.name + " (" + ws + ")"
-		if r.path != ws {
-			what = "the workspace " + ws + " CONTAINS " + r.name + " (" + r.path + ")"
-		}
-		return &workspaceScopeRefusal{what: what, why: r.why}
-	}
-
-	// Direction 2 — the workspace is INSIDE one of yolo's own directories. Not covered by
-	// direction 1, and the same state is reachable from in there.
-	for _, r := range []boundaryRoot{state, userConfig} {
-		if isUnderOrEqual(ws, r.path) {
-			return &workspaceScopeRefusal{
-				what: "the workspace " + ws + " is INSIDE " + r.name + " (" + r.path + ")",
-				why:  r.why,
-			}
-		}
-	}
-	return nil
+	return &workspaceScopeRefusal{what: breach.What(), why: why}
 }

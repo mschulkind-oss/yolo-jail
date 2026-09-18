@@ -435,8 +435,17 @@ const WorkspaceStateIgnore = `# yolo-jail's per-workspace state. None of it belo
 // could not ignore itself, and a workspace yolo cannot write into is one where the launch is
 // about to fail for a better reason. Only MkdirAll's error reaches the caller, because every
 // caller already refuses on it.
+//
+// IT IS ALSO THE CHOKEPOINT that keeps a `.yolo` out of the three directories that may
+// never hold one (workspacescope.go states them and both hazards). The refusal is returned
+// as the error every caller already has a branch for, so a command that gains the ability
+// to run in a home is protected without being taught about it — and the breach is checked
+// BEFORE MkdirAll, because the directory is the artifact.
 func EnsureWorkspaceStateDir(workspace string) (string, error) {
 	dir := WorkspaceStateDir(workspace)
+	if breach := WorkspaceScopeBreach(workspace); breach != nil {
+		return dir, breach
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return dir, err
 	}
