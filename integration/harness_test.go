@@ -78,12 +78,36 @@ func TestMain(m *testing.M) {
 	os.Exit(macosUserExitCode(runSuite(m), os.Stderr))
 }
 
+// listingOnly reports a `go test -list <re>` invocation: enumerate the test NAMES and run
+// none of them.
+//
+// IT MUST SKIP THE WHOLE SETUP, and the reason is not a speed argument. A listing compiles
+// the package and prints names; nothing it does can be affected by what the flake decides —
+// baked packages, the /lib farm, /etc, the image env. So `ensureJailImage`'s stale-image
+// refusal has no subject here, and refusing anyway turns a *listing* into a failure.
+//
+// MEASURED 2026-09-18, and the misdiagnosis is the expensive half. `apple-container.yml`
+// selects its subset with `go test -list '^TestAppleContainer' ./integration` and refuses to
+// pass vacuously on an empty listing — a good guard. But a flake edit that morning moved
+// `imageIdentity`, so the self-hosted Mac's image went stale, `TestMain` refused, the listing
+// printed nothing, and the guard fired with its two stated causes: "the suite was renamed out
+// from under this filter, or ./integration does not compile." Both false. The job reported a
+// broken test suite for a stale image, on the one runner that cannot be re-run casually.
+//
+// `-short` was already exempt for the neighbouring reason — it runs no container — and this
+// is the same exemption one step earlier: a listing does not even run a test.
+
+func listingOnly() bool {
+	f := flag.Lookup("test.list")
+	return f != nil && f.Value.String() != ""
+}
+
 // runSuite is TestMain's body: it builds the CLI under test once and, when running
 // inside a nested jail, ensures the image is loaded — then runs the suite and returns
 // its exit code. Under -short it does none of that (only the non-container fast tests
 // run).
 func runSuite(m *testing.M) int {
-	if testing.Short() {
+	if testing.Short() || listingOnly() {
 		return m.Run()
 	}
 
