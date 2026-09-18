@@ -63,8 +63,13 @@ existing provider table, which every agent pack derives into its own dialect.
 `https://openrouter.ai/api/v1` using `openai-responses`, and an `anthropic`
 endpoint at `https://openrouter.ai/api`. `kilo` contributes `KILO_API_KEY`, an
 `openai` endpoint at `https://api.kilo.ai/api/gateway` using
-`openai-chat-completions`, and the existing wire bridge's local `anthropic`
-endpoint at `http://127.0.0.1:8216`.
+`openai-chat-completions`. It contributed the wire bridge's local `anthropic`
+endpoint at `http://127.0.0.1:8216` as well when this was written; that half is
+**gone** — protocol resolution moved every bridge address into
+[`packs/wire-bridge`](../../packs/wire-bridge/pack.json)'s own `adapter`
+contributions, and `8216` was eliminated rather than relocated, because kilo now
+shares the single `openai → anthropic` adaptation
+([`../reference/protocol-resolution.md`](../reference/protocol-resolution.md)).
 
 Each pack contributes a same-named profile. Both declare the existing `model`
 profile option with no default, so selecting a profile does not silently select

@@ -54,8 +54,16 @@ const CredentialsPath = "/credentials"
 
 // DefaultListen is this adapter's fixed jail-loopback address. The port is
 // adjacent to the OpenAI adapter's 1460 because they are the same kind of thing —
-// a credential endpoint an agent's own client library dials — and the other fixed
-// jail ports (8214 cerebras, 8215 wire-bridge, 8216 kilo) are a different family.
+// a credential endpoint an agent's own client library dials — and the wire bridge's
+// ports are a different family: an ADAPTED WIRE rather than a credential.
+//
+// ⚠ The bridge's ports are declared by ONE pack now, and this comment used to
+// misattribute all three. They are `packs/wire-bridge/pack.json`'s two `adapter`
+// contributions — 8214 for `openai → anthropic` and 8215 for
+// `openai-responses → anthropic` — not a port per provider. A third, 8216, was
+// eliminated rather than relocated when `packs/kilo` stopped hand-writing an
+// anthropic endpoint and started sharing the single `openai → anthropic`
+// adaptation (docs/reference/protocol-resolution.md).
 const DefaultListen = "127.0.0.1:1461"
 
 // Fetch asks the host credential service for one container-credentials body.
