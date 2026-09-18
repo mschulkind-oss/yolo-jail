@@ -303,6 +303,33 @@ repo can stand in for:
 
 ## Blockers
 
+⚠ **A sixth, opened 2026-09-18 while wiring steps 1–2: the launch-side disclosure has no
+generic mechanism, and it must not get a bespoke one.** `Narrowing.DisclosureLine` has two of
+its three call sites — the daemon's spawn log and the `--self-check` `NOTE:`. The third, a
+launch-side line, is what [`OQ-SSO1`](sso-backed-bedrock.md#13-decision-ledger)'s *"the
+explicit setting is disclosed at every launch"* actually requires, and neither existing caller
+satisfies it: the daemon is a host SINGLETON, so its spawn line prints once and then serves
+every later launch in silence, which is precisely the widening nobody re-consents to.
+
+It cannot be written yet and should not be written the obvious way:
+
+- **No subject until step 3.** `packs/aws-auth/` does not exist, so no manifest declares
+  `unnarrowed`, so `writeLoopholeSettings` never sees this loophole. A call site added today is
+  unreachable code.
+- **`if lp.Name == "aws-auth"` is forbidden**, not merely ugly: the launch and boot paths
+  render every pack in one loop **with no switch on any tool name**
+  ([`AGENTS.md`](../../AGENTS.md)), and a settings writer that knows one loophole's name is the
+  first such switch.
+- **The shape that fits is declarative** — a settings DECLARATION marking a key as widening and
+  carrying the sentence, so `writeLoopholeSettings` prints it for any loophole whose resolved
+  value is truthy and knows none of their names. That is a `internal/loopholedecl/settings.go`
+  vocabulary change, which is a decision rather than wiring, and the second consumer that would
+  justify it does not exist yet either.
+
+So: land it **with step 3**, when the manifest gives it a subject, and rule the mechanism then.
+Until then the setting is disclosed at daemon spawn and in the self-check, and that gap is
+stated here rather than papered over with a call nothing reaches.
+
 Stop and ask on each: the tree forces a choice the design does not make. None blocks steps 1–3.
 
 **Measured after steps 1 and 2: none of the five was hit.** They are all step-3-and-later

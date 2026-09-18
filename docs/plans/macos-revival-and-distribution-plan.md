@@ -782,12 +782,15 @@ The bullets below are the original plan; see that runbook for what actually ran.
 > the distinction — a daemon that does one bounded thing vs. one that does whatever
 > the caller describes — is the line part 1 must not cross.
 >
-> **ONE host service now starts here, and the framework still does not** — the
+> **EVERY admitted host loophole now starts here, and the jail-side half still does not**
+> (amended 2026-09-18: this said ONE, and the allow-list that made it one is deleted) — the
 > record below said "NOT STARTED, and `EndpointGrantCommands` is uncalled" from
 > 2026-08-23 until `6d118252` (2026-09-15) made both halves false. What changed:
-> the macos-user arm of `run.Run` calls `startOpenAIAuth`, a
-> `startLoopholesMatching` whose allow-list is the single name
-> `openai-auth-broker`, and refuses the launch if that daemon does not come up;
+> the macos-user arm of `run.Run` routes through `startLoopholesDisclosed` like every
+> other backend and starts every admitted host loophole — measured on a bare
+> `"packs": ["claude"]`, the openai-auth broker and claude's oauth broker both start —
+> and refuses the launch if the CREDENTIAL service does not come up, which stays the
+> only fail-closed one;
 > `macosuser.BuildRunPlan` then stages `EndpointGrantCommands` for its published
 > endpoint file, so the primitive built ahead of the rest has a production caller
 > and the ACE grant it emits is [`backend-parity.md`](../design/backend-parity.md)'s
