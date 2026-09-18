@@ -146,15 +146,38 @@ func WorkspaceScopeBreach(workspace string) *ScopeBreach {
 	}
 
 	// Direction 2 — the workspace is INSIDE one of yolo's own two directories. Not covered
-	// by direction 1, and the same state is reachable from in there. The HOME is
-	// deliberately absent from this half: ~/code/x is the ordinary case.
+	// by direction 1, and no project belongs in either. The HOME is deliberately absent
+	// from this half: ~/code/x is the ordinary case.
 	for _, r := range roots {
 		if r.kind == RootHome || !scopeUnderOrEqual(ws, r.path) {
+			continue
+		}
+		if scopeExempt(ws) {
 			continue
 		}
 		return &ScopeBreach{Workspace: ws, Root: r.path, Kind: r.kind, Relation: ScopeInsideRoot}
 	}
 	return nil
+}
+
+// scopeExempt reports whether this workspace is one YOLO ITSELF puts inside its own state
+// directory, and is therefore not the mistake direction 2 is looking for.
+//
+// There is exactly one, and it is load-bearing: `yolo capture` stages a throwaway workspace
+// at <CapturesDir>/staging/<id> and launches the ordinary run pipeline against it.
+// CapturesDir's docstring states why that tree cannot live in /tmp — admission into the
+// store is an os.Rename, and a scratch tree on another filesystem silently turns it into a
+// full copy of the gigabytes the capture subsystem exists to stop copying. The first cut of
+// the launch guard shipped without this exemption and refused every `yolo capture`
+// (internal/capture/scopeexemption_test.go is the regression pin, against the real
+// Store.StagingDir rather than a hand-joined literal).
+//
+// It is narrow on purpose: the CAPTURE STORE only, never the state dir at large. A bind of a
+// subtree exposes that subtree and not its parents, so what this allows a jail to reach is
+// its own scratch tree — while a workspace at `packs/`, `approvals/` or the state dir itself
+// stays refused.
+func scopeExempt(ws string) bool {
+	return scopeUnderOrEqual(ws, resolveScopePath(CapturesDir()))
 }
 
 // WorkspaceStateDirAllowed is the boolean spelling, for a caller that wants to SKIP writing

@@ -61,6 +61,10 @@ func TestWorkspaceScopeBreach(t *testing.T) {
 		{"another tool's config under ~/.config", under(".config", "nvim"), false, 0, 0},
 		{"a sibling of the state dir", under(".local", "share", "mise"), false, 0, 0},
 		{"a directory outside the home entirely", "/tmp/yolo-nested", false, 0, 0},
+		// The one exemption: yolo's own capture scratch tree, which `yolo capture` really
+		// does launch against (scopeExempt, and internal/capture/scopeexemption_test.go
+		// pins it against the real Store.StagingDir).
+		{"yolo's capture scratch workspace", under(GlobalStorageRel(), "captures", "staging", "claude"), false, 0, 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
