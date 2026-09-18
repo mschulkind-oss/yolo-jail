@@ -8,11 +8,13 @@
 // Frozen behavior (from docs/reference/ctrl-z-and-the-tty-proxy.md):
 //   - non-TTY stdin -> transparent plain spawn (no pty).
 //   - ^Z suspends the PROXY via TARGETED SIGTSTP to self (NEVER a pgroup-wide
-//     signal — that would stop podman, a jail-visible change); the keypress
-//     never reaches the child; bytes after it in the same read are queued and
-//     flushed on resume. WHICH BYTES ARE A ^Z is suspendkey.go's job and is no
-//     longer just 0x1A — a terminal running the kitty keyboard protocol sends
-//     an escape sequence instead, and missing it is a live wedge.
+//     signal — that would stop podman, a jail-visible change); the terminal is
+//     restored to cooked mode and reset (cursor shown, mouse tracking disabled,
+//     attributes cleared) before stopping; the keypress never reaches the
+//     child; bytes after it in the same read are queued and flushed on resume.
+//     WHICH BYTES ARE A ^Z is suspendkey.go's job and is no longer just 0x1A —
+//     a terminal running the kitty keyboard protocol sends an escape sequence
+//     instead, and missing it is a live wedge.
 //   - NO Setsid (setsid broke `podman -it`); NEVER signal.Notify(SIGTSTP)
 //     (default disposition required to actually stop).
 //   - SIGCONT -> re-raw the host TTY, and resync the window size (a resize while
@@ -20,9 +22,9 @@
 //     then a TARGETED SIGWINCH at the child pid — the runtime shares our process
 //     group on the host tty and reads its size from the proxy pty, so without the
 //     poke it can read a stale size and nothing ever corrects it (resyncWinsize).
-//   - Ctrl-C, SIGHUP or SIGTERM -> restore cooked termios, run onTerminate,
-//     exit 130 or 128+n. Raw mode delivers Ctrl-C as a byte, so the proxy turns
-//     it into a TARGETED SIGINT rather than leaking it to the jail.
+//   - Ctrl-C, SIGHUP or SIGTERM -> restore cooked termios and reset the terminal,
+//     run onTerminate, exit 130 or 128+n. Raw mode delivers Ctrl-C as a byte, so
+//     the proxy turns it into a TARGETED SIGINT rather than leaking it to the jail.
 //   - stdin EOF -> stop reading stdin, keep pumping the master until child exit
 //     (the decided semantics).
 //
@@ -190,7 +192,7 @@ func RunWithProxyHooked(cmd []string, onStarted func(*os.Process), onTerminate f
 	// Raw mode on the host TTY.
 	setRaw(inFd, cooked)
 
-	restoreCooked := func() { _ = unix.IoctlSetTermios(inFd, unix.TCSETS, cooked) }
+	restoreCooked := func() { restoreTerminal(inFd, cooked) }
 
 	// Signal handlers. Note: we DO NOT Notify SIGTSTP (default disposition must
 	// stop us); we handle WINCH/CONT/INT/HUP/TERM. Ctrl-C arrives as a byte
@@ -366,10 +368,47 @@ func proxyLoop(inFd, master int, c *exec.Cmd, cooked *unix.Termios, hook StageHo
 	}
 }
 
-// selfSuspend restores cooked termios then raises SIGTSTP on OUR pid only —
-// TARGETED, never pgroup-wide (that would stop podman).
-func selfSuspend(inFd int, cooked *unix.Termios) {
+// termReset contains ANSI escape sequences that restore the terminal to a
+// clean state without clearing the screen, altering scrollback, or moving the cursor:
+//   - \x1b[0m: reset SGR attributes (colors, bold, underline, etc.)
+//   - \x1b[?25h: show cursor (DECTCEM)
+//   - \x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l: disable mouse tracking (X10, button-event, any-event, SGR)
+//   - \x1b[?2004l: disable bracketed paste mode
+//   - \x1b[?1l: normal cursor keys mode (DECCKM)
+//   - \x1b>: normal keypad mode (DECKPNM)
+const termReset = "\x1b[0m\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[?1l\x1b>"
+
+// resetTerminal sends escape sequences to restore cursor visibility, reset
+// text attributes, and disable mouse tracking, bracketed paste, and application
+// keypad/cursor modes. It writes to the first available terminal among stdout,
+// stderr, and inFd.
+func resetTerminal(inFd int) {
+	fd := -1
+	switch {
+	case isatty(int(os.Stdout.Fd())):
+		fd = int(os.Stdout.Fd())
+	case isatty(int(os.Stderr.Fd())):
+		fd = int(os.Stderr.Fd())
+	case isatty(inFd):
+		fd = inFd
+	}
+	if fd >= 0 {
+		_, _ = unix.Write(fd, []byte(termReset))
+	}
+}
+
+// restoreTerminal restores cooked termios on the host terminal and resets
+// terminal modes (shows the cursor, resets attributes, and disables mouse
+// tracking, bracketed paste, and application cursor/keypad modes).
+func restoreTerminal(inFd int, cooked *unix.Termios) {
 	_ = unix.IoctlSetTermios(inFd, unix.TCSETS, cooked)
+	resetTerminal(inFd)
+}
+
+// selfSuspend restores cooked termios and resets the terminal, then raises
+// SIGTSTP on OUR pid only — TARGETED, never pgroup-wide (that would stop podman).
+func selfSuspend(inFd int, cooked *unix.Termios) {
+	restoreTerminal(inFd, cooked)
 	// SIGTSTP with the DEFAULT disposition stops us; the shell prints
 	// "[1]+ Stopped" and `fg` later sends SIGCONT (handled -> re-raw).
 	_ = syscall.Kill(os.Getpid(), syscall.SIGTSTP)

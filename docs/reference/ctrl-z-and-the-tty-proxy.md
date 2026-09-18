@@ -152,7 +152,8 @@ each one is a place a plausible "cleanup" reintroduces the wedge.
   stop the process. A handler is the one change that makes the suspend silently do nothing.
 - **`^C` stops the jail, rather than becoming an agent input.** Raw mode presents the keypress as
   byte `0x03`; the proxy consumes it and sends a targeted `SIGINT` to itself. Its signal arm
-  restores cooked termios, runs the terminate callback, and exits 130. It never sends that signal
+  restores cooked termios, resets the terminal (shows the cursor, resets attributes, and disables
+  mouse tracking), runs the terminate callback, and exits 130. It never sends that signal
   to the runtime process group, so a TUI cannot reinterpret the request as merely canceling its
   current turn.
 - **`SIGCONT` re-raws the host terminal**, and resyncs the size — a resize while stopped may leave
@@ -176,7 +177,7 @@ each one is a place a plausible "cleanup" reintroduces the wedge.
 > make the proxy pty a real controlling terminal, so `TIOCSWINSZ` would signal it naturally and
 > this race would not exist — but that is exactly the change the job-control section forbids, and
 > it is why the fix is a targeted re-signal rather than the textbook one.
-- **`SIGINT`, `SIGHUP`, and `SIGTERM` restore cooked termios and run the terminate callback.**
+- **`SIGINT`, `SIGHUP`, and `SIGTERM` restore cooked termios, reset the terminal, and run the terminate callback.**
   Ctrl-C exits 130; the other two exit `128+n`. This is the terminal-close and explicit-cancel
   path, and it is why teardown is the proxy's job.
 - **stdin EOF stops reading stdin and keeps pumping the master until the child exits.** Decided
@@ -209,10 +210,12 @@ host TTY <── proxy ──── master pty <── runtime <── container
 3. Pump: host stdin → master, master → host stdout. On seeing Ctrl-C, consume it and send a
    targeted SIGINT to the proxy, which tears down the jail. On seeing the suspend byte, write
    everything *before* it, queue everything *after* it, then self-suspend.
-4. Self-suspend restores cooked termios — so the shell prompt works — and sends the targeted
+4. Self-suspend restores cooked termios and resets the terminal (cursor visible, attributes cleared,
+   mouse tracking and bracketed paste off) — so the shell prompt works — and sends the targeted
    `SIGTSTP`. The host shell sees a stopped child, prints its stopped-job line, and prompts. `fg`
    resumes, `SIGCONT` retakes raw mode, and the queued bytes flush.
-5. On child exit, **drain the master once more** before returning, then restore termios.
+5. On child exit, **drain the master once more** before returning, then restore termios and reset
+   the terminal.
 
 **The final drain is load-bearing.** Without it the last lines of output — an application's exit
 summary — are truncated, because bytes can still be sitting in the pty buffer when the child
@@ -292,3 +295,4 @@ place the values themselves are stated.
 | Exit code on a killed proxy | `128 + signal` | `ttyproxy` |
 | Reported stages | `spawned`, `exited`, `drain_done`, `termios_restored` | `ttyproxy` (`Stage*`), consumed as `child.*` marks — see [`perf-logging.md`](perf-logging.md) |
 | Resize ioctl | `TIOCSWINSZ`, from a `TIOCGWINSZ` on the host terminal | `ttyproxy` (`setWinsize`, `getWinsize`) |
+| Terminal reset sequence | `\x1b[0m\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[?1l\x1b>` | `ttyproxy` (`termReset`, `restoreTerminal`, `resetTerminal`) |

@@ -170,6 +170,173 @@ func TestSuspendTargetedSelfOnly(t *testing.T) {
 	}
 }
 
+// TestSelfSuspendResetsTerminal verifies that selfSuspend writes terminal reset
+// escape sequences (including cursor show \x1b[?25h) to the terminal so the
+// host shell prompt does not lose its cursor.
+func TestSelfSuspendResetsTerminal(t *testing.T) {
+	signal.Ignore(syscall.SIGTSTP)
+	defer signal.Reset(syscall.SIGTSTP)
+
+	master, slave, err := openPty()
+	if err != nil {
+		t.Skipf("cannot open pty: %v", err)
+	}
+	defer unix.Close(master)
+	defer unix.Close(slave)
+
+	cooked, err := unix.IoctlGetTermios(slave, unix.TCGETS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	setRaw(slave, cooked)
+
+	selfSuspend(slave, cooked)
+
+	buf := make([]byte, 256)
+	// Set read deadline so test does not hang if nothing was written.
+	if err := unix.SetNonblock(master, true); err != nil {
+		t.Fatal(err)
+	}
+	n, err := unix.Read(master, buf)
+	if err != nil {
+		t.Fatalf("reading reset sequence from master: %v", err)
+	}
+	got := string(buf[:n])
+	if !strings.Contains(got, "\x1b[?25h") {
+		t.Errorf("selfSuspend did not emit cursor show sequence, got %q", got)
+	}
+	if !strings.Contains(got, termReset) {
+		t.Errorf("selfSuspend output = %q, want containing %q", got, termReset)
+	}
+}
+
+// TestRestoreTerminalResetsTerminalModes asserts that restoreTerminal restores
+// cooked termios and emits termReset (cursor visible, mouse off, normal modes).
+func TestRestoreTerminalResetsTerminalModes(t *testing.T) {
+	master, slave, err := openPty()
+	if err != nil {
+		t.Skipf("cannot open pty: %v", err)
+	}
+	defer unix.Close(master)
+	defer unix.Close(slave)
+
+	cooked, err := unix.IoctlGetTermios(slave, unix.TCGETS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	setRaw(slave, cooked)
+
+	restoreTerminal(slave, cooked)
+
+	// Verify termios restored to cooked.
+	current, err := unix.IoctlGetTermios(slave, unix.TCGETS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Lflag&unix.ICANON == 0 {
+		t.Error("restoreTerminal did not restore canonical mode (ICANON)")
+	}
+
+	// Verify termReset was written to the terminal.
+	buf := make([]byte, 256)
+	if err := unix.SetNonblock(master, true); err != nil {
+		t.Fatal(err)
+	}
+	n, err := unix.Read(master, buf)
+	if err != nil {
+		t.Fatalf("reading reset sequence from master: %v", err)
+	}
+	got := string(buf[:n])
+	if !strings.Contains(got, termReset) {
+		t.Errorf("restoreTerminal output = %q, want %q", got, termReset)
+	}
+}
+
+// TestResetTerminalFdSelection asserts that resetTerminal prioritizes stdout,
+// falls back to stderr, then falls back to inFd, and writes nothing if none is a tty.
+func TestResetTerminalFdSelection(t *testing.T) {
+	origStdout, origStderr := os.Stdout, os.Stderr
+	defer func() { os.Stdout, os.Stderr = origStdout, origStderr }()
+
+	t.Run("writes to stdout when stdout is tty", func(t *testing.T) {
+		m, s, err := openPty()
+		if err != nil {
+			t.Skip(err)
+		}
+		defer unix.Close(m)
+		defer unix.Close(s)
+
+		os.Stdout = os.NewFile(uintptr(s), "stdout")
+		os.Stderr = origStderr
+		_ = unix.SetNonblock(m, true)
+
+		resetTerminal(-1)
+
+		buf := make([]byte, 256)
+		n, err := unix.Read(m, buf)
+		if err != nil {
+			t.Fatalf("read from stdout master: %v", err)
+		}
+		if string(buf[:n]) != termReset {
+			t.Errorf("got %q, want %q", string(buf[:n]), termReset)
+		}
+	})
+
+	t.Run("writes to stderr when stdout is not tty but stderr is", func(t *testing.T) {
+		m, s, err := openPty()
+		if err != nil {
+			t.Skip(err)
+		}
+		defer unix.Close(m)
+		defer unix.Close(s)
+
+		os.Stdout = origStdout // non-tty under go test
+		os.Stderr = os.NewFile(uintptr(s), "stderr")
+		_ = unix.SetNonblock(m, true)
+
+		resetTerminal(-1)
+
+		buf := make([]byte, 256)
+		n, err := unix.Read(m, buf)
+		if err != nil {
+			t.Fatalf("read from stderr master: %v", err)
+		}
+		if string(buf[:n]) != termReset {
+			t.Errorf("got %q, want %q", string(buf[:n]), termReset)
+		}
+	})
+
+	t.Run("writes to inFd when neither stdout nor stderr is tty", func(t *testing.T) {
+		m, s, err := openPty()
+		if err != nil {
+			t.Skip(err)
+		}
+		defer unix.Close(m)
+		defer unix.Close(s)
+
+		os.Stdout = origStdout
+		os.Stderr = origStderr
+		_ = unix.SetNonblock(m, true)
+
+		resetTerminal(s)
+
+		buf := make([]byte, 256)
+		n, err := unix.Read(m, buf)
+		if err != nil {
+			t.Fatalf("read from inFd master: %v", err)
+		}
+		if string(buf[:n]) != termReset {
+			t.Errorf("got %q, want %q", string(buf[:n]), termReset)
+		}
+	})
+
+	t.Run("writes nothing when no fd is a tty", func(t *testing.T) {
+		os.Stdout = origStdout
+		os.Stderr = origStderr
+		resetTerminal(-1)
+	})
+}
+
 // The stage-hook order pin on the plain (non-TTY) path: spawned then exited,
 // and nothing else — the plain fallback has no drain and no termios to
 // restore, so those stages must stay silent rather than fire vacuously. The
