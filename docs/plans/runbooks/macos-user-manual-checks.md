@@ -134,7 +134,7 @@ what the profile does).
 `runContainer`, never calls `AutoLoadImage`, and builds its tools with native darwin nix from
 this flake instead — so none of the chain that has kept `nightly-macos.yml` red since
 2026-09-09 reaches it
-([`../../design/darwin-image-provenance.md` §3](../../design/darwin-image-provenance.md#3-the-chain-and-the-one-link-worth-breaking)).
+([`../../reference/image-staging-vs-baking.md`](../../reference/image-staging-vs-baking.md#the-stock-tag-and-the-question-asked-before-the-build)).
 This job can report while that one is blocked.
 
 Three steps stand between a fresh runner and a launch: install nix, install Go, and run

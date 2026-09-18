@@ -352,7 +352,7 @@ there is no sync step.
   commit, every launch there demanded a rebuild it had no Linux builder for, and
   the macOS nightly went red for six runs on that one fact. Putting it back
   inside the per-system scope would compile and silently restore all of it
-  ([`docs/design/darwin-image-provenance.md`](./docs/design/darwin-image-provenance.md);
+  ([`docs/reference/image-staging-vs-baking.md`](./docs/reference/image-staging-vs-baking.md#why-its-this-way);
   [`integration/imageskew_test.go`](./integration/imageskew_test.go)'s `TestImageIdentityIsSystemInvariant` is the
   guard, and the darwin-only downgrade it replaced is gone).
   Knobs:

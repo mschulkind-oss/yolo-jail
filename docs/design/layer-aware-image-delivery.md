@@ -390,7 +390,7 @@ disturbs them. It does not:
 - **`imageIdentity` and the suite's skew check.** It is over `flake.nix` + `flake.lock` and is
   unaffected; the layer plan must keep it in the top tier, where it is already (measured,
   [§2.2](#22-the-layer-sizes)). (Since 2026-09-12 it is a hash written into the root tree rather
-  than a package joined into it — same tier, no closure entry: [`darwin-image-provenance.md`](darwin-image-provenance.md).)
+  than a package joined into it — same tier, no closure entry: [`../reference/image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md).)
 
 > [!WARNING]
 > **One thing genuinely does change, and it is in another package.** nix2container's
@@ -855,7 +855,7 @@ that fired and the risk that exists BECAUSE the fallback is gone.
 >    (`integration/imageskew_test.go`), and `readlink /bin/bash` must name the bash store path.
 >    **Only the second still does**: on 2026-09-12 the identity stopped being a store path
 >    altogether, exactly because a store path is a per-system value
->    ([`darwin-image-provenance.md`](darwin-image-provenance.md)).
+>    ([`../reference/image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md)).
 >    What shipped instead is **ONE `symlinkJoin` over the same `contents` list in the same order**
 >    as the single top-tier `copyToRoot`, with the package closures carried by the lower tiers'
 >    `deps`. That also makes the collision question moot: one entry, so the union has nothing to

@@ -67,12 +67,28 @@ mounts the launch supplies — the Linux binaries at `bin/`, the flake bundle at
 **The image moves only when an image input moves.** Those inputs are `flake.nix`,
 `flake.lock`, and the `packages:` list a launch bakes. `imageIdentity` is a sha256 over
 exactly the first two, baked into the image and read back out of a loaded one — the oracle
-for "is this loaded image built from this flake". It is a **content hash and not a store
-path**, so any host can compute it: it was a `pkgs.runCommand` whose output path varied by
-evaluating system until 2026-09-12, which is why a darwin host could not vouch for an image
-a Linux runner built from its own commit ([`darwin-image-provenance.md`](../design/darwin-image-provenance.md)). Before the binaries left the image, yolo's
+for "is this loaded image built from this flake". Before the binaries left the image, yolo's
 own Go source was the trigger behind roughly half of all commits; measured after, a Go-only
 edit leaves `.#ociImage`'s store path unchanged.
+
+**Every host computes the same image identity, and the placement is what guarantees it.** An
+identity a second host cannot compute is not an identity; it is a local cache key wearing one
+([OQ-IP1](#why-its-this-way)). So `imageIdentity` is a content hash built with `builtins.hashFile`
+and **declared outside the per-system scope**, in the flake outputs' top-level `let`, where
+neither `system` nor `pkgs` is in scope to leak in.
+
+> [!WARNING]
+> **Moving that declaration back inside the per-system scope compiles, evaluates, and silently
+> restores the whole defect.** It was a `pkgs.runCommand` whose **store path** was the identity:
+> content identical on every system, path carrying the evaluating host's `system`. A darwin host
+> therefore could not vouch for an image a Linux runner built from its own commit, so every launch
+> there demanded a rebuild it had no Linux builder to perform. Nothing about the code looks wrong
+> in the wrong scope, which is why `TestImageIdentityIsSystemInvariant` evaluates the identity
+> under every default system and requires one value. Two constraints also rule out the obvious
+> alternatives: the oracle must stay answerable **by eval** because the integration suite asks on
+> every suite start, and no store path can be system-independent — every store path that can hold
+> a directory is a derivation output carrying `system`, while a fixed-output derivation's output
+> hash is the NAR hash of a directory nix cannot know before building it.
 
 **A build that ran and failed is fatal.** The launch prints nix's own stderr under a fixed
 headline and refuses. It never continues onto a previously loaded image on its own; the
@@ -436,6 +452,17 @@ shape of fix named.
 > test: what makes a stale run safe is not who is running but that somebody *said* the image may
 > be stale.
 
+**A stale image is never a legitimate basis for an integration result.** The hatch is a choice a
+human at a terminal may make and a test may not, so the harness fails on the build-failure report
+whichever branch printed it — it matches the marker, not the outcome.
+
+> [!WARNING]
+> **Do not set the stale-image hatch in a CI job.** It does not stop a build and never did; it
+> lets a *failed* one proceed. In a job it therefore buys nothing, fails anyway on the rule above,
+> and hides that a build was running at all. This is the standing escape-hatch rule — a hatch is
+> for broken user configuration, never for a yolo bug — applied to the one hatch most often
+> mis-recruited.
+
 ### The content-addressed image ref
 
 **Content ref** *(coined here)* — the runtime name of a loaded jail image, `JailImageRef`:
@@ -525,12 +552,21 @@ delivering an image it built from the default attr with no extras, and the macOS
 > the store path the launch that first loaded this image recorded, because an unchanged identity
 > means an unchanged store path on that host.
 
+> [!NOTE]
+> **An image built before the identity became content-addressed is recognised and still refused.**
+> Its identity file is a symlink to a directory, so the `cat` read fails — and a failed probe is
+> reported as a degraded harness, which *skips* the check, the wrong answer on the one commit
+> where every image mismatches. The probe therefore falls back to reading the link, the old store
+> path comes back as a plain string, it is rejected like any other non-identity, and `identityHint`
+> names the shape. The diagnostic expires on its own, because nothing can produce that shape again.
+
 This is what lets a **darwin** host run an image another machine built. A Mac cannot realise
 `.#ociImage` without a Linux builder (the closure holds derivations no public cache serves), so
 every darwin launch used to need one; now it needs one only when the image it wants is genuinely
 absent. That is the second link of the chain in
-[`darwin-image-provenance.md`](../design/darwin-image-provenance.md), and the link that survived
-making the identity content-addressed.
+[OQ-IP4](#why-its-this-way), and the link that survived making the identity
+content-addressed — breaking [OQ-IP1](#why-its-this-way)'s link was necessary and was not
+sufficient.
 
 ### Delivering into the runtime
 
@@ -821,6 +857,10 @@ ones cited from sibling docs and code comments and are never renumbered.
 | OQ-6 | A stable layer chain gets built by a **successor mechanism**, not by reordering `streamLayeredImage`, which cannot express a written layer plan; never a `fromImage` base, which re-emits the base layers into the stream. The go/no-go moved to [`../design/layer-aware-image-delivery.md`](../design/layer-aware-image-delivery.md) — and was GRANTED and BUILT there on 2026-09-09: nix2container plus a three-tier layer plan plus a negotiating `skopeo copy`, with `streamLayeredImage` deleted from the jail image in the same change. | 2026-09-08 |
 | OQ-7 | **Do not strip the `git describe` stamp from the bundle's binaries.** The stamp no longer moves the image (stamped bytes are prefix content), so removing it would buy a cheaper `runCommand` at the price of the fallback the in-jail version banner keeps. | 2026-09-06 |
 | OQ-8 | yolo's own binaries are delivered by **mount**, on all three backends in one pass, and the [security delta](#the-security-delta) is the accepted price. | 2026-09-06 |
+| OQ-IP1 | **Cross-system invariance of `imageIdentity` is a requirement, not a convenience** — and it is enforced by *placement*, outside the per-system scope, rather than by a promise. This is what licensed deleting the integration suite's darwin-only downgrade; `TestImageIdentityIsSystemInvariant` guards the relapse. | 2026-09-12 |
+| OQ-IP2 | The **Linux-builder-on-macOS gap is filed separately**, not coupled to the identity fix. Only the identity was on the critical path, and coupling would have kept the instrument dark until both landed. A Mac that cannot offload a Linux build still cannot *build* an image — it can now *verify* one it was handed. | 2026-09-12 |
+| OQ-IP3 | **Accept the one-time mismatch** when the identity's spelling changed; no dual-spelling window. A compatibility window is a second code path guarding a cost paid once. What was added instead is `identityHint`, which recognises the old shape and never accepts it. | 2026-09-12 |
+| OQ-IP4 | **Ask the runtime before building** — a stock *tag*, not a trust signal. The build was unconditional and [OQ-IP1](#why-its-this-way) did not reach it, because the launcher compared nothing at all. The tag carries a claim the launch verifies against its own evaluation, so nothing is suppressed and no new environment variable exists. | 2026-09-13 |
 
 ## Current values
 

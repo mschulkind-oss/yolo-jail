@@ -693,7 +693,7 @@ Go half was the real work and it was **not** a path rewrite — see the finding 
 > the assessment above predates, and it must not graduate into a reference of its own.**
 > It is BUILT and measured against three named CI runs, with all three questions ruled, and it is
 > by far the cheapest to move — **5 doc references and 2 Go files**, and the Go half cites
-> [`OQ-IP1`](../design/darwin-image-provenance.md#decision-ledger) by id rather than by section, so
+> [`OQ-IP1`](../reference/image-staging-vs-baking.md#why-its-this-way) by id rather than by section, so
 > none of finding 2 applies.
 >
 > But [`../reference/image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md)
@@ -703,7 +703,7 @@ Go half was the real work and it was **not** a path rewrite — see the finding 
 > second authority for one subsystem, which is the failure
 > [the 2026-09-09 run](#where-the-work-was-hardest-and-why) named. The correct disposition is
 > [`lua-transform-removal.md`](../design/lua-transform-removal.md)'s: **fold what is not yet
-> absorbed — `P1`, `P2`, and [`OQ-IP1`](../design/darwin-image-provenance.md#decision-ledger) as a
+> absorbed — `P1`, `P2`, and [`OQ-IP1`](../reference/image-staging-vs-baking.md#why-its-this-way) as a
 > stated invariant — into that reference's why-appendix,
 > then archive.** Its separate finding, that no CI job exercises `macos-user` at all, belongs in
 > the roadmap rather than in either doc.
@@ -716,7 +716,7 @@ Go half was the real work and it was **not** a path rewrite — see the finding 
 | [`lua-transform-removal.md`](../design/lua-transform-removal.md) | **Fold, do not graduate** | Unchanged: a removal doc has no system to describe, and `pack-system.md` already owns the surviving derive sandbox. |
 | [`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md) | **Not yet** | Finding 1: hardware-measured now, but its own *What shipped* still owes a Mac on the mirror ordering. |
 | [`macos-user-provisioning.md`](../design/macos-user-provisioning.md) | **Not assessable** | Held by another workflow throughout this pass. Assessed, not touched. |
-| [`darwin-image-provenance.md`](../design/darwin-image-provenance.md) | **Fold, do not graduate** | Finding 3. |
+| [`darwin-image-provenance.md`](../design/darwin-image-provenance.md) | **Folded 2026-09-18** | Finding 3, carried out: the identity invariant and its placement rule, both safety rulings, the stale-hatch-in-CI trap, the pre-cutover diagnostic and all four `OQ-IP` ids are now in [`../reference/image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md). The design path is a **redirect stub** — seven prose citations of it live in `flake.nix`, `internal/image/`, `integration/` and `.github/workflows/`. Finding 3's last clause is **closed rather than routed**: a `macos-user` nightly exists now. |
 
 ### The one loose end this graduation leaves
 

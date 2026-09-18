@@ -254,8 +254,8 @@ a real launch's other output, and that a config declaring **none** of these keys
 `Nightly macOS Integration` has been red since **2026-09-04** (nine consecutive scheduled runs,
 last green 2026-09-04). The cause was diagnosed on 2026-09-13 and fixed: the launcher built the
 image **unconditionally**, which the
-[`../design/darwin-image-provenance.md`](../design/darwin-image-provenance.md) chain never
-named, and [`OQ-IP4`](../design/darwin-image-provenance.md#decision-ledger) now makes a stock-tagged image skip the build entirely.
+[`../reference/image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md) chain never
+named, and [`OQ-IP4`](../reference/image-staging-vs-baking.md#why-its-this-way) now makes a stock-tagged image skip the build entirely.
 
 > [!WARNING]
 > **The run testing that fix is contaminated and must be re-dispatched.** The commit it ran on
@@ -272,8 +272,8 @@ named, and [`OQ-IP4`](../design/darwin-image-provenance.md#decision-ledger) now 
 >
 > | # | Cause | Symptom it presented as | Fixed |
 > | :--- | :--- | :--- | :--- |
-> | 1 | `imageIdentity` varied by system, so a darwin host could not vouch for a Linux-built image | every launch demanded a rebuild | [`OQ-IP1`](../design/darwin-image-provenance.md#decision-ledger), 2026-09-12 |
-> | 2 | the launcher built the image **unconditionally** — there was no rebuild *decision* to fix | `IMAGE BUILD FAILED` | [`OQ-IP4`](../design/darwin-image-provenance.md#decision-ledger) |
+> | 1 | `imageIdentity` varied by system, so a darwin host could not vouch for a Linux-built image | every launch demanded a rebuild | [`OQ-IP1`](../reference/image-staging-vs-baking.md#why-its-this-way), 2026-09-12 |
+> | 2 | the launcher built the image **unconditionally** — there was no rebuild *decision* to fix | `IMAGE BUILD FAILED` | [`OQ-IP4`](../reference/image-staging-vs-baking.md#why-its-this-way) |
 > | 3 | `podman machine init -v` REPLACES the default share set, so `-v /nix:/nix` deleted `/Users`, `/private` and `/var/folders` | `exit 125` → `Error: statfs <path>` | `1e55f321` |
 > | 4 | two of four shards exceeded `timeout-minutes: 50` once launches did real work | half the run's evidence silently missing | eight shards, `178fa9f2` |
 > | 5 | `-v /nix/store:/nix/store:ro` shadowed the image's own store; `/bin/*` are symlinks BY VALUE into it, and a darwin store holds no Linux closure | `exec: "bash": executable file not found` — 50 times, 41 tests | `8f59c674` |
