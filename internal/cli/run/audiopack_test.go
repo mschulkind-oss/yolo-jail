@@ -1,7 +1,8 @@
 package run
 
 // audiopack_test.go is the LAUNCH-PATH half of the `audio` pack's proof
-// (docs/design/loophole-packaging.md §7, OQ-LP11): the pre-flight it must survive, and the
+// (OQ-LP11, docs/reference/loophole-system.md#why-its-this-way): the
+// pre-flight it must survive, and the
 // two reports that describe it on a machine where it does nothing.
 //
 // packload/audiopack_test.go pins the pack's CONTENT (claims, subset, destinations). What

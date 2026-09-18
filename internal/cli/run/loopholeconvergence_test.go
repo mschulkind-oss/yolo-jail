@@ -1,8 +1,8 @@
 package run
 
-// loopholeconvergence_test.go pins the RUN-PATH half of docs/design/loophole-packaging.md
-// §5.1 (landing item 5d): the four launch-side census surfaces read the converged loophole
-// set, and the briefing filters on Active() rather than Enabled().
+// loopholeconvergence_test.go pins the RUN-PATH half of
+// docs/reference/loophole-system.md#selection-and-discovery: the four launch-side
+// census surfaces read the converged loophole set, and the briefing filters on Active() rather than Enabled().
 //
 // §3.1's builtin-name rule USED to be pinned here too — a manifest claiming a builtin
 // service name had its daemon skipped, and the skip had to be PRINTED. There are no

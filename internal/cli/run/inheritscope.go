@@ -2,7 +2,7 @@ package run
 
 // inheritscope.go writes the two GENERATED user-scope files a jail inherits, replacing the
 // raw `:ro` bind of the human's real config.jsonc that used to serve as an inner jail's
-// user scope (OQ-LP9, docs/design/loophole-packaging.md).
+// user scope (OQ-LP9, docs/reference/loophole-system.md#why-its-this-way).
 //
 // WHAT CHANGED, in one sentence: the inner user scope is now COMPOSED from the effective
 // config and FILTERED per consumer (internal/config/inherit.go), rather than being whatever

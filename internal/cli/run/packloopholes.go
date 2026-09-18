@@ -2,7 +2,8 @@ package run
 
 // packloopholes.go is the SPAWN BOUNDARY for a pack-shipped loophole: what the user is told
 // before any host code runs, and what they are told when the backend means none will
-// (docs/design/loophole-packaging.md §4.3 G4, §8 item 2).
+// (docs/reference/loophole-system.md#the-per-launch-disclosure and
+// docs/reference/loophole-system.md#where-a-loophole-does-nothing).
 //
 // Two things live here, in that order:
 //

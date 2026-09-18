@@ -1,7 +1,7 @@
 package check
 
 // audiopack_test.go is the R6 half of the `audio` pack's proof: selecting it leaves
-// `yolo check` CLEAN (docs/design/loophole-packaging.md §7, OQ-LP11).
+// `yolo check` CLEAN (OQ-LP11, docs/reference/loophole-system.md#why-its-this-way).
 //
 // It is a separate assertion from "the pack lints" and from "the pre-flight accepts it",
 // because sectionPacks is the surface a user actually runs before launching, and it composes

@@ -364,7 +364,8 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 		return "", nil, nil, fmt.Errorf("packs: %s", strings.Join(msgs, "\npacks: "))
 	}
 	// The FOURTH bespoke pre-flight: a loophole NAME claimed twice, or claimed against a
-	// name yolo reserves (docs/design/loophole-packaging.md §3.1). Here, beside the other
+	// name yolo reserves (docs/reference/loophole-system.md#the-loophole-contribution-kind).
+	// Here, beside the other
 	// three, for the same reason all four are here — this is where the pack set becomes
 	// complete — and fatal for the reason none of the other three quite share: a shadowed
 	// loophole name means A DAEMON NOBODY AUDITED RUNNING UNDER A NAME THE USER TRUSTS.
@@ -463,7 +464,7 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 	jailcontent.SetPackSkillDirs(skillDirs)
 	// Record the pack-contributed loophole modules for every host-side consumer, with
 	// each one's origin gate already evaluated. THE convergence point
-	// (docs/design/loophole-packaging.md §5.1): the seven discovery surfaces used to
+	// (docs/reference/loophole-system.md#selection-and-discovery): the seven discovery surfaces used to
 	// assemble seven independent DiscoverOptions, and two of them execute host code.
 	// Sequencing is already right — stagePacks runs above the backend dispatch, well
 	// before assembleRunCmd and startLoopholes.
@@ -573,7 +574,7 @@ type PackLoopholeDecl struct {
 // a shadowed config key or a duplicated mount: the loser's manifest still contributes
 // `--add-host`, `ca_cert`, `--device`, bind mounts and `jail_env` to the argv while the
 // winner's daemon is the one that runs. The user sees one trusted name and gets a
-// mixture, with nothing said (docs/design/loophole-packaging.md §3.1, §5.1).
+// mixture, with nothing said (docs/reference/loophole-system.md#the-loophole-contribution-kind).
 //
 // IT HAD A SECOND HALF UNTIL 2026-08-19 — pack-vs-RESERVED, against the names yolo
 // answered to itself (loopholes.ReservedLoopholeNames). That set is gone because every
@@ -681,7 +682,7 @@ func declFroms(group []PackLoopholeDecl) string {
 // An EMPTY `from` contributes nothing: `loophole` has no conventional source directory
 // (unlike `skills` and `briefing`), so there is nothing to fall back to, and refusing it
 // is the pack LAYER's job — a pack.json error, decidable by `yolo pack lint` with no
-// loophole loaded (docs/design/loophole-packaging.md §3.1).
+// loophole loaded (docs/reference/loophole-system.md#the-loophole-contribution-kind).
 func packLoopholeDecls(loaded []*packload.Pack) []PackLoopholeDecl {
 	var out []PackLoopholeDecl
 	for _, p := range loaded {
@@ -733,7 +734,8 @@ func packLoopholeModules(loaded []*packload.Pack) []loopholes.PackModule {
 //     runs BEFORE stageRunPacks — so at that moment the staged record is still empty, and
 //     without this a `loopholes.<pack-loophole>.enabled` entry would take the unknown-name
 //     fallback and warn "no loophole named 'x' is installed on this machine" at EVERY
-//     launch. That is docs/design/loophole-packaging.md §5.2's prerequisite, and it is the
+//     launch. That is the prerequisite behind `yolo loopholes enable|disable`
+//     (docs/reference/loophole-system.md#selection-and-discovery), and it is the
 //     same sentence a user gets when a pack genuinely failed to stage.
 //   - `yolo loopholes list`/`status` (site 5) and `yolo check` (site 7) never stage at all.
 //
@@ -770,7 +772,7 @@ func resolvePackLoopholeModules() []loopholes.PackModule {
 	for _, entry := range entries {
 		if entry.Embedded() {
 			// AN EMBEDDED PACK CAN SHIP A LOOPHOLE, and this branch used to say it could
-			// not. The official `audio` pack (loophole-packaging.md §7) is the first, and
+			// not. The official `audio` pack (OQ-LP11) is the first, and
 			// the omission was measured rather than reasoned about: with `packs: ["audio"]`
 			// selected, a `loopholes.audio-alsa.enabled` entry warned "no loophole named
 			// 'audio-alsa' is installed on this machine" at EVERY launch — the same

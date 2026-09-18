@@ -22,8 +22,9 @@ package run
 //
 // loopholeretire.go is the launch-path half of retirement-on-deselect: it RECORDS which pack
 // owns each per-loophole state dir, and DETECTS the moment that pack leaves `packs`
-// (docs/design/loophole-packaging.md §4.5, artifacts one and two of three — the `yolo prune`
-// sweeper is the third and lives in internal/prune/loopholestate.go).
+// (docs/reference/loophole-system.md#retirement-what-happens-when-a-pack-goes-away — artifacts one
+// and two of three; the `yolo prune` sweeper is the third and lives in
+// internal/prune/loopholestate.go).
 //
 // # Why the launch path, and not `yolo host apply`
 //

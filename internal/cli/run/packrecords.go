@@ -14,7 +14,8 @@ import (
 // loophole modules, the pack `supersedes` claims, and the pack skills sources — and all
 // three are process-wide on purpose: they are the convergence point that stopped seven
 // discovery surfaces from each assembling their own view of what this machine has
-// (docs/design/loophole-packaging.md §5.1, and jailcontent's own SetPackSkillDirs).
+// (docs/reference/loophole-system.md#selection-and-discovery, and jailcontent's own
+// SetPackSkillDirs).
 // Process-wide was the right scope while a process ran one launch.
 //
 // It does not. AUTO-CAPTURE RUNS THE ORDINARY RUN PIPELINE IN THIS PROCESS, once per

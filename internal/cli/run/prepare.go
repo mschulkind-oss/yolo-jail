@@ -284,7 +284,7 @@ func briefingPortsFor(netMode string, netSec *jsonx.OrderedMap) (publish, forwar
 }
 
 // briefingLoopholes is the loophole list the jail's briefing advertises — census site 1
-// (docs/design/loophole-packaging.md §5.1), read through the converged set.
+// (docs/reference/loophole-system.md#selection-and-discovery), read through the converged set.
 //
 // ACTIVE(), NOT ENABLED(), and that is a bug fix. This filtered on `enabled` alone, so an
 // enabled-but-INACTIVE loophole — one whose `requires` is unmet on this host (no `claude` on

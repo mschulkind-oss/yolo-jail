@@ -2,7 +2,7 @@ package run
 
 // loopholeinert.go is the INERT REPORT: one line when a selected pack's loophole will do
 // nothing this launch, whether the reason is the BACKEND or the PLATFORM
-// (docs/design/loophole-packaging.md §8 item 2, §3.1).
+// (docs/reference/loophole-system.md#where-a-loophole-does-nothing).
 //
 // # This is the B-0 rule applied to a new kind
 //

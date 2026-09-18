@@ -1,8 +1,8 @@
 package run
 
 // packloopholeexclusive_test.go is the FOURTH launch pre-flight
-// (docs/design/loophole-packaging.md §3.1, landing item 5b): a loophole NAME claimed twice
-// across pack declarations.
+// (docs/reference/loophole-system.md#the-loophole-contribution-kind): a loophole NAME
+// claimed twice across pack declarations.
 //
 // IT HAD A SECOND HALF — pack-vs-RESERVED, against the names yolo answered to itself.
 // `loopholes.ReservedLoopholeNames()` was deleted on 2026-08-19 when the last name in it,
