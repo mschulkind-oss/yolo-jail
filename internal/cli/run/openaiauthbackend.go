@@ -141,9 +141,11 @@ func writeOpenAIAuthMountSentinel() error {
 //     writes it. "Published but unreachable" and "never published" are different faults, and
 //     the witness classes them differently (OQ-R4's faultUnreachable vs faultUnpublished).
 //   - it has a cost the plan does not price. The jail-side adapter is still in this launch's
-//     YOLO_JAIL_DAEMONS payload; withholding the variable it reads turns "an adapter that
-//     cannot reach its front" into "an adapter with no front named at all", which on today's
-//     supervisor is an empty log and an endless respawn (roadmap 📦 row 2). A launch that says
-//     what is wrong beats a launch that removes the pointer and keeps the process.
+//     YOLO_JAIL_DAEMONS payload, and it reads the variable at REQUEST time
+//     (openaiauthadapter/handler.go binds the listener whatever the environment says). So
+//     withholding it does not stop the daemon; it turns "an adapter that cannot reach its
+//     front" into "an adapter with no front named at all", and Codex's every refresh then
+//     fails against a locally-generated error instead of against the measured one. A launch
+//     that says what is wrong beats a launch that removes the pointer and keeps the process.
 //
 // So the disclosure is the fix, and the transport is upstream.
