@@ -74,7 +74,10 @@ refusal rather than in a later request.
 
 ## Blocked
 
-- Step 4 and everything after it: [OQ-PR1](protocol-resolution.md#OQ-PR1).
-- Step 3's default branch: [OQ-PR2](protocol-resolution.md#OQ-PR2) decides whether there is one.
-- Step 5's shape: [OQ-PR3](protocol-resolution.md#OQ-PR3) decides whether outcome 3 exists at all
-  or is replaced by an auto-join.
+- Step 4 and everything after it: [OQ-PR1](protocol-resolution.md#OQ-PR1), restated in review
+  round two — the criterion is that a third-party adapter pack must be first-class, so the shape
+  is whichever makes that true. Steps 1–3 are unaffected.
+
+**Unblocked in review round two** (ruled, [Decision ledger](protocol-resolution.md#12-decision-ledger)):
+step 3 keeps its default branch, because a provider declaring no endpoints stays legal; and step
+5 exists as written — an absent adapter refuses and names the pack, rather than being auto-joined.
