@@ -535,7 +535,7 @@ there is no sync step.
   yolo could not ask is never refused for what it cannot help ([`OQ-R3`](./docs/reference/loopback-tls-reachability.md#oq-r3)). The escape
   hatch is `YOLO_ALLOW_UNREACHABLE_SERVICES=1`, forwarded from the host env, and
   the refusal names it.
-- **A WORKSPACE MAY NOT CONTAIN THE CREDENTIAL BOUNDARY, and that refusal has no hatch.**
+- **A WORKSPACE MAY NOT CONTAIN THE CREDENTIAL BOUNDARY, AND THOSE DIRECTORIES MAY NOT HOLD A `.yolo`.**
   The workspace is the one host directory a jail reads and writes by design, so a workspace
   that IS or CONTAINS `$HOME`, `~/.config/yolo-jail` or `~/.local/share/yolo-jail` — or sits
   INSIDE either of the latter two — puts the boundary inside the mount: `~/.ssh` and the
@@ -549,9 +549,25 @@ there is no sync step.
   home overlay in it, measured on the maintainer's host 2026-09-17 from a launch that
   predated the approval record leaving the mount. It needs no mistake beyond a `cd`: there
   is no `--workspace` flag, so a bare `yolo` typed in the home is a launch on the home.
-  `~/code/x` and `~/.dotfiles` are untouched, `workspace_readonly` does not soften it (the
-  READ half is the breach), and there is deliberately no `YOLO_ALLOW_*` — the test is
-  structural, with no false positive to escape.
+  `~/code/x` and `~/.dotfiles` are untouched, and `workspace_readonly` does not soften it —
+  the READ half is the breach. **The predicate is
+  [`paths.WorkspaceScopeBreach`](./internal/paths/workspacescope.go), not the launcher's**,
+  because the same three directories must also never acquire a stray `.yolo`: one marker
+  there and `workspaceRoot()`'s upward walk answers "the home" for every `yolo config` verb
+  run anywhere below it, so `ls`/`diff` report a workspace you are not in and `reset` deletes
+  its sidecars. Three consequences. `paths.EnsureWorkspaceStateDir` is the CREATION
+  chokepoint and returns the breach as its error, so a command that gains the ability to run
+  in a home is covered without being taught; the walk STOPS at a boundary directory, which is
+  what protects machines that already carry a stray one; and the creators outside the launch
+  pipeline are fixed at their own call sites — the host perf log (`yolo -v stop` minted
+  `~/.yolo/host-perf.log`, since it takes the cwd and no launch guard runs) SKIPS rather than
+  refuses, because that log is best-effort by contract, and `yolo internal darwin-bootstrap`
+  refuses, though only against the SANDBOX identity's roots, since it has already rebound
+  HOME by the time it can ask. There is deliberately no `YOLO_ALLOW_*`. ⚠ There IS one
+  path-based exemption, and the claim that there were "no false positives" was wrong when
+  first written: `yolo capture` launches against a scratch workspace yolo mints inside its own
+  state dir, so the guard as first shipped refused that command outright. `paths.scopeExempt`
+  names the capture store and nothing else.
 - **ONE host directory is bind-mounted WRITABLE into the jail, and it is the only one.**
   A recognised **content-addressed** host cache is aliased at the path the jail's own copy of the
   tool already uses, so it stops existing twice (`internal/hostcas`, [`internal/cli/run/hostcasalias.go`](./internal/cli/run/hostcasalias.go);

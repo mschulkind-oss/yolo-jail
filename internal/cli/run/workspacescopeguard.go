@@ -38,12 +38,20 @@ package run
 // home/ overlay, from a launch old enough that the approval record still lived in the mount
 // (2ecbe0f5, 2026-08-18).
 //
-// NO HATCH, where the two guards beside it have one (YOLO_ALLOW_LIVE_WORKSPACE,
-// YOLO_ALLOW_SOURCE_SKEW). A YOLO_ALLOW_* dial is for a case yolo got wrong about a
-// machine it cannot see; this test is structural and has no false positive to escape. An
-// env var that voids the credential boundary would be a documented way to void it, and the
-// deliberate case it would serve — jailing your own dotfiles — is served better by naming
-// the subdirectory that holds them.
+// NO USER-FACING HATCH, where the two guards beside it have one
+// (YOLO_ALLOW_LIVE_WORKSPACE, YOLO_ALLOW_SOURCE_SKEW). A YOLO_ALLOW_* dial is for a case
+// yolo got wrong about a machine it cannot see, and an env var that voids the credential
+// boundary would be a documented way to void it — while the deliberate case it would serve,
+// jailing your own dotfiles, is served by naming the subdirectory that holds them.
+//
+// ⚠ "No false positive to escape" is what the first cut of this file claimed, and it was
+// WRONG: `yolo capture` launches against a workspace yolo itself mints inside its own state
+// dir, which direction 2 matched, so the guard shipped (c9c4d0a3) refusing that command
+// outright. The exemption that fixes it is a PATH yolo owns — paths.scopeExempt, the capture
+// store and nothing else — not a dial anybody can set, which is why the no-hatch ruling
+// survives it. The lesson the correction leaves behind is about the claim, not the rule: a
+// structural test still has to be checked against every workspace the product itself
+// creates, and there was exactly one.
 
 import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
