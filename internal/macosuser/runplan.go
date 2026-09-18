@@ -965,6 +965,37 @@ func PlanInvariants(plan RunPlan) []string {
 				"still exit 0 — see docs/design/macos-user-provisioning.md §1.1")
 	}
 
+	// THE AGENT'S OWN ARGV MUST BE CONFINED, UNDER THIS SESSION'S PROFILE — the check
+	// that was missing while its two siblings were here.
+	//
+	// The provisioning stage (below) and the capture driver (CapturePlanInvariants) have
+	// each been pinned to `sandbox-exec -f <profile>` since they were written, on the
+	// argument that they run vendor code. The AGENT was not, and the agent is the process
+	// this whole backend exists to confine: on macos-user the Seatbelt profile IS the
+	// trust boundary — there is no container, no uid boundary between the agent and its
+	// own tools, and nothing else in a launch that says "this may not read /Users".
+	// Deleting `"/usr/bin/sandbox-exec", "-f", profilePath` from LaunchArgv (macosuser.go)
+	// left every test in this repo green, which is the callee-pinned/call-site-unpinned
+	// shape AGENTS.md names — one level up, because the callee here is the ARGV BUILDER
+	// and the unpinned call site is the one place its output is trusted.
+	//
+	// THE THREE WORDS ARE CHECKED CONSECUTIVELY (containsArgPair) rather than as three
+	// memberships: `-f` and the profile path both appear elsewhere on a real argv — the
+	// path is also inside the env file's own vicinity and `-f` is a common flag — so three
+	// independent membership tests would pass for an argv that named all three in
+	// unrelated positions and confined nothing.
+	//
+	// Silent for an EMPTY LaunchArgv, which is a plan that launches nothing (a capture's
+	// plan builder, a unit fixture); a launch that reaches the orchestrator always has one.
+	if len(plan.LaunchArgv) > 0 &&
+		!containsArgPair(plan.LaunchArgv, "/usr/bin/sandbox-exec", "-f", plan.ProfilePath) {
+		problems = append(problems,
+			"the agent launch argv does not run under `sandbox-exec -f "+plan.ProfilePath+
+				"`; the agent would run unconfined as "+SandboxUser+", and on this backend "+
+				"that profile is the whole trust boundary — nothing else denies it /Users, "+
+				"the keychains or another process's command line")
+	}
+
 	// Acceptance-bar guard: darwin store bin dirs must reach the launch PATH.
 	launchStr := strings.Join(plan.LaunchArgv, " ")
 	for _, storeBin := range plan.DarwinPathPrefix {
