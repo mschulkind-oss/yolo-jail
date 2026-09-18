@@ -305,3 +305,55 @@ func TestHostSideResetLeavesTheNextApplyNothingToAdopt(t *testing.T) {
 			"wrote them:\n%s", len(captured), data)
 	}
 }
+
+// ON AN OWNED HOST, `diff` REPORTS EXACTLY WHAT `reset` DISCARDS. This is §2.3 F3 closed, and
+// the red state it replaces was measured on 2026-09-16: `reset` resolved its two sidecars
+// through render.Target and acted on the host capture store, while `diff` read
+// `prismOverlayPath` — the cwd's workspace tree — unconditionally. So the shipped
+// inspect-then-undo pair was broken in the direction that matters. `diff` reported
+//
+//	No captured in-jail edits for claude surface settings.
+//
+// at rc 0, and `reset` then discarded an edit the user was never shown.
+//
+// The fix is that the store comes off the ONE resolved target
+// ([OQ-CR3](docs/design/config-target-resolution.md#oq-cr3)) — not that the readers learned
+// about ownership. `hostOwnsSurfaces` was consulted by the write guard, by reset's paths, by
+// the re-render trailer, by the baseline's mode and by the truncation, and by no read path at
+// all; there is no second resolution left to leave out.
+//
+// It asserts the PAIR rather than either half, because either alone passes with the defect in
+// place: `diff` naming the key is what the user is shown, and `reset` removing it from the
+// store `diff` read is what makes them the same subject.
+func TestOwnedHostDiffReportsExactlyWhatResetDiscards(t *testing.T) {
+	_, store, _ := hostResetFixture(t, "own")
+
+	var out, errw bytes.Buffer
+	if rc := configDiff(hostTargetForTest(), []string{"claude/settings"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("diff under `own`: rc=%d\n%s%s", rc, out.String(), errw.String())
+	}
+	shown := out.String()
+	if !strings.Contains(shown, "theme") {
+		t.Fatalf("diff on an owned host did not name the captured key that `reset` is about to "+
+			"discard from %s. A negative here is the F3 defect: the user is shown nothing and "+
+			"then loses an edit.\n%s", store, shown)
+	}
+	if strings.Contains(shown, "No captured in-jail edits") {
+		t.Errorf("diff read a different store than reset acts on:\n%s", shown)
+	}
+
+	out.Reset()
+	errw.Reset()
+	if rc := configReset(hostTargetForTest(), []string{"claude/settings"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("reset under `own`: rc=%d\n%s%s", rc, out.String(), errw.String())
+	}
+	out.Reset()
+	errw.Reset()
+	if rc := configDiff(hostTargetForTest(), []string{"claude/settings"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("diff after reset: rc=%d\n%s", rc, errw.String())
+	}
+	if strings.Contains(out.String(), "theme") {
+		t.Errorf("the key `diff` showed survived the `reset` that was supposed to discard it:\n%s",
+			out.String())
+	}
+}

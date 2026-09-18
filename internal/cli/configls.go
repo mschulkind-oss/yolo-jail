@@ -126,10 +126,38 @@ func configLs(t configTarget, args []string, out, errw io.Writer, color bool) in
 
 	rows := collectSurfaceRows(t, all)
 	if len(rows) == 0 {
+		// Said and then CONTINUED, not returned: the provenance report below is about the
+		// packs' declarations and the render's own record, so a target with no listable
+		// surface can still have a key yolo wrote for a layer that no longer claims it. An
+		// early return here would make that key unreportable in exactly the jail where it is
+		// the only thing left to report.
 		fmt.Fprintln(out, "No composed surfaces found.")
-		return 0
+	} else {
+		writeSurfaceTable(out, t, rows, color)
 	}
-	writeSurfaceTable(out, t, rows, color)
+	// PER-KEY PROVENANCE LANDS HERE, and this is where it belongs: `ls` is the verb that
+	// describes how a file is CONSTRUCTED, and which layer set a key is a fact about the
+	// construction ([OQ-CR7](docs/design/config-target-resolution.md#oq-cr7)). It came out of
+	// `config diff`, whose subject is the capture store alone — see configprovenance.go.
+	//
+	// No agent filter: `ls` lists the whole manifest, so it asks about every one. It normally
+	// prints nothing — only a surface another pack contributes to through `config-overlay`, or
+	// one carrying a key yolo wrote for a layer that has since stopped claiming it, reaches the
+	// report at all.
+	pr := richtext.Printer{W: out, Color: color}
+	overlaid, unresolved := overlayContributionRows(t, "", "")
+	if len(unresolved) > 0 {
+		// A pack this command could not read might be the one contributing the key the user is
+		// asking about, so an incomplete answer says so rather than reading as complete.
+		pr.Printf("")
+		pr.Printf("[yellow]⚠ not inspected (fetched packs need `yolo pack install`): %s "+
+			"— any config-overlay they declare is not listed below.[/yellow]",
+			strings.Join(unresolved, ", "))
+	}
+	if len(overlaid) > 0 {
+		pr.Printf("")
+	}
+	writeOverlayContributions(pr, overlaid)
 	return 0
 }
 

@@ -33,15 +33,17 @@ Subcommands:
   ls [--all]               List every composed surface — path, codec, mode,
                            contributing layers, and whether captured in-jail
                            edits are outranking every layer but computed
-                           and managed.
+                           and managed. Then, per key, which pack contributed it
+                           via config-overlay and whether that contribution won.
   render <agent[/surface]> [flags]
                            Run the composition pipeline and print what it would
                            write, for every surface of <agent> (no writes).
   diff <agent[/surface]> [flags]
                            Show the captured in-jail edits (the capture overlay)
-                           for <agent>, key by key, versus yolo's last render —
-                           plus which packs contribute keys via config-overlay,
-                           and whether each contribution won or the owner did.
+                           for <agent>, key by key, versus yolo's last render.
+                           That is what survives deleting these surfaces and
+                           regenerating them, and it is all this verb reports;
+                           per-key layer provenance is 'config ls'.
   reset <agent[/surface]> [flags]
                            Discard those captured edits, so the surface returns
                            to what its layers produce on the next launch.
@@ -110,6 +112,12 @@ destination. Each refusal names the key and the reason.
 Only a 'capture'-mode surface accumulates in-jail edits; 'readonly', 'once' and
 'copy' surfaces write no sidecar, so diff/reset do not apply to them. Use
 'user' as the agent for files declared via the host_files config key.
+
+Every verb prints one line on stderr first naming what it is about: the
+workspace-or-home, the notch, what selected it, and the capture store it reads.
+The cwd selects that target — a directory that resolves a workspace means that
+workspace's jail, one that resolves none means your real home — and the line is
+not suppressible.
 
 Examples:
   yolo config ls                      # every composed file, and what mode it is in

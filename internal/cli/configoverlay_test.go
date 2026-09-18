@@ -6,7 +6,7 @@ package cli
 //   - R2 — an overlay whose target has no owner is inert AND reported by name in
 //     `yolo host apply`. Not an error (a pack the user did not select is not a mistake), and
 //     never silent (the whole no-silent-skip invariant applyhostcensus_test.go enforces).
-//   - R3 — per-key provenance is VISIBLE in `yolo config diff`: which pack set which key,
+//   - R3 — per-key provenance is VISIBLE in `yolo config ls`: which pack set which key,
 //     and where the owner's managed layer beat it. "Provenance nobody can read does not
 //     make an override legible, which was the entire justification for the kind."
 //
@@ -116,14 +116,14 @@ func TestApplyHostNamesTheContributingPack(t *testing.T) {
 	}
 }
 
-// R3 in `config diff`: the contributed key is listed against the pack that set it.
-func TestConfigDiffShowsOverlayProvenance(t *testing.T) {
+// R3 in `config ls`: the contributed key is listed against the pack that set it.
+func TestConfigLsShowsOverlayProvenance(t *testing.T) {
 	writeOverlayFixture(t, map[string]string{
 		"acme":     acmeOwnerPackJSON,
 		"acme-fzf": acmeFzfPackJSON,
 	})
 	// This models the JAIL notch — it seeds the jail's sidecar tree — so pin it rather than
-	// depending on the ambient environment. `config diff` now reads the record for the notch
+	// depending on the ambient environment. `config ls` now reads the record for the notch
 	// it is describing, and a bare CI runner is host-side (see withLocalSurfaces).
 	tgt, dir := withLocalSidecarDir(t)
 	// The boot render's provenance sidecar: the overlay won `fileSuggestion`, the owner's
@@ -132,8 +132,8 @@ func TestConfigDiffShowsOverlayProvenance(t *testing.T) {
 		"fileSuggestion\tconfig-overlay:acme-fzf\ntelemetry\tmanaged\n")
 
 	var out, errw bytes.Buffer
-	if rc := configDiff(tgt, []string{"acme"}, &out, &errw, false); rc != 0 {
-		t.Fatalf("configDiff rc=%d, stderr=%s", rc, errw.String())
+	if rc := configLs(tgt, []string{"--all"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("configLs rc=%d, stderr=%s", rc, errw.String())
 	}
 	got := out.String()
 	for _, want := range []string{
@@ -152,7 +152,7 @@ func TestConfigDiffShowsOverlayProvenance(t *testing.T) {
 // The load-bearing case: an overlay that LOST. The surface file shows the owner's value
 // with no hint a pack ever contested it, so the diff has to name both the contributor and
 // the layer that beat it — otherwise "my key did nothing" has no answer.
-func TestConfigDiffShowsAnOverlayThatLost(t *testing.T) {
+func TestConfigLsShowsAnOverlayThatLost(t *testing.T) {
 	pushy := `{"name":"pushy","contributes":[
 	  {"kind":"config-overlay","surface":"acme/settings",
 	   "config":{"managed":{"telemetry":true}}}]}`
@@ -162,8 +162,8 @@ func TestConfigDiffShowsAnOverlayThatLost(t *testing.T) {
 	writeProvenanceSidecar(t, dir, "acme", "settings", "telemetry\tmanaged\n")
 
 	var out, errw bytes.Buffer
-	if rc := configDiff(tgt, []string{"acme"}, &out, &errw, false); rc != 0 {
-		t.Fatalf("configDiff rc=%d, stderr=%s", rc, errw.String())
+	if rc := configLs(tgt, []string{"--all"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("configLs rc=%d, stderr=%s", rc, errw.String())
 	}
 	got := out.String()
 	if !strings.Contains(got, "contributed by pushy but managed won") {
@@ -181,8 +181,8 @@ func TestConfigDiffShowsAnOverlayThatLost(t *testing.T) {
 //
 // Jail-specific, and deliberately so: at the HOST notch every surface is rmw and every one
 // of them DOES get a record, which is what makes the host's absence a different message with
-// a different remedy (see TestConfigDiffHostNotchWithNoApplyYet).
-func TestConfigDiffOverlayOnRMWSurfaceSaysNoProvenanceRecorded(t *testing.T) {
+// a different remedy (see TestConfigLsHostNotchWithNoApplyYet).
+func TestConfigLsOverlayOnRMWSurfaceSaysNoProvenanceRecorded(t *testing.T) {
 	rmwOwner := `{"name":"acme","contributes":[
 	  {"kind":"config","config":[{"agent":"acme","name":"settings","codec":"json",
 	    "path":"~/.acme/settings.json","mode":"rmw","managed":{"telemetry":false}}]}]}`
@@ -190,8 +190,8 @@ func TestConfigDiffOverlayOnRMWSurfaceSaysNoProvenanceRecorded(t *testing.T) {
 	tgt, _ := withLocalSidecarDir(t) // no provenance sidecar: rmw writes none in a jail
 
 	var out, errw bytes.Buffer
-	if rc := configDiff(tgt, []string{"acme"}, &out, &errw, false); rc != 0 {
-		t.Fatalf("configDiff rc=%d, stderr=%s", rc, errw.String())
+	if rc := configLs(tgt, []string{"--all"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("configLs rc=%d, stderr=%s", rc, errw.String())
 	}
 	got := out.String()
 	if !strings.Contains(got, "fileSuggestion") || !strings.Contains(got, "contributed by acme-fzf") {
@@ -204,7 +204,7 @@ func TestConfigDiffOverlayOnRMWSurfaceSaysNoProvenanceRecorded(t *testing.T) {
 
 // An agent with neither captured edits nor overlays is still an error (rc 1) — the
 // pre-existing contract, which the added overlay section must not weaken into a silent 0.
-func TestConfigDiffStillRejectsAnAgentWithNothingToShow(t *testing.T) {
+func TestConfigLsStillRejectsAnAgentWithNothingToShow(t *testing.T) {
 	writeOverlayFixture(t, map[string]string{"acme": acmeOwnerPackJSON})
 	tgt, _ := withSidecarDir(t)
 	var out, errw bytes.Buffer

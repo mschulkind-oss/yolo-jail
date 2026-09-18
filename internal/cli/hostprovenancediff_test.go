@@ -1,6 +1,6 @@
 package cli
 
-// hostprovenancediff_test.go is the READER half of host-side provenance: `yolo config diff`
+// hostprovenancediff_test.go is the READER half of host-side provenance: `yolo config ls`
 // at the host notch reports a MEASURED winner, from the record `yolo host apply --assert`
 // writes, instead of one inferred from what the packs declare.
 //
@@ -60,7 +60,7 @@ func writeHostProvenance(t *testing.T, dir, agent, name, content string) {
 }
 
 // hostNotchTarget is the HOST target — what a directory resolving no workspace resolves, and
-// what routes `config diff` to the host record. It replaces a stub of the retired
+// what routes `config ls` to the host record. It replaces a stub of the retired
 // surfacesAreLocal: the notch is now a FIELD of the one resolved answer, so a test states it
 // by constructing that answer rather than by pinning a predicate.
 func hostNotchTarget(t *testing.T) configTarget {
@@ -70,7 +70,7 @@ func hostNotchTarget(t *testing.T) configTarget {
 
 // THE DEFECT, inverted: an overlay key with NO competing managed value must be reported as
 // won — and must NOT say "managed won".
-func TestConfigDiffHostNotchReportsTheMeasuredWinner(t *testing.T) {
+func TestConfigLsHostNotchReportsTheMeasuredWinner(t *testing.T) {
 	home := writeOverlayFixture(t, map[string]string{
 		"acme":     acmeOwnerPackJSON,
 		"acme-fzf": acmeFzfPackJSON,
@@ -83,8 +83,8 @@ func TestConfigDiffHostNotchReportsTheMeasuredWinner(t *testing.T) {
 		"fileSuggestion\tconfig-overlay:acme-fzf\ntelemetry\tmanaged\n")
 
 	var out, errw bytes.Buffer
-	if rc := configDiff(tgt, []string{"acme"}, &out, &errw, false); rc != 0 {
-		t.Fatalf("configDiff rc=%d, stderr=%s", rc, errw.String())
+	if rc := configLs(tgt, []string{"--all"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("configLs rc=%d, stderr=%s", rc, errw.String())
 	}
 	got := out.String()
 	if !strings.Contains(got, "set by acme-fzf") {
@@ -104,7 +104,7 @@ func TestConfigDiffHostNotchReportsTheMeasuredWinner(t *testing.T) {
 
 // The other side: an overlay that GENUINELY loses to the owner's managed layer still says so.
 // The fix must not become "always report a win" — that is the same misreport reversed.
-func TestConfigDiffHostNotchReportsAGenuineLoss(t *testing.T) {
+func TestConfigLsHostNotchReportsAGenuineLoss(t *testing.T) {
 	pushy := `{"name":"pushy","contributes":[
 	  {"kind":"config-overlay","surface":"acme/settings",
 	   "config":{"managed":{"telemetry":true}}}]}`
@@ -116,8 +116,8 @@ func TestConfigDiffHostNotchReportsAGenuineLoss(t *testing.T) {
 	writeHostProvenance(t, dir, "acme", "settings", "telemetry\tmanaged\n")
 
 	var out, errw bytes.Buffer
-	if rc := configDiff(tgt, []string{"acme"}, &out, &errw, false); rc != 0 {
-		t.Fatalf("configDiff rc=%d, stderr=%s", rc, errw.String())
+	if rc := configLs(tgt, []string{"--all"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("configLs rc=%d, stderr=%s", rc, errw.String())
 	}
 	got := out.String()
 	if !strings.Contains(got, "contributed by pushy but managed won") {
@@ -128,7 +128,7 @@ func TestConfigDiffHostNotchReportsAGenuineLoss(t *testing.T) {
 // A host notch with no apply yet: the winner is UNMEASURED and says so, with the remedy. It
 // must not fall back to inferring, and it must not borrow the jail's message — the host
 // renders every surface, so "this mode keeps no record" is not the reason here.
-func TestConfigDiffHostNotchWithNoApplyYet(t *testing.T) {
+func TestConfigLsHostNotchWithNoApplyYet(t *testing.T) {
 	home := writeOverlayFixture(t, map[string]string{
 		"acme":     acmeOwnerPackJSON,
 		"acme-fzf": acmeFzfPackJSON,
@@ -137,8 +137,8 @@ func TestConfigDiffHostNotchWithNoApplyYet(t *testing.T) {
 	withHostProvenanceDir(t, home) // no record seeded
 
 	var out, errw bytes.Buffer
-	if rc := configDiff(tgt, []string{"acme"}, &out, &errw, false); rc != 0 {
-		t.Fatalf("configDiff rc=%d, stderr=%s", rc, errw.String())
+	if rc := configLs(tgt, []string{"--all"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("configLs rc=%d, stderr=%s", rc, errw.String())
 	}
 	got := out.String()
 	// The contribution is still LISTED — "my overlay did nothing" needs an answer either way.
@@ -158,14 +158,14 @@ func TestConfigDiffHostNotchWithNoApplyYet(t *testing.T) {
 	}
 	// And above all: no guessed winner.
 	if strings.Contains(got, "managed won") {
-		t.Errorf("with nothing measured, config diff still guessed a winner:\n%s", got)
+		t.Errorf("with nothing measured, config ls still guessed a winner:\n%s", got)
 	}
 }
 
 // The host notch must NOT read the jail's sidecar. The two notches render different postures
 // into different homes, so reporting one as the other is the same class of wrong answer as
 // inferring — just sourced from a real file, which makes it more convincing and no more true.
-func TestConfigDiffHostNotchIgnoresTheJailSidecar(t *testing.T) {
+func TestConfigLsHostNotchIgnoresTheJailSidecar(t *testing.T) {
 	home := writeOverlayFixture(t, map[string]string{
 		"acme":     acmeOwnerPackJSON,
 		"acme-fzf": acmeFzfPackJSON,
@@ -178,8 +178,8 @@ func TestConfigDiffHostNotchIgnoresTheJailSidecar(t *testing.T) {
 		"fileSuggestion\tconfig-overlay:acme-fzf\n")
 
 	var out, errw bytes.Buffer
-	if rc := configDiff(tgt, []string{"acme"}, &out, &errw, false); rc != 0 {
-		t.Fatalf("configDiff rc=%d, stderr=%s", rc, errw.String())
+	if rc := configLs(tgt, []string{"--all"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("configLs rc=%d, stderr=%s", rc, errw.String())
 	}
 	if got := out.String(); strings.Contains(got, "set by acme-fzf") {
 		t.Errorf("the host notch reported the JAIL's measurement as its own:\n%s", got)
@@ -190,7 +190,7 @@ func TestConfigDiffHostNotchIgnoresTheJailSidecar(t *testing.T) {
 // record; that is a measurement ("nothing was attributed"), not an absence. Reading it as
 // absent would answer a measured question with "we do not know" — the mirror image of the
 // original defect.
-func TestConfigDiffHostNotchEmptyRecordIsNotUnmeasured(t *testing.T) {
+func TestConfigLsHostNotchEmptyRecordIsNotUnmeasured(t *testing.T) {
 	home := writeOverlayFixture(t, map[string]string{
 		"acme":     acmeOwnerPackJSON,
 		"acme-fzf": acmeFzfPackJSON,
@@ -200,8 +200,8 @@ func TestConfigDiffHostNotchEmptyRecordIsNotUnmeasured(t *testing.T) {
 	writeHostProvenance(t, dir, "acme", "settings", "") // rendered, nothing attributed
 
 	var out, errw bytes.Buffer
-	if rc := configDiff(tgt, []string{"acme"}, &out, &errw, false); rc != 0 {
-		t.Fatalf("configDiff rc=%d, stderr=%s", rc, errw.String())
+	if rc := configLs(tgt, []string{"--all"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("configLs rc=%d, stderr=%s", rc, errw.String())
 	}
 	got := out.String()
 	if strings.Contains(got, "not measured") {

@@ -390,8 +390,14 @@ func TestPromoteWritesNothingWhenEveryKeyIsHeld(t *testing.T) {
 }
 
 // THE MANIFEST PROMOTE WRITES IS READ BACK BY THE REAL READER, not by this test's idea of
-// the shape: after a promotion, `yolo config diff` must report the key as a config-overlay
+// the shape: after a promotion, `yolo config ls` must report the key as a config-overlay
 // contributed by `local`.
+//
+// The reader is `ls` rather than `diff` since
+// docs/design/config-target-resolution.md [OQ-CR7]: per-key provenance is a fact about how
+// the file was COMPOSED, so it lives with the verb that describes the composition. What this
+// test measures is unchanged — that the manifest promote wrote is one the overlay decoder
+// actually delivers from.
 //
 // It is the check a decode-based assertion cannot make. A manifest with the wrong kind
 // name, a mistyped surface identity, or a body the overlay decoder refuses would still
@@ -406,8 +412,8 @@ func TestPromotedKeyIsReadBackAsAPackContribution(t *testing.T) {
 	}
 
 	var out, errw bytes.Buffer
-	if rc := configRunW([]string{"diff", "claude"}, &out, &errw); rc != 0 {
-		t.Fatalf("config diff rc=%d: %s%s", rc, out.String(), errw.String())
+	if rc := configRunW([]string{"ls", "--all"}, &out, &errw); rc != 0 {
+		t.Fatalf("config ls rc=%d: %s%s", rc, out.String(), errw.String())
 	}
 	report := out.String()
 	if !strings.Contains(report, "config-overlay from local") {
