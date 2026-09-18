@@ -1,7 +1,7 @@
 package loopholes
 
-// convergence_test.go asserts docs/design/loophole-packaging.md §5.1's requirement
-// (landing item 5d): "the pack-aware, lock-gated loophole set is ONE constructed value,
+// convergence_test.go asserts the requirement now stated at
+// docs/reference/loophole-system.md#selection-and-discovery: "the pack-aware, lock-gated loophole set is ONE constructed value,
 // produced once on the host and passed to every consumer — not seven independent
 // DiscoverOptions assemblies. Assert the convergence in a test."
 //
@@ -72,7 +72,8 @@ func isolateModules(t *testing.T) {
 // Without it, a `loopholes.<pack-loophole>.enabled` entry takes the unknown-name path and
 // warns "no loophole named 'x' is installed on this machine" at EVERY launch — the same
 // sentence a user gets when a pack genuinely failed to stage
-// (docs/design/loophole-packaging.md §5.2's prerequisite).
+// (docs/reference/loophole-system.md#selection-and-discovery — the prerequisite
+// behind `yolo loopholes enable|disable`).
 func TestLazyResolverCoversTheSurfacesThatNeverStage(t *testing.T) {
 	unsetJail(t)
 	isolateModules(t)

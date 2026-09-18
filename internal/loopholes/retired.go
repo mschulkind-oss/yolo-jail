@@ -4,7 +4,7 @@ package loopholes
 // a way to see that one is still populated, and one message telling its owner what
 // to write instead.
 //
-// WHY THE CHANNEL WENT (OQ-LP10, docs/design/loophole-packaging.md §8, ruled yes).
+// WHY THE CHANNEL WENT (OQ-LP10, ruled yes — docs/reference/loophole-system.md#why-its-this-way).
 // `~/.local/share/yolo-jail/loopholes/` was the only source that could start a HOST
 // DAEMON with no selection step whatsoever: loadModuleDirs walked it and every manifest
 // it found was discovered, enabled, spawned and wired into the argv. Nothing in the
@@ -103,7 +103,8 @@ func RetiredUserLoopholeNotice() string {
 		name + `"}]}` + "\n")
 	// The subset is the one thing that can still fail AFTER a correct move, so it is
 	// named here rather than left for the user to hit as a load error: a pack's
-	// loophole is held to the pack-shipped subset (loophole-packaging.md §3.1) and the
+	// loophole is held to the pack-shipped subset (docs/reference/loophole-system.md#the-pack-shipped-subset)
+	// and the
 	// hand-placed channel was not. A manifest using jail_env, an absolute or $VAR bind
 	// host, a writable bind or publishes:"endpoint" is refused with the reason printed
 	// — visible, but only if you know to expect it.

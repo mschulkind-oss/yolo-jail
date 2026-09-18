@@ -1,8 +1,7 @@
 package loopholedecl
 
 // platforms.go is the `platforms` key: WHERE A LOOPHOLE CAN RUN AT ALL
-// (docs/design/loophole-packaging.md §3.1, "A loophole must declare where it can
-// run").
+// (docs/reference/loophole-system.md#requires-platforms-and-the-difference).
 //
 // # Why `requires` could not already say this
 //

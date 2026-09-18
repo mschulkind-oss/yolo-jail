@@ -15,7 +15,8 @@ import (
 // force the retired unix-socket transport onto these records, because nothing
 // yolo shipped let such a daemon publish a loopback-TLS endpoint file
 // (internal/hostservice is internal/, unimportable from outside this module).
-// The FRONT dissolved that objection (loophole-packaging.md §2.2): the record
+// The FRONT dissolved that objection
+// (docs/reference/loophole-transport.md#two-server-shapes-and-how-a-manifest-selects-one): the record
 // now says what is true of the daemon — Transport loopback-tls with
 // HostDaemon.Publishes = "socket" — and the run pipeline waits for the daemon's
 // socket by connect, runs the svcendpoint front over it, and publishes the
@@ -209,8 +210,8 @@ func applyWorkspaceOverrides(existing map[string]*Loophole, loopholesConfig *jso
 // pack-contributed dir — the PACK layer refuses a `from` naming a directory the pack does
 // not contain (a pack.json error, decidable by `yolo pack lint`), while THIS layer only
 // warns about a manifest it cannot parse. That split is deliberate
-// (docs/design/loophole-packaging.md §3.1): the pack layer refuses, the discovery layer
-// warns.
+// (docs/reference/loophole-system.md#the-loophole-contribution-kind): the pack layer
+// refuses, the discovery layer warns.
 //
 // IT IS ALSO THE ONLY LOADER LEFT. There used to be a second, loadFromDir, which walked a
 // DIRECTORY OF loopholes for the bundled channel; that channel was retired on 2026-08-19
@@ -357,8 +358,8 @@ type DiscoverOptions struct {
 // answering it needs the `packs` config and the pack store, both in packages this one
 // cannot import. Making it a required part of the input is what lets RunDoctorChecks refuse
 // to execute a module nobody vouched for — the "until the convergence exists" guard
-// docs/design/loophole-packaging.md §5.1 asks for, expressed so the unsafe call is
-// unrepresentable rather than merely avoided.
+// docs/reference/loophole-system.md#selection-and-discovery asks for, expressed so the
+// unsafe call is unrepresentable rather than merely avoided.
 type PackModule struct {
 	// Dir is the absolute path to the module directory (holding manifest.jsonc).
 	Dir string
@@ -384,7 +385,8 @@ type PackModule struct {
 // packs contribute, with each one's origin gate already evaluated.
 //
 // A record rather than a parameter, and that is the shape the convergence needs
-// (docs/design/loophole-packaging.md §5.1). Resolving a pack needs the `packs` config,
+// (docs/reference/loophole-system.md#selection-and-discovery). Resolving a pack needs
+// the `packs` config,
 // the pack store and the approval lockfile — internal/packload — and this package cannot
 // import it (loopholes → config → packload is a cycle, measured). So the resolution
 // happens in whichever command resolved packs, and lands here ONCE; every consumer then
@@ -431,9 +433,10 @@ var (
 	// Without a fallback, `loopholes.<pack-loophole>.enabled` would take the unknown-name
 	// path and warn "no loophole named 'x' is installed on this machine" at EVERY launch —
 	// the same sentence a user gets when a pack genuinely failed to stage
-	// (docs/design/loophole-packaging.md §5.2's prerequisite). The same fallback is what
-	// gives `yolo loopholes list`/`status` and `yolo check` — which never stage — a
-	// pack-aware, GATED view instead of the fork §5.1 refuses to leave open.
+	// (docs/reference/loophole-system.md#selection-and-discovery — the prerequisite behind
+	// `yolo loopholes enable|disable`). The same fallback is what gives
+	// `yolo loopholes list`/`status` and `yolo check` — which never stage — a
+	// pack-aware, GATED view instead of the fork that section refuses to leave open.
 	//
 	// It reads the pack STORE rather than a staged tree, which is the one way it differs
 	// from the record: an `only`/`exclude` filter that removed a module dir is visible to
@@ -530,7 +533,8 @@ func ResetPackModules() {
 // user-installed and config-declared records, resolved once.
 //
 // It exists because there were SEVEN independent discovery surfaces
-// (docs/design/loophole-packaging.md §5.1) — the briefing, the broker-active predicate,
+// (docs/reference/loophole-system.md#selection-and-discovery) — the briefing, the
+// broker-active predicate,
 // the container argv, the host daemon spawn, `yolo loopholes list`/`status`,
 // config.LoopholeResolver, and `yolo check`'s own walker — each assembling its own
 // DiscoverOptions. Seven assemblies is seven chances to disagree about what this machine
@@ -743,7 +747,7 @@ func Discover(opts DiscoverOptions) []*Loophole {
 	}
 	// Pack-contributed module dirs come first and the config block overrides them. A
 	// pack-vs-pack name collision never reaches here at all — the launch pre-flight
-	// refused it (docs/design/loophole-packaging.md §5.1).
+	// refused it (docs/reference/loophole-system.md#selection-and-discovery).
 	if len(opts.PackModules) > 0 {
 		dirs := make([]string, 0, len(opts.PackModules))
 		for _, m := range opts.PackModules {
@@ -796,7 +800,8 @@ type ValidateEntry struct {
 // instead of skipping them.
 //
 // It is `yolo check`'s independent walker — census site 7
-// (docs/design/loophole-packaging.md §5.1) — and the reason it is a walker at all rather
+// (docs/reference/loophole-system.md#selection-and-discovery) — and the reason it is a
+// walker at all rather
 // than a Discover call is the ERROR CHANNEL: Discover swallows a per-manifest failure by
 // contract (resolver.go's invariant), and a preflight whose whole job is reporting bad
 // manifests cannot use a loader that hides them.

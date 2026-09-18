@@ -31,7 +31,7 @@ func decodeMap(t *testing.T, name string, data map[string]any) (*loopholedecl.Ma
 }
 
 // TestPackageImportsOnlyMeasuredLeaves is the PLACEMENT RULE as a test
-// (docs/design/loophole-packaging.md §3.2).
+// (docs/reference/loophole-system.md#where-the-schema-lives-and-why-it-is-a-leaf).
 //
 // This package exists because internal/packload cannot import internal/loopholes:
 // loopholes -> config -> packload is a cycle, so the pack footprint — the screen

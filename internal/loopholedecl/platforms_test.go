@@ -1,7 +1,7 @@
 package loopholedecl_test
 
-// The `platforms` key (docs/design/loophole-packaging.md §3.1, "A loophole must
-// declare where it can run").
+// The `platforms` key
+// (docs/reference/loophole-system.md#requires-platforms-and-the-difference).
 //
 // The failure it exists to fix: a pack shipping a compiled Linux daemon on macOS
 // had exactly two ways to surface, and both misled. With a `requires` gate it read

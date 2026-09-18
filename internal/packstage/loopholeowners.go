@@ -1,7 +1,8 @@
 package packstage
 
 // loopholeowners.go is the pack→loophole-state OWNERSHIP RECORD, and the archive that
-// retires a departed loophole's state (docs/design/loophole-packaging.md §4.5).
+// retires a departed loophole's state
+// (docs/reference/loophole-system.md#retirement-what-happens-when-a-pack-goes-away).
 //
 // # Why a record has to exist at all
 //

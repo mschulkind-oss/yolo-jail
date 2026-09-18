@@ -5,7 +5,8 @@ import (
 	"unicode/utf8"
 )
 
-// SANITIZE AT LOAD, NOT AT DISPLAY (docs/design/loophole-packaging.md §3.2).
+// SANITIZE AT LOAD, NOT AT DISPLAY
+// (docs/reference/loophole-system.md#two-module-dir-tokens-and-value-sanitation).
 //
 // Every field a manifest declares that can end up in an APPROVAL CLAIM — the
 // `host_daemon.cmd` strings, `doctor_cmd`, `jail_daemon.cmd`, the intercept hosts,

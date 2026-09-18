@@ -1,7 +1,7 @@
 package loopholes
 
-// censusconvergence_test.go is the STRUCTURAL half of docs/design/loophole-packaging.md
-// §5.1's requirement: the pack-aware, lock-gated loophole set is ONE constructed value,
+// censusconvergence_test.go is the STRUCTURAL half of
+// docs/reference/loophole-system.md#selection-and-discovery's requirement: the pack-aware, lock-gated loophole set is ONE constructed value,
 // "not seven independent DiscoverOptions assemblies. Assert the convergence in a test."
 //
 // The behavioural half is convergence_test.go — that a pack module is discovered, gated and
@@ -135,7 +135,8 @@ func TestEveryDiscoverCallSiteIsConverged(t *testing.T) {
 	if len(offenders) > 0 {
 		t.Errorf("these files assemble their own loophole discovery instead of going through the "+
 			"ONE constructed value (loopholes.NewHostSet):\n  %s\n\n"+
-			"That is the seven-surface divergence docs/design/loophole-packaging.md §5.1 exists to "+
+			"That is the seven-surface divergence "+
+			"docs/reference/loophole-system.md#selection-and-discovery exists to "+
 			"close. A hand-built DiscoverOptions sees no PACK loopholes (the field defaults empty) "+
 			"and no bundled ones (IncludeBundled's zero value is false), so the new surface "+
 			"disagrees with every other one about what this machine has — and if it runs a "+

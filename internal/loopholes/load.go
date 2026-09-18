@@ -2,8 +2,8 @@ package loopholes
 
 // load.go is the RESOLUTION half of loading a loophole: the schema and its static
 // validation live in internal/loopholedecl (a leaf, so the pack footprint can read
-// a manifest without importing this package — docs/design/loophole-packaging.md
-// §3.2), and what remains here is everything that needs to know facts about THIS
+// a manifest without importing this package —
+// docs/reference/loophole-system.md#where-the-schema-lives-and-why-it-is-a-leaf), and what remains here is everything that needs to know facts about THIS
 // MACHINE.
 //
 // The split is exactly "does it need the world":
@@ -54,7 +54,7 @@ func loadManifest(modulePath string) (*Loophole, error) {
 }
 
 // LoadPackLoophole loads a loophole a PACK ships: the same tolerant read discovery
-// uses, plus loopholedecl's pack-shipped subset (loophole-packaging.md §3.1, §2.1).
+// uses, plus loopholedecl's pack-shipped subset (docs/reference/loophole-system.md#the-pack-shipped-subset).
 //
 // TOLERANT and not strict, deliberately, and the two halves answer different
 // questions. Version skew is orthogonal to the subset: a manifest key only a newer
@@ -316,7 +316,7 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 }
 
 // SupportedHere evaluates the manifest's `platforms` declaration against THIS
-// machine (loophole-packaging.md §3.1). A loophole with no declaration is
+// machine (docs/reference/loophole-system.md#requires-platforms-and-the-difference). A loophole with no declaration is
 // supported everywhere, so this is safe to call unconditionally.
 //
 // It is a separate predicate from RequirementsMet, and that separation is the

@@ -42,7 +42,8 @@ var (
 // consumer builds its OWN Set through NewHostSet — the briefing, the broker gate, the
 // argv's broker gate, the runtime args and the daemon spawn each do — and every
 // construction re-walks the module dirs and re-warns about them. The convergence
-// (docs/design/loophole-packaging.md §5.1) collapsed seven independent ASSEMBLIES into one
+// (docs/reference/loophole-system.md#selection-and-discovery) collapsed seven independent
+// ASSEMBLIES into one
 // constructor; it did not collapse them into one RESOLUTION, and was never meant to. So a
 // launch said each of its diagnostics once per pass: measured on a real host 2026-09-09,
 // four missing module dirs printed twenty lines, which buries four facts in a count.
@@ -178,8 +179,9 @@ func (s Set) RuntimeArgsWithJailDaemons(from []*Loophole, runtime string, specs 
 }
 
 // gateAdmitsCrossing is THE origin gate for a pack-shipped loophole's host crossings —
-// the enforcement half of docs/design/loophole-packaging.md §4.3 G3, which says an
-// unapproved fetched pack's loophole is "not discovered at all".
+// the enforcement half of docs/reference/loophole-system.md#three-predicates-and-what-each-one-means,
+// whose design required that an unapproved fetched pack's loophole be "not discovered
+// at all".
 //
 // # The gate was computed and then not enforced, which is the defect this closes
 //
@@ -489,11 +491,12 @@ type DoctorResult struct {
 //
 // A SourcePack record is NEVER EXECUTED here, whatever the caller intended: it comes back
 // with RC=nil and an explanation instead. That is the ungated door being nailed shut
-// rather than documented (docs/design/loophole-packaging.md §5.1 — "RunDoctorChecks must
-// take only loopholes whose origin gate has been evaluated").
+// rather than documented (docs/reference/loophole-system.md#selection-and-discovery —
+// "RunDoctorChecks must take only loopholes whose origin gate has been evaluated").
 //
-// Neither is a loophole whose doctor_cmd or module dir lives where an AGENT writes: §4.3a's
-// PLACEMENT rule applies at this face too, narrowed to the jail-home tree because no doctor
+// Neither is a loophole whose doctor_cmd or module dir lives where an AGENT writes: the
+// PLACEMENT rule (docs/reference/loophole-system.md#the-placement-rule) applies at this
+// face too, narrowed to the jail-home tree because no doctor
 // caller carries a workspace. See runDoctorChecks for why both gates are in the callee.
 //
 // The reason it is enforced HERE, in the callee, is that two of the doctor call sites are

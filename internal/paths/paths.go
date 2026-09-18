@@ -86,7 +86,7 @@ const (
 // user manifest named `journal` therefore loaded, was discovered, had its daemon skipped
 // without a word, and still contributed its --add-host / ca_cert / --device / bind
 // mounts / jail_env to the argv — half a loophole, silently
-// (docs/design/loophole-packaging.md §3.1).
+// (docs/reference/loophole-system.md#selection-and-discovery).
 //
 // BOTH NAMES ARE PACKS' NOW (`journal`, `cgroup-delegate`), and a name a pack ships
 // cannot also be a name yolo answers to itself: the pack pre-flight

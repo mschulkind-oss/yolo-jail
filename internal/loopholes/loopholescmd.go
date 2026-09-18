@@ -69,8 +69,8 @@ func RealDeps() Deps {
 // from the merged user+workspace config `loopholes:` block: user then
 // workspace, later wins on key collision.
 //
-// Entries are VALIDATED before they are honored (loophole-packaging.md item
-// 1b): these commands used to read the config with no schema pass at all, so a
+// Entries are VALIDATED before they are honored (docs/reference/loophole-system.md#trust-what-is-gated-and-what-is-not):
+// these commands used to read the config with no schema pass at all, so a
 // workspace entry `yolo check` rejects — e.g. a doctor_cmd with no command,
 // host execution from two read-only-looking commands — was still listed, and
 // Status executed it. An entry that fails validation is dropped with a printed
@@ -78,7 +78,7 @@ func RealDeps() Deps {
 // path's asymmetry: a workspace-scope violation refuses the entry on the host
 // and is only a warning in-jail, where the entry stays honored.
 // It returns a Set rather than a slice, so the doctor path downstream gets the ORIGIN
-// GATE with the records (census site 5, docs/design/loophole-packaging.md §5.1): `status`
+// GATE with the records (census site 5, docs/reference/loophole-system.md#selection-and-discovery): `status`
 // executes each loophole's doctor_cmd, and this command has no pack resolution of its own
 // — it reads what the process recorded through NewHostSet. On a `yolo loopholes` process
 // nothing records anything, so a pack loophole is absent rather than executed, which is
@@ -277,7 +277,7 @@ func Status(deps Deps) int {
 	// THE SET's doctor runner, not the package-level one. `status` runs each loophole's
 	// doctor_cmd — host code — and this command is one users treat as read-only preflight,
 	// so a pack-shipped record runs only when the origin gate was evaluated AND passed
-	// (docs/design/loophole-packaging.md §5.1). A withheld one is REPORTED, with the
+	// (docs/reference/loophole-system.md#selection-and-discovery). A withheld one is REPORTED, with the
 	// reason, rather than skipped: a skip is indistinguishable from `no-check`, which
 	// would read as "this loophole declares no self-check" — the wrong story entirely.
 	for _, r := range set.RunDoctorChecks(all, doctorCheckTimeout) {
@@ -307,8 +307,8 @@ func Status(deps Deps) int {
 // source. That directory is retired (retired.go, OQ-LP10), so the mechanism has
 // nothing left to write to — and OQ-LP10's second payoff is exactly this: with the
 // special case gone, enable/disable state belongs in CONFIG, for every source
-// (docs/design/loophole-packaging.md §5.2, which already calls that the better end
-// state).
+// (docs/reference/loophole-system.md#selection-and-discovery, which already calls that
+// the better end state).
 //
 // Writing it is a separate change because it is a separate DECISION, not more typing.
 // `loopholes.<name>.enabled` lives in ~/.config/yolo-jail/config.jsonc, a hand-written
@@ -321,7 +321,7 @@ func Status(deps Deps) int {
 // interim is a command that tells you precisely what to write, rather than one that
 // silently does nothing or quietly reformats your config.
 //
-// The instruction points at the USER config (loophole-packaging.md §5.2): it used to
+// The instruction points at the USER config (docs/reference/loophole-system.md#selection-and-discovery): it used to
 // direct people at the workspace yolo-jail.jsonc — the weaker, agent-editable scope,
 // and the one whose install-shaped keys are now refused. `enabled` is honored from
 // either scope, but the command should never steer a human toward the file this

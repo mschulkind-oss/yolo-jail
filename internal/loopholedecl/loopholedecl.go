@@ -2,7 +2,9 @@
 // may say, plus the static validation of it, and nothing about what any of it
 // MEANS at runtime.
 //
-// # Why it is a separate package (docs/design/loophole-packaging.md §3.2)
+// # Why it is a separate package
+//
+// docs/reference/loophole-system.md#where-the-schema-lives-and-why-it-is-a-leaf
 //
 // `internal/packload` cannot import `internal/loopholes`. It is a cycle, and it is
 // measured rather than assumed:
@@ -251,7 +253,7 @@ type Manifest struct {
 	// Distinct from Requires, which is a runtime probe ("the thing I need is
 	// present"). A compiled Linux daemon on macOS is not a missing prerequisite —
 	// there is nothing to install — and reporting it as one sends the reader after
-	// a fix that cannot exist (loophole-packaging.md §3.1).
+	// a fix that cannot exist (docs/reference/loophole-system.md#requires-platforms-and-the-difference).
 	Platforms []string
 	// PlatformsSet is false when `platforms` was absent, which means EVERY
 	// platform. It has to be a separate bit rather than len()==0: an empty

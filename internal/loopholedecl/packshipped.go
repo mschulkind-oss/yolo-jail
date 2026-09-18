@@ -1,8 +1,9 @@
 package loopholedecl
 
 // packshipped.go is the PACK-SHIPPED SUBSET of the manifest
-// (docs/design/loophole-packaging.md §3.1, "The pack-shipped subset of the
-// manifest, corrected", plus §2.1's review ruling).
+// (docs/reference/loophole-system.md#the-pack-shipped-subset; the `publishes`
+// half of the ruling is
+// docs/reference/loophole-transport.md#two-server-shapes-and-how-a-manifest-selects-one).
 //
 // Several declarations a bundled loophole may make are refused when a PACK ships the
 // loophole. The asymmetry is the point and it is not squeamishness: a bundled
@@ -103,7 +104,8 @@ func LoadDirPackShipped(dir string) (*Manifest, error) {
 	return m, nil
 }
 
-// packJailEnvProblems refuses `jail_env` (§3.1, first table row).
+// packJailEnvProblems refuses `jail_env` (the first row of the subset's table,
+// docs/reference/loophole-system.md#the-pack-shipped-subset).
 //
 // THE REASON IS THE COST OF A CROSS-KIND COLLISION PASS, not an invariant about
 // disjoint namespaces. `jail_env` emits `-e K=V` (internal/loopholes/runtime.go),
@@ -133,7 +135,7 @@ func (m *Manifest) packJailEnvProblems(manifestPath string) []string {
 			" {\"kind\": \"env\", \"vars\": {%s}}, which the pack footprint already"+
 			" reports and collides on. Note the difference you are accepting: `env` is"+
 			" UNCONDITIONAL, while `jail_env` only applied when the loophole was active"+
-			" (loophole-packaging.md §3.1, OQ-LP5)",
+			" (OQ-LP5, still open in docs/design/loophole-packaging.md)",
 		manifestPath, envVarsHint(m.JailEnv))}
 }
 
@@ -221,7 +223,7 @@ func packBindHostProblem(manifestPath, field, host string) string {
 		" every bind it declares is enumerated as an approvable claim, which is what a"+
 		" FETCHED pack has to get past. What it may not do is name a path whose"+
 		" RESOLUTION differs between the claim you approved and the mount yolo makes"+
-		" (loophole-packaging-overview.md OQ-LP14)",
+		" (OQ-LP14, docs/reference/loophole-system.md#why-its-this-way)",
 		manifestPath, field, pytext.Repr(host), clause)
 }
 
@@ -340,7 +342,7 @@ func (m *Manifest) packCACertProblems(manifestPath string) []string {
 		" into NODE_EXTRA_CA_CERTS, so it is trusted by every node client in the jail —"+
 		" naming an arbitrary host path would hand the jail a CA you never chose. For"+
 		" anything outside both, the loophole has to be bundled with yolo"+
-		" (loophole-packaging.md §3.1)",
+		" (docs/reference/loophole-system.md#the-pack-shipped-subset)",
 		manifestPath, pytext.Repr(m.CACert), clause, TokenState)}
 }
 
@@ -386,7 +388,7 @@ func (m *Manifest) packRequiresProblems(manifestPath string) []string {
 		" inactive reason, so an arbitrary path here is a filesystem probe with a readout."+
 		" To require a PROGRAM instead, use 'requires.command_on_path', which names"+
 		" something installable. For anything outside both, the loophole has to be bundled"+
-		" with yolo (loophole-packaging.md §3.1)",
+		" with yolo (docs/reference/loophole-system.md#the-pack-shipped-subset)",
 		manifestPath, pytext.Repr(m.Requires.FileExists), clause, TokenLoopholeDir)}
 }
 
@@ -439,12 +441,14 @@ func packWritableBindProblem(manifestPath, field string, bm HostBindMount) strin
 			" bidirectional (measured — the kernel exempts non-REG/DIR/LNK inodes from the"+
 			" read-only check), so this rule only ever covers regular files and"+
 			" directories. If the pack genuinely has to WRITE a host file, declare a"+
-			" `host_daemon` that mediates it (loophole-packaging.md §3.1)",
+			" `host_daemon` that mediates it"+
+			" (docs/reference/loophole-system.md#the-pack-shipped-subset)",
 		manifestPath, field, pytext.Repr(bm.Host))
 }
 
-// packPublishesProblems enforces §2.1's REVIEW RULING: a pack-shipped loophole may
-// only say `publishes: "socket"`.
+// packPublishesProblems enforces the `publishes` ruling
+// (docs/reference/loophole-transport.md#two-server-shapes-and-how-a-manifest-selects-one): a
+// pack-shipped loophole may only say `publishes: "socket"`.
 //
 // The transport is a property of the FRAMEWORK, not of the loophole, and §2.3's
 // enforcement asymmetry is why. On the server side every security-critical property
@@ -481,6 +485,7 @@ func (m *Manifest) packPublishesProblems(manifestPath string) []string {
 			" constant-time compare and its length cap are yolo's code rather than"+
 			" yours. NO loophole may self-publish now: the bundled channel that used to"+
 			" permit it — yolo's own code publishing yolo's own credential — is retired"+
-			" (loophole-packaging.md §2.1, broker-as-a-pack.md OQ-BP4)",
+			" (docs/reference/loophole-transport.md#two-server-shapes-and-how-a-manifest-selects-one,"+
+			" broker-as-a-pack.md OQ-BP4)",
 		manifestPath, pytext.Repr(m.HostDaemon.Publishes), "{socket}")}
 }

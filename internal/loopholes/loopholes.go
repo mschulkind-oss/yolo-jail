@@ -44,8 +44,9 @@ import (
 // per-launch disclosure on the way.
 //
 // What the remaining order expresses: a config entry overrides a pack's loophole, which
-// is what bundled/config already behaved like (docs/design/loophole-packaging.md §5.1,
-// "Precedence — draft 1's line is DELETED"). Name collisions never reach an ordering at
+// is what bundled/config already behaved like
+// (docs/reference/loophole-system.md#selection-and-discovery, "Two sources, and the ordering
+// is pack < config"). Name collisions never reach an ordering at
 // all — the launch pre-flight (run.PackLoopholeNameConflicts) is fatal on them.
 const (
 	SourcePack   = "pack"
@@ -54,7 +55,7 @@ const (
 
 // RetiredUserLoopholesDir returns the hand-placed loopholes directory that yolo
 // used to DISCOVER from and no longer reads at all (OQ-LP10, ruled yes in
-// docs/design/loophole-packaging.md §8). It survives as a path only so the
+// docs/reference/loophole-system.md#why-its-this-way). It survives as a path only so the
 // migration notice can name it — see retired.go.
 //
 // Package var so tests can point it somewhere empty: a developer's real machine
@@ -100,7 +101,8 @@ type Loophole struct {
 	Requires   Requires
 	// Platforms / PlatformsSet carry the manifest's `platforms` declaration
 	// verbatim — WHERE this loophole can run at all, which `requires` cannot say
-	// (loophole-packaging.md §3.1). Evaluated by SupportedHere (load.go); absent
+	// (docs/reference/loophole-system.md#requires-platforms-and-the-difference). Evaluated by
+	// SupportedHere (load.go); absent
 	// (PlatformsSet false) means every platform, so every manifest written before
 	// the key existed keeps its meaning.
 	Platforms    []string
