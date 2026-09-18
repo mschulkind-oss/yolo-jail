@@ -176,8 +176,8 @@ func jailHomeHostPath(workspace, runtime, surfacePath string) (string, bool) {
 // Split out for the reader `yolo config` needs and capture-on-terminate does not. A capture
 // only ever wants a file that IS there, so folding existence into the answer is right for it;
 // a REPORT has to tell *"this workspace does not back that path"* from *"it does and the file
-// is absent"*, which are §4.1's *"not resolvable at this notch"* and an ordinary absence
-// (docs/design/config-target-resolution.md). One answer cannot carry both, and re-deriving
+// is absent"*, which are *"not resolvable at this notch"* and an ordinary absence
+// (docs/reference/config-target-resolution.md#unknown-is-not-empty). One answer cannot carry both, and re-deriving
 // the mapping beside this one is what the backend branch below must never have two of.
 func jailHomeHostLocation(workspace, runtime, surfacePath string) (string, bool) {
 	rel, ok := strings.CutPrefix(surfacePath, "~/")

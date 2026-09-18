@@ -394,7 +394,7 @@ func TestPromoteWritesNothingWhenEveryKeyIsHeld(t *testing.T) {
 // contributed by `local`.
 //
 // The reader is `ls` rather than `diff` since
-// docs/design/config-target-resolution.md [OQ-CR7]: per-key provenance is a fact about how
+// docs/reference/config-target-resolution.md [OQ-CR7]: per-key provenance is a fact about how
 // the file was COMPOSED, so it lives with the verb that describes the composition. What this
 // test measures is unchanged — that the manifest promote wrote is one the overlay decoder
 // actually delivers from.

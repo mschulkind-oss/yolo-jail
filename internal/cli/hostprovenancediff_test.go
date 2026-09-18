@@ -35,7 +35,7 @@ import (
 // the TARGET's (render.Target.ProvenancePath, off the home its constructor was given), so the
 // seam is the HOME — which the fixture already points at a temp dir. A stubbable path builder
 // beside a stubbable notch predicate is exactly the pair
-// docs/design/config-target-resolution.md removed: a test could pin the record's location and
+// docs/reference/config-target-resolution.md removed: a test could pin the record's location and
 // leave the notch ambient, which is how a reader came to report one notch's outcome as the
 // other's.
 func withHostProvenanceDir(t *testing.T, home string) string {

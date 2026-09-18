@@ -154,7 +154,7 @@ type assembleInput struct {
 
 	// hostLayersRendered is the LABEL half of that report: which of those destinations hold
 	// bytes yolo itself rendered into this home rather than the user's own
-	// ([OQ-CR6], docs/design/config-target-resolution.md; entrypoint.HostLayerRender states
+	// ([OQ-CR6], docs/reference/config-target-resolution.md; entrypoint.HostLayerRender states
 	// what the jail does with one). A subset of hostLayersDelivered, written by the same
 	// emitter, because what a file IS travels with the delivery that carries it — the jail
 	// cannot derive it, `host_management` being deliberately un-inherited.

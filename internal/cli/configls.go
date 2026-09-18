@@ -100,14 +100,15 @@ func surfaceMode(s manifest.Surface) string {
 // --all lists the whole manifest.
 //
 // PRESENCE IS THE TARGET'S, which is what closed the host-side row inflation
-// (docs/design/config-target-resolution.md §2.3 F2): a host-side `ls` in a workspace used to
+// (F2, docs/reference/config-target-resolution.md#the-config-target): a host-side `ls` in a workspace used to
 // find presence unknowable, stop applying the existence filter, and print four extra rows —
 // the same jail described differently depending on where the user stood, at exit 0. A
 // workspace target resolves its own home host-side (configTarget.reachSurface), so the filter
 // applies at every target the resolution can produce.
 //
 // A surface the target cannot resolve at all is listed under --all as NOT RESOLVABLE rather
-// than as absent (§4.1's last row): the two look alike and mean different things, and calling
+// than as absent (docs/reference/config-target-resolution.md#unknown-is-not-empty): the two
+// look alike and mean different things, and calling
 // the second the first is what sends a reader hunting for a render that was never coming.
 func configLs(t configTarget, args []string, out, errw io.Writer, color bool) int {
 	all := false
@@ -137,7 +138,7 @@ func configLs(t configTarget, args []string, out, errw io.Writer, color bool) in
 	}
 	// PER-KEY PROVENANCE LANDS HERE, and this is where it belongs: `ls` is the verb that
 	// describes how a file is CONSTRUCTED, and which layer set a key is a fact about the
-	// construction ([OQ-CR7](docs/design/config-target-resolution.md#oq-cr7)). It came out of
+	// construction ([OQ-CR7](docs/reference/config-target-resolution.md#oq-cr7)). It came out of
 	// `config diff`, whose subject is the capture store alone — see configprovenance.go.
 	//
 	// No agent filter: `ls` lists the whole manifest, so it asks about every one. It normally

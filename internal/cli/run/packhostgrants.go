@@ -211,7 +211,7 @@ func (o *Options) hostMountArgs(in *assembleInput) []string {
 }
 
 // hostLayerIsRender reports whether the bytes this launch is staging at dest are YOLO'S OWN
-// RENDER rather than the user's ([OQ-CR6], docs/design/config-target-resolution.md; the
+// RENDER rather than the user's ([OQ-CR6], docs/reference/config-target-resolution.md; the
 // disposition it feeds is entrypoint.HostLayerRender, whose file states the whole argument).
 //
 // It is the LAUNCHER's to answer because the jail cannot: `host_management` is deliberately

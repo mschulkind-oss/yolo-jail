@@ -1,7 +1,7 @@
 package cli
 
 // confighostlayer_test.go pins WHOSE BYTES `yolo config render` composes as the `host`
-// layer ([OQ-CR6](docs/design/config-target-resolution.md#oq-cr6), ruled (a)).
+// layer ([OQ-CR6](docs/reference/config-target-resolution.md#oq-cr6), ruled (a)).
 //
 // Three files answer to "the host layer" and they do not hold the same bytes: the copy the
 // LAUNCH stages under /ctx (what the boot render reads), the destination inside the jail

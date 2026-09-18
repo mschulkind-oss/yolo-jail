@@ -1,7 +1,7 @@
 package entrypoint
 
 // hostlayerlabel_test.go pins the FIFTH disposition
-// ([OQ-CR6](docs/design/config-target-resolution.md#oq-cr6)): a delivery the launcher
+// ([OQ-CR6](docs/reference/config-target-resolution.md#oq-cr6)): a delivery the launcher
 // labelled yolo's OWN render is a BASELINE, so the boot composes without it.
 //
 // Every case below differs from its twin in hostlayer_test.go by ONE list in ONE

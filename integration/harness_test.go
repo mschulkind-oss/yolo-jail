@@ -160,7 +160,8 @@ func warmJail() {
 	// rather than on it. The old reason was that the image identity was a darwin derivation
 	// whose store path a Linux-runner-built image could never carry — which is why the skew
 	// check downgraded itself to a warning here. Both halves are gone: OQ-IP1 made the
-	// identity a content hash any host computes (darwin-image-provenance.md), the downgrade
+	// identity a content hash any host computes
+	// (docs/reference/image-staging-vs-baking.md#why-its-this-way), the downgrade
 	// is deleted, and the stock short-circuit now returns before the build when the runtime
 	// already holds a matching stock image (internal/image/stockimage.go). A darwin warmup
 	// may therefore be cheap now.

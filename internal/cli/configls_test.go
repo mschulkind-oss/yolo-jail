@@ -20,7 +20,7 @@ import (
 // IT IS THE SEAM THE RETIRED PAIR WAS, collapsed into one. `prismSidecarDir` and
 // `surfacesAreLocal` were two independently stubbable predicates, and that is precisely how
 // the store and the home came to be resolvable independently
-// (docs/design/config-target-resolution.md §2.1): a test could pin one and leave the other
+// (docs/reference/config-target-resolution.md#the-config-target): a test could pin one and leave the other
 // ambient. A test now constructs the whole ANSWER it means and hands it to the verb the way
 // configRunW does. Without the seam an in-jail `go test` would read — and `reset` would
 // DELETE — the real /workspace sidecars.
@@ -83,7 +83,7 @@ func withWorkspaceCwd(t *testing.T) (ws, store string) {
 		t.Fatalf("resolve temp workspace: %v", err)
 	}
 	// The ruled marker: a workspace config file is enough, and a bare .yolo is not
-	// (docs/design/config-target-resolution.md [OQ-CR2]).
+	// (docs/reference/config-target-resolution.md [OQ-CR2]).
 	writeFile(t, filepath.Join(ws, config.WorkspaceConfigName), `{}`)
 	store = render.Jail(paths.Home(), ws, nil).SidecarDir()
 	if err := os.MkdirAll(store, 0o755); err != nil {
@@ -516,7 +516,7 @@ func countSurfaceRows(table string) int {
 //
 // ⚠ THE FIXTURE IS A MARKER, NOT A `.yolo` DIRECTORY, and that is the ruled change: a bare
 // `.yolo/` matches `/home/agent` inside every jail, where it is the generated-script anchor
-// (docs/design/config-target-resolution.md [OQ-CR2]). This used to build the workspace as an
+// (docs/reference/config-target-resolution.md [OQ-CR2]). This used to build the workspace as an
 // empty `.yolo/prism` and would now resolve nothing.
 func TestWorkspaceRootWalksUp(t *testing.T) {
 	root, err := filepath.EvalSymlinks(t.TempDir())

@@ -8,7 +8,7 @@ package cli
 // # It moved here out of `diff`, and the reason is the verb's SUBJECT
 //
 // `yolo config diff` printed it beside the captured divergence until
-// docs/design/config-target-resolution.md [OQ-CR7] ruled (a), against its own leaning:
+// docs/reference/config-target-resolution.md [OQ-CR7] ruled (a), against its own leaning:
 // **`diff` reports the captured divergence and nothing else.**
 //
 // What `diff` answers is *"if I deleted all of these surfaces, discarded every capture and
@@ -111,7 +111,7 @@ func overlayContributionRows(t configTarget, agent, surface string) ([]overlayCo
 		return nil, unresolved
 	}
 	// WHICH NOTCH this invocation describes comes off the RESOLVED TARGET, which is the one
-	// place it is decided (docs/design/config-target-resolution.md §3). It was
+	// place it is decided (docs/reference/config-target-resolution.md#the-config-target). It was
 	// `notch := KindJail; if !surfacesAreLocal() { notch = KindHost }` — a second predicate,
 	// and the one that made a host-side report in a workspace read the invoking user's real
 	// home's provenance beside that jail's captures (§2.3 F1).

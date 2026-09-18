@@ -1,7 +1,7 @@
 package cli
 
 // configprovenance_test.go pins where per-key provenance now lives, and that it is no longer
-// anywhere else (docs/design/config-target-resolution.md [OQ-CR7], ruled (a) against its own
+// anywhere else (docs/reference/config-target-resolution.md [OQ-CR7], ruled (a) against its own
 // leaning).
 
 import (

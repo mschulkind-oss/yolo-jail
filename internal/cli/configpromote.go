@@ -285,7 +285,7 @@ func configPromote(t configTarget, args []string, out, errw io.Writer, color boo
 // promotion's destination is only meaningful in the home where the user's real
 // `~/.config/yolo-jail` lives, and no jail has one.
 //
-// BOTH CONDITIONS STAY under docs/design/config-target-resolution.md, which deliberately
+// BOTH CONDITIONS STAY under docs/reference/config-target-resolution.md, which deliberately
 // does not retarget promote: host-side it reads the cwd's WORKSPACE store because lifting a
 // jail's captured keys into a pack is its whole job, and its destination is user scope,
 // which is not a notch.
@@ -332,8 +332,9 @@ type promoteSurface struct {
 	OverlayJSON []byte
 	// OverlayPath is the file those bytes came from, carried for the same contract: the
 	// writer must reset the sidecar the classification READ rather than re-resolve one. Two
-	// resolutions of one store is the defect docs/design/config-target-resolution.md removes
-	// — it is how `diff` and `reset` came to describe different stores (§2.3 F3) — and the
+	// resolutions of one store is the defect docs/reference/config-target-resolution.md removes
+	// — it is how `diff` and `reset` came to describe different stores
+	// (F3, docs/reference/config-target-resolution.md#the-config-target) — and the
 	// write half of promote is the last place that could still grow it back.
 	OverlayPath string
 	Keys        []promoteKey

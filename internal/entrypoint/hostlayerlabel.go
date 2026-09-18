@@ -2,7 +2,7 @@ package entrypoint
 
 // hostlayerlabel.go is the FIFTH disposition of the launcher's host-layer report: these
 // staged bytes are YOLO'S OWN RENDER, so the jail treats them as a BASELINE and never
-// composes them as a layer ([OQ-CR6], docs/design/config-target-resolution.md).
+// composes them as a layer ([OQ-CR6], docs/reference/config-target-resolution.md).
 //
 // # Why the bytes are not always the user's
 //

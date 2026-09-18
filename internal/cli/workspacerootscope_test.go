@@ -8,7 +8,7 @@ package cli
 // in, and `reset` deleting that directory's sidecars.
 //
 // ⚠ THE MARKER ALONE DOES NOT CLOSE THIS, which is why both halves exist. The ruled marker
-// (docs/design/config-target-resolution.md [OQ-CR2]) is an ARTIFACT rather than a directory,
+// (docs/reference/config-target-resolution.md [OQ-CR2]) is an ARTIFACT rather than a directory,
 // so it already rejects the bare generated-script anchor — but a machine that launched in its
 // home BEFORE paths.WorkspaceScopeBreach refused to create the state dir carries a real
 // `~/.yolo/config-boot.json`, and that IS a marker. The breach stop is the only thing that
@@ -58,7 +58,7 @@ func TestWorkspaceRootStopsAtABoundaryDirectory(t *testing.T) {
 			"marked, and the walk may not pass the home", got)
 	}
 	// AND THE ANSWER IS THE HOST TARGET, not an empty workspace answer
-	// (docs/design/config-target-resolution.md [OQ-CR2]). This is the half that replaced
+	// (docs/reference/config-target-resolution.md [OQ-CR2]). This is the half that replaced
 	// "the cwd stands": a directory resolving no workspace used to become a workspace whose
 	// store does not exist, and every verb then reported its silence as an answer.
 	tgt, refusal := resolveConfigTarget("")

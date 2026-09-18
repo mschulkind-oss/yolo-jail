@@ -13,7 +13,7 @@ import (
 // config, and a workspace whose prism sidecars hold the captures.
 //
 // THE CWD IS THE WORKSPACE, because `run` drives configRunW and the resolution walks the cwd
-// (docs/design/config-target-resolution.md §3). Pointing a stubbed resolver at the sidecars
+// (docs/reference/config-target-resolution.md#the-config-target). Pointing a stubbed resolver at the sidecars
 // while the process stood somewhere else is what the retired prismSidecarDir seam did; with
 // one resolved target the fixture has to BE the situation it models, and this one's workspace
 // carries the ruled marker rather than a bare `.yolo`.

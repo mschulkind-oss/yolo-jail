@@ -317,7 +317,7 @@ func TestHostSideResetLeavesTheNextApplyNothingToAdopt(t *testing.T) {
 // at rc 0, and `reset` then discarded an edit the user was never shown.
 //
 // The fix is that the store comes off the ONE resolved target
-// ([OQ-CR3](docs/design/config-target-resolution.md#oq-cr3)) — not that the readers learned
+// ([OQ-CR3](docs/reference/config-target-resolution.md#oq-cr3)) — not that the readers learned
 // about ownership. `hostOwnsSurfaces` was consulted by the write guard, by reset's paths, by
 // the re-render trailer, by the baseline's mode and by the truncation, and by no read path at
 // all; there is no second resolution left to leave out.

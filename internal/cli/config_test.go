@@ -45,7 +45,7 @@ func withHomeAndCwd(t *testing.T) (string, string) {
 // TestConfigRenderExplain shows the winning layer per key.
 //
 // The host layer comes from the STAGED COPY now, not the destination
-// ([OQ-CR6](docs/design/config-target-resolution.md#oq-cr6)): this writes the bytes where the
+// ([OQ-CR6](docs/reference/config-target-resolution.md#oq-cr6)): this writes the bytes where the
 // LAUNCH puts them and leaves the destination empty, so the test fails if renderSurface goes
 // back to reading `~/.pi/agent/settings.json` — which after one boot is yolo's own output.
 func TestConfigRenderExplain(t *testing.T) {

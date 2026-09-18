@@ -175,7 +175,7 @@ func TestHostFilesConfigLsAndReset(t *testing.T) {
 	}
 
 	// `config reset user` NEEDS NO --force HERE, and that is the whole of [OQ-CR4]
-	// (docs/design/config-target-resolution.md) — do not "fix" this by adding the flag back.
+	// (docs/reference/config-target-resolution.md) — do not "fix" this by adding the flag back.
 	//
 	// It used to refuse, on the premise that reset truncates a surface file resolved against
 	// the INVOKING process's home. That premise is true of a real home and false of the one

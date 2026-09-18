@@ -1,7 +1,7 @@
 package cli
 
 // configrunningjail.go is the one ordering condition a host-side write to a JAIL's surfaces
-// has ([OQ-CR4](docs/design/config-target-resolution.md#oq-cr4), ruled (a) *with the
+// has ([OQ-CR4](docs/reference/config-target-resolution.md#oq-cr4), ruled (a) *with the
 // running-jail refusal*).
 //
 // # What the fourth disposition is, and why it needs this

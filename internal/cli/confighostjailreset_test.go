@@ -1,7 +1,7 @@
 package cli
 
 // confighostjailreset_test.go pins the FOURTH DISPOSITION
-// ([OQ-CR4](docs/design/config-target-resolution.md#oq-cr4), ruled (a) with the running-jail
+// ([OQ-CR4](docs/reference/config-target-resolution.md#oq-cr4), ruled (a) with the running-jail
 // refusal): host-side, `yolo config reset` discards a JAIL's captured edits.
 //
 // The matrix had three cells, so the only shipped exit from a captured edit was the verb

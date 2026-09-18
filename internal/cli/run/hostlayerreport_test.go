@@ -91,7 +91,7 @@ func TestHostLayerReportIsEmittedWithNothingDelivered(t *testing.T) {
 
 // THE LABEL IS THE LAUNCHER'S, AND IT IS READ OFF THE MARK. Two identical deliveries of the
 // same shape, differing only in whether yolo has already rendered that surface into this
-// home ([OQ-CR6], docs/design/config-target-resolution.md): the one it has is labelled a
+// home ([OQ-CR6], docs/reference/config-target-resolution.md): the one it has is labelled a
 // RENDER, so the jail keeps it as a baseline instead of folding yolo's own keys back in as
 // the user's.
 //

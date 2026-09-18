@@ -54,7 +54,7 @@ func hostUserPath(slug string) string {
 
 // HostUserPath is hostUserPath for the host-side verbs, which resolve the same staged copy:
 // a `user` surface's host layer is the file a LAUNCH put at this path, never the destination
-// it was rendered into ([OQ-CR6](docs/design/config-target-resolution.md#oq-cr6)). Exported
+// it was rendered into ([OQ-CR6](docs/reference/config-target-resolution.md#oq-cr6)). Exported
 // rather than re-derived in internal/cli for the reason the unexported one exists: two
 // spellings of this join is how a reader ends up looking somewhere nothing wrote.
 func HostUserPath(slug string) string { return hostUserPath(slug) }
@@ -206,7 +206,7 @@ func hostSourceIsExecutable(entry config.HostFileEntry) bool {
 // sidecars and keep every user surface distinct from every builtin.
 //
 // EXPORTED for the host-side `yolo config reset` of a jail's captured edits
-// ([OQ-CR4](docs/design/config-target-resolution.md#oq-cr4)), which has to compose the pure
+// ([OQ-CR4](docs/reference/config-target-resolution.md#oq-cr4)), which has to compose the pure
 // render of a `user` surface and until then had no codec for one at all — the
 // PruneWorkspaceKeyed precedent, a boot-render internal exported so the CLI's truncation
 // calls the one definition rather than a second one free to disagree about which layers an

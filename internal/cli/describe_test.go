@@ -310,7 +310,7 @@ func TestApplySealedClosure(t *testing.T) {
 	home, repo := withHomeAndCwd(t)
 	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{"packs":["claude"]}`)
 	// The yolo-jail.jsonc above is already the marker workspaceRoot() anchors on
-	// (docs/design/config-target-resolution.md [OQ-CR2]); the .yolo dir is kept because
+	// (docs/reference/config-target-resolution.md [OQ-CR2]); the .yolo dir is kept because
 	// applySealed's first refusal reads a file beside it.
 	writeFile(t, filepath.Join(repo, ".yolo", "keep"), "x")
 	// The host-ownership contract, DECLARED — otherwise the third refusal fires and this
