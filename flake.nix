@@ -89,9 +89,10 @@
       # Linux-built image from this very commit: the eval disagreed with the
       # image, every launch demanded a rebuild it had no Linux builder to
       # perform, and the macOS nightly went red on that one fact
-      # (docs/design/darwin-image-provenance.md; OQ-IP1 ruled cross-system
-      # invariance a REQUIREMENT — "an identity a second host cannot compute
-      # is not an identity, it is a local cache key wearing one").  Living out
+      # (docs/reference/image-staging-vs-baking.md#why-its-this-way; OQ-IP1
+      # ruled cross-system invariance a REQUIREMENT — "an identity a second
+      # host cannot compute is not an identity, it is a local cache key
+      # wearing one").  Living out
       # here, where neither `system` nor `pkgs` is in scope, is what makes that
       # structural instead of a promise: there is nothing per-host to leak in.
       #
@@ -1189,19 +1190,31 @@
           "iptables"      # DNAT rules (published port → localhost fixup)
           "socat"         # host port forwarding into the jail
           "sox"           # Claude Code's `/voice` recorder depends on it
-          # Baked for ONE consumer that never appears in this image's own argv:
-          # `internal/oauthbroker`'s EnsureCAAndLeaf shells out to `openssl` to
-          # mint the broker CA (a crypto/x509 port is flagged in that function
-          # and deliberately deferred). Nothing in the image invokes openssl
-          # directly, so a closure audit reads it as unused — it is not.
-          # Without it, every launch whose HOST IS ITSELF A JAIL kills the
-          # broker singleton at startup: the socket never binds, no endpoint
-          # file is written, and since the reachability witness became fatal
-          # that surfaces as a REFUSED launch — of the nested launch AGENTS.md
-          # makes mandatory for verifying Go changes. It hid for months (2,549
-          # dead spawns in one jail) because on a real host openssl is simply
-          # always there. Core, not full: a minimal-variant jail is a host for
-          # its children too. See docs/design/broker-ca-and-nested-hosts.md.
+          # ⚠ THE CONSUMER THIS WAS BAKED FOR IS GONE, AND THE ENTRY STAYS.
+          # It was added for `internal/oauthbroker`'s EnsureCAAndLeaf, which
+          # shelled out to `openssl` to mint the broker CA; that function now
+          # mints in-process with crypto/x509 (4ceab956), so nothing in
+          # internal/oauthbroker or internal/svcendpoint execs openssl at all.
+          # What that bake bought is still worth reading, because it is why the
+          # dependency was invisible: without it, every launch whose HOST IS
+          # ITSELF A JAIL killed the broker singleton at startup — socket never
+          # binds, no endpoint file, and since the reachability witness became
+          # fatal, a REFUSED launch of the very nested jail AGENTS.md makes
+          # mandatory for verifying Go changes. It hid for months (2,549 dead
+          # spawns in one jail) because on a real host openssl is simply always
+          # there. See docs/design/broker-ca-and-nested-hosts.md.
+          #
+          # TWO LIVE CONSUMERS KEEP IT HERE, and neither appears in this image's
+          # argv either, so a closure audit still reads it as unused — it is
+          # not. `internal/macosuser/real.go` execs `openssl rand -base64 32`
+          # to mint the sandbox identity's password, and the generated
+          # sha256sum shim (internal/entrypoint/shims.go) falls back to
+          # `openssl dgst`. The first is the load-bearing one and it is NOT
+          # about this image: macos-user bakes nothing, so it resolves openssl
+          # from the darwin nix profile `coreFloorNames` builds — which is why
+          # the name must stay CORE rather than full, and why the pin lives in
+          # internal/darwinpkg/opensslfloor_test.go rather than beside a
+          # consumer that no longer exists.
           "openssl"
           # Timezone database — without it, glibc can't resolve
           # ``TZ=America/New_York`` etc. and silently falls back to UTC,
