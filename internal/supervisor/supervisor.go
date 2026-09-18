@@ -1,17 +1,23 @@
 // Package supervisor is the in-jail daemon supervisor. It reads
 // YOLO_JAIL_DAEMONS (a JSON list of {name, cmd, restart}) and supervises each
-// entry as a subprocess.
+// entry as a subprocess. That payload carries pack `service` daemons as well
+// as loophole daemons — one frozen contract with one writer, internal/loopholes'
+// RuntimeArgsForWithJailDaemons — so everything in this package governs both
+// populations, and a change to spawn or restart behaviour changes both.
 //
 // Frozen contracts: the YOLO_JAIL_DAEMONS JSON shape +
 // skip-invalid-entry parsing, the restart policies (always | on-failure | no),
+// which govern a failure to SPAWN exactly as they govern an exit,
 // per-daemon logs at ~/.local/state/yolo-jail-daemons/<name>.log rotated once
-// at 5 MB (.log -> .log.1), the 1s→30s exponential backoff, and SIGTERM/SIGINT
-// → terminate children (5s grace → kill).
+// at 5 MB (.log -> .log.1) and carrying the supervisor's own spawn-failure and
+// giving-up lines beside the child's output, the 1s→30s exponential backoff,
+// and SIGTERM/SIGINT → terminate children (5s grace → kill).
 package supervisor
 
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -49,13 +55,14 @@ type jsonEntry struct {
 	Restart *string `json:"restart"`
 }
 
-// ParseEnv parses YOLO_JAIL_DAEMONS. Invalid JSON or a non-list → nil (Python
-// returns []). A non-dict element within the list, or an invalid entry
-// (missing name / non-list-or-empty cmd), is skipped individually — matching
-// _parse_env, which iterates and drops bad entries rather than failing whole.
+// ParseEnv parses YOLO_JAIL_DAEMONS. Invalid JSON or a non-list → nil. A
+// non-dict element within the list, or an invalid entry (missing name /
+// non-list-or-empty cmd), is skipped individually: one bad entry drops itself
+// and the rest of the payload is still supervised. Skip-invalid-entry parsing
+// is a frozen contract, so widen what is accepted rather than what is rejected.
 func ParseEnv(raw string) []Spec {
 	// Decode into raw elements first so ONE bad element doesn't abort the whole
-	// list (Python skips per-element).
+	// list — the skip is per-element.
 	var elems []json.RawMessage
 	if err := json.Unmarshal([]byte(raw), &elems); err != nil {
 		return nil // invalid JSON, or valid JSON that isn't a list
@@ -91,15 +98,18 @@ func ParseEnv(raw string) []Spec {
 	return out
 }
 
-// stringifyCmd mirrors Python str(x) for cmd elements (which are almost always
-// strings; numbers/bools would be stringified). We accept string/number/bool.
+// stringifyCmd coerces a cmd element to a token. Elements are strings in every
+// real payload; the number and bool cases only exist because the wire shape
+// cannot forbid them, and their spellings ("True"/"False", JSON-compact
+// numbers) are inherited from the retired Python writer, whose output some
+// older jail could still hold. Accept string/number/bool, reject the rest.
 func stringifyCmd(v any) (string, bool) {
 	switch t := v.(type) {
 	case string:
 		return t, true
 	case float64:
-		// str(int) vs str(float) — cmd tokens are strings in practice; a
-		// JSON number here is malformed input. Return its compact form.
+		// A JSON number here is malformed input; return its compact form
+		// rather than guessing at an int/float spelling.
 		b, _ := json.Marshal(t)
 		return string(b), true
 	case bool:
@@ -155,9 +165,31 @@ func (c *child) start() error {
 	return nil
 }
 
-// waitAndMaybeRestart waits for the child and reports whether to restart per
-// policy. Returns false if stop fired.
-// including the pre-return backoff sleep + doubling.
+// logf appends one supervisor-authored line to the daemon's own <name>.log,
+// beside the child's stdout/stderr. That file is the one a human opens when a
+// daemon misbehaves, and it is the only channel that reaches them: the
+// supervisor's own stderr is /dev/null in a real jail, because
+// entrypoint.startJailDaemonSupervisor starts it detached with Stderr unset.
+// So an error reported anywhere else is an error reported nowhere. The prefix
+// distinguishes these lines from the child's output in a shared file.
+//
+// Best-effort by necessity — a supervisor cannot report that it could not
+// report. When openLog is itself what failed, the caller's error is lost, and
+// that is the one remaining silent path.
+func (c *child) logf(format string, args ...any) {
+	lf, err := openLog(c.spec.Name)
+	if err != nil {
+		return
+	}
+	defer lf.Close()
+	_, _ = fmt.Fprintf(lf, "[yolo-jaild %s] %s\n",
+		time.Now().Format(time.RFC3339), fmt.Sprintf(format, args...))
+}
+
+// waitAndMaybeRestart waits for a child that DID spawn and reports whether to
+// restart it per policy, including the pre-return backoff sleep + doubling.
+// Returns false if stop fired. Every give-up is announced in <name>.log: an
+// abandoned daemon that says nothing is indistinguishable from a running one.
 func (c *child) waitAndMaybeRestart(stop <-chan struct{}) bool {
 	c.mu.Lock()
 	cmd := c.cmd
@@ -178,9 +210,11 @@ func (c *child) waitAndMaybeRestart(stop <-chan struct{}) bool {
 		}
 	}
 	if c.spec.Restart == "no" {
+		c.logf("exited with status %d — restart policy \"no\": not restarting", rc)
 		return false
 	}
 	if c.spec.Restart == "on-failure" && rc == 0 {
+		c.logf("exited with status 0 — restart policy \"on-failure\": not restarting")
 		return false
 	}
 	sleepInterruptible(stop, time.Duration(c.backoff*float64(time.Second)))
@@ -213,11 +247,27 @@ func (c *child) terminate(timeout time.Duration) {
 	}
 }
 
-// superviseOne is the per-daemon loop: start (backoff-retry on spawn failure),
-// wait, restart-or-return.
+// superviseOne is the per-daemon loop: start, wait, restart-or-give-up.
+//
+// A failure to SPAWN is a failure like any other, so the restart policy decides
+// what happens next — "no" gives up, "on-failure" and "always" back off and
+// retry, and "always" retries forever because that is what the word means.
+// Only a successful spawn reaches waitAndMaybeRestart, so until 2026-09-17 the
+// policy had no say in this branch at all: every spawn failure was retried
+// 1s→30s for the life of the jail, and c.start()'s error was read as a
+// nil-test and the VALUE thrown away. A typo'd cmd therefore presented as an
+// empty <name>.log and no process, openLog having already created the file.
+//
+// A spawn that never succeeded leaves c.cmd nil, and Run terminates every child
+// unconditionally — so a give-up here depends on terminate() staying nil-safe.
 func (c *child) superviseOne(stop <-chan struct{}) {
 	for !isStopped(stop) {
 		if err := c.start(); err != nil {
+			if c.spec.Restart == "no" {
+				c.logf("spawn failed: %v — restart policy %q: giving up, this daemon will not run", err, c.spec.Restart)
+				return
+			}
+			c.logf("spawn failed: %v — restart policy %q: retrying in %.0fs", err, c.spec.Restart, c.backoff)
 			sleepInterruptible(stop, time.Duration(c.backoff*float64(time.Second)))
 			c.backoff = minFloat(c.backoff*2, restartBackoffMax)
 			continue

@@ -72,7 +72,9 @@ func TestRestartOnFailurePolicyExit0NoRestart(t *testing.T) {
 	}
 }
 
-// TestRestartNoPolicy: a "no" daemon is never restarted even on failure.
+// TestRestartNoPolicy: a "no" daemon is never restarted even on failure, and
+// says in <name>.log that it has been abandoned — `false` writes nothing of its
+// own, so without that line an abandoned daemon and a running one look identical.
 func TestRestartNoPolicyNoRestart(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	c := &child{spec: Spec{Name: "t", Cmd: []string{"false"}, Restart: "no"}, backoff: restartBackoffInitial}
@@ -84,6 +86,9 @@ func TestRestartNoPolicyNoRestart(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		close(stop)
 		t.Fatal(`"no" daemon should not restart`)
+	}
+	if body := readDaemonLog(t, "t"); !strings.Contains(body, "not restarting") {
+		t.Errorf("abandoning a %q daemon was silent; <name>.log = %q", c.spec.Restart, body)
 	}
 }
 
@@ -130,5 +135,77 @@ func TestLogRotation(t *testing.T) {
 	info, err := os.Stat(logPath)
 	if err != nil || info.Size() != 0 {
 		t.Errorf("new log not fresh: size=%d err=%v", info.Size(), err)
+	}
+}
+
+// readDaemonLog returns the whole body of ~/.local/state/yolo-jail-daemons/<name>.log.
+// A missing file and an empty one are the same answer here on purpose: both are
+// the "empty log, no process" symptom these tests exist to assert is gone.
+func readDaemonLog(t *testing.T, name string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(LogDir(), name+".log"))
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("reading %s.log: %v", name, err)
+	}
+	return string(b)
+}
+
+// TestSpawnFailureRestartNoGivesUp: a daemon whose cmd cannot be spawned AT ALL
+// is governed by the restart policy exactly as an exiting one is. Under "no"
+// the loop must give up instead of backing off forever (1s→30s for the life of
+// the jail), and the error value must reach <name>.log — an empty log and no
+// process was the entire observable symptom of any spawn fault.
+func TestSpawnFailureRestartNoGivesUp(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	c := &child{
+		spec:    Spec{Name: "t", Cmd: []string{"/nonexistent/yolo-no-such-binary"}, Restart: "no"},
+		backoff: restartBackoffInitial,
+	}
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() { c.superviseOne(stop); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		close(stop)
+		t.Fatal(`a "no" daemon that fails to SPAWN must not be retried`)
+	}
+	body := readDaemonLog(t, "t")
+	if body == "" {
+		t.Fatal("spawn failure left <name>.log empty — the error value was discarded")
+	}
+	if !strings.Contains(body, "yolo-no-such-binary") {
+		t.Errorf("<name>.log does not name the cmd that failed to spawn: %q", body)
+	}
+	// Nothing ever started, so c.cmd is nil: Run terminates every child
+	// unconditionally, and this early return must keep that nil-safe.
+	c.terminate(time.Millisecond)
+}
+
+// TestSpawnFailureRestartAlwaysRetries is the other half of the same ruling:
+// "always" means always, spawn failures included, so the loop must NOT give up
+// — but the error is reported now rather than swallowed.
+func TestSpawnFailureRestartAlwaysRetries(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	c := &child{
+		spec:    Spec{Name: "t", Cmd: []string{"/nonexistent/yolo-no-such-binary"}, Restart: "always"},
+		backoff: restartBackoffInitial,
+	}
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() { c.superviseOne(stop); close(done) }()
+	select {
+	case <-done:
+		t.Fatal(`an "always" daemon must keep retrying a spawn failure until stop`)
+	case <-time.After(300 * time.Millisecond): // inside the first 1s backoff
+	}
+	close(stop)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("superviseOne did not return after stop")
+	}
+	if body := readDaemonLog(t, "t"); !strings.Contains(body, "spawn failed") {
+		t.Errorf("spawn failure not reported in <name>.log: %q", body)
 	}
 }
