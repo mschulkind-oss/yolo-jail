@@ -171,7 +171,7 @@ and the host.
 4. Old `yolo-jail` images in the runtime — **each workspace's CURRENT image is kept and nothing
    else** (`currentimages.go`, one pointer per workspace, union'd with the `podman ps` veto).
    `--keep-images` was removed by
-   [OQ-LS3](../design/the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger) and now
+   [OQ-LS3](../reference/image-retention.md#why-its-this-way) and now
    refuses.
 5. **Cached image tarballs** (`imagecache.go` `PruneImageCache`, `--image-cache-keep 3`;
    always sweeps `.tmp`).

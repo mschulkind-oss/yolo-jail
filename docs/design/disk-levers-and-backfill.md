@@ -12,7 +12,7 @@ vantage:
 
 **Status:** DECIDED, 2026-09-08 — nine of the ten rulings were built on 2026-09-09; see [§11.1](#111-decision-ledger)'s
 Built column for which rulings shipped and which did not ([OQ-BF10](#OQ-BF10) is a later slice by
-its own ruling; [OQ-BF9](#OQ-BF9)'s sibling [OQ-LS3](./the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger)
+its own ruling; [OQ-BF9](#OQ-BF9)'s sibling [OQ-LS3](../reference/image-retention.md#why-its-this-way)
 is blocked on a key that does not exist yet). Written as a design sketch on 2026-09-06, when nothing
 was built. Every number below was measured in this
 development jail on 2026-09-06 (times given where the store moved during the day) and is
@@ -297,7 +297,7 @@ days" holds an eighth of what is retained today. This is the evidence [OQ-BF3](#
 > [!IMPORTANT]
 > **The image store carries two policies with two different justifications, and only one of them is
 > about reuse.** `--keep-images` (default 2) WAS a reuse-and-undo buffer — deleted 2026-09-09 by
-> [`OQ-LS3`](./the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger), which replaced the global window with one current-image pointer per workspace. The load sentinel's LRU is a
+> [`OQ-LS3`](../reference/image-retention.md#why-its-this-way), which replaced the global window with one current-image pointer per workspace. The load sentinel's LRU is a
 > **liveness veto** — `AddLoadedPath`'s own comment reasons about *concurrent jails*: "several images
 > stay loaded at once now, and a jail can legitimately run one whose load was many launches ago."
 > Those are different claims, and [§2.2](#22-the-image-reap-priced-against-this-store) measured that the LRU, not `keep`, sets the floor. Its size is
@@ -470,7 +470,7 @@ that needs a TTY runs there — by then the TTY is the container's.
 >
 > The slot's only output surface is `<workspace>/.yolo/housekeeping.log` (`housekeepingNote`),
 > beside `boot.log` and `host-perf.log`. `yolo stores` and `yolo prune` are the human-facing
-> surfaces; a launch is not one. This applies to the DECLINE warnings too: [OQ-LS2](./the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger)'s
+> surfaces; a launch is not one. This applies to the DECLINE warnings too: [OQ-LS2](../reference/image-retention.md#why-its-this-way)'s
 > "loud" means "not silent", and a greppable log line is not silence — the non-zero exit still
 > lands where a human actually asked, on `yolo prune`. The **offer** is the one thing that does
 > use the terminal, and legitimately: it happens BEFORE the container attaches.
@@ -529,7 +529,7 @@ Stated once, with units, because "periodically" is not a trigger:
   "≥ N GiB (partial)" and the offer says so.
 - **Defaults, with units:** debounce **24 h**; re-ask **7 d**; offer threshold **1 GiB**; cache age
   **30 d** (unchanged); images: one current per workspace (was `keep` **2**, deleted 2026-09-09 —
-  [`OQ-LS3`](./the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger)); versions keep **2** (unchanged);
+  [`OQ-LS3`](../reference/image-retention.md#why-its-this-way)); versions keep **2** (unchanged);
   `ImageCacheKeep` **0 on podman, 3 elsewhere**; walk budget **60 s**; store-delete scope
   **yolo's own output names only** (`*-yolo-jail-install-prefix`, `*-yolo-jail-go-0-dev`, and any
   path a `run-result-*`/`jail-prefix-*` link of this machine ever pointed at, if a ledger of them
@@ -770,11 +770,11 @@ verdict.
 | [OQ-BF1](#OQ-BF1) | **Two tiers — and the offered tier is offered whenever a class has ≥ 1 GiB reclaimable, not once.** `y` promotes the class to automatic; `never` is the only sticky stop. Three of the five backfill classes recur by normal use, so a retired offer would be the trigger defect one level up; for the two that do not, the offer's return **is** the bug report | 2026-09-08 | [§5.2](#52-two-tiers-one-mapping), [§5.3](#53-triggers-defaults-and-the-post-launch-slot) || ✅ `3a08a829` |
 | [OQ-BF2](#OQ-BF2) | **Yes — offered while non-zero, then automatic in the slot**, 30 d unchanged, `nce` added, `staticcheck` left out. MEASURED: `go-build` and `staticcheck` self-trim (Go's 5-day/1-day trimmer, `trim.txt` present); pants, uv, pip, npm, pex and `nce` do not — so the ones the purge cannot help are exactly the ones that manage themselves, and the 49.34 GiB is almost all pants | 2026-09-08 | [§5.2](#52-two-tiers-one-mapping), [§2.1](#21-every-store-one-table) || ✅ `3a08a829` |
 | [OQ-BF3](#OQ-BF3) | **Yes, once [OQ-BF4](#OQ-BF4) roots every running jail's prefix:** delete unrooted `*-yolo-jail-install-prefix` / `*-yolo-jail-go-0-dev` by name in the slot, host-only, never a blanket gc, never `--ignore-liveness`. Offer the same set until BF4 lands. Go-build outputs are garbage the moment the prefix exists | 2026-09-08 | [§2.3](#23-yolos-own-store-outputs-are-never-collected--the-c8-finding), [§3](#3-the-levers-ranked) L3 | ✅ `2a49467d` |
-| [OQ-BF4](#OQ-BF4) | **Yes — a durable root per prefix store path, registered at launch, gated on `!inJail`, held while a container is running from it.** A bug fix, not a disposition: today a long-running jail's pid1 binary is rooted by nothing. **Neither** the load sentinel's LRU (it cannot answer liveness) **nor** an age cutoff (the policy [OQ-LS1](./the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger) ruled for image closures, which would reap a long-running jail's own binaries). One test separates them: can losing it cost only a rebuild? | 2026-09-08 | [§2.3](#23-yolos-own-store-outputs-are-never-collected--the-c8-finding), [§8](#8-risks) R7 | ✅ `8768db9d` |
+| [OQ-BF4](#OQ-BF4) | **Yes — a durable root per prefix store path, registered at launch, gated on `!inJail`, held while a container is running from it.** A bug fix, not a disposition: today a long-running jail's pid1 binary is rooted by nothing. **Neither** the load sentinel's LRU (it cannot answer liveness) **nor** an age cutoff (the policy [OQ-LS1](../reference/image-retention.md#why-its-this-way) ruled for image closures, which would reap a long-running jail's own binaries). One test separates them: can losing it cost only a rebuild? | 2026-09-08 | [§2.3](#23-yolos-own-store-outputs-are-never-collected--the-c8-finding), [§8](#8-risks) R7 | ✅ `8768db9d` |
 | [OQ-BF5](#OQ-BF5) | **Move the image reap into the housekeeping slot, and take the machine-wide housekeeping lock in the same change** — in both the load-and-record step and the pass. The lock is not a follow-up: the slot widens the window the race already has | 2026-09-08 | [§5.1](#51-the-housekeeping-slot), [§5.4](#54-one-writer-concurrency-failure) | ✅ `65ae67c6` |
 | [OQ-BF6](#OQ-BF6) | **`ImageCacheKeep` 0 on podman, unchanged at 3 on Apple Container** until [OQ-DF2](./minimal-disk-footprint.md#OQ-DF2) names the component that deletes on success. Zero retained tars is not zero tars readable — the fallback READER survives | 2026-09-08 | [§3](#3-the-levers-ranked) L4, [§5.3](#53-triggers-defaults-and-the-post-launch-slot) | ✅ `a9a7dbb0` |
 | [OQ-BF7](#OQ-BF7) | **Retired from the question list — an outage with one measured cause needs a fix, not a disposition.** Shipped as a **refusal** (`prefixUnreachableFromVM`), not as staging or baking. Its claimed coupling to BF3/BF4 is discharged: under the refusal there is no third place for the prefix to live | 2026-09-08 | [§11.2](#112-the-questions-as-argued) [OQ-BF7](#OQ-BF7) | ✅ `6a855b6d` |
-| [OQ-BF8](#OQ-BF8) | **Dissolved — the premise is being removed.** Liveness moves to `podman ps` ([`the-load-sentinel-is-not-a-liveness-oracle.md`](./the-load-sentinel-is-not-a-liveness-oracle.md)), so the LRU stops being retention and the cap needs no derivation. It is **not** deleted: it keeps its MRU role for GC roots and the load diagnosis, and whether that half survives is [OQ-LS1](./the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger) | 2026-09-08 | [§2.2](#22-the-image-reap-priced-against-this-store) | n/a — dissolved |
+| [OQ-BF8](#OQ-BF8) | **Dissolved — the premise is being removed.** Liveness moves to `podman ps` ([`image-retention.md`](../reference/image-retention.md)), so the LRU stops being retention and the cap needs no derivation. It is **not** deleted: it keeps its MRU role for GC roots and the load diagnosis, and whether that half survives is [OQ-LS1](../reference/image-retention.md#why-its-this-way) | 2026-09-08 | [§2.2](#22-the-image-reap-priced-against-this-store) | n/a — dissolved |
 | [OQ-BF9](#OQ-BF9) | **Yes — one dated line per store per run, default on, `--no-record` to opt out, `yolo stores` the single writer, bounded to 30 samples per store.** Unblocks [OQ-DF4](./minimal-disk-footprint.md#OQ-DF4), which has been waiting for a first sample; rule this first | 2026-09-08 | [§5.5](#55-yolo-stores--the-inventory-including-what-nothing-reclaims) | ✅ `e85e0690` |
 | [OQ-BF10](#OQ-BF10) | **Content-addressed stores only — and the reason is injection, not size.** A path-keyed store like `named_caches` lets a jail write content the host tool reads because of where it sits; a CAS rejects a blob that does not match its digest. Gated on matching OS and arch, writable, never on macOS. Scope stops here pending a post-implementation storage analysis | 2026-09-08 | [§11.2](#112-the-questions-as-argued) [OQ-BF10](#OQ-BF10) | ✅ `2bceedef` |
 
@@ -943,11 +943,11 @@ row cannot carry them.
    >
    > **(1) Not the load sentinel's LRU.** That list is a most-recently-used cache and cannot answer
    > "is this in use" —
-   > [`the-load-sentinel-is-not-a-liveness-oracle.md`](./the-load-sentinel-is-not-a-liveness-oracle.md)'s
+   > [`image-retention.md`](../reference/image-retention.md)'s
    > P1 — and protecting a prefix with it is the same class of mistake in a new place.
    >
    > **(2) Not an age floor either, which is what this answer first said.**
-   > [OQ-LS1](./the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger) ruled image-closure roots to
+   > [OQ-LS1](../reference/image-retention.md#why-its-this-way) ruled image-closure roots to
    > be **purely age-based**, on the grounds that losing one costs a rebuild and nothing more. **A
    > prefix fails that test.** A running jail is *executing* from its prefix — pid1 included — so
    > losing it is not a rebuild, it is a jail with no binaries; and an age cutoff is precisely
@@ -1118,14 +1118,14 @@ row cannot carry them.
    _Leaning:_ **Keep the veto, stop letting its length set retention.** Size it by concurrent jails
    — derivable from the container list rather than guessed — and let `--keep-images` own the reuse
    buffer it is already named for. *(⚠ Preserved as the leaning it was: `--keep-images` no longer
-   exists, deleted 2026-09-09 by [`OQ-LS3`](./the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger), so this half of the leaning is now unbuildable as
+   exists, deleted 2026-09-09 by [`OQ-LS3`](../reference/image-retention.md#why-its-this-way), so this half of the leaning is now unbuildable as
    written. The answer below went further in the same direction.)* Lowering `10` to another underived constant repeats the defect
    at a new number.
 
    **Answer (2026-09-08): the question dissolves — its premise is being removed, not answered.**
    > The maintainer pointed at the newer work: *"read the latest design docs added, there are
    > comments on this LRU and I think we're going to ditch it totally."*
-   > [`the-load-sentinel-is-not-a-liveness-oracle.md`](./the-load-sentinel-is-not-a-liveness-oracle.md)
+   > [`image-retention.md`](../reference/image-retention.md)
    > goes further than this entry's leaning and in the same direction: **liveness comes from
    > `podman ps`**, and the sentinel stops being cited as liveness anywhere. Its P1 is the general
    > form of what this entry noticed locally — *recency is a cache policy, not a liveness proof*.
@@ -1142,7 +1142,7 @@ row cannot carry them.
    > retention and for the human-readable "why did this load?" diagnosis, and says so in its
    > [what it does not license](../reference/image-retention.md#what-this-does-not-license). What is
    > being ditched is the sentinel's **authority over liveness**. Whether the GC-root half loses it
-   > too is that doc's [OQ-LS1](./the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger), and it
+   > too is that doc's [OQ-LS1](../reference/image-retention.md#why-its-this-way), and it
    > belongs there rather than here.
    >
    > **What this doc must not do in the meantime**, since it proposes new automatic reapers:
