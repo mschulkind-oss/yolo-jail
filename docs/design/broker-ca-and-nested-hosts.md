@@ -1,14 +1,16 @@
 ---
 title: "A daemon that never started, and the three layers that did not notice"
 date: 2026-08-18
-status: in-review
+status: accepted
 tags: [broker, loopholes, nested-jails, observability, regression]
 summary: "The OAuth broker mints its CA by shelling out to openssl. The jail image bakes none, so every nested launch spawned a daemon that died instantly — 2,549 times in one jail, invisible for months. What broke, why three separate mechanisms each declined to report it, and why the failure is exactly conditional on the host being a jail."
 ---
 
 # A daemon that never started, and the three layers that did not notice
 
-**Status:** DESIGN, 2026-08-18 — a diagnosis; **re-stamped 2026-08-23** — two of the four sequenced items in [§8](#8-sequencing)
+**Status:** DECIDED, 2026-09-18 — **all three questions ruled**, and three pieces of work owed:
+the `[SKIP]` level ([OQ-3](#7-open-questions)), the `crypto/x509` port ([OQ-1](#7-open-questions)), and
+watching a nested launch mint a CA ([OQ-2](#7-open-questions)'s verification). Originally a diagnosis, 2026-08-18; **re-stamped 2026-08-23** — two of the four sequenced items in [§8](#8-sequencing)
 have since shipped, and the third ([OQ-3](#7-open-questions)) is the one still live. The three questions in [§7](#7-open-questions) remain
 open.
 
@@ -256,7 +258,7 @@ Two things to decide alongside it, in [§7](#7-open-questions).
 | Option | Verdict |
 | :--- | :--- |
 | **Bake `openssl`** | ✅ **Taken.** Smallest change, no new concept, makes the nested host behave like any other |
-| **Port `EnsureCAAndLeaf` to `crypto/x509`** | ⏸️ Deferred, and the *right* end state — `svcendpoint` already does this and [§1.1](#11-the-repo-already-knew-this-was-the-wrong-shape) says why. Retires the dependency rather than satisfying it. Bigger change touching on-disk key material; see [OQ-1](#OQ-1) |
+| **Port `EnsureCAAndLeaf` to `crypto/x509`** | ⏸️ Deferred, and the *right* end state — `svcendpoint` already does this and [§1.1](#11-the-repo-already-knew-this-was-the-wrong-shape) says why. Retires the dependency rather than satisfying it. Bigger change touching on-disk key material; see [OQ-1](#7-open-questions) |
 | **Never spawn a broker when the host is a jail** | ❌ Rejected as the primary fix — it is the containment patch ([§4](#4-what-made-it-visible)), and it makes "no Claude auth in a nested jail" permanent by design rather than incidentally |
 | **Symlink the host's `openssl` into the jail** | ❌ Rejected. A host-binary bind-mount into every jail for one certificate is a loophole-shaped answer to a packaging problem, and it would fail the same way one boundary further out |
 
@@ -278,7 +280,7 @@ Two things to decide alongside it, in [§7](#7-open-questions).
 
 ## 7. Open Questions
 
-1. 💬 **OQ-1: Do we retire the `openssl` dependency, or just satisfy it?**
+1. ✅ **OQ-1: Do we retire the `openssl` dependency, or just satisfy it?** — RULED 2026-09-18
 
    **The bake has since landed** (2026-08-18, `flake.nix:896`), so this question is now purely about
    the *port* — and it is live in the direction its own leaning feared: the dependency is satisfied,
@@ -294,14 +296,23 @@ Two things to decide alongside it, in [§7](#7-open-questions).
 
    _Leaning:_ **bake now, port later, and write the port down as owed.** They are not exclusive and
    the bake is not wasted — `openssl` on `PATH` is generally useful in a jail. But "deferred" has
-   already survived one incident, and deferral with no record is how this happened.
+   already survived one incident, and deferral with no record is how this happened. — **Ruled
+   further: do both NOW.**
 
-   <!-- vantage: oq id=OQ-1 leaning="Bake openssl now, port svcendpoint to crypto/x509 later, and write the port down as owed. The two are not exclusive and the bake is not wasted — openssl on PATH is generally useful in a jail. But 'deferred' has already survived one incident, and deferral with no record is how this happened." -->
+   **Answer (2026-09-18).**
+   > **Bake and port, both now.** The bake has landed; the `crypto/x509` port is work, not a
+   > record of owed work. The leaning's own argument is what settles it: *"deferred has already
+   > survived one incident, and deferral with no record is how this happened"* — and a written
+   > record of a deferral is still a deferral. Porting now also retires the second half of the
+   > original defect rather than only its symptom: `EnsureCAAndLeaf` stops writing long-lived
+   > `ca.key`/`server.key` to disk, which is what issue #33 was about and what
+   > [§1.1](#11-the-repo-already-knew-this-was-the-wrong-shape) says the shell-out gets
+   > structurally wrong. The bake stays regardless — `openssl` on `PATH` is useful in a jail —
+   > so nothing is reverted; the dependency simply stops being load-bearing.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
 
-2. 💬 **OQ-2: Should a nested jail run its own broker singleton at all?**
+
+2. ✅ **OQ-2: Should a nested jail run its own broker singleton at all?** — RULED 2026-09-18
 
    With `openssl` baked it will — **and as of 2026-08-18 it is baked**, so this is no longer a
    hypothetical: the next nested launch takes this path whether or not the question is answered. Each
@@ -316,12 +327,25 @@ Two things to decide alongside it, in [§7](#7-open-questions).
    (packs, loopholes, storage), and a special case here would need carrying forever. But this has
    never executed, so it should be exercised on purpose before it is relied on.
 
-   <!-- vantage: oq id=OQ-2 leaning="Let a nested jail run its own broker singleton. 'A jail is a host for its children' is the model everywhere else (packs, loopholes, storage), and a special case here would need carrying forever. But this path has never executed, so it should be exercised on purpose before it is relied on." -->
+   **Answer (2026-09-18).**
+   > **Let it run, and the reason generalises past this question.** A nested jail must be able to
+   > test everything, so it runs its own broker singleton like any other host. Being inside
+   > another yolo jail is not a reason to behave differently:
+   >
+   > **Nesting earns affordances, not exemptions — and the affordances stay minimal.** Where
+   > nesting genuinely forces a difference the repo already names it and keeps it small
+   > (`--userns=host` and `--net=host` because doubly-nested user namespaces fail mounting
+   > `/proc` and netavark cannot create a netns without `NET_ADMIN`). Everything else stays
+   > generic, because a special case here is one carried forever and a nested jail that behaves
+   > differently cannot test the thing it is nested inside.
+   >
+   > The exercise the leaning asked for stands as owed work rather than as a condition: the path
+   > runs today whether or not anyone has watched it, so watching it is a verification, not a
+   > gate.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
 
-3. 💬 **OQ-3: What is the honest token for "I did not look"?**
+
+3. ✅ **OQ-3: What is the honest token for "I did not look"?** — RULED 2026-09-18
 
    [§3.3](#33-yolo-check-skips-the-area--and-calls-it-pass) is the third `yolo check` finding of the same shape this month. `[PASS]` on a skipped section
    is a claim the checker cannot support, and the jail-as-host case is exactly where it misleads.
@@ -358,24 +382,30 @@ Two things to decide alongside it, in [§7](#7-open-questions).
    also needs a way to say *"this is a fact about the host, not about you."*
 
    _Leaning:_ **add the level.** With ten sites stepping aside for the same reason, the wording fix
-   is ten wording fixes and an eleventh waiting to be written. A distinct token also makes the
-   in-jail case greppable, which is what a jail-as-host guard will need later, and it stops a skip
-   inflating the pass count — which is what made the all-green readable as an answer. I would decide
-   the two siblings in the same breath rather than leave them in the roadmap as wording nits.
+   is ten wording fixes and an eleventh waiting to be written.
 
-   **Costed 2026-09-02, so the ruling knows its price.** The `[SKIP]` option is small and local:
-   `reporter` already carries three independent counters plus a fourth, non-counting channel
-   (`warningLine`, `reporter.go:84-89`), so `r.skip(msg)` is ~10 lines mirroring `ok`/`warn`, one
-   `summaryFinal` branch mirroring the existing `r.warned > 0` pattern (`reporter.go:133-135`),
-   and ten mechanical `r.ok` → `r.skip` flips at the sites above — no section-function signature
-   changes. The scope-suffix alternative is strictly more invasive: it needs a way to distinguish
-   "I stepped aside" (the ten sites) from "this is a host fact" (`sectionRunningJails`,
-   `sectionGPUNvidia`), which are different defects wearing the same shape. A shippable split:
-   `[SKIP]` covers the ten now; the two wrong-boundary sections stay with the 🔒 GPU row, which
-   needs a host with a card to decide *which rows* to guard.
+   **Answer (2026-09-18) — and the question it was asked in return is the useful one: what is the
+   impact on the person reading `yolo check`?**
+   > **Three things, and none of them is about the token's spelling.**
+   >
+   > 1. **`yolo check` currently overstates itself, by ten.** Ten call sites across nine sections
+   >    say *"I did not look"* through `r.ok`, which "increments the pass count and prints
+   >    `[PASS]`". So an all-green run inside a jail includes ten areas nobody checked, and the
+   >    tally counts them as evidence.
+   > 2. **It is one of the three layers that hid the original incident** — a daemon that died 2,549
+   >    times in one jail, invisible for months ([§3.3](#33-yolo-check-skips-the-area--and-calls-it-pass)).
+   >    That is the whole reason this doc exists.
+   > 3. **Two siblings mislead in the other direction**, which is what a reader actually notices:
+   >    `sectionRunningJails` reports the NESTED podman's view as a statement about the host, and
+   >    `sectionGPUNvidia` grades host facts as three `[FAIL]`s — so a jail tells you your GPU
+   >    setup is broken when it is merely not visible from in there.
+   >
+   > **So the ruling is the principle, not the vocabulary: a check that did not look must not be
+   > counted as a pass.** The spelling follows from it and is delegated — `[SKIP]` with its own
+   > counter, excluded from the pass tally, applied to all ten sites, plus a way to say *"this is
+   > a fact about the host, not about you"* for the two siblings. Reopen this if the principle is
+   > wrong; the token is an implementation detail and should not cost another round.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
 
 ---
 
@@ -390,12 +420,14 @@ What I would build, in order (status verified 2026-08-23):
    report a dead singleton at spawn time rather than leaving it to be inferred three layers later.
    This is the change that would have caught the original bug on day one. — **Shipped**
    (`brokerlifecycle.go:387`, `05c286d3` + `389f82b2`).
-3. 💬 **Fix the reporting level** per [OQ-3](#7-open-questions), so a skipped section stops claiming PASS. — **Still
-   open**, and now the head of this list. `sections_loopholes.go:23` is unchanged.
-4. 💬 **Decide [OQ-1](#OQ-1)** and, if it lands as I lean, record the `crypto/x509` port as owed work rather
-   than as a comment inside the function that needs it. — **Still open.** Note that the bake landing
-   *first* is exactly the situation [OQ-1](#OQ-1)'s leaning warned about: the dependency is now satisfied, so
-   the pressure to retire it is gone and "deferred" has nothing holding it. `EnsureCAAndLeaf` still
-   carries the deferral as a comment and nothing else.
+3. 📦 **Fix the reporting level** per [OQ-3](#7-open-questions), so a skipped section stops claiming PASS. — **RULED
+   2026-09-18 and now buildable**: a `[SKIP]` level with its own counter, excluded from the pass
+   tally, applied to all ten sites, plus a way to say "this is a fact about the host, not about
+   you" for the two siblings. `sections_loopholes.go:23` is unchanged.
+4. 📦 **Port `svcendpoint` to `crypto/x509`** — [OQ-1](#7-open-questions) ruled 2026-09-18 that this is WORK, not a
+   record of owed work, precisely because the bake landing first is the situation its own leaning
+   warned about: the dependency is satisfied, the pressure to retire it is gone, and a written
+   record of a deferral is still a deferral. It also retires the half of the original defect that
+   the bake did not touch — `EnsureCAAndLeaf` writing long-lived `ca.key`/`server.key` to disk.
 
 Not sequenced here: anything about the reachability witness. It did its job.
