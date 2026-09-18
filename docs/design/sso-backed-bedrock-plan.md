@@ -128,9 +128,11 @@ hermetically. Weigh that before reaching for it; both options above avoid it.
 
 ## Config surface
 
-Blocked on [OQ-SSO1](sso-backed-bedrock.md#OQ-SSO1) and
-[OQ-SSO4](sso-backed-bedrock.md#OQ-SSO4) — the keys below assume refuse-by-default and
-user-scope-only, and both may move.
+Blocked on [OQ-SSO4](sso-backed-bedrock.md#OQ-SSO4) — the keys below assume user scope, which
+may move. The narrowing half is settled: [`OQ-SSO1`](sso-backed-bedrock.md#14-decision-ledger)
+requires a narrowing setting and makes un-narrowed an explicit, disclosed choice, so the
+schema needs a representation for "deliberately un-narrowed" that cannot be reached by
+omission.
 
 ```jsonc
 // ~/.config/yolo-jail/config.jsonc — user scope only
@@ -146,8 +148,8 @@ user-scope-only, and both may move.
 **Two shapes, and N4 is the smaller one.** Under N4 the daemon makes no `AssumeRole` call at
 all — it resolves a profile and serves what comes back — so `role_arn`/`session_policy` are
 the N2/N3 path only. Whether the schema should make that an explicit mode rather than three
-optional keys is a real question; do not invent an answer here, it is
-[OQ-SSO1](sso-backed-bedrock.md#OQ-SSO1)-adjacent.
+optional keys is a real question, and [`OQ-SSO1`](sso-backed-bedrock.md#14-decision-ledger)'s
+ruling leans on it: "un-narrowed" has to be a value someone typed, never a set of absent keys.
 
 A shipped `bedrock-invoke-only` session policy would be `bedrock:InvokeModel`,
 `bedrock:InvokeModelWithResponseStream`, `bedrock:ListInferenceProfiles`,

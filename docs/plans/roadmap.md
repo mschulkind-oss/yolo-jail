@@ -23,7 +23,7 @@ derived rather than carried forward; re-derive the live-question totals with che
 $ rg -c '^(#{2,4} |\s*[0-9]+[a-z]?\. |\s*[-*] )(<a id="[^"]*"></a> ?)?💬' docs/ --sort path
 ```
 
-**128 live questions across 34 docs**, plus one 🔒 that command cannot see.
+**126 live questions across 34 docs**, plus one 🔒 that command cannot see.
 
 ## Rule these first
 
@@ -64,7 +64,7 @@ sitting. All five below are the first class.
 | 21 | Whether the jail mounts the workspace at the host's path | [`workspace-path-mirroring.md`](../design/workspace-path-mirroring.md) · draft | 12 | [`OQ-WP8`](../design/workspace-path-mirroring.md#OQ-WP8) | **doc** — ratify the no |
 | 22 | Whether `macos-user`'s workspace root becomes configurable, and what the profile has to derive from it | [`configurable-workspace-root.md`](../design/configurable-workspace-root.md) · in-review | 4 | [`OQ-CW1`](../design/configurable-workspace-root.md#OQ-CW1) | **build** — the read-deny derived from the root, plus the whitelist that closes four lexical bypasses. ⚠ The whitelist wants to land before anyone relies on the current blacklist; withdrawing an accepted path later is a breaking change |
 | 22 | Which home a `yolo config` verb is about, and whether it says so | [`config-target-resolution.md`](../design/config-target-resolution.md) · draft | 6 | [`OQ-CR1`](../design/config-target-resolution.md#oq-cr1) | **defect** — four measured and all silent: one report describes two homes, a `cd` changes the answer at rc 0, an owned host's `diff` and `reset` disagree ([row 5](#rule-these-first)), and `render` previews with the wrong home's `host` layer |
-| 23 | How an `aws sso login` becomes Bedrock-only access inside a jail, and what refreshes it | [`sso-backed-bedrock.md`](../design/sso-backed-bedrock.md) · draft | 6 | [`OQ-SSO1`](../design/sso-backed-bedrock.md#OQ-SSO1) | **build** — a host credential service and a pull channel; [`OQ-SSO1`](../design/sso-backed-bedrock.md#OQ-SSO1) decides whether "no more than Bedrock" is a property or an aspiration, and nothing should be built under a guess at it |
+| 23 | How an `aws sso login` becomes Bedrock-only access inside a jail, and what refreshes it | [`sso-backed-bedrock.md`](../design/sso-backed-bedrock.md) · draft | 4 | [`OQ-SSO3`](../design/sso-backed-bedrock.md#OQ-SSO3) | **build** — a host credential service and a pull channel. Narrowing and daemon scope are ruled ([Decision Ledger](../design/sso-backed-bedrock.md#14-decision-ledger)); [`OQ-SSO3`](../design/sso-backed-bedrock.md#OQ-SSO3) is the one carrying a prerequisite — look for an `[sso-session]` block in `~/.aws/config`, which may answer it outright |
 | 24 | Storage tier and pre-launch update execution for Pi extensions across jails | [`pi-extension-lifecycle.md`](../design/pi-extension-lifecycle.md) · in-review | 3 | [`OQ-1`](../design/pi-extension-lifecycle.md#OQ-1) | **build** — machine-scoped package storage and launcher refresh |
 
 **Rule together, or not at all.** [`E1`](BACKLOG.md#-e1--collapse-host_files-modes-43-copy-merges-into-readonly) · [`E2`](BACKLOG.md#-e2--readonly-as-a-real-ro-mount-instead-of-0o444) · [`OQ-B`](pack-host-management-plan.md#open-questions) are one asymmetry seen three times, and each doc says so.
