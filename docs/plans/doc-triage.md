@@ -689,7 +689,7 @@ Go half was the real work and it was **not** a path rewrite — see the finding 
 > numbered sections, so the house currently has both conventions.
 
 > [!NOTE]
-> **3. [`darwin-image-provenance.md`](../design/darwin-image-provenance.md) is a sixth candidate
+> **3. `darwin-image-provenance.md` is a sixth candidate
 > the assessment above predates, and it must not graduate into a reference of its own.**
 > It is BUILT and measured against three named CI runs, with all three questions ruled, and it is
 > by far the cheapest to move — **5 doc references and 2 Go files**, and the Go half cites
@@ -716,7 +716,7 @@ Go half was the real work and it was **not** a path rewrite — see the finding 
 | [`lua-transform-removal.md`](../design/lua-transform-removal.md) | **Fold, do not graduate** | Unchanged: a removal doc has no system to describe, and `pack-system.md` already owns the surviving derive sandbox. |
 | [`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md) | **Not yet** | Finding 1: hardware-measured now, but its own *What shipped* still owes a Mac on the mirror ordering. |
 | [`macos-user-provisioning.md`](../design/macos-user-provisioning.md) | **Not assessable** | Held by another workflow throughout this pass. Assessed, not touched. |
-| [`darwin-image-provenance.md`](../design/darwin-image-provenance.md) | **Folded 2026-09-18** | Finding 3, carried out: the identity invariant and its placement rule, both safety rulings, the stale-hatch-in-CI trap, the pre-cutover diagnostic and all four `OQ-IP` ids are now in [`../reference/image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md). The design path is a **redirect stub, and now an EMPTY one**: the citations in `flake.nix`, `internal/image/`, `integration/` and `.github/workflows/` were repointed at the reference on 2026-09-18 (the last of them `5e2302a5`, which cost an image rebuild), so the only inbound links left are this record's own two. It is deletable whenever someone wants to spend the two link edits. Finding 3's last clause is **closed rather than routed**: a `macos-user` nightly exists now. |
+| `darwin-image-provenance.md` | **Folded 2026-09-18; stub DELETED** | Finding 3, carried out: the identity invariant and its placement rule, both safety rulings, the stale-hatch-in-CI trap, the pre-cutover diagnostic and all four `OQ-IP` ids are now in [`../reference/image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md). The design path was a **redirect stub**, and it is gone: the citations in `flake.nix`, `internal/image/`, `integration/` and `.github/workflows/` were repointed at the reference on 2026-09-18 (the last of them `5e2302a5`, which cost an image rebuild), leaving this record's own two as the last inbound links — they were dropped to prose in the same commit that deleted the file, which is why the name above is no longer one. Finding 3's last clause is **closed rather than routed**: a `macos-user` nightly exists now. |
 
 ### The one loose end this graduation leaves
 
