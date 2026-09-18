@@ -508,7 +508,8 @@ func (o *Options) startCgroupDelegate(cname, rt, socketsDir string) (loopholeDae
 // hand-built a spec and called startExternalService with it, in a numbered step of
 // its own beside the cgroup delegate. So the bridge was on because a key in CORE'S
 // OWN CONFIG SCHEMA said so — one of exactly two loopholes core named by hand
-// (docs/reference/loophole-system.md §1.4) — with no manifest, no `default_enabled`,
+// (docs/reference/loophole-system.md#current-values, the retired-top-level-keys row) —
+// with no manifest, no `default_enabled`,
 // no scope rule over the mode, and a reserved name enforced nowhere.
 //
 // It is now the official `journal` pack's manifest loophole, discovered and spawned

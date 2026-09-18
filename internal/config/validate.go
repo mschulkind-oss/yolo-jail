@@ -431,7 +431,8 @@ func validatePerSidePaths(config *jsonx.OrderedMap, errs *[]string) {
 // validateJournalRetired reports the DELETED top-level `journal` key.
 //
 // It was the SECOND of exactly two loopholes core's own config schema named by hand
-// (docs/reference/loophole-system.md §1.4), and with `host_processes` already gone
+// (docs/reference/loophole-system.md#current-values, the retired-top-level-keys row),
+// and with `host_processes` already gone
 // this is the one whose removal makes the sprint mean something: core's schema now
 // names no loophole at all. The bridge ships as the official `journal` pack, and its
 // mode is that loophole's own declared setting.
@@ -904,7 +905,8 @@ func validateSecurity(config *jsonx.OrderedMap, errs *[]string) {
 // validateHostProcessesRetired reports the DELETED top-level `host_processes` block.
 //
 // It was one of exactly two loopholes core's own config schema named by hand
-// (docs/reference/loophole-system.md §1.4), and that is what made "convert the
+// (docs/reference/loophole-system.md#current-values, the retired-top-level-keys row),
+// and that is what made "convert the
 // loophole to a pack" a separation in appearance only: the manifest would move out
 // of core while core's schema went on naming it. The keys now live in the loophole's
 // own manifest, in the official `host-processes` pack, under
