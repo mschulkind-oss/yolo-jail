@@ -82,7 +82,7 @@ what an existing `supersedes` would want to say before fixing it.
 
 ## The N1 presign — reimplementable, but verify
 
-Blocked on [OQ-SSO5](sso-backed-bedrock.md#OQ-SSO5) — the arm may not ship.
+[`OQ-SSO5`](sso-backed-bedrock.md#14-decision-ledger) ships this arm, so this is live work.
 
 Shape recovered from the `aws-bedrock-token-generator` packages and third-party teardowns,
 **not** from an AWS specification. Treat as a starting point and diff against the official
@@ -101,23 +101,25 @@ the part most likely to be wrong from a teardown — get it from the generator.
 
 ## Measure this before anything else
 
-**The access-token lifetime, on the real machine.** It is one observation and it rules
-[OQ-SSO3](sso-backed-bedrock.md#OQ-SSO3), which in turn decides whether the daemon can be
-read-only. **Check which config form is in use before measuring anything**: no `[sso-session]`
-block in `~/.aws/config` means the legacy fixed-8h non-refreshable form, and the question is
-already answered — nothing refreshes, so read-only costs nothing. Log in, then watch `~/.aws/sso/cache/*.json`'s `expiresAt` against the portal
+**Which SSO config form the machine uses.** No `[sso-session]` block in `~/.aws/config` means
+the legacy fixed-8h non-refreshable form, where nothing refreshes at all; with one, the daemon
+refreshes the access token like any other client ([`OQ-SSO3`](sso-backed-bedrock.md#14-decision-ledger)).
+It changes no ruling now, but it decides which path the resolver exercises first and what a
+realistic test fixture looks like. Log in, then watch `~/.aws/sso/cache/*.json`'s `expiresAt` against the portal
 session's own expiry, touching nothing in between — the question is whether a cached token
 nobody refreshes survives as long as the session does. Do it before writing the resolver:
 the two implementations below are not a refactor apart.
 
 ## Resolving the host session
 
-Two implementations, and the choice is
-[OQ-SSO3](sso-backed-bedrock.md#OQ-SSO3)'s to make:
+Two implementations. [`OQ-SSO3`](sso-backed-bedrock.md#14-decision-ledger) settles the
+*behaviour* — the daemon refreshes — and leaves the mechanism open:
 
 - **Shell out** to `aws configure export-credentials --profile X --format process`, then
   `aws sts assume-role --policy file://…` for the narrowing. Simplest, agrees with the user's
-  own config by construction, needs AWS CLI v2 on the host, and *writes* the SSO cache.
+  own config by construction, needs AWS CLI v2 on the host. It writes the SSO cache, which is
+  now expected rather than a concern — but it is also the path with the least control over
+  *when* that write happens, which matters for R2's atomic-rename mitigation.
 - **Read the cache** at `~/.aws/sso/cache/` directly and call `sso:GetRoleCredentials` and
   `sts:AssumeRole` over plain HTTPS with a hand-rolled SigV4. No CLI dependency, no write, and
   yolo now owns a small amount of AWS protocol.
@@ -128,8 +130,8 @@ hermetically. Weigh that before reaching for it; both options above avoid it.
 
 ## Config surface
 
-Blocked on [OQ-SSO4](sso-backed-bedrock.md#OQ-SSO4) — the keys below assume user scope, which
-may move. The narrowing half is settled: [`OQ-SSO1`](sso-backed-bedrock.md#14-decision-ledger)
+[`OQ-SSO4`](sso-backed-bedrock.md#14-decision-ledger) fixes these keys at **user scope
+only**. The narrowing half is settled: [`OQ-SSO1`](sso-backed-bedrock.md#14-decision-ledger)
 requires a narrowing setting and makes un-narrowed an explicit, disclosed choice, so the
 schema needs a representation for "deliberately un-narrowed" that cannot be reached by
 omission.
@@ -166,7 +168,7 @@ remaining lifetime. It would be the natural place, and it is the one surface whe
 
 - **The exclusivity refusal fails when its call site is deleted.** The class AGENTS.md names —
   a test that pins the callee while the call site is unpinned is not a test. Blocked on
-  [OQ-SSO5](sso-backed-bedrock.md#OQ-SSO5).
+  [`OQ-SSO5`](sso-backed-bedrock.md#14-decision-ledger).
 - **A golden response shape** asserted against the four required keys and an RFC3339
   `Expiration`, because the SDK rejects anything else with a message that does not name the
   missing field.

@@ -1,16 +1,17 @@
 ---
 title: "Bedrock from an SSO login, without handing over the account"
 date: 2026-09-17
-status: draft
+status: in-review
 tags: [aws, bedrock, sso, credentials, loopholes, packs, boundary]
 summary: "How a host-side `aws sso login` becomes Bedrock access inside a jail without the jail holding anything else the login can reach. Least privilege and transparent refresh turn out to be independent problems: narrowing happens host-side before the credential crosses, and refresh happens only when what crosses is a pointer rather than a value. Measured: all four shipped agents already implement the pull channel this needs."
 ---
 
 # Bedrock from an SSO login, without handing over the account
 
-**Status:** DESIGN, 2026-09-17. Nothing built. Repo claims verified against `d4c0e7e3`;
-every agent-artifact and vendor claim carries its version and date in
-[§11](#11-evidence-and-how-to-re-check-it).
+**Status:** DESIGN, 2026-09-17 — **five of six questions ruled that day**
+([§14](#14-decision-ledger)); the one left blocks nothing. Nothing built. Repo claims
+verified against `d4c0e7e3`; every agent-artifact and vendor claim carries its version and
+date in [§11](#11-evidence-and-how-to-re-check-it).
 
 > **In short.** Least privilege and transparent refresh are independent problems with
 > different solutions: narrowing happens **host-side, before the credential crosses**, and
@@ -47,8 +48,8 @@ change is which narrowing v1 ships against, which
 axes. Every option below is a point on that grid and nothing else in this doc makes sense
 first.
 
-**Needs your ruling:** [OQ-SSO3](#OQ-SSO3), [OQ-SSO4](#OQ-SSO4), [OQ-SSO5](#OQ-SSO5),
-[OQ-SSO6](#OQ-SSO6). Two are settled — see the [Decision Ledger](#14-decision-ledger).
+**Needs your ruling:** [OQ-SSO6](#OQ-SSO6), and nothing else — the other five are settled
+in the [Decision Ledger](#14-decision-ledger).
 
 **Reads with:** [`bedrock-plumbing.md`](bedrock-plumbing.md) (its
 [§9](bedrock-plumbing.md#9-non-goals) excludes *"no credential lifecycle … no refresh daemon,
@@ -77,12 +78,13 @@ A credential is narrowed once, host-side, at mint time; it is refreshed repeated
 boundary, for as long as the jail lives. Conflating them is how you end up asking for a proxy
 when what you need is a pointer.
 
-**P2. yolo consumes an SSO session; it never creates or refreshes one.** The human runs
-`aws sso login`. yolo reads the result and derives short-lived credentials from it. This is
-not modesty — it is what removes the refresh-token rotation race that both existing brokers
-exist to serialize, because the token yolo would have to rotate is one the host's own `aws`
-CLI rotates too, and yolo cannot make that CLI take a lock. [OQ-SSO3](#OQ-SSO3) is where this
-principle is expensive.
+**P2. yolo never CREATES a session, and always KEEPS one alive.** Those are different acts
+and the design turns on not confusing them. Creating a session is a browser login: the
+human's, always, and yolo has no business in it. **Refreshing an access token inside a
+session that is already valid is ordinary**, it is what every AWS SDK on the machine does
+against the same cache, and the daemon does it without asking — because "transparent while
+the session is valid" is the requirement, and a daemon that waits for someone else to
+refresh is not implementing it, it is hoping.
 
 **P3. What crosses the boundary is a POINTER; the value is fetched.** This is the existing
 rule one level out — `api_key_env_name` is *"the NAME of the environment variable holding the
@@ -289,7 +291,7 @@ Three components. Two are copies of things that exist.
 
 ```mermaid
 flowchart LR
-  human["human runs<br/>aws sso login"] -->|writes| cache["~/.aws/sso/cache<br/>(host, read-only to yolo)"]
+  human["human runs<br/>aws sso login"] -->|writes| cache["~/.aws/sso/cache<br/>(host; the daemon refreshes it)"]
   cache --> svc["aws-auth service<br/>host singleton"]
   svc -->|AssumeRole + session policy| sts["AWS STS"]
   svc -.->|"0600 endpoint file<br/>loopback-TLS front"| adapter
@@ -595,17 +597,23 @@ number, not the design's**: on N4 the tail is the permission set's own duration,
 > set for the narrowing and the slack — not for how long you stay signed in, which it does
 > not change.
 
-> [!WARNING]
-> **That tail assumes the daemon can still mint at T+7:59:59, and that assumption has a
-> dependency the rest of this section does not state.** Minting needs a valid Identity Center
-> **access token**, and AWS calls it *"the hourly access token … automatically refreshed
-> using the refresh token."* Refreshing it is exactly the write to `~/.aws/sso/cache` that
-> [OQ-SSO3](#OQ-SSO3) is about — so under the read-only reading the daemon can only mint while
-> a token somebody **else** refreshed is still valid, and the window could be the access
-> token's life rather than the portal session's. Public sources disagree on that raw lifetime
-> (AWS's own text says hourly; a widely-cited teardown says a non-configurable 8 hours), and
-> it is not settleable from here. **Measure it on the real machine before ruling
-> [OQ-SSO3](#OQ-SSO3)** — it is the difference between an 8-hour window and a 1-hour one.
+> [!NOTE]
+> **The tail is bounded by the portal session and nothing else.** The daemon keeps its own
+> access token fresh (P2), so minting works right up to the moment the session behind it
+> ends. What it cannot do is start a new session — that is a browser login — so the tail is
+> exactly what [§6](#6-narrowing--shape-scoped-and-policy-scoped)'s dials say, and nothing
+> shortens it.
+
+> [!NOTE]
+> **A host-side auto-login is a deployment assumption, not part of this design.** The
+> intended pairing is something on the host that re-establishes the SSO session for as long
+> as the upstream IdP session lasts, through the localhost PKCE flow. Out of scope here and
+> deliberately not designed — but worth recording, because with one in place the lapsed-
+> session path above becomes rare rather than daily, which is most of
+> [OQ-SSO6](#OQ-SSO6)'s weight. One precision for whoever builds it: the
+> *"reuses the existing session"* trap above is a fact about **`aws sso login`**. A direct
+> PKCE `CreateToken` against the OIDC endpoint is a different call, and whether it begins a
+> new portal session or attaches to the live one is unverified here.
 
 Two timing facts the implementation has to respect, both measured from the vendored provider
 rather than from documentation:
@@ -692,7 +700,8 @@ must not do is *coexist* with it silently — see Forbidden.
 
 **One writer, named.** The host service — one per machine — writes the minted-credential
 cache, keyed by profile. Nothing writes
-`~/.aws` (P2, subject to [OQ-SSO3](#OQ-SSO3)). The pack's `kind: "env"` contribution writes
+`~/.aws` except the SSO token cache, which it refreshes like any other AWS client on the
+machine and writes by atomic rename (P2). The pack's `kind: "env"` contribution writes
 the two pointer variables; the provider entry writes `AWS_REGION`, as it does today
 (`packs/claude/derive.lua:136-138`) — the credential service never supplies a region, because
 the container-credentials response has no field for one and a second writer of a fact the
@@ -702,16 +711,20 @@ provider already owns is how the Bedrock region got confusing in the first place
 - **Never enable both arms in one jail.** `AWS_BEARER_TOKEN_BEDROCK` takes precedence over the
   credential chain in every client measured, so a jail with both configured uses the frozen
   bearer and the pull channel never runs — a silent wrong answer. Refuse the launch, naming
-  which one to drop ([OQ-SSO5](#OQ-SSO5)).
+  which one to drop.
 - **Never grant `~/.aws` alongside this.** `fromIni` sits **ahead** of the container provider
   in the measured chain order, so a `host_files` mount of `~/.aws` does not merely duplicate
   this feature, it *disables* it while looking like it works.
 - Never write a credential value into any jail-visible file, any agent settings block, or any
   environment variable.
-- Never let the jail name the profile, role or policy it wants (see
-  [OQ-SSO4](#OQ-SSO4) for where that is configured instead).
-- Never refresh or rotate the host's SSO token as a side effect of serving a jail, unless
-  [OQ-SSO3](#OQ-SSO3) rules otherwise.
+- **Never let the jail name the profile, role or policy it wants**, and never read those
+  three from workspace scope. They are **user-config only**: the workspace config is
+  jail-writable, so an agent that could edit it could otherwise point the service at the
+  `admin` profile. Same argument that makes a source-bearing `host_files` entry
+  inexpressible at workspace scope.
+- **Never run a login.** Refreshing an access token within a live session is expected (P2);
+  starting a *new* session is a browser flow and is the human's, never the daemon's — see the
+  `awsAuthRefresh` entry below, which is the same rule one layer up.
 - **Never set `awsAuthRefresh` or `awsCredentialExport`** in the composed claude settings.
   Both are push-shaped and belong to a host where `aws` and `~/.aws` exist; in the jail
   neither does, so `awsAuthRefresh` would fire a command that is not there at exactly the
@@ -775,7 +788,7 @@ provider already owns is how the Bedrock region got confusing in the first place
 | | Risk | Mitigation |
 | :--- | :--- | :--- |
 | **R1** | The 1000 ms SDK budget is missed on a cold cache and the agent sees a credential error that looks like an auth failure. | The pre-mint rule in [§8](#8-behaviour-this-design-specifies) is the mitigation, and done-condition 2 measures the served latency directly. If it still bites, the service can block the *launch* until its first mint lands rather than the *request*. |
-| **R2** | Shelling out to the host `aws` CLI refreshes and rotates the SSO refresh token, racing the human's own CLI, which takes no lock. | [OQ-SSO3](#OQ-SSO3) is exactly this. The read-only leaning removes the race entirely at the cost of more logins. |
+| **R2** | Two processes rotate the SSO refresh token at once — the daemon and the human's own `aws` — and the later write clobbers the newer token, leaving a dead one on disk. | Small and bounded: unlike the Claude broker's single-use token, a lost race here is recovered by re-reading the cache, and the worst case costs one `aws sso login`. yolo's own side is already serialized by the singleton ([`OQ-SSO2`](#14-decision-ledger)); the human's CLI takes no lock and no AWS tool expects it to. Write by atomic rename and re-read after, rather than inventing a protocol the ecosystem does not have. |
 | **R3** | An admin will not create the role N2 needs, and the feature ships serving un-narrowed sessions "temporarily". | [OQ-SSO1](#14-decision-ledger). If the answer is refuse-by-default, this risk becomes a configuration error instead of a silent widening. |
 | **R4** | A future AWS SDK tightens the loopback carve-out and plain HTTP stops being accepted. | `checkUrl.js` is 40 lines and re-checkable in seconds ([§11](#11-evidence-and-how-to-re-check-it)); the fallback is the per-jail TLS front, which is already published — it costs a CA-trust question per SDK, not a redesign. |
 | **R5** | Four agents are claimed to work from string evidence, and only claude is exercised. | Done-condition 7 is a live turn on each. This is the standing weakness of every provider integration in this repo and the answer is the same: the done-conditions are turns, not greps. |
@@ -843,10 +856,10 @@ authentication is resolved*, which is also where *"the hourly access token … i
 refreshed using the refresh token"* and *"if the IAM Identity Center access portal session is
 expired, then no new access token is granted … [access] will expire … whenever the cached
 permission set session length times out"* come from — the second being the tail in
-[§7](#7-refresh--what-happens-when-you-log-in-again). ⚠ **The raw access-token lifetime is the
-one number here that is NOT settled**: that page says hourly, a widely-cited third-party
-teardown says a non-configurable 8 hours, and [OQ-SSO3](#OQ-SSO3) turns on which is true.
-Measure it; do not cite either. The
+[§7](#7-refresh--what-happens-when-you-log-in-again). Public sources disagree on the raw access-token
+lifetime — that page says hourly, a widely-cited teardown says a non-configurable 8 hours —
+and nothing in this design turns on which is right, because the daemon refreshes it either
+way (P2). Do not cite a number for it. The
 three duration dials in [§6](#6-narrowing--shape-scoped-and-policy-scoped) are from the IAM
 Identity Center user guide: *user interactive sessions* for the portal range
 (*"default … is 8 hours … from a minimum of 15 minutes to a maximum of 90 days"*, configured
@@ -888,19 +901,19 @@ delays nothing. It only sharpens step 2.
    `--self-check` that mints once against the configured profile and prints what it got, with
    the credential elided. Nothing crosses a boundary yet, and it is the half that can be
    wrong about AWS.
-2. **Rule [OQ-SSO1](#14-decision-ledger) and [OQ-SSO3](#OQ-SSO3).** They decide what the service in step 1
-   is allowed to do, and building past them means building something that may have to be
-   narrowed later — which is the one direction that breaks a user's working setup.
+2. **The narrowing surface**, per the [Decision Ledger](#14-decision-ledger): a required
+   setting, an explicit un-narrowed value that cannot be reached by omission, and the launch
+   disclosure. It rides step 1 rather than following it, because retrofitting a default that
+   widens is the one direction that breaks a working setup.
 3. **The adapter and the manifest.** `yolo-jaild aws-credential-adapter`, `publishes: "socket"`,
    `scope` per [OQ-SSO2](#14-decision-ledger). Done-condition 2 (a `curl` inside the jail) is reachable
    here and proves the whole transport without an agent.
 4. **The `aws-auth` pack**, with the `kind: "env"` pointers and the README that names option A
    and refuses it in prose. Selecting it changes nothing observable until step 5.
 5. **`needs` on the consumers**, and done-conditions 1 and 4 — the headline, measured.
-6. **The exclusivity refusal** ([OQ-SSO5](#OQ-SSO5)) with a test that fails when the call site
-   is deleted, plus the `~/.aws`-grant conflict as a `yolo check` line.
-7. **The N1 arm**, if [OQ-SSO5](#OQ-SSO5) keeps it: the presign, and the boot that writes the
-   bearer.
+6. **The exclusivity refusal** with a test that fails when the call site is deleted, plus the
+   `~/.aws`-grant conflict as a `yolo check` line.
+7. **The N1 arm**: the presign, and the boot that writes the bearer.
 8. **Fold into [`agent-credentials.md`](../reference/agent-credentials.md)** as a new delivery
    channel and retire this doc via `system-doc`.
 
@@ -917,88 +930,7 @@ crosses here is a pointer pair, not a credential pair, so it wants no new schema
 and model ids; none of them touch credentials, by that doc's own
 [§9](bedrock-plumbing.md#9-non-goals).
 
-1. 💬 **OQ-SSO3: May the daemon change your login state as a side effect of reading a
-   credential?** **Nothing here questions whether the credential can be obtained safely** —
-   it can, this is what every AWS tool on your machine already does, and no part of this
-   design is unusual. The question is one **side effect**, and it is narrow.
-
-   The natural implementation is to shell out to the user's own `aws` CLI, which is the most
-   faithful possible resolver — it agrees with their config by construction. But when that
-   CLI finds the access token expired it **silently refreshes it and rotates the refresh
-   token in `~/.aws/sso/cache`**. yolo would then be a second writer to a file the human's
-   own `aws` commands also write, with no lock between the two. So: is the daemon a **pure
-   reader** of your login, failing when the token it finds has expired — or may it renew your
-   login on your behalf? A middle exists (shell out, but under a host-wide lock) and is the
-   worst of the three: a lock only one of two writers takes reads as serialized and is not.
-
-   **What makes this hard is that pure-reading has a cost nobody can price yet.** Minting
-   needs a valid access token, and refreshing that token *is* the write in question
-   ([§7](#7-refresh--what-happens-when-you-log-in-again)) — so a pure reader can only serve
-   while a token **somebody else** renewed is still good. How long that is depends on which
-   config form the machine uses, and you can tell by looking:
-
-   | `~/.aws/config` | Access token | What pure-reading costs |
-   | :--- | :--- | :--- |
-   | no `[sso-session]` block (legacy) | *"fixed at eight hours and cannot be refreshed automatically"* | **nothing** — no one refreshes, so there is no race and nothing to rule |
-   | an `[sso-session]` block | refreshed against the portal session; AWS calls it *"the hourly access token"* | possibly a stall every access-token lifetime, which may be an hour |
-
-   The second row is also the form the 90-day extension requires, so the unresolved case is
-   the one people are moving toward.
-
-   > [!WARNING]
-   > **The obvious escape does not work.** Refreshing in memory and discarding the rotated
-   > refresh token — "write nothing, take nothing" — kills the human's cached refresh token,
-   > because the rotation invalidates the one still on disk. It is strictly worse than either
-   > option, and it is the first thing a reader invents.
-
-   <!-- vantage: oq id=OQ-SSO3 leaning="Look at ~/.aws/config first: with no [sso-session] block the question is already answered and the daemon is a pure reader for free. With one, measure the access-token lifetime before ruling — if the cached token tracks the portal session, stay a pure reader, since it matches P2 and removes the only race in the design; if it is genuinely hourly, pure-reading is not viable and letting the daemon shell out is the honest answer, because a daemon that stalls an hour into an eight-hour session fails the requirement the design exists for. Avoid the middle option either way: a lock only one of two writers takes reads as serialized and is not." -->
-
-   _Leaning:_ **Look at `~/.aws/config` first** — with no `[sso-session]` block this is already
-   answered and the daemon is a pure reader for free. With one, measure the access-token
-   lifetime before ruling: if it tracks the portal session, stay a pure reader, which matches
-   P2 and removes the only race in the design; if it is genuinely hourly, pure-reading is not
-   viable and shelling out is the honest answer, because a daemon that stalls an hour into an
-   eight-hour session fails the requirement the design exists for.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-SSO4: Which config scope names the profile, role and session policy?** Every one of
-   the three decides what a jail can reach, and the workspace config is jail-writable — an
-   agent that can edit `yolo-jail.jsonc` could otherwise point the service at the `admin`
-   profile. User-config-only is the conservative answer, by the same argument that makes a
-   source-bearing `host_files` entry inexpressible at workspace scope. The richer answer is a
-   user-scope **allowlist** of profiles with a workspace-scope choice among them. Stakes: one
-   scope rule, and whether a repo can express "this project uses the sandbox account."
-
-   <!-- vantage: oq id=OQ-SSO4 leaning="User scope only for v1. The allowlist variant is strictly additive later, and shipping it first invents a second scope grammar for one feature before anyone has asked for the second account." -->
-
-   _Leaning:_ User scope only for v1. The allowlist variant is strictly additive later, and
-   shipping it first invents a second scope grammar for one feature before anyone has needed
-   the second account.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. 💬 **OQ-SSO5: Does the Bedrock-API-key arm ship, and what happens when both are on?** The N1
-   arm is the only narrowing that needs nothing from AWS, and the only route to a client that
-   reads `AWS_BEARER_TOKEN_BEDROCK` and never consults the chain. But the bearer **beats** the
-   chain in every client measured, so a jail with both configured silently uses the frozen
-   12-hour credential and the whole refresh story is dead with no error anywhere. Stakes: one
-   arm's existence, and whether the failure mode is a refusal or a silent regression to option
-   B.
-
-   <!-- vantage: oq id=OQ-SSO5 leaning="Ship it, and make the two mutually exclusive at load — a configuration enabling both refuses the launch naming which to drop. The arm earns its place as the no-IAM-change narrowing and as the fallback for a chain-less client; what it must never be is a quiet winner over the arm that refreshes." -->
-
-   _Leaning:_ Ship it, and make the two mutually exclusive at load — a configuration enabling
-   both refuses the launch, naming which to drop. It earns its place as the no-IAM-change
-   narrowing and as the fallback for a chain-less client; what it must never be is a quiet
-   winner over the arm that refreshes.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-4. 💬 **OQ-SSO6: Is a lapsed session a message, or a request?** [§7](#7-refresh--what-happens-when-you-log-in-again) proposes a
+1. 💬 **OQ-SSO6: Is a lapsed session a message, or a request?** [§7](#7-refresh--what-happens-when-you-log-in-again) proposes a
    4xx whose `Message` names the command, which reaches the human through the agent's error
    text — one-way, no new machinery. The other shape is
    [`boundary-broker.md`](boundary-broker.md)'s queue: the jail *requests* a host-side
@@ -1023,3 +955,6 @@ and model ids; none of them touch credentials, by that doc's own
 | :--- | :--- | :--- | :--- | :--- |
 | OQ-SSO1 | **Require a narrowing scope by default; allow un-narrowed when set explicitly.** Refusing outright would have made the feature unusable for someone with nothing to narrow with; serving everything silently would have made it not do its job. The explicit setting is disclosed at every launch | 2026-09-17 | [§6](#6-narrowing--shape-scoped-and-policy-scoped) | — |
 | OQ-SSO2 | **Host singleton**, `scope: "host"`, cache keyed **by profile** so one process still serves several AWS identities | 2026-09-17 | [§5](#5-the-recommended-shape) | — |
+| OQ-SSO3 | **The daemon refreshes the access token; it never runs a login.** Transparent operation while the session is valid *is* the requirement, so a daemon that waits for someone else to refresh is not implementing it. Refreshing is what every AWS client on the machine already does against the same cache; the rotation race is recoverable, unlike the single-use-token case the Claude broker exists for (R2) | 2026-09-17 | [§1](#1-verdict-and-principles) P2 | — |
+| OQ-SSO4 | **User config scope only** for the profile, role and session policy. The allowlist-plus-workspace-choice variant is strictly additive later; shipping it first invents a second scope grammar for one feature | 2026-09-17 | [§8](#8-behaviour-this-design-specifies) | — |
+| OQ-SSO5 | **Ship the N1 bearer arm, and make the two arms mutually exclusive at load** — a config enabling both refuses the launch, naming which to drop. It earns its place as the no-IAM-change narrowing and as the fallback for a chain-less client; what it must never be is a quiet winner over the arm that refreshes | 2026-09-17 | [§8](#8-behaviour-this-design-specifies) | — |
