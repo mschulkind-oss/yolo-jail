@@ -31,6 +31,45 @@ import (
 // emitted; config validation already rejects both (internal/config/validate.go
 // validateWorkspaceReadonly), so this is defence in depth against a caller that
 // skipped it, not a second error channel.
+//
+// # EVERY DENY CARRIES A `#seatbelt-test-id:<name>#`, AND THAT ID IS ITS PROOF
+//
+// Adopted from Agent Safehouse, which embeds the same marker in its `.sb` files so a
+// rule and the case that proves it are greppable from each other
+// (docs/research/agent-safehouse.md §8.1). The ids are SBPL comments, so they ship
+// inside the profile a session actually installs — a human debugging a live sandbox
+// can grep the file the kernel loaded, not just this generator.
+//
+// The other end is integration/macosuserseatbelt_test.go, which runs a command under
+// the generated profile on a macOS runner and asserts the kernel refused it. Its
+// registry holds every id in this file and, for each, either the runtime case that
+// proves it or a written reason no case can. TestEverySeatbeltDenyCarriesATestID (here,
+// on any OS) is the half that keeps a new deny from arriving without an id at all.
+//
+// # THE THREE DENIES TAKEN FROM SAFEHOUSE, 2026-09-18
+//
+// agent-safehouse.md §8.2, which is also the evidence: their 389-case suite runs real
+// agents under these and they keep working. Deliberately NOT the deny-default
+// inversion (§8.2 "why not the full inversion first", OQ-AS1) — this stays
+// `(allow default)` with targeted denies.
+//
+//   - CROSS-PROCESS ARGV AND ENVIRONMENT. `(deny sysctl-read (sysctl-name-regex
+//     #"procargs"))` plus `(deny process-info-pidinfo)`, with the same-sandbox
+//     re-allow. Both channels, because Safehouse determined empirically on macOS 26
+//     that EITHER ONE alone serves the read. This is the one directive here that takes
+//     something away from `ps`: another process's command line stops being visible,
+//     which is the point — a command line is where a secret sits in plain sight.
+//   - `file-ioctl`, TERMINALS ONLY. `/dev/tty`, `/dev/ptmx` and the tty/pty device
+//     names, which is what a TUI and every pty its tooling allocates need. ⚠ The
+//     allow set is the part written blind: a pty an agent's tooling opens under some
+//     OTHER name would lose its ioctls, and the runtime case that exercises this
+//     (`script`, which allocates a real pty) is the instrument for it.
+//   - `/System/Library/Keychains`, which this profile left readable while denying
+//     `/Library/Keychains` beside it. ⚠ It holds SystemRootCertificates.keychain, the
+//     system trust store. Trust evaluation on macOS goes through trustd over XPC
+//     rather than by reading that file, so this should not reach TLS — but a tool that
+//     reads the keychain file directly is the failure to watch for, and this deny is
+//     one line to revert if one turns up.
 func SeatbeltProfile(workspace, sandboxHome string, readonlyRels []string) string {
 	if sandboxHome == "" {
 		sandboxHome = SandboxHome()
@@ -44,7 +83,9 @@ func SeatbeltProfile(workspace, sandboxHome string, readonlyRels []string) strin
 		"(allow default)\n" +
 		"\n" +
 		";; --- Writes: deny everywhere, then re-allow the agent's writable set ---\n" +
+		";; #seatbelt-test-id:write-outside-deny#\n" +
 		"(deny file-write* (subpath \"/\"))\n" +
+		";; #seatbelt-test-id:workspace-write-allow#\n" +
 		"(allow file-write*\n" +
 		"    (subpath " + ws + ")\n" +
 		"    (subpath " + home + ")\n" +
@@ -56,10 +97,13 @@ func SeatbeltProfile(workspace, sandboxHome string, readonlyRels []string) strin
 		readonlyDenies(workspace, readonlyRels) +
 		"\n" +
 		";; --- Volumes: deny reads except the boot volume ---\n" +
+		";; #seatbelt-test-id:volumes-read-deny#\n" +
 		"(deny file-read* (subpath \"/Volumes\"))\n" +
+		";; #seatbelt-test-id:boot-volume-read-allow#\n" +
 		"(allow file-read* (subpath \"/Volumes/Macintosh HD\"))\n" +
 		"\n" +
 		";; --- Raw disk + packet capture: never ---\n" +
+		";; #seatbelt-test-id:raw-device-deny#\n" +
 		"(deny file-read* file-write*\n" +
 		"    (regex #\"^/dev/r?disk\")\n" +
 		"    (regex #\"^/private/dev/r?disk\")\n" +
@@ -71,7 +115,9 @@ func SeatbeltProfile(workspace, sandboxHome string, readonlyRels []string) strin
 		";;     (literal) too: tools that walk up to a repo boundary stat the whole\n" +
 		";;     chain, and (literal) grants the dir entry WITHOUT re-allowing the\n" +
 		";;     siblings a (subpath) would. ---\n" +
+		";; #seatbelt-test-id:users-read-deny#\n" +
 		"(deny file-read* (subpath \"/Users\"))\n" +
+		";; #seatbelt-test-id:workspace-read-allow#\n" +
 		"(allow file-read*\n" +
 		"    (literal \"/Users\")\n" +
 		"    (literal \"/Users/Shared\")\n" +
@@ -81,11 +127,41 @@ func SeatbeltProfile(workspace, sandboxHome string, readonlyRels []string) strin
 		"\n" +
 		";; --- Keychains: System.keychain is world-readable (0644) on stock\n" +
 		";;     macOS, so this deny is load-bearing ---\n" +
+		";; #seatbelt-test-id:library-keychains-deny#\n" +
 		"(deny file-read* (subpath \"/Library/Keychains\"))\n" +
+		";; --- ...and the SYSTEM keychains beside them, which this profile left\n" +
+		";;     readable while denying the pair above (agent-safehouse.md §8.2.3) ---\n" +
+		";; #seatbelt-test-id:system-keychains-deny#\n" +
+		"(deny file-read* (subpath \"/System/Library/Keychains\"))\n" +
 		"\n" +
 		";; --- Process introspection the agent's tooling needs ---\n" +
 		"(allow process-info*)\n" +
-		"(allow sysctl-read)\n"
+		"(allow sysctl-read)\n" +
+		"\n" +
+		";; --- ...EXCEPT another process's command line and environment, which is\n" +
+		";;     where a secret sits in plain sight.  BOTH channels are denied\n" +
+		";;     because EITHER ONE alone serves the read; the re-allow puts back\n" +
+		";;     the same-sandbox case, which is the agent looking at itself and at\n" +
+		";;     its own children.  MUST FOLLOW the two allows above — last match\n" +
+		";;     wins, and `process-info*` includes `process-info-pidinfo`. ---\n" +
+		";; #seatbelt-test-id:cross-process-procargs-deny#\n" +
+		"(deny sysctl-read (sysctl-name-regex #\"procargs\"))\n" +
+		";; #seatbelt-test-id:cross-process-pidinfo-deny#\n" +
+		"(deny process-info-pidinfo)\n" +
+		";; #seatbelt-test-id:same-sandbox-pidinfo-allow#\n" +
+		"(allow process-info-pidinfo (target same-sandbox))\n" +
+		"\n" +
+		";; --- ioctl: terminals only.  A tty/pty is what an agent's own TUI and\n" +
+		";;     every pty its tooling allocates need; an ioctl on anything else is\n" +
+		";;     a device the agent has no business driving. ---\n" +
+		";; #seatbelt-test-id:file-ioctl-deny#\n" +
+		"(deny file-ioctl)\n" +
+		";; #seatbelt-test-id:file-ioctl-tty-allow#\n" +
+		"(allow file-ioctl\n" +
+		"    (literal \"/dev/tty\")\n" +
+		"    (literal \"/dev/ptmx\")\n" +
+		"    (regex #\"^/dev/ttys[0-9]\")\n" +
+		"    (regex #\"^/dev/pty[a-z0-9]\"))\n"
 }
 
 // readonlyDenies renders the config.workspace_readonly block: ONE
@@ -124,6 +200,7 @@ func readonlyDenies(workspace string, rels []string) string {
 	return "\n" +
 		";; --- config.workspace_readonly: host-executed paths the agent must not\n" +
 		";;     write.  Must follow the allow above — last match wins. ---\n" +
+		";; #seatbelt-test-id:workspace-readonly-deny#\n" +
 		"(deny file-write*\n" + strings.TrimSuffix(b.String(), "\n") + ")\n"
 }
 

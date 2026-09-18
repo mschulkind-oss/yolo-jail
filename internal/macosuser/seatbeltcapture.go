@@ -54,11 +54,14 @@ package macosuser
 // profile, the ordering the last-match-wins policy depends on, and that BuildCapturePlan uses
 // THIS generator rather than the session one.
 //
-// NOT MEASURED, anywhere: that Seatbelt honors it. No kernel has ever loaded this profile. This
-// backend's installer pipeline is itself unverified on hardware
-// (docs/reference/macos-user-nix-and-features.md), podman-in-podman cannot exercise this backend at
-// all, and a Linux jail cannot run sandbox-exec. Two specific things a human on a Mac must check
-// rather than assume:
+// NOT ASSERTED CONTINUOUSLY: that Seatbelt honors it. The earlier claim here — "no kernel has
+// ever loaded this profile" — is STALE twice over: capture.go records this profile being loaded
+// on hardware 2026-09-11, and the SESSION profile beside it is now asserted on every macOS CI run
+// (integration/macosuserseatbelt_test.go, which loads a generated profile with `sandbox-exec` and
+// checks the kernel refused what it names). This one has no such suite: a capture needs the whole
+// staging pipeline, so it is verified by hand rather than by a case. A Linux jail cannot run
+// sandbox-exec and podman-in-podman cannot exercise this backend at all, so the gap closes on a
+// Mac. Two specific things a human there must check rather than assume:
 //
 //  1. That an installer's shell tolerates a home whose passwd entry (getpwuid → /Users/_yolojail)
 //     is unreadable while $HOME points elsewhere. Tools that resolve the home through the passwd
