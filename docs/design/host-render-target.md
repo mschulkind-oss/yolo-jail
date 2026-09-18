@@ -92,8 +92,8 @@ ruling, [§9](#9-open-questions--the-discussion-part) is what I could not settle
 assumes it, including the compose engine and its layer stack),
 [what-yolo-is.md](../reference/what-yolo-is.md) (the earlier "is the
 engine separable?" answer, which this reaches the same conclusion as from the pack side),
-[composed-file-permissions.md](composed-file-permissions.md) (the postures a host-side writer
-must honor).
+[`../reference/composed-file-permissions.md`](../reference/composed-file-permissions.md) (the
+postures a host-side writer must honor).
 
 
 > [!WARNING]

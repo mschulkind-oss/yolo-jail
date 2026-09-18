@@ -22,7 +22,8 @@ is kept as the argument that produced that shape, not as a description of it.
 
 **Reads with:** [agent-config-packs.md](../plans/agent-config-packs.md) (the concrete pack
 proposal — this doc is the higher-level frame around it),
-[composed-file-permissions.md](composed-file-permissions.md) (the prism's posture rules),
+[`../reference/composed-file-permissions.md`](../reference/composed-file-permissions.md) (the
+prism's posture rules),
 [agent-settings-composition.md](../plans/agent-settings-composition.md) (the engine).
 
 **Two questions this doc raised and does not answer** — *how would pack-shipped logic be
@@ -350,7 +351,8 @@ over pack directories rather than a nested-jail run per agent.
 **5. It makes the "which layer won?" question answerable.** Provenance today says
 `workspace` for everything non-builtin. With packs as named sources, `yolo config diff`
 can say *this key came from `pack:acme-rust-review`* — which is the legibility gap
-[composed-file-permissions.md §8](composed-file-permissions.md) argues is the real problem
+[`../reference/composed-file-permissions.md`](../reference/composed-file-permissions.md#who-is-writing-program-operation-vs-directed-agent)
+argues is the real problem
 with the whole composed-config story.
 
 **6. Dogfooding.** If the official agents ride the same path as user packs, the user path
