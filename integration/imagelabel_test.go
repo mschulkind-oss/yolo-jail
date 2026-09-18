@@ -64,7 +64,8 @@ func TestImageOwnerLabel(t *testing.T) {
 	//
 	// The value is a `sha256:` hash, not the `/nix/store/…` path it was until
 	// 2026-09-12: a store path carries the evaluating host's system, so no second
-	// host could compute it (docs/design/darwin-image-provenance.md, OQ-IP1). The
+	// host could compute it (OQ-IP1,
+	// docs/reference/image-staging-vs-baking.md#why-its-this-way). The
 	// label is checked for SHAPE only — nothing keys off it — but a shape check is
 	// what would catch the value silently becoming a store path again.
 	if id := inspectLabel(t, rt, ref, "org.yolo-jail.image-identity"); !strings.HasPrefix(id, identityPrefix) {

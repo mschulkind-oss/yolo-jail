@@ -616,7 +616,8 @@ jobs:
         # first: does the runtime already hold the STOCK image — the default
         # `.#ociImage` variant with no `packages:` extras — that this checkout's
         # `imageIdentity` names? The identity is content-addressed and carries no
-        # system (docs/design/darwin-image-provenance.md, OQ-IP1), so the Mac
+        # system (OQ-IP1,
+        # docs/reference/image-staging-vs-baking.md#why-its-this-way), so the Mac
         # computes the same value the ubuntu runner did and can VERIFY the image
         # it was handed instead of rebuilding it.
         #

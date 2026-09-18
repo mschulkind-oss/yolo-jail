@@ -59,7 +59,7 @@ import (
 // was that a darwin eval and a Linux eval legitimately disagree; they no longer
 // do, so a mismatch on darwin now means exactly what it means everywhere.
 // Measured for all four default systems by TestImageIdentityIsSystemInvariant
-// (docs/design/darwin-image-provenance.md, OQ-IP1).
+// (OQ-IP1, docs/reference/image-staging-vs-baking.md#why-its-this-way).
 //
 // WHY NOT REUSE AutoLoadImage's NOTION. Because it answers a different question,
 // and it has answered it two different ways.
@@ -208,7 +208,7 @@ func parseSkewMode(v string) (skewMode, error) {
 // (flake.nix, `imageIdentity`), so both hosts compute the same string and the
 // downgrade's premise is false — keeping it would mean the macOS nightly could
 // never fail on a genuinely stale image, which is the one thing the nightly is
-// for. docs/design/darwin-image-provenance.md, OQ-IP1.
+// for. OQ-IP1, docs/reference/image-staging-vs-baking.md#why-its-this-way.
 
 // parseImageIdentity validates one side's answer as an identity — the algorithm
 // tag plus a 64-char lowercase hex digest. Kept pure (no exec) so the parse is
@@ -423,7 +423,8 @@ func TestImageIdentityIsSystemInvariant(t *testing.T) {
 		if got != want {
 			t.Errorf("--system %s evaluates the identity as %s, want %s\n"+
 				"An identity that varies by evaluating system cannot vouch for an image "+
-				"built anywhere else (docs/design/darwin-image-provenance.md, OQ-IP1).",
+				"built anywhere else (OQ-IP1, "+
+				"docs/reference/image-staging-vs-baking.md#why-its-this-way).",
 				sys, got, want)
 		}
 	}

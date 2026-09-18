@@ -23,7 +23,8 @@ import (
 // build an x86_64-linux derivation, which needs a Linux builder. The macOS
 // nightly has no working one, so every launch there failed its image build even
 // though the image it was handed was built from that very commit
-// (docs/design/darwin-image-provenance.md §3, L2).
+// (docs/reference/image-staging-vs-baking.md#the-stock-tag-and-the-question-asked-before-the-build,
+// the second link of the chain).
 //
 // WHY THE IDENTITY FIX ALONE DID NOT REACH THIS. OQ-IP1 made `imageIdentity` a
 // content hash any host can compute, which fixed the integration harness's skew

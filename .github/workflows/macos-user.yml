@@ -10,7 +10,8 @@ name: macos-user backend
 # nix … so it needs the flake even when you declare nothing"). So none of the
 # four-link chain that has kept `nightly-macos.yml` red since 2026-09-09 applies here:
 # no Linux-built image to vouch for, no forced rebuild, no absent Linux builder, no
-# harness refusal (docs/design/darwin-image-provenance.md §2-§3).
+# harness refusal (docs/reference/image-staging-vs-baking.md — the identity warning under
+# "Invariants", and "A failed build is fatal").
 #
 # THAT IMMUNITY IS ONLY VISIBLE IF IT HAS ITS OWN VERDICT. Inside the nightly this job
 # would sit beside a job that is red for reasons it does not share, under one workflow

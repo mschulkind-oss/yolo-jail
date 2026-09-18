@@ -399,8 +399,9 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 	// Until 2026-09-13 this function's first act was `nix build`, unconditionally
 	// — the store path it returned was how the content ref got computed, so "is
 	// the image already here?" could not be asked until after the build that
-	// question exists to avoid. That is L2 of the chain in
-	// docs/design/darwin-image-provenance.md, and it is NOT caused by L1: making
+	// question exists to avoid. That is the second link of the chain in
+	// docs/reference/image-staging-vs-baking.md#the-stock-tag-and-the-question-asked-before-the-build,
+	// and it is NOT caused by the first: making
 	// the identity content-addressed fixed the integration harness's oracle and
 	// left this alone, because nothing here ever compared an identity.
 	//
