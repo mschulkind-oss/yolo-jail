@@ -73,11 +73,22 @@ const macosUserTestPrefix = "TestMacosUser"
 // macosUserOutcome is one test's final disposition at the gate. reason is set only
 // when ran is false, and is what the vacuity report prints — "3 skipped" without the
 // reasons is a number nobody can act on.
+//
+// gate names WHICH gate the test sits behind, and it is load-bearing rather than
+// bookkeeping: this suite now has two of them with very different preconditions, and a
+// run that satisfied the cheap one while every test behind the expensive one skipped is
+// the vacuity failure wearing a disguise (see macosUserVacuityVerdict).
 type macosUserOutcome struct {
 	test   string
 	ran    bool
 	reason string
+	gate   string
 }
+
+// The gates. macosUserGateLaunch needs the _yolojail account, a shared root and
+// passwordless sudo, because it starts a real launch; macosUserGateSeatbelt (declared
+// in macosuserseatbelt_test.go, where its own gate lives) needs only sandbox-exec.
+const macosUserGateLaunch = "launch"
 
 // macosUserLedger accumulates outcomes across a run. The mutex is not decoration
 // despite this package's no-t.Parallel() rule: t.Cleanup functions can run off the
@@ -145,12 +156,29 @@ func macosUserVacuityVerdict(declared bool, outcomes []macosUserOutcome) (report
 	var b strings.Builder
 	fmt.Fprintf(&b, "[integration] macos-user: executed=%d skipped=%d\n", len(ran), len(skipped))
 	for _, o := range skipped {
-		fmt.Fprintf(&b, "  SKIPPED %s: %s\n", o.test, o.reason)
+		fmt.Fprintf(&b, "  SKIPPED %s [%s]: %s\n", o.test, o.gate, o.reason)
 	}
 	for _, o := range ran {
-		fmt.Fprintf(&b, "  ran     %s\n", o.test)
+		fmt.Fprintf(&b, "  ran     %s [%s]\n", o.test, o.gate)
 	}
 	if len(ran) > 0 {
+		// PER GATE, AND THIS IS THE HALF THAT ARRIVED WITH THE SECOND ONE. The policy
+		// suite's gate is much cheaper to satisfy than the launch gate — sandbox-exec and
+		// a writable /Users/Shared, against an account plus passwordless sudo — so a
+		// machine where `yolo macos-setup` silently did not take would run the policy
+		// tests, skip every launch test, and report GREEN on the count above. That is
+		// exactly the outcome this file exists to prevent, reintroduced by adding tests to
+		// it. A gate with outcomes and no executions fails the run and says which.
+		if starved := macosUserStarvedGates(outcomes); len(starved) > 0 {
+			b.WriteString("\n")
+			fmt.Fprintf(&b, "%s is set, and every test behind the %s gate SKIPPED while "+
+				"others ran.\n", macosUserDeclareEnv, strings.Join(starved, " and "))
+			b.WriteString("A gate nothing got through asserts nothing, and the executed " +
+				"count above hides it behind\nthe tests that did run — so this run is " +
+				"FAILED rather than reported green. The reasons are\nlisted above; fix the " +
+				"environment they name.")
+			return strings.TrimRight(b.String(), "\n"), true
+		}
 		return strings.TrimRight(b.String(), "\n"), false
 	}
 	b.WriteString("\n")
@@ -164,6 +192,30 @@ func macosUserVacuityVerdict(declared bool, outcomes []macosUserOutcome) (report
 		"this run is FAILED rather\nthan reported green. Fix the environment named above, " +
 		"or unset " + macosUserDeclareEnv + " on a job that\nwas never meant to run these.")
 	return strings.TrimRight(b.String(), "\n"), true
+}
+
+// macosUserStarvedGates returns, in first-seen order, the gates that have outcomes and
+// no executions. Split out of the verdict so the rule is one readable loop rather than
+// three nested ones, and so a caller can be tested against it directly.
+func macosUserStarvedGates(outcomes []macosUserOutcome) []string {
+	var order []string
+	ranBy, seen := map[string]int{}, map[string]bool{}
+	for _, o := range outcomes {
+		if !seen[o.gate] {
+			seen[o.gate] = true
+			order = append(order, o.gate)
+		}
+		if o.ran {
+			ranBy[o.gate]++
+		}
+	}
+	var starved []string
+	for _, g := range order {
+		if ranBy[g] == 0 {
+			starved = append(starved, g)
+		}
+	}
+	return starved
 }
 
 // macosUserExitCode applies the verdict to a finished run's exit code. Called from
@@ -287,7 +339,9 @@ func requireMacosUser(t *testing.T) {
 			"this gate exists to remove.", t.Name(), macosUserTestPrefix, macosUserTestPrefix)
 	}
 	reason := "the test skipped after passing the gate — see its own skip message"
-	t.Cleanup(func() { macosUserTests.record(macosUserOutcomeFor(t.Name(), t.Skipped(), reason)) })
+	t.Cleanup(func() {
+		macosUserTests.record(macosUserOutcomeFor(t.Name(), t.Skipped(), reason, macosUserGateLaunch))
+	})
 	if why, ok := probeMacosUserHost().gate(); !ok {
 		reason = why
 		t.Skip("macos-user: " + why)
@@ -431,11 +485,11 @@ func macosUserTimeout() time.Duration {
 // closure so the rule it encodes — a skip is a skip whoever called Skip, and the
 // gate's reason is only right when the GATE skipped — is testable without a test that
 // has to enter the ledger to be observed.
-func macosUserOutcomeFor(name string, skipped bool, reason string) macosUserOutcome {
+func macosUserOutcomeFor(name string, skipped bool, reason, gate string) macosUserOutcome {
 	if !skipped {
-		return macosUserOutcome{test: name, ran: true}
+		return macosUserOutcome{test: name, ran: true, gate: gate}
 	}
-	return macosUserOutcome{test: name, ran: false, reason: reason}
+	return macosUserOutcome{test: name, ran: false, reason: reason, gate: gate}
 }
 
 // ---------------------------------------------------------------------------
@@ -543,6 +597,54 @@ func TestMacosUserVacuityVerdictFailsOnlyADeclaredRunThatRanNothing(t *testing.T
 	}
 }
 
+// TestMacosUserVacuityVerdictFailsAGateNothingGotThrough is the rule the second gate
+// made necessary, and the one a reader is most likely to think is redundant: the run
+// below EXECUTED a test, so the count says executed=1 and the old verdict passed it,
+// while every test that needs the sandbox account skipped. That is a green macOS job
+// asserting nothing about a launch.
+func TestMacosUserVacuityVerdictFailsAGateNothingGotThrough(t *testing.T) {
+	outcomes := []macosUserOutcome{
+		{test: "TestMacosUserSeatbeltProfileEnforcesItsRules", ran: true, gate: macosUserGateSeatbelt},
+		{test: "TestMacosUserFloorReachesTheSandboxPath", reason: "no _yolojail account", gate: macosUserGateLaunch},
+	}
+	report, fail := macosUserVacuityVerdict(true, outcomes)
+	if !fail {
+		t.Fatalf("a run in which every %s test skipped was reported green because a %s "+
+			"test ran:\n%s", macosUserGateLaunch, macosUserGateSeatbelt, report)
+	}
+	for _, want := range []string{macosUserGateLaunch, "no _yolojail account", "FAILED"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("the failing report never mentions %q, so a reader cannot tell which "+
+				"gate starved or why:\n%s", want, report)
+		}
+	}
+	// The inverse must stay green, or the rule is just "every gate must run", which
+	// would make adding a gate to a machine that cannot satisfy it a permanent red.
+	both := append(append([]macosUserOutcome(nil), outcomes...),
+		macosUserOutcome{test: "TestMacosUserFloorProbe", ran: true, gate: macosUserGateLaunch})
+	if report, fail := macosUserVacuityVerdict(true, both); fail {
+		t.Errorf("a run with something through every gate was failed:\n%s", report)
+	}
+}
+
+// TestMacosUserStarvedGatesNamesThemInOrder: the report lists gates in the order the
+// ledger first saw them, so two runs of the same machine produce the same sentence.
+func TestMacosUserStarvedGatesNamesThemInOrder(t *testing.T) {
+	outcomes := []macosUserOutcome{
+		{test: "A", gate: "alpha", reason: "x"},
+		{test: "B", gate: "beta", ran: true},
+		{test: "C", gate: "gamma", reason: "y"},
+		{test: "D", gate: "alpha", reason: "z"},
+	}
+	got := macosUserStarvedGates(outcomes)
+	if len(got) != 2 || got[0] != "alpha" || got[1] != "gamma" {
+		t.Errorf("starved gates = %v, want [alpha gamma]", got)
+	}
+	if starved := macosUserStarvedGates(nil); starved != nil {
+		t.Errorf("an empty ledger starves no gate, got %v", starved)
+	}
+}
+
 // TestMacosUserVacuityReportCountsWhatItSays guards the number itself. A counter that
 // reports "executed=3" while three tests skipped is the failure mode with no symptom.
 func TestMacosUserVacuityReportCountsWhatItSays(t *testing.T) {
@@ -565,11 +667,12 @@ func TestMacosUserVacuityReportCountsWhatItSays(t *testing.T) {
 // and then skips for its own reason has NOT exercised the backend.
 func TestMacosUserGateOutcomeTreatsALateSkipAsASkip(t *testing.T) {
 	const gateReason = "this host has no sandbox account"
-	if o := macosUserOutcomeFor("TestMacosUserX", false, gateReason); !o.ran || o.reason != "" {
+	if o := macosUserOutcomeFor("TestMacosUserX", false, gateReason, macosUserGateLaunch); !o.ran ||
+		o.reason != "" || o.gate != macosUserGateLaunch {
 		t.Errorf("a test that finished without skipping must count as executed, with no "+
-			"reason attached: %+v", o)
+			"reason attached and its gate recorded: %+v", o)
 	}
-	o := macosUserOutcomeFor("TestMacosUserX", true, gateReason)
+	o := macosUserOutcomeFor("TestMacosUserX", true, gateReason, macosUserGateLaunch)
 	if o.ran {
 		t.Fatal("a skipped test counted as executed — the suite can now satisfy its own " +
 			"vacuity check while exercising nothing")

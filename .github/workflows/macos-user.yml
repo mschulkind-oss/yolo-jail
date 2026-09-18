@@ -119,7 +119,19 @@ jobs:
       # shared-workspace ACL to root), and calls sudo itself for the steps that need
       # it. That is why the `sudo -n` fact above matters — on a runner without
       # passwordless sudo this step hangs instead of failing.
+      #
+      # `continue-on-error`, ADDED WITH THE POLICY SUITE AND ONLY BECAUSE OF IT. The
+      # Seatbelt assertions below need `sandbox-exec` and a writable /Users/Shared and
+      # nothing else — no account, no sudo, no nix — so a failed setup no longer makes
+      # the whole macOS verdict unobtainable: the run still reports whether the profile
+      # denies what it says it denies, which is the one question this job can still
+      # answer on a machine whose account setup broke. It does NOT soften the verdict.
+      # The vacuity guard is computed PER GATE (integration/macosusergate_test.go),
+      # so a run in which every launch test skipped is failed even though the policy
+      # tests ran — the step's failure surfaces as a named red below instead of an
+      # aborted job with no results.
       - name: Create the sandbox account
+        continue-on-error: true
         run: go run ./cmd/yolo macos-setup
 
       # THE FILTER IS EXHAUSTIVE BY CONSTRUCTION, not by a list somebody maintains:
@@ -143,6 +155,19 @@ jobs:
       # arbitrary one and hide the independent items (10a's refusal does not depend on
       # the floor). The whole log costs runner time on a broken day and buys six
       # diagnoses instead of one.
+      #
+      # TWO GATES ARE BEHIND THAT ONE FILTER, and the difference is worth knowing when
+      # reading a result. The LAUNCH gate needs the account the step above creates, the
+      # shared root, and passwordless sudo; it starts real jails and builds a native nix
+      # closure, which is where this job's time goes. The SEATBELT gate
+      # (integration/macosuserseatbelt_test.go) needs `sandbox-exec` and a writable
+      # /Users/Shared: it writes the profile BuildRunPlan would install, runs commands
+      # under it with `sandbox-exec`, and asserts the kernel refused them — every case
+      # with a bare control that must succeed, so a refusal is attributed to the policy
+      # rather than to a missing file. That is the assertion this job did not have
+      # before 2026-09-18: until then 16 tests pinned the profile's TEXT and nothing
+      # anywhere asked a kernel whether the text denied anything
+      # (docs/research/agent-safehouse.md §8.1).
       - name: macos-user integration tests
         run: go test -count=1 -timeout 0 -v -run '^TestMacosUser' ./integration
         env:
