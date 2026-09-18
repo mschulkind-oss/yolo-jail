@@ -3,6 +3,13 @@
     {
       "from": "loopholes/aws-auth",
       "kind": "loophole"
+    },
+    {
+      "kind": "env",
+      "profile": "bedrock",
+      "vars": {
+        "AWS_CONTAINER_CREDENTIALS_FULL_URI": "http://127.0.0.1:1461/credentials"
+      }
     }
   ],
   "description": "One machine-wide owner for AWS SSO-backed credentials, minted per profile and narrowed before they reach a jail.",

@@ -25,8 +25,9 @@
 // `aws-auth` and `hello-daemon` —
 // ship a LOOPHOLE (one of
 // nineteen contribution kinds, a count pinned by `internal/packdecl/kinds_test.go`) —
-// `audio` also contributes an `env` block, the only one of them that ships anything
-// beside its loophole — and they are the dogfood for docs/design/loophole-packaging.md
+// `audio` and `aws-auth` each also contribute an `env` block, and they are the two that
+// ship anything beside their loophole; `openai-auth` ships a `provider` instead — and
+// they are the dogfood for docs/design/loophole-packaging.md
 // §7 / OQ-LP11, whose prize is that "AGENTS ARE PACKS" becomes true of loopholes too.
 // `hello-daemon` is the odd one in that group and is an EXPERIMENT rather than a
 // capability: it is the only loophole here with no host daemon at all, and it exists to
