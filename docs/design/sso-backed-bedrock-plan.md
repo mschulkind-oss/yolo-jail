@@ -8,8 +8,9 @@ summary: "Build hand-off for sso-backed-bedrock.md, written against the tree: th
 
 # Plan: Bedrock from a host SSO login
 
-**Status:** IN PROGRESS, 2026-09-18 — steps **1 and 2 are built** (`internal/awsauth`,
-`internal/awsauthdaemon`); steps 3–8 are not. DECIDED 2026-09-17, when the design was ruled
+**Status:** IN PROGRESS, 2026-09-18 — steps **1–4 are built** (`internal/awsauth`,
+`internal/awsauthdaemon`, `internal/awscredadapter`, `packs/aws-auth`); steps 5–8 are not.
+DECIDED 2026-09-17, when the design was ruled
 and nothing was built; a sketch before that, and a **hand-off** promoted against the tree at
 `6ded2789`. See [Progress](#progress) for what landed and what a real host still has to
 settle.
@@ -28,15 +29,15 @@ followed, and the commit says so. This file is advice, and the first thing to be
 
 | Path | Change |
 | :--- | :--- |
-| `packs/aws-auth/pack.json` | **new** — `kind: "loophole"` (`from: loopholes/aws-auth`) + one `kind: "env"` ([Blockers](#blockers) 2) |
-| `packs/aws-auth/loopholes/aws-auth/manifest.jsonc` | **new** — `publishes: "socket"`, `scope: "host"`, `state_files: [".mount-sentinel"]`, a `settings` block, `doctor_cmd` |
-| `packs/aws-auth/README.md` | **new** — the four items [§12](sso-backed-bedrock.md#12-what-i-would-build-in-order) step 4 owes it |
-| `packs/embed.go` | add `all:aws-auth` to the `//go:embed` list (explicit, test-enforced) |
-| `internal/awsauth/` | **new** — cache state keyed by profile, host-wide lock, mint + narrowing; mirrors `internal/openaiauth` |
-| `internal/awsauthdaemon/` | **new** — `Main`, handler, `--self-check`; mirrors `internal/openaiauthdaemon` |
-| `internal/awscredadapter/` | **new** — container-credentials HTTP on jail loopback; mirrors `internal/openaiauthadapter` |
-| `internal/cli/internal.go` | one `case "aws-auth":` in `runInternalDaemon` |
-| `cmd/yolo-jaild/main.go` | one `case "aws-credential-adapter":` plus the usage line |
+| `packs/aws-auth/pack.json` | **BUILT** — `kind: "loophole"` (`from: loopholes/aws-auth`) + one `kind: "env"` gated on the `bedrock` profile ([Blockers](#blockers) 2) |
+| `packs/aws-auth/loopholes/aws-auth/manifest.jsonc` | **BUILT** — `publishes: "socket"`, `scope: "host"`, `state_files: [".mount-sentinel"]`, a `settings` block, `doctor_cmd` |
+| `packs/aws-auth/README.md` | **BUILT** — the four items [§12](sso-backed-bedrock.md#12-what-i-would-build-in-order) step 4 owes it, plus the [`OQ-BR4`](./bedrock-plumbing.md#OQ-BR4) instance |
+| `packs/embed.go` | **BUILT** — `all:aws-auth` added to the `//go:embed` list (explicit, test-enforced) |
+| `internal/awsauth/` | **BUILT** — cache state keyed by profile, host-wide lock, mint + narrowing; mirrors `internal/openaiauth` |
+| `internal/awsauthdaemon/` | **BUILT** — `Main`, handler, `--self-check`; mirrors `internal/openaiauthdaemon` |
+| `internal/awscredadapter/` | **BUILT** — container-credentials HTTP on jail loopback; mirrors `internal/openaiauthadapter` |
+| `internal/cli/internal.go` | **BUILT** (`700d7699`) — one `case "aws-auth":` in `runInternalDaemon` |
+| `cmd/yolo-jaild/main.go` | **BUILT** — one `case "aws-credential-adapter":` plus the usage line |
 | `internal/cli/run/` | the exclusivity pre-flight (step 6), beside `providerpreflight.go` |
 | `internal/config/validate_loopholes.go` | the `~/.aws`-grant conflict (step 6), reading `hostfiles.go`'s entries |
 | `packs/claude/pack.json` | `needs: [{"pack": "aws-auth"}]` (step 5) |
@@ -98,7 +99,9 @@ untouched; `packs/` is already in the `goSrc` fileset.
   the CLI ("missing on the host → fails loudly at spawn"). N2 is
   `aws sts assume-role --policy … --duration-seconds 3600` from the same shell-out.
 - **`--format process` spells the token `SessionToken`; the container protocol wants `Token`.**
-  Rename in the adapter — the SDK rejects the missing field without naming it.
+  The SDK rejects the missing field without naming it. Done, and NOT in the adapter as this
+  line first said: `awsauth.Credential.ContainerCredentials` is the one place it happens, and
+  the adapter forwards that body verbatim so there is one spelling in the tree.
 - **Nothing gates a loophole on a setting.** `Setting` has no `required`, and the framework has
   no "declared but unconfigured → do not spawn" state ([Blockers](#blockers) 1).
 - **A jail-daemon spawn failure is silent.** `supervisor.superviseOne` drops `start()`'s error and
@@ -132,8 +135,8 @@ Report a real-host result with `podman info --format '{{.Host.RootlessNetworkCmd
 | :--- | :--- | :--- | :--- |
 | 1 | **BUILT, less the dispatch row** ([Progress](#progress)) — `internal/awsauth` + `internal/awsauthdaemon`: resolve via `aws`, cache by profile, flock, pre-mint ticker, `--self-check` minting once and printing the four keys with the secret elided. The `runInternalDaemon` row and its dispatch test (mirror `TestInternalDaemonDispatchRoutesOpenAIAuthBroker`) are **still owed** | `go test ./internal/awsauth/... ./internal/awsauthdaemon/...`; `yolo internal daemon aws-auth --self-check --settings <file>` | unit; the self-check wants a host with an `aws` login |
 | 2 | **BUILT** — the narrowing setting, inside step 1's settings file: absent → refuse at spawn naming the key; un-narrowed by name → serve, plus the disclosure line. Two of its three call sites exist (spawn log, `--self-check` `NOTE:`); the LAUNCH line is a call to `Narrowing.DisclosureLine` from `writeLoopholeSettings` | unit cases: absent, N2 role + policy, un-narrowed by name | unit |
-| 3 | `internal/awscredadapter` + the `yolo-jaild` row; the manifest; `packs/embed.go`; the census rows | `yolo pack lint packs/aws-auth`; in a nested jail selecting the pack, `curl -s $AWS_CONTAINER_CREDENTIALS_FULL_URI` returns the four keys, or the 4xx `Code`/`Message` with no session | nested proves the transport is **wired**; that the jail reaches the front is **real rootless host** only |
-| 4 | `packs/aws-auth/pack.json` (the gated `env` pointer) and README | `yolo pack footprint packs/aws-auth`: one env key, one loophole, no host grant | unit |
+| 3 | **BUILT** — `internal/awscredadapter` + the `yolo-jaild` row; the manifest; `packs/embed.go`; the census rows | `yolo pack lint packs/aws-auth`; in a nested jail selecting the pack, `curl -s $AWS_CONTAINER_CREDENTIALS_FULL_URI` returns the four keys, or the 4xx `Code`/`Message` with no session | nested proves the transport is **wired**; that the jail reaches the front is **real rootless host** only |
+| 4 | **BUILT** — `packs/aws-auth/pack.json` (the gated `env` pointer) and README | `yolo pack footprint packs/aws-auth`: one env key, one loophole, no host grant | unit |
 | 5 | `needs` on `packs/claude`; done-conditions 1 and 4 | a claude turn on Bedrock; lapse, `aws sso login`, next turn succeeds with no relaunch | **real rootless host** (an SSO login, a browser, the forwarding hop) |
 | 6 | Exclusivity refusal (aws-auth active **and** `AWS_BEARER_TOKEN_BEDROCK` in the delivered env); the `~/.aws`-grant conflict in `internal/config`, so `yolo check` and launch both report it | delete the pre-flight call site and the test fails | unit |
 | 7 | N1 arm: the presign in `internal/awsauth` (`crypto/hmac`, `X-Amz-Expires=43200`) and its delivery ([Blockers](#blockers) 3) | byte-equal to the official `aws-bedrock-token-generator` output for one fixed key and time — the design refuses a teardown as the spec | unit; then one live `InvokeModel` on a real host |
@@ -144,8 +147,42 @@ setups — the design says so); the census rows in step 3 (every later `just tes
 
 ## Progress
 
+**Steps 3 and 4 landed 2026-09-18**, behind steps 1 and 2 the same morning. What the two
+rounds have in common is what they could not measure; see
+[What a real host still has to settle](#what-a-real-host-still-has-to-settle), which steps 3
+and 4 add to rather than shorten.
+
+- `internal/awscredadapter` — the jail-side container-credentials endpoint, plus the
+  `yolo-jaild aws-credential-adapter` row. It is a PASS-THROUGH: the host handler's JSON
+  already IS the body, so the adapter picks the HTTP status and nothing else, and the
+  `SessionToken` → `Token` rename stays in `awsauth.Credential.ContainerCredentials`.
+- `packs/aws-auth` — the pack, the loophole manifest, the `bedrock`-gated `env` pointer, the
+  README and the census rows, with the manifest's settings scopes pinned by a new
+  `TestShippedAWSAuthFields`.
+
+**Three decisions this round, each recorded where it is enforced.**
+
+1. **EVERY failure the adapter emits is a 4xx**, including a transport fault that is nobody
+   in the jail's doing. [§5](sso-backed-bedrock.md#5-the-recommended-shape)'s table is why:
+   `{Code, Message}` is surfaced on exactly that class and *"any other status is a bare
+   failure"*. A tidier 502 for an unreachable host deletes the sentence naming what to fix,
+   which is the one thing [`OQ-SSO6`](sso-backed-bedrock.md#13-decision-ledger) requires. A
+   census test enumerates every refusal so a later "more correct" status has to argue with it.
+2. **The framed client is copied from `internal/openauthclient`, and the reason is not the
+   error strings.** Its `Request` DISCARDS stdout on a nonzero exit — and the 4xx body
+   carrying `aws sso login --profile X` arrives exactly that way, since the daemon writes it
+   to stdout and exits 1. Here the exit code is data on the answer.
+3. **An incomplete success body becomes a NAMED 4xx rather than a forwarded 200.** The host
+   already refuses to cache one, so reaching it is a bug — and it is the bug an SDK reports
+   worst, rejecting a body with no `Token` without naming the field.
+
+**What a nested jail proved, and what it did not.** See
+[What a real host still has to settle](#what-a-real-host-still-has-to-settle) item 6.
+
+---
+
 **Steps 1 and 2 landed 2026-09-18**, unit-verified and nothing else — which is the whole
-story this round: `--self-check` wants a host with a live `aws sso login`, and the transport
+story that round: `--self-check` wants a host with a live `aws sso login`, and the transport
 half is structurally invisible to a nested jail.
 
 What the two new packages do:
@@ -189,11 +226,11 @@ never be the spelling that grants.
                "--state-file", "{state}/credentials.json", "--settings", "{settings}"]
 ```
 
-⚠ **THE DISPATCH ROW WAS NOT WIRED WHEN THIS LANDED** (2026-09-18), deliberately: it is one
-case in `internal/cli/internal.go`'s `runInternalDaemon`, one import, and the usage string,
-and that file had two other changes in flight. Until it is there, `yolo internal daemon
-aws-auth` reports "unknown daemon" and the manifest above cannot spawn. Grep the switch
-before believing this sentence either way. Its dispatch test pins on the self-check's exit
+⚠ **THE DISPATCH ROW WAS NOT WIRED WHEN STEPS 1–2 LANDED** (2026-09-18), deliberately: it is
+one case in `internal/cli/internal.go`'s `runInternalDaemon`, one import, and the usage
+string, and that file had two other changes in flight. **It landed the same day in
+`700d7699`**, so the manifest above can spawn. Grep the switch before believing this sentence
+either way. Its dispatch test pins on the self-check's exit
 code: `aws-auth --self-check --state-file <abs>` returns **0** while a dispatch miss returns
 2, so the row cannot be deleted with the test green.
 
@@ -250,7 +287,15 @@ repo can stand in for:
    `aws s3 ls` denied from inside a jail holding an N2 credential. ⚠ Not
    `sts:GetCallerIdentity`, for the reason
    [§8](sso-backed-bedrock.md#8-behaviour-this-design-specifies) states.
-5. Everything steps 3 and 5 already owed a real rootless host.
+5. Everything step 5 already owed a real rootless host.
+6. **The transport, end to end, over a REAL host-loopback hop.** A nested jail proved the
+   wiring — the manifest spawns, the daemon binds, the front publishes, the supervisor starts
+   the adapter and a `curl` inside the jail gets a body — with a FAKE `aws` on the launcher's
+   PATH, because no real SSO login exists in a jail. What it cannot prove is the hop itself:
+   podman-in-podman forces `--net=host`, so the jail's loopback IS the launcher's and the
+   whole loopback-forwarding class gets a free green
+   ([`loopback-tls-reachability.md`](../reference/loopback-tls-reachability.md#a-nested-jail-is-structurally-blind-to-this)).
+   Report the real-host result with `podman info --format '{{.Host.RootlessNetworkCmd}}'`.
 
 ## Ships with
 
@@ -329,6 +374,14 @@ It cannot be written yet and should not be written the obvious way:
 So: land it **with step 3**, when the manifest gives it a subject, and rule the mechanism then.
 Until then the setting is disclosed at daemon spawn and in the self-check, and that gap is
 stated here rather than papered over with a call nothing reaches.
+
+⚠ **STEP 3 SHIPPED WITHOUT IT, and gave it its subject.** `packs/aws-auth`'s manifest now
+declares `unnarrowed`, so `writeLoopholeSettings` DOES see this loophole — the first bullet
+above is spent. The other two are not: the shape that fits is still a declarative one in
+`internal/loopholedecl/settings.go`, and writing it any other way means
+`if lp.Name == "aws-auth"` in a path that renders every pack in one loop with no switch on any
+tool name. It was not written. The disclosure therefore still has two of its three call sites,
+and this is now a gap in a SHIPPED feature rather than in an unbuilt one.
 
 Stop and ask on each: the tree forces a choice the design does not make. None blocks steps 1–3.
 
