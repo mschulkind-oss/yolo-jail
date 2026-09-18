@@ -148,5 +148,6 @@ are the operational values that may change with a release.
 | OMP workspace state | `.oh-omp` | `packs/omp/pack.json` |
 | Claude profile spelling | `claude=codex` | `packs/claude/pack.json` |
 | Default profile model alias | `terra` | `packs/claude/derive.lua` |
-| Claude bridge address | `http://127.0.0.1:8215` | `packs/claude/derive.lua`, `wirebridged.CodexResponsesListenAddr` |
+| Claude bridge address — what the agent is pointed at | `http://127.0.0.1:8215`, declared as the `openai-responses → anthropic` adapter's `address` and composed into `openai-codex`'s entry. Claude's derive **no longer spells it** — it reads the endpoint like any other, and its own comment at that branch records the move ([`protocol-resolution.md`](protocol-resolution.md)) | `packs/wire-bridge/pack.json` |
+| Codex route bind address — what the daemon listens on | `127.0.0.1:8215` — a Go constant the route selection reads directly, ahead of any table read. ⚠ A user-scope `adapters.openai-responses->anthropic.address` moves the row above and **not** this one, so the two can be made to disagree | `wirebridged.CodexResponsesListenAddr` |
 | Codex Responses base URL | `https://chatgpt.com/backend-api/codex` | `wirebridged.CodexResponsesBaseURL` |

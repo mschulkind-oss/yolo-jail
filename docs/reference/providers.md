@@ -51,7 +51,9 @@ presence, selection is an explicit act.
 | The agent derives that consume the table, and the provider packs that fill it | `packs/*/derive.lua`; every pack declaring a `provider` contribution |
 
 **Reads with:** [`pack-system.md`](../reference/pack-system.md) (what a pack is, how derives are
-loaded), [`local-model-endpoints.md`](../research/local-model-endpoints.md) (the
+loaded), [`protocol-resolution.md`](protocol-resolution.md) (how an agent's declared wire
+protocols and a provider's endpoints are paired, and the `adapter` contribution that supplies an
+address neither side declared), [`local-model-endpoints.md`](../research/local-model-endpoints.md) (the
 source-verified per-agent vocabularies the dialect maps translate into),
 [`cerebras-pack-and-copilot-delivery.md`](cerebras-pack-and-copilot-delivery.md) (which agents a
 provider can reach *at all*, one level below the delivery channels below).
@@ -384,13 +386,13 @@ place the exact spellings are stated.
 | llamacpp model id | `llama` — the `--alias` the recipe tells the server to publish, so one id is true across all agents | `packs/llamacpp/pack.json`, `packs/llamacpp/README.md` |
 | `needs` vocabulary | top-level manifest key — `needs: [{pack, when_bins}]`, conditional pack dependency resolved as a transitive closure at selection (the added pack prints its cause line on the banner); manifests only, never user config | `internal/packdecl/needs.go`, `internal/packload/needs.go` |
 | cerebras model aliases | `default: qwen-3.8-27b` — the one alias; `gpt-oss-120b` deliberately absent (hallucinated tool calls have no tier) | `packs/cerebras/pack.json` |
-| cerebras endpoints | `openai`: `https://api.cerebras.ai/v1` (the native service); `anthropic`: `http://127.0.0.1:8214` — the wire bridge's loopback URL, whose port lives only in this manifest | `packs/cerebras/pack.json` |
+| cerebras endpoints | `openai`: `https://api.cerebras.ai/v1` (`openai-chat-completions`) — the only endpoint the manifest declares. It hand-wrote an `anthropic` endpoint at the wire bridge's loopback address until 2026-09-18; the bridge's `adapter` contribution declares that address itself now and core composes it into this entry, so the manifest states only Cerebras's own upstream ([`protocol-resolution.md`](protocol-resolution.md)) | `packs/cerebras/pack.json` |
 | cerebras provider options | `model: default`, `context_window: "65536"` (the free-tier window; claude's auto-compact triggers at it, and a paid-tier user overrides to `131072` in their own profile) | `packs/cerebras/pack.json` |
-| cerebras needs | `wire-bridge` when `claude` or `copilot` is selected — the two agents whose derives read an anthropic endpoint (claude directly; copilot by its D-3 preference), so the launch that composes the loopback URL is the one that stages its listener | `packs/cerebras/pack.json` |
+| cerebras needs | `wire-bridge` when `claude` or `copilot` is selected — the two agents whose derives read an anthropic endpoint (claude directly; copilot by its D-3 preference), so the launch that composes the adapted anthropic address is the one that stages its listener | `packs/cerebras/pack.json` |
 | cerebras credential variable | `CEREBRAS_API_KEY` | `packs/cerebras/pack.json` |
 | OpenRouter endpoints | `openai`: `https://openrouter.ai/api/v1` (`openai-responses`); `anthropic`: `https://openrouter.ai/api` | `packs/openrouter/pack.json` |
 | OpenRouter credential variable | `OPENROUTER_API_KEY` | `packs/openrouter/pack.json` |
-| Kilo endpoints | `openai`: `https://api.kilo.ai/api/gateway` (`openai-chat-completions`); `anthropic`: `http://127.0.0.1:8216`, the wire bridge's local endpoint | `packs/kilo/pack.json` |
-| Kilo reachability | Claude and Copilot use the wire bridge; Pi and OpenCode use the direct OpenAI route; Codex has no documented Responses route and receives no entry | `packs/kilo/pack.json`, `packs/{claude,codex,pi,opencode,copilot}/derive.lua` |
+| Kilo endpoints | `openai`: `https://api.kilo.ai/api/gateway` (`openai-chat-completions`) — the only endpoint the manifest declares. Its hand-written `anthropic` loopback endpoint was **eliminated rather than moved** on 2026-09-18: Kilo and cerebras share the bridge's single `openai → anthropic` adaptation now, so the second loopback port Kilo used to name is declared nowhere ([`protocol-resolution.md`](protocol-resolution.md)) | `packs/kilo/pack.json` |
+| Kilo reachability | Claude and Copilot use the wire bridge — through the adapter's composed `anthropic` address, not a Kilo-declared one; Pi and OpenCode use the direct OpenAI route; Codex has no documented Responses route and receives no entry | `packs/kilo/pack.json`, `packs/wire-bridge/pack.json`, `packs/{claude,codex,pi,opencode,copilot}/derive.lua` |
 | Kilo credential variable | `KILO_API_KEY` | `packs/kilo/pack.json` |
 | Gateway model catalogs | Neither gateway pack declares a model or model default. The user supplies `providers.<gateway>.models`; profiles name an alias with their `model` option. | `packs/{openrouter,kilo}/pack.json` |

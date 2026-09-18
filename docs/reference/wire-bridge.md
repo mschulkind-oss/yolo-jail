@@ -29,10 +29,27 @@ and a wire protocol is not a config dialect. So the missing thing is a protocol 
 has to run somewhere — the jail is the only place that needs it, because what the agent consumes
 is a base URL, and a base URL can be the jail's own loopback.
 
-**The endpoint trick is the load-bearing part, and it changes no derive.** A provider declares the
-bridge's loopback URL as its `anthropic` endpoint; the agent's existing derive emits that URL as
-its base URL exactly as it would emit any other. The derive cannot see whether a bridge exists,
-and should not.
+**The endpoint trick is the load-bearing part, and it still changes no derive — but the bridge
+declares its own address now.** Until 2026-09-18 each consuming provider hand-wrote the bridge's
+loopback URL as its `anthropic` endpoint. Today `packs/wire-bridge` declares an `adapter`
+contribution per conversion — `adapts: {from, to}` plus an `address` — and core composes that
+address into every provider entry that offers the `from` and lacks the `to`
+([`protocol-resolution.md`](protocol-resolution.md)). The agent's existing derive emits the
+composed URL as its base URL exactly as it would emit any other. The derive cannot see whether a
+bridge exists, and should not.
+
+<a id="the-listen-address"></a>
+
+> [!WARNING]
+> **"The listen address is manifest-borne and overridable" is only half true, and the two routes
+> differ.** `openai → anthropic` derives its bind from the composed provider entry, so the
+> user-scope `adapters.openai->anthropic.address` moves the listener and the agent together. The
+> Codex `openai-responses → anthropic` route is chosen by agent and provider name in `routeFor`'s
+> first branch, **before any endpoint is read**, so the daemon binds
+> `wirebridged.CodexResponsesListenAddr` whatever the `adapters` key says, while the composed
+> entry — and therefore Claude's base URL — follows the override. Overriding that pair points the
+> agent at a port nothing is listening on, and the request is refused. Verified 2026-09-18: a
+> known gap, not a design.
 
 | Component | Lives in |
 | :--- | :--- |
@@ -42,7 +59,7 @@ and should not.
 | `needs` — the schema and its validation | `internal/packdecl` (`needs.go`, `Need`, `WhenBins`) |
 | `needs` — the selection closure | `internal/packload` (`ResolveNeeds`) |
 | Wiring the endpoint variable only when the daemon will serve | `internal/cli/run` (`serviceEndpointEnvArgs`) |
-| The pack itself — the first `kind: "service"` | `packs/wire-bridge` |
+| The pack itself — the first `kind: "service"`, and the two `adapter` contributions that declare its addresses | `packs/wire-bridge` |
 
 **Reads with:** [`providers.md`](providers.md) (what a provider declares and which agent reads
 which endpoint — the authority), [`pack-system.md`](pack-system.md) (the contribution model, and
@@ -282,8 +299,10 @@ log request or response bodies, or the key; never cache bodies to disk.
   promise to walk through it.
 - **No inbound authentication scheme.** The jail is the trust boundary. If that ever stops being
   true, the bridge grows auth before it grows anything else.
-- **No second knob for the port.** The provider's declared URL is the single source; the daemon
-  binds exactly what it says.
+- **No provider-side knob for the port.** The address is the *adapter's* own declaration, with
+  exactly one user-scope override (`adapters.<from>-><to>.address`) and nothing else: a provider
+  cannot move it, and a workspace config cannot set it at all. What that override actually reaches
+  is not uniform — see [the listen address](#the-listen-address).
 
 ## Why it's this way
 
@@ -292,7 +311,7 @@ Rulings a future change would otherwise undo, with their original IDs.
 | Ruling | Why it holds |
 | :--- | :--- |
 | <a id="wb-d1"></a>[**WB-D1**](#wb-d1) — exactly one protocol pair | A second pair is a second cost case, and bundling them makes the first one unreviewable. |
-| <a id="wb-d2"></a>[**WB-D2**](#wb-d2) — the URL is a provider fact, the port lives only there, and the agent's derive is untouched | One writer for the port; and a derive that could see the bridge would make composition responsible for a fact selection already decides. |
+| <a id="wb-d2"></a>[**WB-D2**](#wb-d2) — the URL reaches the agent as the provider's `endpoints.anthropic`, one writer owns it, and the agent's derive is untouched | The ruling holds; **the writer moved on 2026-09-18.** It used to be each consuming provider's manifest, which made the adapter's port a fact stated by every one of its N consumers; it is the adapter's own `address` now, composed into the provider entry by core ([`protocol-resolution.md`](protocol-resolution.md)). What the ruling protects is untouched: one writer for the address, and a derive that could see the bridge would make composition responsible for a fact selection already decides. |
 | <a id="wb-d3"></a>[**WB-D3**](#wb-d3) — the dependency is real manifest vocabulary, auto-included at selection and printed | The rejected shape expressed dependency as an *error message the user must act on* rather than a declaration the launcher acts on. A mechanism the manifest cannot state is the wrong mechanism. |
 | <a id="wb-d4"></a>[**WB-D4**](#wb-d4) — inbound auth: none; outbound: the `0600` env file read once at boot | The jail is the boundary, and a second inbound scheme would protect the jail from itself. |
 | <a id="wb-d5"></a>[**WB-D5**](#wb-d5) — upstream reasoning is dropped, and an unknown block type fails **closed** with a named 400 | A silently-mistranslated request is the failure mode that cannot be debugged; naming the block keeps drift visible at first request. |
@@ -303,7 +322,7 @@ Rulings a future change would otherwise undo, with their original IDs.
 | <a id="wb-d10"></a>[**WB-D10**](#wb-d10) — needs resolve as a transitive closure before staging; cycles refuse the launch naming the loop; explicit user selection is joined, never overridden | The mount is the filter, so a pack the closure adds after staging renders nothing. The join rule alone would terminate the walk, so the cycle is checked **structurally** rather than left to termination to imply: manifests that need each other are an authoring bug the user is owed by name. |
 | <a id="wb-d11"></a>[**WB-D11**](#wb-d11) — user config carries no `needs` key; a dead loopback URL is a `yolo check` warning | The user's own config is the user's own dead URL, and refusing it would make a diagnosis into an error. |
 | <a id="wb-d12"></a>[**WB-D12**](#wb-d12) — every auto-inclusion prints, at launch and in `yolo check` | A silent join is the one forbidden behavior of the closure. |
-| <a id="wb-d13"></a>[**WB-D13**](#wb-d13) — the listen port is fixed and manifest-borne | One writer. A port collision is witness-fatal in a fresh namespace rather than a mystery failure. |
+| <a id="wb-d13"></a>[**WB-D13**](#wb-d13) — the listen port is manifest-borne | Still manifest-borne, in a **different manifest** since 2026-09-18: `packs/wire-bridge`'s own `adapter` contributions rather than each consumer's provider entry. It is no longer *fixed* — a user-scope `adapters.<from>-><to>.address` replaces it, because on `macos-user` there is no network namespace and an adapter's ports are host ports. One writer and a witness-fatal collision are what the ruling bought, and both survive the move. ⚠ The override reaches only one of the two routes: see [the listen address](#the-listen-address). |
 | <a id="wb-d14"></a>[**WB-D14**](#wb-d14) — `count_tokens` refuses (404) | A zero-stub is measurably worse than a refusal: it poisons the number it answers, where a 404 falls back to the agent's own estimator. |
 | <a id="wb-d15"></a>[**WB-D15**](#wb-d15) — thinking has a route-specific disposition: chat-completions omits it; Responses maps explicit `enabled` budgets conservatively and lets every non-budget mode use the provider default | Responses exposes documented effort values but no adaptive value. An explicit budget is enough intent to map; every other mode means the provider, not the bridge, chooses. |
 | <a id="wb-d16"></a>[**WB-D16**](#wb-d16) — `kind: "service"` is primary vocabulary; loopholes re-form as service + boundary grants | A daemon with no grants is not a loophole, and naming it one would make the trust model unreadable. The re-forming is a follow-up, not a prerequisite. |
@@ -318,7 +337,9 @@ only place the values themselves are stated.
 | :--- | :--- | :--- |
 | Service name (supervisor entry, endpoint stem, manifest `endpoint`) | `wire-bridge` | `wirebridged.ServiceName` |
 | Endpoint file | `wire-bridge.endpoint` under the jail services dir | `wirebridged.EndpointFile` |
-| Listen port | carried **only** in the provider's `endpoints.anthropic.base_url` | `packs/cerebras/pack.json`, read by `wirebridged` |
+| Listen address, `openai → anthropic` | `http://127.0.0.1:8214` — the adapter's declared `address`, composed into each eligible provider's `endpoints.anthropic.base_url` and parsed back out by the daemon; a user-scope `adapters.openai->anthropic.address` replaces it | `packs/wire-bridge/pack.json`, read by `wirebridged.routeFor` |
+| Listen address, `openai-responses → anthropic` (the Codex route) | `127.0.0.1:8215` — the adapter declares the same address, but the daemon binds this Go constant directly, ahead of any table read, so an override moves the agent and not the bind | `wirebridged.CodexResponsesListenAddr`, `packs/wire-bridge/pack.json` |
+| Address override key | `adapters.<from>-><to>.address`, **user scope only** | `internal/config/adapters.go`, `yolo config-ref` |
 | Restart policy | on failure | `packs/wire-bridge/pack.json` |
 | Served path | `POST /v1/messages` and nothing else | `internal/wirebridged/handler.go` |
 | Upstream path | the provider's `openai` base URL plus chat-completions | `internal/wirebridged/boot.go` |
