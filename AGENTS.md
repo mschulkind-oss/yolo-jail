@@ -535,6 +535,23 @@ there is no sync step.
   yolo could not ask is never refused for what it cannot help ([`OQ-R3`](./docs/reference/loopback-tls-reachability.md#oq-r3)). The escape
   hatch is `YOLO_ALLOW_UNREACHABLE_SERVICES=1`, forwarded from the host env, and
   the refusal names it.
+- **A WORKSPACE MAY NOT CONTAIN THE CREDENTIAL BOUNDARY, and that refusal has no hatch.**
+  The workspace is the one host directory a jail reads and writes by design, so a workspace
+  that IS or CONTAINS `$HOME`, `~/.config/yolo-jail` or `~/.local/share/yolo-jail` — or sits
+  INSIDE either of the latter two — puts the boundary inside the mount: `~/.ssh` and the
+  cloud tokens, the user-scope config that decides the NEXT launch's `packs`/`host_files`
+  (which is why `LoadPacks`/`LoadHostFiles` read that file directly), and the state dir
+  holding every other workspace's home overlay, the pack approvals, the approval snapshots
+  and the flake bundle each launch binds as pid1. `refuseWorkspaceScope`
+  ([`internal/cli/run/workspacescopeguard.go`](./internal/cli/run/workspacescopeguard.go))
+  is the SECOND thing `Run` does, beside the live-overlay guard and before the launch log,
+  because the file that tee would create IS the artifact — a stray `~/.yolo` with a whole
+  home overlay in it, measured on the maintainer's host 2026-09-17 from a launch that
+  predated the approval record leaving the mount. It needs no mistake beyond a `cd`: there
+  is no `--workspace` flag, so a bare `yolo` typed in the home is a launch on the home.
+  `~/code/x` and `~/.dotfiles` are untouched, `workspace_readonly` does not soften it (the
+  READ half is the breach), and there is deliberately no `YOLO_ALLOW_*` — the test is
+  structural, with no false positive to escape.
 - **ONE host directory is bind-mounted WRITABLE into the jail, and it is the only one.**
   A recognised **content-addressed** host cache is aliased at the path the jail's own copy of the
   tool already uses, so it stops existing twice (`internal/hostcas`, [`internal/cli/run/hostcasalias.go`](./internal/cli/run/hostcasalias.go);

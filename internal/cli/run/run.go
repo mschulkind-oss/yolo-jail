@@ -48,6 +48,23 @@ func Run(opts Options) (rc int) {
 		return 1
 	}
 
+	// THE WORKSPACE-SCOPE GUARD, in the same window and for the same reason: this launch
+	// would bind the host side of the credential boundary into the jail — the home itself,
+	// or one of yolo's own two host directories (workspacescopeguard.go states what each
+	// one grants a jail that can write it). Also before the launch log, and here that is
+	// not merely tidy: the workspace being refused is the HOME, so the tee would write
+	// ~/.yolo/launch.log — the very stray directory this guard exists to stop.
+	if refusal := refuseWorkspaceScope(o); refusal != nil {
+		o.pr(o.Stderr).print("[bold red]Refusing to launch: " + refusal.what +
+			". The workspace is bind-mounted into the jail, so " + refusal.why +
+			".[/bold red]")
+		o.pr(o.Stderr).print("[dim]yolo takes the CURRENT DIRECTORY as the workspace " +
+			"(there is no --workspace flag): cd into the project you meant. To jail a " +
+			"dotfiles tree, name the directory that holds it (~/.dotfiles), never the " +
+			"home itself — there is no override for this one.[/dim]")
+		return 1
+	}
+
 	// PERSIST THE LAUNCHER'S HALF (report-tiers.md, the launch stream). Everything this process
 	// prints from here on is teed into <workspace>/.yolo/launch.log, beside the
 	// entrypoint's boot.log, so the half of a launch that used to vanish when the
