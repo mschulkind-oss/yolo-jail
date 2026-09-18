@@ -85,6 +85,90 @@ local function piReachable(prov)
   return nil
 end
 
+-- THE COMPAT FACTS. What a server does and does not support is a SERVICE fact, so the
+-- PROVIDER states it and this derive translates it into pi's own spelling (OQ-CS4: the
+-- provider declares the knob, the consumer decides what it means). Nothing below detects
+-- anything. There is no llama.cpp branch, no loopback-URL test and no provider-name check,
+-- and both of those were live proposals: "every local URL gets these flags" assumes every
+-- local server is llama.cpp-shaped and silently DOWNGRADES one that is not (bedrock-mantle
+-- is a working local provider that would lose capability — docs/research/
+-- local-model-endpoints.md), while a name check hardcodes a vendor into an agent's derive.
+-- A provider that declares none of these options gets no `compat` key at all, which is
+-- exactly the file it got before this map existed.
+--
+-- LEFT is the canonical option name a provider declares; RIGHT is the field pi reads, and
+-- the spelling is the ENTIRE risk here: pi's compat schemas set no additionalProperties,
+-- so a misspelled field is accepted, read by nothing, and changes no request — a feature
+-- that silently does nothing, with no error anywhere. Every field name below is
+-- transcribed character by character from pi's own schema, the openai-completions member
+-- of ProviderCompatSchema (pi-coding-agent/dist/core/model-config.js,
+-- OpenAICompletionsCompatSchema), and the VALUES packs/llamacpp declares are the block
+-- pi's own built-in llama.cpp provider generates (dist/extensions/llama/provider.js,
+-- toPiModel). Verified against the installed pi 0.85.1, 2026-09-18, which agrees flag for
+-- flag with the 2026-09-02 re-verification in docs/research/local-model-endpoints.md —
+-- including its correction that `supportsUsageInStreaming` is TRUE, the one flag on which
+-- that doc's older example JSON is stale. That file is on the doc's own fast-moving list:
+-- re-read it at whatever version ships rather than trusting this comment.
+--
+-- ONE BLOCK PER PROVIDER covers every model this derive emits for it: pi merges a
+-- provider-level compat into each model as it composes them
+-- (dist/core/provider-composer.js, mergeCompat(providerConfig.compat, definition.compat)).
+local piCompatFields = {
+  { option = "supports_store", field = "supportsStore", boolean = true },
+  { option = "supports_developer_role", field = "supportsDeveloperRole", boolean = true },
+  { option = "supports_reasoning_effort", field = "supportsReasoningEffort", boolean = true },
+  { option = "supports_usage_in_streaming", field = "supportsUsageInStreaming", boolean = true },
+  { option = "supports_strict_mode", field = "supportsStrictMode", boolean = true },
+  { option = "max_tokens_field", field = "maxTokensField" },
+}
+
+-- providerOption reads one declared option off the provider, falling back to the active
+-- profile's value for the provider that profile selects — the same two-step the context
+-- window and max-tokens reads below take, and deliberately the same one: a provider's
+-- option surface should not resolve by two rules in one file.
+local function providerOption(prov, ctx, provName, name)
+  if type(prov) == "table" and type(prov.options) == "table" and prov.options[name] ~= nil then
+    return prov.options[name]
+  end
+  if ctx.selected_provider == provName and type(ctx.profile) == "table" then
+    return ctx.profile[name]
+  end
+  return nil
+end
+
+-- An option value is always a STRING — core refuses anything but a string or a null in an
+-- options map — so a boolean service fact arrives as "true"/"false", the JSON spellings,
+-- and only those. Anything else reads as UNDECLARED rather than as false: pi's default for
+-- an absent flag is the permissive one, so turning a typo into `false` would silently
+-- switch a capability OFF, which is worse than emitting nothing. It is the disposition
+-- tonumber already gives an unparseable context_window.
+local function piCompatBoolean(v)
+  if v == "true" then return true end
+  if v == "false" then return false end
+  return nil
+end
+
+-- piCompatBlock returns the provider's compat table, or nil when it declares none of the
+-- facts. The nil is the additive half of the ruling: a provider that says nothing renders
+-- byte-for-byte the models.json it rendered before.
+local function piCompatBlock(prov, ctx, provName)
+  local compat = nil
+  for _, row in ipairs(piCompatFields) do
+    local raw = providerOption(prov, ctx, provName, row.option)
+    local value = nil
+    if row.boolean then
+      value = piCompatBoolean(raw)
+    elseif type(raw) == "string" and raw ~= "" then
+      value = raw
+    end
+    if value ~= nil then
+      compat = compat or {}
+      compat[row.field] = value
+    end
+  end
+  return compat
+end
+
 local function isLocalEndpoint(url)
   if type(url) ~= "string" then return false end
   return string.find(url, "://localhost") or
@@ -172,6 +256,13 @@ yolo.derive("pi", "models", function(ctx)
         api = api,
         models = modelList,
       }
+      -- The provider's own compat facts, translated (piCompatFields). Emitted for ANY
+      -- provider that declares them and for no provider that does not — this is the one
+      -- place the block is attached, and it is attached by declaration alone.
+      local compat = piCompatBlock(prov, ctx, name)
+      if compat then
+        entry.compat = compat
+      end
       -- D11: pi has no `apiKeyEnv` field — ProviderConfigSchema is name, baseUrl, apiKey,
       -- api, oauth, headers, compat, authHeader, models, modelOverrides, and nothing in the
       -- package reads one, so the name we used to write here was dead configuration that

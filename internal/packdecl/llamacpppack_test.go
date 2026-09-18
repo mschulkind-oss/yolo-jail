@@ -93,6 +93,22 @@ func TestLlamacppNamesNoCredentialVariable(t *testing.T) {
 // not declare is refused — so this list is exactly what a user may tune. `api_timeout_ms`
 // is DECLARED WITH A NULL: settable, with no default, because the right ceiling for local
 // inference is the user's hardware and guessing one here would be a fact nobody measured.
+//
+// The six `supports_*`/`max_tokens_field` entries are this provider's COMPAT FACTS — what
+// llama-server does and does not support, stated by the provider so no agent's derive has
+// to detect it (roadmap 📦 row 2, ruled 2026-09-18: declare, don't detect). They are
+// asserted HERE, against the shipped manifest, because the values are the load-bearing
+// half: packs/pi/derive.lua translates whatever it is given, so a wrong value here is a
+// wrong request against every local server, and a MISSING one is a capability pi silently
+// keeps enabled. Transcribed from the block pi's own built-in llama.cpp provider generates
+// (pi-coding-agent/dist/extensions/llama/provider.js, toPiModel; verified at the installed
+// 0.85.1, 2026-09-18), which is pi's authoritative statement about llama-server.
+//
+// ⚠ `supports_usage_in_streaming` is the ONE that is "true", and it is the one flag
+// docs/research/local-model-endpoints.md's example JSON has stale — its 2026-09-02
+// re-verification records the false→true flip between pi 0.82.1 and 0.84.4, and 0.85.1
+// still says true. A reader "fixing" it to false by copying that example would be
+// reinstating a measured-wrong value.
 func TestLlamacppDeclaresTheOptionsAProfileMayTune(t *testing.T) {
 	opts := llamacppManifest(t).Providers()[0].Options
 	for name, want := range map[string]OptionDefault{
@@ -100,6 +116,13 @@ func TestLlamacppDeclaresTheOptionsAProfileMayTune(t *testing.T) {
 		"context_window": {Defaulted: true, Value: "32768"},
 		"max_tokens":     {Defaulted: true, Value: "8192"},
 		"api_timeout_ms": {}, // declared, no default
+
+		"supports_store":              {Defaulted: true, Value: "false"},
+		"supports_developer_role":     {Defaulted: true, Value: "false"},
+		"supports_reasoning_effort":   {Defaulted: true, Value: "false"},
+		"supports_usage_in_streaming": {Defaulted: true, Value: "true"},
+		"supports_strict_mode":        {Defaulted: true, Value: "false"},
+		"max_tokens_field":            {Defaulted: true, Value: "max_tokens"},
 	} {
 		got, ok := opts[name]
 		if !ok {
@@ -110,8 +133,8 @@ func TestLlamacppDeclaresTheOptionsAProfileMayTune(t *testing.T) {
 			t.Errorf("option %q = %+v, want %+v", name, got, want)
 		}
 	}
-	if len(opts) != 4 {
-		t.Errorf("options = %v, want only the four a derive reads", opts)
+	if len(opts) != 10 {
+		t.Errorf("options = %v, want only the ten a derive reads", opts)
 	}
 	// One alias, and `default` is the name every derive falls back to when a profile
 	// states no `model`. The id is what `llama-server --alias` must report.

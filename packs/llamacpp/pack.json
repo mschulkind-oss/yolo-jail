@@ -19,7 +19,13 @@
         "api_timeout_ms": null,
         "context_window": "32768",
         "max_tokens": "8192",
-        "model": "default"
+        "max_tokens_field": "max_tokens",
+        "model": "default",
+        "supports_developer_role": "false",
+        "supports_reasoning_effort": "false",
+        "supports_store": "false",
+        "supports_strict_mode": "false",
+        "supports_usage_in_streaming": "true"
       }
     },
     {
