@@ -433,7 +433,7 @@ func buildDeriveCtxTable(L *lua.LState, ctx *DeriveCtx, sentinel, emptyArr *lua.
 			table = map[string]any{}
 		}
 		if src == sourceMCPServers {
-			table = eligibleMCPServers(table, have)
+			table = withoutProvidesKey(eligibleMCPServers(table, have))
 		}
 		lv, err := goToLua(L, table)
 		if err != nil {
@@ -518,6 +518,59 @@ func eligibleMCPServers(servers map[string]any, have map[string]bool) map[string
 			}
 		}
 		out[name] = v
+	}
+	return out
+}
+
+// withoutProvidesKey removes `provides` from every surviving MCP entry on the way out to
+// a derive. The key is YOLO'S OWN vocabulary — the capability claim eligibleMCPServers
+// answers just above — and an agent has no use for it, but four shipped packs (agy,
+// claude, copilot, pi) copy an entry VERBATIM into the agent's own config file
+// (`servers[name] = cfg`, or `return ctx.mcp_servers` whole), so a key left here lands in
+// ~/.claude.json and its three siblings. codex and opencode rebuild the entry field by
+// field and never carried it, which is why the leak looked like one agent's bug.
+//
+// It runs UNCONDITIONALLY, outside eligibleMCPServers, and both halves of that matter.
+// Outside, because that filter returns its input unchanged when the source declares
+// nothing — the overwhelming case, and exactly the case where the key leaks. And it
+// removes a KEY from the survivors only: which servers are DELIVERED is the filter's
+// decision alone, and this function has no way to change it.
+//
+// It sits at this boundary for the reason the filter's comment gives: one place both
+// production callers pass through, so no agent can opt out and no agent has to opt in.
+//
+// ⚠ NOT beside the `requires_env` strip in entrypoint's LoadMCPServers, which is the
+// obvious structural precedent and the wrong seat for this key. LoadMCPServers runs
+// UPSTREAM of the derive, so a `provides` stripped there is gone before
+// eligibleMCPServers can read it, and capability-driven MCP delivery degrades to a
+// no-op — SILENTLY, with every existing test green, because a server with no `provides`
+// is documented above as not making a claim the rule can answer. So two of the MCP entry
+// keys are stripped at two different layers, deliberately: `requires_env` gates
+// DELIVERY and has to go before the derive, `provides` FEEDS the filter and has to go
+// after it. Do not unify them.
+//
+// Entries are COPIED rather than edited: the map handed in is the live config table the
+// caller reuses across every surface it renders.
+func withoutProvidesKey(servers map[string]any) map[string]any {
+	out := make(map[string]any, len(servers))
+	for name, v := range servers {
+		cfg, isMap := v.(map[string]any)
+		if !isMap {
+			out[name] = v
+			continue
+		}
+		if _, has := cfg["provides"]; !has {
+			out[name] = v
+			continue
+		}
+		stripped := make(map[string]any, len(cfg)-1)
+		for k, kv := range cfg {
+			if k == "provides" {
+				continue
+			}
+			stripped[k] = kv
+		}
+		out[name] = stripped
 	}
 	return out
 }

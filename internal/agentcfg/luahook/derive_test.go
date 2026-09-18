@@ -1,6 +1,8 @@
 package luahook
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -389,5 +391,115 @@ yolo.some_future_api("pi", function(ctx) return {} end)`
 	}
 	if len(regs) != 1 || regs[0] != (DeriveRegistration{Agent: "pi", Surface: "models"}) {
 		t.Errorf("DeriveRegistrations = %v, want just pi/models", regs)
+	}
+}
+
+// `provides` is YOLO'S OWN vocabulary — the capability claim eligibleMCPServers answers —
+// and it must not reach an agent's config file. Four shipped packs (agy, claude, copilot,
+// pi) copy an MCP entry VERBATIM, so nothing downstream of this boundary can drop it for
+// them; codex and opencode rebuild the entry field by field and never carried it.
+//
+// The shape below is the leaking one: a passthrough derive, and a source that declares
+// NOTHING, which is the overwhelming case and the one eligibleMCPServers returns its input
+// unchanged for. So the strip cannot live behind that early return.
+func TestDerive_ProvidesNeverReachesADerive(t *testing.T) {
+	script := `
+yolo.derive("claude", "config", function(ctx)
+  local servers = {}
+  for name, cfg in pairs(ctx.mcp_servers or {}) do servers[name] = cfg end
+  return { mcpServers = servers }
+end)`
+	tables := map[string]map[string]any{
+		"mcp_servers": {"tavily": map[string]any{
+			"command": "npx", "args": []any{"-y", "tavily-mcp"}, "provides": "web_search",
+		}},
+	}
+	got, err := runDerive(t, "claude", "config", script, tables)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{"mcpServers": map[string]any{
+		"tavily": map[string]any{"command": "npx", "args": []any{"-y", "tavily-mcp"}},
+	}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("provides must not survive the ctx boundary:\n got: %#v\nwant: %#v", got, want)
+	}
+}
+
+// The strip removes a KEY from the survivors; it must not change WHICH servers are
+// delivered. That decision is eligibleMCPServers' alone, and all three of its answers are
+// measured here against one source that declares `web_search`: the exact-name match is
+// still DROPPED, a server claiming a capability the source lacks passes (minus the key),
+// and a server making no claim passes untouched.
+func TestDerive_StrippingProvidesKeepsCapabilitySuppression(t *testing.T) {
+	script := `
+yolo.derive("agy", "mcp", function(ctx)
+  local servers = {}
+  for name, cfg in pairs(ctx.mcp_servers or {}) do servers[name] = cfg end
+  return { mcpServers = servers }
+end)`
+	ctx := &DeriveCtx{
+		Agent:              "agy",
+		Surface:            "mcp",
+		NativeCapabilities: []string{"web_search"},
+		Tables: map[string]map[string]any{
+			"mcp_servers": {
+				"tavily":      map[string]any{"command": "npx", "provides": "web_search"},
+				"sourcegraph": map[string]any{"command": "sg-mcp", "provides": "code_search"},
+				"fs":          map[string]any{"command": "mcp-fs"},
+			},
+		},
+	}
+	out, err := GopherLuaVM{}.Derive(script, ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := out["mcpServers"].(map[string]any)
+	want := map[string]any{
+		"sourcegraph": map[string]any{"command": "sg-mcp"},
+		"fs":          map[string]any{"command": "mcp-fs"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("suppression must survive the strip (tavily dropped, the other two kept "+
+			"without the key):\n got: %#v\nwant: %#v", got, want)
+	}
+}
+
+// agy is the LOAD-BEARING pack for this change, not claude. Its derive exists only to
+// supply a dynamic layer over `defaults.mcpServers = {}` (packs/agy/derive.lua says so),
+// so any bug that hands it an empty table renders `{}` and silently removes every MCP
+// server from agy's config. This runs the SHIPPED script — a fixture cannot notice that.
+func TestDerive_AgyStillCarriesItsServersAfterTheStrip(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "..", "packs", "agy", "derive.lua"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := GopherLuaVM{}.Derive(string(src), &DeriveCtx{
+		Agent:   "agy",
+		Surface: "mcp",
+		Tables: map[string]map[string]any{
+			"mcp_servers": {
+				"tavily": map[string]any{"command": "npx", "provides": "web_search"},
+				"fs":     map[string]any{"command": "mcp-fs"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	servers, ok := out["mcpServers"].(map[string]any)
+	if !ok || len(servers) != 2 {
+		t.Fatalf("agy's dynamic layer must still carry both servers — an empty table here "+
+			"renders {} over defaults and deletes every MCP server: %#v", out["mcpServers"])
+	}
+	for name, v := range servers {
+		cfg, _ := v.(map[string]any)
+		if _, has := cfg["provides"]; has {
+			t.Errorf("agy server %s still carries provides: %#v", name, cfg)
+		}
+	}
+	if _, has := servers["tavily"]; !has {
+		t.Error("the server that DECLARED a capability is the one that must survive when " +
+			"the source declares none — it was dropped")
 	}
 }
