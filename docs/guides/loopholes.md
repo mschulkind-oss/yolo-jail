@@ -248,21 +248,26 @@ What the loader does at each `yolo run`:
 2. Skips any that resolve to disabled — `default_enabled` absent or `false` in the manifest, unless a config `loopholes.<name>.enabled: true` overrides it (and vice versa: config `false` wins over a manifest `true`).
 3. For loopholes declaring `intercepts`: emits `--add-host <host>:<broker_ip>` for each intercept, bind-mounts the CA cert into the jail at `/etc/yolo-jail/loopholes/<name>/ca.crt`, and sets `NODE_EXTRA_CA_CERTS` to all loophole CAs concatenated. Apple Container does not support `--add-host` ([apple/container#673](https://github.com/apple/container/issues/673)) — but that is the *narrower* of two reasons it runs no loopholes; see the box below.
 > [!IMPORTANT]
-> **Two of the three backends run NO loopholes at all, and both say so at launch.**
+> **No loophole works end to end on either macOS backend, and the two reasons are different.**
 > This list describes what `podman` does. *(Corrected 2026-08-24: item 3 used to name the
-> `--add-host` gap as if it were the only skip, which understated both backends.)*
+> `--add-host` gap as if it were the only skip. Corrected again 2026-09-18: both "nothing"
+> cells below were too broad — a host daemon does start on each, and what fails is the half
+> after it.)*
 >
 > | Backend | What runs | Where it is decided |
 > |---|---|---|
 > | `podman` | everything below | — |
-> | `container` (Apple Container) | **nothing** — `startLoopholes` returns before any host service starts, whether or not the loophole intercepts | `internal/cli/run/loopholesruntime.go` |
-> | `macos-user` | **nothing** — that arm returns from `Run()` long before `startLoopholes` is reached | `internal/cli/run/run.go` |
+> | `container` (Apple Container) | **one host daemon and no reach.** `startLoopholes` admits `openai-auth-broker` alone; every other host daemon is skipped whether or not the loophole intercepts. The one that starts cannot be dialled: nothing crosses container→host on `container` 1.1.0 (measured; expires with an upstream release) | `internal/cli/run/loopholesruntime.go` → `startLoopholes`; `internal/cli/run/loopholeinert.go` → `backendInertReason` |
+> | `macos-user` | **every host daemon, and no jail daemon.** That arm goes through the same spawn boundary a container launch uses, so each host daemon starts and each endpoint is delivered with a per-file ACL grant. What does not run is the `jail_daemon` half — this backend has no in-jail supervisor and no darwin `yolo-jaild` — so an intercepting loophole does nothing useful | `internal/cli/run/run.go` (the macos-user arm); `internal/cli/run/jaildaemondecline.go` |
 >
-> **This includes the `claude-oauth-broker`**, so on those two backends there is no refresh
-> serialization: concurrent jails each refresh their own token. It is not silent — every
-> launch prints one line per inert loophole, naming the pack, the loophole and the reason
-> (`notePackLoopholesInert`). If you are on Apple Container or macos-user and expected a
-> loophole to be running, that line is the answer.
+> **This includes the `claude-oauth-broker`**, so on neither macOS backend is there refresh
+> serialization: concurrent jails each refresh their own token. On Apple Container the
+> loophole is skipped whole; on `macos-user` its host daemon runs and its TLS terminator —
+> the jail half that would route a refresh through it — does not. It is not silent: every
+> launch prints one line per inert loophole naming the pack, the loophole and the reason
+> (`notePackLoopholesInert`), and a `macos-user` launch prints one `Declined:` line per jail
+> daemon it will not run, naming it and its argv. If you expected a loophole to be running,
+> those lines are the answer.
 
 4. For `loopback-tls` / `spawned` loopholes — either a pack's manifest with a `host_daemon`, or the `loopholes` shorthand in the user config (see below); yolo handles spawning the daemon, bind-mounting its published path into the jail, and cleanup.
 5. Merges `jail_env` into the container env.

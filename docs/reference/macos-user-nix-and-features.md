@@ -217,6 +217,19 @@ The Linux-only boot steps — the loader cache, cgroup delegation, port forwardi
 supervisor, the container bootstrap and venv scripts — are deliberately **not** run. They are
 no-ops or nonsensical on a native user.
 
+> [!WARNING]
+> ⚠ **The daemon supervisor is the one item in that list that is NOT a no-op**, and it was
+> carried there with no id and no rationale beyond "nonsensical on a native user". It is the
+> process that runs every `jail_daemon` a selected pack declares, and the shipped default
+> declares three: a bare `"packs": ["claude"]` joins `openai-auth` and `wire-bridge` through
+> `needs`, so `yolo-jaild oauth-terminator`, `yolo-jaild openai-auth-adapter` and
+> `yolo-jaild wire-bridge` are all declared and none runs. Since 2026-09-18 the launch
+> **declines each by name** rather than saying nothing
+> ([`jail-daemon-on-macos-user-plan.md`](../design/jail-daemon-on-macos-user-plan.md)).
+> Running them is blocked on two unfiled rulings: how a declared `jail_daemon.cmd` resolves on
+> a backend with no image (`yolo-jaild` is not built for darwin), and whether such a child runs
+> under the Seatbelt profile.
+
 ### Content delivery is a copy, not a mount
 
 Skills and briefings **are** delivered. The host composes the same trees and bodies the
@@ -337,14 +350,25 @@ lives in the container launch path this backend returns before. **GPU** is unava
 macOS backend (Metal, no CUDA or ROCm), and **devices** and cgroup rules are Linux kernel
 features.
 
-### Loopholes: mostly moot, and the framework ports better
+### Loopholes: the host half runs, the jail half does not
 
-No loophole host service starts here — the startup lives in the container path. **The
-inertness is reported**, one stderr line per inert loophole naming the backend as the reason,
-for **both** pack-declared and config-declared loopholes. It is deliberately *not* routed
-through the disclosure wrapper that makes disclosure inseparable from the spawn: nothing spawns
-here. The **briefing** is gated on the backend too, so it no longer advertises these under a
-heading reading "host capabilities wired into this jail".
+⚠ **This section said "no loophole host service starts here" and that is RETRACTED (2026-09-18).**
+It described an arm that returned from `Run()` above the spawn boundary, and that stopped being
+true when the lifecycle was generalised on 2026-09-17: this backend now goes through the same
+`startLoopholesDisclosed` wrapper a container launch does, starts **every** admitted host
+daemon, prints the same "This launch runs pack code on your machine" disclosure before it does,
+publishes each endpoint and ACL-grants it to the sandbox account. Measured: a bare
+`"packs": ["claude"]` publishes both `claude-oauth-broker.endpoint` and
+`openai-auth-broker.endpoint`. The credential service is fail-closed here — a launch whose
+OpenAI loophole is active and whose broker did not start is refused.
+
+**What is inert here is the JAIL half.** No `jail_daemon` runs on this backend (see the warning
+above), so a loophole whose work happens inside the jail does nothing however healthy its host
+daemon is. The launch says both things: one `Declined:` line per jail daemon, and — on the
+**platform** axis only — one line per loophole this machine cannot run at all (`audio`,
+`journal`, `host-processes` and `cgroup-delegate` declare `platforms: ["linux"]`). The
+**briefing** is gated on the backend too, so it does not advertise these under a heading
+reading "host capabilities wired into this jail".
 
 > [!WARNING]
 > **That gap survived for months behind a test that pinned the callee, not the call site.** The
@@ -370,10 +394,15 @@ has no boundary to punch:
   one real credentials file, so the shared home *is* the shared-credentials mechanism.
   *Serializing the refresh call* only bites with multiple **concurrent** sessions, and porting
   the interception is genuinely hard natively: there is no host-entry injection, and redirection
-  would need root-global DNS or hosts control. `EndpointGrantCommands` exists — two ACL entries
-  letting the sandbox user read one published endpoint file and traverse, not list, the
-  directory holding it — and is **not called anywhere**. Treat it as dead-until-needed, not
-  vestigial.
+  would need root-global DNS or hosts control. ⚠ **Two clauses here are retracted (2026-09-18).**
+  The broker's host daemon is no longer "off": it starts like every other host daemon on this
+  arm. And `EndpointGrantCommands` — two ACL entries letting the sandbox user read one published
+  endpoint file and traverse, not list, the directory holding it — is **called on every launch**
+  (`BuildRunPlan` stages it for each endpoint the launch carries, and `PlanInvariants` refuses a
+  plan that names an endpoint without one). It was dead-until-needed; it is needed. What is
+  still true is the conclusion: the *interception* does not port, and the TLS terminator that
+  would perform it is a `jail_daemon` this backend declines — so refreshes are not serialized
+  here even with the daemon up.
 
 **The loophole framework itself is worth keeping, and this backend is arguably a better fit
 than a container.** A loophole is "a host-side daemon mediates the jail's access to a
