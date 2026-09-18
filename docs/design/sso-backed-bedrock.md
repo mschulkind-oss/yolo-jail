@@ -658,8 +658,27 @@ Written for the implementer. Anything not here and not an open question is their
 - A profile that is not an SSO profile (static keys, `credential_process`) → served the same
   way. The service resolves a profile; how that profile gets its credentials is AWS's problem.
   Say so, so nobody adds an SSO-only check.
+- **An SSO profile in either config form → both supported, and they behave differently.** See
+  below; this is a branch in the code, not a property of one machine.
 - Two agents in one jail, both fetching → the adapter is stateless per request and the service
   serializes; concurrent fetches return the same cached credential.
+
+**Both SSO config forms are supported, and P2's refresh is available in only one of them.**
+The difference is not a deployment detail to be measured once — it is two paths the service
+has to carry, and it is detectable from the profile.
+
+| | Legacy profile (no `[sso-session]`) | SSO token provider (`[sso-session]`) |
+| :--- | :--- | :--- |
+| Refresh token | none exists | present |
+| What the daemon does | serves until the token expires; **there is nothing to refresh with** | refreshes the access token as P2 requires |
+| Ceiling per login | *"fixed at eight hours and cannot be refreshed automatically"* | the portal session, up to 90 days |
+| On expiry | the [§7](#7-refresh--what-happens-when-you-log-in-again) message path, every time | the same path, but only once the session itself ends |
+
+Neither form is refused and neither is special-cased beyond this. But the legacy form caps a
+jail at eight hours per login **by construction**, so the service should say which form it
+resolved when it starts, and AWS's own guidance belongs in the pack README: *"If you have
+long-running processes or automation, use the SSO token provider configuration, which
+supports automatic token refresh."* A jail is exactly that.
 
 **Failure paths.** Every one of these is observable by the human, and none is silent.
 
@@ -859,8 +878,10 @@ expired, then no new access token is granted … [access] will expire … whenev
 permission set session length times out"* come from — the second being the tail in
 [§7](#7-refresh--what-happens-when-you-log-in-again). Public sources disagree on the raw access-token
 lifetime — that page says hourly, a widely-cited teardown says a non-configurable 8 hours —
-and nothing in this design turns on which is right, because the daemon refreshes it either
-way (P2). Do not cite a number for it. The
+and the disagreement dissolves once the two config forms are separated: the 8 hours is the
+**legacy** profile's whole fixed session, and the hourly token is the **`sso-session`** one
+the daemon refreshes ([§8](#8-behaviour-this-design-specifies)). Nothing in the design turns
+on the raw number in either form; do not cite one. The
 three duration dials in [§6](#6-narrowing--shape-scoped-and-policy-scoped) are from the IAM
 Identity Center user guide: *user interactive sessions* for the portal range
 (*"default … is 8 hours … from a minimum of 15 minutes to a maximum of 90 days"*, configured
@@ -931,7 +952,7 @@ delays nothing. It only sharpens step 2.
 | :--- | :--- | :--- | :--- | :--- |
 | OQ-SSO1 | **Require a narrowing scope by default; allow un-narrowed when set explicitly.** Refusing outright would have made the feature unusable for someone with nothing to narrow with; serving everything silently would have made it not do its job. The explicit setting is disclosed at every launch | 2026-09-17 | [§6](#6-narrowing--shape-scoped-and-policy-scoped) | — |
 | OQ-SSO2 | **Host singleton**, `scope: "host"`, cache keyed **by profile** so one process still serves several AWS identities | 2026-09-17 | [§5](#5-the-recommended-shape) | — |
-| OQ-SSO3 | **The daemon refreshes the access token; it never runs a login.** Transparent operation while the session is valid *is* the requirement, so a daemon that waits for someone else to refresh is not implementing it. Refreshing is what every AWS client on the machine already does against the same cache; the rotation race is recoverable, unlike the single-use-token case the Claude broker exists for (R2) | 2026-09-17 | [§1](#1-verdict-and-principles) P2 | — |
+| OQ-SSO3 | **The daemon refreshes the access token wherever a refresh token exists; it never runs a login.** Transparent operation while the session is valid *is* the requirement, so a daemon that waits for someone else to refresh is not implementing it. Refreshing is what every AWS client on the machine already does against the same cache; the rotation race is recoverable, unlike the single-use-token case the Claude broker exists for (R2). On a legacy profile there is no refresh token and nothing to do, which is a supported branch rather than an exception ([§8](#8-behaviour-this-design-specifies)) | 2026-09-17 | [§1](#1-verdict-and-principles) P2 | — |
 | OQ-SSO4 | **User config scope only** for the profile, role and session policy. The allowlist-plus-workspace-choice variant is strictly additive later; shipping it first invents a second scope grammar for one feature | 2026-09-17 | [§8](#8-behaviour-this-design-specifies) | — |
 | OQ-SSO5 | **Ship the N1 bearer arm, and make the two arms mutually exclusive at load** — a config enabling both refuses the launch, naming which to drop. It earns its place as the no-IAM-change narrowing and as the fallback for a chain-less client; what it must never be is a quiet winner over the arm that refreshes | 2026-09-17 | [§8](#8-behaviour-this-design-specifies) | — |
 | OQ-SSO6 | **A lapsed session is a MESSAGE, not a request.** The 4xx names the command and a human runs it; the jail never triggers a host login. The pack README says the request shape is [`boundary-broker.md`](boundary-broker.md)'s to build — this design is a good first consumer for that queue and a bad place to invent it, since half an approval mechanism living in a credential pack is exactly the second front door that doc exists to prevent | 2026-09-17 | [§7](#7-refresh--what-happens-when-you-log-in-again) | — |

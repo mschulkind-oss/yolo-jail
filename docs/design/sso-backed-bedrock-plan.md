@@ -102,16 +102,14 @@ token = "bedrock-api-key-" + base64(<query string without scheme/host>) + <versi
 Pure `crypto/hmac` + `crypto/sha256`; no AWS SDK needed for this half. The version suffix is
 the part most likely to be wrong from a teardown — get it from the generator.
 
-## Measure this before anything else
+## The two SSO config forms are two code paths
 
-**Which SSO config form the machine uses.** No `[sso-session]` block in `~/.aws/config` means
-the legacy fixed-8h non-refreshable form, where nothing refreshes at all; with one, the daemon
-refreshes the access token like any other client ([`OQ-SSO3`](sso-backed-bedrock.md#13-decision-ledger)).
-It changes no ruling now, but it decides which path the resolver exercises first and what a
-realistic test fixture looks like. Log in, then watch `~/.aws/sso/cache/*.json`'s `expiresAt` against the portal
-session's own expiry, touching nothing in between — the question is whether a cached token
-nobody refreshes survives as long as the session does. Do it before writing the resolver:
-the two implementations below are not a refactor apart.
+Not a measurement, and not a fact about any one machine: both forms exist in the wild and the
+resolver carries both ([§8](sso-backed-bedrock.md#8-behaviour-this-design-specifies)). The
+branch is detectable from the profile — an `sso_session` key, or equivalently a `refreshToken`
+in the cache entry — and it decides whether the refresh path is reachable at all. Build the
+legacy path first: it is the smaller one, it is the one with no refresh to get wrong, and a
+fixture for it needs no live rotation.
 
 ## Resolving the host session
 
