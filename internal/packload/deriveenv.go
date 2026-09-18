@@ -116,13 +116,7 @@ func AgentEnv(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map[string
 	if agent == "" || profile == "" {
 		return nil, nil
 	}
-	var owner *Pack
-	for _, p := range packs {
-		if p.installsBin(agent) {
-			owner = p
-			break
-		}
-	}
+	owner := binOwner(packs, agent)
 	if owner == nil {
 		return nil, nil
 	}

@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
@@ -39,7 +40,7 @@ import (
 // The notice text is config.NoPacksMessage/NoPacksGuidance, shared with the launch-time
 // warning in internal/cli/run so `yolo check` and a launch cannot tell the user
 // different things.
-func (o *Options) sectionPacks(r *reporter) {
+func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	// The header and the trailing blank are now UNCONDITIONAL — every branch below
 	// prints something, and the separator used to be missing because the section only
 	// existed for pack users (it ran straight into "Entrypoint Dry-Run").
@@ -225,6 +226,20 @@ func (o *Options) sectionPacks(r *reporter) {
 	for _, c := range packload.AgentNameCollisions(loaded) {
 		r.fail("agent name "+c.Target+" has more than one owning pack",
 			"packs "+strings.Join(c.Packs, ", ")+" — "+c.Reason)
+	}
+
+	// The launch's PROTOCOL-PAIRING gate, predicted over the SELECTED set — here rather
+	// than in Merged Configuration because the gate compares a config selection against
+	// PACK DECLARATIONS, and `loaded` is the only place both are in hand. After
+	// ResolveNeeds, so a pack pulled in by `needs` can supply the adapter that resolves a
+	// pairing, exactly as it does at launch. protocols.go states why this calls the
+	// launch's own gate instead of restating it.
+	pairErrs, pairWarns := protocolPairingGap(loaded, merged, r.configWarn)
+	for _, e := range pairErrs {
+		r.fail(e, "")
+	}
+	for _, w := range pairWarns {
+		r.warn(w, "")
 	}
 
 	// Drift last, so it reads as a summary rather than interleaving with per-pack

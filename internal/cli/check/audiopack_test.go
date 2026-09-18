@@ -13,6 +13,7 @@ package check
 
 import (
 	"bytes"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"strings"
 	"testing"
 )
@@ -27,7 +28,7 @@ func TestAudioPackSelectionPassesCheck(t *testing.T) {
 
 	var out bytes.Buffer
 	r := newReporter(&out, false)
-	(&Options{}).sectionPacks(r)
+	(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
 	got := out.String()
 	if r.failed != 0 {
 		t.Errorf("selecting the audio pack must leave `yolo check` clean, got %d failure(s):\n%s",
@@ -52,7 +53,7 @@ func TestAudioPackSelectionWithAnAgentPackPassesCheck(t *testing.T) {
 
 	var out bytes.Buffer
 	r := newReporter(&out, false)
-	(&Options{}).sectionPacks(r)
+	(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
 	if r.failed != 0 {
 		t.Errorf("claude + audio must be a clean selection, got %d failure(s):\n%s",
 			r.failed, out.String())

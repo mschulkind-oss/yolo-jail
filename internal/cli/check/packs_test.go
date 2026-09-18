@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
 func packsFixture(t *testing.T, cfgBody string) {
@@ -50,7 +51,7 @@ func TestSectionPacksFailsOnStagingRefusal(t *testing.T) {
 
 	var buf bytes.Buffer
 	r := &reporter{w: &buf}
-	(&Options{}).sectionPacks(r)
+	(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
 
 	if r.failed == 0 {
 		t.Errorf("expected a failure for a symlink escaping the pack root:\n%s", buf.String())
@@ -79,7 +80,7 @@ func TestSectionPacksPassesAPackShippingATool(t *testing.T) {
 
 	var buf bytes.Buffer
 	r := &reporter{w: &buf}
-	(&Options{}).sectionPacks(r)
+	(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
 
 	if r.failed != 0 {
 		t.Errorf("a pack shipping a skill's own tool must check clean:\n%s", buf.String())
@@ -99,7 +100,7 @@ func TestSectionPacksPassesCleanPack(t *testing.T) {
 
 	var buf bytes.Buffer
 	r := &reporter{w: &buf}
-	(&Options{}).sectionPacks(r)
+	(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
 	if r.failed != 0 {
 		t.Errorf("clean pack failed:\n%s", buf.String())
 	}
@@ -119,7 +120,7 @@ func TestSectionPacksWarnsWhenNoneConfigured(t *testing.T) {
 	packsFixture(t, `{}`)
 	var buf bytes.Buffer
 	r := &reporter{w: &buf}
-	(&Options{}).sectionPacks(r)
+	(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
 	if r.warned != 1 {
 		t.Errorf("warned = %d, want 1:\n%s", r.warned, buf.String())
 	}
@@ -146,7 +147,7 @@ func TestSectionPacksUsesTheSharedNoPacksText(t *testing.T) {
 	packsFixture(t, `{}`)
 	var buf bytes.Buffer
 	r := &reporter{w: &buf}
-	(&Options{}).sectionPacks(r)
+	(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
 	for _, want := range []string{config.NoPacksMessage, config.NoPacksGuidance} {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("section does not render the shared constant %q verbatim:\n%s",
@@ -161,7 +162,7 @@ func TestSectionPacksReportsUnfetchedGitPackWithoutFetching(t *testing.T) {
 	packsFixture(t, `{"packs": ["git+https://example.invalid/o/r//p?ref=main"]}`)
 	var buf bytes.Buffer
 	r := &reporter{w: &buf}
-	(&Options{}).sectionPacks(r)
+	(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
 	if r.failed == 0 {
 		t.Errorf("expected a failure for a never-fetched pack:\n%s", buf.String())
 	}
@@ -187,7 +188,7 @@ func TestSectionPacksAlwaysFramesTheSection(t *testing.T) {
 			packsFixture(t, tc.cfg)
 			var buf bytes.Buffer
 			r := &reporter{w: &buf}
-			(&Options{}).sectionPacks(r)
+			(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
 			if !strings.Contains(buf.String(), "Packs") {
 				t.Errorf("section header missing:\n%s", buf.String())
 			}
@@ -211,7 +212,7 @@ func TestSectionPacksWarnsOnZeroStagedFiles(t *testing.T) {
 
 	var buf bytes.Buffer
 	r := &reporter{w: &buf}
-	(&Options{}).sectionPacks(r)
+	(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
 	if r.failed != 0 {
 		t.Errorf("an empty pack should warn, not fail:\n%s", buf.String())
 	}
@@ -232,7 +233,7 @@ func TestEmbeddedPacksPassCheckWithoutAnAddress(t *testing.T) {
 
 	var out bytes.Buffer
 	r := newReporter(&out, false)
-	(&Options{}).sectionPacks(r)
+	(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
 	got := out.String()
 	if strings.Contains(got, "no scheme") {
 		t.Errorf("an embedded pack must not be parsed as an address:\n%s", got)
@@ -279,7 +280,7 @@ func TestSectionPacksFailsOnDuplicateSurfaceOwner(t *testing.T) {
 
 	var buf bytes.Buffer
 	r := &reporter{w: &buf}
-	(&Options{}).sectionPacks(r)
+	(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
 
 	if r.failed == 0 {
 		t.Fatalf("a surface claimed by two packs must FAIL check — the launch refuses it, so a "+
@@ -299,7 +300,7 @@ func TestSectionPacksShippedSetHasNoSurfaceCollision(t *testing.T) {
 
 	var buf bytes.Buffer
 	r := &reporter{w: &buf}
-	(&Options{}).sectionPacks(r)
+	(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
 	if r.failed != 0 {
 		t.Errorf("the six shipped packs must not collide on a config surface:\n%s", buf.String())
 	}
@@ -321,7 +322,7 @@ func TestSectionPacksWarnsWithOnlyTheLocalPack(t *testing.T) {
 	}
 	var buf bytes.Buffer
 	r := &reporter{w: &buf}
-	(&Options{}).sectionPacks(r)
+	(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
 	if r.warned == 0 || !strings.Contains(buf.String(), config.NoPacksMessage) {
 		t.Errorf("a lone local pack silenced the no-agent notice — it delivers skills and prose, "+
 			"not something to run them:\n%s", buf.String())
@@ -365,7 +366,7 @@ func TestSectionPacksReportsTheStagedTreeWhenTheSourceIsNotVisible(t *testing.T)
 			return root
 		}
 		return ""
-	}}).sectionPacks(r)
+	}}).sectionPacks(r, jsonx.NewOrderedMap())
 
 	if r.failed != 0 {
 		t.Errorf("a staged pack must not be reported as broken:\n%s", buf.String())
@@ -393,7 +394,7 @@ func TestSectionPacksStillFailsWhenNothingWasStagedEither(t *testing.T) {
 			return t.TempDir() // exists, but holds no pack of that name
 		}
 		return ""
-	}}).sectionPacks(r)
+	}}).sectionPacks(r, jsonx.NewOrderedMap())
 
 	if r.failed == 0 {
 		t.Errorf("a pack that is neither resolvable nor staged is broken:\n%s", buf.String())
@@ -426,7 +427,7 @@ func TestSectionPacksFailsOnDuplicateAgentNameOwner(t *testing.T) {
 
 	var buf bytes.Buffer
 	r := &reporter{w: &buf}
-	(&Options{}).sectionPacks(r)
+	(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
 
 	if r.failed == 0 {
 		t.Fatalf("an agent name claimed by two packs must FAIL check — the launch refuses it, "+
@@ -447,7 +448,7 @@ func TestSectionPacksShippedSetHasNoAgentNameCollision(t *testing.T) {
 
 	var buf bytes.Buffer
 	r := &reporter{w: &buf}
-	(&Options{}).sectionPacks(r)
+	(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
 	if r.failed != 0 {
 		t.Errorf("the six shipped packs each own their own name and must not collide:\n%s",
 			buf.String())

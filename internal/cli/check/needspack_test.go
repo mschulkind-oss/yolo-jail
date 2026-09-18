@@ -7,6 +7,7 @@ package check
 
 import (
 	"bytes"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,7 +40,7 @@ func TestSectionPacksPrintsNeedsAdditions(t *testing.T) {
 
 	var buf bytes.Buffer
 	r := &reporter{w: &buf}
-	(&Options{}).sectionPacks(r)
+	(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
 
 	if r.failed != 0 {
 		t.Fatalf("a live need must not fail check:\n%s", buf.String())
@@ -59,7 +60,7 @@ func TestSectionPacksFailsOnANonEmbeddedNeed(t *testing.T) {
 
 	var buf bytes.Buffer
 	r := &reporter{w: &buf}
-	(&Options{}).sectionPacks(r)
+	(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
 
 	if r.failed == 0 {
 		t.Fatalf("a need naming a non-embedded pack must FAIL check — the launch refuses "+
@@ -78,7 +79,7 @@ func TestSectionPacksPrintsNothingWhenNoNeedIsLive(t *testing.T) {
 
 	var buf bytes.Buffer
 	r := &reporter{w: &buf}
-	(&Options{}).sectionPacks(r)
+	(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
 
 	if r.failed != 0 {
 		t.Fatalf("an unmet need must not fail check:\n%s", buf.String())

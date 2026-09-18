@@ -61,6 +61,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 )
 
@@ -238,7 +239,7 @@ func TestSkippedPackEntryWarningReachesTheSummary(t *testing.T) {
 
 	var buf bytes.Buffer
 	r := newReporter(&buf, false)
-	(&Options{}).sectionPacks(r)
+	(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
 	got := stripANSI(buf.String())
 
 	if r.failed != 0 {

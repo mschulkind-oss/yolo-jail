@@ -346,3 +346,76 @@ func quotedProtocols(names []string) string {
 	}
 	return strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
 }
+
+// binOwner returns the selected pack that installs bin, or nil.
+//
+// EXTRACTED so AgentEnv and PairingRefusals cannot grow two answers to "whose agent is
+// this". The gate below predicts the gate AgentEnv applies, and a prediction that found a
+// different owner would predict a different launch — which is the failure mode the
+// capability gate's own second copy documents and deliberately accepts. Here it is
+// avoidable, so it is avoided.
+func binOwner(packs []*Pack, bin string) *Pack {
+	for _, p := range packs {
+		if p.installsBin(bin) {
+			return p
+		}
+	}
+	return nil
+}
+
+// PairingRefusals reports every protocol-pairing refusal the launch will produce for this
+// configuration — one per profiled agent, in table order, skipping the agents that resolve.
+//
+// # Why this exists, and why it is not a second copy
+//
+// The gate ships at AgentEnv and only there, so a config `yolo check` called clean was
+// still refused at launch — the one thing `check` exists to prevent. That is the exact
+// defect capabilities.go was written to fix for the capability gate, one feature later.
+//
+// ⚠ IT IS THE SAME FUNCTION, NOT A MIRROR OF IT. capabilities.go's copy is a copy because
+// reaching the launch's gate would mean exporting a method on run.Options and dragging its
+// printer along; that cost is real and its ⚠ records what the copy buys and what it risks.
+// Nothing of the kind applies here: the gate is already a free function in this package
+// over inputs a caller can assemble, so exporting an entry point is strictly cheaper than
+// restating twelve lines of pairing rules somewhere they can drift.
+//
+// # What the caller still has to get right, and what it therefore cannot promise
+//
+// The INPUTS are assembled twice — a checker composes providers and resolves profiles the
+// way the launch does — and that is the whole residue of duplication. Two consequences the
+// caller must state rather than hide:
+//
+//   - A `-p <name>` at the command line is NOT here. `check` reads configuration; the flag
+//     is an argument to a launch that has not happened. So a prediction covers the
+//     `use_profiles` selection and nothing else, and a flag can still produce a refusal
+//     nobody was warned about. Narrowing that needs the flag, not a wider census.
+//   - An agent with no profile is not pairing with anything. AgentEnv returns early on an
+//     empty profile and so does this, because the gate it predicts is reached through a
+//     SELECTION (§4.1) — a provider merely present in the table repoints nothing.
+//
+// profiles maps an agent's CLI name to its selected profile name (ProfileTable's shape).
+func PairingRefusals(packs []*Pack, providers *jsonx.OrderedMap,
+	resolved map[string]ResolvedProfile, profiles map[string]string) []error {
+	names := make([]string, 0, len(profiles))
+	for agent := range profiles {
+		names = append(names, agent)
+	}
+	sort.Strings(names)
+
+	var out []error
+	for _, agent := range names {
+		profile := profiles[agent]
+		if agent == "" || profile == "" {
+			continue
+		}
+		owner := binOwner(packs, agent)
+		if owner == nil {
+			continue
+		}
+		if err := refuseUnspeakableProvider(packs, owner, agent,
+			ProviderFor(resolved, profile), providers); err != nil {
+			out = append(out, err)
+		}
+	}
+	return out
+}

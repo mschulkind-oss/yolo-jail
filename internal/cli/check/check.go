@@ -134,7 +134,7 @@ func Check(opts Options) int {
 	// D1: validate pack contributions on the HOST, where erroring is normal and the
 	// message can be actionable — before the jail's fatal-generator policy turns the
 	// same problem into a refused boot. Offline: never fetches.
-	o.sectionPacks(r)
+	o.sectionPacks(r, merged)
 	if r.failed > 0 {
 		r.summaryFailWarn()
 		return finish(o.Stdout, os.Stderr, o.Format, r, 1)
