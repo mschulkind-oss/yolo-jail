@@ -126,6 +126,20 @@ func AgentEnv(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map[string
 	if owner == nil {
 		return nil, nil
 	}
+	selected := ProviderFor(cfg.resolved, profile)
+	// THE PROTOCOL GATE (protocol-resolution.md §3), above the derive and not inside it.
+	// A derive composes VARIABLES; whether this agent can be pointed at this provider at
+	// all is a question about two DECLARATIONS, and core answers it — which is the line
+	// OQ-CS8 draws and the reason nothing below learns a protocol name.
+	//
+	// Here rather than in the run pre-flight for the reason protocolresolution.go states:
+	// the gate needs a SELECTION, and this is the runner both notches reduce through with
+	// the resolved selection in hand. Above DeriveScript on purpose — a pairing nothing can
+	// serve is broken whether or not the pack ships a producer, and a silent pass for a
+	// pack with no derive.lua would make the gate depend on a file's existence.
+	if err := refuseUnspeakableProvider(owner, agent, selected, providers); err != nil {
+		return nil, err
+	}
 	script := DeriveScript(owner)
 	if script == "" {
 		return nil, nil
@@ -134,7 +148,7 @@ func AgentEnv(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map[string
 		Agent:            agent,
 		Env:              true,
 		ProfileName:      profile,
-		SelectedProvider: ProviderFor(cfg.resolved, profile),
+		SelectedProvider: selected,
 		Profile:          cfg.profileOptions(profile),
 		// The built-in source's capabilities, resolved the same way the surface path
 		// resolves them (surfaceSelectionFor) — `owner` is by construction the pack bin

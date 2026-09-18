@@ -130,25 +130,22 @@ yolo.env("claude", function(ctx)
     out.ANTHROPIC_BASE_URL = baseUrl
     routed = true
   end
-  -- A CREDENTIAL TRAVELS WITH THE ADDRESS IT WAS MINTED FOR, OR NOT AT ALL.
+  -- A CREDENTIAL TRAVELS WITH THE ADDRESS IT WAS MINTED FOR, OR NOT AT ALL — and this
+  -- producer no longer has to check, because the state is now UNREACHABLE.
   --
-  -- Three provider shapes reach here and only the middle one is wrong. A provider naming
-  -- an anthropic endpoint (or the shorthand) is ROUTED and its key belongs with that URL.
-  -- A provider naming NO endpoint at all has repointed nothing — that is the deliberate
-  -- BYO-key launch against Anthropic's own API, and its key is correct. But a provider
-  -- that NAMED a protocol and did not name ours is one this agent cannot reach, and
-  -- composing its key anyway sent a third-party credential to api.anthropic.com with no
-  -- base URL beside it (cerebras-pack-and-copilot-delivery.md's OQ-2, ruled 2026-09-18).
+  -- Two provider shapes reach here. One names an anthropic endpoint and is ROUTED, so its
+  -- key belongs with that URL. One names NO endpoint at all and has repointed nothing —
+  -- the deliberate BYO-key launch against Anthropic's own API, whose key is correct. The
+  -- third shape, a provider that NAMED a protocol and did not name ours, used to arrive
+  -- here and have its key composed with no base URL beside it, sending a third-party
+  -- credential to api.anthropic.com (OQ-2). It was guarded here from 2026-09-18 and the
+  -- guard said it was INTERIM: protocol-resolution.md's resolver refuses that pairing
+  -- before any derive runs (packload.ResolveProtocol, above AgentEnv's producer call), so
+  -- the shape cannot reach this line at all and the branch is deleted rather than reworked.
   --
-  -- The inverse was already kept below — `elseif routed` substitutes a dummy so a routed
-  -- launch is never keyless — so this is the missing half of a rule this file had.
-  --
-  -- INTERIM BY DESIGN. protocol-resolution.md makes this state unreachable: the agent
-  -- declares the protocol it speaks, the resolver refuses a pairing nothing can serve,
-  -- and a credential only ever accompanies an address the resolver produced. When that
-  -- lands, this branch is DELETED rather than reworked.
-  local namesAnotherProtocol = not routed and p.endpoints ~= nil and next(p.endpoints) ~= nil
-  if p.api_key and not namesAnotherProtocol then
+  -- The inverse stays below — `elseif routed` substitutes a dummy so a routed launch is
+  -- never keyless.
+  if p.api_key then
     out.ANTHROPIC_AUTH_TOKEN = p.api_key
   elseif routed then
     -- Routed/local endpoint with no explicit API key needs a dummy token so Claude

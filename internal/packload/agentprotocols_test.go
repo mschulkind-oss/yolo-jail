@@ -81,13 +81,9 @@ func TestShippedAgentPacksDeclareTheirProtocols(t *testing.T) {
 
 // THE DECLARATION IS MEASURED AGAINST THE REAL DERIVE, not against itself. claude declares
 // `anthropic`; the shipped packs/claude/derive.lua composes an address for a provider that
-// offers anthropic and none for a provider that offers openai. If those two ever disagree
-// the declaration is the thing that would start refusing working setups (R3), so they are
-// pinned together.
-//
-// Step 2 is INERT and this test is what says so: the resolver does not exist yet, so the
-// only thing that can turn an openai-only provider into an address is the derive, and it
-// does not.
+// offers anthropic, and the resolver refuses a provider that offers only openai. If the
+// declaration and the derive ever disagree, the declaration is the thing that would start
+// refusing working setups (R3), so they are pinned together.
 func TestClaudeDeclaresTheProtocolItsDeriveReads(t *testing.T) {
 	claude := realClaudePack(t)
 	if got := claude.Decl.SpokenProtocols("claude"); len(got) != 1 || got[0] != "anthropic" {
@@ -98,7 +94,7 @@ func TestClaudeDeclaresTheProtocolItsDeriveReads(t *testing.T) {
 		wantURL  string
 	}{
 		{"anthropic", "https://vendor.example/anthropic"},
-		{"openai", ""},
+		{"openai", ""}, // no common protocol: the launch refuses rather than composing
 	} {
 		t.Run(tc.protocol, func(t *testing.T) {
 			vendor := providerPack(t, `,"endpoints":{"`+tc.protocol+
@@ -115,6 +111,13 @@ func TestClaudeDeclaresTheProtocolItsDeriveReads(t *testing.T) {
 			vars, err := AgentEnv(packs, providers, map[string]string{"claude": "sel"},
 				"claude", "sel", func(string) (string, bool) { return "", false },
 				WithResolvedProfiles(resolved))
+			if tc.wantURL == "" {
+				if err == nil {
+					t.Fatalf("a provider offering only %q must refuse, got vars %#v — the manifest's "+
+						"`protocols` and the derive's own endpoint read must agree", tc.protocol, vars)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -125,17 +128,17 @@ func TestClaudeDeclaresTheProtocolItsDeriveReads(t *testing.T) {
 				}
 			}
 			if got != tc.wantURL {
-				t.Errorf("a provider offering only %q gave ANTHROPIC_BASE_URL=%q, want %q — the "+
-					"manifest's `protocols` and the derive's own endpoint read must agree",
-					tc.protocol, got, tc.wantURL)
+				t.Errorf("a provider offering only %q gave ANTHROPIC_BASE_URL=%q, want %q", tc.protocol, got, tc.wantURL)
 			}
 		})
 	}
 }
 
-// The declaration reaches nothing that composes a table: the providers table for a launch
-// is identical whether or not the agent pack declares its wires. Step 2's acceptance
-// criterion, as an assertion — "if landing it changes any launch, something read it early".
+// THE DECLARATION ALONE COMPOSES NO ADDRESS: with no adapter selected, the providers table
+// for a launch is identical whether or not the agent pack declares its wires. Step 2's
+// acceptance criterion as an assertion — "if landing it changes any launch, something read
+// it early" — and it survives step 4 because what changes a table is an ADAPTER, never a
+// protocol list.
 func TestProtocolDeclarationDoesNotTouchTheComposedTable(t *testing.T) {
 	vendor := providerPack(t, `,"endpoints":{"openai":{"base_url":"https://vendor.example/v1"}}`)
 	quiet := &Pack{Name: "claude", Decl: declFrom(t, `{"contributes":[
@@ -155,6 +158,6 @@ func TestProtocolDeclarationDoesNotTouchTheComposedTable(t *testing.T) {
 	}
 	if a, b := render(quiet), render(loud); a != b {
 		t.Errorf("declaring `protocols` changed the composed providers table:\n  without: %s\n  with:    %s\n"+
-			"Step 2 lands inert — a difference here means something read the field early", a, b)
+			"A protocol list is a fact about an agent; only an adapter contributes an address", a, b)
 	}
 }

@@ -320,13 +320,17 @@ func providerPack(t *testing.T, endpointsJSON string) *Pack {
 }
 
 // TestClaudeDeriveKeepsACredentialWithItsAddress is OQ-2's ruling, run through the real
-// packs/claude/derive.lua.
+// packs/claude/derive.lua and the real delivery path.
 //
-// Three provider shapes reach that producer and only the middle one was wrong. Until
-// 2026-09-18 a provider that NAMED a protocol claude does not speak, and carried a key,
-// had that key composed with no base URL beside it — so a third-party credential went to
-// api.anthropic.com. The other two must keep working, and they are why the rule cannot be
-// the simpler "only emit a key when routed": a provider naming NO endpoint has repointed
+// THE RULE IS THE SAME AND ITS ENFORCER MOVED. Until 2026-09-18 a provider that NAMED a
+// protocol claude does not speak, and carried a key, had that key composed with no base
+// URL beside it — so a third-party credential went to api.anthropic.com. The derive
+// guarded that shape as an explicitly INTERIM measure; protocol-resolution.md's step 3
+// makes it unreachable instead, so the middle case below is now a REFUSAL of the launch
+// rather than a quietly keyless environment, and the guard is gone from the derive.
+//
+// The other two shapes must keep working, and they are why the rule can never become the
+// simpler "only emit a key when routed": a provider naming NO endpoint has repointed
 // nothing, and its key is the deliberate BYO-key launch against Anthropic's own API.
 func TestClaudeDeriveKeepsACredentialWithItsAddress(t *testing.T) {
 	for _, tc := range []struct {
@@ -334,6 +338,7 @@ func TestClaudeDeriveKeepsACredentialWithItsAddress(t *testing.T) {
 		endpoints string
 		wantURL   string
 		wantToken string
+		refuses   bool
 	}{
 		{
 			name:      "anthropic endpoint: routed, and the key travels with it",
@@ -342,14 +347,14 @@ func TestClaudeDeriveKeepsACredentialWithItsAddress(t *testing.T) {
 			wantToken: "tok-9",
 		},
 		{
-			// THE DEFECT: the provider said where it lives and it is not Anthropic.
-			name:      "openai endpoint only: no address for claude, so no credential",
+			// THE DEFECT, now unrepresentable: the provider said where it lives and it is
+			// not Anthropic, so the pairing has no address and the launch says so.
+			name:      "openai endpoint only: no address for claude, so the launch refuses",
 			endpoints: `,"endpoints":{"openai":{"base_url":"https://api.cerebras.ai/v1"}}`,
-			wantURL:   "",
-			wantToken: "",
+			refuses:   true,
 		},
 		{
-			// NOT the defect, and the reason the rule reads the DECLARATION rather than
+			// NOT the defect, and the reason the resolver reads the DECLARATION rather than
 			// the absence of a URL: nothing was repointed, so the key is correct.
 			name:      "no endpoints at all: the BYO-key launch against Anthropic's own API",
 			endpoints: ``,
@@ -371,6 +376,20 @@ func TestClaudeDeriveKeepsACredentialWithItsAddress(t *testing.T) {
 				map[string]string{"claude": "sel"}, "claude", "sel",
 				func(n string) (string, bool) { return "tok-9", n == "P_KEY" },
 				WithResolvedProfiles(resolved))
+			if tc.refuses {
+				if err == nil {
+					t.Fatalf("a provider claude cannot speak to must REFUSE the launch, got vars %#v.\n\n"+
+						"A credential travels with the address it was minted for, or not at all: "+
+						"composing nothing for this shape leaves a user with a broken pairing and "+
+						"no explanation, which is what the resolver replaced.", vars)
+				}
+				for _, want := range []string{`speaks "openai"`, `speaks "anthropic"`, "cannot point claude at it"} {
+					if !strings.Contains(err.Error(), want) {
+						t.Errorf("the refusal must name both declarations; %q missing from:\n%v", want, err)
+					}
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -382,11 +401,8 @@ func TestClaudeDeriveKeepsACredentialWithItsAddress(t *testing.T) {
 				t.Errorf("ANTHROPIC_BASE_URL = %q, want %q", got["ANTHROPIC_BASE_URL"], tc.wantURL)
 			}
 			if got["ANTHROPIC_AUTH_TOKEN"] != tc.wantToken {
-				t.Errorf("ANTHROPIC_AUTH_TOKEN = %q, want %q.\n\nA credential travels with the "+
-					"address it was minted for, or not at all: a provider that named a protocol "+
-					"claude does not speak is one claude cannot reach, so its key must not be "+
-					"composed — while a provider that named no protocol has repointed nothing, "+
-					"and its key is correct.", got["ANTHROPIC_AUTH_TOKEN"], tc.wantToken)
+				t.Errorf("ANTHROPIC_AUTH_TOKEN = %q, want %q — a provider that named no protocol "+
+					"has repointed nothing, and its key is correct.", got["ANTHROPIC_AUTH_TOKEN"], tc.wantToken)
 			}
 		})
 	}
