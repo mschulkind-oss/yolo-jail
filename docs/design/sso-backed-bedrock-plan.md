@@ -8,7 +8,10 @@ summary: "The parking lot for implementation material from sso-backed-bedrock.md
 
 # SSO-backed Bedrock — implementation sketch
 
-**Status:** SKETCH, 2026-09-17 — incomplete, and unstable while questions are open.
+**Status:** SKETCH, 2026-09-17 — **stable but incomplete.** Every question in the design is
+ruled, so nothing here rests on a guess any more; what is missing is the codebase knowledge
+only an agent that has just read the tree can supply. Promote it with `implementation-plan`
+before anyone builds from it.
 
 **This is not a hand-off artifact.** It is the parking lot that keeps
 [`sso-backed-bedrock.md`](sso-backed-bedrock.md) at altitude. An agent must not build from
@@ -82,7 +85,7 @@ what an existing `supersedes` would want to say before fixing it.
 
 ## The N1 presign — reimplementable, but verify
 
-[`OQ-SSO5`](sso-backed-bedrock.md#14-decision-ledger) ships this arm, so this is live work.
+[`OQ-SSO5`](sso-backed-bedrock.md#13-decision-ledger) ships this arm, so this is live work.
 
 Shape recovered from the `aws-bedrock-token-generator` packages and third-party teardowns,
 **not** from an AWS specification. Treat as a starting point and diff against the official
@@ -103,7 +106,7 @@ the part most likely to be wrong from a teardown — get it from the generator.
 
 **Which SSO config form the machine uses.** No `[sso-session]` block in `~/.aws/config` means
 the legacy fixed-8h non-refreshable form, where nothing refreshes at all; with one, the daemon
-refreshes the access token like any other client ([`OQ-SSO3`](sso-backed-bedrock.md#14-decision-ledger)).
+refreshes the access token like any other client ([`OQ-SSO3`](sso-backed-bedrock.md#13-decision-ledger)).
 It changes no ruling now, but it decides which path the resolver exercises first and what a
 realistic test fixture looks like. Log in, then watch `~/.aws/sso/cache/*.json`'s `expiresAt` against the portal
 session's own expiry, touching nothing in between — the question is whether a cached token
@@ -112,7 +115,7 @@ the two implementations below are not a refactor apart.
 
 ## Resolving the host session
 
-Two implementations. [`OQ-SSO3`](sso-backed-bedrock.md#14-decision-ledger) settles the
+Two implementations. [`OQ-SSO3`](sso-backed-bedrock.md#13-decision-ledger) settles the
 *behaviour* — the daemon refreshes — and leaves the mechanism open:
 
 - **Shell out** to `aws configure export-credentials --profile X --format process`, then
@@ -130,8 +133,8 @@ hermetically. Weigh that before reaching for it; both options above avoid it.
 
 ## Config surface
 
-[`OQ-SSO4`](sso-backed-bedrock.md#14-decision-ledger) fixes these keys at **user scope
-only**. The narrowing half is settled: [`OQ-SSO1`](sso-backed-bedrock.md#14-decision-ledger)
+[`OQ-SSO4`](sso-backed-bedrock.md#13-decision-ledger) fixes these keys at **user scope
+only**. The narrowing half is settled: [`OQ-SSO1`](sso-backed-bedrock.md#13-decision-ledger)
 requires a narrowing setting and makes un-narrowed an explicit, disclosed choice, so the
 schema needs a representation for "deliberately un-narrowed" that cannot be reached by
 omission.
@@ -150,7 +153,7 @@ omission.
 **Two shapes, and N4 is the smaller one.** Under N4 the daemon makes no `AssumeRole` call at
 all — it resolves a profile and serves what comes back — so `role_arn`/`session_policy` are
 the N2/N3 path only. Whether the schema should make that an explicit mode rather than three
-optional keys is a real question, and [`OQ-SSO1`](sso-backed-bedrock.md#14-decision-ledger)'s
+optional keys is a real question, and [`OQ-SSO1`](sso-backed-bedrock.md#13-decision-ledger)'s
 ruling leans on it: "un-narrowed" has to be a value someone typed, never a set of absent keys.
 
 A shipped `bedrock-invoke-only` session policy would be `bedrock:InvokeModel`,
@@ -168,7 +171,7 @@ remaining lifetime. It would be the natural place, and it is the one surface whe
 
 - **The exclusivity refusal fails when its call site is deleted.** The class AGENTS.md names —
   a test that pins the callee while the call site is unpinned is not a test. Blocked on
-  [`OQ-SSO5`](sso-backed-bedrock.md#14-decision-ledger).
+  [`OQ-SSO5`](sso-backed-bedrock.md#13-decision-ledger).
 - **A golden response shape** asserted against the four required keys and an RFC3339
   `Expiration`, because the SDK rejects anything else with a message that does not name the
   missing field.

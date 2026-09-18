@@ -10,8 +10,8 @@ vantage:
 
 # Roadmap
 
-**Status:** CURRENT — 2026-09-17. **44 rows**: 5 to rule first, 23 needing a decision,
-6 ready to build, 8 waiting, 2 iced.
+**Status:** CURRENT — 2026-09-17. **44 rows**: 5 to rule first, 22 needing a decision,
+7 ready to build, 8 waiting, 2 iced.
 
 This file is a **routing table, not a place to think**: one line per open decision, naming
 the doc that holds it and what a ruling releases. It is **not a record of what happened** —
@@ -23,7 +23,7 @@ derived rather than carried forward; re-derive the live-question totals with che
 $ rg -c '^(#{2,4} |\s*[0-9]+[a-z]?\. |\s*[-*] )(<a id="[^"]*"></a> ?)?💬' docs/ --sort path
 ```
 
-**123 live questions across 34 docs**, plus one 🔒 that command cannot see.
+**122 live questions across 33 docs**, plus one 🔒 that command cannot see.
 
 ## Rule these first
 
@@ -64,7 +64,6 @@ sitting. All five below are the first class.
 | 21 | Whether the jail mounts the workspace at the host's path | [`workspace-path-mirroring.md`](../design/workspace-path-mirroring.md) · draft | 12 | [`OQ-WP8`](../design/workspace-path-mirroring.md#OQ-WP8) | **doc** — ratify the no |
 | 22 | Whether `macos-user`'s workspace root becomes configurable, and what the profile has to derive from it | [`configurable-workspace-root.md`](../design/configurable-workspace-root.md) · in-review | 4 | [`OQ-CW1`](../design/configurable-workspace-root.md#OQ-CW1) | **build** — the read-deny derived from the root, plus the whitelist that closes four lexical bypasses. ⚠ The whitelist wants to land before anyone relies on the current blacklist; withdrawing an accepted path later is a breaking change |
 | 22 | Which home a `yolo config` verb is about, and whether it says so | [`config-target-resolution.md`](../design/config-target-resolution.md) · draft | 6 | [`OQ-CR1`](../design/config-target-resolution.md#oq-cr1) | **defect** — four measured and all silent: one report describes two homes, a `cd` changes the answer at rc 0, an owned host's `diff` and `reset` disagree ([row 5](#rule-these-first)), and `render` previews with the wrong home's `host` layer |
-| 23 | How an `aws sso login` becomes Bedrock-only access inside a jail, and what refreshes it | [`sso-backed-bedrock.md`](../design/sso-backed-bedrock.md) · draft | 1 | [`OQ-SSO6`](../design/sso-backed-bedrock.md#OQ-SSO6) | **build** — five of six ruled 2026-09-17 ([Decision Ledger](../design/sso-backed-bedrock.md#14-decision-ledger)). The last one asks only whether a lapsed session may *request* a host login rather than report one, and blocks nothing: [`boundary-broker.md`](../design/boundary-broker.md) owns that queue |
 | 24 | Storage tier and pre-launch update execution for Pi extensions across jails | [`pi-extension-lifecycle.md`](../design/pi-extension-lifecycle.md) · in-review | 3 | [`OQ-1`](../design/pi-extension-lifecycle.md#OQ-1) | **build** — machine-scoped package storage and launcher refresh |
 
 **Rule together, or not at all.** [`E1`](BACKLOG.md#-e1--collapse-host_files-modes-43-copy-merges-into-readonly) · [`E2`](BACKLOG.md#-e2--readonly-as-a-real-ro-mount-instead-of-0o444) · [`OQ-B`](pack-host-management-plan.md#open-questions) are one asymmetry seen three times, and each doc says so.
@@ -96,6 +95,7 @@ Ruled, unblocked, and implementable cold — no memory of any conversation requi
 | 4 | Run the capability gate in `yolo check` | the gate shipped 2026-09-17 in the run pre-flight only, so a config `yolo check` calls clean can still be refused at launch — which is the one thing `check` exists to prevent | `internal/cli/check` |
 | 5 | Start `jail_daemon` on `macos-user` | only the HOST half of that backend's loophole lifecycle was generalised 2026-09-17: an endpoint is delivered and ACL-granted with no in-jail consumer, because the wiring lives in `loopholes.RuntimeArgsFor`'s `YOLO_JAIL_DAEMONS`, emitted into a container argv only, and nothing in `internal/macosuser` reads `JailDaemon` | `internal/macosuser`, the darwin bootstrap |
 | 6 | Strip `provides` from MCP entries before they reach an agent's config file | pre-existing and now load-bearing: `~/.claude.json` carries a key Claude Code does not know, and `provides` became a real input on 2026-09-17 rather than an inert annotation | the MCP projection |
+| 7 | Bedrock from a host `aws sso login`: a host credential service, plus a jail-side adapter speaking the AWS container-credentials protocol | all six questions ruled 2026-09-17 ([Decision Ledger](../design/sso-backed-bedrock.md#13-decision-ledger)); [§8](../design/sso-backed-bedrock.md#8-behaviour-this-design-specifies) specifies the behaviour and [§12](../design/sso-backed-bedrock.md#12-what-i-would-build-in-order) the order. ⚠ Its sketch is stable but is NOT a hand-off artifact — promote it with `implementation-plan` first. ⚠ The reachability half is structurally invisible to a nested jail (AGENTS.md's carve-out), so it needs a real rootless host | [`sso-backed-bedrock.md`](../design/sso-backed-bedrock.md) · [`sso-backed-bedrock-plan.md`](../design/sso-backed-bedrock-plan.md) |
 
 ## 🔒 Waiting
 
@@ -123,7 +123,7 @@ Ruled, unblocked, and implementable cold — no memory of any conversation requi
 
 | | The uncertainty | What would thaw it |
 |---|---|---|
-| [`boundary-broker.md`](../design/boundary-broker.md) — a generic approval broker | its own [§5](../design/boundary-broker.md#5-three-tiers-not-two--and-git-wants-the-middle-one) half-undercuts the premise: the motivating GitHub case probably wants a proxy, not a human | a concrete instance the current model blocks — [`OQ-SSO6`](../design/sso-backed-bedrock.md#OQ-SSO6) is the first candidate: a lapsed AWS SSO session that the jail can only report, where a request-and-approve tier would let it ask |
+| [`boundary-broker.md`](../design/boundary-broker.md) — a generic approval broker | its own [§5](../design/boundary-broker.md#5-three-tiers-not-two--and-git-wants-the-middle-one) half-undercuts the premise: the motivating GitHub case probably wants a proxy, not a human | a concrete instance the current model blocks. One now exists and deliberately declined to build it: [`OQ-SSO6`](../design/sso-backed-bedrock.md#13-decision-ledger) ruled a lapsed AWS SSO session a message the jail reports, never a request it files, because half an approval mechanism inside a credential pack is the second front door this doc exists to prevent. The first consumer is identified and waiting rather than hypothetical |
 | [`cache-relocation.md`](cache-relocation.md) — `yolo cache relocate` | all three questions are HELD by choice: what is undecided is whether we want the feature | ruling [`OQ-CR1`](cache-relocation.md#-oq-cr1--is-cache_relocations-the-right-level-held), which carries CR2 with it |
 
 ## What this file does not cover

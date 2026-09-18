@@ -1,17 +1,17 @@
 ---
 title: "Bedrock from an SSO login, without handing over the account"
 date: 2026-09-17
-status: in-review
+status: accepted
 tags: [aws, bedrock, sso, credentials, loopholes, packs, boundary]
 summary: "How a host-side `aws sso login` becomes Bedrock access inside a jail without the jail holding anything else the login can reach. Least privilege and transparent refresh turn out to be independent problems: narrowing happens host-side before the credential crosses, and refresh happens only when what crosses is a pointer rather than a value. Measured: all four shipped agents already implement the pull channel this needs."
 ---
 
 # Bedrock from an SSO login, without handing over the account
 
-**Status:** DESIGN, 2026-09-17 — **five of six questions ruled that day**
-([§14](#14-decision-ledger)); the one left blocks nothing. Nothing built. Repo claims
-verified against `d4c0e7e3`; every agent-artifact and vendor claim carries its version and
-date in [§11](#11-evidence-and-how-to-re-check-it).
+**Status:** DECIDED, 2026-09-17 — all six questions ruled that day
+([§13](#13-decision-ledger)). Nothing built. Repo claims verified against `d4c0e7e3`; every
+agent-artifact and vendor claim carries its version and date in
+[§11](#11-evidence-and-how-to-re-check-it).
 
 > **In short.** Least privilege and transparent refresh are independent problems with
 > different solutions: narrowing happens **host-side, before the credential crosses**, and
@@ -33,7 +33,7 @@ ships.
 **Cost.** One more host daemon and one more `yolo-jaild` subcommand. Scoping down to
 *inference only* needs one IAM role to assume — often self-serve, but somebody has to create
 it, and until it exists the service can narrow to the Bedrock **service** but not to
-`InvokeModel` ([OQ-SSO1](#14-decision-ledger) decides what it does in the meantime). Nothing here
+`InvokeModel` ([OQ-SSO1](#13-decision-ledger) decides what it does in the meantime). Nothing here
 reaches `macos-user`.
 
 **Scope note, 2026-09-17.** **N4 — a Bedrock-only permission set — is deferred**, by the
@@ -42,14 +42,14 @@ is chased only if that proves insufficient. It costs nothing in build order
 ([§12](#12-what-i-would-build-in-order)) and it does not remove N4 from
 [§6](#6-narrowing--shape-scoped-and-policy-scoped), which is where it waits. What it does
 change is which narrowing v1 ships against, which
-[`OQ-SSO1`](#14-decision-ledger) settled under this deferral.
+[`OQ-SSO1`](#13-decision-ledger) settled under this deferral.
 
 **Start at [§2](#2-two-requirements-two-axes--and-they-do-not-share-a-mechanism)** — the two
 axes. Every option below is a point on that grid and nothing else in this doc makes sense
 first.
 
-**Needs your ruling:** [OQ-SSO6](#OQ-SSO6), and nothing else — the other five are settled
-in the [Decision Ledger](#14-decision-ledger).
+**Needs your ruling:** **None** — all six are settled in the
+[Decision Ledger](#13-decision-ledger).
 
 **Reads with:** [`bedrock-plumbing.md`](bedrock-plumbing.md) (its
 [§9](bedrock-plumbing.md#9-non-goals) excludes *"no credential lifecycle … no refresh daemon,
@@ -59,8 +59,8 @@ compose without either changing),
 enumeration this adds to, and the boundary rules it must not break),
 [`openai-auth-broker.md`](openai-auth-broker.md) (the host-singleton-plus-jail-adapter shape,
 built),
-[`boundary-broker.md`](boundary-broker.md) (where a human-approval tier would live if
-[OQ-SSO6](#OQ-SSO6) ever wants one),
+[`boundary-broker.md`](boundary-broker.md) (where the human-approval tier this design
+deliberately does not build would live),
 [`sso-backed-bedrock-plan.md`](sso-backed-bedrock-plan.md) (the implementation sketch —
 incomplete, and unstable while questions are open).
 
@@ -354,7 +354,7 @@ surface, no per-agent code — and it is worth being plain that it is also the w
 > jail there is no boundary at all**: every MCP server, every command the agent runs, every
 > `curl` can `GET` the same credentials. Nothing can change that — see the token paragraph
 > below — so the blast radius of this endpoint is exactly *"whatever the credential can do."*
-> That is the reason [OQ-SSO1](#14-decision-ledger) is the closure question for the design rather than a
+> That is the reason [OQ-SSO1](#13-decision-ledger) is the closure question for the design rather than a
 > configuration detail: the narrowing is not defence in depth here, it is the only defence.
 
 **What lands in the jail environment** is two pointers and a region, through the pack's
@@ -475,7 +475,7 @@ create for you**. Same mechanisms, keyed on that instead.
 | a **permission set** | **N4** | named actions | up to +12h | yes |
 | an **IAM role** in the account | N2 / N3 — chained | named actions | **+1h**, not raisable | yes |
 | **nothing**, and narrowing matters more | N1 — the presigned bearer | the Bedrock **service** | 12h total, not a tail | **no** |
-| **nothing**, and refresh matters more | un-narrowed permission-set credentials ([OQ-SSO1](#14-decision-ledger)) | whatever your permission set grants | up to +12h | yes |
+| **nothing**, and refresh matters more | un-narrowed permission-set credentials ([OQ-SSO1](#13-decision-ledger)) | whatever your permission set grants | up to +12h | yes |
 
 **The first row is the one people miss, and it costs nothing.** AWS's own guidance is that
 *"you can assign multiple permission sets to the same user"* and that an administrative user
@@ -517,7 +517,7 @@ at all is a different and stronger property, and it costs a wire implementation 
 seeing every prompt; it is priced as [option E](#4-five-options) and deliberately not
 pursued. Do not read the presence of a token in the jail as this design falling short of one.
 
-What the service does when neither is configured is [OQ-SSO1](#14-decision-ledger), and it is the
+What the service does when neither is configured is [OQ-SSO1](#13-decision-ledger), and it is the
 security posture of the whole feature: serving an un-narrowed SSO session over a beautifully
 refreshing pull channel would be option A with extra steps.
 
@@ -537,7 +537,7 @@ The headline requirement, stated as a sequence.
    gets a fresh credential and never learns that anything happened.
 
 **And when the session is not live.** It **never fires a login** — that is P2, and
-[OQ-SSO6](#OQ-SSO6) is the question of whether it ever should. It errors, and the remedy is
+[`OQ-SSO6`](#13-decision-ledger) ruled that it never should. It errors, and the remedy is
 the ordinary gesture:
 
 1. The SSO session lapses. **Nothing breaks yet**: the credential the agent is holding is
@@ -610,7 +610,7 @@ number, not the design's**: on N4 the tail is the permission set's own duration,
 > as the upstream IdP session lasts, through the localhost PKCE flow. Out of scope here and
 > deliberately not designed — but worth recording, because with one in place the lapsed-
 > session path above becomes rare rather than daily, which is most of
-> [OQ-SSO6](#OQ-SSO6)'s weight. One precision for whoever builds it: the
+> [`OQ-SSO6`](#13-decision-ledger)'s reasoning rests on. One precision for whoever builds it: the
 > *"reuses the existing session"* trap above is a fact about **`aws sso login`**. A direct
 > PKCE `CreateToken` against the OIDC endpoint is a different call, and whether it begins a
 > new portal session or attaches to the live one is unverified here.
@@ -638,7 +638,8 @@ service can answer an expired session with a body naming the exact command:
 That is the whole human-in-the-loop story for v1, and it is one-way by design: the jail is
 told what to ask for and a human does it. Making the jail able to *trigger* a host login is
 [`boundary-broker.md`](boundary-broker.md)'s approval queue, and half of it built here would
-be the second front door that document exists to prevent ([OQ-SSO6](#OQ-SSO6)).
+be the second front door that document exists to prevent
+([`OQ-SSO6`](#13-decision-ledger)).
 
 ---
 
@@ -788,8 +789,8 @@ provider already owns is how the Bedrock region got confusing in the first place
 | | Risk | Mitigation |
 | :--- | :--- | :--- |
 | **R1** | The 1000 ms SDK budget is missed on a cold cache and the agent sees a credential error that looks like an auth failure. | The pre-mint rule in [§8](#8-behaviour-this-design-specifies) is the mitigation, and done-condition 2 measures the served latency directly. If it still bites, the service can block the *launch* until its first mint lands rather than the *request*. |
-| **R2** | Two processes rotate the SSO refresh token at once — the daemon and the human's own `aws` — and the later write clobbers the newer token, leaving a dead one on disk. | Small and bounded: unlike the Claude broker's single-use token, a lost race here is recovered by re-reading the cache, and the worst case costs one `aws sso login`. yolo's own side is already serialized by the singleton ([`OQ-SSO2`](#14-decision-ledger)); the human's CLI takes no lock and no AWS tool expects it to. Write by atomic rename and re-read after, rather than inventing a protocol the ecosystem does not have. |
-| **R3** | An admin will not create the role N2 needs, and the feature ships serving un-narrowed sessions "temporarily". | [OQ-SSO1](#14-decision-ledger). If the answer is refuse-by-default, this risk becomes a configuration error instead of a silent widening. |
+| **R2** | Two processes rotate the SSO refresh token at once — the daemon and the human's own `aws` — and the later write clobbers the newer token, leaving a dead one on disk. | Small and bounded: unlike the Claude broker's single-use token, a lost race here is recovered by re-reading the cache, and the worst case costs one `aws sso login`. yolo's own side is already serialized by the singleton ([`OQ-SSO2`](#13-decision-ledger)); the human's CLI takes no lock and no AWS tool expects it to. Write by atomic rename and re-read after, rather than inventing a protocol the ecosystem does not have. |
+| **R3** | An admin will not create the role N2 needs, and the feature ships serving un-narrowed sessions "temporarily". | [OQ-SSO1](#13-decision-ledger). If the answer is refuse-by-default, this risk becomes a configuration error instead of a silent widening. |
 | **R4** | A future AWS SDK tightens the loopback carve-out and plain HTTP stops being accepted. | `checkUrl.js` is 40 lines and re-checkable in seconds ([§11](#11-evidence-and-how-to-re-check-it)); the fallback is the per-jail TLS front, which is already published — it costs a CA-trust question per SDK, not a redesign. |
 | **R5** | Four agents are claimed to work from string evidence, and only claude is exercised. | Done-condition 7 is a live turn on each. This is the standing weakness of every provider integration in this repo and the answer is the same: the done-conditions are turns, not greps. |
 | **R6** | The nested-jail netns sharing in [§5](#5-the-recommended-shape) is discovered by someone reasoning about process isolation and read as a vulnerability. | It is documented here and belongs in the pack README. A nested jail shares the home already; the netns is not the widest thing it shares. |
@@ -901,15 +902,20 @@ delays nothing. It only sharpens step 2.
    `--self-check` that mints once against the configured profile and prints what it got, with
    the credential elided. Nothing crosses a boundary yet, and it is the half that can be
    wrong about AWS.
-2. **The narrowing surface**, per the [Decision Ledger](#14-decision-ledger): a required
+2. **The narrowing surface**, per the [Decision Ledger](#13-decision-ledger): a required
    setting, an explicit un-narrowed value that cannot be reached by omission, and the launch
    disclosure. It rides step 1 rather than following it, because retrofitting a default that
    widens is the one direction that breaks a working setup.
 3. **The adapter and the manifest.** `yolo-jaild aws-credential-adapter`, `publishes: "socket"`,
-   `scope` per [OQ-SSO2](#14-decision-ledger). Done-condition 2 (a `curl` inside the jail) is reachable
+   `scope` per [OQ-SSO2](#13-decision-ledger). Done-condition 2 (a `curl` inside the jail) is reachable
    here and proves the whole transport without an agent.
-4. **The `aws-auth` pack**, with the `kind: "env"` pointers and the README that names option A
-   and refuses it in prose. Selecting it changes nothing observable until step 5.
+4. **The `aws-auth` pack**, with the `kind: "env"` pointers and its README. Four things are
+   owed to that README and they are scattered through this doc, so collect them: option A
+   named and refused in prose ([§4](#4-five-options)); the nested-jail netns property (R6);
+   that the only dial making a human log in less often is instance-wide (R7); and that the
+   request-shaped version of a lapsed session is `boundary-broker`'s to build, not this
+   pack's ([`OQ-SSO6`](#13-decision-ledger)). Selecting the pack changes nothing observable
+   until step 5.
 5. **`needs` on the consumers**, and done-conditions 1 and 4 — the headline, measured.
 6. **The exclusivity refusal** with a test that fails when the call site is deleted, plus the
    `~/.aws`-grant conflict as a `yolo check` line.
@@ -919,37 +925,7 @@ delays nothing. It only sharpens step 2.
 
 ---
 
-## 13. Open Questions
-
-Checked against the sibling ledgers first.
-[`agent-auth-modes.md`](agent-auth-modes.md)'s [OQ-9](agent-auth-modes.md#11-open-questions)
-asks whether AWS's multi-variable credential ever gets first-class declaration, and leans
-*"leave it on `env_sources`."* **That ruling holds and this design strengthens it**: what
-crosses here is a pointer pair, not a credential pair, so it wants no new schema at all.
-[`bedrock-plumbing.md`](bedrock-plumbing.md)'s seven questions are all about providers, names
-and model ids; none of them touch credentials, by that doc's own
-[§9](bedrock-plumbing.md#9-non-goals).
-
-1. 💬 **OQ-SSO6: Is a lapsed session a message, or a request?** [§7](#7-refresh--what-happens-when-you-log-in-again) proposes a
-   4xx whose `Message` names the command, which reaches the human through the agent's error
-   text — one-way, no new machinery. The other shape is
-   [`boundary-broker.md`](boundary-broker.md)'s queue: the jail *requests* a host-side
-   `aws sso login` and the human approves it, which is a much better experience and is a
-   second front door if it is built here. Stakes: whether this feature is the first consumer
-   of an approval tier, or stays deliberately one-way.
-
-   <!-- vantage: oq id=OQ-SSO6 leaning="Message only for v1, and say in the pack README that the request shape is boundary-broker's to build. This design is a good first consumer for that queue and a bad place to invent it — half an approval mechanism living in a credential pack is exactly the second front door that doc exists to prevent." -->
-
-   _Leaning:_ Message only for v1, and say in the README that the request shape is
-   `boundary-broker`'s to build. This is a good first consumer for that queue and a bad place
-   to invent it.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
----
-
-## 14. Decision Ledger
+## 13. Decision Ledger
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
@@ -958,3 +934,4 @@ and model ids; none of them touch credentials, by that doc's own
 | OQ-SSO3 | **The daemon refreshes the access token; it never runs a login.** Transparent operation while the session is valid *is* the requirement, so a daemon that waits for someone else to refresh is not implementing it. Refreshing is what every AWS client on the machine already does against the same cache; the rotation race is recoverable, unlike the single-use-token case the Claude broker exists for (R2) | 2026-09-17 | [§1](#1-verdict-and-principles) P2 | — |
 | OQ-SSO4 | **User config scope only** for the profile, role and session policy. The allowlist-plus-workspace-choice variant is strictly additive later; shipping it first invents a second scope grammar for one feature | 2026-09-17 | [§8](#8-behaviour-this-design-specifies) | — |
 | OQ-SSO5 | **Ship the N1 bearer arm, and make the two arms mutually exclusive at load** — a config enabling both refuses the launch, naming which to drop. It earns its place as the no-IAM-change narrowing and as the fallback for a chain-less client; what it must never be is a quiet winner over the arm that refreshes | 2026-09-17 | [§8](#8-behaviour-this-design-specifies) | — |
+| OQ-SSO6 | **A lapsed session is a MESSAGE, not a request.** The 4xx names the command and a human runs it; the jail never triggers a host login. The pack README says the request shape is [`boundary-broker.md`](boundary-broker.md)'s to build — this design is a good first consumer for that queue and a bad place to invent it, since half an approval mechanism living in a credential pack is exactly the second front door that doc exists to prevent | 2026-09-17 | [§7](#7-refresh--what-happens-when-you-log-in-again) | — |
