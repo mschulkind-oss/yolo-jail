@@ -8,8 +8,11 @@ summary: "Build hand-off for sso-backed-bedrock.md, written against the tree: th
 
 # Plan: Bedrock from a host SSO login
 
-**Status:** DECIDED, 2026-09-17 — the design is ruled and nothing is built. A sketch until
-2026-09-17; now a **hand-off**, promoted against the tree at `6ded2789`.
+**Status:** IN PROGRESS, 2026-09-18 — steps **1 and 2 are built** (`internal/awsauth`,
+`internal/awsauthdaemon`); steps 3–8 are not. DECIDED 2026-09-17, when the design was ruled
+and nothing was built; a sketch before that, and a **hand-off** promoted against the tree at
+`6ded2789`. See [Progress](#progress) for what landed and what a real host still has to
+settle.
 
 **Design:** [`sso-backed-bedrock.md`](sso-backed-bedrock.md) — behaviour in
 [§8](sso-backed-bedrock.md#8-behaviour-this-design-specifies), order in
@@ -127,8 +130,8 @@ Report a real-host result with `podman info --format '{{.Host.RootlessNetworkCmd
 
 | # | Step | Proves | Verify |
 | :--- | :--- | :--- | :--- |
-| 1 | `internal/awsauth` + `internal/awsauthdaemon`: resolve via `aws`, cache by profile, flock, pre-mint ticker, `--self-check` minting once and printing the four keys with the secret elided; the `runInternalDaemon` row and its dispatch test (mirror `TestInternalDaemonDispatchRoutesOpenAIAuthBroker`) | `go test ./internal/awsauth/... ./internal/awsauthdaemon/...`; `yolo internal daemon aws-auth --self-check --settings <file>` | unit; the self-check wants a host with an `aws` login |
-| 2 | The narrowing setting, inside step 1's settings file: absent → refuse at spawn naming the key; un-narrowed by name → serve, plus one launch disclosure line (the resolved values are in hand in `writeLoopholeSettings`) | unit cases: absent, N2 role + policy, un-narrowed by name | unit |
+| 1 | **BUILT, less the dispatch row** ([Progress](#progress)) — `internal/awsauth` + `internal/awsauthdaemon`: resolve via `aws`, cache by profile, flock, pre-mint ticker, `--self-check` minting once and printing the four keys with the secret elided. The `runInternalDaemon` row and its dispatch test (mirror `TestInternalDaemonDispatchRoutesOpenAIAuthBroker`) are **still owed** | `go test ./internal/awsauth/... ./internal/awsauthdaemon/...`; `yolo internal daemon aws-auth --self-check --settings <file>` | unit; the self-check wants a host with an `aws` login |
+| 2 | **BUILT** — the narrowing setting, inside step 1's settings file: absent → refuse at spawn naming the key; un-narrowed by name → serve, plus the disclosure line. Two of its three call sites exist (spawn log, `--self-check` `NOTE:`); the LAUNCH line is a call to `Narrowing.DisclosureLine` from `writeLoopholeSettings` | unit cases: absent, N2 role + policy, un-narrowed by name | unit |
 | 3 | `internal/awscredadapter` + the `yolo-jaild` row; the manifest; `packs/embed.go`; the census rows | `yolo pack lint packs/aws-auth`; in a nested jail selecting the pack, `curl -s $AWS_CONTAINER_CREDENTIALS_FULL_URI` returns the four keys, or the 4xx `Code`/`Message` with no session | nested proves the transport is **wired**; that the jail reaches the front is **real rootless host** only |
 | 4 | `packs/aws-auth/pack.json` (the gated `env` pointer) and README | `yolo pack footprint packs/aws-auth`: one env key, one loophole, no host grant | unit |
 | 5 | `needs` on `packs/claude`; done-conditions 1 and 4 | a claude turn on Bedrock; lapse, `aws sso login`, next turn succeeds with no relaunch | **real rootless host** (an SSO login, a browser, the forwarding hop) |
@@ -138,6 +141,116 @@ Report a real-host result with `podman info --format '{{.Host.RootlessNetworkCmd
 
 **Expensive if late:** step 2 inside step 1 (a widening default retrofitted breaks working
 setups — the design says so); the census rows in step 3 (every later `just test-fast` is red).
+
+## Progress
+
+**Steps 1 and 2 landed 2026-09-18**, unit-verified and nothing else — which is the whole
+story this round: `--self-check` wants a host with a live `aws sso login`, and the transport
+half is structurally invisible to a nested jail.
+
+What the two new packages do:
+
+- `internal/awsauth` — the minted-credential cache (keyed by profile, atomic 0600-in-0700
+  replacement), the host-wide flock beside it, the mint, the narrowing, and the SSO
+  config-form report. The AWS surface is ONE exec seam (`Runner`), so no test runs the real
+  binary or reaches the network. `Credential.ContainerCredentials` is the only place the
+  `SessionToken` → `Token` rename happens.
+- `internal/awsauthdaemon` — `Main`, the fronted socket plus its `.host` sibling, the
+  pre-mint ticker, the request handler, and `--self-check`. Its `prepare` makes every spawn
+  decision and is split out of `Main` so the decisions AND THEIR ORDER are testable without
+  binding a socket.
+
+**The settings keys, which were [cheap and yours](#blockers) and are now spent.** Declared
+`scope: "user"`, every one of them, with `journal`'s `full` as the shape. Step 3's manifest
+needs exactly these four:
+
+| Key | Type | Default | Meaning |
+| :--- | :--- | :--- | :--- |
+| `profile` | `string` | `""` | the AWS profile the service resolves. Absent → refuse at spawn |
+| `role_arn` | `string` | `""` | the role the N2/N3 arms assume |
+| `session_policy` | `string` | `""` | the inline session policy the N2 arm attaches (JSON, checked at spawn) |
+| `unnarrowed` | `bool` | `false` | serve the permission set as-is. The one widening, asked for by name |
+
+`unnarrowed` is a **bool** for the reason `packs/journal`'s manifest gives at length: the
+type set is closed with no `enum`, so core cannot refuse a misspelled string, and a typo must
+never be the spelling that grants.
+
+**The daemon's argv**, for the manifest step 3 writes:
+
+```jsonc
+"host_daemon": {
+  "cmd": ["yolo", "internal", "daemon", "aws-auth",
+          "--socket", "{socket}", "--state-file", "{state}/credentials.json",
+          "--settings", "{settings}"],
+  "publishes": "socket",
+  "scope": "host"
+},
+"doctor_cmd": ["yolo", "internal", "daemon", "aws-auth", "--self-check",
+               "--state-file", "{state}/credentials.json", "--settings", "{settings}"]
+```
+
+⚠ **THE DISPATCH ROW WAS NOT WIRED WHEN THIS LANDED** (2026-09-18), deliberately: it is one
+case in `internal/cli/internal.go`'s `runInternalDaemon`, one import, and the usage string,
+and that file had two other changes in flight. Until it is there, `yolo internal daemon
+aws-auth` reports "unknown daemon" and the manifest above cannot spawn. Grep the switch
+before believing this sentence either way. Its dispatch test pins on the self-check's exit
+code: `aws-auth --self-check --state-file <abs>` returns **0** while a dispatch miss returns
+2, so the row cannot be deleted with the test green.
+
+**Step 2 is inside step 1, as the plan asked.** `Settings.Resolve` is the single gate: absent
+narrowing refuses and names both keys; un-narrowed by name serves and carries a disclosure
+line. Two refusals the design does not mention were added rather than guessed, because both
+alternatives resolve in the direction that grants — a `session_policy` with no `role_arn` (an
+inline policy is an argument to `AssumeRole`, so there is nothing to attach it to), and
+`unnarrowed: true` beside a `role_arn` (preferring either one silently discards what the
+other asked for).
+
+**The disclosure has two of its three call sites.** The daemon prints it at spawn (to
+`~/.local/share/yolo-jail/logs/host-service-aws-auth.log`) and `--self-check` grades it as a
+`NOTE:`, which is what reaches `yolo check`. The LAUNCH line
+[§6](sso-backed-bedrock.md#6-narrowing--shape-scoped-and-policy-scoped) asks for is a call to
+`Narrowing.DisclosureLine` from `writeLoopholeSettings` (`internal/cli/run/loopholesettings.go`),
+which this round did not own.
+
+**Two additions to the plan's own reading of the design.** Neither contradicts it; both are
+places where following [§8](sso-backed-bedrock.md#8-behaviour-this-design-specifies)
+literally would have produced a body an SDK rejects, or wrong advice.
+
+- **A credential with no session token is a named 4xx, not a serve.**
+  [§8](sso-backed-bedrock.md#8-behaviour-this-design-specifies) says a non-SSO
+  profile (static keys, `credential_process`) is "served the same way", and it is — there is
+  no SSO check anywhere in `internal/awsauth`, and the un-narrowed arm resolves whatever the
+  `aws` CLI can resolve. What the container-credentials protocol cannot CARRY is a credential
+  with no `Token` and no `Expiration`, and the SDK rejects that body without naming the field,
+  so the refusal says which two fields are missing and what to set instead.
+- **A missing profile is its own failure kind.** `aws sso login --profile X` for a profile
+  that is not in `~/.aws/config` is wrong advice rather than unhelpful advice, so the
+  classifier keeps `profile_missing` apart from `login_required` and `cli_missing`.
+
+### What a real host still has to settle
+
+Steps 1 and 2 are unit-only by construction. These are the measurements no unit test in this
+repo can stand in for:
+
+1. **The dispatch row**, then `yolo internal daemon aws-auth --self-check --settings <file>`
+   against a live `aws sso login`. This is the first thing that exercises `ExecRunner`, the
+   real `aws` argv, and the real output shapes — everything upstream of the seam is fixture
+   JSON written from AWS's documented formats, never from a recorded invocation.
+2. **The lapsed-session signatures.** `classify` matches stderr fragments AWS CLI v2 emits.
+   They are written from the documented and widely-reported wordings and each has a fixture,
+   but a miss falls through to `MintFailed` (safe: AWS's own words are forwarded) and only a
+   real expiry on a real host proves the set is complete. A false positive is the one thing
+   the set is written to avoid, so the direction of any correction should be to ADD a
+   fragment, never to loosen one.
+3. **Both SSO config forms**, read from a real `~/.aws/config`. The fixtures cover the legacy
+   and `sso-session` forms and the bare `[default]` section; what they cannot cover is a
+   real-world file with `[services]` blocks, `credential_process` profiles and nested
+   includes.
+4. **The narrowing, demonstrated rather than asserted** — done-condition 5, which needs an
+   `aws s3 ls` denied from inside a jail holding an N2 credential. ⚠ Not
+   `sts:GetCallerIdentity`, for the reason
+   [§8](sso-backed-bedrock.md#8-behaviour-this-design-specifies) states.
+5. Everything steps 3 and 5 already owed a real rootless host.
 
 ## Ships with
 
@@ -192,6 +305,14 @@ setups — the design says so); the census rows in step 3 (every later `just tes
 
 Stop and ask on each: the tree forces a choice the design does not make. None blocks steps 1–3.
 
+**Measured after steps 1 and 2: none of the five was hit.** They are all step-3-and-later
+facts, and the two packages reach none of them — 1 is a manifest spelling (`default_enabled`),
+2 is `packs/aws-auth`'s `env` contribution, 3 is step 7's arm, 4 is `internal/config`, and 5 is
+[`bedrock-plumbing.md`](./bedrock-plumbing.md). What steps 1–2 DID force were three choices the design leaves open and
+the Blockers do not list, all three taken toward refusing rather than guessing and all three
+recorded in [Progress](#progress): the two contradictory-narrowing refusals, and a credential
+with no session token.
+
 1. **"No profile configured → the loophole does not start."** No setting-conditional spawn
    exists. The only non-code spelling is `default_enabled: false` — unconfigured *is* disabled,
    and enabled-without-a-profile fails loudly at spawn; the alternative is `default_enabled: true`
@@ -219,5 +340,6 @@ Stop and ask on each: the tree forces a choice the design does not make. None bl
 5. **Done-condition 7 is blocked, not late:** codex, pi and opencode have no Bedrock provider or
    region until [`bedrock-plumbing.md`](bedrock-plumbing.md) lands. Step 5 ships claude alone.
 
-Cheap and yours: the adapter port; one cache file vs one per profile; the settings key names,
-given the property that omission never means un-narrowed.
+Cheap and yours: the adapter port. **Spent by steps 1–2** ([Progress](#progress)): the
+settings key names, and one cache file holding one entry per profile rather than one file
+each.
