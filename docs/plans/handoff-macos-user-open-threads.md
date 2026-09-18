@@ -194,7 +194,7 @@ removed the evidence and left the hole.
 | Does `sudo` itself record the argv it authorised? | ⚠ **NOT MEASURED** | sudo logs the command it allows; whether the `K=V` words reach a given Mac's unified log depends on that machine's sudoers, which yolo deliberately does not change |
 | Does the container backend's podman argv carry the same values? | **No** | measured on the assembled argv with the same two fake keys: neither appears. The composed channel and the hydrated `env_sources` cross in `yolo-user-env.sh` at 0600 instead |
 | Does the container path have a `--dry-run` to check? | **No** | it refuses: *"--dry-run is only supported for the macos-user runtime"* |
-| Did `<workspace>/.yolo/launch.log` hold an on-disk copy? | **No — for a reason that is its own thread** | see [§7](#7-nothing-the-macos-user-backend-prints-reaches-launchlog) |
+| Did `<workspace>/.yolo/launch.log` hold an on-disk copy? | **No — for a reason that is its own thread** | see [§7](#7-nothing-the-macos-user-backend-prints-reaches-launchlog--fixed-2026-09-17) |
 
 > [!IMPORTANT]
 > **The macOS half being unmeasured does not change the sizing, and that is why the fix landed
@@ -348,7 +348,7 @@ one observation: that a live launch's plan, profile and argv lines actually land
    thinking, and it is what makes a second local suite run trustworthy.
 2. **[§3](#3-items-1-2-and-4-have-no-automated-twin)** — the highest coverage-per-hour left: three
    items, one launch, and item 2 is the one that establishes the backend is a sandbox at all.
-3. **[§7](#7-nothing-the-macos-user-backend-prints-reaches-launchlog)** — off-Mac, small, and it
+3. **[§7](#7-nothing-the-macos-user-backend-prints-reaches-launchlog--fixed-2026-09-17)** — off-Mac, small, and it
    is what makes every OTHER thread here reviewable after the fact.
    [§6](#6-provider-secrets-rode-the-launch-argv--fixed-2026-09-13-and-the-framing-below-it-was-wrong)
    is closed; what it leaves for a Mac is three lines on the next hardware pass (the file's mode,
