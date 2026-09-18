@@ -8,7 +8,7 @@ summary: "Parking lot for the implementation material of protocol-resolution.md:
 
 # Protocol resolution — implementation sketch
 
-**Status:** SKETCH, 2026-09-18 — incomplete, and unstable while questions are open.
+**Status:** SKETCH, 2026-09-18 — incomplete. The design's questions are all ruled now, so this is stable in shape; it is still a parking lot rather than a hand-off, and `implementation-plan` owns what it must become first.
 
 **Design:** [`protocol-resolution.md`](protocol-resolution.md). The design wins on behaviour;
 nothing here decides any. Entries resting on an unruled question say so.
@@ -22,7 +22,7 @@ Steps are [§10](protocol-resolution.md#10-what-i-would-build-in-order)'s.
 | 1 — the pair rule | [`packs/claude/derive.lua`](../../packs/claude/derive.lua) (the `if p.api_key` branch), and its test beside the other derive tests in [`internal/entrypoint/providerderive_test.go`](../../internal/entrypoint/providerderive_test.go), which runs each pack's REAL `derive.lua` through `deriveComputedLayer` |
 | 2 — the agent declaration | [`internal/packdecl`](../../internal/packdecl) (the field, beside the `program` kind's `capabilities`), the shipped packs that declare a program, and the census tests that enumerate kinds |
 | 3 — the resolver, outcomes 1 and 4 | a new package or a file beside the provider composition in [`internal/packload`](../../internal/packload); the refusal prints where the capability gate does, in the run pre-flight |
-| 4 — the adapter declaration | blocked on [OQ-PR1](protocol-resolution.md#OQ-PR1); touches `packs/wire-bridge/`, `packs/cerebras/pack.json`, `packs/kilo/pack.json` and [`packs/claude/derive.lua`](../../packs/claude/derive.lua)'s `8215` literal |
+| 4 — the adapter declaration | a NEW contribution kind in [`internal/packdecl`](../../internal/packdecl) (`from`, `to`, address; no daemon assumed), plus the kind census tests; touches `packs/wire-bridge/`, `packs/cerebras/pack.json`, `packs/kilo/pack.json` and [`packs/claude/derive.lua`](../../packs/claude/derive.lua)'s `8215` literal |
 | 5 — outcome 3 | the same refusal site as step 3 |
 | 6 — delete the shorthand | [`internal/config`](../../internal/config)'s provider validation (the refusal), the four derives that read it — `claude`, `pi`, `opencode`, `omp` — and [`internal/cli/config_ref.txt`](../../internal/cli/config_ref.txt) |
 | 7 — configurable address | the loophole `settings` mechanism, which already gives a manifest typed keys with a `user` scope and hands the daemon a file path through the `{settings}` argv token |
@@ -74,10 +74,10 @@ refusal rather than in a later request.
 
 ## Blocked
 
-- Step 4 and everything after it: [OQ-PR1](protocol-resolution.md#OQ-PR1), restated in review
-  round two — the criterion is that a third-party adapter pack must be first-class, so the shape
-  is whichever makes that true. Steps 1–3 are unaffected.
-
-**Unblocked in review round two** (ruled, [Decision ledger](protocol-resolution.md#12-decision-ledger)):
-step 3 keeps its default branch, because a provider declaring no endpoints stays legal; and step
-5 exists as written — an absent adapter refuses and names the pack, rather than being auto-joined.
+**Nothing.** All seven questions are ruled ([Decision ledger](protocol-resolution.md#12-decision-ledger)),
+and step 1 has shipped (`bc16e8c3`). What round three changed for this sketch: the adapter is its
+own contribution kind carrying `from`, `to` and an address — NOT a field on `service` — so step 4
+adds a kind rather than extending one, and `packs/wire-bridge` declares both (the service it runs
+and the adaptation it provides) instead of folding them together. An adapter that names a remote
+or user-run address declares no service at all, which is the case the coupled shape could not
+express.

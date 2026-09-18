@@ -1,14 +1,14 @@
 ---
 title: "The cerebras pack, and closing the copilot delivery gap"
 date: 2026-09-04
-status: in-review
+status: accepted
 tags: [packs, providers, profiles, cerebras, copilot, delivery]
 summary: "A second purely-declarative provider pack (Cerebras, one key, qwen-3.8-27b as the agentic main), plus the per-agent delivery audit the maintainer's ask surfaced: copilot is the one agent that can receive a provider and doesn't, and its BYOK is env-var-only — a yolo.env derive closes it. agy is unwireable and recorded as such."
 ---
 
 # The cerebras pack, and closing the copilot delivery gap
 
-**Status:** BUILT, 2026-09-09 — UNMEASURED: nothing is recorded as observed running; what was
+**Status:** BUILT, 2026-09-09 (its last question closed 2026-09-18, `bc16e8c3`) — **GRADUATION CANDIDATE**: built, zero live questions, so its durable half belongs in a `system-doc` and this file goes away. UNMEASURED: nothing is recorded as observed running; what was
 checked is the pack as built, read back against this doc on 2026-09-05, which contradicts it twice
 (the warning below). Accepted 2026-09-04, and **re-stamped because "this doc designs what
 remains" was false: both halves shipped within a day of acceptance.** The zai-side fix this
@@ -24,7 +24,7 @@ shipped as `3d9b1aa2` and `8e901423`; `packs/cerebras` landed as `29aa0925` and 
 > declaring one "would be a lie about the service", and it carries
 > `options.context_window` where **D-4** says it should not — claude can ride cerebras now, which
 > is exactly the condition [OQ-1](#open-questions)'s row predicted would revive D-4. Read [§1](#1-packscerebras--the-second-purely-declarative-pack) and D-4 as the
-> pre-bridge design, not as the shipped pack. **[OQ-2](#oq-2) is still live in code**, narrowed twice since — see its block below; the design that answers it now lives in [`protocol-resolution.md`](protocol-resolution.md). (The line numbers this paragraph used to cite are gone rather than updated: they were stale within days, twice.)
+> pre-bridge design, not as the shipped pack. **[OQ-2](#decision-ledger) was live in code until 2026-09-18** and is now fixed (`bc16e8c3`), narrowed twice on the way — its ledger row carries the ruling, and the design that makes the state unreachable is [`protocol-resolution.md`](protocol-resolution.md). (The line numbers this paragraph used to cite are gone rather than updated: they were stale within days, twice.)
 > `💬` until then, so the corpus question count could not see it.
 
 **The want** *(the maintainer's words, 2026-09-04, lightly compressed)*: "a pack for
@@ -137,46 +137,7 @@ paragraph splits (copilot now does; agy still doesn't and never can).
 
 ## Open questions
 
-Two of the three are answered and have moved to the [ledger](#decision-ledger) below. What is
-left is one live question, and most of what used to sit under it has moved as well.
-
-### <a id="oq-2"></a>💬 **[OQ-2](#oq-2)** — does the claude derive gate `ANTHROPIC_AUTH_TOKEN` on an anthropic endpoint existing?
-
-**The defect, re-verified 2026-09-18.** In [`packs/claude/derive.lua`](../../packs/claude/derive.lua),
-`if p.api_key then out.ANTHROPIC_AUTH_TOKEN = p.api_key` fires whether or not a base URL was
-composed. So a provider that declares a NON-anthropic protocol and no top-level `base_url`, and
-carries a key, sends that key to `api.anthropic.com`. The inverse is already handled a few lines
-below — `elseif routed` substitutes a dummy token so a routed launch is never keyless — which
-makes this the missing half of a rule the file already keeps.
-
-**No shipped pack reaches it.** `packs/zai` and `packs/cerebras` both declare an
-`endpoints.anthropic`, and `packs/claude`'s own `bedrock` provider declares no
-`api_key_env_name`, so nothing composes. Two earlier accounts of the live trigger are now
-wrong and are recorded as wrong rather than deleted, because each would send a reader hunting a
-case that no longer exists: the **cerebras** trigger went when the bridge gave cerebras an
-anthropic endpoint (2026-09-05), and the **user-shorthand** trigger went on 2026-09-16, when
-`af71aa3c` taught the derive an `elseif p.base_url` fallback that honours the shorthand — so that
-user now gets their URL along with their key.
-
-**The design that answers this moved.** The three provider shapes, the upstream
-protocol-compatibility gate, the adapter resolution and the shorthand's deletion are all
-[`protocol-resolution.md`](protocol-resolution.md)'s, ruled there on 2026-09-18 — its
-[P4](protocol-resolution.md#1-the-verdict-and-the-principles-it-rests-on) is the general form of
-this question's answer: *a credential travels with the address it was minted for, or not at all.*
-
-**What is left here is a sequencing call, not a design one.** That doc's build order makes the
-one-line `elseif` its step 1, independent of everything else, precisely so the leak can close
-before the resolver exists. The question is whether to take it now or wait for step 3, where the
-state stops being reachable at all.
-
-<!-- vantage: oq id=OQ-2 leaning="Take the one-liner now: it is correct on its own terms, it ships today, and step 3 deletes the branch rather than conflicting with it." -->
-
-_Leaning:_ **take it now.** It is correct on its own terms, it costs one `elseif`, and the
-resolver does not conflict with it — step 3 removes the branch that made the state reachable, so
-the interim fix is deleted rather than reworked.
-
-**Answer:**
-> _(empty — fill in when decided)_
+**None.** All three are ruled and compacted into the [ledger](#decision-ledger) below.
 
 ## Decision ledger
 
@@ -185,6 +146,7 @@ the interim fix is deleted rather than reworked.
 | D-1 | cerebras ships ONE model alias, `default: qwen-3.8-27b` | it is the only public model fit for unattended agentic use; a hallucination-prone `fast` tier is a footgun, and user config can add aliases where the pack refuses |
 | D-2 | copilot's delivery is env-only (`yolo.env`), no config surface | copilot's BYOK is env-var-only by its own `help providers` topic — there is no file key to write |
 | D-3 | copilot's derive prefers the anthropic endpoint when both exist | zai is the worked example: the anthropic route is the richer surface (tier translation), and type=anthropic is copilot's first-class spelling for it |
+| OQ-2 | **Take the one-line fix now rather than waiting for the resolver.** `if p.api_key` fired whether or not a base URL had been composed, so a provider naming a NON-anthropic protocol and carrying a key sent it to `api.anthropic.com`. The condition now reads the DECLARATION rather than the absence of a URL, because three shapes reach that producer and only the middle one is wrong — an anthropic endpoint is routed and its key belongs with it; a provider naming NO endpoint has repointed nothing, which is the BYO-key launch and stays correct; a provider that named a protocol and not ours is one claude cannot reach. INTERIM BY DESIGN: [`protocol-resolution.md`](protocol-resolution.md) makes the state unreachable, and that branch is then deleted rather than reworked | ✅ `bc16e8c3` |
 | OQ-1 | **Yes — ship a claude-wire translation proxy**, as the `wire-bridge` pack joined by new pack-dependency vocabulary (`needs` + `when_bins`) | ruled 2026-09-04 and SHIPPED (`434189dd`, `0dfc3481`); it is what gave cerebras an `endpoints.anthropic` and so revived D-4, which this doc's [§1](#1-packscerebras--the-second-purely-declarative-pack) and D-4 predate. [`wire-bridge.md`](../reference/wire-bridge.md) is the reference |
 | OQ-3 | **The README states the rate limits** — the free tier's 5 req/min beside the Developer-tier numbers | a pack whose free tier cannot sustain an agent loop must say so where the user chooses it, not in a design doc |
 | D-4 | no `context_window`/`api_timeout_ms` on cerebras | both options exist solely as claude-derive inputs; claude cannot ride cerebras, and dead options read as promises |

@@ -1,7 +1,7 @@
 ---
 title: "Who says which wire — protocol declaration, and the bridge as a resolution step"
 date: 2026-09-18
-status: in-review
+status: accepted
 tags: [design, providers, packs, wire-bridge, protocols, resolution]
 summary: "Every party in a launch declares where it lives except the agent, so nothing can tell a provider claude can use from one it cannot — and each derive patches the gap privately, one of them by sending a credential to an address it never emitted. Let the agent declare its wire and the bridge declare what it adapts, and the pairing becomes a resolution with three named outcomes."
 vantage:
@@ -10,9 +10,10 @@ vantage:
 
 # Who says which wire — protocol declaration, and the bridge as a resolution step
 
-**Status:** DESIGN, 2026-09-18. Nothing built. **Six decisions ruled across two review rounds
-the same day** ([§12](#12-decision-ledger)); every current-behaviour claim below was read at
-`220fffb6`.
+**Status:** DECIDED, 2026-09-18. **Every question is ruled — seven, across three review rounds
+in one day** ([§12](#12-decision-ledger)) — and nothing is built. Every current-behaviour claim
+below was read at `220fffb6`; step 1 of [§10](#10-what-i-would-build-in-order) has since shipped
+as `bc16e8c3`.
 
 > **In short.** A provider declares which wire protocol it speaks and where. An adapter
 > declares which wire it turns into which other one. The agent declares nothing — so the
@@ -22,7 +23,7 @@ the same day** ([§12](#12-decision-ledger)); every current-behaviour claim belo
 **Why it matters.** The gap is not theoretical in either direction. A provider declaring
 `endpoints.openai` and a key, with no anthropic endpoint, hands claude a credential and **no
 address** — the key goes to `api.anthropic.com`
-([`cerebras-pack-and-copilot-delivery.md`](cerebras-pack-and-copilot-delivery.md#oq-2)). And the
+([`cerebras-pack-and-copilot-delivery.md`](cerebras-pack-and-copilot-delivery.md#decision-ledger)). And the
 bridged setups that *do* work only work because a pack author hand-wrote yolo's internal
 loopback port into the provider's manifest, which a user declaring their own provider cannot
 reasonably be expected to do.
@@ -41,13 +42,13 @@ question.
 
 **Start at [§3](#3-one-resolution)** — everything else falls out of it.
 
-**Needs your ruling:** [OQ-PR1](#OQ-PR1) — restated after round two, because the criterion that decides it is *third-party adapters are first-class*, not which vocabulary reads better.
+**Needs your ruling:** None.
 
 **Reads with:** [`wire-bridge.md`](../reference/wire-bridge.md) (the adapter as built, and
 `needs`), [`providers.md`](../reference/providers.md) ([`OQ-CS8`](../reference/providers.md#why-its-this-way)
 put the binding in each agent's derive; [`OQ-PT2`](../reference/providers.md#why-its-this-way)
 refused the ambiguous shorthand override),
-[`cerebras-pack-and-copilot-delivery.md`](cerebras-pack-and-copilot-delivery.md#oq-2) (the defect
+[`cerebras-pack-and-copilot-delivery.md`](cerebras-pack-and-copilot-delivery.md#decision-ledger) (the defect
 this removes structurally),
 [`protocol-resolution-plan.md`](protocol-resolution-plan.md) (the implementation sketch —
 incomplete, and unstable while these questions are open).
@@ -78,7 +79,7 @@ resolves to the same behaviour.
   in a pack of their own and have it resolve exactly as `wire-bridge` does — same declaration,
   same selection, same disclosure, same refusal when it is missing. Core may not name an adapter
   pack, prefer one, or ship a fallback for the case where none is declared. This is a
-  REQUIREMENT on the answer to [OQ-PR1](#OQ-PR1), not a preference: an adapter mechanism that
+  REQUIREMENT on the answer to [OQ-PR1](#12-decision-ledger), not a preference: an adapter mechanism that
   works better for the pack we ship is a special case wearing a vocabulary's clothes, and the
   `grep` in [§4.5](#45-what-done-looks-like) is how it stays honest.
 - **P5. The happy path takes no yolo-specific knowledge.** Declaring a provider means naming the
@@ -171,6 +172,21 @@ bridge already selects its upstream at boot.
 does not work"; a launch that says so and proceeds has answered a declaration with a note.
 Outcome 3's message names the remedy, which is the discoverable half: *"cerebras speaks openai;
 claude speaks anthropic. Add `wire-bridge` to `packs` and this pairing resolves."*
+
+**An adapter declares three things — `from`, `to`, and an ADDRESS — and nothing about who
+runs it.** That separation is the ruling ([§12](#12-decision-ledger)) and it is what lets the
+pieces decompose: an agent pack brings a protocol, an adapter pack adds another to it, and
+whether anything is launched to serve that address is a different fact the pack states
+separately if it applies. Three provisioning shapes, all first-class:
+
+| The address is served by | How it is declared | Example |
+| :--- | :--- | :--- |
+| a daemon the adapter's own pack ships | the adapter contribution **plus** that pack's existing `service` contribution, joined by `needs` as today | `wire-bridge` |
+| a remote service yolo does not run | the adapter contribution alone, naming a URL | a hosted gateway you already pay for, fronting your z.ai credentials |
+| something the user runs locally | the adapter contribution alone, naming the port they chose | a proxy already running on the host |
+
+Only the first involves a daemon, and the design assumes nothing about the others: an adapter
+that is a running service is the common case, not the definition.
 
 **The adapter set is every SELECTED pack that declares an adaptation** — no registry, no
 built-in list, and `wire-bridge` in it by the same route as anyone else's pack
@@ -269,8 +285,13 @@ deliberate choice** — [§2.2](#22-how-a-bridged-provider-works-today)'s "one w
 knob" — so the trade is stated rather than assumed: the current single writer is the *consumer*,
 and there are N of them; the proposed single writer is the *owner*, and there is one.
 
-**The address is configurable, with a default.** Ruled in review, and the reason is measured
-rather than hypothetical: in a container, `127.0.0.1` is the jail's own private loopback and a
+**Where the address comes from now depends on the shape** ([§3](#3-one-resolution)): an adapter
+that ships its own daemon declares the address that daemon binds, and THAT one is configurable
+with a default; an adapter naming a remote or user-run service carries an address the user
+already owns, and yolo neither defaults nor moves it.
+
+**For the shape yolo runs, the address is configurable with a default.** Ruled in review, and
+the reason is measured rather than hypothetical: in a container, `127.0.0.1` is the jail's own private loopback and a
 collision is only possible with another baked service. **On `macos-user` there is no container
 and no network namespace** — the sandbox is a native host process, so the adapter's ports are
 *host* ports and collide with whatever the user is running. That backend cannot start a jail
@@ -295,7 +316,8 @@ daemon at all today, so the hazard is latent; it becomes live the moment that ha
 
 | | Verdict |
 | :--- | :--- |
-| **Gate the credential on an anthropic endpoint existing** ([`OQ-2`](cerebras-pack-and-copilot-delivery.md#oq-2)'s first framing) | Rejected as the whole answer: it fixes the leak and leaves the user with a broken pairing and no explanation. Kept as the interim one-liner, because it is correct and ships today |
+| **Gate the credential on an anthropic endpoint existing** ([`OQ-2`](cerebras-pack-and-copilot-delivery.md#decision-ledger)'s first framing) | Rejected as the whole answer: it fixes the leak and leaves the user with a broken pairing and no explanation. Kept as the interim one-liner, because it is correct and ships today |
+| **An adapter that must be a service the pack runs** (a field on the `service` kind) | **Rejected on evidence, review round three.** It was the leaning until three instances of the other shape were named: a remote gateway fronting your own credentials, a proxy the user already runs locally, and simply shipping the adapter apart from the thing it adapts. Coupling the declaration to a daemon would have made each of those inexpressible |
 | **A core table mapping agent → protocol** | Rejected — [`OQ-CS8`](../reference/providers.md#why-its-this-way) ruled it out, and a declaration is strictly better: a new agent needs no core change |
 | **Keep the shorthand and infer its protocol from the agent** | Rejected: that is today's behaviour, and it is what makes one config line mean two things |
 | **Have every provider pack keep hand-writing the adapter's URL** | Rejected for the user-declared case, which it cannot serve at all |
@@ -322,7 +344,7 @@ daemon at all today, so the hazard is latent; it becomes live the moment that ha
    nothing reads it yet, so no launch changes.
 3. **The resolver, with outcomes 1 and 4 only** — direct, or refuse on no common protocol. This
    is where the leak becomes unrepresentable rather than guarded.
-4. **The adapter declaration and outcome 2**, which is [OQ-PR1](#OQ-PR1)'s subject, plus moving
+4. **The adapter declaration and outcome 2**, which is [OQ-PR1](#12-decision-ledger)'s subject, plus moving
    `8214`/`8215` out of their consumers.
 5. **Outcome 3's refusal**, once an adapter can be named.
 6. **Delete the shorthand**, last: its replacement has to resolve identically first.
@@ -333,52 +355,20 @@ daemon at all today, so the hazard is latent; it becomes live the moment that ha
 
 ## 11. Open questions
 
-1. <a id="OQ-PR1"></a>💬 **OQ-PR1: What shape lets ANY pack declare an adaptation as a first-class citizen?**
-   *(Restated after review round two. It was "a new kind or a field on `service`?", which asked
-   which vocabulary reads better — the wrong question. The requirement is
-   [P6](#1-the-verdict-and-the-principles-it-rests-on): someone else's adapter pack must resolve
-   exactly as the one we ship, so the answer is whichever shape makes that true with no core
-   knowledge of either.)*
-
-   Both candidate shapes satisfy "any pack may declare it", so the discriminator is elsewhere,
-   and it is this: **must an adapter run the daemon it adapts through?**
-
-   - **(a) A field on the `service` kind.** An adapter is a service that additionally says which
-     protocol pair it converts; its address IS the service's address, so there is one fact and
-     one writer. Cost: `service` currently means *"a daemon this pack runs"* and would mean two
-     things. Consequence: an adaptation cannot be declared without shipping the daemon.
-   - **(b) A new `adapter` kind**, carrying the pair and an address. Cost: it restates most of a
-     service's declaration. Benefit: a pack could declare an adaptation over a daemon it does not
-     itself run — a second pack pointing at an existing bridge, or a local proxy the user already
-     runs on a port they name.
-
-   (b) is the more permissive vocabulary and (a) is the smaller one. The question is whether the
-   permissive case is real: I have not found an adapter that is not a proxy, and a proxy is a
-   daemon, which argues (a) — but "declare an adaptation over a service someone else runs" is
-   exactly the kind of thing a third-party pack author might want, and this design has just
-   promised them first-class treatment.
-
-   Decides: the vocabulary, and with it whether the sole-ownership rule attaches to a pair alone
-   or to a pair plus an address.
-
-   <!-- vantage: oq id=OQ-PR1 leaning="(a), a field on the service kind — unless the 'adapt over someone else's daemon' case is real, in which case (b); nothing else distinguishes them once P6 forces both to be equally open." -->
-
-   _Leaning:_ **(a)**, unless you can name a real adapter that is not the daemon it adapts
-   through. Every adaptation I can construct is a translating proxy, and a translating proxy is a
-   service — so (b) buys a generality with no instance, at the cost of a second declaration that
-   restates a service's. If the instance exists, (b) is right and the extra kind is cheap.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+**None.** All seven are ruled and recorded in the [ledger](#12-decision-ledger) below. The one
+that survived two rounds — how a pack declares an adaptation — was settled in the third by an
+instance rather than an argument: adapters that are not daemons are real, so the declaration
+cannot assume one.
 
 ## 12. Decision ledger
 
-**Six ruled on 2026-09-18**, across the conversation that produced this doc and the review round
-that followed it. One question is live ([§11](#11-open-questions)); nothing is built.
+**Seven ruled on 2026-09-18**, across the conversation that produced this doc and two review
+rounds after it. Nothing is live; nothing is built except step 1 (`bc16e8c3`).
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| — | **No shipped adapter is privileged** ([P6](#1-the-verdict-and-the-principles-it-rests-on)). Anyone must be able to declare an adapter in their own pack and have it resolve exactly as `wire-bridge` does; core may not name one, prefer one, or fall back to one. Raised in review round two as a constraint on the vocabulary rather than a preference about it, and it is what restated [OQ-PR1](#OQ-PR1) | 2026-09-18 | [§1](#1-the-verdict-and-the-principles-it-rests-on), [§4.5](#45-what-done-looks-like) | — |
+| [OQ-PR1](#11-open-questions) | **An adapter is its own contribution kind, declaring `from`, `to` and an ADDRESS — and nothing about who runs it.** The leaning was a field on the `service` kind, on the argument that every adapter is a proxy and every proxy is a daemon. Round three answered it with instances rather than argument: a remote gateway fronting your own credentials, a proxy the user already runs on a port they name, and the plain wish to ship an adapter apart from the thing it adapts. Coupling the declaration to a daemon makes all three inexpressible, so it does not. A pack that DOES run its adapter states that separately, with the `service` contribution and `needs` it would use anyway | 2026-09-18 | [§3](#3-one-resolution), [§6](#6-the-adapter-owns-its-address) | — |
+| — | **No shipped adapter is privileged** ([P6](#1-the-verdict-and-the-principles-it-rests-on)). Anyone must be able to declare an adapter in their own pack and have it resolve exactly as `wire-bridge` does; core may not name one, prefer one, or fall back to one. Raised in review round two as a constraint on the vocabulary rather than a preference about it, and it is what restated [OQ-PR1](#12-decision-ledger) | 2026-09-18 | [§1](#1-the-verdict-and-the-principles-it-rests-on), [§4.5](#45-what-done-looks-like) | — |
 | — | **A pack declares the protocols its program speaks.** Asked directly and ruled yes: it carries no new risk and the information is already half-present (providers declare theirs). It satisfies [`OQ-CS8`](../reference/providers.md#why-its-this-way) because the AGENT declares it and core only compares two declarations — the same shape `required_capabilities` has | 2026-09-18 | [§3](#3-one-resolution) | — |
 | — | **A declared adapter makes an otherwise-unusable pairing resolve, automatically.** "I would rather that just be an automatic resolution" — the user should not invoke the bridge, and with `packs/claude` already `needs`-ing `wire-bridge` unconditionally, the common case needs no action at all | 2026-09-18 | [§3](#3-one-resolution) | — |
 | — | **The adapter's address is configurable.** Raised in review against port collisions, and it is backend-shaped: harmless on a container's private loopback, real on `macos-user`, which has no network namespace | 2026-09-18 | [§6](#6-the-adapter-owns-its-address) | — |
