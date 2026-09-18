@@ -49,7 +49,7 @@ import (
 // unmounted but ABSENT — a new top-level directory on macOS needs /etc/synthetic.conf and
 // a reboot — so a reader left behind names a path that cannot be made to exist (DP-L1).
 func hostUserPath(slug string) string {
-	return filepath.Join(ctxRoot, "host-user", slug)
+	return filepath.Join(ctxRootDir(), "host-user", slug)
 }
 
 // ConfigureHostFiles stages every host_files entry declared in YOLO_HOST_FILES.

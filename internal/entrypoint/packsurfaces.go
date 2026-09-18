@@ -501,13 +501,15 @@ func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]m
 // it would be a worse bug than the one being fixed. What the jail cannot tell apart, from
 // inside, is "there was nothing to deliver" and "it did not arrive", so the LAUNCHER says
 // which (packload.HostLayerReport, the YOLO_HOST_LOOPBACK pattern) and this is the
-// witness. Exactly one of the four dispositions refuses: the launcher delivered this path
+// witness. Exactly one of the five dispositions refuses: the launcher delivered this path
 // and the jail cannot read it there.
 //
-// The other three compose without the host layer and say nothing, each for its own reason:
-// the user has no such file (normal); this LAUNCH carried no host layers at all, so there
-// was never anything to arrive; or there is no report, which means only that the host half
-// is older than this variable and never that nothing was delivered.
+// The other four compose without the host layer, each for its own reason: the user has no
+// such file (normal); this LAUNCH carried no host layers at all, so there was never
+// anything to arrive; there is no report, which means only that the host half is older than
+// this variable and never that nothing was delivered; or the bytes ARRIVED and are yolo's
+// own render, which is the one that says so in the boot log rather than nothing
+// (HostLayerRender, hostlayerlabel.go — a baseline is not a layer).
 //
 // ⚠ THE SECOND OF THOSE USED TO NAME A BACKEND — "macos-user, whose deficiency the launch
 // and the briefing both name" — and both halves of that sentence expired on 2026-09-13.
@@ -537,16 +539,25 @@ func hostSurfaceBytes(e *Env, surface manifest.Surface) ([]byte, error) {
 			"packload.Pack.Surfaces, so the host bytes cannot be found",
 			surface.Agent, surface.Name)
 	}
+	// THE FIFTH DISPOSITION IS READ BEFORE THE FILE, and the order is the whole of it: a
+	// labelled path is delivered and readable, so consulting the report only on a read
+	// failure would compose exactly the bytes the label exists to keep out of the fold
+	// ([OQ-CR6], hostlayerlabel.go). What arrives under a managed home is yolo's own render;
+	// it is the BASELINE this jail can report divergence against, and never a layer, because
+	// a key yolo wrote must not come back as the user's ([P6]).
+	disposition := HostLayerDispositionIn(e.Getenv(packload.HostLayerEnvVar), surface.HostSource)
+	if disposition == HostLayerRender {
+		e.note("host layer: " + surface.Agent + "/" + surface.Name + ": the host's copy of " +
+			surface.Path + " is yolo's own render, so it is a baseline and not a layer; " +
+			"this surface composes from its packs and its capture alone")
+		return nil, nil
+	}
 	src := remapCtx(surface.HostSource)
 	data, err := os.ReadFile(src)
 	if err == nil {
 		return data, nil
 	}
-	report, ok := packload.ParseHostLayerReport(e.Getenv(packload.HostLayerEnvVar))
-	if !ok {
-		return nil, nil
-	}
-	if d := report.DispositionFor(surface.HostSource); d != packload.HostLayerDelivered {
+	if disposition != packload.HostLayerDelivered {
 		return nil, nil
 	}
 	return nil, fmt.Errorf("surface %s/%s: the launch delivered the user's own copy of "+
@@ -568,21 +579,27 @@ func hostSurfaceBytes(e *Env, surface manifest.Surface) ([]byte, error) {
 // instead. Absent — every other backend — this is the /ctx mount and remapCtx is a no-op,
 // so the common path is unchanged.
 //
-// It is read ONCE, at init, rather than per call: the value cannot change during a boot,
-// and a per-call getenv would make the "no-op in a real jail" fast path a syscall.
-var ctxRoot = func() string {
+// IT IS READ PER CALL, and it was an init-time var until the host CLI needed the same
+// answer. `yolo config render` previews the file a jail's boot would write and therefore
+// resolves the same staged copy (StagedHostLayer), from a process whose environment is set
+// long after any package init — a snapshot taken at init would have made the CLI's reading
+// unsettable and the two halves free to resolve different roots, which is the one thing
+// this root exists to prevent. The cost the old comment weighed is a getenv per surface on
+// a path that already reads a file.
+func ctxRootDir() string {
 	if r := os.Getenv("YOLO_CTX_ROOT"); r != "" {
 		return r
 	}
 	return packload.CtxRoot
-}()
+}
 
-// remapCtx rewrites a /ctx path onto ctxRoot. A no-op in a real jail.
+// remapCtx rewrites a /ctx path onto the ctx root. A no-op in a real jail.
 func remapCtx(p string) string {
-	if ctxRoot == packload.CtxRoot {
+	root := ctxRootDir()
+	if root == packload.CtxRoot {
 		return p
 	}
-	return filepath.Join(ctxRoot, strings.TrimPrefix(p, packload.CtxRoot+"/"))
+	return filepath.Join(root, strings.TrimPrefix(p, packload.CtxRoot+"/"))
 }
 
 // retireOrphanSidecars deletes the pre-prism sidecars a surface declares, on the boot

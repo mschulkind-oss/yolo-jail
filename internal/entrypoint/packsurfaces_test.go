@@ -14,9 +14,10 @@ import (
 // test that invented its own layout would pass while the two real sides disagreed.
 func withCtxRoot(t *testing.T, root, pack string) string {
 	t.Helper()
-	orig := ctxRoot
-	ctxRoot = root
-	t.Cleanup(func() { ctxRoot = orig })
+	// THROUGH THE PRODUCTION SEAM, not a package var: YOLO_CTX_ROOT is what Apple Container
+	// actually sets and what ctxRootDir reads, so a fixture that set the var instead would
+	// stop exercising the one path a real backend takes.
+	t.Setenv("YOLO_CTX_ROOT", root)
 	dir := filepath.Join(root, "host-"+pack)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)

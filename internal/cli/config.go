@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -37,7 +38,13 @@ Subcommands:
                            via config-overlay and whether that contribution won.
   render <agent[/surface]> [flags]
                            Run the composition pipeline and print what it would
-                           write, for every surface of <agent> (no writes).
+                           write, for every surface of <agent> (no writes). The
+                           'host' layer is the copy a LAUNCH stages under /ctx —
+                           the bytes the boot render composes — so a preview run
+                           outside the jail that staged it reports that layer as
+                           unavailable rather than substituting your own file,
+                           and a copy the launch labelled yolo's own render is a
+                           baseline rather than a layer.
   diff <agent[/surface]> [flags]
                            Show the captured in-jail edits (the capture overlay)
                            for <agent>, key by key, versus yolo's last render.
@@ -177,7 +184,7 @@ func configRunW(args []string, out, errw io.Writer) int {
 	fmt.Fprintln(errw, t.disclosure())
 	switch verb {
 	case "render":
-		return configRender(rest, out, errw, colorForWriter(out))
+		return configRender(t, rest, out, errw, colorForWriter(out))
 	case "ls":
 		return configLs(t, rest, out, errw, colorForWriter(out))
 	case "diff":
@@ -265,7 +272,7 @@ func colorForWriter(out io.Writer) bool {
 }
 
 // configRender implements `yolo config render <agent[/surface]> [--explain]`.
-func configRender(args []string, out, errw io.Writer, color bool) int {
+func configRender(t configTarget, args []string, out, errw io.Writer, color bool) int {
 	var identity string
 	var explain bool
 	for i := 0; i < len(args); i++ {
@@ -353,7 +360,7 @@ func configRender(args []string, out, errw io.Writer, color bool) int {
 			}
 			continue
 		}
-		if err := renderSurface(s, explain, out, color); err != nil {
+		if err := renderSurface(t, s, explain, out, color); err != nil {
 			fmt.Fprintf(errw, "yolo config render: %s/%s: %v\n", s.Agent, s.Name, err)
 			rc = 1
 		}
@@ -381,30 +388,18 @@ const containerWorkspace = "/workspace"
 // registrations), so the gap is visible rather than silent. Nor does it supply the
 // captured `overlay`: that is per-workspace state
 // under <workspace>/.yolo/prism/, and `yolo config diff` is the command for it.
-func renderSurface(s manifest.Surface, explain bool, out io.Writer, color bool) error {
+func renderSurface(t configTarget, s manifest.Surface, explain bool, out io.Writer, color bool) error {
 	// A11 (${workspace}) and "~" are both the TARGET's now, resolved by the same
 	// render.Target.Compose the boot path calls (host-render-target.md §8 step 3). This
-	// command previews the JAIL's file, so localTarget carries the container workspace
-	// rather than the host checkout path — see that function for the other half.
-	t := localTarget()
+	// command previews the JAIL's file, so the compose target carries the container
+	// workspace rather than the host checkout path — see localTarget for the other half.
+	ct := t.composeTarget()
 
-	// A7: read a `host` layer ONLY for the surfaces that actually get one at boot.
-	//
-	// This used to read the surface's own DESTINATION unconditionally. For a
-	// yolo-OWNED surface that destination is yolo's previous output, so every key
-	// yolo had written came back labelled `host` — mise's computed [tools] table
-	// reported as host-provided, and a claude `model` present in no boot layer
-	// printed as if composed. Which surfaces the jail hands host bytes to is
-	// Surface.HasHostLayer, the same predicate the boot render reads
-	// (entrypoint.hostSurfaceBytes), so matching it is what makes render a faithful
-	// preview (§6) rather than a re-read of its own output. It was a hand-maintained
-	// two-entry map here until docs/design/host-render-target.md §3.4's payoff landed.
-	var hostBytes []byte
-	if s.HasHostLayer() {
-		hostBytes, _ = os.ReadFile(t.SurfacePath(s)) // absent host file => empty layer
-	}
+	// A7: read a `host` layer ONLY for the surfaces that actually get one at boot — and,
+	// since [OQ-CR6], out of the bytes the boot render actually composes. See hostLayerFor.
+	hostBytes, note := hostLayerFor(t, s)
 
-	s, res, err := t.Compose(s, render.Layers{HostBytes: hostBytes})
+	s, res, err := ct.Compose(s, render.Layers{HostBytes: hostBytes})
 	if err != nil {
 		return err
 	}
@@ -413,6 +408,9 @@ func renderSurface(s manifest.Surface, explain bool, out io.Writer, color bool) 
 	header := fmt.Sprintf("[bold]# %s/%s → %s[/bold]", s.Agent, s.Name, s.Path)
 	if explain {
 		pr.Printf("%s [dim](layer that set each key)[/dim]", header)
+		if note != "" {
+			pr.Printf("  [dim](%s)[/dim]", note)
+		}
 		// A7: say what this preview leaves out, on the surfaces where it matters.
 		// Silently omitting the computed layer is how the old output managed to
 		// attribute mise's computed [tools] table to `host` without anyone noticing.
@@ -429,8 +427,80 @@ func renderSurface(s manifest.Surface, explain bool, out io.Writer, color bool) 
 		return nil
 	}
 	pr.Print(header)
+	if note != "" {
+		// A DISCLOSURE, not a decoration: [OQ-CR6] rules that an unreachable host layer is
+		// REPORTED rather than silently substituted, so the preview says which of the two
+		// compositions it just performed. It rides in the header block, above the file body,
+		// where the `#` line already tells a reader this is a report and not a pasteable file.
+		pr.Printf("[dim]# %s[/dim]", note)
+	}
 	fmt.Fprintf(out, "%s\n", res.Encoded)
 	return nil
+}
+
+// hostLayerFor is the `host` layer a PREVIEW composes: the bytes, and the one-line note
+// explaining the answer whenever it is not simply "the user's own staged file"
+// ([OQ-CR6](docs/design/config-target-resolution.md#oq-cr6), ruled (a)).
+//
+// # The staged copy, never the destination
+//
+// It read `expandHome(s.Path)` — the DESTINATION — until this design, and three different
+// files answer to "the host layer": the copy the LAUNCH staged under /ctx (which is what the
+// boot render reads, Surface.HostSource), the destination inside the jail (after one boot,
+// yolo's own composed output), and the destination on the host (on a managed home, likewise
+// yolo's own output). So the preview fed yolo's previous output back in as if it were the
+// user's input, while the bytes the boot render uses came from neither (§2.3 F4). This repo
+// deleted SkillTarget.HostSource for that exact circularity.
+//
+// # Where there is no staged copy, the layer is UNAVAILABLE, never substituted
+//
+// The staged tree belongs to the jail this process is in. Host-side there is no /ctx at all,
+// and inside a jail asked about ANOTHER workspace (a nested jail, every integration test)
+// the /ctx here is this jail's rather than that workspace's. Both say so and compose without
+// the layer, which is the judgement `render` already makes about the `computed` layer:
+// decline to invent one and name it, rather than read a different file and call it the
+// user's input.
+//
+// # And a staged copy is not always a layer
+//
+// A delivery labelled a RENDER is yolo's own output (entrypoint.HostLayerRender): it is the
+// baseline the jail reports divergence against and never a layer, or a key yolo wrote comes
+// back indistinguishable from the user's ([P6]). The preview composes what the boot render
+// composes, so it drops that layer too — and says so, because the difference is otherwise
+// invisible in output that looks exactly as correct either way.
+func hostLayerFor(t configTarget, s manifest.Surface) ([]byte, string) {
+	if !s.HasHostLayer() {
+		return nil, ""
+	}
+	staged, disposition := entrypoint.StagedHostLayer(s)
+	if staged == "" {
+		return nil, "no `host` layer: this surface declares one and no /ctx source was " +
+			"derived for it"
+	}
+	// THE STAGED TREE IS THIS PROCESS'S JAIL'S. A host-side invocation has none, and a jail
+	// asked about a DIFFERENT workspace has one that belongs to itself — neither is the
+	// target's, and reading either would be the substitution the ruling forbids.
+	if t.notch != render.KindJail || !t.local {
+		return nil, "the `host` layer is unavailable here: a launch stages the user's own " +
+			"copy at " + s.HostSource + ", which exists only inside the jail it launches — " +
+			"this preview composes without it"
+	}
+	if disposition == entrypoint.HostLayerRender {
+		return nil, "the host's copy of " + s.Path + " is yolo's own render, so it is a " +
+			"baseline and not a layer — this surface composes from its packs and its " +
+			"capture alone"
+	}
+	data, err := os.ReadFile(staged)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// The overwhelmingly common case: the user has no such file, so the surface
+			// composes from its lower layers and nothing is wrong. Silent, as the boot
+			// render is.
+			return nil, ""
+		}
+		return nil, "the `host` layer could not be read at " + staged + ": " + err.Error()
+	}
+	return data, ""
 }
 
 // colorLayer wraps a provenance layer name in its distinct hue so --explain

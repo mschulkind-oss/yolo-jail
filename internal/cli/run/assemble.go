@@ -152,6 +152,14 @@ type assembleInput struct {
 	// knows the difference between "the user has no such file" and "it did not arrive".
 	hostLayersDelivered []string
 
+	// hostLayersRendered is the LABEL half of that report: which of those destinations hold
+	// bytes yolo itself rendered into this home rather than the user's own
+	// ([OQ-CR6], docs/design/config-target-resolution.md; entrypoint.HostLayerRender states
+	// what the jail does with one). A subset of hostLayersDelivered, written by the same
+	// emitter, because what a file IS travels with the delivery that carries it — the jail
+	// cannot derive it, `host_management` being deliberately un-inherited.
+	hostLayersRendered []string
+
 	// channel is the profile/provider environment the run pipeline composed above the
 	// backend dispatch (profilechannel.go). The env block below EMITS it; it must not
 	// re-derive any part of it, or the argv and whatever the macos-user arm delivered

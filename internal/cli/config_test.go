@@ -43,12 +43,17 @@ func withHomeAndCwd(t *testing.T) (string, string) {
 }
 
 // TestConfigRenderExplain shows the winning layer per key.
+//
+// The host layer comes from the STAGED COPY now, not the destination
+// ([OQ-CR6](docs/design/config-target-resolution.md#oq-cr6)): this writes the bytes where the
+// LAUNCH puts them and leaves the destination empty, so the test fails if renderSurface goes
+// back to reading `~/.pi/agent/settings.json` — which after one boot is yolo's own output.
 func TestConfigRenderExplain(t *testing.T) {
-	home, _ := withHomeAndCwd(t)
-	writeFile(t, filepath.Join(home, ".pi/agent/settings.json"), piHostSettings)
+	withHomeAndCwd(t)
+	tgt := withStagedHostLayer(t, "pi", "settings", piHostSettings)
 
 	var out, errw bytes.Buffer
-	rc := configRunW([]string{"render", "pi", "--explain"}, &out, &errw)
+	rc := configRender(tgt, []string{"pi", "--explain"}, &out, &errw, false)
 	if rc != 0 {
 		t.Fatalf("rc=%d, stderr=%s", rc, errw.String())
 	}
@@ -70,13 +75,13 @@ func TestConfigRenderExplain(t *testing.T) {
 // syntax-highlight-provenance from cli-visual-polish. With color off the output
 // is plain (the byte-stable path the other tests assert).
 func TestConfigRenderExplainColor(t *testing.T) {
-	home, _ := withHomeAndCwd(t)
-	writeFile(t, filepath.Join(home, ".pi/agent/settings.json"), piHostSettings)
+	withHomeAndCwd(t)
+	tgt := withStagedHostLayer(t, "pi", "settings", piHostSettings)
 
 	var out bytes.Buffer
 	// Drive configRender with color=true (the front door gates this on a real
 	// TTY; here we force it to assert the ANSI mapping).
-	rc := configRender([]string{"pi", "--explain"}, &out, &bytes.Buffer{}, true)
+	rc := configRender(tgt, []string{"pi", "--explain"}, &out, &bytes.Buffer{}, true)
 	if rc != 0 {
 		t.Fatalf("rc=%d", rc)
 	}
@@ -96,11 +101,11 @@ func TestConfigRenderExplainColor(t *testing.T) {
 // TestConfigRenderMergesThenEnforces: render is a plain merge+enforce, so every
 // host-declared extension survives into the preview.
 func TestConfigRenderMergesThenEnforces(t *testing.T) {
-	home, _ := withHomeAndCwd(t)
-	writeFile(t, filepath.Join(home, ".pi/agent/settings.json"), piHostSettings)
+	withHomeAndCwd(t)
+	tgt := withStagedHostLayer(t, "pi", "settings", piHostSettings)
 
 	var out, errw bytes.Buffer
-	rc := configRunW([]string{"render", "pi"}, &out, &errw)
+	rc := configRender(tgt, []string{"pi"}, &out, &errw, false)
 	if rc != 0 {
 		t.Fatalf("rc=%d, stderr=%s", rc, errw.String())
 	}
@@ -208,7 +213,7 @@ func TestConfigRemovedSurfaceFlagHasMigrationHintThroughDispatch(t *testing.T) {
 // what the jail gets.
 func TestConfigRenderSkipsUnrenderedSurfaces(t *testing.T) {
 	var out, errw bytes.Buffer
-	rc := configRender([]string{"claude"}, &out, &errw, false)
+	rc := configRender(hostTargetForTest(), []string{"claude"}, &out, &errw, false)
 	if rc != 0 {
 		t.Fatalf("rc = %d, stderr = %s", rc, errw.String())
 	}
@@ -236,7 +241,7 @@ func TestConfigRenderSkipsUnrenderedSurfaces(t *testing.T) {
 // `host`.
 func TestConfigRenderExplainDoesNotAttributeOwnOutputToHost(t *testing.T) {
 	var out, errw bytes.Buffer
-	if rc := configRender([]string{"mise", "--explain"}, &out, &errw, false); rc != 0 {
+	if rc := configRender(hostTargetForTest(), []string{"mise", "--explain"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("rc != 0: %s", errw.String())
 	}
 	// mise/config has no host layer; its tools table is computed. Whatever the

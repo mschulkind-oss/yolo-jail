@@ -36,9 +36,8 @@ func hostFilesTestEnv(t *testing.T) (*Env, string) {
 	root := t.TempDir()
 	ws := t.TempDir()
 
-	orig := ctxRoot
-	ctxRoot = root
-	t.Cleanup(func() { ctxRoot = orig })
+	// Through the production seam (YOLO_CTX_ROOT, read by ctxRootDir), not a package var.
+	t.Setenv("YOLO_CTX_ROOT", root)
 
 	ctx := filepath.Dir(hostUserPath("probe"))
 	if err := os.MkdirAll(ctx, 0o755); err != nil {
@@ -656,9 +655,7 @@ func TestHostFilesNonExecutableStaysLocked(t *testing.T) {
 // new top-level directory on macOS needs /etc/synthetic.conf and a reboot — so a reader
 // left behind names a path that cannot be made to exist.
 func TestBothCtxReadersFollowARelocatedRoot(t *testing.T) {
-	orig := ctxRoot
-	ctxRoot = "/var/yolo-jail/ctx/proj"
-	t.Cleanup(func() { ctxRoot = orig })
+	t.Setenv("YOLO_CTX_ROOT", "/var/yolo-jail/ctx/proj")
 
 	// Reader 1: the user's own host_files.
 	if got, want := hostUserPath("npmrc"), "/var/yolo-jail/ctx/proj/host-user/npmrc"; got != want {

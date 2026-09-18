@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
@@ -95,6 +96,10 @@ func (o *Options) hostFileArgs(in *assembleInput) []string {
 			// silent-wrong-composition this record exists to turn loud. The launcher says
 			// what it undertook to do; the jail reports what it found.
 			in.hostLayersDelivered = append(in.hostLayersDelivered, dest)
+			// AND WHAT THOSE BYTES ARE, which only this half can say: see hostLayerIsRender.
+			if hostLayerIsRender(p, dest) {
+				in.hostLayersRendered = append(in.hostLayersRendered, dest)
+			}
 			if in.rt == "container" {
 				acMaterialize(hostFile, filepath.Join(acCtxDirRel,
 					filepath.FromSlash(strings.TrimPrefix(dest, packload.CtxRoot+"/"))), in.wsState)
@@ -111,8 +116,9 @@ func (o *Options) hostFileArgs(in *assembleInput) []string {
 }
 
 // hostLayerEnv emits the launcher's host-layer report — what a `readsHost` surface's
-// bytes did on this launch — for the entrypoint's fail-closed read
-// (packload.HostLayerReport states the contract and why the jail cannot derive it).
+// bytes did on this launch, and what they ARE — for the entrypoint's fail-closed read
+// (packload.HostLayerReport states the four-disposition contract and why the jail cannot
+// derive it; entrypoint.HostLayerWire adds the fifth, the label this launcher computes).
 //
 // EMITTED ON EVERY LAUNCH, including the one that delivered nothing, and that is the
 // property the whole mechanism rests on: an absent variable then means "launcher older
@@ -132,9 +138,12 @@ func (o *Options) hostFileArgs(in *assembleInput) []string {
 // into /var/yolo-jail/ctx. "unsupported" is a statement about a LAUNCH that delivered
 // nothing, never about a backend that cannot.
 func (o *Options) hostLayerEnv(in *assembleInput) []string {
-	wire, err := packload.HostLayerReport{
-		Delivery:  packload.HostLayersSupported,
-		Delivered: in.hostLayersDelivered,
+	wire, err := entrypoint.HostLayerWire{
+		HostLayerReport: packload.HostLayerReport{
+			Delivery:  packload.HostLayersSupported,
+			Delivered: in.hostLayersDelivered,
+		},
+		Rendered: in.hostLayersRendered,
 	}.Marshal()
 	if err != nil {
 		// Unreachable for a []string, and silence would be the wrong failure anyway: no
@@ -199,4 +208,39 @@ func (o *Options) hostMountArgs(in *assembleInput) []string {
 		}
 	}
 	return args
+}
+
+// hostLayerIsRender reports whether the bytes this launch is staging at dest are YOLO'S OWN
+// RENDER rather than the user's ([OQ-CR6], docs/design/config-target-resolution.md; the
+// disposition it feeds is entrypoint.HostLayerRender, whose file states the whole argument).
+//
+// It is the LAUNCHER's to answer because the jail cannot: `host_management` is deliberately
+// not inherited into a container (internal/config/inherit.go), so a boot render holding a
+// /ctx copy has no way to tell the user's settings file from yolo's previous output — and
+// folding yolo's own keys back in as "the user's" pins a removed pack overlay's value in the
+// file forever ([P6]).
+//
+// THE MARK, NOT THE POSTURE. entrypoint.HostSurfaceRendered reads the host provenance
+// record, which is the only trace a host render leaves in a home and is written by every
+// assert and by no dry run. A posture test would be wrong on almost every machine, because
+// an absent `host_management` resolves to `assert` — labelling a file yolo has never
+// written, and stopping the jail from composing the settings the user already has.
+//
+// A grant that feeds no `readsHost` surface is never labelled: the destination list also
+// carries `host_files` and `mount` contributions, which are not config layers at all.
+func hostLayerIsRender(p *packload.Pack, dest string) bool {
+	surfaces, probs := p.Surfaces()
+	if len(probs) > 0 {
+		// A pack whose surfaces will not decode is a yolo bug for an embedded pack, and the
+		// boot path fails loudly on the same input. Declining to LABEL is the conservative
+		// answer here rather than the loud one: an unlabelled delivery composes as a layer,
+		// which is what shipped before this label existed.
+		return false
+	}
+	for _, s := range surfaces {
+		if s.HostSource == dest {
+			return entrypoint.HostSurfaceRendered(homeDir(), s)
+		}
+	}
+	return false
 }

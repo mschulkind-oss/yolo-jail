@@ -141,7 +141,7 @@ func TestComputedColumnAgreesWithEveryPackDerive(t *testing.T) {
 // `host` layer, reproduced one column over.
 func TestConfigRenderExplainNamesTheComputedLayerItOmits(t *testing.T) {
 	var out, errw bytes.Buffer
-	if rc := configRender([]string{"pi", "--explain"}, &out, &errw, false); rc != 0 {
+	if rc := configRender(hostTargetForTest(), []string{"pi", "--explain"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("rc != 0: %s", errw.String())
 	}
 	got := out.String()
