@@ -40,8 +40,9 @@ other ELF. So a mirrored reference *resolves* on both sides and yields an ABI-in
 artifact, where today it fails loudly with ENOENT. yolo has shipped code whose entire job is
 to catch exactly this (`internal/cli/run/retire.go`) and whose detection method is the path
 prefix; mirroring degrades it to always-pass. The same argument already killed uv-cache
-sharing ([`jail-state-separation-design.md`](./jail-state-separation-design.md):325-334 — *"silently reused … persistent, invisible
-cache poisoning"*). **Verdict: no.** And the two arguments that were expected to cut *for* it
+sharing
+([`../reference/jail-state-separation-design.md`](../reference/jail-state-separation-design.md#package-caches-stay-per-side)
+— *"silently reused … persistent, invisible cache poisoning"*). **Verdict: no.** And the two arguments that were expected to cut *for* it
 come back negative — mirroring does not delete capture relocation, it *creates* the need for
 it ([§12.6](#126-capture-relocation--chased-hard-it-cuts-the-other-way)). If the real goal is
 one environment at several confinement notches, the lever is **userland unification**
@@ -73,8 +74,8 @@ running), or **NOT MEASURED**.
 **Reads with:**
 [`../research/mise-host-jail-path-mismatch.md`](../research/mise-host-jail-path-mismatch.md)
 (where this question was first asked, as "option A", and answered no on 2026-07-03),
-[`jail-state-separation-design.md`](jail-state-separation-design.md) (the bundle that made
-that answer right, and the corollary that makes mirroring actively harmful),
+[`../reference/jail-state-separation-design.md`](../reference/jail-state-separation-design.md) (the bundle that
+made that answer right, and the corollary that makes mirroring actively harmful),
 [`jail-home.md`](../reference/jail-home.md) (the mount stack this would edit),
 [`host-execution-from-the-workspace.md`](../reference/host-execution-from-the-workspace.md) (the outbound
 threat model, which this changes less than I expected),
@@ -116,10 +117,11 @@ many words.** `/workspace` is not merely a name; it is a *namespace-collapsing d
 *(coined here)* — every workspace on the machine gets the same string inside its own jail,
 backed by a different directory. For machine-shared state keyed by something other than the
 workspace, that collapse is what makes one entry resolve correctly in every jail.
-[`jail-state-separation-design.md`](jail-state-separation-design.md):221-224 records the
-corollary directly: *"option A would destroy this — real host paths make every project's
-string unique, so any two same-version projects would conflict unconditionally. A is not
-just weaker here; it's actively worse."* [§2.2](#22-the-thing-it-quietly-is-a-namespace-collapsing-device), [§4.2](#42-the-re-opened-class).
+[`../reference/jail-state-separation-design.md`](../reference/jail-state-separation-design.md#the-jailjail-residue-in-the-shared-store)
+records the corollary directly: mounting each workspace at its real host path is *"actively
+worse here"*, because *"real host paths make every project's string unique, which destroys the
+no-conflict common case … any two same-version projects would then conflict
+unconditionally."* [§2.2](#22-the-thing-it-quietly-is-a-namespace-collapsing-device), [§4.2](#42-the-re-opened-class).
 
 **P3. The migration cost is not a one-time edit; it is a permanent tax on prose.** Today
 `/workspace` is a constant that every doc, briefing, skill, and error message can name.
@@ -214,8 +216,8 @@ The collapse is also used *deliberately*, which is the part that makes it a desi
 rather than an accident. The per-side shadow mounts are exactly this trick applied on
 purpose: `.venv` and `node_modules` appear at the same path in every jail and on the host,
 each backed by a different directory (`internal/cli/run/mounts.go:78-109`;
-[`jail-state-separation-design.md`](jail-state-separation-design.md) calls it
-*"the same string-uniform/per-side-backing trick"*). `CARGO_HOME=/mise/cargo` is the same
+[`../reference/jail-state-separation-design.md`](../reference/jail-state-separation-design.md#invariants) calls it
+*"string-uniform, backing-per-side"*). `CARGO_HOME=/mise/cargo` is the same
 move: [`storage-and-config.md`](../reference/storage-and-config.md):367 says it exists so the recorded
 `installs/rust/<ver>` symlink *"resolve[s] identically in every jail"*.
 
@@ -236,20 +238,23 @@ expired and should not be recycled:
   (**MEASURED**, [§7.1](#71-podman-expressible-and-the-image-constraint-is-not-one)).
 
 So the old *no* is not a citation I can lean on. The parts of it that survive are P1 and the
-[`jail-state-separation-design.md`](./jail-state-separation-design.md):221-224 corollary — which is a stronger objection than
+[`../reference/jail-state-separation-design.md`](../reference/jail-state-separation-design.md#the-jailjail-residue-in-the-shared-store)
+corollary — which is a stronger objection than
 anything in the original list.
 
 **And there is a second piece of prior art, running the other way, that the July discussion
 only half-states.** yolo *used to* same-path-mount the mise store: `~/.local/share/mise` →
 `/home/matt/.local/share/mise`, mirrored precisely so host-written absolute paths would
-resolve in-jail ([`jail-state-separation-design.md`](jail-state-separation-design.md):67).
-That mirroring was deleted in 2026-07 in favour of the fixed neutral `/mise` (`:61`), for
-three reasons that read as a point-by-point rebuttal of the present proposal: it "keeps the
-host username baked into every jail" (`:81`); it made jails host-layout-dependent where the
-goal was *"identical jails on gauss, macOS, anywhere"*
+resolve in-jail. That mirroring was deleted in 2026-07 in favour of the fixed neutral `/mise`,
+for three reasons that read as a point-by-point rebuttal of the present proposal: it *"keeps the
+host username baked into every jail"*
+([`../reference/jail-state-separation-design.md`](../reference/jail-state-separation-design.md#why-the-three-changes-are-one-change));
+it made jails host-layout-dependent where the goal was *"identical jails on gauss, macOS,
+anywhere"*
 ([`../research/mise-host-jail-path-mismatch.md`](../research/mise-host-jail-path-mismatch.md)
 §F+); and it required a dedicated nested-jail propagation variable, `YOLO_OUTER_MISE_PATH`,
-which the neutral path deleted (`:132`).
+which the neutral path deleted — the store path is now
+[re-resolved at every nesting depth](../reference/jail-state-separation-design.md#invariants).
 
 **yolo has run this experiment on one path space and moved away from mirroring.** That is the
 single most relevant fact in this document, and it is not an argument from authority: the
@@ -471,7 +476,7 @@ unifies one:
 | :--- | :--- | :--- | :--- |
 | Workspace | `/home/matt/code/proj` | `/workspace` | **unified** |
 | Home | `/home/matt` | `/home/agent` (`assemble.go:745`) | still different — and deliberately so ([`jail-home.md`](../reference/jail-home.md)) |
-| Toolchain store | `~/.local/share/mise` | `/mise` | still different — and deliberately so ([`jail-state-separation-design.md`](jail-state-separation-design.md)) |
+| Toolchain store | `~/.local/share/mise` | `/mise` | still different — and deliberately so ([`../reference/jail-state-separation-design.md`](../reference/jail-state-separation-design.md)) |
 
 **Concretely: it does not fix venv portability**, which is the case most often cited for it.
 A jail-made `.venv` records `home = /mise/installs/python/<v>/bin`. Mirroring the workspace
@@ -949,10 +954,10 @@ that is what the jail is for.
   `/nix/store/…-pcre2-10.47/lib/libpcre2-8.so.0`. The jail's mise-installed
   `/mise/installs/python/3.11.14/bin/python3` links against the jail's own `/lib` farm. None
   of that resolves on the Arch host.
-- **The repo already says so:** *"host (Arch) and jail (NixOS) are different userlands — a
-  source-built C extension is only correct on the side that built it"*
-  ([`jail-state-separation-design.md`](jail-state-separation-design.md):91). On macOS one side
-  is Mach-O and the other ELF.
+- **The repo already says so:** *"the two sides are different userlands, so a source-built C
+  extension is only correct on the side that built it"*
+  ([`../reference/jail-state-separation-design.md`](../reference/jail-state-separation-design.md#why-the-three-changes-are-one-change)).
+  Here that is Arch against NixOS; on macOS one side is Mach-O and the other ELF.
 
 So under maximal mirroring a cross-boundary reference **resolves and returns the wrong
 thing**, where today it fails immediately with ENOENT. That is a strictly worse failure mode,
@@ -970,10 +975,10 @@ and it is not hypothetical in this repo:
 > `continue`s. The NixOS-built venv is silently kept and handed to the Arch host.
 
 The same argument, in the same words, is why yolo **refused to share the uv cache**
-([`jail-state-separation-design.md`](jail-state-separation-design.md):325-334): a source-built
-wheel from the Arch host *"would be silently reused inside NixOS jails, and a jail-built one
-(referencing `/nix/store/…`) on the host — the venv cross-OS hazard again, but as persistent,
-invisible cache poisoning."* That decision was made about *content* sharing. Maximal mirroring
+([`../reference/jail-state-separation-design.md`](../reference/jail-state-separation-design.md#package-caches-stay-per-side)): a
+source-built wheel from the host *"would be silently reused inside the jail, and a jail-built
+one on the host. That is the cross-userland venv hazard again, but as persistent, invisible
+cache poisoning."* That decision was made about *content* sharing. Maximal mirroring
 does not share content, but it removes the thing that makes the content mismatch **loud**.
 
 **Stated as a principle:** in a system whose job is a boundary, a path string is the cheapest
@@ -1341,7 +1346,7 @@ and it already has a home in the tree.
    P1 says mirroring the workspace alone cannot make the two sides agree, because home and
    the toolchain store do not move. The coherent version of the idea moves all three — and
    collides head-on with two shipped designs ([`jail-home.md`](../reference/jail-home.md),
-   [`jail-state-separation-design.md`](jail-state-separation-design.md)) that exist because
+   [`../reference/jail-state-separation-design.md`](../reference/jail-state-separation-design.md)) that exist because
    *not* sharing those was worth paying for. Worth a paragraph of intent before anyone
    invests in it.
 
