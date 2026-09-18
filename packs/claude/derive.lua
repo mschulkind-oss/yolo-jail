@@ -130,7 +130,25 @@ yolo.env("claude", function(ctx)
     out.ANTHROPIC_BASE_URL = baseUrl
     routed = true
   end
-  if p.api_key then
+  -- A CREDENTIAL TRAVELS WITH THE ADDRESS IT WAS MINTED FOR, OR NOT AT ALL.
+  --
+  -- Three provider shapes reach here and only the middle one is wrong. A provider naming
+  -- an anthropic endpoint (or the shorthand) is ROUTED and its key belongs with that URL.
+  -- A provider naming NO endpoint at all has repointed nothing — that is the deliberate
+  -- BYO-key launch against Anthropic's own API, and its key is correct. But a provider
+  -- that NAMED a protocol and did not name ours is one this agent cannot reach, and
+  -- composing its key anyway sent a third-party credential to api.anthropic.com with no
+  -- base URL beside it (cerebras-pack-and-copilot-delivery.md's OQ-2, ruled 2026-09-18).
+  --
+  -- The inverse was already kept below — `elseif routed` substitutes a dummy so a routed
+  -- launch is never keyless — so this is the missing half of a rule this file had.
+  --
+  -- INTERIM BY DESIGN. protocol-resolution.md makes this state unreachable: the agent
+  -- declares the protocol it speaks, the resolver refuses a pairing nothing can serve,
+  -- and a credential only ever accompanies an address the resolver produced. When that
+  -- lands, this branch is DELETED rather than reworked.
+  local namesAnotherProtocol = not routed and p.endpoints ~= nil and next(p.endpoints) ~= nil
+  if p.api_key and not namesAnotherProtocol then
     out.ANTHROPIC_AUTH_TOKEN = p.api_key
   elseif routed then
     -- Routed/local endpoint with no explicit API key needs a dummy token so Claude

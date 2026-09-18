@@ -293,3 +293,101 @@ func TestAgentEnvAttributesLuaErrors(t *testing.T) {
 		t.Errorf("error should name the shipping pack: %v", err)
 	}
 }
+
+// realClaudePack is the SHIPPED claude pack, not a fixture of it — the point of the test
+// below is that `packs/claude/derive.lua` composes what the ruling says, so a fixture
+// derive would assert the test's own copy of the rule.
+func realClaudePack(t *testing.T) *Pack {
+	t.Helper()
+	for _, p := range Embedded() {
+		if p.Name == "claude" {
+			return p
+		}
+	}
+	t.Fatal("no embedded pack named claude")
+	return nil
+}
+
+// providerPack ships one provider with the given endpoints block and a profile that
+// selects it. The profile is named something else on purpose, the way envZaiPack's is:
+// with both called "p" a selected_provider assertion cannot tell resolution from the
+// profile-name fallback returning the same string.
+func providerPack(t *testing.T, endpointsJSON string) *Pack {
+	t.Helper()
+	return &Pack{Name: "vendor", Decl: declFrom(t, `{"contributes":[
+	  {"kind":"provider","name":"p","api_key_env_name":"P_KEY"`+endpointsJSON+`},
+	  {"kind":"profile","name":"sel","provider":"p"}]}`)}
+}
+
+// TestClaudeDeriveKeepsACredentialWithItsAddress is OQ-2's ruling, run through the real
+// packs/claude/derive.lua.
+//
+// Three provider shapes reach that producer and only the middle one was wrong. Until
+// 2026-09-18 a provider that NAMED a protocol claude does not speak, and carried a key,
+// had that key composed with no base URL beside it — so a third-party credential went to
+// api.anthropic.com. The other two must keep working, and they are why the rule cannot be
+// the simpler "only emit a key when routed": a provider naming NO endpoint has repointed
+// nothing, and its key is the deliberate BYO-key launch against Anthropic's own API.
+func TestClaudeDeriveKeepsACredentialWithItsAddress(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		endpoints string
+		wantURL   string
+		wantToken string
+	}{
+		{
+			name:      "anthropic endpoint: routed, and the key travels with it",
+			endpoints: `,"endpoints":{"anthropic":{"base_url":"https://api.z.ai/api/anthropic"}}`,
+			wantURL:   "https://api.z.ai/api/anthropic",
+			wantToken: "tok-9",
+		},
+		{
+			// THE DEFECT: the provider said where it lives and it is not Anthropic.
+			name:      "openai endpoint only: no address for claude, so no credential",
+			endpoints: `,"endpoints":{"openai":{"base_url":"https://api.cerebras.ai/v1"}}`,
+			wantURL:   "",
+			wantToken: "",
+		},
+		{
+			// NOT the defect, and the reason the rule reads the DECLARATION rather than
+			// the absence of a URL: nothing was repointed, so the key is correct.
+			name:      "no endpoints at all: the BYO-key launch against Anthropic's own API",
+			endpoints: ``,
+			wantURL:   "",
+			wantToken: "tok-9",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			claude, vendor := realClaudePack(t), providerPack(t, tc.endpoints)
+			providers, err := ComposeProviders(nil, []*Pack{claude, vendor})
+			if err != nil {
+				t.Fatal(err)
+			}
+			resolved, err := ResolveProfiles([]*Pack{claude, vendor}, nil, providers)
+			if err != nil {
+				t.Fatal(err)
+			}
+			vars, err := AgentEnv([]*Pack{claude, vendor}, providers,
+				map[string]string{"claude": "sel"}, "claude", "sel",
+				func(n string) (string, bool) { return "tok-9", n == "P_KEY" },
+				WithResolvedProfiles(resolved))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := map[string]string{}
+			for _, v := range vars {
+				got[v.Key] = v.Value
+			}
+			if got["ANTHROPIC_BASE_URL"] != tc.wantURL {
+				t.Errorf("ANTHROPIC_BASE_URL = %q, want %q", got["ANTHROPIC_BASE_URL"], tc.wantURL)
+			}
+			if got["ANTHROPIC_AUTH_TOKEN"] != tc.wantToken {
+				t.Errorf("ANTHROPIC_AUTH_TOKEN = %q, want %q.\n\nA credential travels with the "+
+					"address it was minted for, or not at all: a provider that named a protocol "+
+					"claude does not speak is one claude cannot reach, so its key must not be "+
+					"composed — while a provider that named no protocol has repointed nothing, "+
+					"and its key is correct.", got["ANTHROPIC_AUTH_TOKEN"], tc.wantToken)
+			}
+		})
+	}
+}
