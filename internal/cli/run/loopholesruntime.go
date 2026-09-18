@@ -103,22 +103,28 @@ func (o *Options) advertiseHostFor(rt string, cfg *jsonx.OrderedMap) string {
 // THE WIDENING DOES MOVE AN ADVERTISE ADDRESS ON THIS BACKEND, and it is supposed to.
 // The paragraph above used to end by saying it could not, on the grounds that only
 // appliedNetMode was live here; that stopped being true when the macos-user arm started
-// the OpenAI credential service itself (run.Run → startOpenAIAuth →
-// startLoopholesMatching, which calls advertiseHostFor). startLoopholes and its one
-// disclosed caller do still sit inside runContainer, below that arm's return, so it is the
-// subset path and not the full one — but the subset publishes, and this predicate decides
-// what it publishes. "Always true" is what makes that 127.0.0.1: the sandboxed process is
-// an ordinary child of the launcher on the launcher's own stack, so the listener's loopback
-// IS the sandbox's, and a gateway name would be an address nothing is listening on.
+// host services of its own (run.Run's native arm → startLoopholesDisclosed →
+// startLoopholesMatching, which calls advertiseHostFor). ⚠ TWO CLAUSES OF THIS PARAGRAPH
+// WERE STALE and are retracted rather than reworded: it named `startOpenAIAuth`, which was
+// DELETED on 2026-09-17 with the subset spawn path (openaiauthbackend.go records the
+// inversion), and it called this "the subset path and not the full one", which was true of
+// an arm that started one credential service by hand. The arm starts EVERY admitted
+// loophole now, through the same wrapper every container launch uses — measured:
+// `"packs": ["claude"]` publishes both `claude-oauth-broker.endpoint` and
+// `openai-auth-broker.endpoint` there. So the predicate decides what the WHOLE set
+// publishes. "Always true" is what makes that 127.0.0.1: the sandboxed process is an
+// ordinary child of the launcher on the launcher's own stack, so the listener's loopback IS
+// the sandbox's, and a gateway name would be an address nothing is listening on.
 //
 // A DISPOSITION IT STILL CANNOT MOVE. assembleRunCmd's paths.HostLoopbackShared is written
 // in the assembler, several hundred lines below the macos-user return, so this backend
 // emits no disposition at all — which is why the widening cannot manufacture the refused
 // launch the pair-drift hazard above describes.
 //
-// The arm calls notePackLoopholesInert directly for a separate reason, spelled out at that
-// call site: every OTHER pack-shipped service is inert here, and no wrapper on the subset
-// path reports it.
+// WHAT THE ARM STILL PRINTS ITSELF is the inert report on its `--dry-run` path (a plan
+// render crosses no spawn boundary, so it reaches no wrapper) and the JAIL-DAEMON DECLINE on
+// both paths: every host daemon starts here and not one jail daemon does, because there is
+// no in-jail supervisor on this backend at all (jaildaemondecline.go).
 func sharesLauncherNetns(rt, netMode string, inContainer bool) bool {
 	if rt == "container" {
 		return false

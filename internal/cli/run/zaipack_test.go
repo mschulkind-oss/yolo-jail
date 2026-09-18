@@ -68,7 +68,14 @@ func zaiLaunchAssembled(t *testing.T, packs []*packload.Pack, cfg *jsonx.Ordered
 		tune(o)
 	}
 	in := &assembleInput{
-		cfg:          cfg,
+		cfg: cfg,
+		// THE HOISTED PAYLOAD, composed the way Run composes it above the backend dispatch
+		// (jailDaemonsFor). Assembly only serializes `jailDaemons` now, so a harness that
+		// left the field zero would quietly stop exercising the service composition at all
+		// — and the three tests in packservices_test.go plus wirebridgepack_test.go's two
+		// would be asserting on an argv no launch produces. Composed here rather than
+		// hand-written so the helper cannot drift from the producer.
+		jailDaemons:  o.jailDaemonsFor(cfg, "podman", packs),
 		rt:           "podman",
 		cname:        "yolo-ws-abcd1234",
 		imageRef:     goldenImageRef,

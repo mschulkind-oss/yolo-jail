@@ -101,8 +101,80 @@ func (s Set) RuntimeArgsFor(from []*Loophole, runtime string) []string {
 // The entries are appended AFTER the loopholes' own, in the order given — the run
 // pipeline sorts them by service name before calling, so the composed payload is
 // deterministic run to run.
-func (s Set) RuntimeArgsForWithJailDaemons(from []*Loophole, runtime string, extraJailDaemons []any) []string {
+func (s Set) RuntimeArgsForWithJailDaemons(from []*Loophole, runtime string, extraJailDaemons []JailDaemonSpec) []string {
 	return runtimeArgsFor(from, runtime, &s, extraJailDaemons)
+}
+
+// JailDaemonSpec is ONE entry of the YOLO_JAIL_DAEMONS payload, before it is serialized:
+// the supervisor's own {name, cmd, restart} shape (internal/supervisor's Spec), in a form a
+// caller can READ rather than re-decode.
+//
+// It exists because the payload has TWO consumers and only one of them wants JSON. The
+// container argv wants the bytes; a backend that will NOT run these daemons has to name each
+// one it is declining (run.noteJailDaemonsDeclined). A decline printer that reached into
+// []any and pulled a "name" key back out would be a second reader of the wire shape, which is
+// the drift the "one env contract, one writer" rule exists to prevent — so the composed value
+// is typed all the way to JailDaemonPayload, which is the only place the wire shape is built.
+//
+// Restart is carried VERBATIM. Each producer owns its own default (loopholedecl defaults a
+// loophole's to "on-failure" at load; run.serviceJailDaemons defaults a service's when it
+// composes the spec), so this type never invents one — a defaulting step here would change
+// what an existing manifest puts on the argv.
+type JailDaemonSpec struct {
+	Name    string
+	Cmd     []string
+	Restart string
+}
+
+// JailDaemons composes THIS LAUNCH'S jail-daemon entries — every admitted record's own,
+// followed by the extra entries in the order given — WITH THIS SET'S ORIGIN GATE APPLIED,
+// exactly as Set.RuntimeArgsForWithJailDaemons applies it.
+//
+// THE ONE COMPOSER, and it is exported so that a caller which cannot assemble an argv at all
+// can still ask what this launch's payload IS. macos-user is that caller: it has no container
+// argv, so until this existed the payload was composed inside runtimeArgsFor and emitted only
+// as `-e YOLO_JAIL_DAEMONS=`, which is a container flag — and a backend with no consumer for
+// it started nothing and said nothing (docs/design/jail-daemon-on-macos-user-plan.md, the
+// DEFAULT configuration: packs/claude `needs` both openai-auth and wire-bridge).
+//
+// NO UNGATED PACKAGE-LEVEL TWIN, unlike RuntimeArgsFor and ManifestHostDaemonSpecs. Those
+// have one because they predate the gate and a caller may hold a plain slice; this is new, so
+// the unsafe call is simply unrepresentable — a Set is the only way in, and gateAdmitsCrossing
+// therefore always has a gate to consult.
+func (s Set) JailDaemons(from []*Loophole, runtime string, extra []JailDaemonSpec) []JailDaemonSpec {
+	return jailDaemonSpecs(from, runtime, &s, extra, "JailDaemons")
+}
+
+// JailDaemonPayload is THE WRITER of the YOLO_JAIL_DAEMONS wire shape: the JSON list
+// internal/supervisor's ParseEnv reads, one object per spec, keys in the frozen order.
+//
+// It is the whole reason the type above is worth having. The shape used to be built in two
+// places — this package's loop for a loophole's daemon and internal/cli/run's for a pack
+// SERVICE's — with a comment in each asking the other to stay identical. One writer is how
+// "a diff of the two halves' entries shows no structural difference" becomes a fact instead
+// of a request.
+func JailDaemonPayload(specs []JailDaemonSpec) []any {
+	out := make([]any, 0, len(specs))
+	for _, sp := range specs {
+		spec := jsonx.NewOrderedMap()
+		spec.Set("name", sp.Name)
+		spec.Set("cmd", toAnySlice(sp.Cmd))
+		spec.Set("restart", sp.Restart)
+		out = append(out, spec)
+	}
+	return out
+}
+
+// RuntimeArgsWithJailDaemons is Set.RuntimeArgsFor emitting a payload the CALLER already
+// composed (with Set.JailDaemons) instead of composing one itself.
+//
+// For the launch that composes the payload ABOVE its backend dispatch, so that both arms read
+// one value: the container arm hands it back here to be serialized onto the argv, and the
+// native arm declines each entry by name. Composing it twice would work — the composer is
+// pure — but then "one payload per launch" would be a property of two call sites passing the
+// same arguments rather than of the launch.
+func (s Set) RuntimeArgsWithJailDaemons(from []*Loophole, runtime string, specs []JailDaemonSpec) []string {
+	return runtimeArgsWith(from, runtime, &s, specs)
 }
 
 // gateAdmitsCrossing is THE origin gate for a pack-shipped loophole's host crossings —
@@ -171,32 +243,81 @@ func gateAdmitsCrossing(m *Loophole, gate *Set, what string) bool {
 	return gate.MayRunHostCode(m)
 }
 
-func runtimeArgsFor(loopholes []*Loophole, runtime string, gate *Set, extraJailDaemons []any) []string {
+// admitsJailSideEffects is the per-record skip the two loops below share: what this record
+// puts in the jail at all, on this runtime, under this gate.
+//
+// ONE PREDICATE, TWO LOOPS. The mounts/flags loop and the jail-daemon composer walk the same
+// records and must make the same skip, or a launch would compose a payload entry for a
+// loophole whose `:ro` module mount it left off the argv — a daemon named at a path nothing
+// mounted. Sharing the predicate is how that stays impossible rather than reviewed.
+//
+// `what` only reaches gateAdmitsCrossing's NEVER-EVALUATED warning, which is why the callers
+// below both pass "RuntimeArgsFor" on the argv path: the two loops then produce the identical
+// line for one ungated record and warnf says it once (see warnf's dedup), so extracting the
+// composer left stderr byte-identical as well as the argv.
+func admitsJailSideEffects(m *Loophole, runtime string, gate *Set, what string) bool {
+	if m.FromConfig() {
+		return false
+	}
+	if !m.Active() {
+		return false
+	}
+	if !gateAdmitsCrossing(m, gate, what) {
+		return false
+	}
+	// Apple Container does not support --add-host (apple/container#673), so a
+	// loophole that needs one is skipped whole there.
+	//
+	// The key is the INTERCEPT LIST, not a transport string. It used to be
+	// `Transport == "tls-intercept"`, which worked only because one value
+	// happened to imply the other; `intercepts` is what actually produces the
+	// --add-host flags in the loop below, so keying on it makes the skip and
+	// the thing skipped the same fact. That is also what let "tls-intercept"
+	// retire (docs/reference/loophole-transport.md §7.4): it was the field's only
+	// behavioural reader.
+	return !(runtime == "container" && len(m.Intercepts) > 0)
+}
+
+// jailDaemonSpecs is THE COMPOSER of this launch's jail-daemon entries — the body behind
+// Set.JailDaemons and the one runtimeArgsFor calls, so there is exactly one.
+func jailDaemonSpecs(loopholes []*Loophole, runtime string, gate *Set,
+	extra []JailDaemonSpec, what string) []JailDaemonSpec {
+	specs := []JailDaemonSpec{}
+	for _, m := range loopholes {
+		if !admitsJailSideEffects(m, runtime, gate, what) {
+			continue
+		}
+		if m.JailDaemon == nil {
+			continue
+		}
+		specs = append(specs, JailDaemonSpec{
+			Name: m.Name, Cmd: m.JailDaemon.Cmd, Restart: m.JailDaemon.Restart,
+		})
+	}
+	// Pack services' jail daemons join the loopholes' own entries, one list, one env
+	// var (RuntimeArgsForWithJailDaemons carries the reasoning).
+	return append(specs, extra...)
+}
+
+func runtimeArgsFor(loopholes []*Loophole, runtime string, gate *Set, extraJailDaemons []JailDaemonSpec) []string {
+	// THE ARGV FIRST, then the payload, and the order is not cosmetic: both loops consult
+	// gateAdmitsCrossing, and running the mounts loop first means its warnings come out in
+	// exactly the sequence they did before the composer was extracted (the payload loop's
+	// are then the same lines, which warnf drops). See admitsJailSideEffects.
+	args := runtimeArgsWith(loopholes, runtime, gate, nil)
+	specs := jailDaemonSpecs(loopholes, runtime, gate, extraJailDaemons, "RuntimeArgsFor")
+	return append(args, jailDaemonEnvArgs(specs)...)
+}
+
+// runtimeArgsWith is runtimeArgsFor over an ALREADY-COMPOSED payload. Pass nil for specs to
+// get the argv without the env var at all, which is what runtimeArgsFor does before it
+// composes (the var is appended last either way, so the two spellings agree byte for byte).
+func runtimeArgsWith(loopholes []*Loophole, runtime string, gate *Set, specs []JailDaemonSpec) []string {
 	args := []string{}
 	trustedCAPaths := []string{}
-	jailDaemonsPayload := []any{}
 
 	for _, m := range loopholes {
-		if m.FromConfig() {
-			continue
-		}
-		if !m.Active() {
-			continue
-		}
-		if !gateAdmitsCrossing(m, gate, "RuntimeArgsFor") {
-			continue
-		}
-		// Apple Container does not support --add-host (apple/container#673), so a
-		// loophole that needs one is skipped whole there.
-		//
-		// The key is the INTERCEPT LIST, not a transport string. It used to be
-		// `Transport == "tls-intercept"`, which worked only because one value
-		// happened to imply the other; `intercepts` is what actually produces the
-		// --add-host flags twenty lines below, so keying on it makes the skip and
-		// the thing skipped the same fact. That is also what let "tls-intercept"
-		// retire (docs/reference/loophole-transport.md §7.4): it was the field's only
-		// behavioural reader.
-		if runtime == "container" && len(m.Intercepts) > 0 {
+		if !admitsJailSideEffects(m, runtime, gate, "RuntimeArgsFor") {
 			continue
 		}
 		containerDir := JailLoopholeDir(m.Name)
@@ -261,14 +382,6 @@ func runtimeArgsFor(loopholes []*Loophole, runtime string, gate *Set, extraJailD
 			trustedCAPaths = append(trustedCAPaths, containerCA)
 		}
 
-		if m.JailDaemon != nil {
-			spec := jsonx.NewOrderedMap()
-			spec.Set("name", m.Name)
-			spec.Set("cmd", toAnySlice(m.JailDaemon.Cmd))
-			spec.Set("restart", m.JailDaemon.Restart)
-			jailDaemonsPayload = append(jailDaemonsPayload, spec)
-		}
-
 		for _, bm := range m.HostBindMount {
 			if !pathExists(bm.Host) {
 				warnf("loophole %s: skipping bind mount, host source missing: %s", m.Name, bm.Host)
@@ -303,14 +416,18 @@ func runtimeArgsFor(loopholes []*Loophole, runtime string, gate *Set, extraJailD
 	if len(trustedCAPaths) > 0 {
 		args = append(args, "-e", "NODE_EXTRA_CA_CERTS="+strings.Join(trustedCAPaths, string(os.PathListSeparator)))
 	}
-	// Pack services' jail daemons join the loopholes' own entries, one list, one
-	// env var (RuntimeArgsForWithJailDaemons carries the reasoning).
-	jailDaemonsPayload = append(jailDaemonsPayload, extraJailDaemons...)
-	if len(jailDaemonsPayload) > 0 {
-		payload, _ := jsonx.DumpsCompact(jailDaemonsPayload)
-		args = append(args, "-e", "YOLO_JAIL_DAEMONS="+payload)
+	return append(args, jailDaemonEnvArgs(specs)...)
+}
+
+// jailDaemonEnvArgs is the `-e YOLO_JAIL_DAEMONS=` pair, or nothing at all for an empty
+// payload — a launch with no jail daemon must not grow the variable merely because the
+// composition ran.
+func jailDaemonEnvArgs(specs []JailDaemonSpec) []string {
+	if len(specs) == 0 {
+		return nil
 	}
-	return args
+	payload, _ := jsonx.DumpsCompact(JailDaemonPayload(specs))
+	return []string{"-e", "YOLO_JAIL_DAEMONS=" + payload}
 }
 
 // every active file-backed loophole with a host_daemon, shaped like the

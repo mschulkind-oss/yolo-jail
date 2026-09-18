@@ -337,11 +337,18 @@ generated Codex wrapper delegates to the same command. The managed home links `c
 state, and cache stay separate. A direct `codex` launch and `~/.codex/auth.json` are untouched.
 
 > [!WARNING]
-> The OpenAI service is currently a host-service loophole, and it is the **one** loophole the two
-> macOS backends carry: Apple Container allow-lists it out of an otherwise total loophole skip, and
-> the `macos-user` arm starts it by hand. Neither is parity — starting the service is not the same
-> as the jail reaching it, and the agent pack dependency alone creates no second credential path.
-> See [the backend table](#per-backend-differences) for what each backend actually delivers.
+> The OpenAI service is a host-service loophole, and **neither macOS backend carries it end to
+> end** — for two different reasons, which is why one sentence cannot cover both. On Apple
+> Container it is allow-listed out of an otherwise total loophole skip: the daemon starts and the
+> jail cannot reach it (measured on `container` 1.1.0). On `macos-user` the HOST half is no longer
+> special at all — that arm starts every loophole's host daemon through the ordinary spawn
+> boundary — and what is missing there is the JAIL half: its refresh adapter is a `jail_daemon`,
+> and this backend runs none, so `CODEX_REFRESH_TOKEN_URL_OVERRIDE` points at a port nothing
+> binds. ⚠ This warning said the service was "the **one** loophole the two macOS backends carry"
+> and that the `macos-user` arm "starts it by hand" until 2026-09-18; both described the arm as it
+> was before its lifecycle was generalised. Starting a service is still not the same as the jail
+> reaching it, and the agent pack dependency alone creates no second credential path. See
+> [the backend table](#per-backend-differences) for what each backend actually delivers.
 
 ### Git-identity composition
 
@@ -426,9 +433,9 @@ fully open.
 | Per-agent host settings grant | `/ctx/host-<pack>/` `:ro` mount, then boot compose | materialized copy, then boot compose | boot compose, fail-open — no `/ctx`, same pure generators |
 | User `host_files` | source-bearing: `/ctx/host-user/<slug>` `:ro`; source-less: composed | source-less composes; single-file `:ro` for `/ctx/host-user` unhandled upstream | source-less composes; a **file** `source` is copied into a root-owned `/ctx` tree (2026-09-13); a **directory** `source` is skipped and warned |
 | Claude shared credentials | shared bind + relative symlink | shared bind **nested inside** the whole-home bind, then the same relative symlink — one mount per declared shared dir (2026-08-24; before that the single bind put the creds in the per-workspace home) | free — one real credentials file in the shared home |
-| claude-oauth-broker | active when the `claude` pack is selected | **skipped whole** — no singleton is ensured on this backend, the host-service start admits only the OpenAI service, and the container args drop the loophole for its `intercepts` (which need `--add-host`) | **skipped** — the arm returns before any broker ensure; the shared home is already one creds file, but nothing serializes two concurrent sessions |
-| OpenAI subscription credentials | canonical host-service state; Codex and Pi get workspace views | the **one** service this backend starts, endpoint file mounted — and measured unreachable from the guest, so the agent sees "OpenAI login is required" with nothing naming the backend ([G6](../plans/setup-support-gaps.md#2-ranked-gap-backlog)) | started on the arm itself, and a launch that cannot start it is **refused**; the endpoint path rides the sandbox env instead of a mount |
-| Host-service loopholes | endpoint file + `YOLO_SERVICE_*_ENDPOINT` | only the OpenAI credential service starts; its endpoint file crosses in the host-services dir bind, gated on the loophole being active and its pack cleared to run host code. Every other pack host daemon is skipped and each one is reported inert | the same one service and nothing else — the general loophole runtime lives in the container launch path, and every other loophole is reported inert |
+| claude-oauth-broker | active when the `claude` pack is selected | **skipped whole** — no singleton is ensured on this backend, the host-service start admits only the OpenAI service, and the container args drop the loophole for its `intercepts` (which need `--add-host`) | **host half runs, jail half does not.** ⚠ This cell said "the arm returns before any broker ensure", which stopped being true when the arm's lifecycle was generalised: the singleton is ensured and a per-jail front publishes `claude-oauth-broker.endpoint` (measured, unit, 2026-09-18). Nothing uses it — the TLS terminator that would route a refresh through it is a `jail_daemon`, this backend runs none, and the interception would need an `--add-host` it cannot emit either. So refreshes are still not serialized, and the launch now declines the terminator by name |
+| OpenAI subscription credentials | canonical host-service state; Codex and Pi get workspace views | the **one** service this backend starts, endpoint file mounted — and measured unreachable from the guest, so the agent sees "OpenAI login is required" with nothing naming the backend ([G6](../plans/setup-support-gaps.md#2-ranked-gap-backlog)) | host daemon started like every other, and a launch that cannot start it is the one that is **refused**; the endpoint path rides the sandbox env instead of a mount. Its jail-side refresh adapter does **not** run, so a session works until its first token refresh |
+| Host-service loopholes | endpoint file + `YOLO_SERVICE_*_ENDPOINT` | only the OpenAI credential service starts; its endpoint file crosses in the host-services dir bind, gated on the loophole being active and its pack cleared to run host code. Every other pack host daemon is skipped and each one is reported inert | **every host daemon starts**, through the same spawn boundary and the same exec disclosure the container path uses; each endpoint's path rides the sandbox env with a per-file ACL grant instead of a mount. ⚠ "the same one service and nothing else" is retracted (2026-09-18) — it described the arm before the generalisation. The inert report here is the PLATFORM axis only. The `jail_daemon` half runs for nothing and is declined by name |
 | Per-workspace cred isolation | per-workspace `.yolo/home` overlay | one whole-home bind per workspace, but the claude dir is shared across workspaces there | **one shared home for all sessions** |
 | Isolation boundary | userns (Linux) / VM (macOS) + read-only root | VM + read-only root | Unix user + Seatbelt — weaker, deliberately |
 

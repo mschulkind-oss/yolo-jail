@@ -12,6 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -291,6 +292,26 @@ func Run(opts Options) (rc int) {
 		injectedArgs = o.injectLaunchFlagsDisclosed(staged.packs, injectedArgs)
 	}
 
+	// THE JAIL-DAEMON PAYLOAD, composed once here — the fourth B-0 hoist, after the pack
+	// trees, the launch flags and the channel, and for the same reason as every one of
+	// them: it was composed INSIDE the container argv assembler, which this dispatch's
+	// native arm returns before reaching.
+	//
+	// What that cost is stated in docs/design/jail-daemon-on-macos-user-plan.md and it is
+	// the DEFAULT configuration rather than an edge case: `packs/claude` `needs` both
+	// `openai-auth` and `wire-bridge` unconditionally, so a bare `"packs": ["claude"]`
+	// selects two jail daemons, and on macos-user the payload naming them was never
+	// composed at all — the endpoint was published and ACL-granted with nothing listening,
+	// and `CODEX_REFRESH_TOKEN_URL_OVERRIDE` pointed at a dead port. Neither arm said so.
+	//
+	// BOTH ARMS CONSUME THIS VALUE: the container arm threads it onto the argv as
+	// `-e YOLO_JAIL_DAEMONS=` (assembleInput.jailDaemons), the native arm declines each
+	// entry BY NAME. What it does NOT do is start anything here — resolving argv[0] on a
+	// backend with no image, and whether such a child runs under the Seatbelt profile, are
+	// two unfiled rulings (that plan's §Blockers), and `yolo-jaild` is not built for
+	// darwin at all. So this hoist plus the decline is the whole of the honest half.
+	jailDaemons := o.jailDaemonsFor(cfg, rt, staged.packs)
+
 	// macos-user native branch: route to the injected handler,
 	// which wires internal/macosuser (SBPL sandbox, dscl provisioning, the
 	// sandbox-exec launch) + the darwinpkg streaming-build materialize adapter.
@@ -421,6 +442,17 @@ func Run(opts Options) (rc int) {
 				return 1
 			}
 		}
+		// AND THE OTHER HALF OF THAT LIFECYCLE, WHICH THIS BACKEND DOES NOT HAVE. Every
+		// host daemon above started; not one JAIL daemon will, because there is no in-jail
+		// supervisor here and no `yolo-jaild` built for darwin. Said once per launch, one
+		// line per declared daemon, from the payload Run composed above the dispatch — so
+		// the decline names exactly the entries a container launch would have carried
+		// (jaildaemondecline.go has the measurement, and why there is no classifier).
+		//
+		// BELOW the block above and outside both its branches: a decline is not a spawn, so
+		// a --dry-run states it too — and stating it once here is what keeps the live path
+		// and the plan render from needing two printers that could disagree.
+		o.noteMacosUserJailDaemonDeclines(jailDaemons)
 		// THE OTHER TIER COLLAPSE — #39's mirror image — USED TO BE WARNED ABOUT HERE, and
 		// is fixed rather than reported: the bootstrap now symlinks every scope:workspace
 		// state dir into <workspace>/.yolo/home, the sidecar the container backends bind
@@ -592,7 +624,7 @@ func Run(opts Options) (rc int) {
 	sp := o.Perf.Span("launch.auto_capture")
 	o.autoCaptureInstallerPrograms(staged.packs)
 	sp.End()
-	return o.runContainer(cfg, rt, repoRoot, cname, staged, injectedArgs, channel)
+	return o.runContainer(cfg, rt, repoRoot, cname, staged, injectedArgs, channel, jailDaemons)
 }
 
 // stagedPacks is one run's staged pack set — the single result of the single staging
@@ -813,9 +845,11 @@ func ensureStorage() error {
 //
 // channel is the profile/provider environment Run composed above the dispatch. This arm
 // consumes it rather than re-deriving any part of it: assembly emits it onto the argv,
-// and the credential pre-flight answers against it.
+// and the credential pre-flight answers against it. jailDaemons is the same shape of
+// value for the same reason — one composed YOLO_JAIL_DAEMONS payload per launch, which
+// assembly serializes and the native arm declines (packservices.go's jailDaemonsFor).
 func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string, staged stagedPacks,
-	injectedArgs []string, channel *packChannel) int {
+	injectedArgs []string, channel *packChannel, jailDaemons []loopholes.JailDaemonSpec) int {
 	out := o.pr(o.Stdout)
 	// Staged above the dispatch (see Run): this path consumes the result rather than
 	// producing it. packStaging is the tree /ctx/packs binds; loadedPacks is what the
@@ -1138,6 +1172,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		imageRef:         loadedImage.Ref,
 		jailPrefix:       jailPrefix,
 		packs:            loadedPacks,
+		jailDaemons:      jailDaemons,
 		agentsPath:       agentsPath,
 		packStaging:      packStaging,
 		capturesDir:      o.CapturesDir(),

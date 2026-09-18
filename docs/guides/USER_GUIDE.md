@@ -1608,7 +1608,7 @@ Two things cut across the whole table. First, **`macos-user` has no re-entry**: 
 
 [^bsd]: `macos-user` runs against your Mac's own userland, so `sed -i` eats the next argument, `find -printf` and `tar --wildcards` are unknown, and `grep -P` and `ls --color` error out — scripts that pass on the container backends fail here. `security.blocked_tools` also measures the *sandbox* PATH, so a block replaces the BSD tool. Homebrew's GNU builds (`brew --prefix coreutils`) are not on the sandbox PATH under their plain names.
 
-[^packsmac]: On `macos-user` a pack's skills and briefing are writable by the agent and are overwritten on the next launch; pack-shipped MCP presets are not delivered, and pack-shipped loopholes are inert. The launch says so rather than failing quietly.
+[^packsmac]: On `macos-user` a pack's skills and briefing are writable by the agent and are overwritten on the next launch, and pack-shipped MCP presets are not delivered. A pack-shipped loophole is **half** delivered, which is the precise version of what this note used to call "inert": its HOST daemon starts and its endpoint is delivered (with a per-file ACL grant for the sandbox account), while its `jail_daemon` — the in-jail half — runs for nothing at all, because this backend has no in-jail supervisor. So an *intercepting* loophole does nothing useful even with its daemon up: `claude-oauth-broker`'s TLS terminator is its jail half. The launch says all of it rather than failing quietly: one disclosure line per host daemon it starts, and one `Declined:` line per jail daemon it will not.
 
 [^packspartial]: On podman, adding a pack and *re-entering* a running jail is the worst of both: the pack's config surfaces and hooks render, while its skills, briefing, files and host-file grants do not, and its loopholes never start. Half-arrived, with nothing said. Restart for a whole pack.
 
@@ -1677,7 +1677,7 @@ Yes on all four. There is no config option to take it away — `network.mode` ad
 
 Learn your macOS major version with `sw_vers -productVersion`; macOS 26 fixed this, and the probe returns immediately on any other version. Wiring the same probe into the launch as a warning is an unbuilt gap — the detection exists, only the call site on the launch path is missing.
 
-[^wider]: Nothing in the sandbox profile denies any network operation, so the agent reaches your Mac's loopback and your LAN directly. That is also why every loophole is bypassed rather than emulated on this backend.
+[^wider]: Nothing in the sandbox profile denies any network operation, so the agent reaches your Mac's loopback and your LAN directly — which is also why a loophole's host daemon needs no forwarding hop here, and why its endpoint is a plain file path with an ACL rather than a mount. What is bypassed rather than emulated is the *jail* side: an interception that a container gets from `--add-host` plus a trusted CA has no analogue on a native process, and the daemon that would terminate it is declined by name at launch.
 
 #### 4. I edited my config and re-ran `yolo`, and nothing changed
 
@@ -1726,13 +1726,14 @@ Two jails at once is a different question, and the answer is about credential *r
 | `podman`/Linux | `works` — a host-wide broker serializes refreshes |
 | `podman`/macOS | `unmeasured` — the broker starts; whether the jail can reach it across the VM is untested, and a broken hop warns rather than refuses |
 | `container`/macOS | **not serialized, warns** — the loophole is inert here[^acrefresh] |
-| `macos-user`/macOS | **not serialized, warns** — one shared account home, one credential file, no serializer |
+| `macos-user`/macOS | **not serialized, says so** — one shared account home, one credential file, and the serializer's *jail* half cannot run here[^musrefresh] |
 
 Where refreshes are not serialized, two jails running the same agent share one credential file and a simultaneous refresh can consume the single-use refresh token and log you out of both. The launch tells you the mechanism is inert; it does not tell you that this is what being inert costs.
 
 One more hazard worth knowing, on every setup: if the shared credential is **revoked or expired**, a fresh login inside a jail is written locally and then **discarded at your next entry**, relinking to the dead shared credential. Logging in again works until the next `yolo`. It is disclosed — on the entrypoint's stderr, which is usually discarded, and durably in `~/.yolo-shared-creds.log`, so read that file if a login keeps not sticking. A freshness rule here is unbuilt, not ruled out.
 
 [^shared]: The credential lives in a machine-scoped directory, and a per-boot hook links the tool's credential file into it. On `macos-user` the same outcome arrives without any mount, because there is one shared account home — the agent is told to expect history that is not its own. First `macos-user` launch only: a real directory where a link belongs makes the launch refuse and name the path; removing `/Users/_yolojail` is the migration.
+[^musrefresh]: The broker's host daemon really does start on `macos-user` — measured 2026-09-18, a bare `["claude"]` publishes its endpoint file — but serializing a refresh needs the jail-side terminator that intercepts the agent's call, and that process is a `jail_daemon`: nothing runs one on this backend, and the launch declines it by name. A host daemon with no client is not a serializer.
 [^acbroker]: On Apple Container the broker process starts but the jail cannot reach it — container→host traffic is measured dead on this backend (the handshake completes and nothing crosses). `codex` prints `OpenAI login is required.`, the interactive login fails through the same dead hop, and nothing names Apple Container as the cause. This measurement is against Apple Container 1.1.0 and is expected to expire with an upstream release — check yours with `container --version` and re-test before assuming it still holds.
 [^perws]: These packs simply never asked for the machine tier. The mechanism that would fix it is fully built and shipping for other agents; nothing warns.
 

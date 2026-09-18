@@ -692,23 +692,28 @@ func (o *Options) kvmArgs(cfg *jsonx.OrderedMap, rt string, keepGroupsAlready bo
 
 // loopholesRuntimeArgs builds the host-side loopholes runtime args:
 // --add-host, CA cert mounts, NODE_EXTRA_CA_CERTS — plus the YOLO_JAIL_DAEMONS
-// env, which this launch's PACK SERVICE contributions join in the same payload
-// (serviceJailDaemons; wire-bridge.md §2.1 — one env contract, one writer).
+// env, whose payload is COMPOSED ABOVE THE BACKEND DISPATCH and threaded in
+// (jailDaemonsFor; wire-bridge.md §2.1 — one env contract, one writer). This
+// call site serializes that one value rather than composing a second copy of
+// it, which is what lets the native backend read the same payload it can only
+// decline (docs/design/jail-daemon-on-macos-user-plan.md).
 //
 // Census site 3, through the converged set. Enabled() rather than All() keeps the argv
 // byte-identical to what a hand-built Discover(IncludeDisabled:false) produced; the
 // distinction is moot for the output either way (RuntimeArgsFor's own loop skips anything
 // not Active()) and is kept because the ARGV is golden-tested.
-// THE SET'S RuntimeArgsForWithJailDaemons, not the package-level one, and that is the
-// origin gate's enforcement half (§4.3 G3): the package function honors no SourcePack
-// record at all, because a slice carries no gate. Going through the Set is how this call
-// site says it evaluated one — an unapproved fetched pack's binds, devices, intercepts
-// and CA are then dropped here rather than reaching the container. Services need no
-// gate of their own: a service crosses no boundary (kinds.go's anti-loophole), so
-// there is nothing on this path for an origin gate to withhold.
-func (o *Options) loopholesRuntimeArgs(cfg *jsonx.OrderedMap, rt string, serviceJailDaemons []any) []string {
+// A SET METHOD, not the package-level function, and that is the origin gate's enforcement
+// half (§4.3 G3): the package function honors no SourcePack record at all, because a slice
+// carries no gate. Going through the Set is how this call site says it evaluated one — an
+// unapproved fetched pack's binds, devices, intercepts and CA are then dropped here rather
+// than reaching the container. Services need no gate of their own: a service crosses no
+// boundary (kinds.go's anti-loophole), so there is nothing on this path for an origin gate
+// to withhold. The hoisted payload was composed through the same gate, by the same Set
+// constructor, so threading it past this one withholds nothing either.
+func (o *Options) loopholesRuntimeArgs(cfg *jsonx.OrderedMap, rt string,
+	jailDaemons []loopholes.JailDaemonSpec) []string {
 	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
-	return set.RuntimeArgsForWithJailDaemons(set.Enabled(), rt, serviceJailDaemons)
+	return set.RuntimeArgsWithJailDaemons(set.Enabled(), rt, jailDaemons)
 }
 
 // hasKey reports whether m has key (present, even if the value is falsy).

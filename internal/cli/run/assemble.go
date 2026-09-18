@@ -10,6 +10,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostcas"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
@@ -31,6 +32,21 @@ type assembleInput struct {
 	// DECLARATIONS drive the mounts below — writable dirs, mount targets, host-file
 	// grants — which is what lets core stay ignorant of what an "agent" is.
 	packs []*packload.Pack
+	// jailDaemons is this launch's composed YOLO_JAIL_DAEMONS payload: every active
+	// loophole's jail_daemon plus every selected service's, one sorted list
+	// (jailDaemonsFor). Assembly only SERIALIZES it.
+	//
+	// It is INPUT for the reason storePackages and cacheRelocations are: the answer
+	// belongs to the launch rather than to the argv, and one other consumer needs it
+	// — the macos-user arm, which has no argv at all and must decline each entry by
+	// name (docs/design/jail-daemon-on-macos-user-plan.md). Composing it here as
+	// well would give one launch two payloads that agree only by both call sites
+	// passing the same arguments.
+	//
+	// A zero value is "no jail daemons", which is what every hand-built
+	// assembleInput in a test gets for free; a test that wants the env var composes
+	// it the way Run does.
+	jailDaemons []loopholes.JailDaemonSpec
 	// imageRef is the ref of the image AutoLoadImage actually made ready this
 	// launch — content-addressed (`localhost/yolo-jail:<sha16>`) on the normal
 	// path, the legacy :latest tag on a degraded fallback with no store path.
@@ -878,16 +894,17 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	}
 
 	// --- host-side loopholes runtime args (--add-host, CA mounts, env) ---
-	// The SAME call composes pack service contributions' jail daemons into the
-	// one YOLO_JAIL_DAEMONS payload (packservices.go; wire-bridge.md §2.1) —
-	// one env contract, one writer, so a service daemon can never land on a
-	// second -e of the same name and lose to the runtime's duplicate resolution.
+	// The SAME call emits the one YOLO_JAIL_DAEMONS payload — the loopholes' own
+	// jail daemons and the pack service contributions' together (packservices.go;
+	// wire-bridge.md §2.1) — so a service daemon can never land on a second -e of
+	// the same name and lose to the runtime's duplicate resolution. The payload is
+	// INPUT here (in.jailDaemons), composed above the backend dispatch.
 	// The OpenAI broker's nonempty state_files list is the boundary that prevents
 	// its canonical credentials from crossing. Materialize that list's inert marker
 	// immediately before the loophole runtime resolves bind sources, so a normal
 	// launch neither widens the mount nor warns that its safe source is absent.
 	o.prepareOpenAIAuthMountSentinel(cfg)
-	runCmd = append(runCmd, o.loopholesRuntimeArgs(cfg, rt, serviceJailDaemons(in.packs))...)
+	runCmd = append(runCmd, o.loopholesRuntimeArgs(cfg, rt, in.jailDaemons)...)
 
 	// --- jail-facing service endpoint env (the witness's registration) ---
 	// Beside the composition above on purpose: a service whose daemon joins

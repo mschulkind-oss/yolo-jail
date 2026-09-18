@@ -1,13 +1,16 @@
 package run
 
 // packservices.go composes the launch's SERVICE contributions
-// (packdecl.KindService, docs/reference/wire-bridge.md §2.1) into the container
-// argv. In this build exactly one thing is composed: a service's jail_daemon
-// joins the YOLO_JAIL_DAEMONS payload through internal/loopholes'
-// RuntimeArgsForWithJailDaemons — the loophole JailDaemon wire shape verbatim
-// ({name, cmd, restart}), because the env var is ONE frozen contract with ONE
-// writer (the in-jail reader is the supervisor's ParseEnv, and the source-skew
-// gate cannot see an env contract).
+// (packdecl.KindService, docs/reference/wire-bridge.md §2.1). In this build
+// exactly one thing is composed: a service's jail_daemon joins the
+// YOLO_JAIL_DAEMONS payload through internal/loopholes' one composer — the
+// loophole JailDaemon shape verbatim ({name, cmd, restart}), because the env var
+// is ONE frozen contract with ONE writer (the in-jail reader is the supervisor's
+// ParseEnv, and the source-skew gate cannot see an env contract).
+//
+// The composition is LAUNCH-LEVEL, not argv-level: jailDaemonsFor below is
+// called above the backend dispatch, so a backend with no container argv can
+// still see what this launch declared (and say it will not run it).
 //
 // host_daemon is DELIBERATELY NOT composed anywhere in this build: no
 // host-daemon path exists for services yet (wire-bridge.md §2.1 rules one kind
@@ -22,29 +25,31 @@ import (
 	"sort"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/wirebridged"
 )
 
-// serviceJailDaemons returns the YOLO_JAIL_DAEMONS payload entries for every
-// selected pack's service contribution that declares a jail_daemon, sorted by
-// service name. Sorted, not declaration-ordered, because the entries ride one
-// JSON list beside the loopholes' own and the env var is read in-jail verbatim:
-// a deterministic argv is the same rule the pack env block above it follows.
+// serviceJailDaemons returns the YOLO_JAIL_DAEMONS entries for every selected
+// pack's service contribution that declares a jail_daemon, sorted by service
+// name. Sorted, not declaration-ordered, because the entries ride one JSON list
+// beside the loopholes' own and the env var is read in-jail verbatim: a
+// deterministic argv is the same rule the pack env block above it follows.
 //
-// The restart policy is emitted ALWAYS, defaulting to "on-failure" when the
-// manifest said nothing — the same default the supervisor's ParseEnv applies
-// when the key is absent, spelled out so the payload's shape is exactly the
-// loophole half's (internal/loopholes' runtimeArgsFor sets the key the same
-// way) and a diff of the two halves' entries shows no structural difference.
-func serviceJailDaemons(packs []*packload.Pack) []any {
-	type named struct {
-		name string
-		spec *jsonx.OrderedMap
-	}
-	var entries []named
+// The restart policy is set ALWAYS, defaulting to "on-failure" when the manifest
+// said nothing — the same default the supervisor's ParseEnv applies when the key
+// is absent, and the same one internal/loopholedecl applies to a LOOPHOLE's
+// jail_daemon at load, so the two halves of the payload carry the same field set
+// with no structural difference.
+//
+// It returns loopholes.JailDaemonSpec, not the wire shape. The JSON is built in
+// exactly one place (loopholes.JailDaemonPayload); this file used to build its
+// own objects beside that one, with a comment in each asking the other to stay
+// identical.
+func serviceJailDaemons(packs []*packload.Pack) []loopholes.JailDaemonSpec {
+	var entries []loopholes.JailDaemonSpec
 	for _, p := range packs {
 		if p.Decl == nil {
 			continue
@@ -53,30 +58,40 @@ func serviceJailDaemons(packs []*packload.Pack) []any {
 			if s.JailDaemon == nil || len(s.JailDaemon.Cmd) == 0 {
 				continue
 			}
-			spec := jsonx.NewOrderedMap()
-			spec.Set("name", s.Name)
-			cmd := make([]any, len(s.JailDaemon.Cmd))
-			for i, c := range s.JailDaemon.Cmd {
-				cmd[i] = c
-			}
-			spec.Set("cmd", cmd)
 			restart := s.JailDaemon.Restart
 			if restart == "" {
 				restart = "on-failure"
 			}
-			spec.Set("restart", restart)
-			entries = append(entries, named{name: s.Name, spec: spec})
+			entries = append(entries, loopholes.JailDaemonSpec{
+				Name: s.Name, Cmd: s.JailDaemon.Cmd, Restart: restart,
+			})
 		}
 	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].name < entries[j].name })
-	if len(entries) == 0 {
-		return nil
-	}
-	out := make([]any, len(entries))
-	for i, e := range entries {
-		out[i] = e.spec
-	}
-	return out
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
+	return entries
+}
+
+// jailDaemonsFor composes THIS LAUNCH'S jail-daemon payload: every active
+// loophole's own jail_daemon plus every selected pack service's, through the one
+// composer in internal/loopholes.
+//
+// CALLED ABOVE THE BACKEND DISPATCH (run.Run), because the payload is a fact
+// about the launch and not about the argv. It used to be composed inside
+// loopholesRuntimeArgs — that is, inside container-argv assembly — and emitted
+// only as `-e YOLO_JAIL_DAEMONS=`, so on macos-user it was never composed at
+// all: two daemons selected by a bare `"packs": ["claude"]`, neither started,
+// nothing said (docs/design/jail-daemon-on-macos-user-plan.md). Hoisting it
+// gives the native arm something to decline BY NAME and leaves the container
+// arm reading the same value rather than a second composition of it.
+//
+// It touches no filesystem (the mounts do; this reads declarations), so it is
+// safe this early — in particular it does not depend on
+// prepareOpenAIAuthMountSentinel, which runs later and exists for the bind
+// sources.
+func (o *Options) jailDaemonsFor(cfg *jsonx.OrderedMap, rt string,
+	packs []*packload.Pack) []loopholes.JailDaemonSpec {
+	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
+	return set.JailDaemons(set.Enabled(), rt, serviceJailDaemons(packs))
 }
 
 // serviceEndpointEnvArgs emits the reachability witness's registration for a
