@@ -219,9 +219,15 @@ passwordless host the other six need, and items 1, 2 and 4 could share one launc
 
 > [!IMPORTANT]
 > **Nothing in items 5-10 has ever executed.** They were written on Linux, in a jail that cannot
-> run this backend, against a backend no CI job has ever exercised. [§0.4](#04-reading-a-red-job)
+> run this backend. [§0.4](#04-reading-a-red-job)
 > shape 2 says a failing test is "a real finding" — **that is true from the second run onward.**
 > On the first, a red is at least as likely to be a defect in the TEST as in the product.
+>
+> ⚠ **A CI job DOES exercise this backend now**, and that is a narrower fact than it sounds:
+> [`macos-user.yml`](../../../.github/workflows/macos-user.yml) has run nightly since
+> 2026-09-13 and green since 2026-09-14, but it runs the GATED SUITE — the automated half.
+> The items below are the manual half precisely because no job covers them, so the prior
+> above is unchanged for every one of them.
 
 Read the first run with that prior, or you will spend it "fixing" working code.
 

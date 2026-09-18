@@ -1,13 +1,23 @@
 name: Apple Container parity
 
-# THE BACKEND NO CI JOB HAS EVER RUN.
+# THE BACKEND NO CI JOB HAD EVER RUN — UNTIL THIS ONE DID, ON 2026-09-14.
 #
 # Every job in this repo that sets YOLO_RUNTIME sets `podman` — ci.yml, nightly-macos.yml
 # and packs.yml twice — and macos-user.yml deliberately sets none because that backend
-# starts no container. So Apple Container, which the README recommends for macOS, is exercised by
-# nothing. Both defects in that class were found by a human on hardware, eight months
-# apart: #39 (pack SharedDirs never mounted) and #44 (the staged pack tree never mounted,
-# so no agent reached the jail at all).
+# starts no container. So Apple Container, which the README recommends for macOS, was
+# exercised by nothing. Both defects in that class were found by a human on hardware, eight
+# months apart: #39 (pack SharedDirs never mounted) and #44 (the staged pack tree never
+# mounted, so no agent reached the jail at all).
+#
+# THE RUNNER EXISTS NOW, and this workflow is no longer inert: the maintainer registered a
+# Mac by docs/plans/runbooks/mac-actions-runner.md, and the first green run was
+# 2026-09-14T18:03Z on c72aeb6e, an hour and a half after the first red one. Measured
+# 2026-09-18: 69 runs, 52 green, every one a `workflow_dispatch` — which is what the
+# design below predicts, since the launchd dispatcher on the Mac is the only thing that
+# fires this. ⚠ SO THE COVERAGE IS SHAPED LIKE THE MAC'S UPTIME, not like a cron: the run
+# count per day tracks when the maintainer was at the machine (30 on 2026-09-15, 5 on
+# 2026-09-18), and a commit pushed while it sleeps is covered whenever it next wakes. Read
+# a gap in this history as an absent Mac, never as a skipped test.
 #
 # ⚠ THIS JOB IS THE SMALLER HALF OF THE ANSWER, and it is worth being clear about that
 # before reading further. Both defects were ARGV-LEVEL — a mount that was never emitted —

@@ -11,10 +11,18 @@ summary: "The one-time procedure for registering a maintainer's Mac as the self-
 **Audience:** the maintainer, at the Mac. **Time:** ~20 minutes, most of it waiting on
 GitHub's UI. **Needs:** admin on the Mac, admin on the repository.
 
-**What it buys.** [`apple-container.yml`](../../../.github/workflows/apple-container.yml) is
-written, merged and **inert** — it is dispatch-only, and there is no runner to dispatch it
-onto. This procedure is the missing half. Apple Container is **the backend
-no CI job has ever run** — the README recommends it for macOS, and both defects ever found
+> [!NOTE]
+> **DONE — a Mac was registered by this procedure on 2026-09-14.**
+> [`apple-container.yml`](../../../.github/workflows/apple-container.yml) is no longer inert:
+> the first green run was 2026-09-14T18:03Z on `c72aeb6e`, and as of 2026-09-18 it has 69 runs
+> with 52 green. Read what follows as the procedure for the NEXT Mac — a replacement machine,
+> a second runner, or a rebuild after a wipe — not as work outstanding. The verification steps
+> in it are also how you diagnose a runner that has stopped dialling.
+
+**What it buys.** [`apple-container.yml`](../../../.github/workflows/apple-container.yml) was
+written, merged and **inert** — it is dispatch-only, and there was no runner to dispatch it
+onto. This procedure is the half that was missing. Apple Container was **the backend
+no CI job had ever run** — the README recommends it for macOS, and both defects ever found
 in it (#39, #44) were found by a human on hardware, eight months apart.
 
 > [!IMPORTANT]
