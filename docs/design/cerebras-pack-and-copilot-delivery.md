@@ -152,7 +152,23 @@ Given its own countable block on 2026-09-09 for one reason: the table above said
 words, so the corpus-wide live-question sweep could not see it and neither could anyone grepping for
 `💬`. Nothing about the doc's status changes — the rest of it is history.
 
-**What the code says (re-verified 2026-09-09.)**
+**What the code says (re-verified 2026-09-18 — and the 2026-09-09 reading below is now WRONG
+in the part that named the live trigger).**
+
+> [!WARNING]
+> **The shorthand branch closed the trigger this question was filed for.** `af71aa3c`
+> (2026-09-16) gave the derive an `elseif p.base_url` fallback that honours the user's
+> single-protocol shorthand — stripping a trailing `/v1` and setting `ANTHROPIC_BASE_URL` — so
+> a user-declared provider with a bare `base_url` now gets its URL AND its key, which is shape
+> A by another spelling. The paragraph below, and the ⚠ further down that calls the shorthand
+> *"the live trigger"*, both predate it.
+>
+> **What survives is narrower and still real:** a provider that declares a NON-anthropic
+> protocol (`endpoints.openai`) and no top-level `base_url`, carrying a key. `baseUrl` stays
+> nil, `routed` stays false, and `if p.api_key` fires anyway — the key goes to
+> `api.anthropic.com`. That is shape B alone, and no shipped pack reaches it.
+
+
 [`packs/claude/derive.lua`](../../packs/claude/derive.lua) sets a `routed` flag only when
 `p.endpoints.anthropic.base_url` is present (lines 55-58), and then emits the credential from a
 branch that never consults it:
@@ -201,9 +217,41 @@ answer has to key on what the provider SAID, not on what is missing.
 ⚠ **No shipped pack reaches B** (see the warning above) — the live trigger is a user-declared
 provider, which is exactly what the single-protocol `base_url` shorthand produces.
 
-_Leaning:_ **suppress the token for shape B only.** Emit when the provider names the `anthropic`
-protocol (A) or names no protocol at all (C); suppress when it names `openai` and not `anthropic`
-(B). That is narrower than the table's *"gate the token on the URL"*, which would also break C.
+_Leaning:_ **suppress the token for shape B only, and state it as a PAIR rule.** Emit when the
+provider names the `anthropic` protocol (A) or names no protocol at all (C); suppress when it
+names `openai` and not `anthropic` (B). That is narrower than the table's *"gate the token on the
+URL"*, which would also break C.
+
+**The rule generalises, and the derive already keeps half of it.** A few lines below the defect,
+`elseif routed` substitutes a dummy `"local"` token precisely so a routed launch is never sent
+without one. The missing half is its mirror: **do not emit a credential when you did not emit the
+address it was minted for.** Written that way it is one `elseif`, it explains itself at the call
+site, and it is the same principle as
+[`config-target-resolution.md`](config-target-resolution.md#1-the-verdict-and-the-principles-it-rests-on)'s
+P6 — never split a pair that only means something together.
+
+**⚠ A SECOND, UPSTREAM ANSWER WAS RAISED IN REVIEW (2026-09-18) AND IS NOT THE SAME QUESTION.**
+*"Selecting a provider whose protocol the agent does not speak should already be an error"* — and
+as a product statement that is right: shape B is a misconfiguration, not a case to handle. The
+useful message is not silence but a refusal naming the remedy, because an openai-protocol provider
+CAN serve claude — through the wire bridge, which is exactly how `packs/cerebras` does it (its
+`endpoints.anthropic` is the bridge's loopback address).
+
+Two things constrain where that check may live, and they are why it is a separate ruling rather
+than a better spelling of this one:
+
+- [`OQ-CS8`](../reference/providers.md#why-its-this-way) ruled that **core holds no agent→protocol
+  table** — each agent pack composes the binding in its own derive. So the gate cannot be core
+  knowing that claude speaks anthropic. It has to be a DECLARATION (the agent pack states the
+  protocol its program requires) that core enforces generically — the shape
+  `required_capabilities` already has, gated in the run pre-flight and predicted by `yolo check`.
+- It closes B **structurally** rather than defensively, but it does not remove the need for the
+  pair rule: a derive that emits a credential without its address is wrong whatever validated the
+  selection, and the gate is user-scope config while the derive also runs at the host notch.
+
+So they compose: the pair rule is the one-line fix for the defect, and the declaration gate is the
+product change that makes B unrepresentable and tells the user about the bridge. Ruling either
+does not settle the other.
 
 **Answer:**
 > _(empty — fill in when decided)_
