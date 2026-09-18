@@ -10,10 +10,23 @@ vantage:
 
 # Who says which wire — protocol declaration, and the bridge as a resolution step
 
-**Status:** DECIDED, 2026-09-18. **Every question is ruled — seven, across three review rounds
-in one day** ([§12](#12-decision-ledger)) — and nothing is built. Every current-behaviour claim
-below was read at `220fffb6`; step 1 of [§10](#10-what-i-would-build-in-order) has since shipped
-as `bc16e8c3`.
+**Status:** BUILT, 2026-09-18, with zero live questions. All seven of
+[§10](#10-what-i-would-build-in-order)'s steps have shipped — `bc16e8c3` (1), `423ef0d5` (2),
+`cbeda089` (3), `04562adc` (4), `db8b4d91` (5), `f0fbd9aa` (6), `52419585` (7) — and every
+question is ruled ([§12](#12-decision-ledger)). Every current-behaviour claim below was read at
+`220fffb6` and describes the world this design replaced.
+
+**MEASURED** at the composition and delivery layers, by unit tests over the SHIPPED packs and
+the real `derive.lua` files: the adapted address composes byte-identically to the URL
+`packs/cerebras` used to hand-write, the refusals fire at `AgentEnv` before anything is
+composed, and every guard's call site fails a test when it is deleted.
+**UNMEASURED:** no jail has been launched against it — a real bridged request, the daemon
+binding a MOVED address, and the whole of `macos-user` (whose port-collision hazard is what
+made step 7 a step) are all unverified. Two of [§4.5](#45-what-done-looks-like)'s greps could
+not be met as written and were met in the only form that exists: `8214` now appears in the
+ADAPTER's own manifest and README rather than in any consumer, and `wire-bridge` appears in
+`internal/` only in the daemon package that IS the adapter, in comments, and in test
+fixtures — never in a rule.
 
 > **In short.** A provider declares which wire protocol it speaks and where. An adapter
 > declares which wire it turns into which other one. The agent declares nothing — so the
@@ -363,15 +376,15 @@ cannot assume one.
 ## 12. Decision ledger
 
 **Seven ruled on 2026-09-18**, across the conversation that produced this doc and two review
-rounds after it. Nothing is live; nothing is built except step 1 (`bc16e8c3`).
+rounds after it. All seven are BUILT, in the seven commits the Status line names.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| [OQ-PR1](#11-open-questions) | **An adapter is its own contribution kind, declaring `from`, `to` and an ADDRESS — and nothing about who runs it.** The leaning was a field on the `service` kind, on the argument that every adapter is a proxy and every proxy is a daemon. Round three answered it with instances rather than argument: a remote gateway fronting your own credentials, a proxy the user already runs on a port they name, and the plain wish to ship an adapter apart from the thing it adapts. Coupling the declaration to a daemon makes all three inexpressible, so it does not. A pack that DOES run its adapter states that separately, with the `service` contribution and `needs` it would use anyway | 2026-09-18 | [§3](#3-one-resolution), [§6](#6-the-adapter-owns-its-address) | — |
-| — | **No shipped adapter is privileged** ([P6](#1-the-verdict-and-the-principles-it-rests-on)). Anyone must be able to declare an adapter in their own pack and have it resolve exactly as `wire-bridge` does; core may not name one, prefer one, or fall back to one. Raised in review round two as a constraint on the vocabulary rather than a preference about it, and it is what restated [OQ-PR1](#12-decision-ledger) | 2026-09-18 | [§1](#1-the-verdict-and-the-principles-it-rests-on), [§4.5](#45-what-done-looks-like) | — |
-| — | **A pack declares the protocols its program speaks.** Asked directly and ruled yes: it carries no new risk and the information is already half-present (providers declare theirs). It satisfies [`OQ-CS8`](../reference/providers.md#why-its-this-way) because the AGENT declares it and core only compares two declarations — the same shape `required_capabilities` has | 2026-09-18 | [§3](#3-one-resolution) | — |
-| — | **A declared adapter makes an otherwise-unusable pairing resolve, automatically.** "I would rather that just be an automatic resolution" — the user should not invoke the bridge, and with `packs/claude` already `needs`-ing `wire-bridge` unconditionally, the common case needs no action at all | 2026-09-18 | [§3](#3-one-resolution) | — |
-| — | **The adapter's address is configurable.** Raised in review against port collisions, and it is backend-shaped: harmless on a container's private loopback, real on `macos-user`, which has no network namespace | 2026-09-18 | [§6](#6-the-adapter-owns-its-address) | — |
-| [OQ-PR2](#11-open-questions) | **A provider that declares NO endpoints stays legal** — it means "use the agent's first-party API with this key", the plain BYO-key launch, and nothing was repointed so there is no pairing to resolve. Refusing it would break a case that works today | 2026-09-18 | [§4.1](#41-degenerate-inputs) | — |
-| [OQ-PR3](#11-open-questions) | **An absent adapter REFUSES and names the pack; a present one needs no configuration at all.** The two halves are the whole user story: define an openai-only provider, select claude, and see an error that says which pack to add — then add it and it works, with no flag, no endpoint to write, and nothing naming the bridge. The resolver never joins a pack on the user's behalf, because choosing a provider must not change what runs in the jail | 2026-09-18 | [§3](#3-one-resolution) | — |
-| — | **The single-protocol `base_url` shorthand is deleted, with no transition option.** Ruled after the evidence that one value means `openai` to pi and `anthropic` to claude, and that its headline local-endpoint case fails at the first request for every OpenAI-speaking local server | 2026-09-18 | [§5](#5-the-single-protocol-shorthand-is-deleted) | — |
+| [OQ-PR1](#11-open-questions) | **An adapter is its own contribution kind, declaring `from`, `to` and an ADDRESS — and nothing about who runs it.** The leaning was a field on the `service` kind, on the argument that every adapter is a proxy and every proxy is a daemon. Round three answered it with instances rather than argument: a remote gateway fronting your own credentials, a proxy the user already runs on a port they name, and the plain wish to ship an adapter apart from the thing it adapts. Coupling the declaration to a daemon makes all three inexpressible, so it does not. A pack that DOES run its adapter states that separately, with the `service` contribution and `needs` it would use anyway | 2026-09-18 | [§3](#3-one-resolution), [§6](#6-the-adapter-owns-its-address) | `04562adc` |
+| — | **No shipped adapter is privileged** ([P6](#1-the-verdict-and-the-principles-it-rests-on)). Anyone must be able to declare an adapter in their own pack and have it resolve exactly as `wire-bridge` does; core may not name one, prefer one, or fall back to one. Raised in review round two as a constraint on the vocabulary rather than a preference about it, and it is what restated [OQ-PR1](#12-decision-ledger) | 2026-09-18 | [§1](#1-the-verdict-and-the-principles-it-rests-on), [§4.5](#45-what-done-looks-like) | `04562adc` |
+| — | **A pack declares the protocols its program speaks.** Asked directly and ruled yes: it carries no new risk and the information is already half-present (providers declare theirs). It satisfies [`OQ-CS8`](../reference/providers.md#why-its-this-way) because the AGENT declares it and core only compares two declarations — the same shape `required_capabilities` has | 2026-09-18 | [§3](#3-one-resolution) | `423ef0d5` |
+| — | **A declared adapter makes an otherwise-unusable pairing resolve, automatically.** "I would rather that just be an automatic resolution" — the user should not invoke the bridge, and with `packs/claude` already `needs`-ing `wire-bridge` unconditionally, the common case needs no action at all | 2026-09-18 | [§3](#3-one-resolution) | `04562adc` |
+| — | **The adapter's address is configurable.** Raised in review against port collisions, and it is backend-shaped: harmless on a container's private loopback, real on `macos-user`, which has no network namespace | 2026-09-18 | [§6](#6-the-adapter-owns-its-address) | `52419585` |
+| [OQ-PR2](#11-open-questions) | **A provider that declares NO endpoints stays legal** — it means "use the agent's first-party API with this key", the plain BYO-key launch, and nothing was repointed so there is no pairing to resolve. Refusing it would break a case that works today | 2026-09-18 | [§4.1](#41-degenerate-inputs) | `cbeda089` |
+| [OQ-PR3](#11-open-questions) | **An absent adapter REFUSES and names the pack; a present one needs no configuration at all.** The two halves are the whole user story: define an openai-only provider, select claude, and see an error that says which pack to add — then add it and it works, with no flag, no endpoint to write, and nothing naming the bridge. The resolver never joins a pack on the user's behalf, because choosing a provider must not change what runs in the jail | 2026-09-18 | [§3](#3-one-resolution) | `db8b4d91` |
+| — | **The single-protocol `base_url` shorthand is deleted, with no transition option.** Ruled after the evidence that one value means `openai` to pi and `anthropic` to claude, and that its headline local-endpoint case fails at the first request for every OpenAI-speaking local server | 2026-09-18 | [§5](#5-the-single-protocol-shorthand-is-deleted) | `f0fbd9aa` |

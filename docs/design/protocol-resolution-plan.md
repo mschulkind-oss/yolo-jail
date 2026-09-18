@@ -8,7 +8,7 @@ summary: "Parking lot for the implementation material of protocol-resolution.md:
 
 # Protocol resolution — implementation sketch
 
-**Status:** SKETCH, 2026-09-18 — incomplete. The design's questions are all ruled now, so this is stable in shape; it is still a parking lot rather than a hand-off, and `implementation-plan` owns what it must become first.
+**Status:** SPENT, 2026-09-18 — every step it sketches is built (the design's Status line names the seven commits). It is kept as the record of what the build had to find out that the sketch did not know: there were SIX derives reading the shorthand, not four; `8214` had to keep living in the adapter's own manifest, since that is where the declaration is; and the refusal landed at `packload.AgentEnv` rather than in the run pre-flight, because the gate needs a SELECTION and the pre-flight reads the merged user config only.
 
 **Design:** [`protocol-resolution.md`](protocol-resolution.md). The design wins on behaviour;
 nothing here decides any. Entries resting on an unruled question say so.
@@ -74,7 +74,7 @@ refusal rather than in a later request.
 
 ## Blocked
 
-**Nothing.** All seven questions are ruled ([Decision ledger](protocol-resolution.md#12-decision-ledger)),
+**Nothing, and nothing was.** All seven questions are ruled ([Decision ledger](protocol-resolution.md#12-decision-ledger)),
 and step 1 has shipped (`bc16e8c3`). What round three changed for this sketch: the adapter is its
 own contribution kind carrying `from`, `to` and an address — NOT a field on `service` — so step 4
 adds a kind rather than extending one, and `packs/wire-bridge` declares both (the service it runs
