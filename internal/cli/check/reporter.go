@@ -19,6 +19,9 @@ const (
 	ansiBoldGreen  = "\x1b[1;32m"
 	ansiWhiteOnRed = "\x1b[1;97;41m"
 	ansiBlackOnYel = "\x1b[1;30;43m"
+	// [SKIP] is DIM, deliberately: it is the one badge that reports an absence, and a
+	// coloured one would compete for attention with the three that report a finding.
+	ansiDimBadge = "\x1b[2m"
 )
 
 // reporter accumulates the pass/warn/fail counts and writes the report.
@@ -30,11 +33,12 @@ const (
 // one that lets the summary count honestly — is what makes `--format json` a
 // recording rather than a second traversal of the sections (see jsonreport.go).
 type reporter struct {
-	w      io.Writer
-	color  bool
-	passed int
-	warned int
-	failed int
+	w       io.Writer
+	color   bool
+	passed  int
+	warned  int
+	failed  int
+	skipped int
 	// section is the header most recently printed, stamped onto each finding so
 	// a consumer can attribute one without re-deriving the section order.
 	section  string
@@ -99,6 +103,58 @@ func (r *reporter) warn(msg, note string) {
 	r.record("warn", msg, note)
 	r.line("  " + r.style("[WARN]", ansiBlackOnYel) + " " + msg)
 	r.note(note)
+}
+
+// skip prints " [SKIP] msg" and counts it SEPARATELY from the three grades.
+//
+// # Why this level exists
+//
+// A check that did not look must not be counted as a pass — the principle OQ-3 ruled in
+// docs/design/broker-ca-and-nested-hosts.md, with the spelling delegated here. Nine sites
+// across five section files used to call r.ok on an area they had DECLINED to examine
+// ("Inside jail — loophole checks skipped"), so an all-green in-jail run included areas
+// nobody checked, and the pass count said so with a straight face. It was one of the three
+// layers that hid a daemon dying 2,549 times in one jail.
+//
+// # Why not a warning, and why not silence
+//
+// A WARNING would be a finding, and there is none: nothing is wrong with a host-side area
+// a jail cannot see, so warning about it would train the reader to ignore the badge that
+// means "act on this". SILENCE would be worse than the pass it replaces — a section that
+// prints nothing is indistinguishable from one that was never wired, which is the exact
+// class the jsonreport recording exists to make visible.
+//
+// So it is a fourth level: printed, recorded, counted in its own bucket, and absent from
+// the pass tally. The summary shows it only when non-zero, so a host run — where nothing
+// skips — reads exactly as it did before.
+//
+// # It does not touch the exit code
+//
+// Check() returns 1 on r.failed alone. A skip is not a failure and must never become one:
+// the jail is working as designed, and refusing there would make `yolo check` unusable in
+// the one place AGENTS.md makes mandatory for verification.
+func (r *reporter) skip(msg, note string) {
+	r.skipped++
+	r.record("skip", msg, note)
+	r.line("  " + r.style("[SKIP]", ansiDimBadge) + " " + msg)
+	r.note(note)
+}
+
+// hostFact prints a [SKIP] for a finding that is TRUE BUT NOT ABOUT THIS READER: a fact
+// about the host, observed from inside a jail, where it is neither actionable nor a
+// statement about the jail's own health.
+//
+// It is the second half of OQ-3's ruling. The first half is the nine passes above; the
+// other direction is a section that grades an invisible host fact as [FAIL] and tells an
+// in-jail reader their setup is broken when it is merely not visible from where they are
+// standing. Same badge, because the reader's action is the same in both cases — none —
+// and a fifth level would be a vocabulary nobody could keep straight.
+//
+// The NOTE is mandatory here and the parameter says so by being required: a bare "[SKIP]
+// GPU" tells a reader less than the [FAIL] it replaces. It has to say where the fact could
+// be checked instead.
+func (r *reporter) hostFact(msg, whereToCheck string) {
+	r.skip(msg+" — a host fact, not visible from inside a jail", whereToCheck)
 }
 
 // configWarn is this reporter's config.Warn — the ONE sink every config loader
@@ -177,6 +233,11 @@ func (r *reporter) summaryFinal() {
 	}
 	if r.warned > 0 {
 		parts = append(parts, r.styledCount(r.warned, "warnings", ansiYellow))
+	}
+	// Only when non-zero, so a host run reads exactly as it did before this level
+	// existed — nothing skips there, and a "0 skipped" would be noise on every line.
+	if r.skipped > 0 {
+		parts = append(parts, r.styledCount(r.skipped, "skipped", ansiDim))
 	}
 	r.line("  " + strings.Join(parts, ", "))
 	r.blank()

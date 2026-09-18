@@ -38,7 +38,7 @@ func (o *Options) sandboxUserExists() bool {
 func (o *Options) checkMacosUserBackend(r *reporter) {
 	r.line(r.style("macOS-user backend", ansiBold) + " " + r.style("(experimental)", ansiDim))
 	if o.inJail() {
-		r.ok("Inside jail — macos-user checks skipped (host-side backend)")
+		r.skip("Inside jail — macos-user checks skipped", "That backend runs on the host with no container at all; run `yolo check` there.")
 		return
 	}
 	r.warn("Experimental backend — readiness only, NOT verified end-to-end",

@@ -16,7 +16,7 @@ import (
 // footprint and nudges toward `yolo prune` over threshold. Never a fail.
 func (o *Options) checkDiskUsage(r *reporter, config *jsonx.OrderedMap) {
 	if o.inJail() {
-		r.ok("Inside jail — disk-usage check skipped (runs host-side)")
+		r.skip("Inside jail — disk-usage check skipped", "It runs host-side; run `yolo check` on the host to see it.")
 		return
 	}
 	thresholdGB := 15.0

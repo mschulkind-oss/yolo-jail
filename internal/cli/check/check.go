@@ -581,7 +581,7 @@ func (o *Options) sectionImageBuild(r *reporter, merged *jsonx.OrderedMap, repoR
 func (o *Options) sectionContainerImage(r *reporter, detectedRuntime, notLoadedHint, builtStorePath string) {
 	r.sectionHeader("Container Image")
 	if o.inJail() {
-		r.ok("Inside jail — image check skipped (managed by host)")
+		r.skip("Inside jail — image check skipped", "The image is the host's to build and load; run `yolo check` there.")
 		r.blank()
 		return
 	}
@@ -730,7 +730,7 @@ func (o *Options) sectionInlineLoopholes(r *reporter, merged *jsonx.OrderedMap) 
 	}
 	r.sectionHeader("Loopholes — inline daemons")
 	if o.inJail() {
-		r.ok("Inside jail — exec checks skipped (host paths aren't reachable here)")
+		r.skip("Inside jail — exec checks skipped", "The host paths these probe are not reachable from in here; run `yolo check` on the host.")
 		r.blank()
 		return
 	}

@@ -34,7 +34,10 @@ type Finding struct {
 	// "Packs", …), stamped at record time so a consumer never has to re-derive
 	// the section order.
 	Section string `json:"section"`
-	// Status is "pass", "warn" or "fail" — the three grades the badges carry.
+	// Status is "pass", "warn", "fail" or "skip". The first three are the grades the
+	// badges carry; "skip" is an area the run DECLINED to examine, and it is a level of
+	// its own rather than a pass because a check that did not look must not be counted as
+	// one (reporter.skip states the ruling).
 	Status  string `json:"status"`
 	Message string `json:"message"`
 	// Note is the remediation text the human form renders as "-> …" lines,
@@ -48,13 +51,18 @@ type Report struct {
 	// Failed is the field that decides the exit code, and it is first among the
 	// counts for that reason: exit is non-zero iff any section FAILED. Warnings
 	// never fail the command.
-	Passed   int       `json:"passed"`
-	Warned   int       `json:"warned"`
-	Failed   int       `json:"failed"`
+	Passed int `json:"passed"`
+	Warned int `json:"warned"`
+	Failed int `json:"failed"`
+	// Skipped counts areas the run declined to examine. ALWAYS EMITTED, even as 0,
+	// unlike the human summary's conditional line: a consumer that has to distinguish
+	// "nothing skipped" from "this yolo predates the field" cannot do it against an
+	// omitted key.
+	Skipped  int       `json:"skipped"`
 	Findings []Finding `json:"findings"`
 }
 
-// record appends one graded finding. Called only from ok/fail/warn, which is
+// record appends one recorded finding. Called only from ok/fail/warn/skip, which is
 // what makes the recording exhaustive.
 func (r *reporter) record(status, msg, note string) {
 	r.findings = append(r.findings, Finding{
@@ -78,6 +86,7 @@ func (r *reporter) report() Report {
 		Passed:   r.passed,
 		Warned:   r.warned,
 		Failed:   r.failed,
+		Skipped:  r.skipped,
 		Findings: f,
 	}
 }

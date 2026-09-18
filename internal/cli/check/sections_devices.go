@@ -47,6 +47,20 @@ func (o *Options) sectionGPUNvidia(r *reporter, merged *jsonx.OrderedMap) {
 		r.blank()
 		return
 	}
+	// EVERY PROBE BELOW READS HOST STATE: the driver's own tooling, the container
+	// toolkit, the runtime, and a CDI spec under /etc. From inside a jail none of it is
+	// present, so this section used to tell an in-jail reader their GPU setup was broken
+	// in four [FAIL]s when it was merely not visible from where they were standing. That
+	// is OQ-3's other direction (docs/design/broker-ca-and-nested-hosts.md), and
+	// reporter.hostFact is the answer to it: same badge as a skip, because the reader's
+	// action is the same in both cases — none.
+	if o.inJail() {
+		r.hostFact("GPU (NVIDIA) checks",
+			"The driver, nvidia-ctk, runc and the CDI spec all live on the host. "+
+				"Run `yolo check` there to see whether passthrough is set up.")
+		r.blank()
+		return
+	}
 	if _, ok := o.LookPath("nvidia-smi"); ok {
 		res := o.Exec([]string{"nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"}, "", nil, 10*time.Second)
 		if res.Ran && !res.Timeout && res.RC == 0 && strings.TrimSpace(res.Stdout) != "" {
@@ -125,7 +139,7 @@ func (o *Options) sectionGPUAmd(r *reporter, merged *jsonx.OrderedMap) {
 	o.checkRocmEnumeration(r)
 
 	if inJail {
-		r.ok("Inside jail — amdgpu module check skipped (managed by host)")
+		r.skip("Inside jail — amdgpu module check skipped", "Kernel modules are the host's; run `yolo check` there.")
 	} else if o.PathExists("/sys/module/amdgpu") {
 		r.ok("amdgpu kernel module loaded")
 	} else {
@@ -134,7 +148,7 @@ func (o *Options) sectionGPUAmd(r *reporter, merged *jsonx.OrderedMap) {
 	}
 
 	if inJail {
-		r.ok("Inside jail — device-node checks skipped (managed by host)")
+		r.skip("Inside jail — device-node checks skipped", "The nodes these probe are passed through by the host; run `yolo check` there.")
 	} else {
 		o.checkDeviceNode(r, "/dev/kfd")
 		renderNodes := o.globRenderNodes()
@@ -156,7 +170,12 @@ func (o *Options) sectionGPUAmd(r *reporter, merged *jsonx.OrderedMap) {
 			"ROCm passthrough will be ignored on the 'container' runtime")
 	}
 
-	if mode == "cdi" {
+	if mode == "cdi" && inJail {
+		// The spec lives under /etc on the HOST — the same class as the module and node
+		// checks above, and it was the one FAIL this section still produced in a jail.
+		r.hostFact("AMD CDI spec check",
+			"The spec is at /etc/cdi/amd.json on the host; run `yolo check` there.")
+	} else if mode == "cdi" {
 		cdiFound := ""
 		for _, p := range []string{"/etc/cdi/amd.json", "/var/run/cdi/amd.json"} {
 			if o.PathExists(p) {
@@ -215,7 +234,7 @@ func (o *Options) sectionKVM(r *reporter, merged *jsonx.OrderedMap) {
 	}
 	r.sectionHeader("KVM Virtualization")
 	if o.inJail() {
-		r.ok("Inside jail — kvm checks skipped (managed by host)")
+		r.skip("Inside jail — kvm checks skipped", "KVM availability is a host fact; run `yolo check` there.")
 		r.blank()
 		return
 	}

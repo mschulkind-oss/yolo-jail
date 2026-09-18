@@ -608,6 +608,12 @@ func TestHostServiceLivenessNoCaveatWithoutALoopbackTLSProbe(t *testing.T) {
 // return SILENTLY, leaving its header standing over an empty block — which reads as
 // "probed, nothing to report" in exactly the place where the honest answer is "not
 // askable from here". Every sibling section announces why it stepped aside.
+//
+// It then announced it as a [PASS], which was the OTHER half of the same problem and what
+// OQ-3 ruled against: a check that did not look must not be counted as one. So this now
+// pins the [SKIP] badge, that the pass count did NOT move, and that the row carries a note
+// saying where the fact can be checked instead — the three things that distinguish an
+// honest skip from either of the two dishonest answers it replaced.
 func TestHostServiceLivenessInJailSaysWhy(t *testing.T) {
 	var buf bytes.Buffer
 	r := newReporter(&buf, false)
@@ -620,9 +626,17 @@ func TestHostServiceLivenessInJailSaysWhy(t *testing.T) {
 	fillDefaults(o)
 	o.checkHostServiceLiveness(r)
 	out := buf.String()
-	if r.failed != 0 || !strings.Contains(out, "Inside jail") ||
-		!strings.Contains(out, "host-side") {
-		t.Errorf("the in-jail skip is silent or unexplained: failed=%d out=%q", r.failed, out)
+	if r.failed != 0 || !strings.Contains(out, "Inside jail") || !strings.Contains(out, "[SKIP]") {
+		t.Errorf("the in-jail skip is silent, failed, or ungraded: failed=%d out=%q", r.failed, out)
+	}
+	if r.passed != 0 {
+		t.Errorf("a skipped area must not be counted as a pass: passed=%d out=%q", r.passed, out)
+	}
+	if r.skipped != 1 {
+		t.Errorf("the skip must land in its own counter: skipped=%d out=%q", r.skipped, out)
+	}
+	if !strings.Contains(out, "->") {
+		t.Errorf("a skip must say where the fact can be checked instead:\n%s", out)
 	}
 }
 

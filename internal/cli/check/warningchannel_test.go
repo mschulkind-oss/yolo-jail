@@ -74,7 +74,11 @@ import (
 // fragment when the count is zero), which the callers treat as zero-and-say-so.
 func summaryWarnCount(t *testing.T, out string) (int, bool) {
 	t.Helper()
-	m := regexp.MustCompile(`(?m)^\s*(?:\d+ passed, )?(?:\d+ failed, )?(\d+) warnings\s*$`).
+	// The trailing `, N skipped` is OPTIONAL and must stay so: it is emitted only when
+	// something skipped, so an anchored pattern without it stopped matching the moment
+	// the [SKIP] level landed — and the failure read as "no warning count at all", which
+	// is a long way from "the summary grew a field".
+	m := regexp.MustCompile(`(?m)^\s*(?:\d+ passed, )?(?:\d+ failed, )?(\d+) warnings(?:, \d+ skipped)?\s*$`).
 		FindStringSubmatch(stripANSI(out))
 	if m == nil {
 		return 0, false

@@ -20,7 +20,7 @@ import (
 // loophole's own self-check. Bad manifests warn; non-zero self-checks fail.
 func (o *Options) checkLoopholes(r *reporter) {
 	if o.inJail() {
-		r.ok("Inside jail — loophole checks skipped (managed by host)")
+		r.skip("Inside jail — loophole checks skipped", "Loopholes are host daemons; run `yolo check` on the host to see whether they are healthy.")
 		return
 	}
 	// FIRST, before any loophole is reported: a still-populated retired directory
@@ -361,7 +361,7 @@ func (o *Options) checkHostServiceLiveness(r *reporter) {
 		// which reads as "probed, nothing to report" in exactly the place where the
 		// honest answer is "not askable from here" — the host's per-jail service
 		// directory is not mounted in, so there is nothing to probe.
-		r.ok("Inside jail — host-service liveness skipped (these probes run host-side)")
+		r.skip("Inside jail — host-service liveness skipped", "These probes dial host sockets; run `yolo check` on the host.")
 		return
 	}
 	entries := loopholes.ValidateLoopholes()
