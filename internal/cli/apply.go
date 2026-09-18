@@ -917,8 +917,16 @@ func confirmHostLosses(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	if len(losses) == 0 {
 		return true // nothing would be lost — no prompt (see property 1)
 	}
-	pr.Printf("[bold yellow]⚠ First apply into this home — the following existing values " +
-		"will be REPLACED by what your packs declare:[/bold yellow]")
+	// "THESE SURFACES", not "this home". FirstApply is per SURFACE — hostProvenanceExists
+	// asks whether yolo has ever written THAT surface here — and a home yolo has applied
+	// into for months grows a first-apply surface the day a pack starts claiming one it
+	// did not before. Saying "this home" made that run self-contradictory: the same output
+	// reported 77 destinations already in sync, which cannot be true of a first apply into
+	// a home. Reported by the maintainer 2026-09-18 on a real host, against a new
+	// config-overlay on claude/config.
+	pr.Printf("[bold yellow]⚠ First apply of %s — the following existing values "+
+		"will be REPLACED by what your packs declare:[/bold yellow]",
+		plural(len(losses), "this surface", "these surfaces"))
 	for _, l := range losses {
 		pr.Printf("  [cyan]%s[/cyan] [dim]%s[/dim]", l.surface, l.path)
 		for _, k := range l.keys {

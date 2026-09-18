@@ -356,8 +356,14 @@ func hostApplyCounts(s *hostApplySurvey, write bool) []string {
 	if s.FirstApply() {
 		// The flag, not a count: it is what turns every loss above into a confirmation
 		// prompt on --assert, so a reader seeing losses needs to know which side of the
-		// one-way door this home is on.
-		cost = append(cost, "first apply into this home")
+		// one-way door they are on.
+		//
+		// ⚠ It says SURFACE and not "home" because that is what it measures — one surface
+		// with no provenance record sets it, and a home yolo has applied into for months
+		// sets it again the day a pack claims a surface it did not before. It read "first
+		// apply into this home" until 2026-09-18, which put it in the same line as "77
+		// destinations already in sync" and made the verdict argue with itself.
+		cost = append(cost, "first apply of a surface into this home")
 	}
 	if len(cost) > 0 {
 		out = append(out, strings.Join(cost, " · "))

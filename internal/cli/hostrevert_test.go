@@ -191,7 +191,7 @@ func TestHostRevertMakesTheNextApplyAFirstApplyAgain(t *testing.T) {
 		if rc := applyMain([]string{"--at", "host", "--assert"}, &out, &errw, false, nil); rc != 0 {
 			t.Fatalf("re-apply rc=%d: %s%s", rc, out.String(), errw.String())
 		}
-		return strings.Contains(out.String(), "first apply into this home")
+		return strings.Contains(out.String(), "first apply of a surface into this home")
 	}
 
 	var after, control bool
