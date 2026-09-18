@@ -453,9 +453,8 @@ func newTimingLog(enabled bool, ws, cname string, stderr io.Writer, notice func(
 	if !enabled {
 		return nil
 	}
-	path := filepath.Join(paths.WorkspaceStateDir(ws), HostPerfLogName)
 	sinks := []perf.Sink{
-		perf.FileSink(path, cname, stderr, time.Now()),
+		hostPerfFileSink(ws, cname, stderr, notice),
 		func(e perf.Event) {
 			if e.Kind == perf.KindEnd && e.Dur >= perf.SlowSpanThreshold {
 				notice(fmt.Sprintf("%s took %.3fs", e.Name, e.Dur.Seconds()))
@@ -463,6 +462,33 @@ func newTimingLog(enabled bool, ws, cname string, stderr io.Writer, notice func(
 		},
 	}
 	return perf.New(time.Now, sinks...)
+}
+
+// hostPerfFileSink is the <workspace>/.yolo/host-perf.log sink, or a no-op sink when that
+// directory may not exist.
+//
+// THE DIRECTORY IS THE POINT. perf.FileSink MkdirAll's its parent, so this constructor is a
+// creator of <workspace>/.yolo — and `yolo stop` reaches it (TimingLogFor) with the cwd as
+// the workspace, outside the launch pipeline and therefore behind no launch guard. A
+// `yolo stop` typed in the home, on a machine with `perf_logging: true`, minted a stray
+// ~/.yolo/host-perf.log: a marker that hijacks workspaceRoot()'s upward walk for every later
+// `yolo config` verb run anywhere below the home (internal/paths/workspacescope.go states
+// both hazards).
+//
+// SKIP RATHER THAN REFUSE, and that asymmetry with the launch guard is deliberate: the perf
+// log is best-effort by this package's contract — "a jail is never refused over its timing
+// log" — so a directory yolo may not write is one more reason not to write, never a reason
+// to fail the command the user actually asked for. The skip is disclosed through the same
+// notice channel the slow-span lines use, because a timing log that silently is not there is
+// the shape this repo calls a silent skip.
+func hostPerfFileSink(ws, cname string, stderr io.Writer, notice func(string)) perf.Sink {
+	if !paths.WorkspaceStateDirAllowed(ws) {
+		notice("not recording timings: " + paths.WorkspaceStateDir(ws) +
+			" may not exist (this directory is not a workspace)")
+		return func(perf.Event) {}
+	}
+	return perf.FileSink(filepath.Join(paths.WorkspaceStateDir(ws), HostPerfLogName),
+		cname, stderr, time.Now())
 }
 
 // TimingLogFor is the subcommand-facing constructor: the same RECORDING gate and
