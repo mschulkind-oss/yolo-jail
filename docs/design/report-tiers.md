@@ -27,19 +27,18 @@ summary: "A stub. The report-tier design is built and its as-built account is do
 > [`loophole-packaging.md`](loophole-packaging.md) use, which hold questions a reference may
 > not carry.
 
-**Why it still exists.** Two inbound references — both
-[`OQ-RO3`](../reference/report-tiers.md#why-its-this-way) citations in
+**Why it still exists — and the reason is spent.** The two inbound references this stub was
+kept for, both [`OQ-RO3`](../reference/report-tiers.md#why-its-this-way) citations in
 [`../plans/handoff-macos-user-open-threads.md`](../plans/handoff-macos-user-open-threads.md),
-which another workflow held when this graduation landed — could not be repointed in the same
-commit. Point them at
-[`../reference/report-tiers.md#why-its-this-way`](../reference/report-tiers.md#why-its-this-way)
-and **delete this file**, which is what the graduation would otherwise have done here.
-
-Every reference in the Go tree already points at the reference doc, as does every other doc.
+**were repointed on 2026-09-18** and now resolve into the reference's *Why it's this way*
+appendix. Nothing outside `docs/` names this path, and the only remaining citations of it are
+in [`../plans/doc-triage.md`](../plans/doc-triage.md), which records the graduation and is
+supposed to name what moved. **This file is deletable**, which is what the graduation would
+otherwise have done here.
 
 ## 11. Decision Ledger
 
 **Moved.** Every `OQ-RO` ruling now lives in
 [`../reference/report-tiers.md`](../reference/report-tiers.md#why-its-this-way)'s
-*Why it's this way* appendix, with its original id. This heading survives only so that the two
-citations named above keep resolving until they are repointed; it goes with the rest of this file.
+*Why it's this way* appendix, with its original id. Nothing links this heading any more; it
+goes with the rest of this file.
