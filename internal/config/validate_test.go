@@ -522,7 +522,7 @@ func TestValidateProviders(t *testing.T) {
 
 	invalid := `{"providers": {
 		"bad": {
-			"base_url": 123,
+			"endpoints": {"openai": {"base_url": 123}},
 			"api_key_env_name": "123-bad-name",
 			"models": "not-an-object",
 			"unknown_key": "xyz"
@@ -620,15 +620,19 @@ func TestWireAPIEnumIsPackdeclsSet(t *testing.T) {
 }
 
 // `https://user:tok@host/v1` is a credential in a git-tracked config file, and this rule
-// is the check (profiles-as-pack-variants.md §4.3): base_url routes an ADDRESS, and the
+// is the check (profiles-as-pack-variants.md §4.3): a base_url routes an ADDRESS, and the
 // credential travels by NAME through api_key_env_name.
+//
+// Asked of `endpoints.<protocol>.base_url`, which is the only address spelling a user has
+// since protocol-resolution.md §5 deleted the bare one. The rule did not change with the
+// field: an address is an address wherever it is written.
 func TestValidateProvidersBaseURLMustBeAnAddress(t *testing.T) {
 	for _, u := range []string{
 		"http://host.example/v1",
 		"https://host.example/v1",
 		"https://open.bigmodel.cn/api/paas/v4",
 	} {
-		if errs := providerErrors(t, `{"glm": {"base_url": "`+u+`"}}`); len(errs) != 0 {
+		if errs := providerErrors(t, `{"glm": {"endpoints": {"openai": {"base_url": "`+u+`"}}}}`); len(errs) != 0 {
 			t.Errorf("base_url %q is a usable address, got error: %v", u, errs)
 		}
 	}
@@ -639,7 +643,7 @@ func TestValidateProvidersBaseURLMustBeAnAddress(t *testing.T) {
 		"https://user:tok@host.example/v1", // the credential the rule exists for
 		"https://user@host.example/v1",     // userinfo without a password counts too
 	} {
-		errs := providerErrors(t, `{"glm": {"base_url": "`+u+`"}}`)
+		errs := providerErrors(t, `{"glm": {"endpoints": {"openai": {"base_url": "`+u+`"}}}}`)
 		if len(errs) != 1 {
 			t.Errorf("base_url %q should be refused once, got: %v", u, errs)
 			continue
@@ -689,27 +693,66 @@ func TestValidateProvidersEnvShapeIsRetired(t *testing.T) {
 	}
 }
 
-// Closure rule 1 (zai OQ-Z6): base_url is the single-protocol shorthand and is valid
-// ONLY alone. Carrying both is an ambiguity, and the refusal names `endpoints` because
-// that is where the URL belongs.
-func TestValidateProvidersBaseURLAndEndpointsTogetherIsRefused(t *testing.T) {
-	errs := providerErrors(t, `{"zai": {
-		"base_url": "https://api.z.ai/api/paas/v4",
-		"endpoints": {"openai": {"base_url": "https://api.z.ai/api/paas/v4"}}
-	}}`)
-	if len(errs) != 1 {
-		t.Fatalf("want exactly one coexistence error, got: %v", errs)
+// THE SINGLE-PROTOCOL SHORTHAND IS REMOVED (protocol-resolution.md §5), and the refusal
+// names the explicit spelling — the shape `journal` and `host_processes` already use for a
+// retired key.
+//
+// This REPLACES the old coexistence test (base_url beside endpoints was OQ-PT2's ambiguity)
+// rather than sitting beside it: the pair is unrepresentable once one half is gone, and the
+// shorthand carried the same ambiguity ALONE — pi read a bare URL as its openai endpoint,
+// claude as its anthropic one, so one line pointed two agents at two different services.
+func TestValidateProvidersShorthandIsRemoved(t *testing.T) {
+	for _, body := range []string{
+		`{"glm": {"base_url": "https://api.z.ai/api/paas/v4"}}`,
+		// Beside `endpoints` too — the old coexistence case, which now earns the same one
+		// message rather than a second one about the pair.
+		`{"glm": {"base_url": "https://api.z.ai/api/paas/v4",
+		  "endpoints": {"openai": {"base_url": "https://api.z.ai/api/paas/v4"}}}}`,
+		// A malformed value earns the removal message and NOT a type error: telling
+		// someone their deleted key has the wrong shape is two contradictory instructions
+		// about one line.
+		`{"glm": {"base_url": 123}}`,
+	} {
+		errs := providerErrors(t, body)
+		if len(errs) != 1 {
+			t.Fatalf("want exactly one message for a removed key, got: %v", errs)
+		}
+		if !strings.Contains(errs[0], "REMOVED") {
+			t.Errorf("the refusal must say the key is removed: %s", errs[0])
+		}
+		for _, want := range []string{
+			"endpoints.anthropic.base_url", "endpoints.openai.base_url",
+		} {
+			if !strings.Contains(errs[0], want) {
+				t.Errorf("the refusal must name the explicit spelling %q: %s", want, errs[0])
+			}
+		}
+		if strings.Contains(errs[0], "expected a string") {
+			t.Errorf("a removed key must not also be type-checked: %s", errs[0])
+		}
 	}
-	if !strings.Contains(errs[0], "endpoints") {
-		t.Errorf("the coexistence refusal must point at endpoints: %s", errs[0])
+}
+
+// A WORKSPACE config carrying the shorthand gets the REMOVAL message and not the
+// user-scope one. Two contradictory instructions about one line is the failure mode, and
+// the scope rule is unchanged for the spelling that still exists.
+func TestTheRemovedShorthandIsNotAlsoAScopeError(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws, "yolo-jail.jsonc"),
+		[]byte(`{"providers": {"glm": {"base_url": "https://api.z.ai/api/paas/v4"}}}`), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	// The words are packdecl's, not this layer's own literal (docs/reference/providers.md
-	// §4.1, OQ-PT2): composition can manufacture this pair out of two legal inputs, and
-	// packload.ComposeProviders refuses the output. Quoting the const here is the pin —
-	// if either layer rewords its half, this fails and the two have to be re-agreed.
-	if !strings.Contains(errs[0], packdecl.ProviderAddressConflictMessage) {
-		t.Errorf("the coexistence refusal must carry the SHARED message the composer refuses "+
-			"with (packdecl.ProviderAddressConflictMessage):\n%s", errs[0])
+	t.Setenv("YOLO_VERSION", "")
+	errs, _ := ValidateConfig(decode(t,
+		`{"providers": {"glm": {"base_url": "https://api.z.ai/api/paas/v4"}}}`), ws, nil)
+	var provErrs []string
+	for _, e := range errs {
+		if strings.HasPrefix(e, "config.providers") {
+			provErrs = append(provErrs, e)
+		}
+	}
+	if len(provErrs) != 1 || !strings.Contains(provErrs[0], "REMOVED") {
+		t.Errorf("a removed key in a workspace config earns ONE message, the removal: %v", provErrs)
 	}
 }
 

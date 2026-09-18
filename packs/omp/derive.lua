@@ -8,15 +8,14 @@ local ompDialect = {
   ["openai-responses"] = "openai-responses",
 }
 
--- A yolo provider's single-protocol shorthand is authoritative. For the
--- multi-endpoint form, OMP can speak every yolo dialect it maps above, so choose
--- the first endpoint in OMP's stable preference order rather than fabricating a
--- URL for an endpoint it cannot identify.
+-- OMP can speak every yolo dialect it maps above, so choose the first endpoint in OMP's
+-- stable preference order — which is also the order packs/omp declares in its `protocols`
+-- list — rather than fabricating a URL for an endpoint it cannot identify. The
+-- single-protocol `base_url` shorthand is deleted (protocol-resolution.md §5): it named no
+-- protocol, so it could not say which dialect to map, and the same field meant different
+-- wires to different agents.
 local function providerEndpoint(prov)
   if type(prov) ~= "table" then return nil end
-  if prov.base_url then
-    return prov.base_url, ompDialect[prov.wire_api]
-  end
   local endpoints = prov.endpoints
   if type(endpoints) ~= "table" then return nil end
   for _, name in ipairs({ "openai", "anthropic" }) do

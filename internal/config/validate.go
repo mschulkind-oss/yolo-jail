@@ -1144,28 +1144,14 @@ func validateProviders(config *jsonx.OrderedMap, workspace string, errs, warns *
 			continue
 		}
 		reportUnknownKeys(cfg, knownProviderKeys, path, errs)
-		base, hasBase := cfg.Get("base_url")
+		if base, has := cfg.Get("base_url"); has && base != nil {
+			// REMOVED (protocol-resolution.md §5), and this is the entry's ONLY message
+			// about that key: the checks below would each ask the user to fix the shape of
+			// something they must delete.
+			validateProviderShorthandRetired(path, errs, warns)
+			continue
+		}
 		endpoints, hasEndpoints := cfg.Get("endpoints")
-		// Closure rule 1 (zai OQ-Z6): the shorthand and the endpoint map are two ways to
-		// say where a protocol points, and one provider carrying both is an ambiguity no
-		// consumer could resolve. The refusal names `endpoints` because that is where a
-		// URL belongs once more than one protocol is in play.
-		//
-		// The message is packdecl's, not a local literal: composition can MANUFACTURE
-		// this pair from two legal inputs (a user base_url over a pack that ships
-		// endpoints), and packload.ComposeProviders refuses the output with the same
-		// words (docs/reference/providers.md — composition refusals, OQ-PT2). Sharing the text is what stops
-		// the two layers drifting into disagreeing about whether the pair is a defect.
-		if hasBase && base != nil && hasEndpoints && endpoints != nil {
-			add(errs, path+": "+packdecl.ProviderAddressConflictMessage)
-		}
-		if u, ok := cfg.Get("base_url"); ok && u != nil {
-			if s, isStrOk := asStr(u); !isStrOk {
-				add(errs, path+".base_url: expected a string")
-			} else if problem := providerURLProblem(s); problem != "" {
-				add(errs, path+".base_url: "+problem)
-			}
-		}
 		if hasEndpoints && endpoints != nil {
 			validateProviderEndpoints(endpoints, path, errs)
 		}
@@ -1253,9 +1239,11 @@ func validateProviderAddressScope(workspace string, errs *[]string) {
 			continue
 		}
 		path := "config." + providersKey + "." + name
-		if u, has := entry.Get("base_url"); has && u != nil {
-			add(errs, providerAddressScopeMessage(path+".base_url"))
-		}
+		// The bare `base_url` SHORTHAND is deliberately not checked here any more: it is
+		// REMOVED (validateProviderShorthandRetired), and telling someone their deleted key
+		// is in the wrong scope is two contradictory instructions about one line — the same
+		// call validateHostProcessesRetired makes about its own type checks. The
+		// per-protocol spelling below is the live one, and it keeps the whole rule.
 		endpointsV, has := entry.Get("endpoints")
 		if !has || endpointsV == nil {
 			continue
@@ -1275,6 +1263,57 @@ func validateProviderAddressScope(workspace string, errs *[]string) {
 			}
 		}
 	}
+}
+
+// validateProviderShorthandRetired reports the DELETED single-protocol `base_url`
+// shorthand on a provider entry (protocol-resolution.md §5).
+//
+// It is the THIRD member of the retired-declaration set — `journal` and `host_processes`
+// above are the top-level keys, `packdecl.retiredKinds` is the contribution kinds — and it
+// lands the same way for a reason of its own: THE SAME VALUE MEANT TWO DIFFERENT THINGS.
+// pi's derive read a bare `base_url` as its OPENAI url; claude's read the same field as its
+// ANTHROPIC base URL (added 2026-09-16). One line of user config, two contradictory
+// readings, decided by whichever agent happened to consume it — and the headline use case
+// was the worst of them, because llama.cpp, ollama and vLLM all speak OpenAI, so `claude`
+// plus a bare URL pointed ANTHROPIC_BASE_URL at an OpenAI server and failed at the first
+// request.
+//
+// A REFUSAL, NOT A WARNING, AND NOT SILENCE — the three-way choice its two siblings
+// describe, with the sharpest version of their argument: this key decides WHERE AN AGENT'S
+// INFERENCE GOES. A config that still writes it and gets nothing has been silently
+// redirected back to a first-party API, which is the one direction where silence reads as
+// "it worked".
+//
+// IT FINISHES OQ-PT2 RATHER THAN REVERSING IT. That ruling already refused `base_url`
+// beside `endpoints`, because the shorthand is the ambiguous spelling the moment more than
+// one protocol exists; §5 observes that more than one protocol always exists now, so there
+// is no case left where the short form is unambiguous.
+//
+// TYPE AND SCOPE CHECKS WENT WITH THE KEY. The URL-shape check, the base_url/endpoints
+// conflict and the user-scope refusal all used to fire on this field; telling someone their
+// removed key is malformed, or in the wrong file, is two contradictory instructions about
+// one line.
+//
+// ERROR ON THE HOST, WARNING INSIDE A JAIL, for validateJournalRetired's reason: in-jail
+// the config is the HOST-GENERATED snapshot, so erroring there refuses every nested launch
+// over a key the in-jail user cannot fix at its source.
+func validateProviderShorthandRetired(path string, errs, warns *[]string) {
+	msg := path + ".base_url: REMOVED — say which protocol this URL speaks:\n" +
+		"      endpoints.anthropic.base_url   the Anthropic Messages wire\n" +
+		"      endpoints.openai.base_url      the OpenAI-client wire\n" +
+		"    The bare field meant different protocols to different agents — pi read it as " +
+		"openai and claude as anthropic — so one line pointed two agents at two different " +
+		"services, and a local llama.cpp/ollama/vLLM endpoint (all OpenAI-speaking) sent " +
+		"claude to an address it could not talk to. Naming the protocol also makes the " +
+		"launch able to ROUTE it: an openai endpoint reaches an anthropic-speaking agent " +
+		"through whichever selected pack declares that adaptation, and a pairing nothing " +
+		"can serve is refused by name instead of failing at the first request."
+	if inJail() {
+		add(warns, msg+" (ignored here: this is the host-generated config snapshot, "+
+			"so remove the key from the HOST config.)")
+		return
+	}
+	add(errs, msg)
 }
 
 // providerAddressScopeMessage is the ONE refusal both address spellings give, so the

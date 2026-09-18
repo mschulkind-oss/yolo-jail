@@ -310,11 +310,17 @@ func TestAssembleEmitsCodexBridgeProfileEnv(t *testing.T) {
 }
 
 // TestAssembleEmitsLocalLLMClaudeEnv pins that local LLM providers without explicit
-// API keys get a dummy token ("local") instead of leaking credentials, that base_url
-// shorthand is supported (with trailing /v1 stripped for Claude's origin requirement),
-// that non-standard context_window sets CLAUDE_CODE_MAX_CONTEXT_TOKENS alongside
-// auto-compact, that timeouts map to CLAUDE_STREAM_IDLE_TIMEOUT_MS, and that ANTHROPIC_MODEL
-// and ANTHROPIC_SMALL_FAST_MODEL are populated.
+// API keys get a dummy token ("local") instead of leaking credentials, that a
+// non-standard context_window sets CLAUDE_CODE_MAX_CONTEXT_TOKENS alongside auto-compact,
+// that timeouts map to CLAUDE_STREAM_IDLE_TIMEOUT_MS, and that ANTHROPIC_MODEL and
+// ANTHROPIC_SMALL_FAST_MODEL are populated.
+//
+// THE ADDRESS IS WRITTEN UNDER ITS PROTOCOL, which is the only spelling left: the bare
+// `base_url` shorthand (and the trailing-/v1 strip that came with it) is deleted, and this
+// is the case §5 names as the reason — llama.cpp, ollama and vLLM all speak OpenAI, so a
+// user writing a bare URL for claude was pointing ANTHROPIC_BASE_URL at a server it cannot
+// talk to. Naming the protocol is what makes the same URL either correct (an
+// Anthropic-compatible local server, as here) or routable through an adapter.
 func TestAssembleEmitsLocalLLMClaudeEnv(t *testing.T) {
 	sec := jsonx.NewOrderedMap()
 	sec.Set("blocked_tools", []any{})
@@ -322,7 +328,11 @@ func TestAssembleEmitsLocalLLMClaudeEnv(t *testing.T) {
 	profiles.Set("claude", "local")
 	provs := jsonx.NewOrderedMap()
 	localProv := jsonx.NewOrderedMap()
-	localProv.Set("base_url", "http://host.containers.internal:8080/v1")
+	endpoints := jsonx.NewOrderedMap()
+	anthropic := jsonx.NewOrderedMap()
+	anthropic.Set("base_url", "http://host.containers.internal:8080")
+	endpoints.Set("anthropic", anthropic)
+	localProv.Set("endpoints", endpoints)
 	localProv.Set("models", map[string]any{"default": "qwen3.8-27b"})
 	opts := jsonx.NewOrderedMap()
 	opts.Set("context_window", "180224")

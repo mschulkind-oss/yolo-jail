@@ -161,3 +161,42 @@ func TestProtocolDeclarationDoesNotTouchTheComposedTable(t *testing.T) {
 			"A protocol list is a fact about an agent; only an adapter contributes an address", a, b)
 	}
 }
+
+// THE SHORTHAND IS GONE FROM THE SHIPPED DERIVE, measured through the real
+// packs/claude/derive.lua (protocol-resolution.md §5).
+//
+// A provider carrying a bare `base_url` used to reach that producer and become
+// ANTHROPIC_BASE_URL — including the trailing-/v1 strip, which existed only for this
+// path. The same field meant `openai` to pi's derive, so one line of user config pointed
+// two agents at two different services, and a local llama.cpp/ollama/vLLM endpoint (all
+// OpenAI-speaking) sent claude somewhere it could not talk to. A user config carrying it
+// is a validation refusal now; this test is the other half — that the DERIVE no longer
+// honors it if one arrives anyway, which is what keeps "removed" from meaning "refused in
+// one layer and silently obeyed in the next".
+func TestTheShippedClaudeDeriveNoLongerReadsTheShorthand(t *testing.T) {
+	claude := realClaudePack(t)
+	vendor := &Pack{Name: "vendor", Decl: declFrom(t, `{"contributes":[
+	  {"kind":"provider","name":"p"},
+	  {"kind":"profile","name":"sel","provider":"p"}]}`)}
+	packs := []*Pack{claude, vendor}
+	providers, err := ComposeProviders(
+		userProviders(t, `{"p":{"base_url":"http://127.0.0.1:8080/v1"}}`), packs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := ResolveProfiles(packs, nil, providers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vars, err := AgentEnv(packs, providers, map[string]string{"claude": "sel"}, "claude", "sel",
+		func(string) (string, bool) { return "", false }, WithResolvedProfiles(resolved))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range vars {
+		if v.Key == "ANTHROPIC_BASE_URL" {
+			t.Errorf("the shipped derive composed %#v from a bare base_url — the shorthand is "+
+				"removed, and a field refused by validation must not be honored by a derive", v)
+		}
+	}
+}

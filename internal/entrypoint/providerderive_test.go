@@ -143,15 +143,21 @@ func TestPiDeriveHandlesLocalProviderContextAndKey(t *testing.T) {
 	script, s := deriveSurface(t, "pi", "pi/models")
 	got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, map[string]map[string]any{
 		manifest.SourceProviders: {
+			// The address is written UNDER ITS PROTOCOL, the only spelling a provider has
+			// since the single-protocol shorthand was deleted (protocol-resolution.md §5):
+			// a bare URL meant `openai` to this derive and `anthropic` to claude's, which
+			// is exactly the ambiguity a local OpenAI-speaking server made dangerous.
 			"local": map[string]any{
-				"base_url": "http://host.containers.internal:8080/v1",
-				"models":   map[string]any{"default": "qwen3.8-27b"},
-				"options":  map[string]any{"context_window": "180224"},
+				"endpoints": map[string]any{"openai": map[string]any{
+					"base_url": "http://host.containers.internal:8080/v1"}},
+				"models":  map[string]any{"default": "qwen3.8-27b"},
+				"options": map[string]any{"context_window": "180224"},
 			},
 			"local_with_max": map[string]any{
-				"base_url": "http://host.containers.internal:8080/v1",
-				"models":   map[string]any{"default": "qwen3.8-27b"},
-				"options":  map[string]any{"context_window": "180224", "max_tokens": "8192"},
+				"endpoints": map[string]any{"openai": map[string]any{
+					"base_url": "http://host.containers.internal:8080/v1"}},
+				"models":  map[string]any{"default": "qwen3.8-27b"},
+				"options": map[string]any{"context_window": "180224", "max_tokens": "8192"},
 			},
 		},
 	})
@@ -198,7 +204,8 @@ func TestPiDeriveSettingsScopesDeclaredModels(t *testing.T) {
 	}, map[string]map[string]any{
 		manifest.SourceProviders: {
 			"zai": map[string]any{
-				"base_url": "https://api.z.ai/api/coding/paas/v4",
+				"endpoints": map[string]any{"openai": map[string]any{
+					"base_url": "https://api.z.ai/api/coding/paas/v4"}},
 				"models": map[string]any{
 					"glm-4.6":       "glm-4.6",
 					"glm-5.3":       "glm-5.3",
@@ -244,7 +251,8 @@ func TestPiDeriveSettingsScopesDeclaredModels(t *testing.T) {
 	}, map[string]map[string]any{
 		manifest.SourceProviders: {
 			"kilo": map[string]any{
-				"base_url": "https://api.kilo.ai/api/gateway",
+				"endpoints": map[string]any{"openai": map[string]any{
+					"base_url": "https://api.kilo.ai/api/gateway"}},
 			},
 		},
 	})
@@ -268,9 +276,10 @@ func TestOpenCodeDeriveHandlesLocalProviderLimitAndSmallModel(t *testing.T) {
 	}, map[string]map[string]any{
 		manifest.SourceProviders: {
 			"local": map[string]any{
-				"base_url": "http://host.containers.internal:8080/v1",
-				"models":   map[string]any{"default": "qwen3.8-27b"},
-				"options":  map[string]any{"context_window": "180224"},
+				"endpoints": map[string]any{"openai": map[string]any{
+					"base_url": "http://host.containers.internal:8080/v1"}},
+				"models":  map[string]any{"default": "qwen3.8-27b"},
+				"options": map[string]any{"context_window": "180224"},
 			},
 		},
 	})
@@ -535,39 +544,20 @@ func TestProviderDerivesResolveAnEndpointsOnlyProvider(t *testing.T) {
 // search for every profile that was not bedrock or codex — Kilo included). The seam it
 // guarded moved with it and is pinned in capabilitymcp_test.go, which names this test.
 
-// TestProviderDerivesKeepTheBaseURLShorthand: the single-protocol form still works and
-// still carries the provider's own wire_api — translated, like every other path — which is
-// what every provider written before `endpoints` existed relies on.
-func TestProviderDerivesKeepTheBaseURLShorthand(t *testing.T) {
-	tables := map[string]map[string]any{
-		manifest.SourceProviders: {
-			"glm": map[string]any{
-				"base_url":         "https://open.bigmodel.cn/api/paas/v4",
-				"wire_api":         "openai-chat-completions",
-				"api_key_env_name": "GLM_API_KEY",
-			},
-		},
-	}
-	script, s := deriveSurface(t, "pi", "pi/models")
-	got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, tables)
-	if err != nil {
-		t.Fatal(err)
-	}
-	providers := got["providers"].(map[string]any)
-	zai := providers["glm"].(map[string]any)
-	if zai["baseUrl"] != "https://open.bigmodel.cn/api/paas/v4" {
-		t.Errorf("baseUrl = %v, want the shorthand base_url", zai["baseUrl"])
-	}
-	if zai["api"] != "openai-completions" {
-		t.Errorf("api = %v, want the shorthand's canonical openai-chat-completions translated "+
-			"into pi's openai-completions", zai["api"])
-	}
-	// The credential rides the same config-value syntax on the shorthand path too — the
-	// shorthand and the endpoints form share one body, and this is what keeps them shared.
-	if zai["apiKey"] != "${GLM_API_KEY}" {
-		t.Errorf("apiKey = %v, want the ${GLM_API_KEY} reference on the shorthand path too", zai["apiKey"])
-	}
-}
+// TestProviderDerivesKeepTheBaseURLShorthand USED TO BE HERE, pinning that a
+// single-protocol `base_url` still reached pi's catalog with its own `wire_api`
+// translated — "what every provider written before `endpoints` existed relies on".
+//
+// ITS SUBJECT IS DELETED, not renamed (docs/design/protocol-resolution.md §5). The bare
+// field named no protocol, so the same line meant `openai` to pi and `anthropic` to
+// claude: one config line, two agents, two different services — and its headline case was
+// the trap, because llama.cpp, ollama and vLLM all speak OpenAI, so `claude` plus a bare
+// URL pointed ANTHROPIC_BASE_URL at a server it could not talk to. A user config carrying
+// it is now a validation refusal naming `endpoints.<protocol>.base_url`
+// (config.validateProviderShorthandRetired), and the four derives that read it no longer
+// have the branch. What the shorthand's body shared with the endpoints path — the
+// credential reference, the dialect translation — is unchanged and is pinned by the tests
+// on either side of this note.
 
 // TestProviderDerivesTranslateTheCanonicalVocabulary is the dialect map, asserted row by
 // row (docs/reference/providers.md, OQ-PT1): yolo's canonical protocol name goes IN,
@@ -616,10 +606,17 @@ func TestProviderDerivesTranslateTheCanonicalVocabulary(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			prov := map[string]any{"base_url": url}
+			// The address and its dialect both live under the ENDPOINT, which is the only
+			// spelling a provider has since the single-protocol shorthand was deleted
+			// (protocol-resolution.md §5). The endpoint KEY is the protocol family an agent
+			// files its read under; `wire_api` is the dialect that URL speaks, and this test
+			// is about translating the second, so every row uses one key and varies the
+			// dialect.
+			ep := map[string]any{"base_url": url}
 			if tc.wireAPI != "" {
-				prov["wire_api"] = tc.wireAPI
+				ep["wire_api"] = tc.wireAPI
 			}
+			prov := map[string]any{"endpoints": map[string]any{"openai": ep}}
 			tables := map[string]map[string]any{
 				manifest.SourceProviders: {"acme": prov},
 			}
@@ -708,7 +705,8 @@ func TestProviderDerivesSkipAProviderWithNoURLForThem(t *testing.T) {
 			// rather than an empty catalog: the derive omits the table wholesale when
 			// nothing survives.
 			"glm": map[string]any{
-				"base_url": "https://open.bigmodel.cn/api/paas/v4",
+				"endpoints": map[string]any{"openai": map[string]any{
+					"base_url": "https://open.bigmodel.cn/api/paas/v4"}},
 			},
 		},
 	}
@@ -748,8 +746,9 @@ func TestPiDeriveHandlesKiloGatewayNormalizationAndContextWindow(t *testing.T) {
 	}, map[string]map[string]any{
 		manifest.SourceProviders: {
 			"kilo": map[string]any{
-				"base_url": "https://api.kilo.ai/api/gateway",
-				"models":   map[string]any{"default": "deepseek-v4.1-flash"},
+				"endpoints": map[string]any{"openai": map[string]any{
+					"base_url": "https://api.kilo.ai/api/gateway"}},
+				"models": map[string]any{"default": "deepseek-v4.1-flash"},
 			},
 		},
 	})
@@ -777,8 +776,9 @@ func TestPiDeriveHandlesKiloGatewayNormalizationAndContextWindow(t *testing.T) {
 	}, map[string]map[string]any{
 		manifest.SourceProviders: {
 			"kilo": map[string]any{
-				"base_url": "https://api.kilo.ai/api/gateway",
-				"models":   map[string]any{"default": "deepseek-v4.1-flash"},
+				"endpoints": map[string]any{"openai": map[string]any{
+					"base_url": "https://api.kilo.ai/api/gateway"}},
+				"models": map[string]any{"default": "deepseek-v4.1-flash"},
 			},
 		},
 	})

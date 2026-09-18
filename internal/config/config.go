@@ -193,6 +193,12 @@ var (
 	// application (deleted with its whole vocabulary on 2026-09-02, never in a release):
 	// a provider's delivery is the agent pack's env derive now (OQ-CS8), so the key is an
 	// ordinary unknown key and nothing checks its values.
+	// `base_url` STAYS in this set although it is REMOVED (validateProviderShorthandRetired),
+	// the same treatment `journal`, `host_processes` and `agents` get among the top-level
+	// keys: a bare "unknown key" reads like a typo and sends people hunting for the correct
+	// spelling of a key that no longer exists, so the retirement message is the only one the
+	// key earns. `wire_api` is still live but only INSIDE an `endpoints` entry; at the top
+	// level it was the shorthand's partner, and it stays listed for the same reason.
 	knownProviderKeys = set("base_url", "endpoints", "wire_api", "api_key_env_name",
 		"models", "region", "capabilities", "options")
 	knownDeviceKeys    = set("usb", "description", "cgroup_rule")

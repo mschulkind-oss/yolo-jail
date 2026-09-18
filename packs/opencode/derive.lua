@@ -1,18 +1,15 @@
 -- opencode: project the canonical MCP and provider entries into opencode's dialect.
 
--- The provider's URL for the protocol opencode speaks — `openai`, per the resolution
--- table in zai-plumbing.md §5. The single-protocol `base_url` shorthand wins; otherwise
--- the openai endpoint. Total over non-tables so the call site stays a one-line gate.
--- Returns nil when the provider names no URL an openai-speaking agent can use, which is
--- what keeps the gate below honest: an endpoints-only provider still reaches the catalog
--- (the pre-endpoints gate on prov.base_url silently dropped it), while a provider whose
--- only endpoint speaks anthropic would emit an entry with no URL. opencode consumes no
+-- The provider's URL for the protocol opencode speaks — `openai`, which is also what
+-- packs/opencode declares in its `protocols` list. ONE spelling: the single-protocol
+-- `base_url` shorthand is deleted (protocol-resolution.md §5), because the same bare field
+-- meant `openai` here and `anthropic` in claude's derive. Total over non-tables so the call
+-- site stays a one-line gate. Returns nil when the provider names no URL an openai-speaking
+-- agent can use, which is what keeps the gate below honest: a provider whose only endpoint
+-- speaks anthropic would otherwise emit an entry with no URL. opencode consumes no
 -- wire_api, so only the URL comes back.
 local function providerEndpoint(prov)
   if type(prov) ~= "table" then return nil end
-  if prov.base_url then
-    return prov.base_url
-  end
   local ep = prov.endpoints and prov.endpoints.openai or nil
   if type(ep) == "table" and ep.base_url then
     return ep.base_url

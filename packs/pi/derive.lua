@@ -33,19 +33,18 @@ local function piAPI(canonical)
   return piDialect[canonical]
 end
 
--- The provider's URL for the protocol THIS agent speaks — `openai`, per the resolution
--- table in zai-plumbing.md §5 (claude is the one `anthropic` consumer, and it has no
--- derive). The single-protocol `base_url` shorthand wins; otherwise the openai endpoint.
+-- The provider's URL for the protocol THIS agent speaks — `openai`, which is also what
+-- packs/pi declares in its `protocols` list. ONE spelling: the single-protocol `base_url`
+-- shorthand is deleted (protocol-resolution.md §5), because the same bare field meant
+-- `openai` here and `anthropic` in claude's derive — one line of user config, two
+-- contradictory readings, decided by whichever agent happened to consume it. A user config
+-- carrying it is a validation refusal naming `endpoints.openai.base_url`.
 -- Total over non-tables so the call site stays a one-line gate. Returns nil when the
 -- provider names no URL an openai-speaking agent can use, which is what keeps that gate
--- honest: an endpoints-only provider still reaches the catalog (the pre-endpoints gate
--- on prov.base_url silently dropped it), while a provider whose only endpoint speaks a
--- protocol pi cannot would emit an entry with no URL — a provider it cannot reach.
+-- honest: a provider whose only endpoint speaks a protocol pi cannot would otherwise emit
+-- an entry with no URL — a provider it cannot reach.
 local function providerEndpoint(prov)
   if type(prov) ~= "table" then return nil end
-  if prov.base_url then
-    return prov.base_url, prov.wire_api
-  end
   local ep = prov.endpoints and prov.endpoints.openai or nil
   if type(ep) == "table" and ep.base_url then
     return ep.base_url, ep.wire_api
@@ -286,7 +285,7 @@ yolo.derive("pi", "settings", function(ctx)
   if not piReachable(p) then
     return {}
   end
-  local isKilo = (ctx.selected_provider == "kilo" or (type(p) == "table" and type(p.base_url) == "string" and isKiloEndpoint(p.base_url)))
+  local isKilo = (ctx.selected_provider == "kilo" or (type(p) == "table" and type(p.endpoints) == "table" and type(p.endpoints.openai) == "table" and isKiloEndpoint(p.endpoints.openai.base_url or "")))
   local alias = (ctx.profile and ctx.profile.model) or (type(p) == "table" and type(p.options) == "table" and p.options.model) or "default"
   local sel = { defaultProvider = ctx.selected_provider }
   if type(p) == "table" and type(p.models) == "table" then

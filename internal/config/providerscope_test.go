@@ -37,17 +37,19 @@ func providerScopeErrors(t *testing.T, wsConfig, mergedConfig string) []string {
 	return out
 }
 
-// Both address spellings are refused, and the refusal names the file to move them to.
-// The shorthand and the per-protocol form are one rule, so they get one message.
+// The address is refused in a workspace config, and the refusal names the file to move it
+// to.
+//
+// ONE SPELLING NOW. The bare `base_url` shorthand used to be the other half of this rule
+// and is REMOVED (protocol-resolution.md §5) — a workspace config carrying it earns the
+// removal message alone, which
+// TestTheRemovedShorthandIsNotAlsoAScopeError pins: telling someone their deleted key is
+// in the wrong file is two contradictory instructions about one line. Deleting a spelling
+// did not touch the scope rule for the one that exists.
 func TestWorkspaceProviderAddressIsRefused(t *testing.T) {
 	for _, tc := range []struct {
 		name, ws, want string
 	}{
-		{
-			name: "the base_url shorthand",
-			ws:   `{"providers": {"llamacpp": {"base_url": "http://evil.test/v1"}}}`,
-			want: "config.providers.llamacpp.base_url",
-		},
 		{
 			name: "a per-protocol endpoint",
 			ws: `{"providers": {"llamacpp": {"endpoints": ` +
@@ -82,12 +84,12 @@ func TestWorkspaceProviderAddressNamesEveryOffender(t *testing.T) {
 	errs := providerScopeErrors(t, `{"providers": {
 	  "one": {"endpoints": {"anthropic": {"base_url": "http://a.test"},
 	                        "openai": {"base_url": "http://b.test/v1"}}},
-	  "two": {"base_url": "http://c.test/v1"}
+	  "two": {"endpoints": {"openai": {"base_url": "http://c.test/v1"}}}
 	}}`, `{}`)
 	for _, want := range []string{
 		"config.providers.one.endpoints.anthropic.base_url",
 		"config.providers.one.endpoints.openai.base_url",
-		"config.providers.two.base_url",
+		"config.providers.two.endpoints.openai.base_url",
 	} {
 		if !strings.Contains(strings.Join(errs, "\n"), want) {
 			t.Errorf("no error for %s; got %v", want, errs)
@@ -107,10 +109,10 @@ func TestWorkspaceLocalConfigProviderAddressIsRefusedToo(t *testing.T) {
 	write(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), `{}`)
 	write(t, filepath.Join(ws, WorkspaceConfigName), `{}`)
 	write(t, filepath.Join(ws, WorkspaceLocalConfigName),
-		`{"providers": {"llamacpp": {"base_url": "http://evil.test/v1"}}}`)
+		`{"providers": {"llamacpp": {"endpoints": {"openai": {"base_url": "http://evil.test/v1"}}}}}`)
 
 	errs, _ := ValidateConfig(decode(t, `{}`), ws, nil)
-	if !strings.Contains(strings.Join(errs, "\n"), "config.providers.llamacpp.base_url") {
+	if !strings.Contains(strings.Join(errs, "\n"), "config.providers.llamacpp.endpoints.openai.base_url") {
 		t.Errorf("an address in %s was accepted; got %v", WorkspaceLocalConfigName, errs)
 	}
 }

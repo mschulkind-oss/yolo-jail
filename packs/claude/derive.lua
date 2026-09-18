@@ -79,14 +79,13 @@ end)
 -- wrong host, and an empty token is a credential that gets SENT.
 yolo.env("claude", function(ctx)
   local p = ctx.providers[ctx.selected_provider]
-  -- openai-codex is a broker-backed subscription identity, like Pi's native
-  -- provider. Its YOLO_PROVIDERS row (packs/openai-auth) carries the source's
-  -- `capabilities` and deliberately nothing else — no endpoint, no credential
-  -- pointer — because the wire bridge gets its short-lived access-token view from
-  -- openai-auth, never from a generated configuration file. So `p` is a table with
-  -- no address in it, and every value below is stated here rather than read off it.
-  -- The Responses subscription endpoint accepts concrete Codex model IDs, so this
-  -- must stay aligned with Pi's Codex default.
+  -- openai-codex is a broker-backed subscription identity, like Pi's native provider. Its
+  -- YOLO_PROVIDERS row (packs/openai-auth) carries the source's `capabilities` and the
+  -- PUBLIC ADDRESS of the Responses API, and deliberately no credential pointer — the wire
+  -- bridge gets its short-lived access-token view from openai-auth, never from a generated
+  -- configuration file. The model facts below are stated here because the subscription
+  -- catalog is claude's own picker vocabulary, not a provider fact; the Responses endpoint
+  -- accepts concrete Codex model IDs, so this must stay aligned with Pi's Codex default.
   if ctx.selected_provider == "openai-codex" then
     -- THE ADDRESS IS RESOLVED, NOT SPELLED. It used to be the literal 127.0.0.1:8215, a
     -- hand-copy of internal/wirebridged's CodexResponsesListenAddr that this file had no
@@ -122,17 +121,15 @@ yolo.env("claude", function(ctx)
   local out = {}
   local routed = false -- claude is pointed at a non-first-party Anthropic-wire host
   local baseUrl = nil
+  -- The provider's address for the protocol claude speaks, and there is ONE spelling of
+  -- it: the single-protocol `base_url` shorthand is deleted (protocol-resolution.md §5).
+  -- The same bare field meant `openai` to pi and `anthropic` here, so one line of user
+  -- config pointed two agents at two different services — and its headline case, a local
+  -- llama.cpp/ollama/vLLM endpoint, speaks OpenAI, so this branch aimed
+  -- ANTHROPIC_BASE_URL at a server claude cannot talk to. A user config carrying it is a
+  -- validation refusal naming this spelling.
   if p.endpoints and p.endpoints.anthropic and p.endpoints.anthropic.base_url then
     baseUrl = p.endpoints.anthropic.base_url
-  elseif p.base_url then
-    -- Shorthand base_url fallback (strip trailing /v1 or /v1/ as Claude Code requires the origin)
-    local u = p.base_url
-    if string.sub(u, -3) == "/v1" then
-      u = string.sub(u, 1, -4)
-    elseif string.sub(u, -4) == "/v1/" then
-      u = string.sub(u, 1, -5)
-    end
-    baseUrl = u
   end
   if baseUrl then
     out.ANTHROPIC_BASE_URL = baseUrl
@@ -172,7 +169,7 @@ yolo.env("claude", function(ctx)
   --     CLAUDE_CODE_MAX_CONTEXT_TOKENS so Claude Code knows the model's capacity;
   --   api_timeout_ms -> claude's per-request ceiling, for providers whose reasoning
   --     turns run long, plus CLAUDE_STREAM_IDLE_TIMEOUT_MS to prevent streaming drops.
-  local isKilo = (ctx.selected_provider == "kilo" or (type(p) == "table" and type(p.endpoints) == "table" and type(p.endpoints.openai) == "table" and string.find(p.endpoints.openai.base_url or "", "api%.kilo%.ai") ~= nil) or (type(p) == "table" and type(p.base_url) == "string" and string.find(p.base_url, "api%.kilo%.ai") ~= nil))
+  local isKilo = (ctx.selected_provider == "kilo" or (type(p) == "table" and type(p.endpoints) == "table" and type(p.endpoints.openai) == "table" and string.find(p.endpoints.openai.base_url or "", "api%.kilo%.ai") ~= nil))
 
   local function normalizeKiloModel(modelId)
     if type(modelId) ~= "string" or modelId == "" then return modelId end

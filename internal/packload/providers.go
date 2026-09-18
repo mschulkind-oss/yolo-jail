@@ -197,10 +197,15 @@ func spokenProtocols(packs []*Pack) map[string]bool {
 }
 
 // addressConflict refuses a COMPOSED entry that carries both the base_url shorthand and
-// an endpoints map. ComposeProviders calls it after every per-field merge, because the
-// merge is what can produce the pair out of two inputs that each pass validation — the
-// config validator's own refusal covers only an entry a user wrote whole (see
-// packdecl.ProviderAddressConflictMessage for why the words are shared).
+// an endpoints map.
+//
+// ITS POPULATION SHRANK TO ONE PATH and it is not dead. The shorthand is REMOVED
+// (protocol-resolution.md §5), so a config the HOST validated can no longer carry it at
+// all — but a retired key is an ERROR ON THE HOST AND A WARNING IN A JAIL, because in-jail
+// the config is the host-generated snapshot and refusing there would stop every nested
+// launch over a key the in-jail user cannot fix at its source. A nested launch therefore
+// still composes an entry whose user half carries the shorthand, and this is what refuses
+// the ambiguity rather than handing two consumers two different addresses.
 //
 // shipper is the pack that shipped the entry the user's key merged under, "" when none
 // did. It is what makes the refusal name both sources; a provider no pack shipped cannot

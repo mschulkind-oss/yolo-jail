@@ -55,7 +55,7 @@ const zaiReachableJSON = `{"zai":{
 const anthropicOnlyJSON = `{"claude_only":{
   "api_key_env_name":"ANTHROPIC_API_KEY",
   "endpoints":{"anthropic":{"base_url":"https://api.anthropic.com"}}
-},"llamacpp":{"base_url":"http://127.0.0.1:8080/v1"}}`
+},"llamacpp":{"endpoints":{"openai":{"base_url":"http://127.0.0.1:8080/v1"}}}}`
 
 // noDefaultJSON is a reachable provider that declares models but no `default` alias, and
 // one that declares a single model only. They are the two shapes the model half of a
@@ -63,8 +63,8 @@ const anthropicOnlyJSON = `{"claude_only":{
 // agent refuses at resolution time (pi matches model ids exactly against the provider's
 // list; opencode raises ModelNotFoundError), so the honest degradation is to write less.
 const noDefaultJSON = `{"solo":{
-  "base_url":"http://127.0.0.1:8080/v1","models":{"fast":"qwen"}},
- "split":{"base_url":"http://127.0.0.1:8081/v1","models":{"fast":"qwen","big":"qwen-max"}}}`
+  "endpoints":{"openai":{"base_url":"http://127.0.0.1:8080/v1"}},"models":{"fast":"qwen"}},
+ "split":{"endpoints":{"openai":{"base_url":"http://127.0.0.1:8081/v1"}},"models":{"fast":"qwen","big":"qwen-max"}}}`
 
 // pioencodeRender drives the boot render of the real pi, opencode and zai packs repeatedly
 // over ONE home and workspace, so each render reads the sidecars the previous one wrote.
@@ -362,7 +362,7 @@ func TestPiDeriveWritesTheSelectionPair(t *testing.T) {
 		},
 		{
 			name:         "a provider with no models at all writes defaultProvider alone",
-			providers:    `{"bare":{"base_url":"http://127.0.0.1:8080/v1"}}`,
+			providers:    `{"bare":{"endpoints":{"openai":{"base_url":"http://127.0.0.1:8080/v1"}}}}`,
 			profiles:     `{"pi":"bare"}`,
 			wantProvider: "bare",
 		},

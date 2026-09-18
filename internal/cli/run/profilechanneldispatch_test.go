@@ -203,21 +203,25 @@ func writeUserConfig(t *testing.T, home, body string) {
 	}
 }
 
-// THE COMPOSITION's own refusal, pinned at the dispatch (docs/reference/providers.md,
-// OQ-PT2). Every test above drives a channel that COMPOSED and asks what the credential
-// pre-flight says about it; this one drives a launch whose composition refuses, and asks
-// that no backend ever see it.
+// A PROVIDER ADDRESS THE LAUNCH CANNOT RESOLVE REFUSES BEFORE ANY BACKEND IS DISPATCHED.
+// Every test above drives a channel that composed and asks what the credential pre-flight
+// says about it; this one drives a launch that never gets that far, and asks that no
+// backend ever see it.
 //
-// The input is two LEGAL halves: the shipped zai pack ships `endpoints`, and the user
-// writes `providers.zai.base_url` — which the config validator accepts, base_url alone
-// being legal. Per-field composition used to merge them into exactly the pair the
-// validator refuses when a user writes it whole, and hand it to consumers that resolve it
-// differently (the three derives prefer the shorthand and fall back to endpoints;
-// agentenv reads endpoints only). A launch like that pointed claude at z.ai and everything
-// else at the user's proxy, silently, which is why the composer refuses rather than picks
-// a winner. Deleting the check at the dispatch makes this test fail on both counts: the
-// handler is reached, and the launch succeeds.
-func TestRunRefusesAManufacturedAddressPair(t *testing.T) {
+// IT USED TO BE THE MANUFACTURED-PAIR TEST (docs/reference/providers.md, OQ-PT2): the
+// shipped zai pack ships `endpoints`, the user wrote `providers.zai.base_url`, each half
+// was legal alone, and per-field composition merged them into exactly the pair the
+// validator refuses when a user writes it whole — pointing claude at z.ai and everything
+// else at the user's proxy, silently. The SHORTHAND HALF IS NO LONGER LEGAL
+// (protocol-resolution.md §5), so the pair cannot be manufactured from a config the host
+// validated, and what this fixture now meets is the removal refusal one layer earlier.
+// packload.ComposeProviders keeps its own refusal for the one path that can still reach it
+// — an in-jail config SNAPSHOT, where a retired key is a warning rather than an error so a
+// nested launch is not refused over a key the in-jail user cannot fix at its source.
+//
+// What survives unchanged is the property worth pinning: the refusal lands ABOVE the
+// backend dispatch, so no backend is handed a launch whose provider table never resolved.
+func TestRunRefusesAnUnresolvableProviderAddress(t *testing.T) {
 	home := packHome(t)
 	writeUserConfig(t, home, `{
 	  "packs": ["claude", "zai"],
@@ -245,19 +249,18 @@ func TestRunRefusesAManufacturedAddressPair(t *testing.T) {
 		return 0
 	}
 	if rc := Run(*o); rc != 1 {
-		t.Fatalf("Run() = %d, want 1: a composition that manufactures the base_url+endpoints "+
-			"pair must refuse the launch\nstderr:\n%s", rc, stderr.String())
+		t.Fatalf("Run() = %d, want 1: a provider address the launch cannot resolve must "+
+			"refuse\nstdout:\n%s\nstderr:\n%s", rc, stdout.String(), stderr.String())
 	}
 	if reached {
-		t.Error("the refused launch still reached the macos-user handler — the composition " +
-			"refusal must land before the backend is dispatched")
+		t.Error("the refused launch still reached the macos-user handler — the refusal must " +
+			"land before the backend is dispatched")
 	}
-	got := stderr.String()
+	got := stdout.String() + stderr.String()
 	for _, want := range []string{
-		`"zai"`,                         // the entry that came out ambiguous
-		"pack zai",                      // source 1: who shipped the endpoints
-		"providers.zai.base_url",        // source 2: where the user's shorthand came from
-		"endpoints.<protocol>.base_url", // the override that still works
+		"config.providers.zai.base_url", // the line that has to change
+		"REMOVED",                       // what happened to it
+		"endpoints.openai.base_url",     // one of the two spellings that replace it
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the refusal must name %q:\n%s", want, got)

@@ -19,8 +19,8 @@ func TestConfigureOMPPackProjectsProviders(t *testing.T) {
 		Workspace: t.TempDir(),
 		Vars: map[string]string{
 			"YOLO_PROVIDERS": `{
-              "proxy":{"base_url":"https://proxy.example/v1","wire_api":"openai-responses","api_key_env_name":"PROXY_API_KEY","models":{"fast":"proxy-fast","vision":"proxy-vision"}},
-              "anonymous":{"base_url":"https://anonymous.example/v1","wire_api":"openai-responses","models":{"default":"anonymous"}}
+              "proxy":{"endpoints":{"openai":{"base_url":"https://proxy.example/v1","wire_api":"openai-responses"}},"api_key_env_name":"PROXY_API_KEY","models":{"fast":"proxy-fast","vision":"proxy-vision"}},
+              "anonymous":{"endpoints":{"openai":{"base_url":"https://anonymous.example/v1","wire_api":"openai-responses"}},"models":{"default":"anonymous"}}
             }`,
 		},
 	}
