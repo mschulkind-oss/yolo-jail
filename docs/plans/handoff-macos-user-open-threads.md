@@ -258,7 +258,7 @@ the podman argv, and the hydrated `env_sources` plus the entire profile channel 
 
 **The dry run stayed honest, which was the constraint.** It prints the argv that would run, and
 that argv now has no secrets in it, so nothing is suppressed and
-[`OQ-RO3`](../design/report-tiers.md#11-decision-ledger) never comes up. The plan gained a
+[`OQ-RO3`](../reference/report-tiers.md#why-its-this-way) never comes up. The plan gained a
 disclosure rather than losing one: it names the file, its mode, who may read it, the six privileged
 commands that lock it down, and **the variable names it sets** — names, never values, because a
 name is a fact about the launch and a value is the credential.
@@ -310,7 +310,7 @@ attempt to the next hardware pass.
 **Found while answering [§6](#6-provider-secrets-rode-the-launch-argv--fixed-2026-09-13-and-the-framing-below-it-was-wrong)'s
 "is it on disk too?" question, and the answer is a different defect.** Everything the launcher
 prints is supposed to be teed into `<workspace>/.yolo/launch.log`; that is what
-[`OQ-RO3`](../design/report-tiers.md#11-decision-ledger) offers in place of a quiet mode — *"too
+[`OQ-RO3`](../reference/report-tiers.md#why-its-this-way) offers in place of a quiet mode — *"too
 much on the terminal" is answered by reading the file rather than by hiding the line*.
 
 It is not true on this backend. The pipeline installs its tee on the Options' writers, and
