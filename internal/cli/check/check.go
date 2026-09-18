@@ -463,6 +463,12 @@ func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, wor
 	errors = append(errors, checkPresetNullConflicts(userConfig, paths.UserConfigPath())...)
 	errors = append(errors, checkPresetNullConflicts(workspaceConfig, "yolo-jail.jsonc")...)
 
+	// The launch's capability gate, predicted here (capabilities.go states why it is a
+	// second copy, and why it must not consult data the launch cannot see).
+	capErrs, capWarns := capabilityGap(merged, o.Getenv(allowUnmetCapabilitiesEnv))
+	errors = append(errors, capErrs...)
+	warnings = append(warnings, capWarns...)
+
 	for _, msg := range warnings {
 		r.warn(msg, "")
 	}
