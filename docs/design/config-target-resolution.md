@@ -1,7 +1,7 @@
 ---
 title: "Which home does `yolo config` mean? — two predicates, one report, no disclosure"
 date: 2026-09-16
-status: draft
+status: in-review
 tags: [design, config, cli, notch, workspace, capture, disclosure]
 summary: "A `yolo config` verb answers about a home and a sidecar store it never names, and it picks them with two independent predicates — the cwd for the store, YOLO_VERSION for the home. So one report describes two homes, a `cd` silently changes the answer, and the one write verb refuses for a hazard only half its work has. One resolved target per invocation, disclosed on every invocation, selected by the `--at` the write verbs already have."
 vantage:
@@ -10,7 +10,8 @@ vantage:
 
 # Which home does `yolo config` mean? — two predicates, one report, no disclosure
 
-**Status:** DESIGN, 2026-09-16. Nothing built. Every current-behavior claim below was
+**Status:** DESIGN, 2026-09-17 — **five of the seven questions are ruled**
+([§10](#10-decision-ledger)); nothing built. Every current-behavior claim below was
 measured against `46142522` on 2026-09-16 — by running the shipped `yolo` from two cwds, and
 by one throwaway probe test for the `own` case, which is stated where it is used.
 
@@ -36,8 +37,11 @@ it means on `apply`, or it is worse than not having it.
 
 **Start at [§3](#3-one-resolved-target)** — the resolution. Every other section falls out of it.
 
-**Needs your ruling:** [OQ-CR1](#oq-cr1), [OQ-CR2](#oq-cr2), [OQ-CR3](#oq-cr3),
-[OQ-CR4](#oq-cr4), [OQ-CR5](#oq-cr5), [OQ-CR6](#oq-cr6).
+**Needs your ruling:** [OQ-CR6](#oq-cr6) — rewritten on 2026-09-17, because the review said
+the question was unreadable as posed — and [OQ-CR7](#oq-cr7), which that review opened. The
+other five are ruled ([§10](#10-decision-ledger)): the cwd selects the **target**, a workspace
+is marked by a launch artifact *or* a workspace config, `diff`/`ls` read the target's store, a
+host-side `reset` lands with the running-jail refusal, and the disclosure is unconditional.
 
 **Reads with:** [`config-ownership-and-promotion.md`](config-ownership-and-promotion.md) (the
 **write** side, BUILT: ownership is declared in one user-scope key, and host-side `reset` is
@@ -141,8 +145,9 @@ Three separate wrongnesses in one move: the divergence disappears (the store res
 `/tmp/notaworkspace/.yolo/prism`, which does not exist), four extra surfaces appear (presence
 became "unknowable", so the existence filter stopped applying —
 [`configls.go:145`](../../internal/cli/configls.go)), and the negative is stated with the same
-confidence as a real one. Per [P3](#1-the-verdict-and-the-principles-it-rests-on) it should be
-*"no workspace resolved from this directory"*.
+confidence as a real one. Per [P3](#1-the-verdict-and-the-principles-it-rests-on) the answer has to name what it
+resolved, and under [OQ-CR2](#oq-cr2)'s ruling that directory resolves the **host** target and
+says so — rather than reporting a workspace's silence as a workspace's answer.
 
 > [!WARNING]
 > **In a jail, `$HOME` is a false workspace.** `/home/agent/.yolo` exists — it is the anchor
@@ -150,7 +155,12 @@ confidence as a real one. Per [P3](#1-the-verdict-and-the-principles-it-rests-on
 > from `cd ~` the verbs describe a workspace at `/home/agent` that has never existed.
 > Measured: `cd ~ && yolo config diff claude` → *"No captured in-jail edits for claude"*, with
 > the real captures sitting in `/workspace/.yolo/prism`. Any marker-based fix
-> ([OQ-CR2](#oq-cr2)) has to exclude this directory, and a bare `.yolo/` test cannot.
+> ([OQ-CR2](#oq-cr2)) has to exclude this directory, and a bare `.yolo/` test cannot — which is
+> why the ruled marker is an artifact rather than a directory. Since 2026-09-17 nothing can
+> *create* a workspace there either: `paths.WorkspaceScopeBreach` refuses a launch whose
+> workspace is the home and refuses to create the state dir, so no `config-boot.json` can ever
+> appear in one. The anchor directory itself still exists in every jail, which is exactly why
+> the marker, and not the directory, has to be the test.
 
 **F3 — under `own`, `diff` and `reset` describe different stores.** `reset` resolves its two
 sidecars through `render.Target` (`resetCapturePaths`, [`configdiff.go:174`](../../internal/cli/configdiff.go)),
@@ -232,11 +242,21 @@ where a WRITE lands)* is what a `yolo config` invocation resolves once, before a
 | **may write** | whether this invocation may write, and what refusal it earns | `refuseHostSideWrite` + `hostOwnsSurfaces` |
 | **how it was chosen** | `--at`, the cwd, or the process — the text the disclosure prints | nothing |
 
-**Resolution, in order.** `--at` wins where given. Otherwise the notch defaults per verb (a
-read verb about captured edits defaults to the workspace the cwd resolves; `promote` stays
-host-only; `drift`/`dump` are workspace verbs and unaffected). The workspace comes from the
-cwd — never from `--at` — and where the cwd resolves none, the verbs that need one say so
-([OQ-CR2](#oq-cr2)).
+**Resolution, in order** ([OQ-CR1](#oq-cr1) and [OQ-CR2](#oq-cr2), ruled). `--at` wins where
+given. Otherwise **the cwd selects the target**: a directory that resolves a workspace gets
+that workspace at the `jail` notch, and a directory that resolves none gets the `host` notch.
+Either way the disclosure names which, and what chose it. `promote` is unaffected — it stays
+host-only and keeps reading the workspace store, because its write destination is user scope,
+which is not a notch — and `drift`/`dump` are workspace verbs throughout.
+
+**Why the cwd may select the notch here, when it may not on the write side.**
+[`host-render-target.md` §6.6](host-render-target.md#66-a-host-target-is-user-scoped-not-workspace-scoped)'s
+*"the `cwd` selects nothing"* governs what a directory may change about a **real home's
+configuration** — a write-side hazard, where standing somewhere would silently alter what yolo
+does to your dotfiles. Selecting *what a report is about* is not that hazard, and the cwd is
+the one input that already names the thing a reader means by "this jail". What this design
+removes is not the inference; it is the **pair** — two predicates resolved independently, so
+one report could describe two homes.
 
 **Every path reads that one answer.** The `prism*` twins stop being callable directly:
 `readOverlayValue`, `readLastRenderKeys`, `overlayKeyCount`, `surfaceProvenance`,
@@ -263,8 +283,9 @@ Provenance: the same jail's sidecar record
 $ yolo config diff claude --at host                          # the invoking user's real home
 Surfaces: /home/matt — host notch, from --at · host_management: own · store ~/.local/share/yolo-jail/host-capture
 
-$ cd /tmp && yolo config diff claude
-yolo config diff: no workspace resolved from /tmp, and no --at given.   # rc per OQ-CR2
+$ cd /tmp && yolo config diff claude          # /tmp resolves no workspace: the host target
+Surfaces: /home/matt — host notch, from the cwd resolving no workspace · host_management: assert
+Provenance: the host per-key record
 ```
 
 It is not suppressible ([P4](../reference/report-tiers.md#principles) —
@@ -280,11 +301,11 @@ not.
 
 | Input | Today | Proposed |
 | :--- | :--- | :--- |
-| cwd resolves no workspace | store = `<cwd>/.yolo/prism`, absent → a confident empty answer at rc 0 | [OQ-CR2](#oq-cr2): refuse-with-remedy, or host-only with disclosure |
-| cwd is `$HOME` in a jail (`~/.yolo` exists) | describes a workspace at `/home/agent` | excluded by the marker test ([OQ-CR2](#oq-cr2)) |
-| a workspace with `.yolo/` but never launched | *"No captured in-jail edits"* | *"never rendered here"* — the state `capture` already reports and `diff` does not |
+| cwd resolves no workspace | store = `<cwd>/.yolo/prism`, absent → a confident empty answer at rc 0 | the **host** target, disclosed as chosen by the cwd resolving none ([OQ-CR2](#oq-cr2), ruled) |
+| cwd is `$HOME` in a jail (`~/.yolo` exists) | describes a workspace at `/home/agent` | excluded — the marker is a launch artifact or a workspace config, and the generated-script anchor is neither ([OQ-CR2](#oq-cr2), ruled) |
+| a workspace marked by its config file but never launched | *"No captured in-jail edits"* | *"never rendered here"* — the state `capture` already reports and `diff` does not. This is the case the `yolo-jail.jsonc` half of the marker exists for: a fresh clone is a workspace before its first launch |
 | a workspace inside a workspace | innermost `.yolo/` wins, silently | unchanged, and disclosed by path |
-| an unrelated `.yolo/` dir in a subtree | selects a workspace nobody launched | excluded by the marker test |
+| an unrelated `.yolo/` dir in a subtree | selects a workspace nobody launched | excluded by the marker test ([OQ-CR2](#oq-cr2), ruled) |
 | the jail for the target workspace is **running** | `reset` host-side refuses for the wrong reason | see [§4.3](#43-concurrency-and-ordering) |
 | `--at host` where `host_management` is unset | n/a (no such flag) | the shipped unset answer: `assert`, silently ([`OQ-CO2`](config-ownership-and-promotion.md#13-decision-ledger)) — so writes stay refused |
 | a surface whose home path is under no per-workspace state dir (a machine-scoped `shared` dir, a home-root file) | n/a | a workspace target cannot resolve it: report the surface as **not resolvable at this notch**, never fall back to the process home |
@@ -402,19 +423,20 @@ design touches is derived at read time.
    something, not that a helper returns the right string.
 2. **The disclosure line**, everywhere, once there is one answer to print ([OQ-CR5](#oq-cr5)).
 3. **The unknown states**: no workspace, never rendered here, unreadable store
-   ([OQ-CR1](#oq-cr1), [OQ-CR2](#oq-cr2)) — the three answers that are silently empty today.
+   ([OQ-CR1](#oq-cr1) and [OQ-CR2](#oq-cr2), both ruled) — the three answers that are silently
+   empty today.
 4. **`diff`/`ls` read the target's store**, closing [F3](#23-the-four-failures)
-   ([OQ-CR3](#oq-cr3)).
+   ([OQ-CR3](#oq-cr3), ruled).
 5. **`--at` on the read verbs**, sharing `apply`'s parser.
 6. **`render`'s `host` layer** through `Surface.HostSource` ([OQ-CR6](#oq-cr6)).
-7. **Host-side jail-notch `reset`**, if [OQ-CR4](#oq-cr4) rules for it — last, because it is
-   the only step that writes, and it depends on 1, 3 and 6.
+7. **Host-side jail-notch `reset`** — [OQ-CR4](#oq-cr4) ruled for it, with the running-jail
+   refusal — last, because it is the only step that writes, and it depends on 1, 3 and 6.
 
 ---
 
 ## 9. Open Questions
 
-1. <a id="oq-cr1"></a>💬 **OQ-CR1: Does the cwd select the notch, or only the workspace?**
+1. <a id="oq-cr1"></a>✅ **OQ-CR1: Does the cwd select the notch, or only the workspace?**
    Three shapes: **(a)** keep today's inference and merely disclose it; **(b)** the cwd selects
    the **workspace only**, the notch comes from `--at` with a per-verb default; **(c)** the cwd
    selects nothing and a jail target is always explicit (alternative C). This is the closure
@@ -426,12 +448,35 @@ design touches is derived at read time.
    _Leaning:_ **(b).** It is the read-side mirror of *"the `cwd` selects nothing"* applied to
    the thing the cwd is actually good for — naming a repo — while leaving the notch to an
    explicit selector. (a) preserves a predicate pair that can describe two homes; (c) breaks
-   `promote`'s deliberate host-side workspace read.
+   `promote`'s deliberate host-side workspace read. — **Overturned on review; see the answer.**
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **(a) — the cwd selects the target, and the disclosure names it.** A directory that
+   > resolves a workspace makes the invocation about that workspace at the `jail` notch; one
+   > that resolves none makes it about the `host` notch; `--at` overrides either.
+   >
+   > **The leaning imported a ruling from a different problem.**
+   > [`host-render-target.md` §6.6](host-render-target.md#66-a-host-target-is-user-scoped-not-workspace-scoped)'s
+   > *"the `cwd` selects nothing"* governs what a directory may change about a real home's
+   > **configuration** — a write-side hazard, where standing somewhere would silently alter
+   > what yolo does to your dotfiles. Choosing what a report is **about** is not that hazard,
+   > and the cwd is the one input that already names the jail a reader means by "this one". So
+   > the inference stays, and reaching the host stays explicit in the way that matters: stand
+   > outside a workspace, or pass `--at host`.
+   >
+   > **What does not stay is the PAIR**, and that distinction is the whole ruling. "Keep
+   > today's inference" is not "keep today's resolution": today the notch comes from
+   > `surfacesAreLocal()` and the store from `workspaceRoot()`, independently, which is what
+   > lets one report describe two homes ([F1](#23-the-four-failures)) and `diff` disagree with
+   > `reset` ([F3](#23-the-four-failures)). Under (a) there is one predicate — the cwd — and
+   > notch, workspace, store, home root and provenance are all derived from the single target
+   > it resolves. [§3](#3-one-resolved-target)'s collapse is unchanged by this ruling; only
+   > the question of who supplies the notch is.
+   >
+   > `promote` is untouched: host-only, reading the workspace store, writing user scope —
+   > which is not a notch, which is why (c) was the shape that broke it.
 
-2. <a id="oq-cr2"></a>💬 **OQ-CR2: What is a workspace, and what happens when there is none?**
+2. <a id="oq-cr2"></a>✅ **OQ-CR2: What is a workspace, and what happens when there is none?**
    Two halves, one ruling. **Which marker** identifies a workspace — today it is any dir
    holding a `.yolo/`, which matches `/home/agent` inside every jail; candidates are
    `.yolo/.gitignore` (written whenever the state dir is prepared) or `.yolo/config-boot.json`
@@ -445,12 +490,40 @@ design touches is derived at read time.
    (`--workspace <path>`, or `--at host`) for the verbs whose answer depends on a workspace. A
    launch is what creates anything for these verbs to report, so its own artifact is the
    honest marker; and an empty answer at rc 0 is precisely the failure this design exists to
-   remove.
+   remove. — **Both halves amended on review; see the answer.**
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Marker: `.yolo/config-boot.json` OR a workspace config file** — `yolo-jail.jsonc`,
+   > `yolo-jail.json`, `yolo-jail.local.jsonc`, `yolo-jail.local.json`, i.e. whatever
+   > `config.LoadWorkspaceConfig` would read. Either artifact is enough. **With no workspace:
+   > the host target, under disclosure** — not a refusal.
+   >
+   > **Why the config file has to count.** A launch artifact alone answers *"has a jail run
+   > here"*, which is not what a workspace IS. A freshly cloned repo carrying a committed
+   > `yolo-jail.jsonc` is a workspace before its first launch — that is the directory the user
+   > is about to launch in, and the one they will run `yolo config ls` in to see what they are
+   > about to get. `config-boot.json` is also a weaker signal than it looks: it is written by a
+   > FRESH launch and never by an attach, and it is best-effort (a warning, not a failure), so
+   > its absence does not even mean "never launched"
+   > ([`config.WriteWorkspaceBootBaseline`](../../internal/config/drift.go)). Both markers
+   > still exclude the two false positives that matter — the in-jail `$HOME`, whose `.yolo` is
+   > the generated-script anchor, and a stray `.yolo` in a subtree.
+   >
+   > **Why no workspace is an answer rather than an error.** Outside a workspace the only home
+   > there is to describe is the host's, and standing there is how the user says so. The
+   > refusal the leaning proposed would have made `yolo config ls` in `/tmp` an error message
+   > in a case where a correct answer exists. The failure this design removes is the
+   > **confident empty answer** — a workspace's silence reported as a workspace's answer — and
+   > naming the host target removes it exactly as well as refusing does, with an answer instead
+   > of an error.
+   >
+   > **It is a target, not a permission.** The write guard is unchanged: at the host notch
+   > `capture`/`reset` still obey `host_management` (`own` unlocks; `assert`/`none` refuse), so
+   > this ruling adds no write path anywhere. `--at jail` with no workspace resolvable still
+   > refuses, naming what is missing ([§4.2](#42-failure-paths)) — an explicit request for a
+   > thing that does not exist is a different case from an unstated default.
 
-3. <a id="oq-cr3"></a>💬 **OQ-CR3: On an owned host, what does `diff` show?**
+3. <a id="oq-cr3"></a>✅ **OQ-CR3: On an owned host, what does `diff` show?**
    [F3](#23-the-four-failures) is a defect either way; the ruling is what replaces it.
    **(a)** `diff`/`ls` resolve their store through the target, so an owned host shows its host
    captures and a workspace target shows the jail's; **(b)** show **both**, labelled, since a
@@ -465,9 +538,21 @@ design touches is derived at read time.
    feature.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **(a) — one target, one store.** `diff` and `ls` resolve the capture store through
+   > `render.Target`, exactly as `reset` already does, so an owned host reports its host
+   > captures and a workspace target reports that jail's. That closes
+   > [F3](#23-the-four-failures) by removing the second resolution rather than by teaching the
+   > readers about ownership.
+   >
+   > **The review sharpened what was being asked, and it is worth recording:** `diff` always
+   > reads the capture store — it has no other subject — so the only live content of this
+   > question was ever *which* store, and (b) "show both, labelled" was a two-home report
+   > wearing a feature's clothes. What `diff` prints **beside** the capture is the per-key
+   > provenance block, which is neither a capture nor a diff, and stapling it on is where F1's
+   > two homes came from. Whether that block belongs in this verb is now
+   > [OQ-CR7](#oq-cr7).
 
-4. <a id="oq-cr4"></a>💬 **OQ-CR4: Is there a host-side `reset` of a jail's captured edits?**
+4. <a id="oq-cr4"></a>✅ **OQ-CR4: Is there a host-side `reset` of a jail's captured edits?**
    The question that started this doc. **(a)** Yes — delete the workspace store's sidecars and
    truncate `<workspace>/.yolo/home/…`, refusing while a jail for that workspace is running;
    **(b)** no — keep refusing, and make the refusal name the in-jail command and say why the
@@ -485,9 +570,20 @@ design touches is derived at read time.
    runs costs nothing, because the in-jail command is available exactly then.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **(a), with the running-jail refusal**, as leaned — the fourth disposition of
+   > [§2.4](#24-what-the-user-asked-for-and-why-it-does-not-exist)'s matrix exists. The store is
+   > workspace-keyed already and the surface file is a resolver away; the hazard the current
+   > refusal names is real for a *real home* and not for a workspace's own home overlay, and
+   > refusing while that workspace's jail is running costs nothing because the in-jail verb is
+   > available exactly then.
+   >
+   > **The [OQ-CR6](#oq-cr6) dependency survives this ruling**, which is why it is still last
+   > in [§8](#8-what-i-would-build-in-order): the truncation has to rewrite the surface to a
+   > pure render, and *"pure render"* includes a `host` layer whose source is the very thing
+   > [OQ-CR6](#oq-cr6) decides. Building this before that answer would hard-code the wrong home into a
+   > write.
 
-5. <a id="oq-cr5"></a>💬 **OQ-CR5: Is the disclosure line unconditional?**
+5. <a id="oq-cr5"></a>✅ **OQ-CR5: Is the disclosure line unconditional?**
    **(a)** Every `yolo config` invocation, always; **(b)** only when the resolution is
    surprising (no workspace, `--at` given, an owned host); **(c)** only under `--verbose`.
    Decides whether a reader has to know the rules to know what they are reading.
@@ -499,14 +595,45 @@ design touches is derived at read time.
    the reader cannot check, so its absence would carry information they have no way to decode.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **(a) — every `yolo config` invocation, always.** [P4](../reference/report-tiers.md#principles)
+   > is a standing ruling and the argument transfers unchanged: compression is allowed,
+   > suppression is not. *"Surprising"* would have been a judgement the reader cannot check, so
+   > the line's ABSENCE would carry information they have no way to decode — and a disclosure
+   > you have to know the rules to notice the lack of is not a disclosure.
 
-6. <a id="oq-cr6"></a>💬 **OQ-CR6: Where does a preview read its `host` layer from?**
-   **(a)** `Surface.HostSource` — the `/ctx` path the boot render reads, reporting the layer as
-   unavailable when this process cannot reach it; **(b)** keep reading the destination and
-   document it. Decides whether `yolo config render` is a faithful preview or a re-read of
-   whichever home the process happens to be in — and [OQ-CR4](#oq-cr4)'s truncation depends on
-   the same answer.
+6. <a id="oq-cr6"></a>💬 **OQ-CR6: When `render` previews a file, whose bytes are the `host` layer?**
+   *(Rewritten 2026-09-17. The first phrasing named two code paths and asked which to call,
+   which is unanswerable without knowing what each path MEANS.)*
+
+   `yolo config render claude/settings` prints the file a jail's boot would write. One input to
+   that composition is the **`host` layer**: the user's own pre-existing `settings.json`, which
+   yolo layers its keys over instead of discarding. Three different files answer to that
+   description, and they do not hold the same bytes:
+
+   - `/ctx/host-<pack>/settings.json` — what the LAUNCH staged: a read-only copy of the host's
+     file, taken before the jail could touch anything. **This is the one the boot render
+     reads** (`Surface.HostSource`, derived by `packload`).
+   - the destination **inside the jail**, `~/.claude/settings.json` — which after one boot
+     holds yolo's own composed output.
+   - the destination **on the host** — the same path, and on an `assert` or `own` home it too
+     holds yolo's composed output.
+
+   `render` reads the destination ([`config.go:310`](../../internal/cli/config.go)). So in a
+   jail the preview feeds yolo's previous output back in as if it were the user's input, and
+   host-side on a managed home it does the same — while the bytes the boot render actually uses
+   come from neither. **This repo has already made and deleted this exact mistake once:**
+   `SkillTarget.HostSource` also named the destination, *"so a jail read yolo's own generated
+   output back in as 'the user's tree'"*, and the field was removed rather than repointed
+   ([`internal/jailcontent/skills.go`](../../internal/jailcontent/skills.go)).
+
+   **(a)** read the staged copy (`Surface.HostSource`), and where this process cannot reach it
+   — host-side, where there is no `/ctx` — report the `host` layer as **unavailable** rather
+   than silently substituting a different file; **(b)** keep reading the destination, and
+   document `render` as previewing the layer as the NEXT render will find it rather than as the
+   last one saw it. *(The adoption archive is not a third answer: it holds the file as it was
+   at adoption, not as it is now.)* Decides whether `render` is a faithful preview or a re-read
+   of whichever home the process happens to be in — and [OQ-CR4](#oq-cr4)'s truncation writes
+   the same layer, so it inherits the answer.
 
    <!-- vantage: oq id=OQ-CR6 leaning="(a) — render already declines to invent the computed layer for exactly this reason." -->
 
@@ -517,14 +644,46 @@ design touches is derived at read time.
    **Answer:**
    > _(empty — fill in when decided)_
 
+7. <a id="oq-cr7"></a>💬 **OQ-CR7: Does `diff` report provenance, or is that `ls`'s job?**
+   *(Opened by the 2026-09-17 review of [OQ-CR3](#oq-cr3) — "doesn't `diff` always show the
+   capture?" It does, which is what makes the OTHER block it prints worth questioning.)*
+
+   `yolo config diff <agent>` prints two things: the **captured divergence** (the overlay
+   against the last render — a diff in the ordinary sense, and the verb's subject) and a
+   per-key **provenance** block (which layer each key came from, read from the notch's own
+   record). The second is neither a capture nor a diff; it is `ls`'s kind of fact. It is also
+   the block that made [F1](#23-the-four-failures) possible — two independently-resolved
+   readers in one report, only one of which ever named its home.
+
+   **(a)** `diff` reports only the captured divergence, and per-key provenance moves to `ls`
+   (or behind a flag on either); **(b)** `diff` keeps both, now that one resolved target means
+   both halves describe the same home. Decides whether the fix for F1 is *"label both blocks"*
+   or *"one verb, one subject"*.
+
+   <!-- vantage: oq id=OQ-CR7 leaning="(b) — one resolved target already removes the two-home defect, and splitting a shipped verb's output is a separate, breaking change." -->
+
+   _Leaning:_ **(b), and keep the name.** Once the target is single, both blocks describe one
+   home and F1 is gone without moving anything — and `diff` is the right word for *"what have
+   I changed against the baseline"*, which is exactly what the capture half is. The argument
+   for (a) is that a verb with one subject cannot grow an F1 again; the argument against is
+   that it is a breaking output change to a shipped verb, bought after
+   [OQ-CR1](#oq-cr1)'s single target has already closed the defect it would prevent.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
 ---
 
 ## 10. Decision Ledger
 
-**Empty.** Nothing is settled yet; every question in [§9](#9-open-questions) is live. Rulings
-land here — with their exact `OQ-CR` ids — as they are made, and the reasoning goes into the
-section it governs.
+**Five of seven ruled on 2026-09-17**, in review. Two are live: [OQ-CR6](#oq-cr6), rewritten
+because the question could not be read as posed, and [OQ-CR7](#oq-cr7), which the same review
+opened. Nothing is built.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| — | — | — | — | — |
+| [OQ-CR1](#oq-cr1) | **The cwd selects the TARGET — (a), against the leaning.** A directory that resolves a workspace means that workspace at the `jail` notch; one that resolves none means the `host` notch; `--at` overrides either. The leaning for (b) had imported *"the `cwd` selects nothing"* from the WRITE side, where the hazard is a directory silently changing what yolo does to a real home; choosing what a report is *about* is not that hazard. What the design removes is not the inference but the **pair** — two predicates resolved independently, which is what let one report describe two homes | 2026-09-17 | [§3](#3-one-resolved-target) | — |
+| [OQ-CR2](#oq-cr2) | **Marker: `.yolo/config-boot.json` OR a workspace config file; no workspace means the host target, disclosed.** Both halves amended from the leaning. A launch artifact alone answers *"has a jail run here"*, which is not what a workspace is — a fresh clone with a committed `yolo-jail.jsonc` is one before its first launch, and `config-boot.json` is fresh-launch-only and best-effort besides. And outside a workspace the only home to describe is the host's, so naming it removes the confident-empty-answer failure just as well as a refusal does, with an answer instead of an error. It is a target, not a permission: the write guard is untouched | 2026-09-17 | [§4.1](#41-degenerate-inputs) | — |
+| [OQ-CR3](#oq-cr3) | **(a) — one target, one store.** `diff`/`ls` resolve the capture store through `render.Target`, as `reset` already does, closing [F3](#23-the-four-failures) by removing the second resolution rather than teaching the readers about ownership. The review also sharpened the question: `diff` has no subject but the capture store, so "which store" was all that was live, and (b) was a two-home report wearing a feature's clothes | 2026-09-17 | [§3](#3-one-resolved-target) | — |
+| [OQ-CR4](#oq-cr4) | **(a), with the running-jail refusal** — the fourth disposition exists. The store is workspace-keyed and the surface file is a resolver away; the hazard the current refusal names is real for a real home, not for a workspace's own home overlay; refusing while that jail runs costs nothing because the in-jail verb is available exactly then. Still last to build: the truncation writes a `host` layer whose source [OQ-CR6](#oq-cr6) decides | 2026-09-17 | [§4.3](#43-concurrency-and-ordering) | — |
+| [OQ-CR5](#oq-cr5) | **(a) — the disclosure is unconditional**, on every `yolo config` invocation. [P4](../reference/report-tiers.md#principles) transfers unchanged: compression is allowed, suppression is not. *"Only when surprising"* would have made the line's absence carry information the reader has no way to decode | 2026-09-17 | [§3.1](#31-the-disclosure) | — |
