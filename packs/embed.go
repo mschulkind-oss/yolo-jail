@@ -21,8 +21,8 @@
 // NOT EVERY OFFICIAL PACK IS AN AGENT. Most of what is embedded here installs no CLI at
 // all (`ls packs/` is the list; a count written down here is one more thing to keep true,
 // and the last one drifted inside its own sentence), in four kinds.
-// `audio`, `host-processes`, `journal`, `cgroup-delegate`, `serial`, `openai-auth` and
-// `hello-daemon` —
+// `audio`, `host-processes`, `journal`, `cgroup-delegate`, `serial`, `openai-auth`,
+// `aws-auth` and `hello-daemon` —
 // ship a LOOPHOLE (one of
 // nineteen contribution kinds, a count pinned by `internal/packdecl/kinds_test.go`) —
 // `audio` also contributes an `env` block, the only one of them that ships anything
@@ -79,5 +79,5 @@ package packs
 
 import "embed"
 
-//go:embed all:claude all:copilot all:opencode all:pi all:codex all:agy all:omp all:zai all:cerebras all:openrouter all:kilo all:llamacpp all:audio all:host-processes all:journal all:cgroup-delegate all:serial all:guardrails all:wire-bridge all:openai-auth all:hello-daemon
+//go:embed all:claude all:copilot all:opencode all:pi all:codex all:agy all:omp all:zai all:cerebras all:openrouter all:kilo all:llamacpp all:audio all:host-processes all:journal all:cgroup-delegate all:serial all:guardrails all:wire-bridge all:openai-auth all:aws-auth all:hello-daemon
 var FS embed.FS

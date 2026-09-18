@@ -1,0 +1,172 @@
+// The AWS credential service: one host singleton that turns a live host
+// `aws sso login` into a short-lived, NARROWED credential, and one jail-side adapter
+// that hands it to any AWS SDK over the container-credentials protocol.
+//
+// The design is docs/design/sso-backed-bedrock.md. The host half is
+// internal/awsauth (mint, cache, lock, narrowing) wrapped by internal/awsauthdaemon;
+// the jail half is internal/awscredadapter. Nothing here is per-agent: the protocol
+// is one every AWS SDK already speaks, which is the whole reason this shape was
+// chosen over a per-client credential file.
+//
+// # WHAT NEVER CROSSES INTO THE JAIL
+//
+// No credential, in any form. The jail gets a loopback URL and asks for a body; the
+// mint, the SSO cache, the `aws` CLI and ~/.aws all stay host-side. `state_files`
+// below is what keeps the minted-credential cache from crossing with the state dir.
+//
+// ⚠ NEVER GRANT `~/.aws` ALONGSIDE THIS. `fromIni` sits AHEAD of the container
+// provider in every SDK's chain, so a `host_files` mount of ~/.aws does not duplicate
+// this loophole — it DISABLES it while looking like it works (design §8, Forbidden).
+{
+  "name": "aws-auth",
+  "description": "Serve Bedrock-scoped AWS credentials to the jail from a host SSO session, minted per profile and narrowed before they cross.",
+  "version": 1,
+
+  // OFF UNLESS ASKED FOR, and here that is load-bearing rather than tidy.
+  //
+  // §8 says "no profile configured -> the loophole does not start, and it is not an
+  // error: a selected pack with no configuration is inert". Nothing in the framework
+  // spells a setting-conditional spawn — `Setting` has no `required` and there is no
+  // "declared but unconfigured -> do not spawn" state — so `default_enabled: false`
+  // IS that sentence: unconfigured is disabled, and a jail that enables this without
+  // a profile gets the daemon's loud spawn refusal naming the key to write.
+  //
+  // The alternative, `true` plus a daemon that self-refuses, would make the ordinary
+  // unconfigured case an error, which §8 explicitly says it is not.
+  "default_enabled": false,
+
+  // A named job rather than a name for the thing doing it: what a superseding pack
+  // would have to claim to retire this loophole.
+  "serves": [
+    "aws-container-credentials"
+  ],
+
+  "transport": "loopback-tls",
+  "lifecycle": "spawned",
+
+  // THE FOUR CONFIG KEYS THIS LOOPHOLE OWNS. There is no top-level `aws_auth` config
+  // key and there must not be one: OQ-SSO4 rules the profile, the role and the policy
+  // USER-CONFIG ONLY, and this mechanism already says exactly that per key. A
+  // top-level key would be a second scope grammar for one feature.
+  //
+  // `scope: "user"` ON EVERY ONE OF THEM, including the two that only narrow. The
+  // workspace yolo-jail.jsonc is a file the jail's own agent can rewrite, so a
+  // workspace-settable `profile` would let an agent point this service at the `admin`
+  // profile — and a workspace-settable `role_arn` or `session_policy` would let it
+  // swap the narrowing for one of its own choosing, which is the same hole one step
+  // in. `unnarrowed` is the sharpest of the four and needs no separate argument.
+  //
+  // Core writes the resolved values to the 0600 file `{settings}` names below, and
+  // internal/awsauth reads them from there and nowhere else.
+  "settings": {
+    "profile": {
+      "type": "string",
+      "scope": "user",
+      "default": "",
+      "description": "the AWS profile this service resolves (the one you `aws sso login --profile`). Absent: the daemon refuses at spawn naming this key"
+    },
+    "role_arn": {
+      "type": "string",
+      "scope": "user",
+      "default": "",
+      "description": "a role to assume before serving, so the jail holds that role's permissions rather than the whole permission set"
+    },
+    "session_policy": {
+      "type": "string",
+      "scope": "user",
+      "default": "",
+      "description": "an inline IAM session policy (JSON) attached to that AssumeRole, narrowing inside Bedrock. Needs role_arn; checked for parseability at spawn"
+    },
+    // THE ONE WIDENING KEY, and it is a BOOL for the reason packs/journal's manifest
+    // states at length: the settings type set is closed with no `enum`, so core
+    // cannot refuse a misspelled string, and a typo must never be the spelling that
+    // grants. A bool cannot spell itself wrong.
+    //
+    // OQ-SSO1: absence is NEVER un-narrowed. With neither this nor `role_arn` set the
+    // daemon refuses and names both, because the credential it would otherwise mint
+    // is readable by every process in the jail and the narrowing is the only defence
+    // there is.
+    "unnarrowed": {
+      "type": "bool",
+      "scope": "user",
+      "default": false,
+      "description": "serve the profile's permission set as-is, with no AssumeRole. The one widening, asked for by name and disclosed wherever this service reports"
+    }
+  },
+
+  // ONE PER MACHINE (`scope: "host"`), with the cache keyed BY PROFILE so one process
+  // still serves several AWS identities (OQ-SSO2). A per-jail daemon would be legal
+  // — P2 removes the single-use-token race that forced the other two brokers to be
+  // singletons — and loses on the warm credential cache, which the design's R1 makes
+  // load-bearing because the mint is the slow step and the adapter's serve budget is
+  // under 200 ms.
+  //
+  // `publishes: "socket"` is REQUIRED of a pack-shipped loophole
+  // (internal/loopholedecl/packshipped.go): the daemon binds a plain AF_UNIX socket at
+  // `{socket}` and yolo runs the authenticated loopback-TLS front per jail, so the
+  // endpoint file's mode, its key persistence, its constant-time compare and its
+  // length cap are the framework's code rather than this daemon's.
+  //
+  // `preamble` is left at its manifest default (ON): internal/awsauthdaemon reads
+  // yolo's connection preamble through hostservice.ServeFrontedUnix, and that frame is
+  // the whole of what makes the jail= on its audit lines host-asserted.
+  //
+  // NO `requires.command_on_path` FOR `aws`, deliberately. The dependency is real and
+  // the probe is still wrong: it is the shape that removed the Claude broker for
+  // exactly the user it existed for, and the rule that replaced it is that a loophole
+  // whose program is missing must fail LOUDLY AT SPAWN rather than disappear from
+  // `yolo loopholes list`. The daemon runs `aws --version` at spawn and says so.
+  "host_daemon": {
+    "cmd": [
+      "yolo", "internal", "daemon", "aws-auth",
+      "--socket", "{socket}",
+      "--state-file", "{state}/credentials.json",
+      "--settings", "{settings}"
+    ],
+    "publishes": "socket",
+    "scope": "host"
+  },
+
+  // The jail half: an HTTP endpoint on jail loopback speaking the protocol every AWS
+  // SDK already knows how to ask, forwarding each request through the front named by
+  // YOLO_SERVICE_AWS_AUTH_ENDPOINT. It holds nothing across a request.
+  //
+  // The port is fixed at 1461 and the pack's `env` contribution writes the matching
+  // AWS_CONTAINER_CREDENTIALS_FULL_URI — one fact in two files, so changing either
+  // means changing both. 1460 is the OpenAI adapter's; 8214/8215/8216 are
+  // cerebras/wire-bridge/kilo.
+  //
+  // ⚠ The SDK speaks plain http only to 127.0.0.0/8, which is what makes this
+  // unreachable from outside the jail — and INSIDE the jail there is no boundary at
+  // all: every MCP server and every `curl` can GET the same credentials. That is why
+  // the narrowing above is not defence in depth but the only defence.
+  "jail_daemon": {
+    "cmd": [
+      "yolo-jaild", "aws-credential-adapter",
+      "--listen", "127.0.0.1:1461"
+    ],
+    "restart": "on-failure"
+  },
+
+  // An absent or empty list mounts the ENTIRE host state directory read-only, and
+  // this state dir holds credentials.json — the minted credentials for every profile
+  // this machine serves. Keep this list nonempty, exactly as openai-auth's comment
+  // says, or the cache crosses into every jail and the service's one job is undone.
+  // The launcher creates this inert marker before it assembles the mount.
+  "state_files": [
+    ".mount-sentinel"
+  ],
+
+  // `yolo check` runs this and grades its lines (OK:/NOTE:/FAIL:). It reports the
+  // resolved profile, the narrowing, which SSO config form the profile uses — so the
+  // LOGIN CADENCE a user signed up for is visible rather than discovered — and then
+  // MINTS ONCE, which is the only thing short of an agent turn that proves the host's
+  // session is live and the role assumable. An un-narrowed configuration comes back as
+  // a NOTE rather than a pass: it is working as configured, and you should know.
+  "doctor_cmd": [
+    "yolo", "internal", "daemon", "aws-auth",
+    "--self-check",
+    "--state-file", "{state}/credentials.json",
+    "--settings", "{settings}"
+  ]
+}

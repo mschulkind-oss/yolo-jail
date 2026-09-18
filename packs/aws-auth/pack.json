@@ -1,0 +1,10 @@
+{
+  "contributes": [
+    {
+      "from": "loopholes/aws-auth",
+      "kind": "loophole"
+    }
+  ],
+  "description": "One machine-wide owner for AWS SSO-backed credentials, minted per profile and narrowed before they reach a jail.",
+  "name": "aws-auth"
+}

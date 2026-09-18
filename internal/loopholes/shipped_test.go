@@ -42,6 +42,7 @@ var shippedLoopholes = []struct{ name, pack string }{
 	{"cgroup-delegate", "cgroup-delegate"},
 	{"serial", "serial"},
 	{"openai-auth-broker", "openai-auth"},
+	{"aws-auth", "aws-auth"},
 	// A throwaway pack that exists to EXERCISE the pack-shipped jail-binary path rather
 	// than to serve a user (docs/design/broker-as-a-pack.md §10, step two). It found that
 	// path half-broken: an embedded pack cannot carry an exec bit at all, so this row is

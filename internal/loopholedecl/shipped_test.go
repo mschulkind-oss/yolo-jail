@@ -36,6 +36,7 @@ var shippedManifestHome = map[string]string{
 	"cgroup-delegate":     "cgroup-delegate",
 	"serial":              "serial",
 	"openai-auth-broker":  "openai-auth",
+	"aws-auth":            "aws-auth",
 	// A throwaway that exists to EXERCISE the pack-shipped jail-binary path rather than to
 	// serve a user (docs/design/broker-as-a-pack.md §10 step two). It belongs in this table
 	// for the table's own reason — every shipped loophole gets the decode bar and the field
@@ -163,6 +164,14 @@ func TestShippedManifestsDecodeStrictly(t *testing.T) {
 	//   openai-auth-broker    true. Codex and Pi depend on its containing pack;
 	//                         silently disabling their only refresh owner would leave
 	//                         both with an adapter that can never answer.
+	//   aws-auth              false, and it is the only one whose value carries a
+	//                         BEHAVIOUR the framework cannot otherwise spell. Design
+	//                         §8: "no profile configured -> the loophole does not
+	//                         start, and it is not an error". Nothing supports a
+	//                         setting-conditional spawn, so `false` IS that sentence —
+	//                         unconfigured is disabled. `true` plus a self-refusing
+	//                         daemon would turn the ordinary unconfigured case into an
+	//                         error, which that section says it is not.
 	//
 	// A table rather than one blanket assertion because the blanket one — "every
 	// bundled manifest declares enabled:true" — is what this change had to delete, and
@@ -175,10 +184,11 @@ func TestShippedManifestsDecodeStrictly(t *testing.T) {
 		"cgroup-delegate":     false,
 		"serial":              false,
 		"openai-auth-broker":  true,
+		"aws-auth":            false,
 	}
 	for _, name := range []string{
 		"audio", "claude-oauth-broker", "host-processes", "journal", "cgroup-delegate", "serial",
-		"openai-auth-broker",
+		"openai-auth-broker", "aws-auth",
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := filepath.Join("/loopholes", name)
@@ -621,5 +631,123 @@ func TestShippedSerialFields(t *testing.T) {
 	baud, ok := loopholedecl.SettingByKey(m.Settings, "default_baud")
 	if !ok || baud.Type != loopholedecl.SettingTypeInt {
 		t.Errorf("settings.default_baud = %+v, ok=%v", baud, ok)
+	}
+}
+
+// TestShippedAWSAuthFields pins the manifest that ships a CREDENTIAL, and every
+// assertion below is one where a half-applied edit is silent everywhere else.
+//
+// It is the second manifest in the tree with a host daemon, a jail daemon, a settings
+// block and a doctor_cmd all at once (the Claude broker is the first), and its own
+// distinguishing property is the one that is easiest to lose: FOUR settings keys, all
+// `scope: "user"`. A workspace yolo-jail.jsonc is a file the jail's own agent can
+// rewrite, so a single key defaulted or typo'd to `workspace` would let that agent
+// point this service at the `admin` profile — or swap the narrowing for one of its
+// own — and nothing anywhere else would report it. OQ-SSO4 is the ruling; this is
+// where it is enforced against the bytes that ship.
+func TestShippedAWSAuthFields(t *testing.T) {
+	m, err := loopholedecl.Decode(shippedManifest(t, "aws-auth"), "/loopholes/aws-auth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Transport != loopholedecl.TransportLoopbackTLS || m.Lifecycle != "spawned" {
+		t.Errorf("transport/lifecycle = %q/%q", m.Transport, m.Lifecycle)
+	}
+	wantCmd := []string{
+		"yolo", "internal", "daemon", "aws-auth",
+		"--socket", "{socket}",
+		"--state-file", "{state}/credentials.json",
+		"--settings", "{settings}",
+	}
+	if m.HostDaemon == nil || !reflect.DeepEqual(m.HostDaemon.Cmd, wantCmd) {
+		t.Fatalf("host_daemon = %+v, want cmd %v", m.HostDaemon, wantCmd)
+	}
+	// THE PAIR THAT MAKES THIS ONE SERVICE PER MACHINE. `publishes: "socket"` is
+	// required of any pack-shipped loophole; `scope: "host"` is OQ-SSO2, and dropping
+	// it would make the run pipeline spawn a SECOND daemon per jail — a second writer
+	// of the minted-credential cache, and a cold cache for every new jail, neither of
+	// which surfaces as an error.
+	if m.HostDaemon.Publishes != loopholedecl.PublishesSocket {
+		t.Errorf("publishes = %q, want %q", m.HostDaemon.Publishes, loopholedecl.PublishesSocket)
+	}
+	if m.HostDaemon.Scope != loopholedecl.ScopeHost {
+		t.Errorf("scope = %q, want %q — one credential service per machine, with the cache "+
+			"keyed by profile so it still serves several identities (OQ-SSO2)",
+			m.HostDaemon.Scope, loopholedecl.ScopeHost)
+	}
+	if !m.HostDaemon.Preamble {
+		t.Error("preamble = false; this manifest declares nothing, so it must decode to the " +
+			"default ON — awsauthdaemon reads the frame through hostservice.ServeFrontedUnix " +
+			"and the jail= on its audit lines is host-asserted only because of it")
+	}
+	// NO `requires` PROBE FOR `aws`, and the absence is the ruling rather than an
+	// omission: the dependency is real and the probe is the shape that removed the
+	// Claude broker for exactly the user it existed for. The daemon runs
+	// `aws --version` at spawn and refuses loudly instead.
+	if m.Requires.CommandOnPathSet || m.Requires.FileExistsSet {
+		t.Errorf("requires = %+v, want none — a loophole whose program is missing must fail "+
+			"loudly at spawn, not disappear from `yolo loopholes list`", m.Requires)
+	}
+	wantJail := []string{"yolo-jaild", "aws-credential-adapter", "--listen", "127.0.0.1:1461"}
+	if m.JailDaemon == nil || !reflect.DeepEqual(m.JailDaemon.Cmd, wantJail) {
+		t.Fatalf("jail_daemon = %+v, want cmd %v", m.JailDaemon, wantJail)
+	}
+	if m.JailDaemon.Restart != "on-failure" {
+		t.Errorf("restart = %q, want on-failure", m.JailDaemon.Restart)
+	}
+	// THE STATE-MOUNT NARROWING. An absent or empty list mounts the WHOLE host state
+	// dir read-only, and this one holds credentials.json — the minted credentials for
+	// every profile the machine serves. The sentinel is inert on purpose.
+	if !reflect.DeepEqual(m.StateFiles, []string{".mount-sentinel"}) {
+		t.Errorf("state_files = %v, want [.mount-sentinel] — an empty list crosses the whole "+
+			"state dir, and this one holds the minted-credential cache", m.StateFiles)
+	}
+	if !m.DoctorCmdSet || len(m.DoctorCmd) == 0 {
+		t.Fatalf("doctor_cmd = %v (set=%v) — `yolo check` grades its OK:/NOTE:/FAIL: lines, "+
+			"and the un-narrowed disclosure is one of them", m.DoctorCmd, m.DoctorCmdSet)
+	}
+
+	// THE FOUR KEYS, AND THE SCOPE ON EVERY ONE OF THEM.
+	wantSettings := []struct {
+		key, typ string
+		def      any
+	}{
+		{"profile", loopholedecl.SettingTypeString, ""},
+		{"role_arn", loopholedecl.SettingTypeString, ""},
+		{"session_policy", loopholedecl.SettingTypeString, ""},
+		// A BOOL, for the reason packs/journal's manifest gives at length: the type
+		// set is closed with no enum, so core cannot refuse a misspelled string, and
+		// a typo must never be the spelling that grants.
+		{"unnarrowed", loopholedecl.SettingTypeBool, false},
+	}
+	if len(m.Settings) != len(wantSettings) {
+		t.Fatalf("settings = %+v, want exactly the four declared keys", m.Settings)
+	}
+	for _, want := range wantSettings {
+		got, ok := loopholedecl.SettingByKey(m.Settings, want.key)
+		if !ok {
+			t.Errorf("settings has no %q; got %+v", want.key, m.Settings)
+			continue
+		}
+		if got.Type != want.typ {
+			t.Errorf("settings.%s type = %q, want %q", want.key, got.Type, want.typ)
+		}
+		if got.Scope != loopholedecl.SettingScopeUser {
+			t.Errorf("settings.%s scope = %q, want %q — the workspace config is a file the "+
+				"jail's own agent can rewrite, so a workspace-scoped key here lets that agent "+
+				"choose which AWS identity it is handed (OQ-SSO4)",
+				want.key, got.Scope, loopholedecl.SettingScopeUser)
+		}
+		if got.Default != want.def {
+			t.Errorf("settings.%s default = %#v, want %#v — every default is the value that "+
+				"REFUSES; absence is never un-narrowed (OQ-SSO1)", want.key, got.Default, want.def)
+		}
+	}
+
+	// No CA and no host crossing of any kind: this loophole moves a credential over a
+	// socket yolo fronts, and mounts nothing.
+	if m.CACertSet || len(m.HostBindMounts) != 0 || len(m.HostDevices) != 0 {
+		t.Errorf("unexpected crossings: ca=%v binds=%v devices=%v",
+			m.CACertSet, m.HostBindMounts, m.HostDevices)
 	}
 }
