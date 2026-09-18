@@ -663,22 +663,24 @@ Written for the implementer. Anything not here and not an open question is their
 - Two agents in one jail, both fetching → the adapter is stateless per request and the service
   serializes; concurrent fetches return the same cached credential.
 
-**Both SSO config forms are supported, and P2's refresh is available in only one of them.**
-The difference is not a deployment detail to be measured once — it is two paths the service
-has to carry, and it is detectable from the profile.
+**Both SSO config forms are supported, and the jail behaves identically under each.** What
+differs is how often a human has to act, not how long the jail lasts — a pull channel serves
+whatever session is live at mint time, so a re-login is picked up the same way whether it
+came from a human, an automation, or a silent refresh.
 
 | | Legacy profile (no `[sso-session]`) | SSO token provider (`[sso-session]`) |
 | :--- | :--- | :--- |
 | Refresh token | none exists | present |
-| What the daemon does | serves until the token expires; **there is nothing to refresh with** | refreshes the access token as P2 requires |
-| Ceiling per login | *"fixed at eight hours and cannot be refreshed automatically"* | the portal session, up to 90 days |
-| On expiry | the [§7](#7-refresh--what-happens-when-you-log-in-again) message path, every time | the same path, but only once the session itself ends |
+| What the daemon does | re-reads the cache each mint; there is nothing to refresh with | the same, plus it refreshes the access token as P2 requires |
+| Before a human must act | *"fixed at eight hours and cannot be refreshed automatically"* | the portal session, up to 90 days |
+| What the jail sees across a re-login | nothing — the next mint uses the new token | nothing |
 
-Neither form is refused and neither is special-cased beyond this. But the legacy form caps a
-jail at eight hours per login **by construction**, so the service should say which form it
-resolved when it starts, and AWS's own guidance belongs in the pack README: *"If you have
+So the legacy form costs a **login every eight hours**, not a jail every eight hours. Neither
+is refused, neither is special-cased beyond the refresh branch, and AWS's own guidance still
+belongs in the pack README because the cadence is the whole difference: *"If you have
 long-running processes or automation, use the SSO token provider configuration, which
-supports automatic token refresh."* A jail is exactly that.
+supports automatic token refresh."* The service should say which form it resolved at startup,
+so the cadence a user is signing up for is visible rather than discovered.
 
 **Failure paths.** Every one of these is observable by the human, and none is silent.
 
@@ -742,6 +744,11 @@ provider already owns is how the Bedrock region got confusing in the first place
   jail-writable, so an agent that could edit it could otherwise point the service at the
   `admin` profile. Same argument that makes a source-bearing `host_files` entry
   inexpressible at workspace scope.
+- **Never hold an access token across mints.** Re-read the SSO cache each time. This is the
+  one rule that makes a re-login transparent: a daemon that cached the token it first read
+  would keep working until that token expired and then fail, turning "log in again and carry
+  on" into "restart the daemon" — and on a legacy profile, where nothing refreshes, it would
+  look exactly like an eight-hour cap on the jail. There is no such cap.
 - **Never run a login.** Refreshing an access token within a live session is expected (P2);
   starting a *new* session is a browser flow and is the human's, never the daemon's — see the
   `awsAuthRefresh` entry below, which is the same rule one layer up.
@@ -952,7 +959,7 @@ delays nothing. It only sharpens step 2.
 | :--- | :--- | :--- | :--- | :--- |
 | OQ-SSO1 | **Require a narrowing scope by default; allow un-narrowed when set explicitly.** Refusing outright would have made the feature unusable for someone with nothing to narrow with; serving everything silently would have made it not do its job. The explicit setting is disclosed at every launch | 2026-09-17 | [§6](#6-narrowing--shape-scoped-and-policy-scoped) | — |
 | OQ-SSO2 | **Host singleton**, `scope: "host"`, cache keyed **by profile** so one process still serves several AWS identities | 2026-09-17 | [§5](#5-the-recommended-shape) | — |
-| OQ-SSO3 | **The daemon refreshes the access token wherever a refresh token exists; it never runs a login.** Transparent operation while the session is valid *is* the requirement, so a daemon that waits for someone else to refresh is not implementing it. Refreshing is what every AWS client on the machine already does against the same cache; the rotation race is recoverable, unlike the single-use-token case the Claude broker exists for (R2). On a legacy profile there is no refresh token and nothing to do, which is a supported branch rather than an exception ([§8](#8-behaviour-this-design-specifies)) | 2026-09-17 | [§1](#1-verdict-and-principles) P2 | — |
+| OQ-SSO3 | **The daemon refreshes the access token wherever a refresh token exists; it never runs a login.** Transparent operation while the session is valid *is* the requirement, so a daemon that waits for someone else to refresh is not implementing it. Refreshing is what every AWS client on the machine already does against the same cache; the rotation race is recoverable, unlike the single-use-token case the Claude broker exists for (R2). On a legacy profile there is no refresh token and nothing to refresh, which changes the human's login cadence and not the jail's behaviour, since every mint re-reads the cache ([§8](#8-behaviour-this-design-specifies)) | 2026-09-17 | [§1](#1-verdict-and-principles) P2 | — |
 | OQ-SSO4 | **User config scope only** for the profile, role and session policy. The allowlist-plus-workspace-choice variant is strictly additive later; shipping it first invents a second scope grammar for one feature | 2026-09-17 | [§8](#8-behaviour-this-design-specifies) | — |
 | OQ-SSO5 | **Ship the N1 bearer arm, and make the two arms mutually exclusive at load** — a config enabling both refuses the launch, naming which to drop. It earns its place as the no-IAM-change narrowing and as the fallback for a chain-less client; what it must never be is a quiet winner over the arm that refreshes | 2026-09-17 | [§8](#8-behaviour-this-design-specifies) | — |
 | OQ-SSO6 | **A lapsed session is a MESSAGE, not a request.** The 4xx names the command and a human runs it; the jail never triggers a host login. The pack README says the request shape is [`boundary-broker.md`](boundary-broker.md)'s to build — this design is a good first consumer for that queue and a bad place to invent it, since half an approval mechanism living in a credential pack is exactly the second front door that doc exists to prevent | 2026-09-17 | [§7](#7-refresh--what-happens-when-you-log-in-again) | — |

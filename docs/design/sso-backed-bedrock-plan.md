@@ -107,9 +107,10 @@ the part most likely to be wrong from a teardown — get it from the generator.
 Not a measurement, and not a fact about any one machine: both forms exist in the wild and the
 resolver carries both ([§8](sso-backed-bedrock.md#8-behaviour-this-design-specifies)). The
 branch is detectable from the profile — an `sso_session` key, or equivalently a `refreshToken`
-in the cache entry — and it decides whether the refresh path is reachable at all. Build the
-legacy path first: it is the smaller one, it is the one with no refresh to get wrong, and a
-fixture for it needs no live rotation.
+in the cache entry — and it decides whether the refresh path is reachable at all. It does
+**not** decide how long a jail works: every mint re-reads the cache, so a re-login is picked
+up either way. Build the legacy path first: it is the smaller one, it has no refresh to get
+wrong, and its fixture needs no live rotation — then the refresh branch on top of it.
 
 ## Resolving the host session
 
