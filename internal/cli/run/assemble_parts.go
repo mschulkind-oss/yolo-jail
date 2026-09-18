@@ -505,14 +505,24 @@ func (o *Options) hostServicesMountArgs(rt, cname string, cfg *jsonx.OrderedMap)
 //
 // # Why a nested launch is different from a host whose broker happens to be down
 //
-// The singleton is HOST-WIDE, and for a nested launch "the host" is the outer jail.
-// yolo's image bakes no openssl, and the broker daemon needs it to mint its CA, so the
-// spawn brokerEnsure just performed exits immediately — measured 2026-08-18 in this
-// repo's own jail, `yolo-claude-oauth-broker-host: cannot locate openssl`, once per
-// launch for months. The socket therefore never appears, run.go skips ensureBrokerRelay
-// on exactly this predicate, and nothing is left that could write the endpoint file the
-// variable names. The loophole's own CA state files are not in a nested launcher's
-// storage either, so the in-jail terminator could not have used the address anyway.
+// ⚠ THE ORIGINAL REASON IS SPENT, AND THIS GATE HAS NOT BEEN RE-ARGUED. It read: "yolo's
+// image bakes no openssl, and the broker daemon needs it to mint its CA, so the spawn
+// brokerEnsure just performed exits immediately — measured 2026-08-18 in this repo's own
+// jail, `yolo-claude-oauth-broker-host: cannot locate openssl`, once per launch for
+// months." Both halves are gone: `openssl` was baked (`431625bc`), and then
+// `EnsureCAAndLeaf` stopped needing it at all (`4ceab956`, in-process crypto/x509).
+// MEASURED 2026-09-18: a nested launch minted its own P-256 CA, mounted the trio, and
+// published /run/yolo-services/claude-oauth-broker.endpoint — `openssl verify
+// -verify_hostname platform.claude.com` returned OK against the real mounted files.
+//
+// So the spawn no longer dies and the socket does appear. What survives unchanged is the
+// SECOND half of the argument, which never depended on openssl: the loophole's own CA
+// state files are not in a nested launcher's storage, so the in-jail terminator could not
+// have used the address anyway. Whether that alone still justifies the exception is
+// docs/design/broker-ca-and-nested-hosts.md's OQ-2 territory — it ruled that nested jails
+// run their own broker, which is an argument for REMOVING this arm — and it is entangled
+// with the roadmap's endpoint-emission ruling, so it is left standing and stated rather
+// than changed in passing.
 //
 // # What that cost once the witness became fatal, which is why this gate is back
 //
