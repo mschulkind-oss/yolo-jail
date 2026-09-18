@@ -83,6 +83,21 @@ which is the defect, not a report of it.
 - **P5. No jail-scope input gains authority over a real home.** Whatever the cwd decides, it
   decides which *jail* is being described — never what yolo asserts into `$HOME`. That is
   [`host-render-target.md`](host-render-target.md)'s ruling and it is untouched here.
+- **P6. yolo never reads back a file it writes.** A `readsHost` layer exists to carry the
+  USER's bytes into a jail. The moment yolo writes that file — `assert` rewrites its declared
+  keys into it, `own` composes it whole — those bytes stop being purely the user's, and
+  reading them back makes a key yolo wrote indistinguishable from one the user wrote. **The
+  rule is stated on the WRITE, not on the notch's name**, because the mechanism is identical
+  in both managed modes; what differs is only how much residue it can leave. Under `own` it is
+  every key; under `assert` it is the keys that have LEFT yolo's declaration set, since the
+  rest are re-asserted at higher precedence anyway — which is the narrower case and the harder
+  one to notice. This is the rule `SkillTarget.HostSource` was deleted for.
+- **P7. Adopting yolo requires no migration. Adopting host management does.** Someone who
+  installs yolo and launches a jail keeps the `~/.claude/settings.json` they already have,
+  transparently — no pack to author, no key to promote, nothing to learn. That is what
+  `readsHost` is FOR, and it is the onboarding path rather than a convenience. The pack
+  migration is the price of `host_management: assert|own`, charged when the user asks for that
+  and **never before**: the conventional local pack is a destination, not a prerequisite.
 
 ---
 
@@ -682,10 +697,10 @@ design touches is derived at read time.
    > That is the same circularity `SkillTarget.HostSource` was DELETED for, one file over. So
    > the ruling has two cases, and the composition must state which it is in:
    >
-   > | `host_management` | what the `host` layer is | what a preview reads |
-   > | :--- | :--- | :--- |
-   > | `none` (the default) | the user's own file, which yolo has never written | the staged copy |
-   > | `assert` / `own` | yolo's own render | **nothing** — there is no user host layer to read, and the composition says so |
+   > | `host_management` | what the host file is | what the launch delivers | what the jail does with it |
+   > | :--- | :--- | :--- | :--- |
+   > | `none` (the default) | the user's own bytes, which yolo has never written | the staged copy, labelled **user bytes** | composes it as the `host` LAYER — exactly as today, and [P7](#1-the-verdict-and-the-principles-it-rests-on) makes this the path that must stay frictionless |
+   > | `assert` / `own` | yolo's own render, over what was the user's | the staged copy, labelled **a render** | **never a layer.** It is the BASELINE the jail reports divergence against; the jail composes from packs alone |
    >
    > The user's live edits are not lost in the second case: they are the **capture**, which is
    > already its own layer. Their pre-yolo original is in the adoption archive, which is not a
@@ -715,6 +730,24 @@ design touches is derived at read time.
    > without the layer, because a settings file that silently dropped the user's own keys
    > *"would look correct"* ([`entrypoint/packsurfaces.go`](../../internal/entrypoint/packsurfaces.go)).
    >
+   > **THE RENDER IS DELIVERED AS A BASELINE, NOT WITHHELD — and that is what closes the
+   > discriminator gap below.** The first spelling of this ruling said the managed case reads
+   > *nothing*, which throws away something the jail wants: with the host's rendered surface in
+   > hand, the jail can still answer *"how does what I have differ from what the host has"*,
+   > which is [§2.2](#22-what-each-verb-resolves-today)'s definition of what `diff` is for, and
+   > `capture` keeps a baseline to compute against. What is lost is **provenance** — which
+   > layer a host-side key came from — and that is ruled acceptable: a jail has no business
+   > reporting host-side provenance, and per [OQ-CR7](#oq-cr7) provenance is leaving `diff`
+   > anyway. A baseline is not a layer: nothing composes from it, so no key yolo wrote can
+   > re-enter as the user's, and [P6](#1-the-verdict-and-the-principles-it-rests-on) holds.
+   >
+   > **`readsHost` also stays narrow.** Two surfaces declare it and a third should have to
+   > argue for itself: the grant carries a real file out of the user's home and its only job is
+   > disclosure, so coverage is a deliberate per-surface yes/no
+   > ([`OQ-CO10`](config-ownership-and-promotion.md#13-decision-ledger)). Anything else that
+   > needs host bytes uses the explicit mechanism — a `host_files` grant, which is disclosed at
+   > launch and is not a config layer at all.
+   >
    > ⚠ **THE JAIL CANNOT DERIVE WHICH CASE IT IS IN, and the ruling therefore owes a
    > mechanism.** `host_management` is deliberately NOT inherited into a jail
    > ([`internal/config/inherit.go`](../../internal/config/inherit.go) refuses it, because the
@@ -723,9 +756,11 @@ design touches is derived at read time.
    > has no discriminator at the jail notch. The fact is the HOST's to state, and the launch
    > already has a channel for exactly that shape: the `YOLO_HOST_LAYERS` report, whose
    > dispositions the boot render already switches on. A fifth disposition — *this file is
-   > yolo's own render, do not treat it as a user layer* — is the shape; the alternative,
-   > inheriting `host_management`, is the thing `inherit.go` refuses for a stated reason. This
-   > is an implementation obligation of the ruling, not a reopening of it.
+   > yolo's own render, treat it as a baseline and not as a layer* — is the shape, and the
+   > table above is its whole payload. The alternative, inheriting `host_management`, is the
+   > thing `inherit.go` refuses for a stated reason, and it would be the wrong fix regardless:
+   > the jail does not need to know the user's POSTURE, only what the bytes it was handed ARE.
+   > That is a fact about a delivery, which is exactly what that report carries.
    >
    > **This is one of three logged defects in the same previewer**, and the other two are worth
    > fixing in the same pass: `yolo config render` also has no `Computed`/`Overlay` layers, and
@@ -826,9 +861,18 @@ design touches is derived at read time.
    > in fact the implementation of the ruling that replaced it.
    >
    > What is NEW is not this question's answer but [OQ-CR6](#oq-cr6)'s distinction: the layer
-   > stays where the host file is the user's, and is not read where it is yolo's own render. If
-   > you want the stronger thing — no host layer in any case — that is reopening [`OQ-CO11`](config-ownership-and-promotion.md#13-decision-ledger), in
-   > its own doc, and it costs the unmanaged home, which is most users.
+   > stays where the host file is the user's, and is not read where it is yolo's own render.
+   >
+   > **And the keep now has a substantive reason, which the reversal did not give it.**
+   > [`OQ-CO11`](config-ownership-and-promotion.md#13-decision-ledger)'s recorded argument is
+   > procedural — ruling a mechanism's binding and failure direction presupposes that it exists
+   > — so the layer survived without anyone re-arguing that it should. [P7](#1-the-verdict-and-the-principles-it-rests-on)
+   > is that argument: this layer is the ONBOARDING path. Someone who installs yolo today keeps
+   > the settings file they already have, with nothing to author and nothing to promote, and
+   > requiring the local pack instead would charge every new user a migration to get what they
+   > already had. The pack migration is the price of asking yolo to manage the host, and it is
+   > charged then and not before. Reopening this means arguing against that, not against
+   > [`OQ-CO11`](config-ownership-and-promotion.md#13-decision-ledger)'s procedure.
 
 ---
 
