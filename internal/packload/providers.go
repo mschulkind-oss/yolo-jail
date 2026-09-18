@@ -67,6 +67,10 @@ func ComposeProviders(user *jsonx.OrderedMap, packs []*Pack) (*jsonx.OrderedMap,
 		}
 	}
 	if user == nil {
+		// The adapter pass runs on EVERY return, not only the one with a user layer: a
+		// launch whose providers are entirely pack-shipped is the common bridged case, and
+		// an early return that skipped it would leave exactly that launch unresolved.
+		adaptEndpoints(out, packs)
 		return orderedOrNil(out), nil
 	}
 	for _, name := range user.Keys() {
@@ -97,7 +101,99 @@ func ComposeProviders(user *jsonx.OrderedMap, packs []*Pack) (*jsonx.OrderedMap,
 			return nil, err
 		}
 	}
+	// LAST, over the finished table (protocol-resolution.md §3, outcome 2). An adapter
+	// contributes an address for a protocol a provider does not offer, and it is applied
+	// here rather than at delivery because the composed table is what every consumer of an
+	// address reads — each agent's derive, and the adapter's own daemon deciding where to
+	// listen. Below the user layer so an explicit `endpoints.<protocol>.base_url` always
+	// wins: an adapter fills a hole, and a user who wrote an address did not leave one.
+	adaptEndpoints(out, packs)
 	return orderedOrNil(out), nil
+}
+
+// adaptEndpoints applies every selected pack's declared adaptations to the composed table:
+// for each provider, a protocol some selected AGENT speaks but the provider does not offer
+// gains the adapter's address, when a selected adapter turns one of the provider's own
+// protocols into it.
+//
+// IT IS WHAT A PACK AUTHOR WRITES BY HAND TODAY, COMPUTED. `packs/cerebras` used to
+// declare `endpoints.anthropic: http://127.0.0.1:8214` — not a Cerebras address at all, but
+// the loopback yolo's bridge listens on — so the provider manifest asserted a fact yolo
+// then orchestrated a listener to make true. The output here is byte-identical and the
+// WRITER moved: the adapter states its own address once, and every provider it can front
+// gets it without naming it. That is what lets a USER-declared provider be bridged, which
+// the hand-written form could not do at all (§2.3).
+//
+// GATED ON THE AGENTS THIS LAUNCH SELECTED, as a union over their declared protocols. The
+// table is one table for every agent, so per-agent injection is not a thing it can express;
+// the union is the honest form of "some agent here needs this wire". The consequence worth
+// knowing is that a launch selecting only openai-speaking agents composes no anthropic
+// address for anyone — which is right, and is what the adapter pack's own `needs` gate
+// already says (`when_bins`).
+//
+// NOTHING IS OVERWRITTEN. A provider that offers the protocol itself keeps its own address:
+// an adapter is never preferred over a native endpoint (§4.1), so a provider with a real
+// anthropic route is reached directly even in a jail where the bridge is running.
+func adaptEndpoints(table *jsonx.OrderedMap, packs []*Pack) {
+	adapters := Adaptations(packs)
+	if len(adapters) == 0 {
+		return
+	}
+	wanted := spokenProtocols(packs)
+	if len(wanted) == 0 {
+		return
+	}
+	for _, name := range table.Keys() {
+		v, _ := table.Get(name)
+		entry, ok := v.(*jsonx.OrderedMap)
+		if !ok {
+			continue
+		}
+		offered := providerProtocols(entry)
+		if len(offered) == 0 {
+			continue
+		}
+		for _, a := range adapters {
+			if !wanted[a.To] || offered[a.To] || !offered[a.From] {
+				continue
+			}
+			addEndpoint(entry, a.To, a.Address)
+			offered[a.To] = true
+		}
+	}
+}
+
+// addEndpoint writes endpoints.<protocol>.base_url on a composed entry, creating the
+// `endpoints` map when the provider had none of its own. It writes ONLY the base_url: a
+// `wire_api` here would be the adapter asserting which dialect it speaks, and what the
+// adapter serves is the protocol it declared — the same shape a provider entry that names
+// a protocol and leaves the dialect to the consumer's default already has.
+func addEndpoint(entry *jsonx.OrderedMap, protocol, address string) {
+	v, ok := entry.Get("endpoints")
+	endpoints, isMap := v.(*jsonx.OrderedMap)
+	if !ok || !isMap {
+		endpoints = jsonx.NewOrderedMap()
+		entry.Set("endpoints", endpoints)
+	}
+	ep := jsonx.NewOrderedMap()
+	ep.Set("base_url", address)
+	endpoints.Set(protocol, ep)
+}
+
+// spokenProtocols is the union of every protocol the selected packs' programs declare —
+// the set of wires this launch has an agent for. A protocol nothing speaks is one no
+// adapter needs to produce, which is what keeps the injection from putting an address in
+// front of a jail that has no consumer for it.
+func spokenProtocols(packs []*Pack) map[string]bool {
+	out := map[string]bool{}
+	for _, p := range packs {
+		for _, bin := range p.InstallBins() {
+			for _, proto := range p.Decl.SpokenProtocols(bin) {
+				out[proto] = true
+			}
+		}
+	}
+	return out
 }
 
 // addressConflict refuses a COMPOSED entry that carries both the base_url shorthand and

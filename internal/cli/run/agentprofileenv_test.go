@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // envArgValues returns every "-e KEY=…" value in an assembled argv whose key is one of
@@ -113,6 +114,43 @@ func assembleWithConfig(t *testing.T, cfg *jsonx.OrderedMap, hooks ...func()) []
 
 // assembleWithConfigAssembled is assembleWithConfig for the tests that assert the
 // channel file beside the argv.
+// assembleWithPacksAssembled is assembleWithConfigAssembled over an EXPLICIT pack set —
+// the shape a launch has once `needs` has been resolved. The bare fixture below carries
+// packs/claude alone, which is not a set any launch ever has: claude `needs` openai-auth
+// and wire-bridge unconditionally. That went unnoticed while every fact under test came
+// out of claude's own manifest, and stopped being true when the codex route's address
+// moved into the declarations that own it.
+func assembleWithPacksAssembled(t *testing.T, cfg *jsonx.OrderedMap, names []string,
+	hooks ...func()) assembled {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, hook := range hooks {
+		hook()
+	}
+	emptyLoopholeDirs(t)
+	o := goldenOptions("/ws", home)
+	packs := make([]*packload.Pack, 0, len(names))
+	for _, name := range names {
+		packs = append(packs, officialPack(t, name))
+	}
+	in := &assembleInput{
+		cfg:          cfg,
+		jailDaemons:  o.jailDaemonsFor(cfg, "podman", packs),
+		rt:           "podman",
+		cname:        "yolo-ws-abcd1234",
+		imageRef:     goldenImageRef,
+		jailPrefix:   goldenJailPrefix,
+		packs:        packs,
+		agentsPath:   "/agents/yolo-ws-abcd1234",
+		wsState:      "/ws/.yolo/home",
+		miseStore:    "/mise-store",
+		yoloVersion:  "9.9.9-test",
+		mountTargets: map[string]struct{}{},
+	}
+	return assembled{argv: o.assembleRunCmd(in), o: o, in: in}
+}
+
 func assembleWithConfigAssembled(t *testing.T, cfg *jsonx.OrderedMap, hooks ...func()) assembled {
 	t.Helper()
 	home := t.TempDir()
@@ -226,16 +264,24 @@ func TestAssembleEmitsNoProfileEnvWithoutBedrock(t *testing.T) {
 // TestAssembleEmitsCodexBridgeProfileEnv pins the profile-selected route, rather
 // than testing the derive alone: removing the channel's AgentEnv call would make
 // Claude silently retain its first-party endpoint even though `claude=codex` was
-// accepted. openai-codex is broker-backed and deliberately absent from
-// YOLO_PROVIDERS, so this also proves the special provider does not need a fake
-// credential-bearing provider entry merely to compose the local bridge route.
+// accepted. openai-codex remains broker-backed and CREDENTIAL-free in YOLO_PROVIDERS —
+// its row names no api_key_env_name, and the bridge still gets its access-token view
+// from openai-auth rather than from any generated file. What the row now carries is the
+// public ADDRESS of the Responses API, which is what lets the loopback URL below be
+// resolved from declarations instead of hand-copied into claude's derive.
 func TestAssembleEmitsCodexBridgeProfileEnv(t *testing.T) {
 	sec := jsonx.NewOrderedMap()
 	sec.Set("blocked_tools", []any{})
 	profiles := jsonx.NewOrderedMap()
 	profiles.Set("claude", "codex")
-	la := assembleWithConfigAssembled(t, newConfig(
-		"agents", []any{"claude"}, "security", sec, "use_profiles", profiles))
+	la := assembleWithPacksAssembled(t, newConfig(
+		"agents", []any{"claude"}, "security", sec, "use_profiles", profiles),
+		// The set a claude launch really has: the two packs claude `needs`
+		// unconditionally. They became load-bearing when the codex route stopped being a
+		// literal in claude's derive — openai-auth declares the Responses endpoint the
+		// subscription serves, wire-bridge declares the address that fronts it, and core
+		// composes the pair into the provider entry (protocol-resolution.md §3).
+		[]string{"claude", "openai-auth", "wire-bridge"})
 	got := la.channelEnv(t, "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL",
 		"ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME",
 		"ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION",

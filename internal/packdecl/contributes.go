@@ -348,6 +348,31 @@ type Contribution struct {
 	// `openai`, which is what its derive already does by hand.
 	Protocols []string `json:"protocols,omitempty"`
 
+	// --- adapter (docs/design/protocol-resolution.md §3, OQ-PR1) ---
+	// Adapts is the protocol PAIR this contribution converts, and Address is where the
+	// converted wire is served. Together they are the whole kind: an adapter says WHAT it
+	// turns into WHAT, and WHERE — and nothing about who runs it.
+	//
+	// A NESTED OBJECT rather than two flat fields, because `from` is already this struct's
+	// pack-relative SOURCE PATH and would have to mean a protocol name here. Platforms and
+	// Capabilities are shared across kinds precisely because each is ONE question asked of
+	// two sources; "which directory" and "which wire" are two questions, so sharing the
+	// spelling would be the coincidence that field reuse is not for. (Two Go fields tagged
+	// `from` is also not an option: encoding/json drops both.)
+	Adapts *AdapterPair `json:"adapts,omitempty"`
+	// Address is the URL that speaks `adapts.to`, and the resolver hands it to an agent
+	// exactly as it would hand over a provider's own endpoint. It is checked like a
+	// provider base_url — http/https, no userinfo — for that field's reason: a manifest is
+	// the most shareable artifact yolo has, and a credential in one is in front of everyone
+	// who installs the pack.
+	//
+	// WHERE IT COMES FROM DEPENDS ON THE SHAPE (§6). An adapter that ships its own daemon
+	// declares the address that daemon binds; one naming a remote gateway or a proxy the
+	// user already runs carries an address the user owns, and yolo neither defaults it nor
+	// moves it. The declaration is identical in all three, which is the point — only the
+	// presence of a sibling `service` contribution tells them apart.
+	Address string `json:"address,omitempty"`
+
 	// --- service (docs/reference/wire-bridge.md §2.1, WB-D16) ---
 	// The service half of the §2.1 decomposition table, exactly — the fields a
 	// daemon needs to run and be found, and nothing from the table's loophole
@@ -983,6 +1008,42 @@ func (m *Manifest) NativeCapabilities(bin string) []string {
 	return nil
 }
 
+// AdapterPair is the protocol pair an adapter converts: the wire it reads and the wire it
+// speaks. Both names are ENDPOINT KEYS — the same vocabulary `protocols` and a provider's
+// `endpoints` map use — because the whole point is that the three declarations compare.
+type AdapterPair struct {
+	// From is the protocol the adapter's upstream speaks: a provider offering this is one
+	// the adapter can front.
+	From string `json:"from"`
+	// To is the protocol the adapter itself serves at Address: an agent speaking this can
+	// be pointed there.
+	To string `json:"to"`
+}
+
+// AdapterContribution is one protocol conversion a pack declares: the pair and the address.
+//
+// A SLICE accessor, like Providers() and Services(): exclusivity is per PAIR, so one pack
+// declaring several conversions is ordinary (the shipped bridge declares two) and nothing
+// here may fold them. The same pair twice within one pack is validateAdapterPairs' to
+// refuse — it can see the siblings, which an accessor cannot.
+type AdapterContribution struct {
+	From, To, Address string
+}
+
+// Adapters returns every protocol conversion the pack declares, in declaration order.
+func (m *Manifest) Adapters() []AdapterContribution {
+	var out []AdapterContribution
+	for _, c := range m.Contributions() {
+		if c.Kind != KindAdapter || c.Adapts == nil {
+			continue
+		}
+		out = append(out, AdapterContribution{
+			From: c.Adapts.From, To: c.Adapts.To, Address: c.Address,
+		})
+	}
+	return out
+}
+
 // SpokenProtocols returns the wire protocols the program this pack installs at bin
 // speaks, in the declared preference order — the agent half of the resolver's three
 // declarations (docs/design/protocol-resolution.md §3).
@@ -1462,6 +1523,40 @@ func (m *Manifest) validateContributions() []string {
 	problems = append(problems, m.validateProviderNames()...)
 	problems = append(problems, m.validateProfileNames()...)
 	problems = append(problems, m.validateServiceNames()...)
+	problems = append(problems, m.validateAdapterPairs()...)
+	return problems
+}
+
+// validateAdapterPairs refuses one PAIR declared twice by ONE pack.
+//
+// Cross-pack the pair is sole-owned and packload.Collisions' exclusive loop is the check —
+// the claim target carries both halves, so two packs declaring `openai → anthropic` group
+// onto it. Within a pack that loop is silent by design (`len(packSet) < 2`), and the
+// failure it would leave behind is the silent kind the provider validator describes: the
+// resolver takes the first match, so a second declaration would be dead while the footprint
+// showed two healthy conversions — at two different addresses, which is the way to get a
+// jail pointed at a listener nobody started.
+//
+// Strict path only, like its two siblings: DecodeTolerant validates entries one at a time
+// and cannot see siblings.
+func (m *Manifest) validateAdapterPairs() []string {
+	var problems []string
+	seen := map[string]int{}
+	for i, c := range m.Contributes {
+		if c.Kind != KindAdapter || c.Adapts == nil || c.Adapts.From == "" || c.Adapts.To == "" {
+			continue
+		}
+		key := c.Adapts.From + " -> " + c.Adapts.To
+		if first, dup := seen[key]; dup {
+			problems = append(problems, fmt.Sprintf(
+				"contributes[%d]: the adaptation %s is declared again (first at contributes[%d]) — "+
+					"a protocol pair is sole-owned, and the resolver takes the first match, so the "+
+					"second declaration would be dead while the footprint showed two conversions at "+
+					"two addresses", i, key, first))
+			continue
+		}
+		seen[key] = i
+	}
 	return problems
 }
 
@@ -1798,6 +1893,24 @@ func validateContribution(label string, c Contribution) []string {
 	problems = append(problems, platformsProblems(label, c)...)
 	problems = append(problems, capabilitiesProblems(label, c)...)
 	problems = append(problems, protocolsProblems(label, c)...)
+	// `adapts` and `address` are the adapter's whole body, refused elsewhere in `profile`'s
+	// position and for its reason: on any other kind they are read by no consumer, so
+	// accepting them would be a declaration that silently does nothing. Ahead of the kind
+	// switch so a kind added tomorrow inherits the refusal.
+	if c.Kind != KindAdapter {
+		for _, f := range []struct {
+			name string
+			set  bool
+		}{{"adapts", c.Adapts != nil}, {"address", c.Address != ""}} {
+			if !f.set {
+				continue
+			}
+			problems = append(problems, fmt.Sprintf(
+				"%s: kind %q does not take %q — a protocol pair and the address that serves it "+
+					"are the \"adapter\" kind's whole body; no consumer reads either on this kind",
+				label, c.Kind, f.name))
+		}
+	}
 	// `agent`/`agents` are the AUDIENCE pair, and they are refused everywhere else for
 	// `profile`'s reason and in `profile`'s position — ahead of the kind switch, so a kind
 	// added tomorrow inherits the refusal instead of accepting a field nothing reads on it.
@@ -2053,6 +2166,31 @@ func validateContribution(label string, c Contribution) []string {
 				"module is not staged to a home-relative path; its host half runs on the host and "+
 				"its jail half is mounted at /etc/yolo-jail/loopholes/<name>, which core owns")
 		}
+	case KindAdapter:
+		// The pair and the address ARE the kind (protocol-resolution.md §3). A pairless
+		// adapter converts nothing; an addressless one converts something and gives the
+		// resolver nowhere to point — and the resolver's whole output is an address, so
+		// either omission is a declaration with no answer in it.
+		switch {
+		case c.Adapts == nil:
+			problems = append(problems, label+": kind \"adapter\" needs \"adapts\" "+
+				"({\"from\": \"<protocol>\", \"to\": \"<protocol>\"}) — the pair it converts")
+		default:
+			if c.Adapts.From == "" || c.Adapts.To == "" {
+				problems = append(problems, label+": adapts needs both \"from\" and \"to\" — "+
+					"they are protocol names, spelled as a provider files an endpoint under "+
+					"them (e.g. {\"from\": \"openai\", \"to\": \"anthropic\"})")
+			} else if c.Adapts.From == c.Adapts.To {
+				// A pair with one member converts nothing, and it is not inert: it would
+				// claim the pair, so a real adapter for it could never be selected beside it.
+				problems = append(problems, fmt.Sprintf(
+					"%s: adapts.from and adapts.to are both %q — an adaptation between one "+
+						"protocol and itself converts nothing, and it would claim the pair a real "+
+						"one needs", label, c.Adapts.From))
+			}
+		}
+		req("address", c.Address)
+		problems = append(problems, endpointURLProblems(label+".address", c.Address)...)
 	case KindService:
 		// The name and at least one daemon half ARE the kind (wire-bridge.md §2.1):
 		// a nameless service owns nothing (the supervisor log, the endpoint file and
@@ -2175,6 +2313,42 @@ const ProviderAddressConflictMessage = "base_url and endpoints are both set — 
 	"the single-protocol shorthand and cannot be combined with it; move the URL into " +
 	"endpoints, under the protocol it speaks (zai-plumbing.md §5)"
 
+// endpointURLProblems is the ONE rule for every address a manifest ships — a provider's
+// `endpoints.<protocol>.base_url` and an adapter's `address`. One function rather than two
+// copies, because the two are the same fact wearing different field names: a URL a pack
+// hands a stranger, which some agent's process will be pointed at.
+//
+// The userinfo half is the credential rule, and it is a refusal rather than a warning
+// because a manifest is the most shareable artifact yolo has: `https://user:tok@host/v1`
+// puts a working credential in front of everyone who installs the pack, and a URL check
+// that only asked "does it parse" would wave it through. The scheme half is the same rule
+// pointed the other way — a `file://` or bare-host URL is a fact about the local machine a
+// stranger's manifest cannot know.
+//
+// An EMPTY string reports nothing here: whether the field is required is the caller's
+// question (a provider endpoint and an adapter each say so in their own words), and
+// answering it twice would print two messages for one omission.
+func endpointURLProblems(label, raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return []string{fmt.Sprintf("%s: %v", label, err)}
+	}
+	var problems []string
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		problems = append(problems, fmt.Sprintf(
+			"%s: must be an http or https URL (%s)", label, raw))
+	}
+	if parsed.User != nil {
+		problems = append(problems, fmt.Sprintf(
+			"%s: must not carry userinfo — %q is a credential in a file a pack ships to "+
+				"strangers; name an env var the user hydrates instead", label, raw))
+	}
+	return problems
+}
+
 func validateProviderEndpoints(label string, endpoints map[string]ProviderEndpoint) []string {
 	var problems []string
 	for _, proto := range sortedKeys(endpoints) {
@@ -2184,21 +2358,8 @@ func validateProviderEndpoints(label string, endpoints map[string]ProviderEndpoi
 			problems = append(problems, fmt.Sprintf("%s.endpoints[%q]: needs a \"base_url\"", label, proto))
 			continue
 		}
-		parsed, err := url.Parse(u)
-		if err != nil {
-			problems = append(problems, fmt.Sprintf("%s.endpoints[%q].base_url: %v", label, proto, err))
-			continue
-		}
-		if parsed.Scheme != "http" && parsed.Scheme != "https" {
-			problems = append(problems, fmt.Sprintf(
-				"%s.endpoints[%q].base_url: must be an http or https URL (%s)", label, proto, u))
-		}
-		if parsed.User != nil {
-			problems = append(problems, fmt.Sprintf(
-				"%s.endpoints[%q].base_url: must not carry userinfo — %q is a credential in a "+
-					"file a pack ships to strangers; name an env var in api_key_env_name and let "+
-					"the user hydrate it", label, proto, u))
-		}
+		problems = append(problems, endpointURLProblems(
+			fmt.Sprintf("%s.endpoints[%q].base_url", label, proto), u)...)
 		if w := ep.WireAPI; w != "" && !KnownWireAPI(w) {
 			problems = append(problems, fmt.Sprintf(
 				"%s.endpoints[%q].wire_api: unknown wire_api %q (%s) — the derives translate "+

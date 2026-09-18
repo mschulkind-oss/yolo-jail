@@ -127,6 +127,14 @@ func writeCensusPack(t *testing.T, dir string) {
 			`"endpoints":{"openai":{"base_url":"https://census.example/v4","wire_api":"openai-chat-completions"}},` +
 			`"api_key_env_name":"CENSUS_API_KEY"}`,
 		packdecl.KindLoophole: `{"kind":"loophole","from":"loopholes/censushole"}`,
+		// adapter declares a protocol PAIR and the address that serves it, and nothing
+		// about who runs it — so a fixture needs no daemon and no sibling service. The
+		// `to` protocol is deliberately not one the provider above offers: the pair is
+		// the kind's identity, and an adaptation of a wire nobody declares is still a
+		// declaration this command has to account for.
+		packdecl.KindAdapter: `{"kind":"adapter",` +
+			`"adapts":{"from":"openai","to":"censuswire"},` +
+			`"address":"http://127.0.0.1:19999"}`,
 		// service is the anti-loophole (wire-bridge.md §2.1): nothing here crosses, so
 		// the census only asks that the KIND be accounted for in the output, which the
 		// daemon claim in the footprint provides.

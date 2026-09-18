@@ -38,6 +38,54 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
+// Adaptation is one declared protocol conversion, with the pack that declared it: the
+// adapter half of the three declarations (§3).
+//
+// The PACK is carried and the address is not enough on its own, for one reason: outcome 3's
+// refusal has to name the pack to add. That is the only place a pack NAME appears anywhere
+// in this resolution — read out of a declaration, never compared against one — which is
+// what P6 means in code: `wire-bridge` can be the answer and can never be the question.
+type Adaptation struct {
+	// Pack is the pack that declared the conversion.
+	Pack string
+	// From is the protocol its upstream speaks; To is the protocol it serves at Address.
+	From, To string
+	// Address is where the converted wire is served.
+	Address string
+}
+
+// Adaptations returns every conversion the given packs declare, in pack order then
+// declaration order.
+//
+// A PAIR DECLARED TWICE IS DROPPED, not merged and not refused here: the pair is
+// sole-owned, the claim target carries both halves, and packload.Collisions' generic
+// exclusive loop is the cross-pack check that REPORTS it. This keeps the FIRST, so a caller
+// that skipped the pre-flight degrades to a stable table rather than to whichever pack
+// happened to sort last — exactly the rule ComposeProviders follows for a duplicated
+// provider name, and for the same reason.
+//
+// An entry with an empty half is skipped: the schema refuses it at authoring time, so
+// reaching here means a manifest a newer host staged and this build read tolerantly, where
+// a half-declared conversion is nothing rather than a fault.
+func Adaptations(packs []*Pack) []Adaptation {
+	var out []Adaptation
+	seen := map[string]bool{}
+	for _, p := range packs {
+		for _, a := range p.Decl.Adapters() {
+			if a.From == "" || a.To == "" || a.Address == "" {
+				continue
+			}
+			key := a.From + " -> " + a.To
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, Adaptation{Pack: p.Name, From: a.From, To: a.To, Address: a.Address})
+		}
+	}
+	return out
+}
+
 // ProtocolResolution is the resolver's answer for one (agent, provider) pairing: the
 // agent protocol that resolved, and whether the provider offered it itself.
 //

@@ -14,7 +14,7 @@ func TestKnownKindsCoverEveryConstant(t *testing.T) {
 		KindProgram, KindRequires, KindSkills, KindBriefing, KindFiles, KindConfig,
 		KindConfigOverlay, KindState, KindReadsHost, KindMount, KindEnv,
 		KindHook, KindAutonomy, KindProfile, KindProvider, KindLoophole,
-		KindService,
+		KindService, KindAdapter,
 	} {
 		fp, ok := FootprintOf(k)
 		if !ok {
@@ -28,8 +28,8 @@ func TestKnownKindsCoverEveryConstant(t *testing.T) {
 			t.Errorf("kind %q has an empty Claims description", k)
 		}
 	}
-	if got := len(KnownKinds()); got != 18 {
-		t.Errorf("KnownKinds() has %d entries, want 18 — a kind was added/removed without updating the test", got)
+	if got := len(KnownKinds()); got != 19 {
+		t.Errorf("KnownKinds() has %d entries, want 19 — a kind was added/removed without updating the test", got)
 	}
 }
 
@@ -112,6 +112,13 @@ func TestCombineRulesMatchDesign(t *testing.T) {
 		// so like provider it needs no pass of its own. Written here although
 		// Exclusive is the zero value, for the same reason the two rows above are.
 		KindService: CombineExclusive,
+		// adapter is EXCLUSIVE by the PAIR — the target carries both halves, so like
+		// provider and service it needs no pass of its own: the generic exclusive loop
+		// compares `from → to` directly. One pack declaring SEVERAL pairs is ordinary (the
+		// shipped bridge declares two), which is why the key is the pair and not the pack.
+		// Written here although Exclusive is the zero value, for the reason the three rows
+		// above are: a row absent from this map is a combine rule nobody pinned.
+		KindAdapter: CombineExclusive,
 	}
 	for k, c := range want {
 		fp, _ := FootprintOf(k)

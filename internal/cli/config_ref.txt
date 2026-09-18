@@ -1230,6 +1230,17 @@
                     ship a credential that way either.  A
                     provider name is sole-owned — two packs shipping one is a launch
                     error.
+      adapter       {adapts:{from, to}, address} — a PROTOCOL CONVERSION: the wire it
+                    reads, the wire it speaks, and where the converted wire is served.
+                    An agent that speaks `to` can be pointed at a provider that offers
+                    `from`, with no yolo-internal value in anyone's config: the address
+                    composes into that provider's table entry under `to`, exactly as if
+                    the provider had declared it.  IT SAYS NOTHING ABOUT WHO RUNS IT —
+                    the address may be a daemon the same pack ships (a `service`
+                    contribution beside this one, joined by `needs`), a remote gateway
+                    you already pay for, or a proxy running on your own machine.  The
+                    PAIR is sole-owned, so two selected packs converting one wire into
+                    another is an error naming both; one pack may declare several pairs.
       loophole      {from} — a loophole MODULE dir the pack ships, holding a
                     manifest.jsonc (the same on-disk shape a bundled loophole has, so a
                     loophole can be developed standalone and dropped into a pack).
@@ -1290,6 +1301,10 @@
       provider      a shipped provider's facts feed the derives at LAUNCH.  A host apply
                     renders config files and nothing in those files is a provider, so
                     there is no derive to feed.
+      adapter       an adapter's address is composed into the providers table a LAUNCH
+                    carries, so it reaches an agent the moment one starts and never
+                    through a config file.  This command starts none, so nothing is
+                    pointed anywhere.
       loophole      a loophole is a host daemon whose only client is a container: with no
                     jail there is no client, no --add-host, no YOLO_JAIL_DAEMONS, and
                     nothing for its endpoint file to be mounted into.  Launch a jail to

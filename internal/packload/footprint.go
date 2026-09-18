@@ -422,6 +422,18 @@ func FootprintOf(p *Pack) Footprint {
 			// see it without opening the manifest.
 			add(packdecl.KindProvider, c.Name,
 				providerClaimDetail(c.Endpoints, c.Models, c.APIKeyEnvName), false)
+		case packdecl.KindAdapter:
+			// The target IS the PAIR, with no discriminator, so the generic exclusive loop in
+			// Collisions is the whole cross-pack check: two packs declaring one conversion
+			// group right onto it, while one pack declaring two pairs is ordinary. Not
+			// review-worthy — the claim is an ADDRESS, the same class of fact a provider
+			// endpoint is; whatever SERVES it declares itself as a service or a loophole and
+			// is reviewed there. The Detail carries the address, because "which conversion"
+			// without "to where" is half the declaration.
+			if c.Adapts != nil {
+				add(packdecl.KindAdapter, c.Adapts.From+" → "+c.Adapts.To,
+					"served at "+c.Address, false)
+			}
 		case packdecl.KindService:
 			// The target IS the service name, with no discriminator — the same
 			// name-keyed exclusivity `provider` has (kinds.go), because the supervisor's

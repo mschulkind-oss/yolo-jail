@@ -3,9 +3,6 @@
     {
       "api_key_env_name": "CEREBRAS_API_KEY",
       "endpoints": {
-        "anthropic": {
-          "base_url": "http://127.0.0.1:8214"
-        },
         "openai": {
           "base_url": "https://api.cerebras.ai/v1",
           "wire_api": "openai-chat-completions"
@@ -31,7 +28,10 @@
   "needs": [
     {
       "pack": "wire-bridge",
-      "when_bins": ["claude", "copilot"]
+      "when_bins": [
+        "claude",
+        "copilot"
+      ]
     }
   ]
 }

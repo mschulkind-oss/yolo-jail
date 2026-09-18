@@ -1,9 +1,28 @@
 {
   "contributes": [
     {
+      "adapts": {
+        "from": "openai",
+        "to": "anthropic"
+      },
+      "address": "http://127.0.0.1:8214",
+      "kind": "adapter"
+    },
+    {
+      "adapts": {
+        "from": "openai-responses",
+        "to": "anthropic"
+      },
+      "address": "http://127.0.0.1:8215",
+      "kind": "adapter"
+    },
+    {
       "endpoint": "wire-bridge.endpoint",
       "jail_daemon": {
-        "cmd": ["yolo-jaild", "wire-bridge"],
+        "cmd": [
+          "yolo-jaild",
+          "wire-bridge"
+        ],
         "restart": "on-failure"
       },
       "kind": "service",

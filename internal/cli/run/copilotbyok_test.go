@@ -18,7 +18,15 @@ import (
 // latter's key hydrated.
 func copilotLaunch(t *testing.T, provider string, tune func(*Options)) []string {
 	t.Helper()
-	packs := []*packload.Pack{officialPack(t, "copilot"), officialPack(t, provider)}
+	// The bridge, listed the way ResolveNeeds joins it: cerebras's `needs` names the
+	// copilot bin as well as claude's (D-3 — copilot's derive PREFERS an anthropic
+	// endpoint), and since the bridged address moved into the adapter's own manifest the
+	// pack that declares it has to be in the set for the pairing to resolve. Harmless for
+	// a provider that speaks anthropic natively: an adapter never overwrites a real
+	// endpoint.
+	packs := []*packload.Pack{
+		officialPack(t, "copilot"), officialPack(t, provider), officialPack(t, "wire-bridge"),
+	}
 	var env *jsonx.OrderedMap
 	if provider == "cerebras" {
 		env = cerebrasKey()
@@ -32,7 +40,15 @@ func copilotLaunch(t *testing.T, provider string, tune func(*Options)) []string 
 // file beside the argv.
 func copilotLaunchAssembled(t *testing.T, provider string, tune func(*Options)) assembled {
 	t.Helper()
-	packs := []*packload.Pack{officialPack(t, "copilot"), officialPack(t, provider)}
+	// The bridge, listed the way ResolveNeeds joins it: cerebras's `needs` names the
+	// copilot bin as well as claude's (D-3 — copilot's derive PREFERS an anthropic
+	// endpoint), and since the bridged address moved into the adapter's own manifest the
+	// pack that declares it has to be in the set for the pairing to resolve. Harmless for
+	// a provider that speaks anthropic natively: an adapter never overwrites a real
+	// endpoint.
+	packs := []*packload.Pack{
+		officialPack(t, "copilot"), officialPack(t, provider), officialPack(t, "wire-bridge"),
+	}
 	var env *jsonx.OrderedMap
 	if provider == "cerebras" {
 		env = cerebrasKey()

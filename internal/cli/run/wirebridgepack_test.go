@@ -98,25 +98,35 @@ func TestBridgeStagedButUnroutedIdlesAndEmitsNothing(t *testing.T) {
 	}
 }
 
-// TestLaunchWithoutTheBridgeNeverRegistersIt: claude and cerebras, NO bridge
-// pack — the shape a launch had the one moment the endpoint shipped without the
-// need (the plan's bad direction), and the shape that survives only if the
-// closure is bypassed. The derive composes the loopback URL regardless — it
-// cannot see whether a bridge exists (§3.3) — but nothing joins the daemons
-// payload and the witness hears nothing: a dead URL, loud about who staged it.
-func TestLaunchWithoutTheBridgeNeverRegistersIt(t *testing.T) {
+// TestLaunchWithoutTheBridgeRefusesThePairing: claude and cerebras, NO bridge pack.
+//
+// THIS TEST'S SUBJECT INVERTED, and the inversion is the point of protocol resolution.
+// It used to assert a DEAD URL: the derive composed `http://127.0.0.1:8214` whether or
+// not a bridge was staged, because the URL was a literal in cerebras's own manifest and
+// the derive "cannot see the pack set". A launch therefore started, pointed claude at a
+// loopback port nothing was listening on, and failed at the first request.
+//
+// The address belongs to the adapter now, so with no adapter selected there is no
+// address — and the pairing is refused instead of composed. The refusal is the whole
+// remedy the old dead URL could not offer.
+func TestLaunchWithoutTheBridgeRefusesThePairing(t *testing.T) {
 	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "cerebras")}
-	la := zaiLaunchAssembled(t, packs, bareConfig(), cerebrasKey(),
-		func(o *Options) { o.ProfileName = "cerebras" })
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	emptyLoopholeDirs(t)
+	o := goldenOptions("/ws", home)
+	o.ProfileName = "cerebras"
 
-	if got := la.channelEnv(t, "ANTHROPIC_BASE_URL"); len(got) != 1 ||
-		got[0] != "ANTHROPIC_BASE_URL=http://127.0.0.1:8214" {
-		t.Fatalf("the derive composes the manifest URL whether or not the bridge is "+
-			"staged — it cannot see the pack set (§3.3): %q", got)
+	_, err := o.composePackChannel(bareConfig(), packs, cerebrasKey())
+	if err == nil {
+		t.Fatal("claude beside cerebras with no adapter must REFUSE: there is no address " +
+			"for the wire claude speaks, and composing one anyway is the dead URL this " +
+			"replaced")
 	}
-	if v := envArgValues(la.argv, "YOLO_JAIL_DAEMONS", "YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT"); len(v) != 0 {
-		t.Errorf("a launch without the bridge pack must stage no daemon and register "+
-			"no endpoint: %q", v)
+	for _, want := range []string{`provider "cerebras"`, `agent "claude"`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal must name both sides; %q missing from:\n%v", want, err)
+		}
 	}
 }
 

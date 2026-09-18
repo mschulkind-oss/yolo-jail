@@ -94,6 +94,10 @@ effect, with a "kind" from a closed set:
   provider         ship a provider's service facts: endpoints by wire protocol, model
                    aliases, and the option names a profile may set; the credential is
                    an env-var NAME only you hydrate
+  adapter          {adapts:{from, to}, address} — a protocol conversion and where the
+                   converted wire is served, so an agent speaking one wire can be
+                   pointed at a provider offering the other; says nothing about who
+                   runs it, and the PAIR is sole-owned across packs
   loophole         ship a host-capability loophole: a module dir with a manifest.jsonc
   service          contribute a daemon to a namespace — a yolo-jaild subcommand in the
                    jail and/or a host daemon — plus its endpoint file under

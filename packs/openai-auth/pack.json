@@ -8,6 +8,12 @@
       "capabilities": [
         "web_search"
       ],
+      "endpoints": {
+        "openai-responses": {
+          "base_url": "https://chatgpt.com/backend-api/codex",
+          "wire_api": "openai-responses"
+        }
+      },
       "kind": "provider",
       "name": "openai-codex"
     }

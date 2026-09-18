@@ -18,7 +18,13 @@ func TestGatewayProviderPacksDeclareOnlyStableFacts(t *testing.T) {
 		needsBridge                                    bool
 	}{
 		{"openrouter", "OPENROUTER_API_KEY", "https://openrouter.ai/api/v1", "openai-responses", "https://openrouter.ai/api", false},
-		{"kilo", "KILO_API_KEY", "https://api.kilo.ai/api/gateway", "openai-chat-completions", "http://127.0.0.1:8216", true},
+		// kilo declares NO anthropic endpoint of its own any more. The loopback URL it
+		// used to carry was the wire bridge's listen address, hand-copied into a provider
+		// manifest; it is the adapter's own declaration now, composed into this entry at
+		// launch when an anthropic-speaking agent is selected beside it
+		// (docs/design/protocol-resolution.md §6 — the adapter owns its address). The
+		// `needs` entry below is unchanged and is what joins that adapter.
+		{"kilo", "KILO_API_KEY", "https://api.kilo.ai/api/gateway", "openai-chat-completions", "", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.pack, func(t *testing.T) {

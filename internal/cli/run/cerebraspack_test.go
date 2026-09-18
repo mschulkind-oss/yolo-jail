@@ -58,15 +58,20 @@ func TestCerebrasPackShipsTheCatalogTheDerivesRead(t *testing.T) {
 	if !ok {
 		t.Fatalf("cerebras ships no endpoints table: %v", cerebras.Keys())
 	}
-	// The anthropic endpoint is the WIRE BRIDGE's loopback URL (wire-bridge.md
-	// §3.3) — the declaration the bridge pack, joined through the needs entry
-	// below, is what makes true. It is a loopback URL and nothing more: no host,
-	// no credential in the URL, and no wire_api (claude's derive reads base_url
-	// directly).
-	anthropic, _ := mapGet(endpoints, "anthropic").(*jsonx.OrderedMap)
-	if mapStr(anthropic, "base_url") != "http://127.0.0.1:8214" {
-		t.Errorf("anthropic endpoint = %v, want the bridge's manifest-borne loopback "+
-			"URL — the single source of the port (WB-D2/D13)", anthropic)
+	// NO ANTHROPIC ENDPOINT IN THIS LAUNCH, and that is the change protocol
+	// resolution made rather than a regression. The pack used to declare
+	// `endpoints.anthropic: http://127.0.0.1:8214` — not a Cerebras address at all,
+	// but the loopback yolo's bridge listens on — so a manifest asserted a fact yolo
+	// then orchestrated a listener to make true, whether or not any listener was
+	// coming. The address is the ADAPTER's own declaration now
+	// (packs/wire-bridge), composed into this entry only when an adapter is joined
+	// and an agent speaks the wire. This launch selects pi, which speaks openai, so
+	// the bridge is neither needed nor staged and there is nothing to point at it.
+	// TestCerebrasPackComposesTheBridgedClaudeRoute is the other half.
+	if _, present := endpoints.Get("anthropic"); present {
+		t.Errorf("an openai-only launch composed an anthropic endpoint for cerebras: %v — "+
+			"the bridged address belongs to the adapter that serves it, and no adapter is "+
+			"joined here (the pack's `needs` names claude and copilot, not pi)", endpoints.Keys())
 	}
 	openai, _ := mapGet(endpoints, "openai").(*jsonx.OrderedMap)
 	if mapStr(openai, "base_url") != "https://api.cerebras.ai/v1" ||
@@ -125,19 +130,26 @@ func TestCerebrasPackShipsTheCatalogTheDerivesRead(t *testing.T) {
 	}
 }
 
-// TestCerebrasPackComposesTheBridgedClaudeRoute: claude selected beside cerebras
-// composes the bridge's loopback URL — the anthropic endpoint the pack declares,
-// which the wire-bridge pack (joined through the needs entry) is what makes true.
-// The derive itself is UNCHANGED (wire-bridge.md §3.3): it reads the endpoint
-// like any other, and cannot even see whether a bridge exists. (The token alone
-// also rides, a recorded pre-existing behavior the design doc flags as OQ-2;
-// this test does not pin that half because it is not this pack's claim.)
+// TestCerebrasPackComposesTheBridgedClaudeRoute: claude selected beside cerebras and
+// the bridge composes the loopback URL — the address the ADAPTER declares, resolved
+// into cerebras's entry because claude speaks anthropic, cerebras offers openai, and a
+// selected pack adapts one into the other (protocol-resolution.md §3, outcome 2). The
+// derive is UNCHANGED and still cannot see whether a bridge exists (wire-bridge.md
+// §3.3): it reads an endpoint like any other, and the endpoint is composed rather than
+// hand-written.
 //
 // This is the flip of the pre-bridge assertion (claude got nothing from this
 // pack): the endpoint and the need that stages its bridge shipped together, and
 // this test is where the endpoint half is pinned at the argv.
 func TestCerebrasPackComposesTheBridgedClaudeRoute(t *testing.T) {
-	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "cerebras")}
+	packs := []*packload.Pack{
+		officialPack(t, "claude"), officialPack(t, "cerebras"),
+		// The bridge, joined the way ResolveNeeds joins it. It is listed by hand because
+		// this harness takes a pack set rather than running the closure — and it MUST be
+		// listed since the address moved into its manifest: the pack that declares the
+		// adaptation is now the pack that carries the URL.
+		officialPack(t, "wire-bridge"),
+	}
 	la := zaiLaunchAssembled(t, packs, bareConfig(), cerebrasKey(),
 		func(o *Options) { o.ProfileName = "cerebras" })
 

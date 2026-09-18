@@ -23,18 +23,21 @@ joins this pack to the selection automatically when a selected pack installs the
 + wire-bridge (needed by cerebras: claude selected)
 ```
 
-(Why two bins: claude reads an `anthropic` endpoint directly, and copilot's
-derive *prefers* the anthropic endpoint of any provider that declares one — so
-once cerebras declares the bridge's URL, both agents compose it, and a launch
-with either must stage the listener that makes the URL true.)
+(Why two bins: both declare `anthropic` among the protocols their program speaks —
+claude only, copilot first — so for either of them a provider that offers only
+`openai` resolves through this pack's adaptation, and a launch with either must
+stage the listener that answers at the address below.)
 
 With claude (or copilot) and cerebras selected and `-p cerebras` active, the
-agent's provider environment points at `http://127.0.0.1:8214` — the loopback
-URL cerebras's manifest declares as its `anthropic` endpoint — and the daemon
-staged by this pack answers there: it speaks the Anthropic Messages wire to the
-agent, translates to Cerebras's chat-completions upstream, and reads the
-credential once at boot from `yolo-user-env.sh`. Nothing about the setup grows a
-second step; the bridge is why the URL cerebras declares is true.
+agent's provider environment points at `http://127.0.0.1:8214` — the address
+THIS pack declares, composed into cerebras's entry by the resolver because
+cerebras offers `openai`, the agent speaks `anthropic`, and this pack declares
+the conversion between them
+([protocol-resolution.md](../../docs/design/protocol-resolution.md) §3). The
+daemon staged here answers at that address: it speaks the Anthropic Messages
+wire to the agent, translates to Cerebras's chat-completions upstream, and reads
+the credential once at boot from `yolo-user-env.sh`. Nothing about the setup
+grows a second step, and no provider has to name a yolo-internal port.
 
 Selected but with no active profile routed at a bridged provider (claude riding
 zai, say), the daemon boots, reads the same selection table every agent honors,
@@ -42,8 +45,12 @@ finds nothing to serve, and idles healthy — one stderr line, no listener, no
 endpoint file. That laziness is what makes the coarse bin condition precise
 (wire-bridge.md §3.2/§3.4).
 
-The listen port lives ONLY in the provider's manifest URL (`8214`, clear of
-every baked service) — one writer, no second knob. `count_tokens` deliberately
+The listen port lives ONLY in this pack's own `adapter` declarations (`8214` for
+`openai → anthropic`, `8215` for `openai-responses → anthropic`, both clear of
+every baked service) — one writer, and it is the OWNER rather than each
+consumer. It used to be the other way round: every bridged provider hand-wrote
+the port into its own manifest, which worked for a pack author and left a
+user-declared provider unable to be bridged at all. `count_tokens` deliberately
 answers 404 so claude uses its own estimator instead of a fabricated count, and
 inbound requests carry no auth because the jail is the boundary. What the bridge
 never does: dial anything but the boot-selected upstream, listen off loopback,

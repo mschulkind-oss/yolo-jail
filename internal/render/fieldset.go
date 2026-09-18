@@ -153,6 +153,14 @@ var hostUnimplemented = map[packdecl.Kind]string{
 		"`yolo host apply` only configures your tools — it never runs one, so there is no " +
 		"derive to feed. `yolo host -- <program>` (or a jail launch) composes the providers " +
 		"table instead",
+	// adapter rides provider's channel and hits the same limit of the same COMMAND: the
+	// address it declares is composed INTO the providers table, so it reaches an agent the
+	// moment one is launched and never through a config file. Same sentence, same verb
+	// missing.
+	packdecl.KindAdapter: "an adapter's address is composed into the providers table a " +
+		"LAUNCH carries, and `yolo host apply` only configures your tools — it never runs " +
+		"one, so nothing is pointed anywhere. `yolo host -- <program>` (or a jail launch) " +
+		"resolves the pairing instead",
 	// The three shipped hooks are all jail plumbing: shared_credentials symlinks a
 	// credentials file into a machine-global dir, per_jail_history isolates a history
 	// file PER JAIL, claude_plugins reconciles in-jail plugin installs. Off-container
@@ -249,6 +257,11 @@ func HostFields() FieldSet {
 		// Honored-but-unbuilt below is that limit stated (hostUnimplemented), the same
 		// sentence env and launch get.
 		packdecl.KindProvider: true,
+		// adapter is provider's constant companion and gets provider's answer, for
+		// provider's reason: it declares an ADDRESS, and an address reaches an agent through
+		// the providers table a LAUNCH composes, never through a file this command writes.
+		// Honored-but-unbuilt below states that limit.
+		packdecl.KindAdapter: true,
 		// profile is honored in the sense the census means — since OQ-PT8 it IS a
 		// selection (`name` + `provider`), not a patch of its own, so there is nothing to
 		// apply at this notch and nothing to gate either: it carries no key a config write

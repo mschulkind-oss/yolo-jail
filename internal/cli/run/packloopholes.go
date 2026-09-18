@@ -235,6 +235,15 @@ var disclosureClasses = map[packdecl.Kind]disclosureClass{
 	// of forgotten.
 	packdecl.KindService: disclosureSkip,
 
+	// adapter is provider's answer, for provider's reason: it declares an ADDRESS and a
+	// protocol pair, which are facts about a service, not a read of this machine. Nothing
+	// on the host is touched, so there is nothing to announce at the spawn — and the
+	// address's effect is visible where it lands, in the provider table the launch carries.
+	// It says NOTHING about who serves the address: a pack that runs a daemon for it
+	// declares that separately, as a `service` (this row's neighbour) or as a `loophole`
+	// (disclosureExec below), and the crossing is disclosed from THAT declaration.
+	packdecl.KindAdapter: disclosureSkip,
+
 	// loophole: the kind whose crossing can be HOST EXECUTION. Classified here so the
 	// exhaustiveness test is satisfied, but the read/exec split for a loophole is decided
 	// PER CLAIM, not per kind — see disclosureClassOfClaim. One contribution emits several

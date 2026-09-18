@@ -115,6 +115,11 @@ const preChangeEnv = "YOLO_VERSION=0.8.0\n" +
 func preChangePacks(t *testing.T) []*packload.Pack {
 	return []*packload.Pack{
 		officialPack(t, "claude"), officialPack(t, "zai"), officialPack(t, "cerebras"),
+		// The bridge, as ResolveNeeds would join it for a claude launch beside cerebras.
+		// Since the bridged address is the ADAPTER's declaration, its pack is what makes
+		// `-p cerebras` resolvable for claude at all — without it the composition refuses
+		// one layer before the attach behaviour under test.
+		officialPack(t, "wire-bridge"),
 	}
 }
 

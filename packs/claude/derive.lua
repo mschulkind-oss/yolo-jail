@@ -88,8 +88,16 @@ yolo.env("claude", function(ctx)
   -- The Responses subscription endpoint accepts concrete Codex model IDs, so this
   -- must stay aligned with Pi's Codex default.
   if ctx.selected_provider == "openai-codex" then
+    -- THE ADDRESS IS RESOLVED, NOT SPELLED. It used to be the literal 127.0.0.1:8215, a
+    -- hand-copy of internal/wirebridged's CodexResponsesListenAddr that this file had no
+    -- way to keep true. The openai-auth pack now declares the Responses endpoint the
+    -- subscription actually serves, and the adapter that fronts it declares its own
+    -- address, so core composes the pairing into this provider's entry exactly as it does
+    -- for every other bridged provider (protocol-resolution.md §3, outcome 2).
+    local codexEp = (type(p) == "table" and type(p.endpoints) == "table"
+      and type(p.endpoints.anthropic) == "table" and p.endpoints.anthropic.base_url) or nil
     return {
-      ANTHROPIC_BASE_URL = "http://127.0.0.1:8215",
+      ANTHROPIC_BASE_URL = codexEp,
       -- Pin a fresh Codex-profile chat and every unassigned subagent to the
       -- stable balanced model. The picker above remains available for an
       -- intentional per-session choice.

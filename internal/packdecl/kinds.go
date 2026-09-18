@@ -225,6 +225,41 @@ const (
 	// rule `program` has per bin and `provider` per name.
 	KindService Kind = "service"
 
+	// KindAdapter: a PROTOCOL CONVERSION served at an address — `adapts: {from, to}`
+	// plus the `address` that speaks `to` (docs/design/protocol-resolution.md §3,
+	// OQ-PR1).
+	//
+	// IT SAYS NOTHING ABOUT WHO RUNS IT, and that separation IS the ruling. The
+	// leaning was a field on `service`, on the argument that every adapter is a proxy
+	// and every proxy is a daemon; review round three answered it with instances
+	// rather than argument — a remote gateway fronting your own credentials, a proxy
+	// the user already runs on a port they name, and the plain wish to ship an adapter
+	// apart from the thing it adapts. Coupling the declaration to a daemon makes all
+	// three inexpressible. A pack that DOES run its adapter states that separately,
+	// with the `service` contribution and the `needs` it would use anyway — which is
+	// exactly what packs/wire-bridge now does, two contributions instead of a special
+	// case.
+	//
+	// NO SHIPPED ADAPTER IS PRIVILEGED (P6). This kind is the whole mechanism: a
+	// third-party pack declaring the same pair resolves identically to the one yolo
+	// ships, because core selects among declarations and may not name an adapter, a
+	// pack or a protocol.
+	//
+	// Sole-owned by the PAIR (from → to), not by a name and not by a pack. That is the
+	// provider rule with a two-part key: two selected packs both claiming to turn one
+	// wire into another would each be supplying "the" conversion, and the alternative
+	// to refusing is core preferring one. One pack declaring several pairs is ordinary
+	// — the shipped bridge declares two — which is the same per-target rather than
+	// per-pack exclusivity `provider` has per name and `program` has per bin.
+	//
+	// NOT review-worthy: an adapter declares an ADDRESS, which is the same class of
+	// fact a provider's endpoint is. It reads no host state, mounts nothing and
+	// executes nothing; if a pack runs a daemon to serve the address, that daemon is
+	// its own `service` (never review-worthy, by §2.1) or its own `loophole` (always
+	// review-worthy, per crossing) — and either way the review question is asked of
+	// that declaration, not of this one.
+	KindAdapter Kind = "adapter"
+
 	// KindBlockedTool refuses a tool inside the jail, printing a message and an
 	// alternative instead of running it.
 	//
@@ -393,6 +428,18 @@ var footprints = map[Kind]Footprint{
 		// declaring none of them crosses nothing and is a manifest with no effect.
 		Kind: KindLoophole, Combine: CombineExclusive, MayBeReviewWorthy: true,
 		Claims: "a loophole module: a host daemon, TLS intercepts, host binds and devices",
+	},
+	KindAdapter: {
+		// Exclusive by the PAIR, and the claim target carries both halves, so the generic
+		// exclusive loop in packload.Collisions is the whole cross-pack check: two packs
+		// declaring `openai → anthropic` group right onto it, while one pack declaring two
+		// different pairs is the ordinary case (the shipped bridge does exactly that). Not
+		// review-worthy — the declaration is an ADDRESS, the same class of fact a provider
+		// endpoint is; whatever SERVES that address declares itself, as a service or as a
+		// loophole, and is reviewed there.
+		Kind: KindAdapter, Combine: CombineExclusive,
+		Claims: "a protocol conversion (<from> → <to>) served at an address; " +
+			"nothing about who runs it",
 	},
 	KindService: {
 		// Exclusive by service NAME (the const block's comment carries the reasoning:
