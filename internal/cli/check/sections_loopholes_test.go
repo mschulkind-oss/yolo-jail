@@ -142,7 +142,8 @@ func TestCheckLoopbackTLSServiceNamesTheLayer(t *testing.T) {
 	})
 }
 
-// TestCheckLoopholesWarnsOnWorkspaceDisable: §4.3b of loophole-packaging.md
+// TestCheckLoopholesWarnsOnWorkspaceDisable:
+// docs/reference/loophole-system.md#disclosure-of-the-users-switch-in-both-directions
 // leaves `enabled` writable at workspace scope, so the DISCLOSURE is the only
 // protection left for a default-on loophole: a workspace-sourced disable must
 // WARN and name the file, never render as a green "disabled" line. A disable
@@ -703,8 +704,9 @@ func writeLoopholeManifest(t *testing.T, parent, name, body string) string {
 // selfCheckModule writes a module whose only host-side face is a doctor_cmd running
 // argv, or no doctor_cmd at all when argv is empty.
 //
-// It stays inside the PACK-SHIPPED SUBSET (loophole-packaging.md §3.1: no jail_env, no
-// ca_cert, no requires, no `publishes: "socket"`), because the same body is loaded as a
+// It stays inside the PACK-SHIPPED SUBSET (docs/reference/loophole-system.md#the-pack-shipped-subset:
+// no jail_env, no ca_cert, no requires, no `publishes: "socket"`), because the same body
+// is loaded as a
 // bundled manifest in one test and as a pack module in another — and a pack module is
 // read through loaderFor(SourcePack), which REFUSES anything outside the subset. One
 // body that both loaders accept is what makes the two tests comparable.
@@ -1102,7 +1104,8 @@ func TestCheckLoopholesWithholdsAnUnapprovedPackSelfCheck(t *testing.T) {
 
 	if _, err := os.Stat(ran); err == nil {
 		t.Fatal("THE DOCTOR_CMD RAN. `yolo check` is read-only preflight; running an " +
-			"unapproved pack's host code from it is the fork loophole-packaging.md §5.1 " +
+			"unapproved pack's host code from it is the fork " +
+			"docs/reference/loophole-system.md#selection-and-discovery " +
 			"refuses to leave open")
 	}
 	if r.warned != 1 || !strings.Contains(out, "self-check could not run") ||

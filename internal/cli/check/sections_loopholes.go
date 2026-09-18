@@ -63,7 +63,8 @@ func (o *Options) checkLoopholes(r *reporter) {
 			"selected implicitly when it exists)", paths.LocalPackDir()))
 		return
 	}
-	// `enabled` is writable at workspace scope (loophole-packaging.md §4.3b), so
+	// `enabled` is writable at workspace scope
+	// (docs/reference/loophole-system.md#disclosure-of-the-users-switch-in-both-directions), so
 	// the disclosure is the only protection left for a default-on loophole: a
 	// workspace-sourced disable must WARN and name the file, never render as a
 	// green line. Only a disable from the loophole's own manifest is an ok.
