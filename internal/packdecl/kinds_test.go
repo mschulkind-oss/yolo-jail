@@ -134,7 +134,8 @@ func TestReviewWorthyKinds(t *testing.T) {
 	worthy := map[Kind]bool{
 		KindProgram: true, KindState: true, KindReadsHost: true, KindMount: true,
 		// loophole is the only kind review-worthy in EVERY instance, not just some: its
-		// claims are enumerated one per boundary CROSSING (loophole-packaging.md §3.3), so a
+		// claims are enumerated one per boundary CROSSING
+		// (docs/reference/loophole-system.md#the-crossing-enumeration), so a
 		// loophole claim that needed no review would be a contradiction. It is also the
 		// first kind whose crossing is host code EXECUTION rather than a host read — a
 		// distinction ReviewWorthy's single boolean cannot carry, so the claim's Detail

@@ -148,7 +148,7 @@ func TestDecodeTolerantStillValidatesStructure(t *testing.T) {
 }
 
 // AN UNKNOWN KIND IS FATAL WHERE A HUMAN IS AUTHORING AND SKIPPED-AND-REPORTED AT THE VERSION
-// BOUNDARY (design: loophole-packaging §3.3a). The two halves are one decision — the same
+// BOUNDARY (docs/reference/loophole-system.md#strict-and-tolerant-and-why-both). The two halves are one decision — the same
 // asymmetry the retired `tier` established: an author must hear that their declaration is
 // unknown, and a jail must boot when the two ends of the version boundary disagree about
 // which kinds exist.

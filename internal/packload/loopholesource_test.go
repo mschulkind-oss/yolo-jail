@@ -1,7 +1,8 @@
 package packload_test
 
 // loopholesource_test.go pins the `loophole` kind's TOTAL claim enumeration — the
-// load-bearing rule of docs/design/loophole-packaging.md §3.3 — and the resolution
+// load-bearing rule of docs/reference/loophole-system.md#the-crossing-enumeration
+// — and the resolution
 // behaviour around it.
 //
 // WHAT THE ENUMERATION IS FOR CHANGED ON 2026-09-04, and the rule got MORE load-bearing
@@ -101,7 +102,8 @@ func hasClaimContaining(claims []string, subs ...string) bool {
 // THE central case: a loophole with NO daemon and NO intercepts, declaring only bind
 // mounts and a device, must still emit a claim for each. This is the exact manifest whose
 // zero-claim footprint got a fetched pack the user's SSH keys and the whole host
-// filesystem with no prompt (loophole-packaging.md §3.3).
+// filesystem with no prompt
+// (docs/reference/loophole-system.md#the-crossing-enumeration).
 func TestBindMountsAndDevicesEachEmitAClaim(t *testing.T) {
 	root := writeLoopholePack(t, map[string]string{"nice": `{
 	  "name": "nice",

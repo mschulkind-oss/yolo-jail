@@ -1,7 +1,7 @@
 package packload_test
 
 // audiopack_test.go pins the OFFICIAL `audio` pack — the dogfood for the 15th
-// contribution kind (docs/design/loophole-packaging.md §7, OQ-LP11 "RULED YES, and it
+// contribution kind (docs/reference/loophole-system.md#oq-lp11, "RULED YES, and it
 // ships with this change").
 //
 // # Why these assertions are over the SHIPPED pack and not a fixture

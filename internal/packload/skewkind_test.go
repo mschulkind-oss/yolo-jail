@@ -1,6 +1,7 @@
 package packload
 
-// skewkind_test.go pins the §3.3a (loophole-packaging) decision at the JAIL-LOAD entry
+// skewkind_test.go pins the strict/tolerant decision (docs/reference/loophole-system.md#strict-and-tolerant-and-why-both)
+// at the JAIL-LOAD entry
 // point: a contribution KIND this build does not know is version skew, not corruption.
 //
 // The A12 story, so a future reader does not re-learn it the hard way: the in-jail

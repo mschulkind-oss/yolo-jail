@@ -12,7 +12,8 @@ package packdecl
 // a loud load error, never a silent skip — while across the VERSION BOUNDARY
 // (DecodeTolerant, the in-jail read) it is skipped AND reported, because a kind
 // only a newer build knows is skew, not structure, and refusing it failed the
-// boot (loophole-packaging §3.3a: an author must hear; a jail must boot).
+// boot (docs/reference/loophole-system.md#strict-and-tolerant-and-why-both:
+// an author must hear; a jail must boot).
 //
 // A kind can also LEAVE the set. It is then neither known nor unknown but RETIRED, and
 // says so with its replacement named — see retiredKinds, which is this file's half of the
@@ -171,7 +172,8 @@ const (
 	// pack.
 	KindProvider Kind = "provider"
 	// KindLoophole: a loophole MODULE the pack ships — a directory holding a
-	// `manifest.jsonc`, named by `from` (loophole-packaging.md §3).
+	// `manifest.jsonc`, named by `from`
+	// (docs/reference/loophole-system.md#the-loophole-contribution-kind).
 	//
 	// It POINTS AT the module rather than inlining the manifest, so the on-disk shape
 	// is the one a bundled or user loophole already has: one loader reads all four
@@ -185,7 +187,8 @@ const (
 	// pack root to resolve a relative path against. So the claim producer is
 	// packload's moduleClaims, reading through internal/loopholedecl — the same layer,
 	// and for the same reason, as the wrapped-plugin components packload/plugins.go
-	// reports (loophole-packaging.md §3.3). What this package owns is the DECLARATION:
+	// reports (docs/reference/loophole-system.md#the-crossing-enumeration). What this
+	// package owns is the DECLARATION:
 	// `from` is required and traversal-guarded like every other path-bearing field.
 	//
 	// Sole-owned by loophole NAME (the module directory's basename, which loadManifest

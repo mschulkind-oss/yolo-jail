@@ -452,7 +452,8 @@ func FootprintOf(p *Pack) Footprint {
 	}
 
 	// loophole → SEVERAL claims per contribution, one for every declaration that crosses
-	// the host boundary (loophole-packaging.md §3.3). The enumeration is TOTAL by rule: a
+	// the host boundary (docs/reference/loophole-system.md#the-crossing-enumeration). The
+	// enumeration is TOTAL by rule: a
 	// claim-free crossing must be unrepresentable, because since OQ-TP9 this report is the
 	// ONLY place a user learns of it. See moduleClaims for the table and the reasons.
 	//

@@ -349,7 +349,7 @@ func (m *Manifest) retiredFieldProblems() []string {
 // `via` is NOT skew and stays a hard problem on both paths: a program that names no
 // mechanism installs nothing, which is a defect both ends of the version boundary understand.
 //
-// An unknown contribution KIND is the same class, one level up (loophole-packaging §3.3a —
+// An unknown contribution KIND is the same class, one level up (docs/reference/loophole-system.md#strict-and-tolerant-and-why-both —
 // the `tier` incident's shape, third time): a newer build's kind staged for an older baked
 // entrypoint is skew, not corruption, and validating it as structure made the jail refuse
 // to boot. So a contributes entry whose kind this build does not know is DROPPED from the
@@ -504,7 +504,8 @@ func (m *Manifest) Validate() []string {
 // That is right while there are exactly two values (a third spelling is a typo both ends of
 // the version boundary agree about), and it becomes the `tier` incident a FOURTH time the day
 // a third tier VALUE ships: a newer host staging it bricks every jail on a pre-`just load`
-// image, exactly as an unknown contribution kind used to (loophole-packaging.md §3.3a).
+// image, exactly as an unknown contribution kind used to
+// (docs/reference/loophole-system.md#strict-and-tolerant-and-why-both).
 // Whoever adds a value extends the tolerance first — unknown values skipped-and-reported
 // under DecodeTolerant, refused loudly under Decode — and only then the value.
 func (m *Manifest) validateSkillsTier() []string {

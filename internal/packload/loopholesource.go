@@ -3,7 +3,7 @@ package packload
 // loopholesource.go resolves a `loophole` contribution's MODULE DIRECTORY — the
 // pack-relative dir holding `manifest.jsonc` — and turns what that manifest declares
 // into the pack's DISCLOSED CROSSINGS: one footprint claim per thing that reaches the
-// host (loophole-packaging.md §3.3).
+// host (docs/reference/loophole-system.md#the-crossing-enumeration).
 //
 // # These were APPROVAL strings once, and are disclosure only since OQ-TP9
 //
@@ -29,7 +29,8 @@ package packload
 // `internal/loopholes` → `internal/config` → `internal/packload`: importing the runtime
 // registry here is a cycle, measured in loopholedecl's package doc. `internal/loopholedecl`
 // is the schema extracted as a leaf precisely so this file can read a manifest
-// (loophole-packaging.md §3.2, OQ-LP1). Everything it returns is RAW — `{loophole_dir}`
+// (docs/reference/loophole-system.md#where-the-schema-lives-and-why-it-is-a-leaf,
+// and docs/reference/loophole-system.md#oq-lp1). Everything it returns is RAW — `{loophole_dir}`
 // unexpanded, `${XDG_RUNTIME_DIR}` unexpanded — which is what a claim TARGET needs: the
 // target is the footprint's collision key, so an expanded, machine-specific path would make
 // one declaration read as a different claim on every machine.
@@ -84,7 +85,9 @@ type LoopholeModule struct {
 //     manifest would disclose NOTHING for a module that will still be discovered — the
 //     one shape §3.3's total enumeration forbids.
 //
-// # Why the split, and why it is not an inconsistency (loophole-packaging.md §3.1)
+// # Why the split, and why it is not an inconsistency
+//
+// docs/reference/loophole-system.md#the-loophole-contribution-kind states it.
 //
 // It is a LAYER split. A missing `from` is a `pack.json` error, decidable without loading
 // any loophole, in a tree the user explicitly selected: refusing it is a fix, and it is

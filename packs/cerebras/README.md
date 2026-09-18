@@ -1,6 +1,6 @@
 # `cerebras` — the official pack that ships Cerebras as a provider
 
-The second purely-declarative pack after `zai` ([design](../../docs/design/cerebras-pack-and-copilot-delivery.md)):
+The second purely-declarative pack after `zai` ([reference](../../docs/reference/cerebras-pack-and-copilot-delivery.md)):
 Cerebras's service facts as one `kind: "provider"` contribution, plus the `kind:
 "profile"` selection over them — and, since the wire bridge shipped, a top-level
 `needs` entry (the first in any shipped pack). The pack installs **no CLI**. Cerebras

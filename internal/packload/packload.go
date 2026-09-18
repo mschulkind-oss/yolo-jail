@@ -76,7 +76,8 @@ type Pack struct {
 	Decl *packdecl.Manifest
 	// SkewNotes are the version-skew reports from a TOLERANT manifest read
 	// (TolerateSkew): one line per contribution skipped because this build does not
-	// know its kind, each naming the pack and the kind (loophole-packaging §3.3a).
+	// know its kind, each naming the pack and the kind
+	// (docs/reference/loophole-system.md#strict-and-tolerant-and-why-both).
 	// NOT problems — a problem fails the boot (A12), and surviving exactly that is
 	// why the skip exists — but never silent either: the boot path reports each one,
 	// so a degraded jail (a contribution the baked entrypoint cannot render) is

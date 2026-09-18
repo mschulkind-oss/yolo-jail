@@ -1,7 +1,7 @@
 # `audio` — the official pack that ships the audio loophole
 
 This is the **dogfood** for the 15th contribution kind
-([`loophole-packaging.md`](../../docs/design/loophole-packaging.md) §7, OQ-LP11 — *"do
+([`OQ-LP11`](../../docs/reference/loophole-system.md#oq-lp11) — *"do
 bundled loopholes become official packs? RULED YES"*). Its value is not the audio it adds;
 it is that a real, embedded, selectable pack goes through the `loophole` kind's claim
 enumeration, its approval gate, its name pre-flight and its inert report.
