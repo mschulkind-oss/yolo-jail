@@ -350,9 +350,12 @@ lives in the container launch path this backend returns before. **GPU** is unava
 macOS backend (Metal, no CUDA or ROCm), and **devices** and cgroup rules are Linux kernel
 features.
 
-### Loopholes: the host half runs, the jail half does not
+### Loopholes: mostly moot, and the framework ports better
 
 ⚠ **This section said "no loophole host service starts here" and that is RETRACTED (2026-09-18).**
+The heading still stands — each shipped loophole really is mostly moot natively, for the
+reasons listed below — and an incoming link names it
+([`macos-revival-and-distribution-plan.md`](../plans/macos-revival-and-distribution-plan.md)).
 It described an arm that returned from `Run()` above the spawn boundary, and that stopped being
 true when the lifecycle was generalised on 2026-09-17: this backend now goes through the same
 `startLoopholesDisclosed` wrapper a container launch does, starts **every** admitted host
