@@ -22,7 +22,7 @@ API?"
 **Reads with:** [`providers.md`](../reference/providers.md) (what a provider must declare),
 [`gateway-providers.md`](gateway-providers.md) (the OpenRouter/Kilo precedent this would
 follow), and
-[`cerebras-pack-and-copilot-delivery.md`](../design/cerebras-pack-and-copilot-delivery.md)
+[`cerebras-pack-and-copilot-delivery.md`](../reference/cerebras-pack-and-copilot-delivery.md)
 (the *opposite* direction — Copilot as a provider CONSUMER — which already shipped).
 
 ---

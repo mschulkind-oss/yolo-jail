@@ -48,11 +48,13 @@ presence, selection is an explicit act.
 | Selection namespace: edge-triggered apply | `internal/agentcfg` (`SelectionKey`, `ApplySelection`) |
 | Surface render + selection lift | `internal/entrypoint` (`ConfigurePackSurfaces`, prism stateful render) |
 | User config: `providers`, `profiles`, `use_profiles` | `internal/config` (`profiles.go`) |
-| The five derives + the provider packs | `packs/{claude,codex,pi,opencode,copilot,zai,cerebras,openrouter,kilo}` |
+| The agent derives that consume the table, and the provider packs that fill it | `packs/*/derive.lua`; every pack declaring a `provider` contribution |
 
 **Reads with:** [`pack-system.md`](../reference/pack-system.md) (what a pack is, how derives are
 loaded), [`local-model-endpoints.md`](../research/local-model-endpoints.md) (the
-source-verified per-agent vocabularies the dialect maps translate into).
+source-verified per-agent vocabularies the dialect maps translate into),
+[`cerebras-pack-and-copilot-delivery.md`](cerebras-pack-and-copilot-delivery.md) (which agents a
+provider can reach *at all*, one level below the delivery channels below).
 
 ---
 
@@ -275,7 +277,8 @@ What each agent actually receives, from one composed table and one selection:
 | codex | `~/.codex/config.toml` `[model_providers.<id>]` (TOML) | top-level `model_provider` + `model` |
 | pi | `~/.pi/agent/models.json` `providers.<id>` (JSON; credential as `apiKey: "${VAR}"` config-value syntax) | `~/.pi/agent/settings.json` `defaultProvider` + `defaultModel` (a pair of bare ids) |
 | opencode | `~/.config/opencode/opencode.json` `provider.<id>` — `baseURL`/`apiKey` live UNDER `options` | top-level `model = "<provider>/<model>"` |
-| copilot | no catalog (BYOK is env-var-only; no copilot config file has provider keys) | process env from the copilot pack's env derive: `COPILOT_PROVIDER_BASE_URL` (the sole activation gate), `COPILOT_PROVIDER_TYPE`, `COPILOT_PROVIDER_WIRE_API` (openai type only), `COPILOT_MODEL` (required — a provider with no resolvable alias composes nothing at all), `COPILOT_PROVIDER_API_KEY` |
+| oh-omp | `~/.oh-omp/agent/models.yml` `providers.<id>` (YAML; credential as the provider's env-var NAME, which oh-omp resolves before treating it as a literal) | **none** — the derive writes a catalog and no selection key, so a selected profile makes the provider *available* and the user chooses it inside the agent |
+| copilot | no catalog (BYOK is env-var-only; no copilot config file has provider keys) | process env from the copilot pack's env derive: `COPILOT_PROVIDER_BASE_URL` (the sole activation gate), `COPILOT_PROVIDER_TYPE`, `COPILOT_PROVIDER_WIRE_API` (openai type only), `COPILOT_MODEL` (required — a provider with no resolvable alias composes nothing at all), `COPILOT_PROVIDER_API_KEY` (a placeholder for a keyless loopback endpoint), `COPILOT_PROVIDER_MAX_PROMPT_TOKENS` ← the provider's `context_window` option |
 | claude | no catalog (claude has no provider directory) | process env from the claude pack's env derive: `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `AWS_REGION`, `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL` (each tier from its own alias; opus from the profile's `model` option; claude's `[1m]` suffix appended when the provider's `context_window` option is ≥ 1000000 — the suffix is claude code's client syntax for the context-1m beta, stripped before the wire), plus three knobs composed from provider facts: `CLAUDE_CODE_AUTO_COMPACT_WINDOW` ← the provider's `context_window` option, `API_TIMEOUT_MS` ← `api_timeout_ms`, and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` on any routed (anthropic base_url) launch |
 
 The spellings are facts about each agent, source-verified and carried as provenance comments

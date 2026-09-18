@@ -1,152 +1,53 @@
 ---
-title: "The cerebras pack, and closing the copilot delivery gap"
-date: 2026-09-04
+title: "The cerebras pack and copilot delivery — graduated to the reference tree"
+date: 2026-09-18
 status: accepted
-tags: [packs, providers, profiles, cerebras, copilot, delivery]
-summary: "A second purely-declarative provider pack (Cerebras, one key, qwen-3.8-27b as the agentic main), plus the per-agent delivery audit the maintainer's ask surfaced: copilot is the one agent that can receive a provider and doesn't, and its BYOK is env-var-only — a yolo.env derive closes it. agy is unwireable and recorded as such."
+tags: [design, packs, providers, profiles, cerebras, copilot, delivery, graduated]
+summary: "A stub. The as-built account is docs/reference/cerebras-pack-and-copilot-delivery.md — provider reach per agent, copilot's env-only BYOK contract, the Cerebras pack's declarations, and every D-/OQ- ruling. This filename survives only while inbound references are repointed."
 ---
 
-# The cerebras pack, and closing the copilot delivery gap
+# The cerebras pack and copilot delivery — graduated to the reference tree
 
-**Status:** BUILT, 2026-09-09 (its last question closed 2026-09-18, `bc16e8c3`) — **GRADUATION CANDIDATE**: built, zero live questions, so its durable half belongs in a `system-doc` and this file goes away. UNMEASURED: nothing is recorded as observed running; what was
-checked is the pack as built, read back against this doc on 2026-09-05, which contradicts it twice
-(the warning below). Accepted 2026-09-04, and **re-stamped because "this doc designs what
-remains" was false: both halves shipped within a day of acceptance.** The zai-side fix this
-workstream also produced (the recommended-env alignment and the wire-true alias correction)
-shipped as `3d9b1aa2` and `8e901423`; `packs/cerebras` landed as `29aa0925` and the copilot
-`yolo.env` derive as `033eccc5`, both 2026-09-04.
+**Status:** GRADUATED, 2026-09-18 — the settled body of this doc moved to
+[`../reference/cerebras-pack-and-copilot-delivery.md`](../reference/cerebras-pack-and-copilot-delivery.md).
+Nothing is owed here.
 
-> [!WARNING]
-> **Two rulings below were overtaken on 2026-09-05, before this status was corrected.** [OQ-1](#open-questions)
-> was answered by [`wire-bridge.md`](../reference/wire-bridge.md) and the bridge SHIPPED (`434189dd`,
-> `0dfc3481`), so the pack as built contradicts this doc twice: `packs/cerebras/pack.json`
-> declares an `endpoints.anthropic` (the in-jail bridge at `127.0.0.1:8214`) where [§1](#1-packscerebras--the-second-purely-declarative-pack) says
-> declaring one "would be a lie about the service", and it carries
-> `options.context_window` where **D-4** says it should not — claude can ride cerebras now, which
-> is exactly the condition [OQ-1](#open-questions)'s row predicted would revive D-4. Read [§1](#1-packscerebras--the-second-purely-declarative-pack) and D-4 as the
-> pre-bridge design, not as the shipped pack. **[OQ-2](#decision-ledger) was live in code until 2026-09-18** and is now fixed (`bc16e8c3`), narrowed twice on the way — its ledger row carries the ruling, and the design that makes the state unreachable is [`protocol-resolution.md`](protocol-resolution.md). (The line numbers this paragraph used to cite are gone rather than updated: they were stale within days, twice.)
-> `💬` until then, so the corpus question count could not see it.
+> [!IMPORTANT]
+> **The design is BUILT, and this file is no longer where it is described.**
+> [`../reference/cerebras-pack-and-copilot-delivery.md`](../reference/cerebras-pack-and-copilot-delivery.md)
+> is the as-built account: **provider reach** per agent across all seven shipped agent CLIs,
+> including the two permanent negatives; copilot's BYOK contract and the three behaviors the
+> implementation added beyond the design; the Cerebras pack's declarations as they stand *after*
+> the wire bridge shipped; and the
+> [`## Why it's this way`](../reference/cerebras-pack-and-copilot-delivery.md#why-its-this-way)
+> appendix where every `D-` and `OQ-` id of this doc resolves.
+>
+> **Read the reference rather than this file for two claims this one got wrong**, both overtaken
+> by [`wire-bridge.md`](../reference/wire-bridge.md) before the graduation: `packs/cerebras`
+> declares an `anthropic` endpoint (this doc said declaring one "would be a lie about the
+> service"), and it carries a `context_window` option (`D-4` said it should not). Claude and
+> copilot can ride Cerebras through the bridge, which is what revived both.
 
-**The want** *(the maintainer's words, 2026-09-04, lightly compressed)*: "a pack for
-cerebras for using it as the main agentic model… qwen3.8-27b is now available for real
-agentic. I want a pack to hook up to this with just a key. Do we support injecting model
-lists into all agents? We should. And figure out which are possible on cerebras."
+**Why it still exists.** Inbound references that could not be repointed in the same commit, all in
+files held by concurrent work:
 
-## The research (all measured or source-verified 2026-09-04)
+- three links to this file's decision ledger in
+  [`protocol-resolution.md`](protocol-resolution.md), which another workflow holds;
+- one roadmap row in [`../plans/roadmap.md`](../plans/roadmap.md), which the maintainer owns;
+- seven prose citations of this path in the Go and Lua trees —
+  `packs/cerebras/README.md`, `packs/copilot/derive.lua`, `packs/claude/derive.lua`,
+  `internal/wirebridged/boot.go`, `internal/cli/run/cerebraspack_test.go`,
+  `internal/cli/run/copilotbyok_test.go` and `integration/providers_test.go`.
 
-### Cerebras the service
-
-- **Base URL** `https://api.cerebras.ai/v1`; **`POST /v1/chat/completions`** is the
-  primary surface, OpenAI-client compatible. **No `/v1/responses`** (absent from the
-  OpenAPI spec, the doc index, the changelog, and the compatibility page — four primary
-  sources). **No Anthropic-compatible endpoint** (same four; third parties route Claude
-  Code through translating proxies for exactly this reason).
-- **Auth**: `Authorization: Bearer`, conventional env `CEREBRAS_API_KEY`, keys from
-  cloud.cerebras.ai.
-- **Models** (live `/public/v1/models`): `qwen-3.8-27b` — public since **2026-09-03**,
-  agentic-coding-tuned, parallel tool calls + `strict: true` schemas + structured
-  outputs, vision, reasoning default `high` (`reasoning_effort` accepted), 64K context
-  free / 128K paid, ~1500 tok/s; `gpt-oss-120b` — 131K context, ~3000 tok/s, but
-  `parallel_tool_calls: false` and a documented "may invoke tools it wasn't given"
-  warning; `gemma-4-31b` — removed from public endpoints 2026-09-03 (the live catalog
-  lags).
-- **No official MCP server.** `cerebras-code-mcp` is a community npm package exposing
-  one `write` tool hardcoded to a deprecated model — not a channel into the lineup. (The
-  maintainer's "many of their models are through the mcp server" premise does not hold
-  for the official surface.)
-- **Cerebras Code** is a $50–200/mo subscription (currently sold out), BYO-editor; the
-  docs' own integrations index lists **OpenCode** among the officially supported tools.
-
-### The delivery audit ("do we support injecting model lists into all agents?")
-
-No — four of six. The reference doc's per-agent table (providers.md §"Per-agent
-delivery") is the authority; what it does not say in so many words is the gap:
-
-| Agent | Provider delivery today | Can ride Cerebras | Why |
-| :--- | :--- | :--- | :--- |
-| claude | env derive | **no** | no anthropic endpoint exists to point `ANTHROPIC_BASE_URL` at; a translating proxy is a different product than a provider fact |
-| codex | config derive | **no** | codex speaks `responses` only; Cerebras serves chat completions only — the same unwireable pairing as codex+zai (providers.md's recorded warning, second instance) |
-| pi | config derive | **yes** | `openai-chat-completions` → pi's `openai-completions` dialect |
-| opencode | config derive | **yes** | base-URL only; and Cerebras's own docs bless OpenCode as a client |
-| copilot | **none** | **yes, once this doc ships** | BYOK is env-var-only and first-class: `COPILOT_PROVIDER_BASE_URL` activates it, `COPILOT_PROVIDER_TYPE ∈ {openai, azure, anthropic}`, `COPILOT_PROVIDER_WIRE_API ∈ {completions, responses}`, `COPILOT_MODEL` required, `COPILOT_PROVIDER_API_KEY` optional — verified from copilot 1.0.48's own `help providers` topic (2026-08-20, local-model-endpoints.md) and re-confirmed against GitHub's BYOK docs (2026-09-04) |
-| agy | **none** | **no — unrepresentable** | Google-locked: `modelProvider` accepts exactly `gemini`; the only custom-endpoint hook (`GOOGLE_GEMINI_BASE_URL`) speaks the Gemini protocol; Claude/GPT models in its picker ride Google's backend, not custom endpoints |
-
-## The design
-
-### 1. `packs/cerebras` — the second purely-declarative pack
-
-Exactly zai's shape: one `kind: "provider"` + one `kind: "profile"` + a README; no CLI,
-no loophole, no surfaces.
-
-- `endpoints.openai`: `base_url: https://api.cerebras.ai/v1`,
-  `wire_api: openai-chat-completions`. No anthropic endpoint — declaring one would be a
-  lie about the service, and the derives already compose nothing for an absent key.
-- `api_key_env_name: CEREBRAS_API_KEY` — the conventional spelling; the value crosses
-  the same channel zai's does (env_sources or the invoking environment), never a manifest.
-- `models`: `default: qwen-3.8-27b`. **WIRE-TRUE, and only the one alias.** Not
-  `gpt-oss-120b`: the hallucinated-tool-call warning plus `parallel_tool_calls: false`
-  disqualify it from any tier an agent would use unattended, and a `fast` alias that
-  invents tool calls is worse than no `fast` alias. A user who wants it can merge it in
-  user config (`providers` is a merged-scope key); the README says so.
-- `options`: `model: "default"`. No `context_window`/`api_timeout_ms`: those exist for
-  claude's benefit (auto-compact, request ceiling), and claude cannot ride Cerebras —
-  declaring them would be dead weight that reads as promise. Cerebras is fast enough
-  (~1500 tok/s) that no timeout knob is warranted.
-- Profile `cerebras`, provider `cerebras`. Name refuses `=` (packdecl rule), and it
-  doesn't contain one.
-
-The pack's README carries the delivery table above (with copilot's row reflecting the
-derive below) and the credential-refusal contract: select the pack without
-`CEREBRAS_API_KEY` hydrated and the launch preflight refuses (catalog membership, [OQ-PT4](../reference/providers.md#why-its-this-way)).
-
-### 2. `packs/copilot/derive.lua` — the fifth delivery
-
-A `yolo.env("copilot", …)` producer, same rules as claude's:
-
-- **Endpoint resolution**: prefer `endpoints.anthropic` (copilot's `anthropic` type);
-  else `endpoints.openai` (type `openai`). The `azure` type has no canonical spelling
-  and no yolo provider would declare one — nothing to do.
-- **Dialect map** (canonical → copilot's spellings, with provenance in the comment, per
-  house style): `anthropic` → `COPILOT_PROVIDER_TYPE=anthropic` (no WIRE_API);
-  `openai-chat-completions` → `TYPE=openai`, `WIRE_API=completions`;
-  `openai-responses` → `TYPE=openai`, `WIRE_API=responses`; absent wire_api → copilot's
-  own default (`completions`). Unspeakable: nothing (copilot speaks both surviving
-  protocols — the one agent for which no canonical value is unspeakable).
-- **Model**: `COPILOT_MODEL` = the id under the alias the profile's `model` option
-  names, falling back to `default` — the same resolution rule every other derive uses.
-  Copilot refuses BYOK without a model, so a provider declaring no models composes
-  nothing at all (activation without a model is a copilot-side refusal; yolo should not
-  arm it).
-- **Key**: `COPILOT_PROVIDER_API_KEY` from the hydrated `api_key`, when present.
-- **WIRE_MODEL note**: the ids are sent verbatim (copilot has no `[1m]`-style syntax),
-  which the wire-true alias rule (`8e901423`) already guarantees.
-
-Census consequences: copilot's README row in every provider pack's delivery table stops
-saying "no provider delivery"; providers.md's per-agent table gains the copilot row and
-an agy verdict line; the zai README's "copilot and agy ship no provider delivery"
-paragraph splits (copilot now does; agy still doesn't and never can).
-
-### 3. What is deliberately NOT in scope
-
-- **A claude↔Cerebras translation proxy** (Bifrost-style): claude riding Cerebras needs
-  an anthropic-wire translator, which is a running service, not a provider fact. If
-  wanted later it is a loophole-shaped pack, decided by its own doc. [OQ-1](#open-questions) below.
-- **gpt-oss-120b / gemma-4-31b aliases**: see the models ruling above.
-- **agy delivery**: unrepresentable; recorded, not worked around. Revisit if agy ever
-  ships an openai-compatible provider hook.
-
-## Open questions
-
-**None.** All three are ruled and compacted into the [ledger](#decision-ledger) below.
+Point each of them at
+[`../reference/cerebras-pack-and-copilot-delivery.md`](../reference/cerebras-pack-and-copilot-delivery.md)
+(the ledger citations at its
+[`#why-its-this-way`](../reference/cerebras-pack-and-copilot-delivery.md#why-its-this-way) anchor)
+and **delete this file**, which is what the graduation would otherwise have done here.
 
 ## Decision ledger
 
-| ID | Ruling | Why |
-| :--- | :--- | :--- |
-| D-1 | cerebras ships ONE model alias, `default: qwen-3.8-27b` | it is the only public model fit for unattended agentic use; a hallucination-prone `fast` tier is a footgun, and user config can add aliases where the pack refuses |
-| D-2 | copilot's delivery is env-only (`yolo.env`), no config surface | copilot's BYOK is env-var-only by its own `help providers` topic — there is no file key to write |
-| D-3 | copilot's derive prefers the anthropic endpoint when both exist | zai is the worked example: the anthropic route is the richer surface (tier translation), and type=anthropic is copilot's first-class spelling for it |
-| OQ-2 | **Take the one-line fix now rather than waiting for the resolver.** `if p.api_key` fired whether or not a base URL had been composed, so a provider naming a NON-anthropic protocol and carrying a key sent it to `api.anthropic.com`. The condition now reads the DECLARATION rather than the absence of a URL, because three shapes reach that producer and only the middle one is wrong — an anthropic endpoint is routed and its key belongs with it; a provider naming NO endpoint has repointed nothing, which is the BYO-key launch and stays correct; a provider that named a protocol and not ours is one claude cannot reach. INTERIM BY DESIGN: [`protocol-resolution.md`](protocol-resolution.md) makes the state unreachable, and that branch is then deleted rather than reworked | ✅ `bc16e8c3` |
-| OQ-1 | **Yes — ship a claude-wire translation proxy**, as the `wire-bridge` pack joined by new pack-dependency vocabulary (`needs` + `when_bins`) | ruled 2026-09-04 and SHIPPED (`434189dd`, `0dfc3481`); it is what gave cerebras an `endpoints.anthropic` and so revived D-4, which this doc's [§1](#1-packscerebras--the-second-purely-declarative-pack) and D-4 predate. [`wire-bridge.md`](../reference/wire-bridge.md) is the reference |
-| OQ-3 | **The README states the rate limits** — the free tier's 5 req/min beside the Developer-tier numbers | a pack whose free tier cannot sustain an agent loop must say so where the user chooses it, not in a design doc |
-| D-4 | no `context_window`/`api_timeout_ms` on cerebras | both options exist solely as claude-derive inputs; claude cannot ride cerebras, and dead options read as promises |
+**Moved.** Every `D-` and `OQ-` ruling now lives in
+[`../reference/cerebras-pack-and-copilot-delivery.md`](../reference/cerebras-pack-and-copilot-delivery.md#why-its-this-way)'s
+*Why it's this way* appendix, with its original id. This heading survives only so the ledger
+citations named above keep resolving until they are repointed; it goes with the rest of this file.
