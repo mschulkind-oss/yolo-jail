@@ -424,10 +424,40 @@ What I would build, in order (status verified 2026-08-23):
    2026-09-18 and now buildable**: a `[SKIP]` level with its own counter, excluded from the pass
    tally, applied to all ten sites, plus a way to say "this is a fact about the host, not about
    you" for the two siblings. `sections_loopholes.go:23` is unchanged.
-4. 📦 **Port `svcendpoint` to `crypto/x509`** — [OQ-1](#7-open-questions) ruled 2026-09-18 that this is WORK, not a
-   record of owed work, precisely because the bake landing first is the situation its own leaning
-   warned about: the dependency is satisfied, the pressure to retire it is gone, and a written
-   record of a deferral is still a deferral. It also retires the half of the original defect that
-   the bake did not touch — `EnsureCAAndLeaf` writing long-lived `ca.key`/`server.key` to disk.
+4. ✅ **Port the broker's cert minting to `crypto/x509`** — [OQ-1](#7-open-questions) ruled 2026-09-18 that this is
+   WORK, not a record of owed work, precisely because the bake landing first is the situation its
+   own leaning warned about: the dependency is satisfied, the pressure to retire it is gone, and a
+   written record of a deferral is still a deferral. **Shipped 2026-09-18.**
+
+   > [!WARNING]
+   > **This item said "port `svcendpoint`", and that was the wrong package.**
+   > [`internal/svcendpoint`](../../internal/svcendpoint/cert.go) has always minted with
+   > `crypto/x509` — [§1.1](#11-the-repo-already-knew-this-was-the-wrong-shape) holds it up as the
+   > model, and the same line cannot also be the thing needing a port. The subject was always
+   > `EnsureCAAndLeaf` in [`internal/oauthbroker/cert.go`](../../internal/oauthbroker/cert.go),
+   > which is what [OQ-1](#7-open-questions)'s own answer names.
+
+   What landed: `resolveOpenssl`, `runOpenssl` and the five-exec `--init-ca` script are deleted,
+   and the CA + leaf are minted in-process as P-256 (the old pair was RSA-4096/RSA-2048, whose
+   keygen in Go has a tail long enough to threaten `broker.BrokerSpawnTimeout`). `ca.srl`,
+   `leaf.cnf` and `server.csr` are gone with the tool that needed them.
+
+   **Two halves of the on-disk claim, because they are not the same:**
+
+   | Key | After the port | Why |
+   | :--- | :--- | :--- |
+   | The **CA** private key | ✅ Never touches disk | Nothing ever read it back. It was written only because `openssl x509 -req -CAkey` needs a path. It is the anchor every jail on the host trusts, so on disk it is a standing authority to impersonate any host to any jail — the half of issue #33 the bake could not fix |
+   | The **leaf** private key | ❌ Still on disk, necessarily | `server.key` is bind-mounted into the jail because `yolo-jaild oauth-terminator` — a different process in a different namespace — serves TLS with it. Removing it means the jail minting its own leaf, which is a redesign of the loophole and [§6](#6-what-this-does-not-license) does not license one |
+
+   An **upgrading host re-mints**: a surviving `ca.key` forces regeneration, so the port retires
+   the key on the machines that actually have one rather than only on fresh ones. Safe for running
+   jails — the three files are bind-mounted by INODE, so a running jail keeps the complete old
+   trio while the next launch binds a complete new one.
+
+   **The `openssl` bake stays, and not only because [OQ-1](#7-open-questions) said so:** the binary has two other
+   callers that have nothing to do with this document — `internal/macosuser`'s
+   `openssl rand -base64 32` for the sandbox identity's password, and the generated `sha256sum`
+   shim's fallback in `internal/entrypoint`. What the port removes is the bake's only INVISIBLE
+   consumer, which is what made its absence cost months.
 
 Not sequenced here: anything about the reachability witness. It did its job.

@@ -21,8 +21,7 @@ type selfCheckLine struct {
 
 // SelfCheck is the `yolo doctor` health check behind the broker loophole's
 // doctor_cmd. Distinguishes fail (rc=1), warn (rc=0 + NOTE lines), and ok (rc=0).
-// Emits FAIL:/NOTE:/OK: lines; openssl is only a failure when CA/leaf state is
-// missing. Prints to stdout and returns the exit code.
+// Emits FAIL:/NOTE:/OK: lines. Prints to stdout and returns the exit code.
 //
 // The shared-credentials FRESHNESS grading lives here, and that is the whole
 // point of this function existing rather than `yolo check` doing it: `check`
@@ -41,18 +40,18 @@ func SelfCheck(credsPath string) int {
 		lines = append(lines, selfCheckLine{grade: "NOTE", title: title, detail: detail})
 	}
 
-	missingState := false
+	// Missing CA/leaf state is a NOTE and nothing stronger. It used to be able to
+	// escalate to a FAIL — "openssl not on PATH and no CA/leaf state yet" — and
+	// that line is gone with the dependency it named: minting is crypto/x509 now
+	// (cert.go), so there is no longer any host condition under which `--init-ca`
+	// cannot run. The grade is also no longer a function of the host's PATH, which
+	// is what made this check's exit code differ between two machines in the same
+	// state.
 	if !isFile(caCrt(dir)) {
 		note(caCrt(dir)+" not yet generated — run `--init-ca` or `just deploy`", "")
-		missingState = true
 	}
 	if !isFile(serverCrt(dir)) {
 		note(serverCrt(dir)+" not yet generated — run `--init-ca` or `just deploy`", "")
-		missingState = true
-	}
-	if resolveOpenssl() == "" && missingState {
-		lines = append(lines, selfCheckLine{grade: "FAIL",
-			title: "openssl not on PATH and no CA/leaf state yet — install openssl so `--init-ca` can run"})
 	}
 
 	lines = append(lines, gradeSharedCreds(credsPath, time.UnixMilli(nowMS()))...)

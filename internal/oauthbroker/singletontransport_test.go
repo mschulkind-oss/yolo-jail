@@ -1,6 +1,7 @@
 package oauthbroker
 
 import (
+	"crypto/x509"
 	"encoding/binary"
 	"io/fs"
 	"net"
@@ -43,7 +44,7 @@ func TestMain(m *testing.M) {
 // construction — including about a format change that breaks every already-running
 // front on the host.
 func TestSingletonSocketIsAFrontedUnixSocket(t *testing.T) {
-	sock, sb, stop := startSingleton(t)
+	sock, _, sb, stop := startSingleton(t)
 	defer stop()
 
 	st, err := os.Lstat(sock)
@@ -102,7 +103,7 @@ func TestSingletonSocketIsAFrontedUnixSocket(t *testing.T) {
 // daemon that died or wedged on the probe would be respawned by brokerEnsure on
 // every launch — and the probe runs at least twice per launch.
 func TestSingletonSurvivesABareConnectAndClose(t *testing.T) {
-	sock, sb, stop := startSingleton(t)
+	sock, _, sb, stop := startSingleton(t)
 	defer stop()
 
 	for i := 0; i < 3; i++ {
@@ -128,6 +129,54 @@ func TestSingletonSurvivesABareConnectAndClose(t *testing.T) {
 	}
 }
 
+// TestSingletonMintsItsCAOnAVirginStateDir pins THE CALL SITE, which is the half
+// of this the cert tests cannot reach.
+//
+// internal/oauthbroker/cert_test.go proves EnsureCAAndLeaf mints a chain a jail
+// will trust; every one of those tests stays green if Main stops calling it,
+// because a broker with no certificates still binds its socket and still answers
+// a ping — which is precisely the shape of failure this document is about, three
+// layers between the fault and its report. So this one runs the REAL entry point
+// on an EMPTY state dir and then reads the dir.
+//
+// It is also the first automated exercise of the path that was dead for months:
+// a broker process, started the way `yolo run` starts it, minting from nothing.
+func TestSingletonMintsItsCAOnAVirginStateDir(t *testing.T) {
+	sock, state, sb, stop := startSingleton(t)
+	defer stop()
+
+	if _, err := os.Lstat(sock); err != nil {
+		t.Fatalf("the singleton published nothing at --socket %s in 10s: %v\ndaemon output:\n%s",
+			sock, err, sb())
+	}
+
+	// The three files a jail mounts, all minted by the daemon itself.
+	for _, name := range []string{"ca.crt", "server.crt", "server.key"} {
+		if !isFile(filepath.Join(state, name)) {
+			t.Fatalf("the daemon bound its socket but never wrote %s into %s.\n"+
+				"Main must ensure the CA/leaf before serving: a jail mounts these three "+
+				"files at launch, so a broker that serves without them hands every jail a "+
+				"missing trust anchor.\ndaemon output:\n%s", name, state, sb())
+		}
+	}
+	// And the CA's private key is not among them, from a real daemon rather than
+	// from a direct call in-process.
+	if isFile(filepath.Join(state, "ca.key")) {
+		t.Error("the daemon wrote ca.key — the CA's private key must never reach the disk")
+	}
+
+	ca := readCert(t, filepath.Join(state, "ca.crt"))
+	leaf := readCert(t, filepath.Join(state, "server.crt"))
+	roots := x509.NewCertPool()
+	roots.AddCert(ca)
+	if _, err := leaf.Verify(x509.VerifyOptions{
+		DNSName: UpstreamHost, Roots: roots,
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}); err != nil {
+		t.Errorf("the pair the running daemon minted does not verify: %v", err)
+	}
+}
+
 // framed wraps a JSON body in the request framing both the preamble and a
 // frameproto request use: 4-byte big-endian length, then the body.
 func framed(body string) []byte {
@@ -138,21 +187,24 @@ func framed(body string) []byte {
 }
 
 // startSingleton runs the REAL production entry point as a child process and waits
-// for its socket to appear. Returns the socket path, an accessor for the daemon's
-// combined output (for failure messages) and a stop func.
-func startSingleton(t *testing.T) (string, func() string, func()) {
+// for its socket to appear. Returns the socket path, the state dir it was given,
+// an accessor for the daemon's combined output (for failure messages) and a stop
+// func.
+//
+// THE STATE DIR IS VIRGIN, and that is a change the crypto/x509 port paid for.
+// It used to be seeded with four dummy files so EnsureCAAndLeaf would
+// short-circuit on isFile() and the test would need no external binary — which
+// meant the one harness that runs the real daemon deliberately skipped the step
+// that killed the real daemon 2,549 times
+// (docs/design/broker-ca-and-nested-hosts.md). Minting is in-process now, so the
+// daemon does it for real here, and TestSingletonMintsItsCAOnAVirginStateDir
+// below is what reads the result.
+func startSingleton(t *testing.T) (string, string, func() string, func()) {
 	t.Helper()
 	dir := t.TempDir()
 	state := filepath.Join(dir, "state")
 	if err := os.MkdirAll(state, 0o700); err != nil {
 		t.Fatal(err)
-	}
-	// Dummy CA/leaf so EnsureCAAndLeaf short-circuits on isFile() and the test
-	// needs no openssl. The daemon never reads them on this path.
-	for _, f := range []string{"ca.crt", "ca.key", "server.crt", "server.key"} {
-		if err := os.WriteFile(filepath.Join(state, f), []byte("x"), 0o600); err != nil {
-			t.Fatal(err)
-		}
 	}
 	// 0700, i.e. the FRIENDLIEST possible directory. The production path is
 	// /tmp/yolo-claude-oauth-broker.sock, whose parent is 1777 — strictly harder.
@@ -194,7 +246,7 @@ func startSingleton(t *testing.T) (string, func() string, func()) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	return sock, out, stop
+	return sock, state, out, stop
 }
 
 // lockedWriter serializes the child's stdout and stderr into one buffer that the

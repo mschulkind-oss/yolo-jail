@@ -149,8 +149,10 @@ func captureSelfCheckStdout(t *testing.T, body func()) string {
 
 // primeBrokerState points BrokerDir() at a temp dir holding a CA and leaf, so SelfCheck's
 // certificate half grades clean and the assertions below are about the credential half only.
-// Without the files the openssl branch can add a FAIL on a machine without openssl, which
-// would make this test's exit code depend on the host's PATH.
+// Without the files the certificate half adds NOTE lines, which changes the summary line
+// these tests read. It used to matter more: a missing-CA state could escalate to a FAIL on
+// a machine with no openssl, so the exit code depended on the host's PATH. Cert minting is
+// crypto/x509 now (cert.go) and that branch is gone with the dependency it named.
 func primeBrokerState(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()

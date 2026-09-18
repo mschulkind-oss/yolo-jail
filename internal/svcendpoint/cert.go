@@ -37,10 +37,16 @@ const certSkewSlack = time.Hour
 // process is CORRECT, not a compromise: the client re-reads the published cert on
 // every dial, so a restarted listener is picked up transparently.
 //
-// Do NOT reuse internal/oauthbroker/cert.go here. It shells out to openssl and
-// writes ca.key/server.key to disk, which is structurally incompatible with the
-// above — and the broker CA must not be the trust anchor in any case (issue #33:
-// its private key rode a whole-directory mount into every jail).
+// Do NOT reuse internal/oauthbroker/cert.go here — the verdict is unchanged and
+// one of its two reasons is not. That code shelled out to openssl until the
+// crypto/x509 port (docs/design/broker-ca-and-nested-hosts.md §8 item 4), so THAT
+// half of the objection is spent; its CA private key no longer touches disk
+// either. What remains is the half that was always the stronger one: it writes a
+// long-lived LEAF key to disk because a jail-side process serves TLS with it, and
+// the broker CA must not be this transport's trust anchor in any case (issue #33:
+// its private key rode a whole-directory mount into every jail). A key that is
+// mounted anywhere is a key a jail can impersonate the listener with, which is
+// exactly what the paragraph above rules out.
 //
 // IsCA: true on a self-signed leaf looks wrong and is kept deliberately, as an
 // INTEROP guard rather than a Go requirement.
