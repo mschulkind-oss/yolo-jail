@@ -974,5 +974,5 @@ that fired and the risk that exists BECAUSE the fallback is gone.
    > [OQ-LS3](./the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger), which was blocked
    > on a config-identity key. The maintainer's *"no undo"* ruling set the superseded count to zero,
    > and a grouping key is only needed when a group has more than one member — so that step is
-   > unblocked, and its mechanism is that doc's [§6.2](./the-load-sentinel-is-not-a-liveness-oracle.md#62-retention-after-the-two-rulings).
+   > unblocked, and its mechanism is that doc's [the per-workspace current pointer](../reference/image-retention.md#image-retention--one-pointer-per-workspace).
 

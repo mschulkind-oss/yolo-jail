@@ -1140,7 +1140,7 @@ row cannot carry them.
    > **One correction to "ditch it totally", so the next reader does not over-apply the ruling.**
    > That doc explicitly does **not** delete the sentinel: it keeps its MRU role for nix GC-root
    > retention and for the human-readable "why did this load?" diagnosis, and says so in its
-   > [§7](./the-load-sentinel-is-not-a-liveness-oracle.md#7-what-this-does-not-propose). What is
+   > [what it does not license](../reference/image-retention.md#what-this-does-not-license). What is
    > being ditched is the sentinel's **authority over liveness**. Whether the GC-root half loses it
    > too is that doc's [OQ-LS1](./the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger), and it
    > belongs there rather than here.

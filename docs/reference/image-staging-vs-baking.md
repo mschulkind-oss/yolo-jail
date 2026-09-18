@@ -514,7 +514,7 @@ a jail can legitimately run one whose load was many launches ago.
 
 Per-config content tags armed a prune pass that had never fired. `PruneOldImages` filters by
 repository and removes with `rmi -f`; while one tag named everything the query returned one row
-and the global keep-window of the day could select nothing (that window is gone — see [`OQ-LS3`](../design/the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger)). With a row per name it could select a second workspace's live
+and the global keep-window of the day could select nothing (that window is gone — see [`OQ-LS3`](image-retention.md#why-its-this-way)). With a row per name it could select a second workspace's live
 image, so the same change deduplicated by image ID and added a liveness veto read from the
 sentinel, later hardened to decline when the ledger cannot be read. The retention *number* and
 its trigger belong to [`../design/minimal-disk-footprint.md`](../design/minimal-disk-footprint.md).
@@ -617,7 +617,7 @@ would make the derivation vary per build and destroy content addressing. Two con
 Re-delivering the *same* store path no longer mints a new image ID, so the duplicate-row class
 the reaper used to price is gone. And every yolo-jail image now reports the same `CreatedAt` —
 which was the sort key prune's keep window ordered by, until
-[`OQ-LS3`](../design/the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger) deleted
+[`OQ-LS3`](image-retention.md#why-its-this-way) deleted
 that window outright and made `protected` the entire retention rule.
 
 On success the launch records the store path in the sentinel and, host-side only, registers a

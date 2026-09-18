@@ -141,7 +141,7 @@ never by age, because a bundle a running jail has bind-mounted is pinned by an
 inode no age can see. The TRI-STATE half of that is universal here —
 "unreferenced" and "I could not ask the runtime" are the same empty answer, so a
 reaper that cannot ask declines rather than sweeping. ⚠ **The liveness half is
-NOT universal, and one reaper deliberately inverts it:** [`OQ-LS1`](./docs/design/the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger) ruled the nix
+NOT universal, and one reaper deliberately inverts it:** [`OQ-LS1`](./docs/reference/image-retention.md#why-its-this-way) ruled the nix
 GC-root reaper to a pure ONE-WEEK AGE cutoff with no liveness veto, against the
 leaning, because liveness is a wrong predictor in both directions there — a jail
 stopped five seconds ago is not live, and a jail up three weeks pins a closure
