@@ -850,6 +850,41 @@ Re-check these before quoting them; everything here moved within the last six mo
    **Answer:**
    > _(empty — fill in when decided)_
 
+3. 💬 **OQ-AS3: Should `mounts` and `env_sources` become user-scope-only?**
+
+   <!-- vantage: oq id=OQ-AS3 leaning="Yes for env_sources at least — source-bearing host_files is already user-scope-only for exactly this reason, and env_sources reaches the same host files by another name." -->
+
+   *(Opened 2026-09-18 by the maintainer while reading this comparison's trust-boundary
+   section, and verified against `internal/config` before filing.)*
+
+   Stakes: the comparison's sharpest finding about Safehouse is that they gate a repo-supplied
+   policy behind explicit per-directory trust while yolo honours a repo-committed
+   `yolo-jail.jsonc`. The recommendation there was a SCOPE rule rather than a trust prompt —
+   and the tree turns out to apply that rule unevenly. `packs`, `profiles`/`use_profiles`,
+   source-bearing `host_files`, loophole `settings` and a provider's `base_url` are each refused
+   in a workspace config by ruling, because that file is agent-editable and travels with the
+   repo. **`mounts` and `env_sources` are not: neither has a workspace-scope refusal anywhere in
+   `internal/config` (verified 2026-09-18).** So a repo-committed config can name a host
+   directory to mount at `/ctx` and a host dotenv whose values become the jail's environment,
+   disclosed only by the config-change diff.
+
+   `env_sources` is the sharper half: source-bearing `host_files` is user-scope-only precisely
+   because it carries host bytes into the jail, and `env_sources` reaches the same class of host
+   file by another name — the shipped example is `~/.config/claude/env`.
+
+   The counter-argument is real and should be answered rather than assumed away: yolo's stated
+   boundary is DISCLOSURE, not consent ([`OQ-TP9`](../design/trust-paths.md#decision-ledger)),
+   and the config-change prompt does disclose. The question is whether these two keys belong in
+   the set where disclosure was already judged insufficient.
+
+   _Leaning:_ Yes for `env_sources`, on the `host_files` precedent — the same authority under a
+   different key name should not have a different scope. Less certain for `mounts`, where the
+   host path is visible in the diff and the jail gets it read-only; that one may be genuinely
+   fine as disclosure.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
 ---
 
 ## 13. Sources
