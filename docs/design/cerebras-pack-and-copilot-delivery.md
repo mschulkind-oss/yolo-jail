@@ -24,10 +24,7 @@ shipped as `3d9b1aa2` and `8e901423`; `packs/cerebras` landed as `29aa0925` and 
 > declaring one "would be a lie about the service", and it carries
 > `options.context_window` where **D-4** says it should not — claude can ride cerebras now, which
 > is exactly the condition [OQ-1](#open-questions)'s row predicted would revive D-4. Read [§1](#1-packscerebras--the-second-purely-declarative-pack) and D-4 as the
-> pre-bridge design, not as the shipped pack. **[OQ-2](#oq-2) is still live in code** — re-verified
-> 2026-09-09: [`packs/claude/derive.lua`](../../packs/claude/derive.lua) lines 60-62 emit
-> `ANTHROPIC_AUTH_TOKEN` from `api_key` alone, ungated by the `routed` flag lines 55-58 set only
-> when `endpoints.anthropic.base_url` exists. It is countable below as of 2026-09-09; it carried no
+> pre-bridge design, not as the shipped pack. **[OQ-2](#oq-2) is still live in code**, narrowed twice since — see its block below; the design that answers it now lives in [`protocol-resolution.md`](protocol-resolution.md). (The line numbers this paragraph used to cite are gone rather than updated: they were stale within days, twice.)
 > `💬` until then, so the corpus question count could not see it.
 
 **The want** *(the maintainer's words, 2026-09-04, lightly compressed)*: "a pack for
@@ -140,118 +137,43 @@ paragraph splits (copilot now does; agy still doesn't and never can).
 
 ## Open questions
 
-| OQ | Question | Status |
-| :--- | :--- | :--- |
-| [OQ-1](#open-questions) | Should yolo ever ship a claude-wire translation proxy so claude can ride chat-completions-only providers? | **In design** — answered by [`wire-bridge.md`](../reference/wire-bridge.md) (2026-09-04): a `wire-bridge` pack included through new real pack-dependency vocabulary (`needs` + `when_bins`, ruled by the maintainer that day), and revisits D-4 below (the `context_window` option becomes live the day claude can ride the bridge) |
-| [OQ-2](#oq-2) | The claude derive emits `ANTHROPIC_AUTH_TOKEN` even when the provider has no anthropic endpoint — selected-for-claude + openai-only provider sends a wrong-token credential to api.anthropic.com. Gate the token on the URL? | **💬 LIVE**, [in full below](#oq-2) — pre-existing recorded behavior, not this doc's change. Its cerebras trigger is GONE (the bridge gave cerebras an anthropic endpoint, so it routes); the live trigger is now a user-declared provider, verified 2026-09-09 |
-| [OQ-3](#open-questions) | Cerebras's free tier is 5 req/min — thin for an agent loop. Does the pack README say so? | Resolved in the README: yes, with the Developer-tier numbers beside it |
+Two of the three are answered and have moved to the [ledger](#decision-ledger) below. What is
+left is one live question, and most of what used to sit under it has moved as well.
 
 ### <a id="oq-2"></a>💬 **[OQ-2](#oq-2)** — does the claude derive gate `ANTHROPIC_AUTH_TOKEN` on an anthropic endpoint existing?
 
-Given its own countable block on 2026-09-09 for one reason: the table above said `OPEN` in plain
-words, so the corpus-wide live-question sweep could not see it and neither could anyone grepping for
-`💬`. Nothing about the doc's status changes — the rest of it is history.
+**The defect, re-verified 2026-09-18.** In [`packs/claude/derive.lua`](../../packs/claude/derive.lua),
+`if p.api_key then out.ANTHROPIC_AUTH_TOKEN = p.api_key` fires whether or not a base URL was
+composed. So a provider that declares a NON-anthropic protocol and no top-level `base_url`, and
+carries a key, sends that key to `api.anthropic.com`. The inverse is already handled a few lines
+below — `elseif routed` substitutes a dummy token so a routed launch is never keyless — which
+makes this the missing half of a rule the file already keeps.
 
-**What the code says (re-verified 2026-09-18 — and the 2026-09-09 reading below is now WRONG
-in the part that named the live trigger).**
+**No shipped pack reaches it.** `packs/zai` and `packs/cerebras` both declare an
+`endpoints.anthropic`, and `packs/claude`'s own `bedrock` provider declares no
+`api_key_env_name`, so nothing composes. Two earlier accounts of the live trigger are now
+wrong and are recorded as wrong rather than deleted, because each would send a reader hunting a
+case that no longer exists: the **cerebras** trigger went when the bridge gave cerebras an
+anthropic endpoint (2026-09-05), and the **user-shorthand** trigger went on 2026-09-16, when
+`af71aa3c` taught the derive an `elseif p.base_url` fallback that honours the shorthand — so that
+user now gets their URL along with their key.
 
-> [!WARNING]
-> **The shorthand branch closed the trigger this question was filed for.** `af71aa3c`
-> (2026-09-16) gave the derive an `elseif p.base_url` fallback that honours the user's
-> single-protocol shorthand — stripping a trailing `/v1` and setting `ANTHROPIC_BASE_URL` — so
-> a user-declared provider with a bare `base_url` now gets its URL AND its key, which is shape
-> A by another spelling. The paragraph below, and the ⚠ further down that calls the shorthand
-> *"the live trigger"*, both predate it.
->
-> **What survives is narrower and still real:** a provider that declares a NON-anthropic
-> protocol (`endpoints.openai`) and no top-level `base_url`, carrying a key. `baseUrl` stays
-> nil, `routed` stays false, and `if p.api_key` fires anyway — the key goes to
-> `api.anthropic.com`. That is shape B alone, and no shipped pack reaches it.
+**The design that answers this moved.** The three provider shapes, the upstream
+protocol-compatibility gate, the adapter resolution and the shorthand's deletion are all
+[`protocol-resolution.md`](protocol-resolution.md)'s, ruled there on 2026-09-18 — its
+[P4](protocol-resolution.md#1-the-verdict-and-the-principles-it-rests-on) is the general form of
+this question's answer: *a credential travels with the address it was minted for, or not at all.*
 
+**What is left here is a sequencing call, not a design one.** That doc's build order makes the
+one-line `elseif` its step 1, independent of everything else, precisely so the leak can close
+before the resolver exists. The question is whether to take it now or wait for step 3, where the
+state stops being reachable at all.
 
-[`packs/claude/derive.lua`](../../packs/claude/derive.lua) sets a `routed` flag only when
-`p.endpoints.anthropic.base_url` is present (lines 55-58), and then emits the credential from a
-branch that never consults it:
+<!-- vantage: oq id=OQ-2 leaning="Take the one-liner now: it is correct on its own terms, it ships today, and step 3 deletes the branch rather than conflicting with it." -->
 
-```lua
-if p.api_key then
-  out.ANTHROPIC_AUTH_TOKEN = p.api_key
-end
-```
-
-So a selected provider carrying a hydrated key but no anthropic endpoint leaves claude with a
-third-party token and claude's own default base URL — the credential goes to `api.anthropic.com`.
-No preflight refuses that pairing; `ANTHROPIC_AUTH_TOKEN` appears nowhere in `internal/` at all.
-The same behaviour used to be recorded from the other side in `zai-plumbing.md` — *"claude's derive
-drops the URL and composes the token alone"* — but that doc graduated to
-[`../reference/zai-plumbing.md`](../reference/zai-plumbing.md) on 2026-09-09 and the sentence was
-cut with it, as an unresolved gap rather than an as-built fact. This section is now its only
-record; for what the derive emits when the endpoint *is* present, see
-[`../reference/providers.md`](../reference/providers.md#per-agent-delivery).
-
-> [!WARNING]
-> **The trigger this doc named is gone; the question is not.** No shipped pack reaches the leak any
-> more — `packs/zai` and `packs/cerebras` both declare an `endpoints.anthropic` (cerebras's is the
-> wire-bridge's loopback address, which is what the warning at the top of this doc is about), and
-> `packs/claude`'s own `bedrock` provider declares no `api_key_env_name`, so `p.api_key` is nil and
-> nothing composes. **The live trigger is a USER-declared provider**, which is the shape the
-> single-protocol `base_url` shorthand produces: that spelling names no protocol, claude's derive
-> finds no `endpoints.anthropic`, and it composes the token alone. Do not close this question on the
-> evidence that the shipped packs are safe.
-
-**The question, stated against the shapes it is about.** `endpoints` and `api_key_env_name` are
-both optional ([`contributes.go`](../../internal/packdecl/contributes.go)), so a provider carrying an
-Anthropic key can declare its endpoints three ways — and **`ANTHROPIC_AUTH_TOKEN` is emitted for all
-three today**. The question is which of them that is wrong for:
-
-| | The provider declares | Emitting the token is | Because |
-| :--- | :--- | :--- | :--- |
-| **A** | `endpoints.anthropic` | **correct** | the key and the endpoint agree; this is the ordinary routed case |
-| **B** | `endpoints.openai`, and no `anthropic` | **THE DEFECT** | the provider has said where it lives and it is not Anthropic, so an Anthropic key is being handed to a non-Anthropic endpoint |
-| **C** | no `endpoints` at all | **correct** | a deliberate first-party BYO-key launch against Anthropic's own API — nothing was repointed |
-
-**Why this is a ruling and not a bug fix: C is indistinguishable from B by URL alone.** A gate that
-asks "is there an anthropic endpoint?" answers *no* for both, so it fixes B by breaking C. The
-answer has to key on what the provider SAID, not on what is missing.
-
-⚠ **No shipped pack reaches B** (see the warning above) — the live trigger is a user-declared
-provider, which is exactly what the single-protocol `base_url` shorthand produces.
-
-_Leaning:_ **suppress the token for shape B only, and state it as a PAIR rule.** Emit when the
-provider names the `anthropic` protocol (A) or names no protocol at all (C); suppress when it
-names `openai` and not `anthropic` (B). That is narrower than the table's *"gate the token on the
-URL"*, which would also break C.
-
-**The rule generalises, and the derive already keeps half of it.** A few lines below the defect,
-`elseif routed` substitutes a dummy `"local"` token precisely so a routed launch is never sent
-without one. The missing half is its mirror: **do not emit a credential when you did not emit the
-address it was minted for.** Written that way it is one `elseif`, it explains itself at the call
-site, and it is the same principle as
-[`config-target-resolution.md`](config-target-resolution.md#1-the-verdict-and-the-principles-it-rests-on)'s
-P6 — never split a pair that only means something together.
-
-**⚠ A SECOND, UPSTREAM ANSWER WAS RAISED IN REVIEW (2026-09-18) AND IS NOT THE SAME QUESTION.**
-*"Selecting a provider whose protocol the agent does not speak should already be an error"* — and
-as a product statement that is right: shape B is a misconfiguration, not a case to handle. The
-useful message is not silence but a refusal naming the remedy, because an openai-protocol provider
-CAN serve claude — through the wire bridge, which is exactly how `packs/cerebras` does it (its
-`endpoints.anthropic` is the bridge's loopback address).
-
-Two things constrain where that check may live, and they are why it is a separate ruling rather
-than a better spelling of this one:
-
-- [`OQ-CS8`](../reference/providers.md#why-its-this-way) ruled that **core holds no agent→protocol
-  table** — each agent pack composes the binding in its own derive. So the gate cannot be core
-  knowing that claude speaks anthropic. It has to be a DECLARATION (the agent pack states the
-  protocol its program requires) that core enforces generically — the shape
-  `required_capabilities` already has, gated in the run pre-flight and predicted by `yolo check`.
-- It closes B **structurally** rather than defensively, but it does not remove the need for the
-  pair rule: a derive that emits a credential without its address is wrong whatever validated the
-  selection, and the gate is user-scope config while the derive also runs at the host notch.
-
-So they compose: the pair rule is the one-line fix for the defect, and the declaration gate is the
-product change that makes B unrepresentable and tells the user about the bridge. Ruling either
-does not settle the other.
+_Leaning:_ **take it now.** It is correct on its own terms, it costs one `elseif`, and the
+resolver does not conflict with it — step 3 removes the branch that made the state reachable, so
+the interim fix is deleted rather than reworked.
 
 **Answer:**
 > _(empty — fill in when decided)_
@@ -263,4 +185,6 @@ does not settle the other.
 | D-1 | cerebras ships ONE model alias, `default: qwen-3.8-27b` | it is the only public model fit for unattended agentic use; a hallucination-prone `fast` tier is a footgun, and user config can add aliases where the pack refuses |
 | D-2 | copilot's delivery is env-only (`yolo.env`), no config surface | copilot's BYOK is env-var-only by its own `help providers` topic — there is no file key to write |
 | D-3 | copilot's derive prefers the anthropic endpoint when both exist | zai is the worked example: the anthropic route is the richer surface (tier translation), and type=anthropic is copilot's first-class spelling for it |
+| OQ-1 | **Yes — ship a claude-wire translation proxy**, as the `wire-bridge` pack joined by new pack-dependency vocabulary (`needs` + `when_bins`) | ruled 2026-09-04 and SHIPPED (`434189dd`, `0dfc3481`); it is what gave cerebras an `endpoints.anthropic` and so revived D-4, which this doc's [§1](#1-packscerebras--the-second-purely-declarative-pack) and D-4 predate. [`wire-bridge.md`](../reference/wire-bridge.md) is the reference |
+| OQ-3 | **The README states the rate limits** — the free tier's 5 req/min beside the Developer-tier numbers | a pack whose free tier cannot sustain an agent loop must say so where the user chooses it, not in a design doc |
 | D-4 | no `context_window`/`api_timeout_ms` on cerebras | both options exist solely as claude-derive inputs; claude cannot ride cerebras, and dead options read as promises |
