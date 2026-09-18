@@ -10,7 +10,32 @@ vantage:
 
 # Gateway packs expose stable endpoints while users curate selectable models
 
-**Status:** SHIPPED, 2026-09-15. Evidence verified at `a97ee688`.
+**Status:** BUILT, 2026-09-15 — MEASURED: the two manifests, the codex credential-field fix and
+the per-agent projections are pinned by `internal/entrypoint/providerderive_test.go`. **NOT A
+GRADUATION CANDIDATE**: two of this doc's rulings were contradicted by a later change and it needs
+a ruling before its durable half can move to the reference tree (the warning below).
+
+> [!WARNING]
+> **`caaaae1b` added hard-coded Kilo policy to two agent derives, against
+> [§3](#3-failure-and-safety-rules) and [§4](#4-what-this-does-not-propose).** `packs/pi/derive.lua`
+> and `packs/claude/derive.lua` now detect Kilo by provider name **or** by a substring of its base
+> URL, rewrite a bare `deepseek-`-prefixed model id into a slash-qualified one, and supply a
+> hard-coded context window for such ids when the provider declares none. `packs/pi/derive.lua`
+> additionally treats the selected profile's `model` option as a **literal model id** when the user
+> declared no aliases at all.
+>
+> That last one is the direct contradiction: [§3](#3-failure-and-safety-rules) says *"an alias
+> missing from the map writes no selection, rather than substituting a sole model or a gateway
+> default"*, and for Kilo it now does. [§4](#4-what-this-does-not-propose)'s *"model names … are
+> never hard-coded"* survives only on the technicality that the hard-coding is in a pack rather
+> than in core. None of it carries the provenance comment
+> [`providers.md`](../reference/providers.md#derives-the-delivery-mechanism) requires of a derive's
+> gateway-specific vocabulary.
+>
+> **What is owed:** a ruling on whether the Kilo special-casing stays (in which case
+> [§3](#3-failure-and-safety-rules) and [OQ-GP2](#decision-ledger) are amended and the behaviour is
+> documented with its provenance) or goes. Until then this doc describes a system that is not
+> there, and graduating it would publish that description as evergreen.
 
 > **In short.** OpenRouter and Kilo are provider packs, not special cases: each
 > contributes stable endpoint and credential facts, while a user's finite model
@@ -24,7 +49,7 @@ existing provider table, which every agent pack derives into its own dialect.
 
 **Cost.** A user must write model aliases before a profile can select a default.
 
-**Needs your ruling:** **None**.
+**Needs your ruling:** the Kilo special-casing above.
 
 **Reads with:** [`gateway-provider-packs-plan.md`](gateway-provider-packs-plan.md)
 (the implementation hand-off), [`gateway-providers.md`](../research/gateway-providers.md)
