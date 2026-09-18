@@ -490,10 +490,12 @@ func TestConfinementValidateAndResolve(t *testing.T) {
 }
 
 func TestValidateProviders(t *testing.T) {
+	hostScope(t)
 	valid := `{"providers": {
 		"glm": {
-			"base_url": "https://open.bigmodel.cn/api/paas/v4",
-			"wire_api": "openai-chat-completions",
+			"endpoints": {
+				"openai": {"base_url": "https://open.bigmodel.cn/api/paas/v4", "wire_api": "openai-chat-completions"}
+			},
 			"api_key_env_name": "GLM_API_KEY",
 			"models": {"default": "glm-4-plus", "fast": "glm-4-flash"},
 			"capabilities": ["code_editing"]
