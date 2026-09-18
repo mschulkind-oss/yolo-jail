@@ -61,8 +61,8 @@ enumeration this adds to, and the boundary rules it must not break),
 built),
 [`boundary-broker.md`](boundary-broker.md) (where the human-approval tier this design
 deliberately does not build would live),
-[`sso-backed-bedrock-plan.md`](sso-backed-bedrock-plan.md) (the implementation sketch —
-incomplete, and unstable while questions are open).
+[`sso-backed-bedrock-plan.md`](sso-backed-bedrock-plan.md) (the implementation plan — promoted
+against the tree 2026-09-17; the hand-off, and the first thing to be wrong).
 
 ---
 
