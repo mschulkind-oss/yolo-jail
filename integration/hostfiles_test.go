@@ -285,3 +285,50 @@ func TestHostFilesReservedDestinationRejected(t *testing.T) {
 		t.Errorf("rejection lacked the clobber explanation:\n%s", check.combined())
 	}
 }
+
+// TestConfigTargetResolvesFromTheCwd is the pin the config-target plan names as the one
+// test that would catch the whole resolution breaking, and that the unit tests would not:
+// they drive `configRunW` with the cwd under their own control, so a resolution that
+// silently answered about the wrong home would satisfy every one of them.
+//
+// The ruled behaviour, from config-target-resolution.md's ledger, is a PAIR — the same
+// binary, two directories, two different and correctly-named answers:
+//
+//   - in a workspace: that workspace at the `jail` notch (OQ-CR1, ruled (a): the cwd
+//     selects the target, and what the design removed was the predicate PAIR rather than
+//     the inference);
+//   - outside one: the HOST notch, disclosed and at rc 0 — an answer, not a refusal
+//     (OQ-CR2). A confident empty answer was the original defect, so the failure this
+//     guards against is silence, not an error.
+//
+// It runs the CLI host-side with no container: `config ls` reads and never launches.
+func TestConfigTargetResolvesFromTheCwd(t *testing.T) {
+	requireJail(t)
+
+	dir := writeProjectWithPacks(t, `{"network": {"mode": "bridge"}}`, "claude")
+
+	inside := runYoloCLI(t, dir, "config", "ls")
+	if inside.rc != 0 {
+		t.Fatalf("config ls in a workspace rc=%d\n%s\n%s", inside.rc, inside.stdout, inside.stderr)
+	}
+	if !strings.Contains(inside.combined(), "jail notch") || !strings.Contains(inside.combined(), dir) {
+		t.Errorf("a workspace cwd must resolve THAT workspace at the jail notch, and the "+
+			"disclosure must name it:\n%s", inside.combined())
+	}
+
+	// A directory that is neither a workspace nor inside one: no `.yolo/config-boot.json`
+	// and no workspace config, which is exactly the marker OQ-CR2 ruled.
+	outside := t.TempDir()
+	out := runYoloCLI(t, outside, "config", "ls")
+	if out.rc != 0 {
+		t.Fatalf("a non-workspace cwd must ANSWER about the host, not refuse: rc=%d\n%s\n%s",
+			out.rc, out.stdout, out.stderr)
+	}
+	if !strings.Contains(out.combined(), "host notch") {
+		t.Errorf("a non-workspace cwd must resolve the host target and say so:\n%s", out.combined())
+	}
+	if strings.Contains(out.combined(), outside) {
+		t.Errorf("the host target must not be described as a workspace at the cwd — that is "+
+			"the two-predicate defect the design removed:\n%s", out.combined())
+	}
+}
