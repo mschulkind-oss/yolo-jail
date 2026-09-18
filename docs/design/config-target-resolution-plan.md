@@ -10,16 +10,17 @@ vantage:
 
 # Plan: one resolved config target
 
-**Status:** DECIDED, 2026-09-17 — a SKETCH until today; now a **hand-off**, promoted against the
-tree at `324ee848`. Nothing is built.
+**Status:** BUILT, 2026-09-18 — every step of the [build order](#build-order) has landed
+except step 8 (graduation), which is a separate agent's. A SKETCH until 2026-09-17, then a
+**hand-off** promoted against the tree at `324ee848`.
 
 **Design:** [`config-target-resolution.md`](config-target-resolution.md) — the
 [config target](config-target-resolution.md#3-one-resolved-target) is coined there, the failures
 it closes are [§2.3](config-target-resolution.md#23-the-four-failures), the order is
 [§8](config-target-resolution.md#8-what-i-would-build-in-order), and the rulings are the
 [Decision Ledger](config-target-resolution.md#10-decision-ledger). **Seven of eight are ruled**;
-[OQ-CR8](config-target-resolution.md#oq-cr8) is live, and it is step 6's premise rather than its
-blocker.
+[OQ-CR8](config-target-resolution.md#oq-cr8) was live when this was written and was ruled the
+same day.
 
 **Precedence.** The design wins on behaviour. The tree wins on fact — a moved symbol below is
 followed, and the commit says so. This file is advice, and the first thing to be wrong.
@@ -130,15 +131,15 @@ merged (see step 1) and its unstated presence case promoted to a step of its own
 step ends green on `just test-fast` and commits alone; **Proves** is the assertion that fails if
 the step's call site is deleted.
 
-| # | Step | Proves | Test lands in |
+| # / commit | Step | Proves | Test lands in |
 | :--- | :--- | :--- | :--- |
-| 1 | **The resolver + the disclosure**, design steps 1–2 in one commit. `configTarget` (notch, workspace, store, home root, provenance, may-write, chosen-by), resolved once per invocation — `--at` is an input, so the seat is after argv is parsed and before the verb's first read; the retired predicates become its internals | two cwds, one jail: each verb's **printed** disclosure names a different workspace and says what chose it. Deleting the resolve call from a verb drops its line | `internal/cli/configtarget_test.go` (new), through `configRunW` — plus a census pin that no file but `configtarget.go` names the retired predicates |
-| 2 | **The marker and the three unknown states** (design step 3): `.yolo/config-boot.json` OR a workspace config file; the breach check applied to the cwd itself; the *"else the cwd stands"* fallback replaced by the host target; store-absent → *"never rendered here"*; store-unreadable → say so, non-zero | `cd /tmp && yolo config ls` names the host target instead of an empty workspace answer; a fresh clone carrying only `yolo-jail.jsonc` resolves | `configtarget_test.go`; **rewrites** in `workspacerootscope_test.go` and `configls_test.go` (see [Ships with](#ships-with)) |
-| 3 | **Presence at a workspace target**, via `jailHomeHostPath` + `detectListingRuntime` — closing [F2](config-target-resolution.md#23-the-four-failures)'s row inflation and printing *"not resolvable at this notch"* for a surface the workspace does not back | host-side `config ls` in a workspace lists what the jail rendered, with no four-row inflation | `configls_test.go`, beside `TestComposedFileExistsNeverClaimsAbsenceElsewhere` |
-| 4 | **`diff`/`ls` read the target's store, and `diff` drops the provenance block** (design step 4 — both halves, one commit: *one verb, one subject, one home*). Provenance moves to `ls` | on an owned host, `diff` reports exactly the keys `reset` discards. The red state is today's *"No captured in-jail edits"* | `hostownedreset_test.go`, extending `hostResetFixture`; the moved block's new home in `configls_test.go`; the three provenance test files are **rewrites** (see [Ships with](#ships-with)) |
-| 5 | **`--at` on the read verbs** (design step 5): the token shape extracted from `runApply`, validated through `render.KindForNotch`; `guest` refused by `render.NotchUnbuilt`; `--at jail` with no workspace refused by name | the read verbs and `apply` accept the same set and refuse `guest` with the same sentence | `configtarget_test.go`, plus the parser pin beside `apply`'s own tests |
-| 6 | **`render`'s `host` layer through `Surface.HostSource`** (design step 6): the staged `/ctx` copy in a jail, *unavailable* host-side, and **nothing** under `assert`/`own`. ⚠ The jail half is blocked — [Blockers](#blockers) 1 | a preview of a `readsHost` surface composes the boot render's bytes; an unreachable layer is reported, not silently substituted | `confignotch_test.go` (it already owns "which target does render compose at") |
-| 7 | **Host-side jail-notch `reset`** (design step 7, the only write): the two sidecars off the target, the surface file through `jailHomeHostPath`, truncation via the jail arm, refused while that workspace's jail is running | the fourth disposition of [§2.4](config-target-resolution.md#24-what-the-user-asked-for-and-why-it-does-not-exist)'s matrix exists, and a running jail refuses naming the in-jail verb | `hostownedreset_test.go`; the running-jail refusal needs an injected runtime probe, and `ps_test.go`'s `psDeps` is the shape |
+| 1 ✅ `3330367c` | **The resolver + the disclosure**, design steps 1–2 in one commit. `configTarget` (notch, workspace, store, home root, provenance, may-write, chosen-by), resolved once per invocation — `--at` is an input, so the seat is after argv is parsed and before the verb's first read; the retired predicates become its internals | two cwds, one jail: each verb's **printed** disclosure names a different workspace and says what chose it. Deleting the resolve call from a verb drops its line | `internal/cli/configtarget_test.go` (new), through `configRunW` — plus a census pin that no file but `configtarget.go` names the retired predicates |
+| 2 ✅ `3330367c` | **The marker and the three unknown states** (design step 3): `.yolo/config-boot.json` OR a workspace config file; the breach check applied to the cwd itself; the *"else the cwd stands"* fallback replaced by the host target; store-absent → *"never rendered here"*; store-unreadable → say so, non-zero | `cd /tmp && yolo config ls` names the host target instead of an empty workspace answer; a fresh clone carrying only `yolo-jail.jsonc` resolves | `configtarget_test.go`; **rewrites** in `workspacerootscope_test.go` and `configls_test.go` (see [Ships with](#ships-with)) |
+| 3 ✅ `bbb6eccc` | **Presence at a workspace target**, via `jailHomeHostPath` + `detectListingRuntime` — closing [F2](config-target-resolution.md#23-the-four-failures)'s row inflation and printing *"not resolvable at this notch"* for a surface the workspace does not back | host-side `config ls` in a workspace lists what the jail rendered, with no four-row inflation | `configls_test.go`, beside `TestComposedFileExistsNeverClaimsAbsenceElsewhere` |
+| 4 ✅ `9c284f0c` | **`diff`/`ls` read the target's store, and `diff` drops the provenance block** (design step 4 — both halves, one commit: *one verb, one subject, one home*). Provenance moves to `ls` | on an owned host, `diff` reports exactly the keys `reset` discards. The red state is today's *"No captured in-jail edits"* | `hostownedreset_test.go`, extending `hostResetFixture`; the moved block's new home in `configls_test.go`; the three provenance test files are **rewrites** (see [Ships with](#ships-with)) |
+| 5 ✅ `8b4bdd05` | **`--at` on the read verbs** (design step 5): the token shape extracted from `runApply`, validated through `render.KindForNotch`; `guest` refused by `render.NotchUnbuilt`; `--at jail` with no workspace refused by name | the read verbs and `apply` accept the same set and refuse `guest` with the same sentence | `configtarget_test.go`, plus the parser pin beside `apply`'s own tests |
+| 6 ✅ `ade01637` | **`render`'s `host` layer through `Surface.HostSource`** (design step 6): the staged `/ctx` copy in a jail, *unavailable* host-side, and a BASELINE rather than a layer where the bytes are yolo's own render. [Blockers](#blockers) 1 was answered by building the fifth disposition | a preview of a `readsHost` surface composes the boot render's bytes; an unreachable layer is reported, not silently substituted | `internal/cli/confighostlayer_test.go` and `internal/entrypoint/hostlayerlabel_test.go` (both new); the launcher's half in `run/hostlayerreport_test.go` |
+| 7 ✅ `422ec129` | **Host-side jail-notch `reset`** (design step 7, the only write): the two sidecars off the target, the surface file through `jailHomeHostPath`, truncation via the jail arm, refused while that workspace's jail is running | the fourth disposition of [§2.4](config-target-resolution.md#24-what-the-user-asked-for-and-why-it-does-not-exist)'s matrix exists, and a running jail refuses naming the in-jail verb | `internal/cli/confighostjailreset_test.go` (new), over an injected runtime probe; `integration/hostfiles_test.go` resets host-side with no `--force` |
 | 8 | **Graduate**: fold the built behaviour into a system doc, retire the design, delete this file, move the roadmap row in the same commit | `uvx vantage-check docs/` clean | — |
 
 **Expensive if late:** step 4's provenance move (every later test written against `diff`'s output
@@ -214,7 +215,9 @@ has to move with it) and step 2's marker (it changes what every fixture in the p
 
 ## Blockers
 
-Stop and ask on each: the tree forces a choice the rulings do not make. None blocks steps 1–5.
+Stop and ask on each: the tree forces a choice the rulings do not make. None blocked steps 1–5.
+**1, 4 and 5 are answered below, in the commits that built them; 2 and 3 are still open and
+neither is load-bearing for anything shipped.**
 
 1. **The jail cannot learn `host_management`, so [OQ-CR6](config-target-resolution.md#oq-cr6)'s
    two-case table is not implementable at the jail notch as ruled.** The key is deliberately NOT
@@ -226,6 +229,13 @@ Stop and ask on each: the tree forces a choice the rulings do not make. None blo
    ([`internal/packload/hostlayer.go`](../../internal/packload/hostlayer.go)) are decided host-side
    and read in-jail. A fifth disposition ("staged, but it is yolo's own render — do not layer it")
    is the shape; inheriting the key is not, because that refusal is itself a ruling.
+
+   **ANSWERED in `ade01637`, that way — with one refinement the tree forced.** The
+   discriminator is not the posture but the MARK a host render leaves: an absent
+   `host_management` resolves to `assert`, so labelling from the contract would have stopped
+   every default install's jail composing the settings file its user already has. See
+   [OQ-CR6](config-target-resolution.md#oq-cr6)'s as-built note and
+   `internal/entrypoint/hostlayerlabel.go`.
 2. **There is no `--workspace` flag, and the launcher says there never will be**
    (`internal/cli/run/run.go:62`: *"there is no --workspace flag: cd into the project you meant"*).
    [§4.1](config-target-resolution.md#41-degenerate-inputs) and
@@ -245,7 +255,18 @@ Stop and ask on each: the tree forces a choice the rulings do not make. None blo
    cannot ask declines — so a write should refuse. Confirm, and say whether `--force` reaches it.
    The probe itself is `run.Options.findRunningContainer` (unexported, method-bound) over
    `runtime.FromWorkspace(ws)`; a read-only twin beside `ps`'s deps is the cheap shape.
+
+   **ANSWERED in `422ec129`: cannot-ask REFUSES, and `--force` reaches both refusals.** The
+   flag's shipped meaning is *"I really mean to write these files"* and it already reaches
+   every other arm of the guard, so narrowing it here would have retracted a hatch on the way
+   to widening the default; the unqueryable case needs it most, because the remedy the running
+   refusal offers may be unreachable precisely when the runtime is broken. The probe is a
+   read-only twin, `internal/cli/configrunningjail.go`, over `runtime.FromWorkspace` and the
+   same live-state parsers the prune sweep guards on.
 5. **[OQ-CR8](config-target-resolution.md#oq-cr8) is the only live question, and it is step 6's
    premise rather than its blocker.** Build step 6 under its leaning, (a); if it ever rules (b) —
    a jail composes from packs and captures only — `readsHost` disappears and step 6 has no
    subject. Nothing in steps 1–5 or 7 depends on it.
+
+   **ANSWERED (a) the same day, on two earlier rulings' authority, and step 6 was built under
+   it.**

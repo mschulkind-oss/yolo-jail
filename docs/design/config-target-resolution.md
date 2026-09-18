@@ -10,12 +10,28 @@ vantage:
 
 # Which home does `yolo config` mean? — two predicates, one report, no disclosure
 
-**Status:** DESIGN, 2026-09-17 — **all eight questions are ruled**
-([§10](#10-decision-ledger)); nothing built. The eighth was filed and closed the same day: the
-review remembered a ruling I had not found, and there are two of them in opposite directions
-([OQ-CR8](#oq-cr8)). Every current-behavior claim below was
+**Status:** BUILT, 2026-09-18 — all seven build steps shipped, in
+`3330367c`, `bbb6eccc`, `9c284f0c`, `8b4bdd05`, `6019c1e0`, `ade01637` and `422ec129`. All
+eight questions were ruled on 2026-09-17 ([§10](#10-decision-ledger)); the eighth was filed
+and closed the same day, because the review remembered a ruling I had not found and there are
+two of them in opposite directions ([OQ-CR8](#oq-cr8)). Every current-behavior claim below was
 measured against `46142522` on 2026-09-16 — by running the shipped `yolo` from two cwds, and
-by one throwaway probe test for the `own` case, which is stated where it is used.
+by one throwaway probe test for the `own` case, which is stated where it is used. It is ready
+for a system doc; it has not been graduated.
+
+**MEASURED:** the resolution, the disclosure, the marker and the three unknown states, the
+presence answer, `diff`'s store and its lost provenance block, `--at`, the preview's host
+layer in all four dispositions, and the host-side jail-notch `reset` in all three liveness
+answers — by unit tests, plus `integration/hostfiles_test.go` against a REAL jail
+(`TestHostFilesConfigLsAndReset`, which now resets host-side with no `--force`, and
+`TestConfigTargetResolvesFromTheCwd`).
+
+**UNMEASURED:** the fifth disposition end to end through a real launch of a MANAGED home —
+the launcher's label and the boot render's reading of it are each pinned, and nothing drives
+one home through both. And `macos-user` emits no label at all (its plan builder composes its
+own report, `internal/macosuser/runplan.go`), so on that backend a managed home's host file
+still composes as a layer: the pre-existing behaviour, tolerated exactly as an absent report
+is, and the one place the two-case table is not yet in force.
 
 > **In short.** A `yolo config` verb is about a home and a capture store, and it names
 > neither — it picks the store from the **cwd** and the home from **`YOLO_VERSION`**,
@@ -699,8 +715,20 @@ design touches is derived at read time.
    >
    > | `host_management` | what the host file is | what the launch delivers | what the jail does with it |
    > | :--- | :--- | :--- | :--- |
-   > | `none` (the default) | the user's own bytes, which yolo has never written | the staged copy, labelled **user bytes** | composes it as the `host` LAYER — exactly as today, and [P7](#1-the-verdict-and-the-principles-it-rests-on) makes this the path that must stay frictionless |
+   > | `none` | the user's own bytes, which yolo has never written | the staged copy, labelled **user bytes** | composes it as the `host` LAYER — exactly as today, and [P7](#1-the-verdict-and-the-principles-it-rests-on) makes this the path that must stay frictionless |
    > | `assert` / `own` | yolo's own render, over what was the user's | the staged copy, labelled **a render** | **never a layer.** It is the BASELINE the jail reports divergence against; the jail composes from packs alone |
+   >
+   > ⚠ **AS BUILT, THE LEFT COLUMN IS THE MARK RATHER THAN THE POSTURE, and this table's own
+   > "(the default)" annotation on `none` — removed above — is why.** An ABSENT
+   > `host_management` resolves to **`assert`**, not `none`
+   > ([`OQ-CO2`](config-ownership-and-promotion.md#13-decision-ledger); `config.HostManagementMode`),
+   > so a posture test would label every default install's `~/.claude/settings.json` a render
+   > and stop every jail composing the settings file its user already has — [P7](#1-the-verdict-and-the-principles-it-rests-on) inverted by the
+   > mechanism meant to serve it. [P6](#1-the-verdict-and-the-principles-it-rests-on) states the rule on the WRITE, and a write leaves a mark: the
+   > host provenance record, already read as *"has yolo EVER asserted this surface in this
+   > home"* (`entrypoint.hostProvenanceExists`). So the launcher labels a delivery from that
+   > mark, the posture decides only whether there can be a next write, and the two rows above
+   > are the states the mark distinguishes (`internal/entrypoint/hostlayerlabel.go`).
    >
    > The user's live edits are not lost in the second case: they are the **capture**, which is
    > already its own layer. Their pre-yolo original is in the adoption archive, which is not a
@@ -761,6 +789,14 @@ design touches is derived at read time.
    > thing `inherit.go` refuses for a stated reason, and it would be the wrong fix regardless:
    > the jail does not need to know the user's POSTURE, only what the bytes it was handed ARE.
    > That is a fact about a delivery, which is exactly what that report carries.
+   >
+   > **BUILT that way** (`ade01637`): `entrypoint.HostLayerWire` is the same
+   > `YOLO_HOST_LAYERS` value with one added list, so packload's four-disposition reader still
+   > reads the wire unchanged and the fifth is checked BEFORE the file — a labelled path is
+   > delivered too, so a reader that consulted the report only on a failed read would compose
+   > exactly the bytes the label exists to keep out. The label never refuses a launch: the
+   > fail-closed read exists to stop a composition that silently drops the user's own keys,
+   > and a render composed from packs alone drops none.
    >
    > **This is one of three logged defects in the same previewer**, and the other two are worth
    > fixing in the same pass: `yolo config render` also has no `Computed`/`Overlay` layers, and
@@ -878,18 +914,18 @@ design touches is derived at read time.
 
 ## 10. Decision Ledger
 
-**All eight ruled on 2026-09-17**, across two review rounds. Nothing is live, and nothing is
-built. [OQ-CR8](#oq-cr8) was filed and closed the same day on two earlier rulings' authority: the
+**All eight ruled on 2026-09-17**, across two review rounds, and **all of them built on
+2026-09-18** — the Built column names the commit. [OQ-CR8](#oq-cr8) was filed and closed the same day on two earlier rulings' authority: the
 search that missed them found the REVERSAL and read it as the whole history, because the doc
 that governs today does not restate what it overturned.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| [OQ-CR1](#oq-cr1) | **The cwd selects the TARGET — (a), against the leaning.** A directory that resolves a workspace means that workspace at the `jail` notch; one that resolves none means the `host` notch; `--at` overrides either. The leaning for (b) had imported *"the `cwd` selects nothing"* from the WRITE side, where the hazard is a directory silently changing what yolo does to a real home; choosing what a report is *about* is not that hazard. What the design removes is not the inference but the **pair** — two predicates resolved independently, which is what let one report describe two homes | 2026-09-17 | [§3](#3-one-resolved-target) | — |
-| [OQ-CR2](#oq-cr2) | **Marker: `.yolo/config-boot.json` OR a workspace config file; no workspace means the host target, disclosed.** Both halves amended from the leaning. A launch artifact alone answers *"has a jail run here"*, which is not what a workspace is — a fresh clone with a committed `yolo-jail.jsonc` is one before its first launch, and `config-boot.json` is fresh-launch-only and best-effort besides. And outside a workspace the only home to describe is the host's, so naming it removes the confident-empty-answer failure just as well as a refusal does, with an answer instead of an error. It is a target, not a permission: the write guard is untouched | 2026-09-17 | [§4.1](#41-degenerate-inputs) | — |
-| [OQ-CR3](#oq-cr3) | **(a) — one target, one store.** `diff`/`ls` resolve the capture store through `render.Target`, as `reset` already does, closing [F3](#23-the-four-failures) by removing the second resolution rather than teaching the readers about ownership. The review also sharpened the question: `diff` has no subject but the capture store, so "which store" was all that was live, and (b) was a two-home report wearing a feature's clothes | 2026-09-17 | [§3](#3-one-resolved-target) | — |
-| [OQ-CR4](#oq-cr4) | **(a), with the running-jail refusal** — the fourth disposition exists. The store is workspace-keyed and the surface file is a resolver away; the hazard the current refusal names is real for a real home, not for a workspace's own home overlay; refusing while that jail runs costs nothing because the in-jail verb is available exactly then. Still last to build: the truncation writes a `host` layer whose source [OQ-CR6](#oq-cr6) decides | 2026-09-17 | [§4.3](#43-concurrency-and-ordering) | — |
-| [OQ-CR5](#oq-cr5) | **(a) — the disclosure is unconditional**, on every `yolo config` invocation. [P4](../reference/report-tiers.md#principles) transfers unchanged: compression is allowed, suppression is not. *"Only when surprising"* would have made the line's absence carry information the reader has no way to decode | 2026-09-17 | [§3.1](#31-the-disclosure) | — |
-| [OQ-CR6](#oq-cr6) | **(a) — the staged copy, never the destination; no staged copy means the layer is reported UNAVAILABLE, never substituted.** And the case the question failed to distinguish is the load-bearing one: under `host_management: assert`/`own` the host's file is yolo's OWN render, so it is delivered LABELLED AS A RENDER and used as a BASELINE rather than composed as a layer. Folding it in would make a key yolo wrote indistinguishable from the user's, and would pin a removed pack overlay's value forever — the circularity `SkillTarget.HostSource` was deleted for. **Refined the same day into [P6](#1-the-verdict-and-the-principles-it-rests-on)**, which states the rule on the WRITE rather than on the notch's name and is also the discriminator — the label on the delivery is the only fact the jail needs. The first spelling said the managed case reads *nothing*, which threw away the baseline `diff` and `capture` want; what is given up instead is host-side provenance, ruled acceptable because a jail has no business reporting it. **This is the middle position between two earlier rulings the review remembered and this doc had not found:** [`OQ-3`](yolo-as-environment-manager.md#9-decision-ledger) retired the layer outright (2026-08-01, in favour of a local pack) and [`OQ-CO11`](config-ownership-and-promotion.md#13-decision-ledger) reversed that and kept it outright (2026-09-12). Each ruling's reason owns one of the two cases, and [`OQ-3`](yolo-as-environment-manager.md#9-decision-ledger)'s remedy — personal settings as a pack — is what `promote --to pack` already does for the managed one | 2026-09-17 | [§9](#9-open-questions) | — |
+| [OQ-CR1](#oq-cr1) | **The cwd selects the TARGET — (a), against the leaning.** A directory that resolves a workspace means that workspace at the `jail` notch; one that resolves none means the `host` notch; `--at` overrides either. The leaning for (b) had imported *"the `cwd` selects nothing"* from the WRITE side, where the hazard is a directory silently changing what yolo does to a real home; choosing what a report is *about* is not that hazard. What the design removes is not the inference but the **pair** — two predicates resolved independently, which is what let one report describe two homes | 2026-09-17 | [§3](#3-one-resolved-target) | `3330367c` (step 1) |
+| [OQ-CR2](#oq-cr2) | **Marker: `.yolo/config-boot.json` OR a workspace config file; no workspace means the host target, disclosed.** Both halves amended from the leaning. A launch artifact alone answers *"has a jail run here"*, which is not what a workspace is — a fresh clone with a committed `yolo-jail.jsonc` is one before its first launch, and `config-boot.json` is fresh-launch-only and best-effort besides. And outside a workspace the only home to describe is the host's, so naming it removes the confident-empty-answer failure just as well as a refusal does, with an answer instead of an error. It is a target, not a permission: the write guard is untouched | 2026-09-17 | [§4.1](#41-degenerate-inputs) | `3330367c` (step 2) |
+| [OQ-CR3](#oq-cr3) | **(a) — one target, one store.** `diff`/`ls` resolve the capture store through `render.Target`, as `reset` already does, closing [F3](#23-the-four-failures) by removing the second resolution rather than teaching the readers about ownership. The review also sharpened the question: `diff` has no subject but the capture store, so "which store" was all that was live, and (b) was a two-home report wearing a feature's clothes | 2026-09-17 | [§3](#3-one-resolved-target) | `9c284f0c` (step 4) |
+| [OQ-CR4](#oq-cr4) | **(a), with the running-jail refusal** — the fourth disposition exists. The store is workspace-keyed and the surface file is a resolver away; the hazard the current refusal names is real for a real home, not for a workspace's own home overlay; refusing while that jail runs costs nothing because the in-jail verb is available exactly then. Still last to build: the truncation writes a `host` layer whose source [OQ-CR6](#oq-cr6) decides | 2026-09-17 | [§4.3](#43-concurrency-and-ordering) | `422ec129` (step 7) |
+| [OQ-CR5](#oq-cr5) | **(a) — the disclosure is unconditional**, on every `yolo config` invocation. [P4](../reference/report-tiers.md#principles) transfers unchanged: compression is allowed, suppression is not. *"Only when surprising"* would have made the line's absence carry information the reader has no way to decode | 2026-09-17 | [§3.1](#31-the-disclosure) | `3330367c` (step 1) |
+| [OQ-CR6](#oq-cr6) | **(a) — the staged copy, never the destination; no staged copy means the layer is reported UNAVAILABLE, never substituted.** And the case the question failed to distinguish is the load-bearing one: under `host_management: assert`/`own` the host's file is yolo's OWN render, so it is delivered LABELLED AS A RENDER and used as a BASELINE rather than composed as a layer. Folding it in would make a key yolo wrote indistinguishable from the user's, and would pin a removed pack overlay's value forever — the circularity `SkillTarget.HostSource` was deleted for. **Refined the same day into [P6](#1-the-verdict-and-the-principles-it-rests-on)**, which states the rule on the WRITE rather than on the notch's name and is also the discriminator — the label on the delivery is the only fact the jail needs. The first spelling said the managed case reads *nothing*, which threw away the baseline `diff` and `capture` want; what is given up instead is host-side provenance, ruled acceptable because a jail has no business reporting it. **This is the middle position between two earlier rulings the review remembered and this doc had not found:** [`OQ-3`](yolo-as-environment-manager.md#9-decision-ledger) retired the layer outright (2026-08-01, in favour of a local pack) and [`OQ-CO11`](config-ownership-and-promotion.md#13-decision-ledger) reversed that and kept it outright (2026-09-12). Each ruling's reason owns one of the two cases, and [`OQ-3`](yolo-as-environment-manager.md#9-decision-ledger)'s remedy — personal settings as a pack — is what `promote --to pack` already does for the managed one | 2026-09-17 | [§9](#9-open-questions) | `ade01637` (step 6) |
 | [OQ-CR8](#oq-cr8) | **The layer stays — answered elsewhere, twice, and closed on their authority.** Filed the same day from the review's recollection and closed once the plans were searched rather than just the designs: [`OQ-3`](yolo-as-environment-manager.md#9-decision-ledger) retired it, [`OQ-CO10`](config-ownership-and-promotion.md#13-decision-ledger)/[`OQ-CO11`](config-ownership-and-promotion.md#13-decision-ledger) reversed that, and the reversal is built. Recorded rather than deleted because the retirement left five days of residue that reads as unbuilt work, and because the stronger reading — no host layer in any case — is a reopening of [`OQ-CO11`](config-ownership-and-promotion.md#13-decision-ledger) in its own doc, not a question this design can answer. **And the keep now has the substantive reason the reversal never gave it**, as [P7](#1-the-verdict-and-the-principles-it-rests-on): this layer is the onboarding path, so adopting yolo costs no migration and adopting host management is what costs the pack one | 2026-09-17 | [§9](#9-open-questions) | n/a — a ruling to KEEP |
-| [OQ-CR7](#oq-cr7) | **(a) — `diff` reports the captured divergence and nothing else, and keeps its name.** Against the leaning, on the verb's SUBJECT rather than on the defect: provenance answers *"which layer did this key come from"*, a fact about the render, and it would read identically before and after the wipe that [§2.2](#22-what-each-verb-resolves-today)'s definition of `diff` measures against. Per-key provenance moves to `ls`/`render`. The name was never the problem — the second block was | 2026-09-17 | [§2.2](#22-what-each-verb-resolves-today), [§8](#8-what-i-would-build-in-order) | — |
+| [OQ-CR7](#oq-cr7) | **(a) — `diff` reports the captured divergence and nothing else, and keeps its name.** Against the leaning, on the verb's SUBJECT rather than on the defect: provenance answers *"which layer did this key come from"*, a fact about the render, and it would read identically before and after the wipe that [§2.2](#22-what-each-verb-resolves-today)'s definition of `diff` measures against. Per-key provenance moves to `ls`/`render`. The name was never the problem — the second block was | 2026-09-17 | [§2.2](#22-what-each-verb-resolves-today), [§8](#8-what-i-would-build-in-order) | `9c284f0c` (step 4) |
