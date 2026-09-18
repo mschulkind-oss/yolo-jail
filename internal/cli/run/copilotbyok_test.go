@@ -4,7 +4,8 @@ package run
 // copilot's BYOK is env-var-only (its own help topic: no provider keys exist in any
 // copilot config file). The tests run the REAL copilot derive.lua against the REAL
 // shipped provider packs, the same tier zaipack_test.go pins claude's half at: what
-// lands is what the audit table in docs/design/cerebras-pack-and-copilot-delivery.md
+// lands is what the reach table in
+// docs/reference/cerebras-pack-and-copilot-delivery.md#which-agents-a-provider-can-reach
 // claims, composed through composePackChannel and argv assembly.
 
 import (

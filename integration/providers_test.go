@@ -236,7 +236,8 @@ func TestProvidersRenderInTheAgentsOwnVocabulary(t *testing.T) {
 	// The second provider pack, same launch: cerebras is chat-completions-only, so the
 	// pairing claims that differ from zai's are the interesting ones — pi speaks it (the
 	// same dialect row), opencode speaks it (URL only), and no derive invents an
-	// anthropic route for it. docs/design/cerebras-pack-and-copilot-delivery.md §audit.
+	// anthropic route for it.
+	// docs/reference/cerebras-pack-and-copilot-delivery.md#which-agents-a-provider-can-reach.
 	t.Run("pi cerebras entry is the same chat-completions dialect", func(t *testing.T) {
 		cerebras, ok := piModels.Providers["cerebras"]
 		if !ok {

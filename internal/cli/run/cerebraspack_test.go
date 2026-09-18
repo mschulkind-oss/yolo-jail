@@ -1,10 +1,10 @@
 package run
 
 // cerebraspack_test.go pins the SECOND purely-declarative provider pack
-// (docs/design/cerebras-pack-and-copilot-delivery.md) against the pack the binary
+// (docs/reference/cerebras-pack-and-copilot-delivery.md) against the pack the binary
 // actually embeds, the way zaipack_test.go pins the first. The pack's contract is the
 // same shape — select it, drop in a key — over a service that speaks ONE wire protocol:
-// every assertion here is something the design doc's audit table claims about the
+// every assertion here is something the reference's reach table claims about the
 // delivery, pinned where it composes.
 
 import (
