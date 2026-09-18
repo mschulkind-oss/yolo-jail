@@ -109,7 +109,8 @@ func LoadJailPacks(e *Env) ([]*packload.Pack, error) {
 				return nil, fmt.Errorf("pack %s: %s", ent.Name(), problems[0])
 			}
 			// A contribution whose KIND this build does not know was skipped, not
-			// fatal (loophole-packaging §3.3a): a jail must boot under version skew.
+			// fatal (docs/reference/loophole-system.md#strict-and-tolerant-and-why-both):
+			// a jail must boot under version skew.
 			// Warn each skip by name so the degradation is visible, never silent.
 			//
 			// warnOnce, not warn: LoadJailPacks is called five times in one boot (pack

@@ -1,6 +1,7 @@
 package entrypoint
 
-// packskew_test.go pins the OTHER half of loophole-packaging §3.3a: not "LoadDir skips an
+// packskew_test.go pins the OTHER half of the strict/tolerant decision
+// (docs/reference/loophole-system.md#strict-and-tolerant-and-why-both): not "LoadDir skips an
 // unknown kind" (packload/skewkind_test.go pins that) but "a jail BOOTS with such a pack
 // staged, and says so on the way past".
 //

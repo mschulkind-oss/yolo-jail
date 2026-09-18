@@ -428,9 +428,11 @@ helper package (see below).
 
 `loophole` is the **15th contribution kind** and it is the sharpest one: it is the
 only kind whose claim is *host code execution* rather than a host read. Design:
-[`loophole-packaging.md`](../design/loophole-packaging.md) (the authority), with
-[`loophole-packaging-overview.md`](../reference/loophole-system.md) as its
-readable half. `yolo config-ref` (the `packs` section) and
+[`loophole-system.md`](../reference/loophole-system.md) (the authority) — the
+contribution kind, the subset rules, the claim enumeration and the
+install/enable scope model — with
+[`loophole-transport.md`](../reference/loophole-transport.md) for the front and
+the `publishes` vocabulary. `yolo config-ref` (the `packs` section) and
 [`pack-system.md` §3](../reference/pack-system.md#the-per-kind-rules-worth-knowing) carry the per-kind field reference.
 
 A pack contributes a loophole by **pointing at a directory**, not by inlining a
@@ -861,7 +863,7 @@ Keeps the briefing tight and prevents drift when loopholes come and go.
 - [`internal/hostprocesses/`](../../internal/hostprocesses) — reference `loopback-tls` consumer of the helper, reachable as `yolo internal daemon host-processes`.
 - [`internal/svcendpoint/`](../../internal/svcendpoint) — the transport itself: endpoint file, cert pinning, token frame. Both halves in one package on purpose.
 - [`../reference/loophole-transport.md`](../reference/loophole-transport.md) — why there is one transport and what it defends against.
-- [`docs/design/loophole-packaging.md`](../design/loophole-packaging.md) — the `loophole` pack kind: the subset rules, the claim enumeration, the install/enable scope model. [`loophole-packaging-overview.md`](../reference/loophole-system.md) is its readable half.
+- [`../reference/loophole-system.md`](../reference/loophole-system.md) — the `loophole` pack kind: the subset rules, the claim enumeration, the install/enable scope model.
 - [`../reference/pack-system.md` §3](../reference/pack-system.md#the-per-kind-rules-worth-knowing) — the closed kind set the `loophole` kind belongs to, and its footprint row.
 - [`internal/frameproto/`](../../internal/frameproto) — reference codec for the wire format.
 - [`packs/claude/loopholes/claude-oauth-broker/README.md`](../../packs/claude/loopholes/claude-oauth-broker/README.md) — the broker architecture that shaped this (the older mitm-proxy design notes are in git history).
