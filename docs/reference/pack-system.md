@@ -866,9 +866,16 @@ defaults < host < workspace < config-overlay < capture-overlay < computed(derive
   compose into the jail with no second declaration and no second path to keep in step. The
   read **fails closed**: the launcher reports what it delivered, and a host file the launch
   says it delivered that the jail cannot read refuses the boot rather than composing the
-  file without the user's settings. The three states that are not a delivery fault — the
-  user has no such file, the backend carries no host layers (`macos-user`), or the launcher
-  is older than the report — compose without it and refuse nothing.
+  file without the user's settings. The states that are not a delivery fault compose without it
+  and refuse nothing: the user has no such file, the launch carried no host layers, the launcher
+  is older than the report, or — since 2026-09-18 — the bytes are LABELLED A RENDER, meaning yolo
+  composed them itself and they are a baseline rather than a layer
+  ([`config-target-resolution.md`](config-target-resolution.md#the-host-layer--a-staged-copy-a-baseline-or-nothing)).
+  ⚠ **`macos-user` is no longer the example of the second one.** DP-L1 gave that backend a real
+  mechanism, so it reports `unsupported` only when it actually composed none, and
+  [`internal/packload/hostlayer.go`](../../internal/packload/hostlayer.go) carries its own warning
+  that no backend emits `unsupported` unconditionally any more. What that backend still does not
+  emit is the render LABEL, so a managed home's host file composes there as a layer.
 - **`config-overlay`** carries the keys OTHER packs contribute to a surface this one owns, in
   `packs`-list order (later wins). Below `managed`, so the owner still wins a genuine
   conflict.

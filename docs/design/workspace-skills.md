@@ -436,7 +436,7 @@ sequence, both standing and one built:
 Mirroring a checkout's skills into the real `~/.claude/skills` is the exact act both forbid. I
 searched for a reversal, since this session had already been burned by finding the reversal
 and reading it as the whole history: the later
-[`config-target-resolution.md`](config-target-resolution.md#3-one-resolved-target) (2026-09-17)
+[`../reference/config-target-resolution.md`](../reference/config-target-resolution.md#resolution-order) (2026-09-17)
 does let the cwd select *which target a `yolo config` verb describes*, and states in as many
 words that this refines 9.5 rather than overturning it — the cwd may choose what you are
 *asking about*, never what is *rendered into a real home*. So the ruling holds, and the host
