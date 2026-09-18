@@ -47,7 +47,7 @@ func WriteWorkspaceBootBaseline(workspace string, wsCfg *jsonx.OrderedMap) error
 	if err != nil {
 		return err
 	}
-	return writeSnapshot(WorkspaceConfigBootPath(workspace), j)
+	return writeWorkspaceSnapshot(workspace, WorkspaceConfigBootPath(workspace), j)
 }
 
 // WorkspaceConfigDrift compares the frozen boot baseline against the workspace config

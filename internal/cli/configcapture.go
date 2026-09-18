@@ -51,6 +51,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // captureOnTerminate folds this session's in-jail edits into the overlay sidecars
@@ -67,7 +68,7 @@ func captureOnTerminate(workspace, runtime string, warn func(string)) {
 			warn(fmt.Sprintf("could not capture in-jail config edits: %v", r))
 		}
 	}()
-	sidecarDir := filepath.Join(workspace, ".yolo", "prism")
+	sidecarDir := filepath.Join(paths.WorkspaceStateDir(workspace), "prism")
 	if st, err := os.Stat(sidecarDir); err != nil || !st.IsDir() {
 		// No jail has ever rendered into this workspace, so there is no baseline to
 		// diff against and nothing to capture. Silent: this is the ordinary state of
@@ -173,7 +174,7 @@ func jailHomeHostPath(workspace, runtime, surfacePath string) (string, bool) {
 			rel = filepath.Join(seg, tail)
 		}
 	}
-	path := filepath.Join(workspace, ".yolo", "home", rel)
+	path := filepath.Join(paths.WorkspaceHomeState(workspace), rel)
 	if _, err := os.Stat(path); err != nil {
 		return "", false
 	}

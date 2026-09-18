@@ -72,5 +72,5 @@ func WriteAssembledConfig(workspace string, merged *jsonx.OrderedMap) error {
 	if err != nil {
 		return err
 	}
-	return writeSnapshot(WorkspaceAssembledConfigPath(workspace), j)
+	return writeWorkspaceSnapshot(workspace, WorkspaceAssembledConfigPath(workspace), j)
 }

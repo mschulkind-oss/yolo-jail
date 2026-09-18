@@ -270,6 +270,25 @@ func writeSnapshot(path, currentJSON string) error {
 	return os.WriteFile(path, []byte(currentJSON+"\n"), 0o644)
 }
 
+// writeWorkspaceSnapshot is writeSnapshot for the two destinations under
+// <workspace>/.yolo — config-assembled.json and config-boot.json — and it differs in the
+// one way that matters: the directory comes from paths.EnsureWorkspaceStateDir instead of a
+// bare MkdirAll.
+//
+// TWO THINGS THAT BUYS, and the first is why writeSnapshot cannot simply be changed:
+// writeSnapshot's third caller is the host-side approvals dir, which lives INSIDE
+// ~/.local/share/yolo-jail by design, so routing every caller through a helper that refuses
+// boundary directories would refuse the approval record. Splitting the workspace half off
+// gets it the state dir's .gitignore (a bare MkdirAll skips it, so a workspace whose first
+// artifact was a config snapshot had an un-ignored .yolo) and the scope refusal, which for
+// these two is defence in depth — both are on the launch path, behind the guard.
+func writeWorkspaceSnapshot(workspace, path, currentJSON string) error {
+	if _, err := paths.EnsureWorkspaceStateDir(workspace); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(currentJSON+"\n"), 0o644)
+}
+
 // pyRstrip trims trailing whitespace using the same whitespace set as
 // str.strip() (the ASCII set plus a few unicode spaces). For the snapshot file
 // the only trailing whitespace is the "\n" we wrote, but the full set keeps the

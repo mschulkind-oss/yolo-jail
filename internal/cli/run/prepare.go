@@ -342,6 +342,14 @@ func blockedToolRecords(blocked []any) []jailcontent.BlockedTool {
 // ws_state path (<workspace>/.yolo/home).
 func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, loadedPacks []*packload.Pack) string {
 	wsState := paths.WorkspaceHomeState(o.Workspace)
+	// Through the chokepoint rather than a bare MkdirAll of wsState's parent: this is the
+	// WIDEST creator of <workspace>/.yolo in the pipeline (the whole home overlay hangs off
+	// it), so it is the one that most wants the state dir's own .gitignore and its refusal
+	// of a directory that may not be a workspace. Defence in depth — Run's workspace-scope
+	// guard has already refused such a workspace long before here — and best-effort in the
+	// same way the mkdirs below are: the launch fails on the missing bind source with a
+	// message naming the path, which is the failure a human can act on.
+	_, _ = paths.EnsureWorkspaceStateDir(o.Workspace)
 	_ = os.MkdirAll(wsState, 0o755)
 	_ = os.MkdirAll(filepath.Join(wsState, "ssh"), 0o700)
 
@@ -540,7 +548,7 @@ const (
 // readHandoff returns the content of <workspace>/.yolo/handover.md, or "" when the host
 // filed no handoff for this launch. Reading does not consume — see consumeHandoff.
 func readHandoff(workspace string) string {
-	data, err := os.ReadFile(filepath.Join(workspace, ".yolo", handoffPointer))
+	data, err := os.ReadFile(filepath.Join(paths.WorkspaceStateDir(workspace), handoffPointer))
 	if err != nil {
 		return ""
 	}
@@ -562,7 +570,7 @@ func readHandoff(workspace string) string {
 // say), the handoff still surfaced this launch and resurfaces on the next one — the
 // pre-consumption behavior, which is noisy but never loses the task.
 func consumeHandoff(workspace string) bool {
-	dir := filepath.Join(workspace, ".yolo")
+	dir := paths.WorkspaceStateDir(workspace)
 	return os.Rename(filepath.Join(dir, handoffPointer), filepath.Join(dir, handoffConsumed)) == nil
 }
 
