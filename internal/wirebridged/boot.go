@@ -187,14 +187,18 @@ func serve(ctx context.Context, route route, e *entrypoint.Env) int {
 	if err != nil {
 		// A port the manifest URL names that something else holds is a real
 		// fault (WB-D13: the URL is the single source of the port), not an
-		// idle: exit non-zero so `restart: on-failure` retries with backoff.
+		// idle. A boot waiting on this daemon must hear that result immediately;
+		// otherwise supervisor's intentional retry loop turns an actionable bind
+		// conflict into a terminal with no new output.
 		fmt.Fprintf(os.Stderr, "wire-bridge: cannot bind %s (from provider %q's anthropic base_url): %v\n",
 			route.ListenAddr, route.ProviderName, err)
+		signalNotReady(ServiceName, "cannot bind "+route.ListenAddr+": "+err.Error())
 		return 1
 	}
 	if err := publishEndpoint(EndpointFile, ln.Addr().String()); err != nil {
 		_ = ln.Close()
 		fmt.Fprintf(os.Stderr, "wire-bridge: cannot publish %s: %v\n", EndpointFile, err)
+		signalNotReady(ServiceName, "cannot publish endpoint: "+err.Error())
 		return 1
 	}
 	signalReady(ServiceName)

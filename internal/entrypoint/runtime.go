@@ -20,8 +20,13 @@ import (
 // tmpfs on podman, so a PID file here is naturally scoped to this jail and
 // evaporates on restart. Package vars so tests can redirect them. Only the
 // entrypoint reads/writes this file, so its name tracks the current spawn
-// binary (yolo-jaild).
-var supervisorPIDFile = "/tmp/yolo-jaild.pid"
+// binary (yolo-jaild). legacySupervisorPIDFiles stay readable after a binary
+// rename: a running jail can retain its old supervisor across `just install`,
+// and starting a second one duplicates every service listener.
+var (
+	supervisorPIDFile        = "/tmp/yolo-jaild.pid"
+	legacySupervisorPIDFiles = []string{"/tmp/yolo-jail-supervisor.pid"}
+)
 
 // where host-side socat has already created Unix sockets.
 var forwardSocketDir = "/tmp/yolo-fwd"
@@ -108,6 +113,18 @@ func supervisorIsAlive(pidFile string) bool {
 	return false
 }
 
+func anyJailDaemonSupervisorAlive() bool {
+	if supervisorIsAlive(supervisorPIDFile) {
+		return true
+	}
+	for _, pidFile := range legacySupervisorPIDFiles {
+		if supervisorIsAlive(pidFile) {
+			return true
+		}
+	}
+	return false
+}
+
 // `yolo-jaild supervise` as a detached child, once, guarded by a tmpfs PID
 // file so repeated `podman exec yolo-entrypoint` calls don't stack
 // supervisors. Absent/empty YOLO_JAIL_DAEMONS means nothing to do.
@@ -118,7 +135,10 @@ func startJailDaemonSupervisor(e *Env) error {
 	if strings.TrimSpace(e.Getenv("YOLO_JAIL_DAEMONS")) == "" {
 		return nil
 	}
-	if supervisorIsAlive(supervisorPIDFile) {
+	if anyJailDaemonSupervisorAlive() {
+		if e.Getenv(paths.VerboseEnv) != "" || e.Getenv("YOLO_JAIL_TIMING") != "" {
+			e.warn("yolo: reusing the live in-jail daemon supervisor; it owns existing service listeners")
+		}
 		return nil
 	}
 	readyNames := strings.Fields(strings.ReplaceAll(e.Getenv(paths.JailDaemonReadyNamesEnv), ",", " "))
@@ -173,6 +193,12 @@ func startJailDaemonSupervisor(e *Env) error {
 		return nil
 	}
 	defer readyRead.Close()
+	e.warn("yolo: waiting for required in-jail service readiness: " + strings.Join(readyNames, ", "))
+	logPaths := make([]string, 0, len(readyNames))
+	for _, name := range readyNames {
+		logPaths = append(logPaths, filepath.Join(e.Home, ".local", "state", "yolo-jail-daemons", name+".log"))
+	}
+	e.warn("  Daemon diagnostics: " + strings.Join(logPaths, ", "))
 	scanner := bufio.NewScanner(readyRead)
 	for len(ready) > 0 {
 		if !scanner.Scan() {
@@ -191,6 +217,9 @@ func startJailDaemonSupervisor(e *Env) error {
 				reason = strings.Join(fields[2:], " ")
 			}
 			return fmt.Errorf("jail daemon %q cannot publish its required endpoint: %s", fields[1], reason)
+		}
+		if e.Getenv(paths.VerboseEnv) != "" || e.Getenv("YOLO_JAIL_TIMING") != "" {
+			e.warn("yolo: required in-jail service ready: " + fields[1])
 		}
 		delete(ready, fields[1])
 	}

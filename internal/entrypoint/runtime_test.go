@@ -1,8 +1,10 @@
 package entrypoint
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -28,12 +30,18 @@ func TestJailDaemonSupervisorWaitsForReadinessAcknowledgement(t *testing.T) {
 	supervisorPIDFile = filepath.Join(t.TempDir(), "yolo-jaild.pid")
 	t.Cleanup(func() { supervisorPIDFile = oldPIDFile })
 
+	var stderr bytes.Buffer
 	e := NewEnv(map[string]string{
 		"YOLO_JAIL_DAEMONS":           "present",
 		paths.JailDaemonReadyNamesEnv: "wire-bridge",
 	})
+	e.Stderr = &stderr
 	if err := startJailDaemonSupervisor(e); err != nil {
 		t.Fatalf("startJailDaemonSupervisor() = %v, want readiness acknowledgement", err)
+	}
+	if !strings.Contains(stderr.String(), "waiting for required in-jail service readiness: wire-bridge") ||
+		!strings.Contains(stderr.String(), "wire-bridge.log") {
+		t.Errorf("readiness wait must name the service and its diagnostics, got:\n%s", stderr.String())
 	}
 }
 
@@ -66,5 +74,28 @@ func TestJailDaemonSupervisorRefusesExitBeforeReadiness(t *testing.T) {
 	})
 	if err := startJailDaemonSupervisor(e); err == nil {
 		t.Fatal("startJailDaemonSupervisor() succeeded after supervisor exited before readiness")
+	}
+}
+
+func TestJailDaemonSupervisorReusesLegacySupervisor(t *testing.T) {
+	bin := writeSupervisor(t, `exit 99`)
+	t.Setenv("PATH", filepath.Dir(bin))
+	oldPIDFile, oldLegacy := supervisorPIDFile, legacySupervisorPIDFiles
+	supervisorPIDFile = filepath.Join(t.TempDir(), "yolo-jaild.pid")
+	legacyPIDFile := filepath.Join(t.TempDir(), "yolo-jail-supervisor.pid")
+	legacySupervisorPIDFiles = []string{legacyPIDFile}
+	t.Cleanup(func() {
+		supervisorPIDFile, legacySupervisorPIDFiles = oldPIDFile, oldLegacy
+	})
+	if err := os.WriteFile(legacyPIDFile, []byte(strconv.Itoa(os.Getpid())+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	e := NewEnv(map[string]string{
+		"YOLO_JAIL_DAEMONS":           "present",
+		paths.JailDaemonReadyNamesEnv: "wire-bridge",
+	})
+	if err := startJailDaemonSupervisor(e); err != nil {
+		t.Fatalf("startJailDaemonSupervisor() = %v, want reuse of the live legacy supervisor", err)
 	}
 }
