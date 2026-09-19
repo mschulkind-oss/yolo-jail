@@ -12,7 +12,8 @@
       "kind": "program",
       "package": "@earendil-works/pi-coding-agent",
       "protocols": [
-        "openai"
+        "openai",
+        "openai-responses"
       ],
       "via": "npm"
     },

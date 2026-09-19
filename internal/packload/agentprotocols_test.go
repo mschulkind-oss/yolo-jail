@@ -24,7 +24,7 @@ import (
 //
 //   - claude   reads `p.endpoints.anthropic` and nothing else.
 //   - copilot  prefers `p.endpoints.anthropic`, falls back to `p.endpoints.openai` (D-3).
-//   - pi       reads `prov.endpoints.openai`.
+//   - pi       prefers `prov.endpoints.openai`, then `openai-responses`.
 //   - opencode reads `prov.endpoints.openai`.
 //   - oh-omp   walks {"openai", "anthropic"} in that stable preference order.
 //   - codex    reads `prov.endpoints.openai`.
@@ -35,7 +35,7 @@ import (
 var shippedProtocols = map[string][]string{
 	"claude":   {"anthropic"},
 	"copilot":  {"anthropic", "openai"},
-	"pi":       {"openai"},
+	"pi":       {"openai", "openai-responses"},
 	"opencode": {"openai"},
 	"oh-omp":   {"openai", "anthropic"},
 	"codex":    {"openai"},
@@ -131,6 +131,38 @@ func TestClaudeDeclaresTheProtocolItsDeriveReads(t *testing.T) {
 				t.Errorf("a provider offering only %q gave ANTHROPIC_BASE_URL=%q, want %q", tc.protocol, got, tc.wantURL)
 			}
 		})
+	}
+}
+
+// Pi owns openai-codex in its own subscription catalog, but selecting that profile still
+// crosses AgentEnv's protocol gate before Pi's special-case derive gets to choose the
+// built-in provider. Its declared Responses fallback must therefore match the shared auth
+// pack's Responses endpoint without changing the bridge's adapter selection.
+func TestPiCodexProfilePassesProtocolResolution(t *testing.T) {
+	var pi, auth *Pack
+	for _, p := range Embedded() {
+		switch p.Name {
+		case "pi":
+			pi = p
+		case "openai-auth":
+			auth = p
+		}
+	}
+	if pi == nil || auth == nil {
+		t.Fatalf("embedded packs: pi=%v openai-auth=%v", pi != nil, auth != nil)
+	}
+	packs := []*Pack{pi, auth}
+	providers, err := ComposeProviders(nil, packs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := ResolveProfiles(packs, nil, providers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AgentEnv(packs, providers, map[string]string{"pi": "codex"}, "pi", "codex",
+		func(string) (string, bool) { return "", false }, WithResolvedProfiles(resolved)); err != nil {
+		t.Fatalf("Pi's built-in Codex profile must pass protocol resolution: %v", err)
 	}
 }
 

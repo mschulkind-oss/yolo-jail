@@ -679,6 +679,31 @@ func TestProviderDerivesTranslateTheCanonicalVocabulary(t *testing.T) {
 	}
 }
 
+// Pi's subscription provider is Responses-only. Keep the derive's fallback endpoint key
+// aligned with its declared protocol list: otherwise the host accepts pi=codex while the
+// jail silently drops the provider from Pi's catalog.
+func TestPiDeriveUsesResponsesEndpointWhenOpenAIIsAbsent(t *testing.T) {
+	script, s := deriveSurface(t, "pi", "pi/models")
+	got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, map[string]map[string]any{
+		manifest.SourceProviders: map[string]any{
+			"responses-only": map[string]any{"endpoints": map[string]any{
+				"openai-responses": map[string]any{"base_url": "https://provider.example/v1", "wire_api": "openai-responses"},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers, _ := got["providers"].(map[string]any)
+	entry, ok := providers["responses-only"].(map[string]any)
+	if !ok {
+		t.Fatalf("Pi dropped a Responses-only provider: %#v", got)
+	}
+	if entry["baseUrl"] != "https://provider.example/v1" || entry["api"] != "openai-responses" {
+		t.Errorf("Pi provider = %#v, want Responses URL and dialect", entry)
+	}
+}
+
 // TestProviderDerivesSkipAProviderWithNoURLForThem pins BOTH halves of the gate: a
 // provider that names no URL at all is not a catalog row (the sentinel a host render
 // probes with relies on this), and neither is one whose only endpoint speaks a protocol

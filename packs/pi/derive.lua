@@ -33,8 +33,9 @@ local function piAPI(canonical)
   return piDialect[canonical]
 end
 
--- The provider's URL for the protocol THIS agent speaks — `openai`, which is also what
--- packs/pi declares in its `protocols` list. ONE spelling: the single-protocol `base_url`
+-- The provider's URL for the protocol THIS agent speaks — `openai` first, then native
+-- `openai-responses`, which are also packs/pi's declared protocol preference. ONE spelling:
+-- the single-protocol `base_url`
 -- shorthand is deleted (protocol-resolution.md §5), because the same bare field meant
 -- `openai` here and `anthropic` in claude's derive — one line of user config, two
 -- contradictory readings, decided by whichever agent happened to consume it. A user config
@@ -45,9 +46,13 @@ end
 -- an entry with no URL — a provider it cannot reach.
 local function providerEndpoint(prov)
   if type(prov) ~= "table" then return nil end
-  local ep = prov.endpoints and prov.endpoints.openai or nil
-  if type(ep) == "table" and ep.base_url then
-    return ep.base_url, ep.wire_api
+  local endpoints = prov.endpoints
+  if type(endpoints) ~= "table" then return nil end
+  for _, protocol in ipairs({"openai", "openai-responses"}) do
+    local ep = endpoints[protocol]
+    if type(ep) == "table" and ep.base_url then
+      return ep.base_url, ep.wire_api
+    end
   end
   return nil
 end
@@ -63,9 +68,9 @@ end
 -- `wire_api = "anthropic"` reaches pi and is a catalog row — the shorthand form arrives
 -- here through providerEndpoint with its wire_api intact, and translates to
 -- anthropic-messages like any other protocol. What does NOT widen with it is the ENDPOINT
--- KEY: providerEndpoint resolves `openai` only, and that is the resolution table's ruling
--- (zai-plumbing.md §5, pinned by providerderive_test.go) — an endpoints-only provider with
--- no openai endpoint names no URL for the protocol pi resolves to, so it is no row, and a
+-- KEY: providerEndpoint resolves Pi's declared `openai` and `openai-responses` keys in
+-- that preference order. An endpoints-only provider with neither names no URL for the
+-- protocol Pi resolves to, so it is no row, and a
 -- provider that loses its catalog row loses its selection key with it. Writing
 -- defaultProvider for such a provider would name an id pi has no entry for — the
 -- half-selection a shared gate exists to make unrepresentable.
