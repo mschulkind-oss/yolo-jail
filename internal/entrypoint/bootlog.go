@@ -148,6 +148,7 @@ var bootLogFacts = []string{
 	"YOLO_HOST_LOOPBACK",
 	"YOLO_ALLOW_UNREACHABLE_SERVICES",
 	"YOLO_ALLOW_STALE_IMAGE",
+	paths.HoldOnRefusalEnv,
 }
 
 // finish records how the boot ENDED. Without it the log's last line is ambiguous in

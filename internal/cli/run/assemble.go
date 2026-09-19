@@ -571,6 +571,13 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// under every runtime and every network mode, so the way past it must too.
 	runCmd = append(runCmd, o.reachabilityOptOutArgs()...)
 
+	// The entrypoint's hold-on-refusal opt-in, forwarded from the host for the same
+	// reason and on the same terms — plus the exec line only this side can compose.
+	// It is NOT a second spelling of the hatch above: that one suppresses a refusal,
+	// this one keeps it and only delays the teardown that erases the evidence
+	// (holdonrefusal.go, internal/entrypoint/hold.go).
+	runCmd = append(runCmd, o.holdOnRefusalArgs(rt, in.cname)...)
+
 	// --- git identity + global gitignore (host-composed, :ro-mounted) ---
 	runCmd = append(runCmd, o.gitIdentityMountArgs(rt, in.wsState, in.mountTargets)...)
 

@@ -248,6 +248,49 @@ const AllowUnreachableServicesEnv = "YOLO_ALLOW_UNREACHABLE_SERVICES"
 // it into the container.
 const AllowMissingProvidersEnv = "YOLO_ALLOW_MISSING_PROVIDERS"
 
+// HoldOnRefusalEnv makes the ENTRYPOINT, on a boot it is about to refuse, print how
+// to get in and then BLOCK instead of exiting — so the container stays up with the
+// failed state intact. Any non-empty value. The user types it on the HOST, so the
+// launcher forwards it into the container, for AllowUnreachableServicesEnv's reason:
+// a container inherits nothing from the launcher's environment, and the user this
+// exists for is by definition the one with no in-jail shell.
+//
+// It is NOT an `ALLOW_` hatch and is deliberately not spelled like one. The hatches
+// suppress a refusal; this one keeps it — the failure is still reported and the exit
+// code is still non-zero when the hold ends. It changes WHEN the jail dies, never
+// whether the launch failed.
+//
+// # Why it has to be opt-in
+//
+// A jail that hangs instead of failing is a worse default than one that fails, and
+// CI would acquire a hung container on the first red boot. So the default is
+// unchanged and an absent variable is the whole of it.
+//
+// # What it is for
+//
+// A boot that refuses takes its evidence with it: the container runs with `--rm`
+// (internal/cli/run/assemble.go's runFlags) and the entrypoint's refusal exits, so
+// podman deletes the container — the process table, the listeners and the daemon
+// logs with it. Measured 2026-09-19 on a `cannot bind 127.0.0.1:8214: address
+// already in use` refusal that three separate attempts failed to catch, because by
+// the time a human can type there is no container left to type at.
+const HoldOnRefusalEnv = "YOLO_HOLD_ON_REFUSAL"
+
+// HoldExecEnv carries the exact command a human should type to get into the held
+// container — `<runtime> exec -it <container> bash` — composed by the LAUNCHER and
+// printed verbatim by the entrypoint.
+//
+// It is composed host-side because neither half of it can be derived in the jail.
+// The container NAME is the launcher's (`assembleInput.cname`; a container's own
+// hostname is its ID, which is a different string from the one the launch banner
+// named), and the RUNTIME is worse than absent in-jail: commonEnvBlock emits a
+// hard-coded `YOLO_RUNTIME=podman` on every backend, so a jail under Apple
+// Container reads `podman` and would print a command that does not exist.
+//
+// Emitted only alongside HoldOnRefusalEnv, and only by the container backends
+// (macos-user returns above assembleRunCmd and has no container to exec into).
+const HoldExecEnv = "YOLO_HOLD_EXEC"
+
 // TimingEnv is the host-process opt-in to `--timing`'s span logging
 // (docs/reference/perf-logging.md): any non-empty value enables the same surface
 // the flag does, for wrappers and scripts that cannot add a flag.

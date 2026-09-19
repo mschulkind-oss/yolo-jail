@@ -678,7 +678,16 @@ func Main(args []string) error {
 	// A12: abort BEFORE handing control to the agent. Everything above has run, so
 	// this reports every broken generator at once rather than one per restart.
 	if err := genFailuresError(e); err != nil {
+		// THE HOLD, and its two phases straddle blog.finish deliberately: the notice
+		// goes out while the log is still open (so a held boot's own instructions are
+		// in boot.log), and the block happens after it is closed (so a hold nobody
+		// ever releases cannot truncate the log of the refusal it exists to explain).
+		// A launch that did not set YOLO_HOLD_ON_REFUSAL gets two no-ops. This is the
+		// ONLY refusal that holds — hold.go states why the exec failure below does
+		// not, and it is the one that would be wrong to.
+		holdWait := beginHold(e)
 		blog.finish(err)
+		holdWait()
 		return err
 	}
 
