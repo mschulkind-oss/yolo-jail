@@ -530,34 +530,14 @@ func (o *Options) startCgroupDelegate(cname, rt, socketsDir string) (loopholeDae
 	}, true
 }
 
-// noteCgroupDelegateUnavailable and noteCgroupDelegateFailed are how the in-process
-// delegate reports NOT starting. Two functions rather than one with a severity
-// argument, because the distinction is the whole content:
-//
-//   - UNAVAILABLE is "yolo could not ask" — this kernel has no cgroup v2, so there is
-//     nothing to install and nothing to fix here. The register is [dim] and the
-//     sentence says so outright, for the reason loophole-system.md gives the
-//     unsupported-platform message: a reader not told that nothing is missing spends
-//     the afternoon proving it.
-//   - FAILED is "yolo asked and it did not work" — a bind or a chmod that returned an
-//     error, naming the path and the error. That is an actionable fault on a machine
-//     that CAN run the delegate, so it is a [yellow] warning.
-//
-// Collapsing the two would flatten exactly the distinction AGENTS.md preserves for the
-// loopback witness (OQ-R3): a host yolo could not ask is never reported as a failure it
-// could have avoided. Both are unconditional — the delegate only reaches here when the
-// user switched its loophole ON, so neither line can appear on a launch that did not
-// ask for the capability.
-func (o *Options) noteCgroupDelegateUnavailable(reason string) {
-	o.pr(o.Stdout).print("[dim]The cgroup-delegate loophole is enabled but the delegate " +
-		"cannot run on this machine: " + reason + ". Nothing is missing — yolo-cglimit " +
-		"will be unavailable in the jail.[/dim]")
-}
-
-func (o *Options) noteCgroupDelegateFailed(reason string) {
-	o.pr(o.Stdout).print("[yellow]Warning: the cgroup-delegate loophole is enabled but " +
-		"its delegate " + reason + " — yolo-cglimit will not work in this jail.[/yellow]")
-}
+// THE DELEGATE'S TWO REPORTERS ARE NOT HERE, and the build tag is the reason.
+// `noteCgroupDelegateUnavailable` and `noteCgroupDelegateFailed` live beside their
+// only callers in cgddaemon_linux.go, because the declines they describe are
+// Linux-only facts — a kernel without cgroup v2, a bind, a chmod. This file has no
+// build tag, so a reporter left here is unused on darwin and `GOOS=darwin
+// staticcheck` says so (U1000). The alternative fix — a darwin call site — is the
+// one cgddaemon_other.go rules out: off Linux the PLATFORM axis owns the message
+// and a second line here would be the half-message loophole-system.md forbids.
 
 // THE JOURNAL BRIDGE'S TWO FUNCTIONS USED TO LIVE HERE — `resolveJournalMode` and
 // `startJournal` — and their absence is worth a paragraph, because it is the shape
