@@ -26,6 +26,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -177,9 +179,16 @@ func (c *child) start() error {
 	// nowhere near here. A dup is a descriptor we DO own, and it is closed
 	// explicitly below once Start has handed the child its own copy, exactly as
 	// the log file is.
+	//
+	// F_DUPFD_CLOEXEC rather than dup(2): a plain dup is not close-on-exec and
+	// syscall.Dup does not take syscall.ForkLock, so a SIBLING daemon forking in
+	// the window before the Close below would inherit this copy too. Harmless
+	// today, since every daemon is handed the same pipe as fd 3 deliberately —
+	// but only by coincidence, and the next fd wired through here would not be
+	// so lucky.
 	var ready *os.File
 	if fd, err := strconv.Atoi(os.Getenv(paths.JailDaemonReadyFDEnv)); err == nil && fd >= 3 {
-		if dup, err := syscall.Dup(fd); err == nil {
+		if dup, err := unix.FcntlInt(uintptr(fd), unix.F_DUPFD_CLOEXEC, 0); err == nil {
 			ready = os.NewFile(uintptr(dup), "jail-daemon-ready")
 			cmd.ExtraFiles = []*os.File{ready}
 			cmd.Env = append(os.Environ(), paths.JailDaemonReadyFDEnv+"=3")
