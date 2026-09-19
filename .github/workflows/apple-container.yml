@@ -292,6 +292,33 @@ jobs:
             exit 1
           fi
 
+      # LOAD IT, EVERY RUN — the step whose absence made this job report a stale image
+      # for every dispatch after a flake.nix edit, with nothing on the runner able to heal
+      # it (measured 2026-09-19: imageIdentity moved 816a3ee9 → a2910bf5 on a comment-only
+      # edit, and every dispatch after it failed identically).
+      #
+      # THE STEP ABOVE REALIZES, WHICH IS NOT LOADING. `nix build` puts the image in
+      # /nix/store; nothing there installs it into Apple Container's own image store, and
+      # the harness deliberately never loads on a real host — `ensureJailImage`'s
+      # !inContainer() arm exists so a suite cannot build over a machine's own image. That
+      # arm is right and is left alone: this job ASKS for the load instead of the harness
+      # deciding to.
+      #
+      # ⚠ NOTHING IS OVERWRITTEN, which is why this can be unconditional. A jail image is
+      # tagged by CONTENT (`JailImageRef` = <repo>:<hash of the nix store path>), so a new
+      # identity arrives under its own tag beside whatever is already loaded; `:latest` is
+      # a convenience pointer a launch never resolves. The old image stays loaded and
+      # reapable rather than being replaced.
+      #
+      # `just load` rather than the skopeo argv, deliberately: that recipe is THE deliver
+      # verb, it is what the harness's own degraded message tells a human to run, and a
+      # second copy of the archive hop written in YAML is the drift this repo spends its
+      # effort avoiding. It dispatches on YOLO_RUNTIME, which this job sets.
+      - name: Load the realized image into Apple Container's store
+        run: just load
+        env:
+          YOLO_RUNTIME: container
+
       # THE PREFIX MUST NOT LIVE IN /nix/store, AND ON THIS BACKEND THAT IS FATAL RATHER
       # THAN SLOW.
       #

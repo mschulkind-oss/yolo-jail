@@ -219,10 +219,36 @@ build-image-minimal:
 # realizes beside it at ./result-1. `skopeo copy` negotiates per blob with
 # containers-storage, so a re-load after a flake.nix-only edit moves ~26 MB
 # instead of 3.4 GB.
+#
+# IT DISPATCHES ON THE RUNTIME, and it did not until 2026-09-19 — it wrote to
+# `containers-storage:` unconditionally, which is podman's store and not a place
+# Apple Container ever reads. So on a Mac running that backend `just load` was a
+# SILENT no-op against the runtime in use: it reported success, moved bytes, and
+# left the image the tests actually resolve exactly as stale as before. The
+# harness's own degraded message says "run `just load`", so following the
+# instruction did nothing and said nothing.
+#
+# The Apple Container arm is the archive hop yolo's own launch path takes
+# (internal/image/autoload.go, deliverViaArchive): that backend's VM owns its
+# store, so there is no containers-storage to negotiate blobs with and the whole
+# image crosses as one file. The file is removed afterwards — a leftover is what
+# makes the NEXT copy fail, since skopeo will not write over an existing archive.
 load: build-image
-    ./result-1/bin/skopeo --insecure-policy copy \
-        "nix:$(readlink -f ./result)" \
-        containers-storage:localhost/yolo-jail:latest
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "{{ runtime }}" = "container" ]; then
+        archive=$(mktemp -t yolo-jail-image.XXXXXX.oci)
+        rm -f "$archive"
+        trap 'rm -f "$archive"' EXIT
+        ./result-1/bin/skopeo --insecure-policy copy \
+            "nix:$(readlink -f ./result)" \
+            "oci-archive:$archive:yolo-jail:latest"
+        container image load -i "$archive"
+    else
+        ./result-1/bin/skopeo --insecure-policy copy \
+            "nix:$(readlink -f ./result)" \
+            containers-storage:localhost/yolo-jail:latest
+    fi
 
 # Build BOTH image variants on a Linux host and push their closures to the
 # Cachix cache, so macOS users download the prebuilt image (no Linux builder

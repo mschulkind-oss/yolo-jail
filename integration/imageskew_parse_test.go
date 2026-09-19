@@ -113,7 +113,9 @@ func TestSkewMessageIsActionable(t *testing.T) {
 	for _, want := range []string{
 		wantID,                          // what the source wants
 		gotID,                           // what is loaded
-		rebuildEnv + "=1",               // the one-command fix
+		"just load",                     // the fix that works OUTSIDE a container too
+		"YOLO_RUNTIME=podman",           // ...pointed at the runtime being reported on
+		rebuildEnv + "=1",               // the in-jail one-command fix
 		skewEnv + "=warn",               // the documented escape hatch
 		"nix build --impure .#ociImage", // the manual fix
 		"containers-storage:",           // ...delivered, not streamed
@@ -131,7 +133,13 @@ func TestSkewMessageIsActionable(t *testing.T) {
 	if strings.Contains(ac, "containers-storage:") {
 		t.Errorf("the Apple Container fix names podman's store:\n%s", ac)
 	}
-	for _, want := range []string{"oci-archive:", "container image load -i"} {
+	for _, want := range []string{
+		"oci-archive:", "container image load -i",
+		// And the recipe, pointed at THIS runtime. `just load` wrote to
+		// containers-storage unconditionally until 2026-09-19, so handing a Mac user
+		// a bare `just load` was handing them the same wrong store one level up.
+		"YOLO_RUNTIME=container just load",
+	} {
 		if !strings.Contains(ac, want) {
 			t.Errorf("the Apple Container fix is missing %q:\n%s", want, ac)
 		}

@@ -454,8 +454,13 @@ func ensureJailImage() {
 		if name := imageExists(rt); name != "" {
 			checkImageSkew(rt, name)
 		} else {
+			// The runtime is in the advice because `just load` DISPATCHES on it: it
+			// wrote to containers-storage unconditionally until 2026-09-19, so on
+			// Apple Container the instruction this line gives used to succeed loudly
+			// and load nothing the tests could resolve.
 			degraded("no %s image in %s and not inside a container (so the suite will "+
-				"not build one) — container tests will fail; run `just load`", jailImage, rt)
+				"not build one) — container tests will fail; run "+
+				"`YOLO_RUNTIME=%s just load`", jailImage, rt, rt)
 		}
 		return
 	}
