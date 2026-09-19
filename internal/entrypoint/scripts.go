@@ -37,15 +37,37 @@ var staleShimFiles = []string{"_yolo_bootstrap.py", "_yolo_python", "yolo", "yol
 // It only ever removes REGULAR files it recognizes by name, never a directory
 // and never the anchor dirs themselves (both ~/.local/bin's neighbours and the
 // shim dir are bind-mount anchors elsewhere in the boot path).
+// A FAILED UNLINK IS REPORTED, and the paragraph above is the reason: this is the
+// CUTOVER, not tidiness. A surviving script keeps shadowing the baked binary on every
+// future launch, and for yolo-cglimit / yolo-journalctl the symptom is the exact
+// inverse of the truth — the client reports "not available" in a jail where the
+// loophole is running fine. Discarding the error made that permanent AND unattributed.
+//
+// It still returns nil, deliberately: this runs through genStep, so returning the
+// error would refuse the boot over a stale file in a home yolo may not be able to
+// write (a :ro home in a skewed launch is the likely cause). A shadowed client is a
+// degraded jail; a refused launch is no jail.
 func RemoveStaleGeneratedClients(e *Env) error {
 	for _, name := range staleGeneratedClients {
 		stale := filepath.Join(e.LocalBin(), name)
 		if fi, err := os.Lstat(stale); err == nil && fi.Mode().IsRegular() {
-			_ = os.Remove(stale)
+			if err := os.Remove(stale); err != nil {
+				e.warn("Warning: could not unlink the stale generated client " + stale +
+					": " + err.Error() + "; it precedes /bin on PATH, so it will keep " +
+					"shadowing the baked " + name + " binary — a retired client can " +
+					"report a loophole as unavailable in a jail where it is running fine")
+			}
 		}
 	}
 	for _, name := range staleShimFiles {
-		_ = os.Remove(filepath.Join(e.BlockDir(), name))
+		// Absence is the normal case (these are pre-Go bootstrap leftovers), so only a
+		// real removal failure is worth a line — but it IS worth one: the block dir is
+		// FIRST on PATH, so a leftover named after a real tool intercepts it.
+		path := filepath.Join(e.BlockDir(), name)
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			e.warn("Warning: could not unlink the retired bootstrap file " + path +
+				": " + err.Error() + "; it sits in the FIRST directory on PATH")
+		}
 	}
 	removeRetiredGeneratedDirs(e)
 	return nil
@@ -81,7 +103,17 @@ func removeRetiredGeneratedDirs(e *Env) {
 			if entry.IsDir() {
 				continue // never recurse: these dirs only ever held flat scripts
 			}
-			_ = os.Remove(filepath.Join(dir, entry.Name()))
+			// Reported for the reason stated above — one of these leftovers is a `grep`
+			// blocker that starts intercepting again the moment its directory is back on
+			// a PATH — and because the failure is the interesting half: reaching here at
+			// all means the retired dir still exists, so the sweep is live and the only
+			// question left is whether it worked.
+			path := filepath.Join(dir, entry.Name())
+			if err := os.Remove(path); err != nil {
+				e.warn("Warning: could not empty the retired generated-script dir: " +
+					path + ": " + err.Error() + "; it is an executable named after a real " +
+					"tool and will intercept again if this directory is ever back on PATH")
+			}
 		}
 	}
 }

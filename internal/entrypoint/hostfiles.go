@@ -147,6 +147,11 @@ func renderHostFileSurface(e *Env, entry config.HostFileEntry) error {
 		// 0o444 (the old code) silently strips it — which is the whole bug. Derive both
 		// modes from the source so there is one decision, not two that can disagree.
 		locked, unlocked := hostFileModes(entry)
+		// The unlock's error is dropped because the render below reports the same fact
+		// better: the chmod exists only so the truncating write can open the file, so a
+		// failure that matters returns from renderSurfaceStatelessSurface as a named,
+		// FATAL host_files error. A failure that does not matter (the agent is root and
+		// the bits never applied to it) would be a warning about a write that worked.
 		if _, err := os.Stat(dest); err == nil {
 			_ = os.Chmod(dest, unlocked)
 		}

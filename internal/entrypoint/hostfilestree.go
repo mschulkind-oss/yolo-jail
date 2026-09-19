@@ -168,6 +168,11 @@ func renderOneHostFile(pack, srcPath, dest string, req HostFilesRequest, observe
 	// A prior render left the file read-only (see hostFileTreeMode), and a non-root user
 	// cannot reopen a 0o444 file for writing — restore a writable mode first, exactly as the
 	// host_files readonly path does.
+	//
+	// Its error is dropped because the WriteFile below reports the same fact better: a
+	// failed unlock that matters comes back as that write's EACCES, which this function
+	// turns into a "refused: …" Action the caller surfaces. A failed unlock that does
+	// not matter would be a warning about a write that then succeeded.
 	if occupied {
 		_ = os.Chmod(dest, 0o644)
 	}

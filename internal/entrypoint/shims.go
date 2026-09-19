@@ -231,6 +231,11 @@ func safeCasePatterns(patterns []string) (kept, dropped []string) {
 // The emitted grammar is otherwise untouched: same lines, same order, same `>&2`,
 // same exit 127.
 func ShimContent(msg, sug, realBin string, blockFlags, allowFlags []string) string {
+	// The dropped lists are discarded HERE and reported THERE: GenerateShims calls
+	// safeCasePatterns a second time purely to warn about what this call will drop,
+	// naming the tool and the patterns (see its loop over block_flags/allow_flags).
+	// ShimContent has no Env and so cannot report; duplicating the validation is the
+	// price of keeping the content generator pure.
 	blockFlags, _ = safeCasePatterns(blockFlags)
 	allowFlags, _ = safeCasePatterns(allowFlags)
 	var lines []string

@@ -118,6 +118,11 @@ const holdOffer = "\nyolo-entrypoint: this container is about to be removed WITH
 // The returned func is never nil. A launch that did not opt in gets a no-op, which
 // is what keeps the call site in Main three unconditional lines rather than a
 // branch that could be got wrong.
+// Both WriteString errors below stay dropped for the structural reason Env.warn states:
+// e.Stderr IS the channel a report would travel on, so a failure to write it cannot be
+// reported through it, and there is no second sink at this point in the boot (boot.log is
+// the other half of that same MultiWriter). A lost write shows up as a refusal missing its
+// hold notice, which is visible to the only reader there is.
 func beginHold(e *Env) func() {
 	if e.Getenv(paths.HoldOnRefusalEnv) == "" {
 		if e.Stderr != nil {
@@ -130,6 +135,12 @@ func beginHold(e *Env) func() {
 	}
 	// Before the wait, not inside it: a stale file would release the hold on the
 	// first tick, which reads as the feature not working at all.
+	//
+	// The error stays dropped because the common case IS an error — ENOENT, no previous
+	// hold — and the failure that is not ENOENT has the same visible outcome as the
+	// feature working: the hold releases on the first tick, and the notice already
+	// printed above tells the reader what a release looks like. Reporting here would
+	// also mean writing to a log that is about to be closed for a refusal.
 	_ = os.Remove(holdReleaseFile)
 	return func() {
 		ctx, stop := holdContext()

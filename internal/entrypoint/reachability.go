@@ -770,6 +770,10 @@ func probeService(svc serviceEndpoint, deadline time.Time) *reachabilityResult {
 			conn, err = svcendpoint.Dial(svc.path, timeout)
 		}
 		if err == nil {
+			// The probe's entire answer is the successful dial above — this close only
+			// hands the connection back. A close error cannot make a reachable service
+			// unreachable, and reporting one would put a descriptor's fate into a witness
+			// whose findings are FATAL (OQ-R4).
 			_ = conn.Close()
 			return nil
 		}

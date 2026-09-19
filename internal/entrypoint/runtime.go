@@ -277,6 +277,9 @@ func startJailDaemonSupervisor(e *Env) error {
 	cmd.Stderr = nil
 	if err := cmd.Start(); err != nil {
 		if readyRead != nil {
+			// Closing our own never-written pipe ends: the only error either can
+			// report is EBADF on a double close, which this branch cannot reach, and
+			// the error we are about to return is the one that matters.
 			_ = readyRead.Close()
 			_ = readyWrite.Close()
 		}
@@ -286,13 +289,35 @@ func startJailDaemonSupervisor(e *Env) error {
 		return fmt.Errorf("start jail daemon supervisor: %w", err)
 	}
 	if readyWrite != nil {
+		// Dropping our copy of the write end is what makes the scanner below see EOF
+		// when the child dies. A close error here can only be EBADF (we opened it and
+		// have not closed it), and the readiness wait reports the consequence anyway:
+		// a write end nobody closed shows up as a hang, not as a lost error.
 		_ = readyWrite.Close()
 	}
-	// Best-effort PID-file write; losing it just risks a redundant supervisor.
-	_ = os.WriteFile(supervisorPIDFile, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o644)
+	// The PID file is the ONLY guard against a second supervisor, and this file's
+	// header states the consequence of losing it: "starting a second one duplicates
+	// every service listener". A silent loss therefore degrades the next
+	// `podman exec` into a jail whose services are bound twice, so say so — the
+	// write still does not gate the boot, because the supervisor this launch started
+	// is already running and refusing now would be strictly worse.
+	if err := os.WriteFile(supervisorPIDFile, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o644); err != nil {
+		e.warn("Warning: could not record the in-jail daemon supervisor's pid at " +
+			supervisorPIDFile + ": " + err.Error() + "; a later re-entry into this " +
+			"container cannot see that a supervisor is already running and may start a " +
+			"second one, duplicating every service listener")
+	}
 	// Reap the child asynchronously so it doesn't linger as a zombie if it
 	// exits while PID 1 is still alive; a background Wait keeps the supervisor
 	// detached without blocking boot.
+	//
+	// The Wait error is dropped and must stay dropped: it arrives whenever the
+	// supervisor exits, which is normally long after execBash has replaced this
+	// process — and before that, after Main closed boot.log, so e.Stderr is a
+	// MultiWriter over a closed file. Reporting from here would be a write race on a
+	// sink that no longer exists, against a reader who has already been handed the
+	// terminal. The readiness pipe above is the in-band channel for the failures a
+	// boot CAN act on.
 	go func() { _ = cmd.Wait() }()
 	if readyRead == nil {
 		return nil
@@ -338,6 +363,9 @@ func portInUse(port int) bool {
 	if err != nil {
 		return true
 	}
+	// The probe's whole answer is the successful Listen above; the close only gives
+	// the port back. A failure to close cannot change the answer, and the caller
+	// would learn of it as a bind failure on the very next line.
 	_ = ln.Close()
 	return false
 }
@@ -403,13 +431,21 @@ func startContainerPortForwarding(e *Env) {
 			// return. Any other error warns and continues to the next port.
 			if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
 				e.warn("Warning: socat not found, cannot forward host ports")
+				// Nothing was written to this log, so a close error has no buffered
+				// bytes to lose and nothing left to report about; the warning above is
+				// the finding.
 				_ = logFile.Close()
 				return
 			}
 			e.warn("Warning: failed to forward port " + strconv.Itoa(localPort) + ": " + err.Error())
 			continue
 		}
-		// Reap asynchronously; the socat runs for the jail's lifetime.
+		// Reap asynchronously; the socat runs for the jail's lifetime. Its Wait error
+		// is dropped for the same reason the supervisor's is: it arrives after the
+		// boot has handed over, when e.Stderr is a MultiWriter over a closed boot.log.
+		// The forward's own diagnostics go to the log file this socat inherited
+		// (~/.yolo-socat.log), which outlives the boot and is the right reader for a
+		// forward that dies hours in.
 		go func() { _ = cmd.Wait() }()
 	}
 }
@@ -476,6 +512,14 @@ func mustAtoiPort(s string) int {
 // runWithTimeoutSeconds runs cmd, killing it after `secs` seconds. A timeout
 // returns an error so callers can warn.
 func runWithTimeoutSeconds(cmd *exec.Cmd, secs int) error {
+	return runWithTimeout(cmd, time.Duration(secs)*time.Second)
+}
+
+// runWithTimeout is the same bound expressed as a Duration, which is what
+// runBoundedStep needs so a test can hand it a bound short enough to reach the
+// timeout branch. Seconds remain the spelling at the call sites, because seconds
+// are what the bounds are chosen in.
+func runWithTimeout(cmd *exec.Cmd, limit time.Duration) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
@@ -484,7 +528,12 @@ func runWithTimeoutSeconds(cmd *exec.Cmd, secs int) error {
 	select {
 	case err := <-done:
 		return err
-	case <-time.After(time.Duration(secs) * time.Second):
+	case <-time.After(limit):
+		// Kill's error is deliberately dropped: the only failure it can report is
+		// that the process already exited (ESRCH), and the `<-done` below is the
+		// authority on that either way — it cannot return until Wait has reaped the
+		// child, killed or not. Reporting ESRCH here would announce a race we just
+		// won.
 		_ = cmd.Process.Kill()
 		<-done
 		return errTimeout
@@ -492,6 +541,48 @@ func runWithTimeoutSeconds(cmd *exec.Cmd, secs int) error {
 }
 
 var errTimeout = errors.New("timeout")
+
+// boundedStepSlowNotice is the elapsed time past which a bounded step that
+// SUCCEEDED is still worth the terminal's attention. A wait the user paid for is
+// a fact about their launch whether or not it ended in an error, and a boot that
+// stalls for seconds and then says nothing is the shape that gets reported as "it
+// just hangs": the time is charged to the user and the reason to nobody. A var,
+// not a const, so a test can reach the branch without sleeping for it.
+var boundedStepSlowNotice = 2 * time.Second
+
+// runBoundedStep runs one bounded boot subprocess and REPORTS WHAT HAPPENED. It is
+// the answer to this package's densest silent-decision shape: a `_ =
+// runWithTimeoutSeconds(cmd, 30)` spends up to thirty seconds of the user's launch
+// and then discards the only record that it did.
+//
+// Three dispositions, and each is a different reader:
+//
+//   - TIMEOUT -> warn. The worst outcome available, because the step did not happen
+//     AND the boot got slower, so it must name what was waited on and how long.
+//   - FAILURE -> warn. The step did not happen; the command said why.
+//   - SUCCESS -> note (boot.log only), which is what makes the log answer "did it
+//     happen?" rather than only "what went wrong?" — unless it was SLOW, in which
+//     case the terminal gets it too.
+//
+// Callers keep the best-effort POLARITY they had: nothing here refuses a boot. What
+// changes is that the degradation is visible.
+func runBoundedStep(e *Env, what string, limit time.Duration, cmd *exec.Cmd) {
+	start := time.Now()
+	err := runWithTimeout(cmd, limit)
+	elapsed := time.Since(start).Round(time.Millisecond)
+	switch {
+	case errors.Is(err, errTimeout):
+		e.warn(fmt.Sprintf("Warning: %s timed out after %s and was killed; "+
+			"it did not complete, and the boot continues without it", what, limit))
+	case err != nil:
+		e.warn(fmt.Sprintf("Warning: %s failed after %s: %v; "+
+			"the boot continues without it", what, elapsed, err))
+	case elapsed >= boundedStepSlowNotice:
+		e.warn(fmt.Sprintf("Note: %s took %s (bound %s)", what, elapsed, limit))
+	default:
+		e.note(fmt.Sprintf("%s: ok in %s", what, elapsed))
+	}
+}
 
 // envWith returns environ with key set to val (appended or overriding). Mirrors
 // {**os.environ, key: val}: a later assignment wins.

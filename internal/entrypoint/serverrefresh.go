@@ -485,10 +485,20 @@ func acquirePrefixLock(dir string, now time.Time) bool {
 	if now.Sub(st.ModTime()) <= serverStaleLockAge*time.Second {
 		return false
 	}
+	// The remove's error is dropped because the Mkdir on the next line is the real
+	// answer: if the stale lock could not be cleared, the Mkdir fails and this returns
+	// false, which is the whole contract — "could not take the lock" — and §3.5 requires
+	// an invocation that cannot take it to proceed without updating.
 	_ = os.Remove(dir)
 	return os.Mkdir(dir, 0o755) == nil
 }
 
+// releasePrefixLock drops the lock dir. The error stays dropped and the staleness
+// rule above is why: a lock that fails to release is indistinguishable from one held
+// by a process that died, and acquirePrefixLock already breaks any lock older than
+// serverStaleLockAge. So the worst case is one refresh interval of no refreshes,
+// which self-heals — and a warning about it would fire on a path the user cannot act
+// on anyway.
 func releasePrefixLock(dir string) { _ = os.Remove(dir) }
 
 // serverRefreshDue reports whether p is past its interval. An absent stamp is due — a package
@@ -508,6 +518,12 @@ func touchServerStamp(stampDir string, p serverPkg, now time.Time) {
 		return
 	}
 	path := filepath.Join(stampDir, p.stampName())
+	// Both errors stay dropped, and serverRefreshDue is why: an absent or un-touched
+	// stamp reads as DUE, so every failure here degrades to "refresh again next
+	// invocation" — the safe direction, and the one this file's own comment says it
+	// chose deliberately ("treating 'no record' as fresh is how a warm home stays
+	// frozen forever"). A stamp that cannot be written is a repeated refresh, not a
+	// missed one, and the refresh itself already reports its own outcome.
 	if f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
 		_ = f.Close()
 	}

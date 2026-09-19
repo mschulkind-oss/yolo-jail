@@ -14,7 +14,7 @@ func TestConfigureScratchPermissionsDirs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	configureScratchPermissionsDirs(readOnlyDir)
+	configureScratchPermissionsDirs(testEnv(t), readOnlyDir)
 
 	fi, err := os.Stat(readOnlyDir)
 	if err != nil {
@@ -30,5 +30,5 @@ func TestConfigureScratchPermissionsDirs(t *testing.T) {
 
 func TestConfigureScratchPermissionsDirsIgnoresMissing(t *testing.T) {
 	// Must not panic or error on non-existent directories.
-	configureScratchPermissionsDirs("/nonexistent/path/that/does/not/exist")
+	configureScratchPermissionsDirs(testEnv(t), "/nonexistent/path/that/does/not/exist")
 }

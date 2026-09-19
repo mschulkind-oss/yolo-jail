@@ -163,5 +163,9 @@ func (bl *bootLog) finish(err error) {
 	} else {
 		fmt.Fprintln(bl.f, "=== boot complete, handing over ===")
 	}
+	// Discarded for the structural reason stated in "Why it is never fatal" above: this
+	// is the log's own close, so the only channel that could carry the error is the one
+	// being closed. A lost final flush shows up as a boot.log missing its last line,
+	// which is self-evident to its reader.
 	_ = bl.f.Close()
 }

@@ -37,6 +37,12 @@ func WriteInPlace(path string, data []byte, perm os.FileMode) error {
 	// os.WriteFile opens with O_WRONLY|O_CREATE|O_TRUNC — truncates the
 	// existing inode, does not unlink+recreate. That is exactly the required
 	// semantic; we wrap it to make the invariant explicit and greppable.
+	// The chmod's error is dropped because the very next line reports the same fact
+	// better: this unlock exists only so the O_TRUNC below can succeed, so a chmod
+	// that failed for a reason that MATTERS comes back as the WriteFile's EACCES,
+	// which is returned to the caller. A chmod that failed for a reason that does not
+	// (the file is already writable by another route — a root agent, an ACL) would
+	// produce a warning about a write that then worked.
 	if info, err := os.Stat(path); err == nil && info.Mode().Perm()&0o200 == 0 {
 		_ = os.Chmod(path, 0o644)
 	}

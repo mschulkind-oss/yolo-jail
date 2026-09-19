@@ -130,6 +130,11 @@ func (e *Env) genFailure(msg string) {
 func (e *Env) GenFailures() []string { return e.genFailures }
 
 // warn writes a line to e.Stderr (if set).
+// These two writes are the one place in this package where discarding an error is
+// structurally forced rather than merely reasonable: this IS the reporting channel, so
+// there is nowhere for a report about it to go. e.Stderr is a MultiWriter over the
+// terminal and boot.log, and a failure of either half is already visible in its own
+// terms — a missing line on the terminal, a short boot.log.
 func (e *Env) warn(msg string) {
 	if e.Stderr != nil {
 		_, _ = io.WriteString(e.Stderr, msg+"\n")
@@ -162,6 +167,7 @@ func (e *Env) warnOnce(msg string) {
 // positive record — "this check ran, and here is what it found" — that a reader of
 // the log needs and a user watching a healthy launch does not. See Env.LogOnly.
 func (e *Env) note(msg string) {
+	// Discarded for the same structural reason as warn's write: this is the sink.
 	if e.LogOnly != nil {
 		_, _ = io.WriteString(e.LogOnly, msg+"\n")
 	}

@@ -66,7 +66,7 @@ func TestStoreFarmLinksBinLibAndPkgConfig(t *testing.T) {
 		[]string{"zbarimg"}, []string{"libzbar.so.0", "libzbar.so.0.3.0", "notalib.txt"},
 		[]string{"zbar.pc"})
 	root := t.TempDir()
-	if err := buildStorePackageFarm(root, []string{profile}); err != nil {
+	if err := buildStorePackageFarm(testEnv(t), root, []string{profile}); err != nil {
 		t.Fatalf("buildStorePackageFarm: %v", err)
 	}
 
@@ -100,7 +100,7 @@ func TestStoreFarmPrecedenceIsFirstProfileWins(t *testing.T) {
 	second := fakeProfile(t, filepath.Join(base, "extras"), []string{"fzf", "bat"}, []string{"libz.so.1"}, nil)
 
 	root := t.TempDir()
-	if err := buildStorePackageFarm(root, []string{first, second}); err != nil {
+	if err := buildStorePackageFarm(testEnv(t), root, []string{first, second}); err != nil {
 		t.Fatalf("buildStorePackageFarm: %v", err)
 	}
 	if got, want := linkTarget(t, root, "bin/fzf"), filepath.Join(first, "bin", "fzf"); got != want {
@@ -121,7 +121,7 @@ func TestStoreFarmPrecedenceIsFirstProfileWins(t *testing.T) {
 // store is not mounted the way the host believed — and linking nothing would hand the
 // agent a jail quietly missing every tool the workspace declared.
 func TestStoreFarmRefusesAnUnresolvableProfile(t *testing.T) {
-	err := buildStorePackageFarm(t.TempDir(), []string{"/nix/store/does-not-exist-profile"})
+	err := buildStorePackageFarm(testEnv(t), t.TempDir(), []string{"/nix/store/does-not-exist-profile"})
 	if err == nil {
 		t.Fatal("a profile that does not resolve inside the jail must be a FATAL boot " +
 			"error: there is no baked copy to fall back on, so linking nothing " +
@@ -138,10 +138,10 @@ func TestStoreFarmRefusesAnUnresolvableProfile(t *testing.T) {
 func TestStoreFarmIsClearedWhenTheLaunchStopsOptingIn(t *testing.T) {
 	profile := fakeProfile(t, filepath.Join(t.TempDir(), "profile"), []string{"jq"}, nil, nil)
 	root := t.TempDir()
-	if err := buildStorePackageFarm(root, []string{profile}); err != nil {
+	if err := buildStorePackageFarm(testEnv(t), root, []string{profile}); err != nil {
 		t.Fatalf("buildStorePackageFarm: %v", err)
 	}
-	if err := buildStorePackageFarm(root, nil); err != nil {
+	if err := buildStorePackageFarm(testEnv(t), root, nil); err != nil {
 		t.Fatalf("buildStorePackageFarm (no profiles): %v", err)
 	}
 	if _, err := os.Lstat(filepath.Join(root, "bin", "jq")); err == nil {
@@ -382,11 +382,17 @@ func TestStorePackagesGenStepRunsBeforeItsTwoConsumers(t *testing.T) {
 				if _, seen := pos["generateLdCache"]; !seen {
 					pos["generateLdCache"] = fset.Position(call.Pos()).Offset
 					// The farm's lib dir must be what it is handed, or the extra-dir
-					// parameter is dead and the cache silently omits the farm.
-					if len(call.Args) != 1 {
-						t.Errorf("generateLdCache is called with %d args, want 1 "+
-							"(StorePackagesLib()) — without it the cache omits every "+
-							"store-delivered library", len(call.Args))
+					// parameter is dead and the cache silently omits the farm. The Env
+					// became the first argument when the ldconfig run learned to report
+					// its own timeout, so the extra dir is the LAST one.
+					if len(call.Args) != 2 {
+						t.Errorf("generateLdCache is called with %d args, want 2 "+
+							"(the Env, then StorePackagesLib()) — without the extra dir "+
+							"the cache omits every store-delivered library", len(call.Args))
+					} else if !namesCallTo(call.Args[1], "StorePackagesLib") {
+						t.Error("generateLdCache's last argument is no longer " +
+							"StorePackagesLib() — without the farm's lib dir the " +
+							"ld.so.cache omits every store-delivered library")
 					}
 				}
 			}
@@ -411,4 +417,16 @@ func TestStorePackagesGenStepRunsBeforeItsTwoConsumers(t *testing.T) {
 				"reads the farm, and reading it before it exists fails silently", consumer, consumer)
 		}
 	}
+}
+
+// namesCallTo reports whether expr is a call to the named zero-argument function, which
+// is how the pin above checks WHICH directory generateLdCache is handed rather than only
+// how many arguments it takes.
+func namesCallTo(expr ast.Expr, name string) bool {
+	call, ok := expr.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	ident, ok := call.Fun.(*ast.Ident)
+	return ok && ident.Name == name
 }

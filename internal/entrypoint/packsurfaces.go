@@ -610,6 +610,10 @@ func remapCtx(p string) string {
 func retireOrphanSidecars(e *Env, surface manifest.Surface) {
 	dir := filepath.Dir(expandHomePath(e, surface.Path))
 	for _, name := range surface.RetireOnFirstRender {
+		// Dropped per the docstring above, restated as a reason rather than a policy:
+		// the file is ALREADY UNREAD — the surface that replaced it is what the tool
+		// loads — so a failure leaves an inert copy on disk with no effect on the jail's
+		// behavior. There is no degradation to disclose, only a byte count.
 		_ = os.Remove(filepath.Join(dir, name))
 	}
 }

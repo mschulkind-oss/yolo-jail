@@ -30,6 +30,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -159,6 +160,11 @@ func (e *Env) logSharedCreds(pack, file, sharedDir, decision string) {
 	if err != nil {
 		return
 	}
+	// Both dropped, and the justification is that e.warn above ALREADY carried this
+	// line to stderr and therefore into boot.log. This file is the redundant durable
+	// copy, so a failure to write it loses the second of two records, and reporting it
+	// would mean emitting a line about a log on the very channel that already holds
+	// the content the log would have had.
 	_, _ = fmt.Fprintf(f, "%s %s\n", time.Now().Format("2006-01-02 15:04:05"), line)
 	_ = f.Close()
 }
@@ -181,6 +187,9 @@ func (e *Env) isolateHistoryFile(h packdecl.Hook) error {
 	}
 	perJail := filepath.Join(historyDir, sha256Hex(hostDir)[:12]+filepath.Ext(h.File))
 	if !pathExists(perJail) {
+		// Closing a file we just created and wrote nothing to has no error worth
+		// reporting; and the touch itself is only a convenience — the symlink below is
+		// what matters, and it is created whether or not the target file exists yet.
 		if f, err := os.OpenFile(perJail, os.O_CREATE, 0o644); err == nil {
 			_ = f.Close()
 		}
@@ -188,6 +197,10 @@ func (e *Env) isolateHistoryFile(h packdecl.Hook) error {
 	if target, err := os.Readlink(historyFile); err == nil && target == perJail {
 		return nil
 	}
+	// Dropped because the NEXT line reports the same fact better: if the remove failed
+	// for a reason that matters, os.Symlink returns EEXIST and that error is returned
+	// to genStep, which makes it a fatal, named hook failure. A remove that failed
+	// because there was nothing to remove is the normal first-boot case.
 	_ = os.Remove(historyFile)
 	return os.Symlink(perJail, historyFile)
 }
@@ -207,9 +220,22 @@ func (e *badHookError) Error() string {
 	return "pack " + e.pack + ": hook " + e.name + ": " + e.why
 }
 
+// claudeCLITimeout is the bound on one plugin reconcile invocation. A var so a test
+// can reach the timeout branch without sleeping for it.
+var claudeCLITimeout = 30 * time.Second
+
 // runClaudeCLI runs the claude binary with a bounded timeout and no inherited output.
 // Kept here (rather than inline) because HookClaudePlugins is the only caller and the
 // 30-second bound is the load-bearing part: a hung agent CLI must not wedge the boot.
+//
+// THE RESULT IS REPORTED, and this is the site where discarding it was worst. The
+// caller (installClaudePlugins) reconciles installed plugins against configured LSP
+// servers by DIFFING the two sets and issuing the commands that close the gap — so a
+// failed or timed-out invocation leaves the gap open while the boot proceeds as
+// though it had closed. The next boot reads the same on-disk set, computes the same
+// diff, and pays the same bound again: a silent failure here is a per-launch cost
+// that never converges and never explains itself. Thirty seconds times the number of
+// plugins is the ceiling the user pays for it.
 func runClaudeCLI(e *Env, args ...string) {
 	claudeBin := filepath.Join(e.Home, ".local", "bin", "claude")
 	if !pathExists(claudeBin) {
@@ -219,5 +245,5 @@ func runClaudeCLI(e *Env, args ...string) {
 	cmd.Env = envWith(os.Environ(), "YOLO_BYPASS_SHIMS", "1")
 	cmd.Stdout = nil
 	cmd.Stderr = nil
-	_ = runWithTimeoutSeconds(cmd, 30)
+	runBoundedStep(e, "claude "+strings.Join(args, " "), claudeCLITimeout, cmd)
 }

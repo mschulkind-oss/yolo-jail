@@ -213,6 +213,10 @@ func AppendReceiptLine(path, line string) error {
 		return err
 	}
 	if _, err := f.WriteString(line + "\n"); err != nil {
+		// The close error is dropped in favour of the write error, which is the cause:
+		// returning a close failure here would replace "the receipt line could not be
+		// written, and why" with a fact about a descriptor. The success path below
+		// returns Close's error, which is where a lost buffered write would show up.
 		_ = f.Close()
 		return err
 	}

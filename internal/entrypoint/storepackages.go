@@ -108,7 +108,7 @@ func GenerateStorePackages(e *Env) error {
 // names a directory that was never built is a worse diagnosis than one whose boot refused.
 func generateStorePackagesIn(e *Env, root, fontsDir, imageConf string) error {
 	profiles := StoreProfiles(e)
-	if err := buildStorePackageFarm(root, profiles); err != nil {
+	if err := buildStorePackageFarm(e, root, profiles); err != nil {
 		return err
 	}
 	if len(profiles) == 0 {
@@ -194,14 +194,27 @@ func configureStoreFontconfig(e *Env, profiles []string, fontsDir, imageConf str
 // idiom flake.nix's /lib farm uses for exactly the same reason: the host orders the
 // profiles (user `packages:` ahead of the image extras), and a later profile may not
 // silently retarget a name an earlier one already claimed.
-func buildStorePackageFarm(root string, profiles []string) error {
+func buildStorePackageFarm(e *Env, root string, profiles []string) error {
 	if len(profiles) == 0 {
 		// Not opted in. Clear rather than create: an `exec` back into a live container
 		// re-runs the boot, so a launch that stopped opting in must not inherit the
 		// previous one's farm — and creating the dirs here would put an empty directory
 		// on PATH for every jail on every backend, which is noise at best.
+		//
+		// A FAILED CLEAR IS REPORTED, and it is not cosmetic: the farm's bin dir sits
+		// IMMEDIATELY BEFORE /bin on BootPath, so a surviving symlink from the previous
+		// entry's farm SHADOWS the baked binary of the same name — the exact inversion of
+		// R2's "a package both baked and staged silently runs the BAKED copy". Reporting
+		// rather than returning keeps the polarity right: this is a re-entry into a jail
+		// that is NOT opted in, so every tool it needs is baked and present, and refusing
+		// the launch over a stale symlink would be the worse outcome.
 		for _, d := range []string{storeBinDir(root), storeLibDir(root)} {
-			_ = ClearContents(d)
+			if err := ClearContents(d); err != nil {
+				e.warn("Warning: this launch does not opt into store-delivered packages, " +
+					"but the previous entry's farm at " + d + " could not be cleared: " +
+					err.Error() + "; it precedes /bin on PATH, so any symlink left in it " +
+					"shadows the baked binary of the same name")
+			}
 		}
 		return nil
 	}

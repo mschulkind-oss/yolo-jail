@@ -72,10 +72,18 @@ func (p *perfLog) dump(home string) {
 	if err != nil {
 		return
 	}
+	// Every error below stays dropped, and the reason is that there is nowhere for it
+	// to go that is not this same file: the perf log is a SINK, and a sink cannot
+	// report its own failure through itself. Routing it to e.Stderr instead would put
+	// a timing-file error on the terminal of every launch that happens to have a
+	// full disk, which is noise about the instrument rather than the jail. The
+	// observable consequence of each failure is a missing or short ~/.yolo-perf.log,
+	// which is self-evident to the only reader who looks.
 	_, _ = f.WriteString(b.String())
 	_ = f.Close()
 
-	// Trim to last 50 runs.
+	// Trim to last 50 runs. A failed trim leaves the log longer than 50 runs — the
+	// next boot retries, and an over-long timing log has no consequence beyond size.
 	content, err := os.ReadFile(logPath)
 	if err != nil {
 		return
@@ -202,6 +210,9 @@ func hydrateEnvFromUserEnvFile(e *Env) {
 		// Reverse the writer's '\'' escape for single-quoted contexts.
 		val := strings.ReplaceAll(raw, "'\\''", "'")
 		e.Vars[key] = val
+		// os.Setenv fails on exactly two inputs — an empty key and a key containing
+		// "=" or a NUL — and exportLineRe's `key` group is [A-Za-z_][A-Za-z0-9_]*,
+		// which admits neither. There is no reachable error here to report.
 		_ = os.Setenv(key, val)
 	}
 }
@@ -289,7 +300,17 @@ func copyHostNvimConfig(e *Env) {
 		return
 	}
 	// copytree(dirs_exist_ok=True): merge into (or create) jailNvim.
-	_ = copyTree(hostNvimConfig, jailNvim)
+	//
+	// REPORTED at the top level: /ctx/host-nvim-config only exists because the launch
+	// mounted it, so the user asked for this config and a failure means they open nvim
+	// to a bare default. Still not fatal — an editor config is not a boot invariant —
+	// but "the mount is there and the copy did not happen" is not something the jail
+	// should keep to itself. The two silent returns above are the legitimately empty
+	// cases (no mount at all).
+	if err := copyTree(hostNvimConfig, jailNvim); err != nil {
+		e.warn("Warning: copy host nvim config from " + hostNvimConfig + " to " +
+			jailNvim + ": " + err.Error() + "; nvim starts with its defaults")
+	}
 }
 
 // copyTree copies src into dst, following symlinks (symlinks=False), skipping
@@ -315,6 +336,13 @@ func copyTree(src, dst string) error {
 			continue
 		}
 		if fi.IsDir() {
+			// Per-ENTRY failures are dropped by design and the reason is the
+			// destination: this merges into a home the user also edits, so a single
+			// unwritable subdirectory must not abort the other ninety. What the caller
+			// gets is a partial copy, which the top-level report above cannot see —
+			// accepted, because the alternative is either a fatal editor-config copy or
+			// a per-file warning storm on a tree with hundreds of files. Fix the
+			// permission and re-launch.
 			_ = copyTree(srcPath, dstPath)
 			continue
 		}
@@ -326,6 +354,8 @@ func copyTree(src, dst string) error {
 		if err != nil {
 			continue
 		}
+		// Dropped for the same reason as the recursive call above: one unwritable file
+		// in an editor config tree may not cost the rest of the tree.
 		_ = os.WriteFile(dstPath, data, fi.Mode().Perm())
 	}
 	return nil
@@ -354,13 +384,31 @@ func sameFile(a, b string) (bool, error) {
 // points (generate_mise_config tail; configure_claude tail, in the per-agent loop).
 // uninstall --all <tool>` for each retired tool (idempotent, best-effort, 30s
 // timeout). tool_name is the registry token with surrounding quotes stripped.
-func miseUninstallRetired() {
-	for _, tool := range packload.EmbeddedRetireMiseTools() {
+func miseUninstallRetired(e *Env) {
+	miseUninstallTools(e, packload.EmbeddedRetireMiseTools())
+}
+
+// miseUninstallToolTimeout bounds each `mise uninstall`. A var so a test can reach
+// the timeout branch without sleeping for it.
+var miseUninstallToolTimeout = 30 * time.Second
+
+// miseUninstallTools is the loop, split out from its one production caller so the
+// tools are an argument: no shipped pack declares retireMiseTools today, so the
+// production list is empty and the reporting below is otherwise unreachable.
+//
+// EACH UNINSTALL IS REPORTED, and the bound is why. Retiring N tools can spend N ×
+// 30 seconds of a launch — serially, before the agent's first prompt — and the
+// version that discarded the error spent it without recording that it had. A
+// timeout here also leaves the retired tool INSTALLED, so the next boot pays again:
+// a silent one is a wait that recurs forever with no evidence on either end.
+func miseUninstallTools(e *Env, tools []string) {
+	for _, tool := range tools {
 		toolName := strings.Trim(tool, `"`)
 		cmd := exec.Command("mise", "uninstall", "--all", toolName)
 		cmd.Stdout = nil
 		cmd.Stderr = nil
-		_ = runWithTimeoutSeconds(cmd, 30)
+		runBoundedStep(e, "mise uninstall --all "+toolName+" (retired tool)",
+			miseUninstallToolTimeout, cmd)
 	}
 }
 
@@ -450,6 +498,8 @@ func BootPath(e *Env) string {
 // exec-into-existing path, source yolo-user-env.sh + activate mise, and exec
 // bash --rcfile ~/.bashrc -c <activated command>. Never returns on success.
 func execBash(e *Env, command string) error {
+	// "PATH" is a literal, so the only two inputs os.Setenv rejects (an empty key, a
+	// key holding "=" or NUL) are unreachable. Nothing to report.
 	_ = os.Setenv("PATH", BootPath(e))
 
 	isNewContainerCmd := strings.Contains(command, "yolo-bootstrap")
@@ -514,7 +564,7 @@ func Main(args []string) error {
 	p.mark("configure_timezone")
 
 	// Ensure scratch directories (/tmp and /var/tmp) are mode 1777.
-	configureScratchPermissions()
+	configureScratchPermissions(e)
 	p.mark("scratch_permissions")
 
 	// C4/C5's jail half: link the store-delivered package profiles into the
@@ -533,7 +583,7 @@ func Main(args []string) error {
 	p.mark("generate_store_packages")
 
 	// Populate /run/ld.so.cache from the /lib farm, plus the store-package farm above.
-	generateLdCache(StorePackagesLib())
+	generateLdCache(e, StorePackagesLib())
 	p.mark("generate_ld_cache")
 
 	// Generators. A12: a failure is FATAL — each step still runs so one boot
@@ -599,7 +649,7 @@ func Main(args []string) error {
 	p.mark("generate_venv_precreate_script")
 	genStep(e, "generate_mise_config", func() error { return ConfigureMisePrism(e) })
 	// Deferred side effect: mise uninstall of retired tools (generate_mise_config tail).
-	miseUninstallRetired()
+	miseUninstallRetired(e)
 	p.mark("generate_mise_config")
 
 	// Copy host nvim config into the writable .config/ overlay.
@@ -785,5 +835,8 @@ func genStep(e *Env, label string, fn func() error) {
 // e.Vars (so later generators reading e.Getenv agree).
 func setEnvBoth(e *Env, key, val string) {
 	e.Vars[key] = val
+	// Every caller passes a compile-time literal key, and os.Setenv rejects only an
+	// empty key or one containing "=" / NUL — so there is no reachable error. e.Vars
+	// above is set unconditionally either way, which is what the generators read.
 	_ = os.Setenv(key, val)
 }
