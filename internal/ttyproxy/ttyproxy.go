@@ -48,14 +48,13 @@ import (
 )
 
 const (
-	readChunk     = 65536
+	readChunk = 65536
+	// interruptByte is no longer consulted: ^C forwards to the jail like any other
+	// byte (proxyLoop states the ruling). Kept as the name for the value the
+	// forwarding test writes, so a test asserting "the jail saw a ^C" says so.
 	interruptByte = 0x03 // ^C
 	suspByte      = 0x1a // ^Z
 )
-
-// raiseInterrupt is a seam for the pump test. Production always targets this
-// process, keeping Ctrl-C out of the runtime's process group.
-var raiseInterrupt = func() { _ = syscall.Kill(os.Getpid(), syscall.SIGINT) }
 
 // getWinsize reads the terminal window size from fd.
 func getWinsize(fd int) (*unix.Winsize, error) {
@@ -325,23 +324,28 @@ func proxyLoop(inFd, master int, c *exec.Cmd, cooked *unix.Termios, hook StageHo
 				continue
 			}
 			data := append([]byte(nil), buf[:n]...)
-			// The host TTY is raw, so Ctrl-C is input rather than a kernel SIGINT.
-			// Keep it out of the jail and signal only this proxy. The signal arm
-			// restores the terminal and runs the launcher's normal teardown callback.
-			at := -1
-			for i, b := range data {
-				if b == interruptByte {
-					at = i
-					break
-				}
-			}
-			if at >= 0 {
-				if at > 0 {
-					_, _ = unix.Write(master, data[:at])
-				}
-				raiseInterrupt()
-				continue
-			}
+			// ^C IS FORWARDED LIKE ANY OTHER BYTE, and that is a 2026-09-19 ruling
+			// reversing what this loop used to do.
+			//
+			// It used to scan for 0x03, drop it, and raise a targeted SIGINT at the
+			// proxy — "keep it out of the jail and signal only this proxy". The host
+			// TTY is raw, so that was the only way Ctrl-C could mean anything at all
+			// here; what it meant was QUIT THE LAUNCHER. Measured on a real host: at
+			// a jail's bash prompt, Ctrl-C to clear the line tore the whole session
+			// down instead. It is wrong for an agent too — Claude Code uses ^C to
+			// interrupt generation, and under the old rule that killed the jail.
+			//
+			// Forwarded, the byte reaches the pty and the JAIL's own line discipline
+			// raises SIGINT at the jail's foreground process group: bash clears the
+			// line, an agent in raw mode gets 0x03 as input and decides for itself.
+			// That is the ordinary `podman exec -it` contract, and it is what a user
+			// expects from every other terminal they have.
+			//
+			// WHAT THIS COSTS is the escape hatch: there is no longer a keystroke
+			// that quits the launcher from outside the jail. Leaving is exiting the
+			// shell, or the child exiting. ^Z still suspends the proxy (suspendkey.go),
+			// and an explicit `kill -INT` still reaches the signal arm below, which is
+			// why that arm stays.
 			if len(pending) > 0 {
 				data = append(pending, data...)
 				pending = nil

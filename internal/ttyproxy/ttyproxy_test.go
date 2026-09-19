@@ -4,7 +4,6 @@ package ttyproxy
 
 import (
 	"os"
-	"os/exec"
 	"os/signal"
 	"strings"
 	"syscall"
@@ -17,56 +16,69 @@ import (
 // TestCtrlCTerminatesProxy drives the real pump with a real pty. It pins the
 // raw-mode Ctrl-C call site: the byte is consumed by the proxy and triggers a
 // targeted self-interrupt rather than reaching the runtime's pty.
-func TestCtrlCTerminatesProxy(t *testing.T) {
-	hostMaster, hostSlave, err := openPty()
+// TestCtrlCReachesTheJail pins the 2026-09-19 ruling: ^C is forwarded to the pty like
+// any other byte, so the JAIL's line discipline decides what it means.
+//
+// It used to be intercepted and turned into a targeted SIGINT at the proxy, which made
+// Ctrl-C mean "quit the launcher" — measured on a real host, pressing it at a jail's bash
+// prompt to clear the line tore the whole session down. Forwarding restores the ordinary
+// `podman exec -it` contract.
+//
+// The assertion is that the byte ARRIVES, which is the whole behaviour change: the child
+// here is a `cat` on a raw pty, so a delivered 0x03 comes back out rather than raising a
+// signal, and reading it back proves the proxy passed it through instead of eating it.
+func TestCtrlCReachesTheJail(t *testing.T) {
+	// Same plumbing as TestPtyPassthrough, which is the proven shape: a pty whose
+	// slave stands in for os.Stdin, and the real RunWithProxy on top of it. Driving
+	// proxyLoop by hand would pin the loop while leaving RunWithProxy free to
+	// reintroduce an interception above it.
+	master, slave, err := openPty()
 	if err != nil {
 		t.Skipf("cannot open pty: %v", err)
 	}
-	defer unix.Close(hostMaster)
-	defer unix.Close(hostSlave)
+	defer unix.Close(master)
 
-	childMaster, childSlave, err := openPty()
-	if err != nil {
-		t.Skipf("cannot open pty: %v", err)
-	}
-	defer unix.Close(childMaster)
-	child := os.NewFile(uintptr(childSlave), "pty-slave")
-	c := exec.Command("sleep", "10")
-	c.Stdin, c.Stdout, c.Stderr = child, child, child
-	if err := c.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = c.Process.Kill() }()
-	unix.Close(childSlave)
+	origIn, origOut := os.Stdin, os.Stdout
+	os.Stdin = os.NewFile(uintptr(slave), "pty-slave-stdin")
+	os.Stdout = os.NewFile(uintptr(slave), "pty-slave-stdout")
+	defer func() { os.Stdin, os.Stdout = origIn, origOut; unix.Close(slave) }()
 
-	cooked, err := unix.IoctlGetTermios(hostSlave, unix.TCGETS)
-	if err != nil {
-		t.Fatal(err)
-	}
-	setRaw(hostSlave, cooked)
-
-	interrupted := make(chan struct{}, 1)
-	original := raiseInterrupt
-	raiseInterrupt = func() {
-		interrupted <- struct{}{}
-		_ = c.Process.Kill()
-	}
-	defer func() { raiseInterrupt = original }()
+	// WHAT THIS CAN AND CANNOT ASSERT, stated because two earlier drafts asserted the
+	// wrong thing.
+	//
+	// In production the chain is: proxy forwards 0x03 → the child (`podman exec -it`)
+	// reads it as stdin data → podman relays it over the exec stream → the CONTAINER's
+	// pty line discipline raises SIGINT at bash. The signal is raised inside the jail,
+	// by a pty this package never sees. A unit test has no container, and the proxy
+	// deliberately does NO Setsid (it broke `podman -it`), so the proxy's own pty has no
+	// session and no foreground process group — nothing here will ever raise a SIGINT.
+	//
+	// So what is pinned is DELIVERY, which is the entire behaviour change: the byte
+	// reaches the child instead of being eaten. The child puts its own pty in raw mode
+	// first, because a cooked pty returns nothing to a reader until a newline — a draft
+	// without `stty raw` failed on a PLAIN byte too, which is what proved the plumbing
+	// wrong rather than the fix. If this test ever fails, send an ordinary byte first.
 	done := make(chan int, 1)
-	go func() { done <- proxyLoop(hostSlave, childMaster, c, cooked, nil) }()
+	go func() {
+		rc, _ := RunWithProxy([]string{"sh", "-c",
+			"stty raw -echo; dd bs=1 count=1 of=/dev/null 2>/dev/null; exit 42"}, nil, nil)
+		done <- rc
+	}()
 
-	if _, err := unix.Write(hostMaster, []byte{interruptByte}); err != nil {
+	time.Sleep(300 * time.Millisecond)
+	if _, err := unix.Write(master, []byte{interruptByte}); err != nil {
 		t.Fatal(err)
 	}
+
 	select {
-	case <-interrupted:
+	case rc := <-done:
+		if rc != 42 {
+			t.Errorf("child rc = %d, want 42 — it never read the ^C byte", rc)
+		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("Ctrl-C did not trigger the proxy interrupt")
-	}
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("proxy did not return after Ctrl-C interrupted its child")
+		t.Fatal("^C never reached the child: the proxy ate it. That is the pre-2026-09-19 " +
+			"behaviour, where Ctrl-C quit the launcher instead of reaching the jail — at a " +
+			"bash prompt it tore the session down rather than clearing the line.")
 	}
 }
 
