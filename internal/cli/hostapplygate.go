@@ -220,7 +220,7 @@ func hostApplyGate(errw io.Writer, stdin io.Reader, bin string) bool {
 		return false
 	}
 
-	// ZERO-PROMPT AUTO-APPLY (docs/design/host-wrapper-auto-apply.md OQ-2).
+	// ZERO-PROMPT AUTO-APPLY (docs/reference/host-apply-staleness.md OQ-2).
 	// For all routine synchronizations under assert and own, apply changes automatically
 	// without prompting, emit a single stderr notice, and launch immediately.
 	return hostApplyGateApply(errw, stdin, bin, home, survey)

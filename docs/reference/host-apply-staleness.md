@@ -1,13 +1,14 @@
 ---
 status: current
-verified: 2026-09-09
-verified_commit: 41dde711
+verified: 2026-09-18
+verified_commit: e7dc1d4d
 covers:
   - internal/cli/hostapplygate.go
   - internal/cli/hostapplysurvey.go
   - internal/cli/hostapplylock.go
   - internal/cli/hostapply.go
   - internal/cli/apply.go
+  - internal/cli/packupdate.go
   - internal/config/hostapplyonlaunch.go
   - internal/entrypoint/hostrender.go
   - internal/hostskills/delivered.go
@@ -19,16 +20,18 @@ tags: [host, apply, render, staleness, approvals, wrappers]
 
 # The host launch gate — how a real `$HOME` render is kept from going stale
 
-**Status:** CURRENT as of 2026-09-09, verified against `41dde711`.
+**Status:** CURRENT as of 2026-09-18, verified against `e7dc1d4d`.
 
 `yolo host apply` renders pack surfaces into the invoking user's real `$HOME`. Nothing
 re-examines them afterwards, so what is in an agent's config files and what the packs now say
 drift apart in silence. Every generated launch wrapper already execs `yolo host -- <bin>`, and
 that is the only moment the content matters — agents read their config at startup and do not
-reload it. So the **host launch gate** *(coined here)* makes that launch behave like a jail
-launch: under a user-level opt-in key it compares the render against the home, execs straight
-through when nothing would change, prompts and blocks on a TTY when something would, and refuses
-off a TTY unless the approval is in the environment.
+reload it. So the **host launch gate** *(coined here)* keeps that launch synchronized:
+under an opt-in key (`host_apply_on_launch`, which defaults to true when `host_wrappers` is on)
+it compares the render against the home, execs straight through when nothing would change,
+automatically synchronizes host configuration without prompting when drift is detected under
+active host management (`assert` or `own`), and pauses to prompt on a TTY (or refuses off a TTY)
+only when first-time adoption would overwrite unmanaged keys (`FirstApply && EntryLosses`).
 
 | Component | Lives in |
 | :--- | :--- |
@@ -40,6 +43,7 @@ off a TTY unless the approval is in the environment.
 | Per-destination predicate, the skills kind | `internal/hostskills` (`Result.WouldChange`, `Changed`, `changedPluginTree`) |
 | The delivered form — what a delivery actually leaves behind | `internal/hostskills` (`delivered.go`, `deliveredDigest`) |
 | The wrapper bodies and their fifth surveyed destination | `internal/hostwrap` (`Body`, `Bins`, `Plan.Changed`) |
+| Automated host apply on pack update | `internal/cli` (`packUpdate`, `hostApplyFromPackUpdate`) |
 | The availability line at `yolo check` | `internal/cli/check` (`sectionHostWrappers`) |
 
 **Reads with:** [`config-safety.md`](config-safety.md) (the jail's launch-time approval, whose
@@ -224,46 +228,50 @@ excluded — the user is already applying.
 flowchart TD
     A["yolo host -- claude"] --> J{in a jail?}
     J -->|yes| X[exec, unchanged]
-    J -->|no| B{opt-in key set?}
+    J -->|no| B{"host_apply_on_launch<br/>enabled? (default: host_wrappers)"}
     B -->|no| X
     B -->|yes| L{per-home lock<br/>available?}
     L -->|no| X
     L -->|yes| C{would a re-apply<br/>change anything?}
     C -->|no, or cannot tell| X
-    C -->|yes| D{TTY on stdin?}
-    D -->|yes| E[show the change list, prompt]
+    C -->|yes| M{"first apply with<br/>entry losses?"}
+    M -->|no| S["auto-apply silently, notice to stderr, then exec"]
+    M -->|yes| D{TTY on stdin?}
+    D -->|yes| E[show change list, prompt]
     D -->|no| F{approval in<br/>the environment?}
-    E -->|accept| G[apply, then exec]
+    E -->|accept| S
     E -->|decline| H[abort — as a jail launch does]
-    F -->|yes| G
+    F -->|yes| S
     F -->|no| I["refuse, naming the two<br/>commands that fix it"]
 ```
 
 ### The opt-in key
 
-A host-only boolean in the user config, **default off**, mirroring `host_wrappers` in shape and
-construction. `yolo check` prints a line either way — the feature is on, or it exists and is off —
-so the mechanism is never invisible to someone wondering whether it ran.
+A host-only boolean in the user config, **defaulting to the value of `host_wrappers`** (on when
+wrappers are enabled; off when disabled). An explicit `"host_apply_on_launch": false` serves as
+the opt-out escape hatch. `yolo check` prints a line either way — the feature is on, or it exists
+and is off — so the mechanism is never invisible to someone wondering whether it ran.
 
 > [!IMPORTANT]
-> **The key enables the mechanism; it does not grant the approval** (P4). A launch under an
-> enabled key still prompts on a TTY and still refuses off one. Treating the key as blanket
-> pre-authorization is refused: a key is read on every launch forever with no act of granting,
-> which is exactly the standing consent the jail's `AcceptConfigChangesFlag` ruling exists to
-> prevent. The environment variable is not the same thing — it is an act, per shell, by someone
-> who had to type it.
+> **Consent for safe updates is tied to active host management.** Under `assert` or `own`, opting
+> into host wrappers licenses yolo to keep managed surfaces synchronized without interactive prompts.
+> Interactive confirmation is reserved for first-time adoption that would overwrite unmanaged host
+> keys (`FirstApply && EntryLosses`), where a launch under an enabled key still prompts on a TTY
+> and still refuses off one. Treating the key as blanket pre-authorization for unmanaged key
+> clobbering remains refused.
 
-### The four dispositions
+### The dispositions
 
 `yolo config-ref` prints these as a user-facing table. What follows is why each one is what it is.
 
 | Situation | Disposition, and the reason |
 | :--- | :--- |
 | Nothing would change | Silent exec. A freshly-applied home must prompt **not at all, ever**, until something actually changes — that is [R3](#r3--the-predicate-models-what-the-writer-produces)'s bar, and the first thing to check when touching the predicate. |
-| TTY, change needed | Show the change list, prompt, apply on accept. A **decline aborts the launch**, as it does in the jail: launching anyway would make the question a formality, and applying anyway would make "no" mean nothing. |
-| No TTY, change needed, no approval | **Refuse**, and apply nothing. Consistency with `yolo run` beats a host special case, and the prompt is the guard that makes an irreversible config-surface loss safe. |
-| No TTY, change needed, approval present | Apply, then exec. |
-| Cannot determine | **Exec**, with one line to stderr. See [below](#cannot-determine-versus-determined). |
+| Safe managed changes | **Auto-apply silently**, emit a single stderr notice (`yolo host: synchronized host configuration (<targets>)`), and exec immediately. Under `assert` or `own`, updating managed keys is idempotent policy synchronization, not data loss. |
+| First apply overwriting unmanaged keys (`FirstApply && EntryLosses`), TTY | Show the change list, prompt, apply on accept. A **decline aborts the launch**, as it does in the jail: launching anyway would make the question a formality, and applying anyway would make "no" mean nothing. |
+| First apply overwriting unmanaged keys, no TTY, no approval | **Refuse**, and apply nothing. Consistency with `yolo run` beats a host special case, and the prompt is the guard that makes an irreversible config-surface loss safe. |
+| First apply overwriting unmanaged keys, no TTY, approval present | Apply, then exec. |
+| Cannot determine | **Exec**, with at most one line to stderr. See [below](#cannot-determine-versus-determined). |
 
 "TTY" means **stdin**, matching the jail's own probe: `claude --print foo > out.txt` has a
 redirected stdout and a perfectly good terminal, and refusing that launch as "nobody to ask"
@@ -275,8 +283,8 @@ both duplication and too long to read.
 
 ### Why the approval is an environment variable here
 
-The wrapper body is fixed — `exec yolo host -- <program> "$@"` — and `hostMain` splits on the
-first `--`, handing everything after it to the program. A user typing `claude --print foo`
+When first-time adoption needs approval, the wrapper body is fixed — `exec yolo host -- <program> "$@"` — and
+`hostMain` splits on the first `--`, handing everything after it to the program. A user typing `claude --print foo`
 therefore has **no slot for a yolo-level flag**. There is a pre-`--` slot, but the generator emits
 nothing into it and the user cannot reach it, so a flag here is not merely inconvenient — it is
 unreachable. The choice is env-var-vs-nothing, and "nothing" means a scripted agent launch can
@@ -426,14 +434,18 @@ What gets a wrapper is exactly the pack-declared `program` contributions — `ho
 the honored installs across the selected packs. That is agent launches: a human starting a session,
 not a hot loop.
 
+## Coupling with yolo pack update
+
+Updating packs via `yolo pack update` on the host automatically triggers `host apply --assert`
+when `host_management` is active (`assert` or `own`). Under `host_management: "none"` or inside a
+jail, host apply is skipped. This couples pack updates with host configuration synchronization so
+users do not need to run `yolo host apply --assert` manually after fetching pack updates.
+
 ## What this does not do
 
 - **It does not detect staleness on any other command.** P1.
-- **It does not grant a standing approval.** P4.
 - **It does not change the explicit `apply` path.** `yolo host apply` keeps observe-by-default and
   keeps its fail-closed confirmations.
-- **It does not add a second confirmation.** The prompts are the existing ones, reached at a new
-  moment.
 - **It does not check the jail.** In-jail is a hard no-op.
 - **It does not answer "does this host have the tools."** `check-deps` and `yolo check` own that.
   Dependency resolution shells out once per declared binary and is a different question.
@@ -448,13 +460,16 @@ from code comments, and this appendix is where they resolve.
 | Ruling | Why it holds |
 | :--- | :--- |
 | **R3** — the change predicate models what the writer produces | The alternative is a predicate that reports a change it already made, forever, which at the launch gate is a prompt no apply can settle. Realized once, on symlink-deployed and `0o700` sources. |
+| **[OQ-1](#why-its-this-way)** — `host_wrappers: true` implies `host_apply_on_launch: true` by default | Having wrappers on PATH means the user routed their agent launches through yolo; running stale config by default because a second boolean was unset was a trap. `"host_apply_on_launch": false` is the escape hatch. |
+| **[OQ-2](#why-its-this-way)** — zero-prompt auto-apply on launch under active management | Pausing to prompt when updating declared keys under `assert` or `own` turned routine pack updates into intrusive friction. Zero-prompt auto-apply synchronizes safe changes silently with a concise stderr notice, preserving confirmation prompts only for first-time unmanaged key adoption (`FirstApply && EntryLosses`). |
+| **[OQ-3](#why-its-this-way)** — pack update on host couples with host apply --assert | Updating packs without re-rendering host surfaces leaves the host stale until launch; coupling them ensures pack updates immediately materialize into host configs under active management. |
 | **[OQ-HS0](#why-its-this-way)** — measure the real thing, never a stat or hash fingerprint | Every fingerprint is a model with a false-positive rate and a state file to keep, and is *less* correct than measuring the home. An input content hash additionally spends most of its time hashing a binary whose identity is already free from the build stamps. |
 | **[OQ-HS1](#why-its-this-way)** — the launch chokepoint is the only trigger | Per-command checking dragged in an eligibility apparatus (a deny-set for machine-consumed stdout, a `--help` side-effect hazard, an `eval "$(yolo host env)"` trap) protecting commands that never needed checking. |
-| **[OQ-HS2](#why-its-this-way)** — a user-level opt-in key, default off, granting nothing | A key that pre-approved is standing consent: read on every launch forever with no act of granting. |
-| **[OQ-HS3](#why-its-this-way)** — the launch behaves like a jail launch | A silent re-render requires treating the key as standing consent, and would let an irreversible config-surface loss happen with no undo. |
+| **[OQ-HS2](#why-its-this-way)** — a user-level opt-in key, default matches host_wrappers | A key that pre-approved unmanaged key destruction is refused. Defaulting to true when host_wrappers is on (amended by [`OQ-1`](#why-its-this-way)) ensures wrapped launches stay fresh. |
+| **[OQ-HS3](#why-its-this-way)** — zero-prompt auto-apply for safe updates; prompt on first-apply losses | Amended by [`OQ-2`](#why-its-this-way): once opted into host management, updating declared keys is idempotent policy synchronization. The prompt is retained only when FirstApply would destroy unmanaged keys. |
 | **[OQ-HS4](#why-its-this-way)** — everything is covered, all written kinds | Two tiers of "up to date" is a phrase that does not mean what the reader thinks. It is also why the key is a plain boolean: there is nothing for a list to enumerate. |
 | **[OQ-HS5](#why-its-this-way)** — declining aborts the launch | Launching anyway makes the question a formality. |
-| **[OQ-HS6](#why-its-this-way)** — a non-TTY launch with a needed change refuses, applying nothing | Supersedes an earlier "always exec" rule. The jail refuses in the same situation, and consistency with `yolo run` beats a special case. |
+| **[OQ-HS6](#why-its-this-way)** — non-TTY first-apply loss refuses, applying nothing | When FirstApply with EntryLosses has no terminal, the launch refuses to prevent irreversible loss. Safe updates auto-apply without requiring a TTY (amended by [`OQ-2`](#why-its-this-way)). |
 | **[OQ-HS9](#why-its-this-way)** — the gate compares the render, not the config | A config-approval snapshot is cheaper and needs no predicate, and is blind to a hand-edited destination. The jail's two readings coincide only because it re-renders unconditionally afterwards. |
 | **[OQ-HS10](#why-its-this-way)** — the non-TTY approval is an environment variable, on this path only | On a fixed wrapper the choice is env-var-vs-nothing; no flag can reach the process. Scoping it here is what stops a shell-rc line pre-approving every jail launch on the machine. |
 | **[OQ-HS11](#why-its-this-way)** — both sides normalize through the same codec | A literal raw-byte comparison reports a change forever for canonical-TOML reordering and non-2-space JSON, with no loss recorded — `R3` by the back door. This makes the formatting carve-out structural instead of checked. |
@@ -466,12 +481,13 @@ from code comments, and this appendix is where they resolve.
 
 ## Current values
 
-Verified at `41dde711`. The prose above explains what each of these is for; this table is the only
+Verified at `e7dc1d4d`. The prose above explains what each of these is for; this table is the only
 place the values themselves are stated.
 
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |
-| Opt-in key | `host_apply_on_launch`, boolean, default false, **user scope only** | `config.HostApplyOnLaunchEnabled`; `yolo config-ref` is the user-facing authority |
+| Opt-in key | `host_apply_on_launch`, boolean, default matches `host_wrappers` (true when enabled), **user scope only** | `config.HostApplyOnLaunchEnabled`; `yolo config-ref` is the user-facing authority |
+| Pack update coupling | `yolo pack update` runs `host apply --assert` under `assert`/`own` on host | `cli.packUpdate`, `cli.hostApplyFromPackUpdate` |
 | Non-TTY approval | `YOLO_ACCEPT_CONFIG_CHANGES` (any non-empty value) | `cli.acceptConfigChangesEnv` |
 | Observe budget | 1s, then cannot-determine | `cli.hostApplyGateBudget` |
 | Per-home lock | a flock under the global storage lock dir, keyed by the resolved home | `cli.hostApplyLockPath`, `cli.tryHostApplyLock` |
