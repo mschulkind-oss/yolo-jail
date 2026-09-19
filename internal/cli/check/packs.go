@@ -242,6 +242,21 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 		r.warn(w, "")
 	}
 
+	// The launch's AWS CREDENTIAL-CHANNEL EXCLUSIVITY refusal, predicted over the same
+	// selected set and for the same reason it sits in this section rather than in Merged
+	// Configuration: one of the two channels is a selected pack's `kind: "env"`
+	// contribution, and `loaded` is the only place that declaration is in hand. After
+	// ResolveNeeds, so a pack pulled in by `needs` delivers here exactly as it does at
+	// launch. awschannels.go states why this calls the launch's own rule instead of
+	// restating it, and which two delivery channels it cannot see.
+	awsErrs, awsWarns := awsCredentialChannelGap(loaded, merged, o.Workspace, o.getenv, r.configWarn)
+	for _, e := range awsErrs {
+		r.fail(e, "")
+	}
+	for _, w := range awsWarns {
+		r.warn(w, "")
+	}
+
 	// Drift last, so it reads as a summary rather than interleaving with per-pack
 	// results. It is a WARNING, not a failure: the jail will still start, using the
 	// config address — the user just has not fetched what they asked for.

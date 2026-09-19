@@ -39,8 +39,10 @@ followed, and the commit says so. This file is advice, and the first thing to be
 | `internal/cli/internal.go` | **BUILT** (`700d7699`) — one `case "aws-auth":` in `runInternalDaemon` |
 | `cmd/yolo-jaild/main.go` | **BUILT** — one `case "aws-credential-adapter":` plus the usage line |
 | `internal/cli/run/assemble_parts.go` | **OWED, and step 3 does not work without it** — `hostServicesMountArgs` emits `YOLO_SERVICE_<NAME>_ENDPOINT` for exactly TWO host-scoped loopholes, by name ([Blockers](#blockers) 7) |
-| `internal/cli/run/` | the exclusivity pre-flight (step 6), beside `providerpreflight.go` |
-| `internal/config/validate_loopholes.go` | the `~/.aws`-grant conflict (step 6), reading `hostfiles.go`'s entries |
+| `internal/awschain/` | **BUILT** — the rule and its wording, keyed on the VARIABLE the chain reads and the CAPABILITY a loophole declares, never on a pack or loophole name ([Blockers](#blockers) 6) |
+| `internal/cli/run/awschannels.go` | **BUILT** — the exclusivity pre-flight (step 6), beside `providerpreflight.go`, at all THREE of its call sites |
+| `internal/cli/check/awschannels.go` | **BUILT** — the same refusal PREDICTED, calling `awschain` rather than restating it (`protocols.go`'s precedent, not `capabilities.go`'s) |
+| `internal/config/validate_loopholes.go` | **BUILT** — the `~/.aws`-grant conflict (step 6), reading `hostfiles.go`'s entries; an ERROR host-side, so `yolo check` and the launch both refuse ([Blockers](#blockers) 4) |
 | `packs/claude/pack.json` | `needs: [{"pack": "aws-auth"}]` (step 5) |
 | `integration/awsauth_test.go` | **new** — the end-to-end transport test ([Ships with](#ships-with)) |
 
@@ -139,7 +141,7 @@ Report a real-host result with `podman info --format '{{.Host.RootlessNetworkCmd
 | 3 | **BUILT**, and NOT YET REACHABLE ([Blockers](#blockers) 7) — `internal/awscredadapter` + the `yolo-jaild` row; the manifest; `packs/embed.go`; the census rows | `yolo pack lint packs/aws-auth`; in a nested jail selecting the pack, `curl -s $AWS_CONTAINER_CREDENTIALS_FULL_URI` returns the four keys, or the 4xx `Code`/`Message` with no session | nested proves the transport is **wired**; that the jail reaches the front is **real rootless host** only |
 | 4 | **BUILT** — `packs/aws-auth/pack.json` (the gated `env` pointer) and README | `yolo pack footprint packs/aws-auth`: one env key, one loophole, no host grant | unit |
 | 5 | `needs` on `packs/claude`; done-conditions 1 and 4 | a claude turn on Bedrock; lapse, `aws sso login`, next turn succeeds with no relaunch | **real rootless host** (an SSO login, a browser, the forwarding hop) |
-| 6 | Exclusivity refusal (aws-auth active **and** `AWS_BEARER_TOKEN_BEDROCK` in the delivered env); the `~/.aws`-grant conflict in `internal/config`, so `yolo check` and launch both report it | delete the pre-flight call site and the test fails | unit |
+| 6 | **BUILT** ([Progress](#progress)) — exclusivity refusal (the pointer **and** `AWS_BEARER_TOKEN_BEDROCK` both delivered), at the launch's three arms and predicted by `yolo check`; the `~/.aws`-grant conflict in `internal/config`, so `yolo check` and launch both refuse | each of the three call sites deleted in turn, one named test red for each (measured, not assumed); `just check-ci` **and** `env -u YOLO_VERSION go test -short ./...` | unit |
 | 7 | N1 arm: the presign in `internal/awsauth` (`crypto/hmac`, `X-Amz-Expires=43200`) and its delivery ([Blockers](#blockers) 3) | byte-equal to the official `aws-bedrock-token-generator` output for one fixed key and time — the design refuses a teardown as the spec | unit; then one live `InvokeModel` on a real host |
 | 8 | Fold into [`agent-credentials.md`](../reference/agent-credentials.md); retire the design via `system-doc`; delete this file | `uvx vantage-check docs/` clean | — |
 
@@ -147,6 +149,56 @@ Report a real-host result with `podman info --format '{{.Host.RootlessNetworkCmd
 setups — the design says so); the census rows in step 3 (every later `just test-fast` is red).
 
 ## Progress
+
+**Step 6 landed 2026-09-18**, unit-verified at both ends and with the call sites measured
+rather than asserted. It is the first step that lands a REFUSAL, so what it had to settle was
+mostly about severity and about where a rule may be spelled.
+
+- `internal/awschain` — the two `Forbidden` clauses of
+  [§8](sso-backed-bedrock.md#8-behaviour-this-design-specifies), and nothing else: no file
+  reads, no commands, no yolo config shapes. Each caller assembles its own inputs and asks
+  this package, so the launch, `yolo check` and the config validator cannot word one problem
+  three ways.
+- The exclusivity pre-flight at **three** call sites — the macos-user arm, `runContainer` and
+  `deliverChannelOnAttach` — each beside `checkProviderCredentials` and immediately BEFORE it.
+- The `yolo check` prediction, and the `~/.aws` grant conflict in `config.ValidateConfig`.
+
+**Four decisions this round.**
+
+1. **THE PREDICATES KEY ON THE VARIABLE AND ON THE CAPABILITY, NEVER ON A NAME**, which is
+   what [Blockers](#blockers) 6 asked for one layer over. The exclusivity rule fires for
+   whatever DELIVERS `AWS_CONTAINER_CREDENTIALS_FULL_URI` — `packs/aws-auth`'s gated `env`
+   contribution today, a hand-written `env_sources` entry, whatever ships the channel next —
+   and the grant conflict fires for whatever loophole declares
+   `serves: ["aws-container-credentials"]`. `if lp.Name == "aws-auth"` appears nowhere.
+2. **The `~/.aws` conflict is an ERROR on the host** ([Blockers](#blockers) 4, now resolved).
+   [§8](sso-backed-bedrock.md#8-behaviour-this-design-specifies) lists the clause under
+   *Forbidden* and step 6 asks for `yolo check` **and** the launch; a `config.ValidateConfig`
+   error is both, and a warning is only the first. It takes the standard in-jail DOWNGRADE to
+   a warning, because a source-bearing `host_files` entry is user-scope only and in a jail the
+   user config is the host-generated snapshot — an error there would refuse every nested
+   launch over an entry the in-jail user cannot fix at its source. Both arms are pinned
+   (`hostScope`/`jailScope`), which is the CI-only class `hostscope_test.go` documents.
+3. **The exclusivity refusal gets NO escape hatch, deliberately.** A hatch here would not let
+   a user proceed with a known gap the way `YOLO_ALLOW_MISSING_PROVIDERS` does — it would let
+   them proceed into the silent wrong answer the rule exists to make loud. The remedy is one
+   line of config either way and the refusal names both.
+4. **`ConfigEnabledOverride`'s body moved to `internal/config`** (`LoopholeEnabledOverride`),
+   with `internal/loopholes` delegating. A third reader arrived that cannot live in
+   `internal/loopholes` — the grant conflict is a `ValidateConfig` error, and
+   `internal/config` cannot import that package — and re-implementing the user's
+   `enabled` switch there would have been the two-copies-can-disagree shape that function's
+   own history is a case study in.
+
+**What `yolo check` cannot see, stated where it is enforced**
+(`internal/cli/check/awschannels.go`): the assembled container argv (so a pack-shipped
+loophole's `jail_env`), the provider environment (composing it runs the env-derive runner),
+and `-p` — which matters here more than for the pairing gate, because `packs/aws-auth`'s
+pointer is gated on the `bedrock` profile, so `-p bedrock` is exactly the flag that turns a
+clean config into the refused one. The prediction is narrower than the launch on purpose:
+wrong in places the launch is not would refuse a config that launches fine.
+
+---
 
 **Steps 3 and 4 landed 2026-09-18**, behind steps 1 and 2 the same morning. What the two
 rounds have in common is what they could not measure; see
@@ -396,6 +448,15 @@ above is spent. The other two are not: the shape that fits is still a declarativ
 tool name. It was not written. The disclosure therefore still has two of its three call sites,
 and this is now a gap in a SHIPPED feature rather than in an unbuilt one.
 
+⚠ **STEP 6 DID NOT CLOSE IT EITHER, and what it shipped instead is worth knowing before
+anyone does.** Its two rules had the same "must not name the loophole" constraint and answered
+it WITHOUT a vocabulary change, because neither needed one: the exclusivity rule keys on the
+VARIABLE an SDK's chain reads, and the grant conflict keys on the CAPABILITY the manifest
+already declares in `serves` — two facts that exist today. The disclosure is not that shape:
+there is no existing declaration that says "this settings key widens", which is exactly why it
+still wants `internal/loopholedecl/settings.go`. So step 6 is evidence that the constraint is
+livable, not that this blocker is smaller than it looked.
+
 ⚠ **A seventh, MEASURED 2026-09-18 in a nested jail: no `YOLO_SERVICE_AWS_AUTH_ENDPOINT`
 reaches the jail, so the adapter cannot find its front.** Everything else works — the daemon
 spawns, the front publishes the endpoint file into the jail at `0600`, the supervisor starts
@@ -431,8 +492,14 @@ Three things make it worth a Blocker rather than a patch:
 `internal/cli/run` is step 6's file in the [Map](#map) and belongs to nobody this round, so
 this is reported rather than taken.
 
+⚠ **STEP 6 LANDED IN THAT FILE AND DELIBERATELY DID NOT TAKE THIS.** The exclusivity
+pre-flight sits beside `checkProviderCredentials`, three call sites down; `hostServicesMountArgs`
+is a different function answering a different question (*which host-scoped loopholes get an
+endpoint variable*), and generalising it still carries the two exception shapes named above,
+which is still a ruling. So 7 is unchanged, and the feature still does not work end-to-end.
+
 Stop and ask on each: the tree forces a choice the design does not make. None blocked steps
-1–4; 7 blocks the feature WORKING, not the code landing.
+1–4 or 6; 7 blocks the feature WORKING, not the code landing.
 
 **Measured after steps 1 and 2: none of the five was hit.** They are all step-3-and-later
 facts, and the two packages reach none of them — 1 is a manifest spelling (`default_enabled`),
@@ -462,10 +529,15 @@ with no session token.
    boot fetch through the front. And [`OQ-SSO5`](sso-backed-bedrock.md#13-decision-ledger)
    needs "a config enabling both arms" to be expressible, so a settings key selects the arm —
    unnamed anywhere.
-4. **Severity of the `~/.aws` grant conflict.**
+4. **Severity of the `~/.aws` grant conflict. RESOLVED by step 6: an ERROR.**
    [§8](sso-backed-bedrock.md#8-behaviour-this-design-specifies) lists it under *Forbidden*;
    step 6 calls it "a `yolo check` line". A `config.ValidateConfig` error is both a check line
-   and a launch refusal; a warning is only the first.
+   and a launch refusal; a warning is only the first — so the clause being *Forbidden* decided
+   it. The one qualification is the standard in-jail downgrade to a warning, which is not a
+   softening of the ruling: it is the same asymmetry every sibling validator takes, because in
+   a jail the config is the host-generated snapshot and a source-bearing `host_files` entry is
+   user-scope only, so erroring would refuse every nested launch over an entry the in-jail
+   user cannot fix at its source.
 5. **Done-condition 7 is blocked, not late:** codex, pi and opencode have no Bedrock provider or
    region until [`bedrock-plumbing.md`](bedrock-plumbing.md) lands. Step 5 ships claude alone.
 

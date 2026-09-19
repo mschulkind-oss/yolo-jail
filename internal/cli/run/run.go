@@ -503,6 +503,10 @@ func Run(opts Options) (rc int) {
 		// which delivers the channel and checks it there). On THIS backend every
 		// invocation is a fresh sandbox, so the arm's own call site is where the two
 		// backends agree. The channel is the same value both arms check.
+		if lines := o.checkAWSCredentialChannels(channel, nil); len(lines) > 0 {
+			o.printProviderRefusal(lines)
+			return 1
+		}
 		if lines, refuse := o.checkProviderCredentials(cfg, staged.packs, channel, nil); len(lines) > 0 {
 			o.printProviderRefusal(lines)
 			if refuse {
@@ -1212,6 +1216,15 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// channel alone does not know about. The check itself is shared
 	// (checkProviderCredentials); only the placement differs, for the attach reason
 	// recorded on the macos-user arm.
+	// THE NINTH, immediately before it and at every one of its three call sites
+	// (awschannels.go): the same composed channel answers both, and a jail carrying two
+	// AWS credential arms is a wrong answer rather than a missing one, so it is refused
+	// first. It has no escape hatch, which is why there is no verdict to weigh here.
+	if lines := o.checkAWSCredentialChannels(channel, envPairs(runCmd)); len(lines) > 0 {
+		o.printProviderRefusal(lines)
+		lock.Close()
+		return 1
+	}
 	if lines, refuse := o.checkProviderCredentials(cfg, loadedPacks, channel, envPairs(runCmd)); len(lines) > 0 {
 		o.printProviderRefusal(lines)
 		lock.Close()
@@ -1775,6 +1788,10 @@ func (o *Options) deliverChannelOnAttach(cname, rt string, cfg *jsonx.OrderedMap
 	// behind. The bind is live; no argv changes.
 	writeUserEnvFile(filepath.Join(paths.WorkspaceHomeState(o.Workspace), "yolo-user-env.sh"),
 		channel.userEnv, channel)
+	if lines := o.checkAWSCredentialChannels(channel, nil); len(lines) > 0 {
+		o.printProviderRefusal(lines)
+		return 1
+	}
 	if lines, refuse := o.checkProviderCredentials(cfg, staged.packs, channel, nil); len(lines) > 0 {
 		o.printProviderRefusal(lines)
 		if refuse {

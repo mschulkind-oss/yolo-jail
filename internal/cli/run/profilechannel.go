@@ -30,6 +30,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentenv"
+	"github.com/mschulkind-oss/yolo-jail/internal/awschain"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -216,25 +217,52 @@ func (c *packChannel) shapeLookup(o *Options) func(string) (string, bool) {
 // pre-flight exists to name, not an escape from it.
 func (c *packChannel) deliveryLookup(o *Options, argvPairs map[string]string) func(string) (string, bool) {
 	return func(name string) (string, bool) {
-		if s := mapStr(c.userEnv, name); s != "" {
-			return s, true
-		}
-		if v, ok := argvPairs[name]; ok && v != "" {
-			return v, true
-		}
-		if v := c.packEnv[name]; v != "" {
-			return v, true
-		}
-		for _, v := range c.shapeVars {
-			if v.Key == name && v.Value != "" {
-				return v.Value, true
-			}
-		}
-		if v := o.Getenv(name); v != "" {
-			return v, true
-		}
-		return "", false
+		v, _, ok := c.deliverySource(o, argvPairs, name)
+		return v, ok
 	}
+}
+
+// deliverySource is deliveryLookup's body, plus the PHRASE naming which of the five
+// sources answered. Everything above reads through it, so the two questions — would
+// this launch deliver the variable, and from where — cannot be answered by two walks
+// that disagree about the order.
+//
+// The phrase exists because a refusal has to name where each side was DECLARED (R3,
+// docs/design/protocol-resolution.md): "you have two AWS credential channels" sends a
+// reader hunting through four files, and "env_sources, and a selected pack's env
+// contribution" does not. It never carries the VALUE — these are credentials.
+//
+// It cannot name WHICH pack set a var. packEnv is already the fold
+// (packload.EnvVarsFor), and the launch delivers the fold rather than any one
+// contribution, so "a selected pack's" is the honest precision available here; the
+// `yolo pack footprint` verb is where a reader learns which one.
+//
+// THE PHRASES THEMSELVES ARE awschain's (awschain.From*), not this file's, because the
+// `yolo check` prediction reports the same conflict from three of these five channels
+// (internal/cli/check/awschannels.go). Spelled at both callers they would drift, and a
+// prediction that worded one problem differently from the launch is the defect that file
+// exists to avoid rather than to introduce. WHICH channels exist and IN WHAT ORDER they
+// are consulted stays here, where the launch composes them.
+func (c *packChannel) deliverySource(o *Options, argvPairs map[string]string,
+	name string) (value, origin string, ok bool) {
+	if s := mapStr(c.userEnv, name); s != "" {
+		return s, awschain.FromEnvSources, true
+	}
+	if v, found := argvPairs[name]; found && v != "" {
+		return v, awschain.FromContainerArgv, true
+	}
+	if v := c.packEnv[name]; v != "" {
+		return v, awschain.FromPackEnv, true
+	}
+	for _, v := range c.shapeVars {
+		if v.Key == name && v.Value != "" {
+			return v.Value, awschain.FromProfileEnv, true
+		}
+	}
+	if v := o.Getenv(name); v != "" {
+		return v, awschain.FromLaunchEnv, true
+	}
+	return "", "", false
 }
 
 // launchEnv flattens the channel into launch-environment form: the form the macos-user

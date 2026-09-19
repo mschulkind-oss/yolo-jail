@@ -3,6 +3,7 @@ package loopholes
 import (
 	"os"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 )
@@ -133,23 +134,16 @@ func synthesizeConfigLoopholes(loopholesConfig *jsonx.OrderedMap) []*Loophole {
 // would change which configs activate — and the config key HAS a type check already, one
 // layer up in internal/config (`enabled: expected a boolean`), which refuses the sloppy
 // spelling before this ever sees it.
+//
+// THE BODY MOVED TO internal/config and this is now a one-line delegation, because a
+// THIRD reader arrived that cannot be here: the ~/.aws grant conflict is a
+// config.ValidateConfig error (so `yolo check` and the launch report it from one place),
+// and internal/config cannot import this package — loopholes -> config is the direction
+// the resolver seam already runs in. Re-implementing the rule there would have been the
+// two-copies-can-disagree shape this function's own history is a case study in. The name
+// stays here because this package's own callers spell it.
 func ConfigEnabledOverride(loopholesConfig *jsonx.OrderedMap, name string) (enabled bool, set bool) {
-	if loopholesConfig == nil {
-		return false, false
-	}
-	specV, ok := loopholesConfig.Get(name)
-	if !ok {
-		return false, false
-	}
-	spec, isMap := specV.(*jsonx.OrderedMap)
-	if !isMap {
-		return false, false
-	}
-	enabledV, present := spec.Get("enabled")
-	if !present {
-		return false, false
-	}
-	return loopholedecl.Truthy(enabledV), true
+	return config.LoopholeEnabledOverride(loopholesConfig, name)
 }
 
 // matching entries of `existing` in place and returns the NEW inline loopholes

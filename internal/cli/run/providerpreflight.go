@@ -69,6 +69,10 @@ func (o *Options) checkProviderCredentials(cfg *jsonx.OrderedMap, packs []*packl
 // printProviderRefusal renders the check's output: the first line as the bold verdict,
 // the rest as its facts. One renderer for both arms, so the same refusal reads the same
 // way on a container and on a native sandbox.
+//
+// It renders the AWS credential-channel refusal beside it (awschannels.go) too — same
+// shape, same three call sites, and a second renderer would be a second way for one
+// class of pre-flight to look on the terminal.
 func (o *Options) printProviderRefusal(lines []string) {
 	out := o.pr(o.Stderr)
 	for i, line := range lines {
