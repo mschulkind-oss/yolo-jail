@@ -10,10 +10,11 @@ vantage:
 
 # The sync root is not a skill
 
-**Status:** DESIGN, 2026-09-18 — nothing built; four questions open.
-[§2.4](#24-two-sync-roots-one-bucket-name-and-only-one-is-exposed) and
-[§3.2](#32-on-the-host-yolo-eats-it--measured) are **MEASURED**; everything else is read from
-the tree or from the vendor's binary, dated where it is claimed.
+**Status:** DESIGN, 2026-09-18 (§8 added 2026-09-19) — nothing built; five questions open.
+[§2.4](#24-two-sync-roots-one-bucket-name-and-only-one-is-exposed),
+[§3.2](#32-on-the-host-yolo-eats-it--measured) and [§8](#8-a-worked-migration-state-already-in-a-file-yolo-is-about-to-own)
+are **MEASURED**; everything else is read from the tree or from the vendor's binary, dated
+where it is claimed.
 
 > **In short.** `~/.claude/skills/synced/<uuid>_<uuid>/` is a **sync root**: a bucket named
 > after the user's Anthropic identity, filled by Claude Code, and **regenerated from a
@@ -33,13 +34,14 @@ default. This design says so plainly rather than pretending to solve it.
 
 **Start at [§3](#3-what-yolo-does-with-it-today)** — what happens today is the design.
 
-**Needs your ruling:** [OQ-ST1](#OQ-ST1), [OQ-ST2](#OQ-ST2), [OQ-ST3](#OQ-ST3), [OQ-ST4](#OQ-ST4).
+**Needs your ruling:** [OQ-ST1](#OQ-ST1), [OQ-ST2](#OQ-ST2), [OQ-ST3](#OQ-ST3), [OQ-ST4](#OQ-ST4),
+[OQ-ST5](#OQ-ST5).
 
 **Reads with:** [`synced-skill-trees-plan.md`](synced-skill-trees-plan.md) (the implementation
 sketch, and the measurement transcript), [`workspace-skills.md`](workspace-skills.md) (the same
 composition one scope down), [`../reference/pack-system.md`](../reference/pack-system.md#skills)
 (the `skills` kind), [`../plans/setup-support-gaps.md`](../plans/setup-support-gaps.md) (G32 —
-[§10](#10-what-this-does-not-propose) says how they relate).
+[§11](#11-what-this-does-not-propose) says how they relate).
 
 ---
 
@@ -450,7 +452,217 @@ never re-authenticated, or whose organization has since turned Skills off (the c
 in `.trash`, not re-downloadable), holds the only copy there is, and yolo cannot tell those
 users apart from the others.
 
-## 8. Alternatives considered
+## 8. A worked migration: state already in a file yolo is about to own
+
+A sync root is one instance of a general shape, and a reader who has never enabled a Claude
+plugin still has to be able to ask the question this section answers: **what happens to state I
+already have, in something yolo is about to own?**
+
+The loss needs two properties together, and neither alone is enough:
+
+1. **yolo owns the container** — a whole directory, or a whole KEY inside a config file.
+2. **yolo's own assertion is recorded coarser than yolo knows it.** yolo knows exactly which
+   skills it composed and exactly which leaves a derive filled; what it records is *"this
+   destination is mine"*, *"this key is mine"*. Everything else inside the container is
+   indistinguishable from residue, and residue is what a regenerating render drops.
+
+For the sync root the container is a tree ([§3.2](#32-on-the-host-yolo-eats-it--measured)).
+Below, the container is a KEY — a second specimen, in a different file, down a different code
+path, losing the same thing for the same missing reason.
+
+**Claude Code plugins are the specimen, not the subject.** A reader who has none should take
+the pre-flight in [§8.3](#83-how-to-check-your-own-case-before-the-first-apply) and run it
+against whatever they do have; it is not plugin-specific and it names every key of every
+surface their packs declare.
+
+### 8.1 The tree is safe; the switch is not
+
+[§2.4](#24-two-sync-roots-one-bucket-name-and-only-one-is-exposed) says no pack composes
+`~/.claude/plugins`, and that is true and it is not the whole answer. The plugin **tree** is not
+a yolo destination. The **switch that turns a plugin on** is, and it lives in a different file:
+
+- `~/.claude/settings.json`'s `enabledPlugins` — a map of `<plugin>@<marketplace>` to a boolean.
+  The corpus's own binary read records the activation gate as `enabledPlugins["<spec>"] === true`,
+  accepted from user, flag and policy scope — **never from project scope for a plugin whose source
+  is not a plain string**
+  ([`../research/agent-config-distribution.md`](../research/agent-config-distribution.md)). The
+  USER-scope file in that list is `~/.claude/settings.json`, which is exactly what `packs/claude`
+  declares as its `claude/settings` surface.
+- `~/.claude/plugins/installed_plugins.json` and `known_marketplaces.json` are the registration
+  ([§2.4](#24-two-sync-roots-one-bucket-name-and-only-one-is-exposed)), and yolo writes neither.
+  The pack's `claude_plugins` hook (`installClaudePlugins`) iterates `claudeLSPPluginOrder` and
+  nothing else, so a plugin outside those three ids is never installed or uninstalled by yolo.
+
+**The tree survives; the switch does not.** A user whose `enabledPlugins` entry is dropped still
+has every byte of the plugin on disk. What they lost is that it loads — and nothing about the
+directory tells them so.
+
+### 8.2 What yolo does to it today — MEASURED
+
+`packs/claude/derive.lua` returns `enabledPlugins` as an OBJECT while filling only the three LSP
+plugin ids, and `env` as an object while filling only `ENABLE_LSP_TOOL`. **An object-valued
+derive key is a table yolo regenerates in full**, and that is the entire mechanism: the
+granularity is the key, and the knowledge is the leaf.
+
+Two code paths, one per host posture, both arriving there:
+
+| `host_management` | What replaces the table | Archive |
+| :--- | :--- | :--- |
+| `assert` — the DEFAULT | `hostTableKeys` probes the derive for object-valued keys; `regenerateManagedTables` then clears the block and rewrites it from the declared layers alone | **None.** The archive nets ADOPTION, and an `assert` render is `rmw` |
+| `own` | The first owned render adopts the file, and `dropComputedTables` strips from the residue every top-level key the computed layer holds as an object | One, named on the surface's line |
+
+**`assert` is where the reader-trap is.** `config-ref` describes it as *"yolo owns the keys your
+packs declare and rewrites only those; every other key in the file is yours and is left byte for
+byte"*, which is exactly true and is read as a promise it does not make: `enabledPlugins` IS a
+key the packs declare, so a user's entries are not *other keys* — they are leaves inside a
+declared one, and the sentence has nothing to say about them. That gap between the granularity a
+promise is stated at and the granularity a user reads it at is the general hazard in one line.
+
+None of that is news to this corpus, which is why it belongs here as a *migration* story rather
+than a discovery: the class is tabulated in
+[`config-ownership-and-promotion.md`](config-ownership-and-promotion.md#632-the-three-classes-adoption-does-not-cover),
+the fix is [`../plans/roadmap.md`](../plans/roadmap.md)'s row `0b`, and `dropComputedTables`' own
+doc comment names `claude/settings` as the live case and states what closing it needs — *a
+leaf-level signal this function does not have (which leaves under a computed table the derive
+actually asserted)*.
+
+Measured 2026-09-19 in this jail with the baked `yolo 0.9.0+45.gd4c0e7e3`, against throwaway
+homes and never a live one; the fixture is in
+[the sketch](synced-skill-trees-plan.md#the-enabledplugins-measurement).
+
+```console
+$ jq -c '.enabledPlugins, .env' $FH/.claude/settings.json
+{"my-own-plugin@mkt":true,"another-plugin@mkt":true}
+{"MY_HAND_WRITTEN":"keepme"}
+
+$ printf 'y\n' | HOME=$FH yolo host apply --assert
+⚠ First apply into this home — the following existing values will be REPLACED by what your packs declare:
+  claude/settings …/.claude/settings.json
+    enabledPlugins.another-plugin@mkt (dropped — not in your config)
+    enabledPlugins.my-own-plugin@mkt (dropped — not in your config)
+    env.MY_HAND_WRITTEN (dropped — not in your config)
+yolo regenerates the keys it manages wholesale, so anything above that is not in your config is dropped. To KEEP them: declare them under `mcp_servers` in …/.config/yolo-jail/config.jsonc — one entry there reaches every agent — then re-run.
+  Proceed and replace the values above? [y/N]
+…
+  ⚠ 3 of your entries were dropped from 1 agent surface: MY_HAND_WRITTEN, another-plugin@mkt, my-own-plugin@mkt
+
+$ jq -c '.enabledPlugins, .env' $FH/.claude/settings.json
+{}
+{}
+```
+
+**Every entry is named, which the sync-root loss was not — and that difference is the most
+useful thing on this page.** [§3.2](#32-on-the-host-yolo-eats-it--measured) is silent deletion;
+this is disclosed deletion. A user who reads the prompt can act on it. The gap is that naming is
+not netting, and the netting is where the two postures part company.
+
+> [!WARNING]
+> **On the default posture the prompt is the only net there is.** `confirmHostLosses` fires on a
+> FIRST APPLY, and the one-time adoption archive is taken only when a render ADOPTS — so an
+> `assert` render into a home yolo has already applied to has neither. Measured the same day:
+> switching an already-applied home from `assert` to `own` dropped an `enabledPlugins` entry
+> **with no prompt at all**, named it on the result line *after* the write, and archived the file
+> as it stood *then* — by which point yolo's earlier `assert` runs had already emptied `env` out
+> of it. The archive is **the file as yolo found it at adoption**, never *the file before yolo*.
+
+In a jail, steady state is safe and the corpus pins it: a plugin enabled inside a jail is
+captured into the overlay and re-applied over every later render, which
+`TestComposeStatefulSteadyStateKeepsComputedObjectSibling` asserts by name against the same key.
+What is not safe is the FIRST render with no baseline to diff against — the same adopting branch,
+one notch over, with a boot's stderr instead of a prompt.
+
+### 8.3 How to check your own case, before the first apply
+
+Three steps. Only the second is yolo's, and only the second generalises past this specimen.
+
+1. **Look at the file, before anything.** `jq '.enabledPlugins, .env' ~/.claude/settings.json`,
+   and for the other half `jq '.plugins' ~/.claude/plugins/installed_plugins.json`.
+2. **Ask yolo.** `yolo host apply` with **no `--assert`** is a dry run that writes nothing and
+   names every entry of yours it would drop, per surface, with a summary count. This is the
+   pre-flight for the general hazard, not for plugins: it answers the question for every key of
+   every surface every selected pack declares.
+3. **Keep your own copy** — `cp ~/.claude/settings.json ~/.claude/settings.json.pre-yolo` — because
+   under the default posture step 2's answer stops being recoverable the moment you answer `y`.
+
+> [!IMPORTANT]
+> **An empty `enabledPlugins` does not mean you never had plugins**, and the maintainer's own case
+> is the demonstration precisely because it is inconclusive. The host copy of `settings.json` this
+> jail was handed reads `"enabledPlugins": {}`, and `~/.claude/plugins/installed_plugins.json`
+> reads `{"version": 2, "plugins": {}}` — and the same host file carries a `permissions` block and
+> a `skipDangerousModePermissionPrompt` matching `packs/claude`'s `guarded` autonomy floor, so
+> yolo has written it. **An empty table after a render and one that was always empty are the same
+> bytes.** That is why step 1 is worth nothing once step 2 has been answered `y`, and it is the
+> same argument this design makes for the tree: without a record of what yolo asserted, the
+> question stops being answerable rather than getting a wrong answer.
+
+### 8.4 What to do today, when the dry run names something
+
+**The report's own remedy is wrong for this case.** Every dropped table entry is offered the same
+line — *declare them under `mcp_servers`* — because `mcpEntryRemedy` is written for the one table
+that motivated it, and there is no `mcp_servers` declaration that re-enables a plugin.
+
+**The remedy that does work**, measured under both postures, is a `config-overlay` contribution in
+the conventional local pack (`~/.config/yolo-jail/local/pack.json`):
+
+```json
+{
+  "name": "local",
+  "contributes": [
+    {
+      "kind": "config-overlay",
+      "surface": "claude/settings",
+      "config": { "managed": { "enabledPlugins": { "my-own-plugin@mkt": true } } }
+    }
+  ]
+}
+```
+
+With that in place the same apply prints **no loss line at all** and the entry is in the rendered
+file under both `assert` and `own`. It is a declaration, which is the posture the host notch asks
+for everywhere else — and it is the same move [§4.2](#42-the-snapshot--the-transition-itself)
+makes for a skill, one kind over. It is also a fork, and the two notches fork differently: at the
+host notch the declaration is what `hostTableLayer` writes into the table, so the entry is
+re-asserted by every apply until the declaration goes too — uninstall the plugin from the client
+and yolo puts the switch back. In a jail a `config-overlay` folds BELOW the capture overlay, so an
+in-jail disable is captured and wins instead.
+
+> [!WARNING]
+> **`yolo pack lint` will not catch a wrong body.** `managed` is the body's one field, and
+> `manifest.DecodeOverlay` refuses `defaults` in its place BY NAME — yet measured the same day,
+> `yolo pack lint` reported `✓ pack ok` and `contributes keys (owner still wins)` for exactly that
+> body, which contributed nothing and lost the entry at the next apply. Verify the declaration by
+> re-running step 2's dry run, never by linting the pack.
+
+### 8.5 What the migration becomes once the record exists
+
+The fence and the snapshot need a record of what yolo put in a tree; this needs a record of which
+leaves a derive asserted. **It is the same missing thing at two granularities**, which is why the
+specimen belongs in this doc rather than beside it: a design that adds the first and not the
+second leaves the identical failure one file over, disclosed instead of silent but equally
+unrecoverable.
+
+Once a derive's assertion is recorded leaf by leaf, the drop narrows to it — yolo's LSP toggles
+are regenerated, everything else under the key is residue that survives, and
+[§8.3](#83-how-to-check-your-own-case-before-the-first-apply)'s pre-flight stops being
+load-bearing because nothing is silently at stake. What that record does **not** settle on its own
+is what should happen to a leaf yolo has never asserted, which is [OQ-ST5](#OQ-ST5).
+
+### 8.6 What is not covered, and what stays lost
+
+- **Formatting and key order.** MEASURED: the `assert` → `own` switch re-encoded the file with its
+  keys sorted — no value changed, and `theme` moved from first to last. `config-ref` says that
+  switch *"changes ZERO bytes"*; at VALUE granularity it does, and a hand-formatted file still
+  does not come back formatted.
+- **Comments.** The host report has a class for them and states there is no remedy.
+- **A keyless (`raw`/`lines`) surface.** Refused outright at the host notch by `OQ-CO9` and NOT
+  refused in a jail, where its first render replaces the file. No shipped pack declares one today,
+  so the class is empty rather than handled.
+- **An `assert` render's drop.** There is no yolo-side copy to restore from, by design — the
+  archive nets adoption. The user's own copy from step 3 is the only recovery.
+- **The plugin tree itself.** Nothing here touches it, and a user who loses only the switch
+  re-enables through the client rather than through yolo.
+
+## 9. Alternatives considered
 
 - **Do nothing; document it.** *Rejected.* It is not a rough edge, it is silent deletion of
   content a vendor pushed — measured, with the report saying `Applied: 1 composed skill.`
@@ -485,7 +697,7 @@ users apart from the others.
   is the one to keep rejecting.* It makes yolo a second writer of a vendor's tree, which is the
   defect this whole doc is about, pointed the other way.
 
-## 9. Risks
+## 10. Risks
 
 | Risk | Mitigation |
 | :--- | :--- |
@@ -496,7 +708,7 @@ users apart from the others.
 | **R5.** The identity UUIDs leak into jails as directory names | The bucket name is dropped by construction ([§5](#5-naming-and-collisions)) — only item names travel |
 | **R6.** A second vendor ships a sync root and nobody notices | P2's pack-declared fence is the only part of this that generalises for free; core needs no change |
 
-## 10. What this does not propose
+## 11. What this does not propose
 
 - **Not a claude.ai sync client.** yolo never downloads, never authenticates, never refreshes.
 - **Not a plugin importer.** `yolo pack init --from-plugin` exists and is the route for a synced
@@ -512,8 +724,14 @@ users apart from the others.
   [§3.2](#32-on-the-host-yolo-eats-it--measured) shows one part of it is not inert at all.
 - **Not a general "import anything into a pack" facility.** The unit is a synced skill, from a
   declared sync root, and nothing else.
+- **Not roadmap row `0b`.** [§8](#8-a-worked-migration-state-already-in-a-file-yolo-is-about-to-own)
+  works that row's hazard through as this design's second specimen and does not build it. The two
+  are separable in both directions — the fence ships without a leaf-level record, and the record
+  ships without a fence — and they are in one doc because they are the same missing thing at two
+  granularities, not because either waits on the other. The ruling [§8](#8-a-worked-migration-state-already-in-a-file-yolo-is-about-to-own)
+  does add here is [OQ-ST5](#OQ-ST5).
 
-## 11. What I would build, in order
+## 12. What I would build, in order
 
 Prose, not tickets; the sketch carries the file map.
 
@@ -528,7 +746,7 @@ Prose, not tickets; the sketch carries the file map.
    [`../reference/pack-system.md`](../reference/pack-system.md#skills) gains the reserved-child
    rule beside the tier rule.
 
-## 12. What done looks like
+## 13. What done looks like
 
 Observable by a human, not by a test name:
 
@@ -547,7 +765,7 @@ Observable by a human, not by a test name:
   naming both buckets — and a user whose two orgs ship identical `review` gets one copy and no
   warning at all.
 
-## 13. Open Questions
+## 14. Open Questions
 
 Searched before they were opened, for a ruling that already settles any of them:
 [`workspace-skills.md`](workspace-skills.md#11-open-questions),
@@ -558,7 +776,12 @@ plus a corpus-wide search for a prior ruling on reserved names or vendor-written
 returned nothing. The rulings that *do* bear on this are cited where they bind —
 [§1](#1-verdict-and-the-principles-it-rests-on),
 [§4.1](#41-the-fence--the-part-that-is-not-optional) and [§5](#5-naming-and-collisions) — and
-none of them answers these four.
+none of them answers these five. [OQ-ST5](#OQ-ST5) was searched separately and later: the
+adoption-granularity class it sits on IS ruled on, in
+[`config-ownership-and-promotion.md`](config-ownership-and-promotion.md#632-the-three-classes-adoption-does-not-cover)
+and at `dropComputedTables` itself, and both stop at the same edge — they record the residue as
+a known boundary and name the missing signal, neither says what to do with an unasserted leaf
+once the signal exists.
 
 1. 💬 **OQ-ST1: Which pack owns a snapshotted skill?** The central ruling, and the one
    everything in [§4.2](#42-the-snapshot--the-transition-itself) waits on. **(a) The
@@ -589,7 +812,7 @@ none of them answers these four.
    > _(empty — fill in when decided)_
 
 2. 💬 **OQ-ST2: Is the fence pack-declared, or does core know the name?** P2 says pack-declared,
-   and [§8](#8-alternatives-considered) keeps the hardcode as a fallback because the honest
+   and [§9](#9-alternatives-considered) keeps the hardcode as a fallback because the honest
    comparison is three lines against a manifest field, a validator, a launch-side read and a
    refusal. What it decides: whether the second vendor to ship a sync root costs a config field
    or a code change — and whether a *user* can fence a directory of their own at an agent's
@@ -629,7 +852,7 @@ none of them answers these four.
    forget about, which is also how yolo ends up a second syncer by increments. What it decides:
    whether a user who transitions in January is still running January's skills in June without
    having chosen to. A *yes* to evergreen-at-any-cost has a third answer that needs no snapshot
-   at all — the `host_files` route in [§8](#8-alternatives-considered), which re-renders every
+   at all — the `host_files` route in [§9](#9-alternatives-considered), which re-renders every
    boot and gives up naming, collisions and provenance to get there.
 
    **[§2.4](#24-two-sync-roots-one-bucket-name-and-only-one-is-exposed) sharpens this and I have
@@ -647,7 +870,41 @@ none of them answers these four.
    _Leaning:_ **report-only, plus an explicit refresh verb the report names in its own output.**
    The distinction that matters is the trigger, not the amount of copying: a verb the user types
    is fine at any size; a copy that happens because an apply ran is the start of the thing
-   [§8](#8-alternatives-considered) rejects.
+   [§9](#9-alternatives-considered) rejects.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+5. 💬 **OQ-ST5: Once yolo can tell which leaves it asserted, what happens to the ones it did
+   not?** [§8.5](#85-what-the-migration-becomes-once-the-record-exists) needs this and cannot
+   assume it: the leaf-level record ([`../plans/roadmap.md`](../plans/roadmap.md) row `0b`) makes
+   the question ANSWERABLE, and that is a different thing from answering it. Today the answer is
+   forced — no record, so every leaf under a regenerated table is residue and goes, named at the
+   host and archived only when the render adopts. With a record, three postures are available and
+   they are not variations of one: **(a) preserve** — an unasserted leaf survives every render,
+   which is what a user with a hand-enabled plugin wants and is also how a stale entry becomes
+   immortal, one granularity below the resurrection class `dropComputedTables` exists to prevent;
+   **(b) refuse** — the render stops until the leaf is declared or removed, which is the
+   host notch's existing answer to a keyless surface (`OQ-CO9`) and is unavailable to a boot,
+   which has no one to ask; **(c) drop, but reversibly** — today's behaviour plus a per-leaf
+   record the report can name and a verb can restore from, which is [§4.3](#43-the-drift-report--the-whole-update-story)'s
+   shape applied to keys instead of items.
+
+   What it decides is not plugin-specific and not even config-specific: it is whether *"yolo owns
+   this container"* means *"and everything in it that yolo did not put there is disposable"*. The
+   same sentence decides the tree case if the fence ever grows an exception.
+
+   <!-- vantage: oq id=OQ-ST5 leaning="(c), drop-but-reversibly — it keeps regenerate-don't-reconcile intact at both granularities and makes the loss recoverable, which is the property today's disclosure lacks; (a) is what users want and is how a stale leaf becomes permanent." -->
+
+   _Leaning:_ **(c).** (a) is what the user in [§8](#8-a-worked-migration-state-already-in-a-file-yolo-is-about-to-own)
+   wants in the moment and it inverts *regenerate, don't reconcile* one level down — the rule
+   that has already been paid for twice in this engine. (b) cannot be uniform across the two
+   notches — a boot has nobody to ask, which is the same asymmetry the adoption archive was built
+   around ("a prompt where there is a human, a copy where there is not"). (c) leaves the drop where it is and moves the
+   recovery from *"the user kept a copy"* to *"yolo kept one"*, which is the gap
+   [§8.4](#84-what-to-do-today-when-the-dry-run-names-something) is currently asking a user to
+   fill by hand. I hold it loosely: it is also the most code, and (a) restricted to a leaf the
+   derive has NEVER asserted in this home may be indistinguishable from it in practice.
 
    **Answer:**
    > _(empty — fill in when decided)_
