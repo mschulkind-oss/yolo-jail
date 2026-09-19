@@ -8,25 +8,29 @@ summary: "Closing the gap between what stringly-typed-references-principle.md as
 
 # What a mistyped name does to you today
 
-**Status:** DESIGN, 2026-08-30 — **and 4 of [§7](#7-sequencing-by-user-visible-payoff)'s 6 steps SHIPPED within 72 hours, out of order**
-(re-verified 2026-09-02). Steps 2, 3 and 6 landed in the provider arc — the selection-key
-validation (`86a56f6b`, then renamed with everything else to `use_profiles` in `43d24e9e`), the
-`wire_api` closed enum (`2ced4944`, `0f04632d`) plus the `base_url` userinfo refusal (`0bc29bd5`),
-and the credential preflight (`c77cfd05`, **with a scope deviation this doc must own** — see [§7](#7-sequencing-by-user-visible-payoff)
-step 6). ⚠ **RE-STAMPED 2026-09-09: the step-1 claim below was FALSE.** The
-**config-resolution half of step 1 SHIPPED 2026-09-02** — `d6d8edc2`, *"config-loader warnings are
-graded, so the summary counts them"* — which deleted `warningLine` (a test now forbids
-re-declaring it, `internal/cli/check/warningchannel_test.go:296-303`) and routes every loader
-finding through the counted `[WARN]` path (`internal/cli/check/reporter.go:78-96`, which cites
-this doc's [§7](#7-sequencing-by-user-visible-payoff) step 1 by name). **What is still unbuilt is the LOOPHOLE half only**: the
-supersession did-you-mean goes through `internal/loopholes`' package-level `warnf` straight to
-stderr and `check`'s loopholes section bypasses `Discover` entirely, so it is neither counted nor
-printed there — that is the remaining highest-payoff item, and it needs no ruling. **All four
-questions are unruled, not two**: steps 4 and 5 wait on [`OQ-RM2`](#OQ-RM2)/[`OQ-RM3`](#OQ-RM3), while
-[`OQ-RM1`](#OQ-RM1) and [`OQ-RM4`](#OQ-RM4) also still carry empty Answer blocks. ⚠ Every
-[§7](#7-sequencing-by-user-visible-payoff) file:line below has drifted — treat them as where to look, not as citations. Executes the amended
+**Status:** DESIGN, 2026-09-19 — three of [§7](#7-sequencing-by-user-visible-payoff)'s six steps
+are shipped whole, one is shipped by half, and two are unbuilt; all four questions are still
+unruled. Re-audited against the tree 2026-09-19, and the counts here are the audit's, not the
+2026-08-30 plan's. **Shipped whole: steps 2, 3 and 6**, all in the provider arc — the
+selection-key validation (`86a56f6b`, then renamed with everything else to `use_profiles` in
+`43d24e9e`), the `wire_api` closed enum (`2ced4944`, `0f04632d`) plus the `base_url` userinfo
+refusal (`0bc29bd5`), and the credential preflight (`c77cfd05`, **with a scope deviation this doc
+owns** — see [§7](#7-sequencing-by-user-visible-payoff) step 6). **Shipped by half: step 1.** Its
+config-resolution half landed 2026-09-02 (`d6d8edc2`), which deleted `warningLine` — a test now
+forbids re-declaring it — and routes every loader finding through the counted `[WARN]` path; its
+**loophole half is untouched**, and that is the remaining highest-payoff item in this doc.
+**Unbuilt: steps 4 and 5**, which is what [`OQ-RM2`](#OQ-RM2) and [`OQ-RM3`](#OQ-RM3) gate.
+Executes the amended
 [`stringly-typed-references-principle.md`](../reference/stringly-typed-references-principle.md) — its [§7](../reference/stringly-typed-references-principle.md#the-shape-of-the-enforcement-mechanism-by-mechanism) census
 is the gap; this doc is how it closes, from the user's side.
+
+**Needs your ruling:** [`OQ-RM1`](#OQ-RM1), [`OQ-RM2`](#OQ-RM2), [`OQ-RM3`](#OQ-RM3), [`OQ-RM4`](#OQ-RM4).
+
+> [!WARNING]
+> **Every `file:line` in this doc has drifted at least once, so the form is gone below the
+> status line** — sections cite the function or the test by name instead. A line range in a doc
+> this old is the exact place a reader stops checking, and three separate re-stamps here were
+> spent updating numbers rather than claims.
 
 **The short version (as written 2026-08-30; three of the four are now checked).** Four references
 that name a component by string were unchecked, and the
@@ -56,11 +60,15 @@ Not an argument — a measurement, taken 2026-08-30 in this jail against `yolo` 
 > [!NOTE]
 > **This reproduction is DEAD as of 2026-09-02, which is the point of keeping it.** The
 > `agent_profiles` spelling below now refuses by name before any value is read
-> (`validate.go:1058-1072`), and rewritten with the current key (`use_profiles`) the same config
+> (a rename refusal in `internal/config/validate.go`, which names `use_profiles` in the message),
+> and rewritten with the current key (`use_profiles`) the same config
 > produces **three separate `[FAIL]` rows** — unknown CLI name `cloude`, unknown `wire_api` value,
 > `base_url` carrying userinfo — the exact opposite of the `[PASS]` measured here. The one
 > mechanism from this section still reproducing is the buried supersession warning ([§3](#3-the-buried-warning-class-is-structural-not-stylistic)), because
-> step 1 has not shipped. Read the rest of [§1](#1-the-reproduction) as the before picture.
+> step 1's **loophole half** has not shipped — its config-resolution half has, so the
+> `env_sources` warnings [§3](#3-the-buried-warning-class-is-structural-not-stylistic) measures
+> alongside it now reach the summary. Read the rest of [§1](#1-the-reproduction) as the before
+> picture.
 
 ```jsonc
 // yolo-jail.jsonc
@@ -92,9 +100,8 @@ Three defects in four lines, all clean:
    find out from the agent, later, as a protocol error.
 3. **A plaintext credential sits in a git-tracked config file** and validation does not mind. The one
    field guarded against this is `api_key_env_name`
-   ([`validate.go:940-946`](../../internal/config/validate.go#L940-L946), repinned 2026-09-02);
-   `base_url` **was** wide open — `0bc29bd5` closed it (`providerURLProblem`,
-   `validate.go:978-991`).
+   ([`internal/config/validate.go`](../../internal/config/validate.go)); `base_url` **was** wide
+   open — `0bc29bd5` closed it (`providerURLProblem`, same file).
 
 Now move one typo, from a *value* to a *key*, in the same file:
 
@@ -126,12 +133,24 @@ when [§7](#7-sequencing-by-user-visible-payoff) steps 2–3 shipped. The second
 
 ## 3. The buried-warning class is structural, not stylistic
 
-`yolo check` has two diagnostic channels and only one of them reaches the summary.
+`yolo check` had two diagnostic channels and only one of them reached the summary. **The config
+half of that is closed** (`d6d8edc2`, 2026-09-02): `warningLine` is deleted, a test forbids
+re-declaring it, and every config-loader finding now goes through `configWarn` into the counted
+`[WARN]` path. **Loophole discovery is still the second channel** — the supersession did-you-mean
+below goes through `internal/loopholes`' package-level `warnf` straight to stderr, and `check`'s
+loopholes section never reaches that emission site at all because it walks
+`ValidateLoopholes` + `applySupersessions` and deliberately bypasses `Discover`. So the diagnostic
+this section exists to rescue is **still neither counted nor printed by `check`**, and grading the
+config channel did not move it.
 
 - `[WARN]` rows, emitted by the checker itself, increment the counter behind the summary line.
-- Bare `Warning:` lines on stderr, emitted by config resolution and loophole discovery, do not.
+- Bare `Warning:` lines on stderr — **loophole discovery only, now that config resolution is
+  graded** — do not.
 
-Measured, same jail, same day — three bogus `env_sources` entries:
+The original measurement, and the reason it is kept: the `env_sources` half of it is now dead —
+those three warnings reach the summary — while the shape it illustrates is exactly what the
+loophole half still does. Measured 2026-08-30 in this jail against `yolo` 0.8.0+614, three bogus
+`env_sources` entries:
 
 ```console
 $ yolo check --no-build 2>&1 | rg -c '^Warning:'
@@ -314,17 +333,26 @@ when they fire.** That is the premise this work is built on; it is a ruling, not
 
 ## 7. Sequencing, by user-visible payoff
 
-*(Per-step status added 2026-09-02 — the arc shipped these out of this order.)*
+*(Per-step status re-audited against the tree 2026-09-19 — the arc shipped these out of this
+order.)*
 
 1. **Count the second channel.** Make bare `Warning:` lines reach `yolo check`'s summary, or route
    them through the reporter. **Everything else in this doc is worth less until findings are
    visible** — and this alone makes the supersedes diagnostic reach the user it was written for.
-   **NOT SHIPPED** — `warningLine` (`internal/cli/check/reporter.go:84-89`) is still non-counting
-   and its three callers are unchanged. Still the highest payoff per line in this doc.
+   **HALF SHIPPED, and the shipped half is the one that does not carry the diagnostic.**
+   `d6d8edc2` (2026-09-02) took the second option — `warningLine` is gone, `configWarn` grades
+   every config-loader finding, and `internal/cli/check/warningchannel_test.go` fails if either
+   the function or an ungraded sink comes back. **The loophole half is untouched**: the
+   supersession did-you-mean goes through `internal/loopholes`' package-level `warnf` to stderr,
+   and `check`'s loopholes section bypasses `Discover`, so it reaches no counter and no `[WARN]`
+   row. `reporter.go`'s `configWarn` doc comment states the boundary and names this step. Still
+   the highest payoff per line in this doc, and it still needs no ruling — grading does not change
+   the exit code, which is why it never waited on [`OQ-RM1`](#OQ-RM1).
 2. **Selection-key validation.** *(Written as `pack_profiles`; the key is `use_profiles` since
    `43d24e9e`.)* **SHIPPED** — `86a56f6b` (key-namespace check), `5124dee3` (shape-check survives an
-   unresolvable pack); live at `validateUseProfiles` (`validate.go`) with the CLI-flag
-   preflight in `internal/cli/run/packs.go:363-400`, pinned by
+   unresolvable pack); live at `validateUseProfiles` (`internal/config/validate.go`, whose message
+   is `unknownProfileCLIMessage`) with the CLI-flag preflight at `checkProfileTargets`
+   (`internal/cli/run/packs.go`), pinned by
    `internal/config/useprofilekeys_test.go`. One deviation from [§4.1](#41-a-profile-set-for-a-pack-that-does-not-exist)'s proposed message: the shipped
    refusal **lists every installed CLI name but computes no edit-distance did-you-mean**.
 3. **`wire_api` enum and `base_url` credential refusal.** **SHIPPED** — the canonical closed enum
@@ -332,21 +360,31 @@ when they fire.** That is the premise this work is built on; it is a ruling, not
    (`0bc29bd5`, `providerURLProblem` in `validate.go`). Adjacent hardening from the same
    cluster: a composed `base_url`+`endpoints` pair is refused (`5d8bd1fe`, [`OQ-PT2`](../reference/providers.md#why-its-this-way)).
 4. **Relocate the supersession match to the launch path.** Message unchanged; disposition and
-   surface change. Needs [`OQ-RM2`](#OQ-RM2) ruled first. **NOT SHIPPED** — `discover.go:717-728` /
-   `supersede.go:207-237` still carry the report-not-refuse comments verbatim, and
-   `SupersessionProblems()` still reaches no `yolo check` section.
+   surface change. Needs [`OQ-RM2`](#OQ-RM2) ruled first. **NOT SHIPPED** —
+   `internal/loopholes`' `unmatchedSupersessions` still carries its report-not-refuse argument
+   verbatim (*"the match half is reported here, loudly, with the fix in the sentence"*), and
+   `Set.SupersessionProblems()` has **no production caller anywhere in the tree** — searched
+   2026-09-19 across `internal/`, `cmd/` and `packs/`; the only calls are in
+   `internal/loopholes/supersede_test.go`. The value-shaped seam a refusing surface would consume
+   exists, and nothing consumes it.
 5. **The skew diagnostic.** Ships with or before step 4 — a refusal that cannot say "your image is
    old" is a worse refusal than the warning it replaces. **NOT SHIPPED**; needs [`OQ-RM3`](#OQ-RM3).
+   Nothing on the launch path computes the two hashes — `imageIdentity` is still the test suite's
+   (`ensureJailImage`), and the only in-tree prose about an image predating its yolo is a comment
+   in `internal/entrypoint/packsurfaces.go`.
 6. **The active-profile credential preflight.** **SHIPPED — with a deliberate scope change this doc
    must record rather than paper over.** `c77cfd05` gates on the **selected pack**, not the active
    profile — its commit message says *"the earlier active-profile scoping is withdrawn"* — and the
    requirement now keys on catalog membership (`868b610f`, [`OQ-PT4`](../reference/providers.md#why-its-this-way)'s dissolution:
-   `packload.ProviderCredentialGaps`, `internal/packload/providers.go`, wired at
-   `internal/cli/run/providerpreflight.go:51-63`). [§4.5](#45-an-active-profile-whose-credential-was-never-hydrated)'s "Scope: Active profiles only" is
+   `packload.ProviderCredentialGaps`, `internal/packload/providers.go`, wired in
+   `internal/cli/run/providerpreflight.go`). [§4.5](#45-an-active-profile-whose-credential-was-never-hydrated)'s "Scope: Active profiles only" is
    therefore superseded; the shipped rule is broader and was chosen on review, not by accident.
 
 Steps 1–3 were independent of every design question in flight, which is presumably why 2 and 3 are
-the ones that shipped first. **Step 1 remains independent, unshipped, and first by payoff.**
+the ones that shipped first. **Step 1's remaining half is still independent and still first by
+payoff** — routing loophole discovery's findings through the reporter needs no ruling, and until it
+lands the best diagnostic in the tree ([§3](#3-the-buried-warning-class-is-structural-not-stylistic))
+reaches nobody.
 
 ---
 
@@ -368,23 +406,22 @@ the ones that shipped first. **Step 1 remains independent, unshipped, and first 
 
 ## 9. Open Questions
 
-1. 💬 **OQ-RM1: Does `yolo check` refuse, or only report, the launch-only checks?** [§4.1](#41-a-profile-set-for-a-pack-that-does-not-exist)'s pack-slug
-   check is decidable at `check` time. [§4.4](#44-a-supersession-that-matches-nothing)'s supersession match is decidable there too, on the
-   host. But `check` is also the command you run *to find out what is wrong*, which is the argument
-   that kept the supersedes finding non-fatal in the first place. **This decides whether `check`
-   ever exits non-zero for a reference mismatch, or only ever shows `[FAIL]` rows that the launch
-   then enforces.**
+1. 💬 **OQ-RM1: Does `yolo check` refuse, or only report, the LAUNCH-ONLY checks?** The
+   parse-time half is no longer a question: steps 2–3 shipped as `[FAIL]` rows, and `Check()`
+   short-circuits on a merged-config failure and exits non-zero, so a bad enum or a credential in
+   a URL already refuses. What is left is the checks `check` cannot decide from a declaration
+   alone — [§4.4](#44-a-supersession-that-matches-nothing)'s supersession match above all, which
+   needs the resolved set and is decidable on the host. But `check` is also the command you run
+   *to find out what is wrong*, which is the argument that kept the supersedes finding non-fatal in
+   the first place. **This decides whether `check` ever exits non-zero for a reference it had to
+   resolve, or only ever shows a `[FAIL]` row that the launch then enforces.**
 
-   <!-- vantage: oq id=OQ-RM1 leaning="`check` shows [FAIL] and exits non-zero, as it already does for unknown keys; after the 2026-09-02 narrowing the part still open is only the LAUNCH-ONLY checks, §4.4's supersession match among them." -->
+   <!-- vantage: oq id=OQ-RM1 leaning="`check` shows [FAIL] and exits non-zero for the launch-only checks too, as it already does for every parse-time one; the don't-break-the-diagnostic carve-out belongs to loopholes list, not to the pre-flight." -->
 
-   _Leaning:_ `check` shows `[FAIL]` and exits non-zero — it already does exactly this for unknown
-   keys, and a `check` that passes on a config the next launch refuses is the defect roadmap 💬 10
-   is about. The "don't break the diagnostic tool" carve-out belongs to `loopholes list`, which
-   reports one subsystem, not to `check`, which is the pre-flight. *(Narrowed by events 2026-09-02:
-   steps 2–3 shipped as `[FAIL]`s that already exit non-zero — `check.go:112-115` short-circuits on
-   `sectionMergedConfig` failures — so the leaning is the shipped behaviour for every parse-time
-   check. What this question still decides is only the LAUNCH-ONLY checks: [§4.4](#44-a-supersession-that-matches-nothing)'s supersession
-   match and anything else `check` cannot decide from the host.)*
+   _Leaning:_ `check` shows `[FAIL]` and exits non-zero here as well — it already does exactly this
+   for every parse-time check, and a `check` that passes on a config the next launch refuses is the
+   defect this doc has a roadmap row for. The "don't break the diagnostic tool" carve-out belongs
+   to `loopholes list`, which reports one subsystem, not to `check`, which is the pre-flight.
 
    **Answer:**
    > _(empty — fill in when decided)_
