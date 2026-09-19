@@ -23,9 +23,10 @@ questions that never got a ruling.
 >
 > **This stub exists for one reason:** a reference doc may not carry a live question, and
 > two of this design's questions have never been ruled. They keep their ids and this
-> filename so that [`../plans/roadmap.md`](../plans/roadmap.md)'s
-> [💬 27](../plans/roadmap.md#-27--conditional-env-and-whether-guest-gets-its-own-field-census)
-> links keep resolving.
+> filename so that [`../plans/roadmap.md`](../plans/roadmap.md)'s links keep resolving — the
+> compaction retired the row these two once had to themselves, and both ids are now cited by
+> anchor from the *small calls that do not deserve a row* list under
+> [💬 Needs you](../plans/roadmap.md#-needs-you).
 
 Both are cheap to rule and expensive to discover later. Neither blocks anything shipped.
 
@@ -91,8 +92,10 @@ wrong for a reason, but inventing a third field set with zero consumers is how a
 grows faster than the system it describes.
 
 **Interaction to respect:** this is the same `guest` notch as the environment manager's
-unbuilt phase ([💬 7](../plans/roadmap.md#-7--macos-and-the-environment-manager-stories)), so
-the two are meant to be ruled in one sitting.
+unbuilt phase — carried now by the [💬 Needs you](../plans/roadmap.md#-needs-you) row on
+what the environment manager promises at each notch, whose doc is
+[`environment-manager-user-stories.md`](./environment-manager-user-stories.md) — so the two are
+meant to be ruled in one sitting.
 
 **Answer:**
 > _(empty — fill in when decided)_
