@@ -286,28 +286,48 @@ func TestTeardownChainSilentWhenOff(t *testing.T) {
 	}
 }
 
-// parseDieAndCleanup against real `podman events --format '{{.Time}}
-// {{.Status}}'` shapes: the first die wins, the last cleanup wins, garbage
-// and empty logs are skips/not-found, never errors.
+// parseDieAndCleanup against real `podman events --format '{{.TimeNano}}
+// {{.Status}}'` shapes: the first death wins, the last teardown event wins,
+// garbage and empty logs are skips/not-found, never errors.
+//
+// ⚠ THE FIXTURES SPELL THE STATUS `died` AND THE TERMINAL EVENT `remove`, and
+// both spellings are the bug this test now exists to keep fixed. This parser
+// matched Docker's `die` from its first commit — podman emits `died` — and it
+// looked for a `cleanup` event that a `--rm` container never produces, which is
+// how every jail runs. Measured against podman 5.8.6's own events.log,
+// 2026-09-19. A fixture rewritten to `die`/`cleanup` would pass while the
+// production query attributed nothing, which is the state that shipped.
 func TestParseDieAndCleanup(t *testing.T) {
-	die, cleanup, ok := parseDieAndCleanup("1757152800.500 create\n" +
-		"1757152810.250 die\n" +
-		"1757152813.750 cleanup\n")
+	die, cleanup, ok := parseDieAndCleanup("1757152800500000000 create\n" +
+		"1757152810250000000 died\n" +
+		"1757152813750000000 remove\n")
 	if !ok {
-		t.Fatal("die not found")
+		t.Fatal("death not found")
 	}
 	if die.UnixMilli() != 1757152810250 {
 		t.Errorf("die = %v, want unix-milli 1757152810250", die.UnixMilli())
 	}
 	if cleanup == nil || cleanup.Sub(die) != 3500*time.Millisecond {
-		t.Errorf("cleanup = %v, want die+3.5s", cleanup)
+		t.Errorf("last teardown event = %v, want die+3.5s", cleanup)
 	}
 
-	// Several dies (a stop-timeout escalation): the FIRST is the one that
+	// `cleanup` is still honoured, for a configuration that emits one.
+	if _, c, ok := parseDieAndCleanup("1757152810250000000 died\n" +
+		"1757152812000000000 cleanup\n"); !ok || c == nil {
+		t.Errorf("a cleanup event must still count as the terminal one; got %v ok=%v", c, ok)
+	}
+
+	// Several deaths (a stop-timeout escalation): the FIRST is the one that
 	// bounds Window A.
-	die, _, ok = parseDieAndCleanup("1757152810.250 die\n1757152815.000 die\n")
+	die, _, ok = parseDieAndCleanup("1757152810250000000 died\n1757152815000000000 died\n")
 	if !ok || die.Unix() != 1757152810 {
-		t.Errorf("first die must win; got %v ok=%v", die, ok)
+		t.Errorf("first death must win; got %v ok=%v", die, ok)
+	}
+
+	// Docker's spelling must NOT match: if it did, this parser's contract would
+	// be "whatever the fixture says" rather than "what podman emits".
+	if _, _, ok := parseDieAndCleanup("1757152810250000000 die\n"); ok {
+		t.Error("`die` is Docker's status; podman emits `died` and only that must match")
 	}
 
 	if _, _, ok := parseDieAndCleanup(""); ok {
@@ -327,8 +347,10 @@ func TestAttributeWindowA(t *testing.T) {
 	o.Timing = true
 	o.initPerf("yolo-ws-test0000")
 
-	podmanExit := time.Unix(1757152830, 0).UTC() // 20s after the die below
-	fixture := "1757152800.5 start\n1757152810.25 die\n1757152825.0 cleanup\n"
+	podmanExit := time.Unix(1757152830, 0).UTC() // 20s after the death below
+	fixture := "1757152800500000000 start\n" +
+		"1757152810250000000 died\n" +
+		"1757152825000000000 remove\n"
 
 	cases := []struct {
 		name string
@@ -349,11 +371,6 @@ func TestAttributeWindowA(t *testing.T) {
 				if argv[0] != "podman" || argv[1] != "events" {
 					t.Errorf("unexpected probe argv %v", argv)
 				}
-				for _, a := range argv {
-					if a == "--until" {
-						t.Logf("bounded: %v", argv)
-					}
-				}
 				return tc.res
 			}
 			res := o.attributeWindowA("yolo-ws-test0000", tc.rt, podmanExit.Add(-time.Minute), podmanExit)
@@ -365,106 +382,69 @@ func TestAttributeWindowA(t *testing.T) {
 				if !strings.Contains(line, "19.750s") { // 1757152830 - 1757152810.25
 					t.Errorf("gap wrong in %q", line)
 				}
-				if !strings.Contains(line, "cleanup event") {
-					t.Errorf("cleanup delta missing in %q", line)
+				if !strings.Contains(line, "teardown event") {
+					t.Errorf("terminal-event delta missing in %q", line)
 				}
 			}
 		})
 	}
 }
 
-// THE 3-SECOND BUG, pinned. `podman events --until <future>` does not return
-// what it has and exit — it WAITS until that wall-clock moment. The first
-// shipped version passed podmanExited+5s, so every timed shutdown stalled for
-// the full exec timeout (measured 3.002s per launch, vs 0.02s with an --until
-// of now). Any future offset reintroduced here fails this test.
-func TestWindowAUntilIsNeverInTheFuture(t *testing.T) {
+// THE QUERY'S BOUND IS `--stream=false`, AND `--until` MUST NOT BE ON THE ARGV
+// AT ALL. This pins the third attempt at one constraint, and the two it
+// replaces are worth the paragraph because each looked like the answer:
+//
+//  1. `--until podmanExited+5s` — a bound in the FUTURE makes podman wait for
+//     that wall-clock moment, stalling every timed shutdown for the full exec
+//     timeout (measured 3.002s per launch, 2026-09-06).
+//  2. `--until <now>` at RFC3339 SECOND granularity — truncation put the bound
+//     just before the death it was hunting, so every fast Window A reported
+//     no_die (2026-09-13).
+//  3. `--until <now>` at any precision — MEASURED on podman 5.8.6, 2026-09-19:
+//     an `--until` at or before now makes podman stop at EOF immediately and
+//     return a racy PREFIX of the log, usually empty. The shipped argv returned
+//     nothing 3 times out of 3 against a container whose death was in the log;
+//     the same argv with `--stream=false` and no `--until` returned all six of
+//     its events in 0.012s, 3 for 3. That is what the maintainer's 8-of-8
+//     `no_die` marks were: the feature built to price this window had never
+//     priced it once.
+//
+// So the bound is the flag that MEANS "return what you have and exit", and
+// nothing about it is a timestamp the reader has to interpret. The format must
+// stay `{{.TimeNano}}`: `{{.Time}}` renders integer seconds, which truncates the
+// death downward and inflates the measured window by up to a second.
+func TestWindowAQueryIsBoundedByStreamFalseNotUntil(t *testing.T) {
 	ws := t.TempDir()
 	o := goldenOptions(ws, t.TempDir())
 	o.Timing = true
 	o.initPerf("yolo-ws-test0000")
 
-	var until string
-	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
-		for i, a := range argv {
-			if a == "--until" && i+1 < len(argv) {
-				until = argv[i+1]
-			}
-		}
+	var argv []string
+	o.Exec = func(a []string, _ string, _ []string, _ time.Duration) ExecResult {
+		argv = a
 		return ExecResult{Ran: true}
 	}
 	// A child that exited a minute ago — the ordinary case.
 	o.attributeWindowA("yolo-ws-test0000", "podman", time.Now().Add(-2*time.Minute), time.Now().Add(-time.Minute))
 
-	if until == "" {
-		t.Fatal("no --until on the events argv; the query would stream unbounded")
+	joined := strings.Join(argv, " ")
+	if !strings.Contains(joined, "--stream=false") {
+		t.Errorf("no --stream=false on %q: `podman events --since` alone STREAMS, and a "+
+			"diagnostics query that never returns is the failure this feature exists to end", joined)
 	}
-	got, err := time.Parse(time.RFC3339, until)
-	if err != nil {
-		t.Fatalf("--until %q is not RFC3339: %v", until, err)
-	}
-	// `--until` is now formatted at nanosecond precision, so it IS "now" rather
-	// than up to a second behind it (TestWindowAUntilIncludesADieInItsOwnSecond
-	// is why). The tolerance stays a full second regardless: what this test
-	// exists to catch is a reintroduced future OFFSET, which was +5s when it
-	// shipped, never a sub-second formatting difference.
-	if slack := time.Until(got); slack > time.Second {
-		t.Errorf("--until is %v in the future (%s) — podman will BLOCK until then, "+
-			"adding that wait to every timed shutdown", slack.Round(time.Millisecond), until)
-	}
-}
-
-// THE OTHER HALF OF THE SAME CONSTRAINT, and the bug it hid for two releases.
-// `--until` must never be in the FUTURE (above) — but formatting it at SECOND
-// granularity truncates it into the past, and `podman events --until` bounds an
-// instant, not a second. A query fired at 16:51:07.676 asking `--until
-// 16:51:07Z` therefore excludes every event in its own second, and the die it
-// is hunting is always in that second: attribution runs immediately after the
-// container dies.
-//
-// So a FAST Window A was unattributable BY CONSTRUCTION, while a slow one — the
-// only kind anyone cares about — attributed fine. The symptom was a `no_die`
-// mark on every quick shutdown (2 of 2 in the real host perf log, 2026-09-12
-// and 2026-09-13), which reads as a broken instrument and is really the query
-// excluding its own answer. Pinning the precision here does not weaken the
-// future-guard above: `--until` is still exactly now, never later.
-func TestWindowAUntilIncludesADieInItsOwnSecond(t *testing.T) {
-	ws := t.TempDir()
-	o := goldenOptions(ws, t.TempDir())
-	o.Timing = true
-	o.initPerf("yolo-ws-test0000")
-
-	var until string
-	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
-		for i, a := range argv {
-			if a == "--until" && i+1 < len(argv) {
-				until = argv[i+1]
-			}
+	for _, a := range argv {
+		if a == "--until" {
+			t.Errorf("--until is back on %q. An --until at or before now returns a racy, "+
+				"usually EMPTY prefix of the event log (measured, podman 5.8.6); one in the "+
+				"future BLOCKS until that moment. --stream=false is the bound.", joined)
 		}
-		return ExecResult{Ran: true}
 	}
-
-	// Start well clear of a second boundary, or truncation loses nothing and this
-	// passes for the wrong reason.
-	for time.Now().Nanosecond() < int(200*time.Millisecond) {
-		time.Sleep(10 * time.Millisecond)
+	if !strings.Contains(joined, "--since") {
+		t.Errorf("no --since on %q: the query would read the whole event log", joined)
 	}
-	podmanExited := time.Now()
-	o.attributeWindowA("yolo-ws-test0000", "podman", podmanExited.Add(-time.Minute), podmanExited)
-
-	if until == "" {
-		t.Fatal("no --until on the events argv; the query would stream unbounded")
-	}
-	got, err := time.Parse(time.RFC3339, until)
-	if err != nil {
-		t.Fatalf("--until %q is not RFC3339: %v", until, err)
-	}
-	if got.Before(podmanExited) {
-		t.Errorf("--until is %s, %v BEFORE the podman exit at %s. A die in that gap is "+
-			"excluded from the query, so every fast Window A reports no_die and the "+
-			"cost is never priced. Format --until with sub-second precision.",
-			until, podmanExited.Sub(got).Round(time.Millisecond),
-			podmanExited.Format(time.RFC3339Nano))
+	if !strings.Contains(joined, "{{.TimeNano}}") {
+		t.Errorf("format is not {{.TimeNano}} in %q: {{.Time}} is integer SECONDS, which "+
+			"truncates the death downward and inflates every measured window", joined)
 	}
 }
 
@@ -562,7 +542,7 @@ func TestWindowAExplainsWhyItHasNothing(t *testing.T) {
 		res     ExecResult
 		wantWhy string
 	}{
-		{"no die event", "podman", ExecResult{Ran: true, Stdout: "1757152800.5 start\n"}, "no container `die` event"},
+		{"no died event", "podman", ExecResult{Ran: true, Stdout: "1757152800500000000 start\n"}, "no container `died` event"},
 		{"timeout", "podman", ExecResult{Ran: true, Timeout: true}, "did not answer within"},
 		{"could not run", "podman", ExecResult{Ran: false}, "could not be run"},
 		{"nonzero rc", "podman", ExecResult{Ran: true, RC: 125}, "exited 125"},
@@ -664,15 +644,16 @@ func TestInitPerfWithNoRefIsFine(t *testing.T) {
 	o.initPerf("yolo-ws-test0000") // must not panic
 }
 
-// windowAFixture renders a `podman events --format '{{.Time}} {{.Status}}'`
-// log for a container that died `ago` before now and was cleaned up 300ms
-// later. Relative to now, not a frozen unix stamp, because the gap Window A
-// measures is (child.exited mark) - (die event) and the mark is real-clock.
+// windowAFixture renders a `podman events --format '{{.TimeNano}} {{.Status}}'`
+// log for a container that died `ago` before now and was removed 300ms later.
+// Relative to now, not a frozen unix stamp, because the gap Window A measures is
+// (child.exited mark) - (died event) and the mark is real-clock. The statuses are
+// the ones podman actually emits for a `--rm` container: `died`, then `remove`.
 func windowAFixture(ago time.Duration) string {
 	die := time.Now().Add(-ago)
-	unix := func(t time.Time) float64 { return float64(t.UnixNano()) / 1e9 }
-	return fmt.Sprintf("%.3f start\n%.3f die\n%.3f cleanup\n",
-		unix(die.Add(-time.Second)), unix(die), unix(die.Add(300*time.Millisecond)))
+	return fmt.Sprintf("%d start\n%d died\n%d remove\n",
+		die.Add(-time.Second).UnixNano(), die.UnixNano(),
+		die.Add(300*time.Millisecond).UnixNano())
 }
 
 // quietRecordingOptions is a launch with the PERSISTENT opt-in on and neither
@@ -745,9 +726,9 @@ func TestQuietTeardownRecordsWindowAFailureClass(t *testing.T) {
 	emptyLoopholeDirs(t)
 	o := quietRecordingOptions(t, ws, home)
 	o.Perf.Mark("child.exited")
-	// Ran, exited 0, and holds no die — the ordinary rootless file-backend case.
+	// Ran, exited 0, and holds no death — the ordinary rootless file-backend case.
 	o.Exec = func([]string, string, []string, time.Duration) ExecResult {
-		return ExecResult{Ran: true, RC: 0, Stdout: "1757152800.5 start\n"}
+		return ExecResult{Ran: true, RC: 0, Stdout: "1757152800500000000 start\n"}
 	}
 
 	o.teardownAfterExit(nil, "", nil, t.TempDir(), "yolo-ws-test0000", "podman", 0)

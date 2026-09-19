@@ -10,10 +10,9 @@ package run
 //
 // Best-effort by the package's standing rule, with three explicit bounds so
 // the diagnosis can never become the delay: only the podman runtime (Apple
-// Container has no events command), a 3s exec timeout, and --until on every
-// invocation — `podman events --since` alone STREAMS on the journald backend,
-// and a diagnostics query that never returns is the failure this feature
-// exists to end.
+// Container has no events command), a 3s exec timeout, and `--stream=false` on
+// every invocation — `podman events --since` alone STREAMS, and a diagnostics
+// query that never returns is the failure this feature exists to end.
 
 import (
 	"fmt"
@@ -65,46 +64,45 @@ func (o *Options) attributeWindowA(cname, rt string, since, podmanExited time.Ti
 	if rt != "podman" || o.Perf == nil {
 		return windowAResult{} // not applicable: say nothing, record nothing
 	}
-	// --until IS NOW, AND MUST NEVER BE IN THE FUTURE. `podman events` treats a
-	// future --until as an instruction to keep watching until that wall-clock
-	// moment arrives, so it BLOCKS rather than returning what it already has.
-	// This first shipped as podmanExited+5s — slack for a cleanup event landing
-	// after the run process is gone — and that slack made every timed shutdown
-	// stall for the full windowAEventsTimeout: measured 3.002s on every launch,
-	// against 0.02s for an --until of now (podman 5.8.4, 2026-09-06). A timing
-	// feature that adds three seconds to the thing it measures is worse than no
-	// feature, and it is exactly the delay class this exists to find.
+	// `--stream=false` IS THE BOUND, AND `--until` MUST NOT BE HERE AT ALL.
 	//
-	// No slack is needed: attribution runs AFTER the whole teardown chain, so
-	// "now" is already later than the podman exit and later than any cleanup
-	// event conmon has written. Pinned by TestWindowAUntilIsNeverInTheFuture.
-	// SUB-SECOND PRECISION ON --until, and it is not cosmetic. `--until` bounds an
-	// INSTANT, not a second, while RFC3339 carries no fractional part and Format
-	// TRUNCATES — so a query fired at 16:51:07.676 asked `--until 16:51:07Z` and
-	// excluded every event in its own second. The die is always in that second,
-	// because attribution runs immediately after the container dies, so a FAST
-	// Window A was unattributable by construction and reported `no_die` while a
-	// slow one attributed fine. That is backwards: the fast case is the one we can
-	// afford to lose. Measured on the real host perf log — 2 of 2 recorded
-	// shutdowns `no_die` (2026-09-12, 2026-09-13), both sub-second.
+	// This query carried `--until` for its whole life, on the model that a bound
+	// was needed to stop `podman events` streaming and that the bound had to be a
+	// TIMESTAMP. Two fixes chased that model — the first because `--until
+	// podmanExited+5s` made podman wait for a wall-clock moment that had not
+	// arrived, stalling every timed shutdown for the full windowAEventsTimeout
+	// (measured 3.002s, 2026-09-06); the second because RFC3339 second-truncation
+	// then put `--until` just BEFORE the die it was hunting (2026-09-13). Both
+	// were real. Neither made the query work.
 	//
-	// This does NOT reintroduce the 3-second bug above: Nano formatting makes
-	// `until` exactly now rather than later, and the future-wait that cost 3.002s
-	// per launch needed an OFFSET. Both halves are pinned —
-	// TestWindowAUntilIsNeverInTheFuture and TestWindowAUntilIncludesADieInItsOwnSecond.
+	// MEASURED, podman 5.8.6, file backend, 2026-09-19: `--until <now>` returns
+	// NOTHING — 3 runs of the shipped argv against a container whose die was in
+	// the log, 3 empty answers, while the same argv with `--stream=false` and no
+	// `--until` returned all six of that container's events in 0.012s, 3 for 3.
+	// An `--until` at or before now makes podman stop at EOF IMMEDIATELY, so what
+	// comes back is a racy prefix of the log — usually empty, sometimes one line.
+	// That is what `no_die` had been reporting: 8 of 8 recorded shutdowns in the
+	// maintainer's host perf log, every one of them after Window A shipped, so the
+	// feature built to price this window had never once priced it.
 	//
-	// `--since` stays at second granularity on purpose: truncating the START of a
-	// window downward only widens it, which can never hide an event.
-	until := time.Now()
-	if podmanExited.After(until) {
-		until = podmanExited // clock skew only; still never a future wait
-	}
+	// `--stream=false` is what the bound always meant — "return what you have and
+	// exit" — and it says so to both event backends rather than encoding it as a
+	// timestamp the reader has to interpret. It also removes the need for any
+	// slack: attribution runs after the whole teardown chain, so every event
+	// conmon wrote is already in the log.
+	//
+	// `--since` stays, at second granularity: truncating the START of a window
+	// downward only widens it, which can never hide an event.
+	//
+	// {{.TimeNano}}, NOT {{.Time}}: `{{.Time}}` renders integer Unix SECONDS, so
+	// it truncated the die downward and inflated every measured window by up to a
+	// second — invisible on a 10s Window A and the whole of a fast one.
 	argv := []string{
 		"podman", "events",
 		"--since", since.UTC().Format(time.RFC3339),
-		"--until", until.UTC().Format(time.RFC3339Nano),
+		"--stream=false",
 		"--filter", "container=" + cname,
-		"--format", "{{.Time}} {{.Status}}",
+		"--format", "{{.TimeNano}} {{.Status}}",
 	}
 	sp := o.Perf.Span("shutdown.window_a_podman_events")
 	res := o.Exec(argv, "", nil, windowAEventsTimeout)
@@ -125,18 +123,18 @@ func (o *Options) attributeWindowA(cname, rt string, since, podmanExited time.Ti
 		// A host whose events backend keeps nothing (the rootless file backend
 		// expires them), so it is stated plainly rather than as a fault.
 		//
-		// ⚠ This was ALSO what a truncated `--until` produced on every fast
-		// shutdown until 2026-09-13 — see the formatting note above. That cause
-		// is fixed; if `no_die` becomes common again, suspect the query before
-		// the backend, because the backend explanation is the one that sounds
-		// right and was wrong for two releases.
+		// ⚠ SUSPECT THE QUERY BEFORE THE BACKEND. This token was 8-for-8 on the
+		// maintainer's host and the backend was never the reason: twice it was
+		// `--until` (see the argv note above) and once it was this parser looking
+		// for Docker's spelling of a status podman does not emit. The backend
+		// explanation is the one that sounds right and has been wrong every time.
 		return windowAResult{token: "no_die",
-			reason: "Window A unattributed: no container `die` event in podman's log for this jail"}
+			reason: "Window A unattributed: no container `died` event in podman's log for this jail"}
 	}
 	dur := podmanExited.Sub(dieAt)
 	line := fmt.Sprintf("Window A (container died → podman exit): %.3fs", dur.Seconds())
 	if cleanupAt != nil {
-		line += fmt.Sprintf(" — podman's own cleanup event landed %s after the die",
+		line += fmt.Sprintf(" — podman's own last teardown event landed %s after the death",
 			cleanupAt.Sub(dieAt).Round(time.Millisecond))
 	}
 	return windowAResult{dur: dur, line: line, ok: true}
@@ -151,8 +149,8 @@ func (o *Options) attributeWindowA(cname, rt string, since, podmanExited time.Ti
 // other event, and the table stays on the reporting gate (D15; D12 is about
 // what PRINTS, and never said the file should be missing a number yolo can get).
 //
-// Both teardown arms call it, each after its own chain has finished, because
-// --until is "now" and must be later than any cleanup event conmon wrote (D9).
+// Both teardown arms call it, each after its own chain has finished, so every
+// event conmon wrote about this container is already in the log when it asks (D9).
 // The Once is what makes the ordinary signal-path interleaving — both arms
 // running — one query rather than two, and it is also what makes the read in
 // emitTimingReportLocked safe from the other arm's goroutine: whichever arm
@@ -182,29 +180,42 @@ func (o *Options) recordWindowA(cname, rt string) {
 	})
 }
 
-// parseDieAndCleanup reads `podman events --format '{{.Time}} {{.Status}}'`
-// output: one "<unix-seconds-float> <status>" line per event. The FIRST die
-// wins (a stop-timeout escalation can produce several); the LAST cleanup
+// parseDieAndCleanup reads `podman events --format '{{.TimeNano}} {{.Status}}'`
+// output: one "<unix-nanoseconds> <status>" line per event. The FIRST death
+// wins (a stop-timeout escalation can produce several); the LAST teardown event
 // wins (it is the terminal one). Unparsable lines are skipped, not fatal —
 // best-effort means a partial answer beats none, and an empty log is the
 // ordinary rootless-file-backend case.
+//
+// ⚠ THE STATUS IS `died`, NOT `die`. `die` is DOCKER's spelling; podman's event
+// for a container whose process exited is `died`, on every backend, because the
+// status string is one enum serialized by all of them. This parser looked for
+// `die` from its first commit, so it could never have matched — measured against
+// podman 5.8.6's own events.log on 2026-09-19, which writes
+// `"Status":"died"`.
+//
+// ⚠ AND THERE IS NO `cleanup` EVENT FOR A `--rm` CONTAINER. The terminal event
+// in that measurement is `remove`. `cleanup` is a real podman status and is kept
+// for the configurations that emit one, but a run that only ever saw `cleanup`
+// would report the offset on approximately no launches, `--rm` being how every
+// jail runs.
 func parseDieAndCleanup(out string) (dieAt time.Time, cleanupAt *time.Time, ok bool) {
 	for _, line := range strings.Split(out, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) != 2 {
 			continue
 		}
-		sec, err := strconv.ParseFloat(fields[0], 64)
+		nanos, err := strconv.ParseInt(fields[0], 10, 64)
 		if err != nil {
 			continue
 		}
-		at := time.Unix(int64(sec), int64((sec-float64(int64(sec)))*1e9)).UTC()
+		at := time.Unix(0, nanos).UTC()
 		switch fields[1] {
-		case "die":
+		case "died":
 			if !ok {
 				dieAt, ok = at, true
 			}
-		case "cleanup":
+		case "cleanup", "remove":
 			t := at
 			cleanupAt = &t
 		}
