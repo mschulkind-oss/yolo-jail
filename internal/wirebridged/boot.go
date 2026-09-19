@@ -41,10 +41,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
@@ -94,7 +96,32 @@ var EndpointFile = paths.JailHostServicesDir + "/" + ServiceName + paths.Service
 // supervise retry with backoff); healthy idle and serving states block until
 // the jail retires them.
 func Main(rest []string) int {
-	return run(context.Background(), entrypoint.EnvFromOS(), entryChannelPollInterval)
+	ctx, stop := daemonContext()
+	defer stop()
+	return run(ctx, entrypoint.EnvFromOS(), entryChannelPollInterval)
+}
+
+// daemonContext is the context the daemon idles on, and it exists because
+// context.Background() CANNOT BE IDLED ON.
+//
+// Background's Done() returns a NIL channel. A receive on nil blocks forever, and
+// when it is the only goroutine the Go runtime kills the process:
+//
+//	fatal error: all goroutines are asleep - deadlock!
+//	goroutine 1 [chan receive (nil chan)]:
+//	  wirebridged.idleUntilStopped(...)
+//
+// So every HEALTHY IDLE — the state this package's own doc comment calls "bind
+// nothing, publish nothing, sleep forever, one stderr line saying why" — crashed
+// instead. MEASURED 2026-09-19 in a jail whose selected provider named a credential
+// variable that was not set: the bridge printed its idle line and panicked, and the
+// supervisor was left restarting a daemon that could never stay up.
+//
+// Cancelling on SIGINT/SIGTERM is the fix AND the behaviour a supervised daemon
+// wants anyway: `yolo-jaild supervise` stops a child by signalling it, and until now
+// an idling bridge had no path from that signal to a clean exit.
+func daemonContext() (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 }
 
 // run resolves the boot route, then watches the live per-entry channel while
@@ -264,7 +291,21 @@ func signalReadinessOnFD(fd int, kind, name string, details ...string) {
 	_, _ = fmt.Fprintln(os.NewFile(uintptr(fd), "jail-daemon-ready"), message)
 }
 
+// idleUntilStopped is the healthy-idle path: no listener, no endpoint file, and a
+// wait that ends only when the supervisor signals.
+//
+// ⚠ IT IS ONLY SAFE FOR A CONTEXT THAT CAN BE DONE. Handed context.Background() it
+// deadlocks the process rather than idling — see daemonContext, which is the one
+// place the daemon's context is built and the reason this is now sound.
 func idleUntilStopped(ctx context.Context) int {
+	if ctx.Done() == nil {
+		// Defence in depth for a future caller that reaches here with a
+		// non-cancellable context: a daemon that cannot be stopped is still better
+		// than one the runtime kills, and the log line says which happened.
+		fmt.Fprintln(os.Stderr, "wire-bridge: idling on a context that can never be "+
+			"done; blocking without a stop path (daemonContext is the supported one)")
+		select {}
+	}
 	<-ctx.Done()
 	return 0
 }
