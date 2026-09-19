@@ -9,7 +9,7 @@ side, and which yolo machinery would carry the config.
 **Status:** findings gathered 2026-08-20; audited 2026-08-23 (OQ IDs given the
 `LM` prefix; findings NOT re-gathered). **BUILT 2026-09-17** as `packs/llamacpp`,
 under [OQ-LM1](#oq-lm1)'s *mode, not a parallel key* — so [Part 3](#part-3--the-yolo-side-what-would-carry-this)
-and [Part 4](#part-4--what-i-would-build) are history rather than a plan, and each
+and [Part 4](#part-4--what-it-would-actually-take) are history rather than a plan, and each
 carries a warning saying so. Re-verified against installed CLIs on 2026-09-17: pi
 **0.85.1** still emits `supportsUsageInStreaming` and derives `contextWindow` from
 `meta.n_ctx`/`n_ctx_train`; `CLAUDE_CODE_ATTRIBUTION_HEADER` is **present in claude
@@ -154,7 +154,7 @@ Knobs worth knowing:
 | `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU,FABLE}_MODEL` | Alias resolution — **the practical knob** |
 | `ANTHROPIC_SMALL_FAST_MODEL` | **Deprecated**, superseded by `ANTHROPIC_DEFAULT_HAIKU_MODEL` |
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` | Suppresses bootstrap/feature-flag/telemetry calls to `api.anthropic.com` |
-| `ANTHROPIC_UNIX_SOCKET` | **Undocumented.** Routes the API fetch over a unix socket instead of TCP `[verified from source: 2.1.220, fn Ih, 2026-08-20]` — potentially a cheaper jail wiring than TCP. (This cell pointed at `OQ-LM5` — the ship-order question — which is a dangling cross-ref left by the 2026-08-23 id minting; no open question covers the socket.) |
+| `ANTHROPIC_UNIX_SOCKET` | **Undocumented.** Routes the API fetch over a unix socket instead of TCP `[verified from source: 2.1.220, fn Ih, 2026-08-20]` — potentially a cheaper jail wiring than TCP. (This cell pointed at [`OQ-LM5`](#oq-lm5) — the ship-order question — which is a dangling cross-ref left by the 2026-08-23 id minting; no open question covers the socket.) |
 
 > [!WARNING]
 > **Scope trap.** There are two settings-`env` application passes
@@ -845,7 +845,7 @@ accepts a path ending in `.sock` for a Unix socket.
 > provider today"*) was true on 2026-08-20 and is not now: the provider/profile
 > system shipped, and the same `rg` matched 65 files on 2026-09-17.
 > [OQ-LM1](#oq-lm1) ruled local endpoints are a **MODE** inside that system, so the
-> "six mechanical edits" below and [Part 4](#part-4--what-i-would-build)'s Option 2
+> "six mechanical edits" below and [Part 4](#part-4--what-it-would-actually-take)'s Option 2
 > describe a surface that was deliberately not built. **What shipped instead is
 > `packs/llamacpp`** — one `kind: "provider"`, one `kind: "profile"`, one
 > profile-gated `kind: "env"`, exactly the `zai`/`cerebras` shape. Read the mechanism
