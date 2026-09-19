@@ -49,6 +49,13 @@ import (
 // schema has no entry-level `base_url` to ship (ProviderContribution), so a pack-only
 // entry can never carry the pair and only a user key can add the shorthand.
 //
+// THE OUTPUT IS OWNED BY THE TABLE. No object reachable from the returned map is one the
+// caller passed in or one a pack's declaration holds — the user layer is deep-copied on
+// the way in (below) and shippedProviderEntry allocates every level it emits. That is what
+// makes the adapter pass, which writes into the finished table, a writer of this table
+// alone; it was not true, and the consequence was a bound port
+// (docs/design/wire-bridge-port-collision.md).
+//
 // A provider NAME claimed by two packs is refused by the launch pre-flight (the kind is
 // sole-owned by name; the claim target is the bare name, so packload.Collisions' generic
 // exclusive loop reports it). This compose keeps the FIRST and never overwrites, so a
@@ -85,6 +92,24 @@ func ComposeProviders(user *jsonx.OrderedMap, packs []*Pack, opts ...ComposeOpti
 			out.Delete(name)
 			continue
 		}
+		// THE COMPOSED TABLE HOLDS NOTHING THE CALLER OWNS. Every call site hands this
+		// function a sub-map of a config map it goes on reading — run.composedProviders
+		// and cli.composedHostProviders pass `cfg`'s own `providers` entry, and
+		// check.protocolPairingGap passes the merged map's — so a composed value stored
+		// by reference makes this a WRITER of its caller's config. adaptEndpoints runs
+		// LAST over the finished table and writes endpoints.<protocol>.base_url through
+		// any such alias, which is how a user's provider entry acquired the wire bridge's
+		// own 127.0.0.1:8214 and run.localProviderForwards then read it back as a
+		// host-loopback forward the user had asked for — a port bound in the jail four
+		// lines before the bridge tried to bind it (docs/design/wire-bridge-port-collision.md,
+		// OQ-PC1: the ruling is to fix the mutation, not the read).
+		//
+		// The copy is DEEP because the value is a tree: a one-level clone would leave
+		// `endpoints` shared and addEndpoint would write through it unchanged. One copy
+		// here covers all four sinks below — the malformed passthrough, both
+		// out.Set(name, u) paths, and mergeUnder, which sets sub-values of u into the
+		// pack-shipped entry.
+		v = jsonx.DeepCopy(v)
 		u, ok := v.(*jsonx.OrderedMap)
 		if !ok {
 			out.Set(name, v) // malformed; the config validator already reported the shape
@@ -452,6 +477,13 @@ func quoted(s string) string {
 // shippedProviderEntry renders one pack's provider declaration as an entry of the
 // providers table — the SAME shape a user-written entry has, because what consumes the
 // table (the three derives) reads one schema.
+//
+// IT ALLOCATES EVERY LEVEL, and that is load-bearing rather than incidental: the composed
+// table is written into afterwards (adaptEndpoints, and mergeUnder folding the user layer
+// over this entry), so an entry that handed back a map the DECLARATION holds would let one
+// launch's composition corrupt the manifest every later read of Pack.Decl sees. Nothing
+// here can: ProviderContribution's fields are strings and maps of strings, copied by value
+// into fresh OrderedMaps, and Capabilities is copied into a fresh []any.
 func shippedProviderEntry(prov packdecl.ProviderContribution) *jsonx.OrderedMap {
 	entry := jsonx.NewOrderedMap()
 	if prov.APIKeyEnvName != "" {
