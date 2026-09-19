@@ -8,6 +8,7 @@ package wirebridged
 // in the wire shape of either side fails here rather than in a jail.
 
 import (
+	"bufio"
 	"context"
 	"net"
 	"os"
@@ -20,6 +21,24 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
+
+func TestSignalReadyWritesTheServiceName(t *testing.T) {
+	read, write, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer read.Close()
+	defer write.Close()
+
+	signalReadyOnFD(int(write.Fd()), ServiceName)
+	got, err := bufio.NewReader(read).ReadString('\n')
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "ready "+ServiceName+"\n" {
+		t.Errorf("readiness = %q, want %q", got, "ready "+ServiceName+"\n")
+	}
+}
 
 // mustProviders decodes a composed-table JSON literal, failing the test on a
 // typo — a table that does not decode would idle for the WRONG reason and the

@@ -160,8 +160,11 @@ func serviceEndpointEnvArgs(in *assembleInput, o *Options) []string {
 		channel.resolvedProfiles) {
 		return nil
 	}
-	return []string{"-e", hostServiceEnvVar(bridge.Name) + "=" +
-		paths.JailHostServicesDir + "/" + bridge.Endpoint}
+	return []string{
+		"-e", hostServiceEnvVar(bridge.Name) + "=" +
+			paths.JailHostServicesDir + "/" + bridge.Endpoint,
+		"-e", paths.JailDaemonReadyNamesEnv + "=" + bridge.Name,
+	}
 }
 
 // useProfilesTable lowers the composed use-profiles table to the plain

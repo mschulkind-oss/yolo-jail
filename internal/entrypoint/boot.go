@@ -649,7 +649,7 @@ func Main(args []string) error {
 	p.mark("port_forwarding")
 
 	// Start the jail-daemon supervisor (child of PID 1; kernel-reaped on exit).
-	startJailDaemonSupervisor(e)
+	genStep(e, "start_jail_daemon_supervisor", func() error { return startJailDaemonSupervisor(e) })
 	p.mark("jail_daemon_supervisor")
 
 	// There used to be a second os.Setenv of PATH here, hand-spelling the same list

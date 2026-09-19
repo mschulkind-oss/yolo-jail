@@ -1,7 +1,9 @@
 package entrypoint
 
 import (
+	"bufio"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // tmpfs on podman, so a PID file here is naturally scoped to this jail and
@@ -111,26 +114,54 @@ func supervisorIsAlive(pidFile string) bool {
 // The supervisor is the baked-in Go binary (cmd/yolo-jaild) invoked with the
 // `supervise` subcommand, resolved on PATH from the image /bin. It reads
 // YOLO_JAIL_DAEMONS from the inherited environment — no argv, no PYTHONPATH.
-func startJailDaemonSupervisor(e *Env) {
+func startJailDaemonSupervisor(e *Env) error {
 	if strings.TrimSpace(e.Getenv("YOLO_JAIL_DAEMONS")) == "" {
-		return
+		return nil
 	}
 	if supervisorIsAlive(supervisorPIDFile) {
-		return
+		return nil
+	}
+	readyNames := strings.Fields(strings.ReplaceAll(e.Getenv(paths.JailDaemonReadyNamesEnv), ",", " "))
+	ready := map[string]bool{}
+	for _, name := range readyNames {
+		ready[name] = true
 	}
 	bin, err := exec.LookPath("yolo-jaild")
 	if err != nil {
-		// Supervisor binary not on PATH — best-effort, don't abort boot.
-		return
+		if len(ready) == 0 {
+			// Preserve the established best-effort behavior for daemon groups
+			// with no endpoint readiness dependency.
+			return nil
+		}
+		return fmt.Errorf("find jail daemon supervisor: %w", err)
 	}
 	cmd := exec.Command(bin, "supervise")
 	cmd.Env = os.Environ()
+	var readyRead, readyWrite *os.File
+	if len(ready) > 0 {
+		readyRead, readyWrite, err = os.Pipe()
+		if err != nil {
+			return fmt.Errorf("create jail-daemon readiness pipe: %w", err)
+		}
+		cmd.ExtraFiles = []*os.File{readyWrite}
+		cmd.Env = append(cmd.Env, paths.JailDaemonReadyFDEnv+"=3")
+	}
 	// stdout/stderr DEVNULL, close_fds default. start_new_session=False: stay in
 	// the same process group as PID 1 (Go's default — no Setsid).
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	if err := cmd.Start(); err != nil {
-		return
+		if readyRead != nil {
+			_ = readyRead.Close()
+			_ = readyWrite.Close()
+		}
+		if len(ready) == 0 {
+			return nil
+		}
+		return fmt.Errorf("start jail daemon supervisor: %w", err)
+	}
+	if readyWrite != nil {
+		_ = readyWrite.Close()
 	}
 	// Best-effort PID-file write; losing it just risks a redundant supervisor.
 	_ = os.WriteFile(supervisorPIDFile, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o644)
@@ -138,6 +169,28 @@ func startJailDaemonSupervisor(e *Env) {
 	// exits while PID 1 is still alive; a background Wait keeps the supervisor
 	// detached without blocking boot.
 	go func() { _ = cmd.Wait() }()
+	if readyRead == nil {
+		return nil
+	}
+	defer readyRead.Close()
+	scanner := bufio.NewScanner(readyRead)
+	for len(ready) > 0 {
+		if !scanner.Scan() {
+			if err := scanner.Err(); err != nil {
+				return fmt.Errorf("wait for jail-daemon readiness: %w", err)
+			}
+			return fmt.Errorf("jail daemon supervisor exited before ready services %s", strings.Join(readyNames, ", "))
+		}
+		fields := strings.Fields(scanner.Text())
+		if len(fields) != 2 || (fields[0] != "ready" && fields[0] != "failed") || !ready[fields[1]] {
+			return fmt.Errorf("jail daemon reported unexpected readiness %q", scanner.Text())
+		}
+		if fields[0] == "failed" {
+			return fmt.Errorf("jail daemon %q cannot publish its required endpoint", fields[1])
+		}
+		delete(ready, fields[1])
+	}
+	return nil
 }
 
 // portInUse check if a TCP port is already bound

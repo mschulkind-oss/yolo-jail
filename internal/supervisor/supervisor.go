@@ -21,9 +21,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 const (
@@ -150,6 +153,14 @@ func (c *child) start() error {
 		return err
 	}
 	cmd := exec.Command(c.spec.Cmd[0], c.spec.Cmd[1:]...)
+	// The entrypoint's readiness pipe reaches yolo-jaild as fd 3. Preserve it
+	// across this second exec so an endpoint-publishing child can acknowledge
+	// only after its listener and endpoint file are live. Daemons that do not
+	// participate simply ignore the environment variable.
+	if fd, err := strconv.Atoi(os.Getenv(paths.JailDaemonReadyFDEnv)); err == nil && fd >= 3 {
+		cmd.ExtraFiles = []*os.File{os.NewFile(uintptr(fd), "jail-daemon-ready")}
+		cmd.Env = append(os.Environ(), paths.JailDaemonReadyFDEnv+"=3")
+	}
 	cmd.Stdout = lf
 	cmd.Stderr = lf
 	if err := cmd.Start(); err != nil {

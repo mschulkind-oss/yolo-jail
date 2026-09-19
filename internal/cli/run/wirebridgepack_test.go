@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // bridgedLaunch is the acceptance story's pack set: claude and cerebras
@@ -66,6 +67,10 @@ func TestBridgedLaunchComposesTheWholeStory(t *testing.T) {
 		v[0] != "YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT=/run/yolo-services/wire-bridge.endpoint" {
 		t.Errorf("the witness registration must name the manifest's endpoint file: %q", v)
 	}
+	if v := envArgValues(la.argv, paths.JailDaemonReadyNamesEnv); len(v) != 1 ||
+		v[0] != paths.JailDaemonReadyNamesEnv+"=wire-bridge" {
+		t.Errorf("the endpoint-publishing daemon must be a boot readiness dependency: %q", v)
+	}
 }
 
 // TestBridgeStagedButUnroutedIdlesAndEmitsNothing: the selection-lazy half
@@ -91,6 +96,9 @@ func TestBridgeStagedButUnroutedIdlesAndEmitsNothing(t *testing.T) {
 	}
 	if v := envArgValues(la.argv, "YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT"); len(v) != 0 {
 		t.Errorf("an unrouted bridge must not register an endpoint with the witness: %q", v)
+	}
+	if v := envArgValues(la.argv, paths.JailDaemonReadyNamesEnv); len(v) != 0 {
+		t.Errorf("an idle bridge must not become a boot readiness dependency: %q", v)
 	}
 	if v := la.channelEnv(t, "ANTHROPIC_BASE_URL"); len(v) != 1 ||
 		v[0] != "ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic" {

@@ -139,6 +139,17 @@ const ServiceEndpointExt = ".endpoint"
 const (
 	ServiceEnvVarPrefix = "YOLO_SERVICE_"
 	ServiceEnvVarSuffix = "_ENDPOINT"
+
+	// JailDaemonReadyNamesEnv names endpoint-publishing jail daemons whose
+	// readiness the entrypoint must receive before it probes their endpoint.
+	// It is emitted only when the launch registered the matching endpoint above;
+	// an idle, selection-lazy service therefore never holds boot open.
+	JailDaemonReadyNamesEnv = "YOLO_JAIL_DAEMON_READY_NAMES"
+	// JailDaemonReadyFDEnv is the inherited, one-shot readiness pipe. The
+	// entrypoint gives its write end to yolo-jaild; the supervisor passes it to
+	// children as fd 3, and a ready daemon writes its declared name after the
+	// endpoint it registered is live.
+	JailDaemonReadyFDEnv = "YOLO_JAIL_DAEMON_READY_FD"
 )
 
 // CgdEndpointName MUST be "<BuiltinCgroupLoopholeName>.endpoint" — composed, for

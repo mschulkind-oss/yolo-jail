@@ -43,6 +43,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
@@ -152,6 +153,7 @@ func serve(ctx context.Context, route route, e *entrypoint.Env) int {
 		endpoint := e.Getenv(openauthclient.EndpointEnv)
 		if endpoint == "" {
 			fmt.Fprintf(os.Stderr, "wire-bridge: idling: Codex route needs %s; no unauthenticated upstream is served\n", openauthclient.EndpointEnv)
+			signalNotReady(ServiceName)
 			return idleUntilStopped(ctx)
 		}
 		handler = NewCodexResponsesHandler(route.UpstreamBaseURL, endpoint)
@@ -163,6 +165,7 @@ func serve(ctx context.Context, route route, e *entrypoint.Env) int {
 				"%s, and it is set neither in %s nor in this process's environment — the bridge "+
 				"never serves unauthenticated upstream traffic (wire-bridge.md §5)\n",
 				route.ProviderName, route.KeyEnvName, userEnvFilePath(e.Home))
+			signalNotReady(ServiceName)
 			return idleUntilStopped(ctx)
 		}
 		handler = NewHandler(route.UpstreamBaseURL, key)
@@ -184,6 +187,7 @@ func serve(ctx context.Context, route route, e *entrypoint.Env) int {
 		fmt.Fprintf(os.Stderr, "wire-bridge: cannot publish %s: %v\n", EndpointFile, err)
 		return 1
 	}
+	signalReady(ServiceName)
 
 	fmt.Fprintf(os.Stderr, "wire-bridge: serving provider %q: anthropic on %s → openai %s "+
 		"(endpoint %s, credential %s)\n",
@@ -206,6 +210,35 @@ func serve(ctx context.Context, route route, e *entrypoint.Env) int {
 		}
 		return 0
 	}
+}
+
+// signalReady acknowledges the boot dependency only after publishEndpoint has
+// made the listener discoverable. The descriptor is absent for ordinary daemon
+// lifetime and attach paths; a failed acknowledgement means the entrypoint has
+// already gone away, so it must not take down a healthy bridge.
+func signalReady(name string) {
+	signalReadiness("ready", name)
+}
+
+func signalNotReady(name string) {
+	signalReadiness("failed", name)
+}
+
+func signalReadiness(kind, name string) {
+	raw := os.Getenv(paths.JailDaemonReadyFDEnv)
+	fd, err := strconv.Atoi(raw)
+	if err != nil || fd < 3 {
+		return
+	}
+	signalReadinessOnFD(fd, kind, name)
+}
+
+func signalReadyOnFD(fd int, name string) {
+	signalReadinessOnFD(fd, "ready", name)
+}
+
+func signalReadinessOnFD(fd int, kind, name string) {
+	_, _ = fmt.Fprintln(os.NewFile(uintptr(fd), "jail-daemon-ready"), kind+" "+name)
 }
 
 func idleUntilStopped(ctx context.Context) int {
