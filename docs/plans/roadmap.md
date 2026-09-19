@@ -26,7 +26,7 @@ derived rather than carried forward; re-derive the live-question totals with che
 $ rg -c '^(#{2,4} |\s*[0-9]+[a-z]?\. |\s*[-*] )(<a id="[^"]*"></a> ?)?💬' docs/ --sort path
 ```
 
-**127 live questions across 34 docs**, plus one 🔒 that command cannot see.
+The command above is the count, and this line deliberately does not restate it: the number moves every time a question is ruled, and a frozen one here was **off by one within a day** of being written. Run it. ⚠ It misses one 🔒, which no regex over `docs/` can see.
 
 ## Rule these first
 
