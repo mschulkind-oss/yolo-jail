@@ -13,6 +13,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -45,7 +46,13 @@ func TestWaitForActiveRouteFailsRatherThanWaitingWhenBootRequiresReady(t *testin
 	// A fresh boot that registered the endpoint promised that this daemon has a
 	// route. If its initial channel disagrees, waiting for a future attach turns
 	// that contradiction into an unbounded PID 1 stall.
-	t.Setenv(paths.JailDaemonReadyFDEnv, "9")
+	read, write, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer read.Close()
+	defer write.Close()
+	t.Setenv(paths.JailDaemonReadyFDEnv, strconv.Itoa(int(write.Fd())))
 	_, _, ok := waitForActiveRoute(context.Background(), entrypoint.NewEnv(map[string]string{}),
 		entryChannelPollInterval)
 	if ok {
