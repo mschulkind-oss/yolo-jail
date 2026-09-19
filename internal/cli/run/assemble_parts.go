@@ -510,7 +510,7 @@ func (o *Options) hostServicesMountArgs(rt, cname string, cfg *jsonx.OrderedMap)
 // brokerEnsure just performed exits immediately — measured 2026-08-18 in this repo's own
 // jail, `yolo-claude-oauth-broker-host: cannot locate openssl`, once per launch for
 // months." Both halves are gone: `openssl` was baked (`431625bc`), and then
-// `EnsureCAAndLeaf` stopped needing it at all (`4ceab956`, in-process crypto/x509).
+// `EnsureCAAndLeaf` stopped needing it at all (`d5bb1e5d`, in-process crypto/x509).
 // MEASURED 2026-09-18: a nested launch minted its own P-256 CA, mounted the trio, and
 // published /run/yolo-services/claude-oauth-broker.endpoint — `openssl verify
 // -verify_hostname platform.claude.com` returned OK against the real mounted files.

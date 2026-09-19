@@ -13,7 +13,7 @@ summary: "Provider reach, per agent: which of the seven shipped agent CLIs can b
 
 # Provider reach — the Cerebras pack and copilot's BYOK
 
-**Status:** CURRENT as of 2026-09-18, verified against `7da7b153`.
+**Status:** CURRENT as of 2026-09-18, verified against `46175153`.
 
 **Provider reach** *(coined here)* is the question of which agent CLIs a given provider can
 actually drive. It is not the same question as [provider *delivery*](providers.md#per-agent-delivery),
@@ -219,7 +219,7 @@ they resolve.
 
 ## Current values
 
-Verified at `7da7b153`. The prose above says what each of these is for; this table is the only
+Verified at `46175153`. The prose above says what each of these is for; this table is the only
 place the values themselves are stated.
 
 | Value | Setting | Defined in |

@@ -5,7 +5,7 @@ package darwinpkg
 // # Why this file exists at all
 //
 // `internal/oauthbroker/opensslbake_test.go` used to pin it, as the broker's dependency. That
-// dependency is GONE — `EnsureCAAndLeaf` mints with `crypto/x509` in-process since `4ceab956`
+// dependency is GONE — `EnsureCAAndLeaf` mints with `crypto/x509` in-process since `d5bb1e5d`
 // — so that test was deleted with the thing it was about. Correct, and it left a hole: the
 // only remaining guard, `floor_drift_test.go`, pins that the Go list and `flake.nix`'s
 // `coreFloorNames` AGREE. Dropping a name from both keeps it green.

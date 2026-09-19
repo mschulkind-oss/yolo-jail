@@ -51,6 +51,14 @@ for s in $shas; do
     [ "$mode" = report ] && echo "OTHER-REF $s  $subject"
     continue
   fi
+  # THE ONE ALLOWLISTED DANGLE, and it is allowlisted for the right reason: the doc
+  # citing it SAYS it never merged, and names this very predicate as the evidence
+  # ("on a fork, never merged; `git merge-base --is-ancestor` confirms it"). A SHA
+  # offered as history rather than as evidence is exactly the case docs/plans/README.md
+  # tells this sweep to leave alone.
+  case "$s" in
+    4b84ea8*) n_otherref+=1; [ "$mode" = report ] && echo "ALLOWED   $s  $(git log -1 --format='%s' "$s")  (documented as never merged)"; continue ;;
+  esac
   n_dangling+=1
   if [ "$mode" = --fix-map ]; then
     hits=$(git log --format='%h %s' HEAD | grep -cF -- "$subject")

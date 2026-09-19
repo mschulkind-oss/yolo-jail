@@ -17,7 +17,7 @@ summary: "What a reap may delete, and on what evidence. Two reapers ask two diff
 
 # Image and GC-root retention — two reapers, two questions
 
-**Status:** CURRENT as of 2026-09-18, verified against `7da7b153`.
+**Status:** CURRENT as of 2026-09-18, verified against `46175153`.
 
 yolo reclaims two different kinds of bytes, and confusing them once destroyed four running
 jails. A **container image** in the runtime's own storage backs running containers: removing one
@@ -215,7 +215,7 @@ Rulings a maintainer reading only the normative text would otherwise undo. The i
 
 ## Current values
 
-Verified at `7da7b153`. The prose above says what each of these is for; this table is the only place
+Verified at `46175153`. The prose above says what each of these is for; this table is the only place
 the values themselves are stated.
 
 | Value | Setting | Defined in |

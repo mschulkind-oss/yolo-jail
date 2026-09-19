@@ -15,7 +15,7 @@ package entrypoint
 // `host-capture/<agent>-<name>.last_render`, so the next apply diffs the file against it
 // exactly as a jail boot does. That is where the file and the overlay can drift, and it was
 // unmeasured at this notch — which is how a null at a declared key came to be deleted outright
-// there (measured 2026-09-12, before `3b97094d`: neither the user's null nor the layer's
+// there (measured 2026-09-12, before `5b37c8c4`: neither the user's null nor the layer's
 // value, the key simply gone).
 //
 // WHY THE EDIT HAS TO HAPPEN AFTER THE FIRST RENDER. `mergeDiff` cannot tell a key the user

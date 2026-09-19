@@ -372,7 +372,7 @@ already-silent cases in a codebase whose stated discipline is "never silent."
 
 ---
 
-## F7 — ✅ FIXED 2026-08-05 (`c30a2b3`) — `files` re-archived on every apply, unbounded
+## F7 — ✅ FIXED 2026-08-05 (`8f932fc2`) — `files` re-archived on every apply, unbounded
 
 Found re-running the real-home adoption against `0.7.1+431.gb522a69`. The `files` kind now
 archives its destination on **every** `apply --host --assert`, even when the live file is
@@ -404,7 +404,7 @@ message that should stop them. It also buries a *real* archive when one eventual
 Note these land under `archive/skills/…` even though they are `files` contributions, which is
 its own small wrongness (the path implies a skill was archived).
 
-**FIXED 2026-08-05** (`c30a2b3`). Reproduced before fixing: `renderOneHostFile` asked only whether
+**FIXED 2026-08-05** (`8f932fc2`). Reproduced before fixing: `renderOneHostFile` asked only whether
 the path was OCCUPIED, never whether the content differed — `skills` and `config` were already
 quiet, so it was specifically `files` that had no unchanged check. Now compares content first
 (reusing `hostskills.Changed`, so the two kinds cannot drift into two digests) and reports

@@ -13,7 +13,7 @@ summary: "How GPT-5.6 (and anything else Bedrock serves) reaches codex, pi and o
 NATIVE arm below, where codex, opencode and pi each ship an `amazon-bedrock` provider on one
 credential, and the SSO-backed arm designed in
 [`sso-backed-bedrock.md`](sso-backed-bedrock.md), whose host credential service and jail-side
-adapter landed on 2026-09-18 (`b94351fe`, `e76e43b2`, `7cc946ea`). They are siblings, not
+adapter landed on 2026-09-18 (`b94351fe`, `e76e43b2`, `9fc4879d`). They are siblings, not
 alternatives: that one answers *where the credential comes from*, this one answers *which
 endpoint family and model-id spelling each agent needs*. Its plan's done-condition 7 is blocked
 on this doc. Nothing of THIS doc is built. Every code claim verified against
@@ -626,7 +626,7 @@ provider the catalog dropped. Never carry a region allowlist or a model catalog 
 
    > [!WARNING]
    > **It stopped being theoretical on 2026-09-18, and the stakes changed from a flag to a
-   > credential.** `packs/aws-auth` (`7cc946ea`) ships
+   > credential.** `packs/aws-auth` (`9fc4879d`) ships
    > `{"kind":"env","profile":"bedrock","vars":{"AWS_CONTAINER_CREDENTIALS_FULL_URI":…}}`, and
    > `packs/claude` ships a profile named `bedrock`. That pack installs no bin, so it takes the
    > SECOND pass of the rule at [`contributes.go:153-170`](../../internal/packdecl/contributes.go)

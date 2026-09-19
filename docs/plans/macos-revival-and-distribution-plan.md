@@ -116,7 +116,7 @@ reading code or `git log`; nothing here is carried over on trust.
 | J2 (Go bootstrap) | **landed** | §J2 statuses; `internal/macosuser` is Python-free |
 | J3 (container builder) | **landed** | `8abb67ce` + `c2f0b941`; `internal/image/autoload.go:13,59,219` imports and calls `containerbuilder` through `BuildOffload` |
 | D1 (`repo_path`) | **landed, then RETIRED 2026-07-23** | `20a8ce9f`; `Justfile:102`; `internal/config/inherit.go:198` |
-| D2 (graceful degradation) | **landed 2026-07-21, REVERTED 2026-07-29** | `8f1d612`/`07975c88` in, `5d34dece` out; regression `internal/cli/run/reporoot_fatal_test.go` |
+| D2 (graceful degradation) | **landed 2026-07-21, REVERTED 2026-07-29** | `07975c88`/`07975c88` in, `5d34dece` out; regression `internal/cli/run/reporoot_fatal_test.go` |
 | D3 (source bundle) | **landed 2026-07-20, SUPERSEDED 2026-07-23** | prebuilt-bundle cutover; `internal/reporoot`, `flake.nix` `installPrefix` |
 | D4 (Cachix) | **substituter live; the human half is PART done** | `flake.nix:13-16` (`730c258`); `--accept-flake-config` on every nix call — `internal/image/nixflags.go:35`, `internal/darwinpkg/darwinpkg.go:91` |
 | Track M (M0/M1/M2) | **landed 2026-07-21 on real HW; M2's dogfood has since lapsed** | see the M-track note below |
@@ -579,7 +579,7 @@ options are complementary; sequence them:
    `macos-user` with empty `packages:` is still un-gated. See
    `docs/research/repo-root-and-distribution.md` [§6](../research/repo-root-and-distribution.md#6-the-image-cache-fallback-and-why-a-missing-repo-root-is-fatal-d2-reverted-2026-07-29). Original D2 record below.
 
-   **Status (2026-07-21): DONE + committed** (`8f1d612`). Repo-root resolution is
+   **Status (2026-07-21): DONE + committed** (`07975c88`). Repo-root resolution is
    no longer a hard gate: `run.go` resolves it, and on a miss the launch proceeds
    degraded. `image.AutoLoadOptions.SkipBuild` (set when `repoRoot==""`) skips the
    nix build and jumps straight to the existing-image / cached-tar fallback
@@ -628,7 +628,7 @@ options are complementary; sequence them:
    Verified the staged tree evaluates (`nix eval .#ociImage.drvPath`).
    Adversarially reviewed — frozen invariant clean; a goreleaser dist/-wipe
    packaging bug was caught (reproduced against goreleaser built from source) and
-   fixed. D2 landed 2026-07-21 (`8f1d612`); only D4's human-gated Cachix
+   fixed. D2 landed 2026-07-21 (`07975c88`); only D4's human-gated Cachix
    account/push/download remains in Track D.
    **⚠ Both halves of that last sentence are stale (checked 2026-08-23).** D2
    was reverted on 2026-07-29 (`5d34dece`, see D2 above), and D4's Cachix

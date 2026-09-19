@@ -14,7 +14,7 @@ vantage:
 Both questions are ruled ([§13](#13-decision-ledger)) and the
 removal landed in [§10](#10-what-i-would-do-in-order)'s order — `internal/agentcfg` no longer links
 gopher-lua, `internal/packload` still does, and the derive path renders every shipped pack at boot.
-Claims about the tree below were verified on 2026-09-10 at `4975df07` and describe the tree the
+Claims about the tree below were verified on 2026-09-10 at `d83c6b56` and describe the tree the
 removal acted on, not today's; each carries its evidence inline. Two rows of
 [§5.6](#56-documentation) are deliberately still open: [`roadmap.md`](../plans/roadmap.md) (tracked
 there) and [`config-ownership-and-promotion.md`](config-ownership-and-promotion.md) (in review).
@@ -264,7 +264,7 @@ from this removal should not; anyone worried it would break the derive path shou
 
 ### 3.8 One more mismatch, found while writing
 
-Capture narrowing landed today (`aac5b569`, `19acebc1`): the overlay is narrowed against the
+Capture narrowing landed today (`7b0cc818`, `4e87181c`): the overlay is narrowed against the
 declarative layers above it — `computed` and `managed`
 ([`staterender.go:387`](../../internal/agentcfg/staterender.go#L387)) — so it stores only edits that
 can win. The transform sits above the overlay too and can also override a captured key, but it
@@ -348,7 +348,7 @@ named for a VM it no longer needs is exactly the disconnected-parts pattern of
 ## 5. The removal surface, enumerated
 
 Every consumer, from an `rg` sweep over `internal/`, `cmd/`, `packs/`, `docs/`, `integration/`,
-`scripts/` and `flake.nix` on 2026-09-10, classified. Line numbers are as of `4975df07`; the
+`scripts/` and `flake.nix` on 2026-09-10, classified. Line numbers are as of `d83c6b56`; the
 sections a removal must touch are what matter, and the linked anchors are what to re-check.
 
 ### 5.1 The engine

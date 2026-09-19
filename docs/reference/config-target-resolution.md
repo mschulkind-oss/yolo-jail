@@ -17,7 +17,7 @@ summary: "One resolved config target per `yolo config` invocation — notch, wor
 
 # The config target — which home a `yolo config` verb is about
 
-**Status:** CURRENT as of 2026-09-18, verified against `f659d878`.
+**Status:** CURRENT as of 2026-09-18, verified against `434b2c2e`.
 
 **MEASURED:** the resolution and its disclosure, the marker and the unknown states, the
 presence answer, `--at`, the preview's host layer in every disposition, and the host-side
@@ -493,7 +493,7 @@ and its original anchor, because they are cited from code comments across `inter
 
 ## Current values
 
-Verified at `f659d878`. The prose above explains what each of these is for; this table is the
+Verified at `434b2c2e`. The prose above explains what each of these is for; this table is the
 only place the values themselves are stated.
 
 | Value | Setting | Defined in |

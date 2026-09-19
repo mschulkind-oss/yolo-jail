@@ -150,8 +150,8 @@ template anywhere in the tree, the profile is Go string concatenation.
 | Network | `(allow network-outbound (remote ip))` — open, deliberately | no directive at all — open |
 | `process-exec` | `(allow process-exec)` — explicit | no directive — open |
 | `mach-lookup` | **enumerated allowlist of 16 global names** | no directive — open |
-| Cross-process argv/env | **denied**: `(deny sysctl-read (sysctl-name-regex #"procargs"))` + `(deny process-info-pidinfo)`, re-allowed only for `(target same-sandbox)` | **denied, since `26a38c74`** — the same three directives, appended AFTER the `(allow process-info*)` this column used to report, because last-match-wins |
-| `file-ioctl` | restricted to tty/pty devices by literal and regex | **restricted, since `26a38c74`** — the same shape, four tty/pty patterns |
+| Cross-process argv/env | **denied**: `(deny sysctl-read (sysctl-name-regex #"procargs"))` + `(deny process-info-pidinfo)`, re-allowed only for `(target same-sandbox)` | **denied, since `474f68a0`** — the same three directives, appended AFTER the `(allow process-info*)` this column used to report, because last-match-wins |
+| `file-ioctl` | restricted to tty/pty devices by literal and regex | **restricted, since `474f68a0`** — the same shape, four tty/pty patterns |
 | `sysctl-write` | denied by the base | open |
 
 **The honest summary of ours:** yolo's `macos-user` profile is a **write-confinement profile
@@ -634,7 +634,7 @@ Ordered by value-to-cost. Each names the seam it lands on.
 
 ### 8.1 A policy-assertion suite for `macos-user` — **highest value, moderate cost**
 
-> **SHIPPED 2026-09-18** (`0c29418e`). `integration/macosuserseatbelt_test.go` runs 15 cases over
+> **SHIPPED 2026-09-18** (`7cb98e3f`). `integration/macosuserseatbelt_test.go` runs 15 cases over
 > 11 rules under a real `sandbox-exec`, each paired with a bare control so a refusal is
 > attributed to the policy rather than to a missing file, and a registry pins every
 > `#seatbelt-test-id:` to its proving cases or to a written reason none can exist — enforced in
@@ -664,7 +664,7 @@ greppable from the other. In our tree the natural spelling is a comment beside t
 
 ### 8.2 Tighten the profile toward deny-default — **highest ceiling, highest cost**
 
-> **The three incremental denies SHIPPED 2026-09-18** (`26a38c74`) — items 1, 2 and 3 below,
+> **The three incremental denies SHIPPED 2026-09-18** (`474f68a0`) — items 1, 2 and 3 below,
 > appended at the END of the profile, which is the whole risk: `(allow process-info*)` includes
 > pidinfo and has always been last, so both new denies are inert anywhere above it. The base
 > stays `(allow default)`; the full inversion is still [OQ-AS1](#OQ-AS1) and is untouched.
@@ -710,7 +710,7 @@ written about — and it is the one thing a launch does not name.
 
 ### 8.4 Pin the agent launch argv — **tiny cost, real bug class**
 
-> **SHIPPED 2026-09-18** (`e87aa538`). `PlanInvariants` now requires
+> **SHIPPED 2026-09-18** (`ba340c7f`). `PlanInvariants` now requires
 > `sandbox-exec -f <this session's profile>` on the agent's own `LaunchArgv`, consecutively, and
 > deleting those words from `LaunchArgv` turns a named test red — mutation-verified on Linux.
 
@@ -842,7 +842,7 @@ Re-check these before quoting them; everything here moved within the last six mo
 
    Stakes: the profile is a short deny list against Safehouse's 2,919 lines, and the
    difference is not cosmetic — network, exec, mach lookup, signals and IOKit are all open on
-   our side. (Cross-process argv inspection was on that list until `26a38c74` closed it.) The full inversion is a large, ongoing enumeration cost against a
+   our side. (Cross-process argv inspection was on that list until `474f68a0` closed it.) The full inversion is a large, ongoing enumeration cost against a
    nix substrate theirs does not share; the incremental denies in
    [§8.2](#82-tighten-the-profile-toward-deny-default--highest-ceiling-highest-cost) are cheap
    and independently revertible. This is a ruling about how much this backend is meant to
