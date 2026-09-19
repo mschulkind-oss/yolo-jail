@@ -50,7 +50,7 @@ func withHomeAndCwd(t *testing.T) (string, string) {
 // back to reading `~/.pi/agent/settings.json` — which after one boot is yolo's own output.
 func TestConfigRenderExplain(t *testing.T) {
 	withHomeAndCwd(t)
-	tgt := withStagedHostLayer(t, "pi", "settings", piHostSettings)
+	tgt := withStagedHostLayer(t, "pi", "settings", piHostSettings, usersOwnBytes)
 
 	var out, errw bytes.Buffer
 	rc := configRender(tgt, []string{"pi", "--explain"}, &out, &errw, false)
@@ -76,7 +76,7 @@ func TestConfigRenderExplain(t *testing.T) {
 // is plain (the byte-stable path the other tests assert).
 func TestConfigRenderExplainColor(t *testing.T) {
 	withHomeAndCwd(t)
-	tgt := withStagedHostLayer(t, "pi", "settings", piHostSettings)
+	tgt := withStagedHostLayer(t, "pi", "settings", piHostSettings, usersOwnBytes)
 
 	var out bytes.Buffer
 	// Drive configRender with color=true (the front door gates this on a real
@@ -102,7 +102,7 @@ func TestConfigRenderExplainColor(t *testing.T) {
 // host-declared extension survives into the preview.
 func TestConfigRenderMergesThenEnforces(t *testing.T) {
 	withHomeAndCwd(t)
-	tgt := withStagedHostLayer(t, "pi", "settings", piHostSettings)
+	tgt := withStagedHostLayer(t, "pi", "settings", piHostSettings, usersOwnBytes)
 
 	var out, errw bytes.Buffer
 	rc := configRender(tgt, []string{"pi"}, &out, &errw, false)

@@ -28,19 +28,28 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
-// TestMain disarms the install runner for the WHOLE package.
+// TestMain disarms the install runner for the WHOLE package, and isolates the package from the
+// staged tree of the jail it may be running inside.
 //
 // A default that refuses is the only safe one: the gate's prompt reads whatever stdin a
 // fixture happened to provide, so any test that answers `y` to any confirmation is one
 // `program` contribution away from running `npm install -g` or `curl … | sh` on the machine
 // running the suite. Overriding the seam per test would protect the tests someone remembered
 // to write it into.
+//
+// The second line is item 1 again, one variable over: a `host` layer's bytes and the label on
+// them are facts of the MACHINE unless a fixture claims them, and in this development jail the
+// ambient answers are the developer's own dotfiles and "yolo already rendered those"
+// (isolateTheStagedTree, confighostlayer_test.go, which carries the measurement).
 func TestMain(m *testing.M) {
 	depInstallRun = func(cmd string, _ io.Writer) error {
 		return fmt.Errorf("test guard: refusing to run a pack's install hint %q — override "+
 			"depInstallRun in your test if the install itself is what you are exercising", cmd)
 	}
-	os.Exit(m.Run())
+	releaseStagedTree := isolateTheStagedTree()
+	code := m.Run()
+	releaseStagedTree()
+	os.Exit(code)
 }
 
 // stubBins prepends a temp dir holding an executable stub per name to PATH, and returns it.
