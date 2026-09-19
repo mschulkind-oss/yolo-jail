@@ -10,10 +10,19 @@ tags: [tooling, vantage-check, documentation]
 reproduction that was run; where a claim is inferred rather than measured it says so.
 
 > [!NOTE]
-> **This document reports 46 errors under the rules it documents, and that is D12 rather than an
-> oversight.** Every one is a specimen — `§4.3b`, `OQ-PD12a` and friends quoted as examples of what
-> the rules do to them. They are not references and must not be linked; linking a specimen would
+> **This document reports errors under the rules it documents, and every one is D12 rather than an
+> oversight.** They are specimens — `§4.3b`, `OQ-PD12a` and friends quoted as examples of what the
+> rules do to them. They are not references and must not be linked; linking a specimen would
 > destroy the thing being shown. See D12.
+>
+> ⚠ **So no corpus-wide sweep may edit this file**, and one already has: the 2026-09-18 graduation
+> sweep rewrote `../design/pack-system.md` to `../reference/pack-system.md` inside D10's specimen.
+> Harmless there — it still demonstrates the same rule — but a sweep that LINKED one would delete
+> the evidence. Exclude this path by name.
+>
+> The count is deliberately not stated: it was "46" when this was written and the checker reports
+> more now without the document having changed, so a number here measures the tool rather than the
+> file. Run `uvx vantage-check` on it if you want today's.
 
 **How this was found.** `vantage-check` 0.5.9 added `ref/unlinked-section`, `ref/unlinked-oq`,
 `ref/unlinked-file` and `vantage/oq-missing`. On this repo that took a corpus that reported
