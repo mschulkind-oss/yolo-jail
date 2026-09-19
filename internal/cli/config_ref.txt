@@ -1443,9 +1443,11 @@
     USER-SCOPE ONLY, like `profiles`: this key is read from the merged config, so a
     workspace spelling would TAKE EFFECT rather than sit inert — it is REFUSED there
     for the same reason `profiles` is (OQ-CS5).
-    A global `-p <name>` with no command keys the same name for every selected pack, by
-    the CLI name each one installs.  A null value REMOVES a key and asserts nothing
-    about it.  Selecting a name nothing declares (pack-shipped or yours) refuses the
+    A bare `-p <name>` keys the same name for every selected pack, by the CLI name each
+    one installs, whether or not a command follows `--` — the command is never a profile
+    target, so `yolo -p <name> -- sleep 60` launches with the name active for every CLI
+    the jail installs.  A null value REMOVES a key and asserts nothing about it.
+    Selecting a name nothing declares (pack-shipped or yours) refuses the
     launch rather than selecting nothing — a silently inert selector is
     indistinguishable from a working one.  A selected profile switches ON; deactivating
     it does not write the agent's surface back — whatever a selection wrote stays, and

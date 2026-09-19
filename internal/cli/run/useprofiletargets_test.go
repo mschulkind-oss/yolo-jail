@@ -15,17 +15,25 @@ import (
 )
 
 // This file pins the FLAG half of the CLI-name namespace
-// (profiles-as-pack-variants.md §2.5, §3.3): `--pack-profile <cli>=<name>` and
-// `-p <name> -- <bin>` key a profile by CLI name, and a name no resolvable pack
-// installs is refused at launch. The CONFIG half is validated by ValidateConfig;
-// the flags never reach a config validator, so the launch pipeline owns this
-// check — the same silent-typo hole §2.5 documents, arriving through argv.
+// (profiles-as-pack-variants.md §2.5, §3.3): `-p <cli>=<name>` keys a profile by CLI
+// name, and a name no resolvable pack installs is refused at launch. The CONFIG half
+// is validated by ValidateConfig; the flags never reach a config validator, so the
+// launch pipeline owns this check — the same silent-typo hole §2.5 documents,
+// arriving through argv.
+//
+// THE BARE `-p <name>` IS NOT IN THAT NAMESPACE and is not checked against it. It
+// names no CLI; it is the selection for every bin every selected pack installs. Until
+// 2026-09-19 the pre-flight paired it with the `--` command's basename instead, which
+// refused `yolo -p kilo -- sleep 60` for a keying effectiveUseProfiles has never
+// performed — so the tests below pin BOTH directions of that split, and the delivery
+// tests further down pin that the bare+non-agent launch really does carry the profile
+// to the jail's CLIs.
 //
 // Driven through stageRunPacks (the launch path, above the backend dispatch and
 // covering attach too), not the checker, so a test fails if the check is unwired
 // from staging.
 
-// A --pack-profile naming a CLI no pack installs is fatal, naming the CLI and the
+// A -p <cli>=<name> naming a CLI no pack installs is fatal, naming the CLI and the
 // installed names.
 func TestStageRunPacksRefusesAnUnknownUseProfileCLI(t *testing.T) {
 	home := retireHome(t)
@@ -39,7 +47,7 @@ func TestStageRunPacksRefusesAnUnknownUseProfileCLI(t *testing.T) {
 	o.Stdout = &out
 	o.UseProfiles = map[string]string{"cloude": "bedrock"}
 	if _, ok := o.stageRunPacks("yolo-profile-target-cli"); ok {
-		t.Fatalf("a --pack-profile naming a CLI no pack installs staged cleanly — " +
+		t.Fatalf("a -p <cli>=<name> naming a CLI no pack installs staged cleanly — " +
 			"the typo passes silently")
 	}
 	if !strings.Contains(out.String(), `no pack installs a CLI named "cloude"`) {
@@ -51,25 +59,62 @@ func TestStageRunPacksRefusesAnUnknownUseProfileCLI(t *testing.T) {
 	}
 }
 
-// -p with a command keys the profile by the command's binary name; an unknown one
-// is the same refusal.
-func TestStageRunPacksRefusesAProfileNameKeyedToAnUnknownCommand(t *testing.T) {
+// A BARE -p WITH A NON-AGENT COMMAND LAUNCHES. `yolo -p kilo -- sleep 60` is a shell, a
+// script or a probe in a jail that has a profile active, and until 2026-09-19 it was
+// refused as `no pack installs a CLI named "sleep"` — a check on the token after `--`,
+// which is not a profile target and never was (effectiveUseProfiles keys every selected
+// pack's bin, whatever the command). The whole point of the in-jail launcher shims is
+// that yolo stops caring which CLI the launch happens to run.
+//
+// `sleep` rather than a made-up name on purpose: the refusal that was here fired on any
+// basename outside the installed set, so a real, ordinary command is the case that was
+// actually being blocked. Two args, because the argv after `--` carries the command's own
+// arguments and only Args[0] was ever read.
+func TestStageRunPacksAcceptsABareProfileWithANonAgentCommand(t *testing.T) {
 	home := retireHome(t)
 	writeUserPacks(t, home, `[]`)
 	var out bytes.Buffer
 	o := retireOptions(t, &out)
-	// retireOptions points the buffer at STDERR, because that is where retirement's notices
-	// belong and its own tests assert the stream that way. The refusal asserted here is
-	// stageRunPacks', which still writes to stdout (see loopholeretire.go's header on the ~50
-	// sites left alone), so this test names the stream it actually reads.
+	// retireOptions points the buffer at STDERR; stageRunPacks' refusal goes to stdout
+	// (see loopholeretire.go's header on the ~50 sites left alone), so this test names the
+	// stream it actually reads.
 	o.Stdout = &out
-	o.ProfileName = "dev"
-	o.Args = []string{"cloude"}
-	if _, ok := o.stageRunPacks("yolo-profile-target-bin"); ok {
-		t.Fatalf("-p keying a profile to a command no pack installs staged cleanly")
+	o.ProfileName = "kilo"
+	o.Args = []string{"sleep", "60"}
+	if _, ok := o.stageRunPacks("yolo-profile-target-nonagent"); !ok {
+		t.Fatalf("a bare -p with a non-agent command must launch — the profile is for the "+
+			"CLIs the jail installs, not for the token after `--`:\n%s", out.String())
 	}
-	if !strings.Contains(out.String(), `no pack installs a CLI named "cloude"`) {
-		t.Errorf("the refusal must name the unknown command binary:\n%s", out.String())
+	if strings.Contains(out.String(), "no pack installs a CLI named") {
+		t.Errorf("the dropped bare-form refusal is back:\n%s", out.String())
+	}
+}
+
+// THE EXPLICIT FORM STILL REFUSES WITH A NON-AGENT COMMAND IN PLAY. `-p claud=kilo` means
+// the user believes they configured claude and did not, and nothing downstream would tell
+// them — that is the case checkProfileTargets exists for, and dropping the bare-form
+// branch must not take it along. Both spellings are set here, so a fix that keyed the
+// check off "is any profile flag present" instead of off the explicit map would pass the
+// test above and fail this one.
+func TestStageRunPacksStillRefusesAnUnknownCLIBesideANonAgentCommand(t *testing.T) {
+	home := retireHome(t)
+	writeUserPacks(t, home, `[]`)
+	var out bytes.Buffer
+	o := retireOptions(t, &out)
+	o.Stdout = &out
+	o.ProfileName = "kilo"
+	o.Args = []string{"sleep", "60"}
+	o.UseProfiles = map[string]string{"claud": "kilo"}
+	if _, ok := o.stageRunPacks("yolo-profile-target-typo"); ok {
+		t.Fatalf("-p claud=kilo staged cleanly — the explicit form names a CLI, so a typo "+
+			"in it is still worth refusing:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), `no pack installs a CLI named "claud"`) {
+		t.Errorf("the refusal must name the misspelled CLI, not the command:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), `"sleep"`) {
+		t.Errorf("the command after `--` must not appear in the refusal at all:\n%s",
+			out.String())
 	}
 }
 
@@ -194,6 +239,31 @@ func TestAssembleBareProfileKeysEveryBinEvenWithACommand(t *testing.T) {
 	}
 	if got[0] != `YOLO_USE_PROFILES={"claude": "bedrock", "pi": "bedrock"}` {
 		t.Errorf("bare -p must key every selected pack's bin, got %s", got[0])
+	}
+}
+
+// THE THING THE DROPPED REFUSAL WAS STANDING IN FRONT OF: with a NON-AGENT command the
+// profile still reaches every CLI the jail installs. The test above uses `claude`, which
+// is itself an installed bin, so it cannot tell a table keyed off the command from one
+// keyed off the pack set; `sleep` can, because nothing installs it. Asserted on the
+// DELIVERED channel rather than on the merge — a launch that staged cleanly and then
+// carried nothing would be the same silence in a later place.
+func TestAssembleBareProfileReachesTheCLIsWithANonAgentCommand(t *testing.T) {
+	packs := packsFixture(t, "claude", "pi")
+	la := assembleWithProfilesAssembled(t, newConfig(), packs, func(o *Options) {
+		o.ProfileName = "bedrock"
+		o.Args = []string{"sleep", "60"}
+	})
+	got := la.channelEnv(t, "YOLO_USE_PROFILES")
+	if len(got) != 1 {
+		t.Fatalf("YOLO_USE_PROFILES crossed %q, want exactly one line", got)
+	}
+	if got[0] != `YOLO_USE_PROFILES={"claude": "bedrock", "pi": "bedrock"}` {
+		t.Errorf("a non-agent command must not narrow the table — every selected pack's "+
+			"bin gets the name, got %s", got[0])
+	}
+	if strings.Contains(got[0], "sleep") {
+		t.Errorf("the `--` command is not a profile key, got %s", got[0])
 	}
 }
 

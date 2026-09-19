@@ -416,6 +416,20 @@ Rename, don't redesign:
 > commit `43d24e9e`). The table's *reasoning* is untouched: the inversion the first rename argued
 > against is the same one the second rename finished.
 
+> **SUPERSEDED 2026-09-19 — the bare form's bin keying, and the check on it, are both gone.**
+> The last row's "same keying, now checked: fatal if no pack owns that bin" describes a launch
+> yolo no longer refuses. The bin keying itself was withdrawn on 2026-09-03 (a bare `-p <name>`
+> sets the name for every selected pack, command or no command — [`providers.md`](../reference/providers.md#per-agent-delivery)
+> has the shipped sentence), which left the check standing on a keying nothing performed: it
+> read `filepath.Base` of the token after `--` and refused `yolo -p kilo -- sleep 60` as *no
+> pack installs a CLI named "sleep"*. A profile selects providers for the agents IN the jail,
+> reaching them through the `~/.yolo/bin/launch/<name>` shims and the profile channel, so the
+> command a launch happens to run is not a profile target and the refusal could only block
+> legitimate launches — a shell, a script, a probe. The EXPLICIT `-p <cli>=<name>` half of the
+> check survives unchanged, and is the half §2.5's argument was always about: that spelling
+> names a CLI, so a typo in it asserts something false and nothing downstream would say so
+> (`checkProfileTargets`, `internal/cli/run/packs.go`).
+
 Resolution order is the shipped one, extended by nothing: workspace config < user config < CLI. The
 selected profile name for CLI *c* is then a plain string that (a) gates the `kind: "profile"`
 contributions of the pack that owns *c* and (b) reaches that pack's derive as

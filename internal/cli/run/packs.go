@@ -393,12 +393,15 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 	}
 
 	// THE FIFTH bespoke pre-flight: a profile selector keyed to a CLI name no pack
-	// installs (profiles-as-pack-variants.md §2.5, §8). The two spellings are
-	// `--pack-profile <cli>=<name>` and `-p <name> -- <bin>`, and both key the profile
-	// by a CLI name the way `use_profiles` does in config — which is validated there
-	// and is NOT validated anywhere here, because a flag never reaches ValidateConfig.
-	// Without this the typo passed silently: the key went into the table no derive
-	// read, and the launch looked exactly like the profile working.
+	// installs (profiles-as-pack-variants.md §2.5, §8). The spelling is `-p <cli>=<name>`
+	// — the one that NAMES a CLI — and it keys the profile by a CLI name the way
+	// `use_profiles` does in config, which is validated there and is NOT validated
+	// anywhere here, because a flag never reaches ValidateConfig. Without this the typo
+	// passed silently: the key went into the table no derive read, and the launch looked
+	// exactly like the profile working.
+	//
+	// It used to check the BARE `-p <name>` too, against the `--` command's basename;
+	// that half is gone and checkProfileTargets' docstring has the why.
 	//
 	// Here rather than in the parse (runcmd.go), deliberately: parseRunArgs is a pure
 	// fold over argv with no pack data and no error return, and this is where the pack
@@ -476,9 +479,9 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 	return stagingRoot, loaded, briefings, nil
 }
 
-// checkProfileTargets refuses a profile selector keyed to a CLI name no resolvable pack
-// installs — the FIFTH launch pre-flight, and the flag half of the check
-// ValidateConfig does for `use_profiles` keys.
+// checkProfileTargets refuses an EXPLICIT profile selector — `-p <cli>=<name>` — keyed to
+// a CLI name no resolvable pack installs. It is the FIFTH launch pre-flight, and the flag
+// half of the check ValidateConfig does for `use_profiles` keys.
 //
 // The namespace is the SAME one config validation uses (config.UseProfileCLINames), so
 // a key `yolo check` accepts a launch accepts and neither can drift from what is
@@ -486,11 +489,32 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 // configured pack makes the namespace unknowable, and that pack already fails staging
 // above with its own message.
 //
-// A GLOBAL -p (no command) is not checked here at all: it names no CLI, and the keys it
-// generates are the selected packs' own installed bins — in the namespace by
-// construction.
+// THE EXPLICIT SPELLING IS THE ONLY ONE THERE IS ANYTHING TO CHECK IN. `-p claud=kilo`
+// asserts that a CLI called `claud` exists; the user believes they configured claude and
+// did not, and no downstream reader would ever say so — the key just sits in the table
+// nothing looks up. A BARE `-p <name>` names no CLI at all: it is the selection for every
+// bin every selected pack installs (effectiveUseProfiles), so it has no key that could be
+// a typo and nothing to compare against the namespace.
+//
+// IT USED TO PAIR THE BARE FORM WITH THE `--` COMMAND (dropped 2026-09-19), refusing when
+// that command's basename was not an installed CLI — so `yolo -p kilo -- sleep 60` died as
+// `no pack installs a CLI named "sleep"`. That check was reading the wrong token. A
+// profile selects providers for THE AGENTS IN THE JAIL, delivered to them through the
+// `~/.yolo/bin/launch/<name>` shims and the profile channel; it has never been a property
+// of whatever command follows `--`, and effectiveUseProfiles has never keyed on that token
+// (the 2026-09-03 ruling, stated at the merge). So the refusal described a keying that
+// does not happen, and the only thing it could actually block was a legitimate launch — a
+// shell, a script, a probe — in a jail that has a profile active. Both halves of this
+// function's message ("no pack installs a CLI named %q") were written for the explicit
+// form, which is the half that survives.
+//
+// What this deliberately does NOT refuse, now that both forms agree: a bare `-p <name>`
+// whose selected packs install no CLI at all selects nothing and tells nobody. That was
+// already true of `yolo -p <name>` with no command, so it is a gap in the SELECTION rather
+// than in the command, and it belongs to a check that can see an empty effective table —
+// not to one whose whole input is a CLI name the user typed.
 func (o *Options) checkProfileTargets() error {
-	if o.ProfileName == "" && len(o.UseProfiles) == 0 {
+	if len(o.UseProfiles) == 0 {
 		return nil
 	}
 	names, known := config.UseProfileCLINames()
@@ -503,7 +527,7 @@ func (o *Options) checkProfileTargets() error {
 	}
 	have := strings.Join(names, ", ")
 	var problems []string
-	// --pack-profile <cli>=<name>: the KEY is the CLI name.
+	// -p <cli>=<name>: the KEY is the CLI name.
 	clis := make([]string, 0, len(o.UseProfiles))
 	for cli := range o.UseProfiles {
 		clis = append(clis, cli)
@@ -516,15 +540,9 @@ func (o *Options) checkProfileTargets() error {
 		problems = append(problems, fmt.Sprintf("-p %s=%s: no pack installs a "+
 			"CLI named %q (installed: %s)", cli, o.UseProfiles[cli], cli, have))
 	}
-	// -p <name> -- <bin>: the COMMAND's basename is the CLI name, the same keying
-	// effectiveUseProfiles applies downstream.
-	if o.ProfileName != "" && len(o.Args) > 0 {
-		bin := filepath.Base(o.Args[0])
-		if !installed[bin] {
-			problems = append(problems, fmt.Sprintf("-p %s -- %s: no pack installs a CLI "+
-				"named %q (installed: %s)", o.ProfileName, o.Args[0], bin, have))
-		}
-	}
+	// NO BARE-FORM BRANCH. `-p <name> -- <bin>` was checked here against
+	// filepath.Base(o.Args[0]) until 2026-09-19; the docstring records what it cost and
+	// why the keying it claimed to guard never existed.
 	if len(problems) == 0 {
 		return nil
 	}

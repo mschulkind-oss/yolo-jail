@@ -175,6 +175,16 @@ existing check or gives an existing namespace the check its neighbours already h
 | **Where** | `yolo check` **and** launch preflight. Both shipped. |
 | **Also fixed** | `-p <name> -- <bin>` resolves the binary to a pack slug and refuses when no pack owns that bin. Today it keys the profile by binary basename with no check; every shipped pack happens to have `bin == slug`, so it works by coincidence. |
 
+> **WITHDRAWN 2026-09-19 — the "Also fixed" row only.** It shipped, and was then removed: a bare
+> `-p <name>` does not key on the token after `--` at all (it is the selection for every selected
+> pack), so the refusal built here read a binary that was never a profile target and its only
+> effect was to block legitimate launches — `yolo -p kilo -- sleep 60` died as *no pack installs a
+> CLI named "sleep"*. The rest of [§4.1](#41-a-profile-set-for-a-pack-that-does-not-exist) is
+> untouched: the `use_profiles` KEY check it is really about is shipped in both places, and so is
+> its flag twin `-p <cli>=<name>`, which names a CLI and can therefore still be mistyped
+> (`checkProfileTargets`, `internal/cli/run/packs.go`; the full argument is in
+> [`profiles-as-pack-variants.md` §3.3](./profiles-as-pack-variants.md#33-the-selector-and-where-it-comes-from)).
+
 ### 4.2 An invented `wire_api`
 
 | | |

@@ -122,12 +122,17 @@ type Options struct {
 	// config.AcceptConfigChangesFlag, which owns the spelling.
 	AcceptConfigChanges bool
 	// ProfileName is --profile <name> or -p <name> (e.g. "glm" or "glm-dev" — the
-	// name is the next token, and there is no other reading of either flag). With a
-	// command it keys the name to that command's binary; with no command it is GLOBAL —
-	// the selected profile of every pack this launch selects (effectiveUseProfiles).
+	// name is the next token, and there is no other reading of either flag). It is
+	// GLOBAL, whether or not a command follows `--`: the selected profile of every CLI
+	// every pack this launch selects installs (effectiveUseProfiles). The command after
+	// `--` is not read as a profile target anywhere — it was, in checkProfileTargets'
+	// refusal alone, which is why a non-agent command used to be refused here while the
+	// table it produced had never keyed on one.
 	ProfileName string
-	// UseProfiles is --pack-profile <cli>=<name> overrides, keyed by CLI name. A name
-	// no resolvable pack installs is refused at launch (checkProfileTargets).
+	// UseProfiles is the -p <cli>=<name> overrides, keyed by CLI name (the spelling was
+	// --pack-profile until 2026-09-03, when -p took both grammars). It is the only
+	// profile spelling that NAMES a CLI, so a key no resolvable pack installs is
+	// refused at launch (checkProfileTargets).
 	UseProfiles map[string]string
 	// Args is ctx.args — the command after `--` (empty → interactive bash).
 	Args []string
