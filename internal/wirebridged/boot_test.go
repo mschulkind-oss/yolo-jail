@@ -20,6 +20,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 func TestSignalReadyWritesTheServiceName(t *testing.T) {
@@ -37,6 +38,18 @@ func TestSignalReadyWritesTheServiceName(t *testing.T) {
 	}
 	if got != "ready "+ServiceName+"\n" {
 		t.Errorf("readiness = %q, want %q", got, "ready "+ServiceName+"\n")
+	}
+}
+
+func TestWaitForActiveRouteFailsRatherThanWaitingWhenBootRequiresReady(t *testing.T) {
+	// A fresh boot that registered the endpoint promised that this daemon has a
+	// route. If its initial channel disagrees, waiting for a future attach turns
+	// that contradiction into an unbounded PID 1 stall.
+	t.Setenv(paths.JailDaemonReadyFDEnv, "9")
+	_, _, ok := waitForActiveRoute(context.Background(), entrypoint.NewEnv(map[string]string{}),
+		entryChannelPollInterval)
+	if ok {
+		t.Fatal("waitForActiveRoute() found a route in an empty channel")
 	}
 }
 

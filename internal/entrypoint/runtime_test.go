@@ -3,6 +3,7 @@ package entrypoint
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -37,7 +38,7 @@ func TestJailDaemonSupervisorWaitsForReadinessAcknowledgement(t *testing.T) {
 }
 
 func TestJailDaemonSupervisorRefusesNegativeReadiness(t *testing.T) {
-	bin := writeSupervisor(t, `printf 'failed wire-bridge\n' >&3`)
+	bin := writeSupervisor(t, `printf 'failed wire-bridge no-route\n' >&3`)
 	t.Setenv("PATH", filepath.Dir(bin))
 	oldPIDFile := supervisorPIDFile
 	supervisorPIDFile = filepath.Join(t.TempDir(), "yolo-jaild.pid")
@@ -47,7 +48,7 @@ func TestJailDaemonSupervisorRefusesNegativeReadiness(t *testing.T) {
 		"YOLO_JAIL_DAEMONS":           "present",
 		paths.JailDaemonReadyNamesEnv: "wire-bridge",
 	})
-	if err := startJailDaemonSupervisor(e); err == nil {
+	if err := startJailDaemonSupervisor(e); err == nil || !strings.Contains(err.Error(), "no-route") {
 		t.Fatal("startJailDaemonSupervisor() succeeded after negative readiness")
 	}
 }

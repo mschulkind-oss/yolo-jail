@@ -44,6 +44,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
@@ -111,10 +112,19 @@ func run(ctx context.Context, initial *entrypoint.Env, pollInterval time.Duratio
 }
 
 func waitForActiveRoute(ctx context.Context, initial *entrypoint.Env, pollInterval time.Duration) (route, *entrypoint.Env, bool) {
-	if route, idleReason := resolveRoute(initial); idleReason == "" {
-		return route, initial, true
+	if selected, idleReason := resolveRoute(initial); idleReason == "" {
+		return selected, initial, true
 	} else {
 		fmt.Fprintf(os.Stderr, "wire-bridge: idling: %s\n", idleReason)
+		// A boot that registered this endpoint has already established that a
+		// route must exist. Waiting for a later attach in that state would make
+		// PID 1 wait forever on a contradiction between the launcher and this
+		// daemon. Report the contradiction through the readiness pipe instead;
+		// ordinary selection-lazy daemon lifetime still waits for attaches below.
+		if readinessRequested() {
+			signalNotReady(ServiceName, idleReason)
+			return route{}, nil, false
+		}
 	}
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
@@ -153,7 +163,7 @@ func serve(ctx context.Context, route route, e *entrypoint.Env) int {
 		endpoint := e.Getenv(openauthclient.EndpointEnv)
 		if endpoint == "" {
 			fmt.Fprintf(os.Stderr, "wire-bridge: idling: Codex route needs %s; no unauthenticated upstream is served\n", openauthclient.EndpointEnv)
-			signalNotReady(ServiceName)
+			signalNotReady(ServiceName, "Codex upstream credential endpoint is unavailable")
 			return idleUntilStopped(ctx)
 		}
 		handler = NewCodexResponsesHandler(route.UpstreamBaseURL, endpoint)
@@ -165,7 +175,7 @@ func serve(ctx context.Context, route route, e *entrypoint.Env) int {
 				"%s, and it is set neither in %s nor in this process's environment — the bridge "+
 				"never serves unauthenticated upstream traffic (wire-bridge.md §5)\n",
 				route.ProviderName, route.KeyEnvName, userEnvFilePath(e.Home))
-			signalNotReady(ServiceName)
+			signalNotReady(ServiceName, "provider credential is unavailable")
 			return idleUntilStopped(ctx)
 		}
 		handler = NewHandler(route.UpstreamBaseURL, key)
@@ -220,25 +230,34 @@ func signalReady(name string) {
 	signalReadiness("ready", name)
 }
 
-func signalNotReady(name string) {
-	signalReadiness("failed", name)
+func signalNotReady(name, reason string) {
+	signalReadiness("failed", name, reason)
 }
 
-func signalReadiness(kind, name string) {
+func readinessRequested() bool {
+	_, err := strconv.Atoi(os.Getenv(paths.JailDaemonReadyFDEnv))
+	return err == nil
+}
+
+func signalReadiness(kind, name string, details ...string) {
 	raw := os.Getenv(paths.JailDaemonReadyFDEnv)
 	fd, err := strconv.Atoi(raw)
 	if err != nil || fd < 3 {
 		return
 	}
-	signalReadinessOnFD(fd, kind, name)
+	signalReadinessOnFD(fd, kind, name, details...)
 }
 
 func signalReadyOnFD(fd int, name string) {
 	signalReadinessOnFD(fd, "ready", name)
 }
 
-func signalReadinessOnFD(fd int, kind, name string) {
-	_, _ = fmt.Fprintln(os.NewFile(uintptr(fd), "jail-daemon-ready"), kind+" "+name)
+func signalReadinessOnFD(fd int, kind, name string, details ...string) {
+	message := kind + " " + name
+	if len(details) > 0 {
+		message += " " + strings.Join(details, " ")
+	}
+	_, _ = fmt.Fprintln(os.NewFile(uintptr(fd), "jail-daemon-ready"), message)
 }
 
 func idleUntilStopped(ctx context.Context) int {

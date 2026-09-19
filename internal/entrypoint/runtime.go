@@ -182,11 +182,15 @@ func startJailDaemonSupervisor(e *Env) error {
 			return fmt.Errorf("jail daemon supervisor exited before ready services %s", strings.Join(readyNames, ", "))
 		}
 		fields := strings.Fields(scanner.Text())
-		if len(fields) != 2 || (fields[0] != "ready" && fields[0] != "failed") || !ready[fields[1]] {
+		if len(fields) < 2 || (fields[0] != "ready" && fields[0] != "failed") || !ready[fields[1]] {
 			return fmt.Errorf("jail daemon reported unexpected readiness %q", scanner.Text())
 		}
 		if fields[0] == "failed" {
-			return fmt.Errorf("jail daemon %q cannot publish its required endpoint", fields[1])
+			reason := "no reason reported"
+			if len(fields) > 2 {
+				reason = strings.Join(fields[2:], " ")
+			}
+			return fmt.Errorf("jail daemon %q cannot publish its required endpoint: %s", fields[1], reason)
 		}
 		delete(ready, fields[1])
 	}
