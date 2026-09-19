@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/check"
@@ -906,6 +907,15 @@ func runRun(args []string) int {
 	// and the shell prompt returning (design H6).
 	restore := SetupJailIndicator()
 	if restore != nil {
+		// ONCE, because BOTH arms call it now. The defer below covers a normal exit;
+		// run.Options.RestoreTerminal covers the signal one, where ttyproxy
+		// os.Exit(128+n)s and no defer fires — which is why Ctrl-C used to leave the
+		// kitty tab wearing the jail's icon and colour permanently. Which arm runs is
+		// not this function's business, so it makes the closure safe for either.
+		var once sync.Once
+		restoreOnce := func() { once.Do(restore) }
+		restore = restoreOnce
+		opts.RestoreTerminal = restoreOnce
 		// The collector is built INSIDE the pipeline, and Options crosses that
 		// seam by value — so spanning this on our own copy's Perf was spanning
 		// nil, silently, forever (Span on a nil *Log is a no-op by design). The

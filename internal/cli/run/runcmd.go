@@ -346,6 +346,23 @@ type Options struct {
 	// which imports this one — the front door injects it, exactly as it does
 	// MacosUserRun.
 	CaptureOnTerminate func(workspace, runtime string)
+	// RestoreTerminal undoes whatever the front door did to the terminal for the
+	// duration of the launch — the kitty tab's jail icon and colour, or the tmux
+	// pane's. nil is legitimate: a launch not attached to a kitty or tmux terminal
+	// changed nothing and has nothing to undo.
+	//
+	// ⚠ IT CANNOT BE A DEFER, AND IT WAS ONE. The front door calls
+	// SetupJailIndicator and defers the restore it returns, which is correct on the
+	// normal path and never runs on the signal one: ttyproxy's SIGINT/SIGHUP/SIGTERM
+	// arm calls onTerminate and then os.Exit(128+n), and os.Exit does not run
+	// deferred functions — a fact this file's emitTimingReport comment already states
+	// for the report's sake. So Ctrl-C left the tab wearing the jail's icon and
+	// colour for the rest of that terminal's life. Reported on a real host
+	// 2026-09-19.
+	//
+	// The closure must be idempotent: BOTH arms call it, and which one runs is not
+	// this package's business.
+	RestoreTerminal func()
 }
 
 // captureConfigOnTerminate runs the injected E3 capture for a jail that has just
@@ -675,4 +692,15 @@ func RunWithProxy(argv []string) int {
 		return 1
 	}
 	return rc
+}
+
+// restoreTerminal runs the injected terminal restore, if there is one.
+//
+// A METHOD rather than a bare nil-check at the call site, for CaptureOnTerminate's
+// reason: the seam is what a test can assert was REACHED, and a `if o.X != nil { o.X() }`
+// written inline at one call site is a line the next call site forgets.
+func (o *Options) restoreTerminal() {
+	if o.RestoreTerminal != nil {
+		o.RestoreTerminal()
+	}
 }

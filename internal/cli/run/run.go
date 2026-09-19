@@ -1344,6 +1344,12 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		// will ever run, and defers do not fire on this path. The file sink
 		// already holds every event; this is the terminal copy (design D6).
 		o.emitTimingReport(0, cname, rt)
+		// THE TERMINAL LAST, for the same reason the report is here at all and one
+		// step further: the front door's `defer restore()` never fires on this arm,
+		// so Ctrl-C left the tab wearing the jail's icon and colour for the rest of
+		// that terminal's life. After the report, so the launch's final words land
+		// in the tab that ran it rather than in one already handed back.
+		o.restoreTerminal()
 	}
 
 	// Fresh-launch line (with resource parts) to stderr for log capture (audit
