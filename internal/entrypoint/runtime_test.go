@@ -99,3 +99,58 @@ func TestJailDaemonSupervisorReusesLegacySupervisor(t *testing.T) {
 		t.Fatalf("startJailDaemonSupervisor() = %v, want reuse of the live legacy supervisor", err)
 	}
 }
+
+func TestFindOrphanedJailDaemonsMatchesOnlyDeclaredCommand(t *testing.T) {
+	oldProcRoot := procRoot
+	procRoot = t.TempDir()
+	t.Cleanup(func() { procRoot = oldProcRoot })
+	writeProcCmdline := func(pid, cmdline string) {
+		t.Helper()
+		dir := filepath.Join(procRoot, pid)
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "cmdline"), []byte(cmdline), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeProcCmdline("101", "/opt/yolo-jail/bin/yolo-jaild\x00wire-bridge\x00")
+	writeProcCmdline("102", "yolo-jaild\x00a-different-daemon\x00")
+	writeProcCmdline("103", "unrelated\x00wire-bridge\x00")
+
+	orphans, err := findOrphanedJailDaemons(`[{"name":"wire-bridge","cmd":["yolo-jaild","wire-bridge"]}]`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(orphans) != 1 || orphans[0] != (orphanedJailDaemon{Name: "wire-bridge", PID: 101}) {
+		t.Fatalf("findOrphanedJailDaemons() = %#v, want only wire-bridge pid 101", orphans)
+	}
+}
+
+func TestReclaimOrphanedJailDaemonsReportsAndKillsExactOrphan(t *testing.T) {
+	oldFind, oldKill := findJailDaemonOrphans, killJailDaemonOrphan
+	findJailDaemonOrphans = func(string) ([]orphanedJailDaemon, error) {
+		return []orphanedJailDaemon{{Name: "wire-bridge", PID: 8214}}, nil
+	}
+	var killed []int
+	killJailDaemonOrphan = func(pid int) error {
+		killed = append(killed, pid)
+		return nil
+	}
+	t.Cleanup(func() {
+		findJailDaemonOrphans, killJailDaemonOrphan = oldFind, oldKill
+	})
+
+	var stderr bytes.Buffer
+	e := NewEnv(map[string]string{"YOLO_JAIL_DAEMONS": "present"})
+	e.Stderr = &stderr
+	if err := reclaimOrphanedJailDaemons(e); err != nil {
+		t.Fatal(err)
+	}
+	if len(killed) != 1 || killed[0] != 8214 {
+		t.Fatalf("killed = %v, want only pid 8214", killed)
+	}
+	if got := stderr.String(); !strings.Contains(got, "reclaiming orphaned in-jail daemon wire-bridge (pid 8214)") || !strings.Contains(got, "reclaimed orphaned in-jail daemon wire-bridge (pid 8214)") {
+		t.Fatalf("reclaim must report its action directly, got:\n%s", got)
+	}
+}

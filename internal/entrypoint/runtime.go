@@ -15,6 +15,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/supervisor"
 )
 
 // tmpfs on podman, so a PID file here is naturally scoped to this jail and
@@ -26,6 +27,7 @@ import (
 var (
 	supervisorPIDFile        = "/tmp/yolo-jaild.pid"
 	legacySupervisorPIDFiles = []string{"/tmp/yolo-jail-supervisor.pid"}
+	procRoot                 = "/proc"
 )
 
 // where host-side socat has already created Unix sockets.
@@ -125,6 +127,106 @@ func anyJailDaemonSupervisorAlive() bool {
 	return false
 }
 
+type orphanedJailDaemon struct {
+	Name string
+	PID  int
+}
+
+// findOrphanedJailDaemons finds only direct children described by the current
+// daemon manifest. It deliberately compares the full command (apart from the
+// executable's directory): a process merely using the same TCP port is never
+// ours to kill. This runs only after both the current and legacy supervisor PID
+// files proved dead, so a matching process has no supervisor left to manage it.
+func findOrphanedJailDaemons(raw string) ([]orphanedJailDaemon, error) {
+	specs := supervisor.ParseEnv(raw)
+	if len(specs) == 0 {
+		return nil, nil
+	}
+	entries, err := os.ReadDir(procRoot)
+	if err != nil {
+		return nil, fmt.Errorf("list processes: %w", err)
+	}
+	var found []orphanedJailDaemon
+	for _, entry := range entries {
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil || pid == os.Getpid() {
+			continue
+		}
+		cmdline, err := os.ReadFile(filepath.Join(procRoot, entry.Name(), "cmdline"))
+		if err != nil || len(cmdline) == 0 {
+			continue
+		}
+		argv := strings.Split(strings.TrimSuffix(string(cmdline), "\x00"), "\x00")
+		for _, spec := range specs {
+			if daemonCommandMatches(argv, spec.Cmd) {
+				found = append(found, orphanedJailDaemon{Name: spec.Name, PID: pid})
+				break
+			}
+		}
+	}
+	return found, nil
+}
+
+func daemonCommandMatches(argv, wanted []string) bool {
+	if len(argv) != len(wanted) || len(argv) == 0 {
+		return false
+	}
+	if filepath.Base(argv[0]) != filepath.Base(wanted[0]) {
+		return false
+	}
+	for i := 1; i < len(argv); i++ {
+		if argv[i] != wanted[i] {
+			return false
+		}
+	}
+	return true
+}
+
+var (
+	findJailDaemonOrphans = findOrphanedJailDaemons
+	killJailDaemonOrphan  = killOrphanedJailDaemon
+)
+
+// killOrphanedJailDaemon is intentionally a hard reclaim. A daemon left behind
+// without its supervisor is already outside the supervisor's graceful shutdown
+// contract; SIGKILL gives the next boot a definite ownership boundary rather
+// than waiting indefinitely for an unowned process to cooperate.
+func killOrphanedJailDaemon(pid int) error {
+	err := syscall.Kill(pid, syscall.SIGKILL)
+	if err != nil && !errors.Is(err, syscall.ESRCH) {
+		return err
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		err = syscall.Kill(pid, 0)
+		if errors.Is(err, syscall.ESRCH) {
+			return nil
+		}
+		if err != nil && !errors.Is(err, syscall.EPERM) {
+			return err
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("process did not exit after SIGKILL")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func reclaimOrphanedJailDaemons(e *Env) error {
+	orphans, err := findJailDaemonOrphans(e.Getenv("YOLO_JAIL_DAEMONS"))
+	if err != nil {
+		return fmt.Errorf("find orphaned in-jail daemons: %w", err)
+	}
+	for _, orphan := range orphans {
+		e.warn(fmt.Sprintf("yolo: reclaiming orphaned in-jail daemon %s (pid %d); no live supervisor owns it", orphan.Name, orphan.PID))
+		if err := killJailDaemonOrphan(orphan.PID); err != nil {
+			return fmt.Errorf("reclaim orphaned in-jail daemon %s (pid %d): %w", orphan.Name, orphan.PID, err)
+		}
+		e.warn(fmt.Sprintf("yolo: reclaimed orphaned in-jail daemon %s (pid %d)", orphan.Name, orphan.PID))
+	}
+	return nil
+}
+
 // `yolo-jaild supervise` as a detached child, once, guarded by a tmpfs PID
 // file so repeated `podman exec yolo-entrypoint` calls don't stack
 // supervisors. Absent/empty YOLO_JAIL_DAEMONS means nothing to do.
@@ -140,6 +242,9 @@ func startJailDaemonSupervisor(e *Env) error {
 			e.warn("yolo: reusing the live in-jail daemon supervisor; it owns existing service listeners")
 		}
 		return nil
+	}
+	if err := reclaimOrphanedJailDaemons(e); err != nil {
+		return err
 	}
 	readyNames := strings.Fields(strings.ReplaceAll(e.Getenv(paths.JailDaemonReadyNamesEnv), ",", " "))
 	ready := map[string]bool{}
