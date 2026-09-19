@@ -259,8 +259,24 @@ yolo.derive("pi", "models", function(ctx)
       local entry = {
         baseUrl = baseUrl,
         api = api,
-        models = modelList,
       }
+      -- THE KEY IS OMITTED WHEN THERE ARE NO MODELS, and that is a hard requirement rather
+      -- than tidiness: pi's `models` is an optional ARRAY (ProviderConfigSchema), an empty
+      -- Lua table marshals back as a JSON OBJECT (luahook/marshal.go — `{}` is ambiguous in
+      -- Lua and the config model resolves it to the object), and a schema failure does not
+      -- drop the offending ROW, it discards the WHOLE FILE and returns an empty provider
+      -- map. So one address-only provider deleted every other provider's catalog row, which
+      -- surfaced as `models: must be array` plus "No models match pattern" for a model the
+      -- same file named. Every provider that declares an address and no model list is in
+      -- this class: openai-codex (packs/openai-auth declares the Responses address and no
+      -- models), kilo whenever no profile names one, and a user's own `endpoints.openai`.
+      -- Omitting it is also the right STATEMENT — pi merges a models.json row into its
+      -- built-in catalog for that provider (core/provider-composer.js, applyModelsJson),
+      -- so "no models of my own" leaves pi's own list intact and still applies the address.
+      -- packs/omp/derive.lua guards the same way for the same reason.
+      if #modelList > 0 then
+        entry.models = modelList
+      end
       -- The provider's own compat facts, translated (piCompatFields). Emitted for ANY
       -- provider that declares them and for no provider that does not — this is the one
       -- place the block is attached, and it is attached by declaration alone.
@@ -339,12 +355,14 @@ yolo.derive("pi", "settings", function(ctx)
     return {}
   end
   local p = ctx.providers and ctx.providers[ctx.selected_provider] or nil
-  -- openai-codex is Pi's built-in subscription provider, so it deliberately has no
-  -- ADDRESS and no models.json row. Its YOLO_PROVIDERS entry (packs/openai-auth) states
-  -- the source's `capabilities` and nothing else, which names no URL — so piReachable
-  -- drops it from the catalog above, and this branch stays the only thing that speaks
-  -- for it. The shipped codex profile selects the stable default below; a user profile
-  -- may state another exact Pi model id as `model`.
+  -- openai-codex is Pi's built-in subscription provider, and this branch is the only
+  -- thing that speaks for its MODEL LIST: packs/openai-auth declares the public Responses
+  -- address its subscription serves and no models, so the catalog above emits an
+  -- address-only row and Pi's own built-in list stands (applyModelsJson merges the row
+  -- into it). The address it composes resolves to the same request URL Pi would use
+  -- untouched — Pi appends `/responses` to a base that already ends in `/codex`, and
+  -- `/codex/responses` to one that does not. The shipped codex profile selects the stable
+  -- default below; a user profile may state another exact Pi model id as `model`.
   if ctx.selected_provider == "openai-codex" then
     -- The subscription catalog currently exposes these as the supported 5.6-or-newer
     -- choices. Keep the list explicit: the provider wildcard would also make retired

@@ -397,7 +397,7 @@ func TestPiDeriveWritesTheSelectionPair(t *testing.T) {
 			// file the selection mechanism created: its declared defaults must still be
 			// there, which is what keeps "the key is absent" from meaning "the file never
 			// rendered".
-			if settings["theme"] != "system" {
+			if settings["theme"] != "light/dark" {
 				t.Errorf("settings.json theme = %v, want the surface's declared default — the "+
 					"selection must ride a real render, not replace it", settings["theme"])
 			}

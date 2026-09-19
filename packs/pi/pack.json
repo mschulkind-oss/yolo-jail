@@ -52,7 +52,7 @@
           "agent": "pi",
           "codec": "json",
           "defaults": {
-            "theme": "system"
+            "theme": "light/dark"
           },
           "name": "settings",
           "path": "~/.pi/agent/settings.json",

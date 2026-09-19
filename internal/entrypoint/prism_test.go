@@ -180,7 +180,19 @@ func TestConfigurePiPrismSteadyStateEditSurvives(t *testing.T) {
 // TestConfigurePiPrismNoHostSettings proves the fail-open host read: when no
 // settings.json is present on the /ctx/host-pi mount (host file absent, or a
 // macos-user jail with no /ctx), the host layer is empty and the render is
-// defaults<managed only (theme defaults to "system").
+// defaults<managed only.
+//
+// THE DEFAULT IS THE VALUE PI RESOLVES, and the exact string is the assertion.
+// It was "system" from the day the pack was written, which is a theme pi does
+// not ship — every jail opened on `Failed to load theme "system": Theme not
+// found: system`, fell back to dark, and yolo was the one naming it. pi's own
+// spelling for "follow the terminal" is the PAIR "<light>/<dark>": a setting
+// containing exactly one "/" parses as the automatic light/dark pair
+// (parseAutoThemeSetting) and resolves to whichever half matches the detected
+// terminal background, and `light` and `dark` are the two builtins pi loads
+// from its own themes dir. Measured against the installed pi 0.85.1:
+// getAvailableThemes() returns catppuccin-mocha, dark, dark-readable, dracula,
+// gruvbox-dark, light, nord, tokyo-night — and no "system".
 func TestConfigurePiPrismNoHostSettings(t *testing.T) {
 	e, _ := prismTestEnv(t) // no settings.json seeded on the mount
 
@@ -188,8 +200,9 @@ func TestConfigurePiPrismNoHostSettings(t *testing.T) {
 		t.Fatalf("ConfigurePiPrism: %v", err)
 	}
 	got := decodeJSONFile(t, filepath.Join(e.PiDir(), "settings.json"))
-	if got["theme"] != "system" {
-		t.Errorf("theme = %v, want system (absent host settings → defaults)", got["theme"])
+	if got["theme"] != "light/dark" {
+		t.Errorf("theme = %v, want pi's automatic light/dark pair (absent host "+
+			"settings → defaults)", got["theme"])
 	}
 	if got["defaultProjectTrust"] != "always" {
 		t.Errorf("defaultProjectTrust = %v, want always (managed)", got["defaultProjectTrust"])

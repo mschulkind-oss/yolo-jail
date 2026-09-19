@@ -128,7 +128,7 @@ func TestApplyHostGivesAnEditedDefaultBackToTheUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fixture bug: %v", err)
 	}
-	edited := strings.Replace(string(data), `"system"`, `"solarized"`, 1)
+	edited := strings.Replace(string(data), `"light/dark"`, `"solarized"`, 1)
 	if edited == string(data) {
 		t.Fatalf("fixture bug: the default value is not in %s:\n%s", settings, data)
 	}

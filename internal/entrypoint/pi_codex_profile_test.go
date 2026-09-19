@@ -75,6 +75,73 @@ func TestPiCodexProfileSelectsBuiltInProviderAndExplicitModel(t *testing.T) {
 	}
 }
 
+// THE PRODUCTION PACK SET for a pi launch is pi AND openai-auth: pi's `needs` joins it
+// unconditionally, and openai-auth is the pack that DECLARES the openai-codex provider.
+// The test above composes from the pi pack ALONE, so openai-codex never reaches the
+// catalog derive there and the row it renders in production went unmeasured — the shape
+// that shipped a models.json pi refuses to load.
+//
+// The failure is one type, and it is fatal to the WHOLE FILE. pi's ProviderConfigSchema
+// declares `models` as an optional ARRAY, and a schema failure returns an EMPTY provider
+// map with an error — so one bad row deletes every OTHER provider's row with it, and a
+// launch that selected a second provider reports "No models match pattern" for a model the
+// same file names. Measured against the installed pi 0.85.1 (core/model-config.js,
+// ModelConfig.load → validateModelsConfig): `{"models":{}}` yields
+// `providers.openai-codex.models: must be array` and zero providers; with the key OMITTED
+// the same file loads both rows. An empty Lua table cannot be spelled as an array
+// (luahook/marshal.go's documented ambiguity — `{}` is an object on the way back), so a
+// derive that has no models for a provider must not write the key at all.
+//
+// The assertion is the schema invariant rather than "openai-codex has no row", because the
+// class is every provider that declares an address and no model list: kilo does so
+// whenever no profile names a model, and so does a user's own `endpoints.openai`.
+func TestPiCatalogNeverWritesAModelsMapWhereAnArrayBelongs(t *testing.T) {
+	packs := make([]*packload.Pack, 0, 3)
+	for _, name := range []string{"pi", "openai-auth", "kilo"} {
+		p, err := embeddedPack(name)
+		if err != nil {
+			t.Fatalf("embedded %s: %v", name, err)
+		}
+		packs = append(packs, p)
+	}
+	providers, err := packload.ComposeProviders(nil, packs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := packload.ResolveProfiles(packs, nil, providers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := providers.Get("openai-codex"); !ok {
+		t.Fatalf("the composed table has no openai-codex provider, so this case measures "+
+			"nothing: %v", providers.Keys())
+	}
+	r := newPioencodeRender(t, mustCompactJSON(t, providers))
+	r.wireProfiles(mustCompactJSON(t, packload.ProfilesWireTable(resolved)))
+	r.render(t, `{"pi":"codex"}`)
+
+	models := r.piModels(t)
+	catalog, ok := models["providers"].(map[string]any)
+	if !ok {
+		t.Fatalf("models.json has no providers table: %#v", models)
+	}
+	for name, row := range catalog {
+		entry, ok := row.(map[string]any)
+		if !ok {
+			t.Fatalf("models.json row %s is not an object: %#v", name, row)
+		}
+		list, present := entry["models"]
+		if !present {
+			continue
+		}
+		if _, isArray := list.([]any); !isArray {
+			t.Errorf("models.json provider %s has models = %#v (%T), and pi's schema "+
+				"declares an ARRAY — this row makes pi discard the entire file, every "+
+				"other provider included", name, list, list)
+		}
+	}
+}
+
 func TestPiExplicitProfileScopesModelsAndNoProfilePreservesUserScope(t *testing.T) {
 	r := newPioencodeRender(t, zaiReachableJSON)
 	r.render(t, `{"pi":"zai"}`)
