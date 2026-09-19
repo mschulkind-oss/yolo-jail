@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -466,7 +467,8 @@ func (o *Options) initPerf(cname string) {
 //     signal arm's os.Exit still leaves a record;
 //   - the slow-span notice — one line per span past perf.SlowSpanThreshold,
 //     naming the culprit the moment it finishes (how the line is rendered is
-//     the caller's business; the run pipeline dims it).
+//     the caller's business; the run pipeline dims it), SILENT for the window
+//     in which the terminal belongs to the container (slowSpanNoticeSink).
 //
 // The clock is time.Now, never an Options.Now seam, by rule (design D8): that
 // seam exists so tests can freeze time, and a span system built on a frozen
@@ -477,13 +479,57 @@ func newTimingLog(enabled bool, ws, cname string, stderr io.Writer, notice func(
 	}
 	sinks := []perf.Sink{
 		hostPerfFileSink(ws, cname, stderr, notice),
-		func(e perf.Event) {
-			if e.Kind == perf.KindEnd && e.Dur >= perf.SlowSpanThreshold {
-				notice(fmt.Sprintf("%s took %.3fs", e.Name, e.Dur.Seconds()))
-			}
-		},
+		slowSpanNoticeSink(notice),
 	}
 	return perf.New(time.Now, sinks...)
+}
+
+// slowSpanNoticeSink is the live "who is doing it" line — one notice per span
+// past perf.SlowSpanThreshold — AND THE WINDOW IN WHICH IT SAYS NOTHING.
+//
+// THE BUG THIS FIXES, and it is housekeeping.go's property 2 arriving through a
+// second door. Once the container is spawned the pty is attached, so BOTH host
+// streams are the container's: a dim line from the launcher lands on top of
+// whatever the agent's TUI is drawing. housekeepingNote already refuses to write
+// to the terminal for exactly that reason — but the housekeeping slot is also a
+// SPAN, and the slot's own `housekeeping.slot took 62.891s` went straight to
+// stderr a minute into a live session (measured on the maintainer's host,
+// 2026-09-19: the last line of <ws>/.yolo/launch.log, over a running agent).
+// Nothing is lost by the silence: every event is already in host-perf.log the
+// moment it happens, and --timing's table renders it at the end.
+//
+// This is NOT a quiet mode (OQ-RO3). The notice is a diagnostic, not one of the
+// disclosures the launch may never suppress — those all print before the spawn,
+// where the terminal is still the launcher's — and the window closes again the
+// instant the child gives the terminal back, so the teardown notices that name a
+// slow quit (the whole reason this sink exists) still print.
+//
+// THE WINDOW is opened by child.spawned and closed by EITHER child.exited or
+// child.termios_restored, whichever arrives first, because the two teardown arms
+// order them differently: the normal arm exits then restores, while the signal
+// arm restores termios BEFORE running onTerminate (ttyproxy's terminate case),
+// and the `terminate.*` spans that arm times are precisely the ones a user
+// waiting through a slow Ctrl-C needs named.
+func slowSpanNoticeSink(notice func(string)) perf.Sink {
+	var childHoldsTerminal atomic.Bool
+	return func(e perf.Event) {
+		if e.Kind == perf.KindMark {
+			switch e.Name {
+			case "child.spawned":
+				childHoldsTerminal.Store(true)
+			case "child.exited", "child.termios_restored":
+				childHoldsTerminal.Store(false)
+			}
+			return
+		}
+		if e.Kind != perf.KindEnd || e.Dur < perf.SlowSpanThreshold {
+			return
+		}
+		if childHoldsTerminal.Load() {
+			return // the terminal is the container's; the file sink already has it
+		}
+		notice(fmt.Sprintf("%s took %.3fs", e.Name, e.Dur.Seconds()))
+	}
 }
 
 // hostPerfFileSink is the <workspace>/.yolo/host-perf.log sink, or a no-op sink when that

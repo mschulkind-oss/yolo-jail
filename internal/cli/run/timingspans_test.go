@@ -175,6 +175,61 @@ func TestInitPerfConstructsOnlyWhenEnabled(t *testing.T) {
 	}
 }
 
+// THE OVERLAY, pinned. Once the container is spawned the pty is attached and
+// BOTH host streams are the container's, so a slow-span notice from the
+// launcher's own goroutine lands on top of the agent's TUI — which is exactly
+// what `housekeeping.slot took 62.891s` did, a minute into a live session, as
+// the last line of the maintainer's launch.log on 2026-09-19. housekeepingNote
+// already refuses to write to the terminal for this reason; the slot is ALSO a
+// span, and the notice sink was the second door.
+//
+// Both directions matter, so both are asserted here: silence inside the window,
+// and the notice back on stderr the moment the child returns the terminal —
+// naming a slow quit is the whole reason the sink exists, and deleting the sink
+// altogether must fail this test rather than look like the fix.
+func TestSlowSpanNoticeIsSilentWhileTheContainerHoldsTheTerminal(t *testing.T) {
+	ws := t.TempDir()
+	o := goldenOptions(ws, t.TempDir())
+	o.Timing = true
+	var out, errb bytes.Buffer
+	o.Stdout, o.Stderr = &out, &errb
+	o.initPerf("yolo-ws-test0000")
+
+	slow := func(name string) {
+		sp := o.Perf.Span(name)
+		time.Sleep(perf.SlowSpanThreshold + 50*time.Millisecond)
+		sp.End()
+	}
+
+	// The window: spawned → exited is when the agent owns the screen.
+	o.Perf.Mark("child.spawned")
+	slow("housekeeping.slot")
+	if strings.Contains(errb.String(), "housekeeping.slot took") {
+		t.Errorf("a slow-span notice reached the terminal while the container held it — "+
+			"it lands on top of the agent's TUI (housekeeping.go property 2):\n%s", errb.String())
+	}
+
+	// The signal arm restores termios BEFORE onTerminate runs, so the
+	// terminate.* spans it times must still be able to name themselves.
+	o.Perf.Mark("child.termios_restored")
+	slow("terminate.stop_jail")
+	if !strings.Contains(errb.String(), "terminate.stop_jail took") {
+		t.Errorf("no slow-span notice after the child returned the terminal — a slow quit "+
+			"is the one thing this sink exists to name:\n%s", errb.String())
+	}
+
+	// Silence is never loss: the file has both, as it always did.
+	got, err := os.ReadFile(filepath.Join(ws, ".yolo", HostPerfLogName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"end    housekeeping.slot  dur=", "end    terminate.stop_jail  dur="} {
+		if !strings.Contains(string(got), want) {
+			t.Errorf("host-perf.log missing %q — the suppressed notice must still be recorded:\n%s", want, got)
+		}
+	}
+}
+
 // THE PIN the old single-Total block's comment said the next toucher owed: the
 // normal-exit shutdown chain, extracted into teardownAfterExit exactly so this
 // is unit-reachable. Deleting any span call site inside the chain fails this

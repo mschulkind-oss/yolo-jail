@@ -209,7 +209,19 @@ Two sinks are wired by the run pipeline:
 - **The slow-span notice** — one dim stderr line, `<name> took N.NNNs`, the moment
   a span ends past the slow threshold. The culprit announced live, without waiting
   for (or ever reaching) a report. The threshold is a second rather than anything
-  finer because the delays this exists to catch are seconds.
+  finer because the delays this exists to catch are seconds. **It is silent for one
+  window: `child.spawned` until the child returns the terminal** (`child.exited` or
+  `child.termios_restored`, whichever comes first — the two teardown arms order them
+  differently). In that window both host streams are the container's, so a dim line
+  from the launcher lands on top of the agent's TUI. Measured, and the reason the
+  window exists: `housekeeping.slot took 62.891s` was the last line of the
+  maintainer's `launch.log` on 2026-09-19, printed a minute into a live session.
+  Nothing is lost — the event is already in the file, and `--timing`'s table renders
+  it — and this is not a quiet mode (`OQ-RO3`): the notice is a diagnostic, every
+  disclosure prints before the spawn, and the window closes before the teardown
+  notices that name a slow quit. Same rule, same reason as `housekeepingNote`'s
+  refusal to write to the terminal at all (`housekeeping.go`, property 2); the slot
+  is also a span, and this sink was the second door.
 
 **The report** renders the completed events in the same register as the
 entrypoint's boot log — elapsed-since-start, `+delta` from the previous line, the
@@ -666,6 +678,7 @@ is the only place the exact values and spellings are stated.
 | Loophole group SIGTERM → SIGKILL wait | 5 s | `internal/cli/run` (`loopholesruntime.go`) |
 | socat SIGTERM → SIGKILL wait | 2 s | `run.cleanupPortForwarding` |
 | Slow-span notice text | `yolo: <name> took N.NNNs` (dim) | `run.initPerf`, `run.TimingLogFor` |
+| Slow-span notice silent window | `child.spawned` → `child.exited` / `child.termios_restored` | `run.slowSpanNoticeSink` |
 
 ## Why it's this way
 
