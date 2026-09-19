@@ -980,13 +980,20 @@ func (o *AutoLoadOptions) pointLatestAt(contentRef string) {
 // unverified leftover file to a verified copy is how one truncated tar bricks a
 // workspace until a human deletes it by hand.
 //
-// ⚠ NEITHER ARM IS VERIFIED ON HARDWARE. Nobody here has a Mac, so neither
-// `container image load -i` against a skopeo-written `oci-archive` (where it
-// previously got a `tar cf` of a skopeo-written `oci:` DIRECTORY) nor `podman
-// load -i` against a skopeo-written `docker-archive` has been run. Those are the
-// same bytes by construction in both cases, but that is an argument, not a
-// measurement, and OQ-LI2 makes the measurement a precondition of trusting
-// these backends rather than a follow-up.
+// ⚠ ONE ARM IS MEASURED NOW; THE OTHER IS NOT. On 2026-09-19 the self-hosted arm64
+// Mac ran `container image load -i` against a skopeo-written `oci-archive` and the
+// jail it produced started and passed all six Apple Container parity tests. So the
+// AC bytes-and-loader pair is no longer an argument.
+//
+// What that measurement did NOT cover is this function. It came from `just load`'s
+// archive hop (Justfile, the `container` arm), which writes the same destination and
+// calls the same loader through a DIFFERENT caller — so what is proven is that the
+// format and the loader agree, not that this call site assembles them correctly.
+//
+// STILL UNMEASURED ENTIRELY: `podman load -i` against a skopeo-written
+// `docker-archive`, the macOS-podman arm. Nobody has run it. OQ-LI2 makes the
+// measurement a precondition of trusting these backends rather than a follow-up, and
+// for that arm the precondition is still outstanding.
 func (o *AutoLoadOptions) deliverViaArchive(imageJSON, contentRef string) bool {
 	dest, archivePath, err := o.archiveDestination(imageJSON, contentRef)
 	if err != nil {
