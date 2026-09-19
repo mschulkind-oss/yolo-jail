@@ -912,8 +912,18 @@ func runRun(args []string) int {
 		// os.Exit(128+n)s and no defer fires — which is why Ctrl-C used to leave the
 		// kitty tab wearing the jail's icon and colour permanently. Which arm runs is
 		// not this function's business, so it makes the closure safe for either.
+		//
+		// ⚠ `inner` IS NOT A STYLE CHOICE. The closure must capture the ORIGINAL
+		// function by value. Written as `func() { once.Do(restore) }` with `restore`
+		// then reassigned to that same closure, the Do becomes RE-ENTRANT — and
+		// sync.Once.Do blocks until the first call returns, so a second Do from
+		// inside the first deadlocks forever with no error and no stack. Shipped
+		// exactly that way for one commit: `exit` at a jail prompt printed the timing
+		// line and then hung, and the only way out was the Ctrl-C this same change had
+		// just handed to the jail.
+		inner := restore
 		var once sync.Once
-		restoreOnce := func() { once.Do(restore) }
+		restoreOnce := func() { once.Do(inner) }
 		restore = restoreOnce
 		opts.RestoreTerminal = restoreOnce
 		// The collector is built INSIDE the pipeline, and Options crosses that
