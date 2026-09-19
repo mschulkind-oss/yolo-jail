@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/listeners"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/supervisor"
 )
@@ -358,6 +359,12 @@ func startJailDaemonSupervisor(e *Env) error {
 
 // portInUse check if a TCP port is already bound
 // on localhost by attempting to bind it.
+//
+// THIS PROBE CANNOT NAME A HOLDER, and that is not a defect in it — a successful
+// bind is the authoritative answer to "is the port free", which no socket table can
+// give (a table is a snapshot; the bind is the thing itself). What it cannot give is
+// WHO, because the answer arrives as an errno. [portHolderNamer] is the other
+// instrument, consulted only when this one says no.
 func portInUse(port int) bool {
 	ln, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(port))
 	if err != nil {
@@ -368,6 +375,64 @@ func portInUse(port int) bool {
 	// would learn of it as a bind failure on the very next line.
 	_ = ln.Close()
 	return false
+}
+
+// portHolderNamer answers "what holds port N" for a boot that had to skip a port
+// forward. It returns a namer rather than a function over a fresh snapshot for two
+// reasons:
+//
+//   - ONE /proc SWEEP for the whole loop, however many ports are held. Attribution
+//     walks every readable /proc/<pid>/fd, so a per-port snapshot would repeat that
+//     walk N times on a boot's failure path — the unbounded shape internal/listeners
+//     was built to avoid.
+//   - The sweep happens only if a port is actually held. A healthy boot skips
+//     nothing and reads /proc not at all.
+//
+// The second return says whether the holder looks like a forward this same boot
+// path already established, which decides the REGISTER: a re-entered container
+// whose socats are still up is working as designed, while anything else holding the
+// port means the forward the user configured is simply not there.
+func portHolderNamer(e *Env) func(port int) (who string, alreadyForwarded bool) {
+	var (
+		taken bool
+		snap  listeners.Snapshot
+	)
+	return func(port int) (string, bool) {
+		if !taken {
+			snap = listeners.CollectFrom(listeners.DirSource(procRoot), listeners.Options{})
+			taken = true
+		}
+		found := snap.OnPort(port)
+		if len(found) == 0 {
+			// COULD NOT ASK vs NOTHING THERE. The bind already failed, so "nothing
+			// holds it" here is not a contradiction to explain away — it is a real
+			// and reportable state (a socket in another state, a SO_REUSEADDR race).
+			// Reporting an unreadable table as that state is the mistake.
+			if snap.Availability() != listeners.Complete {
+				return "what holds it could not be determined: " +
+					listeners.DescribeGaps(snap), false
+			}
+			return "no LISTEN socket on that port appears in this namespace's socket tables, " +
+				"so the refusal is not a listener here — a socket in another state or a " +
+				"SO_REUSEADDR race are what is left", false
+		}
+		mine := false
+		parts := make([]string, 0, len(found))
+		for _, l := range found {
+			parts = append(parts, l.Local()+" "+listeners.DescribeOwners(l, snap)+
+				" ["+string(l.Kind)+"]")
+			for _, o := range l.Owners {
+				// The argv this boot path spawns, matched on the listen spec rather
+				// than on the binary name: `socat` holding some OTHER port's forward
+				// cannot be the reason this one was skipped, and a name-only match
+				// would call it one.
+				if strings.Contains(o.Cmdline, "TCP-LISTEN:"+strconv.Itoa(port)) {
+					mine = true
+				}
+			}
+		}
+		return strings.Join(parts, "; "), mine
+	}
 }
 
 // start container-side socat (TCP-LISTEN on localhost -> host service) for each
@@ -403,6 +468,10 @@ func startContainerPortForwarding(e *Env) {
 	// Keep logFile open for the lifetime of the spawned socats (they inherit the
 	// fd). We intentionally do NOT close it — the forked children write to it.
 
+	// Built before the loop so every skipped port shares one /proc snapshot, and
+	// never consulted at all on a boot that skips nothing.
+	whoHolds := portHolderNamer(e)
+
 	for _, entry := range ports {
 		localPort, hostPort, ok := forwardEntryPorts(entry)
 		if !ok {
@@ -411,6 +480,29 @@ func startContainerPortForwarding(e *Env) {
 		}
 
 		if portInUse(localPort) {
+			// A SKIPPED FORWARD WAS THE ONE SILENT BRANCH IN THIS LOOP — its four
+			// siblings (an invalid entry, a missing socket, a missing socat, a failed
+			// spawn) all warn, and this one dropped a forward the user configured with
+			// no line anywhere. It is also the branch that produced the
+			// 127.0.0.1:8214 collision: the holder was a socat THIS function spawned
+			// on an earlier entry into the container, one /proc read away, and neither
+			// side's log had asked.
+			//
+			// TWO REGISTERS, because the two cases need opposite reactions. A forward
+			// already up is a re-entered container working as designed, and a warning
+			// there would be the cried-wolf line that teaches a reader to skip this
+			// text. Anything else holding the port means the forward is NOT there, and
+			// the symptom is a connection refused hours later in an unrelated place.
+			who, alreadyForwarded := whoHolds(localPort)
+			label := "local port " + strconv.Itoa(localPort) + " -> host " + strconv.Itoa(hostPort)
+			if alreadyForwarded {
+				e.warn("yolo: forward " + label + " is already established: " + who)
+			} else {
+				e.warn("Warning: not forwarding " + label + ": the jail's 127.0.0.1:" +
+					strconv.Itoa(localPort) + " is already taken, so this forward will " +
+					"not exist in this jail and reaching that host port from here will " +
+					"be refused — " + who)
+			}
 			continue
 		}
 

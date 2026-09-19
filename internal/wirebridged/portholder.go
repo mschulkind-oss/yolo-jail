@@ -63,7 +63,7 @@ func describePortHolder(addr string) string {
 		// down, and reading them alike is the mistake this package is fixing. Only
 		// a COMPLETE snapshot can assert an absence; anything less says so.
 		if snap.Availability() != listeners.Complete {
-			return "the port holder could not be identified: " + describeGaps(snap)
+			return "the port holder could not be identified: " + listeners.DescribeGaps(snap)
 		}
 		return fmt.Sprintf("no LISTEN socket on port %d appears in this network namespace's "+
 			"socket tables, so the conflict is not a listener here — a socket in another state, "+
@@ -75,21 +75,6 @@ func describePortHolder(addr string) string {
 		parts = append(parts, describeListener(l, snap))
 	}
 	return "the address is already held: " + strings.Join(parts, "; ")
-}
-
-// describeGaps renders why the snapshot could not answer. Every gap is named
-// rather than summarised to a count: on this path the reader's next action depends
-// on WHICH read failed.
-func describeGaps(snap listeners.Snapshot) string {
-	if len(snap.Gaps) == 0 {
-		return fmt.Sprintf("the socket tables reported %s availability with no stated reason",
-			snap.Availability())
-	}
-	parts := make([]string, 0, len(snap.Gaps))
-	for _, g := range snap.Gaps {
-		parts = append(parts, g.Source+": "+g.Reason)
-	}
-	return strings.Join(parts, "; ")
 }
 
 // describeListener is one holder, in the bind error's own vocabulary.
@@ -104,50 +89,6 @@ func describeListener(l listeners.Listener, snap listeners.Snapshot) string {
 		// DIFFERENT specific address an overlap — it cannot be one.
 		overlap = " (a listener on this address covers the one the bridge wanted)"
 	}
-	return fmt.Sprintf("%s%s %s [%s]", l.Local(), overlap, describeOwners(l, snap), l.Kind)
-}
-
-// describeOwners names the holding process, or says precisely why it is unnamed.
-// An unattributed socket is reported AS unattributed — the socket exists and is
-// the conflict whether or not its owner is readable from this uid.
-func describeOwners(l listeners.Listener, snap listeners.Snapshot) string {
-	if len(l.Owners) == 0 {
-		switch {
-		case !snap.AttributionRan:
-			return fmt.Sprintf("owned by socket inode %d (uid %d), whose process was not looked "+
-				"up: %s", l.Inode, l.UID, describeGaps(snap))
-		case !snap.AttributionComplete():
-			return fmt.Sprintf("owned by socket inode %d (uid %d), whose process could not be "+
-				"identified: the owner search was incomplete (%d of %d processes readable, "+
-				"capped=%v)", l.Inode, l.UID, snap.PIDsScanned, snap.PIDsFound, snap.Capped)
-		default:
-			return fmt.Sprintf("owned by socket inode %d (uid %d), and no readable /proc/<pid>/fd "+
-				"entry points at it — the holder is another user's or another namespace's process",
-				l.Inode, l.UID)
-		}
-	}
-	parts := make([]string, 0, len(l.Owners))
-	for _, o := range l.Owners {
-		desc := "held by pid " + strconv.Itoa(o.PID)
-		if o.Comm != "" {
-			desc += " (" + o.Comm + ")"
-		}
-		if argv := boundArgv(o.Cmdline); argv != "" {
-			desc += ", argv: " + argv
-		}
-		parts = append(parts, desc)
-	}
-	return strings.Join(parts, " and ")
-}
-
-// boundArgv renders a holder's argv for the record. It is bounded and
-// single-lined: this string reaches the readiness pipe, whose protocol is one line
-// per record, and the argv of an arbitrary process is arbitrary bytes.
-func boundArgv(cmdline string) string {
-	argv := oneLine(strings.TrimSpace(cmdline))
-	const max = 400
-	if len(argv) > max {
-		argv = argv[:max] + "…(truncated)"
-	}
-	return argv
+	return fmt.Sprintf("%s%s %s [%s]", l.Local(), overlap,
+		listeners.DescribeOwners(l, snap), l.Kind)
 }

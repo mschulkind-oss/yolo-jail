@@ -221,19 +221,22 @@ func TestDescribePortHolderTakesOneSnapshot(t *testing.T) {
 	}
 }
 
-// The argv reaches the line-framed readiness pipe, so it is flattened and
-// bounded: it is arbitrary process input.
-func TestBoundArgvIsSingleLineAndBounded(t *testing.T) {
-	argv := "socat TCP-LISTEN:8214,bind=127.0.0.1 a\nb " + strings.Repeat("x", 2000)
-	got := boundArgv(argv)
+// THE ARGV'S FLATTENING IS PINNED IN internal/listeners, which now owns it
+// ([listeners.BoundArgv]). What is pinned HERE is that the flattened argv reaches
+// this file's sentence at all, which the holder test above asserts by name — the
+// readiness pipe this string crosses is line-framed, so an argv that arrived with
+// its newlines intact would turn a precise bind failure into "jail daemon reported
+// unexpected readiness".
+func TestDescribePortHolderKeepsTheSentenceOnOneLine(t *testing.T) {
+	requireProcNetTCP(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	got := describePortHolder(ln.Addr().String())
 	if strings.ContainsAny(got, "\n\x00") {
-		t.Errorf("boundArgv left a newline or NUL in %q", got)
-	}
-	if !strings.Contains(got, "TCP-LISTEN:8214,bind=127.0.0.1") {
-		t.Errorf("boundArgv dropped the argument that identifies the holder: %q", got)
-	}
-	if len(got) > 500 {
-		t.Errorf("boundArgv returned %d bytes; the readiness record is one line", len(got))
+		t.Errorf("describePortHolder returned a multi-line record: %q", got)
 	}
 }
 
