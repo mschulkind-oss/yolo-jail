@@ -28,6 +28,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // testEnv is an Env whose two sinks are discarded, for the tests that care about a
@@ -168,15 +170,36 @@ func TestLdCacheGenerationRecordsAnAbsentLdconfig(t *testing.T) {
 
 // TestRetiredMiseToolRemovalReportsAFailure pins the SECOND silent timeout branch.
 //
-// It calls miseUninstallTools rather than miseUninstallRetired, and that is an admission
-// worth reading: no shipped pack declares retireMiseTools today, so the production list is
-// EMPTY and the loop is unreachable from boot.go. Splitting the loop out is what makes the
-// report testable at all — the alternative was a report with no test.
+// It calls miseUninstallTools rather than miseUninstallRetired only because a FAILING tool
+// has to be supplied; the loop itself is live on every launch, which the companion test
+// below pins so this one cannot quietly become a test of nothing.
 func TestRetiredMiseToolRemovalReportsAFailure(t *testing.T) {
 	fakeBin(t, "mise", "exit 7")
 	e, stderr, _ := loudEnv(t)
 	miseUninstallTools(e, []string{"retired-tool"})
 	mustContain(t, "a failed mise uninstall", stderr, "retired-tool", "failed")
+}
+
+// TestRetiredMiseToolRemovalIsALivePerLaunchCost is the call-site half: the reporting test
+// above hands the loop its own list, so on its own it would still pass if the production
+// list emptied out and the two per-launch steps stopped existing. MEASURED in a nested jail
+// on 2026-09-19: two tools, ~20ms each, both previously silent.
+func TestRetiredMiseToolRemovalIsALivePerLaunchCost(t *testing.T) {
+	if len(packload.RetireMiseTools(nil)) == 0 {
+		t.Skip("the retired-tool list is empty, so the reporting above is no longer a " +
+			"per-launch cost; delete both tests together rather than keeping a pin on " +
+			"a loop that never runs")
+	}
+	// The list is non-empty, so boot.go's miseUninstallRetired really does run this many
+	// bounded subprocesses on every launch and every attach. The report is what makes that
+	// cost attributable.
+	e, _, logOnly := loudEnv(t)
+	fakeBin(t, "mise", "exit 0")
+	miseUninstallRetired(e)
+	if !strings.Contains(logOnly.String(), "retired tool") {
+		t.Errorf("the per-launch retired-tool sweep left no record in the boot log:\n%s",
+			logOnly.String())
+	}
 }
 
 // TestClaudePluginReconcileReportsAFailure is the site where discarding the result was

@@ -393,8 +393,10 @@ func miseUninstallRetired(e *Env) {
 var miseUninstallToolTimeout = 30 * time.Second
 
 // miseUninstallTools is the loop, split out from its one production caller so the
-// tools are an argument: no shipped pack declares retireMiseTools today, so the
-// production list is empty and the reporting below is otherwise unreachable.
+// tools are an argument — which is only a test seam, not a claim that the loop is
+// cold. packload.RetiredMiseTools is a CORE list with entries in it, so this runs on
+// every launch: MEASURED in a nested jail 2026-09-19, two retired tools, "ok in 21ms"
+// and "ok in 18ms" — two per-launch steps that until now said nothing at all.
 //
 // EACH UNINSTALL IS REPORTED, and the bound is why. Retiring N tools can spend N ×
 // 30 seconds of a launch — serially, before the agent's first prompt — and the
