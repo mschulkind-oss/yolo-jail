@@ -84,16 +84,26 @@ func dial(ep Endpoint, addr, endpointPath string, dialTimeout time.Duration) (ne
 		MinVersion: tls.VersionTLS12,
 	})
 	if err != nil {
-		return nil, err
+		// THE ADDRESS AND THE FILE THAT NAMED IT. net.OpError carries the address
+		// already; what it cannot carry is WHICH ENDPOINT FILE advertised it, and
+		// that is the whole question when a dial fails — "no such host
+		// host.containers.internal" means the advertised half is wrong for this
+		// runtime, and the reader needs the file to know which listener chose it.
+		// %w keeps errors.Is/As working for every errno gate downstream.
+		return nil, fmt.Errorf("svcendpoint: dial %s (advertised by %s): %w", addr, endpointPath, err)
 	}
+	// Discarded: an unsettable write deadline makes the write below fail, which is
+	// returned. The three Close errors on the failure paths are discarded for one
+	// reason — the error being returned IS the diagnosis, and a failed close on a
+	// connection the caller will never see adds nothing it can act on.
 	_ = conn.SetWriteDeadline(time.Now().Add(handshakeTimeout))
 	if err := writeTokenFrame(conn, ep.Token); err != nil {
 		_ = conn.Close()
-		return nil, err
+		return nil, fmt.Errorf("svcendpoint: presenting the token to %s (from %s): %w", addr, endpointPath, err)
 	}
 	if err := readAck(conn); err != nil {
 		_ = conn.Close()
-		return nil, err
+		return nil, fmt.Errorf("%w (dialed %s, from %s)", err, addr, endpointPath)
 	}
 	return conn, nil
 }

@@ -68,6 +68,11 @@ func ServeFrontWithOptions(publishPath, advertiseHost, upstreamUnixPath string, 
 	if err != nil {
 		return err
 	}
+	// Both closes discard their error, and both are covered: Listener.Close REPORTS
+	// its own failure to retire the published endpoint file (listen.go), which is the
+	// half that matters here — a file outliving its front. Reporting again at these
+	// two call sites would double-print, since closeOnce hands the second caller the
+	// same error.
 	defer func() { _ = ln.Close() }()
 	go func() {
 		<-stop
@@ -76,7 +81,12 @@ func ServeFrontWithOptions(publishPath, advertiseHost, upstreamUnixPath string, 
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			return nil // listener closed on stop, or the accept loop ended
+			// nil, and NOT silent: acceptLoop (listen.go) reports any accept failure
+			// that is not the ordinary Close. It has to be reported there rather than
+			// here, because this return value is discarded by every caller in the
+			// tree — which is exactly how a front that stopped serving became
+			// indistinguishable from one that was asked to stop.
+			return nil
 		}
 		go splice(conn, upstreamUnixPath, opts.HalfCloseUpstream)
 	}
@@ -111,6 +121,10 @@ func ServeFrontWithOptions(publishPath, advertiseHost, upstreamUnixPath string, 
 // countingConn embeds the net.Conn INTERFACE so no WriteTo is promoted from the
 // *tls.Conn. Both copies therefore run the generic buffer loop.
 func splice(client net.Conn, upstreamUnixPath string, halfCloseUpstream bool) {
+	// client.Close is countingConn.Close, whose JOB is the tier-1 record; it emits
+	// that regardless of what the underlying fd's close returns, and a close error on
+	// a connection whose life is over is not actionable. Same for the upstream close
+	// below.
 	defer func() { _ = client.Close() }()
 	up, err := net.Dial("unix", upstreamUnixPath)
 	if err != nil {
@@ -128,6 +142,13 @@ func splice(client net.Conn, upstreamUnixPath string, halfCloseUpstream bool) {
 	}
 	defer func() { _ = up.Close() }()
 	go func() { // request direction, UNWAITED
+		// DISCARDED, and this is the one discard in this file that would be WRONG to
+		// report: the response direction below returns first for most shapes and its
+		// deferred closes then break this copy, so "use of closed network connection"
+		// here is the ORDINARY end of a healthy connection. A line per crossing
+		// saying so would bury the ones that mean something. What crossed is recorded
+		// instead, always, by the tier-1 record this connection emits on close
+		// (BytesIn is exactly this copy's progress).
 		_, _ = io.Copy(up, client)
 		// EOF is signalled upstream in exactly two cases, and the second is not an
 		// optimization — without it a probe leaks this goroutine, the
@@ -159,11 +180,25 @@ func splice(client net.Conn, upstreamUnixPath string, halfCloseUpstream bool) {
 		// anything this function can see.
 		if halfCloseUpstream || clientWroteNothing(client) {
 			if uc, ok := up.(*net.UnixConn); ok {
-				_ = uc.CloseWrite()
+				if err := uc.CloseWrite(); err != nil {
+					// THE SILENT-HANG SHAPE, so it is reported. A daemon waiting for
+					// request EOF never gets one, so it never replies, so the response
+					// copy below never returns and this connection's goroutines and
+					// fds live until the process ends — the exact leak the comment
+					// above says this branch exists to prevent.
+					Logger.Printf("front: half-closing upstream %s failed: %v — a daemon waiting for request EOF will not see one, and this connection will not finish",
+						upstreamUnixPath, err)
+				}
 			}
 		}
 	}()
-	_, _ = io.Copy(client, up) // wait ONLY on the response
+	// Wait ONLY on the response. Its error is discarded for the same reason as the
+	// request direction's, one step along: a client that hangs up after reading its
+	// answer — what yolo's own probes and every one-shot client do — makes this copy
+	// fail with EPIPE/ECONNRESET on the healthy path, so an error here cannot be told
+	// apart from a truncated response. The tier-1 record carries BytesOut and the
+	// duration for every one of them.
+	_, _ = io.Copy(client, up)
 }
 
 // clientWroteNothing reports whether the jail sent zero PAYLOAD bytes on this

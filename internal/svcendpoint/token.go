@@ -99,6 +99,10 @@ func writeTokenFrame(w io.Writer, token string) error {
 // Dial). Every failure returns an error and logs PAYLOAD-FREE: a length, never a
 // value, and never the token, the cert, or the endpoint line.
 func verifyTokenFrame(conn net.Conn, token string) error {
+	// Discarded: if SETTING the deadline fails, the connection is already unusable
+	// and the ReadFull below fails immediately with an error this function returns
+	// and the accept loop records. Clearing it is the dangerous half — see the
+	// bottom of this function.
 	_ = conn.SetReadDeadline(time.Now().Add(handshakeTimeout))
 	hdr := make([]byte, 4)
 	if _, err := io.ReadFull(conn, hdr); err != nil {
@@ -122,7 +126,17 @@ func verifyTokenFrame(conn net.Conn, token string) error {
 	if _, err := conn.Write([]byte{authAck}); err != nil {
 		return err
 	}
-	_ = conn.SetReadDeadline(time.Time{}) // clear before the long-lived stream
+	// CLEAR IT BEFORE THE LONG-LIVED STREAM — and say so if that fails, because the
+	// failure is invisible by construction: the connection is authenticated, the
+	// daemon serves it normally, and then every read on it dies at handshakeTimeout,
+	// mid-stream, with a deadline nobody set on purpose. ReadPreamble's doc describes
+	// the same shape as "intermittently, with no error text and a green suite". The
+	// error is NOT returned: the connection authenticated, and refusing it here would
+	// turn a five-second stream into no stream at all.
+	if err := conn.SetReadDeadline(time.Time{}); err != nil {
+		Logger.Printf("auth: clearing the handshake read deadline failed: %v — this connection will die %s into its stream",
+			err, handshakeTimeout)
+	}
 	return nil
 }
 
@@ -143,6 +157,8 @@ func verifyTokenFrame(conn net.Conn, token string) error {
 // An earlier version wrapped every read error, which moved that misattribution
 // rather than removing it.
 func readAck(conn net.Conn) error {
+	// Discarded for the same reason as verifyTokenFrame's: a deadline that cannot be
+	// SET leaves the read below to fail and be reported.
 	_ = conn.SetReadDeadline(time.Now().Add(handshakeTimeout))
 	var ack [1]byte
 	if _, err := io.ReadFull(conn, ack[:]); err != nil {
@@ -154,6 +170,11 @@ func readAck(conn net.Conn) error {
 	if ack[0] != authAck {
 		return fmt.Errorf("%w: unexpected accept byte %#02x", ErrAuthRejected, ack[0])
 	}
-	_ = conn.SetDeadline(time.Time{})
+	// The client half of the same clear, with the same failure mode — a conn that
+	// silently dies handshakeTimeout into a stream the caller was told is good.
+	if err := conn.SetDeadline(time.Time{}); err != nil {
+		Logger.Printf("dial: clearing the handshake deadline failed: %v — this connection will die %s into its stream",
+			err, handshakeTimeout)
+	}
 	return nil
 }

@@ -121,12 +121,22 @@ func encodePreamble(p Preamble) []byte {
 // bypasses the front and therefore sends nothing, so "closed before a preamble"
 // has to degrade exactly as "closed before a request" already does.
 //
-// Nothing here logs: the preamble carries no secret today, but a debug line
-// printing its bytes would establish the wrong pattern on a stream that V exists
-// to let grow (listen.go's Logger is payload-free by construction).
+// Nothing here logs the preamble ITSELF: it carries no secret today, but a debug
+// line printing its bytes would establish the wrong pattern on a stream that V
+// exists to let grow (listen.go's Logger is payload-free by construction). The one
+// line this function can emit is about the read DEADLINE, and names no content.
 func ReadPreamble(c net.Conn) (Preamble, error) {
+	// Setting it is discarded (a conn that cannot take a deadline fails the read
+	// below, which is returned); CLEARING it is reported, because that failure is the
+	// one this function's doc is about — a daemon that reads a preamble and then
+	// serves a long-lived stream that dies at handshakeTimeout with no error text.
 	_ = c.SetReadDeadline(time.Now().Add(handshakeTimeout))
-	defer func() { _ = c.SetReadDeadline(time.Time{}) }() // clear on EVERY path
+	defer func() { // clear on EVERY path
+		if err := c.SetReadDeadline(time.Time{}); err != nil {
+			Logger.Printf("preamble: clearing the read deadline failed: %v — this connection will die %s into its stream",
+				err, handshakeTimeout)
+		}
+	}()
 
 	hdr := make([]byte, 4)
 	if _, err := io.ReadFull(c, hdr); err != nil {

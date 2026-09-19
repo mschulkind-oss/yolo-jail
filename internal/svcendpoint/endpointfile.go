@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -96,31 +97,43 @@ func Parse(data string) (Endpoint, error) {
 func Publish(path string, ep Endpoint) error {
 	dir := filepath.Dir(path)
 	if err := ensurePrivateDir(dir); err != nil {
-		return err
+		return fmt.Errorf("svcendpoint: publish %s: %w", path, err)
 	}
 	tmp, err := os.CreateTemp(dir, ".endpoint-*")
 	if err != nil {
-		return err
+		return fmt.Errorf("svcendpoint: publish %s: temp file in %s: %w", path, dir, err)
 	}
 	tmpName := tmp.Name()
-	cleanup := func(e error) error {
+	// EVERY failure below names the TARGET path, not just the temp. os.File's own
+	// errors carry the temp name — a random ".endpoint-1873492" that exists nowhere
+	// by the time anyone reads the message — so without the target the reader cannot
+	// tell WHICH service failed to publish, which is the only fact that matters
+	// upstream of "the jail cannot reach it".
+	//
+	// The two discards in cleanup, and the Remove on each path below, are deliberate
+	// and are the same reason: the temp is ours, it is 0600 inside the 0700
+	// per-(jail, service) directory ensurePrivateDir just verified, so a leftover
+	// exposes nothing the published file does not, and the error being returned is
+	// the one a caller can act on. The next Publish's rename replaces the target
+	// regardless.
+	cleanup := func(what string, e error) error {
 		_ = tmp.Close()
 		_ = os.Remove(tmpName)
-		return e
+		return fmt.Errorf("svcendpoint: publish %s: %s %s: %w", path, what, tmpName, e)
 	}
 	if _, err := tmp.WriteString(ep.Format()); err != nil {
-		return cleanup(err)
+		return cleanup("write", err)
 	}
 	if err := tmp.Chmod(0o600); err != nil {
-		return cleanup(err)
+		return cleanup("chmod 0600", err)
 	}
 	if err := tmp.Close(); err != nil {
 		_ = os.Remove(tmpName)
-		return err
+		return fmt.Errorf("svcendpoint: publish %s: close %s: %w", path, tmpName, err)
 	}
 	if err := os.Rename(tmpName, path); err != nil {
 		_ = os.Remove(tmpName)
-		return err
+		return fmt.Errorf("svcendpoint: publish %s: rename from %s: %w", path, tmpName, err)
 	}
 	return nil
 }
@@ -244,12 +257,17 @@ func readEndpointFile(path string) ([]byte, error) {
 	if err != nil {
 		return nil, readPathError(path, err)
 	}
+	// Discarded: this fd is read-only and already read; a close error cannot change
+	// the bytes returned, and there is nothing for a caller to do about it.
 	defer func() { _ = f.Close() }()
 	// One byte past the ceiling, so "hit the limit" is distinguishable from "the file
 	// is exactly the ceiling" without a second stat.
 	data, err := io.ReadAll(io.LimitReader(f, MaxEndpointFileSize+1))
 	if err != nil {
-		return nil, err
+		// NAME THE PATH. A bare read error here reaches the boot witness as an
+		// unattributed I/O failure, and every caller of this function is reading a
+		// DIFFERENT service's file.
+		return nil, fmt.Errorf("svcendpoint: reading %s: %w", path, err)
 	}
 	if len(data) > MaxEndpointFileSize {
 		return nil, fmt.Errorf("%w: %s grew past %d bytes while being read — refusing it",
@@ -361,19 +379,100 @@ func DialPlain(endpointPath string, dialTimeout time.Duration) (net.Conn, error)
 // is never respawned and the jail can never reach it. Probe parses the content:
 // three fields, a splittable host:port, a certificate that actually parses, and a
 // well-formed token.
+// AND EVERY "false" THAT IS NOT "NOT YET" SAYS WHY. Probe is the wait predicate,
+// so its answer is a bool and its reason had nowhere to go: a caller that polls it
+// until a deadline reports a timeout, and the file it timed out on — which existed
+// the whole time and was unusable for a reason this function computed and threw
+// away — is never described. The classes below are the description.
 func Probe(path string) bool {
 	ep, err := Read(path)
 	if err != nil {
+		// NOT-YET-PUBLISHED IS THE ONE SILENT CASE. Probe is polled ~20 times a
+		// second while a daemon starts, so ErrEndpointMissing is the EXPECTED state
+		// of a healthy launch; reporting it would make every launch look broken and
+		// would get this whole mechanism deleted. Anything else means a file IS there
+		// and is not an endpoint, which polls identically to "not yet" — forever.
+		if !errors.Is(err, ErrEndpointMissing) {
+			probeFault(path, probeFaultUnreadable, "%v", err)
+		}
 		return false
 	}
 	host, port, err := net.SplitHostPort(ep.HostPort)
 	if err != nil || host == "" || port == "" {
+		// The ADVERTISED address, clipped: it is the published file's own bytes, and
+		// the jail can write that file, so it is quoted and bounded rather than
+		// trusted. Never the token, never the cert.
+		probeFault(path, probeFaultAddress, "advertised address %s does not split as host:port", clipForLog(ep.HostPort))
 		return false
 	}
 	if _, err := x509.ParseCertificate(ep.CertDER); err != nil {
+		probeFault(path, probeFaultCert, "the published certificate does not parse: %v", err)
 		return false
 	}
-	return IsToken(ep.Token)
+	if !IsToken(ep.Token) {
+		// A LENGTH, NEVER THE VALUE.
+		probeFault(path, probeFaultToken, "the token field is not 64 lowercase hex characters (%d characters)", len(ep.Token))
+		return false
+	}
+	probeHealthy(path)
+	return true
+}
+
+// Probe fault classes: a FIXED, SMALL vocabulary, and its size is load-bearing —
+// the dedup key is (path, class), so the number of lines one bad file can ever
+// produce is bounded by this list instead of by how often something rewrites the
+// file. Putting the DETAIL in the key would be a growth channel: the jail can
+// rewrite its own endpoint file, and two of the messages quote a number taken from
+// it.
+const (
+	probeFaultUnreadable = "unreadable"
+	probeFaultAddress    = "address"
+	probeFaultCert       = "certificate"
+	probeFaultToken      = "token"
+)
+
+var probeFaultClasses = []string{probeFaultUnreadable, probeFaultAddress, probeFaultCert, probeFaultToken}
+
+// probeFaultsSeen is the (path, class) set already reported. Package-scoped because
+// the readers are poll loops in several packages and the point is to survive across
+// their iterations.
+var probeFaultsSeen sync.Map
+
+// probeFault reports one probe fault ONCE PER EPISODE: once per (path, class)
+// until that path probes healthy, which clears it.
+//
+// THIS IS DEDUPLICATION, NOT GATING — the distinction matters because gating is
+// forbidden here (OQ-RO3). Every distinct fault is always emitted, there is no
+// dial, no level and no env var, and nothing can suppress the first occurrence.
+// What it prevents is one wait loop printing the same sentence two hundred times,
+// which is how an always-on line gets deleted by the next person to read the log.
+func probeFault(path, class, format string, args ...any) {
+	if _, dup := probeFaultsSeen.LoadOrStore(probeFaultKey(path, class), struct{}{}); dup {
+		return
+	}
+	Logger.Printf("%s is not a usable endpoint (%s): %s", path, class, fmt.Sprintf(format, args...))
+}
+
+// probeHealthy re-arms the reports for path. Without it a fault that is fixed and
+// then RECURS is silent for the life of the process, which is the failure mode of
+// every log-once scheme that forgets the other half.
+func probeHealthy(path string) {
+	for _, class := range probeFaultClasses {
+		probeFaultsSeen.Delete(probeFaultKey(path, class))
+	}
+}
+
+func probeFaultKey(path, class string) string { return path + "\x00" + class }
+
+// clipForLog bounds a value taken from a file the jail can write. The endpoint file
+// is capped at MaxEndpointFileSize, so an unclipped field is a megabyte of
+// jail-chosen bytes in the host's log.
+func clipForLog(s string) string {
+	const max = 64
+	if len(s) > max {
+		return fmt.Sprintf("%q… (%d bytes)", s[:max], len(s))
+	}
+	return fmt.Sprintf("%q", s)
 }
 
 // ensurePrivateDir creates dir 0700 and then VERIFIES the result, failing closed
