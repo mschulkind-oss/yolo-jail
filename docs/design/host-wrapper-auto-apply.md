@@ -1,41 +1,40 @@
 ---
 title: "Why host wrappers don't auto-apply — and whether they should"
 date: 2026-09-18
-status: in-review
+status: accepted
 tags: [design, host, apply, wrappers, ergonomics, consent]
-summary: "Enabling `host_wrappers: true` installs shims that exec through `yolo host -- <bin>`, but leaves host apply checks off unless `host_apply_on_launch: true` is also configured. Even when enabled, the gate pauses for an interactive confirmation prompt whenever anything would change. This doc examines why that friction exists, evaluates coupling the keys, and proposes zero-prompt auto-apply on host launches."
+summary: "Enabling `host_wrappers: true` installs shims that exec through `yolo host -- <bin>`, but leaves host apply checks off unless `host_apply_on_launch: true` is also configured. Even when enabled, the gate pauses for an interactive confirmation prompt whenever anything would change. This doc diagnoses that split and establishes zero-prompt auto-apply on host launches."
 vantage:
   status-chip: true
 ---
 
 # Why host wrappers don't auto-apply — and whether they should
 
-**Status:** DESIGN, 2026-09-18. Nothing built. Evidence verified against `bf474602`.
+**Status:** DECIDED, 2026-09-18 — all three questions are ruled ([§7](#7-decision-ledger)); nothing built. Evidence verified against `bf474602`.
 
 > **In short.** `host_wrappers: true` creates shims so running an agent on the host
-> automatically routes through `yolo host -- <bin>`, but yolo leaves staleness checking off
-> by default (`host_apply_on_launch: false`). Even when opted in, it blocks on an interactive
-> `[y/N]` prompt on every drift. Coupling auto-apply directly to `host_wrappers` and eliminating
-> prompts for declared pack updates removes ceremony while preserving user customizations.
+> automatically routes through `yolo host -- <bin>`, but yolo left staleness checking off
+> by default (`host_apply_on_launch: false`). Coupling auto-apply directly to `host_wrappers`
+> and eliminating prompts for declared pack updates removes ceremony while preserving user customizations.
 
 **Why it matters.** A user who configures `host_wrappers: true` expects yolo to manage the host agent
-environment seamlessly. Instead, updating a pack or editing configuration leaves the real `$HOME`
-silently stale until they discover `yolo host apply --assert` or the obscure `host_apply_on_launch` key.
-And once enabled, routine pack updates interrupt agent launches with confirmation prompts even though
+environment seamlessly. Instead, updating a pack or editing configuration left the real `$HOME`
+silently stale until they discovered `yolo host apply --assert` or the obscure `host_apply_on_launch` key.
+And once enabled, routine pack updates interrupted agent launches with confirmation prompts even though
 user edits are already protected by capture overlays and RMW isolation.
 
-**The shape.** Make `host_wrappers: true` imply apply-on-launch by default (with an explicit opt-out
-`host_apply_on_launch: false`), and replace the interactive `[y/N]` launch prompt with **zero-prompt
+**The shape.** `host_wrappers: true` implies apply-on-launch by default (with an explicit opt-out
+`host_apply_on_launch: false`), and replaces the interactive `[y/N]` launch prompt with **zero-prompt
 auto-apply**: whenever an agent is launched through a host wrapper, yolo applies declared pack updates
 and launches immediately.
 
-**Cost.** A launch through a host wrapper will now synchronize declared pack surfaces into `$HOME`
+**Cost.** A launch through a host wrapper synchronizes declared pack surfaces into `$HOME`
 without an interactive keystroke. Users who want static host configuration must explicitly set
 `host_apply_on_launch: false` or `host_management: "none"`.
 
-**Start at [§3](#3-the-proposal-implied-checking-and-zero-prompt-auto-apply)** — the implied check and auto-apply behavior.
+**Start at [§3](#3-the-settled-design-implied-checking-and-zero-prompt-auto-apply)** — the implied check and auto-apply behavior.
 
-**Needs your ruling:** [OQ-1](#oq-1), [OQ-2](#oq-2), [OQ-3](#oq-3).
+**Needs your ruling:** None. All three questions are ruled ([§7](#7-decision-ledger)).
 
 **Reads with:** [`../reference/host-apply-staleness.md`](../reference/host-apply-staleness.md) (the current
 staleness gate implementation), [`host-render-target.md`](host-render-target.md) (the host render model),
@@ -116,20 +115,20 @@ take effect on the host.
 
 ---
 
-## 3. The proposal: Implied checking and zero-prompt auto-apply
+## 3. The settled design: Implied checking and zero-prompt auto-apply
 
-We propose resolving this complexity with three unified rules:
+The design resolves this complexity through three unified rules:
 
-### A. Implied Auto-Check when `host_wrappers: true`
-`host_wrappers: true` becomes the single master switch for host-wrapper integration.
+### 3.1 Implied auto-check when host_wrappers: true
+`host_wrappers: true` is the single master switch for host-wrapper integration ([`OQ-1`](#decision-ledger)).
 
 - If `host_wrappers: true` is set, `host_apply_on_launch` **defaults to `true`**.
 - Users can still explicitly disable it with `"host_apply_on_launch": false` if they want static wrappers.
 - If `host_management: "none"` is configured, the check remains a silent no-op (yolo never touches `$HOME`).
 
-### B. Zero-Prompt Auto-Apply on Launch
+### 3.2 Zero-prompt auto-apply on launch
 Under both active management modes (`"assert"` and `"own"`), [`hostApplyGate`](../../internal/cli/hostapplygate.go)
-no longer pauses for an interactive `[y/N]` prompt:
+does not pause for an interactive `[y/N]` prompt ([`OQ-2`](#decision-ledger)):
 
 - When drift between declared packs and `$HOME` is detected at launch, yolo applies the updates automatically and execs
   the agent immediately.
@@ -140,8 +139,8 @@ no longer pauses for an interactive `[y/N]` prompt:
 - The existing one-way door (`confirmHostLosses`) remains strictly for `FirstApply && EntryLosses` (the initial adoption
   of an unmanaged home with pre-existing servers). Routine updates across already-managed homes apply seamlessly.
 
-### C. Coupling with `yolo pack update`
-When running `yolo pack update` on the host:
+### 3.3 Coupling with yolo pack update
+When running `yolo pack update` on the host ([`OQ-3`](#decision-ledger)):
 - If `host_management` is `"assert"` or `"own"`, `yolo pack update` automatically triggers `host apply --assert`
   for any modified host surfaces.
 - Output reports what was updated in `$HOME`:
@@ -177,9 +176,9 @@ When running `yolo pack update` on the host:
   do not clobber user edits (capture overlays preserve user customizations under `own`, and RMW leaves undeclared keys
   alone under `assert`). Prompting on declared pack updates creates needless prompt fatigue.
 
-### Alternative 3: Zero-prompt auto-apply (Proposed)
+### Alternative 3: Zero-prompt auto-apply (Accepted)
 - *Idea:* When host wrappers are on, apply declared pack updates automatically on launch without prompting.
-- *Verdict:* **Recommended.** Matches the user's mental model: yolo seamlessly manages the host agent environment.
+- *Verdict:* **Accepted ([`OQ-2`](#decision-ledger)).** Matches the user's mental model: yolo seamlessly manages the host agent environment.
 
 ---
 
@@ -193,30 +192,10 @@ When running `yolo pack update` on the host:
 
 ---
 
-## 7. Open Questions
+## 7. Decision Ledger
 
-1. <a id="oq-1"></a>💬 **[`OQ-1`](#oq-1) — Should `host_wrappers: true` imply `host_apply_on_launch` by default?**
-   - **Option (a) [Recommended]:** Yes. If `host_wrappers: true`, default `host_apply_on_launch` to `true`. Setting
-     `"host_apply_on_launch": false` explicitly remains the escape hatch.
-   - **Option (b):** Deprecate `host_apply_on_launch` as an independent boolean, replacing it with an enum
-     `host_apply_on_launch: "auto" | "prompt" | "off"`, defaulting to `"auto"` when wrappers are enabled.
-
-2. <a id="oq-2"></a>💬 **[`OQ-2`](#oq-2) — Should launch through a host wrapper be completely zero-prompt?**
-   - **Option (a) [Recommended]:** Yes. Auto-apply all declared pack updates silently on launch. User customizations
-     are already protected by capture overlays (`own`) and RMW non-interference (`assert`).
-   - **Option (b):** Retain interactive prompts for changes, but provide an auto-apply opt-in flag or setting.
-
-3. <a id="oq-3"></a>💬 **[`OQ-3`](#oq-3) — Should `yolo pack update` automatically run `host apply --assert`?**
-   - **Option (a) [Recommended]:** Yes, on the host, whenever `host_management` is `"assert"` or `"own"`.
-   - **Option (b):** No, leave `yolo pack update` focused solely on fetching and lockfile updates, letting the wrapper
-     launch hook handle the apply.
-
----
-
-## 8. Decision Ledger
-
-| ID | Status | Decision | Date |
-| :--- | :--- | :--- | :--- |
-| [`OQ-1`](#oq-1) | 💬 Open | Pending user ruling | — |
-| [`OQ-2`](#oq-2) | 💬 Open | Pending user ruling | — |
-| [`OQ-3`](#oq-3) | 💬 Open | Pending user ruling | — |
+| ID | Ruling / Decision | Date | Settled in | Built |
+| :--- | :--- | :--- | :--- | :--- |
+| <a id="decision-ledger"></a>[`OQ-1`](#decision-ledger) | `host_wrappers: true` implies `host_apply_on_launch: true` by default; `"host_apply_on_launch": false` is the escape hatch | 2026-09-18 | [§3.1](#31-implied-auto-check-when-host_wrappers-true) | — |
+| [`OQ-2`](#decision-ledger) | Zero-prompt auto-apply on launch: yolo synchronizes declared pack updates silently without interactive confirmation | 2026-09-18 | [§3.2](#32-zero-prompt-auto-apply-on-launch) | — |
+| [`OQ-3`](#decision-ledger) | `yolo pack update` on the host automatically triggers `host apply --assert` when `host_management` is `"assert"` or `"own"` | 2026-09-18 | [§3.3](#33-coupling-with-yolo-pack-update) | — |
