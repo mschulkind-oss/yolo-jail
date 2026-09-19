@@ -686,6 +686,19 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 				pr.Printf("    [cyan]archived your file as yolo found it: %s[/cyan] "+
 					"[dim](once, before adopting it)[/dim]", r.Archived)
 			}
+			// A ONE-SHOT REPAIR OF YOLO'S OWN OUTPUT: a value yolo shipped as a default that
+			// the program reading this file cannot load, deleted so the current default fills
+			// the key again (entrypoint.HostRenderResult.Repaired). The sentence is built
+			// there, tense included, because the jail's boot notice says the same thing from
+			// the same builder.
+			//
+			// NOT behind detail(), for Archived's reason: yolo is editing a key in the user's
+			// own file, and by OQ-RO3 a disclosure is never suppressible. It fires at most
+			// once per surface per home — the second apply finds nothing to repair — so the
+			// density argument does not reach it either.
+			for _, rep := range r.Repaired {
+				pr.Printf("    [cyan]repaired %s[/cyan]", rep)
+			}
 			// The ${workspace}-keyed keys this render DROPPED, by name — a TIER-2 fact under
 			// its surface, so the --verbose view's since detail on demand ("every tier-2 destination
 			// itemized: the skipped surfaces and why").

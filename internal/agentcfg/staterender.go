@@ -163,6 +163,15 @@ type StatefulOutput struct {
 	// from a capture diff. The caller uses this to gate the one-time §4.7
 	// orphan-file cleanup.
 	FirstMigration bool
+
+	// Repairs are the rejected values this render removed from the capture overlay
+	// (rejectedvalues.go), empty on every render that removed nothing — which is every
+	// render of every surface with no entry, and every second render of a repaired one.
+	//
+	// It is a REPORT and never an input: the repair is already reflected in Result and
+	// OverlayJSON. The caller must print it, because a one-shot mutation of the user's own
+	// config state that nobody announced is the defect, not the mutation.
+	Repairs []Repair
 }
 
 // ComposeStateful runs the per-boot state machine for one surface and returns
@@ -343,6 +352,29 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 		// never-aging overlay.
 	}
 
+	// THE ONE-SHOT REPAIR, BOTH BRANCHES (rejectedvalues.go). A value yolo itself
+	// shipped and the target program cannot LOAD is removed from the decided overlay
+	// here, before anything persists it, so `defaults` fills the key by absence.
+	//
+	// It has to be inside this function rather than in the caller, because BOTH states
+	// that can freeze such a value are decided above and neither is visible from
+	// outside: the steady-state branch's accumulated overlay, and the first-migration
+	// branch's ADOPTED RESIDUE, which is derived from the on-disk file here and is not
+	// an input. Repairing the caller's `overlay` bytes would miss adoption entirely, and
+	// repairing the caller's `current` bytes would be actively wrong — steady-state
+	// capture would then diff the stripped file against a last_render that still holds
+	// the value and record a null TOMBSTONE, freezing the key ABSENT forever, which is
+	// the same bug one value over.
+	//
+	// Before the narrowing passes below so they see an already-repaired overlay, and
+	// reported on StatefulOutput because this function writes nothing.
+	var repairs []Repair
+	if kind == codec.KindObject {
+		if overlayMap, isMap := overlay.(map[string]any); isMap {
+			repairs = RepairRejected(in.Base.Surface, MapObject(overlayMap))
+		}
+	}
+
 	// ONE RULE, BOTH BRANCHES: strip from the decided overlay everything a
 	// higher-ranking layer — computed, then managed — will override anyway.
 	// Adoption has narrowed its residue against managed since B1; steady-state
@@ -412,6 +444,7 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 		OverlayJSON:     overlayJSON,
 		FirstMigration:  firstMigration,
 		PureBytes:       pureBytes,
+		Repairs:         repairs,
 	}, nil
 }
 

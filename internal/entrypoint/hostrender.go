@@ -180,6 +180,24 @@ type HostRenderResult struct {
 	// would be the one lie a net cannot afford. What observe reports instead is the render
 	// it would run, through the fields above.
 	Archived string
+	// Repaired is the one-shot repairs this render makes to values YOLO ITSELF SHIPPED that
+	// the target program cannot load (agentcfg/rejectedvalues.go), one whole sentence per
+	// repair, ready to print. Empty for every surface holding no such value, which is every
+	// surface but the transitional one an entry exists for.
+	//
+	// It is here rather than on the Env's stderr because the host Env carries no Stderr by
+	// design, so the jail's boot notice has no counterpart at this notch — and a one-shot
+	// mutation of a file in the user's real home that nobody announced is the defect, not the
+	// mutation. Populated in BOTH postures from the file as it stands before any write, so
+	// `yolo host apply` previews the repair (the dry-run half of the requirement) and
+	// `--assert` reports the same one it performed; the sentence carries the tense
+	// (agentcfg.Repair.Describe), so the preview cannot claim a mutation that has not happened.
+	//
+	// NOT an input to the confirmation gate, deliberately. The gate is about what a render
+	// COSTS the user — an overwritten value, a damaged entry — and this is yolo retiring a
+	// value of its own that never worked; there is no preference to protect, so the boundary
+	// is disclosure (OQ-TP9), which is this field.
+	Repaired []string
 }
 
 // RenderHostPack renders one pack's config surfaces into homeDir (the real $HOME), pure
@@ -357,6 +375,10 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 		// how each mechanism answers. Both run the WRITER'S OWN fold over a scratch copy, so
 		// neither is a second model of the write.
 		wouldChange := hostMechanismWouldChange(e, mechanism, s, path, tableLayer, surfaceOverlays)
+		// The one-shot repairs this render will make to yolo's own unloadable values, read
+		// from the file BEFORE the write like every probe above it, and in both postures for
+		// the same reason: the point of a dry run is to see it coming.
+		repaired := hostRepairedValues(e, s, path, observe)
 		if observe {
 			// `in sync` rather than `would render` when nothing would change. The unconditional
 			// "would render" was the honest report of a render that could not tell the two apart;
@@ -371,7 +393,8 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 			out = append(out, HostRenderResult{Surface: id, Path: path, Action: action,
 				Overwrites: overwrites, Overlays: overlayPackNames(surfaceOverlays),
 				Outranked: outranked, Pruned: pruned, EntryLosses: losses,
-				FirstApply: firstApply, Formatting: formatting, WouldChange: wouldChange})
+				FirstApply: firstApply, Formatting: formatting, WouldChange: wouldChange,
+				Repaired: repaired})
 			continue
 		}
 		// INTO THE REAL HOME, through the mechanism the census named. The `computed` slot
@@ -452,7 +475,7 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 			Overwrites: overwrites, Overlays: overlayPackNames(surfaceOverlays),
 			Outranked: outranked, Pruned: pruned, EntryLosses: losses,
 			FirstApply: firstApply, Formatting: formatting, WouldChange: wouldChange,
-			Archived: archived})
+			Archived: archived, Repaired: repaired})
 	}
 	return out, nil
 }
@@ -630,6 +653,13 @@ func hostSurfaceWouldChange(e *Env, s manifest.Surface, path string, computed ma
 	if err != nil {
 		return false
 	}
+	// THE REPAIR IS PART OF THE WRITE, so it is part of the replay: renderSurfaceRMWSurface
+	// deletes the rejected value from the object before it folds the layers, and a predicate
+	// that skipped this step would answer "unchanged" about a render that removes a key —
+	// `yolo host apply` printing `unchanged` for the surface whose repair it is about to
+	// announce. In the same order as the writer, for the same reason the fold is borrowed
+	// rather than re-derived.
+	agentcfg.RepairRejected(s, obj)
 	applyRMWLayers(e, s, obj, computed, overlays)
 	rendered, _, err := encodeSurfaceObjectReporting(s, obj, orig, before)
 	if err != nil {
@@ -1192,6 +1222,40 @@ func managedOverwrites(e *Env, s manifest.Surface, path string) []string {
 	var out []string
 	collectOverwrites(existing, managed, "", &out)
 	sort.Strings(out)
+	return out
+}
+
+// hostRepairedValues is the REPORT half of the one-shot repair (agentcfg/rejectedvalues.go):
+// the sentences describing every value yolo itself shipped that this surface's file still
+// holds and that the target program cannot load. See HostRenderResult.Repaired.
+//
+// It runs the REPAIRER ITSELF — agentcfg.RepairRejected, the same function both writers call —
+// over a throwaway decode of the file, so this is not a second model of the repair the way a
+// re-derivation from the list would be. The mutation it makes is to that scratch object and
+// nothing reads it back.
+//
+// ONE PROBE FOR BOTH MECHANISMS, and that is a fact about the host notch rather than a
+// shortcut: the file in the real home is the only place a rejected value can be frozen here —
+// the rmw arm reads it as its `host` layer, and the `own` arm ADOPTS it into the capture
+// overlay on the first render — so "the file holds it" is exactly the condition under which
+// either arm's repair fires. Whichever arm runs, the key is gone from the written file.
+//
+// Best-effort like every other probe here (existingSurfaceObject): a file this cannot decode
+// is one the render is about to refuse, and a refusal repairs nothing.
+func hostRepairedValues(e *Env, s manifest.Surface, path string, observe bool) []string {
+	s = agentcfg.SubstituteWorkspace(s, e.WorkspaceDir())
+	repairs := agentcfg.RepairRejected(s, existingSurfaceObject(s, path))
+	if len(repairs) == 0 {
+		return nil
+	}
+	verb := "removed"
+	if observe {
+		verb = "would remove"
+	}
+	out := make([]string, 0, len(repairs))
+	for _, r := range repairs {
+		out = append(out, r.Describe(verb, "the file"))
+	}
 	return out
 }
 

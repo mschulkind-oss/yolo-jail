@@ -497,6 +497,7 @@ func persistStatefulSurface(e *Env, r *statefulRender) error {
 		writeProvenanceRecord(e, surface.Agent, surface.Name, out.Result.Provenance)
 	}
 	noteCapturedOverlay(e, surface, out)
+	noteRepairedValues(e, out)
 	return nil
 }
 
@@ -522,6 +523,41 @@ func noteCapturedOverlay(e *Env, surface manifest.Surface, out *agentcfg.Statefu
 	}
 	e.warn(fmt.Sprintf("%s: %d %s from captured in-jail edits (yolo config diff %s)",
 		surface.Path, n, unit, surface.Agent))
+}
+
+// noteRepairedValues announces every rejected value THIS stateful render removed from the
+// surface's capture overlay (agentcfg/rejectedvalues.go).
+//
+// IT IS NOT SUPPRESSIBLE AND IT IS NOT AN OPTION. The repair is a one-shot mutation of the
+// user's own captured config state, taken without asking, so the notice IS the mechanism's
+// trust boundary — the same standing rule the launch's pack banners hold (`packhostgrants.go`:
+// "the boundary today is DISCLOSURE, not consent"), and the same reason a decision taken
+// silently is the defect here rather than the decision (see internal/cli/run's
+// flock_test.go's silent-hang naming for the class).
+//
+// A WARNING, not a note, and the difference from noteCapturedOverlay right above is
+// deliberate: capture is a supported mode reporting a divergence the user created, while this
+// reports a value YOLO shipped that broke the program and state yolo has just edited on the
+// user's behalf. One of those is information and the other is an apology.
+//
+// Placed in the PERSIST half so the sentence is only ever spoken about a write that happened:
+// the host notch's observe posture composes without persisting, and a repair it merely decided
+// shows up there as the surface's own "would change" line rather than as a claim that yolo
+// edited a file it did not touch.
+func noteRepairedValues(e *Env, out *agentcfg.StatefulOutput) {
+	if out == nil {
+		return
+	}
+	noteRepairs(e, out.Repairs, "the captured in-jail edits for this surface")
+}
+
+// noteRepairs is the one printer both notches use — the stateful overlay repair and the rmw
+// file repair — so the two cannot describe the same mutation in different words. The SENTENCE
+// is agentcfg.Repair.Describe's; this only decides where it goes and how loud it is.
+func noteRepairs(e *Env, repairs []agentcfg.Repair, where string) {
+	for _, r := range repairs {
+		e.warn("repaired " + r.Describe("removed", where))
+	}
 }
 
 // overlayEntryCount reports how many captured entries an overlay sidecar holds: the
@@ -664,6 +700,21 @@ func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[stri
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
+	// THE ONE-SHOT REPAIR (agentcfg/rejectedvalues.go), and it must run HERE — before the
+	// two snapshots below and before the layer writes.
+	//
+	// This is the notch where the value is frozen HARDEST. An rmw render reads the file
+	// back as its `host` layer, so a value yolo wrote as a `defaults` fill on an earlier
+	// apply reads as the user's from the next apply on (rmwProvenance's `host` pass) and
+	// no later default will ever displace it. Deleting the key here makes the three lines
+	// that follow tell the truth about it: `present` no longer claims it for `host`,
+	// `intact` no longer sees a filled default, and applyRMWLayers fills the CURRENT
+	// default into the same object — so the file gets the fixed value and the provenance
+	// record reads `defaults`, which is where a fill-if-absent key belongs.
+	//
+	// Reported after the write, not here: a refusal further down leaves the file
+	// untouched, and announcing a mutation that did not land is worse than not announcing.
+	repairs := agentcfg.RepairRejected(surface, obj)
 	// The file's own top-level keys BEFORE the render, snapshotted for provenance: on an
 	// rmw surface the existing content is the `host` layer, and it beats defaults
 	// (fill-if-absent) while losing to everything yolo force-writes. Taken here because
@@ -684,6 +735,9 @@ func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[stri
 	if err := writeInPlaceString(path, text); err != nil {
 		return err
 	}
+	// The repair decided above has now landed in the file. Announce it — see
+	// noteRepairedValues for why this is never suppressible.
+	noteRepairs(e, repairs, "the file")
 	// Record which layer won each key — at the notches whose census says THIS MECHANISM is
 	// the one that records (render.ModeSet). True at the host, false in a jail, and the
 	// asymmetry is precisely the shape of the bug it fixes.
