@@ -18,8 +18,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/mschulkind-oss/yolo-jail/internal/config"
 )
 
 // gateFixture is a throwaway home with the opt-in ON, the shipped claude pack selected, and
@@ -112,9 +110,10 @@ func TestHostApplyGateIsSilentOnAFreshlyAppliedHome(t *testing.T) {
 	}
 }
 
-// TestHostApplyGatePromptsAndAppliesOnATTY is §4.3 row 2, accept half — §11's first scenario
-// end to end: hand-edit, launch, the change appears, accept, the file is restored.
-func TestHostApplyGatePromptsAndAppliesOnATTY(t *testing.T) {
+// TestHostApplyGateAutoAppliesOnATTY asserts zero-prompt auto-apply on launch (OQ-2):
+// on drift with a terminal attached, yolo applies the updates automatically without
+// prompting, emits a concise stderr notice, and lets the launch proceed.
+func TestHostApplyGateAutoAppliesOnATTY(t *testing.T) {
 	home := gateFixture(t, true)
 	if rc, report := applyWith(t, true, nil); rc != 0 {
 		t.Fatalf("assert apply rc=%d\n%s", rc, report)
@@ -123,106 +122,128 @@ func TestHostApplyGatePromptsAndAppliesOnATTY(t *testing.T) {
 	setGateTTY(t, true)
 
 	var errw bytes.Buffer
-	if !hostApplyGate(&errw, strings.NewReader("y\n"), "claude") {
-		t.Fatalf("an accepted prompt must let the launch proceed:\n%s", errw.String())
+	if !hostApplyGate(&errw, nil, "claude") {
+		t.Fatalf("auto-apply must let the launch proceed:\n%s", errw.String())
 	}
 	report := errw.String()
-	if !strings.Contains(report, settings) {
-		t.Errorf("the prompt must name the destination that would change:\n%s", report)
+	if !strings.Contains(report, "synchronized host configuration") {
+		t.Errorf("the launch notice must announce synchronization:\n%s", report)
 	}
-	if !strings.Contains(report, "out of date") {
-		t.Errorf("the prompt must say what is wrong:\n%s", report)
-	}
-	if !strings.Contains(report, "--dry-run") {
-		t.Errorf("the prompt must name where the per-key detail is:\n%s", report)
-	}
-	// AND IT APPLIED. Accepting is not an acknowledgement: the whole point is that the agent
-	// starts against the render its packs describe.
+	// AND IT APPLIED without prompting.
 	data, err := os.ReadFile(settings)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(data), `"enabled"`) {
-		t.Errorf("the accepted apply did not restore the managed value:\n%s", data)
+		t.Errorf("the auto-apply did not restore the managed value:\n%s", data)
 	}
 }
 
-// TestHostApplyGateDeclineAbortsTheLaunch is §4.3 row 2, decline half (OQ-HS5). Declining
-// aborts, as it does in the jail — and writes nothing, or "no" would mean nothing.
-func TestHostApplyGateDeclineAbortsTheLaunch(t *testing.T) {
+// TestHostApplyGateAutoAppliesWithNoTerminal asserts zero-prompt auto-apply off a TTY:
+// scripted and CI launches no longer refuse over benign pack updates; they auto-apply and exec.
+func TestHostApplyGateAutoAppliesWithNoTerminal(t *testing.T) {
 	home := gateFixture(t, true)
 	if rc, report := applyWith(t, true, nil); rc != 0 {
 		t.Fatalf("assert apply rc=%d\n%s", rc, report)
 	}
 	settings := driftTheHome(t, home)
-	before, err := os.ReadFile(settings)
-	if err != nil {
-		t.Fatal(err)
-	}
-	setGateTTY(t, true)
 
 	var errw bytes.Buffer
-	if hostApplyGate(&errw, strings.NewReader("n\n"), "claude") {
-		t.Fatalf("a declined prompt must ABORT the launch, as a jail launch does:\n%s",
-			errw.String())
+	if !hostApplyGate(&errw, nil, "claude") {
+		t.Fatalf("non-TTY auto-apply must let the launch proceed without refusing:\n%s", errw.String())
 	}
-	after, err := os.ReadFile(settings)
+	report := errw.String()
+	if !strings.Contains(report, "synchronized host configuration") {
+		t.Errorf("the launch notice must announce synchronization:\n%s", report)
+	}
+	data, err := os.ReadFile(settings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(after) != string(before) {
-		t.Errorf("a declined gate wrote to the home:\n--- before\n%s\n--- after\n%s", before, after)
-	}
-	if !strings.Contains(errw.String(), "not launched") {
-		t.Errorf("the abort must say the agent did not start:\n%s", errw.String())
+	if strings.Contains(string(data), `"enabled"`) {
+		t.Errorf("the auto-apply did not restore the managed value:\n%s", data)
 	}
 }
 
-// TestHostApplyGateRefusesWithNoTerminalAndNoApproval is §4.3 row 3 (OQ-HS6), and its message
-// is P5: its reader typed `claude`, so it has to name the remedy in a spelling they can use.
-func TestHostApplyGateRefusesWithNoTerminalAndNoApproval(t *testing.T) {
-	home := gateFixture(t, true)
-	if rc, report := applyWith(t, true, nil); rc != 0 {
-		t.Fatalf("assert apply rc=%d\n%s", rc, report)
-	}
-	settings := driftTheHome(t, home)
-	before, err := os.ReadFile(settings)
+// TestHostApplyGateFirstApplyWithEntryLossesPromptsOnTTY asserts the one-way door exception:
+// on a first-ever apply into an unmanaged home with pre-existing undeclared MCP servers,
+// confirmHostLosses prompts interactively.
+func TestHostApplyGateFirstApplyWithEntryLossesPromptsOnTTY(t *testing.T) {
+	home := hostMCPFixture(t, mcpContributorPackJSON)
+	t.Setenv("YOLO_VERSION", "")
+	cfgPath := filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
+	cfgData, err := os.ReadFile(cfgPath)
 	if err != nil {
 		t.Fatal(err)
 	}
+	cfg := strings.Replace(string(cfgData), `"packs":`, `"host_apply_on_launch":true,"packs":`, 1)
+	writeFile(t, cfgPath, cfg)
+	t.Setenv(acceptConfigChangesEnv, "")
+	setGateTTY(t, true)
+
+	path := filepath.Join(home, ".claude.json")
+	original := `{"mcpServers":{"tavily":{"type":"http","url":"https://x?k=SECRET"}}}`
+	writeFile(t, path, original)
+
+	// Decline:
+	var errw bytes.Buffer
+	if hostApplyGate(&errw, strings.NewReader("n\n"), "claude") {
+		t.Fatalf("declining adoption must abort the launch:\n%s", errw.String())
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != original {
+		t.Errorf("declined adoption destroyed user servers:\n%s", after)
+	}
+
+	// Accept:
+	errw.Reset()
+	if !hostApplyGate(&errw, strings.NewReader("y\n"), "claude") {
+		t.Fatalf("accepting adoption must proceed:\n%s", errw.String())
+	}
+	afterAccept, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(afterAccept) == original {
+		t.Errorf("accepted adoption did not apply:\n%s", afterAccept)
+	}
+}
+
+// TestHostApplyGateFirstApplyWithEntryLossesRefusesWithoutTerminal asserts that a first apply
+// with entry losses fails closed when no terminal is attached to prevent data loss.
+func TestHostApplyGateFirstApplyWithEntryLossesRefusesWithoutTerminal(t *testing.T) {
+	home := hostMCPFixture(t, mcpContributorPackJSON)
+	t.Setenv("YOLO_VERSION", "")
+	cfgPath := filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
+	cfgData, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := strings.Replace(string(cfgData), `"packs":`, `"host_apply_on_launch":true,"packs":`, 1)
+	writeFile(t, cfgPath, cfg)
+	t.Setenv(acceptConfigChangesEnv, "")
+	setGateTTY(t, false)
+
+	path := filepath.Join(home, ".claude.json")
+	original := `{"mcpServers":{"tavily":{"type":"http","url":"https://x?k=SECRET"}}}`
+	writeFile(t, path, original)
 
 	var errw bytes.Buffer
 	if hostApplyGate(&errw, nil, "claude") {
-		t.Fatal("with drift, no terminal and no approval the launch must be REFUSED")
+		t.Fatalf("first apply with entry losses and no terminal must refuse to launch:\n%s", errw.String())
 	}
-	report := errw.String()
-	for _, want := range []string{
-		"refusing to launch claude",   // what stopped, and what the reader typed
-		settings,                      // which destination
-		"host_apply_on_launch",        // whose setting asked for this
-		"yolo host apply --assert",    // remedy 1: the two-step apply
-		acceptConfigChangesEnv + "=1", // remedy 2: the only channel a wrapper leaves open
-	} {
-		if !strings.Contains(report, want) {
-			t.Errorf("the refusal must contain %q — its reader typed `claude`, not `yolo`, so an "+
-				"unexplained failure reads as \"claude is broken\" (P5/R2):\n%s", want, report)
-		}
+	if !strings.Contains(errw.String(), "refusing to launch") {
+		t.Errorf("expected refusal message, got:\n%s", errw.String())
 	}
-	// AND EVERY COMMAND IT NAMES MUST RUN. The design writes step 1 as
-	// `yolo host apply --assert --accept-config-changes` (§4.3) and hostApply exits 2 on that
-	// flag, so a refusal quoting it would hand its reader a second failure. Asserting the
-	// absence keeps a future "fix" from putting it back without teaching the parser first.
-	if strings.Contains(report, config.AcceptConfigChangesFlag) {
-		t.Errorf("the refusal offers %s, which `yolo host apply` rejects with rc 2 — every "+
-			"remedy a refusal names has to be runnable (P5):\n%s",
-			config.AcceptConfigChangesFlag, report)
-	}
-	after, err := os.ReadFile(settings)
+	after, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(after) != string(before) {
-		t.Errorf("a refused launch applied something — nothing partial may be written (OQ-HS6)")
+	if string(after) != original {
+		t.Errorf("refused launch destroyed user servers:\n%s", after)
 	}
 }
 
@@ -383,33 +404,36 @@ func TestAcceptConfigChangesEnvIsScopedToTheWrapperPath(t *testing.T) {
 	}
 }
 
-// TestHostExecRefusesAStaleHomeWithNoTerminal PINS THE CALL SITE.
+// TestHostExecAutoAppliesStaleHomeAtLaunch PINS THE CALL SITE.
 //
 // Every test above calls hostApplyGate directly, so deleting the one line in hostExec that
 // calls it would leave all of them green while the feature was switched off wholesale — the
 // exact shape AGENTS.md records as having shipped five times. This drives `hostMain` with the
-// `--` grammar a wrapper uses, and the two outcomes are distinguishable: the gate refuses with
-// rc 1 before anything is composed, while without it the launch reaches resolveHostTarget and
-// fails the PATH lookup with rc 127.
-func TestHostExecRefusesAStaleHomeWithNoTerminal(t *testing.T) {
+// `--` grammar a wrapper uses: the gate auto-applies the stale home (restoring the key and
+// emitting the synchronization notice), and then proceeds to launch (reaching resolveHostTarget
+// and failing the PATH lookup for a nonexistent binary with rc 127).
+func TestHostExecAutoAppliesStaleHomeAtLaunch(t *testing.T) {
 	home := gateFixture(t, true)
 	if rc, report := applyWith(t, true, nil); rc != 0 {
 		t.Fatalf("assert apply rc=%d\n%s", rc, report)
 	}
-	driftTheHome(t, home)
+	settings := driftTheHome(t, home)
 
 	var out, errw bytes.Buffer
 	rc := hostMain([]string{"--", "no-such-agent-binary"}, &out, &errw, false, nil)
 	report := out.String() + errw.String()
-	if rc == 127 {
-		t.Fatalf("the launch reached the PATH lookup, so hostExec never consulted the gate — "+
-			"the call site is gone\n%s", report)
+	if rc != 127 {
+		t.Fatalf("rc = %d, want 127 (the launch proceeds past gate to PATH lookup)\n%s", rc, report)
 	}
-	if rc != 1 {
-		t.Fatalf("rc = %d, want 1 (the gate's refusal)\n%s", rc, report)
+	if !strings.Contains(report, "synchronized host configuration") {
+		t.Errorf("the launch must output the synchronized notice:\n%s", report)
 	}
-	if !strings.Contains(report, "refusing to launch no-such-agent-binary") {
-		t.Errorf("the refusal must come from the host-render gate:\n%s", report)
+	data, err := os.ReadFile(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), `"enabled"`) {
+		t.Errorf("the gate did not restore the managed value:\n%s", data)
 	}
 }
 

@@ -45,11 +45,11 @@ Exec flags (yolo host -- ...):
   --profile <name>, -p <name>   Profile/provider preset for the wrapped agent.
   --help, -h                    Show this help.
 
-With ` + "`host_apply_on_launch`" + ` set in your user config, ` + "`yolo host -- <agent>`" + ` first
-checks whether ` + "`yolo host apply`" + ` would change anything, and stops to ask when it
-would — silently exec'ing when it would not. There is no flag for that approval:
-the launch hands everything after ` + "`--`" + ` to the agent, so on that path only it is
-read from ` + "`YOLO_ACCEPT_CONFIG_CHANGES`" + ` (any non-empty value, this launch only).
+With ` + "`host_apply_on_launch`" + ` enabled (defaulting to on when ` + "`host_wrappers: true`" + `),
+` + "`yolo host -- <agent>`" + ` checks whether ` + "`yolo host apply`" + ` would change anything,
+and automatically synchronizes host configuration before launch — silently exec'ing when fresh.
+When first-time adoption would overwrite unmanaged host keys, it prompts for confirmation or
+reads approval from ` + "`YOLO_ACCEPT_CONFIG_CHANGES`" + ` (any non-empty value, this launch only).
 See ` + "`yolo config-ref`" + `.
 
 apply flags:

@@ -33,6 +33,23 @@ func TestHostApplyOnLaunchEnabledDefaultsOff(t *testing.T) {
 	if HostApplyOnLaunchEnabled() {
 		t.Error("with the user config false = true, want false")
 	}
+	// OQ-1: host_wrappers: true implies host_apply_on_launch: true by default.
+	write(t, userCfgPath, `{"host_wrappers": true}`)
+	if !HostApplyOnLaunchEnabled() {
+		t.Error("with host_wrappers: true and host_apply_on_launch unset, want true")
+	}
+	write(t, userCfgPath, `{"host_wrappers": true, "host_apply_on_launch": false}`)
+	if HostApplyOnLaunchEnabled() {
+		t.Error("with host_wrappers: true and host_apply_on_launch: false, want false")
+	}
+	write(t, userCfgPath, `{"host_wrappers": false}`)
+	if HostApplyOnLaunchEnabled() {
+		t.Error("with host_wrappers: false and host_apply_on_launch unset, want false")
+	}
+	write(t, userCfgPath, `{"host_wrappers": false, "host_apply_on_launch": true}`)
+	if !HostApplyOnLaunchEnabled() {
+		t.Error("with host_wrappers: false and host_apply_on_launch: true, want true")
+	}
 	// A broken user config fails CLOSED, for HostWrappersEnabled's reason and one step
 	// further: this key licenses a WRITE into the real home, so an opt-in nobody could read
 	// must not be honored.

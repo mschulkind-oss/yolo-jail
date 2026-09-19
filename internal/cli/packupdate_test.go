@@ -303,3 +303,116 @@ func TestRefreshOnTheHostSaysWhereToRunIt(t *testing.T) {
 		t.Errorf("...and name the command to run there:\n%s", got)
 	}
 }
+
+// TestPackUpdateOnHostTriggersHostApplyAssert asserts OQ-3:
+// On the host, yolo pack update triggers host apply --assert under active host management.
+func TestPackUpdateOnHostTriggersHostApplyAssert(t *testing.T) {
+	for _, mode := range []string{"assert", "own"} {
+		t.Run("mode="+mode, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+			t.Setenv("YOLO_VERSION", "")
+			t.Setenv("YOLO_PACK_ROOT", "")
+
+			cfg := `{"packs":[],"host_management":"` + mode + `"}`
+			writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), cfg)
+
+			var applyArgs []string
+			savedApply := hostApplyFromPackUpdate
+			hostApplyFromPackUpdate = func(args []string, out, errw io.Writer, color bool, stdin io.Reader) int {
+				applyArgs = args
+				return 0
+			}
+			t.Cleanup(func() { hostApplyFromPackUpdate = savedApply })
+
+			var out, errw bytes.Buffer
+			if rc := packMain([]string{"update"}, &out, &errw, false); rc != 0 {
+				t.Fatalf("pack update rc = %d: %s", rc, errw.String())
+			}
+			if len(applyArgs) != 1 || applyArgs[0] != "--assert" {
+				t.Errorf("expected host apply with [--assert], got: %v", applyArgs)
+			}
+		})
+	}
+}
+
+// TestPackUpdateOnHostSkipsHostApplyUnderNone asserts that under host_management: "none",
+// yolo pack update does not touch host apply.
+func TestPackUpdateOnHostSkipsHostApplyUnderNone(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("YOLO_VERSION", "")
+	t.Setenv("YOLO_PACK_ROOT", "")
+
+	cfg := `{"packs":[],"host_management":"none"}`
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), cfg)
+
+	called := false
+	savedApply := hostApplyFromPackUpdate
+	hostApplyFromPackUpdate = func(args []string, out, errw io.Writer, color bool, stdin io.Reader) int {
+		called = true
+		return 0
+	}
+	t.Cleanup(func() { hostApplyFromPackUpdate = savedApply })
+
+	var out, errw bytes.Buffer
+	if rc := packMain([]string{"update"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("pack update rc = %d: %s", rc, errw.String())
+	}
+	if called {
+		t.Error("pack update must not trigger host apply under host_management \"none\"")
+	}
+}
+
+// TestPackUpdateInJailSkipsHostApply asserts that inside a jail,
+// yolo pack update does not attempt host apply.
+func TestPackUpdateInJailSkipsHostApply(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("YOLO_VERSION", "1.0.0")
+	t.Setenv("YOLO_PACK_ROOT", "")
+
+	called := false
+	savedApply := hostApplyFromPackUpdate
+	hostApplyFromPackUpdate = func(args []string, out, errw io.Writer, color bool, stdin io.Reader) int {
+		called = true
+		return 0
+	}
+	t.Cleanup(func() { hostApplyFromPackUpdate = savedApply })
+
+	var out, errw bytes.Buffer
+	if rc := packMain([]string{"update"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("pack update rc = %d: %s", rc, errw.String())
+	}
+	if called {
+		t.Error("pack update in a jail must not trigger host apply")
+	}
+}
+
+// TestPackInstallNeverCallsHostApply asserts that pack install never triggers host apply.
+func TestPackInstallNeverCallsHostApply(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("YOLO_VERSION", "")
+	t.Setenv("YOLO_PACK_ROOT", "")
+
+	called := false
+	savedApply := hostApplyFromPackUpdate
+	hostApplyFromPackUpdate = func(args []string, out, errw io.Writer, color bool, stdin io.Reader) int {
+		called = true
+		return 0
+	}
+	t.Cleanup(func() { hostApplyFromPackUpdate = savedApply })
+
+	var out, errw bytes.Buffer
+	if rc := packMain([]string{"install"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("pack install rc = %d: %s", rc, errw.String())
+	}
+	if called {
+		t.Error("pack install must never trigger host apply")
+	}
+}

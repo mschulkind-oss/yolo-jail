@@ -37,10 +37,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // acceptConfigChangesEnv grants the config-change approval for ONE wrapped host launch.
@@ -203,45 +204,39 @@ func hostApplyGate(errw io.Writer, stdin io.Reader, bin string) bool {
 		return true
 	}
 
-	if hostGateCanPrompt() {
-		reportHostApplyGateChanges(errw, bin, survey)
-		if !promptYesNo(errw, stdin, fmt.Sprintf("  Apply these and launch %s? [y/N] ", bin)) {
-			// DECLINE ABORTS, as it does in the jail (OQ-HS5). Launching anyway would make the
-			// question a formality, and applying anyway would make "no" mean nothing.
-			fmt.Fprintf(errw, "yolo host: not applied — %s was not launched.\n"+
-				"  Launch it unchanged by turning off `host_apply_on_launch` in %s, or by "+
-				"running the real binary directly.\n", bin, paths.UserConfigPath())
-			return false
+	canPrompt := hostGateCanPrompt()
+
+	// ONE-WAY DOOR EXCEPTION (confirmHostLosses):
+	// On a FIRST apply into an unmanaged home where undeclared servers exist,
+	// preserve the legacy adoption prompt if promptable, or refuse if non-interactive.
+	if surveyNeedsPrompt(survey) {
+		if canPrompt {
+			return hostApplyGateApplyInteractive(errw, stdin, bin)
 		}
-		return hostApplyGateApply(errw, stdin, bin)
+		fmt.Fprintf(errw, "yolo host: refusing to launch %s — first apply into this home would "+
+			"lose undeclared MCP servers and there is no terminal to confirm adoption.\n"+
+			"  Run `yolo host apply --assert` to review and adopt configuration interactively.\n",
+			bin)
+		return false
 	}
 
-	// NO TTY. The approval is the only thing that can stand in for the human, and it may only
-	// arrive through the environment because no flag can reach this process (see
-	// acceptConfigChangesEnv). PRESENCE, NOT TRUTH-PARSING: any non-empty value grants,
-	// matching YOLO_ALLOW_STALE_IMAGE's consent probe — consent is about intent, not about the
-	// token. A variable set to `0` by someone expecting "off" is the one plausible objection,
-	// and the house precedent goes the other way.
-	if os.Getenv(acceptConfigChangesEnv) != "" {
-		return hostApplyGateApply(errw, stdin, bin)
-	}
-	refuseHostApplyGate(errw, bin, survey)
-	return false
+	// ZERO-PROMPT AUTO-APPLY (docs/design/host-wrapper-auto-apply.md OQ-2).
+	// For all routine synchronizations under assert and own, apply changes automatically
+	// without prompting, emit a single stderr notice, and launch immediately.
+	return hostApplyGateApply(errw, stdin, bin, home, survey)
 }
 
-// hostApplyGateApply runs the ordinary writing apply and reports whether the launch may
-// proceed.
-//
-// IT IS THE ORDINARY applyHost, deliberately: every one-way-door confirmation the explicit
-// command has — confirmHostLosses, the skills and briefing adoption gates — is reached through
-// it, unchanged, on exactly the conditions it already fires on. This design adds a new MOMENT
-// for those prompts, never a second mechanism (§7).
-//
-// A FAILED APPLY ABORTS THE LAUNCH, which the design's table does not cover and which follows
-// from what the user just asked for: they said "apply these and launch", so exec'ing an agent
-// against a home the apply did not finish is the "it looked like it worked" outcome the whole
-// gate exists to remove. The render is idempotent, so the next launch converges (§4.4).
-func hostApplyGateApply(errw io.Writer, stdin io.Reader, bin string) bool {
+// surveyNeedsPrompt reports whether the apply would hit confirmHostLosses: a first-ever
+// apply into an unmanaged home with pre-existing undeclared MCP entries.
+func surveyNeedsPrompt(survey *hostApplySurvey) bool {
+	if survey == nil {
+		return false
+	}
+	entries, _ := survey.DroppedEntries()
+	return survey.FirstApply() && entries > 0
+}
+
+func hostApplyGateApplyInteractive(errw io.Writer, stdin io.Reader, bin string) bool {
 	if rc := applyHost(errw, errw, false, true, stdin); rc != 0 {
 		fmt.Fprintf(errw, "yolo host: the host apply did not complete (rc=%d, see above) — %s "+
 			"was not launched.\n"+
@@ -252,69 +247,42 @@ func hostApplyGateApply(errw io.Writer, stdin io.Reader, bin string) bool {
 	return true
 }
 
-// reportHostApplyGateChanges names what a re-apply would change, for the reader who is about
-// to be asked about it.
-//
-// THE CHANGE LIST, NOT A UNIFIED DIFF, and that is a deliberate boundary rather than a
-// shortfall. `yolo host apply --dry-run` already renders the per-key detail — which managed key
-// would be overwritten, which entry would be replaced, which comment would not survive — and
-// naming the command is how the reader gets it. Re-rendering that detail here would be a second
-// reporter for the same facts at a surface where it has to stay short: this text interrupts
-// somebody starting an agent, and a fifty-line report at that moment is a report nobody reads.
-func reportHostApplyGateChanges(errw io.Writer, bin string, survey *hostApplySurvey) {
-	fmt.Fprintf(errw, "yolo host: %d host destination(s) are out of date, and %s reads its "+
-		"config at startup:\n", len(survey.Changed), bin)
-	for _, c := range survey.Changed {
-		fmt.Fprintf(errw, "  %-14s %-24s %s\n", c.Kind, c.Surface, c.Path)
+func hostApplyGateApply(errw io.Writer, stdin io.Reader, bin, home string, survey *hostApplySurvey) bool {
+	var buf bytes.Buffer
+	if rc := applyHost(&buf, &buf, false, true, stdin); rc != 0 {
+		io.Copy(errw, &buf)
+		fmt.Fprintf(errw, "yolo host: the host apply did not complete (rc=%d, see above) — %s "+
+			"was not launched.\n"+
+			"  Fix what it reported and run `yolo host apply --assert`, then launch again.\n",
+			rc, bin)
+		return false
 	}
-	// The pointer names --verbose because the DEFAULT dry run now counts what it would change and
-	// itemizes only the changed config surfaces and the losses (docs/reference/report-tiers.md,
-	// detail on demand). "Exactly what changes in each" is the detail view's promise, and this
-	// line is the one place that promise is made in someone else's words.
-	fmt.Fprintf(errw, "  (`yolo host apply --dry-run --verbose` shows exactly what changes "+
-		"in each.)\n")
+	reportHostApplyGateSynchronized(errw, home, survey)
+	return true
 }
 
-// refuseHostApplyGate is the non-TTY refusal (OQ-HS6).
-//
-// ITS READER TYPED `claude`, NOT `yolo` (§1 P5, risk R2), so an unexplained failure here reads
-// as "claude is broken". Three things therefore have to be in the message: what stopped, that
-// it was yolo and which key of theirs asked for it, and the remedy IN A SPELLING THIS READER
-// CAN USE. Both remedies are given because they suit different readers — the two-step apply
-// leaves nothing behind in the environment and is what an interactive reader should reach for,
-// while a scripted caller that cannot pass a flag needs the variable.
-//
-// # The two-step remedy is `yolo host apply --assert`, with no flag after it
-//
-// The design writes it as `yolo host apply --assert --accept-config-changes` (§4.3), and that
-// command does not exist: hostApply's parser accepts --assert, --dry-run and --shell-init and
-// exits 2 on anything else. Teaching it the flag was considered and is REFUSED by the design's
-// own §7 — *"It does not change the explicit `apply` path. `yolo host apply` keeps
-// observe-by-default and keeps its fail-closed confirmations."* The flag would have to stand in
-// for those confirmations to mean anything there, which is exactly the fail-closed gate
-// TestApplyHostFirstApplyFailsClosedWithoutStdin exists to hold.
-//
-// Nor is it needed: `--accept-config-changes` grants the JAIL's config-approval, and the host
-// apply has no such approval to grant. Its gates are stdin-driven one-way doors over a
-// first-ever apply, a different mechanism with a different answer. So step 1 is the bare
-// `--assert`, which is all the remedy needs — and if the apply does have a one-way door to ask
-// about, it says so itself, on its own terms, which is the only place that question belongs.
-func refuseHostApplyGate(errw io.Writer, bin string, survey *hostApplySurvey) {
-	fmt.Fprintf(errw, "yolo host: refusing to launch %s — %d host destination(s) are out of "+
-		"date and this launch has no terminal to approve the update on.\n",
-		bin, len(survey.Changed))
-	for _, c := range survey.Changed {
-		fmt.Fprintf(errw, "  %-14s %-24s %s\n", c.Kind, c.Surface, c.Path)
+func prettyHomePath(home, abs string) string {
+	if rel, ok := strings.CutPrefix(abs, home+string(filepath.Separator)); ok {
+		return "~/" + filepath.ToSlash(rel)
 	}
-	fmt.Fprintf(errw, "\nA change to your real home is never applied without someone saying so, "+
-		"and a scripted launch is exactly where nobody is watching. This check is "+
-		"`host_apply_on_launch` in %s.\n\n"+
-		"Apply it first, which leaves nothing behind in your environment:\n"+
-		"  yolo host apply --assert\n"+
-		"  %s ...\n\n"+
-		"Or approve THIS launch only, on the one channel a wrapper leaves open:\n"+
-		"  %s=1 %s ...\n",
-		paths.UserConfigPath(), bin, acceptConfigChangesEnv, bin)
+	return abs
+}
+
+func reportHostApplyGateSynchronized(errw io.Writer, home string, survey *hostApplySurvey) {
+	var targets []string
+	seen := make(map[string]bool)
+	for _, c := range survey.Changed {
+		p := prettyHomePath(home, c.Path)
+		if !seen[p] {
+			seen[p] = true
+			targets = append(targets, p)
+		}
+	}
+	if len(targets) == 0 {
+		fmt.Fprintf(errw, "yolo host: synchronized host configuration\n")
+		return
+	}
+	fmt.Fprintf(errw, "yolo host: synchronized host configuration (%s)\n", strings.Join(targets, ", "))
 }
 
 // surveyHostApplyWithinBudget runs the observe pass under §4.4's budget and returns the

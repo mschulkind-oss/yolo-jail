@@ -281,10 +281,8 @@ func TestHostApplyGateIsANoOpUnderHostManagementNone(t *testing.T) {
 		t.Errorf("the gate nagged under host_management \"none\":\n%s", errw.String())
 	}
 
-	// The control, and the `own` assertion in one: the SAME unapplied home refuses under both
-	// contracts that DO render. Without the control the `none` assertion above could pass on a
-	// home that simply had nothing to report; without `own` in it, the branch could be widened
-	// back to "anything but assert" with everything still green.
+	// The control, and the `own` assertion in one: the SAME unapplied home auto-applies under both
+	// active contracts that DO render.
 	for _, mode := range []string{"", "own"} {
 		h := gateFixture(t, true)
 		if mode != "" {
@@ -292,9 +290,11 @@ func TestHostApplyGateIsANoOpUnderHostManagementNone(t *testing.T) {
 				`{"packs":["claude"],"host_apply_on_launch":true,"host_management":"`+mode+`"}`)
 		}
 		var errw bytes.Buffer
-		if hostApplyGate(&errw, nil, "claude") {
-			t.Errorf("an unapplied home under host_management %q passed the gate — whatever "+
-				"renders is what this gate checks:\n%s", mode, errw.String())
+		if !hostApplyGate(&errw, nil, "claude") {
+			t.Errorf("an unapplied home under host_management %q failed the gate:\n%s", mode, errw.String())
+		}
+		if !strings.Contains(errw.String(), "synchronized host configuration") {
+			t.Errorf("expected synchronized notice under mode %q, got:\n%s", mode, errw.String())
 		}
 	}
 }

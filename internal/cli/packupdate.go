@@ -49,6 +49,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -84,7 +85,14 @@ type launcherRunner func(bin, path string) error
 // be asserting the plumbing rather than the rule.
 var programRefresh = refreshProgramsFromOS
 
-// packUpdate is `yolo pack update`: everything `install` does, plus the program refresh.
+// hostApplyFromPackUpdate runs host apply --assert on the host after packs are updated.
+// A package-level var so tests can intercept or assert that it is called with --assert.
+var hostApplyFromPackUpdate = func(args []string, out, errw io.Writer, color bool, stdin io.Reader) int {
+	return hostApply(args, out, errw, color, stdin)
+}
+
+// packUpdate is `yolo pack update`: everything `install` does, plus the program refresh,
+// and on the host under active management (assert or own), host apply --assert.
 //
 // The git/lockfile half runs first and unconditionally. A failure there does not skip the
 // npm half — the two are independent (a pack whose git remote is offline says nothing
@@ -94,6 +102,13 @@ func packUpdate(out, errw io.Writer, color bool) int {
 	rc := packInstall(out, errw, color)
 	if n := programRefresh(richtext.Printer{W: out, Color: color}, errw); n != 0 && rc == 0 {
 		rc = n
+	}
+	// OQ-3: When running on the host under active host management (assert or own),
+	// yolo pack update automatically triggers host apply --assert.
+	if !config.InJail() && config.HostManagementMode() != config.HostManagementNone {
+		if arc := hostApplyFromPackUpdate([]string{"--assert"}, out, errw, color, os.Stdin); arc != 0 && rc == 0 {
+			rc = arc
+		}
 	}
 	return rc
 }

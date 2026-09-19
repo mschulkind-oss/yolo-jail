@@ -138,10 +138,10 @@ func hostManagementRow(r *reporter) {
 func hostApplyOnLaunchRow(r *reporter) {
 	if config.HostApplyOnLaunchEnabled() {
 		r.ok("host_apply_on_launch is on — a wrapped launch re-checks the render first, and " +
-			"stops to ask when it would change something")
+			"synchronizes host configuration automatically")
 		return
 	}
-	r.ok("host_apply_on_launch is off (the default) — a wrapped launch execs whatever the last " +
+	r.ok("host_apply_on_launch is off — a wrapped launch execs whatever the last " +
 		"`yolo host apply --assert` left, however stale.\n" +
 		"  Turn it on in " + paths.UserConfigPath() + " to have a launch notice; see " +
 		"`yolo config-ref` for what it does and does not grant.")

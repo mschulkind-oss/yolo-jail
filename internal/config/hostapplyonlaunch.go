@@ -50,11 +50,12 @@ func HostApplyOnLaunchEnabled() bool {
 
 // hostApplyOnLaunchValue reads the key out of an already-loaded config map. Split out so the
 // validator and the tests can exercise the same reading without touching the real home.
+// If unset, it defaults to the value of host_wrappers (docs/design/host-wrapper-auto-apply.md OQ-1).
 func hostApplyOnLaunchValue(cfg *jsonx.OrderedMap) bool {
 	v, present := cfg.Get(hostApplyOnLaunchKey)
-	if !present || v == nil {
-		return false
+	if present && v != nil {
+		b, ok := v.(bool)
+		return ok && b
 	}
-	b, ok := v.(bool)
-	return ok && b
+	return hostWrappersValue(cfg)
 }

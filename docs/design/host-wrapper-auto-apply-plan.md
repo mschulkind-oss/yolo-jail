@@ -10,7 +10,7 @@ vantage:
 
 # Host wrapper auto-apply and zero-prompt launch — implementation sketch
 
-**Status:** DECIDED, 2026-09-18 — a SKETCH until today; now settled following rulings on all three open questions ([`host-wrapper-auto-apply.md#decision-ledger`](host-wrapper-auto-apply.md#decision-ledger)). Nothing is built.
+**Status:** IMPLEMENTED, 2026-09-18 — settled following rulings on all three open questions ([`host-wrapper-auto-apply.md#decision-ledger`](host-wrapper-auto-apply.md#decision-ledger)). Fully built and tested.
 
 > **Precedence:** [`host-wrapper-auto-apply.md`](host-wrapper-auto-apply.md) leads on all behavioral
 > and architectural decisions.

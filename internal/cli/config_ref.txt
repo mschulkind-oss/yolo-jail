@@ -655,36 +655,34 @@
     Example (~/.config/yolo-jail/config.jsonc):
       "host_wrappers": true
 
-  [bold]host_apply_on_launch[/bold] (boolean): Re-check the host render at a wrapped launch.
-    Default false.  `yolo host apply` writes into your real home once and nothing
-    ever looks again, so what is in your agents' config files and what your packs
-    NOW say drift apart in silence.  Turn this on and a launch through a generated
-    wrapper (see [bold]host_wrappers[/bold] above) asks first: if a re-apply would change
-    nothing it execs straight through, and if it would change something it shows
-    you what and waits.
+  [bold]host_apply_on_launch[/bold] (boolean): Re-check and synchronize the host render at a wrapped launch.
+    Default true when [bold]host_wrappers[/bold] is true; otherwise false.  `yolo host apply`
+    writes into your real home once, so without re-checking, what is in your agents'
+    config files and what your packs NOW say drift apart in silence.  With this enabled,
+    a launch through a generated wrapper (see [bold]host_wrappers[/bold] above) checks first:
+    if a re-apply would change nothing it execs straight through; if drift is detected
+    under active host management (`assert` or `own`), it automatically synchronizes
+    host configuration before launch (printing `yolo host: synchronized host configuration (<targets>)`
+    to stderr) and execs without pausing for confirmation.
 
-    It behaves exactly like a jail launch, which is the point — the same gate
-    `yolo -- <cmd>` puts in front of a changed config:
+    Interactive confirmation is reserved for first-time adoption that would overwrite
+    unmanaged host keys:
 
       nothing would change      silent; the agent starts as usual.
-      change, terminal attached shows what would change and prompts.  Accept and
-                                yolo applies then launches; decline and the launch
-                                is ABORTED, as a jail launch is.
-      change, no terminal       REFUSED, naming the two commands that fix it —
-                                unless the approval is in the environment (below).
+      safe managed changes      auto-applied silently; notice printed, agent launches.
+      first apply overwriting
+      unmanaged keys, terminal  shows what would change and prompts for confirmation.
+      first apply overwriting
+      unmanaged keys, off-TTY   REFUSED, naming the commands that fix it — unless the
+                                approval is in the environment (below).
       cannot tell               execs.  A malformed pack, an unreadable home or a
                                 concurrent apply is not something a launch may
                                 stop over.
 
-    [bold yellow]The key enables the mechanism.  It does not grant the approval.[/bold yellow]  A launch
-    under an enabled key still prompts, and still refuses when there is nobody to
-    prompt.  A config key that pre-approved would be standing consent — read on
-    every launch forever with no act of granting — which yolo refuses for the same
-    reason `--accept-config-changes` is a flag rather than a variable.
-
     A scripted launch has no slot for a flag: the wrapper is a fixed
     `exec yolo host -- <program> "$@"`, and everything after `--` belongs to the
-    program.  So on THAT PATH ONLY the approval may come from the environment:
+    program.  So when first-time adoption needs approval, it may come from the
+    environment:
       YOLO_ACCEPT_CONFIG_CHANGES=1 claude --print ...
     Any non-empty value grants it, for this process.  It is honored by the wrapped
     launch and NOWHERE else — never by `yolo`, which takes the flag, and never by

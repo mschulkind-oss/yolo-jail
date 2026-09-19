@@ -196,6 +196,6 @@ When running `yolo pack update` on the host ([`OQ-3`](#decision-ledger)):
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| <a id="decision-ledger"></a>[`OQ-1`](#decision-ledger) | `host_wrappers: true` implies `host_apply_on_launch: true` by default; `"host_apply_on_launch": false` is the escape hatch | 2026-09-18 | [§3.1](#31-implied-auto-check-when-host_wrappers-true) | — |
-| [`OQ-2`](#decision-ledger) | Zero-prompt auto-apply on launch: yolo synchronizes declared pack updates silently without interactive confirmation | 2026-09-18 | [§3.2](#32-zero-prompt-auto-apply-on-launch) | — |
-| [`OQ-3`](#decision-ledger) | `yolo pack update` on the host automatically triggers `host apply --assert` when `host_management` is `"assert"` or `"own"` | 2026-09-18 | [§3.3](#33-coupling-with-yolo-pack-update) | — |
+| <a id="decision-ledger"></a>[`OQ-1`](#decision-ledger) | `host_wrappers: true` implies `host_apply_on_launch: true` by default; `"host_apply_on_launch": false` is the escape hatch | 2026-09-18 | [§3.1](#31-implied-auto-check-when-host_wrappers-true) | ✅ |
+| [`OQ-2`](#decision-ledger) | Zero-prompt auto-apply on launch: yolo synchronizes declared pack updates silently without interactive confirmation | 2026-09-18 | [§3.2](#32-zero-prompt-auto-apply-on-launch) | ✅ |
+| [`OQ-3`](#decision-ledger) | `yolo pack update` on the host automatically triggers `host apply --assert` when `host_management` is `"assert"` or `"own"` | 2026-09-18 | [§3.3](#33-coupling-with-yolo-pack-update) | ✅ |

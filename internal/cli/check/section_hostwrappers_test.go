@@ -142,8 +142,35 @@ func TestHostWrappersPassesWhenOnPath(t *testing.T) {
 // re-checks a host render — the drift the whole design is about is silent by construction, so
 // this row is the only place a user meets it.
 func TestHostApplyOnLaunchRowSaysItIsOffAndHowToLearn(t *testing.T) {
-	o, r, buf := hostWrappersFixture(t, true, []string{"claude"}, "/bin")
-	o.sectionHostWrappers(r)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfg := filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
+	if err := os.MkdirAll(filepath.Dir(cfg), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"host_wrappers": true, "host_apply_on_launch": false}`
+	if err := os.WriteFile(cfg, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(home, ".local", "share", "yolo-jail", "bin", "wrap")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	o := &Options{Getenv: func(k string) string {
+		switch k {
+		case "PATH":
+			return "/bin"
+		case "YOLO_VERSION":
+			return ""
+		}
+		return ""
+	}}
+	o.sectionHostWrappers(newReporter(&buf, false))
 	out := buf.String()
 	if !strings.Contains(out, "host_apply_on_launch is off") {
 		t.Errorf("the section must say the feature exists and is off:\n%s", out)
@@ -153,6 +180,20 @@ func TestHostApplyOnLaunchRowSaysItIsOffAndHowToLearn(t *testing.T) {
 	}
 	if !strings.Contains(out, filepath.Join(".config", "yolo-jail")) {
 		t.Errorf("the row must name the USER config — the only scope the key is read from:\n%s", out)
+	}
+}
+
+// TestHostApplyOnLaunchRowDefaultsToOnWhenWrappersEnabled verifies that host_wrappers: true
+// defaults host_apply_on_launch to on without needing an explicit key.
+func TestHostApplyOnLaunchRowDefaultsToOnWhenWrappersEnabled(t *testing.T) {
+	o, r, buf := hostWrappersFixture(t, true, []string{"claude"}, "/bin")
+	o.sectionHostWrappers(r)
+	out := buf.String()
+	if !strings.Contains(out, "host_apply_on_launch is on") {
+		t.Errorf("with host_wrappers on, host_apply_on_launch must default to on:\n%s", out)
+	}
+	if !strings.Contains(out, "synchronizes host configuration automatically") {
+		t.Errorf("on message should describe automatic synchronization:\n%s", out)
 	}
 }
 
