@@ -133,8 +133,11 @@
   //
   // The port is fixed at 1461 and the pack's `env` contribution writes the matching
   // AWS_CONTAINER_CREDENTIALS_FULL_URI — one fact in two files, so changing either
-  // means changing both. 1460 is the OpenAI adapter's; 8214/8215/8216 are
-  // cerebras/wire-bridge/kilo.
+  // means changing both. 1460 is the OpenAI adapter's. 8214 and 8215 are the wire
+  // bridge's TWO adaptations — `openai → anthropic` and `openai-responses →
+  // anthropic` — declared in packs/wire-bridge/pack.json, not a port per provider;
+  // a third, 8216, was eliminated when kilo started sharing the first
+  // (docs/reference/protocol-resolution.md).
   //
   // ⚠ The SDK speaks plain http only to 127.0.0.0/8, which is what makes this
   // unreachable from outside the jail — and INSIDE the jail there is no boundary at

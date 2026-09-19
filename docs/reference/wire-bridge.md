@@ -342,7 +342,7 @@ only place the values themselves are stated.
 | Address override key | `adapters.<from>-><to>.address`, **user scope only** | `internal/config/adapters.go`, `yolo config-ref` |
 | Restart policy | on failure | `packs/wire-bridge/pack.json` |
 | Served path | `POST /v1/messages` and nothing else | `internal/wirebridged/handler.go` |
-| Upstream path | the provider's `openai` base URL plus chat-completions | `internal/wirebridged/boot.go` |
+| Upstream path | the provider's `openai` base URL plus chat-completions | `internal/wirebridged/handler.go` |
 | Upstream error mapping | 4xx same-status; every 5xx, timeout or dial failure → 502 | `bridgeHandler.relayUpstreamError` |
 | Endpoint variable | `YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT`, emitted only when the daemon will serve | `run.serviceEndpointEnvArgs`, `wirebridged.WillServe` |
 | Selection inputs the daemon re-reads | the composed providers, use-profiles and resolved-profiles tables | `wirebridged.routeFor` |

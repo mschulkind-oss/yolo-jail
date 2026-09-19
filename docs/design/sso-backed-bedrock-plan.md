@@ -115,8 +115,10 @@ untouched; `packs/` is already in the `goSrc` fileset.
   `wantDefaultEnabled` and the name list in `internal/loopholedecl/shipped_test.go`;
   `shippedLoopholes` in `internal/loopholes/shipped_test.go`; `TestEmbedMatchesTree`
   (`internal/packload/embeddrift_test.go`) for `packs/embed.go`.
-- **Jail loopback ports already fixed:** `1460` (OpenAI adapter), `8214`/`8216` (cerebras/kilo),
-  `8215` (wire-bridge). Anything else is cheap and yours.
+- **Jail loopback ports already fixed:** `1460` (OpenAI adapter), and the wire bridge's two
+  adaptations at `8214` (`openai → anthropic`) and `8215` (`openai-responses → anthropic`).
+  ⚠ This read `8214`/`8216` (cerebras/kilo) until 2026-09-18: the ports are the ADAPTER's, not
+  one per provider, and `8216` was eliminated rather than moved. Anything else is cheap and yours.
 - **Pre-mint on `runProactive`'s ticker; never mint inside a request** — the design's R1.
 - **Detect the SSO config form from `~/.aws/config`** (`sso_session` under `[profile X]`). No INI
   parser is vendored; ~30 lines by hand.
