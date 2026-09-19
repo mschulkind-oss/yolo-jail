@@ -1,9 +1,12 @@
 package supervisor
 
 import (
+	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -208,4 +211,91 @@ func TestSpawnFailureRestartAlwaysRetries(t *testing.T) {
 	if body := readDaemonLog(t, "t"); !strings.Contains(body, "spawn failed") {
 		t.Errorf("spawn failure not reported in <name>.log: %q", body)
 	}
+}
+
+// TestRunKillsAChildSpawnedDuringShutdown pins the mutual exclusion between a
+// spawn in flight and teardown, THROUGH Run — the shape that matters, because
+// terminate() and start() are each individually correct and it is only their
+// interleaving that leaked. Run used to return, silently, with the daemon still
+// running: terminate() found c.cmd nil (the spawn had not published yet) and
+// signalled nothing, start() then published, waitAndMaybeRestart blocked in
+// cmd.Wait() for the child's whole lifetime, and Run abandoned that goroutine at
+// its 10s waitTimeout. In a jail the survivor keeps its port and the next boot
+// fails on an endpoint something else already holds.
+//
+// The window is normally microseconds, so widen it with the production code's
+// own first act: start() opens the daemon log before it spawns, and opening a
+// FIFO for writing blocks until a reader arrives. That also SYNCHRONISES the
+// test — this goroutine's blocking read-open cannot return until start() is
+// parked in that write-open — so the interleaving is chosen, not raced for.
+func TestRunKillsAChildSpawnedDuringShutdown(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if err := os.MkdirAll(LogDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fifo := filepath.Join(LogDir(), "sleeper.log")
+	if err := syscall.Mkfifo(fifo, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// A lifetime long enough that a survivor is unambiguous, short enough that a
+	// failing run does not leave a long-lived orphan behind.
+	specs := []Spec{{Name: "sleeper", Cmd: []string{"sleep", "15"}, Restart: "always"}}
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() { Run(specs, stop); close(done) }()
+
+	// Let the supervise goroutine park in openLog's write-open, then tear down.
+	// terminate() therefore runs while the spawn is unpublished — the losing
+	// interleaving, deterministically.
+	time.Sleep(200 * time.Millisecond)
+	close(stop)
+	time.Sleep(200 * time.Millisecond)
+
+	// Release the write-open so start() proceeds to spawn under a set stopping
+	// flag, and drain the pipe so the child can never block on its own output.
+	opened := make(chan *os.File, 1)
+	go func() {
+		f, err := os.OpenFile(fifo, os.O_RDONLY, 0)
+		if err != nil {
+			opened <- nil
+			return
+		}
+		opened <- f
+	}()
+	select {
+	case f := <-opened:
+		if f == nil {
+			t.Fatal("could not open the daemon log FIFO for reading")
+		}
+		defer f.Close()
+		go func() { _, _ = io.Copy(io.Discard, f) }()
+	case <-time.After(5 * time.Second):
+		t.Fatal("no writer ever reached the daemon log: start() was never entered, " +
+			"so this test proves nothing")
+	}
+
+	// waitTimeout's 10s is the tell: reaching it means Run abandoned a live
+	// supervise goroutine and the daemon it was waiting on.
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return promptly: a daemon spawned during shutdown " +
+			"was never terminated, and Run is waiting out its abandonment timeout")
+	}
+	if n := runtime.NumGoroutine(); goroutinesInSupervisor(t) {
+		t.Errorf("Run returned with a supervise goroutine still live (%d goroutines): "+
+			"its child outlived the supervisor", n)
+	}
+}
+
+// goroutinesInSupervisor reports whether any goroutine is still inside this
+// package's per-daemon loop. Portable where a process-table scan is not, and it
+// names the abandonment directly rather than inferring it from a survivor.
+func goroutinesInSupervisor(t *testing.T) bool {
+	t.Helper()
+	buf := make([]byte, 1<<20)
+	buf = buf[:runtime.Stack(buf, true)]
+	return strings.Contains(string(buf), "supervisor.(*child).waitAndMaybeRestart") ||
+		strings.Contains(string(buf), "supervisor.(*child).superviseOne")
 }

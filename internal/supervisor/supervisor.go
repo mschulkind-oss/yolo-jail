@@ -145,7 +145,16 @@ type child struct {
 	mu      sync.Mutex
 	cmd     *exec.Cmd
 	done    chan struct{} // closed when the current cmd's Wait() returns
+	// stopping records that terminate() has run for this child. It is set and
+	// read under mu together with cmd, which is what makes teardown and a spawn
+	// still in flight mutually exclusive rather than a race — see start().
+	stopping bool
 }
+
+// errStopping is start()'s report that teardown claimed this child while the
+// spawn was in flight: the process it started has already been killed and
+// reaped, so the supervise loop must simply return.
+var errStopping = errors.New("supervisor is stopping")
 
 func (c *child) start() error {
 	lf, err := openLog(c.spec.Name)
@@ -186,7 +195,28 @@ func (c *child) start() error {
 		lf.Close()
 		return err
 	}
+	// Publishing is where a spawn and teardown meet, so it is the ONE place that
+	// can decide between them. terminate() reads c.cmd under this mutex and
+	// returns when it is nil, which it is for the whole of a spawn up to this
+	// line — so before this check, a stop that landed mid-spawn was resolved by
+	// whichever goroutine happened to touch the mutex first, and when that was
+	// terminate() the process it could not see was never signalled at all. It
+	// then outlived yolo-jaild: waitAndMaybeRestart blocked in cmd.Wait() for
+	// the child's whole lifetime, so Run gave up at its 10s waitTimeout and
+	// returned as though teardown had succeeded, leaving a daemon holding its
+	// port for the next boot to trip over.
+	//
+	// Under one lock there is no third outcome: either we publish in time and
+	// terminate() signals the process, or terminate() got here first and we own
+	// the teardown of what we just started.
 	c.mu.Lock()
+	if c.stopping {
+		c.mu.Unlock()
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait() // reap it; nothing else will
+		_ = lf.Close()
+		return errStopping
+	}
 	c.cmd = cmd
 	c.done = make(chan struct{})
 	c.mu.Unlock()
@@ -258,6 +288,10 @@ func (c *child) waitAndMaybeRestart(stop <-chan struct{}) bool {
 // than Wait()ing here.
 func (c *child) terminate(timeout time.Duration) {
 	c.mu.Lock()
+	// Claim the child BEFORE reading cmd, under the same lock start() publishes
+	// under: if there is nothing here to signal, it is because a spawn is still
+	// in flight, and this flag is what makes it refuse to publish.
+	c.stopping = true
 	cmd := c.cmd
 	done := c.done
 	c.mu.Unlock()
@@ -293,6 +327,9 @@ func (c *child) terminate(timeout time.Duration) {
 func (c *child) superviseOne(stop <-chan struct{}) {
 	for !isStopped(stop) {
 		if err := c.start(); err != nil {
+			if errors.Is(err, errStopping) {
+				return // teardown owns the process start() spawned
+			}
 			if c.spec.Restart == "no" {
 				c.logf("spawn failed: %v — restart policy %q: giving up, this daemon will not run", err, c.spec.Restart)
 				return
