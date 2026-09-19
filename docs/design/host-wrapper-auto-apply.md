@@ -3,7 +3,7 @@ title: "Why host wrappers don't auto-apply — and whether they should"
 date: 2026-09-18
 status: in-review
 tags: [design, host, apply, wrappers, ergonomics, consent]
-summary: "Enabling `host_wrappers: true` installs shims that exec through `yolo host -- <bin>`, but leaves host apply checks off unless `host_apply_on_launch: true` is also configured. Even when enabled, the gate pauses for an interactive confirmation prompt whenever anything would change. This doc examines why that friction exists, evaluates coupling the keys, and designs an auto-apply policy for host launches."
+summary: "Enabling `host_wrappers: true` installs shims that exec through `yolo host -- <bin>`, but leaves host apply checks off unless `host_apply_on_launch: true` is also configured. Even when enabled, the gate pauses for an interactive confirmation prompt whenever anything would change. This doc examines why that friction exists, evaluates coupling the keys, and proposes zero-prompt auto-apply on host launches."
 vantage:
   status-chip: true
 ---
@@ -15,26 +15,27 @@ vantage:
 > **In short.** `host_wrappers: true` creates shims so running an agent on the host
 > automatically routes through `yolo host -- <bin>`, but yolo leaves staleness checking off
 > by default (`host_apply_on_launch: false`). Even when opted in, it blocks on an interactive
-> `[y/N]` prompt on every drift. Coupling auto-apply directly to `host_wrappers` and distinguishing
-> non-destructive updates from lossy collisions eliminates manual ceremony while preserving host safety.
+> `[y/N]` prompt on every drift. Coupling auto-apply directly to `host_wrappers` and eliminating
+> prompts for declared pack updates removes ceremony while preserving user customizations.
 
 **Why it matters.** A user who configures `host_wrappers: true` expects yolo to manage the host agent
 environment seamlessly. Instead, updating a pack or editing configuration leaves the real `$HOME`
 silently stale until they discover `yolo host apply --assert` or the obscure `host_apply_on_launch` key.
-And once enabled, routine, non-destructive pack updates interrupt agent launches with confirmation prompts.
+And once enabled, routine pack updates interrupt agent launches with confirmation prompts even though
+user edits are already protected by capture overlays and RMW isolation.
 
 **The shape.** Make `host_wrappers: true` imply apply-on-launch by default (with an explicit opt-out
-`host_apply_on_launch: false`), and replace the blanket `[y/N]` prompt with a tiered policy: **auto-apply
-non-destructive RMW additions/updates silently**, while reserving confirmation prompts (or refusals)
-strictly for destructive conflicts and key deletions.
+`host_apply_on_launch: false`), and replace the interactive `[y/N]` launch prompt with **zero-prompt
+auto-apply**: whenever an agent is launched through a host wrapper, yolo applies declared pack updates
+and launches immediately.
 
-**Cost.** A launch through a host wrapper may now update `$HOME` configuration without an interactive
-keystroke if the change is non-destructive. Users who want static host configuration must explicitly set
+**Cost.** A launch through a host wrapper will now synchronize declared pack surfaces into `$HOME`
+without an interactive keystroke. Users who want static host configuration must explicitly set
 `host_apply_on_launch: false` or `host_management: "none"`.
 
-**Start at [§3](#3-the-proposal-implied-checking-and-tiered-auto-apply)** — the consolidation and consent tiers.
+**Start at [§3](#3-the-proposal-implied-checking-and-zero-prompt-auto-apply)** — the implied check and auto-apply behavior.
 
-**Needs your ruling:** [OQ-1](#oq-1--should-host_wrappers-true-imply-host_apply_on_launch-by-default), [OQ-2](#oq-2--what-should-the-default-auto-apply-posture-be), [OQ-3](#oq-3--should-yolo-pack-update-also-trigger-host-apply).
+**Needs your ruling:** [OQ-1](#oq-1), [OQ-2](#oq-2), [OQ-3](#oq-3).
 
 **Reads with:** [`../reference/host-apply-staleness.md`](../reference/host-apply-staleness.md) (the current
 staleness gate implementation), [`host-render-target.md`](host-render-target.md) (the host render model),
@@ -67,7 +68,7 @@ To have yolo manage an agent's host-side environment today, a user must navigate
    - If off a TTY with no `YOLO_ACCEPT_CONFIG_CHANGES=1` env var, it refuses outright.
 
 ### Why it was built this way
-The rationale recorded in [`docs/reference/host-apply-staleness.md`](../reference/host-apply-staleness.md) was rooted in
+The rationale recorded in [`../reference/host-apply-staleness.md`](../reference/host-apply-staleness.md) was rooted in
 two strict security and safety positions:
 
 - **P2 (Consent over Disposability):** A jail filesystem is ephemeral; a user's host `$HOME` is permanent.
@@ -81,11 +82,9 @@ two strict security and safety positions:
 
 ---
 
-## 2. Diagnosis: The ergonomics gap
+## 2. Diagnosis: The ergonomics gap and false deletion fears
 
-The current separation creates friction that runs counter to the user's mental model:
-
-### 1. Two flags for one intention
+### Two flags for one intention
 When a user sets `"host_wrappers": true`, their explicit intention is: *"I want yolo to manage my host agent environment."*
 Leaving `host_apply_on_launch` disabled by default means the wrappers are half-wired:
 - You update a pack (or pull a git pack).
@@ -93,57 +92,63 @@ Leaving `host_apply_on_launch` disabled by default means the wrappers are half-w
 - Nothing happens because `$HOME` is stale.
 - You have to know to either run `yolo host apply --assert` by hand, or discover and enable `host_apply_on_launch: true`.
 
-### 2. Routine updates are treated as hazardous collisions
-In the common case:
-- A pack adds a new skill in `~/.claude/skills/`.
-- A pack adds or updates an MCP server in `~/.claude.json`.
-- A pack asserts a default setting in a file configured with `host_management: "assert"` (pure RMW) or `"own"`.
+### Confirmation prompts on routine synchronization
+The fear that pack updates represent "data loss" requiring a `[y/N]` prompt on launch does not hold under either active
+management contract:
 
-Under `host_management: "assert"`, yolo only touches its own declared keys and explicitly preserves user keys.
-Under `host_management: "own"`, user edits are captured.
-Stopping the user with `Apply these and launch claude? [y/N]` every time a pack or setting advances treats safe,
-additive configuration synchronization as if it were an accidental data-clobbering hazard.
+1. **Under `host_management: "own"`:** Yolo composes the file from packs and capture overlays. If a user customized a
+   key or an MCP server by hand, that edit is captured into the overlay. A changing pack default does not overwrite a captured
+   key. And if there is no captured edit, the pack is the declared source of truth: if the pack author added, modified,
+   or dropped a server or setting, that is the declared configuration, not data loss.
+2. **Under `host_management: "assert"`:** Yolo performs pure RMW (read-modify-write) on its declared keys. Undeclared keys
+   authored by the user are left completely untouched. If a pack modifies or stops declaring a setting, yolo updates only
+   that declared key.
+3. **Under `host_management: "none"`:** Yolo writes nothing to `$HOME`. The staleness gate is already a silent no-op.
 
-### 3. Disconnect from `yolo pack update`
-When a user runs `yolo pack update`, they are explicitly asking to refresh their packs. Yet `yolo pack update`
-updates the store and lockfile and stops dead without touching the host render. The user is left wondering why
-their update didn't take effect on the host.
+The only real "data loss" boundary was legacy unmanaged adoption (`FirstApply` on a home with pre-existing undeclared MCP
+servers), which `confirmHostLosses` already handles on the very first apply. On routine wrapper launches, there is no
+user data loss to defend against.
+
+### Disconnect from `yolo pack update`
+When a user runs `yolo pack update`, they are explicitly asking to refresh their packs. Yet `yolo pack update` updates
+the store and lockfile and stops dead without touching the host render. The user is left wondering why their update didn't
+take effect on the host.
 
 ---
 
-## 3. The proposal: Implied checking and tiered auto-apply
+## 3. The proposal: Implied checking and zero-prompt auto-apply
 
-We propose resolving this complexity with two core changes:
+We propose resolving this complexity with three unified rules:
 
 ### A. Implied Auto-Check when `host_wrappers: true`
 `host_wrappers: true` becomes the single master switch for host-wrapper integration.
 
 - If `host_wrappers: true` is set, `host_apply_on_launch` **defaults to `true`**.
 - Users can still explicitly disable it with `"host_apply_on_launch": false` if they want static wrappers.
-- If `host_management: "none"` is configured, the check continues to be a silent no-op.
+- If `host_management: "none"` is configured, the check remains a silent no-op (yolo never touches `$HOME`).
 
-### B. Tiered Auto-Apply Policy (Distinguish Additions from Destructive Losses)
-Instead of prompting `[y/N]` on *any* detected change, [`hostApplyGate`](file:///workspace/internal/cli/hostapplygate.go#L120)
-inspects the nature of the change:
+### B. Zero-Prompt Auto-Apply on Launch
+Under both active management modes (`"assert"` and `"own"`), [`hostApplyGate`](../../internal/cli/hostapplygate.go)
+no longer pauses for an interactive `[y/N]` prompt:
 
-| Tier | Change Type | Examples | Default Action |
-| :--- | :--- | :--- | :--- |
-| **Tier 1: Safe / Additive** | Purely additive or non-destructive managed key updates | New skill staged; new MCP server added; declared managed key written via RMW where no user key existed | **Auto-apply silently** (with a single stderr notice: `yolo host: applied updated pack surfaces`) |
-| **Tier 2: Modification of Managed State** | A managed setting's value changes from a previous render | A pack changes a model setting from `claude-3-5-sonnet` to `claude-3-7-sonnet` | **Auto-apply** under `assert`/`own` (idempotent policy update) |
-| **Tier 3: Destructive / Conflicting** | Data loss or conflicting user edits | Overwriting an undeclared key the user wrote by hand; dropping an existing MCP server; removing a user-modified skill | **Prompt `[y/N]` on TTY**, or refuse off TTY unless `YOLO_ACCEPT_CONFIG_CHANGES=1` |
-
-This directly eliminates prompting during ordinary development and pack upgrades, while preserving the safeguard
-where it actually matters: preventing the loss of user-authored keys or external customizations.
+- When drift between declared packs and `$HOME` is detected at launch, yolo applies the updates automatically and execs
+  the agent immediately.
+- To maintain visibility without blocking, yolo prints a single concise stderr notice:
+  ```text
+  yolo host: synchronized host configuration (~/.claude.json)
+  ```
+- The existing one-way door (`confirmHostLosses`) remains strictly for `FirstApply && EntryLosses` (the initial adoption
+  of an unmanaged home with pre-existing servers). Routine updates across already-managed homes apply seamlessly.
 
 ### C. Coupling with `yolo pack update`
 When running `yolo pack update` on the host:
-- If `host_management` is `"assert"` or `"own"`:
-  - If any updated pack contributes host surfaces, `yolo pack update` runs a host apply survey.
-  - If safe (Tier 1/2), it applies the updates immediately and reports:
-    ```text
-    claude: updated host configuration (~/.claude.json)
-    ```
-  - If conflicting (Tier 3), it reports the conflict and advises running `yolo host apply --assert`.
+- If `host_management` is `"assert"` or `"own"`, `yolo pack update` automatically triggers `host apply --assert`
+  for any modified host surfaces.
+- Output reports what was updated in `$HOME`:
+  ```text
+  claude: updated host configuration (~/.claude.json)
+  ```
+- If `host_management` is `"none"`, it skips host apply cleanly.
 
 ---
 
@@ -153,8 +158,8 @@ When running `yolo pack update` on the host:
   `none`, yolo will never write to their `$HOME`.
 - **No changes to jail launches:** In-jail launches remain entirely unaffected. This proposal is purely about
   the host notch (`yolo host -- <bin>` and `host_wrappers`).
-- **No elimination of safety gates:** Conflicts that overwrite user data or drop servers continue to prompt
-  or refuse.
+- **No bypass of legacy adoption safety:** The `FirstApply` confirmation for pre-existing unmanaged files continues
+  to protect initial migrations.
 
 ---
 
@@ -166,15 +171,15 @@ When running `yolo pack update` on the host:
 - *Verdict:* **Rejected.** A warning forces the user to learn two configuration knobs when only one is conceptually
   relevant.
 
-### Alternative 2: Auto-apply everything silently with no prompts ever
-- *Idea:* If `host_wrappers` is on, always apply all changes silently, even destructive key overwrites or server deletions.
-- *Verdict:* **Rejected.** Host `$HOME` is not disposable. Silent deletion of a user's custom MCP server or overwriting
-  a manually edited API key without confirmation is unacceptable on a user's real workstation.
+### Alternative 2: Tiered prompting on launch
+- *Idea:* Auto-apply additions, but prompt interactively when a key value changes or an MCP server is removed.
+- *Verdict:* **Rejected.** As diagnosed in [§2](#2-diagnosis-the-ergonomics-gap-and-false-deletion-fears), pack defaults
+  do not clobber user edits (capture overlays preserve user customizations under `own`, and RMW leaves undeclared keys
+  alone under `assert`). Prompting on declared pack updates creates needless prompt fatigue.
 
-### Alternative 3: The Tiered Policy (Proposed)
-- *Idea:* Safe/additive changes auto-apply silently; true conflict/loss triggers confirmation.
-- *Verdict:* **Recommended.** Delivers zero-friction updates for 99% of normal workflows while retaining the safety
-  net for genuine conflicts.
+### Alternative 3: Zero-prompt auto-apply (Proposed)
+- *Idea:* When host wrappers are on, apply declared pack updates automatically on launch without prompting.
+- *Verdict:* **Recommended.** Matches the user's mental model: yolo seamlessly manages the host agent environment.
 
 ---
 
@@ -182,32 +187,29 @@ When running `yolo pack update` on the host:
 
 | Risk | Mitigation |
 | :--- | :--- |
-| **R1: Unintended `$HOME` modification** | Tier 1/2 auto-apply is restricted to RMW managed keys and pack-owned skills. Undeclared keys and conflicting edits escalate to Tier 3 (prompt/refusal). |
-| **R2: Launch latency** | The observe survey takes ~11ms warm. Tier 1 silent apply adds <15ms. The total launch overhead remains imperceptible. |
-| **R3: Scripted / CI breaks** | Non-TTY launches with Tier 1/2 safe changes proceed automatically. Only Tier 3 conflicts refuse without `YOLO_ACCEPT_CONFIG_CHANGES=1`. |
+| **R1: Unintended `$HOME` modification** | Restricted to declared pack surfaces under `assert` (pure RMW) or `own` (with capture overlay). `host_management: "none"` remains an absolute block. |
+| **R2: Launch latency** | The observe survey takes ~11ms warm. Silent apply adds <15ms. The total launch overhead remains imperceptible. |
+| **R3: Scripted / CI environments** | Non-TTY launches no longer refuse over benign pack updates; they auto-apply and exec seamlessly. |
 
 ---
 
 ## 7. Open Questions
 
-### `OQ-1`: Should `host_wrappers: true` imply `host_apply_on_launch` by default?
-- **Option (a) [Recommended]:** Yes. If `host_wrappers: true`, default `host_apply_on_launch` to `true`. Setting
-  `"host_apply_on_launch": false` explicitly remains the escape hatch.
-- **Option (b):** Deprecate `host_apply_on_launch` as an independent boolean, replacing it with an enum
-  `host_apply_on_launch: "auto" | "prompt" | "off"`, defaulting to `"auto"` when wrappers are enabled.
+1. <a id="oq-1"></a>💬 **[`OQ-1`](#oq-1) — Should `host_wrappers: true` imply `host_apply_on_launch` by default?**
+   - **Option (a) [Recommended]:** Yes. If `host_wrappers: true`, default `host_apply_on_launch` to `true`. Setting
+     `"host_apply_on_launch": false` explicitly remains the escape hatch.
+   - **Option (b):** Deprecate `host_apply_on_launch` as an independent boolean, replacing it with an enum
+     `host_apply_on_launch: "auto" | "prompt" | "off"`, defaulting to `"auto"` when wrappers are enabled.
 
-### `OQ-2`: What should the default auto-apply posture be?
-- **Option (a) [Recommended]:** Tiered auto-apply: silently apply safe/additive changes (new skills, RMW managed keys,
-  non-colliding MCP servers); prompt only when replacing an existing user-defined key or deleting a resource.
-- **Option (b):** Always prompt on TTY for any change (status quo when enabled).
-- **Option (c):** Full auto-apply for all managed surfaces without prompting (relying on `host apply --revert` or
-  git/capture for rollback).
+2. <a id="oq-2"></a>💬 **[`OQ-2`](#oq-2) — Should launch through a host wrapper be completely zero-prompt?**
+   - **Option (a) [Recommended]:** Yes. Auto-apply all declared pack updates silently on launch. User customizations
+     are already protected by capture overlays (`own`) and RMW non-interference (`assert`).
+   - **Option (b):** Retain interactive prompts for changes, but provide an auto-apply opt-in flag or setting.
 
-### `OQ-3`: Should `yolo pack update` automatically run `host apply --assert`?
-- **Option (a) [Recommended]:** Yes, on the host, whenever `host_management` is `"assert"` or `"own"` and changes
-  are Tier 1/2 safe.
-- **Option (b):** No, leave `yolo pack update` focused solely on fetching and lockfile updates, letting the wrapper
-  launch hook handle the apply.
+3. <a id="oq-3"></a>💬 **[`OQ-3`](#oq-3) — Should `yolo pack update` automatically run `host apply --assert`?**
+   - **Option (a) [Recommended]:** Yes, on the host, whenever `host_management` is `"assert"` or `"own"`.
+   - **Option (b):** No, leave `yolo pack update` focused solely on fetching and lockfile updates, letting the wrapper
+     launch hook handle the apply.
 
 ---
 
@@ -215,6 +217,6 @@ When running `yolo pack update` on the host:
 
 | ID | Status | Decision | Date |
 | :--- | :--- | :--- | :--- |
-| `OQ-1` | 💬 Open | Pending user ruling | — |
-| `OQ-2` | 💬 Open | Pending user ruling | — |
-| `OQ-3` | 💬 Open | Pending user ruling | — |
+| [`OQ-1`](#oq-1) | 💬 Open | Pending user ruling | — |
+| [`OQ-2`](#oq-2) | 💬 Open | Pending user ruling | — |
+| [`OQ-3`](#oq-3) | 💬 Open | Pending user ruling | — |
