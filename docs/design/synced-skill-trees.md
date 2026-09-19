@@ -3,7 +3,7 @@ title: "The sync root is not a skill"
 date: 2026-09-18
 status: draft
 tags: [design, skills, packs, host-notch, claude, adoption, trust]
-summary: "~/.claude/skills/synced/<uuid>_<uuid>/ is not a plugin install and not a skill — it is claude.ai's sync landing zone, one directory per Anthropic identity, written continuously by a process yolo does not control. yolo has never heard of it, so `yolo host apply` reads it as a single hand-written skill named `synced`, moves the whole tree into the user's local pack, and thereafter reverts every update the syncer pushes. A transition path for such a user therefore starts with a fence, not a copier."
+summary: "~/.claude/skills/synced/<uuid>_<uuid>/ is a sync root, not a skill: a bucket named after the user's Anthropic identity, filled by Claude Code, and regenerated from a registration that lives outside it. yolo has never heard of it, so `yolo host apply` reads it as a single hand-written skill named `synced`, moves the whole tree into the user's local pack, and thereafter reverts every update the syncer pushes — measured, including for an empty bucket. A transition path for such a user therefore starts with a fence, not a copier."
 vantage:
   status-chip: true
 ---
@@ -11,12 +11,14 @@ vantage:
 # The sync root is not a skill
 
 **Status:** DESIGN, 2026-09-18 — nothing built; four questions open.
-[§3.2](#32-on-the-host-yolo-eats-it--measured) is **MEASURED**; everything else is read from
+[§2.4](#24-two-sync-roots-one-bucket-name-and-only-one-is-exposed) and
+[§3.2](#32-on-the-host-yolo-eats-it--measured) are **MEASURED**; everything else is read from
 the tree or from the vendor's binary, dated where it is claimed.
 
-> **In short.** `~/.claude/skills/synced/<uuid>_<uuid>/` is a **sync root**, not a plugin
-> install: one bucket per Anthropic identity, rewritten continuously by Claude Code. A
-> transition path for a user who has one therefore starts with a fence, not a copier.
+> **In short.** `~/.claude/skills/synced/<uuid>_<uuid>/` is a **sync root**: a bucket named
+> after the user's Anthropic identity, filled by Claude Code, and **regenerated from a
+> registration that lives outside it**. yolo cannot own a directory like that, so a transition
+> path for a user who has one starts with a fence, not a copier.
 
 **Why it matters.** yolo has never heard of it, so `yolo host apply` takes it as a
 hand-written skill named `synced`. Measured: the second apply **deleted a newly synced skill
@@ -26,8 +28,8 @@ and reverted an edited one**, reporting `Applied: 1 composed skill.`
 an explicit **snapshot** that copies chosen skills into a yolo-owned pack; a **drift report**
 that is the whole update story.
 
-**Cost.** A snapshot is a second copy of content a vendor keeps updating. This design accepts
-the divergence and makes it visible rather than pretending to solve it.
+**Cost.** A snapshot forks a source that heals itself, so every copy yolo holds is stale by
+default. This design says so plainly rather than pretending to solve it.
 
 **Start at [§3](#3-what-yolo-does-with-it-today)** — what happens today is the design.
 
@@ -84,8 +86,10 @@ The user's report was *"appears to come from installing a Claude plugin."* That 
 reading and it is wrong in the way that matters: the directory is not per-plugin, so nothing
 about it is per-install.
 
-Everything in this section was read out of the `claude` 2.1.275 binary installed in this jail
-on 2026-09-18 — never from vendor docs, following the lesson
+The layout facts in this section were read out of the `claude` 2.1.275 binary installed in this
+jail on 2026-09-18, and the ones in
+[§2.4](#24-two-sync-roots-one-bucket-name-and-only-one-is-exposed) were then measured on disk —
+never from vendor docs, following the lesson
 [`../plans/pack-host-management-plan.md`](../plans/pack-host-management-plan.md#n6-new--copilot-reads-claudes-plugin-manifests-and-namespaces-plugin-skills)
 records. It is a private layout with no compatibility promise; the cheap re-check on a version
 bump is in [the sketch](synced-skill-trees-plan.md#where-the-claudeai-facts-came-from).
@@ -111,11 +115,24 @@ So a user signed into two organizations has **two buckets**, and the same skill 
 in both. That is the collision this design has to answer — not a collision between opaque
 directory names, because the skills inside a bucket are named by human display name, not by id.
 
+**Confirmed independently of the parser, on 2026-09-18.** This jail's own `~/.claude` is a
+*different home* from the maintainer's — a fresh per-workspace overlay, nothing copied from his
+tree — and it carries a bucket with **the identical name he reported**. Same Anthropic identity
+(the OAuth credential is shared into the jail), different home, same directory name: the name
+is derived from the identity and from nothing on disk. One machine and two homes is weaker
+evidence than two machines would be, and it is still the only thing that could have produced
+that match.
+
 > [!NOTE]
-> **Inferred, not verified:** that the bucket is created on first sync rather than at login, and
-> that a user switching orgs accumulates buckets instead of replacing one. Neither changes any
-> decision below — both readings produce "one or more buckets, each possibly holding a
-> same-named skill".
+> **The bucket is minted by identity alone, before anything is installed or synced into it.**
+> Measured here: the bucket directory is **empty**, and `~/.claude/plugins/installed_plugins.json`
+> reads `{"version": 2, "plugins": {}}`. So "it appeared, therefore something was installed" is
+> the wrong inference in both directions — and a user who deletes the directory gets it back,
+> because the registration that regenerates it lives elsewhere
+> ([§2.4](#24-two-sync-roots-one-bucket-name-and-only-one-is-exposed)).
+> **Still unverified:** whether a user switching organizations accumulates buckets or replaces
+> one. Both readings produce "one or more buckets, each possibly holding a same-named skill",
+> which is all any decision below rests on.
 
 ### 2.2 What lives in a bucket, and how Claude loads it
 
@@ -149,6 +166,38 @@ transition.
 named `synced` because *"its name is the skills directory name Claude Code reserves for synced
 skills, so the skill would never load."*
 
+### 2.4 Two sync roots, one bucket name, and only one is exposed
+
+There are **two** sync roots under `~/.claude`, and they carry the same bucket name:
+
+| Path | Holds | Is it a yolo-composed destination? |
+| :--- | :--- | :--- |
+| `~/.claude/skills/synced/<bucket>/` | synced **skills** | **Yes** — `packs/claude` composes `.claude/skills`. This is the exposure in [§3.2](#32-on-the-host-yolo-eats-it--measured) |
+| `~/.claude/plugins/synced/<bucket>/` | installed/synced **plugins** | **No.** No pack composes `.claude/plugins`; the pack's `claude_plugins` hook is an in-jail reconcile against configured LSP servers, and never writes here |
+
+Measured in this jail on 2026-09-18: the plugins-side root exists and holds an empty bucket,
+beside a **zero-byte marker file** named `.bucket-<same uuids>` — the `.bucket-` prefix is a
+constant in the same binary module as the bucket parser. The marker is excluded from adoption
+twice over: it is dot-prefixed *and* not a directory.
+
+**The tree regenerates.** The registration that brings it back after a delete is not in the
+tree: it is `~/.claude/plugins/installed_plugins.json` plus
+`~/.claude/plugins/known_marketplaces.json` (here, the `claude-plugins-official` GitHub
+marketplace with an `installLocation` and a `lastUpdated`), and the bucket directory itself is
+minted from the identity with those empty. So the *bucket* is identity-minted and its *contents*
+arrive from a plugin install or a skills sync — both halves are true, and reading either one as
+the whole story gets the lifecycle wrong.
+
+That single property does more work in this design than anything else measured
+([§4.2](#42-the-snapshot--the-transition-itself), [§4.3](#43-the-drift-report--the-whole-update-story),
+[OQ-ST4](#OQ-ST4)): **the source heals itself, and yolo's copy does not.**
+
+> [!NOTE]
+> **Not verified here, and this jail cannot verify it:** when the *skills*-side root first
+> appears. `~/.claude/skills` in a jail is a `:ro` bind mount of yolo's own staging directory, so
+> a vendor process could not create `synced` under it whatever it wanted to do — its absence in
+> this jail is explained by the mount and proves nothing about the vendor's behaviour.
+
 ## 3. What yolo does with it today
 
 Checked against the working tree on 2026-09-18, at the commit whose subject is *fix(run):
@@ -178,6 +227,18 @@ hand-authored plugin dir. It also skips dot-entries and non-directories.
 `synced` is a directory, is not dot-prefixed, is in no record, and carries no manifest of its
 own — the manifests are two levels down. **It passes every exclusion and is reported as one
 adoption named `synced`.**
+
+The scan tests only *non-dot directory*, so **an empty sync root is adopted too.** Measured
+against the exact shape this jail holds — one empty bucket directory beside a zero-byte
+`.bucket-…` marker, nothing synced into it ever:
+
+```console
+$ HOME=$FAKE yolo host apply
+  ⚠ 1 skill in your agent skill dirs is yours, not yolo's, and would move into your local pack: synced
+```
+
+So the exposure is not limited to hosts with content in the tree. Every host whose Claude Code
+has minted a bucket is in it.
 
 Measured against a throwaway home holding a bucket with two skills plus one hand-written
 skill — transcript compressed, the full run is in
@@ -262,12 +323,13 @@ never part of `yolo host apply`: the trigger is the user typing it and nothing e
 
 - **Unit: one skill.** Not the tree, not the bucket. The sync root's own structure — buckets,
   `.trash`, `.staging` — is Claude's and does not travel.
-- **Direction: a COPY.** The host original stays exactly where it is, still owned and still
-  updated by the syncer. Moving is not on the table: the tree is the syncer's working
-  directory, and [§3.2](#32-on-the-host-yolo-eats-it--measured) is what moving it looks like.
-  (What a syncer does when its root vanishes entirely is *not* measured here — the measured run
-  put a copy straight back. The point stands without it: a move makes yolo the owner of a
-  directory another process is mid-write in.)
+- **Direction: a COPY, and [§2.4](#24-two-sync-roots-one-bucket-name-and-only-one-is-exposed)
+  is why it is not even a trade.** The tree **regenerates from a registration that lives outside
+  it**, so a move does not relocate anything — the syncer re-materializes the bucket and the
+  user is left with two copies instead of one, having lost only the original's connection to its
+  updates. A move here destroys something and achieves nothing durable, which is a rarer and
+  clearer verdict than "a move is risky". The host original therefore stays exactly where it is,
+  still owned and still updated by the syncer.
 - **Destination: a pack** — which one is [OQ-ST1](#OQ-ST1).
 - **A record of what was taken.** Each copied item records its source bucket, its item name, and
   a content digest. That record is what makes [§4.3](#43-the-drift-report--the-whole-update-story)
@@ -284,10 +346,19 @@ never part of `yolo host apply`: the trigger is the user typing it and nothing e
 A vendor ships a new version of a synced skill; the syncer updates the host tree; yolo's copy is
 now stale. yolo does **not** watch, poll, or re-copy on its own.
 
-What it does instead: wherever it is already reading the host home — the `yolo host apply`
-report, and a listing verb — it compares each recorded source against the sync root and prints
-one line per item that has changed, gone, or appeared. Re-running the snapshot is how the user
-acts on it. Whether that comparison ever escalates beyond a report is [OQ-ST4](#OQ-ST4).
+**A stale copy is the expected steady state, not an anomaly, and the report must be worded that
+way.** [§2.4](#24-two-sync-roots-one-bucket-name-and-only-one-is-exposed) measured a source that
+heals and refills itself from a registration elsewhere; the snapshot is a **fork** of it taken at
+one instant. Drift is therefore the normal condition of every copy yolo holds, and a report that
+treats it as a fault will cry wolf on every apply until the user stops reading it. What the line
+says is *"your copy is from 12 March; the source has moved"* — a fact, with the refresh command
+beside it — never a warning.
+
+What it does mechanically: wherever yolo is already reading the host home — the
+`yolo host apply` report, and a listing verb — it compares each recorded source against the sync
+root and prints one line per item that has changed, gone, or appeared. Re-running the snapshot is
+how the user acts on it. Whether that comparison ever escalates beyond a report is
+[OQ-ST4](#OQ-ST4).
 
 Three states, all named rather than merged:
 
@@ -338,8 +409,9 @@ and must not add another silent path — every ruling above either warns or refu
 
 | Input | Behaviour |
 | :--- | :--- |
-| No `~/.claude/skills/synced` at all | The fence still applies (the directory may appear tomorrow); the snapshot verb reports "nothing to take" and exits zero |
-| Sync root present, no buckets | Same as above |
+| No `~/.claude/skills/synced` at all | The fence still applies — the directory can appear at any time, and [§2.4](#24-two-sync-roots-one-bucket-name-and-only-one-is-exposed) shows it comes back after a delete; the snapshot reports "nothing to take" and exits zero |
+| Sync root present, **bucket empty** | Fenced, and the snapshot takes nothing. MEASURED as the *unfenced* case in [§3.2](#32-on-the-host-yolo-eats-it--measured): an empty bucket is adopted today, so this is the common host, not an edge |
+| A zero-byte `.bucket-<uuids>` marker beside the bucket | Never a candidate — dot-prefixed *and* not a directory, so it is excluded twice over |
 | Bucket present, only `.trash` / `.staging` | Nothing to take; the reserved siblings are never candidates |
 | Exactly one synced skill | The ordinary path; nothing special |
 | `<org>_unbound` bucket | An ordinary bucket ([§2.1](#21-the-two-uuids-are-an-identity-not-a-plugin-and-a-version)) |
@@ -369,6 +441,14 @@ What the offer restores: the sync root's content moves back under the destinatio
 pack entry goes away, and the composed record forgets it. Any *newer* content the syncer has
 since written into the destination wins — the copy in the local pack is by definition the
 older one.
+
+[§2.4](#24-two-sync-roots-one-bucket-name-and-only-one-is-exposed) makes this cheaper than it
+looks and says so out loud: the source regenerates, so for most users the sync root will already
+have refilled itself by the time they run the recovery, and the local pack's copy is a stale
+fork to discard rather than the only surviving copy. It is still not automatic — a user who
+never re-authenticated, or whose organization has since turned Skills off (the content is then
+in `.trash`, not re-downloadable), holds the only copy there is, and yolo cannot tell those
+users apart from the others.
 
 ## 8. Alternatives considered
 
@@ -551,6 +631,16 @@ none of them answers these four.
    having chosen to. A *yes* to evergreen-at-any-cost has a third answer that needs no snapshot
    at all — the `host_files` route in [§8](#8-alternatives-considered), which re-renders every
    boot and gives up naming, collisions and provenance to get there.
+
+   **[§2.4](#24-two-sync-roots-one-bucket-name-and-only-one-is-exposed) sharpens this and I have
+   re-read the leaning against it.** The source *heals itself*: the bucket comes back after a
+   delete, and its contents re-materialize from a registration elsewhere. That cuts both ways and
+   the tension is the question. **For** report-only: the original is never lost, so a stale copy
+   costs the user an old skill and never their only skill — the strongest argument for automatic
+   refresh ("don't let them lose the update") is the one a self-healing source removes. **Against**
+   report-only: a source that refills itself without being asked makes a hand-refreshed fork of it
+   feel broken, and drift becomes the permanent condition of every copy rather than an occasional
+   event — which is precisely the shape a user stops reading.
 
    <!-- vantage: oq id=OQ-ST4 leaning="Report-only, with an explicit refresh verb the report names — never an automatic re-copy, and never on a launch or an apply; the line between 'a command that updates' and 'a background syncer' is the trigger, and it should stay the user's keystroke." -->
 

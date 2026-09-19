@@ -67,6 +67,44 @@ destination and the local pack. **That one output line is the entire notice.**
 **To re-run this after a fix:** the assertion is that run 3 leaves both the new skill and the
 edit intact, and that run 1 lists `my-own-skill` and *not* `synced`.
 
+## The second measurement: an empty bucket, and the plugins-side twin
+
+Run 2026-09-18 in this jail, after the maintainer reported that the directory came from
+`claude plugin install` and regenerates when deleted. Both halves reconcile.
+
+**In this jail's own `~/.claude`** (a per-workspace overlay, a different home from the
+maintainer's, sharing only the OAuth identity):
+
+```console
+$ ls -a ~/.claude/plugins/synced/
+.bucket-de3d6732-…_29eb2395-…      # a zero-byte FILE
+de3d6732-…_29eb2395-…/             # an EMPTY directory
+$ cat ~/.claude/plugins/installed_plugins.json
+{ "version": 2, "plugins": {} }
+$ ls ~/.claude/plugins/known_marketplaces.json   # claude-plugins-official, github, lastUpdated
+```
+
+Same bucket name as the maintainer reported, on a home that never saw his files, with nothing
+ever installed into it. That is the identity-minting claim, measured rather than parsed.
+
+**The exposure measurement**, against a throwaway home carrying exactly that shape under
+`skills/` instead of `plugins/`:
+
+```console
+$ HOME=$FAKE yolo host apply
+  ⚠ 1 skill in your agent skill dirs is yours, not yolo's, and would move into your local pack: synced
+```
+
+An **empty** sync root is adopted, because `Adoptions` tests only non-dot-and-directory. The
+`.bucket-…` marker is excluded twice over (dot-prefixed, and not a directory).
+
+> [!WARNING]
+> **This jail cannot measure the skills-side timing, and an absent `~/.claude/skills/synced`
+> here is not evidence.** `/home/agent/.claude/skills` is a `:ro` bind of
+> `…/agents/<container>/skills-claude` — yolo's own staging dir — per `/proc/self/mountinfo`, so
+> no vendor process could create `synced` under it. Anything about when the skills-side root
+> first appears has to be measured on a real host.
+
 ## Where the claude.ai facts came from
 
 All read out of `~/.local/share/claude/versions/2.1.275` (an ELF bundle, so `grep -a -o -E`
