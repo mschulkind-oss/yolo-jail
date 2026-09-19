@@ -157,13 +157,32 @@ func (c *child) start() error {
 	// across this second exec so an endpoint-publishing child can acknowledge
 	// only after its listener and endpoint file are live. Daemons that do not
 	// participate simply ignore the environment variable.
+	//
+	// DUP rather than wrap: os.NewFile TAKES OWNERSHIP of the descriptor it is
+	// handed and arms a finalizer that CLOSES it, so wrapping the INHERITED fd
+	// hands our readiness pipe to the garbage collector. Every restart minted
+	// another owner of the same number, and the first collection of any of them
+	// closed a descriptor this process still needs — then, once the kernel
+	// recycled that number, a later collection closed whatever unrelated file
+	// had been given it (a daemon log, a socket), which is an EBADF in code
+	// nowhere near here. A dup is a descriptor we DO own, and it is closed
+	// explicitly below once Start has handed the child its own copy, exactly as
+	// the log file is.
+	var ready *os.File
 	if fd, err := strconv.Atoi(os.Getenv(paths.JailDaemonReadyFDEnv)); err == nil && fd >= 3 {
-		cmd.ExtraFiles = []*os.File{os.NewFile(uintptr(fd), "jail-daemon-ready")}
-		cmd.Env = append(os.Environ(), paths.JailDaemonReadyFDEnv+"=3")
+		if dup, err := syscall.Dup(fd); err == nil {
+			ready = os.NewFile(uintptr(dup), "jail-daemon-ready")
+			cmd.ExtraFiles = []*os.File{ready}
+			cmd.Env = append(os.Environ(), paths.JailDaemonReadyFDEnv+"=3")
+		}
 	}
 	cmd.Stdout = lf
 	cmd.Stderr = lf
-	if err := cmd.Start(); err != nil {
+	err = cmd.Start()
+	if ready != nil {
+		_ = ready.Close()
+	}
+	if err != nil {
 		lf.Close()
 		return err
 	}
