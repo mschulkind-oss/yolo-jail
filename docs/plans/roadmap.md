@@ -10,7 +10,7 @@ vantage:
 
 # Roadmap
 
-**Status:** CURRENT — 2026-09-18. **42 rows**: 3 to rule first, 23 needing a decision,
+**Status:** CURRENT — 2026-09-18. **44 rows**: 4 to rule first, 24 needing a decision,
 7 ready to build, 7 waiting, 2 iced. Three rows closed on 2026-09-18 and left the file:
 [`OQ-2`](../design/cerebras-pack-and-copilot-delivery.md#decision-ledger), whose fix shipped as `25d46b7d`, and the two protocol-resolution questions its design absorbed. Three 📦 rows CLOSED on 2026-09-18 and left the file
 (`eb02ad86`, `67cf4c81`, `f5c26899`): the supervisor's swallowed spawn failure, `provides`
@@ -26,13 +26,13 @@ derived rather than carried forward; re-derive the live-question totals with che
 $ rg -c '^(#{2,4} |\s*[0-9]+[a-z]?\. |\s*[-*] )(<a id="[^"]*"></a> ?)?💬' docs/ --sort path
 ```
 
-**124 live questions across 33 docs**, plus one 🔒 that command cannot see.
+**127 live questions across 34 docs**, plus one 🔒 that command cannot see.
 
 ## Rule these first
 
 **The ordering basis, so it is checkable:** a defect live in shipped code outranks blocked
 build work, which outranks a ruling that only closes a doc; ties break toward the smallest
-sitting. All three below are the first class.
+sitting. All four below are the first class.
 
 | | Rule | Releases | Cost |
 |---|---|---|---|
@@ -68,6 +68,7 @@ sitting. All three below are the first class.
 | 26 | Whether `mounts` and `env_sources` become user-scope-only, like every other key that grants host access | [`agent-safehouse.md`](../research/agent-safehouse.md) · in-review | 1 | [`OQ-AS3`](../research/agent-safehouse.md#OQ-AS3) | **defect-shaped, and it is an ASYMMETRY rather than an oversight.** `packs`, `profiles`/`use_profiles`, source-bearing `host_files`, loophole `settings` and a provider's `base_url` are each refused in a workspace config BY RULING — because that file is agent-editable and travels with the repo. `mounts` (a host dir at `/ctx`) and `env_sources` (a host dotenv whose values become the jail's environment) are NOT: verified 2026-09-18, neither has a workspace-scope refusal anywhere in `internal/config`. So a repo-committed `yolo-jail.jsonc` can name a host path to mount and a host file to read secrets out of, disclosed only by the config-change diff. The comparison that surfaced it argues the fix is a scope rule rather than a trust prompt, which is what [`gate-placement-principle.md`](../reference/gate-placement-principle.md) would say too — `env_sources` is the sharper half, since source-bearing `host_files` is already user-scope-only for exactly this reason and `env_sources` reaches the same host files by another name |
 | 25 | Storage tier and pre-launch update execution for Pi extensions across jails | [`pi-extension-lifecycle.md`](../design/pi-extension-lifecycle.md) · in-review | 3 | [`OQ-1`](../design/pi-extension-lifecycle.md#OQ-1) | **build** — machine-scoped package storage and launcher refresh |
 | 27 | Whether the hard-coded Kilo special-casing in two agent derives stays or goes | [`gateway-provider-packs.md`](../design/gateway-provider-packs.md) · accepted | 1 (in the header, not yet an `OQ-`) | [the warning](../design/gateway-provider-packs.md) | **graduation** — and it is the ONLY thing holding that doc back. `caaaae1b` gave `packs/claude/derive.lua` and `packs/pi/derive.lua` a Kilo detector that matches on provider name **or** on an `api%.kilo%.ai` substring of the base URL, a `deepseek-` → `deepseek/` model-id rewrite, and a hard-coded context window. pi's copy also treats a profile's `model` option as a LITERAL model id when the user declared no aliases — which is the direct contradiction of [§3](../design/gateway-provider-packs.md#3-failure-and-safety-rules)'s *“an alias missing from the map writes no selection, rather than substituting a sole model or a gateway default”*. ⚠ The [§4](../design/gateway-provider-packs.md#4-what-this-does-not-propose) *“never hard-coded”* rule survives only on the technicality that this is in a PACK rather than in core — but it is an AGENT pack naming a PROVIDER pack, which is the coupling `packs/` exists to prevent. Stays → amend [§3](../design/gateway-provider-packs.md#3-failure-and-safety-rules) and [`OQ-GP2`](../design/gateway-provider-packs.md#decision-ledger), and add the provenance comment [`providers.md`](../reference/providers.md#derives-the-delivery-mechanism) requires. Goes → three blocks deleted from two derives. Either way the doc can graduate; until then it describes a system that is not there |
+| 28 | How packs declare bypassed or unmanaged file diagnostics for yolo check | [`pack-declared-file-diagnostics.md`](../design/pack-declared-file-diagnostics.md) · in-review | 3 | [`OQ-1`](../design/pack-declared-file-diagnostics.md#oq-1) | **build** — declarative traps in `pack.json` or self-check |
 
 **Rule together, or not at all.** [`E1`](BACKLOG.md#-e1--collapse-host_files-modes-43-copy-merges-into-readonly) · [`E2`](BACKLOG.md#-e2--readonly-as-a-real-ro-mount-instead-of-0o444) · [`OQ-B`](pack-host-management-plan.md#open-questions) are one asymmetry seen three times, and each doc says so.
 [`OQ-BR3`](../design/bedrock-plumbing.md#OQ-BR3) and [`OQ-PS3`](../design/provider-switching.md#OQ-PS3) are the same decision in two files.

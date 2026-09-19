@@ -121,7 +121,7 @@ file you want composed into the jail belongs in `host_files` (user config only �
 `yolo config-ref` has the shape). If you edited a composed file and want to undo
 it, `yolo config reset <agent>` discards the captured edits.
 
-## Five things agents reliably get wrong
+## Six things agents reliably get wrong
 
 Every one of these was a real wrong belief that reached a config edit. They are
 all *confidently* wrong — the shape of the mistake is being sure enough not to
@@ -214,6 +214,27 @@ Two corollaries worth having:
 - **To publish a server *out* of the jail, bind `0.0.0.0` in here**, not
   `127.0.0.1` — `network.ports` cannot publish a jail-loopback-only listener.
   Binding wide inside the jail is safe: the published port is the only way in.
+
+### 6. Host `~` is NOT jail `/home/agent` — dotfiles do not project into the jail
+
+A fundamental invariant of YOLO is credential and filesystem isolation. Running
+`rcup` or managing dotfiles on the host into `~/.pi`, `~/.claude`, or `~/.codex`
+does **not** project those files into `/home/agent/` inside the jail.
+
+- Inside the jail, `/home/agent/.pi` (and similar agent state directories) is an isolated
+  per-workspace overlay (`<workspace>/.yolo/state/pi`), not your host home.
+- Agent configs and briefings in the jail are composed exclusively by **YOLO packs**
+  and the config layering system (`yolo config ls`).
+- If you need agent-specific rules or briefings, choose among the three supported paths:
+  1. **Pack Briefing Audience** (Global: Host + Jails) — declare `"kind": "briefing", "agent": "pi"`
+     (or `"agents": ["pi"]`) in a personal or shared pack (e.g. `~/.config/yolo-jail/packs/matt`).
+     YOLO composes these into `/home/agent/.pi/agent/AGENTS.md` in the jail and
+     `~/.pi/agent/AGENTS.md` on the host via `yolo host apply`.
+  2. **Workspace Project Files** (Per-repository) — place instructions in `<workspace>/AGENTS.md`
+     (or `<workspace>/.pi/`), committed directly into the project repository.
+  3. **Explicit Projections** (Per-jail bridge) — declare explicit host file projections in
+     `host_files` in user config (`yolo config-ref`). Ad-hoc agent dotfiles on the host
+     (like `~/.pi/agent/APPEND_SYSTEM.md`) are never read or mounted by YOLO.
 
 ## Don't guess at keys — the schema lives in the CLI
 

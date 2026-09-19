@@ -46,17 +46,18 @@ here too.
 
 ---
 
-## The two layers
+## The three supported paths for agent instructions
 
-Agents read instruction files at two levels and yolo treats them completely differently.
+Agents read instruction files at different scopes. YOLO defines three architectural paths for delivering instructions, behavioral directives, or system prompts:
 
-| Layer | In-jail path | Who owns it | yolo's role |
+| Path | Mechanism | Scope | Recommended use |
 | :--- | :--- | :--- | :--- |
-| **User-level briefing** | one per `briefing` contribution (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, …) | yolo | composed per jail, mounted read-only |
-| **Project-level file** | an `AGENTS.md` or `CLAUDE.md` at the workspace root | the repository | none — it is a file in the workspace bind, exactly as checked in |
+| **Option A: Pack Briefing Audience** | Pack contribution (`"kind": "briefing", "agent": "pi"` or `"agents": ["pi"]`) | Global (Host + Jails) | Personal or team-wide agent rules, behavioral directives, and prompt additions. Composed into `~/.<agent>/agent/AGENTS.md` (host) and `/home/agent/.<agent>/agent/AGENTS.md` (jail). |
+| **Option B: Workspace Project File** | `<workspace>/AGENTS.md` or `<workspace>/CLAUDE.md` | Per-repository | Rules specific to a repository's codebase and development workflow. Live bind-mounted; yolo never rewrites project files. |
+| **Option C: Explicit Projection** | `host_files` in user config (`yolo-jail.jsonc`) | Per-jail bridge | Explicit projection of legacy host dotfiles into a sandbox. |
 
-yolo never writes, rewrites or merges the project-level files. Everything below is about the
-user-level layer.
+> [!WARNING]
+> **Host dotfiles outside these paths are bypassed and inert.** Managing dotfiles into `~/.pi/agent/APPEND_SYSTEM.md` or `~/.claude/CLAUDE.md` on the host does **not** project into `/home/agent/` inside the jail. Inside the jail, `/home/agent/.pi` (and similar agent state directories) is an isolated per-workspace state overlay (`<workspace>/.yolo/state/pi`), completely decoupled from host home storage. Ad-hoc agent-specific files like `APPEND_SYSTEM.md` are not mounted into the jail, nor are they read by YOLO's host prepend (which looks strictly for unmanaged `~/.pi/agent/AGENTS.md`). To deliver durable instructions across host and jails, use a pack briefing audience.
 
 **There is no agent registry and no config key naming agents.** Which destinations get a
 briefing follows from which packs are selected, and nothing is selected by default.
