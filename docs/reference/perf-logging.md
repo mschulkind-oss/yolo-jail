@@ -288,9 +288,23 @@ recorded as a **mark** placed immediately before the call — if the runtime han
 there, that mark is the last line in the file, and the dangling record names
 where the prompt went to die.
 
-**The signal arm.** On SIGINT (Ctrl-C), SIGHUP (window close), or SIGTERM, the tty proxy's signal
+**The signal arm.** On SIGHUP (window close) or SIGTERM, the tty proxy's signal
 goroutine restores cooked termios, runs `onTerminate`, and exits the process with
-`128 + signal`. `onTerminate` runs the `terminate.*` chain: stop the jail
+`128 + signal`.
+
+> [!IMPORTANT]
+> **Ctrl-C no longer reaches this arm, as of 2026-09-19.** The host TTY is raw, so ^C arrives
+> as a byte; the proxy used to eat it and raise a targeted SIGINT at itself, which made
+> Ctrl-C mean *quit the launcher*. It is forwarded to the jail now, so the jail's own line
+> discipline raises SIGINT at the jail's foreground process group — bash clears the line, an
+> agent interrupts its own work. So a ^C keystroke produces no `terminate.*` chain and no
+> report at all, and the `rc 130` row below is reachable only by an explicit `kill -INT` of
+> the launcher. Window close and SIGTERM are unchanged.
+>
+> ⚠ This is about a jail that is RUNNING. Everything the launch prints before the proxy
+> takes the terminal — the pack disclosures, the config-change prompt, the banner — is still
+> on a cooked TTY, so Ctrl-C there still aborts the launch, which is what the rulings that
+> rest on *"the user can still Ctrl-C"* actually depend on. `onTerminate` runs the `terminate.*` chain: stop the jail
 (the runtime's own graceful stop, bounded), clean up port forwarding, release the
 lock, stop the loopholes, capture config — and then prints the report as its
 **last statement**. Both arms run on this path: the terminate arm's stop is what
@@ -472,7 +486,8 @@ stderr report still work, and a jail is never refused over its timing log.
 | The runtime hangs in the unbounded liveness check | `shutdown.container_check` is the last line in the file — the dangling record names the step |
 | Any other step hangs | its `start` line is in the file with no `end`; `tail` the file |
 | `podman events` times out, fails, or holds no `die` | one dim reason line beneath the table; the table is unaffected |
-| Ctrl-C / SIGHUP / SIGTERM to the launcher | `terminate.*` spans reach the file before the process exits; the report prints from inside the signal arm at rc 130 for Ctrl-C and `128 + signal` otherwise |
+| SIGHUP / SIGTERM to the launcher (or an explicit `kill -INT`) | `terminate.*` spans reach the file before the process exits; the report prints from inside the signal arm at `128 + signal`, so rc 130 for an explicit SIGINT |
+| **Ctrl-C at the keyboard** | nothing — it is forwarded to the jail (see the signal arm above), so the launcher never terminates and no report is produced |
 | Both teardown arms run (the ordinary signal-path interleaving) | one report, one Window A query — the once-guard |
 | A persistent opt-in with no flag | the file is written — Window A included; one dim line names it; no table and no in-container block |
 | The events query fails on a launch that prints nothing | the failure class reaches the file as a `shutdown.window_a_unattributed.<token>` mark; the prose reason has no reader and is dropped |

@@ -74,7 +74,9 @@ line — for claude, *"autonomous+guarded postures; autonomous injects
 step — killing its live sessions — which made the destructive half invisible: it was recommended by
 a refusal message as a "relaunch" and was measured removing a live jail the moment the user obeyed.
 The common flow never needed it anyway: a jail lives in the terminal that launched it, and exiting
-or Ctrl-C-ing that session tears the jail down, so the next launch is already fresh.
+that session tears the jail down, so the next launch is already fresh. (This said "or Ctrl-C-ing"
+until 2026-09-19; ^C is forwarded to the jail now and interrupts what is running there rather than
+ending the session — closing the window still tears it down.)
 
 The replacement is deliberately two commands: **`yolo stop`** (new; from the workspace whose jail
 it is — graceful stop, idempotent, `--rm` sweeps the container) followed by an ordinary `yolo`
