@@ -5,6 +5,14 @@ package wirebridged
 // holding it, so a parser that mis-reads /proc's little-endian address column or
 // walks the wrong fd tree fails here rather than printing a plausible wrong
 // address into a bind failure — which is worse than printing nothing.
+//
+// The /proc PARSING is pinned in internal/listeners, which owns it, and more
+// thoroughly than the duplicate deleted from this package was: the little-endian
+// IPv4 decode, the per-group IPv6 decode, the v4-mapped spelling and the malformed
+// row counting all have their own tests there. What is pinned HERE is the
+// sentence, the tri-state, and the DELEGATION — every fixture test below works by
+// replacing portHolderSnapshot, so a describePortHolder that stopped consulting it
+// would fail rather than quietly reading the real machine.
 
 import (
 	"net"
@@ -13,6 +21,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/listeners"
 )
 
 func requireProcNetTCP(t *testing.T) {
@@ -21,6 +31,18 @@ func requireProcNetTCP(t *testing.T) {
 		t.Skipf("/proc/net/tcp is unavailable (%v); the holder probe degrades to its "+
 			"could-not-ask arm, which TestDescribePortHolderCannotAskWithoutProc covers", err)
 	}
+}
+
+// withSnapshotFrom points the probe at a fixture tree for one test. Overriding the
+// snapshot rather than a set of /proc path variables is what makes the delegation
+// itself testable.
+func withSnapshotFrom(t *testing.T, root string) {
+	t.Helper()
+	old := portHolderSnapshot
+	portHolderSnapshot = func() listeners.Snapshot {
+		return listeners.CollectFrom(listeners.DirSource(root), listeners.Options{})
+	}
+	t.Cleanup(func() { portHolderSnapshot = old })
 }
 
 // The real thing: this test process holds a port, and the probe must name it.
@@ -66,13 +88,10 @@ func TestDescribePortHolderReportsAnAbsentListenerAsAbsent(t *testing.T) {
 }
 
 // THE TRI-STATE ARM. Point the probe at a /proc that is not there: it must say it
-// could not look, never that nothing holds the port.
+// could not look, never that nothing holds the port — and it must name WHICH read
+// failed, because that is what the reader's next action turns on.
 func TestDescribePortHolderCannotAskWithoutProc(t *testing.T) {
-	oldFiles, oldRoot := procNetTCPFiles, procRoot
-	missing := filepath.Join(t.TempDir(), "absent")
-	procNetTCPFiles = []string{filepath.Join(missing, "net", "tcp")}
-	procRoot = missing
-	t.Cleanup(func() { procNetTCPFiles, procRoot = oldFiles, oldRoot })
+	withSnapshotFrom(t, filepath.Join(t.TempDir(), "absent"))
 
 	got := describePortHolder("127.0.0.1:8214")
 	if !strings.Contains(got, "could not be identified") {
@@ -80,6 +99,26 @@ func TestDescribePortHolderCannotAskWithoutProc(t *testing.T) {
 	}
 	if strings.Contains(got, "no LISTEN socket") {
 		t.Errorf("an unreadable table was reported as an absent listener: %q", got)
+	}
+	if !strings.Contains(got, "net/tcp") {
+		t.Errorf("the could-not-ask answer does not name the read that failed: %q", got)
+	}
+}
+
+// A PARTIAL snapshot with no match is NOT an absence either: one readable table out
+// of three cannot assert that nothing is listening. This is the arm most easily
+// collapsed into the absence answer, because it has real data in it.
+func TestDescribePortHolderTreatsAPartialTableAsUnknown(t *testing.T) {
+	root := t.TempDir()
+	writeProcNetTCP(t, root, procListenRow("0100007F", "01BB", "318408350")) // 127.0.0.1:443
+	withSnapshotFrom(t, root)
+
+	got := describePortHolder("127.0.0.1:8214")
+	if strings.Contains(got, "no LISTEN socket") {
+		t.Errorf("a partially-read snapshot claimed an absence: %q", got)
+	}
+	if !strings.Contains(got, "could not be identified") {
+		t.Errorf("describePortHolder = %q, want the could-not-ask answer", got)
 	}
 }
 
@@ -89,19 +128,8 @@ func TestDescribePortHolderCannotAskWithoutProc(t *testing.T) {
 // reproducible without binding 0.0.0.0 in a test.
 func TestDescribePortHolderExplainsAWildcardListener(t *testing.T) {
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "net"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// 0.0.0.0:8214 in LISTEN, inode 0 so no owner can be resolved.
-	table := "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n" +
-		"   0: 00000000:2016 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 0 1\n"
-	path := filepath.Join(root, "net", "tcp")
-	if err := os.WriteFile(path, []byte(table), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	oldFiles, oldRoot := procNetTCPFiles, procRoot
-	procNetTCPFiles, procRoot = []string{path}, root
-	t.Cleanup(func() { procNetTCPFiles, procRoot = oldFiles, oldRoot })
+	writeProcNetTCP(t, root, procListenRow("00000000", "2016", "318411330")) // 0.0.0.0:8214
+	withSnapshotFrom(t, root)
 
 	got := describePortHolder("127.0.0.1:8214")
 	for _, want := range []string{"0.0.0.0:8214", "covers the one the bridge wanted"} {
@@ -111,51 +139,37 @@ func TestDescribePortHolderExplainsAWildcardListener(t *testing.T) {
 	}
 }
 
-// /proc/net/tcp's address column is LITTLE-endian per 32-bit word, which is the
-// single most common way to misread that table; a reversed address in a bind
-// diagnostic sends the reader looking for the wrong listener.
-func TestFormatProcAddr(t *testing.T) {
-	cases := map[string]string{
-		"0100007F":                         "127.0.0.1",
-		"00000000":                         "0.0.0.0",
-		"0500000A":                         "10.0.0.5",
-		"00000000000000000000000000000000": "::",
-		// A v4-mapped v6 socket renders as the v4 address, which is the spelling
-		// the reader is hunting for in their own config.
-		"0000000000000000FFFF00000100007F": "127.0.0.1",
-		"nothex":                           "0xnothex",
+// The overlap sentence is for an UNSPECIFIED address only. A listener on some other
+// specific address cannot collide with the bridge's bind, so claiming it "covers"
+// the wanted address sends the reader after the wrong process — which the deleted
+// string-prefix check did.
+func TestDescribePortHolderDoesNotCallASpecificAddressAnOverlap(t *testing.T) {
+	root := t.TempDir()
+	writeProcNetTCP(t, root, procListenRow("0500000A", "2016", "318411330")) // 10.0.0.5:8214
+	withSnapshotFrom(t, root)
+
+	got := describePortHolder("127.0.0.1:8214")
+	if !strings.Contains(got, "10.0.0.5:8214") {
+		t.Errorf("describePortHolder = %q, want the holder's own address", got)
 	}
-	for in, want := range cases {
-		if got := formatProcAddr(in); got != want {
-			t.Errorf("formatProcAddr(%q) = %q, want %q", in, got, want)
-		}
+	if strings.Contains(got, "covers the one the bridge wanted") {
+		t.Errorf("a listener on a different specific address was called an overlap: %q", got)
 	}
 }
 
-// The argv reaches the line-framed readiness pipe, so it is flattened and
-// bounded: it is arbitrary process input.
-func TestReadProcCmdlineIsSingleLineAndBounded(t *testing.T) {
+// An unattributable socket is reported AS unattributable: the socket exists and is
+// the conflict whether or not its owner is readable from here.
+func TestDescribePortHolderNamesTheSocketWhenItsOwnerIsUnreadable(t *testing.T) {
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "42"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	argv := "socat\x00TCP-LISTEN:8214,bind=127.0.0.1\x00a\nb\x00" + strings.Repeat("x", 2000)
-	if err := os.WriteFile(filepath.Join(root, "42", "cmdline"), []byte(argv), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	oldRoot := procRoot
-	procRoot = root
-	t.Cleanup(func() { procRoot = oldRoot })
+	writeProcNetTCP(t, root, procListenRow("00000000", "2016", "318411330"))
+	withSnapshotFrom(t, root)
 
-	got := readProcCmdline("42")
-	if strings.ContainsAny(got, "\n\x00") {
-		t.Errorf("readProcCmdline left a newline or NUL in %q", got)
+	got := describePortHolder("127.0.0.1:8214")
+	if !strings.Contains(got, "socket inode 318411330") {
+		t.Errorf("describePortHolder = %q, want the socket inode it could not attribute", got)
 	}
-	if !strings.Contains(got, "TCP-LISTEN:8214,bind=127.0.0.1") {
-		t.Errorf("readProcCmdline dropped the argument that identifies the holder: %q", got)
-	}
-	if len(got) > 500 {
-		t.Errorf("readProcCmdline returned %d bytes; the readiness record is one line", len(got))
+	if strings.Contains(got, "held by pid") {
+		t.Errorf("describePortHolder invented an owner: %q", got)
 	}
 }
 
@@ -169,28 +183,77 @@ func TestDescribePortHolderOnAMalformedAddress(t *testing.T) {
 	}
 }
 
-// listenersOnPort's hex port matching, at the exact width /proc uses.
-func TestListenersOnPortMatchesTheHexPortColumn(t *testing.T) {
-	requireProcNetTCP(t)
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
+// A non-numeric port reaches the probe from a provider's base_url, which is user
+// data: it must be answered rather than parsed twice.
+func TestDescribePortHolderOnANonNumericPort(t *testing.T) {
+	got := describePortHolder("127.0.0.1:https")
+	if !strings.Contains(got, "not numeric") {
+		t.Errorf("describePortHolder = %q, want the non-numeric-port answer", got)
+	}
+}
+
+// THE BOUNDED-WALK PROPERTY, which is why the duplicate parser here was deleted.
+// The old code walked the whole /proc tree once per matching socket inode, and a
+// dual-stack collision matches two — on a boot's failure path. One snapshot answers
+// for every listener on the port.
+func TestDescribePortHolderTakesOneSnapshot(t *testing.T) {
+	root := t.TempDir()
+	// Two LISTEN sockets on the same port: the dual-stack shape.
+	writeProcNetTCP(t, root,
+		procListenRow("00000000", "2016", "318411330"),
+		procListenRow("0100007F", "2016", "318411331"))
+	old := portHolderSnapshot
+	calls := 0
+	portHolderSnapshot = func() listeners.Snapshot {
+		calls++
+		return listeners.CollectFrom(listeners.DirSource(root), listeners.Options{})
+	}
+	t.Cleanup(func() { portHolderSnapshot = old })
+
+	got := describePortHolder("127.0.0.1:8214")
+	if calls != 1 {
+		t.Errorf("describePortHolder read the machine %d times, want exactly 1", calls)
+	}
+	for _, want := range []string{"0.0.0.0:8214", "127.0.0.1:8214"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("describePortHolder = %q, missing holder %q", got, want)
+		}
+	}
+}
+
+// The argv reaches the line-framed readiness pipe, so it is flattened and
+// bounded: it is arbitrary process input.
+func TestBoundArgvIsSingleLineAndBounded(t *testing.T) {
+	argv := "socat TCP-LISTEN:8214,bind=127.0.0.1 a\nb " + strings.Repeat("x", 2000)
+	got := boundArgv(argv)
+	if strings.ContainsAny(got, "\n\x00") {
+		t.Errorf("boundArgv left a newline or NUL in %q", got)
+	}
+	if !strings.Contains(got, "TCP-LISTEN:8214,bind=127.0.0.1") {
+		t.Errorf("boundArgv dropped the argument that identifies the holder: %q", got)
+	}
+	if len(got) > 500 {
+		t.Errorf("boundArgv returned %d bytes; the readiness record is one line", len(got))
+	}
+}
+
+// procListenRow is one LISTEN row of /proc/net/tcp, in the kernel's column layout.
+// hexAddr and hexPort are the kernel's spellings (little-endian per 32-bit word for
+// the address), which is why the fixtures above read as hex rather than as dotted
+// quads.
+func procListenRow(hexAddr, hexPort, inode string) string {
+	return "   0: " + hexAddr + ":" + hexPort + " 00000000:0000 0A 00000000:00000000 " +
+		"00:00000000 00000000     0        0 " + inode + " 2 000000006fad1d5e 100 0 0 10 0"
+}
+
+func writeProcNetTCP(t *testing.T, root string, rows ...string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(root, "net"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
-	_, port, err := net.SplitHostPort(ln.Addr().String())
-	if err != nil {
+	body := "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt" +
+		"   uid  timeout inode\n" + strings.Join(rows, "\n") + "\n"
+	if err := os.WriteFile(filepath.Join(root, "net", "tcp"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
-	}
-	found, readErrs := listenersOnPort(port)
-	if len(found) == 0 {
-		t.Fatalf("listenersOnPort(%s) found nothing for a live listener (read errors: %v)", port, readErrs)
-	}
-	for _, l := range found {
-		if !strings.HasSuffix(l.local, ":"+port) {
-			t.Errorf("listener %+v does not carry the port it was matched on", l)
-		}
-		if l.inode == "" || l.inode == "0" {
-			t.Errorf("listener %+v carries no socket inode, so no owner can ever be resolved", l)
-		}
 	}
 }

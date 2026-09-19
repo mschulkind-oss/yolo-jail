@@ -9,220 +9,142 @@ package wirebridged
 // of that forward is a UNIX socket. The holder was in the jail the whole time,
 // one /proc read away, and no log on either side had asked.
 //
-// So the daemon asks, itself, at the moment the bind fails: the LISTEN sockets in
-// /proc/net/tcp{,6} give the socket inode, /proc/<pid>/fd gives the owner, and
-// /proc/<pid>/{comm,cmdline} names it. The result goes in the same line as the
-// errno, because the two facts are only useful together.
+// The /proc reading itself is NOT here. It is [listeners], which exists for this
+// exact measurement and is the only copy: this file is the SENTENCE, that package
+// is the instrument. The two were written the same day by different hands and the
+// duplicate parser that used to sit here was deleted in favour of the one that is
+// bounded, covers net/unix, and reports its own partiality — see the note on
+// budgets below.
 //
 // TRI-STATE, like every other probe in this repo: "nothing holds it", "something
 // holds it and this is what" and "I could not ask" are three different answers
 // and are never collapsed. A probe that cannot read /proc says so rather than
 // reporting an empty table as an absence — that is exactly how the host's empty
-// `ss` output misled four hypotheses in a row.
+// `ss` output misled four hypotheses in a row. The three arms map onto
+// [listeners.Snapshot.Availability] plus whether the port was found, so the
+// distinction is the instrument's rather than this file's to get right.
 
 import (
 	"fmt"
 	"net"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/listeners"
 )
 
-// procNetTCPFiles is the set of per-netns listener tables consulted, in order.
-// Both are read because an IPv4 bind collides with a dual-stack listener that
-// only appears in the v6 table.
-var procNetTCPFiles = []string{"/proc/net/tcp", "/proc/net/tcp6"}
-
-// procRoot is /proc, as a variable only so a test can point the parser at a
-// fixture tree; production never rebinds it.
-var procRoot = "/proc"
-
-// tcpStateListen is the hex state column's value for LISTEN in /proc/net/tcp.
-const tcpStateListen = "0A"
+// portHolderSnapshot is how this file reads the machine, as a variable only so a
+// test can point it at a fixture tree; production never rebinds it.
+//
+// It takes ONE snapshot and asks it about the port, rather than walking /proc once
+// per socket inode the way the deleted parser here did. That walk was unbounded by
+// construction — one full /proc tree readlink sweep per matching listener, and a
+// dual-stack collision matches two — on the failure path of a boot. [listeners]
+// attributes every socket in a single sweep under [listeners.DefaultMaxFDLinks].
+var portHolderSnapshot = listeners.Collect
 
 // describePortHolder is the sentence appended to a bind failure. It always
 // returns something sayable: the holder, the unidentifiable holder, the absence,
 // or the reason it could not look.
 func describePortHolder(addr string) string {
-	host, port, err := net.SplitHostPort(addr)
+	_, portText, err := net.SplitHostPort(addr)
 	if err != nil {
 		return fmt.Sprintf("the port holder was not looked up: %q is not a host:port address (%v)", addr, err)
 	}
-	found, readErrs := listenersOnPort(port)
-	if len(found) == 0 {
-		if len(readErrs) > 0 {
-			// COULD NOT ASK — not "nothing holds it". Both are an empty table
-			// one layer down, and reading them alike is the mistake this
-			// package is fixing.
-			return "the port holder could not be identified: " + strings.Join(readErrs, "; ")
-		}
-		return fmt.Sprintf("no LISTEN socket on port %s appears in %s, so the conflict is not a "+
-			"listener in this network namespace — a socket in another state, another netns, or a "+
-			"SO_REUSEADDR race are what is left", port, strings.Join(procNetTCPFiles, " or "))
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		return fmt.Sprintf("the port holder was not looked up: port %q is not numeric (%v)", portText, err)
 	}
+
+	snap := portHolderSnapshot()
+	found := snap.OnPort(port)
+	if len(found) == 0 {
+		// COULD NOT ASK vs NOTHING HOLDS IT. Both are an empty result one layer
+		// down, and reading them alike is the mistake this package is fixing. Only
+		// a COMPLETE snapshot can assert an absence; anything less says so.
+		if snap.Availability() != listeners.Complete {
+			return "the port holder could not be identified: " + describeGaps(snap)
+		}
+		return fmt.Sprintf("no LISTEN socket on port %d appears in this network namespace's "+
+			"socket tables, so the conflict is not a listener here — a socket in another state, "+
+			"another netns, or a SO_REUSEADDR race are what is left", port)
+	}
+
 	parts := make([]string, 0, len(found))
 	for _, l := range found {
-		parts = append(parts, l.describe(host))
+		parts = append(parts, describeListener(l, snap))
 	}
 	return "the address is already held: " + strings.Join(parts, "; ")
 }
 
-// procListener is one LISTEN row of /proc/net/tcp{,6}.
-type procListener struct {
-	local string // human-readable, e.g. "127.0.0.1:8214"
-	inode string
-	uid   string
-	table string
+// describeGaps renders why the snapshot could not answer. Every gap is named
+// rather than summarised to a count: on this path the reader's next action depends
+// on WHICH read failed.
+func describeGaps(snap listeners.Snapshot) string {
+	if len(snap.Gaps) == 0 {
+		return fmt.Sprintf("the socket tables reported %s availability with no stated reason",
+			snap.Availability())
+	}
+	parts := make([]string, 0, len(snap.Gaps))
+	for _, g := range snap.Gaps {
+		parts = append(parts, g.Source+": "+g.Reason)
+	}
+	return strings.Join(parts, "; ")
 }
 
-func (l procListener) describe(wantHost string) string {
-	who := l.owner()
+// describeListener is one holder, in the bind error's own vocabulary.
+func describeListener(l listeners.Listener, snap listeners.Snapshot) string {
 	overlap := ""
-	if l.local != "" && !strings.HasPrefix(l.local, wantHost+":") {
+	if l.Addr.IsValid() && l.Addr.IsUnspecified() {
 		// A wildcard listener (0.0.0.0/::) is the common reason a specific
 		// loopback bind fails, and a reader who only saw "already in use" would
-		// hunt for a listener on the exact address and find none.
+		// hunt for a listener on the exact address and find none. This asks the
+		// typed address whether it is unspecified rather than comparing the
+		// rendered string to the wanted host, which also called a listener on a
+		// DIFFERENT specific address an overlap — it cannot be one.
 		overlap = " (a listener on this address covers the one the bridge wanted)"
 	}
-	return fmt.Sprintf("%s%s %s [%s]", l.local, overlap, who, l.table)
+	return fmt.Sprintf("%s%s %s [%s]", l.Local(), overlap, describeOwners(l, snap), l.Kind)
 }
 
-// owner resolves the socket inode to a process by walking /proc/<pid>/fd. An
-// unresolvable inode is reported AS unresolvable — the socket exists and is the
-// conflict whether or not its owner is readable from this uid.
-func (l procListener) owner() string {
-	pid, err := pidForSocketInode(l.inode)
-	if err != nil {
-		return fmt.Sprintf("owned by socket inode %s (uid %s), whose process could not be "+
-			"identified: %v", l.inode, l.uid, err)
+// describeOwners names the holding process, or says precisely why it is unnamed.
+// An unattributed socket is reported AS unattributed — the socket exists and is
+// the conflict whether or not its owner is readable from this uid.
+func describeOwners(l listeners.Listener, snap listeners.Snapshot) string {
+	if len(l.Owners) == 0 {
+		switch {
+		case !snap.AttributionRan:
+			return fmt.Sprintf("owned by socket inode %d (uid %d), whose process was not looked "+
+				"up: %s", l.Inode, l.UID, describeGaps(snap))
+		case !snap.AttributionComplete():
+			return fmt.Sprintf("owned by socket inode %d (uid %d), whose process could not be "+
+				"identified: the owner search was incomplete (%d of %d processes readable, "+
+				"capped=%v)", l.Inode, l.UID, snap.PIDsScanned, snap.PIDsFound, snap.Capped)
+		default:
+			return fmt.Sprintf("owned by socket inode %d (uid %d), and no readable /proc/<pid>/fd "+
+				"entry points at it — the holder is another user's or another namespace's process",
+				l.Inode, l.UID)
+		}
 	}
-	if pid == "" {
-		return fmt.Sprintf("owned by socket inode %s (uid %s), and no readable %s/<pid>/fd entry "+
-			"points at it — the holder is another user's or another namespace's process",
-			l.inode, l.uid, procRoot)
+	parts := make([]string, 0, len(l.Owners))
+	for _, o := range l.Owners {
+		desc := "held by pid " + strconv.Itoa(o.PID)
+		if o.Comm != "" {
+			desc += " (" + o.Comm + ")"
+		}
+		if argv := boundArgv(o.Cmdline); argv != "" {
+			desc += ", argv: " + argv
+		}
+		parts = append(parts, desc)
 	}
-	desc := "held by pid " + pid
-	if comm := readProcField(pid, "comm"); comm != "" {
-		desc += " (" + comm + ")"
-	}
-	if argv := readProcCmdline(pid); argv != "" {
-		desc += ", argv: " + argv
-	}
-	return desc
+	return strings.Join(parts, " and ")
 }
 
-// listenersOnPort returns every LISTEN socket bound to port, plus the read
-// failures that make an empty result mean "unknown" rather than "none".
-func listenersOnPort(port string) (found []procListener, readErrs []string) {
-	want, err := strconv.Atoi(port)
-	if err != nil {
-		return nil, []string{fmt.Sprintf("port %q is not numeric (%v)", port, err)}
-	}
-	wantHex := fmt.Sprintf("%04X", want)
-	for _, table := range procNetTCPFiles {
-		data, err := os.ReadFile(table)
-		if err != nil {
-			readErrs = append(readErrs, fmt.Sprintf("reading %s: %v", table, err))
-			continue
-		}
-		for _, line := range strings.Split(string(data), "\n") {
-			fields := strings.Fields(line)
-			// sl local rem st tx rx tr tm retr uid timeout inode
-			if len(fields) < 10 || fields[3] != tcpStateListen {
-				continue
-			}
-			local := fields[1]
-			colon := strings.LastIndexByte(local, ':')
-			if colon < 0 || !strings.EqualFold(local[colon+1:], wantHex) {
-				continue
-			}
-			l := procListener{local: formatProcAddr(local[:colon]) + ":" + port, table: table, uid: fields[7]}
-			if len(fields) >= 10 {
-				l.inode = fields[9]
-			}
-			found = append(found, l)
-		}
-	}
-	return found, readErrs
-}
-
-// formatProcAddr turns /proc/net/tcp's hex address into its usual spelling.
-// IPv4 words are LITTLE-endian per 32-bit group — the single most common way to
-// misread this table, and a reversed address in a diagnostic is worse than none.
-func formatProcAddr(hex string) string {
-	if len(hex)%8 != 0 || len(hex) == 0 {
-		return "0x" + hex
-	}
-	raw := make([]byte, 0, len(hex)/2)
-	for i := 0; i < len(hex); i += 8 {
-		var word [4]byte
-		for j := 0; j < 4; j++ {
-			b, err := strconv.ParseUint(hex[i+j*2:i+j*2+2], 16, 8)
-			if err != nil {
-				return "0x" + hex
-			}
-			word[j] = byte(b)
-		}
-		raw = append(raw, word[3], word[2], word[1], word[0])
-	}
-	ip := net.IP(raw)
-	if ip.To16() == nil {
-		return "0x" + hex
-	}
-	return ip.String()
-}
-
-// pidForSocketInode finds the process holding socket:[inode]. The error return
-// is the "could not ask" arm: an unreadable /proc is not an absent holder.
-func pidForSocketInode(inode string) (string, error) {
-	if inode == "" || inode == "0" {
-		return "", fmt.Errorf("the listener row carried no socket inode")
-	}
-	want := "socket:[" + inode + "]"
-	entries, err := os.ReadDir(procRoot)
-	if err != nil {
-		return "", err
-	}
-	for _, entry := range entries {
-		pid := entry.Name()
-		if _, err := strconv.Atoi(pid); err != nil {
-			continue
-		}
-		fds, err := os.ReadDir(filepath.Join(procRoot, pid, "fd"))
-		if err != nil {
-			// Another uid's process, or one that exited mid-walk. Neither is an
-			// answer about our inode, so keep looking.
-			continue
-		}
-		for _, fd := range fds {
-			link, err := os.Readlink(filepath.Join(procRoot, pid, "fd", fd.Name()))
-			if err == nil && link == want {
-				return pid, nil
-			}
-		}
-	}
-	return "", nil
-}
-
-func readProcField(pid, name string) string {
-	data, err := os.ReadFile(filepath.Join(procRoot, pid, name))
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(data))
-}
-
-// readProcCmdline renders the holder's argv. It is bounded and single-lined:
-// this string reaches the readiness pipe, whose protocol is one line per record,
-// and the argv of an arbitrary process is arbitrary bytes.
-func readProcCmdline(pid string) string {
-	data, err := os.ReadFile(filepath.Join(procRoot, pid, "cmdline"))
-	if err != nil {
-		return ""
-	}
-	argv := strings.Join(strings.FieldsFunc(string(data), func(r rune) bool { return r == 0 }), " ")
-	argv = oneLine(argv)
+// boundArgv renders a holder's argv for the record. It is bounded and
+// single-lined: this string reaches the readiness pipe, whose protocol is one line
+// per record, and the argv of an arbitrary process is arbitrary bytes.
+func boundArgv(cmdline string) string {
+	argv := oneLine(strings.TrimSpace(cmdline))
 	const max = 400
 	if len(argv) > max {
 		argv = argv[:max] + "…(truncated)"
