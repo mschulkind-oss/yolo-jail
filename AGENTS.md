@@ -185,7 +185,9 @@ live, so edits are visible on the host instantly — there is no sync step.
 ## Testing
 
 - `just test-fast` = `go test -short ./...` — unit tests plus the short-gated compile of `integration/`. No
-  containers. Run by the pre-commit hook (`just check-ci` = `lint-ci` + `test-fast`). `just test` adds
+  containers. It is the `test-fast` half of `just check-ci` (= `lint-ci` + `test-fast`), the pre-commit
+  gate — **which nothing in this repo installs**, so it is a discipline you run, not a hook that stops
+  you; see [Workflow](#workflow) step 4. `just test` adds
   `go test -count=1 -timeout 0 ./integration`. Run by CI.
 - **`integration/` rules**: all files are package `integration`, gated by `requireJail(t)` (skipped under
   `testing.Short()`). Do **not** add `t.Parallel()` — the package runs serially by design (real containers;
@@ -451,8 +453,13 @@ Agent logs, for debugging: `~/.copilot/logs/`, `~/.claude/projects/` inside the 
    `host.containers.internal`) or **rootless-only path**? A nested jail cannot see those classes at all —
    read the two carve-outs under [Testing](#testing) before reporting it verified.
 3. `just format` (gofmt) before committing.
-4. Conventional commit messages. The pre-commit hook runs `just check-ci`; if it rejects, fix forward —
-   never `--no-verify`, never `--amend`.
+4. Conventional commit messages. **Run `just check-ci` yourself before every commit.** This repo installs
+   NO pre-commit hook — there is no recipe, no script and no `core.hooksPath` that puts one in `.git/hooks`,
+   which is untracked and therefore cannot carry one. Two lines here used to say the hook runs it, and the
+   difference matters in both directions: nothing will stop a red commit, and a commit that landed is not
+   evidence that anything checked it. If the gate rejects, fix forward — never `--no-verify`, never
+   `--amend`. ⚠ It is a WHOLE-TREE gate, so during a fan-out it reports other agents' in-flight files as
+   your failure; that is why an orchestrator commits and agents do not.
 5. End of task: `git status` clean, `just done` green.
 6. **Doc change that makes a claim about the code** → check it before writing it. A number, a `file:line`, a
    commit SHA, or a negative ("X has no caller") is the exact place a reader stops checking, so a wrong one
