@@ -152,8 +152,15 @@ func WriteSettings(lp *Loophole, supplied *jsonx.OrderedMap) (string, []string, 
 		return "", problems, err
 	}
 	tmpName := tmp.Name()
+	// Discarded: on the success path the rename below has already moved this name
+	// away, so ENOENT is the expected answer; on a failure path the error being
+	// returned is the one the caller must see, and a failed cleanup of a 0600 temp
+	// file in yolo's own state dir adds nothing to it.
 	defer func() { _ = os.Remove(tmpName) }()
 	if err := tmp.Chmod(0o600); err != nil {
+		// Discarded for the same reason at both sites below: the Close is releasing a
+		// handle on a file that is about to be removed and never renamed into place,
+		// and the error already in hand is what failed.
 		_ = tmp.Close()
 		return "", problems, err
 	}

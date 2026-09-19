@@ -17,17 +17,39 @@ import (
 // LAZILY resolving the container cgroup on the first request (the container is
 // up by then). Reuses the internal/cgd handler. Returns a stop func + true, or
 // false when cgroup v2 is unavailable.
+//
+// EVERY `false` RETURN SAYS WHY, and this is the place the manifest already points
+// at for it: packs/cgroup-delegate's own comment says the cgroup-v2 question stays
+// here because this is "the only place that can report it in the terms an operator
+// can act on". It did not report it — all three declines were a bare `return nil,
+// false` that the caller turned into a loophole the user switched ON and that then
+// simply was not there. Which decline it was decides the register; see
+// noteCgroupDelegateUnavailable and noteCgroupDelegateFailed.
 func (o *Options) startCgroupDelegateInProc(cname, rt, sockPath string) (func(), bool) {
 	if o.IsMacOS || !o.PathExists("/sys/fs/cgroup/cgroup.controllers") {
+		o.noteCgroupDelegateUnavailable("this kernel exposes no cgroup v2 " +
+			"(/sys/fs/cgroup/cgroup.controllers is absent)")
 		return nil, false
 	}
+	// Discarded: ENOENT is the normal case, and a stale socket that survives fails
+	// the ListenUnix below with EADDRINUSE, which IS reported — with the error, which
+	// is the part a reader needs.
 	_ = os.Remove(sockPath)
 	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: sockPath, Net: "unix"})
 	if err != nil {
+		o.noteCgroupDelegateFailed("could not bind " + sockPath + ": " + err.Error())
 		return nil, false
 	}
 	ln.SetUnlinkOnClose(false)
-	_ = os.Chmod(sockPath, 0o777)
+	if cerr := os.Chmod(sockPath, 0o777); cerr != nil {
+		// NOT a decline: the listener is up and yolo will serve on it. But 0777 is
+		// what lets the jail's own uid open it, so without the chmod the delegate is
+		// running and unusable — a capability present on the host and missing in the
+		// jail, which is the hardest version of this failure to diagnose from inside.
+		o.noteCgroupDelegateFailed("bound " + sockPath +
+			" but could not chmod it 0777 (" + cerr.Error() +
+			"); the jail may not be able to open it")
+	}
 
 	// PRINCIPLE 5 of docs/reference/security-shim.md: every operation is recorded
 	// with the caller's host PID, the operation and the result, on the host

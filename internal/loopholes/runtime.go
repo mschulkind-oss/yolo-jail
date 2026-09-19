@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/execx"
@@ -428,7 +429,24 @@ func jailDaemonEnvArgs(specs []JailDaemonSpec) []string {
 	if len(specs) == 0 {
 		return nil
 	}
-	payload, _ := jsonx.DumpsCompact(JailDaemonPayload(specs))
+	payload, err := jsonx.DumpsCompact(JailDaemonPayload(specs))
+	if err != nil {
+		// REPORTED AND DROPPED, in that order. The payload was the only thing telling
+		// the in-jail supervisor these daemons exist, so a discarded error here is a
+		// launch where every declared jail daemon silently does not run. Emitting a
+		// half-written variable instead would trade the silence for a supervisor parse
+		// failure in the jail's boot log, which is further from the reader than this
+		// line is.
+		//
+		// ⚠ UNREACHABLE WITH TODAY'S PAYLOAD, and therefore UNTESTED: jsonx fails only
+		// on an unsupported TYPE, and JailDaemonPayload emits strings, bools and a
+		// []any of strings. It is a report rather than a `_` because the shape is
+		// declared elsewhere (JailDaemonSpec) and the cost of being wrong about that is
+		// a whole launch's daemons missing with nothing said.
+		warnf("could not serialize the jail-daemon payload for %d declared daemon(s) "+
+			"(%v); none will run in this jail", len(specs), err)
+		return nil
+	}
 	return []string{"-e", "YOLO_JAIL_DAEMONS=" + payload}
 }
 
@@ -532,7 +550,7 @@ func (s Set) RunDoctorChecks(from []*Loophole, timeout time.Duration) []DoctorRe
 // named a script an agent writes was EXECUTED by both preflight commands.
 func runDoctorChecks(loopholes []*Loophole, timeout time.Duration, gate *Set) []DoctorResult {
 	if timeout == 0 {
-		timeout = 10 * time.Second
+		timeout = doctorTimeoutDefault
 	}
 	results := []DoctorResult{}
 	for _, m := range loopholes {
@@ -563,6 +581,12 @@ func runDoctorChecks(loopholes []*Loophole, timeout time.Duration, gate *Set) []
 	return results
 }
 
+// doctorTimeoutDefault bounds ONE loophole's doctor_cmd. Named rather than spelled
+// inline at the zero-value branch above: the value is what the `timeout` report below
+// states, and a magic literal in a path a `yolo check` runs is a duration no reader
+// can cite.
+const doctorTimeoutDefault = 10 * time.Second
+
 func runOne(argv []string, timeout time.Duration) (*int, string) {
 	// A doctor_cmd of the form ["yolo","internal","daemon",<name>,"--self-check"]
 	// re-execs the running yolo binary rather than resolving "yolo" on PATH.
@@ -571,6 +595,16 @@ func runOne(argv []string, timeout time.Duration) (*int, string) {
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	// SETSID SO THE DEADLINE BELOW CAN ACTUALLY REACH THE THING IT IS BOUNDING.
+	// Without it the timeout killed the DIRECT CHILD only, and cmd.Wait() then blocked
+	// until every grandchild still holding the captured stdout pipe exited — so a
+	// doctor_cmd whose script forks (`sleep 30` from a shell is the whole
+	// reproduction) burned the full hang against a 10-second deadline, which is the one
+	// thing a deadline exists to prevent. MEASURED by
+	// TestDoctorTimeoutNamesTheDeadlineItBurned, which asserts the WALL CLOCK and not
+	// merely the message. Same Setsid, same reason, as a spawned host service's
+	// (internal/cli/run's killServiceGroup).
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		// FileNotFoundError / OSError -> returncode None, output = str(e).
 		return nil, err.Error()
@@ -579,9 +613,23 @@ func runOne(argv []string, timeout time.Duration) (*int, string) {
 	go func() { done <- cmd.Wait() }()
 	select {
 	case <-time.After(timeout):
-		_ = cmd.Process.Kill()
+		// The DURATION is part of the answer. "timeout" alone left a reader unable to
+		// tell a self-check that hung from one that is merely slower than the deadline
+		// it cannot see, and the deadline is a caller's argument rather than a constant
+		// a reader can look up.
+		//
+		// THE GROUP, not the child (Setsid at spawn, above): a doctor_cmd that forked
+		// leaves its children holding the pipe this function is reading, and the <-done
+		// below waits for that pipe to close. SIGKILL rather than SIGTERM because the
+		// deadline has already passed — there is no grace left to give.
+		//
+		// The error is discarded because the process is unreachable either way: ESRCH
+		// means it exited as the deadline passed, and the <-done below reaps it in both
+		// cases — the RC stays nil, which is this function's word for "did not run to a
+		// verdict".
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		<-done
-		return nil, "timeout"
+		return nil, "timeout after " + timeout.String()
 	case err := <-done:
 		code := cmd.ProcessState.ExitCode()
 		out := stdout.String()
@@ -589,6 +637,9 @@ func runOne(argv []string, timeout time.Duration) (*int, string) {
 			out = stderr.String()
 		}
 		out = strings.TrimSpace(out)
+		// Wait's error is discarded because it is a RESTATEMENT of the exit code this
+		// function already returns (an *ExitError carrying `code`), and a doctor_cmd
+		// exiting non-zero is the reportable outcome, not an error of yolo's.
 		_ = err
 		rc := code
 		return &rc, out

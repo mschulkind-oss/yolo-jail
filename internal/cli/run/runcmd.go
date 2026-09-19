@@ -182,6 +182,12 @@ type Options struct {
 	// clock, so the default would otherwise cost the unit suite five real seconds
 	// per unreachable daemon; production always uses the default.
 	ServiceReadyTimeout time.Duration
+	// ServiceTermGrace bounds how long a spawned host service's teardown waits
+	// after SIGTERM before SIGKILLing its process group. 0 =>
+	// serviceTermGraceDefault (5s). Injectable ONLY to shrink it in tests, for
+	// ServiceReadyTimeout's reason: the wait is real wall clock, and the test that
+	// pins the escalation notice would otherwise cost the suite five seconds.
+	ServiceTermGrace time.Duration
 	// Getenv reads environment variables. nil => os.Getenv.
 	Getenv func(string) string
 	// LookPath resolves an executable on PATH (shutil.which). nil => real.

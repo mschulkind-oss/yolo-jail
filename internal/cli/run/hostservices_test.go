@@ -333,7 +333,12 @@ func TestExternalServiceWarnsOnReadinessTimeout(t *testing.T) {
 	}
 	out := buf.String()
 	wantPath := filepath.Join(socketsDir, "fake-svc"+paths.ServiceEndpointExt)
-	for _, want := range []string{"Warning", "fake-svc", wantPath, "host-service-fake-svc.log"} {
+	// "within 300ms" — the DEADLINE is part of the answer. A timeout that names only
+	// what it waited for leaves a reader unable to tell a daemon that is slow from one
+	// that never came up, and the magnitude is a seam, so there is no constant to look
+	// up either.
+	for _, want := range []string{"Warning", "fake-svc", wantPath, "host-service-fake-svc.log",
+		"within 300ms"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("timeout warning missing %q; got %q", want, out)
 		}

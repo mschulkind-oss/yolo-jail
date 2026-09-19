@@ -385,7 +385,17 @@ func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt 
 		// them did".
 		sp := o.Perf.Span("shutdown.stop_front." + h.name)
 		func() {
-			defer func() { _ = recover() }()
+			// A PANICKING stop() IS REPORTED, not swallowed. The recover is here so
+			// one wedged handle cannot abandon the rest of the teardown — but a bare
+			// `_ = recover()` also erased the only evidence that a teardown step ran
+			// and failed, leaving a daemon alive with nothing said about it. The
+			// panic value is the whole diagnostic, so it goes in the line.
+			defer func() {
+				if r := recover(); r != nil {
+					out.printf("[yellow]Warning: stopping host service '%s' panicked: %v"+
+						" — its daemon or front may still be running.[/yellow]", h.name, r)
+				}
+			}()
 			if h.stop != nil {
 				h.stop()
 			}
@@ -399,10 +409,22 @@ func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt 
 	var lock *workspaceLock
 	if cname != "" {
 		lockDir := filepath.Join(paths.GlobalStorage(), "locks")
+		// Discarded deliberately: the only consequence of a failed MkdirAll is the
+		// OpenFile below failing, which IS reported — reporting both would state one
+		// fault twice.
 		_ = os.MkdirAll(lockDir, 0o755)
 		f, err := os.OpenFile(filepath.Join(lockDir, cname+".lock"), os.O_CREATE|os.O_WRONLY, 0o644)
-		if err == nil {
+		if err != nil {
+			// UNLOCKED TEARDOWN IS A DECISION, so it is said out loud. Without the
+			// flock this teardown cannot tell a relaunch mid-flight from a jail that
+			// ended, so the rmtree below may delete the endpoint files the NEXT launch
+			// is publishing into — the failure mode the lock exists to prevent.
+			out.printf("[yellow]Warning: could not take the relaunch lock for %s (%v); "+
+				"tearing down its sockets dir without it.[/yellow]", cname, err)
+		} else {
 			if ferr := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); ferr != nil {
+				// Nothing was written to this fd, so a Close error cannot lose data;
+				// the flock we failed to take is released by the close either way.
 				_ = f.Close()
 				out.printf("[dim]Another yolo invocation is launching %s; "+
 					"leaving its sockets dir alone.[/dim]", cname)
@@ -439,7 +461,16 @@ func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt 
 		retireFrontSockets(strings.TrimPrefix(base, hostServicesDirPrefix))
 	}
 	if fileExists(socketsDir) {
-		_ = os.RemoveAll(socketsDir)
+		// A FAILED RMTREE IS THE STALE-ENDPOINT HAZARD this whole file keeps
+		// defending against, one launch later: a surviving endpoint file names a port
+		// nobody is on, and the next launch's readiness wait can be satisfied by it
+		// instantly. The pre-spawn unlink is the other half of that defence, and it
+		// reports too.
+		if err := os.RemoveAll(socketsDir); err != nil {
+			out.printf("[yellow]Warning: could not remove the host-services dir %s (%v); "+
+				"stale endpoint files there can mislead the next launch.[/yellow]",
+				socketsDir, err)
+		}
 	}
 }
 
@@ -499,6 +530,35 @@ func (o *Options) startCgroupDelegate(cname, rt, socketsDir string) (loopholeDae
 	}, true
 }
 
+// noteCgroupDelegateUnavailable and noteCgroupDelegateFailed are how the in-process
+// delegate reports NOT starting. Two functions rather than one with a severity
+// argument, because the distinction is the whole content:
+//
+//   - UNAVAILABLE is "yolo could not ask" — this kernel has no cgroup v2, so there is
+//     nothing to install and nothing to fix here. The register is [dim] and the
+//     sentence says so outright, for the reason loophole-system.md gives the
+//     unsupported-platform message: a reader not told that nothing is missing spends
+//     the afternoon proving it.
+//   - FAILED is "yolo asked and it did not work" — a bind or a chmod that returned an
+//     error, naming the path and the error. That is an actionable fault on a machine
+//     that CAN run the delegate, so it is a [yellow] warning.
+//
+// Collapsing the two would flatten exactly the distinction AGENTS.md preserves for the
+// loopback witness (OQ-R3): a host yolo could not ask is never reported as a failure it
+// could have avoided. Both are unconditional — the delegate only reaches here when the
+// user switched its loophole ON, so neither line can appear on a launch that did not
+// ask for the capability.
+func (o *Options) noteCgroupDelegateUnavailable(reason string) {
+	o.pr(o.Stdout).print("[dim]The cgroup-delegate loophole is enabled but the delegate " +
+		"cannot run on this machine: " + reason + ". Nothing is missing — yolo-cglimit " +
+		"will be unavailable in the jail.[/dim]")
+}
+
+func (o *Options) noteCgroupDelegateFailed(reason string) {
+	o.pr(o.Stdout).print("[yellow]Warning: the cgroup-delegate loophole is enabled but " +
+		"its delegate " + reason + " — yolo-cglimit will not work in this jail.[/yellow]")
+}
+
 // THE JOURNAL BRIDGE'S TWO FUNCTIONS USED TO LIVE HERE — `resolveJournalMode` and
 // `startJournal` — and their absence is worth a paragraph, because it is the shape
 // this sprint is deleting rather than two functions that happened to move.
@@ -530,23 +590,61 @@ func (o *Options) startCgroupDelegate(cname, rt, socketsDir string) (loopholeDae
 // it rather than calling Wait here keeps the child reaped in exactly one place.
 // The straggler SIGKILL also goes to the group: a daemon that ignored SIGTERM
 // usually shields its children the same way.
-func killServiceGroup(cmd *exec.Cmd, exited <-chan struct{}) {
+//
+// THE ESCALATION IS REPORTED, with the name and the grace it burned. A daemon
+// that ignores SIGTERM costs every teardown that grace in wall clock and is the
+// shape that leaves forked grandchildren behind, and the branch used to be a
+// bare `_ = syscall.Kill(…, SIGKILL)` — so the one observable was a quit that
+// took five seconds longer than it should and said nothing about which of N
+// daemons spent them.
+func killServiceGroup(out printer, name string, grace time.Duration, cmd *exec.Cmd, exited <-chan struct{}) {
 	if cmd.Process == nil {
 		return
 	}
 	pgid := cmd.Process.Pid // Setsid: the child is its own group leader
+	// Discarded deliberately: the only realistic error is ESRCH, meaning the group
+	// is already gone — in which case `exited` is already closed and the select
+	// below takes that branch immediately. A signal that failed for any other
+	// reason shows up as the grace expiring, which is reported.
 	_ = syscall.Kill(-pgid, syscall.SIGTERM)
 	select {
 	case <-exited:
-	case <-time.After(5 * time.Second):
+	case <-time.After(grace):
+		out.printf("[yellow]Warning: host service '%s' ignored SIGTERM for %s; "+
+			"killing its process group.[/yellow]", name, grace)
+		// Discarded for the SIGTERM's reason, narrowed: SIGKILL cannot be blocked,
+		// so the only way it fails is ESRCH — the group exited between the grace
+		// expiring and this line, which is the outcome we wanted anyway.
 		_ = syscall.Kill(-pgid, syscall.SIGKILL)
 	}
+}
+
+// serviceTermGraceDefault is how long a spawned host service's teardown waits
+// after SIGTERM before SIGKILLing its process group. Tests shrink it via
+// Options.ServiceTermGrace so the suite need not sleep for real; production
+// always uses this value.
+const serviceTermGraceDefault = 5 * time.Second
+
+func (o *Options) serviceTermGrace() time.Duration {
+	if o.ServiceTermGrace > 0 {
+		return o.ServiceTermGrace
+	}
+	return serviceTermGraceDefault
 }
 
 // serviceReadyTimeoutDefault is the production readiness deadline for a spawned
 // host service. Tests shrink it via Options.ServiceReadyTimeout to avoid real
 // multi-second sleeps.
 const serviceReadyTimeoutDefault = 5 * time.Second
+
+// servicePollInterval is the tick every readiness poll in this file runs on —
+// waitServiceReady's two loops and frontPublishFailure's.
+//
+// IT IS NOT A TIMEOUT, and the distinction is why it is named separately from
+// the deadlines above and below it: a tick expiring means "ask again", so it
+// decides nothing and reports nothing. The DEADLINE is the decision, and each
+// deadline branch in this file names what it waited for and for how long.
+const servicePollInterval = 50 * time.Millisecond
 
 func (o *Options) serviceReadyTimeout() time.Duration {
 	if o.ServiceReadyTimeout > 0 {
@@ -600,10 +698,11 @@ func (o *Options) waitServiceReady(reachable func() bool, exited <-chan struct{}
 				if reachable() {
 					return ""
 				}
-				time.Sleep(50 * time.Millisecond)
+				time.Sleep(servicePollInterval)
 			}
-			return "exited (status 0) and its service never became reachable"
-		case <-time.After(50 * time.Millisecond):
+			return "exited (status 0) and its service never became reachable within " +
+				o.serviceReadyTimeout().String()
+		case <-time.After(servicePollInterval):
 		}
 	}
 }
@@ -728,7 +827,7 @@ func (o *Options) startHostSingleton(
 	// A dead predecessor's endpoint file names a port nobody is on; leaving it
 	// would satisfy the publication wait below instantly. Same removal, same
 	// reason, as the spawned path's.
-	_ = os.Remove(hostPath)
+	o.reportStaleRemoval("endpoint file", name, hostPath)
 	daemonPath := paths.HostSingletonSocket(name)
 	// NO pre-emptive unlink of daemonPath here, and the asymmetry with the spawned
 	// path is the point: that socket may belong to a LIVE daemon serving another
@@ -772,22 +871,18 @@ func (o *Options) startHostSingleton(
 		return loopholeDaemon{}, false
 	}
 	frontStop := make(chan struct{})
-	frontDone := make(chan struct{})
-	go func() {
-		defer close(frontDone)
-		_ = svcendpoint.ServeFrontWithOptions(hostPath, advertiseHost, daemonPath, frontStop,
-			svcendpoint.FrontOptions{
-				HalfCloseUpstream: hd.RequestEnd == loopholes.RequestEndEOF,
-				NoPreamble:        !hd.Preamble,
-			})
-	}()
-	if !waitForEndpoint(hostPath, o.serviceReadyTimeout()) {
+	frontDone, frontFailed := frontRun(hostPath, advertiseHost, daemonPath, frontStop,
+		svcendpoint.FrontOptions{
+			HalfCloseUpstream: hd.RequestEnd == loopholes.RequestEndEOF,
+			NoPreamble:        !hd.Preamble,
+		})
+	if failure := frontPublishFailure(hostPath, o.serviceReadyTimeout(), frontFailed); failure != "" {
 		close(frontStop)
 		// The DAEMON is not killed on this failure either. It was already running
 		// (or was just ensured for everyone, not for us), and our front failing to
 		// publish says nothing about whether another jail's is fine.
 		o.pr(o.Stdout).print("[yellow]Warning: the front for host-wide service '" + name +
-			"' did not publish " + hostPath + " — the jail cannot reach it. See " +
+			"' " + failure + " — the jail cannot reach it. See " +
 			deps.LogPath + "[/yellow]")
 		return loopholeDaemon{}, false
 	}
@@ -799,14 +894,31 @@ func (o *Options) startHostSingleton(
 			// Close the front and WAIT for its listener's Close, which unlinks the
 			// endpoint file and retires this jail's credential. Bounded, for the
 			// spawned path's reason: a wedged front must not hold up teardown, and
-			// the sockets-dir rmtree is the backstop.
+			// the sockets-dir rmtree is the backstop — reported when it expires, which
+			// is awaitFrontClosed's whole job.
 			close(frontStop)
-			select {
-			case <-frontDone:
-			case <-time.After(frontStopGrace):
-			}
+			o.awaitFrontClosed("host-wide service", name, hostPath, frontDone, frontStopGrace)
 		},
 	}, true
+}
+
+// reportStaleRemoval unlinks a dead predecessor's artifact before a spawn and
+// reports the one outcome that changes what happens next: a file that is still
+// there.
+//
+// ENOENT IS THE NORMAL CASE and says nothing, so this is silent on every healthy
+// launch. Anything else is worth a line precisely because the consequence is
+// invisible otherwise: a surviving endpoint file satisfies the readiness wait
+// instantly and yolo then reports a service the jail can never dial, while a
+// surviving upstream socket fails the fresh daemon's bind with EADDRINUSE. Both
+// used to be `_ = os.Remove(path)`, which is the silent-decision shape this file
+// is being cleaned of.
+func (o *Options) reportStaleRemoval(what, name, path string) {
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		o.pr(o.Stdout).printf("[yellow]Warning: could not remove the stale %s for '%s' at %s "+
+			"(%v); a surviving one can make this launch report a service the jail "+
+			"cannot reach.[/yellow]", what, name, path, err)
+	}
 }
 
 // startExternalService is the common host-service path: substitute the host-side
@@ -856,7 +968,7 @@ func (o *Options) startExternalService(
 	// Remove a dead predecessor's artifact BEFORE the spawn. Without this the wait
 	// below can succeed against a stale endpoint file naming a port nobody is on,
 	// and every client then dials a dead address.
-	_ = os.Remove(hostPath)
+	o.reportStaleRemoval("endpoint file", name, hostPath)
 	// daemonPath is what the DAEMON brings up. Under publishes:"endpoint" it is
 	// hostPath itself; under publishes:"socket" it is a host-only upstream socket
 	// OUTSIDE the :rw-mounted services dir (frontSocketFile says why), with
@@ -868,18 +980,27 @@ func (o *Options) startExternalService(
 		// retireFrontSockets' reasons: a leftover file would fail the fresh
 		// daemon's bind with EADDRINUSE, and would satisfy any existence-shaped
 		// wait instantly (the wait below is a connect for exactly that reason).
-		_ = os.Remove(daemonPath)
+		o.reportStaleRemoval("upstream socket", name, daemonPath)
 	}
 	cmdArgs, ok := o.resolveDaemonArgv(name, spec, daemonPath)
 	if !ok {
 		return loopholeDaemon{}, false
 	}
 	logDir := filepath.Join(paths.GlobalStorage(), "logs")
+	// Discarded deliberately: a failed MkdirAll surfaces as the OpenFile below
+	// failing, which IS reported — one fault, one line.
 	_ = os.MkdirAll(logDir, 0o755)
 	logPath := filepath.Join(logDir, "host-service-"+name+".log")
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 	if lf, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
 		cmd.Stdout, cmd.Stderr = lf, lf
+	} else {
+		// THE DAEMON STILL STARTS — its log is diagnostics, not a dependency — but
+		// every failure line below ends in "see <logPath>", and sending a reader to a
+		// file that was never opened is worse than the silence it replaced. So the one
+		// launch where that advice is false says so here, once, before it is given.
+		o.pr(o.Stdout).printf("[yellow]Warning: host service '%s' will run with no log: "+
+			"could not open %s (%v).[/yellow]", name, logPath, err)
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	// env overrides.
@@ -919,6 +1040,9 @@ func (o *Options) startExternalService(
 	// dead code and an instantly-crashing daemon silently burned the whole
 	// readiness deadline, serially, one per daemon.
 	exited := make(chan struct{})
+	// Wait's error is discarded because it is a RESTATEMENT of cmd.ProcessState,
+	// which waitServiceReady reads and reports ("exited at startup (<status>)").
+	// Reporting both would say one exit twice, in two wordings.
 	go func() { _ = cmd.Wait(); close(exited) }()
 
 	// Wait for the service to become reachable. Real wall clock inside,
@@ -939,7 +1063,10 @@ func (o *Options) startExternalService(
 	}
 	if failure := o.waitServiceReady(reachable, exited, cmd); failure != "" {
 		// SIGKILL the GROUP (Setsid at spawn), not just the direct child: a
-		// daemon that failed readiness may still have forked something.
+		// daemon that failed readiness may still have forked something. The error is
+		// discarded because SIGKILL cannot be blocked: the only way it fails is ESRCH,
+		// meaning the group is already gone — which the failure clause below is about
+		// to report in its own words.
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		// Not fatal — the jail still starts. But it IS the state in which every
 		// in-jail client of this loophole fails, and the failure is otherwise
@@ -966,7 +1093,8 @@ func (o *Options) startExternalService(
 	if loopbackTLS {
 		envVar = hostServiceEnvVar(name)
 	}
-	stop := func() { killServiceGroup(cmd, exited) }
+	out := o.pr(o.Stdout)
+	stop := func() { killServiceGroup(out, name, o.serviceTermGrace(), cmd, exited) }
 	if fronted {
 		// The daemon's socket accepts; now publish the jail-facing half. The
 		// front is started only AFTER the upstream wait on purpose: ServeFront
@@ -979,35 +1107,36 @@ func (o *Options) startExternalService(
 		// stop() only ASKS the front to stop, so "the endpoint file is gone once
 		// stop() returns" was true by timing rather than by construction — the
 		// listener's Close (which unlinks the file, retiring the jail's credential)
-		// races the caller.
-		frontDone := make(chan struct{})
-		go func() {
-			defer close(frontDone)
-			_ = svcendpoint.ServeFrontWithOptions(hostPath, advertiseHost, daemonPath, frontStop,
-				svcendpoint.FrontOptions{
-					HalfCloseUpstream: hd.RequestEnd == loopholes.RequestEndEOF,
-					// The daemon's own declaration decides, and the two ways to
-					// declare one default OPPOSITE ways on purpose. A MANIFEST is
-					// written against yolo's transport, so its default is
-					// preamble-on and a dumb pipe says `"preamble": false`
-					// (loopholedecl.HostDaemon.Preamble). A yolo-jail.jsonc
-					// `loopholes:` entry is an argv for a third-party program that
-					// is already running for somebody, so discover.go defaults it
-					// OFF and `"preamble": true` is the opt-in. Either way the
-					// answer arrives here as one bool on the record — this call
-					// site does not know which kind of declaration produced it,
-					// and must not.
-					NoPreamble: !hd.Preamble,
-				})
-		}()
-		if !waitForEndpoint(hostPath, o.serviceReadyTimeout()) {
+		// races the caller. frontFailed carries the front's BIND error; see frontRun.
+		frontDone, frontFailed := frontRun(hostPath, advertiseHost, daemonPath, frontStop,
+			svcendpoint.FrontOptions{
+				HalfCloseUpstream: hd.RequestEnd == loopholes.RequestEndEOF,
+				// The daemon's own declaration decides, and the two ways to
+				// declare one default OPPOSITE ways on purpose. A MANIFEST is
+				// written against yolo's transport, so its default is
+				// preamble-on and a dumb pipe says `"preamble": false`
+				// (loopholedecl.HostDaemon.Preamble). A yolo-jail.jsonc
+				// `loopholes:` entry is an argv for a third-party program that
+				// is already running for somebody, so discover.go defaults it
+				// OFF and `"preamble": true` is the opt-in. Either way the
+				// answer arrives here as one bool on the record — this call
+				// site does not know which kind of declaration produced it,
+				// and must not.
+				NoPreamble: !hd.Preamble,
+			})
+		if failure := frontPublishFailure(hostPath, o.serviceReadyTimeout(), frontFailed); failure != "" {
 			close(frontStop)
-			killServiceGroup(cmd, exited)
+			killServiceGroup(out, name, o.serviceTermGrace(), cmd, exited)
+			// Discarded: cleanup on a path that is already reporting a failure. A
+			// socket left behind here is retired by the next launch's pre-spawn
+			// unlink or by retireFrontSockets, and both of those report.
 			_ = os.Remove(daemonPath)
 			// Same loudness contract as the daemon wait above: this is the state
-			// in which the daemon is healthy and the jail still cannot reach it.
+			// in which the daemon is healthy and the jail still cannot reach it,
+			// and `failure` is what distinguishes a front that could not BIND from
+			// one that simply never published inside the deadline.
 			o.pr(o.Stdout).print("[yellow]Warning: the front for host service '" + name +
-				"' did not publish " + hostPath + " — the jail cannot reach it. See " +
+				"' " + failure + " — the jail cannot reach it. See " +
 				logPath + "[/yellow]")
 			return loopholeDaemon{}, false
 		}
@@ -1018,12 +1147,14 @@ func (o *Options) startExternalService(
 			close(frontStop)
 			// WAIT for that Close, bounded: an unbounded wait would let a wedged
 			// front hold up every teardown, and the sockets-dir rmtree in
-			// stopLoopholes is the backstop if this ever expires.
-			select {
-			case <-frontDone:
-			case <-time.After(frontStopGrace):
-			}
-			killServiceGroup(cmd, exited)
+			// stopLoopholes is the backstop if this ever expires — REPORTED, because
+			// past this point the endpoint file and the per-jail credential inside it
+			// may outlive the jail, and the backstop is another function's job.
+			o.awaitFrontClosed("host service", name, hostPath, frontDone, frontStopGrace)
+			killServiceGroup(out, name, o.serviceTermGrace(), cmd, exited)
+			// Discarded: teardown litter only, and self-limiting — the next launch's
+			// pre-spawn unlink and retireFrontSockets both target this exact path and
+			// both report what they cannot remove.
 			_ = os.Remove(daemonPath)
 		}
 	}
@@ -1103,12 +1234,13 @@ func frontShortHash(socketsDir string) string {
 // unreachable from here BY CONSTRUCTION rather than by a check somebody has to
 // remember — which is the property that keeps one jail ending from cutting off
 // every other jail's credential path.
-// frontStopGrace bounds how long a fronted service's stop() waits for the front
-// goroutine to close its listener (which unlinks the endpoint file). Short
-// because the wait is for a Close, not for I/O: past it, stopLoopholes'
-// sockets-dir rmtree is the backstop.
-const frontStopGrace = 2 * time.Second
-
+//
+// BOTH ERRORS ARE DISCARDED, and both are safe. Glob's only error is
+// ErrBadPattern, which a pattern built from frontSocketFile cannot be. A failed
+// Remove leaves one file in /tmp whose every consequence is reported elsewhere: the
+// only thing that reads this path again is the same jail's next launch, whose
+// pre-spawn unlink reports what it cannot remove (reportStaleRemoval), and a fresh
+// daemon that hits EADDRINUSE fails its readiness wait loudly.
 func retireFrontSockets(shortHash string) {
 	matches, _ := filepath.Glob(frontSocketFile(shortHash, "*"))
 	for _, m := range matches {
@@ -1116,27 +1248,111 @@ func retireFrontSockets(shortHash string) {
 	}
 }
 
-// waitForEndpoint polls until a front has published a COMPLETE endpoint file,
-// returning whether it landed. Both spawn paths use it — the per-jail one in
+// frontStopGrace bounds how long a fronted service's stop() waits for the front
+// goroutine to close its listener (which unlinks the endpoint file). Short
+// because the wait is for a Close, not for I/O: past it, stopLoopholes'
+// sockets-dir rmtree is the backstop — and the expiry is REPORTED at both stop()
+// sites, because until that rmtree runs the endpoint file still carries a live
+// per-jail credential.
+const frontStopGrace = 2 * time.Second
+
+// awaitFrontClosed waits for a front's listener to finish closing and REPORTS the
+// one outcome that is not silence: the grace expiring.
+//
+// ONE reporter for both stop() paths, and the grace is a parameter, because the
+// alternative is what was here — the same bare `select { case <-frontDone: case
+// <-time.After(frontStopGrace): }` written twice, with the timeout branch empty in
+// both. Past that branch the endpoint file still exists and the per-jail bearer token
+// inside it is still valid, and the only thing that retires it is a *different*
+// function's rmtree (stopLoopholes), which this teardown does not wait for and which
+// declines outright if a container is still running. So it is exactly a decision with
+// a security consequence and no observable, which is the shape this file is being
+// cleaned of.
+//
+// kind is the service's scope word ("host service" / "host-wide service"), because
+// which one lingered decides who is affected: a per-jail front outlives one jail, a
+// host-wide one is shared.
+func (o *Options) awaitFrontClosed(kind, name, endpointPath string, done <-chan struct{}, grace time.Duration) {
+	select {
+	case <-done:
+	case <-time.After(grace):
+		o.pr(o.Stdout).printf("[yellow]Warning: the front for %s '%s' did not close within "+
+			"%s; its endpoint file %s and the credential in it may outlive this "+
+			"jail.[/yellow]", kind, name, grace, endpointPath)
+	}
+}
+
+// frontRun starts a svcendpoint front for one daemon and returns the two channels
+// its caller needs: done, closed when the front's listener is actually closed (which
+// unlinks the endpoint file and retires this jail's credential), and failed.
+//
+// FAILED IS THE POINT OF THIS HELPER. Both call sites used to spell the goroutine by
+// hand as `_ = svcendpoint.ServeFrontWithOptions(…)`, so a front that could not come
+// up produced exactly ONE observable — the publication wait timing out seconds later,
+// saying "did not publish" and nothing about why. That is the shape a bind collision
+// takes, and it is diagnosable only from the error this channel carries.
+//
+// It is silent on every healthy path and cannot cost a launch a line:
+// ServeFrontWithOptions returns non-nil only when the LISTEN fails, while a listener
+// closed on stop returns nil (svcendpoint/front.go's accept loop).
+func frontRun(publishPath, advertiseHost, upstreamPath string, stop <-chan struct{},
+	opts svcendpoint.FrontOptions) (done <-chan struct{}, failed <-chan error) {
+	d := make(chan struct{})
+	f := make(chan error, 1)
+	go func() {
+		defer close(d)
+		if err := svcendpoint.ServeFrontWithOptions(
+			publishPath, advertiseHost, upstreamPath, stop, opts); err != nil {
+			f <- err
+		}
+	}()
+	return d, f
+}
+
+// frontPublishFailure waits for a front to publish a COMPLETE endpoint file and
+// returns "" when it does, else a clause naming WHY — its caller prefixes the
+// service and appends the log. Both spawn paths use it: the per-jail one in
 // startExternalService and the host-wide one in startHostSingleton.
 //
 // Content, not existence (svcendpoint.Probe): the file is written temp+rename so a
 // reader cannot see a torn line, but an older or crashed publisher can still leave
 // a file that parses as nothing usable — and treating that as "published" hands the
 // jail an address it can never dial.
-func waitForEndpoint(endpointPath string, timeout time.Duration) bool {
+//
+// TWO DISTINGUISHABLE FAILURES, deliberately, because they call for different next
+// steps: the front's listen FAILED (its error, available at once — so the rest of the
+// deadline is not burned reporting a symptom of it), or nothing published and the
+// deadline passed, which names the path and the duration. A timeout that says neither
+// converts "the port was taken" into "the capability is missing".
+func frontPublishFailure(endpointPath string, timeout time.Duration, failed <-chan error) string {
 	// Real wall clock, deliberately NOT o.Now() — see waitServiceReady.
 	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
+	for {
 		if svcendpoint.Probe(endpointPath) {
-			return true
+			return ""
 		}
-		time.Sleep(50 * time.Millisecond)
+		select {
+		case err := <-failed:
+			if err != nil {
+				return "could not bind its listener: " + err.Error()
+			}
+		default:
+		}
+		if !time.Now().Before(deadline) {
+			if svcendpoint.Probe(endpointPath) {
+				return ""
+			}
+			return "did not publish " + endpointPath + " within " + timeout.String()
+		}
+		time.Sleep(servicePollInterval)
 	}
-	return svcendpoint.Probe(endpointPath)
 }
 
-// socketConnectable is a plain connect() probe.
+// socketConnectable is a plain connect() probe. The dial error is the ANSWER (false)
+// rather than something to report: every caller turns it into a failure clause of its
+// own naming the path and the deadline, and Close's error is discarded because nothing
+// was written or read — a probe that connected has already learned everything it
+// asked.
 func socketConnectable(sockPath string, timeout time.Duration) bool {
 	conn, err := net.DialTimeout("unix", sockPath, timeout)
 	if err != nil {
