@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -263,6 +264,7 @@ var hostHome string
 // yolo run makes anyway.
 func isolateHome(t *testing.T, userConfig string) {
 	t.Helper()
+	refuseProviderShorthand(t, userConfig)
 	if hostHome == "" {
 		hostHome = os.Getenv("HOME")
 		t.Cleanup(func() { hostHome = "" })
@@ -297,6 +299,72 @@ func isolateHome(t *testing.T, userConfig string) {
 func packHome(t *testing.T, userConfig string) {
 	t.Helper()
 	isolateHome(t, userConfig)
+}
+
+// refuseProviderShorthand fails a fixture that writes the REMOVED single-protocol
+// `base_url` on a provider entry, before any launch is started.
+//
+// # Why this is a harness guard and not a lesson someone remembers
+//
+// The shorthand was deleted on 2026-09-18 (docs/reference/protocol-resolution.md) and the
+// refusal is an ERROR ON THE HOST — which every launch from this package is. Two fixtures
+// here still carried it, and the result was four subtests failing as an opaque `rc 1` with
+// a wall of refusal text, in a package where an `rc 1` can come from anything.
+//
+// ⚠ IT SURVIVED EVERY LOCAL GATE, and that is the part worth stating. `just test-fast` is
+// `go test -short ./...`, and under `-short` this package only COMPILES — `requireJail`
+// skips every test in it. So a fixture holding a config the host now refuses is invisible
+// to the gate a contributor runs and to the pre-commit hook, and surfaces only in CI's
+// full `./integration` run, minutes into a container suite.
+//
+// The sibling guard in writeProject refuses a `base_url` in a WORKSPACE config on scope
+// grounds (user-scope only, OQ-LM3). This one is about the SPELLING and fires wherever the
+// entry lives, which is why it sits on isolateHome — the one writer of a user-config
+// fixture — rather than beside it.
+func refuseProviderShorthand(t *testing.T, userConfig string) {
+	t.Helper()
+	if !hasProviderShorthand(userConfig) {
+		return
+	}
+	t.Fatalf("fixture writes the REMOVED single-protocol `base_url` on a provider entry. "+
+		"It is an ERROR ON THE HOST, and every launch in this package is a host launch, so "+
+		"this fails as an opaque `rc 1`. Use `\"endpoints\": {\"<protocol>\": {\"base_url\": …}}` "+
+		"— `openai` for a local llama.cpp/ollama/vLLM. ⚠ `just test-fast` cannot catch this: "+
+		"under -short this package only compiles.\n%s", userConfig)
+}
+
+// hasProviderShorthand is refuseProviderShorthand's predicate, split out so it can be
+// tested directly: every test in this package is jail-gated, so the guard itself would
+// otherwise be unexercised by the only suite that can run here.
+//
+// IT PARSES, and the first draft did not. That draft masked `"endpoints"`, found the FIRST
+// `"base_url"`, and asked whether the nearest preceding landmark was the mask or a closing
+// brace. It read a correct entry followed by a bad one as clean — it never looked past the
+// first match — which is the ordering its own test case named. A string heuristic over
+// nested JSON has a wrong answer for every shape nobody enumerated; parsing has none.
+//
+// An unparseable fixture returns FALSE rather than failing here: a malformed config is the
+// launch's own error to report, with its own message, and a guard that pre-empted it would
+// answer a different question than the one it was asked.
+func hasProviderShorthand(userConfig string) bool {
+	var root map[string]any
+	if err := json.Unmarshal([]byte(userConfig), &root); err != nil {
+		return false
+	}
+	providers, ok := root["providers"].(map[string]any)
+	if !ok {
+		return false
+	}
+	for _, v := range providers {
+		entry, ok := v.(map[string]any)
+		if !ok {
+			continue // a null entry deletes the provider; it declares nothing
+		}
+		if _, bad := entry["base_url"]; bad {
+			return true
+		}
+	}
+	return false
 }
 
 // stubHostBins prepends a temp dir holding an executable stub per name to the PATH this test

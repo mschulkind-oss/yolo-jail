@@ -43,8 +43,16 @@ var (
 // error and refuses the launch before a container starts. Which scope declares the
 // provider changes nothing this file measures — every other field of the entry merges
 // from either scope, and the derive reads the merged map.
+//
+// ⚠ `endpoints.openai`, NOT the bare `base_url` this held until 2026-09-19. The
+// single-protocol shorthand is REMOVED (docs/reference/protocol-resolution.md) and the
+// refusal is an ERROR ON THE HOST, which is what a launch from this test is — so the
+// fixture took three subtests red with `rc 1` and the removal message. It survived
+// `just test-fast` because that only COMPILES integration/ under -short; nothing ran it
+// until CI did. `openai` is the protocol a local llama.cpp actually speaks, and codex
+// speaks it too, which is what makes this fixture a REACHABLE pairing.
 const codexProbeProvider = `"providers": {"llamacpp": {
-  "base_url": "http://127.0.0.1:8080/v1",
+  "endpoints": {"openai": {"base_url": "http://127.0.0.1:8080/v1"}},
   "models": {"default": "llama"}
 }}`
 
