@@ -123,11 +123,11 @@ Model API for integration tests due to rate-limitations."
 
 It is an **in-process VS Code extension API**. Reaching it from Claude Code in a container
 means writing an extension that re-exports Copilot inference over a socket — which is the
-proxy of §3.4 wearing a badge, and lands on the Extension Developer Policy quoted below.
+proxy of [§3.4](#34-reverse-engineered-proxies--this-is-what-hooking-it-up-would-mean) wearing a badge, and lands on the Extension Developer Policy quoted below.
 OpenCode's [issue #15243](https://github.com/anomalyco/opencode/issues/15243) is the same
 idea from the same motive (dodging Copilot rate limits) and is still open.
 
-**Verdict: exists, unreachable from a jail without building the thing §3.4 describes.**
+**Verdict: exists, unreachable from a jail without building the thing [§3.4](#34-reverse-engineered-proxies--this-is-what-hooking-it-up-would-mean) describes.**
 
 ### 3.4 Reverse-engineered proxies — this is what "hooking it up" would mean
 
@@ -141,7 +141,7 @@ Copilot session.
 Technically this works and would slot into yolo cleanly: a `kind: "service"` pack in the
 shape of [`wire-bridge`](../reference/wire-bridge.md), publishing a jail-local Anthropic
 endpoint that `packs/claude`'s derive already knows how to consume. **The engineering is
-the easy half.** The README's own warning is the hard half, quoted in §4.3.
+the easy half.** The README's own warning is the hard half, quoted in [§4.3](#43-what-the-terms-do-say-and-it-is-enough).
 
 `api.githubcopilot.com` is not in GitHub's public API. The documented Copilot REST surface
 is seat management and usage metrics under `/orgs/{org}/copilot` — no inference.
@@ -170,9 +170,9 @@ Specifically:
   Generative AI Services Terms — extracted from
   [the March 2026 PDF](https://assets.ctfassets.net/8aevphvgewt8/1Y0gmEkMnAs8W6N4ai2R1g/694c0ae359902dc0700454333ad15c44/GitHub_Copilot_Product_Specific_Terms_-_2026_03_05_-_FINAL.pdf))
   contain **no** permitted-client clause, **no** reverse-engineering clause, and **no**
-  competing-product clause. §1 merely observes that Copilot "includes tools for your code
+  competing-product clause. Section 1 merely observes that Copilot "includes tools for your code
   editor, as well as optional tools that can be used through a command-line interface, web
-  browser, or mobile device." §5 delegates the whole restriction question outward: "Your use
+  browser, or mobile device." Section 5 delegates the whole restriction question outward: "Your use
   of GitHub Copilot is subject to the Acceptable Use Policies, the AI Code of Conduct, and
   the Required Mitigations."
 - The **Microsoft AI Code of Conduct** ([aka.ms/AIcode](https://learn.microsoft.com/legal/ai-code-of-conduct),
@@ -188,7 +188,7 @@ So: nobody should claim GitHub has written down "one client only". They have not
 
 Two clauses bear directly, plus one policy that reads on the mechanism.
 
-**GitHub Acceptable Use Policies §6, "Services Usage Limits"**
+**GitHub Acceptable Use Policies, Section 6, "Services Usage Limits"**
 ([source](https://docs.github.com/en/site-policy/acceptable-use-policies/github-acceptable-use-policies)):
 
 > "You will not reproduce, duplicate, copy, sell, resell or exploit any portion of the
@@ -198,11 +198,11 @@ Two clauses bear directly, plus one policy that reads on the mechanism.
 Re-exposing Copilot inference through a local server so a different vendor's agent can spend
 the seat is squarely "exploit … access to the Service." This is the load-bearing clause.
 
-**GitHub AUP §4** prohibits "using our servers for any form of excessive automated bulk
+**GitHub AUP Section 4** prohibits "using our servers for any form of excessive automated bulk
 activity" — and an always-on coding agent is, by volume, exactly the profile abuse detection
 is tuned for.
 
-**GitHub Copilot Extension Developer Policy §2 (Security)**
+**GitHub Copilot Extension Developer Policy, Section 2 (Security)**
 ([source](https://docs.github.com/en/site-policy/github-terms/github-copilot-extension-developer-policy),
 last updated 2025-10-20) prohibits, among other things:
 
@@ -248,7 +248,7 @@ question resolves.
 | `packs/github-models` provider (documented API) | **Dead.** Surface retired 2026-07-30. |
 | Copilot SDK as a Claude Code backend | **Rejected: wrong shape.** Agent runtime, no inference endpoint to declare. |
 | VS Code `vscode.lm` bridge out of the jail | **Rejected.** In-process extension API; bridging it reduces to the proxy below and reads on the Extension Developer Policy. |
-| `kind: "service"` pack wrapping `copilot-api` | **Buildable in ~a day, and not recommended.** Trips AUP §6; risks the engineer's GitHub account; saves nothing at Business rates. |
+| `kind: "service"` pack wrapping `copilot-api` | **Buildable in ~a day, and not recommended.** Trips AUP Section 6; risks the engineer's GitHub account; saves nothing at Business rates. |
 | Keep Copilot as an agent (`packs/copilot`) | **Already shipped.** The sanctioned direction. |
 | Claude Code on a first-party Anthropic credential | **Status quo, and it is the cheap option.** Same list rates, no third-party term in the path. |
 
@@ -259,10 +259,10 @@ documents and supports.
 
 ## 6. Open questions
 
-### ✅ OQ-GC1 — is the Copilot-as-provider thread closed, or parked pending counsel? — RESOLVED (2026-09-17)
+### ✅ [OQ-GC1](#-oq-gc1--is-the-copilot-as-provider-thread-closed-or-parked-pending-counsel--resolved-2026-09-17) — is the Copilot-as-provider thread closed, or parked pending counsel? — RESOLVED (2026-09-17)
 
-**Stakes.** §4.2 found that GitHub has *not* written the prohibition everyone quotes. The
-case against rests on AUP §6 plus enforcement behaviour, which is strong enough to act on
+**Stakes.** [§4.2](#42-what-the-terms-do-not-say) found that GitHub has *not* written the prohibition everyone quotes. The
+case against rests on AUP Section 6 plus enforcement behaviour, which is strong enough to act on
 but is a reading, not a citation of an on-point clause. If the maintainer wants the thread
 genuinely closed, this doc is the record; if the economics ever change (a Copilot plan whose
 included credits materially beat list rates), the question reopens and only the legal half
@@ -272,33 +272,33 @@ _Leaning:_ close it. The economics at Business rates are break-even, so even a f
 legal reading buys nothing — which makes the legal question moot rather than pending.
 
 > **Answer:** Closed, 2026-09-17 — *"forget that, seems like a dead end."* No counsel review
-> was sought and none is needed: the economics ruling (§2, break-even at Business rates)
-> disposes of the thread on its own, so the legal reading in §4 never becomes load-bearing.
+> was sought and none is needed: the economics ruling ([§2](#2-what-actually-changed-in-the-billing-model), break-even at Business rates)
+> disposes of the thread on its own, so the legal reading in [§4](#4-the-terms-quoted) never becomes load-bearing.
 > **What would reopen it:** a Copilot plan whose included credits materially beat Anthropic
 > list, or a documented GitHub inference endpoint returning. Either one reopens the legal
-> half too — re-verify §4 before acting, since the Generative AI Services Terms are new.
+> half too — re-verify [§4](#4-the-terms-quoted) before acting, since the Generative AI Services Terms are new.
 
 ## 7. Fast-moving — verify before building
 
 Everything in this section was true on 2026-09-17 and is the kind of fact that moves:
 
-- Copilot's per-model listed rates and per-plan credit allowances (§2).
+- Copilot's per-model listed rates and per-plan credit allowances ([§2](#2-what-actually-changed-in-the-billing-model)).
 - Whether GitHub reintroduces a documented inference API — Copilot is now the only
   model-access story GitHub tells, so pressure exists.
-- The Copilot SDK's surface: if it ever grows a raw-inference route, §3.2's verdict flips
+- The Copilot SDK's surface: if it ever grows a raw-inference route, [§3.2](#32-the-copilot-sdk--real-sanctioned-and-the-wrong-shape)'s verdict flips
   from "wrong shape" to a live option with no ToS problem.
 - `vscode.lm`'s model list — the VS Code doc page still names `gpt-4o` and
   `claude-3.5-sonnet` and is visibly stale.
 - The Generative AI Services Terms (effective 2026-03-05) are new; re-read before relying on
-  §4.2's negative finding.
+  [§4.2](#42-what-the-terms-do-not-say)'s negative finding.
 
 ## Sources
 
 Primary, in the order they decide the question:
 
 - [GitHub Models is now retired](https://github.blog/changelog/2026-07-30-github-models-is-now-retired/) — kills the only documented inference API; the single most decisive source here.
-- [GitHub Acceptable Use Policies](https://docs.github.com/en/site-policy/acceptable-use-policies/github-acceptable-use-policies) — §6 "Services Usage Limits" is the load-bearing clause; §4 covers bulk automation.
-- [Copilot Product Specific Terms, March 2026 (PDF)](https://assets.ctfassets.net/8aevphvgewt8/1Y0gmEkMnAs8W6N4ai2R1g/694c0ae359902dc0700454333ad15c44/GitHub_Copilot_Product_Specific_Terms_-_2026_03_05_-_FINAL.pdf) — deprecated, and notable for what it does *not* restrict; §5 delegates to the AUP.
+- [GitHub Acceptable Use Policies](https://docs.github.com/en/site-policy/acceptable-use-policies/github-acceptable-use-policies) — Section 6 "Services Usage Limits" is the load-bearing clause; Section 4 covers bulk automation.
+- [Copilot Product Specific Terms, March 2026 (PDF)](https://assets.ctfassets.net/8aevphvgewt8/1Y0gmEkMnAs8W6N4ai2R1g/694c0ae359902dc0700454333ad15c44/GitHub_Copilot_Product_Specific_Terms_-_2026_03_05_-_FINAL.pdf) — deprecated, and notable for what it does *not* restrict; Section 5 delegates to the AUP.
 - [GitHub Terms for Additional Products and Features](https://docs.github.com/en/site-policy/github-terms/github-terms-for-additional-products-and-features) — the three-way routing that decides which document governs a given seat.
 - [GitHub Copilot Extension Developer Policy](https://docs.github.com/en/site-policy/github-terms/github-copilot-extension-developer-policy) — "unpublished APIs" and "bypassing access controls"; binds Extension developers, cite with care.
 - [Microsoft AI Code of Conduct](https://learn.microsoft.com/legal/ai-code-of-conduct) — v4.0, 2026-05-01; content policy only, no access-channel clause.
