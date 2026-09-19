@@ -35,6 +35,22 @@ func resolveKey(keyEnvName, home string) (key, source string) {
 	return "", ""
 }
 
+// reportUnreadableKeyFile is the DEGRADATION NOTICE for the key channel: falling
+// back from the file to the process environment is normal (a `yolo host` notch has
+// no file), but falling back because the file is THERE AND UNREADABLE is a fault
+// wearing the normal case's clothes. os.IsNotExist separates them, and only the
+// second is worth a line — the daemon then either finds the variable in its own
+// environment, and the serve line says "from process environment" while the
+// operator believes the file is in play, or finds nothing and idles for a reason
+// that names the file it never managed to open.
+func reportUnreadableKeyFile(path string, err error) {
+	if err == nil || os.IsNotExist(err) {
+		return
+	}
+	logOnce("keyfile-unreadable:"+path, "the credential channel %s exists but could not be read "+
+		"(%v); falling back to this process's own environment for the provider credential", path, err)
+}
+
 // keyFromUserEnvFile reads one variable's value out of a yolo-user-env.sh-shaped
 // file. The launcher's frozen write format is one `export K=${K:-'v'}` line per
 // key (internal/cli/run's writeUserEnvFile, which the entrypoint and .bashrc
@@ -45,6 +61,7 @@ func resolveKey(keyEnvName, home string) (key, source string) {
 func keyFromUserEnvFile(path, name string) (string, bool) {
 	data, err := os.ReadFile(path)
 	if err != nil {
+		reportUnreadableKeyFile(path, err)
 		return "", false
 	}
 	for _, line := range strings.Split(string(data), "\n") {

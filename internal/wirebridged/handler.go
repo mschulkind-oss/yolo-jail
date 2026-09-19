@@ -23,10 +23,10 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -71,7 +71,16 @@ func NewCodexResponsesHandler(upstreamBaseURL, brokerEndpoint string) http.Handl
 		translateCodexResponsesRequest, wirebridge.TranslateResponsesResponse,
 		func() streamTranslator { return wirebridge.NewResponsesStreamTranslator() }).(*bridgeHandler)
 	h.accessToken = func() (string, string, error) {
-		view, err := openauthclient.RequestAccessToken(brokerEndpoint, io.Discard)
+		// The second argument is the credential service's own DIAGNOSTIC channel
+		// (its stderr frames, forwarded as they arrive), and it used to be
+		// io.Discard: every explanation the broker offered for a refused or
+		// degraded token request was thrown away, leaving only the wrapped
+		// "obtain OpenAI access-token view" error. It is a diagnostic stream, not
+		// a credential one — the access token arrives on the stdout frame this
+		// callback returns — so forwarding it to the daemon log leaks nothing and
+		// is the difference between a diagnosable 401 and a mysterious one.
+		view, err := openauthclient.RequestAccessToken(brokerEndpoint,
+			logWriter("OpenAI credential service: "))
 		if err != nil {
 			return "", "", err
 		}
@@ -133,8 +142,21 @@ func (h *bridgeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 	defer func() {
-		fmt.Fprintf(os.Stderr, "wire-bridge: %s %s %d %s\n",
-			r.Method, r.URL.Path, rec.status, time.Since(start).Round(time.Millisecond))
+		// THE STATUS IS WHAT THE BRIDGE INTENDED, NOT WHAT CLAUDE RECEIVED, and
+		// those diverge whenever a body write fails: the old line logged "200"
+		// for a response that never arrived, which is the discarded-error half of
+		// this file's defect class reported as a success. statusRecorder now
+		// keeps the first write error for every path (the JSON relay, the SSE
+		// relay, the error renderer), so one line covers all of them.
+		if rec.writeErr != nil {
+			logf("%s %s %d %s — RESPONSE DELIVERY FAILED after %d bytes: %v (the status is what "+
+				"the bridge intended to send; the client did not receive it)",
+				r.Method, r.URL.Path, rec.status, time.Since(start).Round(time.Millisecond),
+				rec.wrote, rec.writeErr)
+			return
+		}
+		logf("%s %s %d %s", r.Method, r.URL.Path, rec.status,
+			time.Since(start).Round(time.Millisecond))
 	}()
 
 	// count_tokens lands here (404, WB-D14), as does every method and path the
@@ -180,13 +202,35 @@ func (h *bridgeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if resp.StatusCode == http.StatusUnauthorized && h.retryUnauthorized {
+		// A RETRY IS A DECISION, so it is reported: without this line a route
+		// whose access-token view is refreshed on every single request looks
+		// exactly like one that never refreshes, and the request line's duration
+		// silently covers two upstream round trips.
+		logf("upstream answered 401; requesting a fresh access-token view and retrying once "+
+			"(%s)", h.upstreamURL)
+		// The 401's body is discarded unread: nothing in it survives the retry —
+		// the relay below reports the SECOND attempt's status, and the body of an
+		// attempt that is about to be replaced would only be logged as noise. The
+		// Close error itself has no consumer; what it would cost is a connection
+		// this handler is done with either way.
 		_ = resp.Body.Close()
 		resp, err = h.doUpstream(r, translated)
 		if err != nil {
 			writeAnthropicError(rec, http.StatusBadGateway, "api_error", "wire-bridge: upstream unavailable: "+err.Error())
 			return
 		}
+		if resp.StatusCode == http.StatusUnauthorized {
+			// Exactly one new view (NewCodexResponsesHandler's rule), so this is
+			// where the route gives up. Saying so distinguishes "the credential
+			// service handed back a stale token" from "the upstream rejects this
+			// account", which the relayed 401 alone does not.
+			logf("upstream answered 401 again with a freshly minted access-token view; relaying " +
+				"the refusal (the bridge retries once, by design)")
+		}
 	}
+	// The response body is closed on every exit path. A Close error on a body
+	// whose useful bytes have already been relayed reports nothing actionable and
+	// cannot be surfaced to the client, whose response is finished by then.
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -214,6 +258,9 @@ func (h *bridgeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	rec.Header().Set("Content-Type", "application/json")
 	rec.WriteHeader(http.StatusOK)
+	// Discarded here and reported there: statusRecorder.Write keeps the error and
+	// ServeHTTP's deferred line says the response was not delivered. There is
+	// nothing else this site could do — the header is already on the wire.
 	_, _ = rec.Write(translatedResp)
 }
 
@@ -244,6 +291,11 @@ func (h *bridgeHandler) doUpstream(in *http.Request, translated []byte) (*http.R
 	var probe struct {
 		Stream bool `json:"stream"`
 	}
+	// Discarded on purpose: `translated` is this process's own encoder output, so
+	// a decode failure here would be an internal-consistency bug rather than
+	// input, and the only thing riding on it is one request header. If it ever
+	// did fail, the upstream answers non-streaming and the relay's
+	// no-message_stop report (relayStream) is what says so.
 	_ = json.Unmarshal(translated, &probe)
 	if probe.Stream {
 		req.Header.Set("Accept", "text/event-stream")
@@ -259,9 +311,19 @@ func (h *bridgeHandler) doUpstream(in *http.Request, translated []byte) (*http.R
 // status line rather than quoted: an HTML error page in a JSON field helps
 // nobody.
 func (h *bridgeHandler) relayUpstreamError(rec *statusRecorder, resp *http.Response) {
+	// The read error is discarded because it cannot change the outcome: whatever
+	// bytes arrived are passed to upstreamErrorMessage, which falls back to a
+	// status line for anything it cannot parse — a truncated body and an
+	// unparseable one take the identical path. The status that IS the diagnosis
+	// reaches the log through ServeHTTP's request line either way.
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxUpstreamErrorBody))
 	status := resp.StatusCode
 	if status >= 500 {
+		// A DOWNGRADE, so it is named: claude's retry policy reads the status, and
+		// an upstream 503 arriving at the client as 502 is a mapping a reader of
+		// this log should not have to infer from §5.
+		logf("upstream returned %d; relaying it as %d (5xx maps to the anthropic overload "+
+			"family claude backs off on)", resp.StatusCode, http.StatusBadGateway)
 		status = http.StatusBadGateway
 	}
 	writeAnthropicError(rec, status, "api_error", upstreamErrorMessage(body, resp.StatusCode))
@@ -286,6 +348,22 @@ func upstreamErrorMessage(body []byte, status int) string {
 // because the library is I/O-free by design. After the sentinel the relay
 // stops reading: the anthropic grammar is closed by message_stop, and the
 // translator tolerates (drops) any straggler chunk a chatty provider sends.
+//
+// ⚠ THE SCAN LOOP HAD TWO SILENT EXITS, and both produced the same symptom: a
+// client waiting on a message_stop that was never coming, with nothing in any log
+// and a request line reporting 200.
+//
+//   - bufio.Scanner's error was never read. A read failure mid-stream, or a
+//     `data:` line over maxSSELine (ErrTooLong — 4 MiB, which one tool-call
+//     argument blob can reach), ends the loop exactly like a clean finish.
+//   - an upstream that closes early — a dropped connection, a provider that
+//     stops without a finish_reason — ends it the same way.
+//
+// So the relay now tracks whether the translator ever emitted message_stop, which
+// is the event that CLOSES the anthropic grammar (wirebridge's StreamTranslator
+// emits it on the first chunk carrying a finish_reason), and a stream that ends
+// without one is reported to both audiences: an `error` event to the client, the
+// only legal way to fail inside SSE, and a line naming the cause to the log.
 func (h *bridgeHandler) relayStream(rec *statusRecorder, resp *http.Response) {
 	rec.Header().Set("Content-Type", "text/event-stream")
 	rec.Header().Set("Cache-Control", "no-cache")
@@ -298,6 +376,7 @@ func (h *bridgeHandler) relayStream(rec *statusRecorder, resp *http.Response) {
 	// be tens of KB in one chunk — so the token ceiling is raised well past
 	// bufio's 64 KiB default.
 	sc.Buffer(make([]byte, 0, 64*1024), maxSSELine)
+	sawDone, sawStop, chunks := false, false, 0
 	for sc.Scan() {
 		line := sc.Text()
 		if !strings.HasPrefix(line, "data:") {
@@ -308,29 +387,74 @@ func (h *bridgeHandler) relayStream(rec *statusRecorder, resp *http.Response) {
 			continue
 		}
 		if payload == "[DONE]" {
+			sawDone = true
 			break
 		}
+		chunks++
 		evs, err := tr.Chunk([]byte(payload))
 		if err != nil {
 			// A chunk that does not decode is a mid-stream upstream fault:
 			// close the stream with an anthropic error EVENT (the only legal
 			// way to fail inside SSE), never a plain HTTP status.
-			errEv := wirebridge.Event{Name: "error",
-				Data: []byte(anthropicErrorJSON("api_error", "wire-bridge: upstream stream did not translate: "+err.Error()))}
-			_, _ = rec.Write(errEv.Format())
-			if flusher != nil {
-				flusher.Flush()
-			}
+			logf("upstream stream failed to translate at chunk %d of %s: %v — closing the "+
+				"client's stream with an error event", chunks, h.upstreamURL, err)
+			h.failStream(rec, flusher, "wire-bridge: upstream stream did not translate: "+err.Error())
 			return
 		}
 		for _, ev := range evs {
+			if ev.Name == "message_stop" {
+				sawStop = true
+			}
 			if _, err := rec.Write(ev.Format()); err != nil {
-				return // claude hung up; stop relaying
+				// claude hung up; stop relaying. The recorder kept the error and
+				// ServeHTTP's request line reports it, so this is not a silent
+				// return — there is simply nobody left to tell.
+				return
 			}
 		}
 		if flusher != nil {
 			flusher.Flush()
 		}
+	}
+	if err := sc.Err(); err != nil {
+		// A read failure or an over-long data: line. Either way the stream the
+		// client is holding is INCOMPLETE, and the ceiling is worth naming
+		// because ErrTooLong is a configuration fact rather than an upstream one.
+		detail := err.Error()
+		if errors.Is(err, bufio.ErrTooLong) {
+			detail = fmt.Sprintf("a single upstream data: line exceeded the bridge's %d-byte "+
+				"ceiling (maxSSELine): %v", maxSSELine, err)
+		}
+		logf("upstream stream ended in an error after %d chunks (%s): %s", chunks, h.upstreamURL, detail)
+		if !sawStop {
+			h.failStream(rec, flusher, "wire-bridge: upstream stream ended in an error: "+detail)
+		}
+		return
+	}
+	if !sawStop {
+		// The grammar never closed. This is the truncated-stream case that used
+		// to leave claude waiting on a message_stop with no record anywhere of
+		// why — the one shape a 200 request line actively misdescribes.
+		logf("upstream stream ended after %d chunks without a finish_reason (sentinel [DONE] "+
+			"%s, upstream %s), so no message_stop closed the anthropic stream; relaying an "+
+			"error event rather than leaving the client waiting",
+			chunks, map[bool]string{true: "seen", false: "absent"}[sawDone], h.upstreamURL)
+		h.failStream(rec, flusher,
+			"wire-bridge: upstream ended the stream before it completed (no finish_reason, so no "+
+				"message_stop); the response above is partial")
+	}
+}
+
+// failStream closes a streaming response the only way SSE allows: an anthropic
+// `error` event, flushed. Its callers have already logged WHY — the event is what
+// the client can act on, the log line is what a human can.
+func (h *bridgeHandler) failStream(rec *statusRecorder, flusher http.Flusher, message string) {
+	errEv := wirebridge.Event{Name: "error", Data: []byte(anthropicErrorJSON("api_error", message))}
+	// Discarded and reported: statusRecorder keeps the error and ServeHTTP's line
+	// says the delivery failed. A failure to deliver the failure has no remedy.
+	_, _ = rec.Write(errEv.Format())
+	if flusher != nil {
+		flusher.Flush()
 	}
 }
 
@@ -346,10 +470,19 @@ const (
 
 // statusRecorder captures the response status for the one-line request log,
 // defaulting to 200 when a handler writes without an explicit WriteHeader.
+// It is also the ONE place a failed body write is noticed. Every write in this
+// file goes through it — the translated JSON response, each SSE event, the
+// anthropic error renderer — and each of those call sites used to discard its
+// error, so a client that hung up mid-response, or a broken pipe on the loopback,
+// produced a log line claiming the status the bridge had chosen and no hint that
+// the bytes never landed. Recording the FIRST error (and the byte count) here,
+// rather than at each site, is what makes ServeHTTP's single line able to say so.
 type statusRecorder struct {
 	http.ResponseWriter
 	status   int
 	wroteHdr bool
+	wrote    int
+	writeErr error
 }
 
 func (r *statusRecorder) WriteHeader(code int) {
@@ -362,14 +495,23 @@ func (r *statusRecorder) WriteHeader(code int) {
 
 func (r *statusRecorder) Write(b []byte) (int, error) {
 	r.wroteHdr = true
-	return r.ResponseWriter.Write(b)
+	n, err := r.ResponseWriter.Write(b)
+	r.wrote += n
+	if err != nil && r.writeErr == nil {
+		r.writeErr = err
+	}
+	return n, err
 }
 
 // writeAnthropicError renders the one error shape every failure takes:
 // {"type":"error","error":{"type":...,"message":...}}. encoding/json sorts map
 // keys, so the bytes are deterministic for tests and logs-adjacent eyeballs
 // alike.
-func writeAnthropicError(w http.ResponseWriter, status int, typ, message string) {
+// It takes the *statusRecorder rather than an http.ResponseWriter so the write
+// below cannot be aimed at an unrecorded writer: the discard is only safe because
+// the recorder keeps the error for ServeHTTP's request line, and a plain
+// ResponseWriter here would silently reinstate the defect.
+func writeAnthropicError(w *statusRecorder, status int, typ, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_, _ = w.Write([]byte(anthropicErrorJSON(typ, message)))

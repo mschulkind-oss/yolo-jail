@@ -142,7 +142,7 @@ func waitForActiveRoute(ctx context.Context, initial *entrypoint.Env, pollInterv
 	if selected, idleReason := resolveRoute(initial); idleReason == "" {
 		return selected, initial, true
 	} else {
-		fmt.Fprintf(os.Stderr, "wire-bridge: idling: %s\n", idleReason)
+		logIdle(idleReason)
 		// A boot that registered this endpoint has already established that a
 		// route must exist. Waiting for a later attach in that state would make
 		// PID 1 wait forever on a contradiction between the launcher and this
@@ -162,14 +162,37 @@ func waitForActiveRoute(ctx context.Context, initial *entrypoint.Env, pollInterv
 		case <-ticker.C:
 			candidate := cloneEnv(initial)
 			if !entrypoint.HydrateEntryChannel(candidate) {
+				// The one input this loop has is unreadable, so the wait can
+				// never end — an idle that is structurally permanent rather than
+				// pending. Once, not per tick: the answer is the same five times
+				// a second until the file appears, and it self-corrects (the key
+				// is never re-tried, but the success path below is what a reader
+				// sees next).
+				logOnce("channel-unreadable", "the per-entry channel %s cannot be read, so this "+
+					"idle bridge cannot observe a later attach; it will keep polling and will "+
+					"pick the file up if it appears", userEnvFilePath(candidate.Home))
 				continue
 			}
 			route, idleReason := resolveRoute(candidate)
 			if idleReason == "" {
 				return route, candidate, true
 			}
+			// An attach rewrote the channel and this bridge STILL idles. That is
+			// a legitimate no-op, but a silent one used to make an
+			// almost-working selection indistinguishable from an unnoticed
+			// attach. Keyed by the reason, so a changed answer is reported and an
+			// unchanged one is not repeated.
+			logIdle(idleReason)
 		}
 	}
+}
+
+// logIdle reports a serve-or-idle answer of "idle", at most once per distinct
+// reason: resolveRoute is re-evaluated every poll tick for the daemon's whole
+// lifetime, so the per-reason key is what separates "a new fact" from "the same
+// fact, 18,000 times".
+func logIdle(reason string) {
+	logOnce("idle:"+reason, "idling: %s", reason)
 }
 
 func cloneEnv(e *entrypoint.Env) *entrypoint.Env {
@@ -189,7 +212,7 @@ func serve(ctx context.Context, route route, e *entrypoint.Env) int {
 	if route.CodexAccessToken {
 		endpoint := e.Getenv(openauthclient.EndpointEnv)
 		if endpoint == "" {
-			fmt.Fprintf(os.Stderr, "wire-bridge: idling: Codex route needs %s; no unauthenticated upstream is served\n", openauthclient.EndpointEnv)
+			logf("idling: Codex route needs %s; no unauthenticated upstream is served", openauthclient.EndpointEnv)
 			signalNotReady(ServiceName, "Codex upstream credential endpoint is unavailable")
 			return idleUntilStopped(ctx)
 		}
@@ -198,9 +221,9 @@ func serve(ctx context.Context, route route, e *entrypoint.Env) int {
 	} else {
 		key, keySource = resolveKey(route.KeyEnvName, e.Home)
 		if key == "" && route.KeyEnvName != "" {
-			fmt.Fprintf(os.Stderr, "wire-bridge: idling: provider %q names credential variable "+
+			logf("idling: provider %q names credential variable "+
 				"%s, and it is set neither in %s nor in this process's environment — the bridge "+
-				"never serves unauthenticated upstream traffic (wire-bridge.md §5)\n",
+				"never serves unauthenticated upstream traffic (wire-bridge.md §5)",
 				route.ProviderName, route.KeyEnvName, userEnvFilePath(e.Home))
 			signalNotReady(ServiceName, "provider credential is unavailable")
 			return idleUntilStopped(ctx)
@@ -210,6 +233,13 @@ func serve(ctx context.Context, route route, e *entrypoint.Env) int {
 
 	// BIND BEFORE PUBLISH (§5): the endpoint file's appearance is the promise
 	// that a listener exists at the address it names.
+	//
+	// The attempt is announced BEFORE it is made, and that ordering is the point:
+	// the 8214 collision was diagnosed against a log in which this daemon had said
+	// nothing at all, so "the bridge got as far as trying to bind X" was itself an
+	// unavailable fact. A line here also survives the case an error string cannot
+	// reach — a bind that hangs, or a process killed between these two statements.
+	logf("binding %s for provider %q (from its anthropic base_url)", route.ListenAddr, route.ProviderName)
 	ln, err := net.Listen("tcp", route.ListenAddr)
 	if err != nil {
 		// A port the manifest URL names that something else holds is a real
@@ -217,21 +247,32 @@ func serve(ctx context.Context, route route, e *entrypoint.Env) int {
 		// idle. A boot waiting on this daemon must hear that result immediately;
 		// otherwise supervisor's intentional retry loop turns an actionable bind
 		// conflict into a terminal with no new output.
-		fmt.Fprintf(os.Stderr, "wire-bridge: cannot bind %s (from provider %q's anthropic base_url): %v\n",
-			route.ListenAddr, route.ProviderName, err)
-		signalNotReady(ServiceName, "cannot bind "+route.ListenAddr+": "+err.Error())
+		//
+		// THREE FACTS, ALWAYS, because the first two alone are what made this
+		// class cost four wrong hypotheses: the address tried, the syscall error
+		// verbatim (net.OpError already carries "listen tcp <addr>: bind: …"),
+		// and WHO HOLDS THE PORT (portholder.go, which asks /proc because the
+		// host-side instrument cannot see a jail-side listener).
+		holder := describePortHolder(route.ListenAddr)
+		logf("cannot bind %s for provider %q (from its anthropic base_url): %v — %s",
+			route.ListenAddr, route.ProviderName, err, holder)
+		signalNotReady(ServiceName, "cannot bind "+route.ListenAddr+": "+err.Error()+" — "+holder)
 		return 1
 	}
 	if err := publishEndpoint(EndpointFile, ln.Addr().String()); err != nil {
+		// The listener is abandoned with the process, one statement from now: the
+		// only reason to close it explicitly is the in-process test that asserts
+		// the port is free again, and a Close error on a listener nobody will
+		// accept on has no consumer and no remedy.
 		_ = ln.Close()
-		fmt.Fprintf(os.Stderr, "wire-bridge: cannot publish %s: %v\n", EndpointFile, err)
-		signalNotReady(ServiceName, "cannot publish endpoint: "+err.Error())
+		logf("cannot publish %s (the §5 marker for the live listener on %s): %v",
+			EndpointFile, ln.Addr().String(), err)
+		signalNotReady(ServiceName, "cannot publish endpoint "+EndpointFile+": "+err.Error())
 		return 1
 	}
 	signalReady(ServiceName)
 
-	fmt.Fprintf(os.Stderr, "wire-bridge: serving provider %q: anthropic on %s → openai %s "+
-		"(endpoint %s, credential %s)\n",
+	logf("serving provider %q: anthropic on %s → openai %s (endpoint %s, credential %s)",
 		route.ProviderName, ln.Addr().String(), route.UpstreamBaseURL, EndpointFile,
 		credentialDescription(route, keySource))
 
@@ -240,13 +281,28 @@ func serve(ctx context.Context, route route, e *entrypoint.Env) int {
 	go func() { errCh <- srv.Serve(ln) }()
 	select {
 	case <-ctx.Done():
+		logf("stopping: the daemon's context is done (the supervisor signalled, or the jail is retiring)")
+		// Close's error is the first failure closing the listener we are
+		// discarding anyway, on the way out of a process that is about to exit;
+		// it names nothing a reader could act on. The Serve error below IS
+		// reported, and it is the one that can say something.
 		_ = srv.Close()
-		<-errCh
-		_ = os.Remove(EndpointFile)
+		if err := <-errCh; !errors.Is(err, http.ErrServerClosed) {
+			logf("the listener stopped with an error while shutting down: %v", err)
+		}
+		// A STALE ENDPOINT FILE IS A LIE: the file's whole contract is "a
+		// listener exists at the address inside" (§5), so one that outlives the
+		// listener points the next reader — and the reachability witness — at a
+		// closed port. An absent file is the expected case only if something
+		// else removed it first.
+		if err := os.Remove(EndpointFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+			logf("could not remove the endpoint file %s on shutdown: %v — it now names a "+
+				"listener that no longer exists", EndpointFile, err)
+		}
 		return 0
 	case err := <-errCh:
 		if !errors.Is(err, http.ErrServerClosed) {
-			fmt.Fprintf(os.Stderr, "wire-bridge: server stopped: %v\n", err)
+			logf("server stopped: %v", err)
 			return 1
 		}
 		return 0
@@ -265,15 +321,37 @@ func signalNotReady(name, reason string) {
 	signalReadiness("failed", name, reason)
 }
 
+// readinessRequested and signalReadiness must agree about what a usable
+// descriptor is, and they did not: readinessRequested accepted any integer while
+// signalReadiness silently refused anything under 3. With the variable set to
+// "0", "1" or "2" the daemon therefore took the "a boot is waiting on me" branch
+// and then wrote its answer NOWHERE — and the boot waiting on the pipe hangs
+// until its own deadline with no line in any log. One parse, reported once, for
+// both.
+func readinessFD() (int, bool) {
+	raw := os.Getenv(paths.JailDaemonReadyFDEnv)
+	if raw == "" {
+		return 0, false
+	}
+	fd, err := strconv.Atoi(raw)
+	if err != nil || fd < 3 {
+		logOnce("readiness-fd:"+raw, "%s is set to %q, which is not a descriptor this daemon can "+
+			"write to (an inherited pipe is 3 or above), so no readiness answer can be sent — a "+
+			"boot waiting on this service will wait out its own deadline instead",
+			paths.JailDaemonReadyFDEnv, raw)
+		return 0, false
+	}
+	return fd, true
+}
+
 func readinessRequested() bool {
-	_, err := strconv.Atoi(os.Getenv(paths.JailDaemonReadyFDEnv))
-	return err == nil
+	_, ok := readinessFD()
+	return ok
 }
 
 func signalReadiness(kind, name string, details ...string) {
-	raw := os.Getenv(paths.JailDaemonReadyFDEnv)
-	fd, err := strconv.Atoi(raw)
-	if err != nil || fd < 3 {
+	fd, ok := readinessFD()
+	if !ok {
 		return
 	}
 	signalReadinessOnFD(fd, kind, name, details...)
@@ -283,12 +361,42 @@ func signalReadyOnFD(fd int, name string) {
 	signalReadinessOnFD(fd, "ready", name)
 }
 
+// signalReadinessOnFD writes ONE line to the inherited readiness pipe.
+//
+// The detail is flattened to a single line (oneLine) because the protocol is
+// line-framed: the entrypoint's scanner reads each line as a record and rejects
+// any whose first field is not ready/failed, so a newline inside a bind
+// diagnostic — the port holder's argv is arbitrary process input — would turn a
+// precise failure into "jail daemon reported unexpected readiness".
+//
+// DUP RATHER THAN TAKE. os.NewFile TAKES OWNERSHIP of the descriptor it is handed
+// and arms a finalizer that CLOSES it, so wrapping the INHERITED fd hands the
+// boot's readiness pipe to the garbage collector; a second call would mint a
+// second owner of the same number, and a collection after the kernel recycled it
+// closes an unrelated file (a log, a socket) as an EBADF nowhere near here. The
+// supervisor fixed exactly this shape on its own side of the same pipe; this was
+// the other half of it.
 func signalReadinessOnFD(fd int, kind, name string, details ...string) {
 	message := kind + " " + name
 	if len(details) > 0 {
-		message += " " + strings.Join(details, " ")
+		message += " " + oneLine(strings.Join(details, " "))
 	}
-	_, _ = fmt.Fprintln(os.NewFile(uintptr(fd), "jail-daemon-ready"), message)
+	dup, err := syscall.Dup(fd)
+	if err != nil {
+		logf("cannot duplicate the readiness descriptor %d to answer %q: %v — the boot waiting "+
+			"on this service will not hear it", fd, message, err)
+		return
+	}
+	pipe := os.NewFile(uintptr(dup), "jail-daemon-ready")
+	defer pipe.Close()
+	if _, err := fmt.Fprintln(pipe, message); err != nil {
+		// A failed acknowledgement must not take down a healthy bridge — by the
+		// time it fails the entrypoint has usually already stopped waiting — but
+		// it must not be invisible either: an unwritten "failed" line is a boot
+		// that stalls for a reason recorded nowhere, which is this whole file's
+		// defect class.
+		logf("could not write readiness %q to fd %d: %v", message, fd, err)
+	}
 }
 
 // idleUntilStopped is the healthy-idle path: no listener, no endpoint file, and a
@@ -302,8 +410,8 @@ func idleUntilStopped(ctx context.Context) int {
 		// Defence in depth for a future caller that reaches here with a
 		// non-cancellable context: a daemon that cannot be stopped is still better
 		// than one the runtime kills, and the log line says which happened.
-		fmt.Fprintln(os.Stderr, "wire-bridge: idling on a context that can never be "+
-			"done; blocking without a stop path (daemonContext is the supported one)")
+		logf("idling on a context that can never be done; blocking without a stop path " +
+			"(daemonContext is the supported one)")
 		select {}
 	}
 	<-ctx.Done()
@@ -344,6 +452,13 @@ func resolveRoute(e *entrypoint.Env) (route, string) {
 // agent→profile table the decision reads. A non-string value decodes to "" —
 // the same "no profile active here" answer LoadUseProfiles' malformed-input
 // path gives, so a corrupt entry idles the bridge instead of guessing.
+//
+// AND IT SAYS SO. The dropped value used to leave the daemon idling with
+// `<agent>'s active profile  resolves to no provider` — an empty profile name in
+// the middle of a sentence, which reads like a bug in the message rather than
+// like malformed input in the channel. logOnce, not logf: resolveRoute is
+// re-evaluated every poll tick for the daemon's whole idle lifetime, and the fact
+// does not change while the channel does not.
 func useProfilesTable(m *jsonx.OrderedMap) map[string]string {
 	out := map[string]string{}
 	if m == nil {
@@ -351,7 +466,12 @@ func useProfilesTable(m *jsonx.OrderedMap) map[string]string {
 	}
 	for _, k := range m.Keys() {
 		v, _ := m.Get(k)
-		s, _ := v.(string)
+		s, isString := v.(string)
+		if !isString && v != nil {
+			logOnce("use-profiles-nonstring:"+k, "YOLO_USE_PROFILES entry %q is a %T, not a "+
+				"profile name; reading it as \"no profile active for %s\" rather than guessing — "+
+				"the bridge will idle unless another agent's selection routes here", k, v, k)
+		}
 		out[k] = s
 	}
 	return out

@@ -35,6 +35,15 @@ func publishEndpoint(path, addr string) error {
 		return err
 	}
 	tmpName := tmp.Name()
+	// EVERY DISCARDED ERROR BELOW IS A TEMP-FILE TEARDOWN, and they are discarded
+	// because this function REPORTS BY RETURNING: every failure arm hands the caller the
+	// error that caused it, and serve() logs that one with the path and the live
+	// listener's address. A second error from tearing down the temp file would
+	// displace the cause with its own consequence. What the failed cleanup can
+	// leave behind is a `.endpoint-*` file in the services directory — dot- and
+	// prefix-distinguished from `wire-bridge.endpoint`, so no reader can mistake
+	// it for a published endpoint, which is why litter here is not a lie the way
+	// a stale endpoint file would be.
 	cleanup := func(e error) error {
 		_ = tmp.Close()
 		_ = os.Remove(tmpName)
