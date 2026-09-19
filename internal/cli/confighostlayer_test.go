@@ -43,6 +43,17 @@ func withStagedHostLayer(t *testing.T, agent, name, content string) configTarget
 		t.Fatalf("%s/%s declares no host layer, so it cannot stand in for one", agent, name)
 	}
 	t.Setenv("YOLO_CTX_ROOT", t.TempDir())
+	// The SECOND ambient fact a bare runner cannot supply, and unlike the ctx root it is
+	// supplied wrongly rather than not at all when the suite runs INSIDE a jail. yolo exports
+	// YOLO_HOST_LAYERS describing ITS OWN boot — "I have already rendered pi/settings" — and
+	// entrypoint.StagedHostLayer reads the process environment (os.Getenv) because its two
+	// contemplated callers, the boot render and the host CLI, both own the report they read.
+	// A unit test owns neither: inherited, the report resolves to HostLayerRender, the staged
+	// bytes this fixture just wrote are treated as yolo's own previous output and skipped, and
+	// every host-layer assertion below fails for a reason that has nothing to do with the code
+	// under test. Empty parses as UNKNOWN, which composes the layer — the behaviour that
+	// shipped before the variable existed, and the one these tests are about.
+	t.Setenv(packload.HostLayerEnvVar, "")
 	staged, _ := entrypoint.StagedHostLayer(s)
 	if staged == "" {
 		t.Fatalf("no /ctx source derived for %s/%s", agent, name)
