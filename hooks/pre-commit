@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# The repo's pre-commit gate. Install it once per clone with `just install-hooks`.
+#
+# Git cannot track .git/hooks, so this file is the VERSIONED copy and the recipe is what puts
+# it in place — a fresh clone has no hook until someone runs that. The real enforcement is CI,
+# which runs the same command; this only keeps a red commit from being made locally.
+#
+# It runs the same gate CI does, on purpose: a hook that checked less than CI would let a
+# commit through that CI then rejects, which is worse than no hook at all.
+#
+# --no-verify is the escape hatch and is never the fix for a failure. If this rejects, fix the
+# cause and commit again.
+exec just check-ci

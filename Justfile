@@ -357,6 +357,18 @@ check: format lint test-fast
 # Pre-commit hook target (no formatting — just verify and test)
 check-ci: lint-ci test-fast
 
+# Install the versioned pre-commit hook into .git/hooks.
+#
+# Git cannot track hooks, so the script lives at hooks/pre-commit and this recipe copies it into
+# place — a clone does not deliver it, which is why installing is a per-clone step. The hook
+# runs the same `just check-ci` CI runs; install it so a red commit is caught locally instead
+# of in CI.
+install-hooks:
+    @mkdir -p .git/hooks
+    @cp hooks/pre-commit .git/hooks/pre-commit
+    @chmod +x .git/hooks/pre-commit
+    @echo "installed .git/hooks/pre-commit — it runs 'just check-ci'"
+
 # Full quality checks including container integration tests
 check-all: format lint test
 

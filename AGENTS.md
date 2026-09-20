@@ -186,8 +186,9 @@ live, so edits are visible on the host instantly — there is no sync step.
 
 - `just test-fast` = `go test -short ./...` — unit tests plus the short-gated compile of `integration/`. No
   containers. It is the `test-fast` half of `just check-ci` (= `lint-ci` + `test-fast`), the pre-commit
-  gate — **which nothing in this repo installs**, so it is a discipline you run, not a hook that stops
-  you; see [Workflow](#workflow) step 4. `just test` adds
+  gate — the repo provides it at [`hooks/pre-commit`](hooks/pre-commit) and `just install-hooks` puts it
+  in `.git/hooks`, but git cannot track hooks, so installing is a per-clone step; see
+  [Workflow](#workflow) step 4. `just test` adds
   `go test -count=1 -timeout 0 ./integration`. Run by CI.
 - **`integration/` rules**: all files are package `integration`, gated by `requireJail(t)` (skipped under
   `testing.Short()`). Do **not** add `t.Parallel()` — the package runs serially by design (real containers;
@@ -453,11 +454,12 @@ Agent logs, for debugging: `~/.copilot/logs/`, `~/.claude/projects/` inside the 
    `host.containers.internal`) or **rootless-only path**? A nested jail cannot see those classes at all —
    read the two carve-outs under [Testing](#testing) before reporting it verified.
 3. `just format` (gofmt) before committing.
-4. Conventional commit messages. **Run `just check-ci` yourself before every commit.** This repo installs
-   NO pre-commit hook — there is no recipe, no script and no `core.hooksPath` that puts one in `.git/hooks`,
-   which is untracked and therefore cannot carry one. Two lines here used to say the hook runs it, and the
-   difference matters in both directions: nothing will stop a red commit, and a commit that landed is not
-   evidence that anything checked it. If the gate rejects, fix forward — never `--no-verify`, never
+4. Conventional commit messages. **Run `just check-ci` before every commit, or install the provided hook
+   once with `just install-hooks`** and let it run for you. Git cannot track `.git/hooks`, so the hook is
+   a versioned script ([`hooks/pre-commit`](hooks/pre-commit)) plus a per-clone installer — a clone does
+   not deliver it, which is the only reason it is not simply always on. CI runs the same `just check-ci`,
+   so a red commit cannot merge; the hook exists so it is caught locally first. A commit that landed is
+   not evidence that anything checked it. If the gate rejects, fix forward — never `--no-verify`, never
    `--amend`. ⚠ It is a WHOLE-TREE gate, so during a fan-out it reports other agents' in-flight files as
    your failure; that is why an orchestrator commits and agents do not.
 5. End of task: `git status` clean, `just done` green.
