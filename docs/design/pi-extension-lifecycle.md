@@ -23,9 +23,12 @@ jail leaves every other jail stale, burning network bandwidth, duplicating disk 
 triggering Pi's interactive TUI update warning box on startup in every other workspace.
 
 **The shape.** Decouple `~/.pi/agent/npm` from the workspace-scoped `~/.pi` state directory
-via a machine-scoped storage contribution (`scope: "machine"`) and symlink hook, paired with
-a rate-limited, locked pre-launch extension refresh inside the generated `pi` launcher shim
-prior to starting the interactive session.
+via a machine-scoped storage contribution (`scope: "machine"`) and symlink hook. Two ways to
+refresh it, and the leaning has moved: **YOLO resolves and pins** the package set through
+`internal/packsrc` + `packs.lock.json` ([Alternative D](#alternative-d-resolve-and-pin-through-yolos-existing-pack-source-store)),
+and the launcher only *materializes* it — Pi's own `pi update --extensions` is the fallback, not
+the mechanism. [§3.2](#32-execution-tier-pre-launch-auto-refresh) still describes the pre-reframe
+version.
 
 **Cost.** Jails sharing the machine-scoped extension directory must synchronize npm writes
 via a non-blocking directory lock. A failed update attempt or offline jail must gracefully
@@ -37,8 +40,12 @@ fall back to running the existing installed extension version.
 
 **Reads with:** [`pi-extension-lifecycle-plan.md`](pi-extension-lifecycle-plan.md)
 (the companion implementation sketch — incomplete while [`OQ-1`](#OQ-1) and [`OQ-2`](#OQ-2) are open),
-[`program-delivery.md`](program-delivery.md) (the launcher and `agent_updates` foundation),
-and [`macos-user-home-tiers.md`](macos-user-home-tiers.md) (the machine vs workspace storage tier design).
+[`pi-pack-extensions.md`](./pi-pack-extensions.md) (the accepted sibling that assigns this doc the
+fetch/resolve axis and names `internal/packsrc` + `packs.lock.json`),
+[`slots-and-contributions.md`](./slots-and-contributions.md) (the role model of the same
+constellation), [`program-delivery.md`](program-delivery.md) (the launcher and `agent_updates`
+foundation), and [`macos-user-home-tiers.md`](macos-user-home-tiers.md) (the machine vs workspace
+storage tier design).
 
 ---
 
@@ -129,6 +136,11 @@ Because `.pi` is workspace-scoped, each workspace jail receives an isolated dire
 ---
 
 ## 3. The proposed architecture
+
+> ⚠ **[§3.2](#32-execution-tier-pre-launch-auto-refresh) is pre-reframe.** It describes refresh as a launcher-run `pi update --extensions`.
+> [Alternative D](#alternative-d-resolve-and-pin-through-yolos-existing-pack-source-store) and
+> [OQ-2](#OQ-2)'s current leaning move the *resolution and the pin* to YOLO and leave the launcher
+> to materialize. Read [§3.2](#32-execution-tier-pre-launch-auto-refresh) as the materializer, not the resolver.
 
 The architecture consists of three coordinated tiers: storage decoupling, pre-launch auto-refresh,
 and cross-jail mutual exclusion.
@@ -273,6 +285,11 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
   [OQ-2](#OQ-2): the launcher may still call `pi update`, but only after YOLO has resolved and
   pinned, and it should be able to say what it resolved instead of asking a registry.
 
+> **A third path, already available:** a pack can *declare* its Pi packages as a `config-overlay`
+> on surface `pi/settings` with `managed.packages` (e.g. `npm:@quintinshaw/pi-dynamic-workflows`).
+> That is the declaration half — it says what should be present without fetching anything — and it
+> composes with D, which owns the fetch and the pin.
+
 ---
 
 ## 6. Open Questions
@@ -291,16 +308,19 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
    > _(empty — fill in when decided)_
 
 2. 💬 **OQ-2: Update execution mechanism.**
-   Should Pi extension updates run via `pi update --extensions` inside the generated launcher
-   (`/home/agent/.yolo/bin/launch/pi`), or via a dedicated Go entrypoint subcommand
-   (`yolo internal refresh-pi-extensions`) like `refresh-servers`?
+   Three candidates: (a) run `pi update --extensions` inside the generated launcher
+   (`/home/agent/.yolo/bin/launch/pi`); (b) a dedicated Go entrypoint subcommand
+   (`yolo internal refresh-pi-extensions`) like `refresh-servers`; or (c) **YOLO resolves and
+   pins the package set through `internal/packsrc` + `packs.lock.json`, and the launcher only
+   materializes it** ([Alternative D](#alternative-d-resolve-and-pin-through-yolos-existing-pack-source-store)).
 
-   <!-- vantage: oq id=OQ-2 leaning="Pre-launch execution in launcher calling `pi update --extensions` with a non-blocking lock. Pi's CLI already contains the full logic for resolving git/npm versions and manifests; shelling out to `pi update --extensions` before `exec $REAL_BIN` avoids duplicating Pi's package manager in Go." -->
+   <!-- vantage: oq id=OQ-2 leaning="Option (c): YOLO resolves and PINS through internal/packsrc + packs.lock.json, and the launcher only materializes via `pi update --extensions` under a non-blocking lock. Pi's CLI keeps the package-manager half (no npm reimplemented), but the VERSION CHOICE moves to YOLO — the seam a distributor must own, since no ecosystem here ships a lockfile or rollback." -->
 
-   _Leaning:_ Pre-launch execution in the launcher calling `pi update --extensions` with a
-   non-blocking lock. Pi's CLI already contains the full logic for resolving git/npm versions and
-   manifests; shelling out to `pi update --extensions` before `exec "$REAL_BIN"` avoids duplicating
-   Pi's package manager in Go.
+   _Leaning:_ **(c), with (a) as the materializer.** `internal/packsrc` owns resolution and the
+   pin (`packs.lock.json`, strictly offline launch); the launcher calls `pi update --extensions`
+   only to materialize the already-chosen set, under a non-blocking lock. Pi's CLI keeps the
+   package-manager half — no npm reimplemented — while the version choice, which no ecosystem here
+   lockfiles, moves to YOLO. See [Alternative D](#alternative-d-resolve-and-pin-through-yolos-existing-pack-source-store).
 
    **Answer:**
    > _(empty — fill in when decided)_

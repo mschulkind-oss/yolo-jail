@@ -43,7 +43,10 @@ makes a pack file hard to read is guessing which of several shapes a `kind` is i
 [`briefing-audiences.md`](./briefing-audiences.md) (the `agent`/`agents` mechanism this splits
 apart), [`stringly-typed-references-principle.md`](../reference/stringly-typed-references-principle.md)
 (what a name may reference), [`pi-pack-extensions.md`](./pi-pack-extensions.md) (the concrete
-case, and the bug that forced this), [`manifest-language.md`](./manifest-language.md) (the
+case, and the bug that forced this), [`pi-pack-extensions-plan.md`](./pi-pack-extensions-plan.md)
+(the build hand-off carrying the superseded slices 1–3),
+[`pi-extension-lifecycle.md`](./pi-extension-lifecycle.md) (the sibling fetch axis),
+[`manifest-language.md`](./manifest-language.md) (the
 sibling concern — the manifest's *surface*, or how many bytes say one fact).
 
 ---
@@ -73,8 +76,9 @@ Two problems, and the second is the one that cost us:
 ## 2. What a kind is, and what a slot is
 
 **A `kind` names a contribution — what a pack supplies.** `program`, `config`, `state`, `mount`,
-`env`, `loophole`, `service`, `provider`, `profile`, `briefing`, `skills`, `files`. This is the
-sense [`pack-system.md`](../reference/pack-system.md) already uses; nothing here changes it.
+`env`, `loophole`, `service`, `provider`, `profile`, `briefing`, `skills`, `files` — the last three
+being the ones that *also* carry a destination today, which is the conflation this doc splits
+apart. That is the sense [`pack-system.md`](../reference/pack-system.md) already uses.
 
 **A slot is what a pack accepts**, and accepting is not supplying. It is the other end of the
 same wire, so it is a different axis, not a different value of the same one:
@@ -106,10 +110,9 @@ slot.
 
 ### 2.2 Why the receiver, not the sender, names the shape
 
-The recipient's derive decides what the content *becomes* — it may write files, fold into a
-config value, register a tool. So the content **arrives** as bytes and does not necessarily
-**leave** as files, and a slot called "files" misnames the capability. The slot says what it
-accepts; what it does with it is the pack's.
+The recipient's derive decides what the content *becomes*, so content **arrives** as bytes and does
+not necessarily **leave** as files — which is why a slot is not named after its transport. The
+slot says what it accepts; what it does with it is the pack's.
 
 ## 3. The address: the agent, never the pack
 
@@ -147,9 +150,10 @@ the *selected* packs, not the universe.
 ## 5. What this costs
 
 - A manifest gains a second top-level list, and the three content kinds lose a field shape.
-- Every pack that declares a destination (all six shipped agent packs, at least) migrates, and
-  the two mechanisms that read destinations — `packload`'s borrowing and `cli/run`'s mount
-  resolution — change their input.
+- Every pack that declares a destination (all seven shipped agent packs: `agy`, `claude`,
+  `codex`, `copilot`, `omp`, `opencode`, `pi`) migrates, and the two mechanisms that read
+  destinations — `packload`'s borrowing (`inferrableKinds`, `carriesFor`) and `cli/run`'s mount
+  resolution (`packFilesTargets`, `internal/cli/run/packfiles.go`) — change their input.
 - It **supersedes the `files` work already landed** (`pi-pack-extensions` slices 1–3:
   `agent`/`agents` on `files`, `from` forbidden on a destination). That code is correct for the
   shape it encodes and wrong for this one; it is a rework, not a revert-and-forget.

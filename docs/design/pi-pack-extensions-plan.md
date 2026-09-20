@@ -3,18 +3,21 @@ title: "Extension delivery — implementation sketch"
 date: 2026-09-19
 status: draft
 tags: [pi, extensions, plugins, packs, implementation, plan]
-summary: "Implementation sketch for addressed file-tree delivery into agent-declared aliases, and for retiring the claude_plugins hook by seeding Claude's plugin state."
+summary: "Implementation sketch for addressed file-tree delivery into agent-declared aliases, and for retiring the claude_plugins hook by placing plugin trees locally. Superseded by `slots-and-contributions.md` — the `files` + `agent`/`agents` field shape this plan builds is pending rework to the `exposes` model."
 ---
 
 # Extension delivery — implementation sketch
 
-**Status:** SKETCH, 2026-09-19 — the design in [`pi-pack-extensions.md`](./pi-pack-extensions.md)
-is accepted (all five questions ruled 2026-09-19). This sketch is the build hand-off and gets
-a pass against those rulings before it is built from.
+**Status:** SUPERSEDED, 2026-09-20 — do not build from this. — the design in [`pi-pack-extensions.md`](./pi-pack-extensions.md)
+is accepted; **this sketch is not**. The `files` + `agent`/`agents` field shape its touchpoints
+([§1](#1-architecture-d-touchpoints)) edit is retired by
+[`slots-and-contributions.md`](./slots-and-contributions.md), which makes a destination a second
+axis (`exposes`) addressed by the agent `bin` name, never the pack slug. Slices 1–3 landed the
+superseded shape; this sketch is the record of what landed and what remains.
 
-> **Notice:** This sketch is a companion to [`pi-pack-extensions.md`](./pi-pack-extensions.md).
-> The design doc wins on all behavioral decisions and architecture. Do not build from this
-> document while it is stamped `SKETCH`.
+> **Authority chain:** [`pi-pack-extensions.md`](./pi-pack-extensions.md) (architecture, accepted)
+> → [`slots-and-contributions.md`](./slots-and-contributions.md) (the role model, in-review) →
+> this sketch (pending rework). Where this sketch and either design disagree, the design wins.
 
 **What changed from the first sketch:** the selected architecture moved from **B (addressed
 `files` with a `target` slot)** to **D (addressed `files` into an agent-declared alias,
@@ -24,6 +27,12 @@ is replaced by a per-pack subdirectory, and the `claude_plugins` decision is ret
 ---
 
 ## 1. Architecture D touchpoints
+
+> ⚠ **Superseded field names.** Every `agent`/`agents` below is pending rework to the role model
+> in [`slots-and-contributions.md`](./slots-and-contributions.md): a destination becomes an
+> `exposes` slot, and an addressed contribution targets the **agent `bin` name**. Read that doc
+> before touching these sites; the mechanics (borrowing, the `<into>/<pack>` join, the derive
+> source) are the part that survives.
 
 1. **`internal/packdecl/contributes.go`** — allow `agent`/`agents` on `kind: "files"` by
    narrowing the blanket refusal (currently `c.Kind != KindBriefing && c.Kind != KindSkills`)
@@ -44,7 +53,8 @@ is replaced by a per-pack subdirectory, and the `claude_plugins` decision is ret
    `extensions/yolo-openai-auth.js` into it. Pi's derive needs no activation step (extensions
    auto-discover).
 6. **`packs/claude/*` + remove `HookClaudePlugins`** — deliver the LSP plugin trees by file
-   (decompose into YOLO's canonical tables, or author one YOLO-owned Agent Plugins 1.0 plugin),
+   (author one YOLO-owned Agent Plugins 1.0 plugin — **not** the "YOLO's canonical LSP tables" path,
+   which [`claude-lsp-plugins.md`](./claude-lsp-plugins.md) retires: YOLO must not pick a server),
    keep the `enabledPlugins` derive, and delete the hook, the `packdecl.KnownHooks` entry, and
    the `packhook` case.
 

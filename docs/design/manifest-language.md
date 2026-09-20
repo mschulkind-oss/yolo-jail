@@ -3,7 +3,7 @@ title: "The manifest language: declarations stay inert data, and the syntax shou
 date: 2026-09-20
 status: in-review
 tags: [packs, manifest, config, format, lua, starlark, design]
-summary: "A pack manifest compresses to a quarter of its bytes — more redundant than the repo's own prose — because it is a flat tagged union that repeats the pack's identity and the `kind` tag on every entry, and spells mechanism rather than intent. The syntax and the MODEL are two independent decisions, and the model change (group by kind, derive the identity, keep distinct facts explicit) carries most of the gain under any syntax. This doc settles both: what a manifest may be written in (JSON restructured, data-only Lua, Starlark, or the heavier config languages), and the rule that compression may remove repetition but never a claim."
+summary: "A pack manifest compresses to a quarter of its bytes — more redundant than the repo's own prose — because it is a flat tagged union that repeats the pack's identity and the `kind` tag on every entry, and spells mechanism rather than intent. The syntax and the MODEL are two independent decisions, and the model change (group by kind, derive the agent name from its own `program`, keep distinct facts explicit) carries most of the gain under any syntax. This doc ARGUES both and rules neither yet: what a manifest may be written in (JSON restructured, data-only Lua, Starlark, or the heavier config languages), and the rule that compression may remove repetition but never a claim."
 vantage:
   status-chip: true
 ---
@@ -46,13 +46,13 @@ written today is a migration debt tomorrow, so the format should be chosen once.
 **Reads with:** [`pack-system.md`](../reference/pack-system.md) (the contribution model and the
 total-enumeration rule), [`trust-paths.md`](./trust-paths.md) (the origin gate and why a pack
 never runs at boot), [`slots-and-contributions.md`](./slots-and-contributions.md) (the role split),
-[`config-ref`](.) (`yolo config-ref`, the user-config surface).
+and `yolo config-ref` (the user-config surface).
 
 ---
 
 ## 1. The measurement
 
-`gzip —c <file> | wc -c` over the real files, 2026-09-20:
+`gzip -c <file> | wc -c` over the real files, 2026-09-20:
 
 | File | raw | gzip | ratio |
 | :--- | ---: | ---: | ---: |
@@ -71,8 +71,8 @@ redundant thing in the repo. That is the whole complaint, quantified.
 `packs/claude/pack.json`, key occurrences: `kind` **17**, `name` 8, `agent` **6**, `config` 5,
 `codec` 4, `path` 4, `managed` 4, `from` 3, `at` 3, `hook` 3. Four causes:
 
-1. **The pack repeats its own identity.** The manifest is `name: "claude"`; six separate
-   contributions say `agent: "claude"`.
+1. **The pack repeats its own identity.** `packs/claude` already declares `bin: "claude"` on its
+   `program`; six further contributions each say `agent: "claude"`.
 2. **A flat tagged union.** Seventeen `kind` tags for seventeen entries — an AST serialized by
    hand, where the key could *be* the kind.
 3. **Mechanism, not intent.** `managed`, `computed`, `retireOnFirstRender`, `after`, `mode: rmw`
@@ -86,8 +86,7 @@ redundant thing in the repo. That is the whole complaint, quantified.
 - **M1. A declaration is inert data, never an effect.** The origin gate rests on it
   ([`trust-paths.md`](./trust-paths.md)): a pack that could run at boot would make shipping
   content and executing code one grant. Nothing below may change that.
-- **M2. The claim enumeration is total.** Compression removes repetition, never a distinct fact
-  ([M2](#2-principles)).
+- **M2. The claim enumeration is total.** Compression removes repetition, never a distinct fact.
 - **M3. No bespoke language.** We do not invent a config language or maintain its parser. Every
   option below is a real, maintained language or a restructured use of one already in the tree.
 - **M4. Readable by someone who did not write it.** The audience for a pack file is a maintainer
@@ -103,13 +102,18 @@ The syntax and the model are separable, and it is worth being exact about which 
 | Lever | Syntax-independent? | Share of the redundancy |
 | :--- | :--- | :--- |
 | Group by kind (the key IS the kind; delete `kind`) | **yes** — applies to JSON too | large (17 tags) |
-| Derive the pack's own identity (no `agent` on a pack's own contributions) | **yes** | large (6 repeats) |
+| Derive the agent name from the pack's own `program.bin` (no `agent` on a pack's own contributions) | **yes** | large (6 repeats) |
 | Per-kind conventions for `into`/`path`/`codec` | **yes** | moderate |
 | Comments, trailing commas, unquoted keys, `local` reuse | no — needs the language | moderate |
 | Loops for repeated rows | no — needs computation | small, once grouped |
 
 **So most of the win does not need a new language at all.** That is the first proposal: change
 the *shape*, and see how much of the problem is left.
+
+> ⚠ **Derive the agent name from `program.bin`, not from the pack's `name`.** They agree on six of
+the seven shipped agent packs, and `packs/omp` is the counterexample: `name: "omp"` but
+`bin: "oh-omp"`, which is also the agent its briefings and skills declare. The bin is the address
+(the address rule in [`slots-and-contributions.md`](./slots-and-contributions.md)), and it is already declared.
 
 ## 4. The options
 
@@ -121,8 +125,8 @@ Keep the syntax; change the model. Group by kind, derive the identity, keep conv
 {
   "name": "pi",
   "program": { "bin": "pi", "via": "npm", "package": "@earendil-works/pi-coding-agent" },
-  "exposes": { "extensions": ".pi/agent/extensions", "skills": ".pi/agent/skills" },
-  "briefing": { "into": ".pi/agent/AGENTS.md", "after": "host:.pi/agent/AGENTS.md" },
+  "exposes": [ { "name": "extensions", "into": ".pi/agent/extensions", "accepts": "tree" } ],
+  "briefing": { "into": ".pi/agent/AGENTS.md", "after": "host:.pi/agent/AGENTS.md" },  // pending OQ-D3
   "config": [ /* surfaces */ ],
   "state": [ { "at": ".pi", "scope": "workspace" } ]
 }
@@ -132,6 +136,10 @@ Keep the syntax; change the model. Group by kind, derive the identity, keep conv
   the `kind` tags and the repeated identity — the two largest sources.
 - *Cons:* JSON still has no comments or trailing commas in its strict form (JSONC does), and no
   reuse for genuinely repeated rows.
+
+*Illustrative only:* the `exposes` list form is
+[`slots-and-contributions.md`](./slots-and-contributions.md)'s, whose [`OQ-D4`](./slots-and-contributions.md#OQ-D4) may rename the fields,
+and `briefing`/`skills` follow once its [`OQ-D3`](./slots-and-contributions.md#OQ-D3) rules.
 
 ### B. Data-only Lua (reuse the sandbox already in the tree)
 

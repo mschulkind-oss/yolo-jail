@@ -15,6 +15,14 @@ and all seven steps of [§9](#9-what-i-would-build-in-order) have landed. What e
 in the note below; the body still describes the design as decided rather than as built, so read
 it with that note beside it.
 
+> [!WARNING]
+> **The destination half is superseded.** [`slots-and-contributions.md`](./slots-and-contributions.md)
+> retires `agent` vs `agents` — a singular/plural flag standing in for two opposite roles — by
+> making a destination a second axis (`exposes`) whose slot is addressed by the **agent `bin`
+> name**. What survives here is the *addressing* rule (P1, the `bin` namespace) and the *fatal*
+> unmatched-audience rule; the `agent` field a `briefing`/`skills` destination declares becomes an
+> `exposes` entry once that model is ruled ([OQ-D3](./slots-and-contributions.md#OQ-D3)).
+
 **The short version.** Every pack's briefing prose is composed **once** and written to
 **every** destination, so a pack whose rules apply to one agent must broadcast them to all
 of them or drop them. Skills have the same defect and take the same fix. The
@@ -87,7 +95,7 @@ which govern any new name-a-component-by-string field),
 >    narrowing already happens upstream in `borrowedDestinations` — the same filter [§4.1](#41-the-two-halves-and-why-neither-knows-the-others-business) asks for —
 >    so the host half's real content was the PAIRING (resolve, then compose) and the pin on it,
 >    which R3 asks for per notch and which nothing had. [§5](#5-what-it-costs-and-what-it-lifts)'s *jail* half was exactly right.
-> 5. **[§4.2](#42-where-a-destinations-identity-comes-from--declared-like-every-other-kind)'s five claiming kinds are four: `requires` is not a claim on an agent name.** Two
+> 5. **[§4.2](#42-where-a-destinations-identity-comes-from--declared-like-every-other-kind)'s five claiming kinds are three: `requires` is not a claim, and `launch` has since been retired.** Two
 >    reductios. `docs/examples/claude-fzf-pack` declares `requires fzf` and `requires fd`, so
 >    counting it refuses a launch for two packs that merely need one tool; and a content pack
 >    asserting `requires claude` beside the pack that PROVIDES claude is the most ordinary
@@ -108,12 +116,11 @@ new namespace, no config key. Five principles carry the design:
 
 **P1. The audience namespace is the CLI-name namespace, and there is no second one.**
 [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) [§2.5](profiles-as-pack-variants.md#25-the-stringly-typed-hole-that-is-live-today) already settled this for
-profiles: `program` and `launch` are `CombineExclusive` by `bin`
-([`kinds.go:243-244`](../../internal/packdecl/kinds.go#L243-L244) for `program`,
-[`:291-292`](../../internal/packdecl/kinds.go#L291-L292) for `launch`, whose declaration
-[`:99-100`](../../internal/packdecl/kinds.go#L99-L100) says *"Sole-owned by bin name"*), so a CLI name resolves to at most one pack
-by construction, and *"the agents"* are simply the union of the `bin`s the selected packs
-install. An audience is the same question about the same set, so it gets the same key.
+profiles: `program` is `CombineExclusive` by `bin`
+([`kinds.go:243-244`](../../internal/packdecl/kinds.go#L243-L244), whose declaration says
+*"Sole-owned by bin name"* — `launch` claimed a name this way too until it was retired in favour
+of `autonomy`, which does not), so a CLI name resolves to at most one pack by construction, and
+*"the agents"* are simply the union of the `bin`s the selected packs install. An audience is the same question about the same set, so it gets the same key.
 
 **P2. Scoping is opt-in and silence means broadcast.** A `briefing` with no selector behaves
 exactly as it does today. This is what makes the change safe to land ahead of any pack
@@ -185,8 +192,9 @@ The host notch composes the same content by a different route:
 appending one attributed section per contribution. **It is already per-destination** — it just
 appends every pack to every path.
 
-**The shipped shape.** All six agent packs declare exactly one `program` and exactly one
-`briefing`:
+**The shipped shape.** All seven agent packs declare exactly one `program` and exactly one
+`briefing` (note `omp`, whose `bin`, surface `agent` and `briefing` all say `oh-omp` while its
+pack name is `omp` — the [`manifest-language.md`](./manifest-language.md) caveat, live):
 
 | Pack | `program.bin` | surface `agent` id | `briefing.into` |
 | :--- | :--- | :--- | :--- |
@@ -196,12 +204,14 @@ appends every pack to every path.
 | `opencode` | `opencode` | `opencode` | `.config/opencode/AGENTS.md` |
 | `pi` | `pi` | `pi` | `.pi/agent/AGENTS.md` |
 | `agy` | `agy` | `agy` | `.gemini/config/AGENTS.md` |
+| `omp` | `oh-omp` | `oh-omp` | `.oh-omp/agent/AGENTS.md` |
 
 **Read the middle column against the second: every agent pack already writes its own identity
 out by hand, and it already equals its `bin`.** That is [§4.2](#42-where-a-destinations-identity-comes-from--declared-like-every-other-kind)'s whole foundation. The third
 column is the one thing a `briefing` cannot say anything about — it names a path and nothing
-else. The six loophole-only packs (`audio`, `cgroup-delegate`, `host-processes`, `journal`,
-`openai-auth`, `serial`) declare none of the three.
+else. The eight packs that declare no agent plumbing declare none of the three either: `audio`,
+`aws-auth`, `cgroup-delegate`, `hello-daemon`, `host-processes`, `journal`, `openai-auth`,
+`serial`.
 
 ---
 
@@ -217,7 +227,8 @@ at `assemble.go:677` means its mount is dropped as a duplicate of the `claude` p
 > jail *"reads briefing prose from a root `AGENTS.md` regardless of `from`"*. That divergence
 > was **fixed 2026-08-04** — both notches now resolve through
 > [`packload.BriefingProseFor`](../../internal/packload/briefingsource.go#L56) over
-> `BriefingCandidates()` ([`pack-system.md`](../reference/pack-system.md), [§6](../reference/pack-system.md#composed-file-posture-what-writable-means)a-4). It is also about `from`
+> `BriefingCandidates()` ([`pack-system.md`](../reference/pack-system.md), the composed-file
+posture section). It is also about `from`
 > (the *source*) and not `into` (the *destination*), so it never bore on scoping at all. The
 > stale note is a separate small fix; do not cite it as evidence either way.
 
@@ -310,8 +321,8 @@ against a string a pack declared about itself.** End to end:
 identity-by-declaration is not a quirk of profiles — it is the house style. A config surface's
 owner is a declared string, [`SurfaceDTO.Agent`](../../internal/agentcfg/manifest/load.go#L27),
 keyed as [`SurfaceKey{Agent, Name}`](../../internal/agentcfg/manifest/manifest.go#L208), and all
-six agent packs write it out by hand — `"agent": "pi"`, `"agent": "claude"` — identical to their
-own `bin` in every case.
+seven agent packs write it out by hand — `"agent": "pi"`, `"agent": "claude"` — identical to
+their own `bin` in every case.
 
 **So the design is: the agent pack declares its briefing destination's `agent`, the same field
 name its config surfaces already use** ([§4.1](#41-the-two-halves-and-why-neither-knows-the-others-business)'s first block). A selector then matches that string
@@ -328,7 +339,7 @@ complications the derived version dragged in all disappear with it:
   differently at the two notches.
 
 > [!NOTE]
-> **The cost this moves rather than removes: six pack.json files gain a field, and a
+> **The cost this moves rather than removes: seven pack.json files gain a field, and a
 > third-party agent pack must declare one to be addressable.** That is the objection the derived
 > version was invented to dodge, and it is not worth dodging — declaring identity is what
 > `program` (`bin`), `config` (`agent`) and `state` (`at`) all already require, and a pack that
@@ -337,9 +348,11 @@ complications the derived version dragged in all disappear with it:
 
 **Ownership is per NAME, not per kind (P5), and two packs claiming one name is fatal.** So the
 check is not "two `briefing` contributions declared `agent: claude`" but "two packs claimed
-`claude` **at all**" — across `program`, `requires`, `launch`, `briefing` and `skills` together.
-A same-pack repeat stays normal and legal: `packs/copilot` declares `copilot` on both `program`
-and `launch`, and one pack claiming its own name in five kinds is one pack owning one name.
+`claude` **at all**" — across `program`, `briefing` and `skills` together (the three kinds
+`AgentNameCollisions` documents; `requires` is `CombineShared`, not a claim, and `launch` is
+retired). A same-pack repeat stays normal and legal: `packs/claude` declares `claude` on its
+`program` and on both its `briefing` and `skills`, and one pack claiming its own name in several
+kinds is one pack owning one name.
 `Collisions` already ignores that case — it skips any target whose claimants are a single pack
 ([`footprint.go:425-427`](../../internal/packload/footprint.go#L425-L427)) — so what changes is
 the KEY, from `(kind, target)` to the name itself for this one namespace.
@@ -452,7 +465,7 @@ load-bearing in two places.
 
 ## 9. What I would build, in order
 
-1. **`agent` on `briefing`**, plus the six one-line additions to the shipped agent packs ([§4.1](#41-the-two-halves-and-why-neither-knows-the-others-business)), and its collision pass ([§4.2](#42-where-a-destinations-identity-comes-from--declared-like-every-other-kind)). Inert as *routing* — nothing reads it for delivery yet — but the ownership check is real from day one, which is the half that wants to land before anyone depends on a name.
+1. **`agent` on `briefing`**, plus the seven one-line additions to the shipped agent packs ([§4.1](#41-the-two-halves-and-why-neither-knows-the-others-business)), and its collision pass ([§4.2](#42-where-a-destinations-identity-comes-from--declared-like-every-other-kind)). Inert as *routing* — nothing reads it for delivery yet — but the ownership check is real from day one, which is the half that wants to land before anyone depends on a name.
 2. **The host notch filter**, in `ComposeHostBriefings`. Smallest change, immediately observable via `yolo host apply --observe`, and it needs nothing from the jail half.
 3. **The path-free half** — `agents` on a contribution, `into` refused alongside it and required without it, `declares` testing `Into != ""`, and `borrowedDestinations` filtered by the selector ([§4.1](#41-the-two-halves-and-why-neither-knows-the-others-business)). This is what makes P4 true rather than aspirational, and step 2 is worth little without it.
 4. **The jail notch move** — composition into the write loop, staging keyed by destination, `assemble.go` following. This is where the one-prose-per-pack limit lifts ([§5](#5-what-it-costs-and-what-it-lifts)).
@@ -468,8 +481,11 @@ nowhere is the exact failure mode `declares` would produce if that change were m
 
 ## 10. Open Questions
 
-**None.** Every question this doc asked is settled — see the Decision Ledger below, and [§1](#1-verdict-and-the-principles-it-rests-on)'s
-principles for the rulings that shaped the body. What is left is build order ([§9](#9-what-i-would-build-in-order)).
+**None *for this doc*** — every question it asked is settled (Decision Ledger below). But the
+*shape* those rulings produce is now open: [`slots-and-contributions.md`](./slots-and-contributions.md)'s
+[OQ-D3](./slots-and-contributions.md#OQ-D3) asks how far the `exposes` split reaches, and it
+reaches `briefing` and `skills` first of all. Steps 1, 3 and 4 of [§9](#9-what-i-would-build-in-order)
+are the ones it would rework. What is left otherwise is build order.
 
 ---
 

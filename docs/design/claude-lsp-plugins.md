@@ -21,8 +21,9 @@ vantage:
 > duplicated, five-language-short subset of a table yolo could generate.
 
 **Why it matters.** Three reasons, in order of weight. It is the one remaining *reason* the
-`claude_plugins` hook exists — a hook whose retirement [pi-pack-extensions.md](./pi-pack-extensions.md)
-just reopened, so this doc and that one must be decided together. It is implicated in a live
+`claude_plugins` hook exists — and that hook's retirement is now **ruled**
+([`pi-pack-extensions.md`](./pi-pack-extensions.md) [`OQ-2`](./pi-pack-extensions.md#10-decision-ledger), 2026-09-19), so what remains here is
+where the LSP trees it used to install come from. It is implicated in a live
 data-loss defect already on the roadmap: the `enabledPlugins` table the derive writes is what
 `dropComputedTables` over-drops. And it is agent-specific residue of exactly the shape this
 project keeps deleting: a language list hardcoded in Go, duplicated in Lua, that the user's
@@ -34,11 +35,15 @@ configured `lsp_servers` so any language works with no marketplace and no hook. 
 the attractive one and depends on whether Claude can load a locally-authored plugin, which is
 the Agent Plugins decision in [pi-pack-extensions.md](./pi-pack-extensions.md#10-decision-ledger).
 
-**Needs your ruling:** [OQ-LSP1](#OQ-LSP1), [OQ-LSP2](#OQ-LSP2), [OQ-LSP3](#OQ-LSP3).
+**Needs your ruling:** [OQ-LSP1](#OQ-LSP1), [OQ-LSP3](#OQ-LSP3) — plus the
+[`slots-and-contributions.md`](./slots-and-contributions.md) role model that governs delivery.
+(The default-servers question is resolved — [decision ledger](#6-decision-ledger).)
 
 **Reads with:** [`mcp-configuration.md`](../reference/mcp-configuration.md) (the canonical
 MCP/LSP tables and per-agent projection), [`pi-pack-extensions.md`](./pi-pack-extensions.md)
-(plugin delivery and the `claude_plugins` reopen), [`claude-plugins-official`](https://github.com/anthropics/claude-plugins-official)
+(plugin delivery; its `claude_plugins` retirement is ruled — note its `files` **encoding** is
+superseded by [`slots-and-contributions.md`](./slots-and-contributions.md), which governs how a
+plugin tree reaches Claude), [`claude-plugins-official`](https://github.com/anthropics/claude-plugins-official)
 (the marketplace — its `.claude-plugin/marketplace.json` is the evidence that these plugins
 are declarations only),
 [`roadmap.md`](../plans/roadmap.md) (the `dropComputedTables` over-drop this touches).
@@ -148,16 +153,15 @@ that Copilot was done well and Claude poorly — it is that the two agents consu
 different mechanisms, and only one matches YOLO's own table. A user who configures `rust`
 therefore gets it for Copilot and silently nothing for Claude.
 
-### 1.5 They are not on by default — and the docs say they are
+### 1.5 They are not on by default — and the docs used to say they were
 
 No code merges default LSP servers: [`internal/config/lsp.go`](../../internal/config/lsp.go)
 returns two empty strings for an absent `lsp_servers`, and
 [`internal/entrypoint/mcp.go`](../../internal/entrypoint/mcp.go) starts `LoadLSPServers` from
-an empty map. Yet
-[`internal/cli/template_tail.txt`](../../internal/cli/template_tail.txt) and
-[`internal/cli/config_ref.txt`](../../internal/cli/config_ref.txt) both say *"Default servers
-(always present): python (pyright), typescript, go (gopls)."* That is drift: a user who reads
-it believes the three run by default, and in a jail with no `lsp_servers` they do not.
+an empty map. Both [`internal/cli/template_tail.txt`](../../internal/cli/template_tail.txt) and
+[`internal/cli/config_ref.txt`](../../internal/cli/config_ref.txt) claimed *"Default servers
+(always present): python (pyright), typescript, go (gopls)."* **Fixed 2026-09-20** (commit
+`3fb79e8f`): both now say no server is default. This resolves [OQ-LSP2](#OQ-LSP2).
 
 ## 2. How every agent consumes an LSP server
 
@@ -240,22 +244,26 @@ config key.
 | A configured language outside the three | silent no-op for Claude | delivered, or reported |
 | The two hardcoded tables drift | silent mismatch | one source |
 | `enabledPlugins` over-dropped on an adopting render | user's other enabled plugins lost ([`roadmap`](../plans/roadmap.md) row 0b) | the derive asserts leaf-level, not the table |
-| `lsp_servers` configured, binaries missing | install recipe is the only path | unchanged; recipe stays |
+| `lsp_servers` configured, binaries missing | install recipe is the only path | recipe **deleted** ([§1.3](#13-yolo-already-owns-the-table-the-plugins-restate)); the `command` must resolve on `PATH`, and a missing binary is reported |
 
 ## 5. Open questions
 
 1. 💬 **OQ-LSP1: Keep, generalize, delete, or generate?** The core ruling, and it is shared
    with [`pi-pack-extensions.md`](./pi-pack-extensions.md).
 
-   <!-- vantage: oq id=OQ-LSP1 leaning="Generate (D) if Claude loads a locally-authored plugin, else delete (C) after checking for a user; generalizing (B) is the fallback that keeps the marketplace." -->
+   <!-- vantage: oq id=OQ-LSP1 leaning="Generate (D) if Claude loads a locally-authored plugin, else delete (C) after checking for a user. Generalizing (B) is NOT a fallback: it would hardcode a per-language opinion for thirteen languages, which §1.3 forbids." -->
 
-   _Leaning:_ **D if [`OQ-LSP3`](#OQ-LSP3) says yes, C if nobody uses them, B only as a fallback.** Framed by [§2](#2-how-every-agent-consumes-an-lsp-server): D makes archetype 2 as generic as archetype 1, so the hardcoded list, the marketplace dependency, and the hook all go in one move. C is strictly simplest if the feature has no user. B merely makes the arbitrary set less arbitrary while leaving the archetype un-generic.
+   _Leaning:_ **D if [`OQ-LSP3`](#OQ-LSP3) says yes, C if nobody uses them — and B is not a
+   fallback.** B would name "the" server for thirteen languages, the per-language opinion
+   [§1.3](#13-yolo-already-owns-the-table-the-plugins-restate) rules out and the
+   `lspInstallRecipes` deletion removes. D makes archetype 2 as generic as archetype 1, so the
+   hardcoded list, the marketplace dependency and the hook all go in one move.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
 2. 💬 **OQ-LSP2: Are the "default servers (always present)" claims true?** The code says no
-   ([§1.5](#15-they-are-not-on-by-default--and-the-docs-say-they-are)).
+   ([§1.5](#15-they-are-not-on-by-default--and-the-docs-used-to-say-they-were)).
 
    <!-- vantage: oq id=OQ-LSP2 leaning="Fix the docs (the template and config_ref), or implement the merge — but do not leave the two contradicting." -->
 
@@ -264,7 +272,8 @@ config key.
    test, not a sentence.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Resolved 2026-09-20** — the docs were fixed (commit `3fb79e8f`); the code was the authority.
+   > No default merge exists or is wanted.
 
 3. 💬 **OQ-LSP3: Can Claude load one yolo-authored plugin that declares any language?** D
    depends on a documented local-load path (`--plugin-dir`, a `./`-prefixed marketplace source)
@@ -285,7 +294,7 @@ config key.
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
 | **OQ-LSP1** | — | — | — | — |
-| **OQ-LSP2** | — | — | — | — |
+| **OQ-LSP2** | No default LSP servers exist; the two docs claiming "always present" were drift and are corrected | 2026-09-20 | [§1.5](#15-they-are-not-on-by-default--and-the-docs-used-to-say-they-were) | `3fb79e8f` |
 | **OQ-LSP3** | — | — | — | — |
 
 ---

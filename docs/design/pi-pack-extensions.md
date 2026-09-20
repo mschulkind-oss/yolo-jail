@@ -3,15 +3,25 @@ title: "Extension delivery: files into agent-declared aliases"
 date: 2026-09-19
 status: accepted
 tags: [pi, extensions, plugins, packs, architecture, audience, agent-plugins]
-summary: "Where this landed: contributes a file tree to an agent by name (Architecture D), against the Agent Plugins 1.0 portable standard, with YOLO as the placer and no vendor install verb. Core parses nothing because the standard namespaces client-specific components. The one real remaining choice is retiring `claude_plugins`, plus one probe that gates it."
+summary: "Where this landed: contributes a file tree to an agent by name (Architecture D), against the Agent Plugins 1.0 portable standard, with YOLO as the placer and no vendor install verb. Core parses nothing because the standard namespaces client-specific components. `claude_plugins` is retired. ⚠ The field-level encoding (`files` + `agent`/`agents`) is superseded by `slots-and-contributions.md`; the architecture — a slot an agent declares — stands."
 vantage:
   status-chip: true
 ---
 
 # Extension delivery: files into agent-declared aliases
 
-**Status:** DESIGN, 2026-09-19. Nothing built. The body records the position reached in
-review; the open questions are the few rulings still genuinely needed.
+**Status:** DECIDED, 2026-09-19 — the architecture; **encoding superseded** 2026-09-20. The architecture below
+stands; only its field-level encoding is under revision.
+
+> [!WARNING]
+> **The encoding is superseded — read [`slots-and-contributions.md`](./slots-and-contributions.md).**
+> Everything here about *architecture* still governs: one delivery primitive, Agent Plugins 1.0
+> as the portable standard, YOLO as the placer with no vendor install verb, and hooks disclosed
+> rather than gated. What does **not** govern is the field shape this doc settled on —
+> `kind: "files"` carrying `agent` vs `agents` to tell a destination from a contribution. That
+> singular/plural flag is exactly what [`slots-and-contributions.md`](./slots-and-contributions.md) retires: a destination is a
+> **second axis** (`exposes`), addressed by the **agent `bin` name**. Slices 1–3 landed the
+> superseded shape and are pending rework ([§5](#5-how-d-ran--the-superseded-implementation)).
 
 > **In short.** A pack contributes a **tree of files to an agent by name** — the mechanism
 > `briefing` and `skills` already use — and YOLO mounts it read-only into a directory the
@@ -58,13 +68,18 @@ review; the open questions are the few rulings still genuinely needed.
 - **Determinism depends on ordering.** The addressed-content source must be ordered and
   declared, or a derive stops being a pure function of the manifests.
 
-**Needs your ruling:** **None** — all six questions are ruled ([decision ledger](#10-decision-ledger)).
+**Needs your ruling:** **None *here*** — all six questions are ruled ([decision ledger](#10-decision-ledger)).
+The live questions have moved to the role model —
+[`OQ-D1`–`OQ-D4`](./slots-and-contributions.md#OQ-D1) — and the surface —
+[`OQ-M1`–`OQ-M4`](./manifest-language.md#OQ-M1).
 
-**Reads with:** [`agent-config-distribution.md`](../research/agent-config-distribution.md)
-(the measured formats), [`pi-extension-lifecycle.md`](./pi-extension-lifecycle.md) (the fetch
-axis), [`claude-lsp-plugins.md`](./claude-lsp-plugins.md) (the one live consumer of the retired
-hook), [`briefing-audiences.md`](./briefing-audiences.md) (the `agent`/`agents` mechanism this
-reuses), [`extension-point-principle.md`](../reference/extension-point-principle.md).
+**Reads with:** [`slots-and-contributions.md`](./slots-and-contributions.md) (**supersedes this
+doc's encoding**), [`manifest-language.md`](./manifest-language.md) (the surface),
+[`agent-config-distribution.md`](../research/agent-config-distribution.md) (the measured
+formats), [`pi-extension-lifecycle.md`](./pi-extension-lifecycle.md) (the fetch axis),
+[`claude-lsp-plugins.md`](./claude-lsp-plugins.md) (the one live consumer of the retired hook),
+[`briefing-audiences.md`](./briefing-audiences.md) (the `agent`/`agents` mechanism this reuses),
+[`extension-point-principle.md`](../reference/extension-point-principle.md).
 
 ---
 
@@ -214,7 +229,13 @@ A is agent Go; B is D plus a speculative axis; C is an input convention. D reuse
 rule that already exists for two kinds, adds no kind, and leaves activation where it belongs —
 with the pack that owns the directory. The full comparison is not worth a second table.
 
-## 5. How D runs
+## 5. How D ran — the superseded implementation
+
+> [!NOTE]
+> These four touchpoints encode the **superseded** shape and are pending rework under
+> [`slots-and-contributions.md`](./slots-and-contributions.md). They are recorded as *what
+> landed*, not as the build plan: slices 1–3 shipped, and slice 4 (the derive source) is parked
+> on the shape decision.
 
 1. [`internal/packdecl/contributes.go`](../../internal/packdecl/contributes.go) — allow
    `agent`/`agents` on `kind: "files"`, keep `into`-xor-`agents`, and **split `from`: required
@@ -287,7 +308,11 @@ and is measured, but it reproduces the vendor cache layout, which is the thing
 
 ## 9. Open questions
 
-**None.** The five earlier questions were ruled in review on 2026-09-19, and this review resolved
+**None *here*** — but the six below are now **moot**, not settled: they were ruled against the
+field shape [`slots-and-contributions.md`](./slots-and-contributions.md) supersedes. The live questions are the role model's
+[`OQ-D1`–`OQ-D4`](./slots-and-contributions.md#OQ-D1).
+
+The five earlier questions were ruled in review on 2026-09-19, and this review resolved
 the sixth — the alias-root layout — by **removing the overload that created it**. A `files`
 destination is a bare slot (no `from`), and every pack's content, the owner's own included, is
 addressed, so nothing mounts at the slot root. See [§3](#3-the-candidate-architectures) and the
@@ -297,6 +322,7 @@ addressed, so nothing mounts at the slot root. See [§3](#3-the-candidate-archit
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
+| **SUPERSEDED** | The `files`+`agent`/`agents` field encoding, and the alias/destination questions with it — a slot is a second axis (`exposes`) addressed by the **agent `bin` name**, not a `files` variant | 2026-09-20 | [`slots-and-contributions.md`](./slots-and-contributions.md) | rework |
 | **D** | Addressed `files` into agent-declared aliases; A rejected, B superseded, C an input convention | 2026-09-19 | [§3](#3-the-candidate-architectures) | — |
 | **Standard** | Agent Plugins 1.0 is the portable convention (skills + MCP); client-specific components stay namespaced, so YOLO parses nothing | 2026-09-19 | [§1.2](#12-the-standard-under-this-agent-plugins-10) | — |
 | **Placer** | YOLO places; no vendor install verb runs in a jail | 2026-09-19 | [§2](#2-principles) | — |
