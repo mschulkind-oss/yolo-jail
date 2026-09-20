@@ -1038,7 +1038,8 @@
     Keys are mise tool names, values are version strings.
     Default: {} — yolo ships no mise tool of its own. Every default runtime is a
     baked nix package instead (self-contained, present at boot, no first-use
-    download).
+    download).  (The `yolo init` template used to claim a `neovim` default here;
+    there is none — see internal/config/config.go's defaultMiseToolsVals.)
     These are injected into the jail's global mise config (not workspace mise.toml).
     Deep-merged: user config adds tools, workspace config overrides versions.
 
@@ -1492,9 +1493,9 @@
     Both halves are fixed; the value is now checked and a typo names itself.
     Example: {"prune": {"warn_threshold_gb": 40}}
 
-  [bold]lsp_servers[/bold] (object): Additional language servers for Copilot (Claude uses its own tools).
-    Default servers (always present): python (pyright), typescript, go (gopls).
-    Workspace servers are merged with defaults — add new ones or override existing.
+  [bold]lsp_servers[/bold] (object): Language servers to hand to the agents that read them.
+    No defaults — declare each server you want. Its binary must be on PATH (via
+    mise_tools, a pack program, or an absolute path).
     Each key is a server name; value is an object with:
       • command (string, required): Binary name (on PATH) or absolute path.
       • args (array of strings): Args passed to the LSP binary. Default: [].

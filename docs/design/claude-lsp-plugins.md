@@ -111,13 +111,26 @@ choice belongs to the user.
 3. **Claude's map goes with the generated plugin** (option D): one plugin whose `lspServers` is
    rendered from the user's own `lsp_servers`, so there are no per-language ids to pick.
 
-**Opinions found elsewhere — for discussion, not decided here.** `mcp_presets` ships two MCP
-servers YOLO chose to offer: `chrome-devtools` (arguably shaping — a browser that works in the
-jail) and `sequential-thinking` (closer to a recommendation the user did not make). Separately,
-the `yolo init` template and `yolo config-ref` advertise a `mise_tools` default of `neovim`,
-which [`defaultMiseToolsVals`](../../internal/config/config.go) does **not** have — it is empty.
-That one is drift to fix, not an opinion to rule on; each surviving one wants a ruling on which
-side of the shaping/picking line it falls.
+**Opinions found elsewhere.** `mcp_presets` ships two MCP servers YOLO chose, and they fall on
+opposite sides of the line:
+
+- **`chrome-devtools` is shaping and stays.** Its preset carries jail-specific argv
+  (`chromeDevtoolsArgs`) and a wrapper around a resolved chromium — a browser that runs *in this
+  jail*, which a user could not write down without knowing the environment.
+- **`sequential-thinking` is picking, and should go.** Its preset is a command and one argument
+  (the vendored server binary) with **no** jail-specific config — a user who wants it names it in
+  `mcp_servers` in one line, so the preset adds nothing but YOLO's recommendation. Removing it
+  means dropping the name from `validMCPPresets` ([`internal/config/config.go`](../../internal/config/config.go)),
+  the preset map in [`internal/entrypoint/mcp.go`](../../internal/entrypoint/mcp.go), the npm
+  install in `mcpPresetNpmPackages` ([`internal/entrypoint/shell.go`](../../internal/entrypoint/shell.go)),
+  and the two doc copies; a config that still names it then fails `mcp_presets` validation with
+  the valid set, which is the honest outcome. **Kept as a recommendation, not yet done** — the
+  removal also stops installing the npm package and touches five test files.
+
+**Drift, fixed.** The `yolo init` template claimed a `mise_tools` default of `neovim`, and the
+`lsp_servers` key claimed "default servers (always present)". Neither exists —
+[`defaultMiseToolsVals`](../../internal/config/config.go) is empty and no LSP server is default —
+so both are corrected in the template and in `yolo config-ref`.
 
 ### 1.4 Copilot is generic; Claude is three
 

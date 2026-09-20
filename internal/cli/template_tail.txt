@@ -11,12 +11,11 @@
   // ]
 
   // Extra tools to install via mise (key: tool name, value: version string).
-  // Default: {"neovim": "stable"} — override in user or workspace config.
+  // No defaults — yolo ships no mise tool of its own. Declare only what you want.
   // "mise_tools": {"neovim": "nightly", "typst": "latest"}
 
-  // Additional language servers for Copilot and Gemini.
-  // Defaults (always present): python (pyright), typescript, go (gopls).
-  // Add new servers or override defaults. Binary must be on PATH (e.g., via mise_tools).
+  // Additional language servers. No defaults — declare each server you want; its binary
+  // must be on PATH (e.g. via mise_tools) or given as an absolute command.
   // "lsp_servers": {
   //   "rust": {
   //     "command": "rust-analyzer",
