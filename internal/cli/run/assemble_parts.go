@@ -452,9 +452,20 @@ func (o *Options) fwdSocketDir(cname string) string {
 	return filepath.Join(base, "yolo-fwd-"+cname)
 }
 
-// hostServicesMountArgs builds the host-services dir mount and active brokers'
-// endpoint env. Singleton ensure + front spawn are side effects handled
-// by the lifecycle phase; here we emit the -v and the env var.
+// hostServicesMountArgs builds the host-services dir mount and the endpoint env of
+// every host-scoped loophole this launch can back. Singleton ensure + front spawn are
+// side effects handled by the lifecycle phase; here we emit the -v and the env vars.
+//
+// THE SET IS DERIVED, NEVER LISTED. It used to be two `if`s naming
+// `claude-oauth-broker` and `openai-auth-broker`, and the third host-scoped loophole
+// ever shipped — `aws-auth` — therefore got NO variable at all, so its in-jail adapter
+// answered `ServiceUnreachable` for every request while the launch reported a healthy
+// jail: the reachability witness walks YOLO_SERVICE_*_ENDPOINT, and the fault was that
+// no such variable existed for it to walk. A third name would have been the same defect
+// with a longer fuse. What the two branches actually computed — ACTIVE and MAY-RUN-HOST-
+// CODE — is a predicate, and hostScopedEndpoints applies it to every record declaring
+// `host_daemon.scope: "host"`. `rg -n '"scope": "host"' packs/*/loopholes/*/manifest.jsonc`
+// is the whole census; nothing here counts it or spells it.
 //
 // THE ENV IS GATED ON THE LOOPHOLE BEING ACTIVE, not on the singleton's socket
 // existing at this instant. The container's environment is frozen at `podman run`
@@ -466,118 +477,160 @@ func (o *Options) fwdSocketDir(cname string) string {
 // disagree — and a relay that is late is now a clear "relay unreachable" from the
 // terminator rather than a missing variable.
 //
-// THE SHAPES THAT ARE EXCEPTED — a nested launch with no singleton, and Apple
-// Container, where two independent halves of the pipeline decline to publish at all —
-// are brokerEndpointIsUnpublishable's, and note that neither is the socket gate this
-// deliberately replaced. (This paragraph named the nested launch as "the one shape"
-// until 2026-09-16; the AC half was the promise nobody had noticed.)
+// THE ONE SHAPE THAT IS EXCEPTED is Apple Container, where two independent halves of
+// the pipeline decline to publish at all — hostScopedEndpointIsUnpublishable's, and note
+// that it is not the socket gate this deliberately replaced.
+//
+// THE EARLY RETURN IS DERIVED TOO, and it was the same defect wearing a different hat:
+// it read `rt == "container" && !openAIAuthLoopholeActive(cfg)`, one hardcoded name
+// standing in for the question "will anything publish into this directory on this
+// backend?". Asked directly — is the publishable set empty? — it answers the same for
+// the AC launches that produced the old spelling (that backend's allow list admits the
+// OpenAI service alone, so an AC launch without it publishes nothing anywhere) and it
+// stops being a name. It stays scoped to `rt == "container"`: on every other backend
+// the directory also carries JAIL-scoped daemons' endpoint files, whose variables are
+// emitted elsewhere, so the mount is owed there even when this set is empty.
 func (o *Options) hostServicesMountArgs(rt, cname string, cfg *jsonx.OrderedMap) []string {
-	if rt == "container" && !openAIAuthLoopholeActive(cfg) {
+	names := hostScopedEndpoints(rt, cfg)
+	if rt == "container" && len(names) == 0 {
 		return nil
 	}
 	socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
 	args := []string{"-v", socketsDir + ":" + paths.JailHostServicesDir + ":rw"}
-	if brokerLoopholeActive(cfg) && !o.brokerEndpointIsUnpublishable(rt) {
+	for _, name := range names {
 		// A PATH to the 0600 endpoint file. Never an address (the port is
 		// kernel-assigned and can change under a running container) and never a
 		// token — there is no token environment variable, deliberately: an env var
 		// is inherited by every child the terminator spawns.
-		args = append(args, "-e",
-			hostServiceEnvVar(broker.BrokerLoopholeName)+"="+hostServiceEndpointPath(broker.BrokerLoopholeName))
-	}
-	if openAIAuthLoopholeActive(cfg) {
-		args = append(args, "-e", hostServiceEnvVar(openAIAuthBrokerName)+"="+
-			hostServiceEndpointPath(openAIAuthBrokerName))
+		args = append(args, "-e", hostServiceEnvVar(name)+"="+hostServiceEndpointPath(name))
 	}
 	return args
 }
 
-// brokerEndpointIsUnpublishable reports the launch shapes in which the optimistic
-// emission above is a promise NOTHING ON THIS SIDE CAN EVER KEEP. There are two, on
-// different axes: a launcher that is itself inside a jail with no broker singleton
-// listening after brokerEnsure has already run and tried to start one (run.go ensures
-// before the argv is built), and the Apple Container backend, on every launch.
+// hostScopedEndpoints names the loopholes whose endpoint variable this launch owes the
+// jail: every record declaring `host_daemon.scope: "host"` that is Active AND whose pack
+// may run host code, minus the ones this launch shape cannot publish.
 //
-// It said "the one launch shape" and named only the nested case until 2026-09-16. The
-// AC half is the same unbackable promise one axis over — the backend rather than the
-// launcher's own containment — and it was live from the day the endpoint variable
-// stopped being gated on the socket.
+// Census site 2, through the converged set (loopholes.NewHostSet) — the same site
+// brokerLoopholeActive used to hold on its own, which is why that predicate now reads
+// this list instead of building a second view of the same machine.
 //
-// # Why a nested launch is different from a host whose broker happens to be down
+// SCOPE IS READ FROM THE MANIFEST, through loopholes.ScopeHost, and compared against
+// ScopeHost rather than against ScopeJail for the reason startHostSingleton's own loop
+// gives: the FIELD's zero value is "", not ScopeJail, so a dropped Scope must cost a
+// variable rather than silently promise a per-jail daemon's endpoint under a host-wide
+// name. It is the same comparison the SPAWN makes (loopholesruntime.go), which is what
+// keeps "yolo starts a host-wide daemon for this" and "the jail is told where it is"
+// from being two independently maintained answers.
 //
-// ⚠ THE ORIGINAL REASON IS SPENT, AND THIS GATE HAS NOT BEEN RE-ARGUED. It read: "yolo's
-// image bakes no openssl, and the broker daemon needs it to mint its CA, so the spawn
-// brokerEnsure just performed exits immediately — measured 2026-08-18 in this repo's own
-// jail, `yolo-claude-oauth-broker-host: cannot locate openssl`, once per launch for
-// months." Both halves are gone: `openssl` was baked (`431625bc`), and then
-// `EnsureCAAndLeaf` stopped needing it at all (`d5bb1e5d`, in-process crypto/x509).
-// MEASURED 2026-09-18: a nested launch minted its own P-256 CA, mounted the trio, and
-// published /run/yolo-services/claude-oauth-broker.endpoint — `openssl verify
-// -verify_hostname platform.claude.com` returned OK against the real mounted files.
+// HONORED, NOT Active(): the records come from PACKS, and starting a host-side listener
+// — or pointing a jail at one — on the strength of a pack record whose origin nobody
+// evaluated is exactly the crossing MayRunHostCode exists to govern. For yolo's own
+// official packs the gate passes by construction.
 //
-// So the spawn no longer dies and the socket does appear. What survives unchanged is the
-// SECOND half of the argument, which never depended on openssl: the loophole's own CA
-// state files are not in a nested launcher's storage, so the in-jail terminator could not
-// have used the address anyway. Whether that alone still justifies the exception is
-// docs/design/broker-ca-and-nested-hosts.md's OQ-2 territory — it ruled that nested jails
-// run their own broker, which is an argument for REMOVING this arm — and it is entangled
-// with the roadmap's endpoint-emission ruling, so it is left standing and stated rather
-// than changed in passing.
+// Discovery order, not sorted: it is the order every other view of this Set uses, so an
+// argv diff between two surfaces is a real difference rather than a collation one.
+func hostScopedEndpoints(rt string, cfg *jsonx.OrderedMap) []string {
+	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
+	var names []string
+	for _, lp := range set.Active() {
+		if lp.HostDaemon == nil || lp.HostDaemon.Scope != loopholes.ScopeHost {
+			continue
+		}
+		if !set.MayRunHostCode(lp) {
+			continue
+		}
+		if hostScopedEndpointIsUnpublishable(rt, lp.Name) {
+			continue
+		}
+		names = append(names, lp.Name)
+	}
+	return names
+}
+
+// hostScopedEndpointIsUnpublishable reports the launch shapes in which the optimistic
+// emission above is a promise NOTHING ON THIS SIDE CAN EVER KEEP.
 //
-// # What that cost once the witness became fatal, which is why this gate is back
+// ONE SHAPE IS LEFT, and the deletion of the other is this function's whole recent
+// history. It had two arms on different axes: a launcher itself inside a jail with no
+// broker singleton listening after brokerEnsure had already tried, and the Apple
+// Container backend on every launch. The nested arm is GONE (2026-09-20), and it is
+// gone rather than reworded because both halves of what justified it are spent:
 //
-// Before 2026-08-18 an unbackable promise cost a nested jail its Claude auth, which it
-// had already lost. Now it costs the whole jail: a nested launch's disposition is
-// `shared` and an endpoint nobody published is faultUnpublished, and BOTH escalate
-// (OQ-R4, OQ-R5). MEASURED with a freshly built launcher from inside this jail:
-// `yolo -- bash` refused to start, naming claude-oauth-broker — on the one launch shape
-// AGENTS.md makes mandatory for verifying a change to cmd/ or internal/. A witness that
-// refuses the loop used to fix it is the failure OQ-R2's own implementation note is
-// about.
+//   - "yolo's image bakes no openssl, and the broker daemon needs it to mint its CA, so
+//     the spawn brokerEnsure just performed exits immediately" — measured 2026-08-18 in
+//     this repo's own jail, `yolo-claude-oauth-broker-host: cannot locate openssl`, once
+//     per launch for months. `openssl` was baked (`431625bc`), and then `EnsureCAAndLeaf`
+//     stopped needing it at all (`d5bb1e5d`, in-process crypto/x509).
+//   - "the loophole's own CA state files are not in a nested launcher's storage, so the
+//     in-jail terminator could not have used the address anyway." MEASURED 2026-09-18: a
+//     nested launch minted its OWN P-256 CA in its OWN state directory, mounted the trio,
+//     and published /run/yolo-services/claude-oauth-broker.endpoint — `openssl verify
+//     -verify_hostname platform.claude.com` returned OK against the real mounted files
+//     (docs/design/broker-ca-and-nested-hosts.md §5.1). A nested jail runs its own broker;
+//     it does not borrow its launcher's.
+//
+// `OQ-2` ruled exactly that — nesting earns affordances, not exemptions, and a jail that
+// behaves differently cannot test the thing it is nested inside — so a nested launch is
+// now an ordinary launch here, wired whether or not the launcher's own singleton is up.
+// That is the same treatment the HOST already got and for the same reason (below).
 //
 // # This is NOT the socket gate that 9b77742 removed
 //
 // That gate was unconditional, and it was removed for a real defect: a HOST jail
 // launched while the singleton was slower to bind than BrokerSpawnTimeout got no broker
 // address for its entire frozen life, and a relay that published a second later could
-// never repair it. That window is unchanged here — a host launcher still emits the
-// variable whether or not the socket is there, which is what
-// TestBrokerEnvEmittedWhenLoopholeActive pins, and with it the accepted consequence in
-// loopback-tls-reachability.md §7.3 that a host with a dead singleton refuses its jails.
-// Only the nested case, where the wait cannot succeed at any timeout because the daemon
-// is already gone, is narrowed.
+// never repair it. That window is unchanged here — a launcher still emits the variable
+// whether or not the socket is there, which is what TestBrokerEnvEmittedWhenLoopholeActive
+// pins, and with it the accepted consequence in loopback-tls-reachability.md §7.3 that a
+// host with a dead singleton refuses its jails. With the nested arm gone, nothing on this
+// path reads a socket at all.
 //
 // # Apple Container has no publisher at all, and no timing to wait out
 //
-// This half is not a race the way the nested case is: NOTHING in an AC launch is even
-// asked to write the endpoint file. run.go ensures the host-wide singleton only when
-// `rt != "container"`, and startLoopholes' per-runtime allow list admits
-// `openai-auth-broker` alone on this backend — so both the daemon and the front that
-// would publish for it are absent by construction, not late. The jail nevertheless got
-// a path under JailHostServicesDir whenever the broker loophole was active, which on AC
-// means `packs: ["claude", "codex"]`: codex brings the OpenAI loophole that gets past
-// the early return above, claude brings the broker record. The in-jail terminator then
-// dials a file that never appears, and since the witness became fatal that is
-// faultUnpublished — it can refuse the whole launch (OQ-R4, OQ-R5), for a service this
-// backend was never going to run.
+// This arm is not a race: NOTHING in an AC launch is even asked to write the endpoint
+// file for anything but the one service its allow list admits. run.go ensures the
+// host-wide singleton only when `rt != "container"`, and startLoopholes' per-runtime
+// allow list admits `openai-auth-broker` alone on this backend — so for every other
+// host-scoped loophole both the daemon and the front that would publish for it are
+// absent by construction, not late. The jail nevertheless got a path under
+// JailHostServicesDir whenever the broker loophole was active, which on AC means
+// `packs: ["claude", "codex"]`: codex brings the OpenAI loophole, claude brings the
+// broker record. The in-jail terminator then dials a file that never appears, and since
+// the witness became fatal that is faultUnpublished — it can refuse the whole launch
+// (OQ-R4, OQ-R5), for a service this backend was never going to run.
 //
 // Suppressing the variable does not cost AC anything it had: the broker's CA state and
 // its relay are equally absent there, so no jail ever completed a refresh through it.
 //
-// inJail() rather than inContainer(): it is the same YOLO_VERSION signal run.go's other
-// host-only decisions read, and it is injectable, so this is testable without a
-// container.
-func (o *Options) brokerEndpointIsUnpublishable(rt string) bool {
-	if rt == "container" { // parity: Warned — no publisher exists on AC (no singleton ensure, allow list is openai-auth alone), and notePackLoopholesInert names the loophole at launch
-		return true
+// ⚠ THE NAME BELOW IS THE BACKEND'S ALLOW LIST, NOT A CENSUS ENTRY. The set of
+// host-scoped loopholes is derived (hostScopedEndpoints); which of them Apple Container
+// STARTS is a per-backend fact owned by startLoopholes, and this is the second spelling
+// of it. TestAppleContainerAllowListHasOneSpelling ties the two together at the source,
+// so widening that allow list without widening this reintroduces the defect one backend
+// over.
+func hostScopedEndpointIsUnpublishable(rt, name string) bool {
+	if rt == "container" { // parity: Warned — no publisher exists on AC for anything but the OpenAI service (no singleton ensure, allow list is openai-auth alone), and notePackLoopholesInert names the loophole at launch
+		return name != openAIAuthBrokerName
 	}
-	return o.inJail() && !o.PathExists(broker.BrokerSingletonSocket)
+	return false
 }
 
 // brokerLoopholeActive reports whether this launch's broker loophole is enabled, its
-// requirements are met, AND the pack that shipped it may touch the host.
+// requirements are met, AND the pack that shipped it may touch the host — the gate
+// run.go's singleton ensure reads.
 //
-// Census site 2, through the converged set (loopholes.NewHostSet).
+// IT IS THE DERIVED LIST'S MEMBERSHIP TEST NOW, not a second view of the same machine.
+// It used to build its own loopholes.NewHostSet and ask Lookup + Active + MayRunHostCode
+// — which was correct, and was also exactly the computation hostScopedEndpoints performs
+// for every host-scoped record. Two spellings of one predicate are two that can disagree,
+// and "the spawn and the wiring are governed by ONE predicate" is the property
+// TestBrokerLifecycleIsGatedOnTheLoopholeRecord exists to hold.
+//
+// ⚠ IT PASSES "" AS THE RUNTIME, deliberately: the spawn gate asks whether the loophole
+// is ON, and run.go's caller already carries the backend half (`rt != "container"`).
+// Passing a real rt here would fold the AC suppression into the SPAWN decision, which is
+// a different question from "may this pack's host code run at all".
 //
 // HONORED, NOT Active(), AND THE UPGRADE IS THE PACK MOVE'S OWN CONSEQUENCE. Until
 // 2026-08-19 this stopped at Active(), and the reason it could was written down beside
@@ -594,11 +647,7 @@ func (o *Options) brokerEndpointIsUnpublishable(rt string) bool {
 // `claude` pack the gate passes by construction (an embedded pack carries yolo's own
 // authority), so nothing changes for the user this loophole is for.
 func brokerLoopholeActive(cfg *jsonx.OrderedMap) bool {
-	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
-	if lp, ok := set.Lookup(broker.BrokerLoopholeName); ok {
-		return lp.Active() && set.MayRunHostCode(lp)
-	}
-	return false
+	return inStrSlice(hostScopedEndpoints("", cfg), broker.BrokerLoopholeName)
 }
 
 // deviceArgs builds the device-passthrough args: raw paths, USB by

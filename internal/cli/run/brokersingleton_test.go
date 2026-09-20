@@ -157,28 +157,31 @@ func TestBrokerEnvSuppressedWhenLoopholeDisabled(t *testing.T) {
 	}
 }
 
-// TestBrokerEnvSuppressedInANestedJailThatHasNoSingleton is the regression for the
-// measurement that the fatal witness broke this repo's own development loop.
+// TestBrokerEnvEmittedInANestedJailWithNoSingleton is the RULING that replaced a
+// suppression, and it is deliberately the inverse of the test that stood here.
 //
-// MEASURED 2026-08-18, from inside this repo's jail, with a freshly built launcher:
-// `yolo -- bash` REFUSED TO START. The chain has four links and every one of them is
-// working as designed on its own — the broker endpoint variable is wired on loophole
-// activity alone with no publish gate (hostServicesMountArgs, deliberately); a
-// nested launcher's broker singleton never binds, because the jail image bakes no
-// openssl and the daemon exits with `cannot locate openssl` the instant brokerEnsure
-// spawns it; nothing therefore ever writes the endpoint file the variable names; and
-// the witness reads that as faultUnpublished under disposition `shared`, both of
-// which escalate (OQ-R4, OQ-R5). The result is a jail that cannot start, on the one
-// launch shape AGENTS.md makes mandatory for verifying a Go change.
+// That test (TestBrokerEnvSuppressedInANestedJailThatHasNoSingleton) pinned
+// brokerEndpointIsUnpublishable's nested arm: a launcher inside a jail, with no singleton
+// socket after brokerEnsure had already tried, withheld the broker's endpoint variable.
+// Both halves of what justified that arm are spent — `openssl` was baked (`431625bc`) and
+// then `EnsureCAAndLeaf` stopped needing it at all (`d5bb1e5d`, in-process crypto/x509),
+// and MEASURED 2026-09-18 a nested launch minted its OWN P-256 CA in its OWN state
+// directory and published /run/yolo-services/claude-oauth-broker.endpoint
+// (docs/design/broker-ca-and-nested-hosts.md §5.1). `OQ-2` ruled the general form: a
+// nested jail runs its own broker singleton like any other host, because nesting earns
+// affordances, not exemptions, and a jail that behaves differently cannot test the thing
+// it is nested inside.
 //
-// THE HOST CASE IS NOT WHAT THIS TESTS AND MUST NOT MOVE. "Broker configured,
-// singleton down" refusing a host's jails is an accepted, documented consequence
-// (loopback-tls-reachability.md §7.3) — the control below holds it in place.
-func TestBrokerEnvSuppressedInANestedJailThatHasNoSingleton(t *testing.T) {
+// So a nested launcher is an ORDINARY launcher here, and the optimistic emission the host
+// has always had (9b77742, TestBrokerEnvSurvivesAHostWithNoSingleton) is now what a nested
+// launch gets too. The conditions are the old test's exactly — inside a jail, no socket —
+// with the assertion inverted, so re-adding the arm fails this by name rather than
+// silently restoring a behaviour three documents now contradict.
+func TestBrokerEnvEmittedInANestedJailWithNoSingleton(t *testing.T) {
 	brokerFixtureDirs(t, true)
 	o := goldenOptions("/ws", t.TempDir())
-	// The launcher is itself inside a jail (inJail reads YOLO_VERSION), and
-	// brokerEnsure has already run and left no singleton socket behind.
+	// The launcher is itself inside a jail (inJail reads YOLO_VERSION), and no
+	// singleton socket is present.
 	o.Getenv = func(k string) string {
 		if k == "YOLO_VERSION" {
 			return "0.8.0+255.gdeadbee"
@@ -188,40 +191,23 @@ func TestBrokerEnvSuppressedInANestedJailThatHasNoSingleton(t *testing.T) {
 	o.PathExists = func(string) bool { return false }
 
 	args := o.hostServicesMountArgs("podman", "yolo-ws-abcd1234", jsonx.NewOrderedMap())
-	for _, a := range args {
-		if strings.Contains(a, "CLAUDE_OAUTH_BROKER") {
-			t.Errorf("a nested launch promised an endpoint nothing on this side can publish, "+
-				"which the fatal witness turns into a refused launch: %q", a)
-		}
-	}
-	// The mount is unconditional; only the promise is withheld.
-	if len(args) != 2 || args[0] != "-v" {
-		t.Errorf("want exactly the host-services mount, got %v", args)
-	}
-}
-
-// TestBrokerEnvStillEmittedInANestedJailWithALiveSingleton is half the control: the
-// suppression above keys on "nothing published it", not on nesting. A jail whose
-// image does carry openssl runs its own singleton, so a nested launch there is an
-// ordinary launch and the variable is owed.
-func TestBrokerEnvStillEmittedInANestedJailWithALiveSingleton(t *testing.T) {
-	brokerFixtureDirs(t, true)
-	o := goldenOptions("/ws", t.TempDir())
-	o.Getenv = func(k string) string {
-		if k == "YOLO_VERSION" {
-			return "0.8.0+255.gdeadbee"
-		}
-		return ""
-	}
-	o.PathExists = func(p string) bool { return p == broker.BrokerSingletonSocket }
-
-	args := o.hostServicesMountArgs("podman", "yolo-ws-abcd1234", jsonx.NewOrderedMap())
 	want := hostServiceEnvVar(broker.BrokerLoopholeName) + "=" +
-		paths.JailHostServicesDir + "/" + broker.BrokerLoopholeName + paths.ServiceEndpointExt
+		hostServiceEndpointPath(broker.BrokerLoopholeName)
 	if !containsStr(args, want) {
-		t.Errorf("a nested launch with a live singleton must still be wired: %v", args)
+		t.Errorf("a nested launch was not wired to the broker it now runs for itself: %v\n"+
+			"OQ-2 ruled that a nested jail runs its own broker singleton, and the arm that "+
+			"withheld this was deleted 2026-09-20 with both halves of its justification "+
+			"(431625bc baked openssl; d5bb1e5d removed the need; the CA is minted in the "+
+			"nested launcher's OWN state dir, measured 2026-09-18)", args)
 	}
 }
+
+// TestBrokerEnvStillEmittedInANestedJailWithALiveSingleton IS DELETED, with the arm it
+// was half the control for. It asserted that a nested launch WITH a live singleton was
+// still wired — the other side of a suppression that keyed on "nothing published it".
+// Nothing keys on the socket any more, so it and the test above it were asserting one
+// code path under two names, and the surviving one (TestBrokerEnvEmittedInANestedJailWith
+// NoSingleton) is the harder case: no socket at all.
 
 // TestBrokerEnvSurvivesAHostWithNoSingleton is the other half, and it is the one that
 // keeps a documented ruling from being reverted by accident.
@@ -387,11 +373,12 @@ func TestBrokerLifecycleIsGatedOnTheLoopholeRecord(t *testing.T) {
 			"only when the loophole is Active (OQ-A11)")
 	}
 	if !strings.Contains(src, "o.brokerEnsure()") {
-		t.Error("run.go no longer ensures the broker singleton before assembling the argv. " +
-			"brokerEndpointIsUnpublishable reads the singleton socket to decide whether the " +
-			"argv may promise the jail an endpoint at all, so the ensure has to happen while " +
-			"the argv is still being written — startHostSingleton is too late for that " +
-			"decision even though it ensures the same daemon")
+		t.Error("run.go no longer ensures the host-wide broker singleton on the launch path. " +
+			"⚠ THE REASON IT RUNS THIS EARLY IS SPENT: it ran before assembleRunCmd because " +
+			"brokerEndpointIsUnpublishable read the singleton socket to decide whether the " +
+			"argv could promise the jail an endpoint, and that arm was deleted 2026-09-20 " +
+			"(OQ-2: a nested jail runs its own broker). Nothing on the argv path reads the " +
+			"socket now, so what this still holds is the ENSURE, not its position")
 	}
 	// And the services DIR is created either way: it holds every loophole's endpoint
 	// file and the assembler mounts it unconditionally, so folding it into the gate
