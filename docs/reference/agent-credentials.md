@@ -518,8 +518,14 @@ Rulings a future change would otherwise undo, kept with their original IDs.
 
 ## Current values
 
-Verified at `41dde711`. The prose above explains what each of these is for; this table is the only
-place the values themselves are stated.
+The prose above explains what each of these is for; this table is the only place the values
+themselves are stated. Every row names where its value is defined, so a row is checkable against
+that file rather than against a commit stamp. The host singletons are the rows that grow: they are
+whatever this prints, and nothing else in the tree enumerates them —
+
+```console
+$ rg -n '"scope": "host"' packs/*/loopholes/*/manifest.jsonc
+```
 
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |
@@ -535,6 +541,9 @@ place the values themselves are stated.
 | OpenAI canonical state | `<loophole state>/credentials.json`, mode `0600`; parent and lock are private | `internal/openaiauth`; `packs/openai-auth/loopholes/openai-auth-broker/manifest.jsonc` |
 | OpenAI credential daemon | `yolo internal daemon openai-auth-broker`, `scope: "host"` | `internal/openaiauthdaemon`; `packs/openai-auth/loopholes/openai-auth-broker/manifest.jsonc` |
 | OpenAI jail endpoint | `YOLO_SERVICE_OPENAI_AUTH_BROKER_ENDPOINT` | `internal/openauthclient` |
+| AWS credential daemon | `yolo internal daemon aws-auth`, `scope: "host"` | `internal/awsauthdaemon`; `packs/aws-auth/loopholes/aws-auth/manifest.jsonc` |
+| AWS canonical state | `<loophole state>/credentials.json`, mode `0600` in a `0700` directory | `internal/awsauth` (`state.go`) |
+| AWS jail endpoint | `YOLO_SERVICE_AWS_AUTH_ENDPOINT`, read by the in-jail adapter on `127.0.0.1:1461` — **a container launch does not emit it yet**, `hostServicesMountArgs` naming the broker and the OpenAI service one by one, so the adapter answers `ServiceUnreachable` (Blocker 7 of [`sso-backed-bedrock-plan.md`](../design/sso-backed-bedrock-plan.md#blockers)) | `internal/awscredadapter` (`EndpointEnv`); `internal/cli/run/assemble_parts.go` |
 | Codex refresh adapter | `http://127.0.0.1:1460/oauth/token` | `internal/openaiauthadapter`; `packs/codex/pack.json` |
 | Git identity keys carried | `user.name`, `user.email`, plus an in-jail `core.excludesFile` | `internal/cli/run` (`composeGitconfig`), `internal/entrypoint/identity.go` |
 | `macos-user` identity replay vars | `YOLO_GIT_NAME`, `YOLO_GIT_EMAIL` only — `YOLO_GLOBAL_GITIGNORE` is read by the entrypoint and **set by nothing**, so the global gitignore does not replay on this backend | `internal/macosuser` (`MacosSandboxEnv`), `internal/entrypoint/identity.go` |

@@ -67,11 +67,13 @@ pack unchanged. See
   "state_files": ["ca.crt"],      // optional; narrows the state-dir mount
   "jail_env": {"FOO": "bar"},     // any transport
   "doctor_cmd": ["bin", "--ok"],  // optional; run by `yolo check` and `yolo loopholes status`
-  "host_daemon": {                // optional; yolo spawns this ON THE HOST at jail startup
+  "host_daemon": {                // optional; a process yolo runs ON THE HOST
     "cmd": ["python3", "{loophole_dir}/my-daemon.py", "--socket", "{socket}"],
     "env": {"FOO": "bar"},        // optional; the daemon's spawn environment
     "publishes": "socket",        // or "endpoint" (you publish); default "endpoint"
-    "request_end": "framed"       // or "eof"; default "framed"; socket-mode only
+    "request_end": "framed",      // or "eof"; default "framed"; socket-mode only
+    "preamble": true,             // default TRUE; false = dumb pipe; socket-mode only
+    "scope": "jail"               // or "host" (ONE per machine); default "jail"
   },
   "jail_daemon": {                // optional; supervised INSIDE the jail by yolo-jaild
     "cmd": ["{jail_loophole_dir}/my-agent"],
@@ -196,6 +198,54 @@ is self-delimiting and does not need the EOF, so switching costs you one word in
 your manifest. *(The default was originally chosen to keep teardown bit-identical
 to the per-jail broker relay's; that relay was deleted on 2026-08-19 and the
 default outlived it unchanged — see `internal/loopholedecl/enums.go:70-79`.)*
+
+### `host_daemon.preamble` — whether yolo introduces the connection
+
+Every connection yolo's front carries to your daemon begins with a **connection
+preamble**: one framed JSON object naming the jail and the service. It is what makes
+the jail identity on your daemon's audit line **host-asserted** rather than
+client-claimed — the jail cannot forge a field it never writes.
+
+`preamble` **defaults to `true`**, so a manifest that says nothing gets it. Write
+`false` only for a **dumb pipe**: a daemon whose protocol has no room for a frame it
+never asked for. You are then giving up the host-asserted identity, and anything your
+daemon logs about *who* called it is the caller's own claim.
+
+Like `request_end`, this is enforceable only under `"publishes": "socket"`. Under
+endpoint mode the listener lives inside your daemon's process, which never reads this
+manifest — and a pack may not publish endpoints at all, so socket mode is the only
+mode a pack-shipped loophole has.
+
+### `host_daemon.scope` — one daemon per jail, or one per machine
+
+A `host_daemon` has **two different lifetimes**, and this is the key that picks one.
+The vocabulary is closed
+([`internal/loopholedecl/enums.go`](../../internal/loopholedecl/enums.go)):
+
+- **`"jail"`** (the default): one daemon per jail. yolo **spawns** it at launch,
+  waits for it, and kills its process group when the jail ends — `SIGTERM`, five
+  seconds, `SIGKILL`.
+- **`"host"`**: **one daemon per machine**, serving every jail on it. yolo
+  **ensures** it instead of spawning it — idempotently, under a host-wide flock, at
+  a fixed socket derived from the loophole's name — and gives each jail its own
+  front over that one socket. **A jail ending closes only its own front; the daemon
+  keeps running**, because other jails are still using it. Declaring `"host"` is
+  therefore a statement about the machine, not about your jail: the process outlives
+  the launch that started it, and `yolo loopholes status` — which runs each
+  loophole's host-side `doctor_cmd` — is how you check on it afterwards.
+
+Reach for `"host"` when a second copy of your daemon would be a *bug* rather than a
+second daemon — something holding a lock, a single-use credential or a shared cache.
+`"host"` **requires `publishes: "socket"`** and is refused at load otherwise: an
+endpoint file carries one jail's bearer token, so a host-wide daemon publishing one
+would hand every jail the same credential.
+
+To see which shipped loopholes declare it — the set changes, so derive it rather
+than trusting a list:
+
+```console
+$ rg -n '"scope": "host"' packs/*/loopholes/*/manifest.jsonc
+```
 
 **Interception is not a transport.** It is declared by `intercepts` (plus
 `broker_ip` and `ca_cert`) on any transport, and that list is what emits the

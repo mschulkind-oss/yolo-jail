@@ -205,9 +205,15 @@ func firstNonEmptyEnv(keys ...string) string {
 	return ""
 }
 
-// runInternalDaemon dispatches the hidden `yolo internal daemon <name>` group —
-// the three host daemons, callable in-process so a single yolo binary can serve
-// as each one. The remaining argv is passed through verbatim, so each daemon's
+// runInternalDaemon dispatches the hidden `yolo internal daemon <name>` group,
+// callable in-process so a single yolo binary can serve as each one.
+//
+// The MEMBERS are the switch below and the usage line beside it, never a count in
+// this comment: it said "the three host daemons" while the switch held six, and a
+// number here is one more thing to keep true for no reader's benefit. Nor are they
+// all host-scoped — `scope: "host"` is a manifest fact per loophole
+// (`rg -n '"scope": "host"' packs/*/loopholes/*/manifest.jsonc`), and a daemon in
+// this group may be either. The remaining argv is passed through verbatim, so each daemon's
 // flag surface (--socket, --self-check, --init-ca, …) is byte-identical to its
 // standalone binary.
 //

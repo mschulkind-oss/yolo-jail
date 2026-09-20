@@ -111,10 +111,10 @@ ONE-WEEK AGE cutoff with no liveness veto by ruling
 ([`OQ-LS1`](./docs/reference/image-retention.md#why-its-this-way)). Pick per reaper.
 
 **Daemons are subcommands, not separate binaries.** Host daemons are hidden self-exec subcommands of
-`yolo`: `yolo internal daemon <claude-oauth-broker|host-processes|journal>`, under
-`yolo internal <config-dump|daemon|migrate-host>`. In-jail daemons are
-`yolo-jaild <supervise|oauth-terminator>` (`supervise` reads `YOLO_JAIL_DAEMONS`). Both dispatch on plain
-`args[0]` — **not** argv[0]/symlink. Easy to get wrong.
+`yolo` (`yolo internal daemon <name>`); in-jail daemons are `yolo-jaild <name>` (`supervise` reads
+`YOLO_JAIL_DAEMONS`). Run either group bare for its members: spelling them here is what rotted all
+three lists this line used to carry. Both dispatch on plain `args[0]` — **not** argv[0]/symlink. Easy
+to get wrong.
 
 CLI code lives under `internal/cli` (top level), `internal/cli/run` (the run pipeline) and
 `internal/cli/check`.
