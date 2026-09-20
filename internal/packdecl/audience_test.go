@@ -43,7 +43,7 @@ func TestDestinationIdentityValidates(t *testing.T) {
 	for _, raw := range []string{
 		`{"kind":"briefing","into":".claude/CLAUDE.md","agent":"claude"}`,
 		`{"kind":"skills","into":".claude/skills","agent":"claude"}`,
-		`{"kind":"files","from":"tree","into":".pi/agent/extensions","agent":"pi"}`,
+		`{"kind":"files","into":".pi/agent/extensions","agent":"pi"}`,
 	} {
 		if probs := decodeOne(t, raw); probs != "" {
 			t.Errorf("a destination declaring its identity %s must validate, got %q", raw, probs)
@@ -81,6 +81,20 @@ func TestIntoAndAgentsTogetherAreRefused(t *testing.T) {
 		if !strings.Contains(probs, `takes "into" or "agents", not both`) {
 			t.Errorf("%s must be refused for naming both a path and an audience, got %q", raw, probs)
 		}
+	}
+}
+
+// A files DESTINATION CARRIES NO `from` — the slot/content split pi-pack-extensions.md §3 draws.
+// A destination that also ships a tree is the overload that made the slot a mount with addressed
+// mounts nested inside it, so it is refused, with the addressed spelling as the fix.
+func TestFilesDestinationRejectsFrom(t *testing.T) {
+	probs := decodeOne(t, `{"kind":"files","agent":"pi","from":"extensions","into":".pi/agent/extensions"}`)
+	if !strings.Contains(probs, `takes no "from"`) {
+		t.Errorf("a files destination carrying `from` must be refused, got %q", probs)
+	}
+	// And the addressed spelling of the same content validates.
+	if got := decodeOne(t, `{"kind":"files","agents":["pi"],"from":"extensions"}`); got != "" {
+		t.Errorf("the addressed spelling must validate, got %q", got)
 	}
 }
 

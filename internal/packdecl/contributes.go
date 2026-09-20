@@ -2013,7 +2013,22 @@ func validateContribution(label string, c Contribution) []string {
 		// `packs` list is for. The jail already infers a skills destination where the host
 		// does not, and that asymmetry is a silent no-op bug, not a convention to spread.
 		if c.Kind == KindFiles {
-			req("from", c.From)
+			if c.Agent != "" {
+				// A DESTINATION is a bare SLOT: it names where addressed content lands and ships
+				// none of its own. Letting it carry `from` is the overload that made the slot a
+				// mount with addressed mounts nested inside it (pi-pack-extensions.md §3), so it
+				// is refused rather than accepted-and-ignored. A pack that wants to ship its own
+				// tree addresses it to the agent like any other content.
+				if c.From != "" {
+					problems = append(problems, fmt.Sprintf(
+						"%s: a files DESTINATION (agent %q) takes no \"from\" — it declares where "+
+							"addressed content lands and ships none of its own; to ship the pack's "+
+							"own tree, address it: {\"agents\":[%q],\"from\":%q}",
+						label, c.Agent, c.Agent, c.From))
+				}
+			} else {
+				req("from", c.From)
+			}
 		}
 		// `into` and `agents` ARE TWO ANSWERS TO ONE QUESTION, and an entry gives exactly
 		// one. That falls out of the paragraph above rather than adding to it: a destination
