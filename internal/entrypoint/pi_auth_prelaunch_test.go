@@ -104,7 +104,11 @@ echo PI_READY
 		t.Fatal(err)
 	}
 	cmd := exec.Command(launcherPath)
-	cmd.Env = append(os.Environ(),
+	// NOT os.Environ() directly. The generated launcher's re-entry guard skips ALL setup when
+	// _YOLO_LAUNCHER_ACTIVE already names its binary — which is exactly the case whenever this
+	// suite runs from inside a Pi session started by that launcher. Inheriting the marker made
+	// this test pass under CI and fail inside the very jail it tests.
+	cmd.Env = append(launcherHermeticEnv(),
 		"HOME="+home, "NPM_CONFIG_PREFIX="+prefix,
 		"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"CALLS="+calls, "AUTH_PATH="+authPath,
@@ -125,4 +129,28 @@ echo PI_READY
 	if string(log) != wantCall {
 		t.Fatalf("prelaunch calls = %q, want one refresh token call %q", log, wantCall)
 	}
+}
+
+// launcherHermeticEnv is os.Environ with the generated launcher's own control variables
+// removed, so a launcher under test runs its setup no matter what environment the suite was
+// started from. _YOLO_LAUNCHER_ACTIVE is the one that bit: a Pi session exports ':pi', the
+// launcher's re-entry guard matches it, and the test silently stops exercising the path it
+// exists to prove. YOLO_PACK_UPDATE is dropped for the same class of reason — set, the
+// launcher exits in update mode instead of running the agent.
+func launcherHermeticEnv() []string {
+	drop := []string{"_YOLO_LAUNCHER_ACTIVE=", "YOLO_PACK_UPDATE="}
+	out := make([]string, 0, len(os.Environ()))
+	for _, kv := range os.Environ() {
+		keep := true
+		for _, prefix := range drop {
+			if strings.HasPrefix(kv, prefix) {
+				keep = false
+				break
+			}
+		}
+		if keep {
+			out = append(out, kv)
+		}
+	}
+	return out
 }
