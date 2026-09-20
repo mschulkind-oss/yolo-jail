@@ -279,10 +279,36 @@ and is measured, but it reproduces the vendor cache layout, which is the thing
 ## 9. Open questions
 
 1. 💬 **OQ-6: How does an agent pack declare a files alias without claiming the alias root?**
-   The layout in [§3](#3-the-candidate-architectures) puts the owning pack's own tree at the
-   alias ROOT and addressed packs at `<alias>/<pack>/`, which is a bind mount nested inside
-   another `:ro` bind mount — so the inner mount point must already exist in the outer's
-   read-only tree, and the mount fails in the same EROFS class the design removes.
+
+   **What the layout asks for.** [§3](#3-the-candidate-architectures) has two packs writing
+   into one agent's extension directory:
+
+   - the **agent pack** ships a tree and names the alias root —
+     `{"kind":"files","agent":"pi","from":"extensions","into":".pi/agent/extensions"}`;
+   - a **content pack** ships a tree and names only the audience —
+     `{"kind":"files","agents":["pi"],"from":"pi-extensions"}` — which lands at
+     `.pi/agent/extensions/<content-pack>/`.
+
+   **Why that is two mounts, one inside the other.** Every `files` contribution becomes one bind
+   mount (`-v <staged tree>:/home/agent/<dest>:ro`). So the agent pack mounts its `extensions/`
+   **at** `.pi/agent/extensions`, and the content pack mounts its tree **at**
+   `.pi/agent/extensions/matt` — a path living *inside* the first mount.
+
+   **Why the inner mount fails.** The runtime creates the inner mount point *before* it applies
+   the outer mount, so the empty directory it creates is then covered by the agent pack's tree,
+   and the inner mount lands on a path that must already exist **inside that read-only tree**. A
+   bind mount cannot create a directory in a `:ro` source, so it fails — the same `EROFS` /
+   `read-only file system` class this design set out to remove. The agent pack would have to ship
+   a pre-made subdirectory for every pack that might ever address it, which it cannot know.
+
+   **Two ways out** (the leaning picks one): either *every* contribution that targets an alias —
+   the agent pack's own included — is namespaced under `<alias>/<pack>`, so the alias root is
+   never itself a mount; or a `files` **destination** is allowed to omit `from`, so an agent pack
+   can declare a pure alias slot that claims no content and mounts nothing at the root.
+
+   **What this blocks.** Slices 1 and 2 are landed (validation, and host-notch borrowing); slice 3
+   — the jail's `<alias>/<pack>` join — was written, hit this, and was reverted pending the
+   ruling.
 
    <!-- vantage: oq id=OQ-6 leaning="Namespace EVERY files contribution that targets an alias under <alias>/<pack>, the owner's own included — one rule, no root mount, and OQ-4's per-pack subdirectory applied uniformly." -->
 
@@ -290,9 +316,10 @@ and is measured, but it reproduces the vendor cache layout, which is the thing
    owner's own included. One rule, no exception, no root mount, and the per-pack subdirectory
    rule ([OQ-4's ruling](#10-decision-ledger)) applied uniformly. The cost is that a pack's own
    extension then lives in a subdirectory and needs an `index.ts` (standard Pi packaging) — the
-   migration that same ruling already implies. The narrower alternative is to let a files
-   DESTINATION omit `from`, making the alias a pure slot, at the price of a second shape on the
-   kind.
+   migration that same ruling already implies. The narrower alternative — let a files DESTINATION
+   omit `from`, making the alias a pure slot — avoids the `index.ts` requirement but puts a second
+   shape on the kind and leaves the owner's own content to be delivered as an addressed
+   contribution instead.
 
    **Answer:**
    > _(empty — fill in when decided)_
