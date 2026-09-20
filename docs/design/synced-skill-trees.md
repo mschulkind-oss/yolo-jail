@@ -1,7 +1,7 @@
 ---
 title: "The sync root is not a skill"
 date: 2026-09-18
-status: draft
+status: in-review
 tags: [design, skills, packs, host-notch, claude, adoption, trust]
 summary: "~/.claude/skills/synced/<uuid>_<uuid>/ is a sync root, not a skill: a bucket named after the user's Anthropic identity, filled by Claude Code, and regenerated from a registration that lives outside it. yolo has never heard of it, so `yolo host apply` reads it as a single hand-written skill named `synced`, moves the whole tree into the user's local pack, and thereafter reverts every update the syncer pushes — measured, including for an empty bucket. A transition path for such a user therefore starts with a fence, not a copier."
 vantage:
@@ -10,7 +10,13 @@ vantage:
 
 # The sync root is not a skill
 
-**Status:** DESIGN, 2026-09-18 (§8 added 2026-09-19) — nothing built; five questions open.
+**Status:** DESIGN, 2026-09-20 — **the transition is a NOTICE, not a mechanism**, and that
+ruling DELETED most of this design. Nothing built; two questions remain
+([OQ-ST2](#OQ-ST2) — the fence's declaration site, and [OQ-ST5](#OQ-ST5), which belongs to the
+config-ownership axis rather than this one). [OQ-ST1](#OQ-ST1) and [OQ-ST4](#OQ-ST4) DISSOLVED
+with the snapshot and the drift report; [§4.3](#43-what-was-deleted-with-the-snapshot-and-why)
+records what went and why. The fence — the fix for the measured data loss — is untouched and
+was always separable.
 [§2.4](#24-two-sync-roots-one-bucket-name-and-only-one-is-exposed),
 [§3.2](#32-on-the-host-yolo-eats-it--measured) and [§8](#8-a-worked-migration-state-already-in-a-file-yolo-is-about-to-own)
 are **MEASURED**; everything else is read from the tree or from the vendor's binary, dated
@@ -34,8 +40,10 @@ default. This design says so plainly rather than pretending to solve it.
 
 **Start at [§3](#3-what-yolo-does-with-it-today)** — what happens today is the design.
 
-**Needs your ruling:** [OQ-ST1](#OQ-ST1), [OQ-ST2](#OQ-ST2), [OQ-ST3](#OQ-ST3), [OQ-ST4](#OQ-ST4),
-[OQ-ST5](#OQ-ST5).
+**Needs your ruling:** [OQ-ST2](#OQ-ST2) — whether the fence is pack-declared or core-known.
+[OQ-ST5](#OQ-ST5) is live but belongs to the config-ownership axis, not this one. ST1, ST3 and
+ST4 were settled 2026-09-20: one ruled, two dissolved.
+
 
 **Reads with:** [`synced-skill-trees-plan.md`](synced-skill-trees-plan.md) (the implementation
 sketch, and the measurement transcript), [`workspace-skills.md`](workspace-skills.md) (the same
@@ -191,7 +199,7 @@ arrive from a plugin install or a skills sync — both halves are true, and read
 the whole story gets the lifecycle wrong.
 
 That single property does more work in this design than anything else measured
-([§4.2](#42-the-snapshot--the-transition-itself), [§4.3](#43-the-drift-report--the-whole-update-story),
+([§4.2](#42-the-notice--what-replaces-the-transition), [§4.3](#43-what-was-deleted-with-the-snapshot-and-why),
 [OQ-ST4](#OQ-ST4)): **the source heals itself, and yolo's copy does not.**
 
 > [!NOTE]
@@ -296,7 +304,27 @@ which puts the organization and account UUIDs of the user's Anthropic identity i
 and every other agent's skills directory. **Code-read, not measured** — it follows from the
 copier, but no jail was launched to watch it.
 
-## 4. The three components
+## 4. The components — and the two this design no longer has
+
+> [!IMPORTANT]
+> **RULED 2026-09-20: the transition is a NOTICE, not a mechanism.** [§4.2](#42-the-notice--what-replaces-the-transition)'s
+> snapshot verb and [§4.3](#43-what-was-deleted-with-the-snapshot-and-why)'s drift report are
+> **deleted**. yolo fences the sync root, says so when it finds a non-empty one, names the command
+> that lists what is in there, and points at the documentation for adding a skill to a pack of
+> your own. It copies nothing, moves nothing, and tracks nothing.
+>
+> **Why the big half went away.** The snapshot existed to carry a user across a transition, and
+> the population needing that carry is *probably nobody*: `~/.claude/skills/` does not exist at all
+> on the maintainer's own host (measured 2026-09-20), which is the machine that motivated this
+> document. A transition mechanism, its ownership question, its content digests and its update
+> story are a large standing cost — every one of them a thing to keep true — bought for a user
+> base that has not been shown to exist. A notice costs one code path and is **strictly better**
+> for the one user who does turn up, because it tells them the truth and leaves their tree alone.
+>
+> Two open questions dissolved rather than being answered ([OQ-ST1](#OQ-ST1), [OQ-ST4](#OQ-ST4)),
+> and a third ([OQ-ST3](#OQ-ST3)) stopped being a detail and became the deliverable.
+
+
 
 ### 4.1 The fence — the part that is not optional
 
@@ -318,58 +346,47 @@ The fence is an **exclusion, never a refusal of the apply**. A user with a sync 
 not care must still be able to run `yolo host apply` — refusing would make a vendor feature
 into a yolo outage.
 
-### 4.2 The snapshot — the transition itself
+### 4.2 The notice — what replaces the transition
 
-An explicit, user-invoked verb. Never automatic, never on a timer, never part of a launch, and
-never part of `yolo host apply`: the trigger is the user typing it and nothing else.
+One report line, emitted where a user is already looking, when **and only when** a reserved child
+exists and is non-empty. It states three things and does nothing:
 
-- **Unit: one skill.** Not the tree, not the bucket. The sync root's own structure — buckets,
-  `.trash`, `.staging` — is Claude's and does not travel.
-- **Direction: a COPY, and [§2.4](#24-two-sync-roots-one-bucket-name-and-only-one-is-exposed)
-  is why it is not even a trade.** The tree **regenerates from a registration that lives outside
-  it**, so a move does not relocate anything — the syncer re-materializes the bucket and the
-  user is left with two copies instead of one, having lost only the original's connection to its
-  updates. A move here destroys something and achieves nothing durable, which is a rarer and
-  clearer verdict than "a move is risky". The host original therefore stays exactly where it is,
-  still owned and still updated by the syncer.
-- **Destination: a pack** — which one is [OQ-ST1](#OQ-ST1).
-- **A record of what was taken.** Each copied item records its source bucket, its item name, and
-  a content digest. That record is what makes [§4.3](#43-the-drift-report--the-whole-update-story)
-  possible and what lets a re-run be an update rather than a duplicate.
-- **One writer.** The snapshot verb is the only writer of the copies it made. The syncer is the
-  only writer of the sync root. Neither ever writes the other's side.
-- **Failure of one item does not fail the run.** An unreadable item, an item without a
-  `SKILL.md`, an item whose content changes while it is being read — each is skipped, named,
-  and leaves nothing half-written at the destination; the rest of the run continues and the
-  exit code reports that something was skipped.
+1. **The fact.** The named directory belongs to another tool, yolo composes around it, and
+   nothing yolo does will read, write, move or archive it.
+2. **How to look.** The path itself, plus `claude plugin list` for the plugins-side root — the
+   user's own tool is the authority on its own tree, and yolo does not parse it.
+3. **What to do if they want that content in a jail.** A pointer to the pack documentation for
+   adding a skill to a pack of their own. Not a command that does it for them.
 
-### 4.3 The drift report — the whole update story
+**It is a notice, not a refusal, and the distinction is deliberate.** The ruling asked for "an
+error"; what ships is loud rather than fatal, for the reason [§4.1](#41-the-fence--the-part-that-is-not-optional)
+already gives — refusing the apply would turn a vendor feature into a yolo outage, and a user
+with a sync root they do not care about must still be able to run `yolo host apply`. A line they
+can read and ignore is the strongest thing that does not break them.
 
-A vendor ships a new version of a synced skill; the syncer updates the host tree; yolo's copy is
-now stale. yolo does **not** watch, poll, or re-copy on its own.
+**An empty reserved child produces nothing.** The plugins-side root is empty on the measured
+machine and ships a zero-byte `.bucket-` marker ([§2.4](#24-two-sync-roots-one-bucket-name-and-only-one-is-exposed)),
+so a notice keyed on existence rather than content would fire for everyone, forever, about
+nothing. That is the cried-wolf line that teaches a reader to skip yolo's output.
 
-**A stale copy is the expected steady state, not an anomaly, and the report must be worded that
-way.** [§2.4](#24-two-sync-roots-one-bucket-name-and-only-one-is-exposed) measured a source that
-heals and refills itself from a registration elsewhere; the snapshot is a **fork** of it taken at
-one instant. Drift is therefore the normal condition of every copy yolo holds, and a report that
-treats it as a fault will cry wolf on every apply until the user stops reading it. What the line
-says is *"your copy is from 12 March; the source has moved"* — a fact, with the refresh command
-beside it — never a warning.
+### 4.3 What was deleted with the snapshot, and why
 
-What it does mechanically: wherever yolo is already reading the host home — the
-`yolo host apply` report, and a listing verb — it compares each recorded source against the sync
-root and prints one line per item that has changed, gone, or appeared. Re-running the snapshot is
-how the user acts on it. Whether that comparison ever escalates beyond a report is
-[OQ-ST4](#OQ-ST4).
+Kept as a record because a doc that removes a design should name what it removed — and because
+each of these is a cost a future proposal would re-incur:
 
-Three states, all named rather than merged:
+- **The snapshot verb** — a user-invoked copy of chosen skills into a yolo-owned pack, with a
+  record of source bucket, item name and content digest per item.
+- **The drift report** — the whole update story, comparing those digests against the live sync
+  root so a re-run was an update rather than a duplicate.
+- **The ownership question** it forced: which pack receives a snapshotted skill
+  ([OQ-ST1](#OQ-ST1)), which was the central ruling of the deleted design.
+- **The standing obligation** that a forked copy is stale by default — the cost
+  [§1](#1-verdict-and-the-principles-it-rests-on) stated plainly rather than pretending to solve.
 
-- **changed** — the recorded digest and the sync root disagree. The user re-runs the snapshot.
-- **gone** — the item is no longer in the sync root (unsynced, or moved to `.trash`). yolo's
-  copy is kept and reported as orphaned; deleting a user's only remaining copy of something a
-  vendor withdrew is not yolo's call.
-- **new** — an item in the bucket that was never snapshotted. Reported, never taken; taking it
-  would make the snapshot an automatic sync by another name.
+**What survives is the part that was never optional**: the fence
+([§4.1](#41-the-fence--the-part-that-is-not-optional)), which stops yolo composing inside another
+tool's tree, and which is separable from every question the deleted design raised. The fence is
+the fix for the measured data loss; the snapshot was only ever the migration path afterwards.
 
 ## 5. Naming and collisions
 
@@ -522,12 +539,12 @@ None of that is news to this corpus, which is why it belongs here as a *migratio
 than a discovery: the class is tabulated in
 [`config-ownership-and-promotion.md`](config-ownership-and-promotion.md#632-the-three-classes-adoption-does-not-cover),
 and the RULING on it is
-[that doc's §6.3.1](config-ownership-and-promotion.md#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule)
+[that doc's drop-narrowing ruling](config-ownership-and-promotion.md#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule)
 — the section, not a routing table. (This line pointed at `roadmap.md`'s row `0b` until
 2026-09-20. A doc deferring to a planning row for an ANSWER is backwards: the row schedules
 work, the section decides what the work is.)
 
-**Two things that section changes for §8.2's measurement, both dated 2026-09-20.**
+**Two things that section changes for [§8.2](#82-what-yolo-does-to-it-today--measured)'s measurement, both dated 2026-09-20.**
 
 1. **The leaf-level record this whole section waits on ALREADY EXISTS, in one half.**
    `dropComputedTables`' doc comment used to say closing the case needs *"a leaf-level signal
@@ -638,7 +655,7 @@ the conventional local pack (`~/.config/yolo-jail/local/pack.json`):
 
 With that in place the same apply prints **no loss line at all** and the entry is in the rendered
 file under both `assert` and `own`. It is a declaration, which is the posture the host notch asks
-for everywhere else — and it is the same move [§4.2](#42-the-snapshot--the-transition-itself)
+for everywhere else — and it is the same move [§4.2](#42-the-notice--what-replaces-the-transition)
 makes for a skill, one kind over. It is also a fork, and the two notches fork differently: at the
 host notch the declaration is what `hostTableLayer` writes into the table, so the entry is
 re-asserted by every apply until the declaration goes too — uninstall the plugin from the client
@@ -676,7 +693,7 @@ is what should happen to a leaf yolo has never asserted, which is [OQ-ST5](#OQ-S
 > ([`OQ-CO13`](config-ownership-and-promotion.md#13-decision-ledger)). The narrowing this section
 > describes has shipped for the one case that needs no such record — a computed table asserting
 > NOTHING — and is blocked on it for every other
-> ([§6.3.1](config-ownership-and-promotion.md#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule)).
+> ([the drop-narrowing ruling](config-ownership-and-promotion.md#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule)).
 
 ### 8.6 What is not covered, and what stays lost
 
@@ -685,7 +702,7 @@ is what should happen to a leaf yolo has never asserted, which is [OQ-ST5](#OQ-S
   switch *"changes ZERO bytes"*; at VALUE granularity it does, and a hand-formatted file still
   does not come back formatted.
 - **Comments.** The host report has a class for them and states there is no remedy.
-- **A keyless (`raw`/`lines`) surface.** Refused outright at the host notch by `OQ-CO9` and NOT
+- **A keyless (`raw`/`lines`) surface.** Refused outright at the host notch by [`[OQ-CO9](./config-ownership-and-promotion.md#13-decision-ledger)`](./config-ownership-and-promotion.md#13-decision-ledger) and NOT
   refused in a jail, where its first render replaces the file. No shipped pack declares one today,
   so the class is empty rather than handled.
 - **An `assert` render's drop.** There is no yolo-side copy to restore from, by design — the
@@ -734,7 +751,7 @@ is what should happen to a leaf yolo has never asserted, which is [OQ-ST5](#OQ-S
 | :--- | :--- |
 | **R1.** The fence lands and the recovery in [§7](#7-homes-that-are-already-wrong) does not, leaving existing broken homes frozen instead of fixed | They ship together or the fence ships with a loud report naming the local-pack entry; a fence alone makes the damage permanent by making it unreachable |
 | **R2.** A pack declares a reserved child that is not one, silently hiding a real user skill from adoption | A reserved child is reported by name at every apply that meets one — the fence is disclosed, not quiet |
-| **R3.** The snapshot's copies rot and the user believes they are current | [§4.3](#43-the-drift-report--the-whole-update-story) reports every changed item wherever yolo already reads the host home; silence means nothing changed, never "nothing was checked" |
+| **R3.** The snapshot's copies rot and the user believes they are current | [§4.3](#43-what-was-deleted-with-the-snapshot-and-why) reports every changed item wherever yolo already reads the host home; silence means nothing changed, never "nothing was checked" |
 | **R4.** Org-authored synced content reaches every jail through the local pack, with symlinks dereferenced | Escaping links refused before the copy ([§6](#6-degenerate-inputs)); and the snapshot is explicit, so the content arrives because the user asked for it by name |
 | **R5.** The identity UUIDs leak into jails as directory names | The bucket name is dropped by construction ([§5](#5-naming-and-collisions)) — only item names travel |
 | **R6.** A second vendor ships a sync root and nobody notices | P2's pack-declared fence is the only part of this that generalises for free; core needs no change |
@@ -814,33 +831,9 @@ and at `dropComputedTables` itself, and both stop at the same edge — they reco
 a known boundary and name the missing signal, neither says what to do with an unasserted leaf
 once the signal exists.
 
-1. 💬 **OQ-ST1: Which pack owns a snapshotted skill?** The central ruling, and the one
-   everything in [§4.2](#42-the-snapshot--the-transition-itself) waits on. **(a) The
-   conventional local pack** — layer 4 already, composes into every destination and every jail
-   already, and its union/suffix machinery is the one this design keeps citing; the cost is that
-   a vendor-supplied skill becomes indistinguishable from the user's own hand-written ones, and
-   dropping the whole corpus later means picking entries out by hand. **(b) A dedicated pack**
-   yolo mints for this (one per sync root, or one per bucket) — provenance is the path, dropping
-   it is one line in `packs`, and with `skills_tier: namespaced` the skills invoke
-   `<pack>:<skill>`, which is the closest thing to the `anthropic-skills:<name>` the user is
-   already typing on the host ([§2.2](#22-what-lives-in-a-bucket-and-how-claude-loads-it)). Its
-   cost is real too: a namespaced pack changes the invocation name for *every other* agent in
-   the jail, and a per-bucket pack puts an org UUID back into a name after
-   [§5](#5-naming-and-collisions) worked to drop it. One fact that cuts slightly against (a):
-   the local pack is **not auto-created** — `config.LoadPacks` stats
-   `~/.config/yolo-jail/local` and an absent one is silent and free — so (a) means the snapshot
-   mints a directory in the user's config that they never asked for, while (b) was always going
-   to mint something.
-
-   <!-- vantage: oq id=OQ-ST1 leaning="(b), a dedicated namespaced pack — provenance in the path, droppable in one line, and it preserves the two-level name the user already types; (a) is simpler and loses the ability to tell a vendor's skill from your own." -->
-
-   _Leaning:_ **(b)**, named for the sync root rather than the bucket. Provenance-in-the-path is
-   what makes the drift report and the recovery honest, and it is the one property (a) cannot
-   have at any price. I hold it loosely: (a) is materially less code and reuses machinery that
-   is already measured.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+1. ✅ <a id="OQ-ST1"></a> **OQ-ST1: Which pack owns a snapshotted skill?** — **DISSOLVED 2026-09-20.** There is no
+   snapshot. Nothing is copied into a pack, so nothing owns a copy. See
+   [§4.3](#43-what-was-deleted-with-the-snapshot-and-why).
 
 2. 💬 **OQ-ST2: Is the fence pack-declared, or does core know the name?** P2 says pack-declared,
    and [§9](#9-alternatives-considered) keeps the hardcode as a fallback because the honest
@@ -858,7 +851,7 @@ once the signal exists.
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **OQ-ST3: Is an untransitioned sync root announced, and where?** Day one for every new
+3. ✅ **OQ-ST3: Is an untransitioned sync root announced, and where?** Day one for every new
    user is "nothing reaches the jail", and [§3.1](#31-in-a-jail-nothing-and-that-is-right) keeps
    it that way. The question is whether yolo *says* so. **(a) Host-notch only** — the apply
    report and a listing verb, both already reading the host home. **(b) Also at launch** — the
@@ -870,41 +863,19 @@ once the signal exists.
 
    <!-- vantage: oq id=OQ-ST3 leaning="(a) host-notch only — a launch line would be permanent by OQ-RO3 and would report an absence rather than an action; the apply report is where the user is already being told what yolo sees in their home." -->
 
-   _Leaning:_ **(a).** The launch stream exists to disclose what yolo did to this jail; "there is
-   content elsewhere you did not ask for" is not that, and it cannot be turned off once added.
+   **Answer (2026-09-20): (a), host-notch only.**
+   > The notice fires where yolo is **about to take the folder over** — the apply — and nowhere
+   > else. The launch stream exists to disclose what yolo *did to this jail*; "there is content
+   > elsewhere you did not ask for" is not that, and by [`OQ-RO3`](../reference/report-tiers.md#why-its-this-way)
+   > a line added there is permanent.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   ⚠ Read from the ruling's own words — *"the folders that we're about to take over"* — which name
+   the adoption moment rather than the launch. If a launch-time line was also intended, that is a
+   separate decision and [`OQ-RO3`](../reference/report-tiers.md#why-its-this-way) is the thing it
+   has to get past.
 
-4. 💬 **OQ-ST4: Does drift ever do more than report?** [§4.3](#43-the-drift-report--the-whole-update-story)
-   rules report-only, which makes the transition a deliberate one-way snapshot the user refreshes
-   by hand. The alternative is a `--refresh` posture that re-copies every recorded item whose
-   digest moved — still explicit, still one command, but it makes yolo something the user can
-   forget about, which is also how yolo ends up a second syncer by increments. What it decides:
-   whether a user who transitions in January is still running January's skills in June without
-   having chosen to. A *yes* to evergreen-at-any-cost has a third answer that needs no snapshot
-   at all — the `host_files` route in [§9](#9-alternatives-considered), which re-renders every
-   boot and gives up naming, collisions and provenance to get there.
-
-   **[§2.4](#24-two-sync-roots-one-bucket-name-and-only-one-is-exposed) sharpens this and I have
-   re-read the leaning against it.** The source *heals itself*: the bucket comes back after a
-   delete, and its contents re-materialize from a registration elsewhere. That cuts both ways and
-   the tension is the question. **For** report-only: the original is never lost, so a stale copy
-   costs the user an old skill and never their only skill — the strongest argument for automatic
-   refresh ("don't let them lose the update") is the one a self-healing source removes. **Against**
-   report-only: a source that refills itself without being asked makes a hand-refreshed fork of it
-   feel broken, and drift becomes the permanent condition of every copy rather than an occasional
-   event — which is precisely the shape a user stops reading.
-
-   <!-- vantage: oq id=OQ-ST4 leaning="Report-only, with an explicit refresh verb the report names — never an automatic re-copy, and never on a launch or an apply; the line between 'a command that updates' and 'a background syncer' is the trigger, and it should stay the user's keystroke." -->
-
-   _Leaning:_ **report-only, plus an explicit refresh verb the report names in its own output.**
-   The distinction that matters is the trigger, not the amount of copying: a verb the user types
-   is fine at any size; a copy that happens because an apply ran is the start of the thing
-   [§9](#9-alternatives-considered) rejects.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+4. ✅ <a id="OQ-ST4"></a> **OQ-ST4: Does drift ever do more than report?** — **DISSOLVED 2026-09-20.** There is no
+   drift report; there is nothing to compare against, because yolo holds no copy.
 
 5. 💬 **OQ-ST5: Once yolo can tell which leaves it asserted, what happens to the ones it did
    not?** **NARROWED 2026-09-20, not answered** — and the premise moved under it, which is worth
@@ -912,7 +883,7 @@ once the signal exists.
 
    > [!IMPORTANT]
    > **Three corrections, from
-   > [`config-ownership-and-promotion.md` §6.3.1](config-ownership-and-promotion.md#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule).**
+   > [`config-ownership-and-promotion.md`'s drop-narrowing ruling](config-ownership-and-promotion.md#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule).**
    >
    > 1. **"Once yolo can tell" is already true, for half the question.** The computed table's
    >    key set IS the set of leaves the derive asserted — a tombstone decodes to a present key
@@ -943,9 +914,9 @@ once the signal exists.
    which is what a user with a hand-enabled plugin wants and is also how a stale entry becomes
    immortal, one granularity below the resurrection class `dropComputedTables` exists to prevent;
    **(b) refuse** — the render stops until the leaf is declared or removed, which is the
-   host notch's existing answer to a keyless surface (`OQ-CO9`) and is unavailable to a boot,
+   host notch's existing answer to a keyless surface ([`[OQ-CO9](./config-ownership-and-promotion.md#13-decision-ledger)`](./config-ownership-and-promotion.md#13-decision-ledger)) and is unavailable to a boot,
    which has no one to ask; **(c) drop, but reversibly** — today's behaviour plus a per-leaf
-   record the report can name and a verb can restore from, which is [§4.3](#43-the-drift-report--the-whole-update-story)'s
+   record the report can name and a verb can restore from, which is [§4.3](#43-what-was-deleted-with-the-snapshot-and-why)'s
    shape applied to keys instead of items.
 
    What it decides is not plugin-specific and not even config-specific: it is whether *"yolo owns
