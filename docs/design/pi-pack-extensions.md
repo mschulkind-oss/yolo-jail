@@ -1,0 +1,327 @@
+---
+title: "Extension delivery: files into agent-declared aliases"
+date: 2026-09-19
+status: in-review
+tags: [pi, extensions, plugins, packs, architecture, audience, agent-plugins]
+summary: "Where this landed: contributes a file tree to an agent by name (Architecture D), against the Agent Plugins 1.0 portable standard, with YOLO as the placer and no vendor install verb. Core parses nothing because the standard namespaces client-specific components. The one real remaining choice is retiring `claude_plugins`, plus one probe that gates it."
+vantage:
+  status-chip: true
+---
+
+# Extension delivery: files into agent-declared aliases
+
+**Status:** DESIGN, 2026-09-19. Nothing built. The body records the position reached in
+review; the open questions are the few rulings still genuinely needed.
+
+> **In short.** A pack contributes a **tree of files to an agent by name** — the mechanism
+> `briefing` and `skills` already use — and YOLO mounts it read-only into a directory the
+> agent pack declares. That is the whole delivery mechanism. It is written against the
+> **Agent Plugins 1.0** standard, whose whole design is that portable components (skills,
+> MCP) are fixed-location and client-specific ones (hooks, LSP, commands) live under a
+> reverse-domain namespace that every other client ignores. So **core parses nothing, refuses
+> nothing, and knows no agent.** The one real leftover is `claude_plugins`, which this
+> retires.
+
+**Where we arrived, in one list:**
+
+1. **Delivery is one primitive.** Lift `kind: "files"`'s audience refusal so a content pack
+   can address `agents: ["pi"]` exactly as `skills` and `briefing` already do. Nothing new is
+   invented; no `kind: "extensions"`, no per-agent Go.
+2. **No `target` axis.** One files destination per agent; a second is a load error until a
+   real second tree exists ([OQ-1](#OQ-1)).
+3. **Agent Plugins 1.0 is the portable standard** ([agent-plugins.org](https://agent-plugins.org/)),
+   not Claude's format. Portable = `skills/` + `mcp.json`; everything else travels namespaced —
+   and a full Claude plugin still reaches Claude in full ([§1.2](#12-the-standard-under-this-agent-plugins-10)).
+4. **YOLO is the placer** (P7). No vendor install verb runs in a jail — the tree is
+   materialized and the agent reads it.
+5. **Hooks are disclosed, not gated.** Same trust class as skills and briefings, which can
+   already instruct arbitrary action.
+6. **Fetching is a different axis**, owned by [`pi-extension-lifecycle.md`](./pi-extension-lifecycle.md),
+   and YOLO already has a pinned resolver for it (`internal/packsrc` + `packs.lock.json`).
+7. **`claude_plugins` is retired** ([OQ-2](#OQ-2)): deliver plugin trees locally, and
+   decompose them or author one YOLO-owned plugin rather than calling `claude plugins install`.
+
+**Why you might question all of it:**
+
+- **The load path is unverified.** Everything local hinges on one measurement — can Claude
+  read a plugin YOLO authors, or only `.claude-plugin/` from a marketplace? That is
+  [OQ-5](#OQ-5). If the answer is no, the plugin half and the hook retirement both stall.
+- **"Against the standard" overpromises.** The portable set is *only* skills + MCP; hooks,
+  LSP, commands and agents are client-specific by construction. One artifact does less than the
+  phrase suggests.
+- **YOLO becomes the distributor**, so it owns pinning third-party plugin bytes. That is a
+  supply-chain surface the seed path does not remove either — it just moves it.
+- **The derive rule widens.** [§6](#6-what-a-derive-may-read--the-rule-being-sharpened) makes a
+  pack's own content a derive input for the first time, and that set was closed on purpose.
+- **Determinism depends on ordering.** The addressed-content source must be ordered and
+  declared, or a derive stops being a pure function of the manifests.
+
+**Needs your ruling:** [OQ-1](#OQ-1) (defer `target` — recommended), [OQ-2](#OQ-2) (retire
+`claude_plugins` — recommended), [OQ-5](#OQ-5) (the probe). [OQ-3](#OQ-3) and [OQ-4](#OQ-4)
+are low-stakes constants with recommended values.
+
+**Reads with:** [`agent-config-distribution.md`](../research/agent-config-distribution.md)
+(the measured formats), [`pi-extension-lifecycle.md`](./pi-extension-lifecycle.md) (the fetch
+axis), [`claude-lsp-plugins.md`](./claude-lsp-plugins.md) (the one live consumer of the retired
+hook), [`briefing-audiences.md`](./briefing-audiences.md) (the `agent`/`agents` mechanism this
+reuses), [`extension-point-principle.md`](../reference/extension-point-principle.md).
+
+---
+
+## 1. The problem, and the shape of the answer
+
+A content pack that wants to ship Pi extensions must today write per-file `kind: "files"`
+stanzas at literal paths like `~/.pi/agent/extensions/x.ts`, because `files` refuses the
+audience selector that `skills` and `briefing` have. That couples the pack to one agent's
+private layout, and it collides with what the agent pack already claims at the same path.
+
+The answer is not a new mechanism. It is to let `files` name its recipient the way the other
+two content kinds do, and mount the contributed tree under a per-pack directory the agent pack
+declares. Everything after this section is either the standard that makes that safe or the
+one hook it retires.
+
+### 1.1 What "extension" means across agents
+
+| Agent | Unit | Where it is read | Activation |
+| :--- | :--- | :--- | :--- |
+| **Pi** | a `.ts`/`.js` file | `~/.pi/agent/extensions/*.ts`, or a subdir with `index.ts` | automatic once present |
+| **Claude** | a directory with `.claude-plugin/plugin.json` | a plugin cache, seeded or loaded locally | `enabledPlugins` in settings |
+| **Codex, Copilot** | the same `.claude-plugin/` layout | their own plugin commands | marketplace + enable |
+| **Skills (any)** | a `SKILL.md` tree | the agent's skills dir | automatic once present |
+
+Four of five rows are "a directory tree the agent scans, plus sometimes a boolean in config."
+The differences are which directory and whether a vendor registry must know first.
+
+### 1.2 The standard under this: Agent Plugins 1.0
+
+**Agent Plugins 1.0** is an open, vendor-neutral package format, and it is the standard here —
+Claude's `.claude-plugin/` is one client's layout, not the standard. v1 defines exactly two
+portable components:
+
+| Portable | Location |
+| :--- | :--- |
+| Agent Skills | `skills/<name>/SKILL.md` |
+| MCP servers | `mcp.json` at the plugin root |
+
+Everything else — agents, commands, rules, **hooks**, LSP servers — is **client-specific by
+construction**, and lives under a reverse-domain namespace: either the `extensions` map in
+`plugin.json` or a top-level directory like `com.github.copilot/`. The spec is explicit that
+clients **ignore namespaces they do not implement** and **ignore component types they do not
+support**.
+
+**Portable is a floor, not a filter.** Nothing a client owns is lost or lowered: a pack ships
+the **whole tree**, YOLO moves it whole, and a full Claude plugin — hooks, LSP servers,
+commands, agents and all — reaches Claude intact, because those components sit exactly where
+Claude reads them. YOLO strips nothing, re-encodes nothing, and special-cases no client: it
+delivers the tree and each client reads its own namespace. So a pack declaring a Claude plugin
+gets the full Claude plugin; a pack declaring portable skills + MCP gets those everywhere;
+and one pack can do both at once.
+
+**That is why core parses nothing.** The standard does the namespacing; a pack ships one
+directory, each client reads its own namespace, and YOLO moves opaque bytes. There is no
+union to lower, no hook to police. The `.claude-plugin/` layout is a payload convention YOLO
+may carry, never core's internal model.
+
+**A pack can be a plugin.** A pack root may carry a root `plugin.json` (the portable artifact
+any consumer reads) *and* `pack.json` (the YOLO-only contributions). A non-YOLO consumer
+installs the same repo as a plugin and ignores `pack.json`.
+[`yolo pack init --from-plugin`](../../internal/cli/pack.go) already wraps a `.claude-plugin/`
+tree as a pack, reading only the name and which components are declared so the footprint can
+say `⚠ RUNS CODE`.
+
+**On hooks.** A hook is shell the host runs at a lifecycle event; a skill is prose the model
+may obey. The capability is the same class and the difference is determinism, so the response
+is **disclosure, not refusal** — which is already YOLO's rule (`packhostgrants.go`: "the
+boundary today is DISCLOSURE, not consent"). A hook's presence is structural under the
+standard, so saying so needs no parse.
+
+## 2. Principles
+
+- **P1. Core never knows an agent.** No per-tool Go, no global `kind: "extensions"`.
+- **P2. A content pack names its recipient, never a path.**
+- **P3. Reuse `files`; add no kind and no axis.**
+- **P4. A derive may read *declared* sources, and another pack's addressed content is one.**
+  The rule was "closed and core-owned"; the sharpening is "closed and **declared**" — core owns
+  the routing, a pack may own the content. See [§6](#6-what-a-derive-may-read--the-rule-being-sharpened).
+- **P5. Policy in packs, effects in core.** A pack decides *what*; core performs *how*. The
+  derive returns values; it never stages files.
+- **P6. One delivery mechanism for every agent.**
+- **P7. YOLO places; agents read.** No vendor install verb runs in a jail, and no vendor cache
+  is filled.
+
+### 2.1 Non-goals, and the three axes
+
+| Axis | Who does the work | Authority |
+| :--- | :--- | :--- |
+| **Delivery** | YOLO — place a tree, `:ro` | **this document** |
+| **Fetch / resolve** | YOLO too, via `packsrc`'s pinned resolver | [`pi-extension-lifecycle.md`](./pi-extension-lifecycle.md) |
+| **Knowledge / config** | YOLO derives | [`gateway-provider-packs.md`](./gateway-provider-packs.md), `derive.lua` |
+
+A Pi package (`"packages": [...]` in `settings.json`) rides the **fetch** axis, and a pack can
+declare it; this document only delivers trees. Non-goals: a cross-agent plugin standard (we
+adopt Agent Plugins 1.0 rather than design one), and the data half (env, base URLs, model
+catalogs).
+
+## 3. The candidate architectures
+
+| Architecture | Verdict |
+| :--- | :--- |
+| **A — a named Go hook per agent** (`pi_extensions`, and `claude_plugins` today) | **Rejected for new work.** It compiles agent-specific code into core, one routine per agent forever, and third parties can never ship the same shape. The existing hook is [§7](#7-reopening-claude_plugins)'s separate question. |
+| **B — addressed `files` with a `target` slot** (a previous revision) | **Superseded by D.** It is D plus a second "which channel" axis beside `kind`, for a second channel that does not yet exist. Deferred as [OQ-1](#OQ-1). |
+| **C — a native package scanner** | **Not an architecture.** A pack's tree *may* be a plugin directory, but scanning for a manifest is a source convention D consumes, not a delivery mechanism. |
+
+### Architecture D: addressed trees into agent-declared aliases
+
+Three parts, no new kind:
+
+1. **The agent pack declares one files destination per agent** — the alias:
+   ```json
+   { "kind": "files", "agent": "pi", "from": "extensions", "into": ".pi/agent/extensions" }
+   ```
+2. **A content pack addresses it**, naming no path:
+   ```json
+   { "kind": "files", "agents": ["pi"], "from": "pi-extensions" }
+   ```
+   Core mounts `<pack staged tree>/pi-extensions` read-only at
+   `.pi/agent/extensions/<contributing-pack>/`.
+3. **The owning pack's `derive.lua` sees what was delivered** and decides activation. Pi does
+   nothing (auto-discovery); Claude writes `enabledPlugins`. That source is
+   [§6](#6-what-a-derive-may-read--the-rule-being-sharpened).
+
+## 4. Why D and not A/B/C
+
+A is agent Go; B is D plus a speculative axis; C is an input convention. D reuses the audience
+rule that already exists for two kinds, adds no kind, and leaves activation where it belongs —
+with the pack that owns the directory. The full comparison is not worth a second table.
+
+## 5. How D runs
+
+1. [`internal/packdecl/contributes.go`](../../internal/packdecl/contributes.go) — allow
+   `agent`/`agents` on `kind: "files"` by narrowing the blanket refusal. The existing
+   `into`-xor-`agents` rule then applies unchanged.
+2. [`internal/packload/mergedest.go`](../../internal/packload/mergedest.go) — extend
+   destination borrowing to `files`; enforce one destination per agent.
+3. [`internal/cli/run/packfiles.go`](../../internal/cli/run/packfiles.go) — the directory
+   branch already mounts a tree wholesale. An addressed contribution needs only the
+   `<into>/<pack>` join. No per-file staging, no filename rewriting.
+4. [`internal/agentcfg/luahook/derive.go`](../../internal/agentcfg/luahook/derive.go) — add
+   the addressed-content source, ordered by pack name.
+
+## 6. What a derive may read — the rule being sharpened
+
+The rule was stated as *"the source set for `derive` is closed and core-owned; a pack projects
+and never invents a source."* The invariant that matters is narrower:
+
+| Old wording | Sharpened wording |
+| :--- | :--- |
+| The source set is closed and core-owned. | Closed and **declared**; core owns the *routing*, a pack may own the *content*. |
+| A pack projects from core's tables. | A pack projects from **declared** tables. |
+| A pack never invents a source. | A pack never invents a source **at runtime**; an agent pack may *declare* an alias. |
+
+Determinism survives (the addressed table is a function of the selected packs and their
+manifests), and "project, don't invent" survives (the alias has a declared name and shape).
+The cost is honest: this is the first time a pack's own content is a derive input, so the
+mitigation is the usual one — an unmatched `agents` name is fatal, an unmatched alias is
+reported with a fix.
+
+## 7. Reopening `claude_plugins`
+
+There was a decision here — 2026-07-27, `bbe84f1d` — and it was made as part of the
+pack-declaration reform, before the plugin survey. Its own comment calls it "a deliberate
+admission rather than an oversight." A second tool now wants the same shape, so it is re-ruled
+rather than cited as precedent.
+
+### 7.1 What it does
+
+`packs/claude/derive.lua` writes `enabledPlugins` (ordinary config). The hook's only job is to
+`claude plugins install` the plugin so the cache holds what `enabledPlugins` names.
+
+### 7.2 The decision
+
+**Retire the hook.** YOLO places the plugin tree and Claude reads it. Two ways to fill it:
+
+- **Decompose** — map the plugin's components onto kinds YOLO already owns. This is the LSP
+  case exactly: [`claude-lsp-plugins.md`](./claude-lsp-plugins.md).
+- **Author one YOLO-owned Agent Plugins 1.0 plugin** and load it locally — `--plugin-dir`, or
+  a `./`-prefixed marketplace source. `packs/matt-craft` already ships a plugin tree, so the
+  shape is proven even though the load path is not.
+
+**The one alternative kept:** seeding Claude's plugin state and deleting the hook. It works
+and is measured, but it reproduces the vendor cache layout, which is the thing
+[§1.2](#12-the-standard-under-this-agent-plugins-10) argues against depending on.
+
+## 8. Invariants and failure modes
+
+1. One files destination per agent ([OQ-1](#OQ-1)); a second is a load error.
+2. Namespacing is the contributing pack's name; collisions are impossible.
+3. Delivery is read-only and non-fatal; a missing source warns and skips.
+4. The owner's derive is pure — it reads the addressed set and returns config.
+
+| Failure mode | Response |
+| :--- | :--- |
+| Source tree missing | warning, skip |
+| `agents` name not in the claim set | **fatal**, naming the addressee |
+| Agent selected but declares no alias | reported orphan with the fix |
+| Extension syntax error | the agent's loader reports it; boot continues |
+
+## 9. Open questions
+
+1. 💬 **OQ-1: Is the `target` axis needed, or one files destination per agent?**
+
+   <!-- vantage: oq id=OQ-1 leaning="Defer target. One destination per agent; add the axis when a real second tree appears." -->
+
+   _Leaning:_ Defer. A second destination is a load error naming both contributions.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+2. 💬 **OQ-2: Retire `claude_plugins`, or keep it?**
+
+   <!-- vantage: oq id=OQ-2 leaning="Retire it. Place plugin trees locally; decompose (the LSP case) or author one YOLO-owned Agent Plugins 1.0 plugin. Seeding is the fallback." -->
+
+   _Leaning:_ Retire. Seed only for a third-party plugin wanted as a plugin.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+3. 💬 **OQ-3: Recommended source directory name** — `pi-extensions/` vs `extensions/`.
+
+   <!-- vantage: oq id=OQ-3 leaning="pi-extensions/ — explicit about the recipient." -->
+
+   _Leaning:_ `pi-extensions/`. Low stakes.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+4. 💬 **OQ-4: Layout inside the alias** — flat prefixed files vs a subdirectory per pack.
+
+   <!-- vantage: oq id=OQ-4 leaning="Subdirectory per pack — no per-file staging, and relative imports survive." -->
+
+   _Leaning:_ Subdirectory per pack. Low stakes.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+5. 💬 **OQ-5: Does Claude read a YOLO-authored Agent Plugins 1.0 plugin, or only `.claude-plugin/` from a marketplace?**
+
+   <!-- vantage: oq id=OQ-5 leaning="Measure it. It gates the plugin half of D and the retirement in OQ-2, and it is the same probe claude-lsp-plugins OQ-LSP3 needs." -->
+
+   _Leaning:_ Measure it. One run with a real Claude login decides whether one artifact serves
+   every client, or the Claude pack emits a `.claude-plugin/` manifest beside it.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+## 10. Decision ledger
+
+| ID | Ruling / Decision | Date | Settled in | Built |
+| :--- | :--- | :--- | :--- | :--- |
+| **D** | Addressed `files` into agent-declared aliases; A rejected, B superseded, C an input convention | 2026-09-19 | [§3](#3-the-candidate-architectures) | — |
+| **Standard** | Agent Plugins 1.0 is the portable convention (skills + MCP); client-specific components stay namespaced, so YOLO parses nothing | 2026-09-19 | [§1.2](#12-the-standard-under-this-agent-plugins-10) | — |
+| **Placer** | YOLO places; no vendor install verb runs in a jail | 2026-09-19 | [§2](#2-principles) | — |
+| **Derive sources** | A declared source may be another pack's addressed content | 2026-09-19 | [§6](#6-what-a-derive-may-read--the-rule-being-sharpened) | — |
+| **OQ-1** | — | — | — | — |
+| **OQ-2** | — | — | — | — |
+| **OQ-3** | — | — | — | — |
+| **OQ-4** | — | — | — | — |
+| **OQ-5** | — | — | — | — |
