@@ -257,6 +257,22 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
   with support for git repositories, semver ranges, and package manifests. Shelling out to Pi's own CLI
   maintains fidelity with upstream behavior.
 
+### Alternative D: Resolve and pin through YOLO's existing pack source store
+
+* **Shape**: Treat a Pi package as a source YOLO RESOLVES, using Pi/npm only to MATERIALIZE
+  its dependency tree. `internal/packsrc` already does the control half — a mandatory `ref`,
+  a host-side fetch into `mirrors/<repo>` + `trees/<sha>`, a commit-pinned `packs.lock.json`,
+  and a strictly offline launch. The launcher then only REPORTS, which is the posture
+  `program via npm` already takes (`yolo pack update` is the one act that resolves).
+* **Verdict**: **Not yet ruled — newly surfaced 2026-09-19.** Alternative C's objection
+  ("don't reimplement npm") is about the PACKAGE MANAGER; this alternative keeps npm as the
+  installer and moves only the RESOLVER, so the objection does not apply. The reason to
+  prefer it is the precedent survey's finding that none of the plugin/package ecosystems
+  ships a lockfile or a rollback, so delegating the version choice to `pi update --extensions`
+  gives up the pin — the exact seam a distributor is supposed to occupy. This reframes
+  [OQ-2](#OQ-2): the launcher may still call `pi update`, but only after YOLO has resolved and
+  pinned, and it should be able to say what it resolved instead of asking a registry.
+
 ---
 
 ## 6. Open Questions
