@@ -282,15 +282,20 @@ can be in, in which case the regex adds it and the corpus-wide count goes up? Or
 roadmap **rows**, in which case a blocked question stays 💬 and names its blocker in prose? Both
 readings are in use today, and one has to lose before the regex can be corrected.
 
-**It over-reads where 💬 marks sequencing rather than a question.**
-[`broker-ca-and-nested-hosts.md`](../design/broker-ca-and-nested-hosts.md) scores **5** and holds
-**3** questions. [§7](../design/broker-ca-and-nested-hosts.md#7-open-questions) has three;
-[§8](../design/broker-ca-and-nested-hosts.md#8-sequencing) then uses 💬 as a **status marker** on
-build-order items 3 and 4, each of which points back at one of those same three. The regex counts
-list items beginning with 💬 and cannot see that two of them are references to questions counted
-already. — **The convention question:** does 💬 mean *an open question lives here* or *this item is
-not done*? Sequencing lists use it for the second, Open Questions sections for the first, and the
-check only works once it means exactly one of them.
+**It over-reads where 💬 marks sequencing rather than a question — and the specimen is spent,
+which does not settle it.** The worked case was
+[`broker-ca-and-nested-hosts.md`](../design/broker-ca-and-nested-hosts.md), which scored **5**
+while holding **3** questions: its Open Questions section had three, and its sequencing list then
+used 💬 as a **status marker** on two build-order items that each pointed back at one of the same
+three. The regex counts list items beginning with 💬 and could not see that two of them were
+references to questions counted already. That doc closed on 2026-09-20 — every question ruled, the
+sequencing list compacted — so it now scores zero, and **a sweep of `docs/design` and `docs/plans`
+finds no remaining file using 💬 in a sequencing or build-order list.** — **The convention question
+is unchanged:** does 💬 mean *an open question lives here* or *this item is not done*? Open
+Questions sections use it for the first and nothing currently uses it for the second, so the
+corpus agrees by accident rather than by rule. The next author who reaches for it as a status
+marker re-creates the over-read, silently, and the count that catches drift goes wrong in the one
+direction nobody audits — upward, which reads as more work rather than as a bug.
 
 ### One cluster of `vantage-check` errors is data, not rot
 

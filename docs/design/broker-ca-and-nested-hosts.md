@@ -8,33 +8,34 @@ summary: "The OAuth broker mints its CA by shelling out to openssl. The jail ima
 
 # A daemon that never started, and the three layers that did not notice
 
-**Status:** DECIDED, 2026-09-18 — **all three questions ruled**, and three pieces of work owed:
-the `[SKIP]` level ([OQ-3](#7-open-questions)), the `crypto/x509` port ([OQ-1](#7-open-questions)), and
-watching a nested launch mint a CA ([OQ-2](#7-open-questions)'s verification). Originally a diagnosis, 2026-08-18; **re-stamped 2026-08-23** — two of the four sequenced items in [§8](#8-sequencing)
-have since shipped, and the third ([OQ-3](#7-open-questions)) is the one still live. The three questions in [§7](#7-open-questions) remain
-open.
+**Status:** BUILT, 2026-09-20 — MEASURED: a nested launch minted its own P-256 CA, mounted the
+trio, and published `/run/yolo-services/claude-oauth-broker.endpoint`, with `openssl verify
+-verify_hostname platform.claude.com` returning OK against the real mounted files (2026-09-18).
+All three questions are ruled and compacted into the [Decision Ledger](#7-decision-ledger), and
+every piece of work they owed has landed: the `[SKIP]` level (`07af9439`), the `crypto/x509` port
+(`d5bb1e5d`), and that verification. The measurement is recorded at
+`brokerEndpointIsUnpublishable`'s doc comment in
+[`assemble_parts.go`](../../internal/cli/run/assemble_parts.go) rather than here, because it is
+what spent that gate's original justification. **Nothing is owed here.**
 
 > [!NOTE]
-> **Postscript, 2026-08-23 — what shipped since this was written.** [§1](#1-what-broke)–[§5](#5-the-fix) are kept in their original
-> tense and describe the system as it stood on 2026-08-18; this note says what has moved. Verified
-> against the tree on 2026-08-23:
+> **The body below is the 2026-08-18 diagnosis in its original tense, and every defect it describes
+> is fixed.** [§1](#1-what-broke)–[§5](#5-the-fix) say what the system was, not what it is; the
+> rulings folded into them are dated where they sit. Verified against the tree 2026-09-20:
 >
-> - **[§5](#5-the-fix)'s ruling is built.** `imagePkgs.openssl` is in `corePackagesFromNixpkgs`
->   (`flake.nix:896`, commit `431625bc`, 2026-08-18), carrying a comment that names this document's
->   diagnosis. So [§1](#1-what-broke)'s *"the jail image does not bake `openssl`"* is **no longer true of the current
->   image** — it is the description of the defect, not of today.
-> - **[§3.1](#31-a-return-value-thrown-away) is fixed.** The discarded return value is now consumed:
->   `if !brokerWaitForSocket(...) { reportFailedSpawn(deps, exited) }`
->   (`internal/broker/brokerlifecycle.go`), and `reportFailedSpawn`
->   (`brokerlifecycle.go`) cites this doc's [§3.1](#31-a-return-value-thrown-away) by name. Landed as `05c286d3`, refined by
->   `389f82b2`. That is [§8](#8-sequencing) item 2.
-> - **[§3.2](#32-a-log-with-no-reader) is unchanged.** Nothing in the tree reads a host-service log.
-> - **[§3.3](#33-yolo-check-skips-the-area--and-calls-it-pass) is unchanged, and is the live one.** `r.ok("Inside jail — loophole checks skipped
->   (managed by host)")` still stands at `internal/cli/check/sections_loopholes.go:23`, and `r.ok`
->   still renders `[PASS]` (`internal/cli/check/reporter.go:67`). That is **[OQ-3](#7-open-questions)**, [§8](#8-sequencing) item 3.
-> - Not verified either way: whether a nested jail now actually mints a CA and publishes an endpoint
->   with `openssl` present. [§5.1](#51-what-it-costs) flags that path as never-executed and asks for it to be exercised
->   deliberately; this audit did not launch anything.
+> - **The image bakes `openssl`** (`431625bc`), so [§1](#1-what-broke)'s *"the jail image does not
+>   bake `openssl`"* describes the defect rather than today. The bake outlives the port, for two
+>   consumers that were never this document's subject — [§8](#8-sequencing) item 4.
+> - **[§3.1](#31-a-return-value-thrown-away) is fixed.** The discarded return value is consumed —
+>   `if !brokerWaitForSocket(...) { reportFailedSpawn(deps, exited) }` — and `reportFailedSpawn`
+>   ([`brokerlifecycle.go`](../../internal/broker/brokerlifecycle.go)) cites this section by name.
+>   Landed as `05c286d3`, refined by `389f82b2`.
+> - **[§3.2](#32-a-log-with-no-reader) is unchanged.** Nothing in the tree reads a host-service log,
+>   and nothing in this document proposed that it should.
+> - **[§3.3](#33-yolo-check-skips-the-area--and-calls-it-pass) is fixed** (`07af9439`). The reporter
+>   has a `[SKIP]` level counted apart from the three grades, plus `hostFact` for the opposite
+>   direction, and the in-jail loopholes guard is an `r.skip` with a note saying where to look
+>   instead.
 
 **The short version.** `internal/oauthbroker` mints its CA by shelling out to `openssl`. The jail
 image does not bake `openssl`. So on any launch where *the host is itself a jail* — every nested
@@ -60,9 +61,9 @@ opposite approach and said so).
 ## 1. What broke
 
 The broker is a host-wide singleton fronting Claude's OAuth refresh. Before it can bind, it needs a
-CA and a leaf certificate, and it makes them like this
-([`cert.go#L79`](../../internal/oauthbroker/cert.go#L79) — cited as `#L69` when this was written;
-the guard is unchanged, the line moved, verified 2026-08-23):
+CA and a leaf certificate, and on 2026-08-18 `EnsureCAAndLeaf`
+([`internal/oauthbroker/cert.go`](../../internal/oauthbroker/cert.go)) made them like this — the
+guard is gone with the `crypto/x509` port, so this block is the defect and not the file:
 
 ```go
 if resolveOpenssl() == "" {
@@ -71,11 +72,11 @@ if resolveOpenssl() == "" {
 }
 ```
 
-`resolveOpenssl` tries `exec.LookPath` and then a short list of fallback paths. In the jail image all
-of them missed, because `openssl` was not in `corePackagesFromNixpkgs`
-([`flake.nix#L848`](../../flake.nix#L848) — the list, cited as `#L737` when this was written) and
-nothing else pulled a `bin/openssl` onto `PATH`. **It is in that list now**
-([`flake.nix#L896`](../../flake.nix#L896)); see the postscript at the top.
+`resolveOpenssl` tried `exec.LookPath` and then a short list of fallback paths. In the jail image
+all of them missed, because `openssl` was not on the image's core package floor — `coreFloorNames`
+in [`flake.nix`](../../flake.nix), then spelled `corePackagesFromNixpkgs` — and nothing else pulled
+a `bin/openssl` onto `PATH`. **It is on that floor now**, with a comment at the entry saying why a
+closure audit will read it as unused; see the note at the top.
 
 The failure is immediate and total:
 
@@ -106,9 +107,9 @@ $ rg -c 'cannot locate openssl' ~/.local/share/yolo-jail/logs/host-service-claud
 
 ### 1.1 The repo already knew this was the wrong shape
 
-`internal/svcendpoint` mints its certs in Go, with `crypto/x509`, and its cert file opens with a
+`internal/svcendpoint` mints its certs in Go, with `crypto/x509`, and its cert file opened with a
 warning pointed straight at this code
-([`svcendpoint/cert.go#L40`](../../internal/svcendpoint/cert.go#L40)):
+([`svcendpoint/cert.go`](../../internal/svcendpoint/cert.go), as it read on 2026-08-18):
 
 > *"Do NOT reuse `internal/oauthbroker/cert.go` here. It shells out to openssl and writes
 > ca.key/server.key to disk, which is structurally incompatible with the above — and the broker CA
@@ -116,7 +117,9 @@ warning pointed straight at this code
 
 So the judgement had already been made, written down, and acted on **at the copy site**. Nobody went
 back to the original. That is the most transferable lesson here: *a warning placed where someone
-might copy a mistake does not fix the mistake.*
+might copy a mistake does not fix the mistake.* (That comment now records the openssl half of its
+own objection as spent by the port, and keeps the half that was always the stronger one — the
+long-lived leaf key, and a broker CA that must not be this transport's trust anchor.)
 
 ---
 
@@ -139,6 +142,14 @@ not a user-facing feature; they are how this repo verifies its own changes. `AGE
 jail **mandatory** for `cmd/` and `internal/` work. So the one configuration in which the broker never
 worked is the one only yolo's own developers ever run — and they run it as `yolo -- bash`, where
 nobody asks Claude to authenticate. **The failure had no consumer.**
+
+**Ruled 2026-09-18, and it generalises past this document: nesting earns affordances, not
+exemptions.** A nested jail runs its own broker singleton like any other host, because a jail that
+behaves differently cannot test the thing it is nested inside. Where nesting genuinely forces a
+difference the repo names it and keeps it small — `--userns=host` because doubly-nested user
+namespaces fail mounting `/proc`, `--net=host` because netavark cannot create a netns without
+`NET_ADMIN` — and everything else stays generic, because a special case here is one carried
+forever.
 
 ---
 
@@ -197,12 +208,22 @@ twice this month for exactly this shape (host-side probes labelled as if they an
 question; a section header standing over an empty block). **This is the third instance of one bug:
 reporting on the wrong side of a boundary, in the confident direction.**
 
+**Ruled 2026-09-18, and the ruling is the principle rather than the token: a check that did not look
+must not be counted as a pass.** Ten call sites across nine sections were saying *"I did not look"*
+through `r.ok`, which increments the pass count — so an all-green run inside a jail included ten
+areas nobody checked, and the tally offered them as evidence. The reporter now carries a `[SKIP]`
+level with its own counter, excluded from the pass tally, and a `hostFact` for the direction two
+siblings misled in: `sectionRunningJails` reported the nested podman's view as a statement about the
+host, and `sectionGPUNvidia` graded host facts as `[FAIL]`s, telling an in-jail reader their GPU
+setup was broken when it was merely not visible from in there. The spelling was delegated at the
+ruling; the principle is what binds.
+
 > [!WARNING]
 > Note what the broker section *would* have said had it run: `warn`, not `fail` —
 > *"loophole claude-oauth-broker: daemon not running"*
-> ([`sections_loopholes.go#L258`](../../internal/cli/check/sections_loopholes.go#L258) — cited as
-> `#L138` when this was written; still a `r.warn`, verified 2026-08-23). So even without the in-jail
-> skip, the strongest signal available was a warning nobody was reading.
+> ([`sections_loopholes.go`](../../internal/cli/check/sections_loopholes.go) — still an `r.warn`,
+> verified 2026-09-20). So even without the in-jail skip, the strongest signal available was a
+> warning nobody was reading.
 
 ---
 
@@ -229,7 +250,7 @@ for it**. That is the failure mode [OQ-R2](../reference/loopback-tls-reachabilit
 loop you would use to repair it.
 
 **Contained the same day** by `brokerEndpointIsUnpublishable`
-([`assemble_parts.go#L465`](../../internal/cli/run/assemble_parts.go#L465)): a launcher that is itself
+([`assemble_parts.go`](../../internal/cli/run/assemble_parts.go)): a launcher that is itself
 in a jail, with no singleton socket after `brokerEnsure` already tried, stops *promising* an endpoint
 it cannot deliver. The severity was not narrowed and the host case is untouched. That patch stops the
 refusal; it does not make the broker work.
@@ -238,27 +259,30 @@ refusal; it does not make the broker work.
 
 ## 5. The fix
 
-**Ruled: bake `openssl` into the image.** One entry in `corePackagesFromNixpkgs`. It is the smallest
-change that makes the nested case behave like every other host, and it needs no new concept.
-**Shipped 2026-08-18** as `431625bc`; the entry sits at `flake.nix:896` with a comment explaining
-why a closure audit will read it as unused. Verified 2026-08-23.
+**Ruled: bake `openssl` into the image.** One entry on the image's core package floor
+(`coreFloorNames` in [`flake.nix`](../../flake.nix)). It is the smallest change that makes the
+nested case behave like every other host, and it needs no new concept. **Shipped 2026-08-18** as
+`431625bc`, with a comment at the entry explaining why a closure audit will read it as unused.
 
-Two things to decide alongside it, in [§7](#7-open-questions).
+The two questions it opened alongside itself are ruled; the [Decision Ledger](#7-decision-ledger) has them.
 
 ### 5.1 What it costs
 
 - **Image size**, marginally — `openssl` is small next to `nodejs`, `go` and `neovim`, all already
   baked.
-- **A nested jail will now actually mint a CA**, in its own state directory, and run a real broker
-  singleton. That is new behaviour, not merely a restored one: this path has *never* executed. It
-  should be exercised deliberately rather than discovered.
+- **A nested jail mints its own CA**, in its own state directory, and runs a real broker singleton.
+  That was new behaviour rather than a restored one — the path had *never* executed — so it was
+  exercised on purpose rather than discovered. **MEASURED 2026-09-18**, and the record sits at
+  `brokerEndpointIsUnpublishable` in
+  [`assemble_parts.go`](../../internal/cli/run/assemble_parts.go), where it also spent that gate's
+  stated reason for treating a nested launcher as unable to publish.
 
 ### 5.2 Alternatives
 
 | Option | Verdict |
 | :--- | :--- |
 | **Bake `openssl`** | ✅ **Taken.** Smallest change, no new concept, makes the nested host behave like any other |
-| **Port `EnsureCAAndLeaf` to `crypto/x509`** | ⏸️ Deferred, and the *right* end state — `svcendpoint` already does this and [§1.1](#11-the-repo-already-knew-this-was-the-wrong-shape) says why. Retires the dependency rather than satisfying it. Bigger change touching on-disk key material; see [OQ-1](#7-open-questions) |
+| **Port `EnsureCAAndLeaf` to `crypto/x509`** | ✅ **Also taken** (`d5bb1e5d`) — the *right* end state, and not exclusive with the bake. `svcendpoint` already minted this way and [§1.1](#11-the-repo-already-knew-this-was-the-wrong-shape) says why; the port retires the dependency rather than satisfying it, and what it moved on disk is [§8](#8-sequencing) item 4 |
 | **Never spawn a broker when the host is a jail** | ❌ Rejected as the primary fix — it is the containment patch ([§4](#4-what-made-it-visible)), and it makes "no Claude auth in a nested jail" permanent by design rather than incidentally |
 | **Symlink the host's `openssl` into the jail** | ❌ Rejected. A host-binary bind-mount into every jail for one certificate is a loophole-shaped answer to a packaging problem, and it would fail the same way one boundary further out |
 
@@ -278,169 +302,56 @@ Two things to decide alongside it, in [§7](#7-open-questions).
 
 ---
 
-## 7. Open Questions
+<!-- Two docs link this section by its old literal anchor — docs/plans/README.md (check 2's
+     over-reading example) and docs/plans/further-roadmap-ideas.md — and `OQ-2` and `OQ-3` are
+     cited by id from source comments in internal/cli/check and internal/cli/run, which no
+     markdown tool can see. The ids below keep every one of those resolving.
+     ⚠ docs/plans/README.md still LABELS this "§7" as Open Questions and uses this doc as its
+     worked example of check 2 over-reading a sequencing marker — that example is spent: the
+     questions are ruled and the file now scores zero. Fixing it is that file's job. -->
+<a id="7-open-questions"></a>
 
-1. ✅ **OQ-1: Do we retire the `openssl` dependency, or just satisfy it?** — RULED 2026-09-18
+## 7. Decision Ledger
 
-   **The bake has since landed** (2026-08-18, `flake.nix:896`), so this question is now purely about
-   the *port* — and it is live in the direction its own leaning feared: the dependency is satisfied,
-   the incentive to retire it is gone, and the deferral is back to being a comment.
+All three questions are ruled, and each ruling is in the section it governs.
 
-   Baking the package unblocks the nested case today. But `svcendpoint` mints certs with
-   `crypto/x509` and its comment ([§1.1](#11-the-repo-already-knew-this-was-the-wrong-shape)) argues the shell-out is structurally wrong — it writes
-   `ca.key`/`server.key` to disk, which is what issue #33 was about. `EnsureCAAndLeaf` already carries
-   *"a crypto/x509 migration is a LATER flagged change, deliberately deferred."*
-
-   **What it decides:** whether the jail image grows a package permanently, and whether the broker
-   keeps writing long-lived private keys to disk.
-
-   _Leaning:_ **bake now, port later, and write the port down as owed.** They are not exclusive and
-   the bake is not wasted — `openssl` on `PATH` is generally useful in a jail. But "deferred" has
-   already survived one incident, and deferral with no record is how this happened. — **Ruled
-   further: do both NOW.**
-
-   **Answer (2026-09-18).**
-   > **Bake and port, both now.** The bake has landed; the `crypto/x509` port is work, not a
-   > record of owed work. The leaning's own argument is what settles it: *"deferred has already
-   > survived one incident, and deferral with no record is how this happened"* — and a written
-   > record of a deferral is still a deferral. Porting now also retires the second half of the
-   > original defect rather than only its symptom: `EnsureCAAndLeaf` stops writing long-lived
-   > `ca.key`/`server.key` to disk, which is what issue #33 was about and what
-   > [§1.1](#11-the-repo-already-knew-this-was-the-wrong-shape) says the shell-out gets
-   > structurally wrong. The bake stays regardless — `openssl` on `PATH` is useful in a jail —
-   > so nothing is reverted; the dependency simply stops being load-bearing.
-
-
-
-2. ✅ **OQ-2: Should a nested jail run its own broker singleton at all?** — RULED 2026-09-18
-
-   With `openssl` baked it will — **and as of 2026-08-18 it is baked**, so this is no longer a
-   hypothetical: the next nested launch takes this path whether or not the question is answered. Each
-   jail-acting-as-host mints its own CA and serves its own children. The alternative is to treat OAuth
-   brokering as something only a real host does, and have nested jails inherit or forgo it.
-
-   **What it decides:** whether `claude` is expected to work inside a nested jail, which is currently
-   untested in either direction. The urgency changed with the bake: an unanswered question here now
-   means a never-executed code path runs unattended rather than staying dormant.
-
-   _Leaning:_ **let it run.** "A jail is a host for its children" is the model everywhere else
-   (packs, loopholes, storage), and a special case here would need carrying forever. But this has
-   never executed, so it should be exercised on purpose before it is relied on.
-
-   **Answer (2026-09-18).**
-   > **Let it run, and the reason generalises past this question.** A nested jail must be able to
-   > test everything, so it runs its own broker singleton like any other host. Being inside
-   > another yolo jail is not a reason to behave differently:
-   >
-   > **Nesting earns affordances, not exemptions — and the affordances stay minimal.** Where
-   > nesting genuinely forces a difference the repo already names it and keeps it small
-   > (`--userns=host` and `--net=host` because doubly-nested user namespaces fail mounting
-   > `/proc` and netavark cannot create a netns without `NET_ADMIN`). Everything else stays
-   > generic, because a special case here is one carried forever and a nested jail that behaves
-   > differently cannot test the thing it is nested inside.
-   >
-   > The exercise the leaning asked for stands as owed work rather than as a condition: the path
-   > runs today whether or not anyone has watched it, so watching it is a verification, not a
-   > gate.
-
-
-
-3. ✅ **OQ-3: What is the honest token for "I did not look"?** — RULED 2026-09-18
-
-   [§3.3](#33-yolo-check-skips-the-area--and-calls-it-pass) is the third `yolo check` finding of the same shape this month. `[PASS]` on a skipped section
-   is a claim the checker cannot support, and the jail-as-host case is exactly where it misleads.
-
-   **Verified 2026-08-23.** The claim holds and the mechanism is one line: the loopholes section
-   returns early with `r.ok("Inside jail — loophole checks skipped (managed by host)")`
-   ([`sections_loopholes.go#L23`](../../internal/cli/check/sections_loopholes.go#L23)), and `r.ok`
-   is defined as *"increments the pass count and prints ` [PASS] msg`"*
-   ([`reporter.go#L64-L67`](../../internal/cli/check/reporter.go#L64)). So a skip does not merely
-   *look* like a pass — it is counted as one in the run's tally. The reporter has exactly three
-   graded tokens today (`[PASS]`/`[FAIL]`/`[WARN]`, `reporter.go:67`, `:73`, `:80`); there is no
-   `[SKIP]`.
-
-   **This is one vocabulary question, not three wording questions.** Two sibling instances live in
-   the same package and are the same missing token wearing different clothes — the roadmap's 💬 8 row
-   carries both as separate "small ones", and they should be decided here, together:
-
-   | Instance | Where | What it prints | Why it is the same question |
-   | :--- | :--- | :--- | :--- |
-   | Loopholes skipped in-jail | `sections_loopholes.go:23` | `[PASS] Inside jail — loophole checks skipped` | A skip claimed as a pass. [§3.3](#33-yolo-check-skips-the-area--and-calls-it-pass) — this is the one that hid the broker |
-   | `sectionRunningJails` | [`check.go:622`](../../internal/cli/check/check.go#L622) | `[PASS] No jails currently running` | Reports the **nested podman's** view while reading as a statement about the host. Not a skip but the same failure: a confident token over a boundary the checker did not cross |
-   | `sectionGPUNvidia` | [`sections_devices.go:38`](../../internal/cli/check/sections_devices.go#L38) | three `[FAIL]`s (`nvidia-smi not found`, `nvidia-ctk not found`, …) | Host facts graded as failures of the thing being checked. Confident in the *other* direction, from the same absent vocabulary |
-
-   The count in the original leaning was low. Measured 2026-08-23, **recounted 2026-09-02 and
-   unchanged**: **ten** call sites across nine sections already say "I did not look" through
-   `r.ok` — `sections_loopholes.go:23` and `:364`, `sections_devices.go:128`, `:137` and `:218`,
-   `check.go:481`, `:529` and `:673` (these three drifted lines since 08-23; same sites),
-   `sections_macos.go:49`, `sections_misc.go:19`. `reporter.go` has had zero commits in that
-   window — nothing about the vocabulary moved.
-
-   **What it decides:** whether this is a one-line wording fix or a `[SKIP]` level added to the
-   reporter (with its own counter, excluded from the pass tally) and applied to every section that
-   steps aside — plus, because the two siblings above are the same question, whether the reporter
-   also needs a way to say *"this is a fact about the host, not about you."*
-
-   _Leaning:_ **add the level.** With ten sites stepping aside for the same reason, the wording fix
-   is ten wording fixes and an eleventh waiting to be written.
-
-   **Answer (2026-09-18) — and the question it was asked in return is the useful one: what is the
-   impact on the person reading `yolo check`?**
-   > **Three things, and none of them is about the token's spelling.**
-   >
-   > 1. **`yolo check` currently overstates itself, by ten.** Ten call sites across nine sections
-   >    say *"I did not look"* through `r.ok`, which "increments the pass count and prints
-   >    `[PASS]`". So an all-green run inside a jail includes ten areas nobody checked, and the
-   >    tally counts them as evidence.
-   > 2. **It is one of the three layers that hid the original incident** — a daemon that died 2,549
-   >    times in one jail, invisible for months ([§3.3](#33-yolo-check-skips-the-area--and-calls-it-pass)).
-   >    That is the whole reason this doc exists.
-   > 3. **Two siblings mislead in the other direction**, which is what a reader actually notices:
-   >    `sectionRunningJails` reports the NESTED podman's view as a statement about the host, and
-   >    `sectionGPUNvidia` grades host facts as three `[FAIL]`s — so a jail tells you your GPU
-   >    setup is broken when it is merely not visible from in there.
-   >
-   > **So the ruling is the principle, not the vocabulary: a check that did not look must not be
-   > counted as a pass.** The spelling follows from it and is delegated — `[SKIP]` with its own
-   > counter, excluded from the pass tally, applied to all ten sites, plus a way to say *"this is
-   > a fact about the host, not about you"* for the two siblings. Reopen this if the principle is
-   > wrong; the token is an implementation detail and should not cost another round.
-
+| ID | Ruling | Date | Settled in | Built |
+| :--- | :--- | :--- | :--- | :--- |
+| <a id="oq-1"></a>[`OQ-1`](#oq-1) | **Bake and port, both now** — the `openssl` bake is not a substitute for retiring the dependency, and a written record of a deferral is still a deferral. The bake stays regardless: it has two callers this document was never about | 2026-09-18 | [§5.2](#52-alternatives) · [§8](#8-sequencing) item 4 | ✅ `d5bb1e5d` |
+| <a id="oq-2"></a>[`OQ-2`](#oq-2) | **A nested jail runs its own broker singleton**, like any other host — nesting earns affordances, not exemptions, and a jail that behaves differently cannot test the thing it is nested inside | 2026-09-18 | [§2](#2-why-nested-jails-specifically) | ✅ measured 2026-09-18 ([§5.1](#51-what-it-costs)) |
+| <a id="oq-3"></a>[`OQ-3`](#oq-3) | **A check that did not look must not be counted as a pass.** The principle is the ruling; the token is delegated — `[SKIP]` with its own counter, excluded from the pass tally, plus a way to say *"this is a fact about the host, not about you"* | 2026-09-18 | [§3.3](#33-yolo-check-skips-the-area--and-calls-it-pass) | ✅ `07af9439` |
 
 ---
 
 ## 8. Sequencing
 
-What I would build, in order (status verified 2026-08-23):
+All four items are built. Three of them are one line each now; the fourth is the one a reader still
+needs, because it moved key material on disk.
 
-1. ✅ **Bake `openssl`** and confirm a nested launch mints a CA and publishes an endpoint. This is the
-   ruling and it is one line plus a verification. — **Baked** (`flake.nix:896`, `431625bc`). The
-   *verification* half is still owed: nobody has watched a nested launch mint a CA ([§5.1](#51-what-it-costs)).
-2. ✅ **Consume the detector's answer** ([§3.1](#31-a-return-value-thrown-away)) — `brokerWaitForSocket` already knows; make the caller
-   report a dead singleton at spawn time rather than leaving it to be inferred three layers later.
-   This is the change that would have caught the original bug on day one. — **Shipped**
-   (`brokerlifecycle.go:387`, `05c286d3` + `389f82b2`).
-3. 📦 **Fix the reporting level** per [OQ-3](#7-open-questions), so a skipped section stops claiming PASS. — **RULED
-   2026-09-18 and now buildable**: a `[SKIP]` level with its own counter, excluded from the pass
-   tally, applied to all ten sites, plus a way to say "this is a fact about the host, not about
-   you" for the two siblings. `sections_loopholes.go:23` is unchanged.
-4. ✅ **Port the broker's cert minting to `crypto/x509`** — [OQ-1](#7-open-questions) ruled 2026-09-18 that this is
-   WORK, not a record of owed work, precisely because the bake landing first is the situation its
-   own leaning warned about: the dependency is satisfied, the pressure to retire it is gone, and a
-   written record of a deferral is still a deferral. **Shipped 2026-09-18.**
+1. ✅ **Bake `openssl`**, and confirm a nested launch mints a CA and publishes an endpoint — baked
+   (`431625bc`), confirmed ([§5.1](#51-what-it-costs)).
+2. ✅ **Consume the detector's answer** ([§3.1](#31-a-return-value-thrown-away)) — `05c286d3`,
+   refined by `389f82b2`. This is the change that would have caught the original bug on day one.
+3. ✅ **Fix the reporting level** ([§3.3](#33-yolo-check-skips-the-area--and-calls-it-pass)) —
+   `07af9439`: a `[SKIP]` level with its own counter, excluded from the pass tally, applied to
+   every site that steps aside, plus `hostFact` for the two siblings that misled the other way.
+4. ✅ **Port the broker's cert minting to `crypto/x509`** — `d5bb1e5d`.
 
    > [!WARNING]
-   > **This item said "port `svcendpoint`", and that was the wrong package.**
-   > [`internal/svcendpoint`](../../internal/svcendpoint/cert.go) has always minted with
+   > **The subject is `EnsureCAAndLeaf` in
+   > [`internal/oauthbroker/cert.go`](../../internal/oauthbroker/cert.go), never
+   > [`internal/svcendpoint`](../../internal/svcendpoint/cert.go)**, which has always minted with
    > `crypto/x509` — [§1.1](#11-the-repo-already-knew-this-was-the-wrong-shape) holds it up as the
-   > model, and the same line cannot also be the thing needing a port. The subject was always
-   > `EnsureCAAndLeaf` in [`internal/oauthbroker/cert.go`](../../internal/oauthbroker/cert.go),
-   > which is what [OQ-1](#7-open-questions)'s own answer names.
+   > model, and the same code cannot also be the thing needing a port. This item said *"port
+   > `svcendpoint`"* until 2026-09-18, and four source comments cite it by number, so the
+   > correction stays here rather than being fixed silently.
 
-   What landed: `resolveOpenssl`, `runOpenssl` and the five-exec `--init-ca` script are deleted,
-   and the CA + leaf are minted in-process as P-256 (the old pair was RSA-4096/RSA-2048, whose
-   keygen in Go has a tail long enough to threaten `broker.BrokerSpawnTimeout`). `ca.srl`,
-   `leaf.cnf` and `server.csr` are gone with the tool that needed them.
+   `resolveOpenssl`, `runOpenssl` and the five-exec `--init-ca` script are deleted, and the CA +
+   leaf are minted in-process as **P-256** — the old pair was RSA-4096/RSA-2048, whose keygen in Go
+   has a tail long enough to threaten `broker.BrokerSpawnTimeout`, and a slow mint surfaces as
+   *"the singleton never bound its socket"*, the exact misreported failure this document is about.
+   `ca.srl`, `leaf.cnf` and `server.csr` are gone with the tool that needed them, and are actively
+   swept from an upgrading host's state dir.
 
    **Two halves of the on-disk claim, because they are not the same:**
 
@@ -454,7 +365,7 @@ What I would build, in order (status verified 2026-08-23):
    jails — the three files are bind-mounted by INODE, so a running jail keeps the complete old
    trio while the next launch binds a complete new one.
 
-   **The `openssl` bake stays, and not only because [OQ-1](#7-open-questions) said so:** the binary has two other
+   **The `openssl` bake stays, and not only because [`OQ-1`](#oq-1) said so:** the binary has two other
    callers that have nothing to do with this document — `internal/macosuser`'s
    `openssl rand -base64 32` for the sandbox identity's password, and the generated `sha256sum`
    shim's fallback in `internal/entrypoint`. What the port removes is the bake's only INVISIBLE
