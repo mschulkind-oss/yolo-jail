@@ -79,24 +79,45 @@ No hooks, no commands, no scripts. The marketplace publishes **thirteen**: `clan
 ### 1.3 yolo already owns the table the plugins restate
 
 `lsp_servers` is a yolo config key, and it is the canonical table. Two small **hardcoded name
-maps** sit beside it, and the reviewer's question — "are we creating our own registry?" — is
-right to separate them:
+maps** sit beside it, and neither should exist:
 
 - **YOLO's install registry.** [`internal/config/lsp.go`](../../internal/config/lsp.go)'s
   `lspInstallRecipes` maps three *server names* (`python`, `typescript`, `go`) to a package that
-  provides them. It exists because a `lsp_servers` entry declares a `command` — a binary — not
-  an installable *package*, and there is no standard binary→package mapping. But for those three
-  names it is also **picking a server**, and picking is an opinion YOLO should not hold: there is
-  more than one Rust server and more than one Python server, and naming one "the" server is
-  exactly what to avoid. So it stays a **closed** convenience for three names and is deliberately
-  **not** extended. A server outside them is the **user's** choice — brought via `mise_tools`, or
-  a `command` already on `PATH` — and YOLO never selects it.
-- **Claude's plugin map.** The three `name → plugin id` entries. This one is *pure ceremony*:
-  the plugin restates a command + extension map that the `lsp_servers` entry already carries.
+  provides them — it **picks a server**. That is an opinion, and it is to be **deleted**, not
+  bounded: there is more than one Python server and more than one Rust server, and naming one
+  "the" server is recommending a tool, which is not YOLO's call. The `command` a `lsp_servers`
+  entry already declares *is* the user's choice; YOLO's job is to make that command exist, not to
+  choose it.
+- **Claude's plugin map.** The three `name → plugin id` entries. The same opinion one layer out:
+  each id names a plugin that names a specific server.
 
-Neither map invents names — the keys are the user's own `lsp_servers` keys — but both are
-incomplete by construction, and the ideal is zero: install follows the entry, and delivery is
-generic (options D/E below).
+**The rule this rests on.** YOLO holds no opinion about *which* tool serves a capability — only
+about how to make a tool the **user named** work in this environment. **Shaping is fine; picking
+is not.** A preset that runs Chrome DevTools inside the jail, or a bridge that reaches a provider,
+shapes an environment the tool has to fit. "This is the Python server" picks a tool, and the
+choice belongs to the user.
+
+**The plan to remove the opinion.**
+
+1. **Delete `lspInstallRecipes`** and the install plumbing that consumes it
+   (`[`internal/config/lsp.go`](../../internal/config/lsp.go)`'s `LSPInstalls`, and the
+   `YOLO_LSP_NPM_INSTALL` / `YOLO_LSP_GO_INSTALL` env it feeds in
+   [`macosuser/runplan.go`](../../internal/macosuser/runplan.go) and
+   [`entrypoint/serverrefresh.go`](../../internal/entrypoint/serverrefresh.go)). A configured
+   server's `command` must then resolve on `PATH`, full stop.
+2. **The user brings the server** — via `mise_tools`, a pack `program`, or an absolute `command`
+   — the way any other host tool arrives. That moves the choice to where it belongs and removes
+   the only place YOLO installs a tool it chose for the user.
+3. **Claude's map goes with the generated plugin** (option D): one plugin whose `lspServers` is
+   rendered from the user's own `lsp_servers`, so there are no per-language ids to pick.
+
+**Opinions found elsewhere — for discussion, not decided here.** `mcp_presets` ships two MCP
+servers YOLO chose to offer: `chrome-devtools` (arguably shaping — a browser that works in the
+jail) and `sequential-thinking` (closer to a recommendation the user did not make). Separately,
+the `yolo init` template and `yolo config-ref` advertise a `mise_tools` default of `neovim`,
+which [`defaultMiseToolsVals`](../../internal/config/config.go) does **not** have — it is empty.
+That one is drift to fix, not an opinion to rule on; each surviving one wants a ruling on which
+side of the shaping/picking line it falls.
 
 ### 1.4 Copilot is generic; Claude is three
 
