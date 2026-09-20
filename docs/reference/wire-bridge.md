@@ -41,15 +41,19 @@ bridge exists, and should not.
 <a id="the-listen-address"></a>
 
 > [!WARNING]
-> **"The listen address is manifest-borne and overridable" is only half true, and the two routes
-> differ.** `openai → anthropic` derives its bind from the composed provider entry, so the
-> user-scope `adapters.openai->anthropic.address` moves the listener and the agent together. The
-> Codex `openai-responses → anthropic` route is chosen by agent and provider name in `routeFor`'s
-> first branch, **before any endpoint is read**, so the daemon binds
-> `wirebridged.CodexResponsesListenAddr` whatever the `adapters` key says, while the composed
-> entry — and therefore Claude's base URL — follows the override. Overriding that pair points the
-> agent at a port nothing is listening on, and the request is refused. Verified 2026-09-18: a
-> known gap, not a design.
+> **The listen address is manifest-borne and overridable, and BOTH routes now honour it.** Each
+> derives its bind from the composed provider entry, which is where an `adapters` override is
+> already applied — so a user-scope `adapters.<from>-><to>.address` moves the listener and the
+> agent together, on either route.
+>
+> ⚠ **This was half-true until 2026-09-20 and the asymmetry is worth remembering, because it is
+> the shape to watch for.** The Codex `openai-responses → anthropic` route was selected by agent
+> and provider name in `routeFor`'s first branch and returned **before any endpoint was read**, so
+> the daemon bound `wirebridged.CodexResponsesListenAddr` whatever the `adapters` key said while
+> the composed entry — and therefore Claude's base URL — followed the override. Overriding that
+> pair pointed the agent at a port nothing was listening on. The constant survives as the DEFAULT
+> for an entry naming no anthropic endpoint; what changed is that it is no longer reached ahead of
+> the table.
 
 | Component | Lives in |
 | :--- | :--- |
@@ -338,7 +342,7 @@ only place the values themselves are stated.
 | Service name (supervisor entry, endpoint stem, manifest `endpoint`) | `wire-bridge` | `wirebridged.ServiceName` |
 | Endpoint file | `wire-bridge.endpoint` under the jail services dir | `wirebridged.EndpointFile` |
 | Listen address, `openai → anthropic` | `http://127.0.0.1:8214` — the adapter's declared `address`, composed into each eligible provider's `endpoints.anthropic.base_url` and parsed back out by the daemon; a user-scope `adapters.openai->anthropic.address` replaces it | `packs/wire-bridge/pack.json`, read by `wirebridged.routeFor` |
-| Listen address, `openai-responses → anthropic` (the Codex route) | `127.0.0.1:8215` — the adapter declares the same address, but the daemon binds this Go constant directly, ahead of any table read, so an override moves the agent and not the bind | `wirebridged.CodexResponsesListenAddr`, `packs/wire-bridge/pack.json` |
+| Listen address, `openai-responses → anthropic` (the Codex route) | `127.0.0.1:8215` — the adapter's declared `address`, composed into `openai-codex`'s `endpoints.anthropic.base_url` and parsed back out by the daemon, exactly as the row above; `wirebridged.CodexResponsesListenAddr` is the DEFAULT when the entry names no anthropic endpoint, not a bypass of it | `packs/wire-bridge/pack.json`, read by `wirebridged.routeFor`; default in `wirebridged.CodexResponsesListenAddr` |
 | Address override key | `adapters.<from>-><to>.address`, **user scope only** | `internal/config/adapters.go`, `yolo config-ref` |
 | Restart policy | on failure | `packs/wire-bridge/pack.json` |
 | Served path | `POST /v1/messages` and nothing else | `internal/wirebridged/handler.go` |

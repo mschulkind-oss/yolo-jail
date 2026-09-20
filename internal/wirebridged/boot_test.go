@@ -126,6 +126,87 @@ func TestResolveRouteServesClaudeCodexWithoutProviderTableEntry(t *testing.T) {
 	}
 }
 
+// codexProviders is openai-codex as the resolver composes it once packs/openai-auth
+// and packs/wire-bridge are both selected: the subscription's own Responses endpoint
+// (packs/openai-auth declares it, credential-free), plus the anthropic address
+// packload.adaptEndpoints writes in for the `openai-responses → anthropic` adaptation.
+// The argument is that written address — the adapter's declaration by default, and
+// whatever a user-scope `adapters.openai-responses->anthropic.address` moved it to
+// otherwise, which is the only field such an override may set. It is also, verbatim,
+// what packs/claude's env derive hands claude as ANTHROPIC_BASE_URL.
+func codexProviders(anthropic string) string {
+	return `{"openai-codex":{"capabilities":["web_search"],"endpoints":{
+		"openai-responses":{"base_url":"https://chatgpt.com/backend-api/codex","wire_api":"openai-responses"},
+		"anthropic":{"base_url":"` + anthropic + `"}}}}`
+}
+
+func codexRoute(t *testing.T, providers string) (route, string) {
+	t.Helper()
+	return resolveRoute(routeEnv(providers, `{"codex":{"provider":"openai-codex"}}`, `{"claude":"codex"}`))
+}
+
+// The defect this pins: the Codex branch used to return CodexResponsesListenAddr
+// without reading the table, so a user who moved the adaptation's address moved
+// claude's ANTHROPIC_BASE_URL and NOT the bind — claude dialing 9215 at a daemon
+// listening on 8215, every request refused. The bind follows the composed entry, the
+// way the cerebras route's always has.
+func TestResolveRouteBindsTheCodexAddressTheComposedEntryNames(t *testing.T) {
+	route, idle := codexRoute(t, codexProviders("http://127.0.0.1:9215"))
+	if idle != "" {
+		t.Fatalf("an overridden Codex adaptation must still serve, got idle: %s", idle)
+	}
+	if route.ListenAddr != "127.0.0.1:9215" {
+		t.Errorf("ListenAddr = %q, want the composed entry's address — the one claude dials", route.ListenAddr)
+	}
+	if route.UpstreamBaseURL != CodexResponsesBaseURL || !route.CodexAccessToken {
+		t.Errorf("the override must move the BIND only, got %+v", route)
+	}
+}
+
+// The declaration-as-default half: an entry that names no anthropic endpoint — the
+// launch whose packs never composed the adaptation — binds exactly what it bound
+// before the route read the table at all.
+func TestResolveRouteDefaultsTheCodexBindWhenTheEntryNamesNoAnthropicEndpoint(t *testing.T) {
+	route, idle := codexRoute(t, `{"openai-codex":{"endpoints":{
+		"openai-responses":{"base_url":"https://chatgpt.com/backend-api/codex","wire_api":"openai-responses"}}}}`)
+	if idle != "" {
+		t.Fatalf("an unadapted Codex entry must still serve, got idle: %s", idle)
+	}
+	if route.ListenAddr != CodexResponsesListenAddr {
+		t.Errorf("ListenAddr = %q, want the declared default %q", route.ListenAddr, CodexResponsesListenAddr)
+	}
+}
+
+// A non-loopback anthropic endpoint is somebody else's route on the Codex branch for
+// the same reason it is on the general one, and the fallback that would bind
+// CodexResponsesListenAddr at an agent dialing example.com is the defect above wearing
+// a different address.
+func TestResolveRouteSkipsACodexEntryRoutedAwayFromThisJail(t *testing.T) {
+	_, idle := codexRoute(t, codexProviders("https://anthropic.example/v1"))
+	if !strings.Contains(idle, "is not jail-local") {
+		t.Fatalf("a Codex entry routed elsewhere must not bind here, got idle %q", idle)
+	}
+}
+
+// The general route under the same override, unchanged — the regression guard for
+// making the two symmetric. cerebras has always taken its bind off the composed
+// entry, and making the Codex branch do so must not have moved it.
+func TestResolveRouteStillBindsTheCerebrasAddressTheComposedEntryNames(t *testing.T) {
+	route, idle := resolveRoute(routeEnv(`{"cerebras":{"api_key_env_name":"CEREBRAS_API_KEY","endpoints":{
+		"anthropic":{"base_url":"http://127.0.0.1:9214","wire_api":"anthropic"},
+		"openai":{"base_url":"https://api.cerebras.ai/v1","wire_api":"openai-chat-completions"}}}}`,
+		`{"cerebras-fast":{"provider":"cerebras"}}`, `{"claude":"cerebras-fast"}`))
+	if idle != "" {
+		t.Fatalf("an overridden cerebras adaptation must still serve, got idle: %s", idle)
+	}
+	if route.ListenAddr != "127.0.0.1:9214" {
+		t.Errorf("ListenAddr = %q, want the composed entry's address", route.ListenAddr)
+	}
+	if route.UpstreamBaseURL != "https://api.cerebras.ai/v1" || route.KeyEnvName != "CEREBRAS_API_KEY" {
+		t.Errorf("the override must move the BIND only, got %+v", route)
+	}
+}
+
 func TestResolveRouteDoesNotServePiCodexProfile(t *testing.T) {
 	_, idle := resolveRoute(routeEnv(`{}`, `{"codex":{"provider":"openai-codex"}}`, `{"pi":"codex"}`))
 	if !strings.Contains(idle, "not in the composed table") {

@@ -73,8 +73,13 @@ const ServiceName = "wire-bridge"
 // its access-token view from openai-auth, never from a generated file; what the row
 // carries is the public Responses ADDRESS, which is the upstream below.
 //
-// The route selection still reads this constant rather than the table, because the
-// Codex route is chosen before any endpoint is consulted (routeFor's first branch).
+// The route selection reads the TABLE and keeps this constant as its DEFAULT: routeFor's
+// Codex branch binds the composed entry's `endpoints.anthropic.base_url` when there is
+// one, and this value only when there is not. It used to bind this constant outright,
+// ahead of any table read, which meant a user-scope `adapters` override for that pair
+// moved claude's ANTHROPIC_BASE_URL and not the bind — the agent dialing one address
+// while the daemon listened on another. So this is a declaration and a fallback, never a
+// second writer of the port.
 const CodexResponsesListenAddr = "127.0.0.1:8215"
 
 // CodexResponsesBaseURL is the subscription Responses API base. The handler
@@ -566,12 +571,56 @@ func routeFor(providers *jsonx.OrderedMap, useProfiles map[string]string,
 				" resolves to no provider in YOLO_PROFILES"
 			continue
 		}
-		// `openai-codex` is Pi/Codex's built-in subscription provider, not a
-		// composed provider fact. The Claude profile is the only consumer that
-		// asks this bridge to translate it; a Pi codex profile must not make an
-		// otherwise unused listener appear.
+		// `openai-codex` is the subscription source whose upstream this daemon reaches
+		// through openai-auth's token view rather than a key file, and the Claude
+		// profile is the only consumer that asks this bridge to translate it: a Pi codex
+		// profile speaks Responses natively and must not make an otherwise unused
+		// listener appear. That agent test is the whole reason the branch exists.
+		//
+		// THE LISTEN ADDRESS COMES OFF THE COMPOSED ENTRY, exactly as the general route
+		// below takes its own. This branch used to return here without reading the table
+		// at all, on the premise that openai-codex was "Pi/Codex's built-in subscription
+		// provider, not a composed provider fact" — true when written, false since
+		// packs/openai-auth gave the provider the public Responses endpoint. From that
+		// moment packs/wire-bridge's `openai-responses → anthropic` adaptation fronts it,
+		// so the composed entry carries an `endpoints.anthropic.base_url` like every
+		// other bridged provider, and packs/claude's env derive builds ANTHROPIC_BASE_URL
+		// out of that entry and nothing else. A user-scope `adapters` override for that
+		// pair therefore moved the agent's URL while the constant held the bind where it
+		// was: claude dialed an address nobody was listening on and every request was
+		// refused. Leaving the expired premise in the comment is how that comes back.
+		//
+		// THE ADAPTER'S DECLARED ADDRESS AND THE PROVIDER ENTRY'S COINCIDE here, as they
+		// do for the general route: packload.adaptEndpoints writes the adapter's address
+		// — or the user's override of it, the one field an override may set — into
+		// endpoints.anthropic.base_url, so reading the entry IS reading the adaptation,
+		// with the override already applied. It is the spelling that cannot drift.
+		//
+		// CodexResponsesListenAddr survives as the DEFAULT for an entry that supplies
+		// nothing, so a jail whose table never composed the adaptation binds exactly what
+		// it bound before — a declaration used as a default, not a second writer. A
+		// composed endpoint that is NOT jail-local skips the candidate instead, for the
+		// same reason the general route skips one: it is somebody else's route, and
+		// falling back to this constant there would be this same defect at a different
+		// address. The nil check is the empty composed table ComposeProviders encodes as
+		// a nil map (orderedOrNil), which WillServe's launcher call site hands over as-is.
 		if agent == "claude" && providerName == "openai-codex" {
-			return route{ProviderName: providerName, ListenAddr: CodexResponsesListenAddr,
+			listenAddr := CodexResponsesListenAddr
+			if providers != nil {
+				v, _ := providers.Get(providerName)
+				if composed, isMap := v.(*jsonx.OrderedMap); isMap {
+					if anthropicURL := endpointBaseURL(composed, "anthropic"); anthropicURL != "" {
+						addr, jailLocal := loopbackListenAddr(anthropicURL)
+						if !jailLocal {
+							skip = "provider " + providerName + "'s anthropic endpoint (" + anthropicURL +
+								") is not jail-local — nothing asks this jail's loopback for it"
+							continue
+						}
+						listenAddr = addr
+					}
+				}
+			}
+			return route{ProviderName: providerName, ListenAddr: listenAddr,
 				UpstreamBaseURL: CodexResponsesBaseURL, CodexAccessToken: true}, ""
 		}
 

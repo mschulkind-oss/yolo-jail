@@ -306,15 +306,18 @@ reads an endpoint like any other.
 its short-lived access-token view from the `openai-auth` broker rather than from any generated
 configuration file.
 
-> [!WARNING]
-> **An override of `openai-responses->anthropic` moves the AGENT and not the LISTENER.** The
-> bridge's Codex route is chosen before any endpoint is consulted — it is selected by the agent
-> and provider names, ahead of the table read — so the daemon binds its own
-> `CodexResponsesListenAddr` constant whatever the `adapters` key says, while the composed
-> provider entry (and therefore the agent) follows the override. The other adaptation has no such
-> gap: the daemon derives its listen address from the composed provider entry, so an override of
-> `openai->anthropic` moves both halves. Verified 2026-09-18; the Go constant's own comment
-> records that it is "this side of a contract whose other side moved", but not this consequence.
+> [!NOTE]
+> **An override of either adaptation moves the AGENT and the LISTENER together.** Both routes
+> derive the bind from the composed provider entry, which is where `adaptEndpoints` writes the
+> override, so the daemon and the agent read the same cell.
+>
+> ⚠ Until 2026-09-20 the Codex route did not: it was selected by agent and provider name ahead of
+> the table read, so the daemon bound its own `CodexResponsesListenAddr` whatever the `adapters`
+> key said while the composed entry followed the override — the two halves could be made to
+> disagree, and the request was refused. The constant is now the default for an entry naming no
+> anthropic endpoint. The premise that justified the early return — that `openai-codex` was a
+> built-in subscription provider rather than a composed fact — expired when step 4 gave that
+> provider a public Responses endpoint.
 
 ## Degenerate inputs, and what each resolves to
 
@@ -406,7 +409,7 @@ place the values themselves are stated.
 | :--- | :--- | :--- |
 | Shipped adaptations | `openai → anthropic`, `openai-responses → anthropic` | `packs/wire-bridge/pack.json` |
 | Shipped adapter addresses | `http://127.0.0.1:8214`, `http://127.0.0.1:8215` | `packs/wire-bridge/pack.json` |
-| The Codex route's bind address | `127.0.0.1:8215` | `wirebridged.CodexResponsesListenAddr` |
+| The Codex route's bind address | `127.0.0.1:8215` — from the composed entry, like every other route; the constant is the default when the entry names no anthropic endpoint | `packs/wire-bridge/pack.json`, default in `wirebridged.CodexResponsesListenAddr` |
 | The Codex subscription upstream | `https://chatgpt.com/backend-api/codex` | `packs/openai-auth/pack.json`, `wirebridged.CodexResponsesBaseURL` |
 | Protocol vocabulary | OPEN — any `endpoints` key | `packdecl`'s `Contribution.Endpoints` |
 | Dialect (`wire_api`) vocabulary | CLOSED, three values | `packdecl.KnownWireAPIs` |
