@@ -198,10 +198,15 @@ overloading one.**
 > [!NOTE]
 > **Why this shape, and not a slot that also carries a tree.** The last revision let the agent
 > pack ship its own `extensions/` *at the slot root*, which made the slot a mount with an
-> addressed mount nested inside it — an EROFS-class failure ([§9](#9-open-questions)). It got
-> there by piggybacking a **destination** onto the **content** kind and inheriting `files`'s
-> `from`-required rule. Splitting the two shapes (a destination carries no `from`; content always
-> does) removes the overload and the conflict together.
+> addressed mount nested inside it — an EROFS-class failure. It got there by piggybacking a
+> **destination** onto the **content** kind and inheriting `files`'s `from`-required rule. Splitting
+> the two shapes (a destination carries no `from`; content always does) removes the overload and
+> the conflict together.
+>
+> ⚠ **Superseded, one level up.** Even split, this is still `agent` vs `agents` — a singular/plural
+> distinguishing two opposite roles. [`slots-and-contributions.md`](./slots-and-contributions.md)
+> makes a slot a **second axis** (`exposes`) addressed by the **agent `bin` name**, and retires
+> the flag here and in `briefing`/`skills`. Read that before building the pack migrations.
 
 ## 4. Why D and not A/B/C
 
