@@ -620,17 +620,11 @@ Set a preset server to `null` in `mcp_servers` to disable it even when listed in
 
 ## LSP Servers
 
-YOLO Jail configures LSP (Language Server Protocol) servers for Claude Code, Copilot, and Gemini. Three servers are always available:
-
-| Language | Server | Extensions |
-|----------|--------|------------|
-| Python | Pyright | `.py`, `.pyi` |
-| TypeScript/JavaScript | typescript-language-server | `.ts`, `.tsx`, `.js`, `.jsx` |
-| Go | gopls | `.go` |
+YOLO Jail can hand LSP (Language Server Protocol) servers to the agents that read them. There are **no defaults** — nothing is installed or enabled until you declare it.
 
 ### Adding Servers
 
-Add language servers via `lsp_servers` in your config. The binary must be on PATH (install via `mise_tools` or `packages`):
+Add language servers via `lsp_servers` in your config. The binary must already be on `PATH` (install it with `mise_tools` or `packages`):
 
 ```jsonc
 {
@@ -644,14 +638,16 @@ Add language servers via `lsp_servers` in your config. The binary must be on PAT
 }
 ```
 
-Workspace servers are merged with defaults — you can add new ones or override existing ones.
+### Which agents read it
 
-### How It Works
+| Agent | How it receives LSP |
+|-------|---------------------|
+| **Copilot** | natively, via `~/.copilot/lsp-config.json` — any server you declare |
+| **Claude Code** | via plugins; YOLO enables the official `pyright` / `typescript` / `gopls` plugin when you declare the matching server name |
+| **Codex, agy** | the agent has no LSP support |
+| **Pi, opencode** | not configured by YOLO today (both agents can take it — see [`docs/design/claude-lsp-plugins.md`](../design/claude-lsp-plugins.md)) |
 
-- **Claude Code** receives LSP servers via plugins or MCP
-- **Copilot** receives native LSP config via `~/.copilot/lsp-config.json`
-- **Gemini** receives LSP servers wrapped as MCP servers via `mcp-language-server`
-- Servers are spawned on-demand when agents analyze matching file types
+Servers are spawned on-demand when an agent analyzes matching file types.
 
 ---
 

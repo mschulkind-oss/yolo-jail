@@ -294,6 +294,13 @@ and is measured, but it reproduces the vendor cache layout, which is the thing
    **at** `.pi/agent/extensions`, and the content pack mounts its tree **at**
    `.pi/agent/extensions/matt` — a path living *inside* the first mount.
 
+   **Why the outer mount exists at all — and why it need not.** It exists *only* because the
+   design loads the agent pack's **own** `from` tree at the alias root (the `extensions/` in the
+   example above). If the agent pack declares a **pure slot** — an alias with no content of its
+   own — the outer mount pulls in nothing and should not be made at all. That is the fix: both
+   resolutions below remove the root mount, by namespacing the owner's own content alongside
+   everyone else's, or by letting a destination carry no `from`.
+
    **Why the inner mount fails.** The runtime creates the inner mount point *before* it applies
    the outer mount, so the empty directory it creates is then covered by the agent pack's tree,
    and the inner mount lands on a path that must already exist **inside that read-only tree**. A

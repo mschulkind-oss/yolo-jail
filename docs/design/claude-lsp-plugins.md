@@ -162,31 +162,55 @@ it believes the three run by default, and in a jail with no `lsp_servers` they d
 ## 2. How every agent consumes an LSP server
 
 The decision is not "what do we do about Claude's three" but "what is YOLO's LSP delivery
-model, for every agent." The shipped agents already fall into two archetypes and a null:
+model, for every agent." Measured against the shipped CLIs, the six agents are **four different
+situations**, and only some are about the agent's capability:
 
-| Agent | How an LSP server reaches it | Generic today? |
-| :--- | :--- | :--- |
-| **Copilot** | native `~/.copilot/lsp-config.json`, projected by the derive | **yes** — no map, its format matches YOLO's table |
-| **Claude** | a plugin per language, enabled via `enabledPlugins` | **no** — three hand-written plugin ids |
-| **Codex, Pi, opencode, agy** | not configured by YOLO (no `lsp` surface) | n/a |
+| Agent | LSP? | How a server is named | YOLO today |
+| :--- | :--- | :--- | :--- |
+| **Copilot** | native | `~/.copilot/lsp-config.json` → `lspServers` | **fully generic** — the derive projects `lsp_servers` near-verbatim |
+| **opencode** | native, built-in (~35 servers) | `opencode.json` → `lsp` | **mechanism present, producer absent** — the surface exists; no `lsp` derive |
+| **Claude** | native (LSP tool) | plugin only: `.lsp.json` or `plugin.json.lspServers`, enabled by `enabledPlugins` | **enable flag + vendor CLI** — no server config written; three plugin ids hand-mapped |
+| **Pi** | **extension only** | `pi-lens` → `~/.pi-lens/config.json` → `lsp.servers` | **not written** — the MCP analogue is, the LSP one is not |
+| **Codex** | **none** | — | no key exists; its config reference names `mcp_servers` 171× and LSP 0× |
+| **agy** | **none user-configurable** | its language server is internal; the only route is an MCP bridge | only via the `mcp-language-server` bridge deleted with gemini |
 
-The archetypes a future agent falls into are therefore fixed, and they are what to decide
-against — not Claude's three by themselves:
+**Three of the "nulls" were wrong.** Saying "Codex, Pi, opencode, agy — no `lsp` surface" was a
+statement about *YOLO's config*, not about the agent. Two of those four can take an LSP server
+today, one of them through exactly the mechanism Pi already uses for MCP:
 
-1. **Native table** — the agent's config accepts an arbitrary server table (Copilot). The
-existing derive is generic, and a new agent of this kind costs nothing to support.
-2. **Manifest per language** — the agent needs a plugin or extension that names the command
-(Claude). This is the only archetype that needs a *map*, and the map today is hand-written,
-agent-specific, and three entries long.
-3. **No LSP surface** — nothing to do; the canonical table simply does not reach it.
+- **Pi has no built-in MCP either.** Core Pi is deliberately minimal; YOLO renders
+  `~/.pi/agent/mcp.json` for the `pi-mcp-adapter` **package**. LSP is the same shape with the
+  same answer: the `pi-lens` extension reads `~/.pi-lens/config.json` under `lsp.servers`, so
+  YOLO can project `lsp_servers` there. Two things differ from the MCP case, and both are already
+  named in the docs: `pi-lens` must be enabled in `settings.json` `packages`, and `~/.pi-lens`
+  must be writable — the read-only-home case `yolo config-ref` documents.
+- **opencode** ships LSP first-class and its config file is *already* a YOLO config surface
+  ([`packs/opencode/pack.json`](../../packs/opencode/pack.json)); only an `lsp` producer is
+  missing from its derive.
 
-The prism already answers archetype 1 — one canonical table, projected per agent — and
-archetype 3 needs nothing. **Archetype 2 is the whole question**, and it generalizes cleanly:
-if YOLO can author the manifest itself (option D), then *every* plugin-shaped agent becomes as
-generic as Copilot; if it cannot, each such agent needs its own hand-written map (option B),
-which is the residue to avoid. Deciding this for Claude is therefore deciding it for the
-archetype, and the answer carries to the next plugin-per-language agent rather than being a
-Claude special case.
+**Codex and agy genuinely cannot.** Codex's binary contains no LSP strings and its config
+reference never mentions a language server — its only route is a third-party MCP bridge. agy's
+internal language server is not user-configurable and its docs never mention LSP; the only route
+is the `mcp-language-server` bridge deleted when gemini retired. Those two are facts about the
+agents, not gaps in YOLO.
+
+**The archetypes, restated**
+
+1. **Config table** (Copilot, opencode) — the agent reads a server table from a file YOLO owns.
+   The projection is a rename plus shape moves (`fileExtensions` → `extensions`, and opencode
+   fuses `command`+`args`). A new agent of this kind costs a derive, not a mechanism.
+2. **Extension** (Pi) — no built-in LSP; a package supplies it. YOLO renders that package's
+   config, exactly as it already does for Pi's MCP.
+3. **Plugin** (Claude) — LSP arrives through a plugin, not a settings key. The only archetype
+   that needs a manifest, and the one the `generate` option (D) targets.
+4. **None** (Codex, agy) — no LSP surface at all; a bridge is a workaround, not a projection.
+
+**So does the feature earn its keep?** Yes, on the argument MCP already won: one canonical
+`lsp_servers` table, projected per agent, so a user configures a language server once. Four of
+the six agents can consume it today or with a small producer; the other two cannot consume LSP
+from anyone. The problem was never that the feature is Claude-shaped — it is that three
+projections were never written, and Claude's is the only one that needed a *plugin* rather than a
+config key.
 
 ## 3. Options
 
