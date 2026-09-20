@@ -1,7 +1,7 @@
 ---
 title: "Pi extensions want machine-scoped storage and pre-launch refreshes across jails"
 date: 2026-09-17
-status: in-review
+status: accepted
 tags: [pi, extensions, updates, packages, machine-tier, launchers]
 summary: "Architecture for managing Pi package and extension lifecycles across multiple YOLO jails: machine-scoped extension storage, rate-limited pre-launch updates, and cross-jail concurrency control."
 vantage:
@@ -10,7 +10,9 @@ vantage:
 
 # Pi extensions want machine-scoped storage and pre-launch refreshes across jails
 
-**Status:** DESIGN, 2026-09-17. Nothing built.
+**Status:** DECIDED, 2026-09-20. **Every ruling is in; nothing is built.** The resolve-and-pin
+half of [OQ-2](#OQ-2) rests on `internal/packsrc` + `packs.lock.json`, which SHIP; the
+materializer rests on a Pi CLI flag this tree never invokes, and confirming it is slice one.
 
 > **In short.** Pi extensions belong in YOLO's machine-scoped storage tier rather than
 > isolated per-workspace homes: decoupling extension storage from workspace session state
@@ -36,7 +38,9 @@ fall back to running the existing installed extension version.
 
 **Start at [§3](#3-the-proposed-architecture)** — the storage and execution split. The rest falls out of it.
 
-**Needs your ruling:** [OQ-1](#OQ-1), [OQ-2](#OQ-2), [OQ-3](#OQ-3).
+**Needs your ruling:** **None** — all three were ruled 2026-09-20. See
+[§7](#7-decision-ledger). ⚠ One check is owed before the build: `pi update --extensions` is
+CLAIMED by this doc and invoked nowhere in the tree.
 
 **Reads with:** [`pi-extension-lifecycle-plan.md`](pi-extension-lifecycle-plan.md)
 (the companion implementation sketch — incomplete while [`OQ-1`](#OQ-1) and [`OQ-2`](#OQ-2) are open),
@@ -294,20 +298,19 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
 
 ## 6. Open Questions
 
-1. 💬 **OQ-1: Storage tier for Pi extensions.**
+1. ✅ **OQ-1: Storage tier for Pi extensions.**
    Should `~/.pi/agent/npm` live in machine-scoped storage (`paths.GlobalHome()`, mounted across
    all workspaces) or remain workspace-scoped with independent downloads?
 
    <!-- vantage: oq id=OQ-1 leaning="Machine-scoped storage — extensions are shared tool capabilities like global binaries, and duplicating node_modules across N workspaces wastes disk and creates cross-jail version drift." -->
 
-   _Leaning:_ Machine-scoped storage. Extensions (`pi-lens`, etc.) are tool plugins shared across
-   projects, identical to how Claude and Antigravity handle shared credentials and tools. Duplicating
-   `node_modules` across N workspaces wastes disk and requires N independent update runs.
+   **Answer (2026-09-20):**
+   > **Machine-scoped storage.** Extensions are shared tool capabilities, like global binaries.
+   > Duplicating `node_modules` across N workspaces wastes disk **and creates cross-jail version
+   > drift** — the second is the load-bearing half, because disk is cheap and a jail silently
+   > running a different extension version from its neighbour is not.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-2: Update execution mechanism.**
+2. ✅ **OQ-2: Update execution mechanism.**
    Three candidates: (a) run `pi update --extensions` inside the generated launcher
    (`/home/agent/.yolo/bin/launch/pi`); (b) a dedicated Go entrypoint subcommand
    (`yolo internal refresh-pi-extensions`) like `refresh-servers`; or (c) **YOLO resolves and
@@ -316,16 +319,23 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
 
    <!-- vantage: oq id=OQ-2 leaning="Option (c): YOLO resolves and PINS through internal/packsrc + packs.lock.json, and the launcher only materializes via `pi update --extensions` under a non-blocking lock. Pi's CLI keeps the package-manager half (no npm reimplemented), but the VERSION CHOICE moves to YOLO — the seam a distributor must own, since no ecosystem here ships a lockfile or rollback." -->
 
-   _Leaning:_ **(c), with (a) as the materializer.** `internal/packsrc` owns resolution and the
-   pin (`packs.lock.json`, strictly offline launch); the launcher calls `pi update --extensions`
-   only to materialize the already-chosen set, under a non-blocking lock. Pi's CLI keeps the
-   package-manager half — no npm reimplemented — while the version choice, which no ecosystem here
-   lockfiles, moves to YOLO. See [Alternative D](#alternative-d-resolve-and-pin-through-yolos-existing-pack-source-store).
+   **Answer (2026-09-20): option (c).**
+   > YOLO resolves and **pins** through `internal/packsrc` + `packs.lock.json`, and the launcher
+   > only materializes, via `pi update --extensions` under a non-blocking lock. Pi's CLI keeps the
+   > package-manager half — no npm reimplemented — but the **version choice moves to YOLO**: the
+   > seam a distributor must own, since no ecosystem here ships a lockfile or a rollback.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   ⚠ **The resolver half already exists; the materializer half is the unverified one.**
+   `internal/packsrc` ships `addr.go`, `lock.go` and `store.go`, and `packs.lock.json` is real at
+   `~/.config/yolo-jail/packs.lock.json` (`LoadLock`/`Save`, beside the user config) — so (c) is
+   an extension of a shipping mechanism rather than a new one, which is most of why it is the
+   right answer. **`pi update --extensions` is CLAIMED, not verified**: nothing in this tree
+   invokes that flag, and AGENTS.md forbids probing an agent CLI beyond `--version`, so slice one
+   of the build is confirming the flag exists and is non-interactive before anything depends on
+   it. If it does not, (b) — a Go entrypoint subcommand — is the fallback materializer and the
+   ruling's resolve-and-pin half is unaffected.
 
-3. 💬 🤷 **OQ-3: Handling Pi's in-app update notification check.**
+3. ✅ **OQ-3: Handling Pi's in-app update notification check.**
    Pi's interactive TUI unconditionally runs `checkForPackageUpdates()` on startup if not offline,
    warning the user if npm has a newer version. When pre-launch update succeeds or is throttled within
    1 hour, npm will be up-to-date in the happy path. But when an update check fails or is throttled,
@@ -334,12 +344,18 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
 
    <!-- vantage: oq id=OQ-3 leaning="Leave Pi's in-app notification untouched — in the normal path, the pre-launch update ensures extensions are up-to-date before the TUI starts, so the in-app check passes cleanly without warning." -->
 
-   _Leaning:_ Leave Pi's in-app notification untouched. Because pre-launch update runs before TUI
-   start whenever due, the in-app check will virtually always see that the installed package matches
-   `@latest`. Attempting to suppress it artificially adds complexity for minimal gain.
+   **Answer (2026-09-20):**
+   > **Leave it untouched.** In the normal path the pre-launch update runs before the TUI starts,
+   > so the in-app check sees the installed package matching `@latest` and passes cleanly.
+   > Suppressing it artificially buys little and costs a pinned-version mechanism nobody asked for.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   ⚠ **This ruling is conditional on [OQ-2](#OQ-2)'s pin, and the two now pull against each other.** Under
+   (c) the version YOLO pins is whatever `packs.lock.json` records, which is *deliberately* not
+   always `@latest` — that is what a pin is for. So a jail running a correctly pinned older
+   extension will see Pi's warning box, and it will be **right** rather than spurious. Left
+   untouched anyway: a user told their pinned version is behind is being told the truth, and the
+   alternative is yolo suppressing a vendor's honest notice about software yolo chose the version
+   of. If that proves noisy in practice it is a new question, not this one.
 
 ---
 
@@ -347,4 +363,6 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| — | None settled yet | — | — | — |
+| **OQ-1** | **Machine-scoped storage.** Extensions are shared tool capabilities like global binaries; per-workspace copies waste disk and, load-bearingly, create cross-jail version drift | 2026-09-20 | [§6](#6-open-questions) | no |
+| **OQ-2** | **Option (c).** YOLO resolves and PINS through `internal/packsrc` + `packs.lock.json`; the launcher only materializes, under a non-blocking lock. Pi keeps the package-manager half; the VERSION CHOICE moves to YOLO, the seam a distributor must own since no ecosystem here ships a lockfile or rollback. ⚠ The resolver ships; the materializer's `pi update --extensions` flag is unverified | 2026-09-20 | [§6](#6-open-questions), [Alternative D](#alternative-d-resolve-and-pin-through-yolos-existing-pack-source-store) | no |
+| **OQ-3** | **Leave Pi's in-app notification untouched.** The pre-launch update runs before the TUI starts, so the check passes cleanly in the normal path. ⚠ Conditional on [OQ-2](#OQ-2)'s pin: a correctly pinned older extension WILL trigger the warning, and it will be right — yolo does not suppress a vendor's honest notice about a version yolo chose | 2026-09-20 | [§6](#6-open-questions) | no |
