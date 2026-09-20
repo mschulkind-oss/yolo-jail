@@ -83,12 +83,14 @@ maps** sit beside it, and the reviewer's question — "are we creating our own r
 right to separate them:
 
 - **YOLO's install registry.** [`internal/config/lsp.go`](../../internal/config/lsp.go)'s
-  `lspInstallRecipes` maps three *server names* (`python`, `typescript`, `go`) to the packages
-  that provide them (`pyright`, `typescript-language-server`, `gopls`). It exists because a
-  `lsp_servers` entry declares a `command` — a binary — and not an installable *package*, and
-  there is no standard binary→package mapping. So a server outside the three (`rust` →
-  `rust-analyzer`) is never installed by YOLO; it must already be on `PATH`, e.g. via
-  `mise_tools`. The registry is a closed set, not a vocabulary the user extends.
+  `lspInstallRecipes` maps three *server names* (`python`, `typescript`, `go`) to a package that
+  provides them. It exists because a `lsp_servers` entry declares a `command` — a binary — not
+  an installable *package*, and there is no standard binary→package mapping. But for those three
+  names it is also **picking a server**, and picking is an opinion YOLO should not hold: there is
+  more than one Rust server and more than one Python server, and naming one "the" server is
+  exactly what to avoid. So it stays a **closed** convenience for three names and is deliberately
+  **not** extended. A server outside them is the **user's** choice — brought via `mise_tools`, or
+  a `command` already on `PATH` — and YOLO never selects it.
 - **Claude's plugin map.** The three `name → plugin id` entries. This one is *pure ceremony*:
   the plugin restates a command + extension map that the `lsp_servers` entry already carries.
 
@@ -157,8 +159,10 @@ Claude special case.
 - **A — keep.** Three hardcoded, two copies. *Cost:* arbitrary, incomplete, duplicated, and
   the reason the hook lives.
 - **B — generalize.** Cover the full official set and generate both copies from one table.
-  *Cost:* still a hardcoded language list, now larger, and still a marketplace dependency;
-  and it makes Claude the only agent whose LSP set is fixed rather than user-driven.
+  *Cost:* it would encode a per-language opinion — *"this is the Rust server"* — for thirteen
+  languages instead of three, which is the thing [§1.3](#13-yolo-already-owns-the-table-the-plugins-restate)
+  says to avoid; and it keeps the marketplace dependency and leaves Claude the only agent whose
+  LSP set is fixed rather than user-driven.
 - **C — delete.** Remove the plugins, the derive table, the Go table and the hook; Claude runs
   without LSP. *Cost:* loses the Claude LSP tool. *Condition:* an actual user.
 - **D — generate.** Have yolo author **one** plugin whose `lspServers` is rendered from the
