@@ -43,7 +43,8 @@ makes a pack file hard to read is guessing which of several shapes a `kind` is i
 [`briefing-audiences.md`](./briefing-audiences.md) (the `agent`/`agents` mechanism this splits
 apart), [`stringly-typed-references-principle.md`](../reference/stringly-typed-references-principle.md)
 (what a name may reference), [`pi-pack-extensions.md`](./pi-pack-extensions.md) (the concrete
-case, and the bug that forced this).
+case, and the bug that forced this), [`manifest-language.md`](./manifest-language.md) (the
+sibling concern — the manifest's *surface*, or how many bytes say one fact).
 
 ---
 
