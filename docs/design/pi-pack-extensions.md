@@ -1,7 +1,7 @@
 ---
 title: "Extension delivery: files into agent-declared aliases"
 date: 2026-09-19
-status: accepted
+status: in-review
 tags: [pi, extensions, plugins, packs, architecture, audience, agent-plugins]
 summary: "Where this landed: contributes a file tree to an agent by name (Architecture D), against the Agent Plugins 1.0 portable standard, with YOLO as the placer and no vendor install verb. Core parses nothing because the standard namespaces client-specific components. The one real remaining choice is retiring `claude_plugins`, plus one probe that gates it."
 vantage:
@@ -58,8 +58,9 @@ review; the open questions are the few rulings still genuinely needed.
 - **Determinism depends on ordering.** The addressed-content source must be ordered and
   declared, or a derive stops being a pure function of the manifests.
 
-**Needs your ruling:** **None** — all five questions were ruled in review on 2026-09-19. The
-[decision ledger](#10-decision-ledger) records them.
+**Needs your ruling:** [OQ-6](#OQ-6) — a layout conflict that implementation surfaced in the
+alias, described in [§3](#3-the-candidate-architectures). The five earlier questions were ruled
+in review on 2026-09-19 ([decision ledger](#10-decision-ledger)).
 
 **Reads with:** [`agent-config-distribution.md`](../research/agent-config-distribution.md)
 (the measured formats), [`pi-extension-lifecycle.md`](./pi-extension-lifecycle.md) (the fetch
@@ -189,6 +190,16 @@ Three parts, no new kind:
    nothing (auto-discovery); Claude writes `enabledPlugins`. That source is
    [§6](#6-what-a-derive-may-read--the-rule-being-sharpened).
 
+> [!WARNING]
+> **Implementation surfaced a layout conflict, and it needs a ruling before the jail notch
+> lands ([OQ-6](#OQ-6)).** The owning pack's own content mounts at the alias ROOT
+> (`.pi/agent/extensions`) while an addressed pack mounts at `<alias>/<pack>` — a bind mount
+> nested inside another bind mount whose source is `:ro`. The inner mount point must then exist
+> inside the outer's read-only tree or the mount fails, which is the same EROFS class this
+> design set out to remove. Either every contribution that targets an alias namespaces under
+> `<alias>/<pack>` (the owner's own included), or a files destination must be allowed to declare
+> the alias WITHOUT carrying content.
+
 ## 4. Why D and not A/B/C
 
 A is agent Go; B is D plus a speculative axis; C is an input convention. D reuses the audience
@@ -267,8 +278,24 @@ and is measured, but it reproduces the vendor cache layout, which is the thing
 
 ## 9. Open questions
 
-**None.** All five were ruled in review on 2026-09-19 and are recorded in the
-[decision ledger](#10-decision-ledger).
+1. 💬 **OQ-6: How does an agent pack declare a files alias without claiming the alias root?**
+   The layout in [§3](#3-the-candidate-architectures) puts the owning pack's own tree at the
+   alias ROOT and addressed packs at `<alias>/<pack>/`, which is a bind mount nested inside
+   another `:ro` bind mount — so the inner mount point must already exist in the outer's
+   read-only tree, and the mount fails in the same EROFS class the design removes.
+
+   <!-- vantage: oq id=OQ-6 leaning="Namespace EVERY files contribution that targets an alias under <alias>/<pack>, the owner's own included — one rule, no root mount, and OQ-4's per-pack subdirectory applied uniformly." -->
+
+   _Leaning:_ Namespace **every** alias-targeting contribution under `<alias>/<pack>`, the
+   owner's own included. One rule, no exception, no root mount, and the per-pack subdirectory
+   rule ([OQ-4's ruling](#10-decision-ledger)) applied uniformly. The cost is that a pack's own
+   extension then lives in a subdirectory and needs an `index.ts` (standard Pi packaging) — the
+   migration that same ruling already implies. The narrower alternative is to let a files
+   DESTINATION omit `from`, making the alias a pure slot, at the price of a second shape on the
+   kind.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
 
 ## 10. Decision ledger
 
@@ -283,3 +310,4 @@ and is measured, but it reproduces the vendor cache layout, which is the thing
 | **OQ-3** | `pi-extensions/` is the recommended source directory | 2026-09-19 | this doc | — |
 | **OQ-4** | Subdirectory per pack inside the alias | 2026-09-19 | this doc | — |
 | **OQ-5** | Support Agent Plugins 1.0 directly; a `.claude-plugin/` manifest beside the portable root is acceptable for Claude | 2026-09-19 | this doc | build |
+| **OQ-6** | — | — | — | — |
