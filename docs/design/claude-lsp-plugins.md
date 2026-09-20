@@ -32,7 +32,7 @@ own config could have supplied.
 set, **delete** it where unused, or **generate** a single yolo-authored plugin from the
 configured `lsp_servers` so any language works with no marketplace and no hook. The last is
 the attractive one and depends on whether Claude can load a locally-authored plugin, which is
-[pi-pack-extensions.md](./pi-pack-extensions.md)'s open question [OQ-5](./pi-pack-extensions.md#OQ-5).
+the Agent Plugins decision in [pi-pack-extensions.md](./pi-pack-extensions.md#10-decision-ledger).
 
 **Needs your ruling:** [OQ-LSP1](#OQ-LSP1), [OQ-LSP2](#OQ-LSP2), [OQ-LSP3](#OQ-LSP3).
 
@@ -164,7 +164,8 @@ Claude special case.
 - **D — generate.** Have yolo author **one** plugin whose `lspServers` is rendered from the
   user's `lsp_servers` at boot, deliver it like any other content tree, and enable it. Any
   language works, no marketplace, no hook, no hardcoded list. *Condition:* Claude must load a
-  locally-authored plugin, which is [`OQ-5`](./pi-pack-extensions.md#OQ-5) and
+  locally-authored plugin, which is the Agent Plugins decision in
+  [`pi-pack-extensions.md`](./pi-pack-extensions.md#10-decision-ledger) and
   [OQ-LSP3](#OQ-LSP3).
 - **E — inline.** If Claude's settings accept an `lspServers` table directly (Copilot's model),
   write it there with no plugin at all. *Condition:* unknown; the derive currently writes only
@@ -207,11 +208,12 @@ Claude special case.
    depends on a documented local-load path (`--plugin-dir`, a `./`-prefixed marketplace source)
    and on whether a plugin's `lspServers` may list many servers.
 
-   <!-- vantage: oq id=OQ-LSP3 leaning="Measure it — the same probe as pi-pack-extensions OQ-5; if yes, D is cheap, and if no, the marketplace path forces B or C." -->
+   <!-- vantage: oq id=OQ-LSP3 leaning="Measure it alongside the Agent Plugins decision in pi-pack-extensions; if Claude reads a YOLO-authored plugin directly, D is cheap, and if not the marketplace path forces B or C." -->
 
-   _Leaning:_ Measure it. This is the same probe as
-   [`OQ-5`](./pi-pack-extensions.md#OQ-5): one run with a real Claude login decides whether one
-   artifact can serve every configured language.
+   _Leaning:_ Measure it, alongside the Agent Plugins decision in
+   [`pi-pack-extensions.md`](./pi-pack-extensions.md#10-decision-ledger): whether Claude reads a
+   YOLO-authored plugin directly decides whether one artifact can serve every configured
+   language.
 
    **Answer:**
    > _(empty — fill in when decided)_

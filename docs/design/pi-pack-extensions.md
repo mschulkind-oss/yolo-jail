@@ -1,7 +1,7 @@
 ---
 title: "Extension delivery: files into agent-declared aliases"
 date: 2026-09-19
-status: in-review
+status: accepted
 tags: [pi, extensions, plugins, packs, architecture, audience, agent-plugins]
 summary: "Where this landed: contributes a file tree to an agent by name (Architecture D), against the Agent Plugins 1.0 portable standard, with YOLO as the placer and no vendor install verb. Core parses nothing because the standard namespaces client-specific components. The one real remaining choice is retiring `claude_plugins`, plus one probe that gates it."
 vantage:
@@ -27,8 +27,8 @@ review; the open questions are the few rulings still genuinely needed.
 1. **Delivery is one primitive.** Lift `kind: "files"`'s audience refusal so a content pack
    can address `agents: ["pi"]` exactly as `skills` and `briefing` already do. Nothing new is
    invented; no `kind: "extensions"`, no per-agent Go.
-2. **No `target` axis.** One files destination per agent; a second is a load error until a
-   real second tree exists ([OQ-1](#OQ-1)).
+2. **No `target` axis.** One files destination per agent; a second is a load error. (`target`
+   was Architecture B's extra routing token, and it is dropped.)
 3. **Agent Plugins 1.0 is the portable standard** ([agent-plugins.org](https://agent-plugins.org/)),
    not Claude's format. Portable = `skills/` + `mcp.json`; everything else travels namespaced —
    and a full Claude plugin still reaches Claude in full ([§1.2](#12-the-standard-under-this-agent-plugins-10)).
@@ -38,14 +38,16 @@ review; the open questions are the few rulings still genuinely needed.
    already instruct arbitrary action.
 6. **Fetching is a different axis**, owned by [`pi-extension-lifecycle.md`](./pi-extension-lifecycle.md),
    and YOLO already has a pinned resolver for it (`internal/packsrc` + `packs.lock.json`).
-7. **`claude_plugins` is retired** ([OQ-2](#OQ-2)): deliver plugin trees locally, and
-   decompose them or author one YOLO-owned plugin rather than calling `claude plugins install`.
+7. **`claude_plugins` is retired**, and nothing like it replaces it — no agent-named hook:
+   deliver plugin trees locally, decompose them, or author one YOLO-owned Agent Plugins 1.0
+   plugin rather than calling `claude plugins install`.
 
 **Why you might question all of it:**
 
-- **The load path is unverified.** Everything local hinges on one measurement — can Claude
-  read a plugin YOLO authors, or only `.claude-plugin/` from a marketplace? That is
-  [OQ-5](#OQ-5). If the answer is no, the plugin half and the hook retirement both stall.
+- **The load path is still unmeasured.** Agent Plugins 1.0 support is ruled in; what is left is
+  a build detail — whether Claude reads a YOLO-authored plugin directly or needs a
+  `.claude-plugin/` manifest beside the portable root. Either way the plugin half and the hook
+  retirement land.
 - **"Against the standard" overpromises.** The portable set is *only* skills + MCP; hooks,
   LSP, commands and agents are client-specific by construction. One artifact does less than the
   phrase suggests.
@@ -56,9 +58,8 @@ review; the open questions are the few rulings still genuinely needed.
 - **Determinism depends on ordering.** The addressed-content source must be ordered and
   declared, or a derive stops being a pure function of the manifests.
 
-**Needs your ruling:** [OQ-1](#OQ-1) (defer `target` — recommended), [OQ-2](#OQ-2) (retire
-`claude_plugins` — recommended), [OQ-5](#OQ-5) (the probe). [OQ-3](#OQ-3) and [OQ-4](#OQ-4)
-are low-stakes constants with recommended values.
+**Needs your ruling:** **None** — all five questions were ruled in review on 2026-09-19. The
+[decision ledger](#10-decision-ledger) records them.
 
 **Reads with:** [`agent-config-distribution.md`](../research/agent-config-distribution.md)
 (the measured formats), [`pi-extension-lifecycle.md`](./pi-extension-lifecycle.md) (the fetch
@@ -167,7 +168,7 @@ catalogs).
 | Architecture | Verdict |
 | :--- | :--- |
 | **A — a named Go hook per agent** (`pi_extensions`, and `claude_plugins` today) | **Rejected for new work.** It compiles agent-specific code into core, one routine per agent forever, and third parties can never ship the same shape. The existing hook is [§7](#7-reopening-claude_plugins)'s separate question. |
-| **B — addressed `files` with a `target` slot** (a previous revision) | **Superseded by D.** It is D plus a second "which channel" axis beside `kind`, for a second channel that does not yet exist. Deferred as [OQ-1](#OQ-1). |
+| **B — addressed `files` with a `target` slot** (a previous revision) | **Superseded by D.** It is D plus a second "which channel" axis beside `kind`, for a second channel that does not exist; the `target` token is dropped. |
 | **C — a native package scanner** | **Not an architecture.** A pack's tree *may* be a plugin directory, but scanning for a manifest is a source convention D consumes, not a delivery mechanism. |
 
 ### Architecture D: addressed trees into agent-declared aliases
@@ -252,7 +253,7 @@ and is measured, but it reproduces the vendor cache layout, which is the thing
 
 ## 8. Invariants and failure modes
 
-1. One files destination per agent ([OQ-1](#OQ-1)); a second is a load error.
+1. One files destination per agent; a second is a load error.
 2. Namespacing is the contributing pack's name; collisions are impossible.
 3. Delivery is read-only and non-fatal; a missing source warns and skips.
 4. The owner's derive is pure — it reads the addressed set and returns config.
@@ -266,51 +267,8 @@ and is measured, but it reproduces the vendor cache layout, which is the thing
 
 ## 9. Open questions
 
-1. 💬 **OQ-1: Is the `target` axis needed, or one files destination per agent?**
-
-   <!-- vantage: oq id=OQ-1 leaning="Defer target. One destination per agent; add the axis when a real second tree appears." -->
-
-   _Leaning:_ Defer. A second destination is a load error naming both contributions.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-2: Retire `claude_plugins`, or keep it?**
-
-   <!-- vantage: oq id=OQ-2 leaning="Retire it. Place plugin trees locally; decompose (the LSP case) or author one YOLO-owned Agent Plugins 1.0 plugin. Seeding is the fallback." -->
-
-   _Leaning:_ Retire. Seed only for a third-party plugin wanted as a plugin.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. 💬 **OQ-3: Recommended source directory name** — `pi-extensions/` vs `extensions/`.
-
-   <!-- vantage: oq id=OQ-3 leaning="pi-extensions/ — explicit about the recipient." -->
-
-   _Leaning:_ `pi-extensions/`. Low stakes.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-4. 💬 **OQ-4: Layout inside the alias** — flat prefixed files vs a subdirectory per pack.
-
-   <!-- vantage: oq id=OQ-4 leaning="Subdirectory per pack — no per-file staging, and relative imports survive." -->
-
-   _Leaning:_ Subdirectory per pack. Low stakes.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-5. 💬 **OQ-5: Does Claude read a YOLO-authored Agent Plugins 1.0 plugin, or only `.claude-plugin/` from a marketplace?**
-
-   <!-- vantage: oq id=OQ-5 leaning="Measure it. It gates the plugin half of D and the retirement in OQ-2, and it is the same probe claude-lsp-plugins OQ-LSP3 needs." -->
-
-   _Leaning:_ Measure it. One run with a real Claude login decides whether one artifact serves
-   every client, or the Claude pack emits a `.claude-plugin/` manifest beside it.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+**None.** All five were ruled in review on 2026-09-19 and are recorded in the
+[decision ledger](#10-decision-ledger).
 
 ## 10. Decision ledger
 
@@ -320,8 +278,8 @@ and is measured, but it reproduces the vendor cache layout, which is the thing
 | **Standard** | Agent Plugins 1.0 is the portable convention (skills + MCP); client-specific components stay namespaced, so YOLO parses nothing | 2026-09-19 | [§1.2](#12-the-standard-under-this-agent-plugins-10) | — |
 | **Placer** | YOLO places; no vendor install verb runs in a jail | 2026-09-19 | [§2](#2-principles) | — |
 | **Derive sources** | A declared source may be another pack's addressed content | 2026-09-19 | [§6](#6-what-a-derive-may-read--the-rule-being-sharpened) | — |
-| **OQ-1** | — | — | — | — |
-| **OQ-2** | — | — | — | — |
-| **OQ-3** | — | — | — | — |
-| **OQ-4** | — | — | — | — |
-| **OQ-5** | — | — | — | — |
+| **OQ-1** | No `target` axis — one files destination per agent; a second is a load error | 2026-09-19 | this doc | — |
+| **OQ-2** | Retire `claude_plugins`, and add nothing like it (no agent-named hook). Deliver plugin trees locally — decompose, or author one YOLO-owned Agent Plugins 1.0 plugin | 2026-09-19 | [§7](#7-reopening-claude_plugins) | — |
+| **OQ-3** | `pi-extensions/` is the recommended source directory | 2026-09-19 | this doc | — |
+| **OQ-4** | Subdirectory per pack inside the alias | 2026-09-19 | this doc | — |
+| **OQ-5** | Support Agent Plugins 1.0 directly; a `.claude-plugin/` manifest beside the portable root is acceptable for Claude | 2026-09-19 | this doc | build |
