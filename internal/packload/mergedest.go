@@ -53,11 +53,13 @@ import (
 // CONVENTIONAL source, which are the two the zero-ceremony promise is about ("a skills dir and
 // an AGENTS.md at the pack root").
 //
-// `files` is deliberately absent and that is not an omission to revisit: it has no conventional
-// location by design (validateContribution requires its `from` for exactly that reason), so
-// there is no content to find without a declaration. It is also CombineExclusive — one owner per
-// destination — so a borrowed destination would be a footprint violation rather than a merge.
-var inferrableKinds = []packdecl.Kind{packdecl.KindSkills, packdecl.KindBriefing}
+// `files` IS HERE ONLY FOR THE ADDRESSED SHAPE — `{agents: [...], from: ...}` with no `into` —
+// and the distinction is load-bearing rather than tidy. It has no conventional location
+// (validateContribution requires its `from` for exactly that reason), so the zero-ceremony
+// borrower must never fire for it (borrowingSources guards that) and an addressed contribution
+// must supply its own source. What an addressed one borrows is the DESTINATION the agent pack
+// declares as its alias, exactly as `briefing` and `skills` do.
+var inferrableKinds = []packdecl.Kind{packdecl.KindSkills, packdecl.KindBriefing, packdecl.KindFiles}
 
 // Destinations is the outcome of resolving one pack's delivery destinations against the
 // selected set.
@@ -274,7 +276,11 @@ func (p *Pack) borrowingSources(kind packdecl.Kind) []packdecl.Contribution {
 			out = append(out, c)
 		}
 	}
-	if len(out) == 0 && !p.declares(kind) {
+	// `files` HAS NO CONVENTIONAL SOURCE, so the zero-ceremony borrower must never fire for it:
+	// a synthesized `{Kind: files}` carries no `from` and would route nothing while claiming a
+	// destination. Only an ADDRESSED contribution (`agents`, and its own `from`) reaches
+	// borrowing for this kind.
+	if len(out) == 0 && kind != packdecl.KindFiles && !p.declares(kind) {
 		out = append(out, packdecl.Contribution{Kind: kind})
 	}
 	return out
@@ -453,6 +459,15 @@ func (p *Pack) carriesFor(c packdecl.Contribution) bool {
 		// kind's contractual chain and not a widening invented here.
 		text, _ := p.BriefingProseFor(c)
 		return text != ""
+	case packdecl.KindFiles:
+		// A `files` tree carries content when its declared source exists — the same question
+		// packFilesTargets asks at the jail notch. An empty `from` is the zero-ceremony shape
+		// this kind must never take, so it carries nothing.
+		if c.From == "" {
+			return false
+		}
+		_, err := os.Stat(filepath.Join(p.Root, filepath.FromSlash(c.From)))
+		return err == nil
 	default:
 		return false
 	}

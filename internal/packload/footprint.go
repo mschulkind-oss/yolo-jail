@@ -895,7 +895,7 @@ func agentNameClaims(packs []*Pack) (map[string][]agentNameClaim, []string) {
 			switch c.Kind {
 			case packdecl.KindProgram:
 				claim(c.Bin, p.Name, string(c.Kind))
-			case packdecl.KindBriefing, packdecl.KindSkills:
+			case packdecl.KindBriefing, packdecl.KindSkills, packdecl.KindFiles:
 				claim(c.Agent, p.Name, string(c.Kind)+".agent")
 			}
 		}
