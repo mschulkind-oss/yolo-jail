@@ -140,12 +140,23 @@ func TestDryRunReportsButDoesNotMutate(t *testing.T) {
 	mustWrite(t, oldFile, bytes.Repeat([]byte("x"), 2048))
 	backdate(t, oldFile, o.Now().Add(-60*24*time.Hour))
 
-	// Two image tarballs (keep=3 → none removed) + an orphan tmp (always swept).
+	// Two image tarballs (keep=3 → none removed) + an orphan tmp.
+	//
+	// ⚠ THE ORPHAN IS BACKDATED, and that is the fixture's whole point now: the
+	// reaper's `.tmp` sweep has an age grace floor, because an IN-FLIGHT archive
+	// delivery writes exactly this shape into exactly this directory and the sweep
+	// used to delete it out from under the copy. A fresh `.tmp` is indistinguishable
+	// from that delivery, so only an aged one is a crashed leftover. inFlightTmp
+	// below is the other half, and it pins the floor at THIS call site rather than
+	// only at PruneImageCache.
 	imagesDir := filepath.Join(gs, "cache", "images")
 	mustMkdir(t, imagesDir)
 	mustWrite(t, filepath.Join(imagesDir, "a.tar"), bytes.Repeat([]byte("t"), 1024))
 	orphanTmp := filepath.Join(imagesDir, "crashed.tmp")
 	mustWrite(t, orphanTmp, bytes.Repeat([]byte("t"), 512))
+	backdate(t, orphanTmp, o.Now().Add(-48*time.Hour))
+	inFlightTmp := filepath.Join(imagesDir, "delivering.oci-archive.tmp")
+	mustWrite(t, inFlightTmp, bytes.Repeat([]byte("t"), 256))
 
 	// Shadowed .cache seed dir with content.
 	shadowed := filepath.Join(gs, "home", ".cache", "junk")
@@ -193,6 +204,12 @@ func TestDryRunReportsButDoesNotMutate(t *testing.T) {
 	if !hasLine(&buf, "  would remove: 1.5 KiB across 2 file(s)") {
 		t.Errorf("image-cache dry-run wrong (podman keeps zero tars since OQ-BF6):\n%s", buf.String())
 	}
+	// AND THE IN-FLIGHT TMP IS NOT IN THAT COUNT. 1.5 KiB across 2 is the tar plus
+	// the AGED orphan; delivering.oci-archive.tmp is 256 B and would make it three.
+	// This is what fails if the floor is removed at the reaper.
+	if _, err := os.Stat(inFlightTmp); err != nil {
+		t.Errorf("a dry run must not touch anything, least of all an in-flight delivery: %v", err)
+	}
 	// Cache purge: the 2048 B wheel.
 	if !hasLine(&buf, "  would remove: 2.0 KiB across 1 files") {
 		t.Errorf("cache-purge dry-run wrong:\n%s", buf.String())
@@ -233,6 +250,9 @@ func TestApplyOnTempRoot(t *testing.T) {
 	mustMkdir(t, imagesDir)
 	orphanTmp := filepath.Join(imagesDir, "crashed.tmp")
 	mustWrite(t, orphanTmp, bytes.Repeat([]byte("t"), 512))
+	// Aged past the sweep's grace floor — see TestDryRunReportsButDoesNotMutate.
+	// A fresh one is an in-flight archive delivery and is deliberately spared.
+	backdate(t, orphanTmp, o.Now().Add(-48*time.Hour))
 
 	shadowedDir := filepath.Join(gs, "home", ".cache")
 	shadowedChild := filepath.Join(shadowedDir, "junk")
