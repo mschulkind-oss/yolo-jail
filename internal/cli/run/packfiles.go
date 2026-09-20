@@ -60,19 +60,54 @@ type packFilesTarget struct {
 // packdecl.appendJailPathProblems, so a name on PATH comes from a `program` declaration or
 // from nowhere.
 func packFilesTargets(packs []*packload.Pack) []packFilesTarget {
+	// The SLOT table first: an agent pack's files DESTINATION (`agent` + `into`, no `from`) names
+	// where addressed content lands. Built in one pass so declaration order cannot make one slot
+	// win over another.
+	aliasByAgent := map[string]string{}
+	for _, p := range packs {
+		for _, c := range p.Decl.Contributions() {
+			if c.Kind == packdecl.KindFiles && c.Agent != "" && c.Into != "" {
+				aliasByAgent[c.Agent] = c.Into
+			}
+		}
+	}
 	var out []packFilesTarget
 	for _, p := range packs {
 		for _, c := range p.Decl.Contributions() {
 			if c.Kind != packdecl.KindFiles {
 				continue
 			}
-			out = append(out, packFilesTarget{
-				Pack: p.Name,
-				Src:  filepath.Join(p.Root, filepath.FromSlash(c.From)),
-				Dest: c.Into,
-				Root: p.Root,
-				From: c.From,
-			})
+			// A DESTINATION is a bare slot: it ships no content, so it makes no mount. That is
+			// what keeps the slot root itself raw — every tree lands UNDER it, namespaced by the
+			// contributing pack, the owner's own included (design §3).
+			if c.Agent != "" {
+				continue
+			}
+			src := filepath.Join(p.Root, filepath.FromSlash(c.From))
+			switch {
+			case c.Into != "":
+				// A plain tree the pack owns, at the path it named.
+				out = append(out, packFilesTarget{
+					Pack: p.Name, Src: src, Dest: c.Into, Root: p.Root, From: c.From,
+				})
+			case len(c.Agents) > 0:
+				// ADDRESSED: the destination is the agent pack's slot, namespaced by the
+				// CONTRIBUTING pack so two packs shipping a same-named file cannot collide. The
+				// jail resolves it here rather than through packload.ResolveDestinations, because
+				// the jail never calls that — packload's borrowing is the HOST notch.
+				for _, a := range c.Agents {
+					alias, ok := aliasByAgent[a]
+					if !ok {
+						// The agent is enabled but declares no slot; delivered nowhere, and
+						// reported by the pre-flight, not silently dropped here.
+						continue
+					}
+					out = append(out, packFilesTarget{
+						Pack: p.Name, Src: src, Dest: filepath.Join(alias, p.Name),
+						Root: p.Root, From: c.From,
+					})
+				}
+			}
 		}
 	}
 	return out
@@ -298,24 +333,21 @@ func packFilesShadowedSurfaces(packs []*packload.Pack) []string {
 	}
 
 	var out []string
-	for _, p := range packs {
-		for _, c := range p.Decl.Contributions() {
-			if c.Kind != packdecl.KindFiles || c.Into == "" {
+	// Over the RESOLVED targets, not the raw contributions: an addressed `files` contribution
+	// has `Into == ""` and would be invisible here, and a slot makes no mount at all.
+	for _, t := range packFilesTargets(packs) {
+		dir := strings.TrimSuffix(t.Dest, "/") + "/"
+		for _, s := range surfaces {
+			if !strings.HasPrefix(s.path, dir) {
 				continue
 			}
-			dir := strings.TrimSuffix(c.Into, "/") + "/"
-			for _, s := range surfaces {
-				if !strings.HasPrefix(s.path, dir) {
-					continue
-				}
-				out = append(out, fmt.Sprintf(
-					"pack %s claims ~/%s as a `files` tree, which is mounted READ-ONLY — but "+
-						"pack %s renders the config surface %s at ~/%s, inside it. The jail "+
-						"would refuse to start (read-only file system) with an error naming the "+
-						"surface, not this claim. Narrow the `files` into a subdirectory the "+
-						"agent does not write.",
-					p.Name, strings.TrimSuffix(c.Into, "/"), s.pack, s.surface, s.path))
-			}
+			out = append(out, fmt.Sprintf(
+				"pack %s claims ~/%s as a `files` tree, which is mounted READ-ONLY — but "+
+					"pack %s renders the config surface %s at ~/%s, inside it. The jail "+
+					"would refuse to start (read-only file system) with an error naming the "+
+					"surface, not this claim. Narrow the `files` into a subdirectory the "+
+					"agent does not write.",
+				t.Pack, strings.TrimSuffix(t.Dest, "/"), s.pack, s.surface, s.path))
 		}
 	}
 	sort.Strings(out)

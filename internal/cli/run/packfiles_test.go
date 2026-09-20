@@ -87,6 +87,46 @@ func TestAssemblePackFilesMount(t *testing.T) {
 	}
 }
 
+// AN ADDRESSED files TREE LANDS AT <slot>/<pack>, and the SLOT itself makes no mount. That is the
+// shape pi-pack-extensions.md §3 settled: the destination carries no content, so the slot root is
+// never a bind mount and no tree nests inside another mount.
+func TestPackFilesTargetsResolvesAddressedSlot(t *testing.T) {
+	slotRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(slotRoot, "pack.json"),
+		[]byte(`{"name":"pi","contributes":[{"kind":"files","agent":"pi","into":".pi/agent/extensions"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pi, probs := packload.LoadDir(slotRoot, "pi")
+	if len(probs) != 0 {
+		t.Fatalf("loading the slot fixture: %v", probs)
+	}
+
+	contentRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(contentRoot, "pi-extensions"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(contentRoot, "pi-extensions", "compact-tools.ts"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(contentRoot, "pack.json"),
+		[]byte(`{"name":"matt","contributes":[{"kind":"files","agents":["pi"],"from":"pi-extensions"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	content, probs := packload.LoadDir(contentRoot, "matt")
+	if len(probs) != 0 {
+		t.Fatalf("loading the content fixture: %v", probs)
+	}
+
+	var got []string
+	for _, tg := range packFilesTargets([]*packload.Pack{pi, content}) {
+		got = append(got, tg.Dest)
+	}
+	want := []string{filepath.Join(".pi/agent/extensions", "matt")}
+	if !slices.Equal(got, want) {
+		t.Errorf("files destinations = %v, want %v — the slot makes no mount, and the addressed tree lands at <slot>/<pack>", got, want)
+	}
+}
+
 // TestAssemblePackFilesNoneMatchesGolden pins the no-`files` case against the frozen
 // argv: delivering the kind must be a pure no-op for every pack that does not declare it
 // (none of the six shipped packs does).
