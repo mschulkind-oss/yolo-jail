@@ -834,11 +834,19 @@ func (o *Options) startHostSingleton(
 		// including the in-jail witness, reports green. We do not kill it (two yolo
 		// versions on one host would take turns restarting each other's daemon);
 		// we say so, and name the one command that fixes it.
+		//
+		// THE COMMAND IS DERIVED FROM THE NAME, and that is the defect OQ-HD2 was
+		// ruled to close. This sentence interpolated `name` into every clause but
+		// the last, which read `Fix it with: yolo broker restart` — a wrong
+		// instruction inside the sentence presenting itself as the fix, since for
+		// any singleton but the Claude one that command cycles a DIFFERENT daemon
+		// and leaves the broken one running. broker.CycleCommand is the one place
+		// that spelling lives now.
 		o.pr(o.Stdout).print("[yellow]Warning: the host-wide daemon for '" + name +
 			"' predates this yolo and does not speak the connection preamble.\n" +
-			"  It will accept connections and fail every request — for the broker that means\n" +
-			"  Claude token refresh is broken on this host, silently.\n" +
-			"  Fix it with: yolo broker restart[/yellow]")
+			"  It will accept connections and fail every request — for a credential daemon\n" +
+			"  that means token refresh is broken on this host, silently.\n" +
+			"  Fix it with: " + broker.CycleCommand(name) + "[/yellow]")
 	}
 	// The daemon's readiness is its socket ACCEPTING A CONNECT — never bare
 	// existence, which a stale file satisfies instantly. BrokerSpawn has already
@@ -1156,16 +1164,33 @@ func (o *Options) startExternalService(
 // never fails the caller.
 //
 // IT IS NOT REDUNDANT WITH startHostSingleton, which ensures the same daemon from
-// the loophole record a few phases later. This one runs BEFORE assembleRunCmd,
-// because brokerEndpointIsUnpublishable reads the singleton socket to decide
-// whether the argv may promise the jail an endpoint at all — a decision that has
-// to be made while the argv is still being written. The second ensure is
-// idempotent by construction (liveness, then a flock whose loser observes the
-// winner), so the cost of both is one Lstat.
+// the loophole record a few phases later. The second ensure is idempotent by
+// construction (liveness, then a flock whose loser observes the winner), so the
+// cost of both is one Lstat.
 //
-// This is also the one caller with NO record to read, which is why RealDeps still
-// carries the broker's own argv: it is reached from the launch path before
-// discovery has run, and from `yolo broker restart`, which has no launch at all.
+// WHY IT RUNS BEFORE assembleRunCmd. The stated reason used to be that the
+// assembler READ THIS SOCKET to decide whether the argv could promise the jail an
+// endpoint. It does not: the jail-facing variable is emitted OPTIMISTICALLY, from
+// the record alone, precisely so that a launch whose front never publishes is
+// REFUSED by the in-jail reachability witness instead of quietly becoming a jail
+// that was never told the service exists (hostScopedEndpoints,
+// loopback-tls-reachability.md §7.3). Nothing about the argv is a function of
+// whether this ensure succeeded.
+//
+// What makes the position right is that the SPAWN GATE AND THE ARGV WIRING ARE ONE
+// PREDICATE: brokerLoopholeActive is a membership test on hostScopedEndpoints, the
+// same derived list the assembler emits from (assemble_parts.go). Ensuring here
+// puts the daemon's bind window before the container starts, under the gate that
+// decides the wiring — so a jail that is told the address has had the daemon
+// ensured for it, and a jail that is not leaves no daemon running on the host.
+// Both halves used to be decided separately and disagreed in both directions
+// (run.go, at the call).
+//
+// This is also the one caller with NO record IN HAND, which is why RealDeps still
+// carries the broker's own argv: the gate above it consults the derived list, but
+// the ensure itself is handed nothing but yolo's own constants — the same position
+// `yolo host-daemon restart <name>` and its `broker` alias are in, with no launch
+// at all.
 func (o *Options) brokerEnsure() {
 	deps := broker.RealDeps()
 	if broker.BrokerIsAlive(deps) {

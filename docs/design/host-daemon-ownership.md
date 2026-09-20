@@ -10,8 +10,10 @@ vantage:
 
 # Nobody supervises the host daemons, and every hard case is a version boundary
 
-**Status:** DESIGN, 2026-09-19. Nothing built — this doc makes the existing architecture
-legible and asks eight rulings. Evidence verified against `af988566`.
+**Status:** DESIGN, 2026-09-20. One of the eight rulings is in and built — the management
+surface ([§5.1](#51-the-management-surface-one-verb-over-the-host-scoped-set)); the rest of
+the doc makes the existing architecture legible and asks seven. Evidence verified against
+`af988566`, except where a later date is stated.
 
 > **In short.** Nothing supervises a host-wide daemon: each launch *ensures* one under a
 > flock and then never looks at it again. And every genuinely hard case in this area is the
@@ -33,9 +35,8 @@ matching, and everything *hard* from neither path carrying a version.
 [§2](#2-the-picture) is the shape it applies to and [§6](#6-the-failure-modes) is what it
 produces.
 
-**Needs your ruling:** [OQ-HD1](#OQ-HD1), [OQ-HD2](#OQ-HD2), [OQ-HD3](#OQ-HD3),
-[OQ-HD4](#OQ-HD4), [OQ-HD5](#OQ-HD5), [OQ-HD6](#OQ-HD6), [OQ-HD7](#OQ-HD7),
-[OQ-HD8](#OQ-HD8).
+**Needs your ruling:** [OQ-HD1](#OQ-HD1), [OQ-HD3](#OQ-HD3), [OQ-HD4](#OQ-HD4),
+[OQ-HD5](#OQ-HD5), [OQ-HD6](#OQ-HD6), [OQ-HD7](#OQ-HD7), [OQ-HD8](#OQ-HD8).
 
 **Reads with:** [`host-daemon-ownership-plan.md`](host-daemon-ownership-plan.md) (the
 implementation sketch — a parking lot, unstable while these questions are open),
@@ -73,8 +74,9 @@ Three words do the work here, and two of them are the tree's, not mine.
 **Nobody is the supervisor.** A host-wide daemon has no parent watching it, no restart
 policy, no health loop and no owner: it is *ensured* by whichever launch first wants it,
 and from that moment the only things that can act on it are the next launch (which
-re-ensures), a human running `yolo broker restart` (which reaches one of the three), and
-two upgrade paths that kill-and-replace under the lock.
+re-ensures), a human running `yolo host-daemon restart <name>` (which reaches every one of
+them — [§5.1](#51-the-management-surface-one-verb-over-the-host-scoped-set)), and two
+upgrade paths that kill-and-replace under the lock.
 
 That is not a new finding — it is the settled model, stated as fact in
 [`../reference/loophole-transport.md`](../reference/loophole-transport.md) and ruled in
@@ -287,8 +289,9 @@ process.
 | :--- | :---: | :---: | :--- | :--- |
 | A launch, per host-scoped loophole (`startHostSingleton`) | yes | no | all enabled host-scoped ones | Enters the ensure unconditionally; the lock owns the concurrency |
 | A launch, before the argv is built (`brokerEnsure`) | yes | no | Claude broker only | Runs early because the argv's endpoint promise depends on the socket existing |
-| `yolo broker restart` | yes | yes | **Claude broker only** | `CLIRealDeps` → `RealDeps` → the Claude name, hardcoded |
-| `yolo broker stop` | no | yes | Claude broker only | Next launch respawns |
+| `yolo host-daemon restart <name>` | yes | yes | any host-scoped one it can spawn | [§5.1](#51-the-management-surface-one-verb-over-the-host-scoped-set); refuses BEFORE the kill when it has no argv |
+| `yolo host-daemon stop <name>` | no | yes | any, declared or not | Needs only the name — every rendezvous path is derived from it. Next launch respawns a declared one |
+| `yolo broker <verb>` | as above | as above | Claude broker only | The retained alias — `host-daemon <verb> claude-oauth-broker`, resolved from the broker's own constants so it works where discovery is empty |
 | `yolo host -- codex` / `yolo host -- pi` | yes | yes | OpenAI broker only | `ensureSingleton` replaces a daemon lacking the private host socket |
 | `yolo internal openai-auth <status\|import\|logout>` | yes | yes | OpenAI broker only | The same `ensureSingleton` |
 | A launch's one-time state migration (`PrepareLocked`) | yes | yes | OpenAI broker only | Stop → migrate → respawn, all under the lock |
@@ -302,7 +305,7 @@ process.
 
 **Who wins when two act at once.** The lock, always — every start and both kill-and-replace
 paths run inside `flock(LOCK_EX)` on the same file, and the loser re-checks liveness rather
-than spawning. The one pair that is *not* serialized is `yolo broker stop` against a
+than spawning. The one pair that is *not* serialized is `yolo host-daemon stop` against a
 concurrent launch: `Stop` takes no lock, so a launch that ensured a moment earlier can have
 its daemon killed out from under a front that has already published. The front then drops
 every request until the next launch, and nothing detects it.
@@ -318,11 +321,68 @@ would otherwise stop checking:
   (`yolo-broker-relay-<hash>.{pid,lock,sock}` and the per-jail services dir) and cannot
   match a name-keyed singleton path.
 - **`yolo check` reports on one of the three**, behind an explicit
-  `if lp.Name == brokerLoopholeName` gate
+  `if lp.Name == brokerLoopholeName` gate — the one name-bound surface left, now that the
+  management verb is derived
+  ([§5.1](#51-the-management-surface-one-verb-over-the-host-scoped-set))
   ([`sections_loopholes.go`](../../internal/cli/check/sections_loopholes.go)). Its generic
   host-service liveness pass walks every loophole with a host daemon, but probes the
   *per-jail endpoint file* and returns early when no jails are running — so with zero jails
   up, the OpenAI and AWS singletons' liveness is reported by nothing at all.
+
+### 5.1 The management surface: one verb over the host-scoped set
+
+`yolo host-daemon {status,stop,restart,logs} [<name>]` manages every host-wide daemon, with
+`yolo broker <verb>` retained as an alias meaning
+`yolo host-daemon <verb> claude-oauth-broker`. Built 2026-09-20.
+
+**The set is derived, and from two sources that answer different questions.**
+
+| Source | Question it answers | What a member from it can do |
+| :--- | :--- | :--- |
+| The manifests, through the converged `loopholes.NewHostSet` | *What does this machine declare?* — a loophole with `host_daemon.scope: "host"` | Everything, including `restart`: the record carries the argv |
+| The rendezvous, `paths.HostSingletonLock` globbed | *What has this host ensured?* | `status`, `stop`, `logs`. `restart` refuses by name and points at `stop` |
+
+The second source is not redundant with the first, and the reason is mode 5 below: a
+singleton survives the pack being deselected and the loophole being disabled, so a set
+derived only from current declarations would refuse to stop the daemon a user is trying to
+get rid of. Neither source is a list — nothing in the code or in this doc enumerates the
+members, because an enumeration is what went stale the last two times a loophole declared
+`scope: "host"` ([§8](#8-one-became-three-and-nothing-noticed)).
+
+**A bare invocation means the SET for `status` and is refused for the other three.** `status`
+reports, so with no name it reports every member and exits non-zero if any is unhealthy; an
+empty set is an honest answer, reported rather than invented. `stop`, `restart` and `logs`
+ACT, so with no name they refuse and print this machine's membership. An implicit target
+across three daemons is how a management verb comes to act on the one nobody named.
+
+**Every message names the daemon it is about**, including each failure path: the status
+header, the unknown-name refusal, the missing-name refusal, and — the defect this ruling
+exists to close — the alive-but-incompatible warning, which now prints
+`broker.CycleCommand(name)`. There is one grammar rather than a switch on a loophole name,
+so the sentence is right for a daemon that ships tomorrow.
+
+> [!WARNING]
+> **The scan globs the LOCK, not the PID file**, because the `/tmp/yolo-*.pid` namespace has
+> other owners: `internal/entrypoint` writes `/tmp/yolo-jaild.pid` for the in-jail
+> supervisor. Measured 2026-09-20 in this repo's own jail, a `.pid` scan produced a member
+> called `jaild`, and stopping it would have killed the jail's supervisor. The name
+> round-trips through the derivation, so a round-trip check does not catch it —
+> `paths.HostSingletonLock` having exactly one writer is what does.
+
+> [!WARNING]
+> **`restart` refuses before it kills**, never after. A daemon known only from its rendezvous
+> can be stopped but not started, so discovering that after the `SIGTERM` would leave the
+> user with the process gone and no way to bring it back.
+
+**The alias resolves from the broker's own constants, not through discovery**, and fills two
+gaps: a name missing from the set entirely (a jail, a host whose `packs` list does not name
+claude), and a name PRESENT but unspawnable — the rendezvous-only case, measured in this
+repo's own jail, where taking the discovered record verbatim would refuse to restart the
+broker on the very machine it is running on.
+
+**What this did NOT change.** The daemons are still unsupervised: there is no health loop, no
+restart policy and no reaper, and every row of the table above is still the whole of what can
+act on one. A human verb is not an owner.
 
 ### What the backends do differently
 
@@ -345,7 +405,7 @@ someone made or behaviour nobody chose.
 | # | Mode | Today | Decision or accident |
 | :--- | :--- | :--- | :--- |
 | 1 | A daemon dies mid-session | Front stays published; every request dropped with an `unreachable` audit record; healed by the next launch | **Half-decided** — the front's independence is ruled; whether the jail is told is unaddressed |
-| 2 | A daemon needs restarting | `yolo broker restart` for the Claude one; an implicit kill-and-replace for the OpenAI one; **nothing for AWS** | **Accident** — a ruling made when one existed, never revisited |
+| 2 | A daemon needs restarting | `yolo host-daemon restart <name>` for any of them ([§5.1](#51-the-management-surface-one-verb-over-the-host-scoped-set)); the OpenAI one also has an implicit kill-and-replace | **Decided and built** 2026-09-20 — it was an expired scope, not a shortcut |
 | 3 | Alive but incompatible | Warned, never killed | **Decided, with the trade stated** |
 | 4 | Two yolo versions on one host | The older daemon keeps serving; the newer yolo warns and continues | **Decided** — the same ruling as mode 3 |
 | 5 | A daemon nobody is using | Runs forever | **Unowned** — no code or doc takes a position |
@@ -362,27 +422,29 @@ hour ago. [OQ-HD5](#OQ-HD5).
 
 ### Mode 2: it needs restarting
 
-The sharpest gap, and a ruling that expired rather than a shortcut. The lifecycle engine
-generalized when `scope: "host"` landed — `SingletonDeps` derives every path from a loophole
-name — but the CLI did not, and the reason recorded at the time was that "the broker is the
-only loophole that declares it today"
-([`brokerlifecycle.go`](../../internal/broker/brokerlifecycle.go), package comment). That
-premise stopped being true on 2026-09-15.
+Answered and built: the verb is
+[§5.1](#51-the-management-surface-one-verb-over-the-host-scoped-set). What is worth keeping
+is WHY it was a ruling rather than an oversight, because the shape recurs.
 
-Today: `yolo broker {status,stop,restart,logs}` is wired to `RealDeps()`, the Claude
-broker's name and argv, hardcoded. The OpenAI broker has no management verb but does have an
-*implicit* kill-and-replace on `yolo host -- codex|pi`. The AWS daemon has neither — no
-status, no logs, no stop, no restart, and nothing short of `kill(1)` will cycle it.
+**The scope EXPIRED; it was never wrong.** The lifecycle engine generalized when
+`scope: "host"` landed — `SingletonDeps` derives every path from a loophole name — and the
+CLI did not, on a reason that was true when it was written and was recorded in the code:
+"the broker is the only loophole that declares it today"
+([`brokerlifecycle.go`](../../internal/broker/brokerlifecycle.go), package comment). It
+stopped being true on 2026-09-15, and nothing was watching the premise. **A comment stating
+a count is a claim with an expiry date and no alarm on it** — which is why the replacement
+comment says not to restore one.
 
 > [!WARNING]
-> **The warning printed for an incompatible daemon names the wrong command for two of the
-> three.** `startHostSingleton` is generic — it interpolates the loophole's name into the
-> message — and then ends with `Fix it with: yolo broker restart`, which for
-> `openai-auth-broker` or `aws-auth` restarts a different daemon and leaves the broken one
-> running. This is the exact class the sibling warning already fixed deliberately:
-> `reportFailedSpawn` names the loophole from the record precisely because "a warning that
-> hardcodes one loophole's name is the half of a generalization that gets left behind."
-> [OQ-HD2](#OQ-HD2).
+> **A wrong instruction inside the sentence presenting itself as the fix is the worst place
+> for one**, and that is where this landed: `startHostSingleton` interpolated the loophole's
+> name into every clause of the incompatible-daemon warning and then ended
+> `Fix it with: yolo broker restart` — which for `openai-auth-broker` or `aws-auth` cycles a
+> different daemon and leaves the broken one running, at the moment its owner is being told
+> their token refresh is silently broken. The sibling warning had already been fixed
+> deliberately (`reportFailedSpawn` names the loophole from the record, "a warning that
+> hardcodes one loophole's name is the half of a generalization that gets left behind") and
+> this one was not. **When you generalize a mechanism, grep the strings it prints.**
 
 ### Modes 3 and 4: alive but wrong, and two yolo versions
 
@@ -391,7 +453,8 @@ These are one ruling, and it is the sharpest thing in this area — and it is
 the loophole moved behind a front is still listening at the same path and will consume the
 front's connection preamble *as the client's request*, so every request fails while every
 liveness surface reports green, because every one of them is a connect-and-close. The
-instrument is the stamp; the response is a warning naming `yolo broker restart`.
+instrument is the stamp; the response is a warning naming the command that cycles THAT
+daemon ([§5.1](#51-the-management-surface-one-verb-over-the-host-scoped-set)).
 
 **It warns and does not kill, deliberately:** two yolo versions sharing one host would
 otherwise take turns killing each other's daemon on every launch, trading a loud failure for
@@ -544,10 +607,13 @@ runs on the machine:
 | [`../guides/USER_GUIDE.md`](../guides/USER_GUIDE.md) | the host-service Lifecycle list: "When the container exits, yolo sends `SIGTERM` to each service, waits 5 seconds, then `SIGKILL`" | no host-scope carve-out, so it states the opposite of the ruling in [§2](#2-the-picture) — it tells a reader a jail ending kills the daemon |
 
 What each new member costs today, all of it paid silently: a process that outlives every
-jail with no way to stop it short of `kill(1)`; a permanent `/tmp` quartet on a path with no
-user and no version component; an unrotated append-only log; a row `yolo check` will not
-report and `yolo broker` will not manage; and one more place the incompatibility warning
-points at the wrong command. [OQ-HD7](#OQ-HD7).
+jail, with no reaper and no owner; a permanent `/tmp` quartet on a path with no user and no
+version component; an unrotated append-only log; and a row `yolo check` will not report,
+which is the last name-bound surface. Two items left this list on 2026-09-20 — management
+and the incompatibility warning both derive the name now
+([§5.1](#51-the-management-surface-one-verb-over-the-host-scoped-set)) — and that is the
+shape of the answer to the rest: **the cost of a new member is whatever is still
+enumerated.** [OQ-HD7](#OQ-HD7).
 
 ---
 
@@ -556,8 +622,9 @@ points at the wrong command. [OQ-HD7](#OQ-HD7).
 - **The wire.** Transport, preamble, `publishes` / `request_end` and the two server shapes
   belong to [`../reference/loophole-transport.md`](../reference/loophole-transport.md).
 - **Whether the endpoint variable should be emitted by predicate rather than by two
-  hardcoded names.** That is an open roadmap ruling of its own about *argv assembly*;
-  [OQ-HD2](#OQ-HD2) is the *management-surface* half and deliberately does not decide it.
+  hardcoded names.** That is a ruling of its own about *argv assembly* — what the argv
+  promises a jail. [`OQ-HD2`](#11-decision-ledger) was the *management-surface* half — what a
+  human can type — and deliberately did not decide it.
 - **Whether a fetched pack may ship a host daemon binary** — open as
   [`OQ-BP6`](broker-as-a-pack.md#OQ-BP6). [OQ-HD7](#OQ-HD7) is about the `scope`
   declaration, not about where the program comes from.
@@ -592,25 +659,7 @@ points at the wrong command. [OQ-HD7](#OQ-HD7).
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 **OQ-HD2: Does the management surface generalize, or does `yolo broker` stay
-   Claude-only?** It is wired to one of the three singletons; the AWS daemon has no
-   management verb of any kind, and the incompatibility warning tells its owner to restart a
-   different daemon. This decides whether "who is the supervisor" has a human answer for all
-   three or for one.
-
-   <!-- vantage: oq id=OQ-HD2 leaning="Generalize it: the lifecycle engine already takes a loophole name, so the CLI is the half left behind, and a warning naming `yolo broker restart` for a non-broker daemon is that omission surfacing as a wrong instruction." -->
-
-   _Leaning:_ Generalize. `SingletonDeps` already takes a name and derives everything, so the
-   CLI is the only half that did not follow — and the wrong-command warning is that omission
-   reaching a user. The shape I would expect is a verb over the host-scoped set with the same
-   four subcommands, `broker` retained as an alias because it is in muscle memory and in the
-   docs. It is deliberately *not* the roadmap's endpoint-emission ruling: that one is about
-   what the argv promises a jail, this one about what a human can type.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. 💬 **OQ-HD3: Does the no-kill ruling still hold, now that one path already kills?**
+2. 💬 **OQ-HD3: Does the no-kill ruling still hold, now that one path already kills?**
    [`../reference/loophole-transport.md`](../reference/loophole-transport.md) rules that yolo
    names the fixing command rather than killing a skewed daemon, because two yolo versions
    would take turns restarting each other's. `ensureSingleton` takes the opposite branch for
@@ -628,7 +677,7 @@ points at the wrong command. [OQ-HD7](#OQ-HD7).
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. 💬 **OQ-HD4: Is the reclaimer's hard `SIGKILL` a ruling or an assumption?** It is
+3. 💬 **OQ-HD4: Is the reclaimer's hard `SIGKILL` a ruling or an assumption?** It is
    defensible today — the candidate set is one jail's own `/proc`, the match is full-argv
    equality, and none of the four jail daemons holds unflushed state
    ([§7](#7-the-jail-side-has-a-supervisor-and-it-just-got-harder)). But it is defensible
@@ -646,7 +695,7 @@ points at the wrong command. [OQ-HD7](#OQ-HD7).
    **Answer:**
    > _(empty — fill in when decided)_
 
-5. 💬 **OQ-HD5: Is silent degradation until the next launch the right answer to a mid-session
+4. 💬 **OQ-HD5: Is silent degradation until the next launch the right answer to a mid-session
    death?** The front stays published and drops every request with an audit record nobody
    reads. The launch-time reachability witness is *fatal* for exactly this condition — so the
    system refuses a jail that starts without the daemon and says nothing when the same jail
@@ -662,7 +711,7 @@ points at the wrong command. [OQ-HD7](#OQ-HD7).
    **Answer:**
    > _(empty — fill in when decided)_
 
-6. 💬 **OQ-HD6: Should anything ever stop an unused singleton, and on what predicate?**
+5. 💬 **OQ-HD6: Should anything ever stop an unused singleton, and on what predicate?**
    Nothing does, and nothing states that as a position. The obstacle is real: the daemon does
    not know its clients, the rendezvous cannot carry that, and this repo's own rule is that a
    reaper which cannot ask declines rather than sweeping. [OQ-HD1](#OQ-HD1) makes this urgent
@@ -679,7 +728,7 @@ points at the wrong command. [OQ-HD7](#OQ-HD7).
    **Answer:**
    > _(empty — fill in when decided)_
 
-7. 💬 **OQ-HD7: May a pack declare `scope: "host"` freely?** Today it may: selecting the pack
+6. 💬 **OQ-HD7: May a pack declare `scope: "host"` freely?** Today it may: selecting the pack
    is the whole gate, and the cost list in [§8](#8-one-became-three-and-nothing-noticed) is
    paid silently — including three documents that went wrong when the set grew, because
    nothing enumerates it. This decides whether the other questions are about three daemons or
@@ -697,7 +746,7 @@ points at the wrong command. [OQ-HD7](#OQ-HD7).
    **Answer:**
    > _(empty — fill in when decided)_
 
-8. 💬 **OQ-HD8: Is one user per host a supported assumption or a documented non-goal?** The
+7. 💬 **OQ-HD8: Is one user per host a supported assumption or a documented non-goal?** The
    rendezvous has no user component, and the ruling that put the name there argues from a
    singleton having no *jail* to be keyed by — it says nothing about users. On a host where
    two people share `/tmp`, the second one's launch cannot take the 0644 lock file, cannot
@@ -714,3 +763,11 @@ points at the wrong command. [OQ-HD7](#OQ-HD7).
 
    **Answer:**
    > _(empty — fill in when decided)_
+
+---
+
+## 11. Decision Ledger
+
+| ID | Ruling / Decision | Date | Settled in | Built |
+| :--- | :--- | :--- | :--- | :--- |
+| <a id="OQ-HD2"></a>[`OQ-HD2`](#11-decision-ledger) | **Generalize the management surface.** One verb — `yolo host-daemon {status,stop,restart,logs} [<name>]` — over the host-scoped set, derived from the `scope: "host"` declarations joined with the rendezvous files on disk, never from a list. `broker` is retained as an alias for `host-daemon <verb> claude-oauth-broker`, resolved from the broker's own constants so it survives an empty discovery. A bare invocation means the SET for `status` and is refused for the three verbs that act. Every message, including every failure path, names its daemon — which is what fixes the incompatible-daemon warning at its source. Deliberately not the endpoint-emission question ([§9](#9-what-this-doc-does-not-cover)) | 2026-09-20 | [§5.1](#51-the-management-surface-one-verb-over-the-host-scoped-set) | ✅ |

@@ -387,11 +387,70 @@ func storesOptions(args []string) stores.Options {
 	return opts
 }
 
+const hostDaemonUsage = `Usage: yolo host-daemon <subcommand> [<name>]
+
+Manage this machine's HOST-WIDE DAEMONS: the processes that run one per host,
+outside every jail, serving all of them — the Claude OAuth broker among them. A
+loophole creates one by declaring ` + "`host_daemon.scope: \"host\"`" + ` in its manifest, and
+that declaration is the only thing that puts a name in this list: yolo derives the
+set, it does not carry one.
+
+Nothing supervises these daemons. A launch ENSURES the ones it needs and never
+looks again, so this is the whole of the human-facing lifecycle: see one, stop
+one, cycle one after a yolo upgrade, read its log.
+
+Subcommands:
+  status [<name>]     One daemon's pid, socket, whether the socket is ACCEPTING,
+                      and a healthy verdict. With no name: every daemon in the
+                      set. Exit 1 if any reported daemon is not healthy.
+  stop <name>         Stop it. The next launch that wants it ensures it again.
+  restart <name>      Stop it and start a fresh one — the fix for a daemon that
+                      is alive but speaks an older wire contract than this yolo.
+  logs <name> [flags] Print its log.
+
+THE NAME IS REQUIRED BY EVERY VERB THAT ACTS. Only ` + "`status`" + ` defaults to the whole
+set, because it reports rather than acts; ` + "`stop`" + `, ` + "`restart`" + ` and ` + "`logs`" + ` refuse and
+list the set instead of picking a daemon for you. A default target across three
+daemons is how a management surface comes to act on the wrong one.
+
+logs flags:
+  -n, --lines <n>     Show the last <n> lines (default 50; also -n<n> and
+                      --lines=<n>).
+  -f, --follow        Follow the log as it grows.
+
+status flags:
+` + outputFormatUsage + `
+
+  --help, -h          Show this help.
+
+` + "`status --format json`" + ` carries one object per daemon: its loophole name, whether
+anything still declares it, the pid, the socket, whether the socket is ACCEPTING
+(an accept probe, not a protocol round trip) and a ` + "`healthy`" + ` verdict — the same
+conjunction the exit code uses, so you need not re-derive it.
+
+Examples:
+  yolo host-daemon status                     # every host-wide daemon
+  yolo host-daemon status --format json       # the same, for a script or an agent
+  yolo host-daemon restart aws-auth           # cycle one wedged daemon
+  yolo host-daemon logs openai-auth-broker -n 100
+
+` + "`yolo broker <subcommand>`" + ` is the retained alias for the Claude OAuth broker, and
+is exactly ` + "`yolo host-daemon <subcommand> claude-oauth-broker`" + `.
+` + "`yolo loopholes list`" + ` shows which loopholes this machine has and whether they are
+wired into a jail.`
+
 const brokerUsage = `Usage: yolo broker <subcommand>
 
 Manage the Claude OAuth broker: the host daemon that SERIALIZES Claude OAuth
 refreshes, so several jails sharing one account cannot race and burn the
 single-use refresh token. It runs on your machine, outside every jail.
+
+THIS IS AN ALIAS. ` + "`yolo broker <subcommand>`" + ` means
+` + "`yolo host-daemon <subcommand> claude-oauth-broker`" + `, and the broker is one of
+several host-wide daemons: see ` + "`yolo host-daemon --help`" + ` for the others and for
+the surface this one is a shortcut into. It is retained because it is in muscle
+memory and in the docs, and it always resolves to the Claude singleton — never to
+whichever daemon happens to be running.
 
 Subcommands:
   status              Whether the broker is running, its pid and socket, and the
@@ -423,8 +482,39 @@ Examples:
 The broker is a loophole: ` + "`yolo loopholes list`" + ` shows whether it is wired into
 this jail, and ` + "`yolo config-ref`" + ` documents the ` + "`loopholes`" + ` key that enables it.`
 
-// runBroker dispatches `yolo broker {status,stop,restart,logs}`. args is the
-// rewritten argv[1:] (args[0]=="broker").
+// runHostDaemon dispatches `yolo host-daemon {status,stop,restart,logs} [<name>]`,
+// the management verb over the HOST-SCOPED SET.
+//
+// The set is derived per invocation from the manifests this machine can read plus
+// the rendezvous files on its disk (broker.Singletons) — never from a list here,
+// which is precisely how `yolo broker` stayed at one daemon while three came to
+// exist (OQ-HD2, docs/design/host-daemon-ownership.md).
+func runHostDaemon(args []string) int {
+	if answerHelp(broker.HostDaemonVerb, args, os.Stdout) {
+		return 0
+	}
+	var sub string
+	var rest []string
+	if len(args) > 1 {
+		sub = args[1]
+		rest = args[2:]
+	}
+	format, ok := parseOutputFormat(broker.HostDaemonVerb, args, os.Stderr)
+	if !ok {
+		return 2
+	}
+	name, rest := hostDaemonTarget(rest)
+	return hostDaemonDispatch(broker.HostDaemonVerb, sub, name, rest, format)
+}
+
+// runBroker dispatches `yolo broker {status,stop,restart,logs}` — the ALIAS,
+// resolving to the Claude singleton and to nothing else. args is the rewritten
+// argv[1:] (args[0]=="broker").
+//
+// It resolves through broker.BrokerSingleton()'s own constants rather than through
+// discovery, so the alias keeps working exactly where discovery is empty: in a
+// jail, on a host whose `packs` list does not name claude, in any process that
+// staged nothing. The daemon it manages is at a path that has not moved.
 func runBroker(args []string) int {
 	// Answered here rather than in the `default:` branch below, which is MISUSE:
 	// help is a request (stdout, exit 0), misuse is an error (stderr, exit 1), and
@@ -443,11 +533,21 @@ func runBroker(args []string) int {
 	if !ok {
 		return 2
 	}
-	deps := broker.CLIRealDeps()
-	deps.Format = format
+	return hostDaemonDispatch("broker", sub, broker.BrokerLoopholeName, rest, format)
+}
+
+// hostDaemonDispatch is the ONE body both front doors run: the alias and the
+// general verb differ in how the target NAME is chosen and in nothing else.
+//
+// verb is the command the user typed, so every message this prints is a command
+// they can retype. name is "" only from the general verb with no name given,
+// which `status` reads as "the whole set" and the three acting verbs refuse.
+func hostDaemonDispatch(verb, sub, name string, rest []string, format string) int {
 	switch sub {
 	case "status":
-		return broker.PrintStatus(deps)
+		if name == "" {
+			return hostDaemonSetStatus(format)
+		}
 	case "stop", "restart", "logs":
 		// REFUSED, not ignored, on the three verbs that ACT. `status` is the only
 		// one that reports state; the others stop, cycle or tail, and answering a
@@ -459,25 +559,122 @@ func runBroker(args []string) int {
 			// that starts with two dashes as a flag the handler PARSES, so a
 			// continuation line beginning "--format json` does." becomes a demand
 			// that the help document a flag spelled with a sentence in it.
-			fmt.Fprintf(os.Stderr, "yolo broker %s: --format json is not available here "+
-				"— this verb acts, it does not report state. Only `yolo broker "+
-				"status` reports, and it takes the flag.\n", sub)
+			fmt.Fprintf(os.Stderr, "yolo %s %s: json output is not available here "+
+				"— this verb acts, it does not report state. Only `yolo %s "+
+				"status` reports, and it takes the flag.\n", verb, sub, verb)
 			return 2
 		}
-		return runBrokerAction(deps, sub, rest)
+		if name == "" {
+			// A DEFAULT TARGET IS THE DEFECT, so there is not one: acting on "the
+			// first" or "the broker" is how a generic verb comes to cycle a daemon
+			// nobody named. Exit 2 (misuse), with the derived set for the retype.
+			fmt.Fprintf(os.Stderr, "yolo %s %s: name the host-wide daemon to act on.\n  %s\n",
+				verb, sub, hostDaemonNames())
+			return 2
+		}
 	default:
-		fmt.Fprintf(os.Stderr, "Usage: yolo broker {status|stop|restart|logs}\n")
+		fmt.Fprintf(os.Stderr, "Usage: yolo %s {status|stop|restart|logs}\n", verb)
 		return 1
 	}
+
+	target, ok := resolveHostDaemon(verb, name)
+	if !ok {
+		return 2
+	}
+	deps := broker.CLIDepsFor(target)
+	deps.Format = format
+	if sub == "status" {
+		return broker.PrintStatus(deps)
+	}
+	return hostDaemonAction(deps, sub, rest)
 }
 
-// runBrokerAction runs the three broker verbs that ACT rather than report:
-// stop, restart, and logs (with logs' own -n/--lines and -f/--follow parse).
+// resolveHostDaemon turns a NAME into the singleton record the command bodies act
+// on, refusing a name the derived set does not hold — by name, with the set
+// listed.
 //
-// Split out of runBroker so the `--format json` refusal above is ONE branch
-// covering all three, instead of the same three-line guard copy-pasted into each
-// case — the shape where the fourth verb added later quietly gets no guard.
-func runBrokerAction(deps broker.CLIDeps, sub string, rest []string) int {
+// The Claude broker resolves from this package's own constants when discovery does
+// not hold it, which is what makes `yolo broker` an alias rather than a second
+// surface that can go dark: see runBroker.
+func resolveHostDaemon(verb, name string) (broker.Singleton, bool) {
+	set := broker.Singletons(hostDaemonWorkspace())
+	if s, ok := broker.ResolveSingleton(set, name); ok {
+		return s, true
+	}
+	fmt.Fprintf(os.Stderr, "yolo %s: %s\n", verb, broker.UnknownSingleton(name, set))
+	return broker.Singleton{}, false
+}
+
+// hostDaemonSetStatus reports every member of the derived set — what a bare
+// `yolo host-daemon status` means, and the only verb that defaults to all of them.
+func hostDaemonSetStatus(format string) int {
+	return broker.PrintSetStatus(broker.SetDeps{
+		Out:         os.Stdout,
+		Err:         os.Stderr,
+		Color:       true,
+		IsTTYStdout: isTTYStdout,
+		Format:      format,
+		Set:         broker.Singletons(hostDaemonWorkspace()),
+		For:         broker.CLIDepsFor,
+	})
+}
+
+// hostDaemonNames renders the derived set for a refusal, so a user who omitted the
+// name learns what the choices are on THIS machine rather than being sent to a doc.
+func hostDaemonNames() string {
+	set := broker.Singletons(hostDaemonWorkspace())
+	if len(set) == 0 {
+		return "This machine declares no host-wide daemon and is running none."
+	}
+	names := make([]string, 0, len(set))
+	for _, s := range set {
+		names = append(names, s.Name)
+	}
+	return "Known: " + strings.Join(names, " ")
+}
+
+// hostDaemonWorkspace is the tree the PLACEMENT rule judges a daemon's program
+// against — the cwd, which is the workspace a launch from here would mount :rw.
+// An unreadable cwd narrows the rule to the jail-home tree rather than disabling
+// it, which is the same degradation the doctor path takes.
+func hostDaemonWorkspace() string {
+	ws, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return ws
+}
+
+// hostDaemonTarget splits the daemon NAME out of a verb's remaining argv: the
+// first bare token that is not a flag and not a flag's VALUE.
+//
+// The value skip is not decoration — `yolo host-daemon logs -n 100 aws-auth`
+// would otherwise resolve to a daemon called "100", and report an unknown name
+// while the real one sat later in the same argv.
+func hostDaemonTarget(rest []string) (string, []string) {
+	valueFlags := map[string]bool{"-n": true, "--lines": true, "--format": true}
+	for i := 0; i < len(rest); i++ {
+		a := rest[i]
+		if valueFlags[a] {
+			i++
+			continue
+		}
+		if strings.HasPrefix(a, "-") {
+			continue
+		}
+		out := append(append([]string{}, rest[:i]...), rest[i+1:]...)
+		return a, out
+	}
+	return "", rest
+}
+
+// hostDaemonAction runs the three verbs that ACT rather than report: stop,
+// restart, and logs (with logs' own -n/--lines and -f/--follow parse).
+//
+// Split out of the dispatcher so the json refusal above is ONE branch covering all
+// three, instead of the same three-line guard copy-pasted into each case — the
+// shape where the fourth verb added later quietly gets no guard.
+func hostDaemonAction(deps broker.CLIDeps, sub string, rest []string) int {
 	switch sub {
 	case "stop":
 		return broker.Stop(deps)

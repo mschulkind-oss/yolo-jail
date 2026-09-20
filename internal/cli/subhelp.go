@@ -102,6 +102,7 @@ var subcommandUsage = map[string]subUsage{
 	// owns the flags it documents; this table stays the one complete inventory.
 	"stores":                {text: stores.Usage},
 	"loopholes":             {text: loopholesUsage, valueFlags: []string{"--format"}},
+	"host-daemon":           {text: hostDaemonUsage, valueFlags: []string{"-n", "--lines", "--format"}},
 	"broker":                {text: brokerUsage, valueFlags: []string{"-n", "--lines", "--format"}},
 	"init":                  {text: initUsage, valueFlags: []string{"--mount", "-m"}},
 	"init-user-config":      {text: initUserConfigUsage},

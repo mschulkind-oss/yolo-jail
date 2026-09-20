@@ -13,22 +13,26 @@ import (
 // NOT registered here — Main intercepts it before RewriteArgv, so it never
 // participates in `--`->run rewrite semantics.
 var registry = map[string]func(args []string) int{
-	"check":                 runCheck,
-	"doctor":                runCheck, // doctor is an alias for check (same body + flag).
-	"run":                   runRun,
-	"stop":                  runStop,
-	"ps":                    runPs,
-	"loopholes":             runLoopholes,
-	"config":                runConfig,
-	"describe":              runDescribe,
-	"apply":                 runApply,
-	"host":                  runHost,
-	"check-deps":            runCheckDeps,
-	"pack":                  runPack,
-	"capture":               runCapture,
-	"config-ref":            runConfigRef,
-	"init":                  runInit,
-	"init-user-config":      runInitUserConfig,
+	"check":            runCheck,
+	"doctor":           runCheck, // doctor is an alias for check (same body + flag).
+	"run":              runRun,
+	"stop":             runStop,
+	"ps":               runPs,
+	"loopholes":        runLoopholes,
+	"config":           runConfig,
+	"describe":         runDescribe,
+	"apply":            runApply,
+	"host":             runHost,
+	"check-deps":       runCheckDeps,
+	"pack":             runPack,
+	"capture":          runCapture,
+	"config-ref":       runConfigRef,
+	"init":             runInit,
+	"init-user-config": runInitUserConfig,
+	// The host-daemon management surface and its retained alias. `broker` is
+	// `host-daemon <verb> claude-oauth-broker` and nothing else, so every existing
+	// invocation and doc reference still resolves (OQ-HD2).
+	"host-daemon":           runHostDaemon,
 	"broker":                runBroker,
 	"prune":                 runPrune,
 	"stores":                runStores,

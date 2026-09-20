@@ -1,16 +1,25 @@
-// Package broker provides the Claude OAuth broker singleton — both the lifecycle
-// engine and the `yolo broker {status,stop,restart,logs}` command bodies. The
-// broker is a host-wide daemon — one per host, serving every running jail — so
-// the lifecycle helpers inspect, probe, spawn, and kill that singleton.
+// Package broker provides the HOST-WIDE DAEMON singletons — the lifecycle engine,
+// the `yolo host-daemon {status,stop,restart,logs}` command bodies, and the
+// `yolo broker` alias over the Claude one. A host-wide daemon is one process per
+// host serving every running jail, so the lifecycle helpers inspect, probe, spawn
+// and kill such a singleton.
 //
 // THE ENGINE IS NO LONGER THE BROKER'S ALONE. `host_daemon.scope: "host"`
 // (loopholedecl.ScopeHost) is the manifest vocabulary for "one daemon per host,
 // serving every jail", and the run pipeline honors it through SingletonDeps below
 // — which is this same flock-recheck-spawn-wait sequence with the paths and the
 // argv supplied by the loophole's own record instead of by the constants here.
-// The broker is the only loophole that declares it today, and the package keeps
-// its name because the `yolo broker` COMMAND is genuinely broker-specific; what
-// generalized is the lifecycle, not the CLI.
+//
+// NEITHER IS THE CLI, SINCE OQ-HD2. This comment used to end "the broker is the
+// only loophole that declares it today, and the package keeps its name because
+// the `yolo broker` COMMAND is genuinely broker-specific" — a scope that EXPIRED
+// rather than being wrong: `openai-auth-broker` declared `scope: "host"` on
+// 2026-09-15 and `aws-auth` made it three on 2026-09-18, at which point a
+// Claude-only management verb meant one daemon with four verbs and two with none.
+// The command bodies now take a Singleton (hostdaemons.go); `broker` is retained
+// as an ALIAS resolving to the Claude one, which is why the package keeps its
+// name. Do not restore a count here — the set is derived, and the last count in
+// this comment is what dated it.
 //
 // The lifecycle engine (this file) is consumed by the command layer (brokercmd.go)
 // in the same package. Every side effect (process liveness, kill, spawn, socket
@@ -123,10 +132,10 @@ type Deps struct {
 	// diagnostics rather than for the mechanics: every path below is already
 	// derived from it, so nothing in the lifecycle reads it back. What reads it is
 	// reportFailedSpawn, whose warning used to say "the Claude OAuth broker
-	// singleton" unconditionally — true of the only `scope: "host"` loophole that
-	// ships today, and a lie the moment a second one declares it, printed at
-	// exactly the moment its daemon failed to start. An empty Name degrades to the
-	// generic phrasing rather than to a wrong one.
+	// singleton" unconditionally — true while one loophole declared
+	// `scope: "host"`, and a lie once a second one did, printed at exactly the
+	// moment its daemon failed to start. An empty Name degrades to the generic
+	// phrasing rather than to a wrong one.
 	Name        string
 	SocketPath  string
 	PIDFilePath string

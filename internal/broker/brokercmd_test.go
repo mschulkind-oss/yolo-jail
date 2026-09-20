@@ -12,6 +12,11 @@ import (
 	"time"
 )
 
+// fixtureDaemon is the host-scoped daemon the command-layer tests act on. It is
+// NOT claude-oauth-broker, so a body that names the broker rather than its
+// Singleton fails here rather than passing by coincidence.
+const fixtureDaemon = "fixture-daemon"
+
 // lifeState is a controllable Deps backed by a temp dir.
 type lifeState struct {
 	alive     map[int]bool
@@ -66,6 +71,10 @@ func newDeps(t *testing.T, st *lifeState) (CLIDeps, *bytes.Buffer) {
 	life := newLifeDeps(t, st)
 	var buf bytes.Buffer
 	return CLIDeps{
+		// A NON-BROKER fixture name, deliberately: every assertion below then
+		// fails if a body goes back to spelling "broker" (or the Claude loophole
+		// name) instead of reading the Singleton it was handed.
+		Singleton: Singleton{Name: fixtureDaemon, Declared: true, Argv: life.Argv},
 		Life:      life,
 		Out:       &buf,
 		Err:       &buf,
@@ -88,12 +97,12 @@ func TestStatusHealthy(t *testing.T) {
 	}
 	out := buf.String()
 	for _, want := range []string{
-		"Claude OAuth broker (singleton)",
+		"Host-wide daemon: " + fixtureDaemon,
 		"pid:          77  live",
 		"socket:       " + deps.Life.SocketPath + "  present",
 		"socket accept: accepting",
 		"pid file:     " + deps.Life.PIDFilePath,
-		"Broker healthy.",
+		fixtureDaemon + " is healthy.",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
@@ -118,8 +127,12 @@ func TestStatusNotRunning(t *testing.T) {
 	if !strings.Contains(out, "socket accept:") || !strings.Contains(out, "not accepting") {
 		t.Errorf("missing socket-accept line:\n%s", out)
 	}
-	if !strings.Contains(out, "Broker not fully healthy.") || !strings.Contains(out, "yolo broker restart") {
-		t.Errorf("missing cycle hint:\n%s", out)
+	// THE CYCLE HINT MUST NAME THIS DAEMON. It read `yolo broker restart`
+	// unconditionally, which for any singleton but the Claude one cycles a
+	// different process and leaves this one broken (OQ-HD2).
+	if !strings.Contains(out, fixtureDaemon+" is not fully healthy.") ||
+		!strings.Contains(out, "yolo host-daemon restart "+fixtureDaemon) {
+		t.Errorf("missing cycle hint naming %s:\n%s", fixtureDaemon, out)
 	}
 }
 
@@ -145,7 +158,7 @@ func TestStopRunning(t *testing.T) {
 	if rc != 0 {
 		t.Errorf("stop rc = %d, want 0", rc)
 	}
-	if !strings.Contains(buf.String(), "Stopped broker.") {
+	if !strings.Contains(buf.String(), "Stopped "+fixtureDaemon+".") {
 		t.Errorf("missing stopped line:\n%s", buf.String())
 	}
 	if len(st.killed) != 1 || st.killed[0] != 42 {
@@ -160,7 +173,7 @@ func TestStopNothingRunning(t *testing.T) {
 	if rc != 0 {
 		t.Errorf("stop rc = %d, want 0", rc)
 	}
-	if !strings.Contains(buf.String(), "No broker was running.") {
+	if !strings.Contains(buf.String(), "No host-wide daemon was running for "+fixtureDaemon+".") {
 		t.Errorf("missing no-broker line:\n%s", buf.String())
 	}
 }
@@ -176,7 +189,7 @@ func TestRestartSuccess(t *testing.T) {
 		t.Errorf("restart rc = %d, want 0", rc)
 	}
 	out := buf.String()
-	if !strings.Contains(out, "Broker restarted.") {
+	if !strings.Contains(out, "Restarted "+fixtureDaemon+".") {
 		t.Errorf("missing restarted line:\n%s", out)
 	}
 	if !strings.Contains(out, "socket="+deps.Life.SocketPath) {
@@ -196,7 +209,7 @@ func TestRestartFailure(t *testing.T) {
 		t.Errorf("failed restart rc = %d, want 1", rc)
 	}
 	out := buf.String()
-	if !strings.Contains(out, "Broker failed to become live after spawn.") {
+	if !strings.Contains(out, fixtureDaemon+" failed to become live after spawn.") {
 		t.Errorf("missing failure line:\n%s", out)
 	}
 	if !strings.Contains(out, "Check "+deps.LogPath) {
@@ -216,7 +229,7 @@ func TestLogsNoFile(t *testing.T) {
 	if ran {
 		t.Error("tail should not run when the log file is absent")
 	}
-	if !strings.Contains(buf.String(), "No log file yet at "+deps.LogPath) {
+	if !strings.Contains(buf.String(), "No log file yet for "+fixtureDaemon+" at "+deps.LogPath) {
 		t.Errorf("missing no-log line:\n%s", buf.String())
 	}
 }

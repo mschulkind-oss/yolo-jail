@@ -35,7 +35,14 @@ var commandHelp = []struct{ name, blurb string }{
 	// disk: prune prices what it WOULD delete, stores prices what EXISTS — including
 	// the stores nothing reclaims, which prune cannot show by construction.
 	{"stores", "Inventory every store: size, growth, what reclaims it (and what nothing does)"},
-	{"broker", "Manage the Claude OAuth broker (status|stop|restart|logs)"},
+	// The host-daemon verb, with `broker` DIRECTLY BELOW IT and saying it is an
+	// alias — the same reason `host` sits directly under `run`: a reader looking
+	// for "how do I restart the broker" reads both lines at once and learns that
+	// the broker is one of several host-wide daemons. This line said "Manage the
+	// Claude OAuth broker" and was the whole surface until 2026-09-20, while two
+	// other host-scoped daemons had no management verb at all (OQ-HD2).
+	{"host-daemon", "Manage host-wide daemons: 'host-daemon status', 'stop|restart|logs <name>'"},
+	{"broker", "Alias for 'host-daemon <verb> claude-oauth-broker' (the Claude OAuth broker)"},
 	{"loopholes", "List and self-check host-capability loopholes"},
 	{"init", "Scaffold yolo-jail.jsonc in the current workspace"},
 	{"init-user-config", "Write user-level defaults at ~/.config/yolo-jail/config.jsonc"},
