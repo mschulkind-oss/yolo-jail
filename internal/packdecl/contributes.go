@@ -1914,10 +1914,10 @@ func validateContribution(label string, c Contribution) []string {
 	// `agent`/`agents` are the AUDIENCE pair, and they are refused everywhere else for
 	// `profile`'s reason and in `profile`'s position — ahead of the kind switch, so a kind
 	// added tomorrow inherits the refusal instead of accepting a field nothing reads on it.
-	// Only `briefing` and `skills` have an audience to name: they are the two kinds whose
-	// content MANY packs merge into destinations AGENT packs name, which is the only place
-	// "who is this for?" is a question with more than one answer.
-	if c.Kind != KindBriefing && c.Kind != KindSkills {
+	// `briefing`, `skills` and `files` are the three kinds whose content MANY packs deliver
+	// into destinations AGENT packs name — the only place "who is this for?" is a question
+	// with more than one answer.
+	if c.Kind != KindBriefing && c.Kind != KindSkills && c.Kind != KindFiles {
 		for _, f := range []struct {
 			name string
 			set  bool
@@ -2023,9 +2023,10 @@ func validateContribution(label string, c Contribution) []string {
 		// borrows it from the pack that OWNS that agent), and naming both would be a content
 		// pack asserting a path it has no business knowing (briefing-audiences.md §4.1, P4).
 		//
-		// `files` is excluded from the addressed shape by the refusal above — it takes no
-		// audience — so its `into` stays unconditionally required.
-		if addressed := len(c.Agents) > 0 && c.Kind != KindFiles; addressed {
+		// `files` joins the addressed shape here: an addressed files contribution names its
+		// audience and borrows the destination from the agent pack that declares the alias,
+		// exactly as `briefing` and `skills` do — and names no `into` of its own (P4).
+		if addressed := len(c.Agents) > 0; addressed {
 			if c.Into != "" {
 				problems = append(problems, fmt.Sprintf(
 					"%s: kind %q takes \"into\" or \"agents\", not both — a contribution that "+

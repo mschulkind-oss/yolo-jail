@@ -30,6 +30,7 @@ func TestAudienceWithoutIntoValidates(t *testing.T) {
 		`{"kind":"briefing","agents":["claude"]}`,
 		`{"kind":"briefing","from":"prose/claude.md","agents":["claude","pi"]}`,
 		`{"kind":"skills","agents":["claude"]}`,
+		`{"kind":"files","from":"tree","agents":["claude"]}`,
 	} {
 		if probs := decodeOne(t, raw); probs != "" {
 			t.Errorf("an addressed contribution %s must validate with no `into`, got %q", raw, probs)
@@ -42,6 +43,7 @@ func TestDestinationIdentityValidates(t *testing.T) {
 	for _, raw := range []string{
 		`{"kind":"briefing","into":".claude/CLAUDE.md","agent":"claude"}`,
 		`{"kind":"skills","into":".claude/skills","agent":"claude"}`,
+		`{"kind":"files","from":"tree","into":".pi/agent/extensions","agent":"pi"}`,
 	} {
 		if probs := decodeOne(t, raw); probs != "" {
 			t.Errorf("a destination declaring its identity %s must validate, got %q", raw, probs)
@@ -56,9 +58,8 @@ func TestIntoStillRequiredWithoutAnAudience(t *testing.T) {
 	for _, raw := range []string{
 		`{"kind":"briefing"}`,
 		`{"kind":"skills","from":"skills"}`,
-		// `files` takes no audience at all (see below), so `agents` must not make its `into`
-		// optional either — otherwise one refusal would quietly disable another.
-		`{"kind":"files","from":"tree","agents":["claude"]}`,
+		// `files` is ADDRESSED now — its `into` comes from the agent pack's alias — so the row
+		// that used to sit here moved to TestAudienceWithoutIntoValidates above.
 	} {
 		if probs := decodeOne(t, raw); !strings.Contains(probs, `needs "into"`) {
 			t.Errorf("%s must still be refused for a missing `into`, got %q", raw, probs)
@@ -74,6 +75,7 @@ func TestIntoAndAgentsTogetherAreRefused(t *testing.T) {
 	for _, raw := range []string{
 		`{"kind":"briefing","into":".claude/CLAUDE.md","agents":["claude"]}`,
 		`{"kind":"skills","into":".claude/skills","agents":["claude"]}`,
+		`{"kind":"files","from":"tree","into":".pi/agent/extensions","agents":["pi"]}`,
 	} {
 		probs := decodeOne(t, raw)
 		if !strings.Contains(probs, `takes "into" or "agents", not both`) {
@@ -88,7 +90,6 @@ func TestAudienceFieldsRefusedOnOtherKinds(t *testing.T) {
 	refused := []struct{ raw, field string }{
 		{`{"kind":"program","bin":"claude","via":"npm","package":"c","agent":"claude"}`, "agent"},
 		{`{"kind":"program","bin":"claude","via":"npm","package":"c","agents":["claude"]}`, "agents"},
-		{`{"kind":"files","from":"tree","into":"x","agents":["claude"]}`, "agents"},
 		{`{"kind":"requires","bin":"claude","agent":"claude"}`, "agent"},
 		{`{"kind":"state","at":".acme","agents":["claude"]}`, "agents"},
 		{`{"kind":"env","vars":{"A":"1"},"agent":"claude"}`, "agent"},
