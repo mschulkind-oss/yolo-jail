@@ -297,10 +297,10 @@ test-fast:
 # Linux. Putting it on the macOS runner would mean installing `just` and
 # staticcheck there to buy coverage this pass already has, and would leave the
 # pre-commit gate — `just check-ci`, the one a contributor runs first, before any
-# runner — still blind. (That gate is a DISCIPLINE, not an installed hook: nothing
-# in this repo writes `.git/hooks/pre-commit`, which is why AGENTS.md's workflow
-# step 4 says to run it by hand.) ci.yml needs no change at all: `check-go` runs
-# `just check-ci`, so it inherits whatever this recipe grows.
+# runner — still blind. (That gate is `hooks/pre-commit`, installed per clone by
+# `just install-hooks`; git cannot track `.git/hooks`, so an uninstalled clone runs
+# it by hand instead. Either way it is the same recipe.) ci.yml needs no change at
+# all: `check-go` runs `just check-ci`, so it inherits whatever this recipe grows.
 #
 # WHY THESE TWO GOOS VALUES AND NO MORE. They are the two this tree compiles
 # under. `GOOS=windows go build ./...` does not (syscall.Kill, syscall.Stat_t,
