@@ -1,7 +1,7 @@
 ---
 title: "Extension delivery: files into agent-declared aliases"
 date: 2026-09-19
-status: in-review
+status: accepted
 tags: [pi, extensions, plugins, packs, architecture, audience, agent-plugins]
 summary: "Where this landed: contributes a file tree to an agent by name (Architecture D), against the Agent Plugins 1.0 portable standard, with YOLO as the placer and no vendor install verb. Core parses nothing because the standard namespaces client-specific components. The one real remaining choice is retiring `claude_plugins`, plus one probe that gates it."
 vantage:
@@ -58,9 +58,7 @@ review; the open questions are the few rulings still genuinely needed.
 - **Determinism depends on ordering.** The addressed-content source must be ordered and
   declared, or a derive stops being a pure function of the manifests.
 
-**Needs your ruling:** [OQ-6](#OQ-6) — a layout conflict that implementation surfaced in the
-alias, described in [§3](#3-the-candidate-architectures). The five earlier questions were ruled
-in review on 2026-09-19 ([decision ledger](#10-decision-ledger)).
+**Needs your ruling:** **None** — all six questions are ruled ([decision ledger](#10-decision-ledger)).
 
 **Reads with:** [`agent-config-distribution.md`](../research/agent-config-distribution.md)
 (the measured formats), [`pi-extension-lifecycle.md`](./pi-extension-lifecycle.md) (the fetch
@@ -172,33 +170,38 @@ catalogs).
 | **B — addressed `files` with a `target` slot** (a previous revision) | **Superseded by D.** It is D plus a second "which channel" axis beside `kind`, for a second channel that does not exist; the `target` token is dropped. |
 | **C — a native package scanner** | **Not an architecture.** A pack's tree *may* be a plugin directory, but scanning for a manifest is a source convention D consumes, not a delivery mechanism. |
 
-### Architecture D: addressed trees into agent-declared aliases
+### Architecture D: content addressed to a slot an agent pack declares
 
-Three parts, no new kind:
+Three parts, no new kind — but **two SHAPES of `files`, which the last revision got wrong by
+overloading one.**
 
-1. **The agent pack declares one files destination per agent** — the alias:
+1. **The agent pack declares a bare SLOT** — a destination that ships nothing:
    ```json
-   { "kind": "files", "agent": "pi", "from": "extensions", "into": ".pi/agent/extensions" }
+   { "kind": "files", "agent": "pi", "into": ".pi/agent/extensions" }
    ```
-2. **A content pack addresses it**, naming no path:
+   A destination carries `agent` and `into` and **no `from`**. It names where addressed content
+   lands; it does not carry content. This is exactly how a `skills`/`briefing` destination
+   already behaves — `into` with the content arriving from elsewhere.
+2. **Content is ADDRESSED, by whoever ships it — including the agent pack's own:**
    ```json
-   { "kind": "files", "agents": ["pi"], "from": "pi-extensions" }
+   { "kind": "files", "agents": ["pi"], "from": "pi-extensions" }   // a content pack
+   { "kind": "files", "agents": ["pi"], "from": "extensions" }      // pi shipping its own
    ```
-   Core mounts `<pack staged tree>/pi-extensions` read-only at
-   `.pi/agent/extensions/<contributing-pack>/`.
+   Core mounts each read-only at `.pi/agent/extensions/<contributing-pack>/`. **There is no
+   special case for the owning pack** — it addresses itself like every other pack, so **nothing
+   lands at the slot ROOT and the slot is never itself a mount.** That single rule is what the
+   previous revision lacked, and it is why the root-vs-nested mount conflict cannot arise.
 3. **The owning pack's `derive.lua` sees what was delivered** and decides activation. Pi does
    nothing (auto-discovery); Claude writes `enabledPlugins`. That source is
    [§6](#6-what-a-derive-may-read--the-rule-being-sharpened).
 
-> [!WARNING]
-> **Implementation surfaced a layout conflict, and it needs a ruling before the jail notch
-> lands ([OQ-6](#OQ-6)).** The owning pack's own content mounts at the alias ROOT
-> (`.pi/agent/extensions`) while an addressed pack mounts at `<alias>/<pack>` — a bind mount
-> nested inside another bind mount whose source is `:ro`. The inner mount point must then exist
-> inside the outer's read-only tree or the mount fails, which is the same EROFS class this
-> design set out to remove. Either every contribution that targets an alias namespaces under
-> `<alias>/<pack>` (the owner's own included), or a files destination must be allowed to declare
-> the alias WITHOUT carrying content.
+> [!NOTE]
+> **Why this shape, and not a slot that also carries a tree.** The last revision let the agent
+> pack ship its own `extensions/` *at the slot root*, which made the slot a mount with an
+> addressed mount nested inside it — an EROFS-class failure ([§9](#9-open-questions)). It got
+> there by piggybacking a **destination** onto the **content** kind and inheriting `files`'s
+> `from`-required rule. Splitting the two shapes (a destination carries no `from`; content always
+> does) removes the overload and the conflict together.
 
 ## 4. Why D and not A/B/C
 
@@ -209,8 +212,9 @@ with the pack that owns the directory. The full comparison is not worth a second
 ## 5. How D runs
 
 1. [`internal/packdecl/contributes.go`](../../internal/packdecl/contributes.go) — allow
-   `agent`/`agents` on `kind: "files"` by narrowing the blanket refusal. The existing
-   `into`-xor-`agents` rule then applies unchanged.
+   `agent`/`agents` on `kind: "files"`, keep `into`-xor-`agents`, and **split `from`: required
+   on an addressed contribution, forbidden on a destination.** A destination that carries `from`
+   is the overload [§3](#3-the-candidate-architectures) removes.
 2. [`internal/packload/mergedest.go`](../../internal/packload/mergedest.go) — extend
    destination borrowing to `files`; enforce one destination per agent.
 3. [`internal/cli/run/packfiles.go`](../../internal/cli/run/packfiles.go) — the directory
@@ -278,58 +282,11 @@ and is measured, but it reproduces the vendor cache layout, which is the thing
 
 ## 9. Open questions
 
-1. 💬 **OQ-6: How does an agent pack declare a files alias without claiming the alias root?**
-
-   **What the layout asks for.** [§3](#3-the-candidate-architectures) has two packs writing
-   into one agent's extension directory:
-
-   - the **agent pack** ships a tree and names the alias root —
-     `{"kind":"files","agent":"pi","from":"extensions","into":".pi/agent/extensions"}`;
-   - a **content pack** ships a tree and names only the audience —
-     `{"kind":"files","agents":["pi"],"from":"pi-extensions"}` — which lands at
-     `.pi/agent/extensions/<content-pack>/`.
-
-   **Why that is two mounts, one inside the other.** Every `files` contribution becomes one bind
-   mount (`-v <staged tree>:/home/agent/<dest>:ro`). So the agent pack mounts its `extensions/`
-   **at** `.pi/agent/extensions`, and the content pack mounts its tree **at**
-   `.pi/agent/extensions/matt` — a path living *inside* the first mount.
-
-   **Why the outer mount exists at all — and why it need not.** It exists *only* because the
-   design loads the agent pack's **own** `from` tree at the alias root (the `extensions/` in the
-   example above). If the agent pack declares a **pure slot** — an alias with no content of its
-   own — the outer mount pulls in nothing and should not be made at all. That is the fix: both
-   resolutions below remove the root mount, by namespacing the owner's own content alongside
-   everyone else's, or by letting a destination carry no `from`.
-
-   **Why the inner mount fails.** The runtime creates the inner mount point *before* it applies
-   the outer mount, so the empty directory it creates is then covered by the agent pack's tree,
-   and the inner mount lands on a path that must already exist **inside that read-only tree**. A
-   bind mount cannot create a directory in a `:ro` source, so it fails — the same `EROFS` /
-   `read-only file system` class this design set out to remove. The agent pack would have to ship
-   a pre-made subdirectory for every pack that might ever address it, which it cannot know.
-
-   **Two ways out** (the leaning picks one): either *every* contribution that targets an alias —
-   the agent pack's own included — is namespaced under `<alias>/<pack>`, so the alias root is
-   never itself a mount; or a `files` **destination** is allowed to omit `from`, so an agent pack
-   can declare a pure alias slot that claims no content and mounts nothing at the root.
-
-   **What this blocks.** Slices 1 and 2 are landed (validation, and host-notch borrowing); slice 3
-   — the jail's `<alias>/<pack>` join — was written, hit this, and was reverted pending the
-   ruling.
-
-   <!-- vantage: oq id=OQ-6 leaning="Namespace EVERY files contribution that targets an alias under <alias>/<pack>, the owner's own included — one rule, no root mount, and OQ-4's per-pack subdirectory applied uniformly." -->
-
-   _Leaning:_ Namespace **every** alias-targeting contribution under `<alias>/<pack>`, the
-   owner's own included. One rule, no exception, no root mount, and the per-pack subdirectory
-   rule ([OQ-4's ruling](#10-decision-ledger)) applied uniformly. The cost is that a pack's own
-   extension then lives in a subdirectory and needs an `index.ts` (standard Pi packaging) — the
-   migration that same ruling already implies. The narrower alternative — let a files DESTINATION
-   omit `from`, making the alias a pure slot — avoids the `index.ts` requirement but puts a second
-   shape on the kind and leaves the owner's own content to be delivered as an addressed
-   contribution instead.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+**None.** The five earlier questions were ruled in review on 2026-09-19, and this review resolved
+the sixth — the alias-root layout — by **removing the overload that created it**. A `files`
+destination is a bare slot (no `from`), and every pack's content, the owner's own included, is
+addressed, so nothing mounts at the slot root. See [§3](#3-the-candidate-architectures) and the
+[decision ledger](#10-decision-ledger).
 
 ## 10. Decision ledger
 
@@ -344,4 +301,4 @@ and is measured, but it reproduces the vendor cache layout, which is the thing
 | **OQ-3** | `pi-extensions/` is the recommended source directory | 2026-09-19 | this doc | — |
 | **OQ-4** | Subdirectory per pack inside the alias | 2026-09-19 | this doc | — |
 | **OQ-5** | Support Agent Plugins 1.0 directly; a `.claude-plugin/` manifest beside the portable root is acceptable for Claude | 2026-09-19 | this doc | build |
-| **OQ-6** | — | — | — | — |
+| **OQ-6** | A `files` **destination** is a bare slot (`agent`+`into`, **no `from`**); all files content is addressed (`agents`+`from`), the owner's own included, so nothing mounts at the slot root | 2026-09-20 | [§3](#3-the-candidate-architectures) | — |
