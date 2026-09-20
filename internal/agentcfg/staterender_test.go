@@ -817,6 +817,95 @@ func TestComposeStatefulFirstMigrationDropsComputedTableWholesale(t *testing.T) 
 	}
 }
 
+// TestComposeStatefulFirstMigrationKeepsResidueUnderAnEmptyComputedTable is the
+// 2026-09-20 ruling at its narrowest (docs/design/config-ownership-and-promotion.md
+// §6.3.1): the adoption drop rests on the leaves yolo REGENERATED, and a computed
+// table that is present-and-EMPTY regenerated none, so it may claim none of the
+// file's.
+//
+// The live shape is mise on a jail with no YOLO_MISE_TOOLS pin — the render emits a
+// [tools] table so the last_render sidecar stays non-empty and trusted, which made the
+// table PRESENT while asserting nothing, and `mise use -g neovim` went with it. The
+// same shape reaches claude/settings whenever no LSP is configured.
+//
+// ⚠ Read with TestComposeStatefulFirstMigrationDropsComputedTableWholesale, which is
+// the other side and must stay true: a NON-empty computed table still takes the whole
+// key, because a leaf yolo did regenerate makes the stale-output reading available.
+// Neither test implies the other, and the two fixtures differ in exactly one thing.
+func TestComposeStatefulFirstMigrationKeepsResidueUnderAnEmptyComputedTable(t *testing.T) {
+	// `tools` is present and empty — yolo asserts no tool this boot. `flags` is the
+	// control: computed asserts a leaf inside it, so the leaf-level pass must still
+	// drop that leaf even though the table survives.
+	computed := map[string]any{
+		"tools": map[string]any{},
+		"flags": map[string]any{"yoloOwned": true},
+	}
+	current := `{"tools":{"neovim":"nightly"},"flags":{"yoloOwned":false,"userOwned":true}}`
+
+	out, err := ComposeStateful(StatefulInputs{
+		Base:              Inputs{Surface: piSurface(), Computed: computed},
+		CurrentBytes:      []byte(current),
+		LastRenderPresent: false,
+	})
+	if err != nil {
+		t.Fatalf("ComposeStateful error: %v", err)
+	}
+	got := jsonObj(t, string(out.OverlayJSON))
+
+	tools, _ := got["tools"].(map[string]any)
+	if tools == nil || tools["neovim"] != "nightly" {
+		t.Errorf("overlay tools = %v, want the user's own tool adopted — an EMPTY computed "+
+			"table regenerated no leaf, so it cannot claim this one as yolo's stale output",
+			got["tools"])
+	}
+	if rendered, _ := out.Result.ConfigMap()["tools"].(map[string]any); rendered["neovim"] != "nightly" {
+		t.Errorf("rendered tools = %v, want the adopted tool to reach the file", rendered)
+	}
+
+	// THE CONTROL, and the half a blanket "never drop under a table" rule would lose:
+	// `flags` is non-empty in computed, so the whole key is still taken.
+	if _, bad := got["flags"]; bad {
+		t.Errorf("overlay kept part of a NON-empty computed table: %v", got)
+	}
+	if rendered, _ := out.Result.ConfigMap()["flags"].(map[string]any); rendered["yoloOwned"] != true {
+		t.Errorf("rendered flags = %v, want yolo's regenerated leaf to win", rendered)
+	}
+}
+
+// TestComposeStatefulFirstMigrationStillTakesAPartlyAssertedTable pins the COST the
+// 2026-09-20 ruling did not pay off, so it is visible in the suite rather than only in
+// prose: a NON-EMPTY computed table is still taken WHOLE, including the leaves the
+// derive never asserted.
+//
+// This is claude/settings' `env` (OQ-CO13,
+// docs/design/config-ownership-and-promotion.md §6.3.2). yolo asserts ENABLE_LSP_TOOL
+// and can never own the rest of a user's environment, so "a table yolo regenerates in
+// full" is false there by construction — yet AWS_PROFILE below goes with it.
+//
+// ⚠ IT IS PINNED, NOT ENDORSED. Closing it needs the half of the signal that does not
+// exist (see dropComputedTables): the computed table's key set already says exactly
+// which leaves the derive asserted, and says nothing about whether the derive fills
+// the table. When OQ-CO13 lands, this test is the one to invert — and inverting it
+// must leave TestComposeStatefulFirstMigrationDropsComputedTableWholesale green, or
+// the resurrection class came back with it.
+func TestComposeStatefulFirstMigrationStillTakesAPartlyAssertedTable(t *testing.T) {
+	computed := map[string]any{"env": map[string]any{"ENABLE_LSP_TOOL": "1"}}
+	current := `{"env":{"ENABLE_LSP_TOOL":"1","AWS_PROFILE":"mine"}}`
+
+	out, err := ComposeStateful(StatefulInputs{
+		Base:              Inputs{Surface: piSurface(), Computed: computed},
+		CurrentBytes:      []byte(current),
+		LastRenderPresent: false,
+	})
+	if err != nil {
+		t.Fatalf("ComposeStateful error: %v", err)
+	}
+	if got := jsonObj(t, string(out.OverlayJSON)); got["env"] != nil {
+		t.Errorf("overlay env = %v — if this now KEEPS AWS_PROFILE, OQ-CO13 was closed and "+
+			"this test should be inverted rather than deleted", got["env"])
+	}
+}
+
 // TestComposeStatefulSteadyStateKeepsTombstoneUnderManagedObject guards the one
 // asymmetry in the narrowing: the rule drops only what is PROVABLY dead from the
 // (overlay, owner) pair alone, and a null tombstone under an OBJECT-valued owner

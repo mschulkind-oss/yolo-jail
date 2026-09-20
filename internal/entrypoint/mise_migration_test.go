@@ -11,9 +11,20 @@ import (
 // (docs/reference/config-migration-to-prism.md §4.1). The bespoke in-place editor
 // (GenerateMiseConfig) is gone; ConfigureMisePrism composes the surface through
 // the engine. The §4.1 guarantee — a stale yolo-written default runtime line no
-// longer shadows the baked /bin/<tool> — is now delivered by the prism's
-// first-migration seed (an empty-overlay render that DISCARDS the on-disk file,
-// staterender.go §3.2), not by a special-case scrub.
+// longer shadows the baked /bin/<tool> — was delivered by the prism's
+// first-migration seed rather than by a special-case scrub.
+//
+// ⚠ THE NO-PIN HALF OF THAT GUARANTEE IS WITHDRAWN, by the 2026-09-20 adoption ruling
+// (docs/design/config-ownership-and-promotion.md §6.3.1): the adoption drop narrows to
+// the leaves yolo actually asserted, and on a jail with no YOLO_MISE_TOOLS pin the
+// computed [tools] table is present-and-EMPTY — it asserts none. So a line in that
+// table is no longer taken to be yolo's own stale output, because nothing this boot
+// regenerated can claim it. The scrub still runs for a jail that DOES pin something
+// (TestMisePrismInjectedPinLands: the unpinned sibling is dropped), which is where
+// yolo has a regenerated table to claim the file's contents against.
+//
+// What that buys is the loss the same ruling names: `mise use -g neovim` on an
+// unpinned jail used to be deleted on the first prism boot, and no longer is.
 
 // newMiseEnv builds a test Env whose Home and Workspace are temp dirs, so the
 // prism sidecars land under a throwaway workspace (never the live /workspace).
@@ -39,13 +50,24 @@ func writeMiseConfig(t *testing.T, home, content string) string {
 	return cfg
 }
 
-// TestMisePrismFirstMigrationDropsStaleRuntimes is the §4.1 fix, delivered by the
-// prism: an existing jail's config.toml carrying the old yolo-written default
-// runtime lines (node/python/go) has them dropped on the first prism boot,
-// because the first-migration render composes from the (empty) yolo layers and
-// discards the on-disk file — the stale lines are in no layer, so they vanish.
-func TestMisePrismFirstMigrationDropsStaleRuntimes(t *testing.T) {
-	e := newMiseEnv(t, nil) // no YOLO_MISE_TOOLS pin
+// TestMisePrismFirstMigrationKeepsRuntimesUnderAnEmptyComputedTable is the §4.1 case
+// AFTER the 2026-09-20 ruling, and it is the same fixture with the opposite verdict —
+// kept as one test so the reversal is legible rather than looking like a deleted
+// guarantee.
+//
+// An existing jail's config.toml carries the old yolo-written runtime lines
+// (node/python/go) and yolo pins NOTHING this boot, so the computed [tools] table is
+// present-and-empty. The adoption drop used to take the whole table on the strength of
+// that presence; it no longer does, because an empty table regenerated no leaf and so
+// can claim none of the file's as its own previous output. The lines look stale and
+// are indistinguishable — from here — from `mise use -g node@22` typed by hand, which
+// is the loss B1 exists to refuse.
+//
+// ⚠ This is the test to come to if the §4.1 scrub is ever wanted back for an unpinned
+// jail: it needs a record of what yolo WROTE, not the shape of what it computes, and
+// the first migration is defined by that record being absent.
+func TestMisePrismFirstMigrationKeepsRuntimesUnderAnEmptyComputedTable(t *testing.T) {
+	e := newMiseEnv(t, nil) // no YOLO_MISE_TOOLS pin -> computed [tools] is {}
 	cfg := writeMiseConfig(t, e.Home,
 		"[tools]\nnode = \"22\"\npython = \"3.13\"\ngo = \"latest\"\n")
 
@@ -53,9 +75,10 @@ func TestMisePrismFirstMigrationDropsStaleRuntimes(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(mustRead(t, cfg))
-	for _, stale := range []string{"node =", "python =", "go ="} {
-		if strings.Contains(s, stale) {
-			t.Errorf("stale baked runtime %q not dropped by the first-migration render:\n%s", stale, s)
+	for _, kept := range []string{"node =", "python =", "go ="} {
+		if !strings.Contains(s, kept) {
+			t.Errorf("runtime %q was dropped, but yolo asserted no [tools] leaf this boot "+
+				"— an empty computed table may not claim the file's own lines:\n%s", kept, s)
 		}
 	}
 }
@@ -100,26 +123,32 @@ func TestMisePrismInjectedVersionWithDollar(t *testing.T) {
 	}
 }
 
-// TestMisePrismUserGlobalToolDroppedThenPreserved pins the §3.2 accepted cost
-// AND the steady-state edit-preservation guarantee. On the FIRST prism boot a
-// hand-added global tool (`mise use -g neovim`, in no yolo layer) is dropped —
-// with no last_render baseline it is indistinguishable from stale generator
-// output. On the SECOND boot, after the user re-adds it, it is captured into the
-// overlay and preserved.
-func TestMisePrismUserGlobalToolDroppedThenPreserved(t *testing.T) {
+// TestMisePrismUserGlobalToolSurvivesBothBoots pins what the §3.2 accepted cost
+// became, AND the steady-state edit-preservation guarantee that always held.
+//
+// The cost used to be: a hand-added global tool (`mise use -g neovim`, in no yolo
+// layer) is dropped on the FIRST prism boot, because with no last_render baseline it
+// is indistinguishable from stale generator output. The 2026-09-20 ruling withdraws
+// it for this shape — yolo pins nothing here, so the computed [tools] table asserts no
+// leaf, and a drop on the strength of an empty table is a deletion with nothing behind
+// it. The tool now survives boot 1 by ADOPTION, and boot 2 by capture; the second half
+// is unchanged and is still worth pinning beside the first, because the two paths
+// reach the same file by different mechanisms and have disagreed before.
+func TestMisePrismUserGlobalToolSurvivesBothBoots(t *testing.T) {
 	e := newMiseEnv(t, nil)
 	cfg := writeMiseConfig(t, e.Home, "[tools]\nneovim = \"nightly\"\n")
 
-	// Boot 1 (first migration): the un-layered user tool is dropped.
+	// Boot 1 (first migration): the un-layered user tool is ADOPTED, not dropped.
 	if err := ConfigureMisePrism(e); err != nil {
 		t.Fatal(err)
 	}
-	if s := string(mustRead(t, cfg)); strings.Contains(s, "neovim") {
-		t.Errorf("first-migration boot should drop the un-layered user tool (accepted §3.2 cost):\n%s", s)
+	if s := string(mustRead(t, cfg)); !strings.Contains(s, `neovim = "nightly"`) {
+		t.Errorf("first-migration boot dropped the un-layered user tool, but the computed "+
+			"[tools] table is empty and asserts nothing:\n%s", s)
 	}
 
-	// User re-adds neovim after the migration boot (a genuine in-jail edit).
-	if err := os.WriteFile(cfg, []byte("[tools]\nneovim = \"nightly\"\n"), 0o644); err != nil {
+	// The user edits it after the migration boot (a genuine in-jail edit).
+	if err := os.WriteFile(cfg, []byte("[tools]\nneovim = \"stable\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -127,8 +156,8 @@ func TestMisePrismUserGlobalToolDroppedThenPreserved(t *testing.T) {
 	if err := ConfigureMisePrism(e); err != nil {
 		t.Fatal(err)
 	}
-	if s := string(mustRead(t, cfg)); !strings.Contains(s, `neovim = "nightly"`) {
-		t.Errorf("steady-state boot should preserve the re-added user tool via the overlay:\n%s", s)
+	if s := string(mustRead(t, cfg)); !strings.Contains(s, `neovim = "stable"`) {
+		t.Errorf("steady-state boot should preserve the edited user tool via the overlay:\n%s", s)
 	}
 }
 

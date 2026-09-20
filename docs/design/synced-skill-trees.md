@@ -509,7 +509,7 @@ Two code paths, one per host posture, both arriving there:
 | `host_management` | What replaces the table | Archive |
 | :--- | :--- | :--- |
 | `assert` — the DEFAULT | `hostTableKeys` probes the derive for object-valued keys; `regenerateManagedTables` then clears the block and rewrites it from the declared layers alone | **None.** The archive nets ADOPTION, and an `assert` render is `rmw` |
-| `own` | The first owned render adopts the file, and `dropComputedTables` strips from the residue every top-level key the computed layer holds as an object | One, named on the surface's line |
+| `own` | The first owned render adopts the file, and `dropComputedTables` strips from the residue every top-level key the computed layer holds as a NON-EMPTY object (an empty one asserts nothing and takes nothing — ruled 2026-09-20) | One, named on the surface's line |
 
 **`assert` is where the reader-trap is.** `config-ref` describes it as *"yolo owns the keys your
 packs declare and rewrites only those; every other key in the file is yours and is left byte for
@@ -521,10 +521,29 @@ promise is stated at and the granularity a user reads it at is the general hazar
 None of that is news to this corpus, which is why it belongs here as a *migration* story rather
 than a discovery: the class is tabulated in
 [`config-ownership-and-promotion.md`](config-ownership-and-promotion.md#632-the-three-classes-adoption-does-not-cover),
-the fix is [`../plans/roadmap.md`](../plans/roadmap.md)'s row `0b`, and `dropComputedTables`' own
-doc comment names `claude/settings` as the live case and states what closing it needs — *a
-leaf-level signal this function does not have (which leaves under a computed table the derive
-actually asserted)*.
+and the RULING on it is
+[that doc's §6.3.1](config-ownership-and-promotion.md#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule)
+— the section, not a routing table. (This line pointed at `roadmap.md`'s row `0b` until
+2026-09-20. A doc deferring to a planning row for an ANSWER is backwards: the row schedules
+work, the section decides what the work is.)
+
+**Two things that section changes for §8.2's measurement, both dated 2026-09-20.**
+
+1. **The leaf-level record this whole section waits on ALREADY EXISTS, in one half.**
+   `dropComputedTables`' doc comment used to say closing the case needs *"a leaf-level signal
+   this function does not have"*; MEASURED against the shipped pack, it does have one. A
+   `ctx.tombstone` decodes to a PRESENT key with a nil value, so the computed table's key set
+   IS the set of leaves the derive asserted. What is missing is the OTHER half — whether yolo
+   fills the table in full — and that is [`OQ-CO13`](config-ownership-and-promotion.md#13-decision-ledger).
+2. **An EMPTY computed table no longer takes anything**, so the `assert`-posture trap above is
+   narrower than measured: it needs the derive to be asserting something under that key on that
+   boot. With no LSP configured, `claude/settings` asserts nothing under either key.
+
+⚠ **The `assert` row of the table above is UNCHANGED by all of it.** The ruling narrowed
+`dropComputedTables`, which is the `own`/adoption path; `hostTableKeys` + `regenerateManagedTables`
+answer the same question at the host notch with the same coarse rule and were not touched — and
+that probe feeds SENTINEL live tables, so `claude/settings` reports `env` and `enabledPlugins` as
+wholesale-owned there regardless of what is configured. The measurement below still reproduces.
 
 Measured 2026-09-19 in this jail with the baked `yolo 0.9.0+45.gd4c0e7e3`, against throwaway
 homes and never a live one; the fixture is in
@@ -646,6 +665,18 @@ are regenerated, everything else under the key is residue that survives, and
 [§8.3](#83-how-to-check-your-own-case-before-the-first-apply)'s pre-flight stops being
 load-bearing because nothing is silently at stake. What that record does **not** settle on its own
 is what should happen to a leaf yolo has never asserted, which is [OQ-ST5](#OQ-ST5).
+
+> [!IMPORTANT]
+> **"Once the record exists" is half past tense as of 2026-09-20, and the sentence it disproves
+> is the one above it.** MEASURED at the jail's adoption path: a derive's leaf assertions ARE
+> recorded — the computed table's key set is exactly them, tombstones included — so the second
+> granularity is not missing in the same way the first is, and the two are no longer symmetric.
+> What is missing there is a different record: whether the derive fills the table in FULL, which
+> decides whether an unasserted leaf is the user's or yolo's own stale output
+> ([`OQ-CO13`](config-ownership-and-promotion.md#13-decision-ledger)). The narrowing this section
+> describes has shipped for the one case that needs no such record — a computed table asserting
+> NOTHING — and is blocked on it for every other
+> ([§6.3.1](config-ownership-and-promotion.md#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule)).
 
 ### 8.6 What is not covered, and what stays lost
 
@@ -876,11 +907,38 @@ once the signal exists.
    > _(empty — fill in when decided)_
 
 5. 💬 **OQ-ST5: Once yolo can tell which leaves it asserted, what happens to the ones it did
-   not?** [§8.5](#85-what-the-migration-becomes-once-the-record-exists) needs this and cannot
+   not?** **NARROWED 2026-09-20, not answered** — and the premise moved under it, which is worth
+   more than the part that got answered.
+
+   > [!IMPORTANT]
+   > **Three corrections, from
+   > [`config-ownership-and-promotion.md` §6.3.1](config-ownership-and-promotion.md#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule).**
+   >
+   > 1. **"Once yolo can tell" is already true, for half the question.** The computed table's
+   >    key set IS the set of leaves the derive asserted — a tombstone decodes to a present key
+   >    with a nil value — so this question is ANSWERABLE today, without roadmap row `0b`
+   >    landing anything. MEASURED against the shipped `claude/settings` derive.
+   > 2. **One case is DECIDED, and it is (a) preserve.** Where the computed table is
+   >    present-and-EMPTY, yolo regenerated no leaf, so it claims none: the unasserted leaves
+   >    survive the render. That is shipped, and it moved two `mise` migration goldens.
+   > 3. **The blocker on the rest is a DIFFERENT missing record than this question assumed.**
+   >    It is not "which leaves did yolo assert" (yolo knows) but "does this derive fill this
+   >    table in full" (nothing says) — [`OQ-CO13`](config-ownership-and-promotion.md#13-decision-ledger).
+   >    Measured: choosing (a) for a NON-empty table with no such declaration resurrects a
+   >    deleted MCP server and reddens six tests across two packages, which is the resurrection
+   >    class one granularity up.
+   >
+   > **What is left open here is therefore narrower and sharper than the text below:** for a
+   > table yolo DOES fill in full, is an unasserted leaf (a) preserved, (b) refused, or
+   > (c) dropped reversibly? The leaning below still stands and (a) is now strictly harder to
+   > argue for, because the empty-table case took the part of (a) that was free.
+
+   [§8.5](#85-what-the-migration-becomes-once-the-record-exists) needs this and cannot
    assume it: the leaf-level record ([`../plans/roadmap.md`](../plans/roadmap.md) row `0b`) makes
-   the question ANSWERABLE, and that is a different thing from answering it. Today the answer is
-   forced — no record, so every leaf under a regenerated table is residue and goes, named at the
-   host and archived only when the render adopts. With a record, three postures are available and
+   the question ANSWERABLE for the host notch too, and that is a different thing from answering
+   it. Where no record exists the answer is forced — every leaf under a regenerated table is
+   residue and goes, named at the host and archived only when the render adopts. With a record,
+   three postures are available and
    they are not variations of one: **(a) preserve** — an unasserted leaf survives every render,
    which is what a user with a hand-enabled plugin wants and is also how a stale entry becomes
    immortal, one granularity below the resurrection class `dropComputedTables` exists to prevent;

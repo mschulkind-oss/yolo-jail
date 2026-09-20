@@ -17,14 +17,33 @@ yolo.derive("claude", "config", function(ctx)
   return { mcpServers = servers }
 end)
 
--- settings (~/.claude/settings.json): two derivations.
+-- settings (~/.claude/settings.json): three derivations.
 --  1. tombstone mcpServers — MCP belongs in .claude.json, so strip any host
 --     settings.json copy. (Was computed[] {to: mcpServers, tombstone: true}.)
 --  2. enabledPlugins — enable the LSP plugin for each language whose LSP is
---     configured; tombstone the others so a stale enable is removed. (Was
---     computed[] flags whenPresent x3.)
---  3. env.ENABLE_LSP_TOOL — "1" when ANY LSP is configured, else tombstone.
+--     configured, and say NOTHING about the others. (Was computed[] flags
+--     whenPresent x3.)
+--  3. env.ENABLE_LSP_TOOL — "1" when ANY LSP is configured, else nothing.
 --     (Was computed[] flags whenAny.)
+--
+-- ⚠ 2 AND 3 USED TO TOMBSTONE THE UNCONFIGURED CASE, AND THAT WAS A DATA-LOSS BUG —
+-- measured on this machine 2026-09-20: the host ~/.claude/settings.json enabled
+-- pyright-lsp and gopls-lsp, the jail's composed copy held `enabledPlugins: {}`, and
+-- the three tombstones were why. A tombstone is an RFC-7386 DELETE aimed at the
+-- lower layers, and the lowest layer under this one is the user's OWN host file —
+-- so "remove a stale enable" removed the user's deliberate enable instead.
+--
+-- Nothing is owed in its place. yolo's own previous enable is not a layer: the
+-- surface is RECOMPOSED from layers every boot, so a toggle this derive stops
+-- asserting simply stops being written, and a leaf neither this derive nor a lower
+-- layer supplies is already absent. The tombstone could only ever reach past yolo's
+-- own output to the user's, which is the one thing it must not do
+-- (docs/design/config-ownership-and-promotion.md §6.3.1).
+--
+-- Both tables are therefore EMPTY rather than tombstoned when nothing is configured,
+-- which also keeps the adoption drop off them: an empty computed table asserts no
+-- leaf and so claims none of the agent's own entries under the same key
+-- (agentcfg.dropComputedTables).
 yolo.derive("claude", "settings", function(ctx)
   local plugin = {
     python     = "pyright-lsp@claude-plugins-official",
@@ -33,12 +52,14 @@ yolo.derive("claude", "settings", function(ctx)
   }
   local enabled = {}
   for lang, id in pairs(plugin) do
-    enabled[id] = ctx.lsp_servers[lang] and true or ctx.tombstone
+    if ctx.lsp_servers[lang] then enabled[id] = true end
   end
+  local env = {}
+  if next(ctx.lsp_servers) then env.ENABLE_LSP_TOOL = "1" end
   local out = {
     mcpServers = ctx.tombstone,
     enabledPlugins = enabled,
-    env = { ENABLE_LSP_TOOL = next(ctx.lsp_servers) and "1" or ctx.tombstone },
+    env = env,
   }
   -- Claude Code's picker accepts exact gateway model IDs.  The Codex Responses
   -- bridge likewise sends model IDs unchanged, so expose the subscription

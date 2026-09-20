@@ -1,7 +1,7 @@
 ---
 title: "Who owns the config file — declared host management, and the way out of capture"
 date: 2026-09-09
-status: accepted
+status: in-review
 tags: [design, config, host, capture, packs, ownership]
 summary: "yolo decides who owns an agent's config file by inferring it from the confinement notch, and the inference is wrong for anyone who adopted `yolo host apply`. Declare ownership in the user config instead, make the host render like a jail when it is owned, and build the promotion path that turns a captured in-jail edit into a declared one — the verb a shipped message already advises and nothing implements."
 vantage:
@@ -10,7 +10,14 @@ vantage:
 
 # Who owns the config file — declared host management, and the way out of capture
 
-**Status:** BUILT, 2026-09-12 — MEASURED: verification after it landed measured four gaps, and a
+**Status:** BUILT 2026-09-12, BACK IN REVIEW 2026-09-20 — a ruling reopened it. The
+adoption drop no longer takes a computed table that asserts nothing, *wholesale against
+`computed`* is withdrawn as the general rule, and the half of the signal needed to narrow
+the rest does not exist — filed as [`OQ-CO13`](#13-decision-ledger), the only open question
+here ([§6.3.1](#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule)
+carries the ruling and the measurements). Everything below it stands.
+
+MEASURED: verification after it landed measured four gaps, and a
 second pass over [`OQ-CO12`](#13-decision-ledger) found six more things.
 [§10](#10-what-i-would-build-in-order)'s eight steps all
 landed: the `host_management` key, `own`'s composing render and its capture store, host-side
@@ -56,9 +63,11 @@ settled by [`OQ-CO11`](#13-decision-ledger) on 2026-09-11. See
 
 **Start at [§4](#4-declaring-ownership--the-host_management-key)** — the key is what makes every other question answerable.
 
-**Nothing here needs a ruling, and nothing here is a question.** All twelve are settled
-([§13](#13-decision-ledger)) — eleven this design opened, and
-[`OQ-CO12`](#13-decision-ledger), which its build opened, on 2026-09-12, the last of them.
+**One thing here needs a ruling, and it is the newest row.** Every question this design
+or its build opened is settled ([§13](#13-decision-ledger)), the last of those
+([`OQ-CO12`](#13-decision-ledger)) on 2026-09-12 — and [`OQ-CO13`](#13-decision-ledger) is
+OPEN, filed 2026-09-20 by a ruling that narrowed the adoption drop and could only narrow it
+halfway ([§6.3.1](#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule)).
 ⚠ **Settled is not the same as clean, and the difference is recorded rather than rounded off.**
 Two sections carry **live residue** — measured behavior that no ruling covers and no commit closed:
 [§6.3.3](#633-what-survives-as-a-guard)'s one unnetted adoption loss, and
@@ -1335,7 +1344,83 @@ at**: leaf-level against deep-merged owners (`managed`, `defaults`,
 granularities: `dropComputedTables` wholesale against the computed layer, then the
 shared leaf-level `narrowOverlay` both branches run. A leaf under a deep-merged
 owner survives the switch, measured as a byte golden in
-`internal/entrypoint/hostassertbaseline_test.go` and its `own` twin.
+`internal/entrypoint/hostassertbaseline_test.go` and its `own` twin. (Neither golden
+carries a `computed` layer, so neither moved for what follows.)
+
+#### The drop narrows again — wholesale-against-`computed` is withdrawn as the general rule
+
+**RULED 2026-09-20.** The sentence above stops at "wholesale against the computed
+layer", and that is one word too broad. **The drop is justified only by the leaves yolo
+actually REGENERATED**, so a computed table that regenerated none may claim none.
+`dropComputedTables` now skips a key whose computed value is an **empty** object, and
+takes the key whole only for a **non-empty** one.
+
+The live shape is `mise` on a jail with no `YOLO_MISE_TOOLS` pin: the render emits a
+`[tools]` table so the `last_render` sidecar stays non-empty and trusted, which made the
+table **present while asserting nothing** — and `mise use -g neovim` went with it on the
+first prism boot. That was recorded as an accepted §3.2 cost
+(`TestMisePrismUserGlobalToolDroppedThenPreserved`) and is withdrawn as one; the same
+fixture now pins the opposite verdict under a name that says so.
+
+> [!WARNING]
+> **The §4.1 scrub loses its no-pin half, deliberately.** `mise`'s migration guarantee —
+> an old yolo-written `node`/`python`/`go` line no longer shadows the baked `/bin/<tool>`
+> — was delivered by exactly this drop. It still runs for a jail that pins *something*
+> (the unpinned sibling is dropped, `TestMisePrismInjectedPinLands`), and no longer runs
+> for a jail that pins nothing, because there the two readings — yolo's stale output, and
+> `mise use -g node@22` typed by hand — are the same bytes with nothing to tell them
+> apart. Getting it back needs a record of what yolo **wrote**, not the shape of what it
+> computes, and the first migration is defined by that record being absent.
+
+**The general rule does not survive the narrowing, and one case is why.** §6.3.2's row 1
+justified the wholesale drop as *"right for a table yolo regenerates in full"*. A derive
+does not always regenerate such a table in full, and **claude's `env` is the case that
+cannot be argued back**: yolo asserts `ENABLE_LSP_TOOL` and can never own the rest of a
+user's environment, so "fills it in full" is false there **by construction**, not by
+accident. `enabledPlugins` is the same shape and the cheaper example; `mcpServers` is the
+genuine fill-in-full table the rule was written for. One rule cannot serve both, and the
+premise that it could has expired.
+
+**What narrowing the rest needs, and why it is not here** (MEASURED 2026-09-20,
+[`OQ-CO13`](#13-decision-ledger)). The obvious fix — drop the leaves the computed table
+names, keep the rest — was tried and **reddens six tests across two packages**
+(`TestComposeStatefulFirstMigrationDropsComputedTableWholesale`, three `mise` tests,
+codex's and opencode's first-migration tests): a stale MCP server is precisely a leaf the
+derive does not name, so leaf-narrowing alone resurrects it and breaks
+[§2](#2-what-exists-today-stated-precisely) principle 1. The signal splits in two, and
+only one half exists:
+
+- **Which leaves the derive asserted** is already in the computed layer, exactly. A
+  `ctx.tombstone` decodes to a PRESENT key with a nil value, so the shipped
+  `claude/settings` derive hands the engine `enabledPlugins: {<3 ids>: nil}` — three
+  asserted leaves, not the empty table it reads like. The table's key set **is** the
+  asserted set.
+- **Whether yolo fills the table in full** is the half the bet needs, and nothing carries
+  it. Every candidate discriminator was tried and each flips on CONFIGURATION rather than
+  on intent: the key set (above), the presence of a tombstone (`env` carries none once an
+  LSP is configured), value shape (`mise`'s `[tools]` holds scalars and codex's
+  `mcp_servers` holds objects, and both are fill-in-full), and whether a lower layer also
+  contributes (true only when the user happens to have a host file).
+
+So the remaining half has to be **declared by the derive that knows it**. Until it is,
+the drop stays wholesale for a non-empty table, and
+`TestComposeStatefulFirstMigrationStillTakesAPartlyAssertedTable` pins that cost in the
+suite rather than leaving it in prose.
+
+> [!NOTE]
+> **One defect this ruling did NOT fix, because it was never this mechanism's**, and it is
+> the one that surfaced the ruling. Measured on a live jail 2026-09-20: the host
+> `~/.claude/settings.json` enabled `pyright-lsp` and `gopls-lsp`, and the jail's composed
+> copy held `enabledPlugins: {}`. That was [`packs/claude/derive.lua`](../../packs/claude/derive.lua)
+> emitting a **tombstone** for every plugin id whose LSP is unconfigured — and a tombstone
+> is an RFC-7386 delete aimed at the layers BELOW, the lowest of which is the user's own
+> host file. "Remove a stale enable" removed the user's deliberate enable, on every boot,
+> through the fold rather than through adoption. Nothing was owed in its place: the surface
+> is RECOMPOSED from layers every boot, so a toggle the derive stops asserting stops being
+> written without any delete. The tombstones are gone, and
+> `TestConfigureClaudePrismKeepsHostEnabledPluginsWithNoLSP` pins it with a host layer —
+> the only fixture shape that can tell the fix from the defect, since a render with no host
+> file is byte-identical either way.
 
 **It is not the whole of [§11](#11-success-criteria)'s criterion, and the rest is
 recorded there** rather than here: the leaf case passes, the two reformatting axes
@@ -1352,12 +1437,28 @@ deliberate line in the engine rather than an oversight:
 
 | Class | What happens | Why |
 | :--- | :--- | :--- |
-| A key nested inside a top-level object the **`computed`** layer holds — a table like `mcpServers` or claude's `env` | **not adopted** | `dropComputedTables` — right for a table yolo regenerates in full, where adopting would resurrect a dropped entry and break *regenerate, don't reconcile*. A user's own sibling under such a table is the residue that reading leaves, stated at that function |
+| A key nested inside a top-level object the **`computed`** layer holds as a **non-empty** table — `mcpServers`, `mise`'s `[tools]` with a pin, claude's `env` with an LSP configured | **not adopted** | `dropComputedTables`. Right for a table yolo regenerates in full, where adopting would resurrect a dropped entry and break *regenerate, don't reconcile* — and WRONG for one it only asserts leaves of, which is the same row and the reason the general rule was withdrawn on 2026-09-20 ([§6.3.1](#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule), [`OQ-CO13`](#13-decision-ledger)). An **EMPTY** computed table now takes nothing: it regenerated no leaf, so it can claim none |
 | A key a higher layer re-asserts — `managed`, or the per-boot `computed` layer | **never captured, in either branch** | `narrowOverlay` — both fold above the capture overlay and win unconditionally, so a captured copy could only sit in the sidecar as noise `yolo config diff` would report as a phantom edit |
 | A **keyless** surface (`raw`, `lines`) | **not adopted at all** | one "key" is the whole file, so adoption would mean "the file wins outright", freezing a host-mirrored file at stale content forever ([`staterender.go`](../../internal/agentcfg/staterender.go)) |
 
 Three things about that table are worth having in front of you before designing
 against it.
+
+> [!WARNING]
+> **Row 1's justification had a false premise, and it is kept in the table with the
+> correction beside it rather than rewritten away.** *"A table yolo regenerates in full"*
+> was read as a property of the `computed` layer's SHAPE, and it is a property of the
+> DERIVE's intent — which the shape does not carry. claude's `env` is the case that
+> settles it: yolo asserts `ENABLE_LSP_TOOL` and cannot own a user's environment, so no
+> future engine change makes "regenerates it in full" true there. Reaching the right
+> answer for both `env` and `mcpServers` needs a declaration
+> ([`OQ-CO13`](#13-decision-ledger)); until then this row is a cost, not a rule.
+>
+> ⚠ **The narrowing does not license reconciliation.** *Regenerate, don't reconcile*
+> ([§2](#2-what-exists-today-stated-precisely) principle 1) is unchanged: what the ruling
+> withdrew is the claim that an object-valued computed key PROVES the file's contents
+> under it are yolo's own previous output. Where yolo did regenerate the table, it is
+> still taken whole.
 
 **Row 1's deep-merged half is the shipped defect**
 [§6.3.1](#631-adoption-is-capture-then-regenerate) names, and `confirmHostLosses`
@@ -1888,12 +1989,17 @@ Observable outcomes that mean this was built as designed:
   > | A TOML surface's user comments | reattached in place | destroyed, and a three-line generated header prepended | conformant | unchanged |
   >
   > ⚠ **The two *"kept"* cells answer for these two axes, not for every key on the switch.** A
-  > surface declaring an object-valued `computed` table still loses the user's own leaves under
-  > that table at an adopting render: `dropComputedTables` drops such a table WHOLESALE, which
-  > is [§6.3.1](#631-adoption-is-capture-then-regenerate)'s granularity rule — leaf-level against
-  > deep-merged owners, wholesale against `computed` — and is disclosed there with its reason.
-  > Measured at HEAD on 2026-09-12 and named here because a reader who stops at this table takes
-  > the switch for lossless, which it is only where no `computed` table is declared.
+  > surface declaring a **non-empty** object-valued `computed` table still loses the user's own
+  > leaves under that table at an adopting render: `dropComputedTables` drops such a table
+  > WHOLESALE. Measured at HEAD on 2026-09-12 and named here because a reader who stops at this
+  > table takes the switch for lossless, which it is only where no such table is declared.
+  >
+  > ⚠ **Narrowed 2026-09-20, but only at one end.** A computed table that is present and EMPTY
+  > asserts no leaf and now takes none, so the loss above needs yolo to be regenerating something
+  > under that key on that render. The non-empty case stands, and *"wholesale against `computed`"*
+  > is no longer the granularity RULE it is stated as here — it is the residue of one
+  > ([§6.3.1](#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule),
+  > [`OQ-CO13`](#13-decision-ledger)).
   >
   > **Why the last two are conformant rather than tolerated.** A composing
   > renderer that sorts keys is the contract `own` *states* — the file is derived,
@@ -2143,12 +2249,53 @@ recorded rather than folded into the criterion.
 > BACKLOG's is [§5.4](#54-promotion-moves-a-key-down-the-stack)'s residual
 > precedence case seen from the pack side.
 
-**None.** Every question this design OPENED is settled — the last three were ruled on
-2026-09-11 — and so is the one its BUILD opened
-([`OQ-CO12`](#13-decision-ledger), ruled 2026-09-12, which closed this section). All twelve are in
-[§13](#13-decision-ledger), with the rulings themselves living in the sections they govern.
+**One, and it was opened by a RULING rather than by this design.** Every question the
+design itself opened is settled — the last three on 2026-09-11 — and so is the one its
+BUILD opened ([`OQ-CO12`](#13-decision-ledger), ruled 2026-09-12, which closed this
+section for eight days). All of them are in [§13](#13-decision-ledger), with the rulings
+themselves living in the sections they govern.
 
-⚠ **"No open questions" is not "nothing outstanding", and the two are kept apart on purpose.**
+### `OQ-CO13` — how does a derive say it fills a computed table in full?
+
+**Opened 2026-09-20 by the ruling in
+[§6.3.1](#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule),**
+which narrowed the adoption drop and could only narrow it halfway. The engine has to tell
+a table yolo REGENERATES (`mcpServers`, `mise`'s `[tools]`) from one it only ASSERTS
+LEAVES of (claude's `env`, `enabledPlugins`), and:
+
+- **the leaf half already exists** — the computed table's key set IS the asserted set,
+  tombstones included (MEASURED against the shipped pack);
+- **the fill-in-full half exists nowhere**, and four candidate discriminators were
+  measured to flip on configuration rather than intent ([§6.3.1](#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule));
+- **guessing it wrong costs data in one direction and correctness in the other** — a
+  wrong "leaves" reading resurrects a deleted MCP server (six tests measure this), a wrong
+  "in full" reading deletes the agent's own `env`.
+
+So it must be DECLARED by the derive that knows it, and the question is where the
+declaration lives, not whether. The shapes considered and not chosen, each rejected on the
+same axis — what else would have to learn to strip or carry it:
+
+| Where | Why not, yet |
+| :--- | :--- |
+| A reserved namespace in the derive's return, like `agentcfg.SelectionKey` | The precedent is right and the blast radius is not: every reader of a computed layer would have to strip it — `TakeSelection`'s call site, `hostTableKeys`' probe, `yolo config render` — or it reaches a user's file as a literal key |
+| A third Lua sentinel beside `ctx.tombstone` / `ctx.empty_array` | The narrowest spelling at the derive, but it needs a Go representation that survives to `Inputs.Computed` and is removed before encode |
+| A field on `manifest.Surface` | Wrong granularity: the claim is per-KEY, and a surface can hold both kinds |
+| Inferred from a double probe (run the derive with empty vs. sentinel live tables; a key set that TRACKS the live table is fill-in-full, a FIXED one is assert-leaves) | The only sound inference found, and it needs the derive run twice and the answer carried into a function whose contract is purity — so it is a declaration with extra steps |
+
+**The default is the safe direction meanwhile:** non-empty stays wholesale, so nothing
+resurrects while the question is open, and the cost is pinned by
+`TestComposeStatefulFirstMigrationStillTakesAPartlyAssertedTable` rather than remembered.
+
+⚠ **The same over-claim exists at the HOST notch and is NOT covered by this ruling.**
+`hostTableKeys` ([`hostrender.go`](../../internal/entrypoint/hostrender.go)) answers the
+same question with the same coarse rule — "an object-valued key the derive produces is a
+table yolo owns wholesale" — and its probe feeds SENTINEL live tables, so `claude/settings`
+reports `env` and `enabledPlugins` as owned tables on every host apply regardless of what
+is configured. Whoever closes `OQ-CO13` owns that call site too, or the two notches will
+disagree about which keys are tables — which is the exact failure `hostTableKeys`' own
+docstring says it exists to prevent.
+
+⚠ **One open question is not one outstanding item, and the two are kept apart on purpose.**
 Seven measured behaviors are unclosed and live in the body as present-tense **residue** rather
 than here: [§6.3.3](#633-what-survives-as-a-guard)'s unnetted overlay-sidecar loss, and
 [§11](#11-success-criteria)'s
@@ -2175,9 +2322,11 @@ their dated reversals.
 
 Rulings on [§12](#12-open-questions)'s questions are folded into the normative
 body text and compacted here, keeping the exact `OQ-CO` ids so citations from
-sibling docs and code comments continue to resolve. **All twelve are settled** —
-eleven the design opened, the last three of those on 2026-09-11, and
+sibling docs and code comments continue to resolve. **Every row but the last is
+settled** — the ones the design opened, the last three of those on 2026-09-11, and
 [`OQ-CO12`](#13-decision-ledger), which its build opened, on 2026-09-12.
+[`OQ-CO13`](#13-decision-ledger) is OPEN: a RULING opened it, which is the one way a
+settled design reopens.
 
 **Settled and built are two axes, and the second does not follow from the first.** Each `Built`
 cell names the symbol that carries the ruling, read off the tree on 2026-09-12 rather than off
@@ -2214,6 +2363,7 @@ and its residue is the larger of the two.
 | [`OQ-CO10`](#13-decision-ledger) | **The declaration moves ONTO the surface** so the binding is structural instead of a `path.Base` match, and **the read fails CLOSED** — which turns the `macos-user` silent drop into a refusal that names the backend. The disclosure survives (it comes from the declaration being present and enumerable, not from a separate kind), and the `reads-host` kind stays for `host_files`, whose entries have no mirrored twin. Coverage becomes a visible per-surface yes/no, making `mise/config` a deliberate **no**. Promote refuses `--to host` on a surface with no host layer. | 2026-09-11 | [§5.1.1](#511-why-only-two-surfaces-have-a-host-layer) | ✅ `manifest.Surface.ReadsHost` is the predicate, `packload.SurfaceHostFile` derives the `/ctx` path both halves evaluate, and `packload.HostLayerReport` makes the read fail closed; a launch that delivered nothing reports `unsupported` and is not refused. ⚠ The status cell read *"`macos-user` reports `unsupported` and is not refused"* until 2026-09-13: DP-L1 gave that backend a delivery mechanism, so it now reports `supported` and REFUSES an unreadable delivered file like every other backend, and `unsupported` became a fact about a launch rather than about a backend |
 | [`OQ-CO12`](#13-decision-ledger) | **Keys-and-values, not bytes** — and the two silent deletions are BUGS, fixed on their own rather than absorbed. A composing renderer that sorts keys is the contract `own` states, and matching `rmw`'s byte layout would make the capture path carry formatting it has no reason to know about. So JSON key order and a TOML surface's comments and generated header are CONFORMANT; a key valued `null` or `{}` disappearing is not, at any depth. The comparator is the surface codec's own decode, defined in [§11](#11-success-criteria). | 2026-09-12 | [§11](#11-success-criteria), [§6.3.1](#631-adoption-is-capture-then-regenerate) | ✅ `TestSwitchingToOwnPreservesKeysAndValues` states the criterion over deliberately non-canonical fixtures — asserting both that the bytes differ and that the values do not — and `TestSwitchingToOwnKeepsACanonicalFileByteIdentical` keeps the stricter byte comparison where it is still the sharper instrument. Both deletions are FIXED (2026-09-12): `dropNullLeaves` keeps an object the user wrote empty, and `agentcfg.Inputs.LiteralNulls` carries a literal `null` beside the layer stack because no merge patch can hold one. ⚠ `hostStatefulWouldChange` stays a BYTE comparison deliberately, so a conformant reformat is still disclosed as a pending change. ⚠ **Built is not complete**: a second verification pass the same day measured [six live items](#what-the-criterion-does-not-see--live-residue-measured-after-the-ruling) the relaxed criterion cannot see or the fixes did not reach — a JSON integer past 2^53 rounded, the stale tombstone making `config diff` and `promote` misreport a null the user ADDED, a host-file null on a `readsHost` surface, a latent `reinstateAt` panic, an undeclared provenance divergence, and an `assert`-side non-finite float. None is fixed |
 | [`OQ-CO11`](#13-decision-ledger) | **The read-in `host` layer stays — decided by [`OQ-CO10`](#13-decision-ledger), not separately.** Ruling a mechanism's binding, failure direction and coverage decides that it exists; asking in the same breath whether to delete it is incoherent. Supersedes env-manager plan [`OQ-3`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase). | 2026-09-11 | [§5.1.1](#511-why-only-two-surfaces-have-a-host-layer), [§3](#3-the-diagnosis--one-asymmetry-three-unrelated-justifications) | n/a — a ruling to KEEP. The layer stands, restructured by [`OQ-CO10`](#13-decision-ledger) rather than removed |
+| [`OQ-CO13`](#13-decision-ledger) | **OPEN — how does a derive say it fills a computed table IN FULL?** The 2026-09-20 ruling narrowed the adoption drop to the leaves yolo regenerated, which settles the EMPTY table and leaves the non-empty one guessing. The leaf half of the signal already exists (a computed table's key set IS the asserted set, tombstones included); the fill-in-full half exists nowhere, and four candidate discriminators were measured to flip on configuration rather than intent. It has to be declared by the derive; WHERE is the question. | — | [§12](#oq-co13--how-does-a-derive-say-it-fills-a-computed-table-in-full), [§6.3.1](#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule) | ⬜ open. What DID land: `dropComputedTables` skips an EMPTY computed table (`TestComposeStatefulFirstMigrationKeepsResidueUnderAnEmptyComputedTable`), the non-empty cost is pinned by `TestComposeStatefulFirstMigrationStillTakesAPartlyAssertedTable`, and the `mise` §4.1 goldens moved to the opposite verdict under names that say so. ⚠ The same over-claim at the HOST notch (`hostTableKeys`' sentinel probe) is untouched and belongs to whoever closes this |
 | — | **The adoption archive's layout and failure policy, decided at build time** because [`OQ-CO7`](#13-decision-ledger) left them open and one of them contradicts what that ruling assumed. Keyed by SURFACE, not by the `<stamp>/` generation the other buckets use — under the stamped layout `yolo prune`'s keep-newest-3 would sweep the originals of every surface but the newest few, which is the loss this bucket exists to prevent performed by yolo's own reaper. Idempotent on the archive's own existence, so a second adoption cannot overwrite the user's original with yolo's output. A copy that cannot be written REFUSES the adoption rather than warning past it. Not an OQ; recorded because the first of them departs from [§6.3.3](#633-what-survives-as-a-guard)'s original text. | 2026-09-12 | [§6.3.3](#633-what-survives-as-a-guard) | ✅ `render.Target.ArchivePath` (layout), `entrypoint.archiveAdoption` (idempotency, refusal); `TestPruneLeavesTheAdoptionArchiveAlone` pins the reaper half across the two packages that each know only their own half |
 | — | **Terminology: the absent key is the *unset* state, never the "undeclared" one** — *undeclared* is reserved for the input-closure tier ([§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running)'s note). Not an OQ; recorded because renaming it later costs four anchors. | 2026-09-10 | [§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running) | n/a — terminology |
 

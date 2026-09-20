@@ -187,7 +187,7 @@ type StatefulOutput struct {
 //	first migration (last_render absent/untrusted):   # B1: ADOPT, don't discard
 //	    pure    = Compose(overlay=∅)
 //	    overlay = dropNullLeaves(mergeDiff(pure, current_decoded))  # the residue
-//	    overlay = dropComputedTables(overlay)                       # wholesale
+//	    overlay = dropComputedTables(overlay)                       # wholesale, per NON-EMPTY table
 //	steady state (last_render trusted):
 //	    delta   = mergeDiff(last_render_decoded, current_decoded)
 //	    overlay = mergeAccumulate(overlay, delta)                   # §3.4 tombstones
@@ -282,11 +282,13 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 				// Narrowing the residue takes TWO passes at DIFFERENT GRANULARITIES,
 				// and neither subsumes the other.
 				//
-				// (a) WHOLESALE, here: a top-level key the COMPUTED layer holds as an
-				// object is a table yolo regenerates in full, so what sits under it on
-				// disk is taken to be yolo's own previous output rather than a captured
-				// edit (dropComputedTables — read its docstring for where that reading is
-				// too coarse, and what it costs).
+				// (a) WHOLESALE, here: a top-level key the COMPUTED layer holds as a
+				// NON-EMPTY object is a table yolo regenerated this boot, so what sits
+				// under it on disk is taken to be yolo's own previous output rather than
+				// a captured edit. An EMPTY one regenerated no leaf and so claims none
+				// (dropComputedTables — read its docstring for where that reading is
+				// still too coarse, what it costs, and which half of the signal that
+				// would close it is actually available).
 				//
 				// (b) LEAF-LEVEL, after this branch: the SHARED narrowing both branches
 				// run (narrowOverlay), which is the exact dual of the merge each owning
@@ -472,48 +474,71 @@ func decodeKind(c codec.Codec, kind codec.Kind, data []byte) (any, bool) {
 }
 
 // dropComputedTables removes from an adopted first-migration residue every
-// top-level key the COMPUTED layer holds as an OBJECT — a table yolo regenerates
-// in full every boot. The bet it makes is that such a key is yolo's own output
-// from a previous boot rather than agent state, and on a first migration the
+// top-level key the COMPUTED layer holds as a NON-EMPTY OBJECT — a table yolo
+// regenerated in full this boot. The bet it makes is that such a key is yolo's own
+// output from a previous boot rather than agent state, and on a first migration the
 // computed layer's SHAPE is the only signal available to make it: last_render —
 // which normally disambiguates the two — is exactly what is missing.
-//
-// THE BET IS KEY-LEVEL AND THE COMPUTED LAYER IS NOT, so it over-drops whenever a
-// derive returns an object it only partly fills in. ⚠ claude/settings is the live
-// case, measured against the shipped pack: packs/claude/derive.lua returns `env`
-// and `enabledPlugins` as objects while asserting only its own leaves inside them
-// (ENABLE_LSP_TOOL, the three LSP plugin ids), so an adopting boot drops the
-// agent's OTHER env vars and the user's OTHER enabled plugins wholesale — the same
-// two-branches-disagree loss the `permissions` fix below closed, one key over on
-// the same file. It is PRE-EXISTING, not a regression: the blanket pure-render drop
-// this replaced took both keys too. Closing it needs a leaf-level signal this
-// function does not have (which leaves under a computed table the derive actually
-// asserted), so the boundary is stated here rather than papered over.
 //
 // Without it, adoption resurrects dropped yolo-owned entries and breaks §2
 // principle 1 ("regenerate, don't reconcile"): an MCP server removed from config
 // would come back, because the stale entry sits under mcp_servers, a table yolo
 // computes wholesale. Verified against the real surfaces — codex's
 // mcp_servers.staleServer, opencode's mcp.staleServer and mise's stale baked
-// [tools] runtimes all resurrected before this.
+// [tools] runtimes all resurrected before this, and re-measured 2026-09-20: a
+// leaf-level rewrite of this pass reddens six tests across two packages.
 //
-// THE GRANULARITY IS THE WHOLE POINT, in both directions:
+// AN EMPTY COMPUTED TABLE ASSERTS NOTHING, SO IT DROPS NOTHING, and the 2026-09-20
+// ruling (docs/design/config-ownership-and-promotion.md §6.3.1) is why this one
+// branch is not "yolo holds an object here". The whole bet rests on the leaves yolo
+// regenerated; `{}` regenerated none, so there is nothing it can claim to be the
+// previous output OF, and the drop is an unbacked deletion of the user's own data.
+// It is `mise use -g neovim` on a jail with no YOLO_MISE_TOOLS pin: the computed
+// [tools] table is present-and-empty (the render emits it so last_render stays
+// trusted), and the tool the user added by hand went with it.
 //
-//   - WHOLESALE against COMPUTED, because the leaf-level narrowing cannot express
-//     this. dropOverriddenKeys is the dual of a merge-patch and therefore KEEPS a
-//     key the owner lacks — which is precisely the stale entry. Deleting this pass
-//     leaves the resurrection class wide open with every other test still green.
-//   - NOT wholesale against the PURE RENDER, which is what this replaced. The pure
-//     render holds managed's `permissions` as an object too, so the blanket drop
-//     took Claude's own `permissions.ask` with it: an adopting boot silently
-//     discarded the agent's permission list, while a steady-state boot kept it.
-//     Everything below computed — managed, host, workspace, defaults — merges
-//     key-by-key, so it gets the leaf-level pass (narrowOverlay) instead.
+// THE BET IS KEY-LEVEL AND THE COMPUTED LAYER IS NOT, so it still over-drops for a
+// NON-EMPTY table a derive only partly fills in. ⚠ claude/settings is the live case:
+// packs/claude/derive.lua asserts ENABLE_LSP_TOOL inside `env` and three plugin ids
+// inside `enabledPlugins` while owning neither table, so an adopting boot with an LSP
+// configured drops the agent's OTHER env vars and the user's OTHER enabled plugins
+// wholesale. `env` is the case that proves the rule cannot simply be narrowed here:
+// yolo can never own a user's whole environment, so "regenerates it in full" is false
+// by construction rather than by accident.
 //
-// A key the computed layer does not hold as an object is untouched here: either
-// yolo knows nothing about it, in which case it is agent state and IS adopted
-// (the copilot_tokens case this whole branch exists for), or an owning layer
-// asserts it as a leaf and the leaf-level pass will drop it.
+// ⚠ CLOSING IT NEEDS A SIGNAL THAT DOES NOT EXIST, and half of one that does — the
+// distinction matters, because the half that exists looks like enough and is not
+// (MEASURED 2026-09-20; OQ-CO13):
+//
+//   - WHICH LEAVES THE DERIVE ASSERTED is already here, exactly. A tombstone decodes
+//     to a PRESENT key with a nil value (luahook's deriveValueToGo), so the shipped
+//     claude/settings derive hands this function
+//     `enabledPlugins: {<3 ids>: nil}` — three asserted leaves, not the empty table
+//     it reads like. The computed table's key set IS the asserted set.
+//   - WHETHER YOLO FILLS THE TABLE IN FULL is the half that is missing, and it is the
+//     half the bet needs. Nothing distinguishes mcpServers (fill-in-full: a leaf yolo
+//     did not assert is stale) from env (assert-leaves: a leaf yolo did not assert is
+//     the agent's). Every candidate discriminator was tried and each one flips on
+//     configuration rather than on intent: the key set (leaf-narrowing alone reddens
+//     the six), the presence of a tombstone (env carries none once an LSP is
+//     configured), value shape (mise's [tools] holds scalars, codex's mcp_servers
+//     holds objects, and both are fill-in-full), and whether a lower layer also
+//     contributes (true only when the user happens to have a host file).
+//
+// So the remaining half has to be DECLARED by the derive that knows it, not inferred
+// here. Until it is, the drop stays wholesale for a non-empty table.
+//
+// NOT WHOLESALE AGAINST THE PURE RENDER, which is what this replaced. The pure
+// render holds managed's `permissions` as an object too, so the blanket drop took
+// Claude's own `permissions.ask` with it: an adopting boot silently discarded the
+// agent's permission list, while a steady-state boot kept it. Everything below
+// computed — managed, host, workspace, defaults — merges key-by-key, so it gets the
+// leaf-level pass (narrowOverlay) instead.
+//
+// A key the computed layer does not hold as a non-empty object is untouched here:
+// either yolo knows nothing about it, in which case it is agent state and IS adopted
+// (the copilot_tokens case this whole branch exists for), or an owning layer asserts
+// it as a leaf and the leaf-level pass will drop it.
 func dropComputedTables(residue map[string]any, computed any) map[string]any {
 	computedMap, ok := computed.(map[string]any)
 	if !ok {
@@ -521,7 +546,9 @@ func dropComputedTables(residue map[string]any, computed any) map[string]any {
 	}
 	out := make(map[string]any, len(residue))
 	for k, v := range residue {
-		if _, wholesale := computedMap[k].(map[string]any); wholesale {
+		// len(sub) > 0 is the ruling, not a nil guard: an empty table regenerated no
+		// leaf, so it can claim no leaf on disk as its own previous output.
+		if sub, wholesale := computedMap[k].(map[string]any); wholesale && len(sub) > 0 {
 			continue
 		}
 		out[k] = v

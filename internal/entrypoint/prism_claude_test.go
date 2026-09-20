@@ -155,6 +155,69 @@ func TestConfigureClaudePrismStripsHostMCPServers(t *testing.T) {
 	}
 }
 
+// TestConfigureClaudePrismKeepsHostEnabledPluginsWithNoLSP is the defect measured on
+// a live jail 2026-09-20 and the reason packs/claude/derive.lua stopped tombstoning:
+// the host ~/.claude/settings.json enabled pyright-lsp and gopls-lsp, and the jail's
+// composed copy held `enabledPlugins: {}`.
+//
+// The mechanism was one line of the derive. It emitted a TOMBSTONE for every plugin id
+// whose LSP is unconfigured, and a tombstone is an RFC-7386 delete aimed at the layers
+// BELOW — the lowest of which is the user's own host file. "Remove a stale enable"
+// therefore removed the user's deliberate enable, on every boot, silently.
+//
+// Nothing was owed in its place: the surface is RECOMPOSED from layers every boot, so a
+// toggle the derive stops asserting stops being written without any delete. That is
+// what the second half asserts — an id no layer supplies is absent, so dropping the
+// tombstone did not turn the toggle permanently on.
+//
+// ⚠ This is a HOST-LAYER test on purpose. Asserting only that the id is absent from a
+// render with no host file passes with the tombstones back in place
+// (TestConfigureClaudePrismFirstMigration does exactly that and stayed green through
+// the whole defect); only a lower layer holding the key tells the two apart.
+func TestConfigureClaudePrismKeepsHostEnabledPluginsWithNoLSP(t *testing.T) {
+	e, ctx := newClaudePrismEnv(t, map[string]string{}) // no YOLO_LSP_SERVERS
+	hostJSON := `{"enabledPlugins":{"pyright-lsp@claude-plugins-official":true,` +
+		`"gopls-lsp@claude-plugins-official":true},"env":{"AWS_PROFILE":"mine"}}`
+	if err := os.WriteFile(filepath.Join(ctx, "settings.json"), []byte(hostJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ConfigurePackByName(e, "claude"); err != nil {
+		t.Fatalf("ConfigureClaudePrism: %v", err)
+	}
+
+	got := decodeJSONFile(t, filepath.Join(e.ClaudeDir(), "settings.json"))
+	plugins, ok := got["enabledPlugins"].(map[string]any)
+	if !ok {
+		t.Fatalf("enabledPlugins missing/!object: %v — the host layer's own enables must "+
+			"survive a boot that configures no LSP", got["enabledPlugins"])
+	}
+	for _, id := range []string{
+		"pyright-lsp@claude-plugins-official",
+		"gopls-lsp@claude-plugins-official",
+	} {
+		if plugins[id] != true {
+			t.Errorf("enabledPlugins[%s] = %v, want true — yolo asserts nothing about this id "+
+				"with no LSP configured, so the user's HOST enable must reach the jail", id, plugins[id])
+		}
+	}
+	// And the id the user did NOT enable stays off: dropping the tombstone must not
+	// leave a toggle stuck on.
+	if _, present := plugins["typescript-lsp@claude-plugins-official"]; present {
+		t.Errorf("enabledPlugins[typescript] = %v, want absent — no layer supplies it",
+			plugins["typescript-lsp@claude-plugins-official"])
+	}
+	// The same one key over: env.ENABLE_LSP_TOOL was tombstoned too, which deleted
+	// whatever the user's host env block held.
+	env, ok := got["env"].(map[string]any)
+	if !ok || env["AWS_PROFILE"] != "mine" {
+		t.Errorf("env = %v, want the host layer's own vars intact", got["env"])
+	}
+	if _, present := env["ENABLE_LSP_TOOL"]; present {
+		t.Errorf("env.ENABLE_LSP_TOOL = %v, want absent with no LSP configured", env["ENABLE_LSP_TOOL"])
+	}
+}
+
 // TestConfigureClaudePrismComposesTheHostLayer pins the invariant the migration
 // guide got wrong: the user's OWN ~/.claude/settings.json on the host is a
 // composed layer of the jail's settings, not merely a file the agent can look at.
