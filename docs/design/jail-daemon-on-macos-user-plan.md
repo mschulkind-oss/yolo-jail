@@ -22,15 +22,47 @@ broken.
 
 ## What this is for, if you have no context
 
-A loophole is usually two processes: a **host daemon** holding something the jail may not (a
-credential, a socket), and a **jail daemon** on the other side of the boundary that the jail's
-own tools talk to. `macos-user` has started the host half since 2026-09-17. It has never started
-the jail half.
+**The rule.** A loophole's two halves are independently present, and the jail half is decided by the
+CONSUMER rather than by the host daemon. The **host daemon** holds what the jail may not — a
+credential, a socket — and is what a jail dials over the transport. A **jail daemon** is needed when
+the program that will use the capability *inside* the jail is one yolo did not write and can only be
+aimed at an address, in a protocol of its own: something then has to sit at that address, terminate
+that protocol, and re-issue the request as an ordinary client of the transport
+([`aws-auth/manifest.jsonc:130`](../../packs/aws-auth/loopholes/aws-auth/manifest.jsonc#L130) states
+exactly that shape). Where yolo wrote the consumer — `yolo-ps`, `yolo-journalctl`,
+`yolo-serial`, `yolo-cglimit` — there is no jail daemon at all: the client resolves the endpoint
+**file** and dials per invocation, so nothing has to stay alive between runs
+([`yolo-ps/main.go:5`](../../cmd/yolo-ps/main.go#L5)). Hence `journal`, `serial` and `host-processes`
+— a host daemon, no jail half.
 
 A **jail daemon** here is specifically the `jail_daemon` manifest key: a process the framework
 supervises on the jail side of a loophole or a `kind: "service"` pack contribution
-([`loopholes.md`](../guides/loopholes.md)). **Not** a `host_daemon`, which this backend already
-starts, and **not** the agent.
+([`loopholes.md`](../guides/loopholes.md)). **Not** a `host_daemon`, which `macos-user` has started
+since 2026-09-17, and **not** the agent. Every declaration in the tree, two of which are not
+features:
+
+| Declaration | What it terminates, in the jail | What aims the consumer at it |
+| :--- | :--- | :--- |
+| `yolo-jaild oauth-terminator` ([`claude-oauth-broker:119`](../../packs/claude/loopholes/claude-oauth-broker/manifest.jsonc#L119)) | TLS on `127.0.0.1:443` for `platform.claude.com` ([`:71`](../../packs/claude/loopholes/claude-oauth-broker/manifest.jsonc#L71)) | Claude Code's own HTTPS client, whose DNS answer the intercept's `--add-host` points at loopback ([`runtime.go:329`](../../internal/loopholes/runtime.go#L329)) |
+| `yolo-jaild openai-auth-adapter --listen 127.0.0.1:1460` ([`openai-auth-broker:30`](../../packs/openai-auth/loopholes/openai-auth-broker/manifest.jsonc#L30)) | the native OAuth token-endpoint shape, because "Codex can override only its refresh URL, not the transport" ([`:26`](../../packs/openai-auth/loopholes/openai-auth-broker/manifest.jsonc#L26)) | `packs/codex`'s `CODEX_REFRESH_TOKEN_URL_OVERRIDE` ([`pack.json:58`](../../packs/codex/pack.json#L58)) |
+| `yolo-jaild aws-credential-adapter --listen 127.0.0.1:1461` ([`aws-auth:146`](../../packs/aws-auth/loopholes/aws-auth/manifest.jsonc#L146), `default_enabled: false`) | the container-credentials protocol every AWS SDK already knows how to ask ([`:130`](../../packs/aws-auth/loopholes/aws-auth/manifest.jsonc#L130)) | any AWS SDK, via the `bedrock` profile's `AWS_CONTAINER_CREDENTIALS_FULL_URI` ([`pack.json:11`](../../packs/aws-auth/pack.json#L11)) |
+| `yolo-jaild wire-bridge` ([`wire-bridge/pack.json:21`](../../packs/wire-bridge/pack.json#L21)) — a `kind: "service"` contribution, **not a loophole** | Anthropic `POST /v1/messages` on `127.0.0.1:8214`/`:8215` ([`handler.go:3`](../../internal/wirebridged/handler.go#L3), [`pack.json:8`](../../packs/wire-bridge/pack.json#L8)) | `claude`, through the provider base URL the pack's two `adapter` contributions declare |
+| `{jail_loophole_dir}/bin/hello` ([`hello-daemon:46`](../../packs/hello-daemon/loopholes/hello-daemon/manifest.jsonc#L46)) — a **test fixture**, off by default | nothing; it is one-shot, `transport: "none"`, no host half ([`:35`](../../packs/hello-daemon/loopholes/hello-daemon/manifest.jsonc#L35)) | nothing — it exists to answer whether a pack can ship its daemon's executable ([`:5`](../../packs/hello-daemon/loopholes/hello-daemon/manifest.jsonc#L5)) |
+
+**Is any of this the transport protocol? No** — and two existence proofs settle it better than an
+explanation. `host-processes`, `journal` and `serial` declare `transport: "loopback-tls"` with no
+jail daemon; `hello-daemon` declares `transport: "none"` *with* one. The keys are siblings nothing
+joins: `transport` "answers exactly one question — *does this loophole have a host daemon a jail
+dials, and if so how*" ([`loophole-transport.md:183`](../reference/loophole-transport.md)), every
+transport word (`publishes`, `request_end`, `preamble`) lives on `host_daemon`, and
+`loopholedecl.JailDaemon` carries `Cmd` and `Restart` and nothing else
+([`loopholedecl.go:95`](../../internal/loopholedecl/loopholedecl.go#L95)). `jail_daemon` is a
+**lifecycle** slot — one entry in the `YOLO_JAIL_DAEMONS` payload `yolo-jaild supervise` reads
+([`supervisorcmd.go:19`](../../internal/supervisor/supervisorcmd.go#L19)) — shared with
+`kind: "service"` packs, which is why `wire-bridge` declares one with no host half and no boundary to
+cross. Where a jail daemon does meet the transport it is a **client** of it, reading the same
+endpoint file `yolo-ps` reads, and it carries no crossing claim for that reason
+([`loophole-system.md:519`](../reference/loophole-system.md)).
 
 **What a user actually experiences today.** Nothing dramatic, which is the problem — a bare
 `"packs": ["claude"]` on this backend selects three jail daemons and starts none:
@@ -42,8 +74,9 @@ starts, and **not** the agent.
 - **`wire-bridge`'s endpoint file exists with nothing behind it** — published, ACL-granted, and
   connecting to it fails.
 - **Claude OAuth refreshes are not serialized**, because the TLS terminator that routes a refresh
-  to the host broker *is* the broker's jail half. That one is deliberately
-  [out of scope here](#dont).
+  to the host broker *is* the broker's jail half. [Out of scope here](#dont) — and the reason is
+  worth reading, because it is not the one you would guess: that terminator may not need to exist
+  **on any backend**.
 
 **Why it cannot just be switched on.** The payload naming the daemons is built inside the
 container argv assembler, and `macosuser` is a different path that never sees it. Hoisting the
@@ -230,10 +263,29 @@ backend selects two jail daemons and starts neither, with nothing said:
 - **Don't add a second writer of the payload.** One env contract, one writer, is the rule
   `Set.RuntimeArgsForWithJailDaemons` exists to hold; two `-e` lines would make the winner depend
   on duplicate-flag resolution.
-- **Don't start `oauth-terminator` natively.** Its default port is 443
-  (`internal/oauthterminator/oauthterminatorcmd.go:37`), unprivileged only because the container
-  runs as UID 0, and its interception needs the `--add-host` this backend cannot emit. Decline it
-  by name in step 2 and leave it declined.
+- **Don't start `oauth-terminator` natively**, and don't treat it as deferred work either.
+
+  Two things make it impossible here, and both are structural rather than unbuilt. Its default
+  port is 443 ([`oauthterminatorcmd.go:37`](../../internal/oauthterminator/oauthterminatorcmd.go#L37)),
+  unprivileged only because a container runs as UID 0 — `macos-user` runs as the ordinary
+  `_yolojail` account ([`macosuser.go:27`](../../internal/macosuser/macosuser.go#L27)) and cannot
+  bind it. And its interception needs the `--add-host` a backend with no container cannot emit, so
+  without the DNS redirect nothing would reach a running terminator anyway. Decline it by name in
+  step 2 and leave it declined.
+
+  > [!IMPORTANT]
+  > **The useful reason is the other one: its existence is under question.** The terminator exists
+  > only to serve the OAuth broker; the broker exists only because the credential FILE is shared
+  > across jails while the vendor's refresh lock is not
+  > ([`claude-oauth-interposition.md`](../reference/claude-oauth-interposition.md)). If
+  > [`OQ-CI1`](../reference/claude-oauth-interposition.md#oq-ci1) — *should the credential be
+  > shared at all?* — is ruled against sharing, the terminator stops existing everywhere, along
+  > with the `/etc/hosts` pin and the CA.
+  >
+  > The two framings send a reader somewhere different, which is why this note replaced a purely
+  > mechanical one: *"cannot work here"* implies waiting for `macos-user` to bind 443, which will
+  > never happen. *"May not need to exist"* implies watching [`OQ-CI1`](../reference/claude-oauth-interposition.md#oq-ci1), where this resolves as a
+  > consequence rather than as a task.
 - **Don't add a crossing claim for `jail_daemon`.** It is claim-free by ruling
   ([what is deliberately not a gate](../reference/loophole-system.md#what-is-deliberately-not-a-gate)).
   The banner class that would carry it is `disclosureJailExec`, and the per-launch "will it
