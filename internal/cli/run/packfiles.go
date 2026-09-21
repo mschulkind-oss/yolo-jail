@@ -11,7 +11,11 @@ package run
 // exists so an inapplicable kind is REFUSED by name rather than skipped in silence).
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -191,26 +195,268 @@ func packFilesSkipWarning(t packFilesTarget) string {
 		"filters; `yolo pack lint <pack-dir>` reports this without a launch)"
 }
 
-// preparePackFiles creates each `files` destination's mountpoint inside GlobalHome,
-// before the :ro home bind is applied.
+// A `files` destination needs a same-shaped mountpoint before the runtime applies the
+// read-only source bind. The target may live in GlobalHome or in the workspace overlay:
+// preparePackFiles owns the latter (including retirement), while preparePackFilesGlobal
+// handles the machine-wide base.
 //
 // Same belt-and-braces as writable_home_dirs and host_files (prepareWsState,
 // prepareHostFiles) and for the same reason: the OCI runtime does not reliably create a
 // mountpoint inside a :ro bind. podman 5.8.4/crun 1.27.1 does auto-create one (verified
 // — see project_ro_home_mount_autocreate), but the maintainer hit the EROFS path on their
-// stack, where it surfaces as the unreadable `conmon bytes "": readObjectStart`. Nesting
-// under a pack's WRITABLE state dir (e.g. `.claude/fkdir` when the claude pack owns
-// `.claude`) auto-creates fine either way; this covers the destination that lands
-// straight on the :ro base.
+// stack, where it surfaces as the unreadable `conmon bytes "": readObjectStart`.
+//
+// The old implementation created every target in GlobalHome. A target below a writable
+// state dir is shadowed by that dir's workspace bind, though, so the runtime created a
+// second empty target in the persistent workspace overlay. Recording that real target is
+// what makes a later dropped contribution retire cleanly.
 //
 // The leaf type has to match the source: a dir mount over a file (or the reverse) aborts
 // container creation. Best-effort — a failure here degrades to whatever the runtime does
 // on its own, which on the tested stack is the working auto-create.
 //
-// MkdirAll cannot escape GlobalHome: packdecl validated every `into` as relative, with no
-// ".." segment and no ":".
-func preparePackFiles(packs []*packload.Pack) {
+// Manifest paths are host-side paths relative to wsState, not home-relative paths: podman
+// maps `.pi/...` to `<wsState>/pi/...`, while Apple Container maps it to
+// `<wsState>/.pi/...` through its whole-home bind.
+const packFilesMountpointManifestName = "pack-files-mountpoints.json"
+
+type packFilesMountpointManifest struct {
+	Entries map[string]packFilesMountpoint `json:"entries"`
+}
+
+type packFilesMountpoint struct {
+	Kind   string `json:"kind"`
+	SHA256 string `json:"sha256,omitempty"`
+}
+
+// preparePackFiles provisions the mount targets that live in THIS workspace's writable
+// home overlay and records only targets yolo can prove it created. That record is what
+// lets a later launch retire scaffolding for a contribution that disappeared without
+// mistaking a user's file at the same path for yolo's.
+//
+// A target lives in wsState on Apple Container because that backend binds the whole home
+// writable. On podman it lives there only when it is below a pack-declared workspace state
+// dir; every other target lives in the machine-wide read-only base and cannot safely be
+// retired from one workspace's view of the configured packs.
+func preparePackFiles(packs []*packload.Pack, wsState, rt string) {
+	manifestPath := filepath.Join(filepath.Dir(wsState), packFilesMountpointManifestName)
+	previous := loadPackFilesMountpointManifest(manifestPath)
+	current := map[string]packFilesTarget{}
+	if rt != "macos-user" { // parity: NotApplicable — macos-user does not deliver `files` contributions.
+		writable := packload.WritableDirs(packs)
+		for _, t := range packFilesTargets(packs) {
+			if rel, ok := packFilesWorkspaceRel(t.Dest, writable, rt); ok {
+				current[rel] = t
+			}
+		}
+	}
+
+	// Retire first, so a contribution changing shape at one destination can recreate the
+	// right target below. Removal is deliberately conditional on the recorded scaffold
+	// still being unchanged: a file the user replaced or a directory that gained content
+	// is forgotten and left alone.
+	for rel, owned := range previous.Entries {
+		if !safePackFilesManifestRel(rel) {
+			delete(previous.Entries, rel)
+			continue
+		}
+		if claimed, stillClaimed := current[rel]; stillClaimed && packFilesTargetKind(claimed) == owned.Kind {
+			continue
+		}
+		dest := filepath.Join(wsState, rel)
+		if pathParentWithin(dest, wsState) && packFilesMountpointUnchanged(dest, owned) {
+			_ = os.Remove(dest)
+		}
+		delete(previous.Entries, rel)
+	}
+
+	next := &packFilesMountpointManifest{Entries: map[string]packFilesMountpoint{}}
+	for rel, t := range current {
+		dest := filepath.Join(wsState, rel)
+		kind := packFilesTargetKind(t)
+		if kind == "" {
+			continue
+		}
+
+		if owned, ok := previous.Entries[rel]; ok {
+			// Apple Container replaces a single-file scaffold with a source snapshot.
+			// Refreshing the digest keeps that snapshot removable after a pack update.
+			if kind == "file" && rt == "container" { // parity: Honored — Apple Container delivers the source as a copied snapshot.
+				owned.SHA256 = fileSHA256(t.Src)
+			}
+			next.Entries[rel] = owned
+			continue
+		}
+
+		_, statErr := os.Lstat(dest)
+		created := os.IsNotExist(statErr)
+		if created {
+			_ = os.MkdirAll(filepath.Dir(dest), 0o755)
+			if kind == "dir" {
+				_ = os.Mkdir(dest, 0o755)
+			} else {
+				f, err := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+				if err == nil {
+					_ = f.Close()
+				}
+			}
+		}
+
+		owned := packFilesMountpoint{Kind: kind}
+		if kind == "file" && rt == "container" { // parity: Honored — Apple Container delivers the source as a copied snapshot.
+			owned.SHA256 = fileSHA256(t.Src)
+		}
+		if created && packFilesMountpointUnchanged(dest, packFilesMountpoint{Kind: kind}) {
+			next.Entries[rel] = owned
+			continue
+		}
+		// Migration from the pre-manifest implementation: crun created zero-byte file
+		// targets inside writable overlays. A non-empty source over an existing empty
+		// regular file is the one old shape that is strong enough to adopt; directories
+		// and non-empty files may be the user's and remain unowned.
+		if kind == "file" && fileIsEmptyRegular(dest) && !fileIsEmptyRegular(t.Src) {
+			next.Entries[rel] = owned
+		}
+	}
+
+	if len(next.Entries) == 0 {
+		_ = os.Remove(manifestPath)
+		return
+	}
+	_ = savePackFilesMountpointManifest(manifestPath, next)
+}
+
+func pathUnderAny(rel string, roots []string) bool {
+	rel = filepath.Clean(filepath.FromSlash(rel))
+	for _, root := range roots {
+		root = filepath.Clean(filepath.FromSlash(root))
+		if rel == root || strings.HasPrefix(rel, root+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
+}
+
+func packFilesWorkspaceRel(dest string, writable []string, rt string) (string, bool) {
+	dest = filepath.Clean(filepath.FromSlash(dest))
+	if rt == "container" { // parity: Honored — Apple Container binds wsState over the whole home.
+		return dest, true
+	}
+	// Podman binds <wsState>/<state-without-leading-dot> over the declared home
+	// path, so the host-side mountpoint spelling is not the home-relative spelling.
+	// Prefer the deepest state root in case declarations ever nest.
+	best := ""
+	for _, root := range writable {
+		root = filepath.Clean(filepath.FromSlash(root))
+		if (dest == root || strings.HasPrefix(dest, root+string(filepath.Separator))) && len(root) > len(best) {
+			best = root
+		}
+	}
+	if best == "" {
+		return "", false
+	}
+	remainder := strings.TrimPrefix(strings.TrimPrefix(dest, best), string(filepath.Separator))
+	return filepath.Join(strings.TrimPrefix(best, "."), remainder), true
+}
+
+func packFilesTargetKind(t packFilesTarget) string {
+	if isDir(t.Src) {
+		return "dir"
+	}
+	if isFile(t.Src) {
+		return "file"
+	}
+	return ""
+}
+
+func safePackFilesManifestRel(rel string) bool {
+	clean := filepath.Clean(rel)
+	return rel == clean && clean != "." && !filepath.IsAbs(clean) && clean != ".." &&
+		!strings.HasPrefix(clean, ".."+string(filepath.Separator))
+}
+
+// pathParentWithin rejects a stale ownership record whose parent now escapes the
+// workspace overlay through a symlink. The record is weak evidence; it never authorizes
+// removing a path outside the tree that contains it.
+func pathParentWithin(path, root string) bool {
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return false
+	}
+	resolvedParent, err := filepath.EvalSymlinks(filepath.Dir(path))
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(resolvedRoot, resolvedParent)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+func loadPackFilesMountpointManifest(path string) *packFilesMountpointManifest {
+	m := &packFilesMountpointManifest{Entries: map[string]packFilesMountpoint{}}
+	body, err := os.ReadFile(path)
+	if err != nil || json.Unmarshal(body, m) != nil || m.Entries == nil {
+		m.Entries = map[string]packFilesMountpoint{}
+	}
+	return m
+}
+
+func savePackFilesMountpointManifest(path string, m *packFilesMountpointManifest) error {
+	body, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, append(body, '\n'), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+func packFilesMountpointUnchanged(path string, owned packFilesMountpoint) bool {
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 {
+		return false
+	}
+	switch owned.Kind {
+	case "file":
+		if !info.Mode().IsRegular() {
+			return false
+		}
+		return info.Size() == 0 || (owned.SHA256 != "" && fileSHA256(path) == owned.SHA256)
+	case "dir":
+		if !info.IsDir() {
+			return false
+		}
+		entries, err := os.ReadDir(path)
+		return err == nil && len(entries) == 0
+	default:
+		return false
+	}
+}
+
+func fileIsEmptyRegular(path string) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.Mode().IsRegular() && info.Size() == 0
+}
+
+func fileSHA256(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func preparePackFilesGlobal(packs []*packload.Pack, rt string) {
 	for _, t := range packFilesTargets(packs) {
+		if rt == "macos-user" || rt == "container" || pathUnderAny(t.Dest, packload.WritableDirs(packs)) { // parity: HonoredBy — those backends/paths are prepared in the workspace overlay above.
+			continue
+		}
 		dest := filepath.Join(paths.GlobalHome(), filepath.FromSlash(t.Dest))
 		if isDir(t.Src) {
 			_ = os.MkdirAll(dest, 0o755)

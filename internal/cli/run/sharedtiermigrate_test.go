@@ -32,7 +32,7 @@ func sharedCredFixture(t *testing.T, root, sharedDir, body string) string {
 func prepareWithClaudePack(t *testing.T, ws string) string {
 	t.Helper()
 	o := goldenOptions(ws, os.Getenv("HOME"))
-	return o.prepareWsState(jsonx.NewOrderedMap(), claudePackFixture(t))
+	return o.prepareWsState(jsonx.NewOrderedMap(), claudePackFixture(t), "podman")
 }
 
 // A credential stranded in wsState by the pre-2026-08-24 Apple Container mount gap must

@@ -340,7 +340,7 @@ func blockedToolRecords(blocked []any) []jailcontent.BlockedTool {
 // per-workspace overlay dirs + touch the overlay files, seed selected agents'
 // config dirs, sync claude.json, and run the old-overlay migrations. Returns the
 // ws_state path (<workspace>/.yolo/home).
-func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, loadedPacks []*packload.Pack) string {
+func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, loadedPacks []*packload.Pack, rt string) string {
 	wsState := paths.WorkspaceHomeState(o.Workspace)
 	// Through the chokepoint rather than a bare MkdirAll of wsState's parent: this is the
 	// WIDEST creator of <workspace>/.yolo in the pipeline (the whole home overlay hangs off
@@ -384,10 +384,12 @@ func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, loadedPacks []*packload.
 		_ = os.MkdirAll(filepath.Join(paths.GlobalHome(), rel), 0o755)
 	}
 
-	// Mountpoints for the PACK-DECLARED `files` trees, skills, and briefings, same GlobalHome
-	// recipe and same reason as writable_home_dirs above (the source side needs nothing: the bind
-	// source IS the pack's staged tree, which staging already created).
-	preparePackFiles(loadedPacks)
+	// Mountpoints for the PACK-DECLARED `files` trees, skills, and briefings. A files
+	// destination below writable pack state belongs in wsState and carries an ownership
+	// record so a dropped contribution can retire it; destinations in the read-only base,
+	// plus skills and briefings, still need their GlobalHome mountpoints.
+	preparePackFiles(loadedPacks, wsState, rt)
+	preparePackFilesGlobal(loadedPacks, rt)
 	for _, target := range packSkillTargets(loadedPacks) {
 		_ = os.MkdirAll(filepath.Join(paths.GlobalHome(), filepath.FromSlash(target.Dest)), 0o755)
 	}

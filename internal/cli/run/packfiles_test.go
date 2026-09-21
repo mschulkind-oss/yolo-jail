@@ -63,6 +63,112 @@ func filesPack(t *testing.T, name, from, into string, contents map[string]string
 	return p
 }
 
+func workspaceFilesPack(t *testing.T, name, from, into, state string) *packload.Pack {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(root, from)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, from), []byte("extension body\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"name":"` + name + `","contributes":[` +
+		`{"kind":"files","from":"` + from + `","into":"` + into + `"},` +
+		`{"kind":"state","at":"` + state + `","scope":"workspace"}]}`
+	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, problems := packload.LoadDir(root, name)
+	if len(problems) != 0 {
+		t.Fatalf("loading the %s fixture pack: %v", name, problems)
+	}
+	return p
+}
+
+func TestDroppedPackFileMountpointIsRetiredFromWorkspaceOverlay(t *testing.T) {
+	wsState := filepath.Join(t.TempDir(), ".yolo", "home")
+	if err := os.MkdirAll(wsState, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := workspaceFilesPack(t, "pi-extension", "extension.ts",
+		".pi/agent/extensions/thinking-preview.ts", ".pi")
+	target := filepath.Join(wsState, "pi", "agent", "extensions", "thinking-preview.ts")
+
+	preparePackFiles([]*packload.Pack{p}, wsState, "podman")
+	if !fileIsEmptyRegular(target) {
+		t.Fatalf("workspace mountpoint was not provisioned as an empty file: %s", target)
+	}
+	manifest := filepath.Join(filepath.Dir(wsState), packFilesMountpointManifestName)
+	if !isFile(manifest) {
+		t.Fatalf("workspace mountpoint ownership was not recorded: %s", manifest)
+	}
+
+	preparePackFiles(nil, wsState, "podman")
+	if _, err := os.Lstat(target); !os.IsNotExist(err) {
+		t.Fatalf("dropped contribution left its mountpoint behind: %v", err)
+	}
+	if _, err := os.Lstat(manifest); !os.IsNotExist(err) {
+		t.Fatalf("empty ownership manifest was not retired: %v", err)
+	}
+}
+
+func TestDroppedPackFileMountpointPreservesUserReplacement(t *testing.T) {
+	wsState := filepath.Join(t.TempDir(), ".yolo", "home")
+	if err := os.MkdirAll(wsState, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := workspaceFilesPack(t, "pi-extension", "extension.ts",
+		".pi/agent/extensions/thinking-preview.ts", ".pi")
+	target := filepath.Join(wsState, "pi", "agent", "extensions", "thinking-preview.ts")
+	preparePackFiles([]*packload.Pack{p}, wsState, "podman")
+	if err := os.WriteFile(target, []byte("user replacement\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	preparePackFiles(nil, wsState, "podman")
+	body, err := os.ReadFile(target)
+	if err != nil || string(body) != "user replacement\n" {
+		t.Fatalf("retirement changed a user replacement: body=%q err=%v", body, err)
+	}
+}
+
+func TestOldRuntimeCreatedEmptyFileIsAdoptedAndLaterRetired(t *testing.T) {
+	wsState := filepath.Join(t.TempDir(), ".yolo", "home")
+	target := filepath.Join(wsState, "pi", "agent", "extensions", "yolo-openai-auth.js")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := workspaceFilesPack(t, "pi", "extension.js",
+		".pi/agent/extensions/yolo-openai-auth.js", ".pi")
+
+	preparePackFiles([]*packload.Pack{p}, wsState, "podman")
+	preparePackFiles(nil, wsState, "podman")
+	if _, err := os.Lstat(target); !os.IsNotExist(err) {
+		t.Fatalf("pre-manifest runtime scaffold was not adopted and retired: %v", err)
+	}
+}
+
+func TestAppleContainerSnapshotIsRetiredOnlyWhileUnchanged(t *testing.T) {
+	wsState := filepath.Join(t.TempDir(), ".yolo", "home")
+	if err := os.MkdirAll(wsState, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := workspaceFilesPack(t, "pi-extension", "extension.ts",
+		".pi/agent/extensions/thinking-preview.ts", ".pi")
+	targetRel := filepath.Join(".pi", "agent", "extensions", "thinking-preview.ts")
+	target := filepath.Join(wsState, targetRel)
+
+	preparePackFiles([]*packload.Pack{p}, wsState, "container")
+	acMaterialize(filepath.Join(p.Root, "extension.ts"), targetRel, wsState)
+	preparePackFiles(nil, wsState, "container")
+	if _, err := os.Lstat(target); !os.IsNotExist(err) {
+		t.Fatalf("unchanged Apple Container snapshot was not retired: %v", err)
+	}
+}
+
 // TestAssemblePackFilesMount is the regression for plan finding N1: `files` shipped
 // INERT. It passed `pack lint`, printed a footprint claim ("read-only tree"), was refused
 // by name at the host — and was silently dropped in a jail, because assemble.go switched
@@ -388,7 +494,7 @@ func TestPrepareWsStateCreatesSkillsAndBriefingMountpointsInGlobalHome(t *testin
 	}
 
 	o := &Options{Workspace: ws}
-	_ = o.prepareWsState(nil, []*packload.Pack{p})
+	_ = o.prepareWsState(nil, []*packload.Pack{p}, "podman")
 
 	// Verify GlobalHome mountpoints were created
 	skillsPath := filepath.Join(paths.GlobalHome(), ".pi", "agent", "skills")

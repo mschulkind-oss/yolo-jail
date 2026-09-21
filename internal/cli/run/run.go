@@ -1062,7 +1062,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 
 	// ws_state overlay prep.
 	sp = o.Perf.Span("launch.prepare_ws_state")
-	wsState := o.prepareWsState(cfg, loadedPacks)
+	wsState := o.prepareWsState(cfg, loadedPacks, rt)
 	sp.End()
 
 	// yolo-user-env.sh (frozen writer). The map is the channel's hydration, not a second
