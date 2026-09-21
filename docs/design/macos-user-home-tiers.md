@@ -8,8 +8,13 @@ summary: "macos-user has one sandbox home, /Users/_yolojail, so the machine tier
 
 # The macos-user home: one account, three tiers that collapsed into it
 
-**Status:** BUILT, 2026-09-12 — UNMEASURED: implemented from a Linux jail, so no runtime claim has
-been observed; [§10](#10-what-shipped) separates what a test pins from what is owed a Mac.
+**Status:** BUILT, 2026-09-12 — **MEASURED** 2026-09-21. The UNMEASURED clause this line carried
+was superseded within hours of being written and stood for nine days: the per-workspace layout was
+exercised on real hardware on 2026-09-12 (Apple Silicon, macOS 26.5 arm64 —
+[runbook item 5](../plans/runbooks/macos-user-manual-checks.md)), and
+`TestMacosUserHomeTierIsPerWorkspace` has been green on the `macos-user` job since; re-confirmed
+PASS in CI run `35605754739`. [§10](#10-what-shipped) separates what a test pins from what is
+still owed a Mac.
 Designed 2026-09-11, sketched 2026-09-03. All four questions are
 settled and compacted into the [Decision Ledger](#decision-ledger). What landed, and what of it
 is still unmeasured, is [§10](#10-what-shipped).

@@ -8,7 +8,7 @@ summary: "Almost every imperative provisioning step the container path runs — 
 
 # macos-user has no floor and no provisioning stage
 
-**Status:** BUILT, 2026-09-12 — UNMEASURED: every runtime claim; both halves were implemented from a Linux jail, where there is no `sandbox-exec` and no `_yolojail` account, and a Mac has to settle it ([§10.8](#108-what-a-mac-has-to-settle)).
+**Status:** BUILT, 2026-09-12 — **MEASURED** 2026-09-21, except for cost. "UNMEASURED: every runtime claim" was true when written and has not been for nine days: the stage runs, is confined, reaches the network and writes its prefixes, exercised on real hardware 2026-09-12 (Apple Silicon, macOS 26.5 arm64 — [runbook item 7](../plans/runbooks/macos-user-manual-checks.md)), and `TestMacosUserProvisioningStageRunsAndRecordsItself` has been green on the `macos-user` job since; re-confirmed PASS in CI run `35605754739`. ⚠ **What is genuinely still unmeasured is one thing and it is named:** what a FIRST stage costs ([§10.8](#108-what-a-mac-has-to-settle) item 5) — which `.github/workflows/macos-user.yml`'s own header cites as the reason that job is not wired to PRs.
 [§9](#9-what-shipped-half-one), the stage in [§10](#10-what-shipped-half-two). DESIGN
 2026-09-11, DESIGN SKETCH 2026-09-04. All four questions are ruled and compacted into the
 [Decision Ledger](#decision-ledger).
