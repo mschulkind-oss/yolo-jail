@@ -55,8 +55,10 @@ What remains needs either root, a kernel, or a human at a password prompt.
 > so its next Mac run is the measurement, not this paragraph. The remaining open threads are
 > collected in [`../handoff-macos-user-open-threads.md`](../handoff-macos-user-open-threads.md).
 >
-> ⚠ **Defect 2 is why "single-line is immune" was wrong** (it was published in
-> `provisioner-sets.md` [§15](../../design/provisioner-sets.md#15-what-a-mac-session-should-measure)): single-line survives the newline half only. Any forwarded command
+> ⚠ **Defect 2 is why "single-line is immune" was wrong** (it was published in what is now
+> [the Mac measurements runbook's ordering
+> note](mac-provisioner-measurements.md#why-no-linux-jail-can-answer-these-and-how-the-five-are-ordered),
+> which carries the retraction): single-line survives the newline half only. Any forwarded command
 > containing a shell variable was silently rewritten. Item 6 could not be measured at all until
 > its probe was rewritten without variables — and after the fix, the item's own spelling works.
 
@@ -563,8 +565,9 @@ Apple's own binary answering.
 
 > [!WARNING]
 > ⚠ **THIS ITEM COULD NOT BE MEASURED AT ALL ON ITS FIRST ATTEMPT, and finding out why is what
-> exposed defect 2.** The command above is single-line, which `provisioner-sets.md` [§15](../../design/provisioner-sets.md#15-what-a-mac-session-should-measure) said was
-> immune to the forwarding defect. It is not: sudo(8) leaves **dollar signs** unescaped as well,
+> exposed defect 2.** The command above is single-line, which [the Mac measurements
+> runbook](mac-provisioner-measurements.md#why-no-linux-jail-can-answer-these-and-how-the-five-are-ordered)
+> said was immune to the forwarding defect. It is not: sudo(8) leaves **dollar signs** unescaped as well,
 > so an intermediate login shell expanded `$b` and `$(command -v $b)` against an empty
 > environment and the probe printed **nine blank lines** — with exit 0, the failure mode this
 > whole runbook exists to catch. The item was measured with a variable-free probe
@@ -770,8 +773,9 @@ workspace's launch is what would reveal it.
 > ([`OQ-P5`](../../design/macos-user-provisioning.md#decision-ledger);
 > `macosuser.PlanInvariants` refuses a plan carrying only one of the two crossings). The three
 > published rows that had said *installed* and were corrected to *MEASURED FALSE* have moved
-> again — [`../../guides/macos.md`](../../guides/macos.md),
-> [`../../design/provisioner-sets.md`](../../design/provisioner-sets.md), and
+> again — [`../../guides/macos.md`](../../guides/macos.md), [the provisioner
+> inventory](../../design/provisioner-evidence.md#1-the-provisioner-inventory-per-environment)'s
+> npm/go servers row, and
 > [§10.6](../../design/macos-user-provisioning.md#106-two-warnings-retired-and-the-rule-that-retired-them).
 >
 > ⚠ **That is a source fact and not an install.** Nothing off a Mac can run the loop, so this

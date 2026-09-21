@@ -190,7 +190,8 @@ func printConfinementVector(pr richtext.Printer, prof render.Profile) {
 // materializes says whether anything at this notch BUILDS the profile, and it is what makes
 // the absent-root branch honest. Only the macos-user backend materializes one today
 // (darwinpkg.Materialize has exactly one caller, that backend's run seam); `guest` and `host`
-// have no package layer yet (docs/design/provisioner-sets.md §6.4). Without it this branch
+// have no package layer yet (docs/design/provisioner-evidence.md §3.4, "not orthogonal to
+// confinement: the provisioning primitive below jail"). Without it this branch
 // offered "a launch or `yolo apply` materializes it" at every notch — a remedy that does not
 // exist below jail, and one `yolo apply` does not perform at ANY notch. `check` corrected the
 // same cell for itself (check/section_packageprofile.go's `materializes`), and both follow

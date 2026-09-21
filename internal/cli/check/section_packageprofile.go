@@ -54,7 +54,8 @@ func (o *Options) sectionPackageProfile(r *reporter, merged *jsonx.OrderedMap, m
 	// WHETHER A LAUNCH HERE BUILDS THE PROFILE AT ALL, which decides what an absent root
 	// MEANS. Only the macos-user backend materializes it today (darwinpkg.Materialize has
 	// exactly one caller, the macos-user launch); `guest` and `host` have no package layer
-	// yet (provisioner-sets.md §6.4). Reported through the same mechanism question the gate
+	// yet (provisioner-evidence.md §3.4, "not orthogonal to confinement: the provisioning
+	// primitive below jail"). Reported through the same mechanism question the gate
 	// asks, not through IsMacOS: a native runtime is the thing that provisions, and the
 	// platform it happens to require is not what makes the sentence true.
 	materializes := jailcontent.MechanismHasNoContainer(mechanism)
@@ -114,7 +115,8 @@ func (o *Options) checkPackageProfile(r *reporter, notch render.Kind, materializ
 				"materializes at the `"+notch.String()+"` notch",
 				"A notch with no baked image gets its tools from a nix profile, and only "+
 					"the macos-user backend builds one today — `guest` and `host` have no "+
-					"package layer yet (docs/design/provisioner-sets.md §6.4).  Nothing to "+
+					"package layer yet (docs/design/provisioner-evidence.md §3.4).  "+
+					"Nothing to "+
 					"run: the entries are inert here, not wrong.")
 			return
 		}

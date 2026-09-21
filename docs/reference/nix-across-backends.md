@@ -31,8 +31,12 @@ other difference follows from that one.
 | The macOS Linux-builder offload | `internal/containerbuilder` |
 | Platform filtering of the declared list | `internal/config` (`EffectivePackages`, `PackagesExcludedOn`) |
 
-**Reads with:** [`provisioner-sets.md`](../design/provisioner-sets.md) (which absorbed
-`noncontainer-nix-environment.md` on 2026-09-11; its [§6](../design/provisioner-sets.md#6-the-nix-resolver-in-depth) is the nix resolver),
+**Reads with:** [`provisioner-sets.md`](../design/provisioner-sets.md) (the model: which
+provisioner each notch has and who chooses one; it absorbed `noncontainer-nix-environment.md` on
+2026-09-11 and was split three ways on 2026-09-20),
+[`provisioner-evidence.md`](../design/provisioner-evidence.md) ([the nix resolver, in
+depth](../design/provisioner-evidence.md#3-the-nix-resolver-in-depth) — the four mechanisms, the
+profile, the traps),
 [`image-staging-vs-baking.md`](image-staging-vs-baking.md),
 [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md).
 

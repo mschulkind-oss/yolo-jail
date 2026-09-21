@@ -246,7 +246,7 @@ func TestDescribeReportsPackageProfile(t *testing.T) {
 
 // A notch with NO provisioner must not describe its absent GC root as a pending state. The
 // absent root is the steady answer there — `guest` and `host` have no package layer yet
-// (docs/design/provisioner-sets.md §6.4) — so offering a command to fill it would name a
+// (docs/design/provisioner-evidence.md §3.4) — so offering a command to fill it would name a
 // remedy that does not exist, which report-tiers.md P2 forbids. `check` states the same
 // inertness for itself (check/section_packageprofile.go's `materializes`).
 func TestAnUnprovisionedNotchReportsPackagesAsInertRatherThanPending(t *testing.T) {
