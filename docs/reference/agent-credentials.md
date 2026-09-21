@@ -1,7 +1,7 @@
 ---
 status: current
-verified: 2026-09-09
-verified_commit: 41dde711
+verified: 2026-09-20
+verified_commit: bd0e4142
 covers:
   - internal/cli/run/assemble.go
   - internal/cli/run/assemble_parts.go
@@ -14,6 +14,7 @@ covers:
   - internal/entrypoint/identity.go
   - internal/broker/
   - internal/oauthbroker/
+  - internal/oauthterminator/
   - internal/openaiauth/
   - internal/openaiauthdaemon/
   - internal/openauthclient/
@@ -223,17 +224,47 @@ which also **copies each file source** into a root-owned tree the sandbox reads 
 
 ### The Claude OAuth broker
 
-The broker exists because **Anthropic mints single-use refresh tokens**: if two jails share one
-credentials file and both refresh in the same window, one loses the race and gets logged out. It
-bundles two jobs.
+The broker exists because **yolo moved the credentials file out from under the vendor's own
+cross-process lock.** Anthropic mints single-use refresh tokens, so two Claudes refreshing in the
+same window burn one another's token — and Claude Code already solves that for itself. It takes a
+real cross-process lock before every refresh (`acquireOAuthRefreshLock`), and on a plain host that
+lock and the file it protects sit in one directory, which is why a host Claude never loses its
+login to a race no matter how many sessions run.
+
+**yolo splits that pair.** `packs/claude/pack.json` declares `.claude` as `scope: "workspace"` and
+`.claude-shared-credentials` as `scope: "machine"`, joined by a relative symlink — so the
+credentials file is shared by every jail while the config directory is per-jail. The vendor's lock
+is derived from the config directory, not the credentials path, and it disables symlink resolution
+outright:
+
+```js
+// Claude Code 2.1.278, measured
+function Jar(e,n){return{lockfilePath:lE(e,".oauth_refresh.lock"),realpath:!1,stale:60000,update:5000,...}}
+```
+
+`realpath:!1` is the load-bearing character. The lock lands at `<configDir>/.oauth_refresh.lock`
+— a **per-jail inode** — and is guaranteed never to follow the symlink through to the shared file.
+Two jails refreshing at once therefore contend on nothing. **We shared the file and not the lock,**
+and the broker is what puts serialization back.
+
+> [!IMPORTANT]
+> **Do not "fix" this by machine-scoping the lock directory too.** It would work on podman, where
+> both sides are binds of one host inode — and only there. On `container` each jail is its own VM,
+> so a lock is guest kernel state over virtiofs and two VMs do not contend (architectural, marked
+> UNVERIFIED — nobody has run it). On `macos-user` there are no mounts at all. A shared-file lock
+> is therefore **backend-dependent**; a host-side mediator reached over a socket is not, and that
+> — not one-ness, and not a credential boundary — is the property the broker is bought for.
+
+It bundles two jobs.
 
 1. **One shared credentials file per host.** On containers that is a shared-credentials bind plus
    an in-jail *relative* symlink from the agent's own credentials path into it
    (`linkThroughShared`, applied through the pack's `shared_credentials` hook). One OAuth
    identity, every jail.
-2. **Serialize the refresh HTTP call.** A host-side **singleton** daemon holds a flock
+2. **Serialize the refresh HTTP call.** A host-side daemon holds a flock
    (`oauthbroker.RefreshLockPath`) around every refresh, so concurrent jails cannot burn the
-   token. Because Claude Code refreshes *itself* and will never voluntarily take yolo's lock, an
+   token. What the job needs is that the lock be taken **host-side**, where every backend agrees
+   on the inode; it does not need the daemon to be a singleton. Because Claude Code refreshes *itself* and will never voluntarily take yolo's lock, an
    in-jail TLS terminator intercepts the refresh host (via an `--add-host` mapping to loopback)
    and routes the call through a loopback-TLS front — a goroutine in the launching `yolo run`,
    splicing to the singleton's socket — to the daemon under its flock.
@@ -279,6 +310,71 @@ manifest declares `serves: ["claude-oauth-refresh"]`, so a selected pack may `su
 capability with a reason. Under an auth route where no OAuth token is ever refreshed, the job does
 not *exist* rather than being done differently — and this is the only off switch that does not
 require editing a `loopholes:` block.
+
+#### ⚠ The 90/300 threshold mismatch — a live defect
+
+**The broker answers most refreshes with the token the caller already has, and Claude counts that
+as a failed refresh.** All four measurements below are against Claude Code 2.1.278 and the tree.
+
+Claude considers a token due for refresh at **300 seconds** of remaining life:
+
+```js
+function eO(e,n=Date.now()){if(e===null)return!1;return n+300000>=e}
+```
+
+yolo's broker refuses to act until **90 seconds** (`oauthbroker.go:162`):
+
+```go
+if expiresAtMS-nowMS() < 90_000 { return nil }   // else: serve the on-disk record
+```
+
+Between those two numbers is a 210-second window in which Claude asks for a refresh and
+`AsOAuthResponse(cached)` echoes the **same `access_token`** back with HTTP 200. Claude's
+401-recovery path reads that as exhaustion:
+
+```js
+if(Zt()?.accessToken===De){ if(bre()!==null||!$1(w)&&++_e>=Rmo) throw m("api_request","api_request_oauth_refresh_exhausted"), new Fd(w,g) } else _e=0
+```
+
+`Rmo` is **2**. On a plain host this branch is unreachable, because a real refresh always mints a
+new access token — which is the whole of why a plain Claude never loses its login and a jail's
+does. Three aggravating facts:
+
+- **`force` is dropped.** `IsRefreshGrant` inspects only `grant_type`, and `DoRefresh(credsPath)`
+  has no force parameter, so Claude's force-refresh cannot compel an upstream call from inside a
+  jail.
+- **yolo already disagrees with itself.** `BackgroundRefreshLeadSeconds` is **300** — the same
+  number Claude uses. Only the on-demand cache floor dissents, and Claude always wins the race to
+  act on the threshold, because it checks before every API call while the refresher ticks at 60s.
+- **Measured in one jail's terminator log:** of 380 successful refresh replies, **364 (96%)**
+  carried 90–299 seconds of life — i.e. were the caller's own token handed back.
+
+The fix is to raise the cache floor above Claude's threshold so the two agree; it is tracked as a
+defect and not yet built.
+
+#### What the broker does *not* buy
+
+Three beliefs about it were measured false, and each one had been load-bearing somewhere:
+
+- **It is not what stops a jail spending a stale token.** That is the terminator, independently:
+  `Refresh` sends `AskHostBroker(endpointPath, singleton("action","refresh"))` and nothing else,
+  so the refresh token Claude presents is discarded at the jail edge and never reaches upstream.
+  `DoRefresh` takes only a path.
+- **It does not need to be a singleton.** See the flock note above — host-side is the requirement.
+- **It does not trigger the vendor's dead-token disk clear, and cannot surface a real one
+  either.** The vendor classifies a dead token by the **top-level `error` string**, not the status
+  code (`jd(e.response.data).code==="invalid_grant"`). yolo's five broker codes — `creds_unreadable`,
+  `no_refresh_token`, `upstream_http`, `upstream_bad_response`, `upstream_unreachable` — are never
+  that string, so the catastrophic shared-file blanking path is closed. The mirror is the cost: a
+  **genuine** upstream `invalid_grant` is wrapped as `{"error":"upstream_http","body":"…"}`, so
+  Claude cannot see a truly dead token either and retries instead of prompting a clean re-login.
+
+> [!WARNING]
+> **The broker discards `refresh_token_expires_in`, the one field that predicts a logout.**
+> Anthropic returns it and Claude 2.1.278 persists it as `refreshTokenExpiresAt`; it appears
+> **nowhere** in `internal/`, `packs/` or `docs/`. `NormalizeOAuth` drops it, so neither the
+> broker's log nor `describeCreds` can say how long the refresh token itself has left — which is
+> why a refresh-token expiry is undiagnosable after the fact rather than merely unpredicted.
 
 ### The OpenAI subscription credential service
 
@@ -542,6 +638,9 @@ $ rg -n '"scope": "host"' packs/*/loopholes/*/manifest.jsonc
 | Endpoint file | `<name>.endpoint`, mode `0600`, named by `YOLO_SERVICE_<NAME>_ENDPOINT` | `internal/svcendpoint` |
 | Declared-service socket | `<name>.sock`, named by `YOLO_SERVICE_<NAME>_SOCKET` | `internal/loopholes` |
 | Broker refresh lock | `oauthbroker.RefreshLockPath` | `internal/oauthbroker/refresh.go` |
+| Broker cache floor | **90s** — serve the on-disk token above this, refresh below it. ⚠ Below Claude's own 300s threshold; see [the mismatch](#-the-90300-threshold-mismatch--a-live-defect) | `internal/oauthbroker/oauthbroker.go` (`CachedTokens`) |
+| Background refresher | lead **300s**, tick **60s**, fast retry **5s** × **12** | `internal/oauthbroker/oauthbroker.go` (`BackgroundRefresh*`) |
+| Vendor refresh lock | `<configDir>/.oauth_refresh.lock`, `realpath:false`, stale `60000`, update `5000` — **per-jail**, never follows the shared-creds symlink | Claude Code bundle (`acquireOAuthRefreshLock`), measured |
 | Broker credentials file | the shared-credentials dir under the global home | `internal/storage` (`ensure.go`), `internal/entrypoint/claude.go` |
 | Broker daemon | `yolo internal daemon claude-oauth-broker`, `scope: "host"` | `internal/broker`; `packs/claude/loopholes/claude-oauth-broker/manifest.jsonc` |
 | OpenAI canonical state | `<loophole state>/credentials.json`, mode `0600`; parent and lock are private | `internal/openaiauth`; `packs/openai-auth/loopholes/openai-auth-broker/manifest.jsonc` |
