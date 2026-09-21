@@ -10,7 +10,7 @@ vantage:
 
 # No singleton: a host-side daemon belongs to the jail that asked for it
 
-**Status:** RULED 2026-09-20, **NOT BUILT.** The ruling is to retire
+**Status:** DESIGN, 2026-09-20 — four questions still owe a ruling ([OQ-HD4](#OQ-HD4), [OQ-HD5](#OQ-HD5), [OQ-HD9](#OQ-HD9), [OQ-HD10](#OQ-HD10)), and **NOTHING IS BUILT.** The central ruling is in: retire
 `host_daemon.scope: "host"` and give every host-side daemon the lifetime of the jail that
 asked for it. Nothing in the tree has changed. One earlier ruling IS built — the
 management surface ([§5.1](#51-the-management-surface-one-verb-over-the-host-scoped-set))
@@ -51,10 +51,7 @@ shared credential fresh when **no jail is running**. That is a lifetime problem,
 locking one, and it is [OQ-HD9](#OQ-HD9) — the question that decides whether this ruling
 is complete on its own.
 
-**Needs your ruling:** [OQ-HD4](#OQ-HD4) (the reclaimer's hard kill),
-[OQ-HD5](#OQ-HD5) (silent mid-session death), [OQ-HD9](#OQ-HD9) (**new** — who keeps the
-shared credential fresh with no jail running), [OQ-HD10](#OQ-HD10) (**new** — what
-serializes spawn on macos-user, the one objection the ruling did not answer).
+**Needs your ruling:** [OQ-HD4](#OQ-HD4) (the reclaimer's hard kill), [OQ-HD5](#OQ-HD5) (silent mid-session death), [OQ-HD9](#OQ-HD9) (**new** — who keeps the shared credential fresh with no jail running), [OQ-HD10](#OQ-HD10) (**new** — what serializes spawn on macos-user, the one objection the ruling did not answer).
 
 **Reads with:** [`host-daemon-ownership-plan.md`](host-daemon-ownership-plan.md) (the
 implementation sketch — ⚠ **now wrong in a specific way**: its entries are parked against
