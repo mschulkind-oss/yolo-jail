@@ -262,3 +262,49 @@ func TestEnsureStorageDetectsTheBaseHome(t *testing.T) {
 			"layout-version marker early-return would make it marker-gated.")
 	}
 }
+
+// TestAnUndeclaredRootWithBytesReportsButDoesNotRefuse pins the defect this gate shipped
+// with for one commit.
+//
+// THE CASE IS REAL, NOT HYPOTHETICAL. Measured on a maintainer host 2026-09-21:
+// `.claude/bin` in the base home is a `files` destination of a LOCAL pack (matt-fzf), and
+// basehome.ShippedDecls() reads only packload.Embedded() — so the walk classified a user's
+// own pack content as RUNTIME. With the gate keyed on Bytes() that is a launch refused with
+// instructions to archive the user's own files, which is worse than the leak it prevents.
+//
+// The rule: an undeclared root is REPORTED (we cannot say what is in it) and never REFUSED
+// (we cannot say it is wrong).
+func TestAnUndeclaredRootWithBytesReportsButDoesNotRefuse(t *testing.T) {
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	globalHome := filepath.Join(home, ".local", "share", "yolo-jail", "home")
+	// A root no shipped pack declares, holding real bytes — a local pack's files tree.
+	p := filepath.Join(globalHome, ".localpackdir", "delivered-tool")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(strings.Repeat("x", 4096)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var errBuf bytes.Buffer
+	o := goldenOptions("/ws", t.TempDir())
+	o.Stderr = &errBuf
+	o.Stdout = &bytes.Buffer{}
+
+	if err := o.ensureStorage(); err != nil {
+		t.Fatalf("an UNDECLARED root's bytes must not refuse a launch — they may be a local "+
+			"pack's own delivered files, which this cannot tell apart: %v", err)
+	}
+	got := errBuf.String()
+	if !strings.Contains(got, ".localpackdir") {
+		t.Errorf("it must still be REPORTED; stderr = %q", got)
+	}
+	if strings.Contains(got, "mv ") {
+		t.Errorf("stderr = %q: must not offer to move a root whose declarations were never read", got)
+	}
+}

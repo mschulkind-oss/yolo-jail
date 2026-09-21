@@ -162,6 +162,32 @@ func (r Report) Warnings() []string {
 	return out
 }
 
+// ActionableBytes is Bytes() minus everything under a root whose declarations we never
+// read, and it is what a caller may REFUSE on.
+//
+// THE DISTINCTION IS NOT COSMETIC. Decls comes from the SHIPPED packs, so a top-level dir
+// declared by a LOCAL or fetched pack is walked with none of its own declarations: its
+// `files` destinations, its config surfaces and any credential it holds all read as
+// RUNTIME. MEASURED on a real host 2026-09-21 — `.claude/bin` is a `files` destination of
+// a local pack, and Bytes() counted it.
+//
+// So Bytes() is what was FOUND and ActionableBytes is what is KNOWN, and a refusal must use
+// the second. Reporting still uses the first, because an undeclared root with bytes is
+// worth a line; it is just not worth failing someone's launch over.
+func (r Report) ActionableBytes() int64 {
+	unknown := map[string]bool{}
+	for _, u := range r.UnknownRoots {
+		unknown[u] = true
+	}
+	var n int64
+	for _, e := range r.Candidates {
+		if !unknown[e.Root] {
+			n += e.Bytes
+		}
+	}
+	return n
+}
+
 // unreadableCount is how many candidates could not be read. A zero BYTE total next to a
 // non-zero count means "unknown", not "nothing" — which is why it gates the silence.
 func (r Report) unreadableCount() int {

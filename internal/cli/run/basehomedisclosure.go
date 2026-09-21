@@ -63,15 +63,24 @@ func (o *Options) noteLegacyBaseHome() error {
 	for _, w := range rep.Warnings() {
 		out.print("[yellow]" + w + "[/yellow]")
 	}
-	if rep.Bytes() == 0 {
+	// ActionableBytes, NOT Bytes: a root no shipped pack declares is classified without its
+	// own declarations, so its contents read RUNTIME whatever they are. MEASURED on a real
+	// host — `.claude/bin` is a `files` destination of a LOCAL pack, and refusing on its
+	// bytes would tell the user to archive their own pack's content. Such a root is still
+	// REPORTED (Warnings, above); it is just not grounds for failing a launch.
+	if rep.ActionableBytes() == 0 {
 		return nil
 	}
 
 	// The roots carrying bytes are the only ones worth an `mv`: a root with candidates but
 	// no bytes is empty directories, which the caller is not being asked to move.
+	unknown := map[string]bool{}
+	for _, u := range rep.UnknownRoots {
+		unknown[u] = true
+	}
 	var roots []string
 	for _, s := range rep.ByRoot() {
-		if s.Bytes > 0 {
+		if s.Bytes > 0 && !unknown[s.Root] {
 			roots = append(roots, s.Root)
 		}
 	}

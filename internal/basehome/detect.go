@@ -73,6 +73,14 @@ type Report struct {
 	// Problems are the declaration-side degradations (Decls.Problems, plus anything the
 	// walk learned about the declarations).
 	Problems []string
+	// UnknownRoots are the walk roots no shipped pack and no core list declares, found by
+	// §5.1's third bullet. EXPOSED because a caller that ACTS on a finding must be able to
+	// tell these apart: everything under one of them is classified without its own
+	// declarations, so a leaf there reads RUNTIME whatever it really is. MEASURED
+	// 2026-09-21: `.claude/bin` on a real host is a `files` destination of a LOCAL pack,
+	// and a refusal that counted its bytes would tell the user to archive their own pack's
+	// content. See Report.ActionableBytes.
+	UnknownRoots []string
 }
 
 // Detect walks the base home and reports what the apply WOULD move. It moves nothing,
@@ -102,6 +110,7 @@ func Detect(globalHome string, d Decls) Report {
 		// two known sources put such a dir in the base — a config `writable_home_dirs`
 		// entry (§5.1's second bullet, unimplemented here because the config is not loaded
 		// at this trigger) and a selected non-shipped pack's state dir.
+		rep.UnknownRoots = unknown
 		rep.Problems = append(rep.Problems, "classified without their own declarations "+
 			"(derived from shipped packs only), so every leaf in them reads as runtime: "+
 			strings.Join(unknown, " "))
