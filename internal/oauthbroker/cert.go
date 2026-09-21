@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 )
 
@@ -44,6 +45,17 @@ func BrokerDir() string {
 func caCrt(dir string) string     { return filepath.Join(dir, "ca.crt") }
 func serverCrt(dir string) string { return filepath.Join(dir, "server.crt") }
 func serverKey(dir string) string { return filepath.Join(dir, "server.key") }
+
+// certLockPath is the flock file serializing the MINT, and it is a deliberate
+// sibling of refresh.go's refresh.lock rather than a second idea: both are fixed
+// paths under BrokerDir(), which takes no name and no socket path and is a
+// function of $HOME alone, so every broker process in one home contends on the
+// SAME inode however its socket is spelled.
+//
+// It is host-side bookkeeping like refresh.lock, so it is absent from the
+// loophole manifest's `state_files` narrowing and never crosses into a jail —
+// nothing in-jail mints anything.
+func certLockPath(dir string) string { return filepath.Join(dir, "cert.lock") }
 
 // legacyOpensslArtifacts are the files the retired `openssl` shell-out left in
 // the state dir, in the order they mattered. ca.key is the one that counts: it
@@ -109,18 +121,63 @@ const certSkewSlack = time.Hour
 // force regenerates both halves (--force-init-ca). Rotating the CA is safe for
 // already-running jails: each of the three files is bind-mounted BY INODE, so a
 // running jail keeps the complete old trio it launched with, while the next
-// launch binds a complete new one. What must never happen is a MIXED pair, which
-// is why the CA and the leaf are always minted and written together.
+// launch binds a complete new one.
+//
+// WHAT MUST NEVER HAPPEN IS A MIXED TRIO — ca.crt from one mint sitting beside a
+// server.crt/server.key from another. A launch binds all three by inode, so the
+// jail gets the mixture whole and its terminator serves a leaf that chains to
+// nothing, which presents as a TLS failure nowhere near the state dir.
+//
+// MINTING THE PAIR IN ONE FUNCTION DOES NOT PREVENT THAT. It orders the three
+// writes within a process and says nothing about two, and each write is atomic
+// only ON ITS OWN (see writeFileAtomic). So the whole body runs under
+// withCertLock, and the currency check is re-run INSIDE the lock — the loser of a
+// race then adopts the winner's complete trio rather than minting a second one
+// over it, which is the same shape DoRefresh's in-lock cache check has.
+//
+// It was previously safe only by accident, and only on one of its two paths: the
+// DAEMON path reached here holding internal/broker's spawn flock, a lock about
+// socket ownership doing unasked duty as a cert mutex, while a hand-run
+// `--init-ca`/`--force-init-ca` (oauthbrokercmd.go returns before any socket
+// work) took no lock at all.
 func EnsureCAAndLeaf(force bool) error {
 	dir := BrokerDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	if !force && caAndLeafAreCurrent(dir) {
-		return nil
-	}
-	return mintCAAndLeaf(dir)
+	return withCertLock(dir, func() error {
+		if !force && caAndLeafAreCurrent(dir) {
+			return nil
+		}
+		return mintCAAndLeafFn(dir)
+	})
 }
+
+// withCertLock runs fn holding an exclusive flock on certLockPath(dir).
+//
+// Same shape and the same STANCE as refresh.go's withRefreshLock: a lock that
+// cannot be taken is a hard error, never a reason to proceed. Minting unlocked is
+// exactly the outcome the lock exists to prevent, so a broker that reports
+// success having skipped it would hand the next launch the mixed trio it was
+// asked to rule out.
+func withCertLock(dir string, fn func() error) error {
+	f, err := os.OpenFile(certLockPath(dir), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return fmt.Errorf("opening the broker cert lock: %w", err)
+	}
+	defer f.Close()
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("locking the broker cert mint: %w", err)
+	}
+	defer func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN) }()
+	return fn()
+}
+
+// mintCAAndLeafFn is the mint step, indirected so a test can stage one that
+// pauses between writing the CA and writing the leaf — the interleaving a second
+// minter needs to produce a mixed trio, and a window no real mint holds open long
+// enough to observe. Production always holds mintCAAndLeaf.
+var mintCAAndLeafFn = mintCAAndLeaf
 
 // caAndLeafAreCurrent reports whether the state dir already holds material this
 // code would be willing to keep serving: the three files a jail mounts, and no

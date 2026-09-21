@@ -11,18 +11,31 @@ import (
 )
 
 // TestSingletonPathsMatchTheBrokerConstants is the CALL-SITE pin that makes the
-// generalization safe, and it is the one assertion in this file that would cost a
-// jail its credential path if it were missing.
+// generalization safe.
 //
 // Four things reach the broker singleton by four different routes: the run
 // pipeline's front dials paths.HostSingletonSocket(name) built from the loophole
-// RECORD, `yolo broker {status,stop,restart}` reads the BrokerSingleton* constants,
-// `yolo check` hardcodes the same strings in its own package, and a not-yet-upgraded
-// yolo on the same host still uses the constants too. If the name-derived path and
-// the constant ever disagree, every one of those keeps working in isolation while
-// two brokers run — one per spelling — and the flock that stops a concurrent
-// single-use-refresh-token burn is held by neither against the other
-// (docs/reference/agent-credentials.md §2.5).
+// RECORD (and BrokerSpawn flocks paths.HostSingletonLock(name)), `yolo broker
+// {status,stop,restart}` reads the BrokerSingleton* constants, `yolo check`
+// hardcodes the same strings in its own package, and a not-yet-upgraded yolo on
+// the same host still uses the constants too.
+//
+// WHAT A DISAGREEMENT WOULD ACTUALLY COST is operability, and stating it
+// precisely matters because this comment used to claim something stronger and
+// FALSE. Every route would keep working in isolation while addressing a DIFFERENT
+// daemon: `yolo broker stop` reaps a PID file the jails' daemon never wrote and
+// leaves the live one running, `status` and `yolo check` report on a socket no
+// jail dials, and the SPAWN flock is itself per-spelling — it is
+// HostSingletonLock(name) — so neither process excludes the other and both spawn.
+//
+// WHAT IT WOULD NOT COST is a concurrent single-use-refresh-token burn. The
+// refresh flock is not keyed by the socket name at all: oauthbroker's
+// RefreshLockPath is set to `BrokerDir()/refresh.lock`, and BrokerDir() takes no
+// name and no socket path — it is a function of $HOME alone. So two brokers in
+// one home contend on the SAME inode however they are spelled (as they do on the
+// cert mint's flock beside it), and DoRefresh re-reads the creds file inside that
+// lock and hands back the winner's token as a cache hit. Two brokers in one $HOME
+// are a stray process and a confused operator, not a lost credential.
 //
 // The derivation was CHOSEN so this holds byte-for-byte rather than being adapted to
 // it: `/tmp/yolo-<name>.sock` for name="claude-oauth-broker" IS
