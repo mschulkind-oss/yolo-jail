@@ -380,7 +380,30 @@ func proxyLoop(inFd, master int, c *exec.Cmd, cooked *unix.Termios, hook StageHo
 //   - \x1b[?2004l: disable bracketed paste mode
 //   - \x1b[?1l: normal cursor keys mode (DECCKM)
 //   - \x1b>: normal keypad mode (DECKPNM)
-const termReset = "\x1b[0m\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[?1l\x1b>"
+//   - \x1b[?1004l: disable focus reporting
+//   - \x1b[<u: pop the kitty keyboard protocol flags
+//   - \x1b[>4;0m: disable xterm modifyOtherKeys
+//
+// THE LAST THREE ARE THE KEYSTROKE ONES, and they are why this constant exists
+// in the shape it does rather than as "whatever `reset` sends". Under an enhanced
+// keyboard protocol the terminal encodes every key as a CSI sequence, so a shell
+// that inherits the mode echoes a burst of punctuation for each keypress — the
+// state a user escapes by pasting `reset`. Claude Code turns one on (its own
+// defaults carry `kittyKeyboard:!0`) and probes with `CSI ? u` and `CSI ? 6 n`,
+// whose REPLY is `CSI ? <row> ; <col> R` — the stray `32;87` fragments that show
+// up in the wreckage. None of the mouse or paste disables above touch any of it.
+//
+// It bites hardest on the ATTACH arm. A second terminal's `exec` dies when the
+// container does, which is whenever the launching terminal is interrupted, and
+// the agent inside it is killed with no chance to pop what it pushed. This
+// process survives that, so it is the only thing that can.
+//
+// ⚠ DELIBERATELY ABSENT: \x1b[?1049l (leave the alternate screen). restoreTerminal
+// is also the Ctrl-Z path (selfSuspend), where dropping the alt screen would wipe
+// the suspended program's display and `fg` would not bring it back. Screen state
+// is the one thing this must not touch.
+const termReset = "\x1b[0m\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[?1l\x1b>" +
+	"\x1b[?1004l\x1b[<u\x1b[>4;0m"
 
 // resetTerminal sends escape sequences to restore cursor visibility, reset
 // text attributes, and disable mouse tracking, bracketed paste, and application
@@ -403,7 +426,8 @@ func resetTerminal(inFd int) {
 
 // restoreTerminal restores cooked termios on the host terminal and resets
 // terminal modes (shows the cursor, resets attributes, and disables mouse
-// tracking, bracketed paste, and application cursor/keypad modes).
+// tracking, bracketed paste, application cursor/keypad modes, focus reporting
+// and the enhanced keyboard protocols).
 func restoreTerminal(inFd int, cooked *unix.Termios) {
 	_ = unix.IoctlSetTermios(inFd, unix.TCSETS, cooked)
 	resetTerminal(inFd)

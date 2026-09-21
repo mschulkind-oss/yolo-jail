@@ -475,3 +475,38 @@ func TestWinchResignalsTheChild(t *testing.T) {
 		t.Error("proxy did not return after the child exited")
 	}
 }
+
+// TestTermResetDisablesEveryModeThatSurvivesAKill names each escape sequence
+// INDIVIDUALLY, because every other assertion in this file compares what was
+// written against termReset itself — which passes whatever the constant says and
+// would go on passing if a sequence were dropped from it.
+//
+// The keyboard rows are the ones with a reported symptom behind them: a terminal
+// left under an enhanced keyboard protocol emits a CSI burst per keypress, which
+// is the state a user escapes by pasting `reset`.
+func TestTermResetDisablesEveryModeThatSurvivesAKill(t *testing.T) {
+	for _, tc := range []struct{ seq, why string }{
+		{"\x1b[0m", "SGR attributes"},
+		{"\x1b[?25h", "cursor visibility (DECTCEM)"},
+		{"\x1b[?1000l", "X10 mouse tracking"},
+		{"\x1b[?1002l", "button-event mouse tracking"},
+		{"\x1b[?1003l", "any-event mouse tracking"},
+		{"\x1b[?1006l", "SGR mouse encoding"},
+		{"\x1b[?2004l", "bracketed paste"},
+		{"\x1b[?1l", "application cursor keys (DECCKM)"},
+		{"\x1b>", "application keypad (DECKPNM)"},
+		{"\x1b[?1004l", "focus reporting"},
+		{"\x1b[<u", "kitty keyboard protocol flags"},
+		{"\x1b[>4;0m", "xterm modifyOtherKeys"},
+	} {
+		if !strings.Contains(termReset, tc.seq) {
+			t.Errorf("termReset does not disable %s (missing %q)", tc.why, tc.seq)
+		}
+	}
+	// The one thing it must NOT do: restoreTerminal is also the Ctrl-Z path, where
+	// leaving the alternate screen would wipe the suspended program's display.
+	if strings.Contains(termReset, "\x1b[?1049l") {
+		t.Error("termReset leaves the alternate screen; selfSuspend would wipe the " +
+			"suspended program's display and `fg` could not restore it")
+	}
+}
