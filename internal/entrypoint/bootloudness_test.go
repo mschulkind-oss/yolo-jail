@@ -12,19 +12,31 @@ package entrypoint
 // off would not be one.
 //
 // WHY THE FAILURES ARE PROVOKED THE WAY THEY ARE: these tests run as ROOT in the jail, where
-// root can unlink, chmod and write essentially anything on a normal filesystem. So the
-// portable ways to make a syscall actually fail are structural rather than permission-based —
-// a non-empty directory passed to os.Remove (ENOTEMPTY), a self-referential symlink passed to
-// os.WriteFile (ELOOP), a regular file where a directory is expected (ENOTDIR), and procfs,
-// which refuses unlink even for uid 0 (MEASURED: `remove /proc/1/cmdline: operation not
-// permitted` as uid 0). A test that needs a permission denial instead would silently SKIP in
-// here, which is the one place this package's behaviour matters.
+// root can unlink, chmod and write essentially anything on a normal filesystem, so the ways to
+// make a syscall actually fail are structural rather than permission-based. THREE OF THEM ARE
+// GENUINELY PORTABLE, being POSIX semantics rather than one kernel's: a non-empty directory
+// passed to os.Remove (ENOTEMPTY), a self-referential symlink passed to os.WriteFile (ELOOP),
+// and a regular file where a directory is expected (ENOTDIR). A test that needs a permission
+// denial instead would silently SKIP in here, which is the one place this package's behaviour
+// matters.
+//
+// THE FOURTH IS NOT PORTABLE, AND CALLING IT SO COST AN OUTAGE. One os.Remove branch below can
+// only be reached through a directory whose entries refuse to be unlinked at all, and this file
+// used to reach for /proc/self/fd while calling procfs "the portable way" — portable across
+// UIDs, which was the property under test, but NOT across operating systems. macOS has no
+// procfs, so on darwin the fixture's symlink dangled, the swept directory could not be listed,
+// the production code took its "absent is the normal case" branch, no report was emitted, and
+// the assertion blamed the reporting line. check-macos failed on eight consecutive commits
+// (2026-09-19/20) while this Linux gate stayed green. What replaced it is a MEASUREMENT rather
+// than a claim — see fdDirRefusesRemoval — and the lesson generalises: a comment asserting a
+// kernel's behaviour is the thing to distrust in here.
 
 import (
 	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -292,18 +304,170 @@ func TestAStaleGeneratedClientThatSurvivesIsReported(t *testing.T) {
 	mustContain(t, "a surviving retired bootstrap file", stderr, occupied, "PATH")
 }
 
+// fdDirCandidates are the file-descriptor directories the fixture below will try, in order.
+//
+// /dev/fd FIRST, BECAUSE IT IS THE SPELLING THAT EXISTS ON BOTH: on Linux it is a symlink to
+// /proc/self/fd (MEASURED in this jail, 2026-09-20: `/dev/fd -> /proc/self/fd`), and on macOS
+// it is devfs's fdesc directory, procfs being absent entirely. /proc/self/fd is kept only as
+// the fallback for a Linux without /dev/fd. Neither is trusted on sight — fdDirRefusesRemoval
+// measures whichever one it is handed.
+var fdDirCandidates = []string{"/dev/fd", "/proc/self/fd"}
+
+// fdDirRefusesRemoval reports whether dir lists name as an entry with the THREE properties
+// removeRetiredGeneratedDirs needs in order to reach its reporting branch at all — the
+// directory can be listed, the entry is not a directory (those it skips without attempting),
+// and the entry refuses os.Remove — and, when it does not, which of the three was missing.
+//
+// IT IS A MEASUREMENT, NOT AN OS CHECK. That is the whole repair: the previous fixture
+// asserted a property of procfs it never verified and was wrong for an entire operating
+// system, and a `runtime.GOOS == "darwin"` branch would be the same mistake with a different
+// spelling. Every property here is observed on the machine running the test, so a platform
+// where a file-descriptor directory behaves differently produces a SKIP naming the reason
+// rather than a failure pointed at the production code.
+//
+// The removal attempt is destructive in principle, so callers pass an entry THEY own (see
+// unremovableEntryDir): if some kernel does let the unlink through, the only thing lost is a
+// descriptor the test opened for this purpose.
+func fdDirRefusesRemoval(dir, name string) (ok bool, why string) {
+	// Mirrors removeRetiredGeneratedDirs' own ReadDir, including that a directory it cannot
+	// list is one it skips wholesale — which is exactly what darwin did with the dangling
+	// procfs symlink, and exactly the case that must NOT read as a usable fixture.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false, dir + " cannot be listed (" + err.Error() + "), so the sweep would " +
+			"skip it without attempting anything"
+	}
+	found := false
+	for _, entry := range entries {
+		if entry.Name() != name {
+			continue
+		}
+		if entry.IsDir() {
+			return false, dir + "/" + name + " is reported as a directory, which the sweep " +
+				"skips without attempting"
+		}
+		found = true
+	}
+	if !found {
+		return false, dir + " does not list an entry named " + name
+	}
+	if err := os.Remove(filepath.Join(dir, name)); err == nil {
+		return false, dir + "/" + name + " was removed successfully, so this directory " +
+			"cannot provoke the failure the report is about"
+	}
+	return true, ""
+}
+
+// unremovableEntryDir returns a file-descriptor directory whose entries this process has
+// JUST OBSERVED to refuse os.Remove as uid 0, or skips the test when no candidate on this OS
+// can be shown to do that.
+func unremovableEntryDir(t *testing.T) string {
+	t.Helper()
+	// A descriptor this test owns, so the probe's removal attempt can only ever touch an
+	// entry this test created. os.DevNull rather than a temp file on purpose: a
+	// file-descriptor directory reports the type of whatever the descriptor points AT (on
+	// darwin fdesc_attr passes the underlying vnode's va_type straight through, VDIR
+	// included), and a character device can never be mistaken for a directory and skipped.
+	own, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { own.Close() })
+	name := strconv.Itoa(int(own.Fd()))
+
+	var why []string
+	for _, dir := range fdDirCandidates {
+		ok, reason := fdDirRefusesRemoval(dir, name)
+		if ok {
+			return dir
+		}
+		why = append(why, reason)
+	}
+	t.Skip("no file-descriptor directory on this platform could be shown to refuse an " +
+		"unlink for uid 0, so the un-emptiable branch of removeRetiredGeneratedDirs is " +
+		"UNPINNED here: " + strings.Join(why, "; "))
+	return ""
+}
+
 // TestARetiredGeneratedDirThatCannotBeEmptiedIsReported. One of those leftovers is a `grep`
 // blocker, which starts intercepting again the moment its directory is back on a PATH.
+//
+// THE COVERAGE GAP, stated because the version of this test that caused the outage hid one:
+// the only way to provoke a failing os.Remove as uid 0 here is a directory the kernel refuses
+// to let anything be unlinked from, and whether such a directory exists is a property of the
+// OS. unremovableEntryDir measures it and SKIPS where it cannot be had, which means this
+// report's un-emptiable branch is pinned only on platforms where that measurement succeeds.
+// It skips rather than fails there deliberately: a suite that goes red over what a fixture
+// cannot reach teaches readers to ignore red.
+//
+// ESTABLISHED FOR DARWIN FROM SOURCE, NOT MEASURED — no macOS machine was available: XNU's
+// devfs_fdesc_support.c maps /dev/fd/N's vnop_remove to eopnotsupp, and the /dev/fd directory
+// vnode's own table (devfs_devfd_vnodeop_entries, devfs_vnops.c) declares no vnop_remove at
+// all and so falls to vn_default_error. An unlink there cannot succeed. What is NOT
+// established is the listing half: that readdir emits d_type = DT_UNKNOWN, which makes Go
+// lstat every entry, and that devfs_devfd_lookup answers EBADF (which Go does not treat as
+// "not exist") for a descriptor closed in between. Both are why the fixture measures instead
+// of assuming, and why it can legitimately skip on darwin.
 func TestARetiredGeneratedDirThatCannotBeEmptiedIsReported(t *testing.T) {
+	fdDir := unremovableEntryDir(t)
 	e, stderr, _ := loudEnv(t)
-	// procfs is the portable way to get an unlink failure as uid 0. /proc/self/fd holds a
-	// handful of non-directory entries, every one of which refuses to be removed.
-	if err := os.Symlink("/proc/self/fd", filepath.Join(e.Home, retiredGeneratedDirs[0])); err != nil {
+	if err := os.Symlink(fdDir, filepath.Join(e.Home, retiredGeneratedDirs[0])); err != nil {
 		t.Fatal(err)
 	}
 	removeRetiredGeneratedDirs(e)
 	mustContain(t, "an un-emptiable retired script dir", stderr,
 		retiredGeneratedDirs[0], "intercept")
+}
+
+// TestTheFdDirFixtureRejectsADirectoryItCannotProve reproduces the darwin failure ON LINUX,
+// which is the half of this repair that keeps the next one from reaching CI.
+//
+// AGENTS.md records the shape as a class — "the darwin PATH-RESOLUTION class is reproducible
+// on Linux", where a fixture handing out an unresolved path passes here and fails there. This
+// is that class one level up, in the fixture rather than the path: the two ways a
+// file-descriptor directory can fail to be a fixture are that it is not there (darwin, for
+// /proc/self/fd) and that its entries unlink perfectly happily (any ordinary directory), and
+// BOTH are reproducible here with a temp dir. The predicate must reject them, because a
+// fixture that cannot fail loudly makes its test report on the production code's behalf.
+func TestTheFdDirFixtureRejectsADirectoryItCannotProve(t *testing.T) {
+	assertRejected := func(t *testing.T, ok bool, why, wantReason, complaint string) {
+		t.Helper()
+		if ok {
+			t.Fatal(complaint)
+		}
+		if !strings.Contains(why, wantReason) {
+			t.Errorf("the refusal must say which property was missing; wanted %q, got: %q",
+				wantReason, why)
+		}
+	}
+
+	t.Run("absent, as /proc/self/fd is on darwin", func(t *testing.T) {
+		ok, why := fdDirRefusesRemoval(filepath.Join(t.TempDir(), "no-such-procfs"), "0")
+		assertRejected(t, ok, why, "cannot be listed",
+			"the fixture accepted a directory that does not exist — the exact state a "+
+				"dangling procfs symlink leaves on macOS, where the sweep then reports nothing")
+	})
+
+	t.Run("entries that unlink happily", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "0"), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ok, why := fdDirRefusesRemoval(dir, "0")
+		assertRejected(t, ok, why, "removed successfully",
+			"the fixture accepted a directory whose entries CAN be removed: the sweep would "+
+				"empty it, report nothing, and the assertion would blame the reporting line")
+	})
+
+	t.Run("an entry the sweep skips as a directory", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.Mkdir(filepath.Join(dir, "0"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		ok, why := fdDirRefusesRemoval(dir, "0")
+		assertRejected(t, ok, why, "is reported as a directory",
+			"the fixture accepted an entry removeRetiredGeneratedDirs never attempts to remove")
+	})
 }
 
 // TestAGitIdentityThatCouldNotBeRecordedIsReported. The symptom otherwise is `git commit`
