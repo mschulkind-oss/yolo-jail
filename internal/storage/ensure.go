@@ -52,22 +52,11 @@ func EnsureGlobalStorage(migrate func()) error {
 	// Per-agent overlay dirs (UNION across all known agents) + shared dirs.
 	overlaySubdirs := append([]string{}, packload.EmbeddedWritableDirs()...)
 	overlaySubdirs = append(overlaySubdirs, packload.EmbeddedSharedDirs()...)
-	overlaySubdirs = append(overlaySubdirs,
-		filepath.Join(".config", "git"),
-		filepath.Join(".pi", "agent"),
-		".npm-global",
-		".local",
-		"go",
-		// One dir, two generated-script children (block/ and launch/). The nested path
-		// matters: the OCI runtime cannot mkdirat inside the :ro /home/agent bind, so the
-		// mountpoint's PARENT has to exist here or the launch fails with an opaque
-		// crun/conmon error rather than a useful one.
-		".yolo",
-		".yolo/bin",
-		".config",
-		".cache",
-		".ssh",
-	)
+	// The non-pack half is paths.BaseHomeCoreDirs, not an inline list: the base-home
+	// legacy-state sweep must EXCLUDE exactly what core provisions here
+	// (docs/design/base-home-legacy-state.md §5.1, §8), and a second copy of this list is
+	// a sweep that proposes archiving .ssh.
+	overlaySubdirs = append(overlaySubdirs, paths.BaseHomeCoreDirs()...)
 	for _, sub := range overlaySubdirs {
 		if err := os.MkdirAll(filepath.Join(globalHome, sub), 0o755); err != nil {
 			return err

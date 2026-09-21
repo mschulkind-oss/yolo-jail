@@ -126,7 +126,7 @@ func Run(opts Options) (rc int) {
 	// needs the flake. --dry-run stays exempt because it materializes nothing.
 	repoRes, repoRootOK := o.RepoRoot()
 	repoRoot := repoRes.Root
-	if err := ensureStorage(); err != nil {
+	if err := o.ensureStorage(); err != nil {
 		o.pr(o.Stdout).printf("[bold red]%s[/bold red]", err.Error())
 		return 1
 	}
@@ -834,13 +834,29 @@ func (o *Options) noteUseProfiles(effective *jsonx.OrderedMap, loadedPacks []*pa
 // when it can't confirm no live jail holds the store, leaving the marker
 // unstamped to retry); the full live-container probe is the run-slice's concern,
 // and declining is always safe. insideJail short-circuits (never scans /mise).
-func ensureStorage() error {
-	return storage.EnsureGlobalStorage(func() {
-		insideJail := os.Getenv("YOLO_VERSION") != ""
+//
+// It is a METHOD, and was a package-level func until the base-home disclosure
+// needed a stream: warnf wrote the PROCESS os.Stderr, so the migration's own
+// messages bypassed the launch-log tee that AGENTS.md says everything printed
+// goes through (attachLaunchLog sets o.Stderr 49 lines above the call), and no
+// test could capture them. Both facts are the same missing receiver.
+//
+// The base-home walk runs HERE and not inside storage.MigrateStorageLayout,
+// because that function early-returns on its layout-version marker
+// (internal/storage/ensure.go:261-265) and detection is deliberately NOT
+// marker-gated: the marker gates only the apply
+// (docs/design/base-home-legacy-state.md §5.7).
+func (o *Options) ensureStorage() error {
+	if err := storage.EnsureGlobalStorage(func() {
+		insideJail := o.Getenv("YOLO_VERSION") != ""
 		storage.MigrateStorageLayout(insideJail, func() bool { return false }, func(msg string) {
-			fmt.Fprintln(os.Stderr, msg)
+			fmt.Fprintln(o.Stderr, msg)
 		})
-	})
+	}); err != nil {
+		return err
+	}
+	o.noteLegacyBaseHome()
+	return nil
 }
 
 // runContainer is the post-config flow: the attach-to-existing decision

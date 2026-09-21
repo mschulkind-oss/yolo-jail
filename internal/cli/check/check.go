@@ -43,11 +43,17 @@ func Check(opts Options) int {
 		// returns false — the fail-safe defer (the full live-jail probe is the run
 		// path's concern; declining never harms).
 		_ = storage.EnsureGlobalStorage(func() {
-			insideJail := os.Getenv("YOLO_VERSION") != ""
-			storage.MigrateStorageLayout(insideJail, func() bool { return false }, func(msg string) {
-				fmt.Fprintln(os.Stderr, msg)
+			storage.MigrateStorageLayout(o.inJail(), func() bool { return false }, func(msg string) {
+				fmt.Fprintln(o.Stderr, msg)
 			})
 		})
+		// The base-home walk is a SIBLING of the layout migration, not part of it:
+		// MigrateStorageLayout early-returns on its own marker and detection is
+		// deliberately not marker-gated (design §5.7). It is inside the
+		// SkipEnsureStorage gate because that flag's job is "do not touch the host home
+		// in tests" and this reads the same tree — read-only, but a real one, and a
+		// golden run must not walk the developer's ~/.claude.
+		o.noteLegacyBaseHome()
 	}
 
 	workspace := o.Workspace

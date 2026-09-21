@@ -80,6 +80,12 @@ type Options struct {
 	Exec func(argv []string, dir string, env []string, timeout time.Duration) ExecResult
 	// Stdout is where the report is written. nil => os.Stdout.
 	Stdout io.Writer
+	// Stderr is where a DISCLOSURE is written — never the report. The report is a
+	// formatted artifact a caller may redirect or ask for as JSON (Format), while a
+	// disclosure is a fact about this machine that OQ-RO3 says no tier may gate, so the
+	// two cannot share a stream. Today the base-home walk is the only writer.
+	// nil => os.Stderr.
+	Stderr io.Writer
 	// Stdin is read for the orphan-jail cleanup prompt. nil => never prompt
 	// (treated as "N").
 	Stdin io.Reader
@@ -154,6 +160,9 @@ func fillDefaults(o *Options) {
 	}
 	if o.Stdout == nil {
 		o.Stdout = os.Stdout
+	}
+	if o.Stderr == nil {
+		o.Stderr = os.Stderr
 	}
 	if o.IsTTYStdout == nil {
 		o.IsTTYStdout = func() bool { return tty.IsTerminalFile(os.Stdout) }
