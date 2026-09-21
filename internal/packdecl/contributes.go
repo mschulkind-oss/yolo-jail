@@ -2116,6 +2116,35 @@ func validateContribution(label string, c Contribution) []string {
 			problems = append(problems, label+": hook needs a \"hook\" name")
 		} else if !knownHook(c.Hook) {
 			problems = append(problems, fmt.Sprintf("%s: unknown hook %q", label, c.Hook))
+		} else {
+			// The name was the ONLY thing checked here until 2026-09-21, so a hook missing
+			// the path it acts on validated on the host and failed at boot. The required set
+			// is per-hook data (hookRequiredFields), because it is the hook's contract
+			// rather than the kind's — and a RETIRED name reaches this arm too, with no
+			// entry, which is right: its own migration message is the whole answer.
+			// PRESENCE ONLY, DELIBERATELY. A hook's `from` and `at` are ALREADY
+			// path-validated by the shared pre-pass above (appendPathProblems over
+			// `.from`, which every contribution runs), so `../outside/secrets` is
+			// refused at decode without anything here — MEASURED 2026-09-21 against a
+			// review finding that claimed it decoded with zero problems. Adding a second
+			// appendPathProblems call here duplicates that refusal and reads, to the next
+			// person, as evidence the pre-pass does not cover hooks.
+			for _, f := range hookRequiredFields[c.Hook] {
+				switch f {
+				case "from":
+					if c.From == "" {
+						problems = append(problems, fmt.Sprintf(
+							"%s: hook %q needs \"from\" (the home-relative path it acts on)",
+							label, c.Hook))
+					}
+				case "at":
+					if c.At == "" {
+						problems = append(problems, fmt.Sprintf(
+							"%s: hook %q needs \"at\" (a machine-scope state dir this pack declares)",
+							label, c.Hook))
+					}
+				}
+			}
 		}
 	case KindAutonomy:
 		if c.Autonomous == nil && c.Guarded == nil {

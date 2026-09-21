@@ -48,7 +48,7 @@ workspace, or one per boot?**
 | Boot-time generation, and its failure policy | `internal/entrypoint` (`Main`, `genStep`, `genFailuresError`) |
 | The write rules that keep bind mounts alive | `internal/entrypoint` (`WriteInPlace`, `ClearContents`, `EnsureRelativeSymlink`, `resetAnchorDir`) |
 | PATH | `internal/entrypoint` (`BootPath`, `Env.BlockDir`, `Env.LaunchDir`), `internal/macosuser` (`SandboxPath`) |
-| Shared-credential and per-jail-history hooks | `internal/entrypoint` (`Env.linkSharedCredential`, `Env.linkThroughShared`, `Env.isolateHistoryFile`) |
+| Shared-credential, shared-directory and per-jail-history hooks | `internal/entrypoint` (`Env.linkSharedCredential`, `Env.linkSharedDirectory`, `Env.linkIntoSharedDir`, `Env.linkThroughShared`, `Env.isolateHistoryFile`) |
 | The claude.json seed sync | `internal/storage` (`SyncClaudeJSONSeed`) |
 
 **Reads with:** [`storage-and-config.md`](storage-and-config.md) (which host directory has
@@ -476,6 +476,37 @@ copied out only if the shared one is *empty*, and otherwise discarded.
 > deleted credential costs a login yolo cannot perform for you. The accepted failure mode
 > is the inverse — a revoked shared credential outliving a fresh local login — and the fix
 > is to delete the shared file and log in once more.
+
+### Shared directories
+
+The same mechanism for a whole subdirectory instead of one file, requested by a pack's
+`shared_directory` hook and applied by `Env.linkSharedDirectory`: the home-relative path the
+pack names becomes a relative symlink AT the machine-scope directory it declares, so every
+workspace on the machine reads and writes one store. `packs/pi` is the shipped case —
+`~/.pi/agent/npm` → `~/.pi-shared-npm`, pi's extension package store — and the reason is
+version drift rather than disk: N per-workspace copies leave one jail silently running a
+different extension version from its neighbour
+([`OQ-1`](../design/pi-extension-lifecycle.md#6-open-questions)).
+
+Both hooks share ONE implementation of the decision table, because that table's ORDER is
+what a data-loss bug once got wrong. What the directory shape changes:
+
+* **Empty means no entries**, not zero bytes. A directory's `Size()` is filesystem-defined —
+  on some filesystems an empty directory reports a block allocation — so the file rule's test
+  would read an empty store as *populated* and discard the workspace's tree.
+* **The copy is a strict tree copy** that reports every per-entry error and recreates symlinks
+  rather than following them (npm's `.bin` entries are relative links into sibling packages).
+  It is deliberately not the boot path's `copyTree`, which drops per-entry errors by design and
+  so cannot tell a complete copy from a partial one.
+* **A copy in progress is marked inside the shared directory** (`.yolo-copy-incomplete`). A
+  tree copy can fail part-way, and without the mark the next launch would read the partial tree
+  as the populated side that wins and discard the local store — the same silent failure the file
+  rule avoids by construction, arriving one launch later.
+
+> [!NOTE]
+> The one-time migration runs IN THE JAIL rather than on the host, because `rename(2)` cannot
+> cross a mount point: the local path is a bind of the workspace overlay and the store is a bind
+> of the machine-wide base, so a move is `EXDEV` even on one device (measured). It copies.
 
 ### The claude.json seed
 

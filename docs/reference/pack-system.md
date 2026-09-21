@@ -652,8 +652,11 @@ by name and supplies its parameters; it cannot ship the hook's logic, which woul
 arbitrary effect code in a fetched pack. New behavior means a new named hook in core, and the
 bar is not *"a pack needs it"* but *"the thing it does is not one tool's"* — an agent-named hook
 is ruled out ([`OQ-2`](../design/pi-pack-extensions.md#10-decision-ledger), 2026-09-19), which is
-what retired `claude_plugins`. A parameter a given hook does not use is an error rather than
-ignored, so a misplaced field is not a declaration that silently does nothing.
+what retired `claude_plugins`. The parameters a hook REQUIRES are validated on the host
+(`packdecl.hookRequiredFields`), so a declaration missing the path it acts on is a `yolo check`
+refusal rather than a boot failure; a surplus field is ignored. ⚠ This paragraph claimed the
+opposite of the first half until 2026-09-21 — that an unused parameter was an error — while the
+`hook` case validated only the NAME.
 
 The set can also SHRINK, and a removed name is not an unknown one: a retired hook is refused
 with the migration that replaces it (`packdecl.RetiredHook`), because a name one of yolo's own
@@ -661,14 +664,26 @@ packs shipped is not a typo, and "unknown hook" would tell an author their decla
 and nothing about what to write instead.
 
 The `shared_credentials` hook's contract is *"symlink this file into this machine-scoped
-dir"*, and its rule is that **the shared file always wins**:
+dir"*, and its rule is that **the shared side always wins**:
 
 ```
 already the right symlink        → done
 real file + EMPTY shared         → copy local into shared, then symlink
 real file + POPULATED shared     → discard local, then symlink
+real file + the copy FAILED      → local left in place, NOT symlinked
 anything else                    → symlink
 ```
+
+`shared_directory` is the same rule for a whole DIRECTORY — *"symlink this home subdirectory
+at this machine-scoped dir"* — and the two share one implementation of that table
+(`entrypoint.linkThroughShared`, parameterized by a payload shape) rather than a copy of it,
+because the ORDER of those rows is the whole content of the rule and getting it wrong once
+destroyed credentials. What differs is the payload: "empty" is *no entries* rather than *zero
+bytes* (a directory's `Size()` is filesystem-defined and says nothing about what is in it), the
+copy is a strict tree copy that reports every per-entry error, and a copy in progress is marked
+inside the shared dir so an interrupted one is retried instead of read as the populated side
+that wins. The discard in row three is priced differently too: a lost login needs a human, a
+lost package store needs a re-install.
 
 The copy-if-empty branch is not a freshness rule — it is what makes a first login in a fresh
 install survive. There is deliberately no freshness comparison in any schema: a
@@ -1532,7 +1547,7 @@ only place the values themselves are stated.
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |
 | Kind set | the `footprints` map key, from which `KnownKinds()` derives (sorted alphabetically) | `packdecl.footprints`, count-pinned by `packdecl.TestKnownKindsCoverEveryConstant` |
-| Hook set | `shared_credentials`, `per_jail_history`. `claude_plugins` was a third until it was retired ([`OQ-2`](../design/pi-pack-extensions.md#10-decision-ledger), 2026-09-19 — retire it and add nothing like it, no agent-named hook); the name is not unknown but REFUSED, with a migration message | `packdecl.KnownHooks`, drift-pinned by `entrypoint.TestHookSetsAgree`; the refusal is `packdecl.RetiredHook` |
+| Hook set | `shared_credentials`, `shared_directory`, `per_jail_history`. `claude_plugins` was a member until it was retired ([`OQ-2`](../design/pi-pack-extensions.md#10-decision-ledger), 2026-09-19 — retire it and add nothing like it, no agent-named hook); the name is not unknown but REFUSED, with a migration message | `packdecl.KnownHooks`, drift-pinned by `entrypoint.TestHookSetsAgree`; the refusal is `packdecl.RetiredHook` |
 | Manifest top-level keys | `name`, `description`, `contributes`, `skills_tier`, `supersedes`, `needs` | `packdecl.Manifest` |
 | Conventional briefing source | `AGENTS.md` (alone since 2026-08-17) | `packdecl.DefaultBriefingFiles` |
 | Conventional skills source | `skills/` | `packdecl.Contribution.SkillsSource` |

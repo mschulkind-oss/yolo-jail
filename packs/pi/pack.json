@@ -114,6 +114,18 @@
       "at": ".pi",
       "kind": "state",
       "scope": "workspace"
+    },
+    {
+      "at": ".pi-shared-npm",
+      "because": "the extension package store, shared so every workspace on the machine runs one version of an extension instead of N that drift",
+      "kind": "state",
+      "scope": "machine"
+    },
+    {
+      "at": ".pi-shared-npm",
+      "from": ".pi/agent/npm",
+      "hook": "shared_directory",
+      "kind": "hook"
     }
   ],
   "name": "pi",

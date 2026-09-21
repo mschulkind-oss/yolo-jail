@@ -46,7 +46,14 @@ func TestShippedDeclsAreNotEmpty(t *testing.T) {
 			t.Errorf("StateDirs %v is missing %s", d.StateDirs, want)
 		}
 	}
-	for _, want := range []string{".claude-shared-credentials", ".gemini-shared-credentials"} {
+	// The third is pi's extension package STORE rather than a credential dir, and it needs
+	// the exclusion for the same structural reason: the sweep walks a pack's state dirs, and
+	// `.pi-shared-npm` is machine-scope state whose bytes belong to every workspace at once.
+	// A `node_modules` tree proposed for archiving would be the sweep offering to break every
+	// jail's extensions at once.
+	for _, want := range []string{
+		".claude-shared-credentials", ".gemini-shared-credentials", ".pi-shared-npm",
+	} {
 		if !has(d.SharedDirs, want) {
 			t.Errorf("SharedDirs %v is missing %s — its contents would be swept", d.SharedDirs, want)
 		}

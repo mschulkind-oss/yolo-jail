@@ -1187,7 +1187,12 @@
                     installs first, else on ANY bin — the second pass is what lets a
                     pack that installs no CLI (a provider pack) still deliver a
                     profile's environment.
-      hook          {hook:"shared_credentials"|"per_jail_history"}
+      hook          {hook:"shared_credentials"|"shared_directory"|"per_jail_history",
+                    from (~-relative path the hook acts on), at (a machine-scope state
+                    dir THIS pack declares; the two shared_* hooks only)} — the shared
+                    pair replaces `from` with a symlink into `at`, a FILE for
+                    shared_credentials and a whole DIRECTORY for shared_directory, so one
+                    login (or one package store) serves every workspace on the machine.
       autonomy      {autonomous:{...}, guarded:{...}} — the agent's two permission
                     postures; the confinement notch selects one (autonomous at
                     jail/guest, guarded at host), so a jail-bypass key never reaches
@@ -1290,10 +1295,12 @@
                     configures your tools — it never runs them.  Setting them for your
                     whole session would mean editing your shell rc.  `yolo host --
                     <program>` delivers them at launch instead, to that process only.
-      hook          the shipped hooks are jail provisioning steps — credential symlinks
-                    and per-jail history.  Off-container each is either meaningless or a
-                    mutation of real user state that no pack should perform unprompted,
-                    so this command runs none of them.
+      hook          the shipped hooks are jail provisioning steps — a credential or
+                    package-store symlink into the machine tier, and per-jail history.
+                    Off-container each is either meaningless or a mutation of real user
+                    state that no pack should perform unprompted (the directory one would
+                    replace a real directory in your own home with a symlink), so this
+                    command runs none of them.
       profile       a profile is a NAMED SELECTION over a provider, made at launch (-p).
                     This command selects none, so it writes your packs' base surfaces
                     only.  Launch a jail with `-p <name>` to apply the variant.

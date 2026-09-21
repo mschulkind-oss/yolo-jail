@@ -161,15 +161,18 @@ var hostUnimplemented = map[packdecl.Kind]string{
 		"LAUNCH carries, and `yolo host apply` only configures your tools — it never runs " +
 		"one, so nothing is pointed anywhere. `yolo host -- <program>` (or a jail launch) " +
 		"resolves the pairing instead",
-	// Both shipped hooks are jail plumbing: shared_credentials symlinks a credentials
-	// file into a machine-global dir, and per_jail_history isolates a history file PER
-	// JAIL. Off-container each is either meaningless or a mutation of real user state
-	// that no pack should perform unprompted. Refused deliberately, not merely unbuilt.
+	// Every shipped hook is jail plumbing: the shared_* pair symlinks a credentials file
+	// or a package-store directory into a machine-global dir, and per_jail_history
+	// isolates a history file PER JAIL. Off-container each is either meaningless or a
+	// mutation of real user state that no pack should perform unprompted — the directory
+	// one most of all, since applying it at the host notch would replace a real directory
+	// in the user's own home with a symlink. Refused deliberately, not merely unbuilt.
 	// (A third, claude_plugins, used to be the sharpest example here — it ran the claude
 	// CLI against the user's real plugin cache — and it is RETIRED, so the refusal no
 	// longer names it: packdecl.retiredHooks.)
-	packdecl.KindHook: "hooks are jail provisioning steps (credential symlinks, " +
-		"per-jail history) — `yolo host apply` does not run them against your real home",
+	packdecl.KindHook: "hooks are jail provisioning steps (a credential or package-store " +
+		"symlink into the machine tier, per-jail history) — `yolo host apply` does not run " +
+		"them against your real home",
 	// profile is the same limit of the same command, arrived at from the selector rather
 	// than the verb: which variant of a pack applies is a LAUNCH decision (use_profiles /
 	// -p), and this command writes config without launching anything, so it has no variant

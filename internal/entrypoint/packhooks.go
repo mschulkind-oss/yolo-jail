@@ -3,9 +3,11 @@ package entrypoint
 // packhooks.go is where the imperative residue lives: the things a pack needs done that
 // are NOT surface content and therefore cannot be declared as layers.
 //
-// There are two, both currently claude's, and each was reached by an agent NAME before:
+// Each is a SHAPE rather than one tool's errand, and each was reached by an agent NAME
+// before:
 //
-//	shared_credentials  symlink a credentials file out to the machine-global tier
+//	shared_credentials  symlink a credentials FILE out to the machine-global tier
+//	shared_directory    symlink a whole DIRECTORY out to the machine-global tier
 //	per_jail_history    per-workspace history file, so two jails do not interleave
 //
 // There WAS a third, `claude_plugins`, and its retirement is the rule this set now keeps
@@ -52,6 +54,17 @@ const (
 	// HookSharedCredentials symlinks the pack's credentials file into its declared
 	// shared dir, so one login serves every workspace on the machine.
 	HookSharedCredentials = "shared_credentials"
+	// HookSharedDirectory symlinks a whole home subdirectory at the pack's declared
+	// shared dir, so one store serves every workspace on the machine instead of N
+	// copies that drift apart.
+	//
+	// NAMED FOR THE SHAPE, NOT FOR WHAT ANY PACK PUTS IN IT. The design that asked for
+	// it (docs/design/pi-extension-lifecycle.md §3.1) proposed `shared_extension_storage`
+	// for pi's npm store, and an "extension storage" hook is the `claude_plugins` shape
+	// this file's header rules out one step removed — a name only one pack could ever
+	// want, for a mechanism any pack can use. What it does is the DIRECTORY twin of
+	// shared_credentials, so that is what it is called.
+	HookSharedDirectory = "shared_directory"
 	// HookPerJailHistory points the tool's history file at a per-workspace file, so two
 	// jails on one machine do not interleave their history.
 	HookPerJailHistory = "per_jail_history"
@@ -74,6 +87,8 @@ func runPackHook(e *Env, p *packload.Pack, h packdecl.Hook) error {
 	switch h.Name {
 	case HookSharedCredentials:
 		return e.linkSharedCredential(p, h)
+	case HookSharedDirectory:
+		return e.linkSharedDirectory(p, h)
 	case HookPerJailHistory:
 		return e.isolateHistoryFile(h)
 	default:
@@ -104,9 +119,37 @@ func (e *unknownHookError) Error() string {
 // between jails. It only reaches a directory the pack declared in sharedDirs, so the leak
 // is bounded by a declaration the user can read.
 func (e *Env) linkSharedCredential(p *packload.Pack, h packdecl.Hook) error {
+	return e.linkIntoSharedDir(p, h, sharedFileNode)
+}
+
+// linkSharedDirectory replaces a home subdirectory with a symlink to the pack's declared
+// shared dir, migrating an existing real directory into it IF AND ONLY IF the shared dir is
+// empty — the DIRECTORY twin of linkSharedCredential, on the same rule and through the same
+// function (sharedlink.go, where the rule and its price are stated once).
+//
+// What it buys is stated as a ruling rather than a convenience: N workspaces each keeping
+// their own copy of a package store waste disk, and — the load-bearing half — leave one jail
+// silently running a different version of a tool's extensions from its neighbour
+// (docs/design/pi-extension-lifecycle.md, OQ-1).
+//
+// SAME LEAK, SAME BOUND as the credential hook: it reaches only a directory the pack declared
+// `scope: machine`, so what crosses between workspaces is readable from the manifest — and for
+// this payload the leak is also what the user asked for.
+func (e *Env) linkSharedDirectory(p *packload.Pack, h packdecl.Hook) error {
+	return e.linkIntoSharedDir(p, h, sharedTreeNode)
+}
+
+// linkIntoSharedDir is the part both shared-tier hooks share: validate the declaration,
+// refuse an undeclared shared dir, create both parents, compute the RELATIVE target, apply
+// the rule, and log what it decided. The payload shape is the only difference, and it
+// travels as a sharedNode (sharedlink.go).
+func (e *Env) linkIntoSharedDir(p *packload.Pack, h packdecl.Hook, n sharedNode) error {
 	if h.File == "" || h.SharedDir == "" {
+		// The MANIFEST spellings, not the Go field names: `from` is the home path the hook
+		// acts on and `at` is the shared dir (HookContributions adapts one to the other),
+		// and an author reading this message is looking at pack.json.
 		return &badHookError{pack: p.Name, name: h.Name,
-			why: "needs both \"file\" and \"sharedDir\""}
+			why: "needs both \"from\" and \"at\""}
 	}
 	if !declaresSharedDir(p, h.SharedDir) {
 		// A hook may only link into a dir the pack DECLARED shared. Otherwise a pack
@@ -117,39 +160,51 @@ func (e *Env) linkSharedCredential(p *packload.Pack, h packdecl.Hook) error {
 	}
 	link := filepath.Join(e.Home, filepath.FromSlash(h.File))
 	sharedDir := filepath.Join(e.Home, filepath.FromSlash(h.SharedDir))
-	shared := filepath.Join(sharedDir, filepath.Base(h.File))
+	shared := n.sharedPath(sharedDir, h.File)
 	// Create both parents. The version this replaced ran only after the tool's config dir
 	// had been created by that tool's own writer, so it could assume both existed; a hook
 	// has no such guarantee about ordering, and os.Symlink into a missing directory fails
 	// with a bare ENOENT that reads as a broken jail rather than a missing mkdir.
+	//
+	// It creates the link's PARENT, never the link's own path: on macos-user a real
+	// directory where the layout wants a link is a launch refusal with no migration
+	// (darwinhomelayout.go, OQ-HT2), and the only thing that belongs at `link` is a symlink.
 	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(sharedDir, 0o755); err != nil {
 		return err
 	}
-	// Relative target, so the link stays valid whatever the home is mounted as.
+	// Relative target, so the link stays valid whatever the home is mounted as. It is
+	// depth-agnostic by construction (filepath.Rel): `.pi/agent/npm` gets
+	// `../../.pi-shared-npm`, which resolves through a bind on the container backends and
+	// through the sidecar mirror on macos-user.
 	target, err := filepath.Rel(filepath.Dir(link), shared)
 	if err != nil {
 		return err
 	}
-	decision, err := e.linkThroughShared(link, shared, target)
-	e.logSharedCreds(p.Name, h.File, h.SharedDir, decision)
+	decision, err := e.linkThroughShared(link, shared, target, n)
+	e.logSharedHook(h.Name, p.Name, h.File, h.SharedDir, decision)
 	return err
 }
 
-// sharedCredsLog is the persistent per-jail log of shared_credentials hook decisions, so a
+// sharedCredsLog is the persistent per-jail log of shared-TIER hook decisions, so a
 // cross-workspace login problem is diagnosable from inside the jail after the fact. It is a
 // hook side effect, not a rendered surface, so it is out of scope for the render byte-gate
 // (renderfingerprint_test.go skips it by name).
+//
+// The NAME is the credential hook's and now carries the directory hook's lines too. Kept:
+// renaming it would orphan every existing jail's log and the two records belong together
+// anyway — each is one hook deciding what crossed into the machine tier. The hook NAME leads
+// every line, so the two are separable by grep.
 const sharedCredsLog = ".yolo-shared-creds.log"
 
-// logSharedCreds records a shared_credentials hook decision to stderr and to the persistent
+// logSharedHook records a shared-tier hook decision to stderr and to the persistent
 // sharedCredsLog, so a cross-workspace login problem is diagnosable from inside the jail
 // after the fact. The entrypoint's stderr is discarded under podman's --log-driver none, so
 // stderr alone would leave no trace for the common non-TTY launch; the file is what survives.
-func (e *Env) logSharedCreds(pack, file, sharedDir, decision string) {
-	line := fmt.Sprintf("shared_credentials[%s]: %s -> %s: %s", pack, file, sharedDir, decision)
+func (e *Env) logSharedHook(hook, pack, file, sharedDir, decision string) {
+	line := fmt.Sprintf("%s[%s]: %s -> %s: %s", hook, pack, file, sharedDir, decision)
 	e.warn(line)
 	logPath := filepath.Join(e.Home, sharedCredsLog)
 	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)

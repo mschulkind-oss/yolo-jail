@@ -31,16 +31,24 @@ func loadAll(t *testing.T) []*packload.Pack {
 }
 
 // TestMachineGlobalTierStaysNarrow: anything in sharedDirs leaks between workspaces BY
-// DESIGN, so a new entry must be a conscious decision rather than drift. Two entries exist
-// (claude's and agy's credential dirs), and the test names the consequence so a future author
-// adding a third has to confirm they mean it.
+// DESIGN, so a new entry must be a conscious decision rather than drift. The test names the
+// consequence so a future author adding one has to confirm they mean it.
+//
+// ⚠ THE THIRD ENTRY IS NOT A CREDENTIAL DIR, and it was added deliberately (2026-09-21,
+// docs/design/pi-extension-lifecycle.md OQ-1): `.pi-shared-npm` is pi's extension package
+// store, and it is here because N per-workspace copies leave one jail silently running a
+// different extension version from its neighbour. That makes it the first member whose
+// contents are DERIVED and re-installable rather than irreplaceable — which is why the
+// directory hook's discard note is priced differently from the credential hook's
+// (entrypoint's sharedTreeNode), and why the macos-user briefing sentence this list feeds
+// (run.backendLimits) now names a package store alongside credential dirs.
 //
 // Ported from TestSharedDirsForIsClaudeOnlyAndSelectionGated. Its selection-gating half is
 // gone with the concept: sharedDirs are now mounted for the packs actually loaded, which is
 // the same gate expressed structurally.
 func TestMachineGlobalTierStaysNarrow(t *testing.T) {
 	got := packload.SharedDirs(loadAll(t))
-	want := []string{".claude-shared-credentials", ".gemini-shared-credentials"}
+	want := []string{".claude-shared-credentials", ".gemini-shared-credentials", ".pi-shared-npm"}
 	if len(got) != len(want) {
 		t.Errorf("sharedDirs across every shipped pack = %v, want %v; each entry leaks state "+
 			"between workspaces by design — confirm that is intended, then update this "+

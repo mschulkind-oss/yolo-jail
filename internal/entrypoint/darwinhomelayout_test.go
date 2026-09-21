@@ -22,16 +22,17 @@ import (
 // (no sandbox-exec, no _yolojail), and the `..` resolution this rests on is physical on
 // both kernels — measured on Linux 2026-09-11, confirmed on macOS 26.5 the same day.
 
-// stageClaudePack writes the REAL claude manifest into a pack root the bootstrap can load.
+// stagePackForBootstrap writes a REAL embedded manifest into a pack root the bootstrap can
+// load. Named by pack because the shared-directory hook's sibling test stages `pi`.
 //
 // The real one, not a fixture: the tier of a path is what the PACK declares (§6 P2), so a
 // test with its own invented manifest would pass while claude's `state` scopes said
 // something else. This breaks if `.claude` stops being scope:workspace, if
 // `.claude-shared-credentials` stops being scope:machine, or if the shared_credentials hook
 // is dropped — each of which changes what the layout has to do.
-func stageClaudePack(t *testing.T) string {
+func stagePackForBootstrap(t *testing.T, name string) string {
 	t.Helper()
-	p, err := embeddedPack("claude")
+	p, err := embeddedPack(name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +41,7 @@ func stageClaudePack(t *testing.T) string {
 		t.Fatal(err)
 	}
 	root := t.TempDir()
-	dir := filepath.Join(root, "claude")
+	dir := filepath.Join(root, name)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +69,7 @@ func darwinBootstrapHome(t *testing.T, extra map[string]string) (home, ws string
 		"YOLO_HOST_DIR":            ws,
 		"YOLO_BLOCK_CONFIG":        `[]`,
 		"YOLO_MISE_TOOLS":          `{}`,
-		"YOLO_PACK_ROOT":           stageClaudePack(t),
+		"YOLO_PACK_ROOT":           stagePackForBootstrap(t, "claude"),
 		"YOLO_DARWIN_WORKSPACE":    ws,
 		DarwinHomeSidecarEnv:       filepath.Join(ws, ".yolo", "home"),
 		"MISE_DATA_DIR":            filepath.Join(home, ".yolo", "mise"),

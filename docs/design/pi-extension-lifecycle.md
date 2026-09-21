@@ -10,9 +10,14 @@ vantage:
 
 # Pi extensions want machine-scoped storage and pre-launch refreshes across jails
 
-**Status:** DECIDED, 2026-09-20. **Every ruling is in; nothing is built.** The resolve-and-pin
-half of [OQ-2](#OQ-2) rests on `internal/packsrc` + `packs.lock.json`, which SHIP; the
-materializer rests on a Pi CLI flag this tree never invokes, and confirming it is slice one.
+**Status:** DECIDED, 2026-09-20. **The STORAGE tier ([§3.1](#31-storage-tier-decoupling-packages-from-session-state),
+[OQ-1](#OQ-1)) shipped 2026-09-21; the refresh and concurrency tiers are not built.** The
+resolve-and-pin half of [OQ-2](#OQ-2) rests on `internal/packsrc` + `packs.lock.json`, which
+SHIP; the materializer rests on a Pi CLI flag this tree never invokes, and confirming it is
+still the next slice — nothing in [§3.2](#32-execution-tier-pre-launch-auto-refresh) or
+[§3.3](#33-concurrency-tier-cross-jail-mutual-exclusion) was built with
+[§3.1](#31-storage-tier-decoupling-packages-from-session-state), deliberately, since every
+line of it depends on that flag.
 
 > **In short.** Pi extensions belong in YOLO's machine-scoped storage tier rather than
 > isolated per-workspace homes: decoupling extension storage from workspace session state
@@ -164,10 +169,23 @@ At container initialization, YOLO links `~/.pi/agent/npm` to `~/.pi-shared-npm`:
 * On the `macos-user` backend, `~/.pi-shared-npm` lives directly in the sandbox user home, and
   is mirrored into the workspace sidecar so relative symlinks resolve cleanly
   (following the pattern established in [`darwinhomelayout.go`](../../internal/entrypoint/darwinhomelayout.go#L13-L100)).
-* An initialization hook (`shared_extension_storage`) ensures that if an existing workspace already has
+* An initialization hook ensures that if an existing workspace already has
   a populated `~/.pi/agent/npm` directory while `.pi-shared-npm` is empty, the contents are migrated
-  to the shared store rather than lost (following the "the shared file always wins, but initial local
-  populates empty shared" invariant from [`linkThroughShared`](../../internal/entrypoint/claude.go#L59-L86)).
+  to the shared store rather than lost (following the "the shared side always wins, but initial local
+  populates empty shared" invariant from [`linkThroughShared`](../../internal/entrypoint/sharedlink.go)).
+
+> [!NOTE]
+> **As built (2026-09-21), the hook is named `shared_directory`, not `shared_extension_storage`.**
+> Two corrections, both from the recon that preceded the build. The name: an "extension storage"
+> hook is the `claude_plugins` shape one step removed — a name only one pack could ever want for
+> a mechanism any pack can use — and the ruling that retired `claude_plugins` forbids it
+> ([`pi-pack-extensions.md` OQ-2](./pi-pack-extensions.md#10-decision-ledger), 2026-09-19). What it does is the
+> DIRECTORY twin of `shared_credentials`, so that is what it is called. The reuse: `linkThroughShared`
+> could not be adapted as written — it is file-shaped end to end, and its emptiness test INVERTS for
+> a directory — so the decision table is parameterized by a payload shape and the file and directory
+> cases share one copy of the ORDER, which is the part a data-loss bug once got wrong. The migration
+> also runs IN THE JAIL rather than host-side, because the two paths are separate bind mounts and
+> `rename(2)` across a mount point is `EXDEV` even on one device (measured).
 
 ### 3.2 Execution tier: Pre-launch auto-refresh
 
@@ -343,6 +361,6 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| **OQ-1** | **Machine-scoped storage.** Extensions are shared tool capabilities like global binaries; per-workspace copies waste disk and, load-bearingly, create cross-jail version drift | 2026-09-20 | [§6](#6-open-questions) | no |
+| **OQ-1** | **Machine-scoped storage.** Extensions are shared tool capabilities like global binaries; per-workspace copies waste disk and, load-bearingly, create cross-jail version drift | 2026-09-20 | [§6](#6-open-questions) | **yes**, 2026-09-21 — `packs/pi` declares `.pi-shared-npm` at `scope: "machine"` plus a `shared_directory` hook (NOT `shared_extension_storage`; see [§3.1](#31-storage-tier-decoupling-packages-from-session-state)) |
 | **OQ-2** | **Option (c).** YOLO resolves and PINS through `internal/packsrc` + `packs.lock.json`; the launcher only materializes, under a non-blocking lock. Pi keeps the package-manager half; the VERSION CHOICE moves to YOLO, the seam a distributor must own since no ecosystem here ships a lockfile or rollback. ⚠ The resolver ships; the materializer's `pi update --extensions` flag is unverified | 2026-09-20 | [§6](#6-open-questions), [Alternative D](#alternative-d-resolve-and-pin-through-yolos-existing-pack-source-store) | no |
 | **OQ-3** | **Leave Pi's in-app notification untouched.** The pre-launch update runs before the TUI starts, so the check passes cleanly in the normal path. ⚠ Conditional on [OQ-2](#OQ-2)'s pin: a correctly pinned older extension WILL trigger the warning, and it will be right — yolo does not suppress a vendor's honest notice about a version yolo chose | 2026-09-20 | [§6](#6-open-questions) | no |

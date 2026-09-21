@@ -557,7 +557,7 @@ func TestAFailedSharedCredentialCopyLeavesTheLocalFileAlone(t *testing.T) {
 		shared := filepath.Join(dir, "blocker", "shared", "credentials.json")
 
 		e, _, _ := loudEnv(t)
-		decision, err := e.linkThroughShared(link, shared, shared)
+		decision, err := e.linkThroughShared(link, shared, shared, sharedFileNode)
 		if err != nil {
 			t.Fatalf("a failed copy must degrade, not fail the hook: %v", err)
 		}
@@ -578,7 +578,7 @@ func TestAFailedSharedCredentialCopyLeavesTheLocalFileAlone(t *testing.T) {
 		}
 
 		e, _, _ := loudEnv(t)
-		decision, err := e.linkThroughShared(link, shared, shared)
+		decision, err := e.linkThroughShared(link, shared, shared, sharedFileNode)
 		if err != nil {
 			t.Fatalf("a failed copy must degrade, not fail the hook: %v", err)
 		}

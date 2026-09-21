@@ -113,16 +113,27 @@ type Manifest struct {
 	Contributes []Contribution `json:"contributes,omitempty"`
 }
 
-// Hook is one requested imperative capability. Its extra fields are the parameters that
-// hook needs; an unused one for a given hook name is an error rather than ignored, so a
-// misplaced field is not a declaration that silently does nothing.
+// Hook is one requested imperative capability, with the parameters that hook needs.
+//
+// ⚠ NOTHING DECODES THIS STRUCT, so its json tags describe no manifest. A hook is declared
+// as a contribution (`{"kind":"hook","hook":…,"from":…,"at":…}`) and HookContributions
+// ADAPTS one of those into this shape: `from` becomes File and `at` becomes SharedDir. The
+// tags are the pre-contribution spelling and are kept only because this type is the one the
+// entrypoint's dispatch reads.
+//
+// The comment here used to claim that a field unused by a given hook is an error rather than
+// ignored. It is not: hookFieldProblems validates the fields each hook REQUIRES, and an
+// extra one is ignored. Requiring them is what keeps a missing `from` a `yolo check` refusal
+// instead of a boot failure; refusing a surplus one buys nothing that the footprint does not
+// already show.
 type Hook struct {
 	// Name is the hook, from core's closed set (see internal/entrypoint/packhooks.go).
 	Name string `json:"name"`
-	// File is a home-relative file the hook acts on.
+	// File is the home-relative path the hook acts on — a FILE for shared_credentials and
+	// per_jail_history, a DIRECTORY for shared_directory. Spelled `from` in a manifest.
 	File string `json:"file,omitempty"`
 	// SharedDir is a home-relative directory from the pack's own sharedDirs, for a hook
-	// that links into the machine-global tier.
+	// that links into the machine-global tier. Spelled `at` in a manifest.
 	SharedDir string `json:"sharedDir,omitempty"`
 }
 
@@ -131,7 +142,24 @@ type Hook struct {
 //
 // Duplicating the names is the lesser evil versus a package dependency from the host CLI
 // into the entrypoint; HookSetsAgree pins them together so the duplicate cannot drift.
-var KnownHooks = []string{"shared_credentials", "per_jail_history"}
+var KnownHooks = []string{"shared_credentials", "shared_directory", "per_jail_history"}
+
+// hookRequiredFields is what each hook cannot run without, in MANIFEST spelling — the
+// contribution keys an author writes, not Hook's field names.
+//
+// It exists because the `hook` case validated only the NAME, so a `shared_credentials`
+// declaration missing `from` passed `yolo check` on the host and then failed at BOOT through
+// badHookError. That is the host-validates/jail-breaks direction TestHookSetsAgree's own
+// comment calls "silent in the worst direction", reached by a different route: the config
+// looked fine and the jail broke.
+//
+// A hook absent from this map requires nothing beyond its name; per_jail_history is here
+// because it needs the file it isolates.
+var hookRequiredFields = map[string][]string{
+	"shared_credentials": {"from", "at"},
+	"shared_directory":   {"from", "at"},
+	"per_jail_history":   {"from"},
+}
 
 // retiredHooks names a hook this build has REMOVED, and what an author writes instead.
 //
