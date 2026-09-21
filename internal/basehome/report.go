@@ -88,6 +88,20 @@ func (r Report) Summary() string {
 		total += s.Candidates
 		unreadable += s.Unreadable
 	}
+	// A ZERO-BYTE FINDING IS NOT REPORTED AT ALL. Ruled 2026-09-21, and it reverses the
+	// always-on disclosure this shipped with.
+	//
+	// The bytes are the entire point (R1: move, never delete, because transcripts have no
+	// regeneration path). An EMPTY directory has none, so there is nothing to move, nothing
+	// to lose and nothing for a reader to do — and the candidates are empty on every host
+	// that never ran the old shared-writable home, which is every host but one or two.
+	// A permanent line about a legacy condition that CANNOT RECUR — the base is bound `:ro`
+	// into every jail and the host CLI only ever MkdirAlls into it — is noise that teaches
+	// people to stop reading launch output.
+	if r.Bytes() == 0 && unreadable == 0 {
+		return ""
+	}
+
 	// A ZERO-BYTE FINDING IS SAID DIFFERENTLY, and it is the common case rather than a
 	// corner: MEASURED on this repo's own base home 2026-09-21, all six candidates were
 	// empty directories — test and example residue (`.foo`, `.filespack`, `yolo-it-newdir`)
@@ -123,13 +137,36 @@ func (r Report) Summary() string {
 // worth a line whether or not anything is ever quarantined.
 func (r Report) Warnings() []string {
 	var out []string
+	// A REFUSED ROOT IS ALWAYS WARNED, whatever was measured. It is an anomaly rather than
+	// a quantity: a `.claude` SYMLINK in the base home means every jail on this machine has
+	// been writing into whatever it points at, and that is worth a line even if nothing is
+	// ever quarantined.
 	for _, p := range r.Refused {
 		out = append(out, fmt.Sprintf("Not examining the base home's %s: it %s.", p.Root, p.Reason))
 	}
-	for _, p := range r.Problems {
-		out = append(out, "Base-home detection is incomplete: "+p+".")
+	// THE CLASSIFICATION LIMITS ARE GATED, because they only matter if something might be
+	// moved. With nothing to move and nothing unknown, warning that an undeclared root
+	// would have been classified without its own declarations is a permanent line about a
+	// decision nobody is going to take — and on most hosts these are empty fossils like
+	// `.yolo-shims`. Silence here is what stops a legacy condition that CANNOT RECUR (the
+	// base is `:ro` to every jail and the host CLI only MkdirAlls into it) from costing
+	// every launch a warning forever.
+	if r.Bytes() > 0 || r.unreadableCount() > 0 {
+		for _, p := range r.Problems {
+			out = append(out, "Base-home detection is incomplete: "+p+".")
+		}
 	}
 	return out
+}
+
+// unreadableCount is how many candidates could not be read. A zero BYTE total next to a
+// non-zero count means "unknown", not "nothing" — which is why it gates the silence.
+func (r Report) unreadableCount() int {
+	n := 0
+	for _, s := range r.ByRoot() {
+		n += s.Unreadable
+	}
+	return n
 }
 
 func plural(n int, one, many string) string {
