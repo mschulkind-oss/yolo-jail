@@ -317,6 +317,18 @@ derives read, moving the facts to an internal per-alias map — so no consumer l
 }
 ```
 
+> [!NOTE]
+> **Provenance, and the one value that is an assumption rather than a fact.** The rates and
+> capabilities above are Kilo's own catalog row for `deepseek/deepseek-v4.1-flash` (checked
+> 2026-09-20 against `https://api.kilo.ai/api/gateway/models`): `prompt` 0.3, `completion` 1.2,
+> `input_cache_read` 0.006, `input_modalities` `["text", "image"]`, `context_length` 1048576,
+> `max_completion_tokens` 384000, and `reasoning` among the supported parameters. The catalog
+> publishes **no `input_cache_write` for this model** — though it does for 71 of its 380 rows —
+> so `cache_write: 0` is a declared assumption, not a catalog fact. It cannot be omitted: pi's
+> cost schema needs all four rates and this config's own validator requires them too, so the only
+> reachable value is an explicit zero. If Kilo bills cache writes at a rate it does not publish,
+> that zero understates cost silently; re-check the row before trusting the figure.
+
 The provider's `options` is the **fallback**: a fact common to every model is declared once
 there, and a per-model value overrides it for that alias. The facts are **additive** — an alias
 that declares none renders the same `models.json` row it did before, leaving pi's own defaults
