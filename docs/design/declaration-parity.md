@@ -13,7 +13,7 @@ vantage:
 **Status:** DESIGN, 2026-09-12 — a catalog, amended after review and **partly built since**.
 [OQ-DP1](#decision-ledger) through [OQ-DP4](#decision-ledger) are ruled and compacted,
 [OQ-DP6](#decision-ledger) dissolved rather than being answered, and [OQ-DP5](#OQ-DP5) and
-[OQ-DP7](#OQ-DP7) were ruled on 2026-09-13: **no question here is live.** Every code claim below
+[OQ-DP7](#OQ-DP7) were ruled on 2026-09-13. **Two are live again as of 2026-09-21** — [OQ-DP8](#OQ-DP8) and [OQ-DP9](#OQ-DP9), both owed back by [`jail-daemon-on-macos-user-plan.md`](jail-daemon-on-macos-user-plan.md) against [`DP-L3`](#decision-ledger), which approved a mechanism without settling how its argv resolves or whether it runs confined. Every code claim below
 was verified against the tree on 2026-09-12 at `55a77e79`, by symbol — which is a date, not a
 guarantee: **re-check a symbol before reusing it**, because the fixes that landed in the days
 after are exactly what invalidate a negative without touching this file
@@ -1198,7 +1198,15 @@ three. So the briefing fixes land together or not at all.
 
 ## Open Questions
 
-**None are live.** The review of 2026-09-12 ruled four and dissolved a fifth; the last two —
+**Needs your ruling:** [OQ-DP8](#OQ-DP8), [OQ-DP9](#OQ-DP9).
+
+**Two are live, and both arrived from a plan rather than from the catalog.**
+[`DP-L3`](#decision-ledger) approved the mechanism for starting a `jail_daemon` on `macos-user`
+and left two things unsettled that a builder cannot proceed without; the plan that hangs off it
+declined to decide them in a plan, which was right, and they are filed here. They are the reason
+[📦 rows 1 and 2](../plans/roadmap.md) cannot be built.
+
+The original seven are all ruled. The review of 2026-09-12 ruled four and dissolved a fifth; the last two —
 [OQ-DP5](#OQ-DP5) from the original catalog and [OQ-DP7](#OQ-DP7) raised by
 [§5.6](#56-one-declaration-two-mechanisms-the-argv-rewrite-and-the-shell-alias) — were ruled on
 2026-09-13 and carried decisive leanings before that. All seven are compacted into the
@@ -1206,7 +1214,49 @@ three. So the briefing fixes land together or not at all.
 what the catalog's remaining fixes are shaped by. Everything else in this catalog is an
 approval, not a decision — see [§3](#3-the-four-dispositions-and-how-to-walk-the-catalog).
 
-1. ✅ **OQ-DP5: When a site cannot honor a declaration, what does it SAY?**
+1. 💬 <a id="OQ-DP8"></a>**[OQ-DP8](#OQ-DP8): how does a declared `jail_daemon.cmd` resolve on a backend with no image?**
+   Every shipped declaration names a binary that exists only inside the container image — e.g.
+   `yolo-jaild openai-auth-adapter --listen 127.0.0.1:1460`. `macos-user` has no image, so the
+   argv as declared cannot be executed, and this decides what runs instead. It also decides
+   whether `{jail_loophole_dir}` becomes backend-parameterised, which is what the `hello-daemon`
+   subject turns on. **It gates [📦 rows 1 and 2](../plans/roadmap.md) and nothing else does.**
+
+   <!-- vantage: oq id=OQ-DP8 leaning="Give yolo the in-jail dispatch and rewrite argv[0]. The in-jail daemons already dispatch on plain args[0] rather than argv[0] or a symlink, so the dispatch is portable as written; it keeps the host ship set at {yolo}, which AGENTS.md states as a property rather than an accident; and it adds no generated in-jail client, which the transport unification exists to prevent. The visible cost is that a declared cmd is no longer literally executable on this backend, which has to be disclosed rather than hidden." -->
+
+   Three candidates, and the choice is visible outside the code:
+
+   | Candidate | Cost |
+   | :--- | :--- |
+   | `yolo` gains the in-jail dispatch; `argv[0]` is rewritten | a declared `cmd` is no longer literally executable on this backend |
+   | ship `yolo-jaild` for darwin | grows the host ship set from `{yolo}`, which AGENTS.md states as a property |
+   | stage a shim at the declared name | argv untouched, but it is a generated in-jail client, which the transport unification exists to end |
+
+   _Leaning:_ **`yolo` gains the dispatch and `argv[0]` is rewritten.** The in-jail daemons
+   already dispatch on plain `args[0]` rather than on `argv[0]` or a symlink, so the dispatch is
+   portable as written; it keeps the ship set at `{yolo}`; and it adds no generated client. The
+   cost — a declared `cmd` that is not literally the thing executed — is real and belongs in the
+   launch disclosure rather than hidden.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+2. 💬 <a id="OQ-DP9"></a>**[OQ-DP9](#OQ-DP9): does a `jail_daemon` run under the Seatbelt profile?**
+   [`DP-L3`](#decision-ledger) calls it *"an ordinary child"* and says nothing about confinement.
+   The faithful reading of *in-jail* says it is confined; the mechanism as approved does not say
+   so. **Getting it wrong puts a pack-declared long-running process outside the only confinement
+   this backend has**, which is the property `macos-user` is otherwise defined by.
+
+   <!-- vantage: oq id=OQ-DP9 leaning="Yes, confined. Silence in DP-L3 is not permission, and a pack-declared process is exactly the kind of code the profile exists to bound. The cost is that a daemon needing something the profile denies forces the profile to widen, and that widening is itself a disclosure rather than a detail — which is the right place for that argument to happen." -->
+
+   _Leaning:_ **Yes, confined.** Silence in `DP-L3` is not permission, and a pack-declared
+   long-running process is exactly the code the profile exists to bound. The cost is that a daemon
+   needing something the profile denies forces the profile to widen — and that widening is a
+   disclosure, not a detail, which is the right place for the argument to happen.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+3. ✅ **OQ-DP5: When a site cannot honor a declaration, what does it SAY?**
    A warning is the obvious answer, and the tree has already ruled against it:
    [OQ-BP-3](backend-parity.md#open-questions) is live and says *"a warning people learn to skip
    is worse than none."* Every "add a line" in [§6](#6-alignable-with-the-mechanism-and-its-cost)
@@ -1256,7 +1306,7 @@ approval, not a decision — see [§3](#3-the-four-dispositions-and-how-to-walk-
    > `internal/config/inherit.go`'s shape — a per-key classification table with a drift test.
    > Until that lands, [DP-L16](#6-alignable-with-the-mechanism-and-its-cost) is not expressible.
 
-2. ✅ **OQ-DP7: Should the generated launcher inject the flags too, closing the third spelling?**
+4. ✅ **OQ-DP7: Should the generated launcher inject the flags too, closing the third spelling?**
    [DP-B44](#562-the-rows) is the one spelling of a launch that carries no pack-declared flags
    at all: a NON-INTERACTIVE shell inside the jail — an agent's own `bash -c claude`, a build
    script, anything not typed at the prompt. It expands no alias and passes through no host

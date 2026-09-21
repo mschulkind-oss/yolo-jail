@@ -10,26 +10,64 @@ vantage:
 
 # Plan: start a jail daemon on macos-user
 
-**Design:** [`declaration-parity.md`](declaration-parity.md) — `DP-B7` is the defect, `DP-L3` the
-approved mechanism, both in
-[§6](declaration-parity.md#6-alignable-with-the-mechanism-and-its-cost). **There is no design doc
-for this work**: that one is a catalog, it delegates every macos-user row to
-[`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md), and it names no
-owner for the loophole lifecycle — so the vocabulary comes from
+**Status:** DESIGN, 2026-09-21. Steps 1, 2 and 5 are buildable cold; steps 3 and 4 are blocked on
+[OQ-DP8](declaration-parity.md#OQ-DP8) and [OQ-DP9](declaration-parity.md#OQ-DP9). Written against
+`6ded2789`, 2026-09-17; re-headed 2026-09-21 because a reader could not tell from it what was
+broken.
+
+> **In short.** Half of every loophole is a process that runs *inside* the jail. On
+> `macos-user` that half has never run — the list of which daemons to start is composed inside
+> a **container argv builder**, and the native backend never reads it. So the backend accepts
+> the declarations, starts nothing, and until 2026-09-18 said nothing either.
+
+## What this is for, if you have no context
+
+A loophole is usually two processes: a **host daemon** holding something the jail may not (a
+credential, a socket), and a **jail daemon** on the other side of the boundary that the jail's
+own tools talk to. `macos-user` has started the host half since 2026-09-17. It has never started
+the jail half.
+
+A **jail daemon** here is specifically the `jail_daemon` manifest key: a process the framework
+supervises on the jail side of a loophole or a `kind: "service"` pack contribution
+([`loopholes.md`](../guides/loopholes.md)). **Not** a `host_daemon`, which this backend already
+starts, and **not** the agent.
+
+**What a user actually experiences today.** Nothing dramatic, which is the problem — a bare
+`"packs": ["claude"]` on this backend selects three jail daemons and starts none:
+
+- **Codex cannot refresh its token.** `packs/codex` sets
+  `CODEX_REFRESH_TOKEN_URL_OVERRIDE` to `127.0.0.1:1460`, and the adapter that should be
+  listening there is a jail daemon. The port is dead, so a session works until its first
+  refresh.
+- **`wire-bridge`'s endpoint file exists with nothing behind it** — published, ACL-granted, and
+  connecting to it fails.
+- **Claude OAuth refreshes are not serialized**, because the TLS terminator that routes a refresh
+  to the host broker *is* the broker's jail half. That one is deliberately
+  [out of scope here](#dont).
+
+**Why it cannot just be switched on.** The payload naming the daemons is built inside the
+container argv assembler, and `macosuser` is a different path that never sees it. Hoisting the
+composition above the backend dispatch is the approved mechanism
+([`DP-L3`](declaration-parity.md#decision-ledger)) and is most of steps 1 and 2. What it does not
+settle is the two things a builder cannot proceed without, and both are now filed:
+
+| Owed | Question |
+| :--- | :--- |
+| How the argv resolves with no image | [OQ-DP8](declaration-parity.md#OQ-DP8) |
+| Whether the daemon is confined | [OQ-DP9](declaration-parity.md#OQ-DP9) |
+
+**Where the vocabulary comes from**, since this file is a plan with no design doc of its own:
+[`declaration-parity.md`](declaration-parity.md) is the catalog — `DP-B7` is the defect and
+`DP-L3` the approved mechanism, both in
+[§6](declaration-parity.md#6-alignable-with-the-mechanism-and-its-cost) — and it delegates every
+`macos-user` row to [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md)
+while naming no owner for the loophole lifecycle. The lifecycle terms are
 [`loophole-system.md`](../reference/loophole-system.md),
 [`loophole-transport.md`](../reference/loophole-transport.md) and
-[`wire-bridge.md`](../reference/wire-bridge.md). This file hangs off `DP-L3` and owes two rulings
-back to it ([Blockers](#blockers)).
+[`wire-bridge.md`](../reference/wire-bridge.md).
 
-**Status:** DESIGN, 2026-09-17. Steps 1, 2 and 5 are buildable cold; steps 3 and 4 are not.
-Written against `6ded2789`, 2026-09-17. **Precedence:** the design wins on behavior, the tree wins
-on fact, this file is advice and is the first thing to be wrong — an overtaken line is a note to
-correct, never a spec to satisfy.
-
-A **jail daemon** here is the `jail_daemon` manifest key: a process the framework supervises on the
-jail side of a loophole or a `kind: "service"` pack contribution
-([`loopholes.md`](../guides/loopholes.md)). Not a `host_daemon`, which this backend already starts,
-and not the agent.
+**Precedence:** the design wins on behavior, the tree wins on fact, this file is advice and is the
+first thing to be wrong — an overtaken line is a note to correct, never a spec to satisfy.
 
 ## What is actually broken, measured
 
@@ -208,22 +246,21 @@ backend selects two jail daemons and starts neither, with nothing said:
 
 ## Blockers
 
-Two questions, and **neither is filed anywhere** — not in
-[`declaration-parity.md`](declaration-parity.md), whose seven questions are all ruled and none of
-which names `DP-L3`, and not in
-[`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md). They are not
-forked into this file, because a plan is not where a decision hides. File them as `OQ-DP` questions
-against `DP-L3` first; steps 3 and 4 are not buildable until then.
+**FILED 2026-09-21** as [OQ-DP8](declaration-parity.md#OQ-DP8) and
+[OQ-DP9](declaration-parity.md#OQ-DP9), against
+[`DP-L3`](declaration-parity.md#decision-ledger) — which is where they belong, because a plan is
+not where a decision hides. They had been stated only here for four days, which is why
+[💬 row 23](../plans/roadmap.md) carried no question id and looked like a row with nothing to
+rule.
 
-1. **How a declared `jail_daemon.cmd` resolves on a backend with no image.** Three candidates, and
-   the choice is visible outside the code: give `yolo` the in-jail dispatch and rewrite `argv[0]`;
-   ship `yolo-jaild` for darwin, against "the host ship set is just `{yolo}`"; or stage a shim at
-   the declared name so the argv is untouched. It also decides whether
-   `{jail_loophole_dir}` becomes backend-parameterised, which is what `hello-daemon` — the only
-   subject that needs no credential and no network — turns on. **Stop and ask.**
-2. **Whether the daemon runs under the Seatbelt profile.** The faithful reading of "in-jail" says
-   yes; `DP-L3` says "an ordinary child" and is silent. Getting it wrong puts a pack-declared
-   process outside the only confinement this backend has. **Stop and ask.**
+Steps 3 and 4 are not buildable until both are answered. The full stakes, the candidate table and
+the leanings live with the questions; in one line each:
+
+1. **[OQ-DP8](declaration-parity.md#OQ-DP8) — how a declared `jail_daemon.cmd` resolves with no
+   image.** Also decides whether `{jail_loophole_dir}` becomes backend-parameterised, which is
+   what the `hello-daemon` subject — the only one needing no credential and no network — turns on.
+2. **[OQ-DP9](declaration-parity.md#OQ-DP9) — whether the daemon runs under the Seatbelt
+   profile.**
 
 **Dependency, not a blocker:** 📦 row 2 of [`roadmap.md`](../plans/roadmap.md) — the supervisor
 swallowing a spawn failure. Land it first; otherwise step 4's first run reports an empty log and no
