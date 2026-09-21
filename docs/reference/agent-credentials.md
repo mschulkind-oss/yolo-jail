@@ -330,10 +330,16 @@ launched host Codex and its credential file remain outside this service.
 
 Import and machine-wide logout are absent from the **jail-facing** action protocol: either would
 let any process in a selected jail change host-wide authentication. Since 2026-09-18 they exist
-on the **host** one, as `yolo internal openai-auth import --from <auth.json>` and
-`yolo internal openai-auth logout`. The verb resolves the daemon's private socket (starting the
-daemon if it is not running) and states that the operation's scope is the whole machine before
-it acts.
+on the **host** one, and since 2026-09-20 they are a public verb: `yolo openai-auth import --from
+<auth.json>` and `yolo openai-auth logout`, alongside `yolo openai-auth status`. The verb resolves
+the daemon's private socket (starting the daemon if it is not running) and states that the
+operation's scope is the whole machine before it acts.
+
+**`yolo internal openai-auth` is retained as an alias** into the same handler — not a second copy
+of it — and prints where the verb moved to before doing the work. The address was hidden until the
+promotion, so nothing in this tree ever invoked it; what kept the old spelling is the asymmetry of
+the failure, since a verb that manages credentials whose scripted spelling is deleted becomes a
+credential operation that silently stops running.
 
 **The socket is the authorization, and it has to be**, because a handler cannot see which socket
 carried its bytes and `Session.JailID` falls back to the client's *self-asserted* value on the

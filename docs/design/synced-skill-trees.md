@@ -184,7 +184,7 @@ There are **two** sync roots under `~/.claude`, and they carry the same bucket n
 | Path | Holds | Is it a yolo-composed destination? |
 | :--- | :--- | :--- |
 | `~/.claude/skills/synced/<bucket>/` | synced **skills** | **Yes** — `packs/claude` composes `.claude/skills`. This is the exposure in [§3.2](#32-on-the-host-yolo-eats-it--measured) |
-| `~/.claude/plugins/synced/<bucket>/` | installed/synced **plugins** | **No.** No pack composes `.claude/plugins`; the pack's `claude_plugins` hook is an in-jail reconcile against configured LSP servers, and never writes here |
+| `~/.claude/plugins/synced/<bucket>/` | installed/synced **plugins** | **No**, and since 2026-09-20 nothing yolo runs writes under `.claude/plugins` at all. No pack composes it; the `claude_plugins` hook that used to reconcile it in-jail against the configured LSP servers never wrote *here* either, and is now retired ([`pi-pack-extensions.md`](pi-pack-extensions.md) [`OQ-2`](pi-pack-extensions.md#10-decision-ledger)) |
 
 Measured in this jail on 2026-09-18: the plugins-side root exists and holds an empty bucket,
 beside a **zero-byte marker file** named `.bucket-<same uuids>` — the `.bucket-` prefix is a
@@ -497,8 +497,14 @@ a yolo destination. The **switch that turns a plugin on** is, and it lives in a 
   declares as its `claude/settings` surface.
 - `~/.claude/plugins/installed_plugins.json` and `known_marketplaces.json` are the registration
   ([§2.4](#24-two-sync-roots-one-bucket-name-and-only-one-is-exposed)), and yolo writes neither.
-  The pack's `claude_plugins` hook (`installClaudePlugins`) iterates `claudeLSPPluginOrder` and
-  nothing else, so a plugin outside those three ids is never installed or uninstalled by yolo.
+  It no longer installs or uninstalls a plugin either: the pack's `claude_plugins` hook, whose
+  `installClaudePlugins` diffed the registration against the configured LSP servers and shelled
+  out to `claude plugins install|uninstall`, is **retired and removed**
+  ([`pi-pack-extensions.md`](pi-pack-extensions.md) [`OQ-2`](pi-pack-extensions.md#10-decision-ledger),
+  ruled 2026-09-19 and built 2026-09-20). ⚠ **That sharpens this section rather than closing it.**
+  The hook was the only thing that ever made the tree match the switch, so an `enabledPlugins`
+  entry yolo writes can now name a plugin nothing installs — the paragraph below turned around,
+  with the switch present and the tree never arriving.
 
 **The tree survives; the switch does not.** A user whose `enabledPlugins` entry is dropped still
 has every byte of the plugin on disk. What they lost is that it loads — and nothing about the

@@ -1,14 +1,15 @@
 ---
 title: "Something holds 127.0.0.1:8214 before the bridge does"
 date: 2026-09-19
-status: in-review
+status: accepted
 tags: [wire-bridge, providers, networking, diagnosis]
-summary: "A launch refused because yolo-jaild wire-bridge could not bind 127.0.0.1:8214 in a container created seconds earlier. The cause was one aliasing defect in host-side composition: ComposeProviders stored the caller's own providers map, the adapter pass then wrote the bridge's jail-loopback address through that alias, and localProviderForwards read it back as a host-loopback forward the USER had asked for — so the in-jail socat took 8214 four lines before the supervisor started the bridge. Fixed by deep-copying the user layer on the way into the composer. Three rival hypotheses were eliminated by reading, and the reasons this cost four hypotheses are recorded because each one is reusable."
+summary: "A launch refused because yolo-jaild wire-bridge could not bind 127.0.0.1:8214 in a container created seconds earlier. The cause was one aliasing defect in host-side composition: ComposeProviders stored the caller's own providers map, the adapter pass then wrote the bridge's jail-loopback address through that alias, and localProviderForwards read it back as a host-loopback forward the USER had asked for — so the in-jail socat took 8214 four lines before the supervisor started the bridge. Fixed by deep-copying the user layer on the way into the composer. Three rival hypotheses were eliminated by reading, and the reasons this cost four hypotheses are recorded because each one is reusable. Both follow-ups were ruled 2026-09-20 and neither is built: an implicit forward is disclosed, and the orphan reclaimer keeps its detection but stops killing on an inference."
 ---
 
 # Something holds 127.0.0.1:8214 before the bridge does
 
-**Status:** BUILT 2026-09-19 (`3c20a5d8`). MEASURED in composition — reverting the deep copy
+**Status:** BUILT 2026-09-19 (`3c20a5d8`), and **DECIDED 2026-09-20** — both follow-up questions
+are ruled and **neither ruling is built**. MEASURED in composition — reverting the deep copy
 turns three tests red, the launch-path one reporting the incident's own `[8214]`. UNMEASURED on
 the affected host: no `yolo -p kilo -- pi` has been run against the fix.
 
@@ -27,15 +28,17 @@ ordering fact in the boot ([§3](#3-the-ordering-is-a-fact-not-a-hypothesis)). T
 copy at the composer's read.
 
 **Cost.** Nothing user-visible: the composed table is unchanged and the user's config map is no
-longer written. Two follow-ups the investigation surfaced are untouched by the fix — whether an
-implicit forward is disclosed ([OQ-PC2](#oq-pc2)) and the orphan reclaimer's remedy
-([OQ-PC3](#oq-pc3)).
+longer written. Two follow-ups the investigation surfaced are untouched by the fix and were ruled
+separately on 2026-09-20: an implicit forward **is** disclosed ([OQ-PC2](#oq-pc2)), and the orphan
+reclaimer keeps its detection but stops killing ([OQ-PC3](#oq-pc3)). Neither ruling is built.
 
 **Start at [§2](#2-the-cause-the-adapters-address-was-read-back-as-a-user-request)** — the cause
 and its fix; the rest of the doc is the elimination of its rivals and the reasons they cost so
 much.
 
-**Needs your ruling:** [OQ-PC2](#oq-pc2), [OQ-PC3](#oq-pc3).
+**Needs your ruling:** **None** — both were ruled 2026-09-20. See the
+[Decision Ledger](#decision-ledger); two builds are owed, and the graduation note beneath the
+ledger says what still holds this file where it is.
 
 **Reads with:** [`wire-bridge.md`](../reference/wire-bridge.md) (the bridge as designed — the
 listen port comes from the adapter's declared `address` and nowhere else, and it is this doc's
@@ -180,8 +183,42 @@ deliberately, and it is the exact case `localProviderForwards` exists to serve.
 Nothing prints the implicit forward, and the fix did not change that. The briefing's **Forwarded
 Host Ports** section is fed by `briefingPortsFor` (`internal/cli/run/prepare.go`), which reads
 `network.forward_host_ports` off the config section only — the `localProviderForwards`
-contribution is merged at two other call sites and reaches no briefing, no banner and no launch
-line. Whether it should is [OQ-PC2](#oq-pc2).
+contribution is merged at two other call sites (`mergeHostForwards`, `internal/cli/run`) and
+reaches no briefing, no banner and no launch line. `startHostPortForwarding`
+(`internal/cli/run/network.go`) prints only on its failure paths — socat missing, a socket that
+never appeared — so a forward that *works* is silent by construction.
+
+**Ruled 2026-09-20: it is disclosed.** Two changes, independent of each other:
+
+- **One launch line**, naming each implicitly forwarded port and the provider that asked for it.
+- **The briefing's Forwarded Host Ports section fed from the MERGED list**, not from the config
+  section — `briefingPortsFor` takes what `mergeHostForwards` produced rather than `netSec`'s
+  `forward_host_ports` alone.
+
+A forward is a hole into the host, and a port the user never wrote is the case where the reader
+has no other way to learn of it: `grep`ping their own config answers *nothing*, as
+[§2.3](#23-the-precondition-stated-exactly) records it doing for two investigations. It is also
+the disclosure that would have named this bug on the first launch instead of costing four
+hypotheses.
+
+**The launch has no quiet mode, and that STRENGTHENS this ruling rather than complicating it.**
+[`OQ-RO3`](../reference/report-tiers.md#why-its-this-way) is the standing rule, and its `P4` —
+*disclosures are never suppressible* — makes a line added to the launch stream permanent and
+un-gate-able: no later flag may hide it, and `TestTheLaunchHasNoQuietFlag` is that as a gate. What
+decides whether a given line earns that permanence is **what it reports**, and this one reports
+something yolo **DID**: it bound a port inside the jail and opened a socket on the host, on the
+user's behalf but without the user having written it. That is exactly the class `P4` exists to
+protect — the same class as the pack read/exec banners, the argv rewrite and the cache alias, all
+of which the launch stream carries unchanged and un-gate-able.
+
+Say the distinction explicitly, because it is what makes this line legitimate where others were
+refused: **a line reporting an ABSENCE, or reporting a state of the world yolo did not create, is
+not this class.** [`OQ-ST3`](synced-skill-trees.md#OQ-ST3) is the nearest refusal — the sync root
+is announced at the host notch and *not* at launch, precisely because "there is content elsewhere
+you did not ask for" is not something yolo did to the jail, and by
+[`OQ-RO3`](../reference/report-tiers.md#why-its-this-way) a line put there would be permanent.
+The permanence is the point in both cases: it is the reason an absence must not take a launch line,
+and the reason an action may.
 
 ### 2.5 Why the unit test did not catch it
 
@@ -364,10 +401,44 @@ every link of that chain exists:
 So: the shape is representable, it is scoped to one container, and it is one of two faults that
 share a symptom. What is missing is any observed instance — the supervisor blocks on `<-stop` for
 the life of the jail (`supervisor.Run`), so reaching this state needs it to be OOM-killed,
-signalled, or to panic. My read: **keep the purpose, distrust the remedy.** A `SIGKILL` by argv
-match is a strong action taken on an inference, and a second supervisor adopting the live daemon —
-or simply refusing with the orphan's PID named — answers the same failure without killing
-anything. That is [OQ-PC3](#oq-pc3), and the reclaimer still kills.
+signalled, or to panic.
+
+### 6.1 Ruled 2026-09-20: keep the detection, change the action
+
+**Not a revert.** A straight revert throws away the only guard against an in-container fault that
+prints this identical error, and every link of that fault's chain exists in the tree above.
+
+**What is kept is the whole detection path.** `findOrphanedJailDaemons` walks `/proc` only after
+both the current and the legacy supervisor PID files prove dead, and `daemonCommandMatches`
+compares the **full argv** — same length, same base executable name, every later element equal —
+so a process merely holding 8214 is never a candidate. That precision is the part worth keeping,
+and it is already written down on the function.
+
+**What goes is the action.** `killOrphanedJailDaemon` sends `SIGKILL` on that argv match and then
+polls for the process to disappear: a strong, irreversible act taken on an **inference** about
+ownership, against a failure nobody has observed. Its doc comment defends the kill on the ground
+that an unsupervised daemon is outside the supervisor's graceful-shutdown contract — which is a
+reason not to *wait* for cooperation, not a reason to kill, and the ruling is that
+`reclaimOrphanedJailDaemons` stops killing on inference.
+
+Two actions are permitted in its place:
+
+- **Adopt the live daemon** — the second supervisor treats the orphan as the running instance and
+  does not spawn a rival for its port, the same posture `startJailDaemonSupervisor` already takes
+  when `anyJailDaemonSupervisorAlive` says a supervisor owns the listeners.
+- **Refuse, and name the orphan's PID** — the boot stops carrying the one fact that turns this
+  message from a mystery into a command the operator can type.
+
+**Which of the two, and when, is left to the implementer**, with one constraint the tree already
+imposes: readiness reaches the entrypoint through a pipe the supervisor hands to the daemon it
+starts (`cmd.ExtraFiles` plus `paths.JailDaemonReadyFDEnv`, in `startJailDaemonSupervisor`). An
+adopted orphan was started by a supervisor that is gone, so it has no such pipe and cannot report
+through it. Adoption therefore needs some other way to establish that the orphan is serving its
+declared endpoint; where that cannot be established, refusing and naming the PID is the honest
+outcome.
+
+That is [OQ-PC3](#oq-pc3) in the [Decision Ledger](#decision-ledger), and **the reclaimer still
+kills** — the ruling is not built.
 
 ---
 
@@ -386,13 +457,15 @@ anything. That is [OQ-PC3](#oq-pc3), and the reclaimer still kills.
   [§2](#2-the-cause-the-adapters-address-was-read-back-as-a-user-request) is code behaviour
   reproduced in this jail; that the fix ends the reported failure is an inference from the same
   reproduction, not an observation of that launch succeeding.
-- **No disclosure was added.** [OQ-PC2](#oq-pc2).
+- **Neither ruling is built.** The implicit forward is still named in no briefing, banner or launch
+  line ([OQ-PC2](#oq-pc2)), and the reclaimer still `SIGKILL`s on an argv match
+  ([OQ-PC3](#oq-pc3)). Both were ruled 2026-09-20; both changes are owed.
 
 ---
 
 ## Open Questions
 
-1. <a id="oq-pc2"></a>💬 **[OQ-PC2](#oq-pc2): Should an implicit provider forward be disclosed?**
+1. <a id="oq-pc2"></a>✅ **[OQ-PC2](#oq-pc2): Should an implicit provider forward be disclosed?**
    A port the user never wrote is bound inside their jail and named nowhere — not the briefing
    ([§2.4](#24-why-no-disclosure-caught-it)), not the banner, not `launch.log`. The aliasing bug
    is fixed, so the ports in that list are legitimate again; this decides whether a legitimate
@@ -401,15 +474,22 @@ anything. That is [OQ-PC3](#oq-pc3), and the reclaimer still kills.
 
    <!-- vantage: oq id=OQ-PC2 leaning="Yes — one line naming each implicitly forwarded port and the provider that asked for it, and the briefing's Forwarded Host Ports section fed from the merged list rather than from the config section." -->
 
-   _Leaning:_ Yes, and cheaply: one launch line naming each implicit port with the provider that
-   asked for it, and `briefingPortsFor` fed from the merged list rather than from `netSec`. A
-   forward is a hole into the host; it is exactly the class that may not be silent. It is also
-   the disclosure that would have named this bug on the first launch.
+   **Answer (2026-09-20): yes, disclose.**
+   > **One launch line** naming each implicitly forwarded port and the provider that asked for it,
+   > and the briefing's **Forwarded Host Ports** section fed from the **merged** list rather than
+   > from the config section. A forward is a hole into the host, and the user's own config cannot
+   > be grepped for it — which is the whole reason this cost four hypotheses.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   ⚠ **The launch has no quiet mode, and the line is therefore permanent.**
+   [`OQ-RO3`](../reference/report-tiers.md#why-its-this-way)'s `P4` makes a launch-stream
+   disclosure un-gate-able by construction. That strengthens the ruling rather than complicating
+   it, for a reason worth stating in one sentence: this line reports something yolo **did** — it
+   bound a port in the jail and opened a socket on the host — which is the class `P4` protects,
+   unlike a line reporting an absence, which is the shape refused elsewhere
+   ([`OQ-ST3`](synced-skill-trees.md#OQ-ST3)). The full argument is in
+   [§2.4](#24-why-no-disclosure-caught-it).
 
-2. <a id="oq-pc3"></a>💬 **[OQ-PC3](#oq-pc3): Keep, narrow, or replace the orphan reclaimer?**
+2. <a id="oq-pc3"></a>✅ **[OQ-PC3](#oq-pc3): Keep, narrow, or replace the orphan reclaimer?**
    [§6](#6-the-orphan-reclaimer--is-its-own-stated-purpose-real) finds its purpose real and its
    remedy strong: `SIGKILL` on an argv match, from an inference about ownership, with no observed
    instance of the failure it treats. The handoff asks for a straight revert. Nothing about the
@@ -418,12 +498,16 @@ anything. That is [OQ-PC3](#oq-pc3), and the reclaimer still kills.
 
    <!-- vantage: oq id=OQ-PC3 leaning="Keep the detection, change the action: the second supervisor adopts the live daemon, or refuses naming the orphan's PID. A revert loses a real in-container failure mode that prints this same error." -->
 
-   _Leaning:_ Keep the detection, change the action — adopt the live daemon, or refuse and name
-   its PID. A straight revert throws away the only guard against an in-container fault that
-   prints this identical error.
+   **Answer (2026-09-20): keep the detection, change the action.**
+   > `findOrphanedJailDaemons` and its full-argv compare stay; the `SIGKILL` goes. The second
+   > supervisor either **adopts** the live daemon or **refuses and names the orphan's PID** — it
+   > stops killing on an inference about ownership. A straight revert was rejected: it would lose
+   > the only guard against an in-container fault that prints this identical error.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   Which of the two actions, and what decides between them, is **left to the implementer**. One
+   constraint comes with it: readiness is published through a pipe the supervisor hands the daemon
+   it starts, and an adopted orphan has no such pipe —
+   [§6.1](#61-ruled-2026-09-20-keep-the-detection-change-the-action) has the detail.
 
 ---
 
@@ -432,13 +516,19 @@ anything. That is [OQ-PC3](#oq-pc3), and the reclaimer still kills.
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
 | OQ-PC1 | **Fix the mutation, not the read.** `ComposeProviders` deep-copies the user's entry on the way in, so the composed table holds nothing the caller owns; the read was left where it is. A composer that writes through its input is a one-writer violation, and `localProviderForwards` was the first consumer caught by it rather than the only one exposed — reordering that one read would have left every later reader of `cfg` looking at an edited config. Answered by `3c20a5d8` choosing a seam, not by a ruling. | 2026-09-19 | [§2](#2-the-cause-the-adapters-address-was-read-back-as-a-user-request), and `ComposeProviders`' own doc comment | ✅ |
+| OQ-PC2 | **Disclose it.** An implicitly forwarded port gets ONE launch line naming the port and the provider that asked for it, and the briefing's **Forwarded Host Ports** section is fed from the MERGED list rather than from the config section. A forward is a hole into the host and the user's config cannot be grepped for it. ⚠ The launch has no quiet mode ([`OQ-RO3`](../reference/report-tiers.md#why-its-this-way)), so the line is permanent — which is right here: it discloses something yolo DID to the jail, the class `P4` protects, not an absence ([`OQ-ST3`](synced-skill-trees.md#OQ-ST3) is the contrasting refusal) | 2026-09-20 | [§2.4](#24-why-no-disclosure-caught-it) | no |
+| OQ-PC3 | **Keep the detection, change the action.** `findOrphanedJailDaemons` and its full-argv compare stay; `killOrphanedJailDaemon` goes. The second supervisor either ADOPTS the live daemon or REFUSES and names the orphan's PID — it stops killing on an inference about ownership. A straight revert was rejected: it loses the only guard against an in-container fault that prints this identical error. Which action, and what decides between them, is the implementer's; readiness cannot flow through the supervisor's pipe for an adopted orphan, which is the constraint that comes with the choice | 2026-09-20 | [§6.1](#61-ruled-2026-09-20-keep-the-detection-change-the-action) | no |
 
 > [!NOTE]
-> **Graduation waits on the two questions above.** The durable half of this doc — what can hold
-> the port before the bridge does, the ordering fact in
-> [§3](#3-the-ordering-is-a-fact-not-a-hypothesis), and the invariant that packs' endpoints are
-> service facts while user providers are forwarded — is reference material, and
-> [`wire-bridge.md`](../reference/wire-bridge.md) is its home. Source comments cite this file by
-> section number — `2`, `2.2`, `2.5` and `3` — and a sibling design doc links it, so when it does
-> graduate it leaves a stub with a mapping table, the way
+> **This is a graduation candidate, and what defers it is no longer a question.** Every open
+> question is ruled. The durable half of this doc — what can hold the port before the bridge does, the
+> ordering fact in [§3](#3-the-ordering-is-a-fact-not-a-hypothesis), and the invariant that packs'
+> endpoints are service facts while user providers are forwarded — is reference material, and
+> [`wire-bridge.md`](../reference/wire-bridge.md) is its home. What holds the move is the citation
+> this doc already predicted: **[OQ-PC2](#oq-pc2) is cited by id** from
+> [`diagnostics-past-the-boundary.md`](diagnostics-past-the-boundary.md), which is itself still in
+> review with live questions, so this file is the address that citation resolves against — checked
+> against the tree on 2026-09-20 and still true. Source comments also cite this file by section
+> number (`rg -n wire-bridge-port-collision internal/` lists them), so when it does graduate it
+> leaves a stub with a mapping table, the way
 > [`protocol-resolution.md`](protocol-resolution.md) did — it is not deleted.

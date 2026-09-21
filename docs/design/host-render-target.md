@@ -283,14 +283,14 @@ mean anything with no container?":
 | `env` | ✅ | static environment variables — literal strings, no container needed |
 | `mount` | ❌ **unavailable** | reads a host-home dir into a jail via a `:ro` `/ctx` mount. No mount namespace off-container, and a copy goes silently stale ([§2.2](#22-so-which-is-it-a-command-or-a-mode)). macos-user already *filters* rather than degrades |
 | `reads-host` | ❌ meaningless | it exists to carry a host file *into* a jail. Off-container the source and destination are one filesystem |
-| `hook` | ⚠ 1 of 3 | `shared_credentials` is a no-op (host creds are *already* machine-global); `per_jail_history` has no jail to key on; `claude_plugins` works |
+| `hook` | ❌ meaningless | Every surviving hook is a *jail* concept: `shared_credentials` is a no-op (host creds are *already* machine-global), `per_jail_history` has no jail to key on. The one member that did work off-container, `claude_plugins`, was retired ([`OQ-2`](./pi-pack-extensions.md#10-decision-ledger), 2026-09-19 — no agent-named hook), which emptied this row rather than thinning it — the shipped refusal (`render.HostUnimplemented`, the `packdecl.KindHook` entry) now turns the whole kind away deliberately rather than as unbuilt |
 | `launch` | ⚠ only with a launcher | `--dangerously-skip-permissions` is a *jail* posture. Meaningful only if yolo also launches the host agent, which is the [§2.2](#22-so-which-is-it-a-command-or-a-mode) question |
 | `program` | ❌ **refuse** | `via: installer` is curl-to-shell; `via: npm` mutates a real toolchain. [§6.4](#64-what-else-changes-on-a-host-target) |
 | `state` | ❌ meaningless | names a writable home subtree (per-workspace or machine). Off-container the home dir simply *is* writable, and there is no per-jail home to escape |
 | `files` | ❌ meaningless | a pack-owned tree bound into a jail. Off-container there is nothing to bind into |
 
 **Roughly: the config/skills/briefing/env kinds port, `program` must be refused, `mount`/
-`reads-host`/`state`/`files` are unavailable or meaningless, `hook`/`launch` degrade.** The
+`reads-host`/`state`/`files`/`hook` are unavailable or meaningless, `launch` degrades.** The
 crisp line is unchanged from the original nine-field census: **the composed-config kinds are
 target-independent; the provisioning kinds are not.** Against the shipped packs, `claude`
 uses most kinds; `opencode` uses `program` + `briefing` + `config` — so on a host target
@@ -593,13 +593,16 @@ fatal-collecting behavior is yolo's **boot policy**, not a property of rendering
 policy in the caller is what lets the jail stay loud-and-halting while a host target's refusal
 is a message.
 
-`RunPackHooks` is the awkward one, and it resolves the same way. The three hooks are all *jail*
+`RunPackHooks` is the awkward one, and it resolves the same way. The hooks are all *jail*
 concepts — `shared_credentials` links into the machine-global tier, `per_jail_history` keys on
-`YOLO_HOST_DIR`, `claude_plugins` runs the claude CLI. `packdecl.KnownHooks` already exists as
-a closed set precisely so the host can validate without importing the entrypoint. So the
-renderer owns *dispatch and validation*; the target supplies `Hooks map[string]HookFunc`, and
-on a host target `per_jail_history` is simply absent from the map. A data decision, not a code
-branch.
+`YOLO_HOST_DIR`. (A third, `claude_plugins`, ran the claude CLI, and it was the only member with
+any off-container meaning; it was retired — [`OQ-2`](./pi-pack-extensions.md#10-decision-ledger),
+2026-09-19, no agent-named hook — and the name now refuses with a migration message rather than
+reading as an unknown one.) `packdecl.KnownHooks` already exists as a closed set precisely so the
+host can validate without importing the entrypoint. So the renderer owns *dispatch and
+validation*; the target supplies `Hooks map[string]HookFunc`, and a host target's map is empty. A
+data decision, not a code branch — and the retirement exercised exactly that property, since
+shrinking the set changed data and no branch.
 
 ### 4.3 Staging and mount assembly — the one that must NOT be generalized
 
@@ -889,11 +892,16 @@ That has a crisp consequence worth stating as a rule:
   `program` (both `installer` and `npm -g`) entirely, at least at first — even for an
   otherwise-approved pack: the host target manages *config*, and installing tools into a real
   machine is a different feature with its own design.
-- **Hooks: two of three must be off.** `shared_credentials` symlinks a credentials file into
-  a machine-global dir — on a host target the credentials file *is* already machine-global,
+- **Hooks: every one of them must be off.** `shared_credentials` symlinks a credentials file
+  into a machine-global dir — on a host target the credentials file *is* already machine-global,
   so the hook is a no-op at best and a broken symlink at worst. `per_jail_history` keys on
-  `YOLO_HOST_DIR` and has no meaning. `claude_plugins` runs `claude` against the user's real
-  config. The `Hooks` map in [§3.3](#33-what-each-target-supplies) makes this a data decision instead of a code branch.
+  `YOLO_HOST_DIR` and has no meaning. The member that made this a *partial* answer when it was
+  written, `claude_plugins`, ran `claude` against the user's real config — and it was retired
+  ([`OQ-2`](./pi-pack-extensions.md#10-decision-ledger), 2026-09-19), so the hard case it posed
+  went away instead of being solved. The `Hooks` map in
+  [§3.3](#33-what-each-target-supplies) makes this a data decision instead of a code branch, and
+  the shipped refusal (`render.HostUnimplemented`) turns the kind away as deliberate, not
+  unbuilt.
 
 ### 6.5 The posture, stated as a table
 

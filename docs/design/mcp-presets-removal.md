@@ -281,8 +281,12 @@ The kind registry is **closed and has nineteen entries** (`footprints`,
 *"here is an MCP server, put it in the canonical table."*
 
 The closed hook set does not rescue this either: `KnownHooks` is
-`{shared_credentials, per_jail_history, claude_plugins}` — there is no general "run this at boot"
-escape hatch, by design.
+`{shared_credentials, per_jail_history}` — there is no general "run this at boot" escape hatch, by
+design. That set has since got *smaller*, not larger: `claude_plugins` was a third member until it
+was retired ([`pi-pack-extensions.md`](./pi-pack-extensions.md)
+[`OQ-2`](./pi-pack-extensions.md#10-decision-ledger), 2026-09-19 — retire it and add nothing like
+it, no agent-named hook). So an MCP kind cannot expect to arrive as a hook by precedent; the
+precedent runs the other way.
 
 ### 6.1 The three candidate shapes
 

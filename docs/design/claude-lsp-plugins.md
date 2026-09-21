@@ -1,16 +1,21 @@
 ---
 title: "Claude's LSP plugins: three hardcoded languages for a table yolo already owns"
 date: 2026-09-19
-status: in-review
+status: accepted
 tags: [lsp, claude, plugins, packs, config, derive]
-summary: "Claude Code gets language servers through per-language marketplace plugins, and yolo hardcodes exactly three of them in two places while its own canonical lsp_servers table could express any of them. The plugins are pure lspServers declarations — no code — so the question is whether to keep, generalize, delete, or generate them, and whether Claude can load one yolo-authored plugin instead of the marketplace."
+summary: "Where this landed: GENERATE (option D) — yolo authors one plugin whose lspServers is rendered from the user's own lsp_servers table, so any language works with no marketplace, no hardcoded ids and no hook. D was ruled without waiting on the load-path measurement, which therefore becomes a PRECONDITION of the build rather than a tiebreak: if Claude will only read a plugin from a registered marketplace, D is not merely more expensive, it is unbuildable on that path and the ruling reopens. Meanwhile the vendor install path was deleted with the claude_plugins hook, so the three hardcoded plugins are now inert — enabled in settings and installed by nothing."
 vantage:
   status-chip: true
 ---
 
 # Claude's LSP plugins: three hardcoded languages for a table yolo already owns
 
-**Status:** DESIGN, 2026-09-19. Nothing built.
+**Status:** DECIDED, 2026-09-20. **Every ruling is in; nothing is built.** ⚠ [OQ-LSP1](#OQ-LSP1)
+ruled **generate (D)** *without* waiting on [OQ-LSP3](#OQ-LSP3), which was ruled **go measure** —
+so the load-path measurement is now a **precondition of the build**, not a tiebreak between two
+live options. ⚠ And the ground moved under the whole doc the same day: the vendor install path was
+deleted with the `claude_plugins` hook, so the three hardcoded plugins are **enabled and installed
+by nothing** ([§1.1](#11-the-three-in-two-places)).
 
 > **In short.** `packs/claude/derive.lua` and `internal/entrypoint/claude.go` each hardcode
 > the same three-language map — python → `pyright-lsp`, typescript → `typescript-lsp`, go →
@@ -20,28 +25,34 @@ vantage:
 > (`lsp_servers`) and already installs the binaries itself. So the three are an arbitrary,
 > duplicated, five-language-short subset of a table yolo could generate.
 
-**Why it matters.** Three reasons, in order of weight. It is the one remaining *reason* the
-`claude_plugins` hook exists — and that hook's retirement is now **ruled**
-([`pi-pack-extensions.md`](./pi-pack-extensions.md) [`OQ-2`](./pi-pack-extensions.md#10-decision-ledger), 2026-09-19), so what remains here is
-where the LSP trees it used to install come from. It is implicated in a live
+**Why it matters.** Three reasons, in order of weight. It is the **hole the hook's retirement
+left**: `claude_plugins` was the only thing that put an LSP plugin into a jail's plugin cache, it
+is now deleted ([`pi-pack-extensions.md`](./pi-pack-extensions.md)
+[`OQ-2`](./pi-pack-extensions.md#10-decision-ledger)), the derive still writes `enabledPlugins`,
+and nothing fills what that names — so supplying the replacement is this doc's own work
+([§1.1](#11-the-three-in-two-places)). It is implicated in a live
 data-loss defect already on the roadmap: the `enabledPlugins` table the derive writes is what
 `dropComputedTables` over-drops. And it is agent-specific residue of exactly the shape this
 project keeps deleting: a language list hardcoded in Go, duplicated in Lua, that the user's
 own config could have supplied.
 
-**The shape.** Four options: keep (status quo), **generalize** the map to the full official
-set, **delete** it where unused, or **generate** a single yolo-authored plugin from the
-configured `lsp_servers` so any language works with no marketplace and no hook. The last is
-the attractive one and depends on whether Claude can load a locally-authored plugin, which is
-the Agent Plugins decision in [pi-pack-extensions.md](./pi-pack-extensions.md#10-decision-ledger).
+**The shape.** Four options were live — keep (status quo), **generalize** the map to the full
+official set, **delete** it where unused, or **generate** a single yolo-authored plugin from the
+configured `lsp_servers` so any language works with no marketplace and no hook. **Generate is the
+ruling** ([OQ-LSP1](#OQ-LSP1)), and it rests on a load path nobody has measured: whether Claude
+reads a plugin yolo authored, which is the Agent Plugins decision in
+[pi-pack-extensions.md](./pi-pack-extensions.md#10-decision-ledger) and
+[OQ-LSP3](#OQ-LSP3).
 
-**Needs your ruling:** [OQ-LSP1](#OQ-LSP1), [OQ-LSP3](#OQ-LSP3) — plus the
-[`slots-and-contributions.md`](./slots-and-contributions.md) role model that governs delivery.
-(The default-servers question is resolved — [decision ledger](#6-decision-ledger).)
+**Needs your ruling:** **None** — all three were ruled 2026-09-20; see the
+[decision ledger](#6-decision-ledger). ⚠ **One measurement is owed before any of it is built**,
+and it is a precondition rather than a detail: [OQ-LSP3](#OQ-LSP3) decides whether the ruled
+option is buildable at all. The [`slots-and-contributions.md`](./slots-and-contributions.md) role
+model governs how the generated tree is delivered.
 
 **Reads with:** [`mcp-configuration.md`](../reference/mcp-configuration.md) (the canonical
 MCP/LSP tables and per-agent projection), [`pi-pack-extensions.md`](./pi-pack-extensions.md)
-(plugin delivery; its `claude_plugins` retirement is ruled — note its `files` **encoding** is
+(plugin delivery; its `claude_plugins` retirement has SHIPPED — note its `files` **encoding** is
 superseded by [`slots-and-contributions.md`](./slots-and-contributions.md), which governs how a
 plugin tree reaches Claude), [`claude-plugins-official`](https://github.com/anthropics/claude-plugins-official)
 (the marketplace — its `.claude-plugin/marketplace.json` is the evidence that these plugins
@@ -57,9 +68,29 @@ are declarations only),
 | Place | What it holds |
 | :--- | :--- |
 | [`packs/claude/derive.lua`](../../packs/claude/derive.lua) | the `plugin` table (three ids) → `enabledPlugins` (enable when `ctx.lsp_servers[lang]` is set, tombstone otherwise) and `env.ENABLE_LSP_TOOL` when any LSP is configured |
-| [`internal/entrypoint/claude.go`](../../internal/entrypoint/claude.go) | `claudeLSPPluginOrder`, the same three pairs, used by `installClaudePlugins` ([`boot.go`](../../internal/entrypoint/boot.go)) to install/uninstall them via the vendor CLI |
+| [`internal/entrypoint/claude.go`](../../internal/entrypoint/claude.go) | `claudeLSPPluginOrder`, the same three pairs — now reached by **no production code at all**, only by a prism test asserting the toggles stay off |
 
-Two copies of one fact, one in Lua and one in Go, with nothing pinning them together.
+Two copies of one fact, one in Lua and one in Go, with nothing pinning them together — and as of
+today only one of them still does anything.
+
+**What used to install these plugins, and what installs them now: nothing.** The Go table was read
+by `installClaudePlugins`, which diffed Claude's own `installed_plugins.json` against the
+configured servers and shelled out to `claude plugins install|uninstall`. That function — and the
+`claude_plugins` hook that was its only entry point — were **deleted 2026-09-20** (`01263ab2`),
+ruled by [`pi-pack-extensions.md`](./pi-pack-extensions.md)
+[`OQ-2`](./pi-pack-extensions.md#10-decision-ledger): yolo PLACES a plugin tree, it does not run a
+vendor install verb inside a jail. Nothing replaced it. `packdecl` now refuses the hook name with
+that migration, `packs/claude/pack.json` declares it no longer, and `boot.go` survives as a file
+with the function cut out of it.
+
+**So the derive half now writes a cheque the tree cannot cash.** `packs/claude/derive.lua` still
+sets `enabledPlugins`, deliberately — that half was never the hook's — so a jail with
+`lsp_servers.go` configured tells Claude to enable `gopls-lsp@claude-plugins-official`, and **no
+code puts that plugin in the cache**. The three languages are not merely arbitrary, duplicated and
+five short of the official set; they are **inert**, and the Go table is an orphan a test keeps
+compiling. That is a sharper motivation than the one this doc opened with: the question is not
+"why only three" but *"how does a configured LSP server reach Claude at all"*, and today the answer
+is that it does not. Option D is the replacement the retirement assumed and did not build.
 
 ### 1.2 What a plugin actually is — a declaration, not code
 
@@ -227,28 +258,29 @@ config key.
   LSP set is fixed rather than user-driven.
 - **C — delete.** Remove the plugins, the derive table, the Go table and the hook; Claude runs
   without LSP. *Cost:* loses the Claude LSP tool. *Condition:* an actual user.
-- **D — generate.** Have yolo author **one** plugin whose `lspServers` is rendered from the
-  user's `lsp_servers` at boot, deliver it like any other content tree, and enable it. Any
-  language works, no marketplace, no hook, no hardcoded list. *Condition:* Claude must load a
-  locally-authored plugin, which is the Agent Plugins decision in
-  [`pi-pack-extensions.md`](./pi-pack-extensions.md#10-decision-ledger) and
-  [OQ-LSP3](#OQ-LSP3).
+- **D — generate. ✅ RULED 2026-09-20** ([OQ-LSP1](#OQ-LSP1)). Have yolo author **one** plugin
+  whose `lspServers` is rendered from the user's `lsp_servers` at boot, deliver it like any other
+  content tree, and enable it. Any language works, no marketplace, no hook, no hardcoded list.
+  *Condition, now a precondition:* Claude must load a locally-authored plugin, which is the Agent
+  Plugins decision in [`pi-pack-extensions.md`](./pi-pack-extensions.md#10-decision-ledger) and
+  [OQ-LSP3](#OQ-LSP3) — **unmeasured**, and the ruling did not wait for it.
 - **E — inline.** If Claude's settings accept an `lspServers` table directly (Copilot's model),
   write it there with no plugin at all. *Condition:* unknown; the derive currently writes only
-  `enabledPlugins`.
+  `enabledPlugins`. Worth folding into the [OQ-LSP3](#OQ-LSP3) probe, since it is measured against
+  the same CLI in the same sitting and, if true, retires D as well as B and C.
 
 ## 4. Failure modes
 
 | Failure mode | Today | Desired |
 | :--- | :--- | :--- |
-| A configured language outside the three | silent no-op for Claude | delivered, or reported |
+| A configured language outside the three | silent no-op for Claude — and since the install path was deleted, **the three are no-ops too** ([§1.1](#11-the-three-in-two-places)) | delivered, or reported |
 | The two hardcoded tables drift | silent mismatch | one source |
 | `enabledPlugins` over-dropped on an adopting render | user's other enabled plugins lost ([`roadmap`](../plans/roadmap.md) row 0b) | the derive asserts leaf-level, not the table |
 | `lsp_servers` configured, binaries missing | install recipe is the only path | recipe **deleted** ([§1.3](#13-yolo-already-owns-the-table-the-plugins-restate)); the `command` must resolve on `PATH`, and a missing binary is reported |
 
 ## 5. Open questions
 
-1. 💬 **OQ-LSP1: Keep, generalize, delete, or generate?** The core ruling, and it is shared
+1. ✅ **OQ-LSP1: Keep, generalize, delete, or generate?** The core ruling, and it is shared
    with [`pi-pack-extensions.md`](./pi-pack-extensions.md).
 
    <!-- vantage: oq id=OQ-LSP1 leaning="Generate (D) if Claude loads a locally-authored plugin, else delete (C) after checking for a user. Generalizing (B) is NOT a fallback: it would hardcode a per-language opinion for thirteen languages, which §1.3 forbids." -->
@@ -259,10 +291,26 @@ config key.
    `lspInstallRecipes` deletion removes. D makes archetype 2 as generic as archetype 1, so the
    hardcoded list, the marketplace dependency and the hook all go in one move.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer (2026-09-20): D — generate.**
+   > yolo authors **one** plugin whose `lspServers` is rendered from the user's own `lsp_servers`,
+   > delivers it as content, and enables it. Any configured language works; no marketplace, no
+   > hardcoded ids, no per-language opinion. It makes Claude's archetype — plugin — as generic as
+   > Copilot's config table, and it is the only option that *removes* the picking
+   > [§1.3](#13-yolo-already-owns-the-table-the-plugins-restate) forbids rather than multiplying
+   > it.
 
-2. 💬 **OQ-LSP2: Are the "default servers (always present)" claims true?** The code says no
+   ⚠ **D was taken outright, WITHOUT waiting on [OQ-LSP3](#OQ-LSP3), and that changes what
+   [OQ-LSP3](#OQ-LSP3) is.** The leaning made D conditional — *D if [OQ-LSP3](#OQ-LSP3) says yes,
+   C if nobody uses them* —
+   and the ruling dropped the condition. So the measurement is no longer a tiebreak between two
+   live options; it is a **precondition of the build**. If it comes back negative — Claude reads a
+   plugin only from a registered marketplace — then D is not merely more expensive, it may be
+   **unbuildable on the marketplace path**, because there would be no way for yolo to author a
+   plugin Claude will load. That outcome reopens this ruling rather than quietly downgrading it,
+   and **B is still not the fallback**: B was rejected on the no-picking rule, which no
+   measurement can move. Measure first, build second.
+
+2. ✅ **OQ-LSP2: Are the "default servers (always present)" claims true?** The code says no
    ([§1.5](#15-they-are-not-on-by-default--and-the-docs-used-to-say-they-were)).
 
    <!-- vantage: oq id=OQ-LSP2 leaning="Fix the docs (the template and config_ref), or implement the merge — but do not leave the two contradicting." -->
@@ -275,7 +323,7 @@ config key.
    > **Resolved 2026-09-20** — the docs were fixed (commit `3fb79e8f`); the code was the authority.
    > No default merge exists or is wanted.
 
-3. 💬 **OQ-LSP3: Can Claude load one yolo-authored plugin that declares any language?** D
+3. ✅ **OQ-LSP3: Can Claude load one yolo-authored plugin that declares any language?** D
    depends on a documented local-load path (`--plugin-dir`, a `./`-prefixed marketplace source)
    and on whether a plugin's `lspServers` may list many servers.
 
@@ -286,16 +334,51 @@ config key.
    YOLO-authored plugin directly decides whether one artifact can serve every configured
    language.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer (2026-09-20): measure it — alongside the Agent Plugins decision in
+   [`pi-pack-extensions.md`](./pi-pack-extensions.md#10-decision-ledger).**
+   > If Claude reads a yolo-authored plugin directly, D is cheap. If it does not — if a plugin
+   > must come from a registered marketplace — the marketplace path forces B or C, which is why
+   > this is a precondition of [OQ-LSP1](#OQ-LSP1)'s build and not a detail of it.
+
+   **This is a ruling to go and measure, not an answer.** What settles it, concretely — one
+   sitting against the Claude CLI a jail actually installs:
+
+   - **Does a local tree load at all?** Write a plugin directory yolo could have rendered — an
+     Agent Plugins 1.0 root with a `.claude-plugin/` manifest beside it, per
+     [`OQ-5`](./pi-pack-extensions.md#10-decision-ledger) — and point
+     Claude at it by the two documented routes: the `--plugin-dir` flag, and a marketplace entry
+     whose `source` is a `./`-prefixed path. Either working is enough.
+   - **May one plugin declare many servers?** `lspServers` is an object keyed by server name, so
+     the shape allows it, but every published `*-lsp` plugin carries exactly one key. Put two in
+     (a `gopls` and a second server) and see whether both come up.
+   - **What id does `enabledPlugins` then need?** The derive writes `<plugin>@<marketplace>`
+     today; a locally-loaded plugin may want a bare name, a different marketplace token, or no
+     entry at all. Whatever it is, it is what the derive must render.
+   - **And while the CLI is open, settle [option E](#3-options)**: does anything in Claude's
+     settings accept an `lspServers` table directly? A yes retires the plugin question entirely.
+
+   ⚠ **This cannot be a test, by [`AGENTS.md`](../../AGENTS.md)'s rule that automated tests never
+   start an agent beyond `--version`.** It is a human-run, one-off probe whose result is recorded
+   here and in the [roadmap](../plans/roadmap.md) — the same shape as the unverified CLI flag
+   under [`pi-extension-lifecycle.md`](./pi-extension-lifecycle.md)'s
+   [`OQ-2`](./pi-extension-lifecycle.md#7-decision-ledger).
+
+   **What each outcome implies:**
+
+   | Measured | Consequence for [OQ-LSP1](#OQ-LSP1)'s D |
+   | :--- | :--- |
+   | Local load works, `lspServers` takes many servers | **D as ruled** — one rendered tree, one enabled id, the hardcoded pairs and `claudeLSPPluginOrder` deleted in one move |
+   | Local load works, one plugin = one server | **D still holds, more bookkeeping** — yolo renders one tree per configured entry and enables each. No marketplace, still no per-language opinion, since the ids are derived from the user's own table |
+   | Local load does not work | **D may be unbuildable**, not just dearer. The routes left are the ones the ruling rejected — B (forbidden by the no-picking rule) or C (Claude gets no LSP) — or yolo hosting a marketplace, which nobody has argued for. Reopen [OQ-LSP1](#OQ-LSP1) |
+   | Claude takes `lspServers` in settings | [Option E](#3-options) wins and the whole plugin question goes away |
 
 ## 6. Decision ledger
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| **OQ-LSP1** | — | — | — | — |
+| **OQ-LSP1** | **Generate (D).** yolo authors ONE plugin whose `lspServers` is rendered from the user's `lsp_servers`, delivers it as content and enables it — any language, no marketplace, no hardcoded ids, no per-language opinion. ⚠ Taken WITHOUT waiting on [OQ-LSP3](#OQ-LSP3), so that measurement is a PRECONDITION of the build: a negative result may make D unbuildable on the marketplace path and reopens this row. B remains rejected on the no-picking rule, which no measurement can move | 2026-09-20 | [§5](#5-open-questions), [§3](#3-options) | no |
 | **OQ-LSP2** | No default LSP servers exist; the two docs claiming "always present" were drift and are corrected | 2026-09-20 | [§1.5](#15-they-are-not-on-by-default--and-the-docs-used-to-say-they-were) | `3fb79e8f` |
-| **OQ-LSP3** | — | — | — | — |
+| **OQ-LSP3** | **Go and measure**, alongside the Agent Plugins decision in [`pi-pack-extensions.md`](./pi-pack-extensions.md#10-decision-ledger). A yolo-authored plugin loading directly makes D cheap; a marketplace-only load path forces B or C. The probe, its four outcomes and why it cannot be a test are in [§5](#5-open-questions). Not an answer — a ruling to run the experiment before the build | 2026-09-20 | [§5](#5-open-questions) | no |
 
 ---
 

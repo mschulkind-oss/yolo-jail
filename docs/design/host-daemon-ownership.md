@@ -293,7 +293,7 @@ process.
 | `yolo host-daemon stop <name>` | no | yes | any, declared or not | Needs only the name — every rendezvous path is derived from it. Next launch respawns a declared one |
 | `yolo broker <verb>` | as above | as above | Claude broker only | The retained alias — `host-daemon <verb> claude-oauth-broker`, resolved from the broker's own constants so it works where discovery is empty |
 | `yolo host -- codex` / `yolo host -- pi` | yes | yes | OpenAI broker only | `ensureSingleton` replaces a daemon lacking the private host socket |
-| `yolo internal openai-auth <status\|import\|logout>` | yes | yes | OpenAI broker only | The same `ensureSingleton` |
+| `yolo openai-auth <status\|import\|logout>` | yes | yes | OpenAI broker only | The same `ensureSingleton`. Public since 2026-09-20; the hidden `yolo internal openai-auth` is a retained alias into the same handler, so it is one actor and not two |
 | A launch's one-time state migration (`PrepareLocked`) | yes | yes | OpenAI broker only | Stop → migrate → respawn, all under the lock |
 | A jail ending (`stopLoopholes`) | no | **no** | — | Closes this jail's front; sweeps by jail hash, which cannot match a singleton's path |
 | `yolo stop` | no | no | — | `rt inspect` then `rt stop <container>`; touches no host process |

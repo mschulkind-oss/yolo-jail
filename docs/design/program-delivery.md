@@ -44,13 +44,13 @@ this doc, and the roadmap, citing SHAs that resolve as objects but are not ances
 **The short version.** Executable content reaches a jail through four mechanisms, and they are not
 four flavours of one thing: content is **baked** (nix, hermetic, recorded), **regenerated** (packs,
 skills, surfaces — cleared and rebuilt every launch), **installed-and-kept** (agent CLIs, LSP
-servers, mise tools, claude plugins, `npx` MCP packages) or **mounted** (a pointer, not content).
+servers, mise tools, `npx` MCP packages) or **mounted** (a pointer, not content).
 The first two are uniform by construction; the fourth inherits whatever it points at. **All
 divergence lives in the third class**, whose defining property is not "npm" but *"yolo declares a
 name, a third party decides the bytes, and nothing writes down what came back."* So the maintainer's
 premise — *"that'll make all jails uniform, given the pack set and lockfile"* — is half right in a
 way that matters: a user-scope lockfile over the pack set can reach the npm half and cannot reach
-mise, the image tag, the LSP recipes, the claude plugins, or an `npx -y` MCP argv, and it fixes only
+mise, the image tag, the LSP recipes, or an `npx -y` MCP argv, and it fixes only
 one of the three properties uniformity actually needs. **My recommendation was to build the RECEIPT
 first — the artifact that says what this jail got — then removal, then the pin.** And much of the
 receipt is not yolo's to build: where an ecosystem already keeps a lockfile with a resolver behind
@@ -126,8 +126,9 @@ capture entry is content-addressed by construction — [§10](#10-what-i-would-b
 
 **P4. The unit is a delegated resolution, not an npm package.** Anywhere yolo declares a NAME and a
 third party decides the bytes: `program via npm`, `program via installer`, the LSP recipes, mise
-tools, claude plugins, an `npx -y` MCP argv. npm is simply the first one anyone looked at.
-**Anything scoped to `via: npm` covers one of six delegated resolutions, every one of them in the
+tools, an `npx -y` MCP argv — and claude plugins, until that one was retired ([`OQ-2`](./pi-pack-extensions.md#10-decision-ledger),
+2026-09-19). npm is simply the first one anyone looked at. **Anything scoped to `via: npm` covers a
+single delegated resolution out of that list, every one of them in the
 installed-and-kept row** ([§3](#3-four-delivery-classes-and-the-rule-that-falls-out)).
 
 **P5. Regenerated beats installed.** Content re-derived every launch cannot diverge; content
@@ -169,7 +170,7 @@ is one machine and one config. [§4](#4-how-two-jails-diverge-today-measured) is
 | :--- | :--- | :--- | :--- | :--- |
 | **Baked** | nixpkgs (96.75 % of the closure), the shipped Go binaries (`flake.nix`'s `shippedBinaries`), `mise` itself | per image build, hermetic (`-mod=vendor`, committed `vendor/`) | `flake.lock` + the load sentinel | ✅ **provably** |
 | **Regenerated** | pack trees (`_official/` cleared wholesale), skills, briefings, config surfaces, shims, launchers | **every launch** | none needed | ✅ given the binary + pack commit |
-| **Installed-and-kept** | `program via npm`, `program via installer`, LSP servers, mise tools, claude plugins, `npx -y` MCP packages | **never** | **none** when measured, 2026-08-24 — one partial exception ([§4.3](#43-history-a-jail-is-the-union-of-every-pack-ever-selected-not-the-current-pack-set)); receipts since `af46c9b4`, a capture manifest for the installer class since 2026-09-04 ([§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)) | ❌ **all divergence lives here** |
+| **Installed-and-kept** | `program via npm`, `program via installer`, LSP servers, mise tools, `npx -y` MCP packages — and claude plugins until 2026-09-19, when the installer yolo ran for them was retired in favour of placing the tree ([`OQ-2`](./pi-pack-extensions.md#10-decision-ledger)) | **never** | **none** when measured, 2026-08-24 — one partial exception ([§4.3](#43-history-a-jail-is-the-union-of-every-pack-ever-selected-not-the-current-pack-set)); receipts since `af46c9b4`, a capture manifest for the installer class since 2026-09-04 ([§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)) | ❌ **all divergence lives here** |
 | **Mounted** | `/workspace`, `/home/agent`, `/mise`, `/ctx/*` | n/a | n/a | inherits its source |
 
 **The rule that falls out — and it is the whole design in one line: make the third class behave like
@@ -1151,7 +1152,7 @@ A new mechanism does not need a new design; it needs to land in one of three tie
 | Tier | Meaning | Members today | Uniformity we can promise |
 | :--- | :--- | :--- | :--- |
 | **Managed** | yolo runs the install | `program via npm`, `program via installer`, LSP recipes | all six verbs — declare, resolve, record, materialize, reconcile, remove |
-| **Observed** | a third party installs into a store yolo mounts | **mise**, claude plugins (`installClaudePlugins`, `internal/entrypoint/boot.go`) | record and compare; obeying requires the third party's own pin (mise has one — this repo commits `mise.lock` and the launch installs from it; a repo without one still resolves through the aliases) |
+| **Observed** | a third party installs into a store yolo mounts | **mise**. Claude plugins were the second member until the installer yolo ran for them (`installClaudePlugins`, `internal/entrypoint/boot.go`) was deleted with the `claude_plugins` hook ([`OQ-2`](./pi-pack-extensions.md#10-decision-ledger), 2026-09-19 — YOLO places a plugin tree; no vendor install verb runs in a jail), so the mechanism LEFT this tier instead of moving within it. That is P5 applied, not an exception to it. What remains is the `enabledPlugins` ids a derive writes — a config toggle, not a resolution yolo observes | record and compare; obeying requires the third party's own pin (mise has one — this repo commits `mise.lock` and the launch installs from it; a repo without one still resolves through the aliases) |
 | **Unmanaged** | yolo never sees the resolution | `npx -y <pkg>` in an MCP argv (the MCP examples in `internal/cli/config_ref.txt`), a vendor CLI's self-updater (claude's, `agy`'s) | **none** — enumerate it; [§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package) is the built escape hatch for the installer class, and the `npx -y` argv stays enumerated |
 
 The 2026-08-24 launcher template stated the tier-3 case exactly, about silent updates:
@@ -1502,7 +1503,9 @@ here is used here, and publishing one is a provenance question for
 - **RETIRES [OQ-TP4](trust-paths.md#decision-ledger) — *"where does an EMBEDDED pack's npm version get pinned?"*** —
   as posed. All three of its options (manifest / lockfile / user config) are venues *inside the pack
   system*, and the measurement says the question is not the pack system's alone: the identical
-  question is live for mise (no pack), the LSP recipes (no pack), and claude plugins (no pack). It is
+  question is live for mise (no pack) and the LSP recipes (no pack) — and was live for claude plugins (no
+  pack) until the installer behind them was retired ([`OQ-2`](./pi-pack-extensions.md#10-decision-ledger), 2026-09-19), which is the third
+  disposition this doc predicts for a delegated resolution: removed, rather than pinned or recorded. It is
   superseded by [OQ-PD1](#decision-ledger) (where the receipt lives — now ruled) and
   [OQ-PD5](#decision-ledger) (also ruled). **What survives verbatim and must
   not be re-derived:** TP4's cost analysis of option (a) — pinning in the manifest makes yolo's

@@ -649,9 +649,16 @@ which is the other thing a user checks a launch for.
 A named request for a core-provided imperative behavior. The set is **closed**
 (`packdecl.KnownHooks`, drift-pinned by `entrypoint.TestHookSetsAgree`): a pack requests a hook
 by name and supplies its parameters; it cannot ship the hook's logic, which would put
-arbitrary effect code in a fetched pack. New behavior means a new named hook in core. A
-parameter a given hook does not use is an error rather than ignored, so a misplaced field is
-not a declaration that silently does nothing.
+arbitrary effect code in a fetched pack. New behavior means a new named hook in core, and the
+bar is not *"a pack needs it"* but *"the thing it does is not one tool's"* — an agent-named hook
+is ruled out ([`OQ-2`](../design/pi-pack-extensions.md#10-decision-ledger), 2026-09-19), which is
+what retired `claude_plugins`. A parameter a given hook does not use is an error rather than
+ignored, so a misplaced field is not a declaration that silently does nothing.
+
+The set can also SHRINK, and a removed name is not an unknown one: a retired hook is refused
+with the migration that replaces it (`packdecl.RetiredHook`), because a name one of yolo's own
+packs shipped is not a typo, and "unknown hook" would tell an author their declaration is wrong
+and nothing about what to write instead.
 
 The `shared_credentials` hook's contract is *"symlink this file into this machine-scoped
 dir"*, and its rule is that **the shared file always wins**:
@@ -1525,7 +1532,7 @@ only place the values themselves are stated.
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |
 | Kind set | the `footprints` map key, from which `KnownKinds()` derives (sorted alphabetically) | `packdecl.footprints`, count-pinned by `packdecl.TestKnownKindsCoverEveryConstant` |
-| Hook set | `shared_credentials`, `per_jail_history`, `claude_plugins` | `packdecl.KnownHooks`, drift-pinned by `entrypoint.TestHookSetsAgree` |
+| Hook set | `shared_credentials`, `per_jail_history`. `claude_plugins` was a third until it was retired ([`OQ-2`](../design/pi-pack-extensions.md#10-decision-ledger), 2026-09-19 — retire it and add nothing like it, no agent-named hook); the name is not unknown but REFUSED, with a migration message | `packdecl.KnownHooks`, drift-pinned by `entrypoint.TestHookSetsAgree`; the refusal is `packdecl.RetiredHook` |
 | Manifest top-level keys | `name`, `description`, `contributes`, `skills_tier`, `supersedes`, `needs` | `packdecl.Manifest` |
 | Conventional briefing source | `AGENTS.md` (alone since 2026-08-17) | `packdecl.DefaultBriefingFiles` |
 | Conventional skills source | `skills/` | `packdecl.Contribution.SkillsSource` |
