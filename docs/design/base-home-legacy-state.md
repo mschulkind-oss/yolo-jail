@@ -475,7 +475,8 @@ invoke the layout migration — `internal/cli/run/run.go:837-844` and
 
 **Detection is always-on; the marker gates only the apply.** This resolves the contradiction
 the doc used to state (a stamped host that never re-walks cannot also disclose recurrence on
-every launch): detection is a read-only, bounded walk that runs on every host command and
+every launch): detection is a read-only, bounded walk that runs wherever the host-only
+storage path runs and
 never depends on the marker, while the one-shot apply is gated by its own marker so a
 completed move is not re-offered. Recurrence ([§6](#6-prevention-the-base-home-invariant)) is
 therefore still seen and disclosed after the migration has run.
@@ -499,6 +500,32 @@ move); later recurrence is caught by always-on detection, not by re-running the 
 **downgrade** to a yolo without the migration is harmless: the old binary ignores the new
 marker and never applies, and re-upgrade re-detects. [OQ-BH2](#OQ-BH2) holds the marker
 mechanism and the apply location; the sound leaning is now the separate marker.
+
+> [!NOTE]
+> **What building step 1 measured (2026-09-21, `bc7685dd`).** Four facts the design could not
+> have had before something walked a real base home.
+>
+> 1. **`writable_home_dirs` mountpoints cannot be a root where the trigger currently sits.**
+>    [§5.1](#51-detection)'s second bullet needs the loaded config, and neither host call site
+>    has one yet: `ensureStorage` is `internal/cli/run/run.go:129` and `loadAndValidateConfig`
+>    is `:133`; check's `EnsureGlobalStorage` runs long before `config.LoadConfig`. A
+>    **top-level** such dir is still found, by the third bullet — measured, this repo's base
+>    yields `.pi-lens` that way — but a **nested** one stays invisible. Closing it means moving
+>    the trigger after the config load at both sites, which is a decision, not an oversight.
+> 2. **"Runs on every host command" was an overclaim, now corrected above.** There are exactly
+>    two `EnsureGlobalStorage` callers; `prune`, `stores`, `config`, `pack` and `host apply`
+>    reach none of this. Detection runs on a launch and on `yolo check`.
+> 3. **The classifier is derived from SHIPPED packs while the walk sweeps unknown top-level
+>    dirs**, so a config-declared dir or a non-shipped pack's state dir is classified with none
+>    of its own declarations in hand — every leaf in it reads as RUNTIME, credentials included.
+>    Harmless while step 1 only observes, and it is now reported by name when it bites (eight
+>    such roots here). ⚠ **It is a hard precondition for the move**: the apply must not run over
+>    a root whose declarations it never read.
+> 4. **A core-provisioned directory can be NESTED inside a walk root**, which the top-level
+>    exclusion list cannot see. `.pi/agent` is provisioned by `EnsureGlobalStorage` and created
+>    EMPTY, so [§5.2](#52-classification)'s *"a directory with no kept leaf beneath it moves
+>    whole"* proposed renaming a mountpoint the next launch cannot recreate inside the `:ro`
+>    bind. Every fixture hid it, because each put a config surface under `.pi/agent`.
 
 ### 5.8 Disclosure
 
