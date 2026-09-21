@@ -359,9 +359,13 @@ func fdDirRefusesRemoval(dir, name string) (ok bool, why string) {
 }
 
 // unremovableEntryDir returns a file-descriptor directory whose entries this process has
-// JUST OBSERVED to refuse os.Remove as uid 0, or skips the test when no candidate on this OS
-// can be shown to do that.
-func unremovableEntryDir(t *testing.T) string {
+// JUST OBSERVED to refuse os.Remove as uid 0, and the entry NAME it proved it with, or skips
+// the test when no candidate on this OS can be shown to do that.
+//
+// The name comes back because the caller must be able to re-run the same measurement through
+// the path PRODUCTION will use — see the test below, where the difference between the two
+// paths is what sent this to CI red on darwin.
+func unremovableEntryDir(t *testing.T) (string, string) {
 	t.Helper()
 	// A descriptor this test owns, so the probe's removal attempt can only ever touch an
 	// entry this test created. os.DevNull rather than a temp file on purpose: a
@@ -379,14 +383,14 @@ func unremovableEntryDir(t *testing.T) string {
 	for _, dir := range fdDirCandidates {
 		ok, reason := fdDirRefusesRemoval(dir, name)
 		if ok {
-			return dir
+			return dir, name
 		}
 		why = append(why, reason)
 	}
 	t.Skip("no file-descriptor directory on this platform could be shown to refuse an " +
 		"unlink for uid 0, so the un-emptiable branch of removeRetiredGeneratedDirs is " +
 		"UNPINNED here: " + strings.Join(why, "; "))
-	return ""
+	return "", ""
 }
 
 // TestARetiredGeneratedDirThatCannotBeEmptiedIsReported. One of those leftovers is a `grep`
@@ -409,12 +413,38 @@ func unremovableEntryDir(t *testing.T) string {
 // "not exist") for a descriptor closed in between. Both are why the fixture measures instead
 // of assuming, and why it can legitimately skip on darwin.
 func TestARetiredGeneratedDirThatCannotBeEmptiedIsReported(t *testing.T) {
-	fdDir := unremovableEntryDir(t)
+	fdDir, name := unremovableEntryDir(t)
 	e, stderr, _ := loudEnv(t)
-	if err := os.Symlink(fdDir, filepath.Join(e.Home, retiredGeneratedDirs[0])); err != nil {
+	link := filepath.Join(e.Home, retiredGeneratedDirs[0])
+	if err := os.Symlink(fdDir, link); err != nil {
 		t.Fatal(err)
 	}
+	// RE-MEASURED THROUGH THE SYMLINK, because that is the path the sweep opens and the
+	// two are not interchangeable — which is the darwin failure this repair is for. The
+	// first measurement ran against /dev/fd directly and passed; the sweep then read the
+	// same directory through e.Home/<name>, its ReadDir returned an error, and `continue`
+	// skipped the whole directory without attempting anything. Nothing was reported,
+	// because nothing was wrong — the fixture had simply never presented the state.
+	//
+	// The instability is inherent rather than incidental: a file-descriptor directory
+	// lists the descriptors of whoever is looking, ReadDir's own transient one included,
+	// so an entry can be gone by the time Go lstats it for a DT_UNKNOWN readdir.
+	if ok, why := fdDirRefusesRemoval(link, name); !ok {
+		t.Skip("the fixture does not survive being read through the path the sweep uses, " +
+			"so the un-emptiable branch is UNPINNED here: " + why)
+	}
 	removeRetiredGeneratedDirs(e)
+	// THE POST-HOC GUARD, and it is deliberately narrow. The re-measurement above closed
+	// the PATH difference; it cannot close the TIME one, since the directory's contents
+	// are descriptors that come and go. So a missing report is re-tested rather than
+	// trusted: if the premises still hold, this is a real regression and it fails. Only a
+	// fixture that has demonstrably stopped presenting the state skips.
+	if !strings.Contains(stderr.String(), retiredGeneratedDirs[0]) {
+		if ok, why := fdDirRefusesRemoval(link, name); !ok {
+			t.Skip("the sweep reported nothing and the fixture no longer holds, so this " +
+				"says nothing about the production code: " + why)
+		}
+	}
 	mustContain(t, "an un-emptiable retired script dir", stderr,
 		retiredGeneratedDirs[0], "intercept")
 }
