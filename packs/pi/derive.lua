@@ -174,6 +174,85 @@ local function piCompatBlock(prov, ctx, provName)
   return compat
 end
 
+-- THE MODEL-CAPABILITY FACTS (vision, reasoning, cost). `piCompatFields` is a
+-- PROVIDER-level block pi merges into every model; these three are MODEL-level fields, so a
+-- value declared for an alias is attached to that alias's emitted model. The source is the
+-- provider's `model_options.<alias>` map — the object-form `models.<alias>` entry, lowered to
+-- the flat string option vocabulary by packload.liftModelFacts — with a per-alias value
+-- winning over the provider's `options`, which is the FALLBACK: a fact common to every model
+-- it serves is declared once, and only the model that differs overrides it. A profile, which
+-- names one alias, is the wrong scope for a per-model fact; the provider fallback still
+-- reaches it through providerOption for the active provider.
+--
+-- The names are yolo-flat because an option value is a STRING (OQ-CS7), so pi's nested cost
+-- object is spelled as four scalar options and modalities as a comma list:
+--
+--   reasoning          "true" | "false"
+--   input              comma-separated, e.g. "text,image"
+--   cost_input         dollars per million input tokens
+--   cost_output        dollars per million output tokens
+--   cost_cache_read    dollars per million cache-read tokens
+--   cost_cache_write   dollars per million cache-write tokens
+--
+-- ADDITIVE, not defaulting. pi's own defaults for an undeclared fact are reasoning=false,
+-- input={"text"} and cost={0,0,0,0} (provider-composer.js, modelFromJson) — so an alias that
+-- declares none of these renders byte-for-byte the models.json row it rendered before this
+-- map existed, which is the same additive rule the compat block follows. Widening a typo
+-- into a capability OFF is the failure mode piCompatBoolean already refuses for the compat
+-- flags; it is reused here rather than re-derived.
+--
+-- A cost is emitted only when at least one rate is declared, and the undeclared ones are
+-- filled with 0: pi's ModelCostSchema requires all four keys, and pi discards the WHOLE FILE
+-- on a schema failure (`models.json is invalid` — the same all-or-nothing that makes the
+-- empty `models` key omitted below), so a partial object is worse than a defaulted one.
+local function piModelFacts(mopts, prov, ctx, provName)
+  local function fact(name)
+    if type(mopts) == "table" and mopts[name] ~= nil then
+      return mopts[name]
+    end
+    return providerOption(prov, ctx, provName, name)
+  end
+  local facts = nil
+  local reasoning = piCompatBoolean(fact("reasoning"))
+  if reasoning ~= nil then
+    facts = facts or {}
+    facts.reasoning = reasoning
+  end
+  local input = fact("input")
+  if type(input) == "string" and input ~= "" then
+    local mods, seen = {}, {}
+    for token in string.gmatch(input, "[^,%s]+") do
+      if (token == "text" or token == "image") and not seen[token] then
+        seen[token] = true
+        table.insert(mods, token)
+      end
+    end
+    if #mods > 0 then
+      facts = facts or {}
+      facts.input = mods
+    end
+  end
+  local cost = nil
+  local costFields = {
+    { option = "cost_input", field = "input" },
+    { option = "cost_output", field = "output" },
+    { option = "cost_cache_read", field = "cacheRead" },
+    { option = "cost_cache_write", field = "cacheWrite" },
+  }
+  for _, row in ipairs(costFields) do
+    local rate = tonumber(fact(row.option))
+    if rate ~= nil then
+      cost = cost or { input = 0, output = 0, cacheRead = 0, cacheWrite = 0 }
+      cost[row.field] = rate
+    end
+  end
+  if cost then
+    facts = facts or {}
+    facts.cost = cost
+  end
+  return facts
+end
+
 local function isLocalEndpoint(url)
   if type(url) ~= "string" then return false end
   return string.find(url, "://localhost") or
@@ -228,15 +307,29 @@ yolo.derive("pi", "models", function(ctx)
           local rawModelId = prov.models[alias]
           local modelId = isKilo and normalizeKiloModel(rawModelId) or rawModelId
           local m = { id = modelId, name = alias }
+          local mopts = type(prov.model_options) == "table" and prov.model_options[alias] or nil
+          -- `name` is the display name; the alias is the default, a declared one overrides.
+          if type(mopts) == "table" and type(mopts.name) == "string" and mopts.name ~= "" then
+            m.name = mopts.name
+          end
           local modelCw = cw
+          local modelMaxTokens = maxTokens
+          if type(mopts) == "table" then
+            modelCw = tonumber(mopts.context_window or mopts.max_context_tokens) or modelCw
+            modelMaxTokens = tonumber(mopts.max_tokens or mopts.max_output_tokens) or modelMaxTokens
+          end
           if not modelCw and isKilo and (modelId == "deepseek/deepseek-v4.1-flash" or string.find(modelId, "^deepseek/")) then
             modelCw = 1048576
           end
           if modelCw then
             m.contextWindow = modelCw
           end
-          if maxTokens then
-            m.maxTokens = maxTokens
+          if modelMaxTokens then
+            m.maxTokens = modelMaxTokens
+          end
+          local facts = piModelFacts(mopts, prov, ctx, name)
+          if facts then
+            for k, v in pairs(facts) do m[k] = v end
           end
           table.insert(modelList, m)
         end

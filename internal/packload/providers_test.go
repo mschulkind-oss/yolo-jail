@@ -200,6 +200,40 @@ func TestComposeProvidersRendersTheDeclaredOptionsBlock(t *testing.T) {
 	}
 }
 
+// TestComposeProvidersLowersModelObjects pins the one place the object-form `models.<alias>`
+// is lowered: the id survives as the bare string every consumer reads, and the facts move to
+// the flat-vocabulary `model_options.<alias>` the pi derive parses. A composer that skipped the
+// lift would hand the derives a TABLE where they expect an id string — every one of them reads
+// `models.<alias>` as a string — so this is the seam between the user's shape and theirs.
+func TestComposeProvidersLowersModelObjects(t *testing.T) {
+	pack := shippedZaiPack(t)
+	// The pack ships `default -> glm-5.3[1m]` and `fast -> glm-5.3-flash[1m]` as strings;
+	// the user replaces `default` with an object and adds facts to it, leaving `fast` a string.
+	user := userProviders(t, `{"zai":{"models":{"default":{"id":"glm-5.3","reasoning":true,
+	  "input":["text","image"],"cost":{"input":0.3,"output":1.2,"cache_read":0.006,"cache_write":0},
+	  "context_window":1000000,"max_tokens":8192,"name":"GLM 5.3"}}}}`)
+	s := dump(t, compose(t, user, []*Pack{pack}))
+
+	// The id is a bare string again — the stable alias->id contract.
+	if !strings.Contains(s, `"default": "glm-5.3"`) {
+		t.Errorf("models.default must lower to its bare id, got %s", s)
+	}
+	// The facts are the flat vocabulary, in declaration order, ready for the derive's parser.
+	wantFacts := `"model_options": {"default": {"reasoning": "true", "input": "text,image", ` +
+		`"cost_input": "0.3", "cost_output": "1.2", "cost_cache_read": "0.006", ` +
+		`"cost_cache_write": "0", "context_window": "1000000", "max_tokens": "8192", "name": "GLM 5.3"}}`
+	if !strings.Contains(s, wantFacts) {
+		t.Errorf("composed facts:\n got %s\nwant a substring %s", s, wantFacts)
+	}
+	// A string alias is untouched and produces no model_options entry of its own.
+	if !strings.Contains(s, `"fast": "glm-5.3-flash[1m]"`) {
+		t.Errorf("a string alias must pass through unchanged, got %s", s)
+	}
+	if strings.Contains(s, `"fast": {`) {
+		t.Errorf("a string alias must not gain a facts object, got %s", s)
+	}
+}
+
 // TestComposeProvidersRefusesAManufacturedAddressPair pins D2 (docs/reference/providers.md
 // §4.1, OQ-PT2): the shorthand and the endpoint map are each legal alone, and the config
 // validator refuses them together in an entry a user wrote — but this merge is PER FIELD,

@@ -1200,21 +1200,142 @@ func validateProviders(config *jsonx.OrderedMap, workspace string, errs, warns *
 			if !ok {
 				add(errs, path+".models: expected an object")
 			} else {
-				for _, k := range models.Keys() {
-					val, _ := models.Get(k)
-					if !isStr(val) {
-						add(errs, path+".models."+k+": expected a string model name")
+				for _, alias := range models.Keys() {
+					val, _ := models.Get(alias)
+					if val == nil {
+						continue // null deletes the alias, the merge-patch convention
 					}
+					if isStr(val) {
+						continue // the shorthand: alias -> wire id
+					}
+					entry, ok := asMap(val)
+					if !ok {
+						add(errs, path+".models."+alias+": expected a model id string or an object")
+						continue
+					}
+					validateModelEntry(entry, path+".models."+alias, errs)
 				}
 			}
 		}
 		if o, ok := cfg.Get("options"); ok && o != nil {
-			validateProviderOptions(o, path, errs)
+			validateProviderOptions(o, path+".options", errs)
 		}
 		if c, ok := cfg.Get("capabilities"); ok && c != nil {
 			validateStringList(c, path+".capabilities", errs)
 		}
 	}
+}
+
+// validateModelEntry checks one OBJECT-form `models.<alias>` entry: the closed field set,
+// the required wire `id`, and each field's JSON type. A string value is the shorthand and
+// never reaches here.
+//
+// `id` is required rather than inferred from the alias because the merge REPLACES: the
+// moment a user's value is an object, a pack's id string under the same alias is gone, so
+// an inferred `id = alias` would silently rewrite the wire id (cerebras' `default` ->
+// qwen-3.8-27b) the first time someone added one fact. What a fact MEANS is still the
+// consuming derive's business (OQ-CS7); core checks only that it is shaped like one.
+func validateModelEntry(entry *jsonx.OrderedMap, path string, errs *[]string) {
+	reportUnknownKeys(entry, knownModelKeys, path, errs)
+	id, hasID := entry.Get("id")
+	switch {
+	case !hasID || id == nil:
+		add(errs, path+".id: required — the wire model id, which is usually not the alias")
+	default:
+		if s, ok := asStr(id); !ok || s == "" {
+			add(errs, path+".id: expected a non-empty string")
+		}
+	}
+	if v, ok := entry.Get("name"); ok && v != nil {
+		if s, isString := asStr(v); !isString || s == "" {
+			add(errs, path+".name: expected a non-empty string")
+		}
+	}
+	if v, ok := entry.Get("reasoning"); ok && v != nil {
+		if !isBool(v) {
+			add(errs, path+".reasoning: expected a boolean")
+		}
+	}
+	if v, ok := entry.Get("input"); ok && v != nil {
+		validateModelInput(v, path+".input", errs)
+	}
+	if v, ok := entry.Get("cost"); ok && v != nil {
+		validateModelCost(v, path+".cost", errs)
+	}
+	for _, key := range []string{"context_window", "max_tokens"} {
+		if v, ok := entry.Get(key); ok && v != nil {
+			if !positiveNumber(v) {
+				add(errs, path+"."+key+": expected a positive number")
+			}
+		}
+	}
+}
+
+// validateModelInput checks the modality list: a non-empty array of "text"/"image". The
+// vocabulary is closed because pi's schema is (`Type.Array(Type.Union([text, image]))`),
+// and an accepted modality nothing consumes would be the same silent drop one level down.
+func validateModelInput(v any, path string, errs *[]string) {
+	list, ok := asList(v)
+	if !ok {
+		add(errs, path+": expected an array of \"text\" and/or \"image\"")
+		return
+	}
+	if len(list) == 0 {
+		add(errs, path+": expected at least one of \"text\", \"image\"")
+		return
+	}
+	for _, item := range list {
+		if s, ok := asStr(item); !ok || (s != "text" && s != "image") {
+			add(errs, path+": expected \"text\" or \"image\", got "+pyReprValue(item))
+		}
+	}
+}
+
+// validateModelCost checks the cost object: the closed rate set, every rate present and
+// non-negative. All four are required because pi's ModelCostSchema requires all four and
+// discards the WHOLE models.json on one missing — a partial object here would compose a
+// file pi refuses, which is worse than making the author state a zero.
+func validateModelCost(v any, path string, errs *[]string) {
+	cost, ok := asMap(v)
+	if !ok {
+		add(errs, path+": expected an object")
+		return
+	}
+	reportUnknownKeys(cost, knownModelCostKeys, path, errs)
+	for _, key := range []string{"input", "output", "cache_read", "cache_write"} {
+		val, present := cost.Get(key)
+		if !present || val == nil {
+			add(errs, path+"."+key+": required (the agent cost schema needs all four rates)")
+			continue
+		}
+		if !nonNegativeNumber(val) {
+			add(errs, path+"."+key+": expected a non-negative number")
+		}
+	}
+}
+
+// positiveNumber and nonNegativeNumber accept a decoded JSON integer (jsonInt) or float and
+// deliberately not a bool — jsonx decodes true/false to a Go bool, so a predicate that
+// accepted one would pass a value the reader drops, the silent drop routeWarnThreshold's
+// own comment names.
+func positiveNumber(v any) bool {
+	if n, ok := jsonx.AsInt(v); ok {
+		return n > 0
+	}
+	if f, ok := v.(float64); ok {
+		return f > 0
+	}
+	return false
+}
+
+func nonNegativeNumber(v any) bool {
+	if n, ok := jsonx.AsInt(v); ok {
+		return n >= 0
+	}
+	if f, ok := v.(float64); ok {
+		return f >= 0
+	}
+	return false
 }
 
 // providersKey is the top-level config key validateProviders reads.
@@ -1442,9 +1563,9 @@ func validateWireAPI(w any, path string, errs *[]string) {
 	}
 }
 
-// validateProviderOptions checks the profile surface a provider DECLARES
-// (docs/reference/providers.md — profiles and options, OQ-CS4): a FLAT map of option name to default
-// value, shaped exactly like its neighbour `models` except that a null is LEGAL here.
+// validateProviderOptions checks a provider's flat `options` map. `path` is the map's own
+// full path (`config.providers.<name>.options`), so the diagnostic names the key the user
+// wrote rather than a suffix this function assumes.
 //
 // Two checks, neither of which invents a vocabulary:
 //
@@ -1469,17 +1590,17 @@ func validateWireAPI(w any, path string, errs *[]string) {
 func validateProviderOptions(v any, path string, errs *[]string) {
 	opts, ok := asMap(v)
 	if !ok {
-		add(errs, path+".options: expected an object")
+		add(errs, path+": expected an object")
 		return
 	}
 	for _, name := range opts.Keys() {
 		val, _ := opts.Get(name)
 		if name == "" {
-			add(errs, path+".options: an option name cannot be empty")
+			add(errs, path+": an option name cannot be empty")
 			continue
 		}
 		if _, legal := packdecl.OptionDefaultFromValue(val); !legal {
-			add(errs, path+".options."+name+": expected a string or null (null declares the "+
+			add(errs, path+"."+name+": expected a string or null (null declares the "+
 				"option settable with no default — it is not the delete it is elsewhere in "+
 				"this config)")
 		}

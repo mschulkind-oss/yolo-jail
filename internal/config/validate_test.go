@@ -553,6 +553,49 @@ func TestValidateProviders(t *testing.T) {
 	}
 }
 
+// model_options is now the INTERNAL normalized form, so the user-facing spelling under test is
+// the object form of a `models.<alias>` value. Core checks the closed field set, the required
+// wire `id`, and each fact's JSON type; what a fact means stays the derive's business.
+func TestValidateProviderModelObjects(t *testing.T) {
+	valid := []string{
+		`{"kilo": {"models": {"default": "deepseek-v4.1-flash"}}}`, // the string shorthand
+		`{"kilo": {"models": {"default": null}}}`,                  // null deletes the alias
+		`{"kilo": {"models": {"default": {"id": "deepseek-v4.1-flash"}}}}`,
+		`{"kilo": {"models": {"default": {"id": "deepseek-v4.1-flash", "name": "DeepSeek V4.1 Flash", "reasoning": true, "input": ["text", "image"], "cost": {"input": 0.3, "output": 1.2, "cache_read": 0.006, "cache_write": 0}, "context_window": 1048576, "max_tokens": 384000}}}}`,
+		`{"kilo": {"models": {"fast": "glm-5.3-flash", "smart": {"id": "glm-5.3", "reasoning": false}}}}`,
+	}
+	for _, body := range valid {
+		if errs := providerErrors(t, body); len(errs) != 0 {
+			t.Errorf("valid models %s: unexpected errors %v", body, errs)
+		}
+	}
+
+	invalid := []struct{ body, want string }{
+		{`{"kilo": {"models": {"default": 5}}}`, ".models.default: expected a model id string or an object"},
+		{`{"kilo": {"models": {"default": {"reasoning": true}}}}`, ".models.default.id: required"},
+		{`{"kilo": {"models": {"default": {"id": ""}}}}`, ".models.default.id: expected a non-empty string"},
+		{`{"kilo": {"models": {"default": {"id": "m", "foo": 1}}}}`, ".models.default.foo: unknown key"},
+		{`{"kilo": {"models": {"default": {"id": "m", "reasoning": "true"}}}}`, ".models.default.reasoning: expected a boolean"},
+		{`{"kilo": {"models": {"default": {"id": "m", "input": "text"}}}}`, ".models.default.input: expected an array"},
+		{`{"kilo": {"models": {"default": {"id": "m", "input": ["audio"]}}}}`, ".models.default.input: expected \"text\" or \"image\""},
+		{`{"kilo": {"models": {"default": {"id": "m", "cost": {"input": 1}}}}}`, ".models.default.cost.output: required"},
+		{`{"kilo": {"models": {"default": {"id": "m", "cost": {"input": 1, "output": 2, "cache_read": 3, "cache_write": 4, "cacheRead": 5}}}}}`, ".models.default.cost.cacheRead: unknown key"},
+		{`{"kilo": {"models": {"default": {"id": "m", "context_window": -1}}}}`, ".models.default.context_window: expected a positive number"},
+	}
+	for _, tc := range invalid {
+		errs := providerErrors(t, tc.body)
+		found := false
+		for _, e := range errs {
+			if strings.Contains(e, tc.want) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("models %s: want an error containing %q, got %v", tc.body, tc.want, errs)
+		}
+	}
+}
+
 // providerErrors runs ValidateConfig over a providers block and returns only the
 // config.providers.* diagnostics.
 func providerErrors(t *testing.T, body string) []string {

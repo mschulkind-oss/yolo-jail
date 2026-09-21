@@ -201,6 +201,15 @@ var (
 	// level it was the shorthand's partner, and it stays listed for the same reason.
 	knownProviderKeys = set("base_url", "endpoints", "wire_api", "api_key_env_name",
 		"models", "region", "capabilities", "options")
+	// knownModelKeys is the closed field set an object-form `models.<alias>` may carry: the
+	// wire id every consumer needs, plus the model-capability facts a derive projects. It is
+	// CLOSED (an unknown key is refused), because an accepted-but-unread field is the exact
+	// silent drop the flat `options` surface was shaped to avoid (OQ-CS7). A fact added here
+	// is a deliberate schema change, not a spelling a user can invent.
+	knownModelKeys = set("id", "name", "reasoning", "input", "cost", "context_window", "max_tokens")
+	// knownModelCostKeys is the closed set of rates inside that `cost` object. Canonical
+	// snake; the consuming derive translates to its agent's spelling (pi's cacheRead/...).
+	knownModelCostKeys = set("input", "output", "cache_read", "cache_write")
 	knownDeviceKeys    = set("usb", "description", "cgroup_rule")
 	knownResourcesKeys = set("memory", "cpus", "pids_limit")
 	// knownHostServiceKeys is the INLINE loophole entry's key census. It must

@@ -289,6 +289,45 @@ first-slash model format and options nesting; codex's binary-verified `responses
 model a selection names is resolved IN THE DERIVE — alias = the profile's `model` option or
 `default`, then the provider's `models` map; core resolves no model.
 
+A `models.<alias>` value is either the bare wire-id string (the shorthand) or an **object**:
+`id` (required — the wire id, which is usually not the alias), plus optional `name`,
+`reasoning`, `input`, `cost`, `context_window`, and `max_tokens`. The field set is **closed**
+(an unknown key is refused, not accepted-and-ignored), and the facts are canonical snake —
+`cost.cache_read`/`cache_write`, translated to pi's `cacheRead`/`cacheWrite` by the derive.
+`id` is required rather than inferred from the alias because the merge replaces: the moment a
+value is an object, a pack's id string under that alias is gone, so an inferred `id = alias`
+would silently rewrite the wire id (cerebras' `default` → `qwen-3.8-27b`) the first time
+someone added one fact. `packload` lowers every object back to the string alias→id contract the
+derives read, moving the facts to an internal per-alias map — so no consumer learns two shapes:
+
+```jsonc
+"providers": {
+  "kilo": {
+    "models": {
+      "default": {
+        "id": "deepseek-v4.1-flash",
+        "reasoning": true,
+        "input": ["text", "image"],
+        "cost": { "input": 0.3, "output": 1.2, "cache_read": 0.006, "cache_write": 0 },
+        "context_window": 1048576, "max_tokens": 384000
+      },
+      "pro": "deepseek-v4.1-pro"
+    }
+  }
+}
+```
+
+The provider's `options` is the **fallback**: a fact common to every model is declared once
+there, and a per-model value overrides it for that alias. The facts are **additive** — an alias
+that declares none renders the same `models.json` row it did before, leaving pi's own defaults
+(`reasoning: false`, `input: ["text"]`, zero cost) in place. pi's schema accepts all of these
+(`dist/core/model-config.js`, `ModelDefinitionSchema`), but its `modelFromJson` fills those
+defaults for an absent field — so before this the derive was the only path from config to the
+file, and a user-set capability read as inert. All four cost rates are required (pi's
+`ModelCostSchema` discards the whole file on one missing), and `context_window`/`max_tokens` read
+from the same object override the provider-level option, so models of one provider may differ.
+The provider entry needs no pre-declaration (that gate is profiles-only).
+
 The user-facing spellings: on the run path `-p <sel>` / `--profile <sel>` take BOTH grammars — a bare
 NAME selects that profile for every selected pack (uniformly, whether or not a command
 follows `--`), and `cli=name` (comma-separated, repeatable) selects for the named CLI only.

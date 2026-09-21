@@ -81,6 +81,7 @@ func ComposeProviders(user *jsonx.OrderedMap, packs []*Pack, opts ...ComposeOpti
 		// The adapter pass runs on EVERY return, not only the one with a user layer: a
 		// launch whose providers are entirely pack-shipped is the common bridged case, and
 		// an early return that skipped it would leave exactly that launch unresolved.
+		liftModelFacts(out)
 		adaptEndpoints(out, packs, cfg.adapterAddresses)
 		return orderedOrNil(out), nil
 	}
@@ -136,8 +137,135 @@ func ComposeProviders(user *jsonx.OrderedMap, packs []*Pack, opts ...ComposeOpti
 	// address reads — each agent's derive, and the adapter's own daemon deciding where to
 	// listen. Below the user layer so an explicit `endpoints.<protocol>.base_url` always
 	// wins: an adapter fills a hole, and a user who wrote an address did not leave one.
+	liftModelFacts(out)
 	adaptEndpoints(out, packs, cfg.adapterAddresses)
 	return orderedOrNil(out), nil
+}
+
+// liftModelFacts lowers every OBJECT-form `models.<alias>` entry in the finished table into
+// the two things its consumers already read: `models.<alias>` becomes the bare wire id
+// (the stable alias->id contract all six derives and the selection code were written
+// against), and the entry's facts move to a sibling `model_options.<alias>` map in the same
+// FLAT, string-valued option vocabulary as the provider's `options` — so a per-alias fact
+// and a provider-wide fallback are one parser (packs/pi/derive.lua), and no reader learns
+// two shapes. It runs on EVERY return path, the adapter pass's rule: a pack-only launch
+// still composes through here, and normalization that only ran on the user path would be a
+// shape the pack layer could never produce anyway.
+//
+// This is the ONE lowering site. A string alias is left untouched (the shorthand), and a
+// provider whose objects declare only `id` gets no `model_options` key at all.
+func liftModelFacts(providers *jsonx.OrderedMap) {
+	if providers == nil {
+		return
+	}
+	for _, name := range providers.Keys() {
+		v, _ := providers.Get(name)
+		entry, ok := v.(*jsonx.OrderedMap)
+		if !ok {
+			continue
+		}
+		mv, ok := entry.Get("models")
+		if !ok || mv == nil {
+			continue
+		}
+		models, ok := mv.(*jsonx.OrderedMap)
+		if !ok {
+			continue
+		}
+		var lifted *jsonx.OrderedMap
+		for _, alias := range models.Keys() {
+			raw, _ := models.Get(alias)
+			obj, ok := raw.(*jsonx.OrderedMap)
+			if !ok {
+				continue
+			}
+			id, _ := obj.Get("id")
+			if _, isString := id.(string); !isString {
+				// Malformed (config validation refuses a missing/non-string id); leave the
+				// entry alone rather than lowering it to a null model id.
+				continue
+			}
+			models.Set(alias, id)
+			facts := flattenModelFacts(obj)
+			if facts.Len() == 0 {
+				continue
+			}
+			if lifted == nil {
+				lifted = jsonx.NewOrderedMap()
+			}
+			lifted.Set(alias, facts)
+		}
+		if lifted != nil {
+			entry.Set("model_options", lifted)
+		}
+	}
+}
+
+// flattenModelFacts renders one object-form model's facts as the flat option vocabulary
+// (`reasoning: "true"`, `input: "text,image"`, `cost_input: "0.3"`, ...) so the consuming
+// derive parses them with the same helpers it uses on `options`. `id` is the caller's, and
+// every value here is already schema-checked (config.validateModelEntry); a field the
+// object omits stays out, keeping the map additive.
+func flattenModelFacts(obj *jsonx.OrderedMap) *jsonx.OrderedMap {
+	facts := jsonx.NewOrderedMap()
+	if v, ok := obj.Get("reasoning"); ok {
+		if b, isBool := v.(bool); isBool {
+			if b {
+				facts.Set("reasoning", "true")
+			} else {
+				facts.Set("reasoning", "false")
+			}
+		}
+	}
+	if v, ok := obj.Get("input"); ok {
+		if list, isList := v.([]any); isList {
+			parts := make([]string, 0, len(list))
+			for _, item := range list {
+				if s, isString := item.(string); isString {
+					parts = append(parts, s)
+				}
+			}
+			if len(parts) > 0 {
+				facts.Set("input", strings.Join(parts, ","))
+			}
+		}
+	}
+	if v, ok := obj.Get("cost"); ok {
+		if cost, isMap := v.(*jsonx.OrderedMap); isMap {
+			for _, row := range []struct{ key, option string }{
+				{"input", "cost_input"},
+				{"output", "cost_output"},
+				{"cache_read", "cost_cache_read"},
+				{"cache_write", "cost_cache_write"},
+			} {
+				if rate, has := cost.Get(row.key); has {
+					facts.Set(row.option, numberString(rate))
+				}
+			}
+		}
+	}
+	for _, key := range []string{"context_window", "max_tokens"} {
+		if v, ok := obj.Get(key); ok {
+			facts.Set(key, numberString(v))
+		}
+	}
+	if v, ok := obj.Get("name"); ok {
+		facts.Set("name", v)
+	}
+	return facts
+}
+
+// numberString renders a decoded JSON number as the decimal string the flat option
+// vocabulary carries: an integer literal keeps its verbatim form (so 1048576 stays
+// integral), a float uses jsonx's Python-repr form so 0.006 does not become 0.00600000001.
+func numberString(v any) string {
+	if lit, ok := jsonx.AsIntLiteral(v); ok {
+		return lit
+	}
+	if f, ok := v.(float64); ok {
+		return jsonx.FormatFloatRepr(f)
+	}
+	return ""
 }
 
 // adaptEndpoints applies every selected pack's declared adaptations to the composed table:

@@ -835,3 +835,151 @@ func TestPiDeriveHandlesKiloGatewayNormalizationAndContextWindow(t *testing.T) {
 		t.Errorf("enabledModels = %v, want it to contain kilo/deepseek/deepseek-v4.1-flash", enabled)
 	}
 }
+
+// TestPiDeriveProjectsModelCapabilityFacts pins the model-level facts a provider declares per
+// alias in `model_options`: reasoning, input modalities, and cost. pi's ModelDefinitionSchema
+// carries exactly these fields (dist/core/model-config.js), and modelFromJson defaults an
+// undeclared one to text-only, non-reasoning, and zero cost — so a derive that drops them is
+// the reason a user-set capability appears inert. The two aliases matter: a per-provider knob
+// would give them the same answer, and this asserts they differ. The `bare` provider is the
+// additive half: no `model_options` renders the same row it did before the map existed.
+func TestPiDeriveProjectsModelCapabilityFacts(t *testing.T) {
+	script, s := deriveSurface(t, "pi", "pi/models")
+	got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, map[string]map[string]any{
+		manifest.SourceProviders: {
+			"multi": map[string]any{
+				"endpoints": map[string]any{"openai": map[string]any{
+					"base_url": "https://multi.example/v1"}},
+				"models": map[string]any{"fast": "deepseek-v4.1-flash", "smart": "deepseek-v4.1-pro"},
+				"model_options": map[string]any{
+					"fast": map[string]any{"input": "text"},
+					"smart": map[string]any{
+						"name":             "Smart Model",
+						"reasoning":        "true",
+						"input":            "text,image",
+						"cost_input":       "0.3",
+						"cost_output":      "1.2",
+						"cost_cache_read":  "0.006",
+						"cost_cache_write": "0",
+					},
+				},
+			},
+			"bare": map[string]any{
+				"endpoints": map[string]any{"openai": map[string]any{
+					"base_url": "https://bare.example/v1"}},
+				"models": map[string]any{"default": "some-model"},
+			},
+			// A provider-level fact is the fallback; a per-alias value overrides it.
+			"fallback": map[string]any{
+				"endpoints": map[string]any{"openai": map[string]any{
+					"base_url": "https://fallback.example/v1"}},
+				"models": map[string]any{"default": "base-model", "special": "special-model"},
+				"options": map[string]any{
+					"reasoning":        "true",
+					"input":            "text,image",
+					"cost_input":       "1.0",
+					"cost_output":      "2.0",
+					"cost_cache_read":  "0.1",
+					"cost_cache_write": "0.2",
+				},
+				"model_options": map[string]any{
+					"special": map[string]any{"reasoning": "false"},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers := got["providers"].(map[string]any)
+
+	// Key by id: a `name` override changes the display name away from the alias, so the
+	// alias is not recoverable from the derived row — the id is.
+	modelsByID := func(provider string) map[string]map[string]any {
+		out := map[string]map[string]any{}
+		for _, raw := range providers[provider].(map[string]any)["models"].([]any) {
+			m := raw.(map[string]any)
+			out[m["id"].(string)] = m
+		}
+		return out
+	}
+
+	multi := modelsByID("multi")
+	fast := multi["deepseek-v4.1-flash"]
+	if _, present := fast["reasoning"]; present {
+		t.Errorf("fast alias got reasoning = %v; only smart declares it", fast["reasoning"])
+	}
+	if mods, ok := fast["input"].([]any); !ok || len(mods) != 1 || mods[0] != "text" {
+		t.Errorf("fast.input = %#v, want [text]", fast["input"])
+	}
+	if _, present := fast["cost"]; present {
+		t.Errorf("fast alias got cost = %v; only smart declares it", fast["cost"])
+	}
+
+	smart := multi["deepseek-v4.1-pro"]
+	if smart["name"] != "Smart Model" {
+		t.Errorf("smart.name = %v, want the declared display name", smart["name"])
+	}
+	if smart["reasoning"] != true {
+		t.Errorf("smart.reasoning = %v, want true", smart["reasoning"])
+	}
+	modalities, ok := smart["input"].([]any)
+	if !ok || len(modalities) != 2 || modalities[0] != "text" || modalities[1] != "image" {
+		t.Errorf("smart.input = %#v, want [text image]", smart["input"])
+	}
+	cost, ok := smart["cost"].(map[string]any)
+	if !ok {
+		t.Fatalf("smart.cost missing: %#v", smart)
+	}
+	toFloat := func(v any) (float64, bool) {
+		switch n := v.(type) {
+		case float64:
+			return n, true
+		case int64:
+			return float64(n), true
+		case int:
+			return float64(n), true
+		}
+		return 0, false
+	}
+	for key, want := range map[string]float64{"input": 0.3, "output": 1.2, "cacheRead": 0.006, "cacheWrite": 0} {
+		if got, ok := toFloat(cost[key]); !ok || got != want {
+			t.Errorf("smart.cost.%s = %v (%T), want %v", key, cost[key], cost[key], want)
+		}
+	}
+
+	bare := modelsByID("bare")["some-model"]
+	for _, key := range []string{"reasoning", "input", "cost"} {
+		if v, present := bare[key]; present {
+			t.Errorf("undeclared provider got %s = %#v; the capability map is additive and must "+
+				"leave pi's own defaults in place", key, v)
+		}
+	}
+
+	// The provider's `options` is the fallback every alias inherits...
+	fallback := modelsByID("fallback")
+	def := fallback["base-model"]
+	if def["reasoning"] != true {
+		t.Errorf("provider-level fallback: default.reasoning = %v, want true", def["reasoning"])
+	}
+	if mods, ok := def["input"].([]any); !ok || len(mods) != 2 || mods[0] != "text" || mods[1] != "image" {
+		t.Errorf("provider-level fallback: default.input = %#v, want [text image]", def["input"])
+	}
+	defCost, ok := def["cost"].(map[string]any)
+	if !ok {
+		t.Fatalf("provider-level fallback: default.cost missing: %#v", def)
+	}
+	for key, want := range map[string]float64{"input": 1.0, "output": 2.0, "cacheRead": 0.1, "cacheWrite": 0.2} {
+		if got, ok := toFloat(defCost[key]); !ok || got != want {
+			t.Errorf("provider-level fallback: default.cost.%s = %v, want %v", key, defCost[key], want)
+		}
+	}
+	// ...and a per-alias value overrides just that fact, inheriting the rest.
+	special := fallback["special-model"]
+	if special["reasoning"] != false {
+		t.Errorf("per-model override: special.reasoning = %v, want false", special["reasoning"])
+	}
+	if _, present := special["cost"]; !present {
+		t.Errorf("per-model override: special must inherit the provider cost, got %#v", special)
+	}
+}
