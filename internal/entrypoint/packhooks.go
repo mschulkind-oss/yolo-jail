@@ -3,11 +3,21 @@ package entrypoint
 // packhooks.go is where the imperative residue lives: the things a pack needs done that
 // are NOT surface content and therefore cannot be declared as layers.
 //
-// There are three, all currently claude's, and each was reached by an agent NAME before:
+// There are two, both currently claude's, and each was reached by an agent NAME before:
 //
 //	shared_credentials  symlink a credentials file out to the machine-global tier
 //	per_jail_history    per-workspace history file, so two jails do not interleave
-//	claude_plugins      reconcile installed plugins against configured LSP servers
+//
+// There WAS a third, `claude_plugins`, and its retirement is the rule this set now keeps
+// rather than an exception it admitted. It shelled out to `claude plugins install` with a
+// plugin-id mapping that was one agent's alone — a hook named for a TOOL, which its own
+// comment called "a deliberate admission rather than an oversight" — and when a second
+// tool wanted the same shape the question was re-ruled instead of cited as precedent:
+// retire it, and add nothing like it (docs/design/pi-pack-extensions.md, OQ-2,
+// 2026-09-19). YOLO places a plugin tree; no vendor install verb runs in a jail. So the
+// bar for a new hook is not "a pack needs it" but "the thing it does is not one tool's":
+// a name only one agent could ever request belongs in that agent's content, not here.
+// packdecl.retiredHooks carries the message an author still declaring it gets.
 //
 // A pack REQUESTS a hook by name; core decides whether and how to honor it. That is the
 // same shape as `install` — a declaration, not a command — and it is deliberately NOT a
@@ -28,9 +38,7 @@ package entrypoint
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -47,15 +55,6 @@ const (
 	// HookPerJailHistory points the tool's history file at a per-workspace file, so two
 	// jails on one machine do not interleave their history.
 	HookPerJailHistory = "per_jail_history"
-	// HookClaudePlugins reconciles claude's installed plugins against the configured LSP
-	// servers.
-	//
-	// Named for the tool, unlike its two siblings, and that is a deliberate admission
-	// rather than an oversight: it shells out to `claude plugins install/uninstall` with a
-	// plugin-id mapping that is claude's alone. Calling it "lsp_plugins" would imply a
-	// generality it does not have. It stays until a second tool wants something like it,
-	// at which point the shape they share is the thing worth naming.
-	HookClaudePlugins = "claude_plugins"
 )
 
 // RunPackHooks honors each pack's requested hooks. Failures go through genStep, so a
@@ -77,9 +76,6 @@ func runPackHook(e *Env, p *packload.Pack, h packdecl.Hook) error {
 		return e.linkSharedCredential(p, h)
 	case HookPerJailHistory:
 		return e.isolateHistoryFile(h)
-	case HookClaudePlugins:
-		installClaudePlugins(e)
-		return nil
 	default:
 		// Unknown hook names are rejected at manifest decode, so reaching here means the
 		// known-set and the switch disagree — a yolo bug, surfaced rather than ignored.
@@ -218,32 +214,4 @@ type badHookError struct{ pack, name, why string }
 
 func (e *badHookError) Error() string {
 	return "pack " + e.pack + ": hook " + e.name + ": " + e.why
-}
-
-// claudeCLITimeout is the bound on one plugin reconcile invocation. A var so a test
-// can reach the timeout branch without sleeping for it.
-var claudeCLITimeout = 30 * time.Second
-
-// runClaudeCLI runs the claude binary with a bounded timeout and no inherited output.
-// Kept here (rather than inline) because HookClaudePlugins is the only caller and the
-// 30-second bound is the load-bearing part: a hung agent CLI must not wedge the boot.
-//
-// THE RESULT IS REPORTED, and this is the site where discarding it was worst. The
-// caller (installClaudePlugins) reconciles installed plugins against configured LSP
-// servers by DIFFING the two sets and issuing the commands that close the gap — so a
-// failed or timed-out invocation leaves the gap open while the boot proceeds as
-// though it had closed. The next boot reads the same on-disk set, computes the same
-// diff, and pays the same bound again: a silent failure here is a per-launch cost
-// that never converges and never explains itself. Thirty seconds times the number of
-// plugins is the ceiling the user pays for it.
-func runClaudeCLI(e *Env, args ...string) {
-	claudeBin := filepath.Join(e.Home, ".local", "bin", "claude")
-	if !pathExists(claudeBin) {
-		claudeBin = "claude"
-	}
-	cmd := exec.Command(claudeBin, args...)
-	cmd.Env = envWith(os.Environ(), "YOLO_BYPASS_SHIMS", "1")
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	runBoundedStep(e, "claude "+strings.Join(args, " "), claudeCLITimeout, cmd)
 }

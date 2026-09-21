@@ -131,7 +131,35 @@ type Hook struct {
 //
 // Duplicating the names is the lesser evil versus a package dependency from the host CLI
 // into the entrypoint; HookSetsAgree pins them together so the duplicate cannot drift.
-var KnownHooks = []string{"shared_credentials", "per_jail_history", "claude_plugins"}
+var KnownHooks = []string{"shared_credentials", "per_jail_history"}
+
+// retiredHooks names a hook this build has REMOVED, and what an author writes instead.
+//
+// A RETIRED HOOK IS NOT AN UNKNOWN ONE, for retiredKinds' reason (kinds.go) applied one
+// level down: "unknown hook" is the right answer for a typo and the wrong answer for a
+// name yolo's own claude pack shipped, because it tells an author their declaration is
+// wrong and nothing about what replaces it — and it reads identically whether the hook
+// never existed or was deliberately taken away. This is the fourth member of the
+// retired-declaration set, after validate.go's `journal`/`host_processes` (config keys),
+// retiredFieldProblems (contribution fields) and retiredKinds (contribution kinds).
+//
+// An entry stays here until no manifest anyone could stage still carries the name.
+var retiredHooks = map[string]string{
+	"claude_plugins": `hook "claude_plugins" has been REMOVED, and nothing like it ` +
+		`replaces it — no agent-named hook (docs/design/pi-pack-extensions.md, OQ-2, ` +
+		`2026-09-19). It shelled out to ` + "`claude plugins install`" + ` with a ` +
+		`plugin-id mapping that was one agent's alone, and the ruling is that YOLO ` +
+		`PLACES a plugin tree rather than running a vendor install verb inside a jail. ` +
+		`Deliver the content instead: decompose the plugin onto kinds this build ` +
+		`already owns (` + "`skills`, `config`, `files`" + `), or ship one Agent ` +
+		`Plugins 1.0 plugin as pack content and let the agent read it. The ` +
+		"`enabledPlugins`" + ` half was never this hook's — a derive writes it as ` +
+		`ordinary config and still does.`,
+}
+
+// RetiredHook returns the migration message for a hook this build has removed, or "" for
+// any other name — including a live hook and a name that was never one here.
+func RetiredHook(name string) string { return retiredHooks[name] }
 
 // Install declares a program the pack wants present in the jail.
 type Install struct {
@@ -317,6 +345,14 @@ func (m *Manifest) retiredFieldProblems() []string {
 					"\"profile\"'s env map moved to a kind \"env\" contribution (\"vars\", "+
 					"not \"env\") with \"profile\" set to the profile's name (OQ-PT8)", i))
 		}
+		// A retired hook NAME, not a retired field — the same class one level down, and
+		// it lands here rather than in validateContribution for exactly the reason this
+		// function exists: the authoring path must name the replacement, and the jail
+		// path must not treat a staged older manifest as a fatal boot problem
+		// (DecodeTolerant skips it instead).
+		if msg := RetiredHook(c.Hook); msg != "" {
+			problems = append(problems, fmt.Sprintf("contributes[%d]: %s", i, msg))
+		}
 	}
 	return problems
 }
@@ -392,6 +428,18 @@ func DecodeTolerant(data []byte) (m *Manifest, problems, skipped []string) {
 				"contributes[%d]: skipping unknown kind %q — this build does not know it, "+
 					"so the contribution is not rendered (version skew; a build that "+
 					"knows the kind will render it)", i, c.Kind))
+			continue
+		}
+		if msg := RetiredHook(c.Hook); msg != "" {
+			// The RETIRED-hook twin of the retired-KIND skip above, and it must stay a
+			// skip rather than a problem: the boot path treats any problem as fatal
+			// (A12), so refusing here would brick every jail whose staged tree still
+			// carries the name — the `tier` incident's shape, which is the whole reason
+			// this decoder is tolerant. The note says the truth: no build will run it
+			// again, so a reader is not sent looking for a newer yolo.
+			skipped = append(skipped, fmt.Sprintf(
+				"contributes[%d]: skipping retired hook %q — this hook is not run, and "+
+					"no build will run it again. %s", i, c.Hook, msg))
 			continue
 		}
 		if note := unknownViaSkip(i, c); note != "" {
@@ -582,7 +630,23 @@ func appendJailPathProblems(problems []string, field, p string) []string {
 	return problems
 }
 
+// knownHook reports whether a hook name may appear in a manifest at all — which is TRUE
+// for a RETIRED name as well as a live one, and that is deliberate rather than a leak.
+//
+// The caller's generic diagnostic is "unknown hook %q", and a boolean cannot carry a
+// migration. Answering false for a retired name would print that sentence BESIDE the
+// retirement message retiredFieldProblems already emits on the same path, so an author
+// would be told their declaration is both retired (with the replacement named) and
+// unknown (with the whole vocabulary implied). retiredKinds settled that trade for kinds
+// — "one message, not two" — and this is the same trade for a hook name.
+//
+// Nothing renders a retired hook as a result: the strict path (Decode) has already
+// refused the manifest, and the tolerant path (DecodeTolerant) SKIPS the contribution
+// before it is kept, so it never reaches the entrypoint's hook dispatch.
 func knownHook(name string) bool {
+	if _, retired := retiredHooks[name]; retired {
+		return true
+	}
 	for _, k := range KnownHooks {
 		if k == name {
 			return true

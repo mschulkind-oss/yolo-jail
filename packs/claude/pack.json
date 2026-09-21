@@ -177,10 +177,6 @@
       "from": ".claude/history.jsonl",
       "hook": "per_jail_history",
       "kind": "hook"
-    },
-    {
-      "hook": "claude_plugins",
-      "kind": "hook"
     }
   ],
   "name": "claude",

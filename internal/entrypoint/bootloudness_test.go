@@ -202,21 +202,6 @@ func TestRetiredMiseToolRemovalIsALivePerLaunchCost(t *testing.T) {
 	}
 }
 
-// TestClaudePluginReconcileReportsAFailure is the site where discarding the result was
-// most expensive per launch: installClaudePlugins DIFFS installed plugins against the
-// configured LSP servers, so a failed invocation leaves the gap open, and the next boot
-// computes the same diff and pays the same 30-second bound again — forever, silently.
-//
-// The `claude` here is a shell script that exits non-zero. No agent CLI runs, and no API
-// call is made.
-func TestClaudePluginReconcileReportsAFailure(t *testing.T) {
-	fakeBin(t, "claude", "exit 1")
-	e, stderr, _ := loudEnv(t)
-	runClaudeCLI(e, "plugin", "install", "some-plugin")
-	mustContain(t, "a failed claude plugin reconcile", stderr,
-		"plugin install some-plugin", "failed")
-}
-
 // ---------------------------------------------------------------------------
 // Degradations that are not subprocesses.
 // ---------------------------------------------------------------------------

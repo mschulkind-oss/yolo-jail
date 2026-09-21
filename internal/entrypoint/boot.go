@@ -12,8 +12,6 @@ import (
 	"runtime"
 	"strings"
 	"time"
-
-	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
 // socket. A package var so tests can redirect it.
@@ -411,39 +409,6 @@ func miseUninstallTools(e *Env, tools []string) {
 		cmd.Stderr = nil
 		runBoundedStep(e, "mise uninstall --all "+toolName+" (retired tool)",
 			miseUninstallToolTimeout, cmd)
-	}
-}
-
-// (Reuses claudeLSPPluginOrder from claude.go, which carries the same pairs.)
-// uninstall Claude Code LSP plugins to match the configured LSP servers. Reads
-// ~/.claude/plugins/installed_plugins.json for the current set. All claude
-// invocations are best-effort (30s timeout, YOLO_BYPASS_SHIMS=1 in the env).
-func installClaudePlugins(e *Env) {
-	pluginsMeta := filepath.Join(e.ClaudeDir(), "plugins", "installed_plugins.json")
-	installed := map[string]struct{}{}
-	if raw, err := os.ReadFile(pluginsMeta); err == nil {
-		if decoded, derr := jsonx.Decode(raw); derr == nil {
-			if m, ok := decoded.(*jsonx.OrderedMap); ok {
-				if pv, ok := m.Get("plugins"); ok {
-					if pm, ok := pv.(*jsonx.OrderedMap); ok {
-						for _, k := range pm.Keys() {
-							installed[k] = struct{}{}
-						}
-					}
-				}
-			}
-		}
-	}
-
-	lspServers := LoadLSPServers(e)
-	for _, pm := range claudeLSPPluginOrder {
-		_, wanted := lspServers.Get(pm.lsp)
-		_, present := installed[pm.plugin]
-		if wanted && !present {
-			runClaudeCLI(e, "plugins", "install", pm.plugin)
-		} else if present && !wanted {
-			runClaudeCLI(e, "plugins", "uninstall", pm.plugin)
-		}
 	}
 }
 
