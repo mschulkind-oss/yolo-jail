@@ -36,8 +36,11 @@ construction ([§8](#8-the-scope-demotion-nobody-asked-for)).
 the dependency inventory. It is the whole reason `chrome-devtools` is a pack and not a deletion,
 and [§6](#6-there-is-no-mcp-contribution-kind)'s question falls out of it.
 
-**Needs your ruling:** [OQ-MP3](#OQ-MP3), [OQ-MP4](#OQ-MP4), [OQ-MP5](#OQ-MP5),
-[OQ-MP6](#OQ-MP6), [OQ-MP7](#OQ-MP7), [OQ-MP8](#OQ-MP8).
+**Needs your ruling:** [`OQ-MP4`](#OQ-MP4) only — whether an `mcp` declaration composes on the
+host or inside the jail. Five were ruled 2026-09-20, and one of them ([`OQ-MP7`](#OQ-MP7))
+**reversed its leaning and opened a larger question**: the `packs` workspace-scope rule should be
+redrawn on host-reach rather than on install, which also bears on
+[`workspace-skills.md`](workspace-skills.md)'s [`OQ-WS1`](workspace-skills.md#OQ-WS1).
 
 **Reads with:** [`mcp-configuration.md`](../reference/mcp-configuration.md) (the pipeline as built,
 and the ruling this doc must not undo), [`pack-system.md`](../reference/pack-system.md) (the kind
@@ -513,7 +516,7 @@ Observable outcomes a human can check, not test names:
 
 ## 15. Open Questions
 
-1. 💬 **OQ-MP3: The contribution shape.** A new `kind: "mcp"`, a `config-overlay` per agent
+1. ✅ **OQ-MP3: The contribution shape.** A new `kind: "mcp"`, a `config-overlay` per agent
    surface, or an `mcp` block on `kind: "program"`? This is the doc's closure question: every
    other answer here is downstream of it, and it is the one that adds a twentieth entry to a
    deliberately closed registry.
@@ -524,28 +527,49 @@ Observable outcomes a human can check, not test names:
    exclusivity rule and the review posture for free, and shape B is principle 2 violated from the
    other side. See [§6.1](#61-the-three-candidate-shapes).
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer (2026-09-20):**
+   > **A new `mcp` kind** — a named server entry composed into `mcp_servers` the way the
+   > `provider` kind composes into `providers`. **Exclusive by server name**, and **never
+   > review-worthy**: an MCP server declaration reaches only the jail, so it does not enter the
+   > host-grant banner.
 
-2. 💬 **OQ-MP4: Where the composition happens — and how a pack names a jail path.** `providers`
-   composes **host-side** and the jail reads the wire table; `mcp_presets` composes **in-jail**,
-   because a preset's `command` is a jail path (`$HOME/.local/bin/mcp-wrappers/node`,
-   `$NPM_CONFIG_PREFIX/bin/…`) that the host does not know. Host composition needs a placeholder
-   vocabulary; in-jail composition means the CLI cannot pre-flight or report what it composed.
-   The command must be **absolute**, because MCP clients spawn servers with sanitized
-   environments — a PATH lookup is not an option.
+2. 💬 **OQ-MP4: Does an `mcp` declaration compose on the HOST or inside the JAIL?**
+
+   *Rewritten 2026-09-20 to stand on its own — the first version assumed the provider pipeline.*
+
+   **What "composing" means here.** A pack does not write a config file. It declares an entry, and
+   yolo merges every selected pack's entries into one table the agent then reads. The question is
+   **where that merge runs**, because the two places know different things.
+
+   **Why `providers` can compose host-side and this may not.** A provider entry is pure data — a
+   URL, a model name, the NAME of a credential variable. None of it depends on where the jail puts
+   anything, so the host merges the table and the jail just reads it.
+
+   An MCP entry is not pure data: its `command` is **an absolute path inside the jail**, like
+   `$HOME/.local/bin/mcp-wrappers/node` or a binary under the npm prefix. The host does not know
+   those paths — the jail's own layout decides them at boot, which is exactly the coupling
+   `liveTables` exists to keep out of the host CLI.
+
+   ⚠ **And the path cannot be bare or relative.** MCP clients spawn their servers with a
+   **sanitized environment**, so no `PATH` lookup happens: `node` does not resolve, only
+   `/home/agent/.../node` does. That is what forces this question at all — if a bare name worked,
+   the host could compose and the jail could resolve.
+
+   | | Where | Buys | Costs |
+   | :--- | :--- | :--- | :--- |
+   | **(a)** | **In-jail** | paths are real at merge time; no jail-layout knowledge in the host CLI | `yolo check` cannot pre-flight a declaration, and nothing host-side can report what a jail will actually compose |
+   | **(b)** | **Host-side**, with placeholders the jail expands (`{home}`, `{npm_prefix}`) | the host can validate and report before launch | core learns a second path language, and every new jail-layout fact becomes a new placeholder |
 
    <!-- vantage: oq id=OQ-MP4 leaning="Compose in-jail, where the paths are real, and give the manifest a small closed placeholder set (home, npm prefix) so a declaration is still readable host-side." -->
 
-   _Leaning:_ **In-jail**, where the paths are real, with a small closed placeholder vocabulary
-   (`~/`, the npm prefix) so the host can still *display* a declaration even though it cannot
-   resolve one. The alternative pushes jail layout into the host CLI, which is the coupling
-   `liveTables` exists to avoid.
+   _Leaning:_ **(a), in-jail**, with a **small, closed** placeholder set so the host can still
+   *display* a declaration even though it cannot *resolve* one. Closed is the load-bearing word —
+   an open placeholder vocabulary becomes (b) one key at a time.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **OQ-MP5: How the pack names an executable it did not install.** `/usr/bin/chromium` is
+3. ✅ **OQ-MP5: How the pack names an executable it did not install.** `/usr/bin/chromium` is
    already wrong on a lean launch and absent on macOS. Options: the pack declares
    `kind: "requires"` and its wrapper resolves at run time; or the manifest carries a candidate
    list core resolves at boot; or the entry names a bare binary and something else guarantees
@@ -557,10 +581,13 @@ Observable outcomes a human can check, not test names:
    core resolves puts browser-finding back in core; a bare binary name loses to environment
    sanitization. The existing orphan script is a working implementation of exactly this.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer (2026-09-20):**
+   > **`requires` plus run-time resolution in the pack's own wrapper.** Core resolving a
+   > candidate list would put browser-finding logic back in core, which is the thing this change
+   > removes. A bare binary name loses to environment sanitization, so the wrapper resolves at
+   > run time and hands back an absolute path.
 
-4. 💬 **OQ-MP6: What `mcp_presets` does on the day this ships.** Full retirement — host error,
+4. ✅ **OQ-MP6: What `mcp_presets` does on the day this ships.** Full retirement — host error,
    in-jail warning, per the `retiredTopLevelConfigKeys` precedent — or one release of
    warn-and-ignore on both notches? This decides whether an unmigrated user's next launch fails
    or degrades.
@@ -572,23 +599,58 @@ Observable outcomes a human can check, not test names:
    in-jail warning half is not optional either way: see [§9](#9-the-day-this-ships--pre-existing-state)
    case 3.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer (2026-09-20):**
+   > **Full retirement, both names**, with a targeted message naming the packs to add and an
+   > `mcp_servers` snippet to paste. A warn-and-ignore release means the browser is **silently
+   > gone** from a jail whose config still asks for one, which is strictly worse than a refusal
+   > that says what to type.
 
-5. 💬 **OQ-MP7: Is the scope demotion acceptable?** `mcp_presets` is workspace-expressible;
-   `packs` is user-scope only by construction. A repo loses the ability to commit *"this project
-   needs a browser"*.
+5. ✅ <a id="OQ-MP7"></a> **OQ-MP7: Is the scope demotion acceptable? — RULED NO, 2026-09-20, and it reopened a bigger question.**
 
-   <!-- vantage: oq id=OQ-MP7 leaning="Accept it. The workspace half survives as mcp_servers; what it loses is the ability to cause an install, which is exactly the power the packs scope rule withholds on purpose." -->
+   *The leaning was "accept it: what a workspace loses is the power to cause an install, which is
+   exactly the power the `packs` scope rule withholds on purpose." That was REJECTED.*
 
-   _Leaning:_ **Accept it.** What a workspace loses is the power to cause an install — which is
-   precisely the power the `packs` scope rule withholds on purpose. Any workaround is `packs`
-   with a second name.
+   **Answer (2026-09-20):**
+   > **No — do not just lose it.** The right move is to reconsider "no packs in workspaces" by
+   > defining a **safe subset** of packs a workspace MAY declare. The point of the rule was never
+   > to stop a workspace configuring the jail; it was to stop a workspace controlling **what runs
+   > on the host**. An MCP server for an agent inside the jail is not that.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Why the current rule does not say what it means.**
+   [`loophole-system.md`](../reference/loophole-system.md#principles)'s **R5** is *"install is
+   user-scope; enable is either scope"*, justified as *"a workspace may switch on only what the
+   user already installed."* So today's axis is **install vs enable**. The ruling says the axis
+   should be **host reach vs jail-only** — which is the axis the rest of this codebase already
+   uses everywhere else (host grants, the read/exec banners, `host_files` being user-scope).
 
-6. 💬 **OQ-MP8: One script or two — and does the browser outlive the MCP server?** Today two
+   Read that way, most of `packs` is still rightly refused from a workspace — `host_files`,
+   `mounts`, `env_sources`, a `host_daemon` loophole, anything with a host-side hook — because
+   each reaches the machine. But an `mcp` entry, and content kinds generally, do not.
+
+   ⚠ **AND THIS IS PROBABLY THE ANSWER TO A SECOND DOC.**
+   [`workspace-skills.md`](workspace-skills.md)'s [`OQ-WS1`](workspace-skills.md#OQ-WS1) — *may a
+   workspace contribute skills at all?* — is the same question one kind over, and the ruling's
+   reasoning applies to it more strongly than to MCP: a repo that commits skills is shipping
+   **inert content the agent reads**, and you already trusted that repo's code by launching a jail
+   on it. Skills in a repository are just more code in a repo you are running.
+
+   ⚠ **THE HARD CASE THE SAFE-SUBSET RULE MUST SURVIVE, and it is not skills.** Skills are inert;
+   an MCP server is **code that executes unconditionally at jail start**, inside a jail whose home
+   holds real credentials (`.claude/.credentials.json` and the shared-credential symlinks). The
+   obvious objection — *"the agent could exfiltrate those anyway, it has a shell"* — is not quite
+   an answer: the agent might choose not to, whereas a declared server runs whether or not any
+   agent does anything. So the marginal grant is **unconditional execution**, not **execution**.
+   A safe-subset rule that admits `mcp` has to say why that is acceptable, or admit content kinds
+   first and leave executable kinds for a second ruling. That distinction is the design work this
+   answer creates, and it is deliberately NOT settled here.
+
+   **What this obliges, beyond this doc:** R5's wording in
+   [`loophole-system.md`](../reference/loophole-system.md#principles) is the rule being amended,
+   so it cannot stay as written; and [`workspace-skills.md`](workspace-skills.md) should be ruled
+   in the same sitting rather than separately, because two docs deciding one boundary from
+   opposite sides is how this corpus grew its asymmetries in the first place.
+
+6. ✅ **OQ-MP8: One script or two — and does the browser outlive the MCP server?** Today two
    shapes exist and only the thin one is wired: `--executablePath` (the MCP server launches its
    own chromium, one per spawn) versus `--browser-url` (a chromium already running on the jail's
    loopback, shared across spawns and surviving a server restart). The second is what the orphan
@@ -601,8 +663,10 @@ Observable outcomes a human can check, not test names:
    conversion as a later, free move. Shipping two new kinds in one change is how neither gets
    reviewed properly.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer (2026-09-20): keep it simple and unchanged.**
+   > **An executable path — one plain wrapper script, not a service and not a daemon.** It must
+   > not be always-running and must not be orphaned. The `service` conversion is explicitly NOT
+   > taken now; if it is ever wanted it is a later, separate change.
 
 ---
 
