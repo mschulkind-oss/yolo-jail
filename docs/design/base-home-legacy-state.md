@@ -104,7 +104,34 @@ The taxonomy is the design's central artifact. Four classes, applied per leaf:
 | **CONTENT** | A yolo-delivered read-only mount (briefing, skills, `files`) | Keep; never state |
 | **RUNTIME** | Everything else the tool writes — session stores, transcripts, history, logs, caches, locks, package dirs | Archive-evict; never seed |
 
-**The immediate instance, measured on the maintainer's host 2026-09-20:**
+> [!WARNING]
+> **THE SEVERITY BELOW IS N=1, AND THE MECHANISM ABOVE IS NOT.** Keep the two apart, because
+> only one of them needs a host.
+>
+> [§1](#1-the-base-home-is-a-union-and-the-union-is-the-defect)'s mechanism — the base is a
+> union, it is mounted `:ro` into every jail, and `seedAgentDir` copies every top-level regular
+> file into each workspace — is read out of the code and holds on every host by construction.
+> **How much is actually in there is a different claim, and it was one observation.**
+>
+> **MEASURED 2026-09-21 on a second host, and it disagrees completely:** five candidate entries,
+> **0 bytes**, every one an empty directory, and `.copilot` contributing none. So the observed
+> range across two hosts is 0 B to 34 MB, which is no distribution at all.
+>
+> **What that does and does not undermine.** [R1](#13-decision-ledger)/[R2](#13-decision-ledger)
+> — move, never delete — stand on N=1 without help: one host holding irreplaceable transcripts
+> is a sufficient reason never to delete them, and no distribution would change it. What IS
+> resting on the single observation is everything sized to VOLUME and FREQUENCY: the manifest,
+> crash-consistent resume, the streaming `EXDEV` copy, the SQLite sibling rule. Those are
+> justified by the worst case rather than the typical one, and a reader who takes 34 MB as
+> typical will build for the wrong median.
+>
+> **[§11](#11-sequencing) step 1 is the instrument, and its stated purpose is too narrow.**
+> "Verify the taxonomy against real hosts" is a correctness check; the more valuable thing it
+> does is turn N=1 into N=many. It is now built and observe-only, so the sample costs nothing
+> but running `yolo check` on each host.
+
+**The immediate instance, measured on ONE host (the maintainer's, 2026-09-20) — see the
+warning above before sizing anything to it:**
 `GlobalHome/.copilot` held a 34 MB `session-store.db` (SQLite: sessions/turns/checkpoints/FTS),
 `command-history-state.json`, and `session-state/*/events.jsonl` — transcripts pooled from many
 workspaces while the home was shared and writable. All three are RUNTIME. The same base also
@@ -688,8 +715,11 @@ base.** [OQ-BH7](#OQ-BH7) asks whether even that scope still holds after A′.
 
 ## 11. Sequencing
 
-1. **Detection + classification + disclosure**, observe-only, no moves. Verify the taxonomy
-   against real hosts before anything moves.
+1. **Detection + classification + disclosure**, observe-only, no moves. **BUILT 2026-09-21**
+   (`bc7685dd`). Two jobs, and the second is the one that was understated: verify the taxonomy
+   against real hosts before anything moves, **and establish how much is actually out there**,
+   because [§2](#2-what-is-actually-in-there)'s severity is a single observation and the second
+   host measured 0 B. Run it on every host before sizing the move.
 2. **The archive move + manifest + separate marker**, behind confirmation.
 3. **Narrow `seedAgentDir`** to the seed allowlist — **in the same change as step 2**
    ([§5.6](#56-concurrency-liveness-and-one-writer)); shipping it later leaves the re-infection
