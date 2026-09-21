@@ -1,7 +1,7 @@
 ---
 title: "Two presets, seven hardcodings, and a backend that can have neither"
 date: 2026-09-12
-status: in-review
+status: accepted
 tags: [design, mcp, packs, config, removal, chrome-devtools, macos-user]
 summary: "mcp_presets is core's opinion about which MCP servers exist, spelled in seven places across two packages. sequential-thinking is deleted outright; chrome-devtools becomes a builtin pack, which needs a contribution kind that does not exist yet. This doc specifies what that pack must carry, what the image must keep providing, and what breaks on the day the key retires."
 vantage:
@@ -10,8 +10,10 @@ vantage:
 
 # Two presets, seven hardcodings, and a backend that can have neither
 
-**Status:** DESIGN, 2026-09-12. Nothing built. Every code claim below was verified against the
-tree at `7079d3ef` on 2026-09-12.
+**Status:** DECIDED, 2026-09-20 — every question settled, nothing built. ⚠ One ruling
+([`OQ-MP7`](#OQ-MP7)) rejected its own leaning and its consequence is NOT contained here: it
+redraws the `packs` workspace-scope boundary, so this doc cannot be built against without that
+being ruled too.
 
 > **In short.** `mcp_presets` is the last place core states *which MCP servers exist*, and that
 > is a content claim, not a domain one — so it dissolves rather than moves. `sequential-thinking`
@@ -36,8 +38,13 @@ construction ([§8](#8-the-scope-demotion-nobody-asked-for)).
 the dependency inventory. It is the whole reason `chrome-devtools` is a pack and not a deletion,
 and [§6](#6-there-is-no-mcp-contribution-kind)'s question falls out of it.
 
-**Needs your ruling:** [`OQ-MP4`](#OQ-MP4) only — whether an `mcp` declaration composes on the
-host or inside the jail. Five were ruled 2026-09-20, and one of them ([`OQ-MP7`](#OQ-MP7))
+**Needs your ruling:** **None** — all six were settled 2026-09-20 ([§Decision
+Ledger](#decision-ledger)). Five were ruled; [`OQ-MP4`](#OQ-MP4) was **dissolved** against the
+tree, its premise being false. ⚠ One ruling ([`OQ-MP7`](#OQ-MP7)) reversed its leaning and opened
+a larger question that lives elsewhere: the `packs` workspace-scope rule should be redrawn on
+host-reach rather than on install, which bears on
+[`workspace-skills.md`](workspace-skills.md)'s [`OQ-WS1`](workspace-skills.md#OQ-WS1) and on
+[`loophole-system.md`](../reference/loophole-system.md#principles)'s `R5`.
 **reversed its leaning and opened a larger question**: the `packs` workspace-scope rule should be
 redrawn on host-reach rather than on install, which also bears on
 [`workspace-skills.md`](workspace-skills.md)'s [`OQ-WS1`](workspace-skills.md#OQ-WS1).
@@ -533,41 +540,45 @@ Observable outcomes a human can check, not test names:
    > review-worthy**: an MCP server declaration reaches only the jail, so it does not enter the
    > host-grant banner.
 
-2. 💬 **OQ-MP4: Does an `mcp` declaration compose on the HOST or inside the JAIL?**
+2. ✅ <a id="OQ-MP4"></a> **OQ-MP4: Does an `mcp` declaration compose on the HOST or inside the JAIL? — DISSOLVED 2026-09-20.**
 
-   *Rewritten 2026-09-20 to stand on its own — the first version assumed the provider pipeline.*
+   **The question rested on a false premise and is withdrawn.** It asserted that *"a preset's
+   `command` is a jail path that the host does not know."* **The host does know it**, and the
+   mechanism has been in `internal/paths` the whole time.
 
-   **What "composing" means here.** A pack does not write a config file. It declares an entry, and
-   yolo merges every selected pack's entries into one table the agent then reads. The question is
-   **where that merge runs**, because the two places know different things.
+   **Answer (2026-09-20): compose HOST-SIDE, exactly like `providers`. There is no second option
+   and no new placeholder vocabulary.**
 
-   **Why `providers` can compose host-side and this may not.** A provider entry is pure data — a
-   URL, a model name, the NAME of a credential variable. None of it depends on where the jail puts
-   anything, so the host merges the table and the jail just reads it.
+   Three facts settle it, each verified in the tree rather than reasoned:
 
-   An MCP entry is not pure data: its `command` is **an absolute path inside the jail**, like
-   `$HOME/.local/bin/mcp-wrappers/node` or a binary under the npm prefix. The host does not know
-   those paths — the jail's own layout decides them at boot, which is exactly the coupling
-   `liveTables` exists to keep out of the host CLI.
+   - **[`paths.JailPathHomeDirs`](../../internal/paths/paths.go) is a HOST-side constant** naming
+     the jail's PATH directories — `.local/bin`, `.npm-global/bin`, the two `.yolo/bin` script
+     dirs, `go/bin` — each relative to the home. The jail's layout is not discovered at boot; it
+     is **decided by yolo**, so the side that decides it can obviously state it.
+   - **It cannot silently rot.** `TestJailPathHomeDirsCoversBootPath` pins that list to
+     `entrypoint.BootPath`, so a PATH that gains a home directory cannot leave the host's copy
+     short. That test is the reason this is a real mechanism and not a duplicated constant.
+   - **Manifests already name home-relative paths.** `appendPathProblems` refuses an absolute
+     destination outright, so every existing declaration is already in the only form this needs.
 
-   ⚠ **And the path cannot be bare or relative.** MCP clients spawn their servers with a
-   **sanitized environment**, so no `PATH` lookup happens: `node` does not resolve, only
-   `/home/agent/.../node` does. That is what forces this question at all — if a bare name worked,
-   the host could compose and the jail could resolve.
+   So the "closed placeholder vocabulary" the old leaning asked for **already exists, is already
+   closed, and is already tested** — it is that list. The composer joins the notch's home to a
+   home-relative entry and produces the absolute `command` an MCP client needs (absolute because a
+   client spawns servers with a sanitized environment, so no PATH lookup happens — that constraint
+   is real, it just does not require the jail to do the joining).
 
-   | | Where | Buys | Costs |
-   | :--- | :--- | :--- | :--- |
-   | **(a)** | **In-jail** | paths are real at merge time; no jail-layout knowledge in the host CLI | `yolo check` cannot pre-flight a declaration, and nothing host-side can report what a jail will actually compose |
-   | **(b)** | **Host-side**, with placeholders the jail expands (`{home}`, `{npm_prefix}`) | the host can validate and report before launch | core learns a second path language, and every new jail-layout fact becomes a new placeholder |
+   **The host notch takes the same mechanism, which was the other half of the question.** It is
+   already ruled, in that same constant's comment: `yolo host apply` renders into a real home
+   whose PATH yolo does not control, so it **gets only the overlap — `.local/bin` — and no
+   pretence of completeness.** One list, one composer, two homes; the host notch narrows rather
+   than diverging. That is the "as close as possible in both situations" property, and it is
+   already the design rather than something this doc has to invent.
 
-   <!-- vantage: oq id=OQ-MP4 leaning="Compose in-jail, where the paths are real, and give the manifest a small closed placeholder set (home, npm prefix) so a declaration is still readable host-side." -->
+   ⚠ **Why the old framing was tempting, recorded so it is not re-derived.** `mcp_presets`
+   composes in-jail TODAY, and it is easy to read the status quo as a constraint. It is not one:
+   the presets mechanism predates `JailPathHomeDirs` and never used it. Being the incumbent is not
+   an argument.
 
-   _Leaning:_ **(a), in-jail**, with a **small, closed** placeholder set so the host can still
-   *display* a declaration even though it cannot *resolve* one. Closed is the load-bearing word —
-   an open placeholder vocabulary becomes (b) one key at a time.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
 
 3. ✅ **OQ-MP5: How the pack names an executable it did not install.** `/usr/bin/chromium` is
    already wrong on a lean launch and absent on macOS. Options: the pack declares
