@@ -30,6 +30,8 @@ that is a live defect rather than a convenience.
 correctly refused to solve it: nothing here is Bedrock-specific, and the fix lands in the
 provider system, not in a pack.
 
+**Needs your ruling:** [OQ-PS1](#OQ-PS1), [OQ-PS2](#OQ-PS2), [OQ-PS3](#OQ-PS3), [OQ-PS4](#OQ-PS4), [OQ-PS5](#OQ-PS5).
+
 **Reads with:** [`../reference/providers.md`](../reference/providers.md) (the mechanism
 this amends — especially "Selection: write on activation, never on absence"),
 [`bedrock-plumbing.md`](bedrock-plumbing.md) (the motivating case, and the second consumer
@@ -335,7 +337,7 @@ selection key for a provider whose catalog row the same gate dropped.
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 **OQ-PS2: Clear on deselect — revise [`OQ-CS2`](../reference/providers.md#why-its-this-way)?** The selection state machine's fourth
+2. 💬 **OQ-PS2: Clear on deselect — revise the providers ledger's fourth rule?** The selection state machine's fourth
    row currently keeps whatever the file holds. The proposal narrows "never clear" to "never
    clear the user's value", using the record already on disk. Stakes: this is the live
    defect. It is also a change to a ruled decision on a shipped mechanism, and the ruling it
@@ -383,6 +385,50 @@ selection key for a provider whose catalog row the same gate dropped.
    > _(empty — fill in when decided)_
 
 ---
+
+5. 💬 <a id="OQ-PS5"></a>**[OQ-PS5](#OQ-PS5): how does a profile narrow which provider CREDENTIALS reach an entry?**
+   Raised 2026-09-21 from a maintainer's request — *"`yolo -p zai -- pi` should offer zai and
+   nothing else"* — and it is a question rather than a build because yolo cannot currently tell
+   which `env_sources` key belongs to which provider.
+
+   <!-- vantage: oq id=OQ-PS5 leaning="The provider declaration grows the mapping, because the provider already declares its capabilities and the key name is a fact about the provider rather than about the user. A per-profile env allowlist in user config is the fallback, and it is worse: it puts a fact about zai in the user's file, where every user re-derives it." -->
+
+   **What is measured, and it kills the obvious answer.** Narrowing pi's catalog cannot work:
+   pi compiles its provider list in (`models.generated.js` carries `zai`, `cerebras`,
+   `openrouter`, `anthropic`, `openai-codex`, `github-copilot`), and `models.json` **merges**
+   into that base rather than replacing it — `if (!config) return [...baseModels]`, with no
+   `disable`, `enabled`, `exclude` or `allowlist` field anywhere in the composer. The only gate
+   on what pi offers is **credentials**: its available set is the providers whose auth check
+   found an env key or a stored credential.
+
+   > [!WARNING]
+   > **Today the launch defeats the request.** `writeUserEnvFile`
+   > ([`userenv.go`](../../internal/cli/run/userenv.go)) writes **every** hydrated `env_sources`
+   > key as a default, on every entry, above the channel header and with **no profile gate** —
+   > only the channel's own shape variables are profile-scoped. So `-p zai` hands pi every other
+   > provider's key the user has configured, and pi lists them all as available. The narrowing
+   > the maintainer asked for is a gate on this delivery, not a change to any catalog.
+
+   **The question is where the key→provider mapping lives**, because nothing in `env_sources`
+   says `CEREBRAS_API_KEY` belongs to `cerebras`. Two shapes:
+
+   | Where | Cost |
+   | :--- | :--- |
+   | The **provider declaration** names the env var it authenticates with | one field on a declaration that already describes capabilities; a provider yolo does not ship is unmapped |
+   | A **per-profile env allowlist** in user config | no schema change, but it puts a fact about zai in every user's config file, and each user re-derives it |
+
+   ⚠ **Two escapes survive either answer, and only a fork closes them** — both soft, and both
+   moot while no credential is present: pi's `/model` picker can toggle from `scoped` to `all`,
+   so `enabledModels` (which `packs/pi/derive.lua` already narrows) is a filter rather than a
+   fence; and pi auto-adds a newly persisted model to that set. If they ever matter, they are a
+   consumer for [`forked-programs-as-packs.md`](forked-programs-as-packs.md).
+
+   _Leaning:_ **the provider declaration grows the mapping.** The key name is a fact about the
+   provider, not about the user, so it belongs where the provider is described — and the
+   allowlist alternative makes every user restate it.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
 
 ## 11. Evidence
 
