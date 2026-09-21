@@ -19,7 +19,8 @@ import (
 // The switch has to validate, at BOTH scopes, and this is the assertion the deleted
 // refusal would fail.
 //
-// Either scope, because `enabled` is either-scope by ruling (R5) and the delegate is not
+// Either scope, because `enabled` is either-scope by ruling (R5 — install is user-scope,
+// enable is either — docs/reference/loophole-system.md#principles) and the delegate is not
 // an exception: a workspace may switch on what the user already installed. The pack
 // selection stays user-scope by construction (`packs` is read from the user file), which
 // is what bounds it.

@@ -1,6 +1,8 @@
 package loopholes
 
-// placement.go is §4.3a's PLACEMENT rule applied to a loophole's MANIFEST faces.
+// placement.go is the PLACEMENT rule
+// (docs/reference/loophole-system.md#the-placement-rule) applied to a loophole's
+// MANIFEST faces.
 //
 // The rule itself lives in internal/config (loopholeplacement.go), which owns the
 // comparison against the two trees a launch hands an agent. What lives here is the
@@ -14,11 +16,12 @@ package loopholes
 
 import "github.com/mschulkind-oss/yolo-jail/internal/config"
 
-// PlacementProblems applies §4.3a's PLACEMENT rule to this loophole's MANIFEST
+// PlacementProblems applies the PLACEMENT rule
+// (docs/reference/loophole-system.md#the-placement-rule) to this loophole's MANIFEST
 // faces: its module dir, its `host_daemon.cmd` and its `doctor_cmd`.
 //
 // The rule's config faces (an inline entry's `command`/`doctor_cmd`) were already
-// wired; the manifest faces were the "still owed" half of landing item 1a, and they
+// wired; the manifest faces followed in the next batch, and they
 // need this package because two of the three inputs are runtime resolutions. The
 // argvs are passed POST-substitution — Path and the Cmd fields on a resolved record
 // already have {loophole_dir} expanded — which is the only spelling the check can

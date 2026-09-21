@@ -153,7 +153,7 @@ func TestUserScopedSettingIsRefusedFromTheWorkspace(t *testing.T) {
 	}
 }
 
-// TestUserScopedSettingDowngradesInJail mirrors the §4.3b asymmetry every other
+// TestUserScopedSettingDowngradesInJail mirrors the two-verbs asymmetry every other
 // loophole scope violation already has. /workspace is live-mounted, so a hard error
 // in-jail would refuse every nested launch over a file the in-jail user may still be
 // migrating.

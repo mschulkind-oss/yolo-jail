@@ -117,7 +117,9 @@ func RetiredUserLoopholeNotice() string {
 // retiredNoticeOnce keeps the discovery-time warning to ONE line per process.
 //
 // Discover is called several times on a launch (the argv, the spawn, the briefing,
-// the config resolver — §5.1's census), and a migration instruction repeated five
+// the config resolver — the census in
+// docs/reference/loophole-system.md#selection-and-discovery), and a migration
+// instruction repeated five
 // times reads as a malfunction rather than as advice. `yolo check` renders the same
 // text through its own reporter, which is the surface a user is meant to reach for.
 var retiredNoticeOnce sync.Once

@@ -1,6 +1,9 @@
 package loopholes
 
-// placementdoctor_test.go is §4.3a's PLACEMENT rule at the DOCTOR face.
+// placementdoctor_test.go is the PLACEMENT rule
+// (docs/reference/loophole-system.md#the-placement-rule) at the DOCTOR face. The
+// refusal string still spells it "§4.3a" — the section number the rule had before the
+// design graduated — which is why that literal is asserted below.
 //
 // The rule had exactly one production caller — the spawn (internal/cli/run's
 // startLoopholes) — and `RunDoctorChecks` never asked for it. Measured: a hand-placed

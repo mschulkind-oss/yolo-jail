@@ -3,9 +3,11 @@ package loopholes
 // inertreport.go is THE INERT REPORT: "this loophole does nothing here, and here is
 // why."
 //
-// §3.1 and §8 are the same situation on two axes, and the design is explicit that
-// they share ONE message and ONE mechanism: platform (darwin vs linux) and backend
-// (`container` and `macos-user` skip loopholes entirely) both answer that one
+// The platform declaration and the inert-backend report are the same situation on two
+// axes, and the design is explicit that they share ONE message and ONE mechanism
+// (docs/reference/loophole-system.md#where-a-loophole-does-nothing): platform (darwin
+// vs linux) and backend (`container` and `macos-user` skip loopholes entirely)
+// both answer that one
 // sentence. Two mechanisms would give two half-messages for one user-visible
 // situation, which is the B-0 shape — "a backend that looked provisioned and
 // configured nothing" — that the run pipeline was restructured to end.
@@ -23,7 +25,8 @@ const (
 	// AxisPlatform: the manifest's `platforms` declaration excludes this
 	// GOOS/GOARCH. Nothing can be installed to fix it.
 	AxisPlatform = "platform"
-	// AxisBackend: the container backend skips loopholes wholesale (§8 — Apple
+	// AxisBackend: the container backend skips loopholes wholesale
+	// (docs/reference/loophole-system.md#where-a-loophole-does-nothing — Apple
 	// Container returns before any external service starts; macos-user returns
 	// before startLoopholes is reached at all). The loophole is fine; the backend
 	// does not carry it.
@@ -34,7 +37,9 @@ const (
 // and the axis it came from.
 //
 // Name is carried separately from the sentence so a caller can group, sort or
-// filter by loophole without string surgery — §3.1 requires the report be BY NAME,
+// filter by loophole without string surgery. ⚠ BY-NAME is THIS package's choice, not the
+// design's: loophole-system.md#requires-platforms-and-the-difference requires only that the
+// message say NOTHING IS MISSING, which is a different requirement,
 // and a name that only exists inside a rendered sentence is a name no other code
 // can use.
 type InertNote struct {

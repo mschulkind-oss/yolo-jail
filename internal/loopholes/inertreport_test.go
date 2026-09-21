@@ -1,7 +1,9 @@
 package loopholes
 
-// §3.1's by-name UNSUPPORTED-HERE report, and the message shape it shares with §8's
-// inert-on-backend one.
+// The by-name UNSUPPORTED-HERE report
+// (docs/reference/loophole-system.md#requires-platforms-and-the-difference), and the
+// message shape it shares with the inert-on-backend one
+// (docs/reference/loophole-system.md#where-a-loophole-does-nothing).
 //
 // The declaration itself (loopholedecl/platforms.go) and its evaluation
 // (SupportedHere) landed already; what these pin is the REPORT — that a selected
@@ -70,9 +72,11 @@ func TestPlatformInertNotesStaysQuietWhereItShould(t *testing.T) {
 	}
 }
 
-// The BACKEND axis renders through the SAME Line(), which is the whole point of §8's
-// "one mechanism, one message": platform and backend are two axes with one answer
-// shape, and two half-messages for one situation is the B-0 shape.
+// The BACKEND axis renders through the SAME Line(), which is the whole point of the
+// design's "one mechanism, one message"
+// (docs/reference/loophole-system.md#where-a-loophole-does-nothing): platform and
+// backend are two axes with one answer shape, and two half-messages for one situation
+// is the B-0 shape.
 func TestInertNoteRendersBothAxesIdentically(t *testing.T) {
 	platform := InertNote{Name: "acme", Axis: AxisPlatform,
 		Reason: "unsupported on darwin/arm64 — it declares support for linux"}

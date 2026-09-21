@@ -111,8 +111,9 @@ func TestRetiredUserDirIsReportedWithMigrationInstructions(t *testing.T) {
 	if !containsStr2(*warnings, retired) {
 		t.Errorf("Discover emitted no migration notice; warnings = %v", *warnings)
 	}
-	// ONCE per process. Discover runs several times on a launch (§5.1's census), and a
-	// migration instruction repeated five times reads as a malfunction.
+	// ONCE per process. Discover runs several times on a launch (the census in
+	// docs/reference/loophole-system.md#selection-and-discovery), and a migration
+	// instruction repeated five times reads as a malfunction.
 	before := len(*warnings)
 	Discover(DiscoverOptions{})
 	Discover(DiscoverOptions{})

@@ -87,7 +87,7 @@ func validateLoopholeSettings(spec *jsonx.OrderedMap, path string, info *Loophol
 // loopholeSettingsScopeViolations applies the per-key `scope` rule to ONE workspace
 // config file's contribution to a `loopholes.<name>.settings` block. The returned
 // messages are host-side errors; the caller downgrades them in-jail exactly as it
-// does the §4.3b key rows.
+// does the two-verbs key rows (docs/reference/loophole-system.md#the-two-verbs).
 //
 // # The scope rule is per KEY, and this is the only place it can be enforced
 //

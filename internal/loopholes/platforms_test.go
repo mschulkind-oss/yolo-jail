@@ -91,8 +91,11 @@ func TestPlatformMismatchIsUnsupportedNotUnmet(t *testing.T) {
 }
 
 // Active() gates on the platform, so RuntimeArgsFor and the run pipeline never
-// emit wiring for a loophole that cannot run here — the alternative measured in
-// §3.1 is a spawn that dies five seconds later through the silent readiness path.
+// emit wiring for a loophole that cannot run here. The alternative — a spawn that dies
+// five seconds later through the readiness-timeout path — was measured in the
+// PRE-GRADUATION body and did NOT graduate, so the citation is the sha rather than a
+// section that does not contain it:
+// `git show 9190a4d1^:docs/design/loophole-packaging.md` (its readiness-timeout account).
 func TestActiveIsFalseOnAnUnsupportedPlatform(t *testing.T) {
 	other := "darwin"
 	if runtime.GOOS == "darwin" {

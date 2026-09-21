@@ -206,7 +206,8 @@ func TestPackShippedAllowsModuleDirAndStateCACerts(t *testing.T) {
 // hiding it would leave the probe intact (the active/inactive label still answers it)
 // while removing the diagnostic that makes an unmet requirement actionable.
 //
-// It is deliberately NOT given a host-access CLAIM: §3.3's rule is that a CROSSING
+// It is deliberately NOT given a host-access CLAIM: the enumeration's rule
+// (docs/reference/loophole-system.md#the-crossing-enumeration) is that a CROSSING
 // must claim, and a stat crosses nothing. A claim here would put a line in the
 // approval prompt for something that mounts nothing and runs nothing, which dilutes
 // the prompt whose value is that every line in it is a real capability.
@@ -335,8 +336,9 @@ func TestPackShippedAllowsNoHostDaemon(t *testing.T) {
 	}
 }
 
-// Everything §3.1 lists as ALLOWED must pass in one manifest, or the subset is
-// quietly narrower than the design says. host_devices, intercepts, broker_ip,
+// Everything the pack-shipped subset leaves ALLOWED
+// (docs/reference/loophole-system.md#the-pack-shipped-subset) must pass in one manifest,
+// or the subset is quietly narrower than the design says. host_devices, intercepts, broker_ip,
 // ca_cert, state_files, requires, doctor_cmd, jail_daemon and platforms are all in.
 func TestPackShippedAllowsEverythingElse(t *testing.T) {
 	problems := packProblems(t, `

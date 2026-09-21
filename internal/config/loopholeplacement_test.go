@@ -1,7 +1,8 @@
 package config
 
-// The §4.3a placement rule was ruled and then implemented by nobody: a user-config
-// entry `command: ["python3", "/workspace/tool.py"]` validated clean and spawned an
+// The placement rule (docs/reference/loophole-system.md#the-placement-rule) was ruled and
+// then implemented by nobody: a user-config entry
+// `command: ["python3", "/workspace/tool.py"]` validated clean and spawned an
 // agent-writable script on the host at every launch. G1 (scope) gates who may write
 // the declaration; nothing looked at the target. These tests pin the target check.
 
@@ -159,7 +160,8 @@ func TestPlacementRuleSkipsAnOverride(t *testing.T) {
 	}
 }
 
-// --- The MANIFEST faces (§4.3a landing item 1a, "still owed"): a manifest's own
+// --- The MANIFEST faces (docs/reference/loophole-system.md#the-placement-rule,
+// "Both faces … go through ONE tree comparison"): a manifest's own
 // host_daemon.cmd and doctor_cmd, and the module DIR.
 
 // The dir face. A module dir inside the mounted workspace is refused BY NAME, and

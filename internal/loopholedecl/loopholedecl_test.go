@@ -312,8 +312,9 @@ func TestTolerantDecodeStillRefusesStructure(t *testing.T) {
 	}
 }
 
-// TestControlCharactersRefusedInClaimFields is the §3.2 sanitize-at-load
-// requirement, one case per field that can reach an approval claim.
+// TestControlCharactersRefusedInClaimFields is the sanitize-at-load requirement
+// (docs/reference/loophole-system.md#two-module-dir-tokens-and-value-sanitation),
+// one case per field that can reach an approval claim.
 //
 // The two exhibits are the ones the design names: a newline forging an extra claim
 // line, and ESC erasing the ⚠ header. Both work because the prompt formats the

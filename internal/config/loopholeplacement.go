@@ -1,6 +1,6 @@
 package config
 
-// The §4.3a PLACEMENT rule, whose as-built account is
+// The PLACEMENT rule, whose as-built account is
 // docs/reference/loophole-system.md#the-placement-rule, and which every other
 // gate in that section leaves open:
 //
@@ -20,16 +20,17 @@ package config
 // Two trees qualify, and they are the two THIS launch hands to an agent: the
 // workspace being mounted :rw, and paths.GlobalHome() (the shared /home/agent
 // backing tree). The rule is deliberately incomplete — yolo knows those two, not
-// that ~/code/other-project is agent-writable in some other jail — and §4.3a
-// says so: it catches the shape that occurs (a daemon inside the repo being
-// worked on) and the permission argument covers the rest.
+// that ~/code/other-project is agent-writable in some other jail — and the rule
+// says so itself (the "cannot be complete" warning under #the-placement-rule): it
+// catches the shape that occurs (a daemon inside the repo being worked on) and the
+// permission argument covers the rest.
 //
 // # THE FACES
 //
 // The rule is about a TARGET, so it has one face per place a target is named. The
 // first batch landed the CONFIG faces (an inline `loopholes.<name>` entry's
-// `command` and `doctor_cmd`, plus the spawn itself). §4.3a's landing item 1a also
-// owes the MANIFEST faces, which is what LoopholeManifestPlacementProblems adds: a
+// `command` and `doctor_cmd`, plus the spawn itself). The MANIFEST faces landed in
+// the batch after it, and are what LoopholeManifestPlacementProblems adds: a
 // manifest's own `host_daemon.cmd` and `doctor_cmd`, and — the one that is not an
 // argv at all — the loophole's MODULE DIR.
 //
@@ -152,11 +153,12 @@ func LoopholePlacementProblems(label string, argv []string, workspace string) []
 }
 
 // LoopholeManifestPlacement is the input to the MANIFEST faces of the placement
-// rule (§4.3a landing item 1a, "still owed"): a loophole's module dir plus the two
-// host-side argvs its manifest declares. Every field is optional — a caller with
-// only some of them in hand passes those.
+// rule (docs/reference/loophole-system.md#the-placement-rule, "Both faces … go
+// through ONE tree comparison"): a loophole's module dir plus the two host-side
+// argvs its manifest declares. Every field is optional — a caller with only some
+// of them in hand passes those.
 type LoopholeManifestPlacement struct {
-	// Name is the loophole's name. Every message leads with it, because §4.3a's
+	// Name is the loophole's name. Every message leads with it, because the rule's
 	// requirement is a refusal BY NAME and the reader's next action is to move that
 	// loophole.
 	Name string
@@ -200,8 +202,9 @@ func LoopholeManifestPlacementProblems(p LoopholeManifestPlacement, workspace st
 // It is the face that subsumes the others. `{loophole_dir}` resolves to this dir,
 // so a module dir an agent writes means every host-side field of the manifest names
 // an agent-writable target — including the ones no path check can see, since a
-// Python daemon imports and a compiled one dlopens. §4.3a states that limit for the
-// argv faces ("a tripwire against silent substitution, not a boundary"); checking
+// Python daemon imports and a compiled one dlopens. That limit is stated for the argv
+// faces — "a tripwire on the shape that actually occurs … not a boundary"
+// (docs/guides/loopholes.md#the-trust-story-a-pack-author-has-to-understand); checking
 // the dir is how the tripwire covers the whole module rather than its entry point.
 //
 // Both the LEXICAL and the symlink-resolved spellings are tested, and the first hit
@@ -281,8 +284,11 @@ func argvPathTarget(arg, workspace string) (string, bool) {
 }
 
 // underTree reports whether p is dir itself or anything beneath it. Symlinks are
-// deliberately not resolved: §4.3a calls the rule a tripwire against the shape
-// that occurs, not a boundary, and an EvalSymlinks here would make the answer
+// deliberately not resolved: the rule is a tripwire against the shape that occurs
+// rather than a boundary — those words live in docs/guides/loopholes.md under "the trust
+// story a pack author has to understand", which this file already cites correctly further
+// up; loophole-system.md's placement rule says only that it "cannot be complete", which is
+// the weaker half of the same point. An EvalSymlinks here would make the answer
 // depend on which of the two trees happens to exist on this host.
 func underTree(p, dir string) bool {
 	return p == dir || strings.HasPrefix(p, dir+"/")

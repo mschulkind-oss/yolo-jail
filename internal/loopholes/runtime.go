@@ -207,8 +207,8 @@ func (s Set) RuntimeArgsWithJailDaemons(from []*Loophole, runtime string, specs 
 //
 // # Why a refused record is still DISCOVERED and LISTED
 //
-// G3's "not discovered at all" is about what CROSSES, and this is where the design's
-// wording and its visibility requirement are reconciled: nothing of the loophole reaches
+// The origin gate's "not discovered at all" is about what CROSSES, and this is where
+// the design's wording and its visibility requirement are reconciled: nothing reaches
 // the jail, while `yolo loopholes list`/`status` still show it — as `unapproved`, which is
 // the state a user has to be able to see. A pack loophole missing from the list is
 // indistinguishable from one that failed to stage, and the fix ("`yolo pack install`
@@ -531,7 +531,8 @@ func RunDoctorChecks(loopholes []*Loophole, timeout time.Duration) []DoctorResul
 // RunDoctorChecks runs the doctor_cmd of each given record WITH THIS SET'S ORIGIN GATE
 // applied: a pack-contributed loophole runs only when the caller recorded that its pack's
 // host access is approved. Everything else behaves exactly as the package-level function —
-// the §4.3a PLACEMENT rule included, since both entry points share one body.
+// the PLACEMENT rule included (docs/reference/loophole-system.md#the-placement-rule),
+// since both entry points share one body.
 func (s Set) RunDoctorChecks(from []*Loophole, timeout time.Duration) []DoctorResult {
 	return runDoctorChecks(from, timeout, &s)
 }
@@ -542,8 +543,9 @@ func (s Set) RunDoctorChecks(from []*Loophole, timeout time.Duration) []DoctorRe
 // TWO GATES, BOTH IN THE CALLEE, for one reason: a doctor_cmd is host execution and two of
 // the three call sites (`yolo check`, `yolo loopholes status`) are commands users and
 // AGENTS.md treat as READ-ONLY PREFLIGHT. The ORIGIN gate asks who shipped the code; the
-// PLACEMENT gate (§4.3a) asks whether the named file lives where an agent rewrites it. They
-// are independent — an embedded pack's own loophole passes the first and can fail the
+// PLACEMENT gate (docs/reference/loophole-system.md#the-placement-rule) asks whether the
+// named file lives where an agent rewrites it. They are independent — an embedded pack's
+// own loophole passes the first and can fail the
 // second — and both live here rather than at the call sites because a slice carries no
 // judgement: a rule a caller is merely asked to apply is a rule the next call site does not
 // know about. Measured before this gate existed: a hand-placed manifest whose doctor_cmd

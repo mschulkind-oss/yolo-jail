@@ -147,8 +147,9 @@ func TestEmptyJailDaemonPayloadEmitsNoEnvVar(t *testing.T) {
 	}
 }
 
-// THE ORIGIN GATE, at the composer's own face (§4.3 G3). A pack-shipped loophole whose pack
-// is unapproved contributes NOTHING to the payload — the same withholding
+// THE ORIGIN GATE, at the composer's own face (the design's G3, which never graduated —
+// `git show 9190a4d1^:docs/design/loophole-packaging.md`, §4.3). A pack-shipped loophole
+// whose pack is unapproved contributes NOTHING to the payload — the same withholding
 // RuntimeArgsFor applies to its binds, devices and CA. Without this the hoist would be a
 // hole in the gate: the payload names an argv the jail would run.
 func TestJailDaemonsHonorsTheOriginGate(t *testing.T) {

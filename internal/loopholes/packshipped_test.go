@@ -315,10 +315,11 @@ func TestPackShippedProblemsSeeAnOutOfScopeCACertOnTheRecord(t *testing.T) {
 	}
 }
 
-// THE SUBSET ON THE LAUNCH PATH. LoadPackLoophole applies §3.1's refusals and had ZERO
-// non-test callers: discovery went through loadModuleDirs → loadManifest → the plain tolerant
-// read, so none of the refusals reached a launch. Requirements 1 and 3 were implemented and
-// dead.
+// THE SUBSET ON THE LAUNCH PATH. LoadPackLoophole applies the pack-shipped subset's
+// refusals (docs/reference/loophole-system.md#the-pack-shipped-subset) and had ZERO
+// non-test callers: discovery went through loadModuleDirs → loadManifest → the plain
+// tolerant read, so none of the refusals reached a launch. The bind-mount rules were
+// implemented and dead.
 //
 // Measured before the fix: a manifest with all four violations was discovered, Active, and
 // produced `-v /:/ctx/hostroot` (readonly:false honored, so no `:ro`) plus

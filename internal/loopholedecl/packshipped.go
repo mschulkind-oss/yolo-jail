@@ -33,10 +33,13 @@ package loopholedecl
 // # What is NOT here
 //
 // The RESERVED-NAME refusal (a pack shipping `journal`, `cgroup-delegate` or one of
-// the three bundled names) is deliberately absent. §3.1 requires the reserved set be
-// defined ONCE — `paths.Builtin*LoopholeName` plus the bundled names — and this
-// package may not import `internal/paths`. It belongs in the pack pre-flight, which
-// already has the set in hand.
+// the three bundled names) is deliberately absent. The design required the reserved
+// set be defined ONCE — `paths.Builtin*LoopholeName` plus the bundled names — and this
+// package may not import `internal/paths`, so it belonged in the pack pre-flight, which
+// already had the set in hand. That requirement is the pre-graduation body's
+// (`git show 9190a4d1^:docs/design/loophole-packaging.md`, §3.1) and has since been
+// RETIRED: there is no reserved loophole namespace left
+// (docs/reference/loophole-system.md#selection-and-discovery).
 
 import (
 	"fmt"
@@ -151,7 +154,9 @@ func envVarsHint(env *EnvMap) string {
 	return strings.Join(parts, ", ")
 }
 
-// packBindMountProblems applies §3.1 requirements 1 and 3 to every bind mount.
+// packBindMountProblems applies the two bind-mount rules the pack-shipped subset still
+// keeps (docs/reference/loophole-system.md#the-pack-shipped-subset): the resolution must
+// be stable, and `readonly: false` stays refused.
 func (m *Manifest) packBindMountProblems(manifestPath string) []string {
 	var out []string
 	for i, bm := range m.HostBindMounts {
@@ -293,7 +298,8 @@ func packPathScopeClause(value string) string {
 	return ""
 }
 
-// packCACertProblems path-scopes a pack-shipped `ca_cert` (§3.1 requirement 1, on the
+// packCACertProblems path-scopes a pack-shipped `ca_cert` (the path-scope half of the
+// pack-shipped subset — docs/reference/loophole-system.md#the-pack-shipped-subset — on the
 // field draft 1's table and its first implementation both left out).
 //
 // IT IS THE SHARPEST OF THE PATH-BEARING FIELDS, not the mildest, which is why an
@@ -351,9 +357,10 @@ func (m *Manifest) packCACertProblems(manifestPath string) []string {
 // THE ONE SCOPED FIELD THAT IS NOT A CROSSING, and the asymmetry is deliberate. Nothing
 // of it is mounted and nothing runs: internal/loopholes expands `$VAR` references and
 // `stat`s the result, and the boolean decides whether the loophole is Active. So it gets
-// no host-access CLAIM — §3.3's rule is that a CROSSING must claim, and a line in the
-// approval prompt for something that mounts nothing and runs nothing dilutes a prompt
-// whose value is that every line in it is a real capability.
+// no host-access CLAIM — the enumeration's rule
+// (docs/reference/loophole-system.md#the-crossing-enumeration) is that a CROSSING must
+// claim, and a line in the approval prompt for something that mounts nothing and runs
+// nothing dilutes a prompt whose value is that every line in it is a real capability.
 //
 // It is scoped anyway, because the ANSWER leaks. `yolo loopholes list` prints the
 // inactive reason, which names the resolved absolute path — so an unscoped field is an
@@ -416,7 +423,8 @@ func hasDotDotSegment(p string) bool {
 	return false
 }
 
-// packWritableBindProblem keeps §3.1 requirement 3 — `readonly: false` stays
+// packWritableBindProblem keeps the pack-shipped subset's writable-bind refusal
+// (docs/reference/loophole-system.md#the-pack-shipped-subset) — `readonly: false` stays
 // refused — and says WHAT THE REFUSAL ACTUALLY COVERS, which is narrower than
 // draft 1 claimed.
 //
@@ -450,9 +458,11 @@ func packWritableBindProblem(manifestPath, field string, bm HostBindMount) strin
 // (docs/reference/loophole-transport.md#two-server-shapes-and-how-a-manifest-selects-one): a
 // pack-shipped loophole may only say `publishes: "socket"`.
 //
-// The transport is a property of the FRAMEWORK, not of the loophole, and §2.3's
-// enforcement asymmetry is why. On the server side every security-critical property
-// is invisible to yolo — the endpoint file's mode, whether the key persists, whether
+// The transport is a property of the FRAMEWORK, not of the loophole, and the enforcement
+// asymmetry named in the same section of
+// docs/reference/loophole-transport.md#two-server-shapes-and-how-a-manifest-selects-one
+// is why. On the server side every security-critical property is invisible to yolo —
+// the endpoint file's mode, whether the key persists, whether
 // the token compare is constant-time, whether the pre-allocation length is capped —
 // so shipping other people's TLS-server code to strangers' machines is a materially
 // different proposition from a hand-written config entry on one machine. Under

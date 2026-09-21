@@ -18,7 +18,8 @@ import (
 //	doctor_cmd         install  user-only  — a second host execution, run by two
 //	                                         read-only-looking commands
 //	env (either shape) install  user-only  — reaches a host daemon's spawn env
-//	                                         (LD_PRELOAD into the broker, §4.1)
+//	                                         (LD_PRELOAD into the broker — the reason
+//	                                         that section's own `env` row gives)
 //	enabled            enable   either     — routes within the vetted set
 //	jail_env           —        either     — container-side only
 //
@@ -107,10 +108,10 @@ func loopholeNotInstalledRemedy(name string) string {
 }
 
 // validateLoopholes runs the `host_services = config.get("loopholes")` block
-// of _validate_config, plus the §4.3b scope pass. Names matching a file-backed
-// loophole are overrides (enabled/env/jail_env only); unknown override-shaped
-// names warn; everything else is an inline service definition (command
-// required).
+// of _validate_config, plus the two-verbs scope pass (the table at the top of
+// this file). Names matching a file-backed loophole are overrides
+// (enabled/env/jail_env only); unknown override-shaped names warn; everything
+// else is an inline service definition (command required).
 //
 // ValidateConfig only ever receives the MERGED map, and the merge carries no
 // provenance — so, exactly like validateCacheRelocations, the scope pass
@@ -150,7 +151,8 @@ func validateLoopholes(config *jsonx.OrderedMap, workspace string, resolver Loop
 			infoPtr = &infoCopy
 		}
 
-		// --- Scope pass (§4.3b), on the workspace files' own contributions.
+		// --- Scope pass (the two verbs; the table at the top of this file), on
+		// the workspace files' own contributions.
 		// Name/type problems are the shape pass's to report; the scope pass
 		// only runs where the entry is inspectable.
 		suppressFallback := false
@@ -174,7 +176,7 @@ func validateLoopholes(config *jsonx.OrderedMap, workspace string, resolver Loop
 					scoped(viol)
 				}
 				// The per-key `settings` scope rule rides the SAME downgrade as the
-				// §4.3b key rows above: a workspace file supplying a user-scope
+				// two-verbs key rows above: a workspace file supplying a user-scope
 				// setting is an error host-side and a warning in-jail, for the reason
 				// at the top of this file — /workspace is live-mounted, so a hard
 				// error here would refuse every nested launch over the same file.
@@ -193,7 +195,8 @@ func validateLoopholes(config *jsonx.OrderedMap, workspace string, resolver Loop
 			if disclosure != "" {
 				add(warns, disclosure)
 			}
-			// --- Placement pass (§4.3a): WHERE the declared host execution lives.
+			// --- Placement pass (docs/reference/loophole-system.md#the-placement-rule):
+			// WHERE the declared host execution lives.
 			// Scope decides who may declare it; this decides whether the file it
 			// names is one an agent rewrites between launches.
 			if !scopeViolated {
@@ -272,8 +275,9 @@ func validateLoopholeEntryShape(name string, specV any, info *LoopholeInfo, supp
 	validateInlineService(spec, path, errs)
 }
 
-// loopholeScopeKeyViolations applies the install-shaped-key rows of the §4.3b
-// table to ONE workspace file's contribution to a `loopholes.<name>` entry.
+// loopholeScopeKeyViolations applies the install-shaped-key rows of the two-verbs
+// table (docs/reference/loophole-system.md#the-two-verbs) to ONE workspace file's
+// contribution to a `loopholes.<name>` entry.
 // The returned messages are host-side errors (the caller downgrades in-jail).
 //
 // info is the file-backed loophole the name resolves to (nil when none), which
@@ -310,9 +314,9 @@ func loopholeScopeKeyViolations(name string, spec *jsonx.OrderedMap, srcFile str
 	return out
 }
 
-// loopholeScopeEnableProblems handles the `enabled` column of §4.3b for one
-// loophole name, across every workspace contribution (later files win, same
-// as the merge):
+// loopholeScopeEnableProblems handles the `enabled` column of the two-verbs table
+// (docs/reference/loophole-system.md#the-two-verbs) for one loophole name, across
+// every workspace contribution (later files win, same as the merge):
 //
 //   - enabled:true naming a loophole that is NOT installed is the RULED fatal
 //     (OQ-LP2): the error IS the human-in-the-loop moment, so it names the
@@ -330,8 +334,9 @@ func loopholeScopeKeyViolations(name string, spec *jsonx.OrderedMap, srcFile str
 //     the silent one.
 //   - enabled:false on an INSTALLED loophole is legal but DISCLOSED: after the
 //     ruling, scope no longer protects the OFF direction, so this line is the
-//     only protection for a default-on loophole (the broker case, §4.3b
-//     consequence 2).
+//     only protection for a default-on loophole (the broker case:
+//     docs/reference/loophole-system.md#disclosure-of-the-users-switch-in-both-directions,
+//     "disclosure is the protection, not scope").
 //   - enabled:false naming an unknown loophole is a harmless no-op and stays
 //     the caller's "treating the entry as an override" warning.
 //
@@ -473,8 +478,9 @@ type WorkspaceLoopholeSwitch struct {
 	// yolo-jail.jsonc). It is the file a human has to open, which is the only
 	// thing a disclosure naming the wrong file would be good for.
 	File string
-	// Enabled is that file's value. BOTH directions are carried: OFF is the §4.3b
-	// disclosure, ON is loophole-activation.md OQ-A13's mirror of it.
+	// Enabled is that file's value. BOTH directions are carried: OFF is the
+	// long-standing disclosure, ON is OQ-A13's mirror of it
+	// (docs/reference/loophole-system.md#oq-a13).
 	Enabled bool
 }
 
@@ -484,13 +490,15 @@ type WorkspaceLoopholeSwitch struct {
 // "workspace scope said nothing" and "workspace scope said true" are different
 // answers, and only absence can express the first.
 //
-// It is the provenance seam behind both §4.3b disclosures — the launch-time line
-// (via validateLoopholes) and `yolo check`'s warning instead of a green pass — in
-// both directions. This used to be WorkspaceDisabledLoopholes, which computed the
+// It is the provenance seam behind both disclosures
+// (docs/reference/loophole-system.md#disclosure-of-the-users-switch-in-both-directions):
+// the launch-time line (via validateLoopholes) and `yolo check`'s warning instead of
+// a green pass — in both directions. This used to be WorkspaceDisabledLoopholes, which computed the
 // same thing and threw the `true` case away, back when `enabled: true` from a
 // workspace was inert: the manifest default was already on, so the only power the
 // weak scope had was to turn things OFF. R2 flipped that default and made the key
-// the ACTIVATION VERB while R5 kept it at workspace scope, so the direction with
+// the ACTIVATION VERB while R5 (docs/reference/loophole-system.md#principles — install
+// is user-scope, enable is either) kept it at workspace scope, so the direction with
 // no disclosure became the dangerous one (docs/reference/loophole-system.md
 // OQ-A13). Widening the existing seam rather than adding a second one is what
 // keeps the two surfaces reading the same answer — and one vocabulary for a

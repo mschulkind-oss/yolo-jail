@@ -213,8 +213,9 @@ func applyWorkspaceOverrides(existing map[string]*Loophole, loopholesConfig *jso
 // (docs/design/broker-as-a-pack.md OQ-BP4). Every manifest yolo reads now arrives as a
 // named module dir — a pack's contribution — or as a `loopholes:` entry in a config.
 //
-// THE SOURCE LABEL SELECTS THE LOADER, which is how §3.1's pack-shipped subset reaches the
-// launch path at all. LoadPackLoophole applies the subset and had ZERO non-test callers: every
+// THE SOURCE LABEL SELECTS THE LOADER, which is how the pack-shipped subset
+// (docs/reference/loophole-system.md#the-pack-shipped-subset) reaches the launch path
+// at all. LoadPackLoophole applies the subset and had ZERO non-test callers: every
 // discovery read went through the plain loadManifest, so `jail_env`, an absolute or `$VAR`
 // bind host, a writable bind and a self-publishing daemon were all refused in a package
 // nothing on this path called. Measured: a manifest with all four violations was discovered,
@@ -393,9 +394,11 @@ type PackModule struct {
 // pack's doctor_cmd. A pack loophole missing from `yolo loopholes list` is a visible
 // omission; an unaudited daemon self-check executing under `yolo check` would not be.
 //
-// IN-JAIL IS OUT OF SCOPE, deliberately, and here is the whole of the reason (§5.1 asks the
-// question: "sites 6 and 7 also run IN-JAIL, where the staged root is /ctx/packs, so their
-// wiring is not the same as the run path's"). Measured at HEAD:
+// IN-JAIL IS OUT OF SCOPE, deliberately, and here is the whole of the reason. The question
+// is the selection design's (docs/reference/loophole-system.md#selection-and-discovery),
+// asked in its pre-graduation body as "sites 6 and 7 also run IN-JAIL, where the staged
+// root is /ctx/packs, so their wiring is not the same as the run path's"
+// (`git show 9190a4d1^:docs/design/loophole-packaging.md`, §5.1). Measured at HEAD:
 //
 //   - Site 7, `yolo check`'s loophole sections, SHORT-CIRCUIT in-jail already —
 //     "Inside jail — loophole checks skipped (managed by host)" — and so does
@@ -472,8 +475,9 @@ func SetPackModules(mods []PackModule) {
 //
 // A SNAPSHOT rather than a per-launch key on the record, because the record is read
 // through a package-level accessor by seven surfaces that know nothing about launches
-// (§5.1's convergence is the whole point of it being process-wide). Whoever sets it for
-// the duration of a launch is the only thing that can know when that duration ends.
+// (the convergence — docs/reference/loophole-system.md#selection-and-discovery — is the
+// whole point of it being process-wide). Whoever sets it for the duration of a launch is
+// the only thing that can know when that duration ends.
 //
 // THE SET FLAG TRAVELS WITH THE VALUE, and that is the part a bare `SetPackModules(prev)`
 // would get wrong: "nothing recorded yet" is not an empty record. PackModules()
@@ -669,7 +673,8 @@ func (s Set) Enabled() []*Loophole {
 // Active returns the records that are enabled AND whose requirements are met.
 //
 // The distinction from Enabled is not pedantic: a briefing built from Enabled advertises
-// an inactive loophole to the agent as a live capability (§5.1's shipped bug), and a
+// an inactive loophole to the agent as a live capability (the shipped bug the converged
+// set was built for — docs/reference/loophole-system.md#three-predicates-and-what-each-one-means), and a
 // broker predicate built from Enabled would wire a terminator with nothing behind it.
 func (s Set) Active() []*Loophole {
 	out := []*Loophole{}
@@ -684,17 +689,22 @@ func (s Set) Active() []*Loophole {
 // Honored returns the records that are Active AND whose ORIGIN GATE admits them: what this
 // jail actually gets.
 //
-// The distinction from Active() is the one §4.3 G3 draws, and it is a third distinction
-// beside Enabled/Active rather than a synonym for either. `Enabled` is the user's switch,
-// `Active` adds "the machine can run it" (platform, `requires`), and this adds "the pack it
+// The distinction from Active() is the one the ORIGIN GATE draws — the design's G3, which
+// never graduated: it lives in the pre-graduation body only
+// (`git show 9190a4d1^:docs/design/loophole-packaging.md`, §4.3), and its fetched-pack half
+// was deleted by OQ-TP9 (docs/reference/loophole-system.md#what-is-deliberately-not-a-gate).
+// It is a third distinction beside Enabled/Active rather than a synonym for either.
+// `Enabled` is the user's switch, `Active` adds "the machine can run it" (platform,
+// `requires`), and this adds "the pack it
 // came from is approved to touch the host". A record can be perfectly Active and still cross
 // nothing, because the pack shipping it was never approved.
 //
 // It exists for the surfaces that DESCRIBE what crossed rather than perform it — the
 // briefing, above all, which is instructions the agent ACTS ON. Advertising an unapproved
 // pack's loophole there sends the agent to debug host wiring that was deliberately withheld,
-// which is the same failure mode Active() was introduced to fix one axis over (§5.1's shipped
-// bug: an enabled-but-inactive loophole advertised as live).
+// which is the same failure mode Active() was introduced to fix one axis over (the shipped
+// bug behind the converged set — docs/reference/loophole-system.md#selection-and-discovery:
+// an enabled-but-inactive loophole advertised as live).
 //
 // The surfaces that PERFORM a crossing do not use this — RuntimeArgsFor and
 // ManifestHostDaemonSpecs enforce the gate inside themselves, because a slice carries no gate

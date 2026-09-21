@@ -62,9 +62,11 @@ func TestUserLayerPrecedence(t *testing.T) {
 	}
 }
 
-// THE KEY THE LAYER EXISTS FOR (OQ-LP9 R5). `packs` is read from the user file DIRECTLY, not
-// from the merged config — that direct read is its security boundary — so a layer that only
-// reached the merged map would be useless for exactly the case the design cites: an in-jail
+// THE KEY THE LAYER EXISTS FOR: OQ-LP9 recursing R5's scope model
+// (docs/reference/loophole-system.md#oq-lp9, #principles). `packs` is read from the user
+// file DIRECTLY, not from the merged config — that direct read is its security boundary —
+// so a layer that only reached the merged map would be useless for exactly the case the
+// design cites: an in-jail
 // agent installing a loophole, which means naming the pack that carries it.
 //
 // This is why the layer travels through the loader rather than as a parameter: the three
@@ -121,7 +123,8 @@ func TestUserLayerDoesNotMakeWorkspaceScopeExpressible(t *testing.T) {
 	}
 }
 
-// `loopholes` through the layer, which is the other half of R5: having installed the pack, the
+// `loopholes` through the layer, which is the other half of R5 — install is user-scope,
+// enable is either (docs/reference/loophole-system.md#principles): having installed the pack, the
 // agent enables/configures the loophole and the in-jail commands must SEE it in the same
 // invocation. UserScopeConfig is what `yolo loopholes` reads, so this pins the path those
 // commands take rather than a generic merge.

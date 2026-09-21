@@ -330,11 +330,14 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 // that is deliberate rather than an oversight of the inJail() branch next door.
 // The question is "what will the machine that spawns the host daemon be", and
 // inside a jail that machine IS the container — a nested launch spawns host
-// daemons, binds mounts and publishes endpoints identically (§4.3a: runtime.go's
-// device skip is the only jail-aware branch in the runtime), and §4.3a rules the
-// nested jail THE development environment for a loophole. Skipping the check there
-// would let the development environment spawn exactly the binary the field exists
-// to refuse.
+// daemons, binds mounts and publishes endpoints identically (runtime.go's device
+// skip is the only jail-aware branch in the runtime). ⚠ The ruling that the nested jail IS
+// the development environment for a loophole did NOT graduate — loophole-system.md's
+// placement rule does not say it, and an anchor that resolves while meaning something else
+// is worse than none. It is at `git show 9190a4d1^:docs/design/loophole-packaging.md`, in
+// the placement section's rejection of an escape hatch ("develop the loophole in a jail
+// instead"). The same finding is recorded at internal/config/userlayer.go. Skipping the check there would let the
+// development environment spawn exactly the binary the field exists to refuse.
 //
 // The residual, named rather than discovered: `yolo loopholes list` INSIDE a jail
 // on a macOS host evaluates a `platforms: ["darwin"]` loophole against the
@@ -347,9 +350,11 @@ func (l *Loophole) SupportedHere() bool {
 	return l.supportsPlatform(runtime.GOOS, runtime.GOARCH)
 }
 
-// UnsupportedHereReason is SupportedHere's message half: the by-name report §3.1
-// asks for — what this machine is, what the loophole supports, and that nothing is
-// missing — or ("", false) when the platform is supported.
+// UnsupportedHereReason is SupportedHere's message half. What the design asks for is that the
+// message say NOTHING IS MISSING (docs/reference/loophole-system.md#requires-platforms-and-the-difference);
+// reporting it by NAME is this package's own addition
+// — what this machine is, what the loophole supports, and that nothing is missing —
+// or ("", false) when the platform is supported.
 func (l *Loophole) UnsupportedHereReason() (string, bool) {
 	return l.platformUnsupportedReason(runtime.GOOS, runtime.GOARCH)
 }

@@ -105,9 +105,9 @@ func containing(list []string, subs ...string) []string {
 	return out
 }
 
-// §4.3b (RULED): an inline entry — the `command` shape — is an INSTALL, legal
-// only in the user config. In a workspace file it is an error naming the
-// offending file and the exact fix.
+// The two verbs, RULED (docs/reference/loophole-system.md#the-two-verbs): an inline
+// entry — the `command` shape — is an INSTALL, legal only in the user config. In a
+// workspace file it is an error naming the offending file and the exact fix.
 func TestWorkspaceInlineLoopholeIsError(t *testing.T) {
 	ws, errs, _ := validateScoped(t, "",
 		`{"loopholes": {"svc": {"command": ["/bin/true"]}}}`, nil)
@@ -139,7 +139,8 @@ func TestUserInlineLoopholeIsClean(t *testing.T) {
 }
 
 // Override-shape `env` reaches a FIRST-PARTY daemon's spawn environment
-// (§4.1 finding 3 — LD_PRELOAD into the broker), so it is user-scope only too.
+// (LD_PRELOAD into the broker — the reason the `env` row of
+// docs/reference/loophole-system.md#the-two-verbs gives), so it is user-scope only too.
 func TestWorkspaceOverrideEnvIsError(t *testing.T) {
 	resolver := fakeResolver{"svc": {Name: "svc", HasHostDaemon: true}}
 	ws, errs, _ := validateScoped(t, "",
@@ -268,7 +269,7 @@ func TestWorkspaceEnableFalseUnknownStaysWarning(t *testing.T) {
 	}
 }
 
-// §4.3b consequence 2: after the ruling, scope no longer protects the OFF
+// The consequence the two-verbs ruling carries: scope no longer protects the OFF
 // direction, so a workspace-sourced enabled:false on an INSTALLED loophole
 // must print one launch-time line naming the loophole AND the file (the only
 // protection left for the broker default).
@@ -300,8 +301,9 @@ func TestWorkspaceDisableUserInlineIsDisclosed(t *testing.T) {
 	}
 }
 
-// OQ-A13 (loophole-activation.md): the ON direction gets the same launch-time
-// line the OFF direction has had, and for a sharper reason. R5 was written when a
+// OQ-A13 (docs/reference/loophole-system.md#oq-a13): the ON direction gets the same
+// launch-time line the OFF direction has had, and for a sharper reason. R5 — install
+// is user-scope, enable is either (that doc's #principles) — was written when a
 // workspace `enabled: true` was INERT — manifests defaulted to on, so the only
 // thing the weak, agent-editable scope could do was subtract. R2 flipped that
 // default and made this key the ACTIVATION VERB, which left the newly dangerous
@@ -362,7 +364,8 @@ func TestUserScopeEnableIsNotDisclosed(t *testing.T) {
 
 // A workspace file that touches an installed loophole WITHOUT setting `enabled`
 // says nothing about the switch, so neither disclosure is due. `jail_env` is legal
-// at workspace scope (§4.3b) and is the shape that makes this non-hypothetical.
+// at workspace scope (docs/reference/loophole-system.md#the-two-verbs) and is the
+// shape that makes this non-hypothetical.
 //
 // The seam has to distinguish "workspace scope said nothing" from "workspace scope
 // said false"; reading a missing key as false would disclose a disable nobody wrote.

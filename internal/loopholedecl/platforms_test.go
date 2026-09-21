@@ -7,8 +7,9 @@ package loopholedecl_test
 // had exactly two ways to surface, and both misled. With a `requires` gate it read
 // as an unmet prerequisite — "install the missing thing", advice that can never
 // succeed — and with no gate at all it went Active, spawned, and died five seconds
-// later through §2.1c's silent readiness path. So the tests here check the MESSAGE
-// as much as the predicate.
+// later through the readiness-timeout path (whose own account did not graduate:
+// `git show 9190a4d1^:docs/design/loophole-packaging.md`, §2.1c). So the tests here
+// check the MESSAGE as much as the predicate.
 
 import (
 	"strings"

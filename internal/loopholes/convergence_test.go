@@ -138,9 +138,14 @@ func TestNoRecordAndNoResolverMeansNoPackLoopholes(t *testing.T) {
 }
 
 // A pack-contributed module dir is DISCOVERED, labelled SourcePack, and carries its
-// description — so `yolo loopholes list` shows it, which is the whole point of the fourth
-// Source label (§5.1: "SourcePack, beside SourceBundled|User|Config … is what
-// `yolo loopholes list` prints").
+// description — so `yolo loopholes list` shows it, which is the whole point of the Source
+// label (docs/reference/loophole-system.md#selection-and-discovery). The design's own
+// wording — "SourcePack, beside SourceBundled|User|Config … is what `yolo loopholes list`
+// prints" — is the pre-graduation body's
+// (`git show 9190a4d1^:docs/design/loophole-packaging.md`, its discovery section), and TWO of the
+// three it named beside SourcePack have since been retired: SourceBundled went with
+// bundled_loopholes/ and SourceUser with OQ-LP10's hand-placed directory. SourceConfig REMAINS
+// — `loopholes.go` defines exactly two labels now, and `discover.go` still sets SourceConfig.
 func TestPackModuleIsDiscoveredAsSourcePack(t *testing.T) {
 	unsetJail(t)
 	isolateModules(t)
@@ -197,9 +202,10 @@ func TestRetiredUserDirDoesNotShadowAPackModule(t *testing.T) {
 	}
 }
 
-// And a config entry still overrides a PACK loophole's `enabled`, which is §5.2's
-// prerequisite made real: the toggle writes loopholes.<name>.enabled in the user config,
-// and applyWorkspaceOverrides has to find the pack record to apply it to.
+// And a config entry still overrides a PACK loophole's `enabled` — the `pack < config`
+// ordering in docs/reference/loophole-system.md#selection-and-discovery, and the toggle's
+// prerequisite made real: the switch is loopholes.<name>.enabled in the user config, and
+// applyWorkspaceOverrides has to find the pack record to apply it to.
 func TestConfigOverrideAppliesToAPackModule(t *testing.T) {
 	unsetJail(t)
 	isolateModules(t)
@@ -227,7 +233,8 @@ func TestConfigOverrideAppliesToAPackModule(t *testing.T) {
 }
 
 // The Resolver — census site 6 — sees the recorded pack modules, which is what makes the
-// §5.2 prerequisite hold at the site that actually validates the config entry.
+// toggle's prerequisite (docs/reference/loophole-system.md#selection-and-discovery) hold
+// at the site that actually validates the config entry.
 func TestResolverKnowsPackModules(t *testing.T) {
 	unsetJail(t)
 	isolateModules(t)
@@ -293,8 +300,11 @@ func TestValidateLoopholesReportsAMissingPackModule(t *testing.T) {
 	}
 }
 
-// THE ONE REFUSAL LEFT, and it is the requirement §5.1 states as a hard floor: "until it
-// exists, RunDoctorChecks must take only loopholes whose origin gate has been evaluated."
+// THE ONE REFUSAL LEFT, and it is the hard floor the selection design sets
+// (docs/reference/loophole-system.md#selection-and-discovery). Its pre-graduation body
+// stated it outright — "until it exists, RunDoctorChecks must take only loopholes whose
+// origin gate has been evaluated" (`git show 9190a4d1^:docs/design/loophole-packaging.md`,
+// §5.1).
 //
 // WHAT `HostExecApproved: false` MEANS NOW is narrower than when this test was written.
 // OQ-TP9 (docs/design/trust-paths.md, 2026-09-04) deleted the fetched-pack origin gate, so no
@@ -361,8 +371,10 @@ func TestPackageLevelRunDoctorChecksRefusesAPackRecord(t *testing.T) {
 // package-level RuntimeArgsFor and ManifestHostDaemonSpecs must honor NO SourcePack record,
 // because a slice carries no gate.
 //
-// This is the ungated-entry-point half of §4.3 G3, and the reason it is a refusal rather than
-// a documented rule is measured history: the gate was computed per module and then read by
+// This is the ungated-entry-point half of the ORIGIN GATE (the design's G3, which never
+// graduated — `git show 9190a4d1^:docs/design/loophole-packaging.md`, §4.3), and the
+// reason it is a refusal rather than a documented rule is measured history: the gate was
+// computed per module and then read by
 // exactly ONE function (runDoctorChecks). These two filtered on FromConfig/Active and let an
 // unapproved fetched pack's daemon into the spawn list and its binds, devices, intercepts and
 // CA into the container argv. A caller that genuinely evaluated the gate says so by going
@@ -464,9 +476,11 @@ func TestNonPackRecordsAreAlwaysAllowedToRunHostCode(t *testing.T) {
 	}
 }
 
-// Active() vs Enabled(): the distinction the briefing path was missing (§5.1's shipped
-// bug). An enabled loophole whose `requires` is unmet on this host is NOT a live capability,
-// and a briefing built from Enabled() advertised it to the agent as one.
+// Active() vs Enabled(): the distinction the briefing path was missing (the shipped bug
+// behind the converged set —
+// docs/reference/loophole-system.md#three-predicates-and-what-each-one-means). An enabled loophole whose
+// `requires` is unmet on this host is NOT a live capability, and a briefing built from
+// Enabled() advertised it to the agent as one.
 func TestActiveExcludesEnabledButUnmetRequirements(t *testing.T) {
 	unsetJail(t)
 	dir := t.TempDir()

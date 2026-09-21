@@ -12,8 +12,10 @@ package loopholedecl
 // unmet — which reads as *install the missing thing*, advice that can never
 // succeed — and a manifest with no `requires` at all is not reported at all: it
 // goes Active, its daemon spawns, and it dies five seconds later through the
-// silent readiness path (§2.1c). Both are the same defect: a fact the author knew
-// statically, discovered dynamically and misattributed.
+// readiness-timeout path. Both are the same defect: a fact the author knew
+// statically, discovered dynamically and misattributed. (That path's own account
+// did not graduate with the rest of the design; it is
+// `git show 9190a4d1^:docs/design/loophole-packaging.md`, §2.1c.)
 //
 // So the declaration is STATIC (validated here, at load, where a typo is an
 // author-visible error) and its EVALUATION is a pure function of (GOOS, GOARCH) —
@@ -173,7 +175,10 @@ func (m *Manifest) PlatformsDeclared() []string {
 	return out
 }
 
-// PlatformsUnsupportedReason renders the by-name report §3.1 asks for: what this
+// PlatformsUnsupportedReason renders the unsupported-platform message. The design's actual
+// requirement is the third clause — that nothing is missing
+// (docs/reference/loophole-system.md#requires-platforms-and-the-difference); naming the
+// loophole is this package's own addition. It states: what this
 // machine is, what the loophole supports, and — critically — that this is not a
 // missing prerequisite. It returns "" when the platform IS supported.
 //

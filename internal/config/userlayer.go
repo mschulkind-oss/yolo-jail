@@ -19,15 +19,23 @@ package config
 // stronger one — pure ceremony, and the kind that teaches people to click through prompts.
 // So: no prompt, on the host and in a jail alike.
 //
-// AND IT IS THE NESTED-DEVELOPMENT PATH (Test 2 — the blast-radius test). §4.3a's ruling
-// deleted the dev-friction escape hatch and sends loophole development into a nested jail.
-// That has nowhere to send anyone unless an in-jail agent can INSTALL a loophole, which
-// means writing something at user scope. With this flag it can: write a layer file in its
+// AND IT IS THE NESTED-DEVELOPMENT PATH (Test 2 — the blast-radius test). The placement
+// rule's ruling deleted the dev-friction escape hatch and sends loophole development into
+// a nested jail instead — and that has nowhere to send anyone unless an in-jail agent can
+// INSTALL a loophole, which means writing something at user scope. With this flag it can:
+// write a layer file in its
 // own home, pass --user-layer, launch. What it thereby gains authority over is a container
 // it can throw away — jail A is the blast radius, and nothing reaches the human's host.
 // The single-file delivery of the inherited scope (run/inheritscope.go) is the other half:
 // the DIRECTORY the inherited file sits in is the jail's own, so writing beside it is
 // jail-local by construction.
+//
+// ⚠ The dev-friction half of that ruling did NOT graduate into
+// docs/reference/loophole-system.md#the-placement-rule, which keeps the placement rule but
+// not the argument for where a loophole is developed. It lives in git history only:
+// `git show 9190a4d1^:docs/design/loophole-packaging.md`, under the ruled placement rule —
+// "the escape hatch draft 3 wanted was separately RULED AGAINST: develop the loophole in a
+// jail instead."
 //
 // VERIFIED END TO END in a real nested container, 2026-08-14, and it works: an in-jail agent
 // wrote a pack shipping a loophole, wrote a layer naming it, and `pack install`,

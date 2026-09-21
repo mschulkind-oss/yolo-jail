@@ -1,9 +1,14 @@
 package loopholes
 
-// §4.3a's PLACEMENT rule applied to a loophole's MANIFEST faces — the "still owed"
-// half of landing item 1a. The config faces landed a batch earlier; these are the
-// three targets only this package can resolve: the module dir, and the two host-side
-// argvs after {loophole_dir} substitution.
+// The PLACEMENT rule (docs/reference/loophole-system.md#the-placement-rule) applied to
+// a loophole's MANIFEST faces, which landed in the batch after the config faces. The config
+// faces landed a batch earlier; these are the three targets only this package can
+// resolve: the module dir, and the two host-side argvs after {loophole_dir}
+// substitution.
+//
+// The refusal string itself still spells the rule "§4.3a", the section number it had
+// before the design graduated, which is why that literal is asserted below; the string
+// is minted in internal/config/loopholeplacement.go.
 
 import (
 	"path/filepath"

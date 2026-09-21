@@ -23,7 +23,8 @@ func TestDoctorTimeoutNamesTheDeadlineItBurned(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	isolateModules(t)
-	// Outside the jail-home tree, or §4.3a's placement rule withholds the check and
+	// Outside the jail-home tree, or the placement rule
+	// (docs/reference/loophole-system.md#the-placement-rule) withholds the check and
 	// this test would pass on a refusal instead of a timeout.
 	tools := filepath.Join(home, "tools")
 	if err := os.MkdirAll(tools, 0o755); err != nil {

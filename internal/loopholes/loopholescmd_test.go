@@ -37,7 +37,9 @@ func TestSetEnabledRefusesAndNamesTheConfigKey(t *testing.T) {
 				t.Errorf("%s: message does not mention %q:\n%s", tc.verb, want, got)
 			}
 		}
-		// §5.2: the instruction must point at the USER config. It used to direct people
+		// The instruction must point at the USER config
+		// (docs/reference/loophole-system.md#selection-and-discovery, the
+		// `yolo loopholes enable|disable` paragraph). It used to direct people
 		// at the weaker, agent-editable workspace scope; the workspace may still be
 		// MENTIONED, but only as the weaker option.
 		if !strings.Contains(got, filepath.Join(".config", "yolo-jail", "config.jsonc")) {
@@ -184,9 +186,10 @@ func TestEvilDoctorWorkspaceEntryIsRefused(t *testing.T) {
 	}
 }
 
-// A workspace INLINE entry (command) is refused host-side per §4.3b — install
-// is user-scope only — and kept in-jail, where the same violation is only a
-// warning (the launch path honors it there too).
+// A workspace INLINE entry (command) is refused host-side by the two-verb rule
+// (docs/reference/loophole-system.md#the-two-verbs): install is user-scope only — and
+// kept in-jail, where the same violation is only a warning (the launch path honors it
+// there too).
 func TestWorkspaceInlineEntryRefusedOnHostKeptInJail(t *testing.T) {
 	isolateDirs(t)
 	var out, errBuf bytes.Buffer
