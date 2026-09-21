@@ -9,10 +9,17 @@ package run
 // run.go records B-0 as "a backend that looked provisioned and configured nothing", and the
 // whole run pipeline was restructured to end it. ONE shipped backend makes the loophole kind
 // a silent no-op, and that skip is WIDER than draft 1 of the design claimed: on Apple
-// Container, startLoopholes returns nil for rt == "container" BEFORE any external service
-// starts, so EVERY pack-shipped host daemon is skipped there, intercepting or not. A
-// different skip from the container-ARGS one draft 1 cited (loopholes/runtime.go's
-// `intercepts` check, which only drops --add-host).
+// Container, startLoopholes admits ONE name — openai-auth-broker — and skips every other
+// pack-shipped host daemon, intercepting or not. A different skip from the container-ARGS one
+// draft 1 cited (loopholes/runtime.go's `intercepts` check, which only drops --add-host).
+//
+// ⚠ THIS SAID startLoopholes "returns nil for rt == \"container\" BEFORE any external service
+// starts", which is FALSE of the code it describes and is retracted rather than reworded: the
+// allow-list in loopholesruntime.go has admitted the credential broker since long before this
+// report existed, so a reader who believed this went looking for a return that is not there.
+// The REPORT is unaffected — backendInertReason keys on the backend, not on the allow-list, so
+// the admitted loophole gets an inert line too, which is correct because what fails there is
+// the DIAL and not the spawn (36c47baa deleted the exemption that used to hide it).
 //
 // So a pack whose whole purpose is a loophole could be installed, selected, and completely
 // inert, with the jail reporting a successful launch.
@@ -56,10 +63,15 @@ import (
 // backendInertReason says why a backend runs NO loophole host service, or "" when it does.
 //
 // ONE backend answers non-empty, and its answer is wider than draft 1 of the design claimed:
-// on container (Apple Container), startLoopholes returns nil for rt == "container" before any
-// external service starts, so EVERY pack-shipped host daemon is skipped there, intercepting
-// or not. That is a different skip from the container-ARGS one (loopholes/runtime.go's
-// `intercepts` skip), which only drops --add-host.
+// on container (Apple Container), startLoopholes admits ONE name — openai-auth-broker — and
+// skips every other pack-shipped host daemon, intercepting or not. That is a different skip
+// from the container-ARGS one (loopholes/runtime.go's `intercepts` skip), which only drops
+// --add-host.
+//
+// ⚠ THE ADMITTED ONE IS REPORTED INERT TOO, and that is deliberate rather than an
+// over-report: its daemon really does start and really does write its endpoint file across a
+// bind this backend mounts fine, and the jail still cannot DIAL it. See the header for the
+// "returns nil" retraction this paragraph used to carry.
 //
 // ⚠ macos-user ANSWERED TOO UNTIL THE LIFECYCLE WAS GENERALISED, on the grounds that its arm
 // "returns from Run() long before startLoopholes is reached". That arm now goes through
@@ -76,24 +88,46 @@ func backendInertReason(rt string) string {
 	case "container":
 		// ⚠ THE REASON CHANGED ON 2026-09-15 AND THE OLD ONE WAS WRONG. This said "no socket
 		// bind-mount there", which was true of the unix-socket era and of nothing shipped:
-		// four of six shipped loopholes declare `transport: loopback-tls` and reach the host
-		// over the NETWORK, learning their endpoint from a file in a bind-mounted DIRECTORY,
-		// which this backend mounts fine. OQ-BP-4 ruled the reason stale and asked for a
-		// measurement before lifting the skip.
+		// MOST shipped loopholes declare `transport: loopback-tls` and reach the host over the
+		// NETWORK, learning their endpoint from a file in a bind-mounted DIRECTORY, which this
+		// backend mounts fine. OQ-BP-4 ruled the reason stale and asked for a measurement
+		// before lifting the skip.
 		//
-		// The measurement CONFIRMED the skip and replaced its reason. On `container` 1.1.0 a
-		// container→host connection completes its handshake and then carries nothing, by two
-		// alternating mechanisms (ENOTCONN on a just-accepted socket; a NAT-answered CONNECT
-		// to a port nothing accepts). No bind address helps — bridge and wildcard die like
-		// 127.0.0.1 — and `host.containers.internal` does not resolve there.
-		// integration/applecontainer_test.go's TestAppleContainerReachesHostLoopback is the
-		// witness, and it is bounded: container→internet works, Mac→container works.
+		// ⚠ THAT USED TO READ "four of six shipped loopholes" AND THE COUNT IS DELETED RATHER
+		// THAN INCREMENTED. It was true when written; `hello-daemon` (2026-09-17) and
+		// `aws-auth` (2026-09-18) landed within the week and made it six of NINE, and a count
+		// in a comment is one more thing to keep true every time a pack ships a loophole —
+		// AGENTS.md's rule for the cmd/ table, applied to the same failure one file over.
+		// `rg -l '"transport": "loopback-tls"' packs/*/loopholes/*/manifest.jsonc` is the list.
+		// OQ-BP-4's ledger entry in docs/design/backend-parity.md keeps the original four by
+		// name, which is correct there: it records what was measured on 2026-09-14.
+		//
+		// The measurement CONFIRMED the skip and replaced its reason. On `container` 1.1.0
+		// nothing crosses container→host at ANY bind address, and the two failures are NOT the
+		// same one twice:
+		//
+		//   - a listener bound to the Mac's 127.0.0.1 — what svcendpoint.Listen actually binds
+		//     — is never reached at all: every candidate got ECONNREFUSED, and the host side
+		//     accepted no peer. Nothing forwards this host's loopback, the way rootless
+		//     podman's pasta does with --map-host-loopback.
+		//   - a WIDER bind (0.0.0.0, or the vmnet bridge address) does complete a handshake and
+		//     then carries nothing, by two alternating mechanisms (ENOTCONN on a just-accepted
+		//     socket; a NAT-answered CONNECT to a port nothing accepts).
+		//
+		// So no bind address helps, but do not compress that into "bridge and wildcard die
+		// like 127.0.0.1" — this comment did, and it hid the one result the follow-up pricing
+		// turns on: the cheap remedy the test's own `hits` branch prices (bind the bridge
+		// address only) is refuted by the TEARDOWN, not by the refusal. `host.containers
+		// .internal` does not resolve there either. integration/applecontainer_test.go's
+		// TestAppleContainerReachesHostLoopback is the witness, and it is bounded:
+		// container→internet works, Mac→container works.
 		//
 		// So this is narrower than it was and it will EXPIRE with an upstream release rather
 		// than standing forever. Re-run that test before believing it still holds.
 		return "inert on this backend — Apple Container carries no container→host connection " +
-			"(measured on 1.1.0: the handshake completes and nothing crosses), so a " +
-			"loopback-tls loophole could not be reached from the jail this launch"
+			"(measured on 1.1.0: a loopback-bound listener is never reached, and a wider bind " +
+			"completes a handshake that carries nothing), so a loopback-tls loophole could " +
+			"not be reached from the jail this launch"
 	}
 	return ""
 }

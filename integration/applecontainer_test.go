@@ -455,10 +455,14 @@ func TestAppleContainerHonorsReadOnlyBinds(t *testing.T) {
 // WHAT IT IS FOR. docs/design/backend-parity.md's OQ-BP-4 ruled 2026-09-14 that loopholes
 // should be supported as fully as possible on EVERY backend, and that the blanket Apple
 // Container skip in `startLoopholes` (loopholesruntime.go, *"no socket bind-mount there"*)
-// describes the unix-socket era: FOUR of the six shipped loopholes declare
-// `transport: loopback-tls` — claude-oauth-broker, host-processes, journal, serial — and
-// reach the host over the NETWORK, learning their endpoint from a 0600 file in a bind-mounted
-// DIRECTORY, which this backend mounts fine. So the stated reason covers none of them.
+// describes the unix-socket era: MOST shipped loopholes declare `transport: loopback-tls` —
+// claude-oauth-broker, host-processes, journal and serial when OQ-BP-4 was ruled, plus
+// aws-auth since — and reach the host over the NETWORK, learning their endpoint from a 0600
+// file in a bind-mounted DIRECTORY, which this backend mounts fine. So the stated reason
+// covers none of them. (This said "FOUR of the six shipped loopholes"; the count is dropped
+// rather than incremented, for the reason loopholeinert.go's own retraction gives — two
+// loopholes landed in the week after it was written. `rg -l '"transport": "loopback-tls"'
+// packs/*/loopholes/*/manifest.jsonc` is the list.)
 // What nobody has ever measured is the premise underneath: whether a container here can reach
 // a listener bound to the Mac's own 127.0.0.1 at all. `advertiseHostFor` excludes Apple
 // Container before it even reads the network mode, so the tree has no answer to "what address
