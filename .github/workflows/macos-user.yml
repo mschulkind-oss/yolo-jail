@@ -32,8 +32,9 @@ on:
   workflow_dispatch:
 
 # DELIBERATELY NOT ON push/pull_request, and this is a cost decision rather than a
-# policy one: nobody has measured what a first macos-user launch costs. §10.8 item 5
-# of docs/design/macos-user-provisioning.md says so outright, and the suite's own
+# policy one: nobody has measured what a first macos-user launch costs.
+# docs/reference/macos-user-provisioning.md ("The one unmeasured claim — what a first
+# stage costs") says so outright and names this job, and the suite's own
 # 30-minute per-launch deadline is documented as a ceiling on waste rather than an
 # estimate. Wiring this to every PR touching `internal/macosuser/` commits every such
 # PR to an unmeasured wait. The first green run IS the measurement; a `paths:` filter

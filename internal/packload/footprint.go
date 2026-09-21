@@ -386,7 +386,10 @@ func FootprintOf(p *Pack) Footprint {
 			// name it") is right for briefing/skills, where `into` with no identity is an
 			// unaddressable DESTINATION (R4), and wrong here: `files` with `into` AND `from` is
 			// the pack's own tree, which was never a destination and is not missing anything.
-			detail := audienceDetail(c, "read-only tree")
+			detail := "read-only tree"
+			if len(c.Agents) > 0 || c.Agent != "" {
+				detail = audienceDetail(c, detail)
+			}
 			add(packdecl.KindFiles, filesTarget(c, p.Name), detail, false)
 		case packdecl.KindState:
 			if c.Scope == "machine" {
