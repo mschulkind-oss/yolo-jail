@@ -17,8 +17,9 @@ questions are collected in [§9](#9-open-questions); three of them are questions
 spec), [`../reference/macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md)
 (the existing backend — see the correction in [§2](#2-the-bug-that-was-fixed-blind--your-first-job-is-to-run-it) before trusting it),
 [`../guides/macos.md`](../guides/macos.md) (usage),
-[`../design/provisioner-sets.md` §6.7](../design/provisioner-sets.md#67-macos-vs-linux-coverage-freshness-and-the-traps)
-and [§10](../design/provisioner-sets.md#10-alternatives-each-with-a-verdict) (alternative H, formerly Option 1, **was** a prerequisite for 7.2 and is now shipped — see [§5](#5-the-nix-prerequisite--shipped-verified-2026-08-23) below),
+[`../design/provisioner-evidence.md`](../design/provisioner-evidence.md#37-macos-vs-linux-coverage-freshness-and-the-traps)
+(macOS vs Linux coverage and freshness — split out of `provisioner-sets.md` on 2026-09-20)
+and [`../design/provisioner-sets.md`](../design/provisioner-sets.md#10-alternatives-each-with-a-verdict)'s alternatives (alternative H, formerly Option 1, **was** a prerequisite for 7.2 and is now shipped — see [§5](#5-the-nix-prerequisite--shipped-verified-2026-08-23) below),
 [`macos-revival-and-distribution-plan.md`](macos-revival-and-distribution-plan.md) (the other
 Mac-gated ledger; its Track M and this doc's [§4](#4-what-else-on-the-mac-is-gated-beyond-phase-7) overlap), and [`roadmap.md`](roadmap.md).
 

@@ -17,7 +17,8 @@ prefix.
 > [!IMPORTANT]
 > **This document is retired. It was merged into
 > [`provisioner-sets.md`](provisioner-sets.md) on 2026-09-11 and holds no content of its own.**
-> Do not add to it, and do not cite it as the owner of anything — cite the merged doc.
+> Do not add to it, and do not cite it as the owner of anything — cite the doc that holds the
+> material now, which the table below names directly.
 
 **Why it was retired.** The two docs held one subject from two directions.
 [`provisioner-sets.md`](provisioner-sets.md) has the **model**: every environment has a
@@ -29,18 +30,25 @@ had the **depth on a single resolver**: nix below the jail notch. Its own load-b
 this doc was that doc's argument, reached early and stopped at one row of the table. Two of its
 six live questions were the merged doc's own questions asked earlier.
 
-**Where its content went**, all of it inside
-[`provisioner-sets.md`](provisioner-sets.md):
+**Where its content went.** It was merged into [`provisioner-sets.md`](provisioner-sets.md) on
+2026-09-11, and **that doc was itself split three ways on 2026-09-20**: the model, the rulings and
+the questions stayed there, the survey became
+[`provisioner-evidence.md`](provisioner-evidence.md), and the Mac measurements became
+[`../plans/runbooks/mac-provisioner-measurements.md`](../plans/runbooks/mac-provisioner-measurements.md).
+**Every row below names the final home**, so that intermediate hop is stated here once and never
+per row. Most of this doc's material rode the split into the evidence doc, which is where the nix
+depth now lives; what stayed with the model is the handful of findings its rulings quote.
 
 | What it held | Now |
 | :--- | :--- |
-| The nix resolver: what is shipped, the four mechanisms, `nix profile --profile`, the orthogonality finding, macOS vs Linux, the no-nix cases | [§6](provisioner-sets.md#6-the-nix-resolver-in-depth), in full |
-| The coverage matrix (which manager covers how many of the six agent CLIs) | [§4](provisioner-sets.md#4-the-coverage-matrix-which-manager-covers-what) — the two docs carried two copies; this is the survivor |
-| The `install_hints`-vs-nix-profile comparison | [§4.1](provisioner-sets.md#41-install_hints-and-a-nix-profile-are-complementary-not-competitors) |
-| The isolation/environment split (*"mimic our in-jail envs more"*) | [§6.5](provisioner-sets.md#65-the-isolationenvironment-split-what-a-non-container-notch-can-reproduce) |
-| Options 0–3 and their shipped status | [§10](provisioner-sets.md#10-alternatives-each-with-a-verdict), alternatives G, H, I and J |
-| The preserved traps: the devShell dump, the unfree warn-and-skip, the `x86_64-darwin` retraction, the GC root's four deliberate properties | the `> [!WARNING]` blocks in [§6.2](provisioner-sets.md#62-the-four-nix-mechanisms-compared-and-why-never-a-devshell), [§6.7](provisioner-sets.md#67-macos-vs-linux-coverage-freshness-and-the-traps) and [§6.8](provisioner-sets.md#68-what-if-the-user-has-no-nix) |
-| Its Decision Ledger and its verified-facts tables | the merged [Decision Ledger](provisioner-sets.md#decision-ledger) and [§14.1](provisioner-sets.md#141-inherited-from-the-retired-doc-with-its-own-dates), which keeps their original 2026-08-02 / 2026-08-23 dates |
+| The nix resolver: what is shipped, the four mechanisms, `nix profile --profile`, the orthogonality finding, macOS vs Linux, the no-nix cases | [the evidence doc's nix resolver](provisioner-evidence.md#3-the-nix-resolver-in-depth), in full |
+| The coverage matrix (which manager covers how many of the six agent CLIs) | [the evidence doc's coverage matrix](provisioner-evidence.md#2-the-coverage-matrix-which-manager-covers-what) — the two docs carried two copies; this is the survivor |
+| The `install_hints`-vs-nix-profile comparison | [the complementarity section](provisioner-evidence.md#21-install_hints-and-a-nix-profile-are-complementary-not-competitors) |
+| The isolation/environment split (*"mimic our in-jail envs more"*) | [the isolation/environment split](provisioner-evidence.md#35-the-isolationenvironment-split-what-a-non-container-notch-can-reproduce) |
+| Options 0–3 and their shipped status | [the model doc's alternatives](provisioner-sets.md#10-alternatives-each-with-a-verdict), alternatives G, H, I and J |
+| The preserved traps: the devShell dump, the unfree warn-and-skip, the `x86_64-darwin` retraction, the GC root's four deliberate properties | the `> [!WARNING]` blocks in [the four mechanisms compared](provisioner-evidence.md#32-the-four-nix-mechanisms-compared-and-why-never-a-devshell), [macOS vs Linux](provisioner-evidence.md#37-macos-vs-linux-coverage-freshness-and-the-traps) and [what if the user has no nix](provisioner-evidence.md#38-what-if-the-user-has-no-nix) |
+| Its Decision Ledger | the model doc's [Decision Ledger](provisioner-sets.md#decision-ledger) |
+| Its verified-facts tables | [the facts inherited from this doc](provisioner-evidence.md#41-inherited-from-the-retired-doc-with-its-own-dates), which keep their original 2026-08-02 / 2026-08-23 dates |
 
 **Question ids.** Every number survives; each gained an `NX` prefix, because bare numbers collide
 once two docs share one file — concretely, this doc's [`OQ-9`](provisioner-sets.md#OQ-NX9) and
@@ -70,6 +78,8 @@ folded into questions the merged doc already had, is
 retirement.
 
 **Two corrections the merge found in this doc, recorded so nobody re-derives them from the git
-history:** its `flake.nix:1204` / `:1210` citations are stale (the attrs are at `:1636` and
-`:1642` as of 2026-09-11), and its *"four npm, two installer"* pack census is stale (three and
-three since `codex` flipped on 2026-09-04). Both are fixed in the merged doc.
+history:** its `flake.nix` citations for the two `yolo*Packages` attrs are stale, and its
+*"four npm, two installer"* pack census is stale (three and three since `codex` flipped on
+2026-09-04). Both are fixed and re-resolved in
+[`provisioner-evidence.md`](provisioner-evidence.md#4-facts-verified-and-how), which is where the
+nix depth and the census both ended up.

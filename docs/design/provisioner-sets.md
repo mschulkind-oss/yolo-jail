@@ -3,14 +3,22 @@ title: "yolo is a package manager whose backends differ per environment — and 
 date: 2026-09-11
 status: in-review
 tags: [packs, program, requires, provisioning, notch, nix, npm, brew, capture, host, guest]
-summary: "Every notch has a provisioner set — the mechanisms that can make a binary present there — and a pack's `program` named one provisioner (`via`) rather than a need, so it degenerated wherever that provisioner was absent. The jail has a full set, the guest a nix profile plus half-wired launchers, the host nothing yolo drives. Three rulings now stand: a pack declares a need plus its recipes, yolo ships a default precedence order the user's config overrides, and yolo drives the winner behind a confirm, sequenced last. Thirteen questions live after three compound ones were carved into their real decisions on 2026-09-11."
+summary: "Every notch has a provisioner set — the mechanisms that can make a binary present there — and a pack's `program` named one provisioner (`via`) rather than a need, so it degenerated wherever that provisioner was absent. The jail has a full set, the guest a nix profile plus half-wired launchers, the host nothing yolo drives. Three rulings now stand: a pack declares a need plus its recipes, yolo ships a default precedence order the user's config overrides, and yolo drives the winner behind a confirm, sequenced last. Thirteen questions live after three compound ones were carved into their real decisions on 2026-09-11. Split three ways on 2026-09-20: this file is the model and the questions, the survey and the measurements are siblings."
 vantage:
   status-chip: true
 ---
 
 # yolo is a package manager whose backends differ per environment — and the pack contract cannot say so yet
 
-**Status:** DESIGN, 2026-09-11, **amended twice the same day** — first to absorb
+**Status:** DESIGN, 2026-09-11, **split three ways on 2026-09-20.** This file is the **model**: the
+verdict, the rulings, the alternatives and the thirteen live questions. The survey it rests on —
+the provisioner inventory, the coverage matrix, the nix resolver's depth and the verification
+tables — is [`provisioner-evidence.md`](provisioner-evidence.md); the Mac measurements are
+[`../plans/runbooks/mac-provisioner-measurements.md`](../plans/runbooks/mac-provisioner-measurements.md).
+Nothing moved out of the argument: where a ruling rests on a measured fact, the fact is stated
+here and the other doc is where you check it.
+
+Before that it was **amended twice on 2026-09-11** — first to absorb
 [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md) (retired; see the Scope note),
 then by a review round that ruled two questions and **carved three compound ones into the
 decisions they actually contained** ([the carve table](#the-2026-09-11-carve-one-question-one-decision)).
@@ -21,10 +29,10 @@ keep their own 2026-08-02 / 2026-08-23 verification dates and say so
 [`OQ-PS4`](#decision-ledger), [`OQ-PS3`](#decision-ledger), [`OQ-PS2`](#decision-ledger) — and
 thirteen are open, all thirteen the maintainer's. The count went **up** because splitting a
 compound question into its real decisions is the point.
-**[§15](#15-what-a-mac-session-should-measure)'s five Mac measurements RAN on 2026-09-11**, on
-hardware this doc could not reach when it was written — they corrected four of the five items that
-asked them, one of them opened [`OQ-PS8`](#OQ-PS8), and one retracted a claim that had been
-gating [`OQ-PS10`](#OQ-PS10).
+**The five Mac measurements RAN on 2026-09-11**, on hardware this doc could not reach when it was
+written — they corrected four of the five items that asked them, one of them opened
+[`OQ-PS8`](#OQ-PS8), and one retracted a claim that had been gating [`OQ-PS10`](#OQ-PS10)
+([§15](#15-what-a-mac-session-should-measure)).
 
 > **In short.** yolo already is a package manager — the corpus has held that position since
 > [`program-delivery.md` §6.3](program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)
@@ -50,12 +58,15 @@ preference surface and the first yolo-driven mutation of a real machine's toolch
 ([§8.5](#85-the-ruling-yolo-drives-the-winner-behind-the-confirm-and-last)); and, if the kind is
 renamed, touches a closed 19-kind set, seven shipped manifests and a documentation gate.
 
-**Start at [§3](#3-the-provisioner-inventory-per-environment)** — the inventory. The five
-findings in [§3.1](#31-five-findings-the-table-forces) and every question below fall out of that
-table. The three rulings are
+**Start at [§1](#1-the-verdict-and-five-principles)** — the verdict and the five principles every
+question below is asked against. Then [§8](#8-the-shape-this-doc-leans-toward) for the shape and
+its three rulings:
 [§8.4](#84-the-ruling-a-pack-declares-a-need-and-its-recipes-the-environment-resolves) (the
 declaration), [§8.2](#82-the-ruling-a-shipped-default-order-the-user-config-overrides) (the
 order) and [§8.5](#85-the-ruling-yolo-drives-the-winner-behind-the-confirm-and-last) (the verb).
+The survey that forced all of it — the inventory, the coverage matrix, the nix depth — is
+[`provisioner-evidence.md`](provisioner-evidence.md), and you need it to **check** the argument
+rather than to follow it.
 
 **Needs your ruling:** [`OQ-PS1`](#OQ-PS1), [`OQ-PS5`](#OQ-PS5), [`OQ-PS6`](#OQ-PS6),
 [`OQ-PS7`](#OQ-PS7), [`OQ-PS8`](#OQ-PS8), [`OQ-PS9`](#OQ-PS9), [`OQ-PS10`](#OQ-PS10),
@@ -68,10 +79,11 @@ order) and [§8.5](#85-the-ruling-yolo-drives-the-winner-behind-the-confirm-and-
 > doc is retired.** The two held one subject from two directions: this one had the **model**
 > (an environment has a provisioner set; a pack declares a need, the environment resolves it),
 > that one had the **depth on one resolver** (nix below the jail notch) and six live questions,
-> two of which were this doc's own questions asked earlier. Its live material is
-> [§6](#6-the-nix-resolver-in-depth) and its questions keep their numbers under an `NX` prefix
-> ([the id map](#question-id-map-old-spelling--new)). Its retirement stub is
-> [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md).
+> two of which were this doc's own questions asked earlier. Its questions keep their numbers under
+> an `NX` prefix ([the id map](#question-id-map-old-spelling--new)) and are live here; its depth
+> travelled on to [`provisioner-evidence.md`](provisioner-evidence.md) in the 2026-09-20 split,
+> which is a move within one argument, **not** a re-separation of the two docs: the coverage
+> matrix still exists once, where the evidence is.
 >
 > **This is still a sibling of [`program-delivery.md`](program-delivery.md), not an extension.**
 > That doc is about the **jail**: its [§7](program-delivery.md#7-what-this-does-not-cover)
@@ -84,7 +96,14 @@ order) and [§8.5](#85-the-ruling-yolo-drives-the-winner-behind-the-confirm-and-
 > as given and re-derives none of them. What it adds is the axis no sibling owns: **which
 > provisioners an environment has**, across all three notches at once.
 
-**Reads with:** [`program-delivery.md`](program-delivery.md) (the jail's delivery classes and
+**Reads with — the two halves of this doc first.**
+[`provisioner-evidence.md`](provisioner-evidence.md) is the **survey**: the ten-row provisioner
+inventory per notch, the coverage matrix, the nix resolver in depth with its preserved traps, and
+the verified-facts tables — read it to check a claim, to add a row, or before re-running a probe.
+[`../plans/runbooks/mac-provisioner-measurements.md`](../plans/runbooks/mac-provisioner-measurements.md)
+is the **runbook**: the five Mac items M1–M5 with their commands, expectations and results — read
+it at a Mac, or to see what a measurement actually returned.
+Then: [`program-delivery.md`](program-delivery.md) (the jail's delivery classes and
 resolvers — not restated here), [`macos-user-provisioning.md`](macos-user-provisioning.md) (the
 guest's missing floor and stage),
 [`yolo-as-environment-manager.md` §3.5](yolo-as-environment-manager.md#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest)
@@ -127,7 +146,7 @@ maintainer's, stated in review on 2026-09-11; the other three are what the tree 
 - **P3. Every provisioner an environment has is either driven or hinted, out loud — never
   rendered and inert.** The guest notch has produced five instances of the inert case
   ([`macos-user-provisioning.md` §3](macos-user-provisioning.md#3-principles) P1, restated one level
-  up); [§3](#3-the-provisioner-inventory-per-environment) finds two more.
+  up); [§3.1](#31-five-findings-the-table-forces) finds two more, in F5.
 - **P4. A default is platform-conditional**, because the environment includes the OS and its
   manager. brew covers six of six agent CLIs on macOS; apt covers none of them on Linux
   ([§4](#4-the-coverage-matrix-which-manager-covers-what)). *"The system package manager is the
@@ -163,198 +182,111 @@ the notch happens to fix today because nothing else can vary it.
 
 ## 3. The provisioner inventory, per environment
 
+**The inventory moved to
+[`provisioner-evidence.md`](provisioner-evidence.md#1-the-provisioner-inventory-per-environment)** —
+ten provisioners against the three notches, with the underlying tool, what declares it, and the record each keeps.
+Every cell there is read from code at `77190a2b`, and three of the guest cells were since measured
+on hardware. Go to it to check a cell, to correct one, or before claiming an environment can do
+something. What stays here is the vocabulary the rest of this doc runs on and the five findings
+the table forces.
+
 **Three terms, coined here.** A **provisioner** is a mechanism that can make a binary present in
 an environment, together with whether yolo drives it there. Every resolver in
 [`program-delivery.md` §6](program-delivery.md#6-the-general-seam-one-ledger-many-resolvers) is one —
-that doc names them from the **record** side (who keeps the lockfile); this doc names the same
-mechanisms from the **environment** side (is it here, and does yolo run it). Two provisioners
-below are *not* [§6](program-delivery.md#6-the-general-seam-one-ledger-many-resolvers) resolvers: the system package manager, which yolo hints, and the capture
-store, which yolo drives. An environment's **provisioner set** is the provisioners it offers. A
-provisioner's **disposition** at a notch is one of **drives** (yolo runs it), **hints** (yolo
-prints its command and stops) or **absent** (no code path). None of the three words appears in
-the code; the nearest thing is the confinement Profile's one provisioning primitive
-([§3.1](#31-five-findings-the-table-forces), F4).
+that doc names them from the **record** side (who keeps the lockfile); this one names the same
+mechanisms from the **environment** side (is it here, and does yolo run it) — and two of the
+inventory's rows are not that doc's resolvers at all: the system package manager, which yolo
+hints, and the capture store, which yolo drives. An environment's **provisioner set** is the
+provisioners it offers. A provisioner's **disposition** at a notch is one of **drives** (yolo runs
+it), **hints** (yolo prints its command and stops) or **absent** (no code path). None of the three
+words appears in the code; the nearest thing is the confinement Profile's one provisioning
+primitive (F4 below).
 
 Notches are the three values of the confinement dial —
 [`yolo-as-environment-manager.md` §4](yolo-as-environment-manager.md#4-confinement-a-dial-with-three-notches).
-**guest** below means the shipped `macos-user` backend; the Linux guest is unbuilt and has no
-row.
-
-| # | Provisioner | Underlying tool | Declared by | jail | guest (`macos-user`) | host | Record |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| 1 | **nix image** — the baked floor plus `packages:` | nix (`nix build .#ociImage`) | `packages:` (config key, not a pack kind) | **drives** | absent — no image | absent | `flake.lock`, load sentinel, image GC root |
-| 2 | **nix profile** — a buildEnv realized by `darwinpkg.Materialize`/`MaterializeAt`. ⚠ **Two attrs since 2026-09-12**: `yoloNoncontainerProfile` (the FLOOR plus `packages:`) for a notch with no image, `yoloNoncontainerPackages` (declared alone) for a container that already has one | nix | the floor, plus `packages:` | **drives**, opt-in only: `YOLO_STORE_PACKAGES=1` on podman + Linux + a nix daemon (`internal/cli/run/storepackages.go:314`) — declared packages ONLY, never the floor | **drives** — and no longer "the one mechanism that works there", since the floor arrives the same way | **absent — no caller.** `yolo host apply` has no `packages` path, honoured or refused ([§6.1](#61-what-is-already-solved-stated-precisely)) | `--out-link` GC root |
-| 3 | **mise** | mise | `mise_tools` (config key) | **drives** — `mise install` in `setupScript` (`internal/cli/run/command.go`) | **drives, since 2026-09-12** — `mise` is on the floor and the confined provisioning stage runs `mise install` before the agent (`internal/macosuser/provision.go`); the warning that said "absent" was retired with the gap. ⚠ NOT MEASURED on hardware | absent | `mise.lock` honoured, never written by yolo |
-| 4 | **npm / go, for servers** — LSP and MCP presets | `npm install -g`, `go install` | `lsp_servers`, `mcp_presets` | **drives** — bootstrap script (`internal/entrypoint/shell.go:204`) plus the evergreen refresh (`internal/entrypoint/serverrefresh.go`) | **drives, since 2026-09-13 — ⚠ NOT MEASURED on hardware, and MEASURED FALSE there on 2026-09-12.** The bootstrap generated the script and the stage execed it, but the script installs from `$YOLO_LSP_NPM_INSTALL` / `$YOLO_LSP_GO_INSTALL` and the only producer of either was the container's podman `-e` lines — so the list was empty and the stage exited 0 having installed nothing. Both variables now cross into the bootstrap env **and** the session env file the stage sources ([handoff](../plans/handoff-macos-user-open-threads.md#1-lsp_servers-installs-nothing-on-this-backend--ruled-and-wired-2026-09-13)). `mcp_presets` is still absent and **warned**: the wrappers are Linux-absolute and the stage installs none of the npm packages behind them. ⚠ the refresh is baked into every launcher and **silently no-ops** ([§3.1](#31-five-findings-the-table-forces), F5) | absent | `~/.yolo-installed-lsps` sentinel; receipts |
-| 5 | **npm, for programs** — `program via: npm` | `npm install -g` | pack `program` | **drives** — lazy launcher, hourly update (`internal/entrypoint/shims.go:342`) | **driven but unprovisioned** — the launcher is generated (`RunDarwinBootstrap`, `internal/entrypoint/darwin.go`) and second on `SandboxPath` (`internal/macosuser/macosuser.go`), and nothing supplies `npm`; it fails on the first invocation — **MEASURED 2026-09-11** ([§15](#15-what-a-mac-session-should-measure), M1): `npm: command not found` then `⚠ <bin> not available`, exit 1, so *warned* after all | **hints** — present/missing plus a remedy; a `yolo host -- <bin>` wrapper is written (`hostwrap.Body`, `internal/hostwrap/hostwrap.go`) and exits 127 when the binary is absent (`internal/cli/host.go`) | receipt `kind:"npm"` |
-| 6 | **vendor installer** — `program via: installer` | `curl` the script, then `bash <file>` (`shims.go:1478`) | pack `program` | **drives** | **drives** — `curl` and `bash` exist at `/usr/bin` and it succeeds: **MEASURED 2026-09-11** ([§15](#15-what-a-mac-session-should-measure), M1), three of three packs, two installing from scratch. The one working `program` provisioner the guest has | **hints**, as row 5 | receipt `kind:"installer"` |
-| 7 | **capture store** — yolo's own CAS | reflink → hardlink → copy (`internal/capture/materialize.go:148`) | derived from row 6 | **drives**, cold install only; auto-capture default on | **recording half only, and that half is MEASURED 2026-09-11** ([§15](#15-what-a-mac-session-should-measure), M4): `yolo capture claude` records and stores an entry; what refuses here is AUTO-capture and `_try_materialize` (`internal/cli/run/autocapture.go:16-31`; F5) | absent | capture manifest; receipt `kind:"capture"` |
-| 8 | **system package manager** — brew, brew-cask, apt, dnf, pacman; nix by elimination | none — command strings only | `install_hints` on `program` and `requires` | n/a (the image is the floor) | **hints** — `AssertRequiredBins` warns by name (`darwin.go`) | **hints only** — `check-deps` / `host apply` print the remedy and write `~/.config/yolo/Brewfile` and kin (`internal/cli/checkdeps.go`); **never executed** | the generated manifest |
-| 9 | pnpm launcher | `npm install -g` | hardcoded (`shims.go:588`) | **drives** | driven, unprovisioned (as row 5) | absent | receipt `kind:"npm"` |
-| 10 | claude plugins | `claude plugins install` | pack hook | **drives** | **drives** (`darwin.go:112`) | refused by design (`internal/render/fieldset.go:118-120`) | claude's own file |
-
-Every cell is READ FROM CODE at `77190a2b`. **The guest column's rows 5, 6 and 7 are now also
-MEASURED on hardware** (2026-09-11, [§15](#15-what-a-mac-session-should-measure) M1 and M4), and two
-of the three changed: row 6 from *may succeed* to **drives**, row 7's refusal from `yolo capture` to
-auto-capture. The rest of that column is still READ FROM CODE only.
+**guest** means the shipped `macos-user` backend; the Linux guest is unbuilt and has no row.
 
 ### 3.1 Five findings the table forces
 
-**F1 — The nix asymmetry: the host is the only notch where yolo owns no provisioner.** The jail
-gets nix as an image (row 1) or, opted in, as a profile (row 2); the guest gets nix as a profile
-(row 2). The same MECHANISM serves both — two consumers, `macos-user` and the Linux store farm
-(`internal/cli/run/storepackages.go:327` calls `darwinpkg.MaterializeAt`) — and **zero at the
-host**. ⚠ It was the same flake ATTRIBUTE until 2026-09-12, and it is now two: the floor belongs
-in the notch with no image and must stay out of the store farm, whose directory outranks `/bin`
-([`macos-user-provisioning.md`](macos-user-provisioning.md)). So the host is not merely "the notch with
-the fewest provisioners"; it is the notch with none yolo drives. That, and not anything about
-the kinds, is why `program` degenerates there: with nothing to drive, every declaration reduces
-to *is it on PATH, and what would install it* — which is the whole of `requires`. The merged
-doc reached this same conclusion for its one resolver and stopped there; its
-[§6.4](#64-not-orthogonal-to-confinement-the-provisioning-primitive-below-jail) is the argument.
+The findings are the argument; their code citations, their measured negatives and the table they
+fall out of are in [`provisioner-evidence.md`](provisioner-evidence.md#11-five-findings-the-table-forces).
 
-**F2 — The system package manager is a provisioner yolo models completely and never uses.**
-`detectManager` picks brew on macOS and probes apt/dnf/pacman/brew on Linux, reaching `nix` by
-elimination (`internal/depcheck/depcheck.go`). `installCmd` knows each manager's verb,
-brew's cask verb included (`:190`). `Manifest` writes the manager's own bundle file
-(`:237`), and `check-deps` puts it at `~/.config/yolo/Brewfile` (`internal/cli/checkdeps.go:78-93`).
-Then it stops. **MEASURED negative:** no reader of a remedy ever executes it — every consumer of
-`Result.Remedy`, `.Fallback` and `.SelfInstall` is a print or a string builder, and no
-`exec.Command` exists in `internal/depcheck`, `internal/render`, `checkdeps.go` or
-`applyhostdeps.go`. The deferral is by name, in the code:
-
-```go
-// It NEVER installs anything (BACKLOG's detect-vs-apply split): it detects and hands off
-// with the command. The offer-to-run (behind a batched, sudo-shown-through confirm,
-// OQ-9) belongs to `apply` at a lower notch — this verb is the probe half, usable by a
-// project's own doctor over the same declared hints.
-```
-
-(`internal/cli/checkdeps.go:9-12`.) The offer's UX was ruled on 2026-08-01 — env-manager
-[`OQ-9`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase): *batched by
-elevation class, sudo first* — and that plan's own audit says its resolution *"has no
-consumer at all today"*. What the roadmap's thread 29 did on 2026-09-10 was **authorise** Phase
-6.4 and 4.3 as the mechanism for the `--assert` fatal, not design them, and
-[`OQ-RO7`](../reference/report-tiers.md#why-its-this-way) — whether the fatal covers `program` as well as `requires` — was
-RULED on 2026-09-11: **both fatal, only `program` gets the offer**, which is the predicate
-[`OQ-PS3`](#decision-ledger)'s recipe model reinforces rather than disturbs (a `requires` is a need with no
-runnable recipe, so there is nothing to offer). ⚠ **And the shipped precedence has the pack choosing.** `depcheck.Check` ranks the
-declaring pack's *own* installer first and the detected manager's hint second, keeping the
-manager's command only as `Fallback` (`depcheck.go:147-151`, `:160-164`, re-read 2026-09-11;
-commit `b796d8b8`, *"remedies that lead with upstream"*). Under P1 that order is inverted: the
-user's preferred manager leads, and the pack's recipe is what it falls back to — which is the
-[§8.2](#82-the-ruling-a-shipped-default-order-the-user-config-overrides) ruling, and the reason
-that precedence comment is preserved rather than deleted.
-
-**F3 — `program` and `requires` differ nine ways in a jail and collapse at the host, and the
-code says so itself.** In a jail: combine rule (`CombineExclusive` by bin vs `CombineShared`,
-`internal/packdecl/kinds.go:296-307`); a launcher vs nothing (`internal/entrypoint/requires.go:12-14`:
-*"this generates NOTHING"*); capturable (installer-via only, `internal/cli/capturehost.go:283`) vs
-never; a receipt vs none; an agent-name claim vs deliberately not one
-(`internal/packload/footprint.go:857`, `:908-918`); review-worthy vs not; a launch disclosure vs
-none; a self-install command vs `""` (`contributes.go:570-571`); seven accepted fields vs two. At
-the host: one collector, `Manifest.DepRequirements`, one probe, one report line differing in its
-kind label (`internal/cli/applyhostdeps.go:129`), and one docstring that states this doc's finding
-in the code's own words — *"The kinds differ in what they do to a JAIL (a program gets a launcher,
-a requires gets an assertion), not in what they ask of a host"* (`contributes.go:594-598`). The one
-host-side artefact that does differ is the `yolo host --` wrapper `program` gets and `requires`
-does not (row 5), and it installs nothing. **The noun/verb mismatch** — `program` is a thing,
-`requires` is an act — is part of why the pair reads as incomparable; it is noted here and spent
-nowhere else, because naming is downstream ([§7.3](#73-naming-is-downstream)).
-
-**F4 — The code already half-models the provisioner set, with one member.** The confinement
-Profile is a vector of primitives, and one of its six is not a confinement primitive at all:
-
-```go
-// PrimBakedImage: a nix-built OCI image (the jail's package closure). A provisioning
-// primitive, not a confinement one, but it travels with the jail notch and is absent
-// below it.
-```
-
-(`internal/render/confinement.go:39-42`, re-read 2026-09-11.)
-[§6.4](#64-not-orthogonal-to-confinement-the-provisioning-primitive-below-jail) argues the nix
-profile is a candidate seventh (`PrimNixProfile`) and notes that `describe` switches on
-`PrimBakedImage`'s **absence** to decide whether to print the profile. The provisioner set is
-that idea completed: a per-environment vector with as many members as
-[§3](#3-the-provisioner-inventory-per-environment) has rows, of which the tree today spells exactly
-one. Whether it lives in the Profile or beside it is an implementation choice this doc delegates
-([§8](#8-the-shape-this-doc-leans-toward)).
-
-**F5 (a defect, not a finding) — the guest has two provisioners armed and unreachable.** The
-macos-user run plan sets `YOLO_LSP_SERVERS` and `YOLO_MCP_PRESETS`, so every guest launcher is
-baked with a non-empty server list and `SERVERS_ENABLED=1`; but `_refresh_servers` and
-`_try_materialize` both open with `command -v yolo || return`, and the sandbox's `yolo` is staged
-at `/var/yolo-jail/yolo` (`internal/macosuser/macosuser.go:139`), which is **not** on
-`SandboxPath` (`:461-475`). Both no-op silently. Nothing in the tree records this, and the launch
-warning at `loopholeinert.go:316-320` blames the missing bootstrap script alone. READ FROM CODE;
-it is P3's failure mode exactly, and it is small enough to fix ahead of any ruling here.
+- **F1 — The nix asymmetry: the host is the only notch where yolo owns no provisioner.** The jail
+  gets nix as a baked image or, opted in, as a profile; the guest gets the profile; the host gets
+  nothing yolo drives. That, and not anything about the kinds, is why `program` degenerates there:
+  with nothing to drive, every declaration reduces to *is it on PATH, and what would install it* —
+  which is the whole of `requires`. The retired doc reached this conclusion for its one resolver
+  and stopped there.
+- **F2 — The system package manager is a provisioner yolo models completely and never uses.**
+  `detectManager` picks brew on macOS and probes apt/dnf/pacman/brew on Linux, reaching `nix` by
+  elimination; `installCmd` knows each manager's verb, brew's cask verb included; `Manifest` writes
+  the manager's own bundle file and `check-deps` puts it at `~/.config/yolo/Brewfile`. Then it
+  stops — **MEASURED negative:** every consumer of a remedy is a print, and the deferral is stated
+  in the code's own comment. ⚠ **And the shipped precedence has the pack choosing**: `depcheck.Check`
+  ranks the declaring pack's own installer first and keeps the detected manager's command only as
+  `Fallback`. Under P1 that order inverts, which is the
+  [§8.2](#82-the-ruling-a-shipped-default-order-the-user-config-overrides) ruling.
+- **F3 — `program` and `requires` differ nine ways in a jail and collapse at the host, and the
+  code says so itself** — *"The kinds differ in what they do to a JAIL (a program gets a launcher,
+  a requires gets an assertion), not in what they ask of a host"* (`internal/packdecl/contributes.go`).
+  In a jail they differ in their combine rule, a launcher versus nothing, capturability, a receipt,
+  an agent-name claim, review-worthiness, a launch disclosure, a self-install command and their
+  accepted field sets; at the host they share one collector, one probe and one report line whose
+  only difference is the kind label. The one host-side artefact that does differ is the
+  `yolo host --` wrapper `program` gets, and it installs nothing. **The noun/verb mismatch** —
+  `program` is a thing, `requires` is an act — is noted here and spent nowhere else, because naming
+  is downstream ([§7.3](#73-naming-is-downstream)).
+- **F4 — The code already half-models the provisioner set, with one member.** The confinement
+  Profile is a vector of primitives, and `PrimBakedImage`'s own comment calls it *"a provisioning
+  primitive, not a confinement one"* that *"travels with the jail notch and is absent below it"*
+  (`internal/render/confinement.go`). `describe` already switches on that primitive's **absence**
+  to decide whether to print the resolved profile line. The provisioner set is that idea completed:
+  a per-environment vector with as many members as the inventory has rows, of which the tree spells
+  exactly one. Whether it lives in the Profile or beside it is an implementation choice this doc
+  delegates ([§8](#8-the-shape-this-doc-leans-toward)).
+- **F5 (a defect, not a finding) — the guest has two provisioners armed and unreachable.** The
+  macos-user run plan bakes a non-empty server list and `SERVERS_ENABLED=1` into every guest
+  launcher, but `_refresh_servers` and `_try_materialize` both open with `command -v yolo || return`
+  and the sandbox's `yolo` is staged at a path that is not on `SandboxPath`. Both no-op silently,
+  nothing in the tree records it, and the one launch warning nearby blames a different cause. It is
+  P3's failure mode exactly, and small enough to fix ahead of any ruling
+  ([§9](#9-what-i-would-build-in-order) step 1).
 
 ---
 
 ## 4. The coverage matrix: which manager covers what
 
-This table is the single most consequential fact in the doc — it is what makes P4 and P5 true
-rather than merely plausible, and it is the only reason *"prefer the system manager"* cannot be
-a rule. It was **measured 2026-08-02** in the doc this one absorbed, sourced from the pack-host
-plan's [§8.3](../plans/pack-host-management-plan.md#phase-8--host-deps-for-the-fzf-case--scoped-closes-the-acceptance-test--shipped),
-and is **cited, not re-measured, here** — the two docs carried two copies of it and this is the
-survivor.
+**The matrix moved to
+[`provisioner-evidence.md`](provisioner-evidence.md#2-the-coverage-matrix-which-manager-covers-what)**,
+together with the `install_hints`-versus-nix-profile comparison that followed it. It was measured
+2026-08-02 in the doc this one absorbed and is cited rather than re-measured: the two docs used to
+carry two copies of the table, and the split did not make a third — what stays below is the handful
+of numbers the rulings quote. Go there for the per-manager detail, the `brew bundle` exercise on
+hardware, and the dates.
 
-| manager | of the six agent packs | the detail that matters |
-| :--- | :--- | :--- |
-| `apt` | **0** | no Debian/Ubuntu release packages any of them, in any release |
-| `dnf` | **1** | `pi-coding-agent`, and only in Rawhide |
-| `pacman` | **2** | `openai-codex`, `opencode`; the other four are AUR-only, which `pacman -S` cannot install |
-| `brew` | **6** | four are **casks** (`claude-code`, `copilot-cli`, `codex`, `antigravity-cli`) — a Brewfile defect fixed 2026-08-02 by the `brew-cask` hint key, **exercised on a Mac 2026-09-11**: `brew bundle check` parses the generated cask lines and reports misses ([§15](#15-what-a-mac-session-should-measure), M2) |
-| `nix` | **6** | three are **`unfree`** (`claude-code`, `github-copilot-cli`, `antigravity-cli`), so a bare `nix profile install` refuses |
-
-Four things follow, and the maintainer asked for the third to be checked.
+**The numbers are load-bearing here, so they stay.** Of the six agent CLIs: **`apt` covers none**,
+**`dnf` one** (Rawhide only), **`pacman` two** (the other four are AUR-only, which `pacman -S`
+cannot install), **`brew` all six** — four of them casks — and **`nix` all six**, three of which
+are `unfree` and refused by a bare install. Three consequences the rest of this doc rests on:
 
 - **On macOS the system-manager default is well-founded:** brew covers all six.
-- **On Linux it fails:** a non-Arch host gets zero or one of six from its native manager. The
-  default is therefore **conditional on the platform** — which reinforces P1 and P4 rather than
-  weakening them, since "the environment" includes the distro.
-- ⚠ **The premise *"there's no nix package"* is wrong, and the real reason is more useful.** nix
-  covers six of six on every live platform; three refuse under a bare install because they are
-  **`unfree`** — a licensing gate, not an absence. That widens the option space: `allowUnfree` is
-  a decision a user can make once, where a missing package would have been a dead end. The jail
-  and guest already handle it as warn-and-skip via `meta.available`
-  ([`OQ-NX6`](#decision-ledger)), and yolo deliberately never sets it on the user's behalf.
-- **The sharpest sentence cuts against a naive *prefer the system manager* rule:** on Linux, nix
-  is the only manager covering all six, so **the reproducible path and the only-path-that-works
-  path are the same path**. That is a much stronger argument for a nix route than
-  "reproducibility is nice", and it is why [`OQ-PS1`](#OQ-PS1) is not a nicety.
+- **On Linux it fails:** a non-Arch host gets zero or one of six from its native manager, so the
+  default is **conditional on the platform** — P4, and a point *for* P1 rather than against it.
+- **The sharpest one cuts against a naive *prefer the system manager* rule:** on Linux, nix is the
+  only manager covering all six, so **the reproducible path and the only-path-that-works path are
+  the same path**. That is why [`OQ-PS1`](#OQ-PS1) is not a nicety. ⚠ And the premise *"there's no
+  nix package"* is wrong in a way that widens the option space: `unfree` is a licensing gate a user
+  can lift once, not an absence — though the lift is a `--impure` flag rather than an environment
+  variable, measured on darwin ([M3](../plans/runbooks/mac-provisioner-measurements.md#m3--does-nix-profile-install-refuse-the-unfree-agent-clis-on-darwin)).
 
-### 4.1 `install_hints` and a nix profile are complementary, not competitors
-
-The boundary is structural, not a preference. Inherited from the merged doc, verified 2026-08-02
-and re-read 2026-09-11:
-
-| | `install_hints` | a nix profile on PATH |
-| :--- | :--- | :--- |
-| Whose machine changes | **the user's**, permanently, in their manager's namespace | nothing outside `/nix/store` |
-| Reproducibility | **none** — `brew install claude-code` is "whatever brew has today" | yolo's `flake.lock`, byte-identical per platform |
-| Who runs it | the user (or Phase 4.3's confirm-gated offer) | yolo, as a build |
-| Scope | machine-global | **process-scoped** if yolo launches; otherwise nothing |
-| Works with no nix | **yes** — the entire point | no |
-| Coverage of the six agent packs | **weak** (above) | **6/6 on all three live platforms** ([§6.7](#67-macos-vs-linux-coverage-freshness-and-the-traps)) |
-
-**A nix profile does not make `install_hints` unnecessary, for three reasons**, and all three
-survive the ruling:
-
-1. **A user with no `/nix` gets nothing from it** ([§6.8](#68-what-if-the-user-has-no-nix)), and
-   telling a brew user to install nix to get `copilot` is a worse experience than
-   `brew install copilot-cli`. This is half of [`OQ-PS1`](#OQ-PS1).
-2. **`install_hints` answers a different question** — a pack's *host dependencies* generally.
-   The pack-host plan's motivating case is `fzf` and `fd` for a file-suggestion pack, not agent
-   CLIs. `fzf` is in nixpkgs, brew, apt and pacman alike; for that class a nix profile is
-   overkill.
-3. **The printed remedy is the floor the design deliberately guarantees** (env-manager
-   [§3.5](yolo-as-environment-manager.md#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest):
-   *"the composed manifest is always the floor"*). Anything driven is an *additional* offer, never
-   a replacement for the floor — which is exactly how [`OQ-PS2`](#decision-ledger) was ruled on
-   2026-09-11 ([§8.5](#85-the-ruling-yolo-drives-the-winner-behind-the-confirm-and-last)): the
-   offer was taken, the floor was not touched.
+**`install_hints` and a nix profile are complementary, not competitors**, and the boundary is
+structural rather than a preference: a user with no `/nix` gets nothing from a profile;
+`install_hints` answers the wider question of a pack's *host dependencies* (`fzf` and `fd`, not
+agent CLIs); and the printed remedy is the floor the env-manager design guarantees, so anything
+driven is an **additional** offer — which is exactly how [`OQ-PS2`](#decision-ledger) was ruled
+([§8.5](#85-the-ruling-yolo-drives-the-winner-behind-the-confirm-and-last)). The full comparison,
+row by row, is
+[there too](provisioner-evidence.md#21-install_hints-and-a-nix-profile-are-complementary-not-competitors).
 
 ---
 
@@ -369,9 +301,9 @@ on AUR, so we should continue to draw inspiration from there if we need it."* (m
 > package manager never trusts the build script's environment, only its captured product. The
 > pack's `program via installer` contribution is already the PKGBUILD analogue: a name and a URL.
 
-That was written for one class — the vendor installer. This doc generalises it: **every row of
-[§3](#3-the-provisioner-inventory-per-environment) is a package-manager backend**, and the thing
-the pack declares is a recipe. The AUR model is cited below only where it decides something;
+That was written for one class — the vendor installer. This doc generalises it: **every row of the
+[provisioner inventory](provisioner-evidence.md#1-the-provisioner-inventory-per-environment) is a
+package-manager backend**, and the thing the pack declares is a recipe. The AUR model is cited below only where it decides something;
 where it does not, it is left alone.
 
 ### 5.1 Where the AUR model carries weight
@@ -458,357 +390,42 @@ knows how.
 
 ## 6. The nix resolver, in depth
 
-**This section is the absorbed [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md)**, compacted. It is the only
-resolver with depth like this, for a reason worth stating: it is the one that already works at
-two notches and has no caller at the third, so it is where
-[`OQ-PS1`](#OQ-PS1) is decided. Its original analysis ran 2026-08-02 and was re-verified
-2026-08-23; dates below are the original measurements' unless stated.
+**The depth moved to
+[`provisioner-evidence.md`](provisioner-evidence.md#3-the-nix-resolver-in-depth).** This section was
+the absorbed [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md), compacted, and it
+is the only resolver with depth like this for a reason worth keeping in view: it already works at
+two notches and has no caller at the third, so it is where [`OQ-PS1`](#OQ-PS1) is decided.
 
-**Four terms, pinned**, because three of them are routinely conflated in conversation about nix.
+What is over there: the four nix mechanisms pinned and compared — a `devShell`, a `buildEnv`,
+`nix profile` and `nix shell`, three of which are routinely conflated — and why a devShell is
+**rejected in all forms** (measured: **22 PATH entries and 121 environment variables** for a
+one-package shell, one of which is the package asked for); `nix profile --profile <dir>`, the only
+candidate that reaches a user's own PATH; the already-shipped-versus-missing table; what a
+non-container notch can and cannot reproduce of the jail; platform coverage and freshness; the
+cases where the user has no nix; and four preserved traps — the devShell dump, the unfree warn-and-skip, the `x86_64-darwin` retraction and the GC
+root's four deliberate properties. **Read it before designing anything nix-shaped**; each of those
+traps cost a measurement to find.
 
-- **A `devShell`** — a `mkShell` derivation, entered with `nix develop` / `nix-shell`, or dumped
-  with `nix print-dev-env`. A **build environment**: the whole `stdenv` (a C compiler, GNU
-  coreutils, `make`) plus ~100 build variables.
-- **A `buildEnv`** (a *profile*) — `pkgs.buildEnv { paths = [ … ]; }`, a derivation whose output
-  is one symlink tree union-ing exactly the packages named. **No** toolchain, **no** environment
-  variables. Realized with `nix build --print-out-paths`, consumed by prepending `<out>/bin` to
-  PATH. Nothing is "entered." This is what `packages.yoloNoncontainerPackages` is.
-- **`nix profile`** — an imperative, mutable, per-user generation-tracked profile whose `bin` is
-  on the user's PATH via their nix install. It records a locked flake URL per entry, so it is
-  not *unpinned* — but the pin is whatever nixpkgs the registry resolved at install time, per
-  entry, drifting independently. It is not yolo's `flake.lock`.
-- **`nix shell`** (not `nix develop`) — the forgotten fourth mechanism; it behaves like a
-  `buildEnv`, prepending exactly the requested store `bin` dirs (verified 2026-08-02:
-  `nix shell nixpkgs#hello --command bash -c 'echo $PATH'` prepends **one** entry).
+**Three of its findings carry the model below, so they are stated here and checked there.**
 
-### 6.1 What is already solved, stated precisely
-
-The most common way to waste effort here is to design something that exists. State column
-verified 2026-08-23; the flake line numbers re-resolved 2026-09-11 (**the merged doc's
-`flake.nix:1204`/`:1210` are stale — the file grew above them**).
-
-| Capability | State | Where |
-| :--- | :--- | :--- |
-| A nix expression materializing `packages:` as a pure, toolchain-free profile | **SHIPPED** | `flake.nix:1636` `packages.yoloNoncontainerPackages` |
-| …for **every** `eachDefaultSystem` system, Linux included | **SHIPPED** | `noncontainerResolved`, `flake.nix:416`; verified on `x86_64-linux` |
-| Realizing it and putting `<out>/bin` on an agent's PATH, no container | **SHIPPED** | `internal/darwinpkg` → `internal/macosuser/orchestrator.go` |
-| Per-package "no build on this platform" filtering, warn-and-skip | **SHIPPED** | `noncontainerSkipped` (`flake.nix:521`), `yoloUnavailablePackages` (`:1642`) |
-| Pinning to yolo's `flake.lock` rather than the user's channel | **SHIPPED** (structural — it *is* the flake) | `flake.lock`, plus a second `nixpkgs-x86-darwin` input ([§6.7](#67-macos-vs-linux-coverage-freshness-and-the-traps)) |
-| A target system that follows the machine instead of a constant | **SHIPPED 2026-08-05** | `darwinpkg.NativeSystem()`, `internal/darwinpkg/darwinpkg.go:46-76` |
-| A **gcroot** on the realized profile | **SHIPPED 2026-08-05** — the root *is* the build's `--out-link`, so it cannot be skipped | `internal/darwinpkg/gcroot.go`, `darwinpkg.go:117-141` |
-| The resolved profile **reported** to a human | **SHIPPED 2026-08-05** for `describe`, and **2026-09-14** for `check` — both now gated on `PrimBakedImage` being absent ([§9](#9-what-i-would-build-in-order) step 2) | `printPackageProfile` (`internal/cli/describe.go`), `sectionPackageProfile` (`internal/cli/check/section_packageprofile.go`) |
-| `yolo check` verifying nix + `/nix` + trusted-user **on macOS** | **SHIPPED** | `cli/check/section_nix_probe.go`, `sections_macos_platform.go` |
-| The same, on **Linux** | **NOT WIRED** — `IsMacOS`-gated | the `o.IsMacOS && hasNix` branch in `section_nix_probe.go`, and `sectionMacOSPlatform`'s call in `check.go` ([`OQ-NX9`](#OQ-NX9)) |
-| A **caller** for the profile at the `host` notch | **DOES NOT EXIST** | `yolo host apply` never touches nix (`cli/apply.go`: no `packages` handling) |
-| `packages:` reported by `yolo host apply` / `check --at host` | **DOES NOT EXIST** — `packages` is not a pack *kind*, so the `FieldSet` census never sees it | `render/fieldset.go`, `cli/apply.go` ([`OQ-NX8`](#OQ-NX8)) |
-
-**So the honest framing was never "should yolo build a host nix environment."** It was: *yolo
-already has one, for one notch on one platform, called by one backend.* Two of the original five
-qualifiers are gone (the name, the GC root). What remains is F1 restated from the resolver's
-side: **one notch, one backend, no non-macOS coverage, and no host caller.**
-
-### 6.2 The four nix mechanisms compared, and why never a devShell
-
-| | reproducible? | PATH pollution | must be *entered*? | mutates the user's machine |
-| :--- | :--- | :--- | :--- | :--- |
-| **devShell** (`nix develop` / `print-dev-env`) | yes (flake-pinned) | **severe — below** | **yes** (subshell) or source a 70 KB bash script | no |
-| **`nix shell nixpkgs#x`** | yes | **none** (one dir prepended) | **yes** (subshell / `--command`) | no |
-| **`buildEnv` + PATH prepend** (shipped) | yes (flake-pinned) | **none** | **no** — the caller sets PATH for the process it launches | no |
-| **`nix profile add`** | per-entry, drifting | the user's whole profile | **no** — always on their PATH | **yes** — that is the point |
-
-> [!WARNING]
-> **The devShell is rejected in all forms, and the measurement is the argument.** Against this
-> repo's own nearly-empty `devShells.default` (its `buildInputs` is literally `[ pkgs.just ]`),
-> measured 2026-08-02: `nix print-dev-env` emits **22 PATH entries and 121 environment
-> variables**. The 22 for a one-package shell are `patchelf`, `gcc-wrapper`, `gcc`, `glibc-bin`,
-> `coreutils`, `binutils-wrapper`, `binutils`, **`just`**, then `stdenv.initialPath`'s
-> `coreutils findutils diffutils gnused gnugrep gawk gnutar gzip bzip2 gnumake bash patch xz
-> file`. **One of the 22 is what was asked for.** The 121 variables include `CC`, `CXX`, `AR`,
-> `LD`, `NIX_CFLAGS_COMPILE`, `SOURCE_DATE_EPOCH`, `TZ` and `SHELL`.
->
-> **It is worse at the host notch than it was on macos-user**, which is the new half of the
-> argument: on macos-user the pollution lands on a sandboxed agent's PATH; at `host` it lands in
-> **the human's own interactive shell**, beside their dotfiles, for the session. On macOS
-> `stdenv.initialPath` puts **GNU** `sed`, `grep`, `awk`, `tar`, `find` ahead of `/usr/bin`,
-> where those are BSD — `sed -i` alone differs — and `stdenv.cc` on `aarch64-darwin` is
-> `clang-wrapper-21.1.8`, ahead of Xcode's. The flake already recorded this rejection at
-> `flake.nix:1186-1194`; the host notch strengthens it.
->
-> **Two caveats, so it is not overstated.** `nix develop --ignore-environment` with
-> `stdenvNoCC` would reduce the dump — at which point you have hand-built a `buildEnv` with
-> extra steps. And a devShell *does* carry one thing a `buildEnv` cannot: environment variables
-> and `shellHook`s as part of the derivation. That is the whole of [`OQ-NX4`](#OQ-NX4).
-
-**`nix shell` is the interesting dark horse and it loses on two shipped facts.** It is the
-cheapest correct mechanism for "run this command with these tools available" and needs no flake
-output at all — but it is *only* a launcher, and it forfeits the two things that have since
-become load-bearing rather than theoretical: a **single stable path** (one dir to symlink,
-report in `describe`, and GC-root, where `nix shell` re-resolves per invocation) and
-**`flake.lock` pinning** (`nixpkgs#x` resolves through the user's *registry*, not yolo's lock).
-Keep it in mind as a simplification if the `buildEnv` ever proves more machinery than it earns.
-
-### 6.3 `nix profile --profile <dir>`: the only candidate that reaches a user's own PATH
-
-This is [`OQ-PS10`](#OQ-PS10) — the *what does it leave behind* question, carved out of the old
-compound [`OQ-PS1`](#OQ-PS1)(c) on 2026-09-11 — and the reason the merged doc's own
-[`OQ-3`](#decision-ledger) folded into it.
-
-`nix profile add` puts the binary on the user's PATH **forever, in every shell, with no
-cooperation from yolo** — which is precisely what a user asking *"how do I install copilot"*
-wants, and it is what `depcheck.installCmd` already prints for the `nix` manager. Its costs are
-real: it **mutates the user's machine** (the same category `install_hints` is in, so it belongs
-behind Phase 4.3's confirm, not a silent apply); its pin is per-entry and drifts from
-`flake.lock`; `nix profile upgrade` only works for unlocked references; and a bare install
-refuses the three `unfree` packages.
-
-**A `--profile <dir>` variant is the genuinely interesting middle ground**, and nothing else in
-the corpus considered it. `nix profile add --profile ~/.local/state/yolo/host-profile nixpkgs#…`
-builds a **yolo-owned** profile the user's PATH does not see by default — a `buildEnv`-like
-stable path *with* generations, rollback and `nix profile list` provenance. Verified working
-2026-08-02 into a temp dir, and again on darwin 2026-09-11
-([§15](#15-what-a-mac-session-should-measure) M3).
-
-> [!WARNING]
-> **⚠ Retracted 2026-09-11: "it costs the imperative/declarative purity the env-manager's sealing
-> story rests on… the closure table gains a row."** That sentence stood here and was the whole
-> basis of the old [`OQ-PS1`](#OQ-PS1)(c) conditional. It is **wrong**, and the correction is what
-> made [`OQ-PS10`](#OQ-PS10) answerable. Sealing's rule over the closure tiers is *"`--sealed`
-> refuses the **Undeclared** tier and **reports** the Declared-impure tier"*, and its criterion is
-> **nameability**
-> ([`yolo-as-environment-manager.md` §3.3](yolo-as-environment-manager.md#33-apply---sealed-the-definition-binds-or-the-apply-fails)).
-> A profile at a path yolo names is therefore **Declared-impure** — the tier `mise_tools` already
-> occupies — so it is reported and never refused. Confirmed against the code: `applySealed` refuses
-> exactly two inputs, a present `yolo-jail.local.jsonc` and outstanding capture overlay keys
-> (`internal/cli/apply.go:800-833`, read 2026-09-11); it reads no toolchain and no store path.
-> ⚠ Do not reintroduce a "sealing forbids a mutable profile" argument anywhere in this corpus —
-> at `guest` and `host`
-> [§3.3](yolo-as-environment-manager.md#33-apply---sealed-the-definition-binds-or-the-apply-fails)
-> already puts the **whole toolchain** outside the sealed closure, and
-> that is the design, not an oversight.
-
-**Three costs that are real**, and they are what [`OQ-PS10`](#OQ-PS10) actually weighs: it
-**mutates state yolo then owns** (a thing to reap, report and reason about across versions); its
-**pin is weaker** — MEASURED 2026-09-11, a `--profile` entry locks to whatever channel tarball
-`nixpkgs#…` resolved to, not to yolo's `flake.lock` ([§15](#15-what-a-mac-session-should-measure)
-M3); and a bare install still **refuses the three `unfree` packages**, which on a flake needs
-`--impure` rather than an environment variable (M3 again).
-
-⚠ **One argument for it has since been taken off the table:** the declarative `buildEnv` now
-GC-roots itself ([§6.8](#68-what-if-the-user-has-no-nix)), so *"it gcroots itself"* is no longer
-a `nix profile` advantage.
-
-### 6.4 Not orthogonal to confinement: the provisioning primitive below `jail`
-
-The maintainer's original framing was that a nix env supplies *tools* while confinement supplies
-*isolation*, so the two vary independently. That is true as a statement about the two **concepts**
-and false as a statement about the **work**, for three reasons that compound. This is F1 and F4
-from the resolver's side, and it is the merged doc's load-bearing finding.
-
-1. **`guest` needs the identical mechanism, and it is unbuilt.** Phase 7 is *"a real home on the
-   real filesystem, no image, an LSM boundary"*. **No image means no baked package closure**, so
-   `confinement: guest` has by construction the same hole as `host`. macOS `guest` already
-   answers it with the existing `buildEnv`; **Linux `guest` (7.2) has no package layer at all.**
-   A host-notch nix env designed in isolation would be Phase 7.2's package layer under a
-   different name. That is a shared dependency, not orthogonality.
-2. **The notch decides whether a PATH-prepend has a consumer.** At `jail` and `guest` yolo
-   launches the process, so a prepend works. At `host`, `yolo host apply` launches nothing —
-   hence the `launch` and `env` kinds' refusals — though its sibling verb `yolo host -- <cmd>`
-   does (shipped 2026-08-30). **The mechanism's viability is a function of the notch**, which is
-   the definition of not-orthogonal.
-3. **The primitive model already says so** — `PrimBakedImage`, F4's quoted comment. Since
-   2026-08-05 the code acts on it without minting the primitive: `describe` prints the resolved
-   profile line **iff `PrimBakedImage` is absent** from the notch's vector, because *"the
-   question 'where does my toolset come from' has a nix-profile answer only below the jail
-   notch"* (`internal/cli/describe.go:177-180`, re-read 2026-09-11). The *absence* of
-   `PrimBakedImage` is already the live switch for the whole mechanism — the argument for a
-   seventh primitive, made in the negative.
-
-**Where the instinct *is* right, and it is not a small consolation.** The nix env is orthogonal
-to the *enforcement* primitives — namespaces, Seatbelt, Landlock, separate-user. So the correct
-statement is:
-
-> A nix tool environment is orthogonal to the **enforcement** primitives and load-bearing for
-> the **provisioning** primitive. It is not a peer of the dial; it is what fills the
-> `PrimBakedImage`-shaped hole at the two notches that have no image.
-
-**The practical consequence:** designing this as "a host feature" risks a Linux `guest` package
-layer being built twice.
-
-### 6.5 The isolation/environment split: what a non-container notch can reproduce
-
-*"Mimic our in-jail envs more"* holds up, but only for about half of what the jail does, and
-making the split precise is the merged doc's main contribution. Everything the jail gives its
-agent, sorted by whether a nix closure plus a launch env could supply it off-container:
-
-| What the jail provides | Class | Off-container? |
-| :--- | :--- | :--- |
-| `corePackages` / `fullPackages` (the baked set) | **environment** | ✅ a `buildEnv` of the same attrs, minus the Linux-only ones |
-| `packages:` (user's extras) | **environment** | ✅ **already shipped** as `yoloNoncontainerPackages`, GC-rooted since 2026-08-05 |
-| `mise_tools` | **environment** | ✅ already runs natively on macos-user (`ConfigureMisePrism`) |
-| Env hygiene (`PAGER`/`GIT_PAGER=cat`, `EDITOR=cat`, `VISUAL=nvim`) | **environment** | ⚠️ **only for a process yolo launches.** In a shell yolo does not start this is a shell-rc edit, refused by name. And `EDITOR=cat` in a *human's* shell is hostile: it exists because an agent cannot drive an editor |
-| `PATH` order | **environment** | ⚠️ same. macos-user already needs a **login-rc re-prepend** to survive macOS `path_helper` — evidence of how far you must reach to own a PATH you did not start |
-| Blocked-tool shims (`grep -r`, `find`) | **hybrid** | ⚠️ mechanically yes; the design flags it opt-in — *"shims would land on your real PATH"* |
-| `/lib` farm + `LD_LIBRARY_PATH` + nix-ld | **environment, Linux-container-only** | ❌ no darwin analogue ([§6.6](#66-the-lib-farm-has-no-darwin-analogue-worth-building)) |
-| Composed agent config (settings, MCP, LSP, skills, briefing) | **environment** | ✅ **already shipped** — `yolo host apply` |
-| Disposable home / overlay; credential omission; `resources`; `network`; `devices` | **isolation** | ❌ — and credential omission is *inverted* at `host`: your creds are the point |
-| Agent autonomy | **policy, decided by confinement** | ✅ already correct — `host` renders the *guarded* posture |
-
-**The line, in one sentence: a nix closure plus a launch env can supply everything in the
-"environment" class for a process yolo starts, and nothing in the "isolation" class ever.**
-
-**The blocked-tool shims are the one genuine hybrid**, and they look like environment while
-behaving like policy: `grep -r` is blocked because a recursive grep wastes an agent's context,
-which is an environment property — but at `host` the shims would land on **the human's** PATH,
-and a human typing `grep -r` and being told to use `rg` is a different product. **If yolo
-launches the host agent, the shims scope to that process and the dilemma dissolves** — a point
-for the launcher answer over the rc-editing answer.
-
-**The most valuable "mimic" target is none of the above.** All six agent CLIs are in nixpkgs for
-all three live platforms while the jail installs them **lazily, at first use, via npm and
-curl-to-shell**. So the jail does not get its agent CLIs from nix either, and a host nix env
-would be **more reproducible than the jail** on exactly the axis the copilot question is about.
-That inversion is [`OQ-PS6`](#OQ-PS6)'s jail row.
-
-> [!WARNING]
-> **The merged doc's `via` census is STALE and is corrected here.** It said *"four npm
-> (`opencode`, `pi`, `copilot`, `codex`), two installer (`claude`, `agy`)"* as of 2026-08-23.
-> **MEASURED 2026-09-11** (`rg -n '"via"' packs/*/pack.json`): **three npm** (`pi`, `copilot`,
-> `opencode`) and **three installer** (`claude`, `agy`, `codex`). `codex` flipped on 2026-09-04
-> under [`OQ-PD13`](program-delivery.md#decision-ledger) (`dc640752`). Still **zero nix**, which
-> is the part the argument rests on.
-
-### 6.6 The `/lib` farm has no darwin analogue worth building
-
-The clearest environment-vs-isolation boundary case, so it gets its own heading. Inside the jail,
-non-nix binaries find shared libraries through a three-part Linux-only contraption: the `/lib`
-symlink farm, the baked `LD_LIBRARY_PATH`, and **nix-ld** as the FHS interpreter at `/lib64`.
-
-The darwin analogue would be `DYLD_LIBRARY_PATH`, and it does not work, for reasons that are not
-yolo's to fix: **SIP strips `DYLD_*`** from the environment of any protected binary and across
-`exec` of platform binaries, with no `dyld` equivalent of nix-ld; macOS has no `/lib64` FHS
-interpreter to replace, since Mach-O binaries carry absolute `LC_LOAD_DYLIB` paths; and **there
-is nothing in the repo that tries** (`rg DYLD` → two hits, both vendored `golang.org/x/sys`
-constants — confirmed 2026-08-23). That silence is itself evidence: the problem the Linux farm
-solves barely exists on macOS, where foreign binaries expect `/usr/lib` and macOS **has**
-`/usr/lib`. **Explicitly out of scope** for any non-container provisioner work.
-
-### 6.7 macOS vs Linux: coverage, freshness, and the traps
-
-Platform coverage of the six agent CLIs, measured 2026-08-02 by eval from a Linux jail (nixpkgs
-eval is platform-independent; only *building* needs the platform), against `flake.lock` rev
-`241313f4`: **6/6 on `aarch64-darwin`, `aarch64-linux` and `x86_64-linux`** —
-`claude-code`, `github-copilot-cli`, `codex`, `opencode`, `pi-coding-agent`, `antigravity-cli`,
-of which `claude-code`, `github-copilot-cli` and `antigravity-cli` are `unfree`. That is better
-coverage than any other manager and is the strongest single fact in favour of a nix route.
-
-**Freshness is close but not equal, and it is a real trade rather than a footnote.** At the time
-of measurement `codex` and `pi-coding-agent` matched npm exactly, `claude-code` matched the
-version running in the jail, and `opencode` and `github-copilot-cli` lagged. A nix route means
-"pinned, and a few days-to-weeks behind" — which for a CLI that ships daily interacts with the
-packs' auto-updater-off keys. **The specific version numbers are stale and deliberately not
-restated**; the freshness *argument* stands and is exactly what
-[§8.2](#82-the-ruling-a-shipped-default-order-the-user-config-overrides) rules on.
-
-> [!WARNING]
-> **⚠ Retracted, 2026-08-23: "`x86_64-darwin` is dead, an Intel Mac gets nothing."** The
-> observation was right and mattered more than the doc knew; the consequence is wrong. nixpkgs
-> 26.11's throw did not merely deny an Intel Mac its packages — it took out **every host-side
-> nix call on that system**, `nix eval .#installPrefix` included, which is the integration
-> suite's staleness oracle. The macOS nightly went red for **29 consecutive nights** and the
-> roadmap recorded it as *"nix is broken on that runner, not in our tree"* — the opposite of
-> true. The fix (2026-08-18, `927fb9f5`) is a **second nixpkgs input used for `x86_64-darwin`
-> alone**, `nixpkgs-26.05-darwin`, deliberately **not** used for `aarch64-darwin`. Re-measured
-> 2026-08-23: an Intel Mac gets **5 of 6**, not 0 of 6; `antigravity-cli` is the skip.
->
-> **Do not "simplify" the flake back to one nixpkgs input.** `pkgs` is evaluated for every
-> system `flake-utils` enumerates, so a throw on any one system is a throw on every attribute —
-> which is why a single dead platform took CI down for a month while looking like an
-> infrastructure problem. Any future platform drop wants the same shape: a per-system input
-> override, not a `packages`-level filter.
-
-> [!WARNING]
-> **Three traps in the unfree warn-and-skip fix ([`OQ-NX6`](#decision-ledger)), each of which
-> cost a measurement to find. Do not re-derive them.**
->
-> - **`availableOn` alone can never catch unfree, and more platform probing will not help.** It
->   reads `meta.platforms`/`badPlatforms`; a licence is not a platform fact. The `tryEval` around
->   it *absorbs* the unfree assertion, so the package is reported available and the abort lands
->   later, inside `buildEnv` — **an eval that succeeds is not evidence the build will.**
-> - **Test `meta.available`, not `meta.unfree`.** `meta.available` flips back to true under
->   `NIXPKGS_ALLOW_UNFREE=1`, so a user who deliberately opted in still gets the package instead
->   of a silent skip. **yolo does not set that variable on the user's behalf** — unfree is a
->   licence decision the user makes once, machine-wide, and slipping the override in would make
->   it for them silently. ⚠ **Amended 2026-09-11, measured on darwin
->   ([§15](#15-what-a-mac-session-should-measure) M3): that flip requires an IMPURE eval.** A pure
->   flake evaluation does not read the environment at all, so `NIXPKGS_ALLOW_UNFREE=1` changes
->   nothing and the user's opt-in is invisible — `nix profile add nixpkgs#claude-code` refuses
->   identically with and without it. yolo's own image build is `--impure` already (for
->   `builtins.getEnv "YOLO_EXTRA_PACKAGES"`), which is why this bullet has held there; **any NEW
->   nix call added for a provisioner has to pass `--impure` for the opt-in to be honored**, and
->   that is a flag yolo would be choosing on the user's behalf, unlike the variable.
-> - **The warning has to ride on the BUILD path**, not the skip list alone, whose separate eval
->   discards stderr. And reason precedence puts the **platform** case first, because
->   `meta.available` folds `unsupported` in with the licence checks — testing it first mislabels
->   a plain platform miss (`iptables` on darwin) as "broken or blocklisted". A collection or a
->   non-package is **fatal, not skipped**, and that test sits deliberately OUTSIDE the `tryEval`,
->   which would otherwise relabel a typo'd `packages` entry as "no `<system>` build".
-
-**A `buildEnv`'s "no pollution" claim is really "no *undeclared* pollution."** A `buildEnv`
-containing `gnugrep` still shadows `/usr/bin/grep` when its `bin` is prepended; the difference
-from a devShell is **legibility, not effect**. On a Mac host that is the BSD-vs-GNU hazard
-arriving by the front door instead of the back. Nothing warns today, on any path (confirmed
-absent 2026-08-23). That is [`OQ-NX5`](#OQ-NX5), and it is now also
-[`OQ-P2`](macos-user-provisioning.md#decision-ledger)'s problem one level down.
-
-### 6.8 What if the user has no nix?
-
-Three sub-cases, and only one is interesting. This is the half of [`OQ-PS1`](#OQ-PS1) the merged
-doc treated as terminal.
-
-1. **No nix at all** (the common macOS/Linux user). The resolver is unavailable. `yolo check`
-   already fails on `nix not found` and prints the download URL
-   (`internal/cli/check/section_nix_probe.go:25`, read 2026-09-11) — but on Linux the `/nix`-exists
-   and `nix store info` probes are `IsMacOS`-gated and never run ([`OQ-NX9`](#OQ-NX9)). **Telling
-   a brew user to install nix to get `copilot` is worse than `brew install copilot-cli`**, so
-   `install_hints` stays the floor. ⚠ **Re-examined 2026-09-11: that objection is about RANKING,
-   and it does not reach [`OQ-PS9`](#OQ-PS9).** It says nix must not lead the macOS default order —
-   which [`OQ-PS6`](#OQ-PS6)'s leaning already honours — and says nothing about a user whose only
-   covering provisioner *is* nix, which on a non-Arch Linux host is the ordinary case
-   ([§4](#4-the-coverage-matrix-which-manager-covers-what)). The old
-   [`OQ-PS1`](#OQ-PS1)(b) leaning cited it for work it could not do.
-2. **nix present, user not trusted.** Already handled as a warning, not a failure: a non-trusted
-   user can still substitute from `cache.nixos.org`; being trusted is what makes
-   `--accept-flake-config` consult yolo's cachix.
-3. **nix present, but the closure must be *built* rather than substituted.** All six are prebuilt
-   in `cache.nixos.org` for the three live systems, so in practice a download — but the failure
-   mode (a from-source darwin build streaming for minutes) is documented for macos-user and
-   identical here. `nixdiag.ParseDryRunWillBuild` already classifies it
-   (build/substitutable/**inconclusive**, where inconclusive must never be read as a miss).
-
-> [!WARNING]
-> **Four things about the profile's GC root are deliberate. Changing any re-opens the defect it
-> closed** (a user's next `nix-collect-garbage` deleting the realized profile out from under a
-> running session — on a notch with no baked image that closure *is* the agent's toolset).
->
-> - **The root IS the build's `--out-link`**, not a follow-up `nix-store --add-root`. The
->   two-step leaves a window in which a concurrent GC can collect a just-built closure. It also
->   makes rooting non-optional — failing to create the root fails the build, the right polarity
->   when the alternative is an agent executing from an unrooted closure
->   (`internal/darwinpkg/darwinpkg.go:117-141`).
-> - **The leaf name is FIXED (`packages`), not keyed by `sha256(storePath)`.** `--out-link`
->   *replaces* the link in place, so a changed `packages:` retargets the one root and the old
->   closure becomes collectable — verified empirically. A content-keyed leaf would accumulate one
->   permanent root per package set ever configured, with no reaper: right for images, a slow disk
->   leak here.
-> - **It lives in `build/package-roots/`, a SIBLING of `build/roots/`, on purpose.**
->   `prune.PruneOrphanImageRoots` enumerates every symlink under `build/roots` and reaps the ones
->   no recently-loaded image needs — a package root parked there would be swept by a routine
->   `yolo prune --apply`, unrooting the very closure it exists to pin.
-> - **Registering it from inside a jail does not work, and that is fine.** `nix build --out-link`
->   does register the indirect root, and the host daemon then prunes it as stale, because the
->   link's path is the jail's spelling of a directory the host mounts elsewhere. Harmless today
->   because every caller is a non-container notch provisioning a real host home. Worth knowing
->   before someone reuses this from in-jail code and wonders why the root evaporates.
+- **The mechanism is shipped, with two consumers and no third.** A pure, toolchain-free profile of
+  `packages:` builds for every system the flake enumerates, follows the machine's own system, and
+  GC-roots itself; `macos-user` and the Linux store farm both call it. `yolo host apply` never
+  does. That is F1 from the resolver's side — **one notch, one backend, no non-macOS coverage of
+  the diagnostics, and no host caller** — and it is exactly what [`OQ-PS1`](#OQ-PS1) asks.
+- **A nix tool environment is orthogonal to the *enforcement* primitives and load-bearing for the
+  *provisioning* one.** It is not a peer of the confinement dial; it is what fills the
+  `PrimBakedImage`-shaped hole at the two notches with no image (F4). Three things compound into
+  that: `guest` needs the identical mechanism and the Linux guest has no package layer at all; the
+  notch decides whether a PATH-prepend has a consumer at all, since `yolo host apply` launches
+  nothing while `yolo host -- <cmd>` does; and `describe` already acts on the primitive's absence
+  without minting a second one. **The practical consequence:** designing this as "a host feature"
+  risks a Linux `guest` package layer being built twice.
+- **A `buildEnv`'s "no pollution" claim is really "no *undeclared* pollution."** A `buildEnv`
+  containing `gnugrep` still shadows `/usr/bin/grep` when prepended — the difference from a
+  devShell is legibility, not effect, and on a Mac host that is the BSD-versus-GNU hazard arriving
+  by the front door. Nothing warns today, on any path. That is [`OQ-NX5`](#OQ-NX5), and it is also
+  [`OQ-P2`](macos-user-provisioning.md#decision-ledger)'s problem one level down.
 
 ---
 
@@ -843,13 +460,15 @@ and the capture is a store entry the launcher tries first. Under the reframing i
 `via: installer` recipe produces a package whose provisioner is the vendor's script, and capture
 **re-provisions the same package** through yolo's CAS. Two provisioners, one package, and the
 second is the one that needs nothing from the environment but a filesystem — which is why it is
-the only row of [§3](#3-the-provisioner-inventory-per-environment) that could work on a guest with
-no floor at all, once its recording-only half is finished (H1 and H2 in
-[`../plans/install-capture.md`](../plans/install-capture.md#build-order)). **NOT MEASURED** — nothing
-has materialised a capture on macos-user, and nothing can until H2 lands
-(`internal/cli/run/autocapture.go:16-31`, re-read 2026-09-11) — but it is the one place the
-reframing changes what an implementer would build rather than what they would call it, and
-[§15](#15-what-a-mac-session-should-measure) M3 is the measurement that would settle it.
+the only [inventory row](provisioner-evidence.md#1-the-provisioner-inventory-per-environment) that
+could work on a guest with no floor at all, once its recording-only half is finished (H1 and H2 in
+[`../plans/install-capture.md`](../plans/install-capture.md#build-order)). The **materialize** half
+is still **NOT MEASURED** — nothing has materialised a capture on macos-user, and nothing can until
+H2 lands (`internal/cli/run/autocapture.go:16-31`, re-read 2026-09-11) — but the **recording** half
+has since been measured working end to end on hardware
+([M4](../plans/runbooks/mac-provisioner-measurements.md#m4--does-the-capture-recording-half-work-on-hardware)),
+so this is the one place the reframing changes what an implementer would build rather than what
+they would call it. ⚠ This pointer used to name M3, which is the nix-profile item; M4 is capture's.
 
 ### 7.3 Naming is downstream
 
@@ -991,8 +610,8 @@ stated precedence reason is a real cost, and it is preserved rather than deleted
 this is **not a blocker**: *"It's fine regarding the evergreen stuff that a brew install only
 moves when brew moves — that's why this is a configured choice of the user."* A user who chooses
 brew is choosing brew's cadence **knowingly**. The same trade is what
-[§6.7](#67-macos-vs-linux-coverage-freshness-and-the-traps)'s freshness paragraph prices for nix,
-and it lands the same way.
+the freshness argument in [`provisioner-evidence.md`](provisioner-evidence.md#37-macos-vs-linux-coverage-freshness-and-the-traps) prices for nix, and it lands
+the same way.
 
 > [!WARNING]
 > **This does not repeal the evergreen ruling; it scopes it.**
@@ -1126,14 +745,14 @@ decided was purely *does yolo execute the winner*.
 **The precondition is met on hardware.** A driven `brew` path presupposes the manifest yolo writes
 is one `brew bundle` can read, and that was measured for the first time on 2026-09-11: `brew
 bundle check --verbose` parsed the generated file, cask lines included, and reported per-entry
-misses rather than a syntax error ([§15](#15-what-a-mac-session-should-measure) M2).
+misses rather than a syntax error ([M2](../plans/runbooks/mac-provisioner-measurements.md#m2--does-the-generated-brewfile-actually-apply-casks-included)).
 
 ## 9. What I would build, in order
 
 Prose, not tickets — granularity lives in [`../plans/roadmap.md`](../plans/roadmap.md). Two of
 these are independent of every open question and should not wait on one.
 
-1. **Fix F5, and warn on row 5's guest cell.** Two provisioners are armed and unreachable on the
+1. **Fix F5, and warn on the guest's npm row.** Two provisioners are armed and unreachable on the
    guest, silently. That is P3's failure mode and it needs no ruling: either put the staged
    `yolo` on `SandboxPath` or stop baking a server list into a launcher that cannot use it, and
    make the npm launcher's missing `npm` a launch-time warning rather than a first-invocation
@@ -1187,11 +806,11 @@ shipped status so nobody re-opens a settled fork.
 | **C. A provisioner set per environment, a need per pack, a precedence between them** ([§8](#8-the-shape-this-doc-leans-toward)) | **ADOPTED, in three rulings.** [`OQ-PS3`](#decision-ledger) took the declaration half ([§8.4](#84-the-ruling-a-pack-declares-a-need-and-its-recipes-the-environment-resolves)), [`OQ-PS4`](#decision-ledger) the precedence half ([§8.2](#82-the-ruling-a-shipped-default-order-the-user-config-overrides)), [`OQ-PS2`](#decision-ledger) the verb ([§8.5](#85-the-ruling-yolo-drives-the-winner-behind-the-confirm-and-last)). Costs a preference surface, the F2 precedence reversal, and Phase 6.4. |
 | **D. Per-notch `via` in the manifest** — `via: {jail: npm, host: brew}` | **Rejected.** The pack is the wrong place (P1), and a pack author cannot know the user's distro; the coverage matrix makes any pack-chosen host value wrong on some platform. P5 is the general form of this. |
 | **E. Give the host nix** — yolo installs nix so every notch has the same provisioner | **Not an alternative to the model; one cell of it**, and the half of the old compound [`OQ-PS1`](#OQ-PS1) the corpus had never considered before this merge. It is now [`OQ-PS9`](#OQ-PS9) in its own right, reframed 2026-09-11 from *no* to **yes-in-principle, blocked on effort**. |
-| **F. Agent CLIs from nix in the jail** | **No longer out of scope** — it was the absorbed doc's [`OQ-7`](#decision-ledger) and is now the jail row of [`OQ-PS6`](#OQ-PS6). Leaning stays no, for the freshness reason in [§6.7](#67-macos-vs-linux-coverage-freshness-and-the-traps). |
+| **F. Agent CLIs from nix in the jail** | **No longer out of scope** — it was the absorbed doc's [`OQ-7`](#decision-ledger) and is now the jail row of [`OQ-PS6`](#OQ-PS6). Leaning stays no, for the freshness reason in [`provisioner-evidence.md`](provisioner-evidence.md#37-macos-vs-linux-coverage-freshness-and-the-traps). |
 | **G. Do nothing; fix the two `install_hints` defects instead** (absorbed Option 0) | **DONE 2026-08-02.** The brew-cask Brewfile verb and the unfree hint both shipped (`e40df9f1`). The rest of it — *leave provisioning at the host as "print the remedy"* — is alternative A. |
 | **H. Rename and generalize the nix mechanism, add no new consumer** (absorbed Option 1) | **MOSTLY SHIPPED 2026-08-05** (`11f8bb72`, `23cee7a6`): the system-neutral name, `NativeSystem()`, the GC root, `describe`'s report. Leftovers are [`OQ-NX8`](#OQ-NX8) and [`OQ-NX9`](#OQ-NX9), plus the deliberately-deferred `darwinpkg` Go-package rename. ⚠ **It was never able to deliver on its own**: a rename does not give `host` a consumer. |
 | **I. A launch verb below `jail`** (absorbed Option 2) | **SHIPPED 2026-08-30.** `yolo host -- <cmd>`, with `yolo --at host -- <cmd>` as its systematic alias. This resolved the absorbed doc's [`OQ-NX1`](#decision-ledger) by events. |
-| **J. A yolo-owned `nix profile` installer** (absorbed Option 3) | **Still unbuilt and unruled** — and it is not the other arm of a resolved fork, it is a separate installer product. It is now [`OQ-PS10`](#OQ-PS10) in its own right; the mechanism is [§6.3](#63-nix-profile---profile-dir-the-only-candidate-that-reaches-a-users-own-path), whose sealing objection was retracted 2026-09-11. |
+| **J. A yolo-owned `nix profile` installer** (absorbed Option 3) | **Still unbuilt and unruled** — and it is not the other arm of a resolved fork, it is a separate installer product. It is now [`OQ-PS10`](#OQ-PS10) in its own right; the mechanism is the [`nix profile --profile <dir>` section](provisioner-evidence.md#33-nix-profile---profile-dir-the-only-candidate-that-reaches-a-users-own-path) of the evidence doc, whose sealing objection was retracted 2026-09-11. |
 
 ---
 
@@ -1203,7 +822,7 @@ shipped status so nobody re-opens a settled fork.
 | R2 | **Reversing `depcheck`'s precedence re-pins agent CLIs to distro versions.** | **Ruled an accepted cost, 2026-09-11** ([§8.2](#82-the-ruling-a-shipped-default-order-the-user-config-overrides)) — the user choosing brew chooses brew's cadence knowingly. Keep the pack's recipe as the printed alternative, as `Fallback` does today in the other direction. The evergreen ruling is a **jail** policy and does not reach a host the user provisions (P2). |
 | R3 | **Driving the system manager is the first time yolo mutates a real machine's toolchain.** | **Accepted 2026-09-11** ([`OQ-PS2`](#decision-ledger)) with the mitigation as the ruling's own terms: exactly the elevation the env-manager design priced — batched confirms, sudo shown through, no TTY means print only — and [§9](#9-what-i-would-build-in-order) sequences it **last**, behind a print-only precedence order. ⚠ [`OQ-PS9`](#OQ-PS9) would raise this risk by a class, since installing nix is a daemon and a store rather than a package. |
 | R4 | **A custom build widens the capture jail's trust surface.** | It does not — the capture jail already runs arbitrary vendor scripts, and the product is what is trusted ([§5.1](#51-where-the-aur-model-carries-weight)). What widens is the *declaration*, and a fetched pack's installer URL is already the review-flagged claim. |
-| R5 | **Almost every guest claim here is unmeasured.** | Every guest cell is labelled, and [§15](#15-what-a-mac-session-should-measure) is the ordered list that would close them. ⚠ Note the *session* Seatbelt profile IS kernel-verified as of 2026-09-10 — see [§14.2](#142-what-the-mac-runbook-already-settled-and-one-stale-comment). |
+| R5 | **Almost every guest claim here is unmeasured.** | Every guest cell is labelled, and the five items in [`mac-provisioner-measurements.md`](../plans/runbooks/mac-provisioner-measurements.md) are the ordered list that closed the ones they reach — all five ran on 2026-09-11. ⚠ Note the *session* Seatbelt profile IS kernel-verified as of 2026-09-10, and capture's own profile since 2026-09-11; that runbook has both. |
 | R6 | **The set is enumerated by hand and drifts.** | Derive it from the same source `describe` reads; a provisioner with no `describe` line is not in the set. This doc already found three drifted line numbers and one stale census while merging ([§14](#14-facts-verified-for-this-doc)). |
 | R7 | **A nix route silently becomes a pin the evergreen ruling forbids.** | The ruling's own warning in [§8.2](#82-the-ruling-a-shipped-default-order-the-user-config-overrides): the accepted trade is the *user's host*, not the jail. [`OQ-PS6`](#OQ-PS6)'s jail row must be ruled before any jail default changes. |
 
@@ -1222,13 +841,13 @@ shipped status so nobody re-opens a settled fork.
   not say how big. ⚠ [`OQ-NX5`](#OQ-NX5) is the same hazard one level up and the two should be
   ruled together.
 - **The Linux guest** (env-manager Phase 7.2). No code, no row — though
-  [§6.4](#64-not-orthogonal-to-confinement-the-provisioning-primitive-below-jail) is the argument
-  that it must not get a second package layer of its own.
+  the [orthogonality finding](provisioner-evidence.md#34-not-orthogonal-to-confinement-the-provisioning-primitive-below-jail)
+  is the argument that it must not get a second package layer of its own.
 - **The wording of the host report** — [`../reference/report-tiers.md`](../reference/report-tiers.md). This doc supplies the
   dispositions; that one decides how they print.
-- **The `/lib` farm's darwin analogue** — there is none worth building
-  ([§6.6](#66-the-lib-farm-has-no-darwin-analogue-worth-building)), and that is a conclusion, not
-  an omission.
+- **The `/lib` farm's darwin analogue** — there is none worth building, and
+  [the reasons are recorded](provisioner-evidence.md#36-the-lib-farm-has-no-darwin-analogue-worth-building);
+  that is a conclusion, not an omission.
 - **The `darwinpkg` Go-package rename.** Mechanical, deliberately left for the consumer that
   needs it (`internal/darwinpkg/darwinpkg.go:8-14`).
 - **A task list.** The roadmap is [`../plans/roadmap.md`](../plans/roadmap.md) and is not edited by
@@ -1241,10 +860,10 @@ shipped status so nobody re-opens a settled fork.
 | Doc | What it owns | What this doc takes from it, or hands to it |
 | :--- | :--- | :--- |
 | [`program-delivery.md`](program-delivery.md) | the jail's delivery classes, the evergreen ruling, resolvers, capture | Takes [§3](program-delivery.md#3-four-delivery-classes-and-the-rule-that-falls-out), [§3.5](program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03), [§6](program-delivery.md#6-the-general-seam-one-ledger-many-resolvers), [§6.3](program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package) as given. ⚠ **[`OQ-PD16`](program-delivery.md#decision-ledger) was amended 2026-09-11** to name this doc as the host notch's owner, replacing the retired one. |
-| [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md) | **RETIRED 2026-09-11** — merged into this doc | Its live material is [§6](#6-the-nix-resolver-in-depth); its questions are re-prefixed `NX` ([the id map](#question-id-map-old-spelling--new)); its settled rulings are ledger rows here. The file is a retirement stub. |
-| [`../reference/nix-across-backends.md`](../reference/nix-across-backends.md) | what each backend's nix path produces, as built | The evergreen reference for the mechanism [§6.1](#61-what-is-already-solved-stated-precisely) tabulates. ⚠ Most of [§6](#6-the-nix-resolver-in-depth) is shipped-system material that should eventually graduate there; not done here, and named as a follow-up. |
+| [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md) | **RETIRED 2026-09-11** — merged into this doc | Its live material is the nix-resolver depth, which travelled on to [`provisioner-evidence.md`](provisioner-evidence.md#3-the-nix-resolver-in-depth) in the 2026-09-20 split; its questions are re-prefixed `NX` ([the id map](#question-id-map-old-spelling--new)); its settled rulings are ledger rows here. The file is a retirement stub. |
+| [`../reference/nix-across-backends.md`](../reference/nix-across-backends.md) | what each backend's nix path produces, as built | The evergreen reference for the mechanism the evidence doc's [shipped-state table](provisioner-evidence.md#31-what-is-already-solved-stated-precisely) enumerates. ⚠ Most of that nix depth is shipped-system material that should eventually graduate into this reference; not done in the split, and named as a follow-up. |
 | [`macos-user-provisioning.md`](macos-user-provisioning.md) | the guest's floor and stage | Takes its four-keys table as the guest column's basis, **corrected** in one cell: the agent launchers are generated *and run* there, failing for want of npm — not inert. |
-| [`macos-user-home-tiers.md`](macos-user-home-tiers.md) | the guest's one-home defect and the A′ symlink layout | Nothing directly, but [§15](#15-what-a-mac-session-should-measure) M4 is its measurement, because a provisioner that stages into the sandbox home depends on that layout resolving. |
+| [`macos-user-home-tiers.md`](macos-user-home-tiers.md) | the guest's one-home defect and the A′ symlink layout | Nothing directly, but [M4](../plans/runbooks/mac-provisioner-measurements.md#m4--does-the-capture-recording-half-work-on-hardware) is its measurement, because a provisioner that stages into the sandbox home depends on that layout resolving. |
 | [`yolo-as-environment-manager.md`](yolo-as-environment-manager.md) | *declare once, check once, hand off* ([§3.5](yolo-as-environment-manager.md#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest)); [`OQ-EM1`](yolo-as-environment-manager.md#OQ-EM1) | Generalises [§3.5](yolo-as-environment-manager.md#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest) from "the host hands off" to "each environment resolves". ⚠ [`OQ-EM1`](yolo-as-environment-manager.md#OQ-EM1) and the plan's Phase 4 warning both say `FieldSet` *refuses* `program` at host citing `fieldset.go:38`; `HostFields()` honours it (`internal/render/fieldset.go`, *"honored but confirm-gated by the caller"*), so that refusal string is unreachable for `program` and the shipped rule is *report, do not install*. ⚠ Its promised `✗ packages   yolo does not manage packages here` line is contradicted by shipped `describe` and should be retired — [`OQ-NX8`](#OQ-NX8). |
 | [`../plans/environment-manager-plan.md`](../plans/environment-manager-plan.md) | Phase 6.4 and 4.3, [`OQ-9`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase) | Both unbuilt. **[`OQ-PS2`](#decision-ledger) ruled 2026-09-11 that they get built** — as *the host's driven provisioner*, behind that plan's own already-ruled confirm, and sequenced after the print-only precedence order. That plan's audit says [`OQ-9`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)'s resolution *"has no consumer at all today"*; this ruling is its consumer. |
 | [`../reference/report-tiers.md`](../reference/report-tiers.md) | the `--assert` fatal, [`OQ-RO7`](../reference/report-tiers.md#why-its-this-way) | **RO7 was RULED 2026-09-11** — *both kinds fatal, only `program` gets the offer* — and [`OQ-PS3`](#decision-ledger)'s recipe model **reinforces** that predicate rather than disturbing it ([§3.1](#31-five-findings-the-table-forces) F2): a `requires` is a need with no runnable recipe, so there is nothing to offer. ⚠ What is still unsettled is the *spelling*: RO7's rule keys on the **kind**, and under P1 the offer keys on *whether a provisioner covers this binary here*. [`OQ-PS11`](#OQ-PS11) decides whether there is still a kind to key on. |
@@ -1256,357 +875,69 @@ shipped status so nobody re-opens a settled fork.
 
 ## 14. Facts verified for this doc
 
-Recorded so a later reader can tell measurement from inference. Everything in this table ran from
-a Linux podman jail at `77190a2b`/`6eb7fe7f` on 2026-09-11.
+**The verification tables moved to [`provisioner-evidence.md`](provisioner-evidence.md#4-facts-verified-and-how)** — what
+ran from a Linux podman jail at `77190a2b`/`6eb7fe7f` on 2026-09-11, what was inherited from the
+retired doc with its own 2026-08-02 / 2026-08-23 dates and re-resolved citations, and the drift
+found while verifying and reported rather than fixed. Go there to tell measurement from inference,
+or before repeating a probe someone already ran.
 
-| Claim | Status | How |
-| :--- | :--- | :--- |
-| No install hint is ever executed; no `brew`/`apt`/`dnf`/`pacman` is ever run | **MEASURED** negative | `rg -n 'exec\.Command\|syscall.Exec\|StartProcess'` over `internal/depcheck`, `internal/render`, `checkdeps.go`, `applyhostdeps.go` → none; every `.Remedy`/`.Fallback`/`SelfInstall` consumer is a print |
-| `DetectManager` has no config path | **MEASURED** negative | `rg` for a manager-preference key over `internal/config`, `internal/cli` (non-test) → none |
-| No build-time / `makedepends` / `optional` vocabulary exists | **MEASURED** negative | `rg -i` over `internal/packdecl`, `internal/depcheck`, `checkdeps.go`, `applyhostdeps.go`; every kind's field set read |
-| `knownVias` is exactly `{npm, installer}` | READ FROM CODE | `internal/packdecl/contributes.go:378-381` |
-| `program`/`requires` share one host path | READ FROM CODE | `contributes.go:599-604`; `applyhostdeps.go:61`, `:129`, `:187` |
-| The remedy precedence, and its stated reason, are at `depcheck.go:147-151` | READ FROM CODE, **re-resolved** | the merged brief cited `:145-151`; `:145` is the docstring's last line and `:147` opens `REMEDY PRECEDENCE`. The quoted sentence is `:148-150` |
-| `Fallback` exists *for* the user who prefers their manager | READ FROM CODE | `depcheck.go:150-151` — *"a user who prefers their package manager still sees the token"* |
-| **Three** packs are `via: npm` and **three** `via: installer`; **zero** nix | **MEASURED** | `rg -n '"via"' packs/*/pack.json` → `pi`/`copilot`/`opencode` npm, `claude`/`agy`/`codex` installer. ⚠ Corrects the retired doc's 4/2 census ([§6.5](#65-the-isolationenvironment-split-what-a-non-container-notch-can-reproduce)) |
-| Seven manifests under `packs/` declare `program` or `requires` | **MEASURED** | `rg -l '"kind": *"(program\|requires)"' packs/` → agy, claude, codex, copilot, opencode, pi, guardrails |
-| The guest generates and runs launchers; npm is unprovisioned; refresh and materialise no-op | READ FROM CODE, then **MEASURED ON HARDWARE 2026-09-11** | `darwin.go:76-83`; `macosuser.go:139`, `:461-475`; `shims.go` launcher bodies — and [§15](#15-what-a-mac-session-should-measure) M1 ran all five of the measuring host's launchers: the three `via: installer` ones install and run, the two `via: npm` ones fail loudly on a missing `npm` |
-| `PrimBakedImage`'s comment calls itself a provisioning primitive | READ FROM CODE | `internal/render/confinement.go:39-42` |
-| `describe` gates the profile line on `PrimBakedImage` being absent | READ FROM CODE | `internal/cli/describe.go:177-180` |
-| Auto-capture cannot run on macos-user, for two independent reasons | READ FROM CODE | `internal/cli/run/autocapture.go:16-31` — an empty `CAPTURES_DIR`, and slice 6's relocation contract refusing until H2 |
-| Any behaviour on macOS | **MEASURED 2026-09-11**, on a Mac — not from here | nothing in this table's own run could reach it: that jail is Linux, and a nested jail is structurally blind to the `macos-user` backend and to rootless podman (AGENTS.md carve-outs). [§15](#15-what-a-mac-session-should-measure) was the list that would close it, and it did — five items, all five answered, each recorded at its own heading with the host and version that measured it |
-
-**Drift found while verifying, reported not fixed:** `internal/cli/config_ref.txt:999-1000` still
-says the launcher is *"last on PATH"* (B2 moved it second, 2026-09-04);
-`internal/cli/packkinddocs_test.go:16` and `:37` speak of a "16th kind" and "15 kinds" against a
-set of 19; the two stale cells named in [§13](#13-where-this-sits-against-the-sibling-docs); F5;
-and the three stale citations in [§14.1](#141-inherited-from-the-retired-doc-with-its-own-dates).
-
-### 14.1 Inherited from the retired doc, with its own dates
-
-Carried, not re-run. Original measurements from a Linux jail on **2026-08-02** against
-`flake.lock` rev `241313f4`, re-verified **2026-08-23** against `f13ff45a`. Three citations were
-**re-resolved 2026-09-11** because the files grew; the claims themselves still hold.
-
-| Claim | Date | Note |
-| :--- | :--- | :--- |
-| `yoloNoncontainerPackages` builds on `x86_64-linux`, and the darwin buildEnv *evaluates* from Linux | 2026-08-02 | the finding that reframed the work from "design a host nix env" to "give the existing one a caller" |
-| devShell pollution: **22 PATH entries, 121 variables** for a one-package shell | 2026-08-02 | `nix print-dev-env --impure --json \| jq` on this repo's own `devShells.default` |
-| `nix shell` prepends exactly one dir | 2026-08-02 | `nix shell nixpkgs#hello --command bash -c 'echo $PATH'` |
-| All six agent attrs exist for `aarch64-darwin` and both Linuxes; three are `unfree` | 2026-08-02 | per-attr `nix eval` of `meta.platforms`/`meta.unfree`/`version`. **Versions deliberately not restated** — stale, and the freshness argument does not need them |
-| Unfree warn-and-skip fires and `NIXPKGS_ALLOW_UNFREE=1` overrides it | 2026-08-23 | skip list is exactly `["claude-code","github-copilot-cli","antigravity-cli"]` on all three systems; `[]` on `aarch64-darwin` with the var |
-| `x86_64-darwin` evaluates rather than throwing; an Intel Mac gets **5 of 6** | 2026-08-23 | the retraction in [§6.7](#67-macos-vs-linux-coverage-freshness-and-the-traps) |
-| `nix profile` records a locked flake URL per entry; `--profile <dir>` works | 2026-08-02 | `nix profile add --profile <tmp> nixpkgs#hello; nix profile list --profile <tmp>` |
-| No `DYLD_*` handling exists anywhere in the repo | 2026-08-23 | `rg DYLD` → 2 hits, both vendored `x/sys` constants |
-| Nothing warns when a declared package shadows a system binary | 2026-08-23 | no shadow check in `internal/darwinpkg` or `internal/macosuser` |
-| ⚠ **`flake.nix:1204` / `:1210`** for the two attrs | **STALE** | re-resolved 2026-09-11: `packages.yoloNoncontainerPackages` is `flake.nix:1636`, `yoloUnavailablePackages` is `:1642`, `noncontainerResolved` is `:416` |
-| ⚠ **Four npm, two installer** packs | **STALE** | re-measured 2026-09-11: three and three ([§14](#14-facts-verified-for-this-doc)) |
-
-### 14.2 What the Mac runbook already settled, and one stale comment
-
-[`../plans/runbooks/macos-user-manual-checks.md`](../plans/runbooks/macos-user-manual-checks.md)
-records **all four of its checks PASSING on 2026-09-10**, in one session on the maintainer's
-Apple Silicon Mac (macOS 26.5, arm64): the privilege transition, **Seatbelt actually applied**,
-`packages:` reaching the agent through the full native nix chain, and content staging. Two of
-those bear directly on this doc — the nix chain works end to end on hardware, and the login-rc
-re-prepend **holds** against macOS `path_helper`.
-
-> [!NOTE]
-> **`internal/macosuser/capture.go`'s *"NOT MEASURED, anywhere: … No Seatbelt profile has been
-> loaded by a kernel"* was stale in its general form when this was written, and is now stale
-> WHOLESALE** — [M4](#15-what-a-mac-session-should-measure) ran capture's own profile and its whole
-> pipeline on hardware on 2026-09-11, which was the last narrow thing the comment was still right
-> about. It said so accurately at the time: capture uses a different profile from the session one,
-> and `CapturePlanInvariants` exists to fail *"if the profile is swapped for the session one"*, so
-> runbook item 2 passing on 2026-09-10 did not reach it. **Corrected in the same pass that measured
-> it** — this paragraph asked whoever next touched that file to fix the comment, and the Mac session
-> that answered M4 was that pass.
+The labels those tables assign are used throughout this doc and keep their meanings: **MEASURED**
+(a command ran, and the claim is its output), **READ FROM CODE** (a symbol was read; no command
+ran) and **NOT MEASURED**. ⚠ **Nothing about macOS is reachable from here** — a nested jail is
+structurally blind to the `macos-user` backend and to rootless podman — which is why every macOS
+claim carries a Mac session's date and lives in its own runbook
+([§15](#15-what-a-mac-session-should-measure)).
 
 ---
 
 ## 15. What a Mac session should measure
 
-A runbook entry, not prose. Five items, **ordered by what each decides**, each runnable as
-written by an agent on the maintainer's Mac. Every one of them is a fact no Linux jail can reach
-— a nested jail is structurally blind to this backend, and to rootless podman.
+**The runbook moved to
+[`../plans/runbooks/mac-provisioner-measurements.md`](../plans/runbooks/mac-provisioner-measurements.md)**
+— five items, M1 through M5, each with the command as written, what it was expected to show and
+what it actually returned, plus what a vendor installer does to the generated home and what the
+earlier macos-user runbook had already settled. **All five RAN on 2026-09-11**, in one session on
+the maintainer's Apple Silicon Mac, and **four of the five corrected the item that asked them** —
+so read the results there rather than the expectations. Go to it at a Mac, or to see what a
+measurement actually returned before citing it.
 
-> [!NOTE]
-> **Do not re-run the four checks in
-> [`../plans/runbooks/macos-user-manual-checks.md`](../plans/runbooks/macos-user-manual-checks.md).**
-> They passed 2026-09-10 and that runbook says so itself. ⚠ Items M1 and M4 below need a
-> `macos-user` launch, which begins with `sudo --user=_yolojail` — **an agent cannot answer a
-> password prompt**, so those two need the human at the keyboard for the first launch of the
-> session. M2, M3 and M5 need no privilege at all.
+What this doc takes from them, in the order they decide things here:
 
-> [!NOTE]
-> **ALL FIVE ARE RUN, and all five answered** — one session on the maintainer's Apple Silicon Mac
-> (macOS 26.5, arm64) on **2026-09-11**, host `yolo` `0.8.0+1336.gecb17e8c`, taken to HEAD with
-> `just install` first because two of the 43 pending commits were capture/`agentcfg` fixes M4
-> exercises. Per-item results are under each heading, as **MEASURED** paragraphs. Four of the five
-> corrected the item that asked them, so read the result and not just the verdict.
->
-> **M5 needed no launch at all**, which is a correction to the sentence above rather than a result:
-> the fact is kernel path resolution, observable unsandboxed, and a Seatbelt profile can only
-> subtract permissions.
->
-> ⚠ **NEVER hand a `macos-user` launch a MULTI-LINE command — the first M1 attempt measured nothing
-> and reported success while doing so.** `sudo --login` concatenates the command it is given
-> *"separated by spaces, after escaping each character (including white space) with a backslash"*
-> (sudo(8) `-i`), so every newline arrives at the target shell as a `\`-continuation it removes:
-> nine probes collapsed into five commands, each becoming an argument to the previous `echo`, and
-> every one of them exited 0. ~~Single-line and semicolon-separated is immune.~~ This is a **defect in
-> the launch, not in the method** — it is filed at
-> [`macos-user-provisioning.md` §1.1](macos-user-provisioning.md#11-the-forwarded-command-is-not-passed-through-faithfully),
-> which owns that argv.
->
-> **FIXED 2026-09-12** ([§1.1](macos-user-provisioning.md#11-the-forwarded-command-is-not-passed-through-faithfully) has the measurement), and the struck sentence above was **wrong
-> while it stood**: single-line is immune to the NEWLINE half only. sudo(8) leaves dollar signs
-> unescaped too, so an intermediate login shell expanded every `$var` against an empty
-> environment — runbook item 6's one-line `for b in …; do … "$b" …; done` probe printed nine
-> BLANK lines and exited 0. Measured 2026-09-12; the item could not be run at all until its
-> probe was rewritten without variables. If you are reading this on an older binary, the safe
-> spelling is **no newlines AND no shell variables**.
-
-**M1 — Does the guest have *any* working `program` provisioner?** Decides
-[§3](#3-the-provisioner-inventory-per-environment) rows 5 and 6, and the guest row of
-[`OQ-PS6`](#OQ-PS6).
-
-```console
-$ YOLO_RUNTIME=macos-user yolo -- bash -lc 'claude --version; copilot --version; command -v npm'
-```
-
-**Expect:** `claude` (a `via: installer` pack) **succeeds** — `curl` and `bash` are at
-`/usr/bin`, so its launcher should install and run; `copilot` (a `via: npm` pack) **fails**, and
-`command -v npm` finds nothing. That pairing is the whole result: it confirms the installer row
-is a real guest provisioner and the npm row is not. If `claude` also fails, the guest has **no**
-`program` provisioner and [§3](#3-the-provisioner-inventory-per-environment)'s guest column needs
-a row-6 correction to *absent*. Version probes only — never a session.
-
-**MEASURED 2026-09-11 — the guest HAS a working `program` provisioner, and it is exactly the
-installer row.** [§3](#3-the-provisioner-inventory-per-environment) rows 5 and 6 stand as written;
-no correction needed. **`copilot` was substituted**, because the measuring host's `packs` does not
-select it — the pairing was run over all five agent packs that host does select, three
-`via: installer` and two `via: npm`, which is a stronger test than the one asked for:
-
-| Probe | Result |
-| :--- | :--- |
-| `command -v curl` / `command -v bash` | `/usr/bin/curl` · `/bin/bash` |
-| `command -v npm` / `command -v node` | **both empty** — the guest has neither |
-| `claude --version` (installer) | `2.1.217`, rc=0 — via the already-installed copy; see the update note below |
-| `codex --version` (installer) | installed 0.154.0 from scratch, `codex-cli 0.154.0`, rc=0 |
-| `agy --version` (installer) | installed 1.2.1 from scratch, `1.2.1`, rc=0 |
-| `opencode --version` (npm) | `launch/opencode: line 182: npm: command not found` → `⚠ opencode not available`, **rc=1** |
-| `pi --version` (npm) | same shape, **rc=1** |
-
-Three facts worth more than the verdict. (1) **The npm row does not fail silently** — the launcher
-prints the missing interpreter and the pack name and exits non-zero, which is what
-[`macos-user-provisioning.md` §2](macos-user-provisioning.md#2-what-this-costs-today)'s "silent"
-cell claimed it did not do; that row is corrected there. (2) **`claude`'s launcher tried its hourly UPDATE and the
-update FAILED** — `⚠ claude: update failed (status 124) — running the installed version`
-(`internal/entrypoint/shims.go:1564`), then ran `2.1.217` anyway. The fallback behaved exactly as
-designed, so what is unproven on this backend is the **evergreen** half, not the install half. ⚠
-**The 124 is the vendor's, not a yolo timeout**: `HAS_UPDATE_VERB=1` for claude (`update:
-["install"]`), so `_bounded` ran `claude install`, and `_bounded` only wraps in `timeout(1)` *where
-the platform has one* — `shims.go:1020-1029` says in as many words that the image bakes it and a
-stock macOS does not, and this Mac confirms it (no `/usr/bin/timeout`; Homebrew's `gtimeout` is off
-`SandboxPath` and denied by the profile besides). So the update ran **unbounded** and 124 is
-`claude install`'s own exit status. Worth knowing before reading 124 as a bound anywhere on this
-backend: **there is no wall-clock bound on a guest update at all**, by the ruling in that comment. (3) **Two installers write into the generated home** and one of them reorders PATH:
-see [§15.1](#151-what-a-vendor-installer-does-to-the-generated-home).
-
-**M2 — Does the generated Brewfile actually apply, casks included?** Decided
-[`OQ-PS2`](#decision-ledger)'s precondition (drive or keep hinting — ruled **drive**, 2026-09-11)
-and the macOS row of [`OQ-PS6`](#OQ-PS6). This is the first hardware exercise of the `brew-cask`
-hint key shipped 2026-08-02.
-
-```console
-$ yolo check-deps                      # note which manager it names
-$ cat ~/.config/yolo/Brewfile
-$ brew bundle check --file ~/.config/yolo/Brewfile
-```
-
-**Expect:** `check-deps` names **brew** (confirming `DetectManager()` on a real Mac), the file
-contains `cask "claude-code"`-style lines for the four casks and `brew "…"` for the rest, and
-`brew bundle check` **parses the file** and reports what is missing rather than erroring. A parse
-error means the manifest yolo hands users is not runnable, and [`OQ-PS2`](#decision-ledger) should
-not be ruled "drive it" until it is. `check`, not `install` — this must not mutate the machine.
-
-**MEASURED 2026-09-11 — the manifest is RUNNABLE, and the cask verb is right on hardware for the
-first time.** `brew bundle check --verbose` parsed the generated file and reported per-entry
-misses (`→ Cask codex needs to be installed or updated`, `→ Formula fd needs to be installed or
-updated`), exiting 1 for "things are missing" rather than erroring on the syntax. That is
-[`OQ-PS2`](#decision-ledger)'s precondition met: the file yolo hands a user is one `brew bundle`
-understands — and it was met before the question was ruled **drive it** the same day.
-Two corrections to the expectation:
-
-- **Two casks appeared, not four**, and the reason is not a defect: the Brewfile lists **misses
-  only**, so `claude-code` was absent because `claude` is already installed on that host, and
-  `copilot-cli` because that host does not select the copilot pack. The `brew-cask` hint key is
-  therefore exercised for `codex` and `antigravity-cli` — the other two go through the identical
-  key (`packs/claude/pack.json:6`, `packs/copilot/pack.json:6`), so what is measured is the KEY,
-  not four independent paths.
-- **`check-deps` never prints the word "brew".** It names the manager only implicitly: it writes a
-  file called **`Brewfile`** and appends `or via brew: brew install --cask …` to each miss, then
-  closes with the manager-agnostic `install with the command for your manager`. `DetectManager()`
-  is confirmed to have returned brew — by the artifact it chose, not by a statement. **That line
-  is where the driving command belongs**, now that [`OQ-PS2`](#decision-ledger) has ruled drive-it.
-
-One unrelated observation, so the next reader does not chase it: `brew bundle check --verbose` also
-printed `Formulae dependency graph sorting found a circular dependency: libtiff, webp`. That is
-the measuring machine's own keg state, not anything in yolo's file.
-
-**M3 — Does `nix profile install` really refuse the three `unfree` agent CLIs on darwin, and
-does a yolo-owned `--profile` dir work there?** Decides [`OQ-PS10`](#OQ-PS10) (the old compound
-[`OQ-PS1`](#OQ-PS1)'s mechanism half, carved out 2026-09-11) and
-[§6.3](#63-nix-profile---profile-dir-the-only-candidate-that-reaches-a-users-own-path).
-
-```console
-$ nix profile add --profile /tmp/yolo-probe nixpkgs#claude-code
-$ NIXPKGS_ALLOW_UNFREE=1 nix profile add --profile /tmp/yolo-probe nixpkgs#claude-code
-$ nix profile list --profile /tmp/yolo-probe && rm -rf /tmp/yolo-probe
-```
-
-**Expect:** the first **refuses** with an unfree licence error; the second **succeeds**; the
-listing shows a locked flake URL. All of this is asserted from a Linux jail today
-([§14.1](#141-inherited-from-the-retired-doc-with-its-own-dates)) and never run on darwin. If the
-refusal does not happen, the `unfree` half of [§4](#4-the-coverage-matrix-which-manager-covers-what)
-is wrong and nix ranks higher in the macOS default order than this doc assumes.
-
-**MEASURED 2026-09-11 — the refusal is real on darwin, the profile dir works, and the SECOND
-command as written does not lift the refusal.** In order:
-
-1. Bare `nix profile add` **refused**:
-   `error: Refusing to evaluate package 'claude-code-2.1.266' in …/pkgs/by-name/cl/claude-code/package.nix:94 because it has an unfree license (‘unfree’)`.
-   The `unfree` half of [§4](#4-the-coverage-matrix-which-manager-covers-what) holds on macOS.
-2. ⚠ **`NIXPKGS_ALLOW_UNFREE=1 nix profile add` ALSO refused** — identically. **Flake evaluation is
-   pure, so the env var is not read at all**; nix's own error text says so
-   (*"When using `nix shell`, `nix build`, `nix develop`, etc with a flake, then pass `--impure` in
-   order to allow use of environment variables"*). `NIXPKGS_ALLOW_UNFREE=1 nix profile add --impure`
-   **succeeds**. This is not a darwin fact — it is a flake fact this doc had backwards on both
-   platforms, and it matters for any design that plans to shell out to nix for an unfree agent CLI:
-   **the escape hatch is a FLAG, not an environment variable**, and a `--profile` install of one of
-   the three unfree CLIs must therefore run impure.
-3. The yolo-owned `--profile` dir behaves as [§6.3](#63-nix-profile---profile-dir-the-only-candidate-that-reaches-a-users-own-path)
-   needs: `/tmp/yolo-probe` → a `yolo-probe-1-link` generation symlink, `bin/claude` inside it, and
-   the binary runs (`2.1.266 (Claude Code)`). `nix profile list --profile` printed
-   `Original flake URL: flake:nixpkgs` against a **locked** URL
-   (`https://releases.nixos.org/nixpkgs/nixpkgs-26.11pre1071116.aff8a0b28396/nixexprs.tar.xz?narHash=sha256-…`)
-   — locked to a channel tarball plus narHash, which is what a bare `nixpkgs#…` resolves to; a
-   design that wants the closure pinned to the *jail's* nixpkgs must pass its own flake ref.
-4. **Unfree means no binary cache**, so it BUILT locally on aarch64-darwin, pulling
-   `apple-sdk-14.4` and a clang wrapper to do it. Cheap here, but a first-use cost worth knowing
-   before ranking nix highly in the macOS default order ([`OQ-PS6`](#OQ-PS6)): hydra does not build
-   what it may not redistribute, so exactly the three unfree agent CLIs are the ones with no
-   substitute.
-
-**M4 — Does the capture *recording* half work on hardware?** Decides
-[§7.2](#72-the-capture-payoff) and row 7's guest cell — whether capture can become the
-floor-independent provisioner the reframing says it is.
-
-```console
-$ YOLO_RUNTIME=macos-user yolo capture claude
-```
-
-**Expect:** a staged install under `/Users/Shared/yolo-captures/claude/home` and a manifest. ⚠
-**Do not expect materialize to work** — it cannot, and that is by design until
-[`../plans/install-capture.md`](../plans/install-capture.md) hand-off H2 lands
-(`internal/cli/run/autocapture.go:16-31`). This measures the half that exists, and it is the
-first run of capture's **own Seatbelt profile**, which is the narrow thing
-[§14.2](#142-what-the-mac-runbook-already-settled-and-one-stale-comment) says has never been
-kernel-loaded.
-
-**MEASURED 2026-09-11 — the recording half works end to end on hardware, in one pass, rc=0.** Every
-stage of the pipeline `capture.go`'s header describes was observed: the staging tree on neutral
-ground at `/Users/Shared/yolo-captures/claude`, the bootstrap into the **staging** home
-(`yolo-jail macos-user bootstrap ok`), the **generated launcher** driving the real vendor installer
-(`✔ Claude Code successfully installed! Version: 2.1.269`), then
-`capture-run: 10 paths in /Users/Shared/yolo-captures/claude/out/tree (3 renamed, 0 copied)` and the
-host act moving the finished proto-entry into the machine store:
-`captured claude ceb51e9936131b0a 10 paths, 203.2 MB → ~/.local/share/yolo-jail/captures/entries/ceb51e9936131b0a`.
-So capture **can** be the floor-independent provisioner [§7.2](#72-the-capture-payoff) says it is —
-on this backend the recording half needs nothing from the guest but `curl` and `bash`.
-
-One correction to the expectation: **`/Users/Shared/yolo-captures/claude/home` is a transient
-state, not the artifact.** After a successful run that root is EMPTY — the entry is the durable
-output, under `CapturesDir()` in the invoking user's home
-(`internal/macosuser/capture.go`'s `CaptureRootDefault` is staging; the store is
-`paths.CapturesDir()`). Someone checking this by `ls`-ing the staging path after the fact will read
-a clean success as a failure.
-
-**M5 — Does Seatbelt resolve `..` through a symlinked directory the way the Linux measurement
-assumed?** Decides [`OQ-HT2`](macos-user-home-tiers.md#decision-ledger)'s layout — the A′ remedy in
-[`macos-user-home-tiers.md` §5.3](macos-user-home-tiers.md#53-what-the-credential-tier-then-needs-precisely)
-rests on a `..` resolution measured on a **Linux** jail on 2026-09-11, and kernel path semantics
-under a sandbox profile cannot be checked from here.
-
-```console
-$ mkdir -p /tmp/yp/real/sub /tmp/yp/shared && echo ok > /tmp/yp/shared/f
-$ ln -s /tmp/yp/real/sub /tmp/yp/link && ln -s ../shared/f /tmp/yp/real/sub/via
-$ YOLO_RUNTIME=macos-user yolo -- bash -lc 'cat /tmp/yp/link/via'
-```
-
-**Expect:** the read **fails** — `..` resolves physically to `/tmp/yp/real`, not through the
-symlink — which is what the Linux measurement found and what the chosen A′ mirror-the-shared-dir
-remedy is built for. A **success** would mean darwin resolves it logically and the mirror is
-unnecessary, which would simplify that doc's [§5.3](macos-user-home-tiers.md#53-what-the-credential-tier-then-needs-precisely).
-
-**MEASURED 2026-09-11 — darwin resolves `..` PHYSICALLY, same as Linux; the A′ mirror stands.**
-`cat /tmp/yp/link/via` → `No such file or directory`. **And this item needs no launch, which is the
-correction:** the read fails *unsandboxed*, as the invoking user, because the resolution happens in
-the kernel's VFS before any policy is consulted — a Seatbelt profile can only deny an access, never
-make a path that does not resolve resolve. So the sandboxed answer is entailed by the unsandboxed
-one and the `macos-user` command in this item buys nothing. Stated because the reasoning
-generalises: **an item is only worth a privileged launch when the sandbox could change the
-answer.**
-
-**Deliberately not asked.** The runbook's four checks (passed 2026-09-10). Capture's
-*materialize* half (H2-gated, so a failure would prove nothing). And *"which of the image's 36
-core packages have native darwin builds"* for [`OQ-P1`](macos-user-provisioning.md#decision-ledger) — that
-is a per-attr `nix eval`, which is platform-independent and runs faster from this Linux jail than
-from a Mac.
-
-### 15.1 What a vendor installer does to the generated home
-
-Not asked for, and the most interesting thing M1 produced. **Both installers that ran wrote into
-files yolo generates**, and the answers differ per vendor:
-
-- **codex** prompted. `Start Codex now? [y/N]` — written to **`/dev/tty`** and read from it
-  (`install.sh:888`, via a `prompt_yes_no` helper at `:830-851` that falls back to stdin and, only
-  when neither is a tty, declines). The human answered `N`; **`y` would have started an agent
-  session inside a `--version` probe.** This answers a question
-  [`../plans/native-installer-migration.md`](../plans/native-installer-migration.md) recorded as
-  unverifiable — *"whether codex prompts without a TTY (`CODEX_NON_INTERACTIVE` defaults to
-  `false`) — read but not exercised"* — with the sharper form: it prompts whenever a tty is
-  reachable, which under a yolo launch it is. The installer honors
-  `CODEX_NON_INTERACTIVE=1`, and **`packdecl.Install` has no field for passing it** (`kind`, `bin`,
-  `package`, `flags`, `installerUrl`, `update` — `flags` is npm-only). So a pack cannot declare the
-  one variable that makes its own installer non-interactive. Filed as
-  [`OQ-PS8`](#OQ-PS8).
-- **agy** appended `export PATH="/Users/_yolojail/.local/bin:$PATH"` to **`.bashrc`, `.zshrc`,
-  `.zprofile` and `.bash_profile`** — every file `WriteLoginRC` writes, plus `.bashrc`. It logged
-  each one. ⚠ **A trailing prepend inverts the PATH order the launcher mechanism depends on**: an
-  install prefix landing ahead of `~/.yolo/bin/block` and `~/.yolo/bin/launch` is exactly the B2 /
-  [`OQ-PD12a`](program-delivery.md#decision-ledger) failure — blockers stop intercepting and the evergreen updater
-  stops mediating, which on Linux cost nine days of silent non-updates. **Bounded, not harmless:**
-  every one of those files is rewritten wholesale on the next launch (`WriteLoginRC` uses
-  `os.WriteFile` over `.zprofile`/`.zshrc`/`.bash_profile`, and `GenerateBashrc` runs as a
-  `genStep` on this path too), so the inversion lives from the install until the next launch — and
-  returns every time agy updates itself. Worth knowing before the
-  [`macos-user-provisioning.md` §4](macos-user-provisioning.md#4-the-proposed-shape)-style
-  provisioning stage runs installers on a schedule rather than on first use.
-
-The general point for this doc: **a `via: installer` provisioner is a shell script the vendor
-controls, and two of the three ran here reached past their own prefix into yolo's generated
-files.** That is a property of the row, not of these two packs, and it is the one real asymmetry
-against the npm row, which can only place a package.
+- **[M1](../plans/runbooks/mac-provisioner-measurements.md#m1--does-the-guest-have-any-working-program-provisioner) — the guest has exactly one working
+  `program` provisioner, and it is the vendor installer.** Three `via: installer` packs installed
+  and ran; both `via: npm` packs failed loudly on a missing `npm`, which is *warned*, not silent.
+  That settles the guest cells of the inventory's installer and npm rows.
+- **[M2](../plans/runbooks/mac-provisioner-measurements.md#m2--does-the-generated-brewfile-actually-apply-casks-included) — the generated Brewfile is runnable,
+  casks included.** `brew bundle check --verbose` parsed it and reported per-entry misses rather
+  than erroring, which was [`OQ-PS2`](#decision-ledger)'s precondition for ruling *drive it*.
+- **[M3](../plans/runbooks/mac-provisioner-measurements.md#m3--does-nix-profile-install-refuse-the-unfree-agent-clis-on-darwin) — the `unfree` refusal is real on
+  darwin, and the opt-in is a `--impure` FLAG rather than an environment variable** (a flake fact
+  this corpus had backwards on both platforms). A yolo-owned `nix profile --profile <dir>` works,
+  but pins to whatever channel tarball `nixpkgs#…` resolved to rather than to yolo's `flake.lock`,
+  and an unfree attr has no binary cache, so it builds locally on first use. All three feed
+  [`OQ-PS10`](#OQ-PS10) and [`OQ-PS6`](#OQ-PS6).
+- **[M4](../plans/runbooks/mac-provisioner-measurements.md#m4--does-the-capture-recording-half-work-on-hardware) — capture's recording half works end to
+  end on hardware**, in one pass, needing nothing from the guest but `curl` and `bash` — which is
+  what [§7.2](#72-the-capture-payoff) claims for it. The materialize half stays gated on
+  [`../plans/install-capture.md`](../plans/install-capture.md) hand-off H2.
+- **[M5](../plans/runbooks/mac-provisioner-measurements.md#m5--does-seatbelt-resolve--through-a-symlinked-directory) — darwin resolves `..` physically**,
+  the same as Linux, so [`macos-user-home-tiers.md`](macos-user-home-tiers.md)'s A′ mirror stands.
+  It also needed no privileged launch, and the generalisation is worth carrying: an item is only
+  worth one when the sandbox could change the answer.
+- **A `via: installer` provisioner is a shell script the vendor controls**, and two of the three
+  that ran reached past their own prefix into files yolo generates — one prompting on `/dev/tty`
+  mid-probe, which opened [`OQ-PS8`](#OQ-PS8), the other appending a PATH prepend to every login rc
+  and inverting the order the launcher mechanism depends on. That is a property of the row, not of
+  those two packs, and it is the one real asymmetry against the npm row, which can only place a
+  package.
 
 ---
 
 ## Open Questions
 
-Thirteen live, in id order. Seven are this doc's original `PS` series, four are carved out of
+Thirteen live, in id order — this doc's own `PS` series, including the ones carved out of
 compound questions on 2026-09-11 ([the carve table](#the-2026-09-11-carve-one-question-one-decision)),
-and four are the retired doc's under an `NX` prefix ([the id map](#question-id-map-old-spelling--new)).
+plus the retired doc's under an `NX` prefix ([the id map](#question-id-map-old-spelling--new)).
 [`OQ-PS11`](#OQ-PS11) gates [`OQ-PS5`](#OQ-PS5); [`OQ-PS2`](#decision-ledger) and
 [`OQ-PS3`](#decision-ledger) were ruled on 2026-09-11 and are in the
 [Decision Ledger](#decision-ledger). Each question below is written to be decidable **on its own** —
@@ -1614,8 +945,8 @@ that is what the carve was for — with stakes and a leaning; the leaning is min
 recommendation the doc rests on.
 
 1. 💬 **OQ-PS1: Should the host notch use the user's nix when `/nix` is present?** The premise of
-   the retired doc, whose [§6.8](#68-what-if-the-user-has-no-nix) treats absence as terminal and
-   whose mechanism has two consumers and no host caller (F1). **This asks one thing and nothing
+   the retired doc, which treated [the absence of nix](provisioner-evidence.md#38-what-if-the-user-has-no-nix) as terminal, and whose mechanism has two
+   consumers and no host caller (F1). **This asks one thing and nothing
    else**: does the already-built `yoloNoncontainerPackages` attribute get a third caller. What it
    produces is [`OQ-PS10`](#OQ-PS10); whether yolo would install nix for a user who has none is
    [`OQ-PS9`](#OQ-PS9); where nix ranks once it is in the set is
@@ -1625,8 +956,8 @@ recommendation the doc rests on.
 
    _Leaning:_ **Yes, as one member of the host set, ranked by the precedence.** Unchanged, and the
    maintainer left it standing on 2026-09-11. It costs one caller for an attribute that already
-   builds on every system `flake-utils` enumerates
-   ([§6.1](#61-what-is-already-solved-stated-precisely)), and on Linux it is the only provisioner
+   builds on every system `flake-utils` enumerates (the
+   [shipped-state table](provisioner-evidence.md#31-what-is-already-solved-stated-precisely)), and on Linux it is the only provisioner
    covering all six agent CLIs ([§4](#4-the-coverage-matrix-which-manager-covers-what)).
 
    <!-- vantage: oq id=OQ-PS1 leaning="Yes — use the user's nix when /nix exists, as one ranked member of the host's provisioner set. It needs one caller for an attribute that already builds on every system, and on Linux it is the only provisioner covering all six agent CLIs." -->
@@ -1679,7 +1010,7 @@ recommendation the doc rests on.
    CLI that ships daily than the pin does, two of six already lagged in nixpkgs at last
    measurement, and three are unfree, which would put warn-and-skip on the jail's critical path.
    ⚠ One number moved under nix on 2026-09-11: an unfree attr has **no binary cache**, so the
-   three unfree CLIs build locally on first use ([§15](#15-what-a-mac-session-should-measure) M3),
+   three unfree CLIs build locally on first use ([M3](../plans/runbooks/mac-provisioner-measurements.md#m3--does-nix-profile-install-refuse-the-unfree-agent-clis-on-darwin)),
    which is a real cost against ranking nix first on macOS.
 
    <!-- vantage: oq id=OQ-PS6 leaning="macOS host: brew, then the user's nix if present, then the pack's own recipe. Non-Arch Linux host: the user's nix if present, then the pack's recipe, then the native manager which covers almost nothing. Jail: unchanged — npm/installer, never nix, because daily-shipping agent CLIs need upstream freshness more than a pin and three of six are unfree with no binary cache." -->
@@ -1710,7 +1041,7 @@ recommendation the doc rests on.
 5. 💬 **OQ-PS8: How is a vendor installer made non-interactive — core detaches the tty, or a
    recipe names the variable?** Opened by a MEASUREMENT, not a review: codex's installer prompts
    `Start Codex now? [y/N]` on `/dev/tty` and a human answered `N` mid-`--version`-probe
-   ([§15.1](#151-what-a-vendor-installer-does-to-the-generated-home)). It honors
+   ([what a vendor installer does to the generated home](../plans/runbooks/mac-provisioner-measurements.md#what-a-vendor-installer-does-to-the-generated-home)). It honors
    `CODEX_NON_INTERACTIVE=1`; `packdecl.Install` has no field that can pass it, and its one
    extensibility point (`flags`) is npm-only. **Two mechanisms, one decision, and they differ in who
    owns the knowledge.** Naming the variable per recipe puts it with the vendor's own facts, at the
@@ -1748,8 +1079,9 @@ recommendation the doc rests on.
    at what cost*, not *whether it is allowed*.
 
    **⚠ The objection the old leaning rested on does not carry this question.**
-   [§6.8](#68-what-if-the-user-has-no-nix)'s *"telling a brew user to install nix to get `copilot`
-   is worse than `brew install copilot-cli`"* is an argument about **ranking** — it says nix must
+   The [no-nix case](provisioner-evidence.md#38-what-if-the-user-has-no-nix) — *"telling a brew
+   user to install nix to get `copilot` is worse than `brew install copilot-cli`"* — is an
+   argument about **ranking** — it says nix must
    not lead the macOS default order, which [`OQ-PS6`](#OQ-PS6)'s leaning already honours. It says
    nothing about a user whose **only** covering provisioner is nix, which on a non-Arch Linux host
    is the ordinary case: 0–1 of six from the native manager against 6/6 from nix
@@ -1805,7 +1137,7 @@ recommendation the doc rests on.
    | | what it is | what survives the command |
    | :--- | :--- | :--- |
    | **A declarative closure** (ships today) | the `buildEnv` at `packages.yoloNoncontainerPackages`, realized with `--out-link`, `<out>/bin` prepended for the process yolo launches | **nothing** — one flake-pinned store path, GC-rooted, reachable only inside a yolo launch |
-   | **A yolo-owned mutable profile** | `nix profile add --profile <dir>` into a yolo path ([§6.3](#63-nix-profile---profile-dir-the-only-candidate-that-reaches-a-users-own-path)) | a generation-tracked directory: rollback, `nix profile list` provenance, a stable path a user could put on their own PATH |
+   | **A yolo-owned mutable profile** | `nix profile add --profile <dir>` into a yolo path ([the mechanism, worked through](provisioner-evidence.md#33-nix-profile---profile-dir-the-only-candidate-that-reaches-a-users-own-path)) | a generation-tracked directory: rollback, `nix profile list` provenance, a stable path a user could put on their own PATH |
 
    > [!IMPORTANT]
    > **The `--sealed` precondition is RESOLVED, and it resolves against the old conditional.**
@@ -1831,11 +1163,11 @@ recommendation the doc rests on.
    **change from the old (c) leaning**, driven by the resolved precondition above and by two
    measurements, so it is flagged rather than quietly swapped. Three reasons. (1) The profile's
    headline advantage is smaller than it looked: `--profile <dir>` builds a profile **the user's
-   PATH does not see by default** ([§6.3](#63-nix-profile---profile-dir-the-only-candidate-that-reaches-a-users-own-path)),
+   PATH does not see by default** ([the mechanism](provisioner-evidence.md#33-nix-profile---profile-dir-the-only-candidate-that-reaches-a-users-own-path)),
    so it does not answer *"how do I install copilot"* either — that is
    [`OQ-PS9`](#OQ-PS9)'s and `install_hints`' job. (2) Its pin is **weaker**: MEASURED 2026-09-11,
    a `--profile` entry locks to whatever channel tarball `nixpkgs#…` resolved to, not to yolo's
-   `flake.lock` ([§15](#15-what-a-mac-session-should-measure) M3), so matching the `buildEnv`'s
+   `flake.lock` ([M3](../plans/runbooks/mac-provisioner-measurements.md#m3--does-nix-profile-install-refuse-the-unfree-agent-clis-on-darwin)), so matching the `buildEnv`'s
    pinning means passing yolo's own flake ref and re-deriving what the closure gets structurally.
    (3) *"It gcroots itself"* left the profile's side of the scale when the `buildEnv` acquired its
    own root ([`OQ-NX2`](#decision-ledger)). Revisit if generations and rollback are ever asked for
@@ -1895,7 +1227,7 @@ recommendation the doc rests on.
 
 10. 💬 **OQ-NX4: Does the environment need to carry *variables*, not just PATH?** (The retired
     doc's [`OQ-4`](#decision-ledger).) A `buildEnv` cannot; a devShell can, and that is the *only*
-    real argument for one ([§6.2](#62-the-four-nix-mechanisms-compared-and-why-never-a-devshell)).
+    real argument for one ([the four mechanisms, compared](provisioner-evidence.md#32-the-four-nix-mechanisms-compared-and-why-never-a-devshell)).
     Verified 2026-08-23: the Go whitelist is still exactly one variable, `PKG_CONFIG_PATH`, and only
     when `<out>/lib/pkgconfig` exists (`internal/darwinpkg/darwinpkg.go:175`, `:194`, re-resolved
     2026-09-11). The jail's baked `Env` carries `SSL_CERT_FILE`, `LD_LIBRARY_PATH`,
@@ -1916,7 +1248,7 @@ recommendation the doc rests on.
     *undeclared* pollution"?** (The retired doc's [`OQ-5`](#decision-ledger).) A `buildEnv`
     containing `gnugrep` still shadows `/usr/bin/grep` when prepended — the difference from a
     devShell is legibility, not effect, and on a Mac host that is the BSD-vs-GNU hazard arriving by
-    the front door ([§6.7](#67-macos-vs-linux-coverage-freshness-and-the-traps)). **What it
+    the front door ([coverage, freshness and the traps](provisioner-evidence.md#37-macos-vs-linux-coverage-freshness-and-the-traps)). **What it
     decides:** whether a non-container profile *warns* when a declared package shadows a system
     binary, or trusts the declaration. Nothing warns today, on any path (confirmed absent
     2026-08-23). ⚠ It is the same hazard as [`OQ-P2`](macos-user-provisioning.md#decision-ledger) one
@@ -1997,11 +1329,11 @@ this doc already had, per the rule that one subject gets one question.
 | Retired spelling | Now | Where it lives |
 | :--- | :--- | :--- |
 | [`OQ-1`](#decision-ledger), also cited as `N3` | [`OQ-NX1`](#decision-ledger) | settled 2026-09-02 — [Decision Ledger](#decision-ledger); the ruling is [§10](#10-alternatives-each-with-a-verdict) alternative I |
-| [`OQ-2`](#decision-ledger), also cited as `N1` | [`OQ-NX2`](#decision-ledger) | settled 2026-08-05 — [Decision Ledger](#decision-ledger); the four traps are [§6.8](#68-what-if-the-user-has-no-nix)'s warning |
-| [`OQ-3`](#decision-ledger) | **folded into [`OQ-PS1`](#OQ-PS1)(c)** | the mechanism is [§6.3](#63-nix-profile---profile-dir-the-only-candidate-that-reaches-a-users-own-path) |
+| [`OQ-2`](#decision-ledger), also cited as `N1` | [`OQ-NX2`](#decision-ledger) | settled 2026-08-05 — [Decision Ledger](#decision-ledger); the four traps are preserved in [the no-nix section](provisioner-evidence.md#38-what-if-the-user-has-no-nix) |
+| [`OQ-3`](#decision-ledger) | **folded into [`OQ-PS1`](#OQ-PS1)(c)** | the mechanism is worked through in [the evidence doc](provisioner-evidence.md#33-nix-profile---profile-dir-the-only-candidate-that-reaches-a-users-own-path) |
 | [`OQ-4`](#decision-ledger) | [`OQ-NX4`](#OQ-NX4) | live |
 | [`OQ-5`](#decision-ledger) | [`OQ-NX5`](#OQ-NX5) | live |
-| [`OQ-6`](#decision-ledger) | [`OQ-NX6`](#decision-ledger) | settled 2026-08-02 — [Decision Ledger](#decision-ledger); the three traps are [§6.7](#67-macos-vs-linux-coverage-freshness-and-the-traps)'s warning |
+| [`OQ-6`](#decision-ledger) | [`OQ-NX6`](#decision-ledger) | settled 2026-08-02 — [Decision Ledger](#decision-ledger); the three traps are preserved in [coverage, freshness and the traps](provisioner-evidence.md#37-macos-vs-linux-coverage-freshness-and-the-traps) |
 | [`OQ-7`](#decision-ledger) | **folded into [`OQ-PS6`](#OQ-PS6)** | it is that question's jail row; [§10](#10-alternatives-each-with-a-verdict) alternative F |
 | [`OQ-8`](#decision-ledger) | [`OQ-NX8`](#OQ-NX8) | live |
 | [`OQ-9`](#decision-ledger) | [`OQ-NX9`](#OQ-NX9) | live — **and this is the id whose collision forced the prefix** |
@@ -2055,7 +1387,7 @@ inherited from the retired doc with their rulings intact.
 | [`OQ-PS2`](#decision-ledger) | **Drive the winner — behind [`OQ-9`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)'s batched confirm, and sequenced LAST**, after the precedence order has shipped as a print-only improvement. The **written manifest stays the floor**; running it is the offer on top, never a replacement. The version-currency objection was already settled as an accepted cost by [`OQ-PS4`](#decision-ledger) | 2026-09-11 | [§8.5](#85-the-ruling-yolo-drives-the-winner-behind-the-confirm-and-last), [§9](#9-what-i-would-build-in-order) step 5 |
 | [`OQ-PS4`](#decision-ledger) | **A default precedence order yolo ships, overridden by user config** — not a per-package interrogation, and ordered rather than a single name because on a non-Arch Linux host the first choice covers 0–1 of six. The version-currency cost of leading with a system manager is an **accepted trade**, not a blocker: a user choosing brew chooses brew's cadence knowingly. Justified by pluralism — *"there won't be one right answer for everybody"*. ⚠ Residues opened as [`OQ-PS6`](#OQ-PS6) (what the default order is) and [`OQ-PS7`](#OQ-PS7) (the override's grain and its machinery) | 2026-09-11 | [§8.2](#82-the-ruling-a-shipped-default-order-the-user-config-overrides), P5 in [§1](#1-the-verdict-and-five-principles) |
 | [`OQ-NX1`](#decision-ledger) / `N3` | **The host notch is a place agents RUN, answered by events**: `yolo host -- <cmd>` shipped with a fully composed launch env (`d546e9e1`, `e23df4aa`), and the provider-catalog rulings made host launches a peer of jail launches (*"the host notch runs the env derive"* — a constraint, not a choice). Reopen only if that shipped behaviour turns out to be unintended | 2026-09-02 (events 2026-08-30 → 09-02) | [§10](#10-alternatives-each-with-a-verdict) alternative I |
-| [`OQ-NX2`](#decision-ledger) / `N1` | **Yes, GC-root the realized profile** — and the root IS the build's `--out-link`, at `build/package-roots/packages`, a sibling of the image roots so `prune` cannot sweep it. Shipped `23cee7a6` | 2026-08-05 | [§6.8](#68-what-if-the-user-has-no-nix) and its warning block |
-| [`OQ-NX6`](#decision-ledger) | **Warn-and-skip, via `meta.available`** — an unfree attr in `packages:` is skipped with a named reason instead of aborting the build; yolo never sets `allowUnfree` for the user, and an opted-in user still gets the package. Shipped `e40df9f1` | 2026-08-02 | [§6.7](#67-macos-vs-linux-coverage-freshness-and-the-traps) and its warning block |
-| `N2` | **The nix mechanism is per-system and its name says so**: `yoloNoncontainerPackages` / `yoloUnavailablePackages` / `NativeSystem()`. Rejected the proposed `yoloHostPackages` — the axis is "no baked image", not "macOS", and not "`host`" either. Shipped `11f8bb72` | 2026-08-05 | [§6.1](#61-what-is-already-solved-stated-precisely), [§6.4](#64-not-orthogonal-to-confinement-the-provisioning-primitive-below-jail) |
-| — | The two `install_hints` defects (brew-cask Brewfile verb; unfree hint) — **both fixed** `e40df9f1`. ✅ **Both exercised on a Mac 2026-09-11** — the cask verb by [§15](#15-what-a-mac-session-should-measure) M2, the unfree refusal by M3, which also found that the env-var opt-in needs `--impure` | 2026-08-02 | [§10](#10-alternatives-each-with-a-verdict) alternative G |
+| [`OQ-NX2`](#decision-ledger) / `N1` | **Yes, GC-root the realized profile** — and the root IS the build's `--out-link`, at `build/package-roots/packages`, a sibling of the image roots so `prune` cannot sweep it. Shipped `23cee7a6` | 2026-08-05 | [`provisioner-evidence.md`](provisioner-evidence.md#38-what-if-the-user-has-no-nix), and its GC-root warning block |
+| [`OQ-NX6`](#decision-ledger) | **Warn-and-skip, via `meta.available`** — an unfree attr in `packages:` is skipped with a named reason instead of aborting the build; yolo never sets `allowUnfree` for the user, and an opted-in user still gets the package. Shipped `e40df9f1` | 2026-08-02 | [`provisioner-evidence.md`](provisioner-evidence.md#37-macos-vs-linux-coverage-freshness-and-the-traps), and its unfree warning block |
+| `N2` | **The nix mechanism is per-system and its name says so**: `yoloNoncontainerPackages` / `yoloUnavailablePackages` / `NativeSystem()`. Rejected the proposed `yoloHostPackages` — the axis is "no baked image", not "macOS", and not "`host`" either. Shipped `11f8bb72` | 2026-08-05 | [the shipped-state table](provisioner-evidence.md#31-what-is-already-solved-stated-precisely) and the [orthogonality finding](provisioner-evidence.md#34-not-orthogonal-to-confinement-the-provisioning-primitive-below-jail) |
+| — | The two `install_hints` defects (brew-cask Brewfile verb; unfree hint) — **both fixed** `e40df9f1`. ✅ **Both exercised on a Mac 2026-09-11** — the cask verb by [M2](../plans/runbooks/mac-provisioner-measurements.md#m2--does-the-generated-brewfile-actually-apply-casks-included), the unfree refusal by [M3](../plans/runbooks/mac-provisioner-measurements.md#m3--does-nix-profile-install-refuse-the-unfree-agent-clis-on-darwin), which also found that the env-var opt-in needs `--impure` | 2026-08-02 | [§10](#10-alternatives-each-with-a-verdict) alternative G |

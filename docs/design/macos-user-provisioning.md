@@ -166,8 +166,8 @@ consequences follow from that one sentence, and **both were measured on hardware
 
 **Why it is worse than it looks.** Neither failure is an error. The wrong command runs, exits 0, and
 prints plausible output — the first attempt at
-[`provisioner-sets.md` §15](provisioner-sets.md#15-what-a-mac-session-should-measure) M1 collapsed
-nine probes into five and reported five successes, none of which had run. Every container backend
+[the Mac measurements runbook](../plans/runbooks/mac-provisioner-measurements.md#m1--does-the-guest-have-any-working-program-provisioner)'s
+M1 collapsed nine probes into five and reported five successes, none of which had run. Every container backend
 passes argv through `podman exec` untouched, so this is a **backend-parity defect**: the same
 `yolo --` invocation means different things per backend, and only this one rewrites it.
 
@@ -236,8 +236,10 @@ and the `mise_tools` warning says so verbatim.
 > packs. Measured: **three of the six install and run** — `claude`, `codex` and `agy` are
 > `via: installer`, and a vendor installer needs only the `curl` and `bash` that macOS ships. So the
 > guest is not a notch where agent CLIs cannot arrive; it is one where they arrive **by exactly one
-> of the two mechanisms** ([`provisioner-sets.md` §15](provisioner-sets.md#15-what-a-mac-session-should-measure)
-> M1, and its [§3](provisioner-sets.md#3-the-provisioner-inventory-per-environment) rows 5 and 6).
+> of the two mechanisms** ([the Mac measurements
+> runbook](../plans/runbooks/mac-provisioner-measurements.md#m1--does-the-guest-have-any-working-program-provisioner)'s
+> M1, and the npm-for-programs and vendor-installer rows of [the provisioner
+> inventory](provisioner-evidence.md#1-the-provisioner-inventory-per-environment)).
 >
 > Two live edges survive the correction. **The npm half is loud but late** — the launcher prints
 > `npm: command not found` and exits 1 when the agent is invoked, so the failure still lands on the
@@ -277,7 +279,8 @@ unconfined here would be a regression the container never had.
 > under the session profile — so *confined* — and both still reached past their own prefix into
 > **yolo's generated files**: `agy` appended a PATH export to `.bashrc`, `.zshrc`, `.zprofile` and
 > `.bash_profile`, and `codex` prompted `Start Codex now? [y/N]` on `/dev/tty` and waited for a human
-> ([`provisioner-sets.md` §15.1](provisioner-sets.md#151-what-a-vendor-installer-does-to-the-generated-home)).
+> ([what a vendor installer does to the generated
+> home](../plans/runbooks/mac-provisioner-measurements.md#what-a-vendor-installer-does-to-the-generated-home)).
 > Seatbelt was doing its job: the sandbox home is *supposed* to be writable, and the tty is the one
 > the launch legitimately owns. **So "run it confined" does not mean "run it safely" for anything
 > inside the sandbox home** — which is where every generated PATH-ordering and launcher artifact

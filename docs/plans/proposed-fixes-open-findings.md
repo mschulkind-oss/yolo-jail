@@ -621,7 +621,8 @@ distinction I should have drawn instead of inventing a user.
 
 **Where a real "pin the closure" want belongs**, if it ever shows up: not a hint that looks like
 a plain install command, but
-[`../design/provisioner-sets.md`](../design/provisioner-sets.md)'s `buildEnv` — a whole
+the `buildEnv` read in depth by
+[`../design/provisioner-evidence.md`](../design/provisioner-evidence.md#32-the-four-nix-mechanisms-compared-and-why-never-a-devshell) — a whole
 declared closure, which is a different feature with a different UI. **Not building it on
 speculation.**
 

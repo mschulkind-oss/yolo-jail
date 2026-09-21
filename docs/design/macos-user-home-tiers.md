@@ -387,8 +387,8 @@ not exist. Two remedies were weighed:
 > Linux-only artifact.
 >
 > **It needed no sandbox to establish, and that is worth recording as method.**
-> [`provisioner-sets.md` §15](provisioner-sets.md#15-what-a-mac-session-should-measure) asked for
-> this under a `macos-user` launch, on the reasonable worry that kernel path semantics *under a
+> [M5](../plans/runbooks/mac-provisioner-measurements.md#m5--does-seatbelt-resolve--through-a-symlinked-directory)
+> of the Mac measurements runbook asked for this under a `macos-user` launch, on the reasonable worry that kernel path semantics *under a
 > profile* might differ. They cannot differ in the direction that matters: resolution happens in
 > the VFS before the policy is consulted, and a Seatbelt profile can only deny an access that
 > resolves — never make an unresolvable path resolve. The unsandboxed failure therefore entails the
