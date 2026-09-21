@@ -31,19 +31,23 @@ where it is claimed.
 hand-written skill named `synced`. Measured: the second apply **deleted a newly synced skill
 and reverted an edited one**, reporting `Applied: 1 composed skill.`
 
-**The shape.** A pack-declared **fence** that stops yolo composing inside another tool's tree;
-an explicit **snapshot** that copies chosen skills into a yolo-owned pack; a **drift report**
-that is the whole update story.
+**The shape.** A pack-declared **fence** that stops yolo composing inside another tool's tree,
+and a **notice** when it finds a non-empty one — naming the path, and pointing at the pack
+documentation. yolo copies nothing, moves nothing and tracks nothing.
 
-**Cost.** A snapshot forks a source that heals itself, so every copy yolo holds is stale by
-default. This design says so plainly rather than pretending to solve it.
+**Cost.** A user who wants that content in a jail does the copying themselves. That is the
+deliberate trade: the snapshot that would have done it for them is
+[deleted](#43-what-was-deleted-with-the-snapshot-and-why), because the population needing it is
+probably nobody and a mechanism nobody needs is a standing obligation.
 
 **Start at [§3](#3-what-yolo-does-with-it-today)** — what happens today is the design.
 
-**Needs your ruling:** [OQ-ST2](#OQ-ST2) — whether the fence is pack-declared or core-known, and
-it gates nothing: [§12](#12-what-i-would-build-in-order) step 1 ships without it.
-[OQ-ST5](#OQ-ST5) is live but belongs to the config-ownership axis, not this one. ST1, ST3 and
-ST4 are in [§15](#15-decision-ledger).
+**Needs your ruling:** [OQ-ST5](#OQ-ST5) only — and it belongs to the config-ownership axis
+rather than this one, so it should be ruled beside
+[`CO13`](config-ownership-and-promotion.md#13-decision-ledger). ST1 and ST4 dissolved with the
+snapshot; ST2 and ST3 were ruled 2026-09-20. ⚠ **P3's justification was corrected the same day**:
+it is mode-dependent and fails at `host_management: none`, so the principle now rests on the
+host-read boundary instead.
 
 
 **Reads with:** [`synced-skill-trees-plan.md`](synced-skill-trees-plan.md) (the implementation
@@ -68,11 +72,33 @@ applied somewhere specific.
   `".claude/skills means synced is special"` into core is the coupling
   [`../../AGENTS.md`](../../AGENTS.md) forbids, and `internal/hostskills`' tier doc comment
   already refuses the identical shortcut in as many words.
-- **P3. The jail never reads a host skills tree.** The deleted `SkillTarget.HostSource` is the
-  cautionary tale ([`../../internal/jailcontent/skills.go`](../../internal/jailcontent/skills.go)
-  states it where the field was): a jail reading `~/.<agent>/skills` found yolo's own generated
-  output, not the user's tree. Host material crosses by the host notch composing it into a
-  pack — the channel that already exists — and by nothing else.
+- **P3. The jail never reads a host skills tree — but NOT for the reason first given.** The
+  deleted `SkillTarget.HostSource` is the cautionary tale
+  ([`../../internal/jailcontent/skills.go`](../../internal/jailcontent/skills.go) states it where
+  the field was): a jail reading `~/.<agent>/skills` found yolo's own generated output, not the
+  user's tree.
+
+  ⚠ **That justification is MODE-DEPENDENT, and it fails at one of the three modes.**
+  `host_management` has three values (`none`, `assert`, `own` —
+  [`config.KnownHostManagements`](../../internal/config/hostmanagement.go)), and the circularity
+  only exists where yolo composes into that tree. At **`none`** yolo does not write the real
+  `$HOME` at all, so `~/.<agent>/skills` is the user's genuine hand-written tree and reading it
+  would NOT be reading yolo's output. The principle as originally stated is therefore over-broad:
+  it asserts *never* on the strength of a reason that holds at `own`, weakens at `assert`, and
+  evaporates at `none`.
+
+  **P3 survives anyway, on a reason that does not depend on the mode: it is a HOST READ.** A jail
+  reading `~/.<agent>/skills` pulls host-home content across the boundary, and yolo already has
+  exactly one channel for that — a declared `host_files` grant, disclosed by name in the launch
+  banner ([`AGENTS.md`](../../AGENTS.md)). A skills layer that read the host home silently would
+  be a second, undisclosed channel for the same capability, which is the thing the banner exists
+  to prevent. So: host material crosses by the host notch composing it into a pack, or by a
+  declared and disclosed grant — and by nothing else.
+
+  ⚠ Stated this way because the two reasons have different consequences. If anyone later wants a
+  jail to read a host skills tree at `none`, the circularity objection does not stand in their
+  way; the disclosure requirement does, and it is satisfiable rather than fatal.
+
 - **P4. A transition is an adoption, so it preserves.** The existing rule, and it is already
   written down: *"Adoption preserves, declaration refuses"*
   ([`../reference/pack-system.md`](../reference/pack-system.md#skills)). A name conflict
@@ -828,82 +854,65 @@ and at `dropComputedTables` itself, and both stop at the same edge — they reco
 a known boundary and name the missing signal, neither says what to do with an unasserted leaf
 once the signal exists.
 
-1. 💬 **OQ-ST2: Is the fence pack-declared, or does core know the name?** P2 says pack-declared,
-   and [§9](#9-alternatives-considered) keeps the hardcode as a fallback because the honest
-   comparison is three lines against a manifest field, a validator, a launch-side read and a
-   refusal. What it decides: whether the second vendor to ship a sync root costs a config field
-   or a code change — and whether a *user* can fence a directory of their own at an agent's
-   skills dir without yolo shipping a release.
+1. ✅ <a id="OQ-ST2"></a> **OQ-ST2: Is the fence pack-declared, or does core know the name?**
 
-   <!-- vantage: oq id=OQ-ST2 leaning="Pack-declared, per P2 — the hardcode is cheaper today and is the coupling internal/hostskills already refuses by name; a user-settable escape hatch is the part worth arguing about." -->
+   **Answer (2026-09-20):**
+   > **Pack-declared, per P2.** Hardcoding `synced` into core is cheaper today and is exactly the
+   > coupling `internal/hostskills`' tier comment already refuses by name — core learning one
+   > vendor's directory name is how core learns what an agent is, one string at a time.
 
-   _Leaning:_ **pack-declared.** The precedent is right there in `internal/hostskills`' tier
-   comment refusing the identical shortcut. The sub-question I have no strong view on is whether
-   a *user* may add reserved children in their own config.
+   ⚠ **The sub-question is explicitly NOT ruled and is the part worth arguing about:** may a
+   *user* add reserved children in their own config? A user-settable escape hatch is a different
+   question from where the shipped name is declared, and nothing here forecloses it.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   ⚠ It gates nothing either way — [§12](#12-what-i-would-build-in-order) step 1 ships without it.
 
-2. 💬 **OQ-ST5: Once yolo can tell which leaves it asserted, what happens to the ones it did
-   not?** **NARROWED 2026-09-20, not answered** — and the premise moved under it, which is worth
-   more than the part that got answered.
+2. 💬 **OQ-ST5: When yolo regenerates a table, what happens to the keys inside it that yolo did not write?**
 
-   > [!IMPORTANT]
-   > **Three corrections, from
-   > [`config-ownership-and-promotion.md`'s drop-narrowing ruling](config-ownership-and-promotion.md#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule).**
-   >
-   > 1. **"Once yolo can tell" is already true, for half the question.** The computed table's
-   >    key set IS the set of leaves the derive asserted — a tombstone decodes to a present key
-   >    with a nil value — so this question is ANSWERABLE today, without roadmap row `0b`
-   >    landing anything. MEASURED against the shipped `claude/settings` derive.
-   > 2. **One case is DECIDED, and it is (a) preserve.** Where the computed table is
-   >    present-and-EMPTY, yolo regenerated no leaf, so it claims none: the unasserted leaves
-   >    survive the render. That is shipped, and it moved two `mise` migration goldens.
-   > 3. **The blocker on the rest is a DIFFERENT missing record than this question assumed.**
-   >    It is not "which leaves did yolo assert" (yolo knows) but "does this derive fill this
-   >    table in full" (nothing says) — [`OQ-CO13`](config-ownership-and-promotion.md#13-decision-ledger).
-   >    Measured: choosing (a) for a NON-empty table with no such declaration resurrects a
-   >    deleted MCP server and reddens six tests across two packages, which is the resurrection
-   >    class one granularity up.
-   >
-   > **What is left open here is therefore narrower and sharper than the text below:** for a
-   > table yolo DOES fill in full, is an unasserted leaf (a) preserved, (b) refused, or
-   > (c) dropped reversibly? The leaning below still stands and (a) is now strictly harder to
-   > argue for, because the empty-table case took the part of (a) that was free.
+   *Rewritten 2026-09-20 to stand alone. It had accreted three corrections and read as a diff
+   against its own earlier self.*
 
-   [§8.5](#85-what-the-migration-becomes-once-the-record-exists) needs this and cannot
-   assume it: the leaf-level record ([`../plans/roadmap.md`](../plans/roadmap.md) row `0b`) makes
-   the question ANSWERABLE for the host notch too, and that is a different thing from answering
-   it. Where no record exists the answer is forced — every leaf under a regenerated table is
-   residue and goes, named at the host and archived only when the render adopts. With a record,
-   three postures are available and
-   they are not variations of one: **(a) preserve** — an unasserted leaf survives every render,
-   which is what a user with a hand-enabled plugin wants and is also how a stale entry becomes
-   immortal, one granularity below the resurrection class `dropComputedTables` exists to prevent;
-   **(b) refuse** — the render stops until the leaf is declared or removed, which is the
-   host notch's existing answer to a keyless surface ([`[OQ-CO9](./config-ownership-and-promotion.md#13-decision-ledger)`](./config-ownership-and-promotion.md#13-decision-ledger)) and is unavailable to a boot,
-   which has no one to ask; **(c) drop, but reversibly** — today's behaviour plus a per-leaf
-   record the report can name and a verb can restore from, which is [§4.3](#43-what-was-deleted-with-the-snapshot-and-why)'s
-   shape applied to keys instead of items.
+   **The situation, from scratch.** Some config yolo produces is a TABLE — `enabledPlugins`,
+   `mcpServers`, mise's `[tools]`. yolo writes some keys inside it. The user may have written
+   others. When yolo regenerates that table, it must decide what happens to the user's keys.
 
-   What it decides is not plugin-specific and not even config-specific: it is whether *"yolo owns
-   this container"* means *"and everything in it that yolo did not put there is disposable"*. The
-   same sentence decides the tree case if the fence ever grows an exception.
+   **Two of the three parts are settled; only the third is open.**
 
-   <!-- vantage: oq id=OQ-ST5 leaning="(c), drop-but-reversibly — it keeps regenerate-don't-reconcile intact at both granularities and makes the loss recoverable, which is the property today's disclosure lacks; (a) is what users want and is how a stale leaf becomes permanent." -->
+   | | | Status |
+   | :--- | :--- | :--- |
+   | Can yolo tell which keys it wrote? | **Yes, today.** The computed table's key set IS the asserted set — a tombstone decodes to a present key with a nil value. MEASURED against the shipped `claude/settings` derive | settled |
+   | What if yolo wrote NONE of them (the table is present but empty)? | **Preserve.** Regenerating nothing claims nothing, so the user's keys survive. Shipped; it moved two `mise` migration goldens | settled |
+   | What if yolo wrote SOME of them? | **Open — this question.** | ⬅ |
 
-   _Leaning:_ **(c).** (a) is what the user in [§8](#8-a-worked-migration-state-already-in-a-file-yolo-is-about-to-own)
-   wants in the moment and it inverts *regenerate, don't reconcile* one level down — the rule
-   that has already been paid for twice in this engine. (b) cannot be uniform across the two
-   notches — a boot has nobody to ask, which is the same asymmetry the adoption archive was built
-   around ("a prompt where there is a human, a copy where there is not"). (c) leaves the drop where it is and moves the
-   recovery from *"the user kept a copy"* to *"yolo kept one"*, which is the gap
-   [§8.4](#84-what-to-do-today-when-the-dry-run-names-something) is currently asking a user to
-   fill by hand. I hold it loosely: it is also the most code, and (a) restricted to a leaf the
-   derive has NEVER asserted in this home may be indistinguishable from it in practice.
+   **Why the third is hard, and it is not the reason this question originally gave.** The blocker
+   is not "which keys did yolo write" — yolo knows. It is **"does this derive fill this table in
+   full?"**, which nothing declares. Preserve-always resurrects a deleted MCP server; drop-always
+   destroys a user's own `env` entries. MEASURED: choosing preserve for a non-empty table with no
+   such declaration reddens six tests across two packages.
+
+   That missing declaration is [`CO13`](config-ownership-and-promotion.md#13-decision-ledger),
+   **decided 2026-09-20** — a third derive sentinel beside `ctx.tombstone` / `ctx.empty_array`.
+   So this question is no longer blocked on an unknown; it is waiting on that being built.
+
+   **What is actually being asked, once CO13 exists.** For a table the derive declares it fills
+   **in full**, is a key the derive did not write **(a) preserved**, **(b) refused**, or
+   **(c) dropped reversibly**?
+
+   <!-- vantage: oq id=OQ-ST5 leaning="(a) preserve, but weaker than it was: the empty-table case already took the part of (a) that was free, so what remains is the genuinely contested half." -->
+
+   _Leaning:_ **(a), and weaker than it looks.** The empty-table case already took the part of
+   (a) that was free, so what is left is precisely the contested half — a table the derive claims
+   to own completely, with a user key in it. (b) is the honest alternative and this leaning is
+   not strong.
+
+   ⚠ **This belongs to the config-ownership axis, not to skills.** It is here because
+   [§8](#8-a-worked-migration-state-already-in-a-file-yolo-is-about-to-own) needs it, and it
+   should be ruled in [`config-ownership-and-promotion.md`](config-ownership-and-promotion.md)
+   beside `CO13` rather than in this doc.
 
    **Answer:**
    > _(empty — fill in when decided)_
+
 
 ## 15. Decision ledger
 
