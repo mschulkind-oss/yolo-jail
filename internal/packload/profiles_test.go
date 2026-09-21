@@ -15,7 +15,9 @@ import (
 
 // optionProviderPack returns a pack whose provider DECLARES a surface: `model` with a
 // default, `thinking` declared with none — the two shapes OptionDefault exists to tell
-// apart (OQ-CS7's wrinkle), and the pair every census test below measures against.
+// apart (the options-map null is "declared, no default" and not a delete:
+// docs/reference/providers.md §"How the table composes"), and the pair every census test
+// below measures against.
 func optionProviderPack(t *testing.T) *Pack {
 	return &Pack{Name: "zai", Decl: declFrom(t, `{"contributes":[
 	  {"kind":"provider","name":"zai",
@@ -63,7 +65,8 @@ func TestResolveProfilesPutsDeclaredDefaultsUnderUserValues(t *testing.T) {
 	}
 	// `thinking` is DECLARED with no default, so the profile that says nothing about it
 	// reaches the derive as nothing — that is the promise the null spelling makes
-	// (OQ-CS7), and the reason a defaultless option is not the empty string.
+	// (docs/reference/providers.md §"How the table composes", the options-map carve-out),
+	// and the reason a defaultless option is not the empty string.
 	slow := got["zai-slow"]
 	if _, set := slow.Options["thinking"]; set {
 		t.Errorf("a declared option with no default composes nothing, got %+v", slow.Options)
@@ -117,9 +120,11 @@ func TestResolveProfilesPackProfileAloneStillResolves(t *testing.T) {
 	}
 }
 
-// TestResolveProfilesUndeclaredOptionNamesWhatTheProviderAccepts is the census (OQ-CS7):
-// the provider owns the schema, so the refusal names the option, the provider that does
-// not have it, and what it DOES accept. One message — the same one every caller shows.
+// TestResolveProfilesUndeclaredOptionNamesWhatTheProviderAccepts is the census
+// (docs/reference/providers.md §"Profiles and options" — the option NAMES are core's only
+// check): the provider owns the schema, so the refusal names the option, the provider
+// that does not have it, and what it DOES accept. One message — the same one every
+// caller shows.
 func TestResolveProfilesUndeclaredOptionNamesWhatTheProviderAccepts(t *testing.T) {
 	pack := optionProviderPack(t)
 	_, err := ResolveProfiles([]*Pack{pack}, map[string]UserProfile{
@@ -341,7 +346,8 @@ func TestAgentEnvHandsTheActiveProfileOptionsToTheDerive(t *testing.T) {
 		t.Fatal(err)
 	}
 	// One key: `model` is the profile's own value, and `thinking` — declared with no
-	// default and set by nobody — composes nothing (OQ-CS7's null reading).
+	// default and set by nobody — composes nothing (the "declared, no default" null:
+	// docs/reference/providers.md §"How the table composes").
 	want := []agentenv.Var{
 		{Key: "PROFILE_KEYS", Value: "1"},
 		{Key: "PROFILE_MODEL", Value: "fast"},

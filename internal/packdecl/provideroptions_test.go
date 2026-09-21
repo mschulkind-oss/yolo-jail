@@ -2,10 +2,10 @@ package packdecl
 
 // provideroptions_test.go pins the `options` half of a `kind: "provider"` contribution —
 // the profile surface a provider DECLARES (docs/reference/providers.md §5.2,
-// OQ-CS4), flat name → default value (OQ-CS7). The decode cases here are the ones the
-// field exists for: a null is a DECLARED option with no default, and that is the one
-// reading of null this config does not share with merge-patch, so it gets its own test
-// rather than a line in another test.
+// OQ-CS4), flat name → default value (that doc's §"Profiles and options"). The decode
+// cases here are the ones the field exists for: a null is a DECLARED option with no
+// default, and that is the one reading of null this config does not share with
+// merge-patch, so it gets its own test rather than a line in another test.
 
 import (
 	"strings"

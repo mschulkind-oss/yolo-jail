@@ -54,8 +54,13 @@ var knownTopLevelConfigKeys = set(
 	// `host_processes` and `journal` are the two newest, they retired within a day of
 	// each other, and their retirement is a MOVE rather than a deletion: each key's
 	// values are now declared by its own loophole's manifest, shipped in the official
-	// pack of the same name (docs/reference/pack-system.md, loophole-activation.md
-	// §1.4). THEY WERE ALSO THE ONLY TWO LOOPHOLES THIS SCHEMA NAMED, which is what
+	// pack of the same name (docs/reference/pack-system.md; the live residue is the
+	// "Retired top-level config keys" row of
+	// docs/reference/loophole-system.md#current-values). The FINDING that drove the move
+	// — core's own schema hardcoded two loopholes by name — did NOT graduate with the
+	// loophole docs and exists only in git:
+	// `git show 9190a4d1^:docs/design/loophole-activation.md`, §1.4.
+	// THEY WERE ALSO THE ONLY TWO LOOPHOLES THIS SCHEMA NAMED, which is what
 	// makes the pair worth reading together: with both gone, core's config schema names
 	// no loophole at all, and "convert the loophole to a pack" stops being a separation
 	// in appearance only.
@@ -204,8 +209,10 @@ var (
 	// knownModelKeys is the closed field set an object-form `models.<alias>` may carry: the
 	// wire id every consumer needs, plus the model-capability facts a derive projects. It is
 	// CLOSED (an unknown key is refused), because an accepted-but-unread field is the exact
-	// silent drop the flat `options` surface was shaped to avoid (OQ-CS7). A fact added here
-	// is a deliberate schema change, not a spelling a user can invent.
+	// silent drop the flat `options` surface was shaped to avoid (docs/reference/providers.md
+	// §"Profiles and options": there the provider declares the option NAMES and core
+	// validates no values, so an unread option is inert BY DESIGN — a model field must not
+	// be). A fact added here is a deliberate schema change, not a spelling a user can invent.
 	knownModelKeys = set("id", "name", "reasoning", "input", "cost", "context_window", "max_tokens")
 	// knownModelCostKeys is the closed set of rates inside that `cost` object. Canonical
 	// snake; the consuming derive translates to its agent's spelling (pi's cacheRead/...).

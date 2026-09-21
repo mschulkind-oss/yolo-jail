@@ -89,8 +89,8 @@ const (
 // a scope rather than a `singleton: true` bool. The dimension is "what is this
 // daemon shared across", and naming it for today's only interesting answer would
 // make a third answer look like a violation instead of an addition — the same
-// argument §5.5 makes for calling the connection preamble a preamble rather than
-// an identity frame.
+// argument docs/design/broker-as-a-pack.md §5.5 makes for calling the connection
+// preamble a preamble rather than an identity frame.
 //
 // It exists because ONE loophole in the tree cannot be spawned per jail at all:
 // the Claude OAuth broker holds the flock that stops two jails burning the same

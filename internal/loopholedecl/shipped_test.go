@@ -19,7 +19,7 @@ import (
 // bundled reader is gone with the choice it recorded.
 //
 // The broker's row is the one to read twice: `claude`, the AGENT pack, not a
-// `claude-oauth-broker` pack of its own (loophole-activation.md OQ-A10). The dependency is
+// `claude-oauth-broker` pack of its own (docs/reference/loophole-system.md#oq-a10). The dependency is
 // structural — the broker exists to serve claude — so selecting the claude pack IS the
 // dependency, and a pack of its own would reinstate the second selection step that ruling
 // deletes.
@@ -27,7 +27,7 @@ import (
 // `journal` is still worth spotting: it never lived in `bundled_loopholes/` at all,
 // because it was not a bundled loophole — it was a BUILTIN SERVICE with no manifest
 // anywhere, switched by a top-level config key. It entered this table straight into a pack
-// (loophole-activation.md OQ-A6).
+// (docs/reference/loophole-system.md#oq-a6).
 var shippedManifestHome = map[string]string{
 	"claude-oauth-broker": "claude",
 	"audio":               "audio",
@@ -146,11 +146,13 @@ func TestShippedManifestsDecodeStrictly(t *testing.T) {
 	//   claude-oauth-broker   OQ-A1. It must not gain a way to be silently off; a
 	//                         jail-only claude user without it races the single-use
 	//                         refresh token rather than merely losing a feature.
-	//   host-processes        R4 as of the pack conversion (2026-08-18). §1.3's table
-	//                         had it ending at false, paid for by `packs:` selection,
-	//                         and this is the commit that pays: the pack is what turns
-	//                         it back on, so the capability is no longer removed with
-	//                         nothing to restore it.
+	//   host-processes        R4 as of the pack conversion (2026-08-18). The activation
+	//                         census — `git show
+	//                         9190a4d1^:docs/design/loophole-activation.md`, §1.3, which
+	//                         did NOT graduate — had it ending at false, paid for by
+	//                         `packs:` selection, and this is the commit that pays: the
+	//                         pack is what turns it back on, so the capability is no
+	//                         longer removed with nothing to restore it.
 	//   cgroup-delegate       R4/OQ-A4, and the only one whose flip has a STATED,
 	//                         ACCEPTED COST rather than a migration: yolo-cglimit stops
 	//                         working out of the box. It was PRESENCE-ACTIVATED — no
@@ -165,13 +167,20 @@ func TestShippedManifestsDecodeStrictly(t *testing.T) {
 	//                         silently disabling their only refresh owner would leave
 	//                         both with an adapter that can never answer.
 	//   aws-auth              false, and it is the only one whose value carries a
-	//                         BEHAVIOUR the framework cannot otherwise spell. Design
-	//                         §8: "no profile configured -> the loophole does not
-	//                         start, and it is not an error". Nothing supports a
-	//                         setting-conditional spawn, so `false` IS that sentence —
-	//                         unconfigured is disabled. `true` plus a self-refusing
+	//                         BEHAVIOUR the framework cannot otherwise spell.
+	//                         docs/design/sso-backed-bedrock.md §8, degenerate inputs:
+	//                         "the loophole does not start ... Not an error: a selected
+	//                         pack with no configuration is inert". Nothing supports a
+	//                         setting-conditional spawn, so `false` IS those two clauses
+	//                         — unconfigured is disabled. `true` plus a self-refusing
 	//                         daemon would turn the ordinary unconfigured case into an
 	//                         error, which that section says it is not.
+	//                         ⚠ THE SENTENCE HAS TWO MORE CLAUSES AND THIS VALUE CARRIES
+	//                         NEITHER, so do not read it as the whole ruling: "the pack
+	//                         contributes nothing" is the `"profile": "bedrock"` gate on
+	//                         packs/aws-auth's `kind: "env"` contribution, a separate
+	//                         mechanism; "and the launch says so once" is a DISCLOSURE
+	//                         that a default of false does not produce at all.
 	//
 	// A table rather than one blanket assertion because the blanket one — "every
 	// bundled manifest declares enabled:true" — is what this change had to delete, and
@@ -363,7 +372,8 @@ func TestShippedBrokerFields(t *testing.T) {
 			m.DoctorCmd, m.DoctorCmdSet)
 	}
 	// NO `requires` PROBE, and its absence is a ruling rather than an omission (R3, made
-	// free by R6 — loophole-activation.md). It used to read
+	// free by R6 — docs/reference/loophole-system.md#principles, where R3 also carries the
+	// warning that it is narrower in the code than it reads). It used to read
 	// `requires.command_on_path: "claude"`, a HOST-side exec.LookPath standing in for "is
 	// there a claude to refresh for". That is wrong for the product's main case in the
 	// direction that costs a user their credentials: a jail-only user installs claude

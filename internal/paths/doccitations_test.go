@@ -23,6 +23,22 @@ var fixtureCitations = map[string]string{
 	"docs/design/go-port-divergences.md": "internal/json5 and internal/jsonx name it to say " +
 		"where the ledger WENT — it was archived in 2c229fbc and TestLedgeredDivergences is the " +
 		"live record. A deliberate historical mention, not a live citation",
+	// THE SAME SHAPE AS THE ENTRY ABOVE, and both arrived the same way (2026-09-21): a
+	// citation sweep found these two docs had been deleted rather than graduated, so the
+	// comments citing them were rewritten to say WHERE THE TEXT IS — `git show <sha>^:<path>`
+	// — which is the honest form for material that exists only in history.
+	//
+	// ⚠ THE PATH IS INSIDE A GIT COMMAND, which is why it reaches this check at all. That is
+	// the one form docCitationRe cannot tell from a live citation, and narrowing the regex to
+	// exclude it would also excuse a real dead citation that happened to sit near the word
+	// `git`. An allowlist entry is the cheaper hole: it is visible, it carries its reason, and
+	// it is wrong only if someone later RESURRECTS one of these paths.
+	"docs/design/loophole-activation.md": "deleted, not graduated. internal/config and " +
+		"internal/loopholedecl cite it as `git show 9190a4d1^:docs/design/loophole-activation.md` " +
+		"§1.4 — the text is in history and the comment says so",
+	"docs/design/pack-config-keys.md": "deleted, not graduated. internal/loopholedecl and " +
+		"internal/loopholes cite it as `git show 2faee0cc^:docs/design/pack-config-keys.md` — " +
+		"same shape, same reason",
 }
 
 // TestEveryDocCitationFromGoResolves is the tripwire for a class that has bitten

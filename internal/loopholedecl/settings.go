@@ -48,8 +48,9 @@ var validSettingTypes = []string{
 //
 // SettingScopeUser means the user config only (~/.config/yolo-jail/config.jsonc):
 // a workspace file contributing to the key is refused, exactly as `env` is. That is
-// the declaration a capability-WIDENING key wants, and docs/reference/pack-system.md
-// §3 is why it has to be sayable at all: MergeConfig union-merges every list at every
+// the declaration a capability-WIDENING key wants, and
+// docs/reference/pack-system.md#a-packs-own-config-keys is why it has to be sayable at
+// all: MergeConfig union-merges every list at every
 // depth, so a user-scope ceiling that a workspace NARROWS is inexpressible — a
 // workspace can only ever add. For an allowlist that inverts the intended safety
 // property, and `scope: "user"` is the only way to state it.
@@ -118,7 +119,10 @@ type Setting struct {
 	//
 	// That totality is the point: the file core writes carries every declared key,
 	// so a daemon reading it never has to distinguish "absent" from "false", and
-	// the flat-map contract in pack-config-keys.md §6 stays a flat map. For
+	// the settings file stays the FLAT resolved map that keeps it from becoming a
+	// second config system (docs/reference/pack-system.md#a-packs-own-config-keys
+	// names that risk; the flat-map mitigation itself did not graduate — `git show
+	// 2faee0cc^:docs/design/pack-config-keys.md`, §6). For
 	// `host_processes.visible` the type zero is the empty list, which is exactly
 	// what an unset allowlist meant before this existed.
 	Default any

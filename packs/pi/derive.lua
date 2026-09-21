@@ -184,7 +184,11 @@ end
 -- names one alias, is the wrong scope for a per-model fact; the provider fallback still
 -- reaches it through providerOption for the active provider.
 --
--- The names are yolo-flat because an option value is a STRING (OQ-CS7), so pi's nested cost
+-- The names are yolo-flat because a provider's `options` is a flat name→default map whose
+-- values core never validates (docs/reference/providers.md §"Profiles and options") and an
+-- option VALUE is a STRING. That second half is NOT in that section — it is
+-- `packdecl.OptionDefault`, which decodes a string or a null and refuses everything else,
+-- and `yolo config-ref`'s `profiles` entry states it for the user side. So pi's nested cost
 -- object is spelled as four scalar options and modalities as a comma list:
 --
 --   reasoning          "true" | "false"

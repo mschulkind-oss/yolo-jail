@@ -31,7 +31,7 @@ func repoRootDir(t *testing.T) string {
 // column that recorded WHICH CHANNEL is gone with the choice it recorded.
 //
 // The broker's row is the one to read twice: its pack is `claude`, the AGENT pack, not a
-// `claude-oauth-broker` pack of its own (loophole-activation.md OQ-A10). The dependency
+// `claude-oauth-broker` pack of its own (docs/reference/loophole-system.md#oq-a10). The dependency
 // is structural — the broker exists to serve claude — so selecting the claude pack IS
 // the dependency, and a pack of its own would reinstate a second selection step.
 var shippedLoopholes = []struct{ name, pack string }{

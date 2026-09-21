@@ -88,7 +88,8 @@ func TestAssembleEmitsTheResolvedProfilesTable(t *testing.T) {
 		t.Fatalf("YOLO_PROFILES crossed %q, want exactly one line", got)
 	}
 	// `model` is the user's value over the declared default; `thinking` is declared with
-	// none and the profile does not set it, so it composes nothing (OQ-CS7's null). The
+	// none and the profile does not set it, so it composes nothing (the "declared, no
+	// default" null: docs/reference/providers.md §"How the table composes"). The
 	// fixture's OWN profile (`zai`, no user entry) is in the table too, with the declared
 	// default — the table is the whole DECLARED set, not just what this launch activates,
 	// and it is sorted by name.

@@ -9,10 +9,13 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/packs"
 )
 
-// journalretired_test.go pins the SECOND half of loophole-activation.md §1.4: core's
-// config schema named exactly two loopholes by hand, `host_processes` went on
-// 2026-08-18, and `journal` is the one whose removal makes the pair mean something —
-// after it, the schema names no loophole at all.
+// journalretired_test.go pins the SECOND half of a finding that did NOT graduate with
+// the loophole docs and exists only in git — `git show
+// 9190a4d1^:docs/design/loophole-activation.md`, §1.4: core's config schema named
+// exactly two loopholes by hand, `host_processes` went on 2026-08-18, and `journal` is
+// the one whose removal makes the pair mean something — after it, the schema names no
+// loophole at all. What the reference carries is only the residue, the "Retired
+// top-level config keys" row of docs/reference/loophole-system.md#current-values.
 
 // TestRetiredJournalKeyIsRefusedAndNamesItsReplacement pins the DELETION, and pins it
 // as a REFUSAL.
@@ -133,7 +136,8 @@ func TestTheInheritCensusStopsEmittingJournal(t *testing.T) {
 }
 
 // AND CORE'S SCHEMA NOW NAMES NO LOOPHOLE, which is the whole point of the sprint
-// rather than a consequence of it (loophole-activation.md §1.4). Both retired keys stay
+// rather than a consequence of it (the ungraduated §1.4 finding this file's header
+// cites by sha). Both retired keys stay
 // LISTED so each earns exactly one targeted message instead of a generic unknown-key
 // error beside it — so "named" here means classified as live schema, which is what the
 // census answers.

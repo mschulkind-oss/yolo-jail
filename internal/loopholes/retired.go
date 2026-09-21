@@ -28,7 +28,8 @@ package loopholes
 // WHY A LOUD NOTICE RATHER THAN A SILENT DROP. Whatever sat here was running a daemon
 // on the host until the upgrade that removed this channel. A capability that vanishes
 // with no message is the failure mode the rest of this package keeps paying for (see
-// loadModuleDirs's warn-and-continue, and pack-capabilities.md §5: anything that turns
+// loadModuleDirs's warn-and-continue, and the rule the mandatory `because` carries in
+// docs/reference/pack-system.md#capabilities-and-supersession: anything that turns
 // something off must name who did it and why). The notice therefore names the
 // directory, every module still in it, and the exact commands to migrate.
 

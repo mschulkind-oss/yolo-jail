@@ -276,9 +276,11 @@ type Contribution struct {
 	// provider's consumers read is the consumer's business, not core's.
 	Models map[string]string `json:"models,omitempty"`
 	// Options is the profile surface the provider DECLARES (docs/reference/providers.md,
-	// OQ-CS4): a FLAT map of option name to default value, read
-	// exactly like its neighbour Models — no `kind`, no `values`, no wrapper object
-	// (OQ-CS7 ruled the nested form out; `default` was the only field left in it).
+	// OQ-CS4): a FLAT map of option name to default value, read exactly like its neighbour
+	// Models — no `kind`, no `values`, no wrapper object. The flat form is the ruling (that
+	// doc's §"Why it's this way", the OQ-CS4/CS7 row): core checks the option-name census
+	// and nothing else, so the nested form's one remaining field — `default` — had nothing
+	// left to wrap.
 	//
 	// A profile is an instance of this declaration: it states a provider and only the
 	// options it changes, and core merges the declared defaults under those values while
@@ -814,15 +816,15 @@ func (m *Manifest) PostureFor(autonomy bool) *AutonomyPosture {
 // map[string]string collapse the null to "".
 //
 // THE NULL MEANS *DECLARED, NO DEFAULT* — a decision on the record rather than an
-// accident of sharing a decoder (docs/reference/providers.md §9 OQ-CS7, note): an
-// option a profile may set, and whose absence hands the derive nothing. It is NOT the
-// merge-patch delete convention that null carries almost everywhere else in this
-// config. The reason to depart: un-declaring an option is something nobody wants (an
-// unset option already reaches the derive as nothing, so a user gains nothing by
-// removing one their provider offers), while "keep the option, drop the default" is a
-// real override — and since the two readings would otherwise pick different behaviours
-// for the same syntax, the rule is written into the type's own documentation, which is
-// the place a reader lands when they ask what the null did.
+// accident of sharing a decoder (docs/reference/providers.md §"How the table composes",
+// the options-map carve-out): an option a profile may set, and whose absence hands the
+// derive nothing. It is NOT the merge-patch delete convention that null carries almost
+// everywhere else in this config. The reason to depart: un-declaring an option is
+// something nobody wants (an unset option already reaches the derive as nothing, so a
+// user gains nothing by removing one their provider offers), while "keep the option,
+// drop the default" is a real override — and since the two readings would otherwise
+// pick different behaviours for the same syntax, the rule is written into the type's own
+// documentation, which is the place a reader lands when they ask what the null did.
 //
 // The empty STRING, by contrast, is a real default: an option whose default is "".
 type OptionDefault struct {
@@ -2261,7 +2263,8 @@ func validateContribution(label string, c Contribution) []string {
 		// key no profile can ever spell and the refusal downstream would quote it. The
 		// VALUES need no check from this layer — OptionDefault's decoder already refused
 		// anything that is neither a string nor null, and what a default MEANS is the
-		// derive's business, not the manifest's (OQ-CS7: core validates no values).
+		// derive's business, not the manifest's (docs/reference/providers.md §"Profiles and
+		// options": no value validation happens in core, at any layer).
 		for _, k := range sortedKeys(c.Options) {
 			if k == "" {
 				problems = append(problems, label+": provider has an empty option name")

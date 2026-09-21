@@ -8,8 +8,8 @@ import (
 
 // profiles_test.go pins the `profiles` key's two guarantees: USER SCOPE ONLY, by
 // construction (OQ-CS5), and an entry shape narrow enough that a profile can only ever
-// be a provider plus free string options (§5.2 property 3, OQ-CS7's "core validates no
-// values").
+// be a provider plus free string options (§5.2 property 3, and docs/reference/providers.md
+// §"Profiles and options": "no value validation happens in core" — the derive validates).
 
 // TestLoadProfilesIgnoresWorkspaceScopeByConstruction is the packs_test.go test of the
 // same name, pointed at the second key that reads user scope directly. The guarantee is
@@ -180,7 +180,10 @@ func TestCheckProfilesRefusesNonObjectEntries(t *testing.T) {
 // TestCheckProfilesRefusesANonStringOptionValue is the one shape check an option gets:
 // the derive consumes strings, so a number or a bool is a typo — and a NULL is refused
 // with the reason spelled out, because null means DELETE everywhere else in this config
-// and would here compose exactly what an omitted key composes (OQ-CS7's wrinkle).
+// and would here compose exactly what an omitted key composes. The one place a null does
+// NOT delete is the PROVIDER's options map, and that carve-out is about keeping an option
+// declared, which a profile has no equivalent of (docs/reference/providers.md §"How the
+// table composes").
 func TestCheckProfilesRefusesANonStringOptionValue(t *testing.T) {
 	for _, body := range []string{
 		`{"zai": {"provider": "zai", "model": 7}}`,
@@ -197,9 +200,9 @@ func TestCheckProfilesRefusesANonStringOptionValue(t *testing.T) {
 	}
 }
 
-// TestCheckProfilesLowersFreeOptionValues pins that core validates no VALUES (OQ-CS7):
-// whatever string the user wrote arrives verbatim, because what it means is the
-// derive's business.
+// TestCheckProfilesLowersFreeOptionValues pins that core validates no VALUES
+// (docs/reference/providers.md §"Profiles and options"): whatever string the user wrote
+// arrives verbatim, because what it means is the derive's business.
 func TestCheckProfilesLowersFreeOptionValues(t *testing.T) {
 	entries, problems := checkProfiles(decodeAny(t,
 		`{"zai-fast": {"provider": "zai", "model": "fast", "thinking": "low"}}`))

@@ -20,9 +20,10 @@ package config
 //
 // This file LOWERS only. It decides that an entry is well-formed — an object naming a
 // provider, with string option values — and nothing else: what an option MEANS is the
-// derive's business and the provider owns which options exist (OQ-CS7), so the lowering
-// never validates a value against anything. The pack-side resolution (defaults under
-// these values, the census, the undeclared-name refusal) is packload.ResolveProfiles.
+// derive's business and the provider owns which options exist (docs/reference/providers.md
+// §"Profiles and options"), so the lowering never validates a value against anything. The
+// pack-side resolution (defaults under these values, the census, the undeclared-name
+// refusal) is packload.ResolveProfiles.
 
 import (
 	"fmt"
@@ -99,7 +100,10 @@ func checkProfiles(v any) (map[string]packload.UserProfile, []string) {
 // value is refused rather than read as "unset": the null-as-delete convention this
 // config speaks everywhere else would here compose the same nothing an omitted key
 // already composes, so the two readings would differ only in which one a reader
-// assumes — and OQ-CS7's note is the reason the PROVIDER's null is not this null.
+// assumes. The PROVIDER's null is not this null, and for a reason that does not apply
+// here: under a provider's `options` a null keeps the option DECLARED, because dropping a
+// default must not un-declare an option a profile may name (docs/reference/providers.md
+// §"How the table composes", the options-map carve-out).
 func checkProfileEntry(name string, raw any) (packload.UserProfile, string) {
 	path := "config." + profilesKey + "." + name
 	if name == "" {

@@ -811,9 +811,10 @@ func TestValidateProvidersWithNoAddressIsLegal(t *testing.T) {
 
 // `options` is the profile surface a provider DECLARES (docs/reference/providers.md
 // §5.2, OQ-CS4): a flat map of option name to default, with null meaning *declared, no
-// default* rather than delete (OQ-CS7). It is a config key as well as a manifest field —
-// a user may declare a provider of their own, or add an option to one a pack ships — and
-// until it was in knownProviderKeys the reference documented a key this layer refused.
+// default* rather than delete (that doc's §"How the table composes", the options-map
+// carve-out). It is a config key as well as a manifest field — a user may declare a
+// provider of their own, or add an option to one a pack ships — and until it was in
+// knownProviderKeys the reference documented a key this layer refused.
 func TestValidateProvidersOptionsIsADeclaredSurface(t *testing.T) {
 	if _, listed := knownProviderKeys["options"]; !listed {
 		t.Fatal("`options` must be in knownProviderKeys — the reference documents it, and " +
@@ -828,8 +829,9 @@ func TestValidateProvidersOptionsIsADeclaredSurface(t *testing.T) {
 }
 
 // The census is the option NAME set, and the values are free — what `model` means is the
-// derive's business (OQ-CS7). So the only shape a value can have is string or null, and
-// anything else is an author's typo that must not silently become "declared, no default".
+// derive's business, and core validates no value (docs/reference/providers.md §"Profiles
+// and options"). So the only shape a value can have is string or null, and anything else
+// is an author's typo that must not silently become "declared, no default".
 func TestValidateProvidersOptionsRefusesANonScalarValue(t *testing.T) {
 	for name, value := range map[string]string{
 		"number": `{"model": 3}`,

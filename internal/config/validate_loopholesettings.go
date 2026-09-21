@@ -101,12 +101,18 @@ func validateLoopholeSettings(spec *jsonx.OrderedMap, path string, info *Loophol
 //
 // # Why a user-scope key cannot simply be "bounded" by the workspace
 //
-// docs/reference/pack-system.md §3 corrects loophole-activation.md R5 on exactly
-// this point, and the correction is load-bearing here: MergeConfig union-merges
-// EVERY list at every depth, and the replace-wholesale exception was deleted on
-// purpose. So a user-scope ceiling list that a workspace NARROWS is inexpressible —
-// a workspace can only ever WIDEN. For an allowlist that inverts the intended safety
-// property, which is why the answer is a refusal rather than an intersection.
+// docs/reference/pack-system.md#a-packs-own-config-keys corrects R5 — the scope
+// ruling at docs/reference/loophole-system.md#principles — on exactly this point, and
+// the correction is load-bearing here: MergeConfig union-merges EVERY list at every
+// depth, and the replace-wholesale exception was deleted on purpose. So a user-scope
+// ceiling list that a workspace NARROWS is inexpressible — a workspace can only ever
+// WIDEN. For an allowlist that inverts the intended safety property, which is why the
+// answer is a refusal rather than an intersection.
+//
+// ⚠ TWO DOCS CARRY AN `R5` AND THEY ARE DIFFERENT RULINGS. loophole-system.md's is the
+// scope ruling above; pack-system.md files this correction under its OWN `R5`
+// (docs/reference/pack-system.md#why-its-this-way), and loophole-system.md's CAUTION
+// says so. Never resolve a bare `R5` in this corner by matching the letter.
 func loopholeSettingsScopeViolations(name string, spec *jsonx.OrderedMap, srcFile string, info *LoopholeInfo) []string {
 	if info == nil {
 		return nil

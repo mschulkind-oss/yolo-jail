@@ -168,8 +168,9 @@ func TestComposeProvidersRendersTheDeclaredOptionsBlock(t *testing.T) {
 	pack := optionProviderPack(t)
 	got := compose(t, nil, []*Pack{pack})
 	// The null survives INTO the table: it is what tells the reader the option is
-	// declared with no default (OQ-CS7), and collapsing it to an absent key would turn a
-	// declared surface into no surface at all.
+	// declared with no default (docs/reference/providers.md §"How the table composes", the
+	// options-map carve-out), and collapsing it to an absent key would turn a declared
+	// surface into no surface at all.
 	want := `{"zai": {"endpoints": {"anthropic": {"base_url": "https://api.z.ai/api/anthropic"}}, ` +
 		`"options": {"model": "default", "thinking": null}}}`
 	if s := dump(t, got); s != want {
@@ -183,7 +184,8 @@ func TestComposeProvidersRendersTheDeclaredOptionsBlock(t *testing.T) {
 		t.Errorf("an option default should compose per field, got %s", s)
 	}
 
-	// THE ONE NULL THAT IS NOT A DELETE (OQ-CS7): under `options`, a null lowers the
+	// THE ONE NULL THAT IS NOT A DELETE (docs/reference/providers.md §"How the table
+	// composes", the options-map carve-out): under `options`, a null lowers the
 	// default and keeps the option declared. Everywhere else in this entry the same
 	// syntax removes the key — pinned by the test above this one — and applying that rule
 	// here would silently UNDECLARE an option the user only asked to un-default, so a

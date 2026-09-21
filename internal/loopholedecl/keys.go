@@ -76,7 +76,8 @@ const (
 // BACKWARDS for a key that was REMOVED. A newer build will never read `enabled`; it
 // deleted it. Telling a reader to wait for one is telling them to wait forever, and
 // meanwhile the loophole quietly takes the new default
-// (docs/reference/loophole-system.md §4).
+// (docs/reference/loophole-system.md#default_enabled-versus-enabled, whose reverse-skew
+// warning is this paragraph's source).
 const (
 	// RetiredKeyEnabled is the manifest's old enablement key. It was renamed to
 	// `default_enabled` AND its default flipped (OQ-A9/R2), which is why a tolerance

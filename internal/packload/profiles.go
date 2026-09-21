@@ -20,7 +20,9 @@ package packload
 //   - the user's `profiles` config entries, read at USER SCOPE by config.LoadProfiles
 //     and handed here already lowered (OQ-CS5 — the same scope rule `packs` follows);
 //   - the options the RESOLVED provider declares (OQ-CS4), which are the only schema a
-//     profile's values answer to and the only census core applies (OQ-CS7).
+//     profile's values answer to and the only census core applies — the NAMES are checked
+//     against the provider's declaration and no VALUE is validated anywhere in core
+//     (docs/reference/providers.md §"Profiles and options").
 
 import (
 	"fmt"
@@ -43,8 +45,9 @@ type UserProfile struct {
 	Provider string
 
 	// Options are the profile's own values, keyed by option NAME. Free strings: core
-	// validates no VALUE (OQ-CS7) — what an option means is the derive's business, and
-	// the only thing core checks is that the NAME is one the provider declares.
+	// validates no VALUE (docs/reference/providers.md §"Profiles and options") — what an
+	// option means is the derive's business, and the only thing core checks is that the
+	// NAME is one the provider declares.
 	Options map[string]string
 }
 
@@ -70,9 +73,9 @@ type ResolvedProfile struct {
 //
 //  1. the resolved provider's DECLARED DEFAULTS — every option the provider declares
 //     that carries a default value. A declared option with NO default (the null
-//     spelling, OQ-CS7) composes nothing here, so a profile that does not set it
-//     reaches the derive as nothing, which is exactly what "declared, no default"
-//     promises;
+//     spelling — docs/reference/providers.md §"How the table composes", the options-map
+//     carve-out) composes nothing here, so a profile that does not set it reaches the
+//     derive as nothing, which is exactly what "declared, no default" promises;
 //  2. the pack-shipped profile's own values — none exist today, because the kind
 //     declares a selection (name + provider) and no option values; the layer is here so
 //     the merge has one shape should a shipped profile ever carry one;
@@ -81,10 +84,11 @@ type ResolvedProfile struct {
 // ONE refusal, fatal, because a launch that silently mis-composes a profile is
 // indistinguishable from a working one:
 //
-//   - an option NAME the resolved provider does not declare (OQ-CS7): the provider owns
-//     the schema, so the refusal names what it accepts. Asked only when the provider
-//     DECLARES at least one option — a provider with no `options` imposes no census, or
-//     every profile over today's shipped providers would be refused on sight.
+//   - an option NAME the resolved provider does not declare (the census, and core's only
+//     check on an option — docs/reference/providers.md §"Profiles and options"): the
+//     provider owns the schema, so the refusal names what it accepts. Asked only when the
+//     provider DECLARES at least one option — a provider with no `options` imposes no
+//     census, or every profile over today's shipped providers would be refused on sight.
 //
 // Every name resolves to a provider, and that is property 3 rather than luck: the
 // manifest schema refuses a kind:profile with no `provider`, and the config layer
@@ -255,9 +259,12 @@ func providerOptions(providers *jsonx.OrderedMap) map[string]map[string]packdecl
 	return out
 }
 
-// undeclaredOptionMessage is the census refusal, and the ONE message for it (OQ-CS7):
-// the option, the provider that does not have it, and what the provider does accept.
-// A provider that declares nothing never reaches here — see ResolveProfiles.
+// undeclaredOptionMessage is the census refusal, and the ONE message for it
+// (docs/reference/providers.md §"Profiles and options": a profile naming an option the
+// provider does not declare is refused, naming what it does accept — the NAME census is
+// the whole of core's check, no value is ever validated): the option, the provider that
+// does not have it, and what the provider does accept. A provider that declares nothing
+// never reaches here — see ResolveProfiles.
 func undeclaredOptionMessage(profile, provider, key string, declared map[string]packdecl.OptionDefault) string {
 	return fmt.Sprintf("profile %q: option %q is not declared by provider %q "+
 		"(declared: %s) — a profile states only what its provider's options define",

@@ -434,8 +434,8 @@ Everything that works on Linux works on macOS **except** the items listed in
 - ✅ Custom Nix packages in the image
 - ✅ `yolo check` diagnostics (with macOS-aware checks)
 - ✅ `yolo ps` and `yolo prune`
-- ✅ Network modes (bridge, host, none) on **Podman** — on Apple Container only `bridge`
-  (the default) is honored; see
+- ✅ Network modes (`bridge`, `host`) on **Podman** — those two are the whole vocabulary the
+  key accepts; on Apple Container only `bridge` (the default) is honored; see
   [Apple Container: what it does not do](#apple-container-runtime-container--what-it-does-not-do)
 - ✅ Read-only root filesystem and tmpfs mounts
 - ✅ **Native no-VM backend** (`macos-user`): agent under Seatbelt as
@@ -479,9 +479,16 @@ carries the pre-flight gates that can refuse a launch outright, which are not ma
 This page keeps what is genuinely macOS-only: the two per-backend explanations below, which say
 *why* each cell is what it is, and the platform sections after them.
 
-`macos-user` reads none of the network or scratch-storage keys at all — it is a native process on
+`macos-user` **honors** none of the network or scratch-storage keys — it is a native process on
 your own machine, so there is no network namespace to configure and no container filesystem to make
-ephemeral.
+ephemeral. Read and honored are not the same thing here, and the two halves differ: past the
+validator, nothing on this backend's path looks at `ephemeral_storage` at all (the only reader,
+`run.ScratchMountArgs`, sits on the podman branch of the assembler), while the network keys are
+read *in order to say so* —
+`run.appliedNetMode` answers `host` for it (the only mode it has, since the sandbox is on the
+launcher's own stack) and tells the briefing that, and `run.noteMacosUserPortKeys` prints one
+warning per non-empty `network.ports` / `network.forward_host_ports` entry. Neither path changes
+what the sandbox does.
 
 ### Apple Container (`runtime: container`) — what it does not do
 

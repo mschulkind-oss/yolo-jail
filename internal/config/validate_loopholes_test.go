@@ -432,7 +432,8 @@ func TestWorkspaceLocalScopeAndEnablePrecedence(t *testing.T) {
 // WorkspaceLoopholeSwitches is the provenance seam `yolo check` uses to warn on a
 // workspace-scope switch instead of green-passing it. It carries BOTH directions:
 // it used to be WorkspaceDisabledLoopholes and dropped the `true` case on the floor
-// (loophole-activation.md OQ-A13).
+// (docs/reference/loophole-system.md#oq-a13, which ruled the OFF disclosure MIRRORED
+// onto ON).
 //
 // The precedence half is what makes it a seam rather than a lookup: `enabled` is
 // resolved the way the merge resolves it, so the file it names is the file that

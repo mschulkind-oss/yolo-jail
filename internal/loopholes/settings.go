@@ -38,7 +38,9 @@ import (
 // No includes, no layering, no comments, no provenance. Every declared key is
 // present exactly once, in declaration order, already coerced to its declared type.
 // A settings file that grew any of those would be a second config system, which is
-// the risk pack-config-keys.md §6 names.
+// the risk docs/reference/pack-system.md#a-packs-own-config-keys names. The flat-map
+// MITIGATION did not graduate with it and is only in the pre-graduation risk table:
+// `git show 2faee0cc^:docs/design/pack-config-keys.md`, §6.
 
 // SettingsFileName is the basename of the resolved settings file inside a
 // loophole's state dir.

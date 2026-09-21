@@ -48,8 +48,11 @@ func TestDeclaredSettingIsAccepted(t *testing.T) {
 	}
 }
 
-// TestSettingsOnlyEntryIsNotAnInlineService is the shape-dispatch fix
-// pack-config-keys.md §5 calls out by name, and the case that needs it is the
+// TestSettingsOnlyEntryIsNotAnInlineService is the shape-dispatch fix the migration
+// called out by name. The migration steps did not graduate into
+// docs/reference/pack-system.md#a-packs-own-config-keys, so the sentence naming this
+// one is only in git: `git show 2faee0cc^:docs/design/pack-config-keys.md`, §5. The
+// case that needs it is the
 // loophole this machine cannot SEE — a pack whose module has not staged here, which
 // is the ordinary state of a config being read on another machine.
 //
@@ -126,8 +129,10 @@ func TestSettingTypeIsChecked(t *testing.T) {
 }
 
 // TestUserScopedSettingIsRefusedFromTheWorkspace is the per-key scope rule, and it is
-// the mechanism pack-config-keys.md §3 needs because R5's "the weak scope is bounded
-// by the strong one" is FALSE for lists: MergeConfig union-merges every list at every
+// the mechanism docs/reference/pack-system.md#a-packs-own-config-keys needs because
+// R5's "the weak scope is bounded by the strong one"
+// (docs/reference/loophole-system.md#principles — NOT pack-system.md's own, different
+// `R5`) is FALSE for lists: MergeConfig union-merges every list at every
 // depth, so a workspace can only ever WIDEN a user-scope allowlist. There is no
 // intersection to fall back on, so the answer is a refusal.
 func TestUserScopedSettingIsRefusedFromTheWorkspace(t *testing.T) {

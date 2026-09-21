@@ -680,9 +680,11 @@ func shippedProviderEntry(prov packdecl.ProviderContribution) *jsonx.OrderedMap 
 //
 // ONE key steps outside that rule, and it is the one whose null has its own ruling:
 // under `options`, a null means *declared, no default*, deliberately NOT the delete
-// (docs/reference/providers.md OQ-CS7). mergeOptionDefaults is the whole of the
-// exception — the map itself (`providers.zai.options: null`) still deletes, like every
-// other field, because the ruling is about a value IN the map and not about the map.
+// (docs/reference/providers.md §"How the table composes", the options-map carve-out:
+// dropping a default must not un-declare the option a profile may name).
+// mergeOptionDefaults is the whole of the exception — the map itself
+// (`providers.zai.options: null`) still deletes, like every other field, because the
+// ruling is about a value IN the map and not about the map.
 func mergeUnder(dst, src *jsonx.OrderedMap) {
 	for _, k := range src.Keys() {
 		v, _ := src.Get(k)
@@ -718,7 +720,8 @@ func mergeUnder(dst, src *jsonx.OrderedMap) {
 }
 
 // mergeOptionDefaults folds a user's `options` map over a composed one, flat: a string
-// replaces, and a null LOWERS THE DEFAULT while keeping the option declared (OQ-CS7).
+// replaces, and a null LOWERS THE DEFAULT while keeping the option declared
+// (docs/reference/providers.md §"How the table composes", the options-map carve-out).
 // There is no recursion because the map is flat by schema — a nested value is refused by
 // both producers (packdecl's decoder and config.validateProviderOptions), so it never
 // reaches a composition.
@@ -742,8 +745,9 @@ const optionsKey = "options"
 
 // providerOptionsEntry lowers a declaration's options map into the composed entry's
 // spelling: option name → string default, or an explicit JSON null for an option
-// declared with none (OQ-CS7). The null has to survive INTO the table rather than
-// collapsing to an absent key, because the table is what providerOptions reads back —
+// declared with none (docs/reference/providers.md §"How the table composes": a null inside
+// an options map is "declared, no default"). The null has to survive INTO the table rather
+// than collapsing to an absent key, because the table is what providerOptions reads back —
 // the census and the composed entry would otherwise disagree about whether the provider
 // declared the option at all.
 func providerOptionsEntry(options map[string]packdecl.OptionDefault) *jsonx.OrderedMap {

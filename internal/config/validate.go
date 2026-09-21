@@ -1234,7 +1234,12 @@ func validateProviders(config *jsonx.OrderedMap, workspace string, errs, warns *
 // moment a user's value is an object, a pack's id string under the same alias is gone, so
 // an inferred `id = alias` would silently rewrite the wire id (cerebras' `default` ->
 // qwen-3.8-27b) the first time someone added one fact. What a fact MEANS is still the
-// consuming derive's business (OQ-CS7); core checks only that it is shaped like one.
+// consuming derive's business; core checks only that it is shaped like one. ⚠ That is NOT
+// the stance docs/reference/providers.md §"Profiles and options" takes for a provider's flat
+// `options` map, where core validates no value at all: a model FACT is shape-checked right
+// here — `input` against a closed vocabulary, `cost` rates non-negative,
+// `context_window`/`max_tokens` positive — and only its interpretation is left alone. The
+// two surfaces differ on purpose (see knownModelKeys in config.go).
 func validateModelEntry(entry *jsonx.OrderedMap, path string, errs *[]string) {
 	reportUnknownKeys(entry, knownModelKeys, path, errs)
 	id, hasID := entry.Get("id")
@@ -1579,14 +1584,15 @@ func validateWireAPI(w any, path string, errs *[]string) {
 //     user's config entry compose into the SAME table entry, so what may sit in the map
 //     cannot be two predicates without the two spellings drifting into accepting
 //     different files. The message spells out what the null means, because it is the one
-//     null in this config that is not the delete (OQ-CS7) — a reader meeting it in an
-//     error would otherwise assume the merge-patch convention this key deliberately
-//     departs from.
+//     null in this config that is not the delete (docs/reference/providers.md §"How the
+//     table composes", the options-map carve-out) — a reader meeting it in an error would
+//     otherwise assume the merge-patch convention this key deliberately departs from.
 //
 // What is deliberately NOT checked: whether the value MEANS anything. Core learns no
 // option names and validates no values — what `model` or `thinking` does is the agent
-// pack's derive's business (OQ-CS7), so an option no derive consumes composes to nothing
-// rather than to an error.
+// pack's derive's business (docs/reference/providers.md §"Profiles and options": the
+// option NAMES are the provider's declared set and no value validation happens in core),
+// so an option no derive consumes composes to nothing rather than to an error.
 func validateProviderOptions(v any, path string, errs *[]string) {
 	opts, ok := asMap(v)
 	if !ok {

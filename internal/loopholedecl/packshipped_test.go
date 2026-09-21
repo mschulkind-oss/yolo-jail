@@ -403,7 +403,8 @@ func TestPackShippedErrorCarriesTheProblems(t *testing.T) {
 // predate rather than one that was ever relaxed for them: `claude-oauth-broker`
 // published its own endpoint file (`publishes` defaulting to "endpoint", which the
 // subset refuses in every spelling INCLUDING the default) and that was the blocker
-// §6.1 was written about — `publishes: "socket"` + `scope: "host"` removed it;
+// docs/design/broker-as-a-pack.md §6.1 was written about — `publishes: "socket"` +
+// `scope: "host"` removed it;
 // `host-processes` left the same way; `audio` left on 2026-08-18, when OQ-LP14
 // withdrew the bind-host path rule and its remaining three refusals each got a fix
 // the manifest could take.
