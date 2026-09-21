@@ -30,16 +30,50 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
 )
 
-// operatorUsage is the verb's own help, so a mistyped subcommand answers with the three that
-// exist rather than with a client-level "unknown command".
-const operatorUsage = `usage: yolo internal openai-auth <status|import|logout>
+// OperatorUsage is the verb's own help, so a mistyped subcommand answers with the
+// three that exist rather than with a client-level "unknown command".
+//
+// EXPORTED, and internal/cli registers THIS string as `yolo openai-auth`'s usage
+// rather than holding its own copy. One string reaches both doors — the public
+// verb's `--help` and this package's unknown-subcommand path — so a fourth
+// subcommand cannot be added in one and missed in the other. A second copy in
+// internal/cli would be exactly that drift.
+//
+// It is written for a reader who has never seen this code, because the verb is
+// user-facing now, and the one fact it must leave them with is SCOPE: there is a
+// single grant per machine, so every subcommand here acts on every workspace and
+// every jail at once.
+const OperatorUsage = `Usage: yolo openai-auth <status|import|logout>
 
-  status                    what the machine-wide grant is (fingerprints only, never tokens)
-  import --from <auth.json> install a Codex login as the canonical grant, machine-wide
-  logout                    delete the canonical grant, machine-wide
+Manage this machine's OpenAI subscription login: the ONE Codex/ChatGPT grant the
+host holds and that every workspace and every jail on it borrows. There is no
+per-jail copy, so each subcommand below acts on all of them at once.
 
-Every one of these runs against the host's PRIVATE credential socket, which is why they are
-unavailable from inside a jail (the jail-facing door refuses them).`
+Subcommands:
+  status              What the grant is — the account it belongs to, its expiry,
+                      generation, last refresh and last error code, plus
+                      FINGERPRINTS of the tokens. Never the tokens themselves.
+  import --from <f>   Install a Codex login as the machine-wide grant, replacing
+                      whatever is there.
+  logout              Delete the grant. Every workspace, every jail and this host
+                      user lose it until someone logs in again.
+
+import flags:
+  --from <path>       ABSOLUTE path of the auth.json a ` + "`codex login`" + ` wrote.
+                      Required. A symlink, a non-regular file, a file missing any
+                      of the three tokens, and a yolo broker view (whose
+                      refresh_token is a generation marker rather than a
+                      credential) are each refused rather than installed.
+
+  --help, -h          Show this help.
+
+Examples:
+  yolo openai-auth status                          # is there a grant, and whose?
+  yolo openai-auth import --from /abs/auth.json    # install a codex login as THE grant
+  yolo openai-auth logout                          # drop it, machine-wide
+
+Every one of these runs against the host's PRIVATE credential socket, which is why
+they are unavailable from inside a jail (the jail-facing door refuses them).`
 
 // RunOperator resolves the private socket — starting the machine-wide daemon if it is not
 // already up — states what a mutation is about to do, and delegates the wire work to the one
@@ -60,16 +94,16 @@ func RunOperator(args []string, stdout, stderr io.Writer) int {
 // it served itself, without spawning the host daemon.
 func runOperator(args []string, ensure func(io.Writer) (string, error), stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, operatorUsage)
+		fmt.Fprintln(stderr, OperatorUsage)
 		return 2
 	}
 	switch args[0] {
 	case "status", "import", "logout":
 	case "-h", "--help", "help":
-		fmt.Fprintln(stdout, operatorUsage)
+		fmt.Fprintln(stdout, OperatorUsage)
 		return 0
 	default:
-		fmt.Fprintf(stderr, "yolo internal openai-auth: unknown command %q\n\n%s\n", args[0], operatorUsage)
+		fmt.Fprintf(stderr, "yolo openai-auth: unknown command %q\n\n%s\n", args[0], OperatorUsage)
 		return 2
 	}
 	// STATED BEFORE IT HAPPENS, not after — the same rule the launch's exec disclosure

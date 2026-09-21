@@ -32,8 +32,14 @@ var registry = map[string]func(args []string) int{
 	// The host-daemon management surface and its retained alias. `broker` is
 	// `host-daemon <verb> claude-oauth-broker` and nothing else, so every existing
 	// invocation and doc reference still resolves (OQ-HD2).
-	"host-daemon":           runHostDaemon,
-	"broker":                runBroker,
+	"host-daemon": runHostDaemon,
+	"broker":      runBroker,
+	// The host operator's verbs for the machine-wide OpenAI grant. `yolo internal
+	// openai-auth` is retained as an alias into the SAME handler (internal.go), for
+	// the reason runOpenAIAuth gives — the registry row is what makes this address
+	// exist at all, and without it the handler is unreachable and four of this
+	// package's tests cannot see it.
+	"openai-auth":           runOpenAIAuth,
 	"prune":                 runPrune,
 	"stores":                runStores,
 	"programs":              runPrograms,

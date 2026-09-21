@@ -100,10 +100,16 @@ var subcommandUsage = map[string]subUsage{
 	"prune": {text: pruneUsage, valueFlags: []string{"--image-cache-keep", "--cache-age", "--nix-gc-max", "--format"}},
 	// The text lives with the command, in internal/cli/stores, because that package
 	// owns the flags it documents; this table stays the one complete inventory.
-	"stores":                {text: stores.Usage},
-	"loopholes":             {text: loopholesUsage, valueFlags: []string{"--format"}},
-	"host-daemon":           {text: hostDaemonUsage, valueFlags: []string{"-n", "--lines", "--format"}},
-	"broker":                {text: brokerUsage, valueFlags: []string{"-n", "--lines", "--format"}},
+	"stores":      {text: stores.Usage},
+	"loopholes":   {text: loopholesUsage, valueFlags: []string{"--format"}},
+	"host-daemon": {text: hostDaemonUsage, valueFlags: []string{"-n", "--lines", "--format"}},
+	"broker":      {text: brokerUsage, valueFlags: []string{"-n", "--lines", "--format"}},
+	// Both flags consume the next token, so `yolo openai-auth import --from --help`
+	// names a file called `--help` (and is refused as one) rather than reading as a
+	// help request — the rule init's -m follows. `--host-socket` is parsed by the
+	// delegated client and is deliberately absent from the help text: this verb
+	// RESOLVES the socket for you, which is the reason it exists.
+	"openai-auth":           {text: openaiAuthUsage, valueFlags: []string{"--from", "--host-socket"}},
 	"init":                  {text: initUsage, valueFlags: []string{"--mount", "-m"}},
 	"init-user-config":      {text: initUserConfigUsage},
 	"config-ref":            {text: configRefUsage},

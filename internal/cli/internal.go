@@ -55,16 +55,19 @@ func runInternal(args []string) int {
 	case "migrate-host":
 		return runMigrateHost(args[1:])
 	case "openai-auth":
-		// The HOST OPERATOR's verbs for the machine-wide OpenAI grant: status, import,
-		// logout. It resolves the daemon's PRIVATE socket (starting the daemon if needed)
-		// and states what a mutation is about to do, then delegates to the client below —
-		// openaiauthhost/operator.go carries both halves of why.
+		// PROMOTED: this is `yolo openai-auth` now (dispatch.go's registry, help.go's
+		// list, subhelp.go's usage table), and the hidden spelling is a RETAINED ALIAS
+		// into the very same handler — not a copy of it. args[0] is the verb name in
+		// both namespaces, so one body serves both addresses with nothing to keep in
+		// sync; see runOpenAIAuth for what it does and why the alias is kept.
 		//
-		// ⚠ HIDDEN, AND THAT IS THE GAP: `logout` deletes a credential for every workspace,
-		// every jail and the host user at once, which is not something to discover in a
-		// hidden namespace. Promoting it to `yolo openai-auth` is a registry row plus the
-		// two help tables, and it is the remaining half of this work.
-		return openaiauthhost.RunOperator(args[1:], os.Stdout, os.Stderr)
+		// The pointer line is the whole of the alias's cost. It is written before the
+		// work rather than after, the rule the operator's own machine-wide notice
+		// follows: a line printed afterwards is a notification about something that
+		// already happened.
+		fmt.Fprintln(os.Stderr, "yolo internal openai-auth is now `yolo openai-auth` "+
+			"(this spelling still works).")
+		return runOpenAIAuth(args)
 	case "openai-auth-client":
 		return openauthclient.Main(args[1:])
 	case "refresh-servers":
@@ -81,6 +84,64 @@ func runInternal(args []string) int {
 		fmt.Fprintf(os.Stderr, "yolo internal: unknown command %q\n", args[0])
 		return 2
 	}
+}
+
+// openaiAuthUsage is openaiauthhost's own help, REFERENCED rather than copied.
+//
+// One string, both doors: this package registers it as the subcommand's usage, and
+// that package prints the same text from its own unknown-subcommand path. A copy
+// here would be a second list of the verb's subcommands, so a fourth could be added
+// in one place and missed in the other.
+const openaiAuthUsage = openaiauthhost.OperatorUsage
+
+// runOpenAIAuth is `yolo openai-auth {status,import,logout}`: the HOST OPERATOR's
+// verbs for the machine-wide OpenAI grant. It resolves the daemon's PRIVATE socket
+// (starting the daemon if it is not up), states what a mutation is about to do, and
+// then delegates to the one wire client — openaiauthhost/operator.go carries both
+// halves of why that indirection exists.
+//
+// args is the rewritten argv[1:], so args[0] is the verb name, exactly as it is when
+// runInternal hands the same slice over for the hidden spelling.
+//
+// WHY IT IS PUBLIC. It was `yolo internal openai-auth` until this row: `logout`
+// deletes a credential for every workspace, every jail and the host user at once,
+// and a destructive, machine-wide operation is not something to discover in a
+// namespace whose whole point is that nothing advertises it.
+//
+// WHY THE HIDDEN SPELLING IS KEPT. The same call `yolo broker` got when `host-daemon`
+// generalized, on a weaker version of the same argument: nothing in this tree invokes
+// it (`rg -n "internal openai-auth" docs internal packs` finds prose only), but the
+// verb manages CREDENTIALS, and the failure mode of deleting a spelling someone
+// scripted while it was the only one is a credential operation that silently stops
+// running. An alias that is one `case` arm and a pointer line costs less than that.
+// It is an ALIAS and not a second path: both names enter here.
+//
+// Help is answered HERE rather than by the operator, so `--help` is a request and
+// nothing else — no socket resolved, no daemon spawned, no state directory created.
+// That is the property TestEveryRegisteredCommandAnswersHelp asserts by running each
+// probe with an empty cwd and an empty $HOME and requiring both to stay empty.
+func runOpenAIAuth(args []string) int {
+	if answerHelp("openai-auth", args, os.Stdout) {
+		return 0
+	}
+	// A BARE `yolo openai-auth` is answered here, with the text registered above,
+	// because the operator's own usage still spells itself `yolo internal
+	// openai-auth` — and the first thing a user does with a newly public verb is
+	// type it with no subcommand, which is precisely where being told the wrong
+	// address costs the most. Misuse, not a request: stderr, exit 2.
+	//
+	// ⚠ It is NOT the whole of that seam. An unknown SUBCOMMAND still reaches the
+	// operator and still answers in the hidden spelling. Catching that here would
+	// mean restating {status, import, logout} in this file — a second copy of the
+	// verb set, which is the drift rather than the fix. The one real repair is to
+	// export the operator's usage from internal/openaiauthhost and register THAT
+	// text above, so there is one string; it lives in a file this change does not
+	// own. Until then the misuse text names a spelling that still works.
+	if len(args) <= 1 {
+		fmt.Fprintln(os.Stderr, openaiAuthUsage)
+		return 2
+	}
+	return openaiauthhost.RunOperator(args[1:], os.Stdout, os.Stderr)
 }
 
 // runBundleDir is the `yolo internal bundle-dir` family: the three paths a

@@ -43,6 +43,12 @@ var commandHelp = []struct{ name, blurb string }{
 	// other host-scoped daemons had no management verb at all (OQ-HD2).
 	{"host-daemon", "Manage host-wide daemons: 'host-daemon status', 'stop|restart|logs <name>'"},
 	{"broker", "Alias for 'host-daemon <verb> claude-oauth-broker' (the Claude OAuth broker)"},
+	// Directly under the two daemon lines, because the daemon it talks to is one of
+	// them (`openai-auth-broker`) and the pair divides cleanly: host-daemon reports on
+	// the PROCESS, this reports on the CREDENTIAL that process guards. It was
+	// `yolo internal openai-auth` until 2026-09-20 — a hidden address for an operation
+	// that deletes one credential out of every workspace and every jail at once.
+	{"openai-auth", "Manage the machine-wide OpenAI login: 'status', 'import --from', 'logout'"},
 	{"loopholes", "List and self-check host-capability loopholes"},
 	{"init", "Scaffold yolo-jail.jsonc in the current workspace"},
 	{"init-user-config", "Write user-level defaults at ~/.config/yolo-jail/config.jsonc"},
