@@ -57,31 +57,104 @@ func fixtureGlobalHome(t *testing.T) string {
 	return globalHome
 }
 
-func TestEnsureStorageDisclosesLegacyBaseHomeState(t *testing.T) {
+func TestEnsureStorageRefusesOnLegacyBaseHomeState(t *testing.T) {
 	globalHome := fixtureGlobalHome(t)
 	var errBuf bytes.Buffer
 	o := goldenOptions("/ws", t.TempDir())
 	o.Stderr = &errBuf
 	o.Stdout = &bytes.Buffer{}
 
-	if err := o.ensureStorage(); err != nil {
-		t.Fatalf("ensureStorage: %v", err)
+	err := o.ensureStorage()
+	if err == nil {
+		t.Fatal("ensureStorage returned nil: legacy bytes in the base home must REFUSE the " +
+			"launch, not warn past it — a warning on every launch is one people scroll by, " +
+			"and the bytes are readable by every jail while it sits there")
+	}
+	if !strings.Contains(err.Error(), legacyBaseHomeHatch) {
+		t.Errorf("the refusal must name its hatch; got %q", err.Error())
 	}
 
 	got := errBuf.String()
-	for _, want := range []string{".claude", ".copilot", "Nothing has been moved"} {
+	// The body is on STDERR (so it reaches the launch-log tee), not in the error string.
+	for _, want := range []string{".claude", ".copilot", "mkdir -p", "mv ", "recreated empty"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("stderr = %q, want it to name %q", got, want)
 		}
 	}
-	// §5.8's redaction rule, asserted where the bytes actually reach a terminal.
-	for _, forbidden := range []string{globalHome, "-home-someone-code-thing", "transcript.jsonl"} {
+	// THE REDACTION RULE, NARROWED ON PURPOSE when this became a refusal (2026-09-21).
+	// §5.8 forbids the line naming WORKSPACES and ENTRY paths, and both stay forbidden
+	// below: the base home's largest tree is `.claude/projects/<mangled workspace path>`,
+	// so printing entries would print the user's own directory names to every terminal.
+	//
+	// paths.GlobalHome() is neither, and it is now REQUIRED rather than forbidden: a
+	// refusal whose whole purpose is to hand the user a command they can paste has to name
+	// the path that command operates on. Asserted positively so that relaxation is a
+	// decision this test records rather than one a future edit makes silently.
+	if !strings.Contains(got, globalHome) {
+		t.Errorf("stderr = %q, want the mv to name the real base home %q", got, globalHome)
+	}
+	for _, forbidden := range []string{"-home-someone-code-thing", "transcript.jsonl"} {
 		if strings.Contains(got, forbidden) {
 			t.Errorf("stderr = %q\n must not contain %q", got, forbidden)
 		}
 	}
-	if strings.Contains(got, "[dim]") {
+	if strings.Contains(got, "[dim]") || strings.Contains(got, "[bold") {
 		t.Errorf("stderr = %q: the richtext tags must be rendered or stripped, not printed", got)
+	}
+}
+
+// TestTheHatchDowngradesTheRefusal: the repo's pattern is that a fatal names an escape
+// hatch and the hatch is honoured. Without this, the string in the refusal is a promise
+// nothing keeps.
+func TestTheHatchDowngradesTheRefusal(t *testing.T) {
+	fixtureGlobalHome(t)
+	var errBuf bytes.Buffer
+	o := goldenOptions("/ws", t.TempDir())
+	o.Stderr = &errBuf
+	o.Stdout = &bytes.Buffer{}
+	o.Getenv = func(k string) string {
+		if k == legacyBaseHomeHatch {
+			return "1"
+		}
+		return ""
+	}
+
+	if err := o.ensureStorage(); err != nil {
+		t.Fatalf("%s did not downgrade the refusal: %v", legacyBaseHomeHatch, err)
+	}
+	if !strings.Contains(errBuf.String(), "launching anyway") {
+		t.Errorf("the hatch must still SAY it fired; stderr = %q", errBuf.String())
+	}
+}
+
+// TestAnEmptyBaseHomeDoesNotRefuse is the one that keeps this from bricking every host.
+//
+// Empty directories are the steady state on every machine that never ran the old
+// shared-writable home — measured on a real host, five candidate entries and zero bytes —
+// so a gate keyed on "are there candidates" rather than "are there bytes" would refuse
+// every launch, everywhere, for a condition with nothing to fix.
+func TestAnEmptyBaseHomeDoesNotRefuse(t *testing.T) {
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	for _, rel := range []string{".claude/projects", ".copilot/session-state"} {
+		if err := os.MkdirAll(filepath.Join(home, ".local", "share", "yolo-jail", "home", rel), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var errBuf bytes.Buffer
+	o := goldenOptions("/ws", t.TempDir())
+	o.Stderr = &errBuf
+	o.Stdout = &bytes.Buffer{}
+
+	if err := o.ensureStorage(); err != nil {
+		t.Fatalf("an empty base home must not refuse a launch: %v", err)
+	}
+	if got := errBuf.String(); strings.Contains(got, "mv ") {
+		t.Errorf("stderr = %q, want no move instructions when there is nothing to move", got)
 	}
 }
 
@@ -101,7 +174,7 @@ func TestBaseHomeDisclosureIsHostOnly(t *testing.T) {
 		return ""
 	}
 
-	o.noteLegacyBaseHome()
+	_ = o.noteLegacyBaseHome()
 	if got := errBuf.String(); got != "" {
 		t.Fatalf("in-jail disclosure = %q, want silence", got)
 	}
@@ -123,7 +196,7 @@ func TestBaseHomeDisclosureIsNotSuppressible(t *testing.T) {
 				}
 				return ""
 			}
-			o.noteLegacyBaseHome()
+			_ = o.noteLegacyBaseHome()
 			if !strings.Contains(errBuf.String(), ".claude") {
 				t.Fatalf("%s silenced the disclosure: stderr = %q", env, errBuf.String())
 			}

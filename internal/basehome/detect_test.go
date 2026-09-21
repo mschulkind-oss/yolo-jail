@@ -568,7 +568,7 @@ func TestSummaryNamesStateDirsAndNothingElse(t *testing.T) {
 			t.Errorf("Summary() = %q\n must not contain %q", line, forbidden)
 		}
 	}
-	for _, want := range []string{".claude", ".copilot", "Nothing has been moved"} {
+	for _, want := range []string{".claude", ".copilot", "in the base home"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("Summary() = %q, want it to name %q", line, want)
 		}

@@ -124,7 +124,10 @@ func (r Report) Summary() string {
 	if unreadable > 0 {
 		line += fmt.Sprintf(" %s could not be read and is counted as-is.", plural(unreadable, "entry", "entries"))
 	}
-	return line + " Nothing has been moved: this build detects and reports only."
+	// No trailing "nothing has been moved" any more: the launch now REFUSES on a
+	// non-zero finding and prints the mv, so the sentence contradicted the instruction
+	// directly beneath it.
+	return line
 }
 
 // Warnings is every degradation this pass found, one line each — a refused root, or a

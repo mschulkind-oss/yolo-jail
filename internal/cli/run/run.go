@@ -855,8 +855,11 @@ func (o *Options) ensureStorage() error {
 	}); err != nil {
 		return err
 	}
-	o.noteLegacyBaseHome()
-	return nil
+	// RETURNED, not just printed: legacy base-home state REFUSES the launch, and the
+	// refusal is this function's error. Run turns a non-nil return here into a red line
+	// and rc=1, which is the behaviour wanted — see noteLegacyBaseHome for why it is fatal
+	// rather than a permanent warning, and why there is no verb.
+	return o.noteLegacyBaseHome()
 }
 
 // runContainer is the post-config flow: the attach-to-existing decision
