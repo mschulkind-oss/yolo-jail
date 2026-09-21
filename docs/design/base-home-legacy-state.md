@@ -74,7 +74,11 @@ Two design decisions put the pack dirs there, and both are load-bearing:
    directory (`docs/reference/jail-home.md`).
 2. **The directories must exist as mountpoints.** The OCI runtime cannot `mkdir` inside a
    `:ro` bind, so the parent has to be pre-created or the launch fails with an opaque
-   crun/conmon error (`internal/cli/run/prepare.go:370-386`).
+   crun/conmon error. The pack dirs' base mountpoints are made by
+   `EnsureGlobalStorage` (`internal/storage/ensure.go:71-75`, the rule in its own words at
+   `:61-64`); `internal/cli/run/prepare.go:371-385` is the same rule applied to config
+   `writable_home_dirs`, and `prepare.go:374-379` states it verbatim. ⚠ The two are easy to
+   conflate — `prepare.go` creates pack-dir backing under `wsState`, never under `GlobalHome`.
 
 The consequence is the defect. A workspace-scope dir is **shadowed by the per-workspace
 overlay only when its pack is selected** (`internal/cli/run/assemble.go:376-379` binds
@@ -138,7 +142,7 @@ a backend-independent one.
 
 **H2 — re-infection.** `seedAgentDir` copies **every top-level regular file** from
 `GlobalHome/.<dir>` into `<workspace>/.yolo/home/<dir>` when missing
-(`internal/cli/run/storagehelpers.go:42-63`, called from `internal/cli/run/prepare.go:409`).
+(`internal/cli/run/storagehelpers.go:42-68`, called from `internal/cli/run/prepare.go:409`).
 Its comment says "auth-related files" and the docs repeat "auth tokens"
 (`docs/reference/jail-home.md:399-403`); the body does no such filtering. So
 `session-store.db` and `command-history-state.json` are copied into every workspace that
@@ -149,7 +153,7 @@ re-creates the copy. H2 holds on Apple Container too, because the seed reads the
 
 **P1. Move, never delete.** The archive is the disposition, not a courtesy. A wrong
 classification must cost the user one `mv` back, not their transcripts ([R1](#13-decision-ledger)).
-The project already ships this shape: `internal/hostskills/archive.go:38-71` renames aside,
+The project already ships this shape: `internal/hostskills/archive.go:38-65` renames aside,
 suffixes collisions, falls back to copy-then-remove across devices, and **returns the
 destination so the caller can print it** — *"an archive the user cannot find is the same as a
 deletion."* [§5.4](#54-atomicity) corrects the one part of that helper this migration cannot
@@ -161,8 +165,11 @@ Two precedents, one of which the doc used to state wrongly:
 
 - **Precise:** `MigrateStorageLayout` returns *before* writing its marker **only when there
   are dangling mise symlinks and `canReclaim` is false** — the `return` is inside the
-  `len(dangling) > 0` branch (`internal/storage/ensure.go:264-277`). With no dangling links it
-  writes the marker unconditionally. That is why the base-home migration must not share that
+  `len(dangling) > 0` branch opened at `internal/storage/ensure.go:267`, whose guard is
+  `canReclaim == nil || !canReclaim()` (`:268`). **Three** early returns precede the marker
+  write at `:277` — `insideJail` (`:257-259`), marker already at version (`:261-265`), and that
+  deferral (`:267-270`) — and only the third is fail-closed; the other two are "nothing to do".
+  With no dangling links the marker is written unconditionally. That is why the base-home migration must not share that
   marker ([§5.7](#57-the-trigger-and-where-it-runs)).
 - **General:** config approval refuses without a terminal and does not rewrite the snapshot
   (`docs/reference/config-safety.md:81-84`), and the cache-purge offer prints rather than
@@ -178,12 +185,26 @@ design exists to restore; [§6](#6-prevention-the-base-home-invariant) enforces 
 archiving a file that was really a credential is a login; the cost of keeping a file that was
 really a transcript is the leak. The archive makes the first recoverable and the second is not.
 
-**P6. One writer.** The host CLI is the only *mutator* of the base home (`:ro` on podman). The
-machine-scope shared dirs are the exception in two places and both are outside this design:
-podman excludes them by class, and Apple Container binds them read-write from `GlobalHome`
-(`internal/cli/run/assemble_parts.go:90-92`). The invariant that keeps the sweep safe is
-structural, not probabilistic: the classifier is **never handed a path under a declared
-machine-scope shared dir** ([§5.2](#52-classification) step 1, [§6](#6-prevention-the-base-home-invariant)).
+**P6. One writer — of everything this design touches.** The host CLI is the only *mutator* of
+the swept set. It is **not** the only mutator of the base home, and the difference is worth
+stating precisely because an earlier draft of this principle had it wrong.
+
+> [!WARNING]
+> **Both container backends bind the machine-scope shared dirs READ-WRITE out of `GlobalHome`,
+> podman included.** Podman does it at `internal/cli/run/assemble.go:384-386` and Apple
+> Container at `internal/cli/run/assemble_parts.go:90-92`, and the two emit the identical arg —
+> `filepath.Join(paths.GlobalHome(), dir)+":/home/agent/"+dir`, **no `:ro`** — so on podman that
+> read-write bind is nested inside the `:ro` base bind (`assemble_parts.go:107`). This principle
+> previously said "podman excludes them by class", which is false: nothing excludes them at the
+> mount layer on either backend.
+>
+> **The conclusion survives, for a different reason than the one it used to give.** What keeps
+> the sweep safe is not that the base is unwritable — it is that the classifier is
+> **structurally unable** to be handed a path under a declared machine-scope shared dir
+> ([§5.2](#52-classification) step 1, over `packload.EmbeddedSharedDirs`,
+> `internal/packload/embedded.go:145`). The exclusion is the classifier's, not the mount's.
+> It also qualifies [§2](#2-what-is-actually-in-there)'s warning: *mutation* of the base is
+> host-only **except** for these dirs, which a jail can write on every container backend.
 
 ## 5. The quarantine
 
@@ -280,7 +301,7 @@ archive:
 
 `<GlobalStorage>` is `~/.local/share/yolo-jail` (`internal/paths/paths.go:414`). It is **not
 "never mounted"** — `GlobalCache()` is bound at `/home/agent/.cache` and `GlobalMise()` at
-`/mise` (`internal/paths/paths.go:649,652`; `internal/cli/run/assemble_parts.go:120,173-175`)
+`/mise` (`GlobalCache` at `internal/paths/paths.go:652`, `GlobalMise` at `:649`; `internal/cli/run/assemble_parts.go:120,173-175`)
 — but `archive/` is under neither, so the archive root is outside every mounted subpath. That
 narrower fact is what the layout rests on, and [§5.7](#57-the-trigger-and-where-it-runs)
 asserts it.
@@ -289,9 +310,31 @@ asserts it.
 bucket under `archive/` (`internal/prune/prunecmd.go:548-549`), and `PruneHostArchive` deletes
 every generation whose name `looksLikeArchiveStamp` parses, keeping the newest 3
 (`internal/prune/hostarchive.go:83-113,122`; `hostArchiveKeep = 3`,
-`internal/prune/prunecmd.go:268`). A bucket named with the render stamp `20060102-150405`
-would therefore be **silently deleted by the 4th `yolo prune --apply`** — an implicit delete,
-which [R1](#13-decision-ledger)/[R2](#13-decision-ledger) forbid. The `config` bucket is the
+`internal/prune/prunecmd.go:268`).
+
+> [!IMPORTANT]
+> **It is the GENERATION directory that is at risk, not the bucket — this section's heading is
+> right and an earlier draft's sentence under it was not.** `PruneHostArchiveBuckets` enumerates
+> every top-level dir under `archive/` with **no name filter** and never deletes one
+> (`internal/prune/hostarchive.go:50-54`); it recurses into each (`:57`), and the package's only
+> `os.RemoveAll` is one level DOWN, on a bucket's stamp-named children (`:107`). So a
+> stamp-named *bucket* would in fact survive — it would simply be scanned for stamp-shaped
+> children — while `archive/base-home/<stamp>/` would go once three newer stamped siblings
+> existed. **The design's conclusion is unchanged and the reason is now the right one:** this
+> layout puts `<state-dir>` exactly at the generation level, so keying it by a stamp is what
+> would arm the implicit delete that [R1](#13-decision-ledger)/[R2](#13-decision-ledger) forbid.
+
+**This reasoning is already in the tree, which is corroboration rather than coincidence.**
+`internal/cli/stores/inventory.go:257-262` carries the same argument for the `config` bucket —
+*"the sweep below cannot parse it as a generation and leaves it — which is the point, not an
+oversight"* — so the non-stamp key is an established mechanism here, not one this design
+invents. **It also names a change site this design would otherwise miss:** that row's
+user-facing `Detail` reads `"keep 3 generations (adoption archive exempt)"`
+(`inventory.go:263`), so the moment a second exempt bucket exists, `yolo stores` tells the user
+their transcripts are on a keep-3 rotation. The fix is **not** to add a second name to the
+parenthesis — that is the enumerating form this corpus keeps having to correct — but to state
+the property: *non-stamp buckets exempt*, which is true of `config`, true of this one, and true
+of the next. The `config` bucket is the
 precedent and the fix: it is keyed by a stable `<agent>-<name>` name, not a stamp, precisely so
 prune's own rule *"does not delete what it cannot explain"* leaves it alone
 (`internal/render/target.go:590,600`). The base-home bucket follows that shape: a stable
@@ -306,7 +349,10 @@ followed directory descent, `os.ReadFile` of the target's bytes
 directly violates [§5.1](#51-detection)'s "symlinks are `Lstat`ed and never followed" and could
 dereference a link into `.claude-shared-credentials`, copying a secret into the archive, or
 recurse into a machine-scope dir. Its collision-suffixing and cross-device fallback are also
-**not tested directly** — the tests reach the helper only through `Deliver`. This migration
+**not tested directly** — **no test calls `Archive` at all** (there is no `archive_test.go`,
+nothing injects `EXDEV`, and nothing asserts a `.2`-suffixed path); every test reaches it
+indirectly, through `Deliver` (`deliver.go:311`) and through the compose/migrate path
+(`compose.go:673` `skillsArchiveDetail`, `compose.go:884` `retireComposed`). This migration
 therefore needs an `Lstat`-preserving, streaming, link-safe copy ([§5.4](#54-atomicity)), and
 the archive's own location must be out of prune's stamp path ([OQ-BH1](#OQ-BH1)).
 
@@ -375,7 +421,7 @@ repo already uses). The lock is acquired **unconditionally at the top of the app
 independent of the dangling-mise branch — the seam the doc used to rely on is not what it
 claimed: `canReclaim` is hardwired `func() bool { return false }` at both call sites
 (`internal/cli/run/run.go:840`, `internal/cli/check/check.go:47`) and `MigrateStorageLayout`
-consults it *only* inside `if len(dangling) > 0` (`internal/storage/ensure.go:264`). Both host
+consults it *only* inside `if len(dangling) > 0` (branch at `internal/storage/ensure.go:267`, the sole consult at `:268`). Both host
 verbs that reach the apply must take the lock; `yolo check` does not go through
 `ensureStorage()` and carries its own closure (`internal/cli/check/check.go:44-52`), which is
 exactly the race.
@@ -383,9 +429,35 @@ exactly the race.
 The lock is **not held across the prompt** ([§5.7](#57-the-trigger-and-where-it-runs)):
 detect without the lock, present the plan and confirm, then acquire, re-detect, apply, release.
 Holding it across an unbounded human read would block a second `yolo` in `ensureStorage`.
+
+**The re-detection can disagree with what was confirmed, and the apply is bounded by the
+CONFIRMED set.** Dropping the lock across the prompt is what makes that possible, so the rule
+belongs with the decision: an entry that appeared after the plan was shown is **not** moved,
+because the user consented to a named list and a superset is a move they never saw. It is
+reported and left for the next invocation, which will show it in its own plan. An entry that
+has since vanished is dropped from the set, not an error. Only the intersection moves.
 A live *jail* is not a veto, and the reason is stated rather than left implicit: the base is
 `:ro`, so a jail cannot be a writer, and a jail that reads a file being renamed keeps an open
 descriptor to the inode (POSIX), so a move cannot corrupt a reader.
+
+> [!WARNING]
+> **That argument covers jails and the other migration; it does not cover the SEED, which is a
+> third reader of the base and is not under the lock.** `seedAgentDir` runs host-side in the
+> launch pipeline (`internal/cli/run/prepare.go:409`), and `prepareWsState` takes no lock —
+> VERIFIED: there is no lock call in `prepare.go`. So a second `yolo run`, already past
+> `ensureStorage`, can be *copying out of* `GlobalHome/.copilot` while this apply moves it. It
+> reads rather than writes, so the base cannot be corrupted; what tears is the **copy**, and a
+> `session-store.db` seeded without the `-wal` that moved a moment earlier is exactly the
+> outcome [§5.4](#54-atomicity)'s sibling rule exists to prevent — arriving by a route that
+> rule does not cover.
+>
+> **What actually closes it is [§11](#11-sequencing) step 3**, and this is the second reason for
+> it rather than a restatement of the first: once the seed is narrowed, its read set
+> (CREDENTIAL/CONFIG) and the move set (RUNTIME) are **disjoint by construction**, so the race
+> has no shared file to tear. ⚠ **The alternative [§5.6](#56-concurrency-liveness-and-one-writer)
+> offers above — "the old blanket seed must be gated on migration not yet discharged" — does
+> NOT close it**, because a gate keyed on *this* host's marker says nothing about a concurrent
+> process mid-apply. If the seed fix cannot ship together, the seed must take the same lock.
 
 **The seed runs *later*, not earlier.** `ensureStorage` is at `internal/cli/run/run.go:129`;
 `prepareWsState`/`seedAgentDir` is at `run.go:1046` → `prepare.go:409`. So on any launch where
@@ -462,13 +534,45 @@ else. Any RUNTIME leaf there is a defect, not data. The top-level state-dir entr
 **roots** and are never themselves archived — the OCI runtime cannot `mkdir` inside the `:ro`
 base, so removing one breaks the next podman launch ([§10](#10-risks)).
 
-**The seed fix.** `seedAgentDir` (`internal/cli/run/storagehelpers.go:42-66`) narrows from
+> [!NOTE]
+> **A FOSSIL root is kept by that rule for a reason that does not apply to it, and the design
+> leaves it with no end state.** The mountpoint argument protects a dir some pack still needs.
+> A root from a retired or third-party pack ([§5.1](#51-detection) case (c)) is a mountpoint for
+> nothing: no manifest declares it, no launch binds over it, and the base never removes a
+> directory. So after a successful eviction it sits in the base permanently and empty — which
+> is the one state this section's own invariant cannot describe, since it is neither a declared
+> leaf nor a RUNTIME defect.
+>
+> **MEASURED 2026-09-21**, in a nested tree rather than a real host base, so treat the shape and
+> not the count as the evidence: `.foo`, `.keeper`, `.dropped`, `.filespack` and `.pi-lens` were
+> top-level dirs under a `GlobalHome` that **no shipped pack and no config declares** — nothing
+> for any of the five in `packs/*/pack.json`, and no `writable_home_dirs` key in either config.
+> All five were empty, so nothing would have moved.
+>
+> ⚠ **Their origin is not the one case (c) names, and that is the useful part.** Traced in-tree:
+> `.filespack` is a fixture pack's dir (`integration/packs_test.go`), `.pi-lens` is
+> `writable_home_dirs`' own worked example (`internal/cli/config_ref.txt`,
+> `internal/config/writablehome_test.go`), `.dropped` belongs to
+> `internal/cli/hostapplysurvey.go`, `.foo` is a generic test name, and `.keeper` has no in-tree
+> reference at all. So the undeclared entries a sweep will actually meet on a DEVELOPER's host
+> are **test and example residue**, which case (c) — *"a retired or third-party pack"* — does not
+> describe. Same defect, different cause, and the same disposition: the base never removes a
+> directory, so whatever once created one leaves it forever. Worth stating because a first run
+> that reports five unrecognized roots on a maintainer's machine is the expected outcome, not a
+> sign the classifier is broken.
+>
+> That is why it is a note rather than a ruling: emptying a fossil is the design's job and
+> *removing* it is a disposition nobody has asked for, sitting between this invariant and
+> [§8](#8-what-this-does-not-cover)'s "the base never removes a directory". Folded into
+> [OQ-BH5](#OQ-BH5), which already owns how far prevention goes.
+
+**The seed fix.** `seedAgentDir` (`internal/cli/run/storagehelpers.go:42-68`) narrows from
 "every top-level regular file" to a **seed allowlist**: a file is seeded only if it is a
 declared `config` surface path or a declared credential (the same predicate as
 [§5.2](#52-classification) steps 1–3). RUNTIME files are never seeded. This makes the comment
 and the docs true again, and it is what stops a future tool from re-infecting the workspaces
 even if a runtime file appears in the base. The predicate must `Lstat`, not follow: the current
-body uses `os.Stat` (`:59`) and would seed a symlink named like a credential whose target is
+body uses `os.Stat` (`:58`; `:59` is the gate that consumes it) and would seed a symlink named like a credential whose target is
 runtime. Two gaps remain and are named rather than hidden: nested config surfaces (`~/.pi/agent/*`,
 `~/.gemini/antigravity-cli/*`, `~/.oh-omp/agent/models.yml`) are never seeded today because
 `seedAgentDir` skips directories (`:52`), and the allowlist does not change that; and the seed
@@ -537,7 +641,7 @@ base.** [OQ-BH7](#OQ-BH7) asks whether even that scope still holds after A′.
 | **D. Per-workspace rescue copy, then delete the base** | **Rejected** — pooled transcripts have no single destination, and the copy would have to guess a workspace. This is the leaning [`OQ-HT2`](macos-user-home-tiers.md#decision-ledger) overrode for a backend where it was affordable |
 | **E. Move the bytes into each workspace's own overlay** | **Rejected** — same no-single-destination problem, plus it would *seed* the exact runtime the design removes |
 | **F. Shadow every unselected state dir, no eviction** | **Complement, not a substitute** — closes the read path structurally but leaves the bytes and the seed. Feeds [OQ-BH6](#OQ-BH6) |
-| **G. Bump `StorageLayoutVersion` to 3 and share its marker** | **Rejected** — the marker is written unconditionally and already at 2 on every host, so it would stamp-without-apply every existing host and couple the base-home migration to the mise heal ([§5.7](#57-the-trigger-and-where-it-runs)). The **chosen skeleton is a separate marker**, with detection in the existing host-only path and apply where a TTY and the console exist |
+| **G. Bump `StorageLayoutVersion` to 3 and share its marker** | **Rejected** — the marker (`internal/storage/ensure.go:277`) is written with no regard to whether any heal happened, and is therefore at 2 on every host except one permanently deferring on dangling mise symlinks, so it would stamp-without-apply every existing host and couple the base-home migration to the mise heal ([§5.7](#57-the-trigger-and-where-it-runs)). The **chosen skeleton is a separate marker**, with detection in the existing host-only path and apply where a TTY and the console exist |
 | **H. A new per-artifact `packdecl` field** | **Open** — the durable classification authority, at the cost of a manifest schema change. Feeds [OQ-BH4](#OQ-BH4) |
 
 ## 10. Risks
@@ -685,10 +789,11 @@ base.** [OQ-BH7](#OQ-BH7) asks whether even that scope still holds after A′.
    **Answer:**
    > _(empty — fill in when decided)_
 
-7. 💬 **OQ-BH7: Does [`OQ-HT2`](macos-user-home-tiers.md#decision-ledger) still hold, and does macos-user need anything?**
+7. 💬 **OQ-BH7: Does the macos-user home-tiers discard ruling still hold, and does macos-user need anything?**
 
-   <!-- vantage: oq id=OQ-BH7 leaning="OQ-HT2 stays scoped to the clean macos-user account and does not generalize to the container base; the migration walks the invoking admin's GlobalHome, which macos-user never mounts, so it is a no-op on a laid-out account. Pre-A' real dirs in the account home remain the occupied-layout refusal, never a move." -->
+   <!-- vantage: oq id=OQ-BH7 leaning="The macos-user home-tiers discard ruling stays scoped to the clean macos-user account and does not generalize to the container base; the migration walks the invoking admin's GlobalHome, which macos-user never mounts, so it is a no-op on a laid-out account. Pre-A' real dirs in the account home remain the occupied-layout refusal, never a move." -->
 
+   The ruling in question is [`OQ-HT2`](macos-user-home-tiers.md#decision-ledger).
    A′ made the account home's workspace dirs symlinks into the per-workspace sidecar, so the
    workspace tier is already where it belongs and the walk has nothing to move. The live
    question is whether [`OQ-HT2`](macos-user-home-tiers.md#decision-ledger)'s discard should be
