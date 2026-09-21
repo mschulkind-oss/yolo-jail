@@ -37,10 +37,13 @@ import (
 // ⚠ WHO LOSES THE CREDENTIAL, corrected 2026-09-12. This comment used to say the loss
 // happens IN THE HOOK — that linkThroughShared's "the shared file always wins" rule copies
 // the local credential into the dangling location. It does not, and the correction matters
-// because it is what the ordering constraint is actually about. `linkSharedCredential`
-// builds `shared` as filepath.Join(e.Home, sharedDir, base) — ABSOLUTE (packhooks.go) —
-// and every write in linkThroughShared targets that path, never the relative one
-// (claude.go). The hook therefore lands its bytes correctly with no mirror at all. What
+// because it is what the ordering constraint is actually about. The shared path is built
+// ABSOLUTELY — filepath.Join(e.Home, h.SharedDir) in linkIntoSharedDir (packhooks.go),
+// joined with the payload's own leaf by sharedFileNode.sharedPath (sharedlink.go) — and
+// every write in linkThroughShared targets that path, never the relative one. (Attributed
+// to `linkSharedCredential` until 2026-09-21; that is now a one-line delegation, and the
+// hook family has two members.) The hook therefore lands its bytes correctly with no
+// mirror at all. What
 // dangles is the LINK IT LEAVES BEHIND, and the loss happens later, when the AGENT reads
 // or writes through it. So the constraint is "the mirror exists before anything resolves
 // through the link", i.e. before the agent — not "before RunPackHooks". It is applied with
@@ -54,8 +57,9 @@ import (
 // DarwinHomeSidecarEnv names the workspace sidecar (<workspace>/.yolo/home) for the native
 // bootstrap. ABSENCE MEANS "LAY NO LAYOUT", which is not a degraded mode: an install
 // capture bootstraps a throwaway staging home whose whole contract is that everything an
-// installer writes lands under it (capture walks paths.HomeSurfaces() to compute its
-// delta, and WalkDir does not follow symlinks), so a capture must keep the flat home. The
+// installer writes lands under it (capture walks paths.InstalledProgramSurfaces() to
+// compute its delta — inner.go:268, which is HomeSurfaces plus the codex standalone
+// payload — and WalkDir does not follow symlinks), so a capture must keep the flat home. The
 // launcher sets it; the capture planner does not.
 const DarwinHomeSidecarEnv = "YOLO_DARWIN_HOME_SIDECAR"
 

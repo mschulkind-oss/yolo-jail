@@ -132,8 +132,10 @@ type Contribution struct {
 	// That is the whole point of the field — a house-rules pack hardcoding
 	// ".claude/CLAUDE.md" would be coupled to a fact only the claude pack can keep current.
 	//
-	// Taken by `briefing` and `skills` only, and refused elsewhere: the two kinds with a
-	// conventional source that many packs merge into destinations agent packs name.
+	// Taken by `briefing`, `skills` and `files`, and refused on every other kind: the three
+	// kinds whose content many packs deliver into destinations AGENT packs name, which is the
+	// only place "who is this for?" has more than one answer. (`files` joined them with the
+	// slot mechanism; the first two are the ones with a conventional source.)
 	Agents []string `json:"agents,omitempty"`
 
 	// Tier is a TOMBSTONE for the per-contribution tier S2 removed: it declared a GLOBAL
@@ -1524,6 +1526,105 @@ func (m *Manifest) validateContributions() []string {
 	problems = append(problems, m.validateProfileNames()...)
 	problems = append(problems, m.validateServiceNames()...)
 	problems = append(problems, m.validateAdapterPairs()...)
+	problems = append(problems, m.validateFilesDestinations()...)
+	problems = append(problems, m.validateAddressedFiles()...)
+	return problems
+}
+
+// validateFilesDestinations refuses a SECOND `files` destination for one agent in ONE pack —
+// pi-pack-extensions.md §8 invariant 1 / OQ-1, "one files destination per agent; a second is a
+// load error", which shipped unimplemented with the slot mechanism.
+//
+// The failure it replaces is the silent-and-divergent kind, which is why the ruling called for a
+// load error rather than a report. With `pi` declaring two slots, one addressed contribution
+// landed in ONE of them in the jail (the alias table is a map, so the last declaration wins) and
+// in BOTH at the host (destination borrowing dedups by path, and two paths are two destinations).
+// Neither notch said anything, and the two answers were different — measured 2026-09-21.
+//
+// Cross-pack this needs no sibling: two packs both declaring a `files` destination for `pi` are
+// two packs claiming the agent name `pi`, which packload.AgentNameCollisions already refuses at
+// the launch pre-flight, `yolo host apply` and `yolo check`.
+//
+// Strict path only, like validateServiceNames and its siblings: DecodeTolerant validates entries
+// one at a time and cannot see siblings, and the boot path treats any problem as fatal — so a
+// cross-version read must not acquire a new way to refuse a jail. Every HOST read is strict, so an
+// author hears it at `pack lint`, `check`, `apply` and the launch pre-flight.
+func (m *Manifest) validateFilesDestinations() []string {
+	var problems []string
+	seen := map[string]int{}
+	for i, c := range m.Contributes {
+		// A DESTINATION, not a contribution of the kind: `agent` + `into` and no `from`
+		// (validateContribution refuses the pair). The ADDRESSED side has its own rule, one
+		// function down.
+		if c.Kind != KindFiles || c.Agent == "" {
+			continue
+		}
+		if first, dup := seen[c.Agent]; dup {
+			problems = append(problems, fmt.Sprintf(
+				"contributes[%d]: a second \"files\" destination for agent %q (first at "+
+					"contributes[%d]) — one slot per agent, because the address a content pack "+
+					"writes is the agent NAME: with two, `{\"agents\":[%q]}` names both and each "+
+					"notch picks differently. Keep one \"into\", or give the second tree to a "+
+					"pack that provides its own agent", i, c.Agent, first, c.Agent))
+			continue
+		}
+		seen[c.Agent] = i
+	}
+	return problems
+}
+
+// validateAddressedFiles refuses a SECOND addressed `files` tree aimed at one agent by ONE pack.
+//
+// The reason is the LAYOUT, not tidiness: an addressed tree lands at `<the agent's slot>/<this
+// pack>`, one directory per CONTRIBUTING pack (packload.SlotLanding), so two trees from one pack
+// aimed at one agent name ONE path. MEASURED 2026-09-21, and the two notches disagreed about it as
+// thoroughly as they can: the jail emitted two `-v` binds at the same destination, which podman
+// refuses with "duplicate mount destination" naming neither contribution, while the host render —
+// which writes per FILE — merged both trees into that directory and said nothing. The pre-flight
+// that exists to catch exactly this could not see it, because it reads the DECLARED `into` and an
+// addressed contribution has none.
+//
+// Refused rather than made to work, and that is the conservative half of a live design question
+// (slots-and-contributions.md OQ-D12): merging two trees into one subdirectory is a mechanism the
+// jail does not have — a bind mount cannot union two sources — so honoring the arrangement means
+// staging a merged tree, which nothing here does. The remedy is one directory: put both trees under
+// a single `from`. Legalizing it later deletes this check and costs nothing that ever worked.
+//
+// Cross-pack this cannot fire, and that is structural rather than lucky: the landing path carries
+// the contributing pack's name, and two packs in one launch cannot share a name.
+//
+// Strict path only, like every sibling in this family (validateServiceNames): DecodeTolerant
+// validates entries one at a time and cannot see siblings, and the boot treats a problem as fatal.
+// The decision points are all strict anyway — the LAUNCHER decodes strictly even when the jail it
+// starts does not, so the mounts are refused before podman sees them.
+func (m *Manifest) validateAddressedFiles() []string {
+	pack := m.Name
+	if pack == "" {
+		pack = "<pack>"
+	}
+	var problems []string
+	seen := map[string]int{}
+	for i, c := range m.Contributes {
+		if c.Kind != KindFiles || len(c.Agents) == 0 {
+			continue
+		}
+		for _, a := range c.Agents {
+			if a == "" {
+				continue // validateContribution's problem, reported there
+			}
+			if first, dup := seen[a]; dup {
+				problems = append(problems, fmt.Sprintf(
+					"contributes[%d]: a second addressed \"files\" tree for agent %q (first at "+
+						"contributes[%d]) — an addressed tree lands at <%s's files slot>/%s, one "+
+						"directory per contributing pack, so both of these name ONE path: the jail "+
+						"refuses the duplicate mount and the host would silently merge them. Put "+
+						"both trees under a single \"from\" directory",
+					i, a, first, a, pack))
+				continue
+			}
+			seen[a] = i
+		}
+	}
 	return problems
 }
 
@@ -1927,8 +2028,8 @@ func validateContribution(label string, c Contribution) []string {
 			}
 			problems = append(problems, fmt.Sprintf(
 				"%s: kind %q does not take %q — a destination's identity and a contribution's "+
-					"audience are read for \"briefing\" and \"skills\" only; no consumer reads "+
-					"either on this kind", label, c.Kind, f.name))
+					"audience are read for \"briefing\", \"skills\" and \"files\" only; no "+
+					"consumer reads either on this kind", label, c.Kind, f.name))
 		}
 	}
 	switch c.Kind {

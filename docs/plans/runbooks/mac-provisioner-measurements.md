@@ -59,10 +59,10 @@ written by an agent on the maintainer's Mac. Every one of them is a fact no Linu
 > nine probes collapsed into five commands, each becoming an argument to the previous `echo`, and
 > every one of them exited 0. ~~Single-line and semicolon-separated is immune.~~ This is a **defect in
 > the launch, not in the method** — it is filed at
-> [`macos-user-provisioning.md` — the forwarded command is not passed through faithfully](../../design/macos-user-provisioning.md#11-the-forwarded-command-is-not-passed-through-faithfully),
+> [`../../reference/macos-user-provisioning.md` — the forwarded command is not passed through faithfully](../../reference/macos-user-provisioning.md#no-sudo---login-anywhere-in-this-backend),
 > which owns that argv.
 >
-> **FIXED 2026-09-12** ([that section](../../design/macos-user-provisioning.md#11-the-forwarded-command-is-not-passed-through-faithfully) has the measurement), and the struck sentence above was **wrong
+> **FIXED 2026-09-12** ([that section](../../reference/macos-user-provisioning.md#no-sudo---login-anywhere-in-this-backend) has the measurement), and the struck sentence above was **wrong
 > while it stood**: single-line is immune to the NEWLINE half only. sudo(8) leaves dollar signs
 > unescaped too, so an intermediate login shell expanded every `$var` against an empty
 > environment — runbook item 6's one-line `for b in …; do … "$b" …; done` probe printed nine
@@ -125,7 +125,7 @@ one asked for:
 
 Three facts worth more than the verdict. (1) **The npm row does not fail silently** — the launcher
 prints the missing interpreter and the pack name and exits non-zero, which is what
-[`macos-user-provisioning.md` — what this costs today](../../design/macos-user-provisioning.md#2-what-this-costs-today)'s
+[`../../reference/macos-user-provisioning.md` — what this costs today](../../reference/macos-user-provisioning.md#what-each-imperative-config-key-delivers-here)'s
 "silent" cell claimed it did not do; that row is corrected there. (2) **`claude`'s launcher tried its hourly UPDATE and the
 update FAILED** — `⚠ claude: update failed (status 124) — running the installed version`
 (`internal/entrypoint/shims.go`), then ran `2.1.217` anyway. The fallback behaved exactly as
@@ -276,8 +276,8 @@ a clean success as a failure.
 ## M5 — does Seatbelt resolve `..` through a symlinked directory?
 
 **Decides** whether darwin matches the Linux measurement the layout rests on:
-[`OQ-HT2`](../../design/macos-user-home-tiers.md#decision-ledger)'s layout — the A′ remedy in
-[`macos-user-home-tiers.md` — what the credential tier then needs, precisely](../../design/macos-user-home-tiers.md#53-what-the-credential-tier-then-needs-precisely)
+the mirror in
+[`macos-user-home-tiers.md` — the mirror, and the relative credential link it exists for](../../reference/macos-user-home-tiers.md#the-mirror-and-the-relative-credential-link-it-exists-for)
 rests on a `..` resolution measured on a **Linux** jail on 2026-09-11, and kernel path semantics
 under a sandbox profile cannot be checked from there.
 
@@ -291,7 +291,7 @@ $ YOLO_RUNTIME=macos-user yolo -- bash -lc 'cat /tmp/yp/link/via'
 symlink — which is what the Linux measurement found and what the chosen A′ mirror-the-shared-dir
 remedy is built for. A **success** would mean darwin resolves it logically and the mirror is
 unnecessary, which would simplify
-[that doc's credential-tier section](../../design/macos-user-home-tiers.md#53-what-the-credential-tier-then-needs-precisely).
+[that doc's credential-tier section](../../reference/macos-user-home-tiers.md#the-mirror-and-the-relative-credential-link-it-exists-for).
 
 **MEASURED 2026-09-11 — darwin resolves `..` PHYSICALLY, same as Linux; the A′ mirror stands.**
 `cat /tmp/yp/link/via` → `No such file or directory`. **And this item needs no launch, which is the
@@ -307,7 +307,7 @@ answer.**
 The runbook's four checks (passed 2026-09-10). Capture's
 *materialize* half (H2-gated, so a failure would prove nothing). And *"which of the image's 36
 core packages have native darwin builds"* for
-[`OQ-P1`](../../design/macos-user-provisioning.md#decision-ledger) — that
+[`OQ-P1`](../../reference/macos-user-provisioning.md#why-it-is-this-way) — that
 is a per-attr `nix eval`, which is platform-independent and runs faster from a Linux jail than
 from a Mac.
 
@@ -338,7 +338,7 @@ files yolo generates**, and the answers differ per vendor:
   `os.WriteFile` over `.zprofile`/`.zshrc`/`.bash_profile`, and `GenerateBashrc` runs as a
   `genStep` on this path too), so the inversion lives from the install until the next launch — and
   returns every time agy updates itself. Worth knowing before the
-  [`macos-user-provisioning.md` — the proposed shape](../../design/macos-user-provisioning.md#4-the-proposed-shape)-style
+  [`../../reference/macos-user-provisioning.md` — the proposed shape](../../reference/macos-user-provisioning.md#the-stage)-style
   provisioning stage runs installers on a schedule rather than on first use.
 
 The general point: **a `via: installer` provisioner is a shell script the vendor

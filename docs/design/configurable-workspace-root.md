@@ -21,7 +21,7 @@ filesystem you do, and the Seatbelt profile is the whole boundary.
 
 **Reads with:** [`workspace-path-mirroring.md` §12.8](workspace-path-mirroring.md) (the
 neutral-ground ruling this builds on), [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md)
-(the backend as built), [`macos-user-home-tiers.md`](macos-user-home-tiers.md) (where per-workspace
+(the backend as built), [`../reference/macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md) (where per-workspace
 state lives, which is a different question — see [§7](#7-what-this-does-not-propose)).
 
 ## 1. What this decides
@@ -183,7 +183,8 @@ Collected so an implementer does not discover them one at a time.
 
 - **Not a change to where per-workspace state lives.** `<workspace>/.yolo/home` stays; the Seatbelt
   profile's `(subpath WS)` allow already covers it and `macos-fix-permissions` already walks it.
-  That question belongs to [`macos-user-home-tiers.md`](macos-user-home-tiers.md), and a dotted
+  That question belongs to
+  [`../reference/macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md), and a dotted
   sibling of the projects root is specifically a bad answer, because `.yolo` holds `launch.log`
   (which tees a `--dry-run`'s full argv, credentials included) and verbatim archives of the user's
   own pre-yolo agent config.

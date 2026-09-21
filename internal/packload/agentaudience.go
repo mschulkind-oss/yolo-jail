@@ -53,10 +53,11 @@ func AgentAudienceProblems(packs []*Pack) []string {
 			continue
 		}
 		// Over EVERY contribution rather than a kind list, which is what keeps this total:
-		// validateContribution refuses `agents` on anything but `briefing` and `skills`
-		// (ahead of its kind switch, so a kind added tomorrow inherits the refusal), so a
-		// contribution of any other kind cannot carry one — and if one somehow did, checking
-		// it is the safe direction.
+		// validateContribution refuses `agents` on anything but `briefing`, `skills` and
+		// `files` (ahead of its kind switch, so a kind added tomorrow inherits the refusal),
+		// so a contribution of any other kind cannot carry one — and if one somehow did,
+		// checking it is the safe direction. That the exempt list has grown once already is
+		// the argument for not restating it as a condition here.
 		for _, c := range p.Decl.Contributions() {
 			for _, a := range c.Agents {
 				if a == "" || known[a] {

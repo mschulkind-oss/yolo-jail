@@ -605,7 +605,7 @@ from the sandbox account home into that same sidecar, and each pack-declared `sc
 directory stays in the account home and is mirrored back into the sidecar so the relative
 credential link above still resolves. See
 [`macos-user-nix-and-features.md`](macos-user-nix-and-features.md) and
-[`../design/macos-user-home-tiers.md`](../design/macos-user-home-tiers.md).
+[`macos-user-home-tiers.md`](macos-user-home-tiers.md).
 
 > [!WARNING]
 > **The `EROFS`-on-nested-mountpoint mechanism is version-dependent, not a cross-runtime

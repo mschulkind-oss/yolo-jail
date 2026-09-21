@@ -265,8 +265,11 @@ const execClaimListCap = 5
 // §9 step 7 names, and it is the worst place for it — the single-pack views are exactly where
 // an author checks what their manifest does before configuring it.
 //
-// Display only, safe by construction: `briefing` is CombineConcat and `skills` is CombineMerge,
-// so Collisions' generic exclusive loop skips both kinds and never compares these strings.
+// Display only, safe by construction FOR THESE TWO KINDS: `briefing` is CombineConcat and
+// `skills` is CombineMerge, so Collisions' generic exclusive loop skips both and never compares
+// these strings. `files` is CombineExclusive and therefore may NOT share this helper — its
+// addressed target has to carry the contributing pack, or two packs addressing one slot group onto
+// one string and collide over a path neither of them writes (filesTarget).
 func audienceTarget(c packdecl.Contribution) string {
 	if c.Into != "" {
 		return c.Into
@@ -275,6 +278,35 @@ func audienceTarget(c packdecl.Contribution) string {
 		return "→ " + strings.Join(c.Agents, ", ")
 	}
 	return "" // neither: the zero-ceremony broadcast, which names nothing by design
+}
+
+// filesTarget is the TARGET column for a `files` claim, and the one that could not simply reuse
+// audienceTarget.
+//
+// Three shapes, and each of the three is a different claim:
+//
+//   - A PLAIN tree (`from` + `into`): the path, which is the sole-ownership claim Collisions
+//     compares.
+//   - A DESTINATION (`agent` + `into`, no `from`): the slot root, which the owner claims and
+//     nothing lands ON — every contributor's tree, the owner's own included, goes UNDER it
+//     (pi-pack-extensions.md OQ-6).
+//   - An ADDRESSED tree (`agents` + `from`): the address, PLUS the subdirectory the content lands
+//     in. Both halves are load-bearing. Without the address the line printed a BLANK target, which
+//     is the reporting gap audienceTarget closed for the other two kinds — and without the pack,
+//     two packs addressing one slot grouped onto one target and `files` being CombineExclusive
+//     turned them into a collision: rc=1 from `pack lint`/`footprint` and fatal at `yolo check`,
+//     for the one arrangement SlotLanding exists to make legal (§8 invariant 2, "collisions are
+//     impossible"). Same trick `profile` uses for the same reason — the pack in the target is what
+//     keeps the generic exclusive loop inert.
+//
+// The slot ROOT is deliberately not what an addressed claim targets even post-resolution: after
+// ResolveDestinations the synthesized contribution carries `<slot>/<pack>` as an ordinary `into`,
+// so it takes the first shape and reports the real path.
+func filesTarget(c packdecl.Contribution, pack string) string {
+	if c.Into != "" || len(c.Agents) == 0 {
+		return c.Into
+	}
+	return "→ " + strings.Join(c.Agents, ", ") + " (as " + pack + "/)"
 }
 
 // audienceDetail appends this contribution's TARGETING to the kind's own detail — the audience
@@ -350,7 +382,12 @@ func FootprintOf(p *Pack) Footprint {
 			}
 			add(packdecl.KindBriefing, audienceTarget(c), audienceDetail(c, detail), review)
 		case packdecl.KindFiles:
-			add(packdecl.KindFiles, c.Into, "read-only tree", false)
+			// audienceDetail's THIRD case ("declares no `agent`, so no `agents` selector can
+			// name it") is right for briefing/skills, where `into` with no identity is an
+			// unaddressable DESTINATION (R4), and wrong here: `files` with `into` AND `from` is
+			// the pack's own tree, which was never a destination and is not missing anything.
+			detail := audienceDetail(c, "read-only tree")
+			add(packdecl.KindFiles, filesTarget(c, p.Name), detail, false)
 		case packdecl.KindState:
 			if c.Scope == "machine" {
 				add(packdecl.KindState, c.At, "machine-wide (leaks across workspaces)", true)

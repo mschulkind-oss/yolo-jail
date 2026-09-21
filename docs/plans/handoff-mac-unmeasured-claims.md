@@ -124,13 +124,14 @@ invoking user's home.** One resolution, both consumers.
 Three statements in this tree agree that Seatbelt evaluates the **target** rather than the
 link, and **none of them is an observation**: `macos-user-nix-and-features.md`'s *"Any doc that
 says otherwise about this backend is wrong; this one is the authority"*, the shipped
-`cache_relocations` warning in `macosuser.buildPlan`, and `macos-user-home-tiers.md` [§5.3](../design/macos-user-home-tiers.md#53-what-the-credential-tier-then-needs-precisely)'s
+`cache_relocations` warning in `macosuser.buildPlan`, and
+[`macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md#the-mirror-and-the-relative-credential-link-it-exists-for)'s
 *"resolution happens in the VFS before the policy is consulted"*.
 
 | Probe 1 result | What follows |
 | :--- | :--- |
 | `Operation not permitted` | The three statements stand, the symlink half is dead, `DP-L1`'s mechanism is a copy, and [§6.1](../design/declaration-parity.md#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured) is confirmed as written. |
-| **Success** *(did not happen — probe 1 came back denied, both spellings)* | **[§6.1](../design/declaration-parity.md#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured) inverts.** A staged symlink becomes legitimate, and *both* `cache_relocations` warnings plus `macos-user-home-tiers.md` [§5.3](../design/macos-user-home-tiers.md#53-what-the-credential-tier-then-needs-precisely)'s VFS claim need retracting. |
+| **Success** *(did not happen — probe 1 came back denied, both spellings)* | **[§6.1](../design/declaration-parity.md#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured) inverts.** A staged symlink becomes legitimate, and *both* `cache_relocations` warnings plus [`macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md#the-mirror-and-the-relative-credential-link-it-exists-for)'s VFS claim need retracting. |
 
 Report the raw command output either way, not a verdict — the second row rewrites shipped
 warnings, so the evidence has to outlive the conclusion.

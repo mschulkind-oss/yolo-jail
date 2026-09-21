@@ -560,10 +560,42 @@ destination rather than leaving a generated file with no owner; nothing is ever 
 #### `files`
 
 An opaque tree the pack owns outright, bind-mounted `:ro` at `into` in the jail. `from` is
-required and honored: there is no conventional location for an opaque tree, so the
-declaration is the only thing that can name it. The source bound is the pack's **staged**
+required and honored **on a contribution**: there is no conventional location for an opaque tree,
+so the declaration is the only thing that can name it. The source bound is the pack's **staged**
 tree, so `packstage`'s escaping-symlink refusal has already run on it — `files` is not a
 channel around it.
+
+`files` also carries the `agent`/`agents` pair, and it is the kind where the two spellings are
+**two different declarations** rather than one field used two ways:
+
+| Written | What it is | Fields |
+| :--- | :--- | :--- |
+| `{kind:"files", agent:"pi", into:".pi/agent/extensions"}` | a **slot** — where content addressed to `pi` lands | `agent` + `into`, and **no `from`** |
+| `{kind:"files", agents:["pi"], from:"pi-extensions"}` | a **contribution** — this pack's tree, for whoever owns `pi` | `agents` + `from`, and no `into` |
+
+A slot ships nothing, so it makes no mount and writes no file; a contribution addressed to it
+lands in a **subdirectory of the slot named for the contributing pack** —
+`.pi/agent/extensions/<pack>` — at **both notches**, through one resolver
+([`packload.SlotLanding`](../../internal/packload/mergedest.go)). Two facts follow, and both are
+the reason the layout is what it is: many packs can address one slot without a
+sole-ownership collision, and nothing is ever delivered AT the slot root, where the owner's own
+tree and every other contributor's live. A tree bound at the root with addressed trees nested
+inside it is the nested-mount conflict `files` was reshaped to remove
+([`pi-pack-extensions.md`](../design/pi-pack-extensions.md), OQ-4/OQ-6).
+
+> [!WARNING]
+> **One slot per agent, and one addressed tree per agent per pack; a second of either is a load
+> error**, naming the first entry's index. Two SLOTS: the address a content pack writes is the agent
+> NAME, so `{"agents":["pi"]}` names both and there is no answer to "which one". Two addressed
+> TREES from one pack: the landing path carries the contributing pack, so both name one directory —
+> which the jail cannot honor at all (podman refuses the duplicate mount) and the host would merge
+> in silence. The remedy for the second is one `from` directory holding both trees. Two slots for
+> two DIFFERENT agents, or two trees addressed to different agents, are fine.
+
+The join lives in destination borrowing rather than in either notch's renderer, which is why the
+host and the jail cannot drift apart again ([`filesslotparity_test.go`](../../internal/cli/run/filesslotparity_test.go)
+pins the two against each other, and `pack lint`/`footprint` name the address and the
+subdirectory in the claim's target).
 
 Sole ownership is enforced before the container starts: two contributions claiming one
 `into` are refused at launch, naming both packs, rather than reaching podman as a "duplicate

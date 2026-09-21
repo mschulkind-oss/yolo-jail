@@ -52,7 +52,7 @@ redrawn on host-reach rather than on install, which also bears on
 **Reads with:** [`mcp-configuration.md`](../reference/mcp-configuration.md) (the pipeline as built,
 and the ruling this doc must not undo), [`pack-system.md`](../reference/pack-system.md) (the kind
 registry a new kind joins), [`providers.md`](../reference/providers.md) (the composition shape this
-copies), [`macos-user-provisioning.md`](macos-user-provisioning.md) (the backend this unblocks),
+copies), [`../reference/macos-user-provisioning.md`](../reference/macos-user-provisioning.md) (the backend this unblocks),
 [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md) (why `/usr/bin/chromium` is
 not a constant), [`mcp-presets-removal-plan.md`](mcp-presets-removal-plan.md) (the implementation
 sketch — incomplete, and unstable while questions are open).
@@ -361,7 +361,7 @@ no longer "yolo hardcoded a Linux path".
 > does the readiness poll's `curl`. **Neither chromium nor fontconfig is in that floor**, and no
 > pack channel can supply either, so the browser half stays genuinely missing until somebody
 > rules on it. See
-> [`macos-user-provisioning.md`](macos-user-provisioning.md#9-what-shipped-half-one).
+> [`../reference/macos-user-provisioning.md`](../reference/macos-user-provisioning.md#the-floor).
 
 ---
 

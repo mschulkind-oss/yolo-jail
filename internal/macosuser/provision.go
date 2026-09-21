@@ -118,7 +118,10 @@ func ProvisionScript(workspace, bootstrapScript string) string {
 //
 // YOLO_BYPASS_SHIMS is set in the ENVIRONMENT rather than inside an `sh -c '…'` prefix the
 // way the container spells it. Two things follow: the whole stage process bypasses the
-// blocked-tool shims — which it must, since the bootstrap script uses `find` and `grep`
+// blocked-tool shims — which it must, since the bootstrap script runs `find`
+// (shell.go:445) and the guardrails pack blocks that one UNCONDITIONALLY. Not `grep`: its
+// blocker is flag-gated on the recursive spellings, so the script's `grep -qxF` passes
+// through untouched
 // and the guardrails pack refuses both with exit 127 — while the agent, a separate
 // process, does not; and the script is free to embed an absolute path without nesting
 // quotes inside a single-quoted `sh -c`.

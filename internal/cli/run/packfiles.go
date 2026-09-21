@@ -65,8 +65,15 @@ type packFilesTarget struct {
 // from nowhere.
 func packFilesTargets(packs []*packload.Pack) []packFilesTarget {
 	// The SLOT table first: an agent pack's files DESTINATION (`agent` + `into`, no `from`) names
-	// where addressed content lands. Built in one pass so declaration order cannot make one slot
-	// win over another.
+	// where addressed content lands. Built in one pass so a contribution's POSITION cannot change
+	// which slot it resolves against.
+	//
+	// ONE destination per agent is the rule, not a property of this map (pi-pack-extensions.md §8
+	// invariant 1 / OQ-1), and it is enforced where a load error belongs: packdecl's
+	// validateFilesDestinations, which every HOST read runs. The map keeps the last declaration
+	// because that is all it can do — this notch decodes tolerantly (packload.TolerateSkew), so a
+	// pack staged by a newer host than the baked entrypoint can still reach it, and silently
+	// honoring one of two is strictly better here than refusing the boot.
 	aliasByAgent := map[string]string{}
 	for _, p := range packs {
 		for _, c := range p.Decl.Contributions() {
@@ -99,6 +106,10 @@ func packFilesTargets(packs []*packload.Pack) []packFilesTarget {
 				// CONTRIBUTING pack so two packs shipping a same-named file cannot collide. The
 				// jail resolves it here rather than through packload.ResolveDestinations, because
 				// the jail never calls that — packload's borrowing is the HOST notch.
+				//
+				// THE LANDING PATH ITSELF comes from packload.SlotLanding, the one authority both
+				// notches read. Spelling the join here was how the two came to disagree: this side
+				// joined and the host side did not, so one pack.json delivered to two paths.
 				for _, a := range c.Agents {
 					alias, ok := aliasByAgent[a]
 					if !ok {
@@ -107,7 +118,8 @@ func packFilesTargets(packs []*packload.Pack) []packFilesTarget {
 						continue
 					}
 					out = append(out, packFilesTarget{
-						Pack: p.Name, Src: src, Dest: filepath.Join(alias, p.Name),
+						Pack: p.Name, Src: src,
+						Dest: packload.SlotLanding(c.Kind, alias, p.Name),
 						Root: p.Root, From: c.From,
 					})
 				}

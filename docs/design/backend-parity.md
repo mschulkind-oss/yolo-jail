@@ -406,7 +406,7 @@ an agent plans around it.
   vocabulary for completeness and has no members today.
 - **Not per-workspace homes on macos-user.** `HOME` stays `/Users/_yolojail`; the
   per-workspace tier arrives as SYMLINKS out of it into `<workspace>/.yolo/home`
-  ([`macos-user-home-tiers.md`](macos-user-home-tiers.md), [`OQ-HT4`](macos-user-home-tiers.md#decision-ledger)).
+  ([`../reference/macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md), [`OQ-HT4`](../reference/macos-user-home-tiers.md#oq-ht4)).
   ⚠ The reason stated here before — that the single home *is* that backend's
   shared-credentials mechanism — is **retracted**: the mechanism is the `shared_credentials`
   hook, identical on every backend, and the home supplied only the backing of the directory
@@ -547,7 +547,8 @@ an agent plans around it.
    > where every other backend's bind is `:ro`, so an agent here can edit its own skills and
    > briefing and the next launch overwrites them. The second half — the destination home being
    > machine-wide, so a second workspace launching while this one runs replaces them mid-session
-   > — went when [`macos-user-home-tiers.md`](macos-user-home-tiers.md)'s layout shipped: the
+   > — went when [`../reference/macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md)'s
+   > layout shipped: the
    > destination is a symlink into that workspace's own sidecar now. `noteMacosUserContentGaps`
    > ([`loopholeinert.go`](../../internal/cli/run/loopholeinert.go)) says the surviving half. Separately, `InstallHomeOverlay` warns rather than failing
    > the boot when the staged tree is missing — an agent is better off starting with no skills

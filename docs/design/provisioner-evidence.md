@@ -46,7 +46,7 @@ questions — this doc is its evidence half),
 [§3](#3-the-nix-resolver-in-depth) is its content, and the note there says why it must not be
 split back out), [`program-delivery.md`](program-delivery.md) (the jail's delivery classes and
 resolvers, named from the **record** side where this doc names the same mechanisms from the
-**environment** side), [`macos-user-provisioning.md`](macos-user-provisioning.md) (the guest's
+**environment** side), [`../reference/macos-user-provisioning.md`](../reference/macos-user-provisioning.md) (the guest's
 floor and its provisioning stage),
 [`../plans/runbooks/mac-provisioner-measurements.md`](../plans/runbooks/mac-provisioner-measurements.md)
 (the third reader's file — the five Mac items, with the commands and what each decides), and
@@ -99,7 +99,7 @@ gets nix as an image (row 1) or, opted in, as a profile (row 2); the guest gets 
 (`internal/cli/run/storepackages.go:327` calls `darwinpkg.MaterializeAt`) — and **zero at the
 host**. ⚠ It was the same flake ATTRIBUTE until 2026-09-12, and it is now two: the floor belongs
 in the notch with no image and must stay out of the store farm, whose directory outranks `/bin`
-([`macos-user-provisioning.md`](macos-user-provisioning.md)). So the host is not merely "the notch with
+([`../reference/macos-user-provisioning.md`](../reference/macos-user-provisioning.md)). So the host is not merely "the notch with
 the fewest provisioners"; it is the notch with none yolo drives. That, and not anything about
 the kinds, is why `program` degenerates there: with nothing to drive, every declaration reduces
 to *is it on PATH, and what would install it* — which is the whole of `requires`. The merged
@@ -568,7 +568,7 @@ containing `gnugrep` still shadows `/usr/bin/grep` when its `bin` is prepended; 
 from a devShell is **legibility, not effect**. On a Mac host that is the BSD-vs-GNU hazard
 arriving by the front door instead of the back. Nothing warns today, on any path (confirmed
 absent 2026-08-23). That is [`OQ-NX5`](provisioner-sets.md#OQ-NX5), and it is now also
-[`OQ-P2`](macos-user-provisioning.md#decision-ledger)'s problem one level down.
+[`OQ-P2`](../reference/macos-user-provisioning.md#why-it-is-this-way)'s problem one level down.
 
 ### 3.8 What if the user has no nix?
 

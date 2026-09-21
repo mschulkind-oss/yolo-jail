@@ -43,6 +43,7 @@ package packload
 
 import (
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -365,6 +366,22 @@ func audienceOf(c packdecl.Contribution) map[string]bool {
 //     is the AGENT pack's job at that destination; copying it would have two packs both
 //     prepending the same host file into one composed briefing.
 //
+// ⚠ `files` IS THE ONE KIND WHOSE BORROWED `into` IS NOT THE DECLARED ONE: the tree lands in a
+// SUBDIRECTORY OF the slot, named for the contributing pack (`<into>/<pack>`). That is
+// pi-pack-extensions.md's OQ-4 and §8 invariant 2 ("namespacing is the contributing pack's name;
+// collisions are impossible"), and the jail notch has always done it
+// (internal/cli/run/packfiles.go). This notch did not, so ONE pack.json delivered to two
+// different paths — `<into>/<pack>` in the jail and `<into>` itself at the host — which is the
+// divergence hostfilestree.go's own comment forbids, and at the host it landed the contributor's
+// tree ON the slot root, the layout the alias-root bug is named after.
+//
+// The join belongs HERE rather than in the host renderer because the renderer takes an ordinary
+// declaring pack by contract (the paragraph above): after this function nothing downstream knows
+// an inference happened, so a notch-side join would be a second implementation of the layout, in
+// the half of the tree that cannot see the audience. `briefing` and `skills` take no join —
+// concat and merge compose many packs into one destination by construction, which is exactly what
+// `files` (CombineExclusive) cannot do.
+//
 // Deduplicated by destination, first in set order winning: several packs naming one skills dir
 // is `skills`' CombineMerge feature, not a conflict, and delivering the same content twice
 // would just archive one copy of itself over the other.
@@ -402,10 +419,40 @@ func borrowedDestinations(src packdecl.Contribution, p *Pack, set []*Pack) []pac
 			// AND `agents`, the pair validateContribution refuses as two answers to one question.
 			// After this function a resolved pack is an ORDINARY declaring pack, which is the
 			// property that keeps every downstream reader free of an inference branch.
-			out = append(out, packdecl.Contribution{Kind: kind, Into: c.Into, From: src.From})
+			out = append(out, packdecl.Contribution{
+				Kind: kind, Into: SlotLanding(kind, c.Into, p.Name), From: src.From,
+			})
 		}
 	}
 	return out
+}
+
+// SlotLanding is where one CONTRIBUTING pack's addressed content lands inside a destination the
+// owning pack declared — THE authority on that layout, for every notch.
+//
+// One function rather than a rule each notch implements, because the two notches had already
+// drifted: the jail joined the contributing pack's name onto the slot and the host wrote the slot
+// root itself, so one addressed `files` contribution delivered to two different paths depending on
+// where it was rendered (measured 2026-09-21). A layout spelled twice is a layout that diverges,
+// and this one diverging is the alias-root class: the host variant put a contributor's whole tree
+// AT the slot root, where the owner's own claims and every other contributor's live.
+//
+// The rule, per pi-pack-extensions.md OQ-4 / §8 invariant 2:
+//
+//   - `files` — `<slot>/<pack>`. The kind is CombineExclusive, so two contributors cannot share
+//     one path; the per-pack subdirectory is what makes "many packs, one slot" expressible at all,
+//     and it is why invariant 2 can say collisions are impossible.
+//   - `briefing` and `skills` — the slot itself, unjoined. Concat and merge compose many packs
+//     into one destination by construction, and a subdirectory would break the thing the agent
+//     reads (a briefing FILE; a skills dir whose tier, not its contributor, decides namespacing).
+//
+// Kind-dispatched and never agent-dispatched: core does not know what an agent is, and nothing
+// here may learn. `pack` is the CONTRIBUTING pack's name, never the owner's.
+func SlotLanding(kind packdecl.Kind, slot, pack string) string {
+	if kind != packdecl.KindFiles || slot == "" || pack == "" {
+		return slot
+	}
+	return path.Join(slot, pack)
 }
 
 // carriesFor reports whether the pack's tree actually holds content for ONE borrowing

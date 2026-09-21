@@ -1008,7 +1008,9 @@ func PlanInvariants(plan RunPlan) []string {
 
 	// AND THE BOOTSTRAP'S OWN COPY OF THAT PATH, which is a different reader with a
 	// different failure. $YOLO_DARWIN_LOGIN_PATH is what entrypoint.agentPath
-	// returns, and three generators ask it "will the agent have this binary?"
+	// returns, and the generators that ask "will the agent have this binary?" read it
+	// (via agentPath and imageProbePath — `rg -n 'agentPath|imageProbePath'` for the set;
+	// a count here drifts every time one is added)
 	// before writing anything:
 	//
 	//   • GenerateShims — a blocked tool declaring a `replacement` is only blocked

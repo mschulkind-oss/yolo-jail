@@ -600,7 +600,7 @@ options are complementary; sequence them:
      bind), instead of unconditionally at `run.go:30`.
      ⚠ **The premise expired on 2026-09-12.** An empty `packages:` no longer
      means no nix work: every macos-user launch materializes the non-container
-     floor ([`macos-user-provisioning.md`](../design/macos-user-provisioning.md)),
+     floor ([`../reference/macos-user-provisioning.md`](../reference/macos-user-provisioning.md)),
      so that backend is gated on the repo root like every other. The deferral
      itself still holds — the exit happens where the consumer is, not at the top
      of `Run` — it is only the exemption that is gone.

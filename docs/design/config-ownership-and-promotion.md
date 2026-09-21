@@ -148,7 +148,7 @@ cite them:
 - **P5 — The host is a notch like any other, except where a real home forbids
   it.** Same modes, same verbs, same sidecars. The single legitimate asymmetry
   is *deletion* — see [§6.3](#63-the-one-asymmetry-that-survives-deletion). This
-  is the parity constraint [`macos-user-home-tiers.md` §5.0](macos-user-home-tiers.md#50-the-constraint-that-outranks-the-layout-choice-one-mechanism-every-backend)
+  is the parity constraint [`OQ-HT4`](../reference/macos-user-home-tiers.md#oq-ht4)
   states for backends, applied to notches: one mechanism everywhere, and only the
   *primitive enforcing the boundary* may differ, because that is the one thing a
   pack and a user never have to feature-detect.

@@ -296,6 +296,19 @@ and is measured, but it reproduces the vendor cache layout, which is the thing
 
 1. One files destination per agent; a second is a load error.
 2. Namespacing is the contributing pack's name; collisions are impossible.
+
+   ⚠ Invariants 1 and 2 were UNBUILT until 2026-09-21, and invariant 2 was violated at the host
+   notch, where a contributor's tree was written at the alias root. Both are now enforced and
+   pinned — see the ledger rows for [OQ-1](#10-decision-ledger) and [OQ-4](#10-decision-ledger).
+   Neither could fire on the shipped set, because no manifest in the corpus declares a files slot
+   at all; that is why the gate stayed green through both.
+
+   ⚠ **And invariant 2's "collisions are impossible" holds ACROSS packs only**, which it does not
+   say. Within one pack, two addressed trees aimed at one agent resolve to the same
+   `<alias>/<pack>` — measured 2026-09-21, and the notches disagreed (the jail emitted a duplicate
+   mount podman refuses; the host merged both trees silently). Refused at the manifest as of the
+   same day, with the remedy being one `from`; whether it should instead MERGE is
+   [`slots-and-contributions.md`](./slots-and-contributions.md)'s `OQ-D12`.
 3. Delivery is read-only and non-fatal; a missing source warns and skips.
 4. The owner's derive is pure — it reads the addressed set and returns config.
 
@@ -327,9 +340,9 @@ addressed, so nothing mounts at the slot root. See [§3](#3-the-candidate-archit
 | **Standard** | Agent Plugins 1.0 is the portable convention (skills + MCP); client-specific components stay namespaced, so YOLO parses nothing | 2026-09-19 | [§1.2](#12-the-standard-under-this-agent-plugins-10) | — |
 | **Placer** | YOLO places; no vendor install verb runs in a jail | 2026-09-19 | [§2](#2-principles) | — |
 | **Derive sources** | A declared source may be another pack's addressed content | 2026-09-19 | [§6](#6-what-a-derive-may-read--the-rule-being-sharpened) | — |
-| **OQ-1** | No `target` axis — one files destination per agent; a second is a load error | 2026-09-19 | this doc | — |
+| **OQ-1** | No `target` axis — one files destination per agent; a second is a load error | 2026-09-19 | this doc | **yes, 2026-09-21** — `packdecl.validateFilesDestinations`, authoring path only. It had shipped unimplemented: a manifest declaring two loaded clean, and the jail then honored the LAST while the host honored BOTH |
 | **OQ-2** | Retire `claude_plugins`, and add nothing like it (no agent-named hook). Deliver plugin trees locally — decompose, or author one YOLO-owned Agent Plugins 1.0 plugin | 2026-09-19 | [§7](#7-reopening-claude_plugins) | — |
 | **OQ-3** | `pi-extensions/` is the recommended source directory | 2026-09-19 | this doc | — |
-| **OQ-4** | Subdirectory per pack inside the alias | 2026-09-19 | this doc | — |
+| **OQ-4** | Subdirectory per pack inside the alias | 2026-09-19 | this doc | **yes, 2026-09-21** — `packload.SlotLanding`, the one resolver both notches call. The jail had joined since the day it shipped; destination borrowing never did, so the HOST wrote a contributor's tree at the alias ROOT, which is the layout this ruling exists to prevent |
 | **OQ-5** | Support Agent Plugins 1.0 directly; a `.claude-plugin/` manifest beside the portable root is acceptable for Claude | 2026-09-19 | this doc | build |
 | **OQ-6** | A `files` **destination** is a bare slot (`agent`+`into`, **no `from`**); all files content is addressed (`agents`+`from`), the owner's own included, so nothing mounts at the slot root | 2026-09-20 | [§3](#3-the-candidate-architectures) | — |

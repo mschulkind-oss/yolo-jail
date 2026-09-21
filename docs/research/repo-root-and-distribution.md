@@ -98,7 +98,7 @@ first probe and threads it through the launch:
   degradation — see [§6](#6-the-image-cache-fallback-and-why-a-missing-repo-root-is-fatal-d2-reverted-2026-07-29) for why the soft path was removed.) macos-user
   is gated too, in its own arm and with its own message: since 2026-09-12 every
   launch on that backend materializes the non-container **floor** from this flake
-  ([`macos-user-provisioning.md`](../design/macos-user-provisioning.md)), so it
+  ([`../reference/macos-user-provisioning.md`](../reference/macos-user-provisioning.md)), so it
   needs the tree even with an empty `packages:`. `--dry-run` is the one exemption
   left — it materializes nothing.
 - `run.go` — `repoRoot` becomes the argument to `autoLoadImage`.

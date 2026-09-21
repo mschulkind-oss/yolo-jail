@@ -60,7 +60,7 @@ bind mounts of any kind**.
   too, as symlinks: every directory the container backends bind from `<workspace>/.yolo/home`
   is a symlink from the account home into that same sidecar, so a project's agent state lives
   where every other backend puts it
-  ([`../design/macos-user-home-tiers.md`](../design/macos-user-home-tiers.md), alternative A′).
+  ([`macos-user-home-tiers.md`](macos-user-home-tiers.md)).
   What the layout does **not** link stays machine-wide: credentials, `~/.cache`, the mise store.
 - Nix produces a `buildEnv` profile on the host, not an image.
 
@@ -447,7 +447,7 @@ retracted** — the installer it said this backend "deliberately does not run" n
 macos-user launch has a **provisioning stage**: a
 Seatbelt-confined step between the bootstrap and the agent that runs `mise install` and the
 generated bootstrap script, so `mise_tools` and `lsp_servers` install here the way they do
-everywhere else ([`../design/macos-user-provisioning.md`](../design/macos-user-provisioning.md)).
+everywhere else ([`macos-user-provisioning.md`](macos-user-provisioning.md)).
 The launch warnings for both keys were retired with it, on the rule this page applies
 elsewhere: a warning describing a closed gap teaches the reader to distrust the ones still
 true. What remains undelivered here is `mcp_presets`, whose preset *wrappers* hardcode Linux
@@ -477,7 +477,7 @@ venv-precreate script is Linux-absolute.
 
 - **Not** a per-workspace home. `HOME` is `/Users/_yolojail` on every launch, and the
   per-workspace tier is reached by symlinking directories out of it rather than by moving it
-  ([`../design/macos-user-home-tiers.md`](../design/macos-user-home-tiers.md), A′ — A is the
+  ([`macos-user-home-tiers.md`](macos-user-home-tiers.md#oq-ht4) — a per-workspace home is the
   recorded runner-up). ⚠ The reason given here until the split landed — *"the single home IS
   this backend's shared-credentials mechanism"* — is **retracted**: the mechanism is the
   `shared_credentials` hook, which runs on every backend, and the home only ever supplied the
@@ -542,6 +542,6 @@ drifts from its owner is worse than no mirror.
 | `A1` | The config-change approval prompt is called on the macos-user arm itself, not hoisted above the dispatch | This is the backend where the nix build runs **unconfined as the invoking user**, so it is the worst place to lose that gate. The arm is the right call site because the container arm gates the fresh-launch path only, and this backend has no attach. |
 | `A2` | A declared package with no darwin build is **fatal**, raised host-side after a green eval | The old warn-and-skip masked a typo and a genuinely-unavailable package with one message, and either way the jail started without a tool the user declared. Erroring inside the eval was the objection; erroring after it keeps nix green and lets the CLI decide. |
 | `A3` | The relocatable-shared-root config key is **not implemented**, and the plan-invariant message no longer advertises it | The default is the OS-blessed neutral location and satisfies the requirement. A knob that names nothing is worse than no knob, and implementing it needs agreement at two separate places. |
-| `#39` mirror | Per-workspace **homes** are refused; the per-workspace **tier** is a symlink layout ([`OQ-HT4`](../design/macos-user-home-tiers.md#decision-ledger)) | `HOME` never moves, so the declared `scope: machine` directory never moves either and the `shared_credentials` hook's output is byte-identical here. Each `scope: workspace` directory is a symlink into `<workspace>/.yolo/home` — the same sidecar podman binds — so both tiers are restored explicitly, which is what the refusal always asked for. |
+| `#39` mirror | Per-workspace **homes** are refused; the per-workspace **tier** is a symlink layout ([`OQ-HT4`](macos-user-home-tiers.md#oq-ht4)) | `HOME` never moves, so the declared `scope: machine` directory never moves either and the `shared_credentials` hook's output is byte-identical here. Each `scope: workspace` directory is a symlink into `<workspace>/.yolo/home` — the same sidecar podman binds — so both tiers are restored explicitly, which is what the refusal always asked for. |
 | [`OQ-BP-2`](../design/backend-parity.md#decision-ledger) | Briefings and skills **are delivered**, composed above the dispatch and copied into the sandbox home | Answered by code. The part of the leaning that did **not** hold is the hardware half: it asked to land with a Mac session, and it landed without one — so the ruling is answered and the verification is still owed. |
 | [`OQ-BP-3`](../design/backend-parity.md#decision-ledger) | Whether a warned disposition needs suppressing is owned there, not here | Several launch warnings exist now, most of them on this backend. A warning people learn to skip is worse than none, which is why the question is real — and why answering it per-backend rather than per-key would be the wrong shape. |

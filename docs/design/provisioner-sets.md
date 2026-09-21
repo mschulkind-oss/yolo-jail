@@ -101,7 +101,7 @@ the verified-facts tables — read it to check a claim, to add a row, or before 
 is the **runbook**: the five Mac items M1–M5 with their commands, expectations and results — read
 it at a Mac, or to see what a measurement actually returned.
 Then: [`program-delivery.md`](program-delivery.md) (the jail's delivery classes and
-resolvers — not restated here), [`macos-user-provisioning.md`](macos-user-provisioning.md) (the
+resolvers — not restated here), [`../reference/macos-user-provisioning.md`](../reference/macos-user-provisioning.md) (the
 guest's missing floor and stage),
 [`yolo-as-environment-manager.md` §3.5](yolo-as-environment-manager.md#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest)
 (*declare once, check once, hand off* — the host design this generalises),
@@ -142,7 +142,7 @@ maintainer's, stated in review on 2026-09-11; the other three are what the tree 
   environments have to follow that decision."*
 - **P3. Every provisioner an environment has is either driven or hinted, out loud — never
   rendered and inert.** The guest notch has produced five instances of the inert case
-  ([`macos-user-provisioning.md` §3](macos-user-provisioning.md#3-principles) P1, restated one level
+  ([`../reference/macos-user-provisioning.md`'s P1](../reference/macos-user-provisioning.md#why-it-is-this-way), restated one level
   up); [§3.1](#31-five-findings-the-table-forces) finds two more, in F5.
 - **P4. A default is platform-conditional**, because the environment includes the OS and its
   manager. brew covers six of six agent CLIs on macOS; apt covers none of them on Linux
@@ -364,7 +364,7 @@ lacks:
 
 1. **Build-time dependencies.** A build needing `cmake` or `rustc` has no way to say so. The
    throwaway capture jail's floor — the image's 36 core packages, `go`, `python3` and
-   `nodejs_24` among them ([`macos-user-provisioning.md` §1](macos-user-provisioning.md#1-the-two-missing-halves))
+   `nodejs_24` among them ([`../reference/macos-user-provisioning.md` — the floor](../reference/macos-user-provisioning.md#the-floor))
    — is the *implicit* `makedepends`, and a build that needs anything else fails inside the
    capture with no declaration to blame.
 2. **A pack-shipped recipe.** `url` is the only source field; I found no scheme check on it and
@@ -422,7 +422,7 @@ traps cost a measurement to find.
   containing `gnugrep` still shadows `/usr/bin/grep` when prepended — the difference from a
   devShell is legibility, not effect, and on a Mac host that is the BSD-versus-GNU hazard arriving
   by the front door. Nothing warns today, on any path. That is [`OQ-NX5`](#OQ-NX5), and it is also
-  [`OQ-P2`](macos-user-provisioning.md#decision-ledger)'s problem one level down.
+  [`OQ-P2`](../reference/macos-user-provisioning.md#why-it-is-this-way)'s problem one level down.
 
 ---
 
@@ -833,8 +833,8 @@ shipped status so nobody re-opens a settled fork.
   *one ledger, many resolvers* is taken as ruled; this doc adds no record format.
 - **Trust.** [`trust-paths.md`](trust-paths.md). A provisioner set says what *can* install; whether
   a fetched pack may name a recipe is that doc's.
-- **How large the guest floor is, and GNU or BSD** — [`OQ-P1`](macos-user-provisioning.md#decision-ledger),
-  [`OQ-P2`](macos-user-provisioning.md#decision-ledger). This doc needs the guest to have a *stage*; it does
+- **How large the guest floor is, and GNU or BSD** — [`OQ-P1`](../reference/macos-user-provisioning.md#why-it-is-this-way),
+  [`OQ-P2`](../reference/macos-user-provisioning.md#why-it-is-this-way). This doc needs the guest to have a *stage*; it does
   not say how big. ⚠ [`OQ-NX5`](#OQ-NX5) is the same hazard one level up and the two should be
   ruled together.
 - **The Linux guest** (env-manager Phase 7.2). No code, no row — though
@@ -859,8 +859,8 @@ shipped status so nobody re-opens a settled fork.
 | [`program-delivery.md`](program-delivery.md) | the jail's delivery classes, the evergreen ruling, resolvers, capture | Takes [§3](program-delivery.md#3-four-delivery-classes-and-the-rule-that-falls-out), [§3.5](program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03), [§6](program-delivery.md#6-the-general-seam-one-ledger-many-resolvers), [§6.3](program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package) as given. ⚠ **[`OQ-PD16`](program-delivery.md#decision-ledger) was amended 2026-09-11** to name this doc as the host notch's owner, replacing the retired one. |
 | [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md) | **RETIRED 2026-09-11** — merged into this doc | Its live material is the nix-resolver depth, which travelled on to [`provisioner-evidence.md`](provisioner-evidence.md#3-the-nix-resolver-in-depth) in the 2026-09-20 split; its questions are re-prefixed `NX` ([the id map](#question-id-map-old-spelling--new)); its settled rulings are ledger rows here. The file is a retirement stub. |
 | [`../reference/nix-across-backends.md`](../reference/nix-across-backends.md) | what each backend's nix path produces, as built | The evergreen reference for the mechanism the evidence doc's [shipped-state table](provisioner-evidence.md#31-what-is-already-solved-stated-precisely) enumerates. ⚠ Most of that nix depth is shipped-system material that should eventually graduate into this reference; not done in the split, and named as a follow-up. |
-| [`macos-user-provisioning.md`](macos-user-provisioning.md) | the guest's floor and stage | Takes its four-keys table as the guest column's basis, **corrected** in one cell: the agent launchers are generated *and run* there, failing for want of npm — not inert. |
-| [`macos-user-home-tiers.md`](macos-user-home-tiers.md) | the guest's one-home defect and the A′ symlink layout | Nothing directly, but [M4](../plans/runbooks/mac-provisioner-measurements.md#m4--does-the-capture-recording-half-work-on-hardware) is its measurement, because a provisioner that stages into the sandbox home depends on that layout resolving. |
+| [`../reference/macos-user-provisioning.md`](../reference/macos-user-provisioning.md) | the guest's floor and stage | Takes its four-keys table as the guest column's basis, **corrected** in one cell: the agent launchers are generated *and run* there, failing for want of npm — not inert. |
+| [`../reference/macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md) | the guest's home tiers and the symlink layout that separates them | Nothing directly, but [M4](../plans/runbooks/mac-provisioner-measurements.md#m4--does-the-capture-recording-half-work-on-hardware) is its measurement, because a provisioner that stages into the sandbox home depends on that layout resolving. |
 | [`yolo-as-environment-manager.md`](yolo-as-environment-manager.md) | *declare once, check once, hand off* ([§3.5](yolo-as-environment-manager.md#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest)); [`OQ-EM1`](yolo-as-environment-manager.md#OQ-EM1) | Generalises [§3.5](yolo-as-environment-manager.md#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest) from "the host hands off" to "each environment resolves". ⚠ [`OQ-EM1`](yolo-as-environment-manager.md#OQ-EM1) and the plan's Phase 4 warning both say `FieldSet` *refuses* `program` at host citing `fieldset.go:38`; `HostFields()` honours it (`internal/render/fieldset.go`, *"honored but confirm-gated by the caller"*), so that refusal string is unreachable for `program` and the shipped rule is *report, do not install*. ⚠ Its promised `✗ packages   yolo does not manage packages here` line is contradicted by shipped `describe` and should be retired — [`OQ-NX8`](#OQ-NX8). |
 | [`../plans/environment-manager-plan.md`](../plans/environment-manager-plan.md) | Phase 6.4 and 4.3, [`OQ-9`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase) | Both unbuilt. **[`OQ-PS2`](#decision-ledger) ruled 2026-09-11 that they get built** — as *the host's driven provisioner*, behind that plan's own already-ruled confirm, and sequenced after the print-only precedence order. That plan's audit says [`OQ-9`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)'s resolution *"has no consumer at all today"*; this ruling is its consumer. |
 | [`../reference/report-tiers.md`](../reference/report-tiers.md) | the `--assert` fatal, [`OQ-RO7`](../reference/report-tiers.md#why-its-this-way) | **RO7 was RULED 2026-09-11** — *both kinds fatal, only `program` gets the offer* — and [`OQ-PS3`](#decision-ledger)'s recipe model **reinforces** that predicate rather than disturbing it ([§3.1](#31-five-findings-the-table-forces) F2): a `requires` is a need with no runnable recipe, so there is nothing to offer. ⚠ What is still unsettled is the *spelling*: RO7's rule keys on the **kind**, and under P1 the offer keys on *whether a provisioner covers this binary here*. [`OQ-PS11`](#OQ-PS11) decides whether there is still a kind to key on. |
@@ -918,7 +918,9 @@ What this doc takes from them, in the order they decide things here:
   what [§7.2](#72-the-capture-payoff) claims for it. The materialize half stays gated on
   [`../plans/install-capture.md`](../plans/install-capture.md) hand-off H2.
 - **[M5](../plans/runbooks/mac-provisioner-measurements.md#m5--does-seatbelt-resolve--through-a-symlinked-directory) — darwin resolves `..` physically**,
-  the same as Linux, so [`macos-user-home-tiers.md`](macos-user-home-tiers.md)'s A′ mirror stands.
+  the same as Linux, so
+  [`../reference/macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md#the-mirror-and-the-relative-credential-link-it-exists-for)'s
+  sidecar mirror stands.
   It also needed no privileged launch, and the generalisation is worth carrying: an item is only
   worth one when the sandbox could change the answer.
 - **A `via: installer` provisioner is a shell script the vendor controls**, and two of the three
@@ -1248,7 +1250,7 @@ recommendation the doc rests on.
     the front door ([coverage, freshness and the traps](provisioner-evidence.md#37-macos-vs-linux-coverage-freshness-and-the-traps)). **What it
     decides:** whether a non-container profile *warns* when a declared package shadows a system
     binary, or trusts the declaration. Nothing warns today, on any path (confirmed absent
-    2026-08-23). ⚠ It is the same hazard as [`OQ-P2`](macos-user-provisioning.md#decision-ledger) one
+    2026-08-23). ⚠ It is the same hazard as [`OQ-P2`](../reference/macos-user-provisioning.md#why-it-is-this-way) one
     level up, and the two should be ruled together.
 
     _Leaning:_ **Restate the claim honestly as "no undeclared pollution" and build no warner yet**

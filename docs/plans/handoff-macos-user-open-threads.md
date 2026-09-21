@@ -24,17 +24,19 @@ was a seventh thread and is now closed, and the product defect
 **What the session settled, so you do not re-do it:** every item of that runbook passes on
 hardware, the six automated twins ran `executed=6 skipped=0` with **one** subtest red
 ([§1](#1-lsp_servers-installs-nothing-on-this-backend--ruled-and-wired-2026-09-13)),
-and [`OQ-P1`](../design/macos-user-provisioning.md#decision-ledger)'s floor claim — the
+and [`OQ-P1`](../reference/macos-user-provisioning.md#why-it-is-this-way)'s floor claim — the
 runbook's own "single largest unmeasured claim of the whole pair" — is measured. Three defects
 were found and fixed the same day (`2a4ac34e`, `28caa116`, `92244306`); each is recorded at the
 runbook item that found it, and none is open work.
 
 **Reads with:** [`runbooks/macos-user-manual-checks.md`](runbooks/macos-user-manual-checks.md)
-(the spec, and the results), [`../design/macos-user-provisioning.md`](../design/macos-user-provisioning.md)
-(the floor and the stage; [§1.1](../design/macos-user-provisioning.md#11-the-forwarded-command-is-not-passed-through-faithfully)
-is the forwarding defect, now fixed, and [§10.6](../design/macos-user-provisioning.md#106-two-warnings-retired-and-the-rule-that-retired-them)
-carries the ruling [§1](#1-lsp_servers-installs-nothing-on-this-backend--ruled-and-wired-2026-09-13)
-below was waiting on), [`../design/macos-user-home-tiers.md` §10](../design/macos-user-home-tiers.md#10-what-shipped)
+(the spec, and the results), [`../reference/macos-user-provisioning.md`](../reference/macos-user-provisioning.md)
+(the floor and the stage; [no `sudo --login`](../reference/macos-user-provisioning.md#no-sudo---login-anywhere-in-this-backend)
+is the forwarding defect, now fixed, and [the retired
+warnings](../reference/macos-user-provisioning.md#the-two-retired-warnings-and-the-rule-that-retired-them)
+carry the ruling [§1](#1-lsp_servers-installs-nothing-on-this-backend--ruled-and-wired-2026-09-13)
+below was waiting on),
+[`../reference/macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md#where-the-layout-runs-in-the-boot-and-the-order-it-must-keep)
 (the layout, and the sixth ordering rule the run added), and
 [`../research/macos-support-matrix.md`](../research/macos-support-matrix.md) (the cells this
 session moved).
@@ -58,8 +60,8 @@ install variable, so the confined stage execed the script, found an empty instal
 nothing" mode the stage was warned about.
 
 **The ruling was the maintainer's, and it was *wire*, not *restore***
-([`OQ-P5`](../design/macos-user-provisioning.md#decision-ledger), recorded at
-[§10.6](../design/macos-user-provisioning.md#106-two-warnings-retired-and-the-rule-that-retired-them)).
+([`OQ-P5`](../reference/macos-user-provisioning.md#why-it-is-this-way), recorded with [the retired
+warnings](../reference/macos-user-provisioning.md#the-two-retired-warnings-and-the-rule-that-retired-them)).
 The retired launch warning stays retired; the gap it described is closed instead.
 
 **What shipped.** The recipe table that turns `lsp_servers` keys into install lists moved out
@@ -91,7 +93,7 @@ was corrected to *MEASURED FALSE* on 2026-09-12 and is corrected again here:
 | :--- | :--- |
 | [`../guides/macos.md`](../guides/macos.md) | wired 2026-09-13, install unmeasured on hardware |
 | [the provisioner inventory](../design/provisioner-evidence.md#1-the-provisioner-inventory-per-environment)'s npm/go servers row (it moved out of `provisioner-sets.md` in the 2026-09-20 split) | **drives**, with the same hardware caveat |
-| [`../design/macos-user-provisioning.md` §10.6](../design/macos-user-provisioning.md#106-two-warnings-retired-and-the-rule-that-retired-them) | the retirement was premature, the gap is wired, and the rule that retired it stands |
+| [the reference's retired warnings](../reference/macos-user-provisioning.md#the-two-retired-warnings-and-the-rule-that-retired-them) | the retirement was premature, the gap is wired, and the rule that retired it stands |
 
 ⚠ **Both rows had hedged with "NOT MEASURED on hardware", and the hedge was honest while the
 claim beside it was wrong** — a reader who trusted the row got a feature that did not exist.

@@ -255,8 +255,8 @@ cannot be checked here, say so in the test and leave the item manual.
 
 ⚠ **Do not "fix" a product behavior to match a test written by someone who never ran it.** Items
 6-9 are a dependency chain and items 5 and 10 assert layout rules that
-[`macos-user-home-tiers.md`](../../design/macos-user-home-tiers.md) rules deliberately — a change
-there needs the design consulted, not just a green job.
+[`macos-user-home-tiers.md`](../../reference/macos-user-home-tiers.md) rules deliberately — a
+change there needs the reference consulted, not just a green job.
 
 **What a clean first run would prove**, so the bar is explicit: `executed=N` with `N` matching the
 number of `TestMacosUser…` tests, no failures, and the per-item observations in items 5-10 matching
@@ -452,7 +452,7 @@ $ YOLO_RUNTIME=macos-user yolo -- bash -lc 'ls -ld ~/.claude ~/.config ~/.local;
 **reads**, and a second workspace shows its own `~/.claude/projects` rather than this one's.
 
 Everything about the layout is pinned on Linux against a real filesystem
-([`../../design/macos-user-home-tiers.md` §10](../../design/macos-user-home-tiers.md#10-what-shipped)),
+([`../../reference/macos-user-home-tiers.md`](../../reference/macos-user-home-tiers.md#what-is-measured-and-by-what)),
 including the credential resolving through it. What no test here can reach is whether the
 **sandbox uid can create `<workspace>/.yolo/home`** through the shared-group ACL. If it cannot,
 the boot fails with the layout step named and the existing ACL hint attached —
@@ -477,7 +477,7 @@ resolution with a **probe file**, which is the right instrument and the reason i
 
 > [!WARNING]
 > **An account that predates this refuses to launch, by design.** There is no migration
-> ([`OQ-HT2`](../../design/macos-user-home-tiers.md#decision-ledger)): a real directory where a
+> ([`OQ-HT2`](../../reference/macos-user-home-tiers.md#oq-ht2)): a real directory where a
 > layout symlink belongs is never removed, renamed or copied, so the launch names every
 > offender and the reset. If that is what you get, it is the ruling working:
 >
@@ -548,9 +548,9 @@ profile rather than `/usr/bin`. `which --version` must print **nothing useful** 
 `/usr/bin/which` has no `--version` — because GNU `which` was removed from the floor on
 2026-09-12 and its presence would mean the policy exclusion did not take effect.
 
-**Settles:** that [`OQ-P1`](../../design/macos-user-provisioning.md#decision-ledger)'s floor
+**Settles:** that [`OQ-P1`](../../reference/macos-user-provisioning.md#why-it-is-this-way)'s floor
 actually reaches the sandbox — the single largest unmeasured claim of the whole pair — and
-that [`OQ-P2`](../../design/macos-user-provisioning.md#decision-ledger)'s no-GNU-userland
+that [`OQ-P2`](../../reference/macos-user-provisioning.md#why-it-is-this-way)'s no-GNU-userland
 ruling is true of the shipped article and not just of the exclusion list.
 
 **MEASURED 2026-09-12 — PASS, and this settles the pair's largest unmeasured claim.** All nine
@@ -559,7 +559,7 @@ floor binaries resolved into `/nix/store/…-yolo-noncontainer-profile/bin/` —
 rivals**, so the re-prepend beats `path_helper` for the floor and not just for `packages:`. And
 the policy half in full: all nine `FloorExcludedPolicy` names — `stat grep sed awk find tar
 diff patch which` — resolved to **`/usr/bin`**, never the store, so
-[`OQ-P2`](../../design/macos-user-provisioning.md#decision-ledger)'s no-GNU-userland ruling is
+[`OQ-P2`](../../reference/macos-user-provisioning.md#why-it-is-this-way)'s no-GNU-userland ruling is
 true of the shipped article. `which --version` printed `which: illegal option -- -`, which is
 Apple's own binary answering.
 
@@ -572,7 +572,7 @@ Apple's own binary answering.
 > environment and the probe printed **nine blank lines** — with exit 0, the failure mode this
 > whole runbook exists to catch. The item was measured with a variable-free probe
 > (`command -v mise || echo MISSING-mise; …`), and then the launch was fixed
-> ([§1.1](../../design/macos-user-provisioning.md#11-the-forwarded-command-is-not-passed-through-faithfully)),
+> ([no `sudo --login`](../../reference/macos-user-provisioning.md#no-sudo---login-anywhere-in-this-backend)),
 > so **the spelling above works as written on any binary from 2026-09-12 on**. On an older one,
 > use no newlines and no variables.
 
@@ -589,7 +589,7 @@ count has already drifted once in this corpus, on the commit that removed `which
 > command above: one probe per entry of `darwinpkg.FloorExcludedPolicy` — `stat`, `find`, `sed`,
 > `grep`, `awk`, `patch`, `diff`, `tar`, `which` — where absent and "the system's copy answered"
 > both pass and only a `/nix/store/…` path fails. That is the whole of
-> [`OQ-P2`](../../design/macos-user-provisioning.md#decision-ledger) rather than its most famous
+> [`OQ-P2`](../../reference/macos-user-provisioning.md#why-it-is-this-way) rather than its most famous
 > entry. The package→binary table is checked against the exclusion list in both directions by a
 > Linux test, so a package added to that list without a probe fails `just test-fast` before any
 > Mac is involved.
@@ -626,15 +626,14 @@ launch's own window, which is the item-4 check below — the one a mangled scrip
 while still exiting 0. So `sandbox-exec` accepted the stage, the confined stage reached the
 network (it installed two declared tools from scratch), and it wrote the sidecar.
 
-**Settles:** [§10.8](../../design/macos-user-provisioning.md#108-what-a-mac-has-to-settle)
-items 1, 2, 3 and 4 at once — that `sandbox-exec` accepts the stage process, that the confined
+**Settles:** four of [what a Mac has to settle](../../reference/macos-user-provisioning.md#what-is-measured-and-what-is-not)
+at once — that `sandbox-exec` accepts the stage process, that the confined
 stage reaches the network, that it can write into the sidecar symlinks, and that
 `sudo --user=… env -i … sandbox-exec …` forwards the script **verbatim** rather than mangling
 it the way `sudo --login` does. Item 4 is the one to watch: a mangled script does not error,
 it provisions nothing and exits 0, so the evidence is the LOG's content, never the exit code.
 
-⚠ **Also time it** ([§10.8](../../design/macos-user-provisioning.md#108-what-a-mac-has-to-settle)
-item 5): `time` the first launch of an LSP-configured workspace. Every `mise install` plus one
+⚠ **Also time it** ([the one claim still unmeasured](../../reference/macos-user-provisioning.md#the-one-unmeasured-claim--what-a-first-stage-costs)): `time` the first launch of an LSP-configured workspace. Every `mise install` plus one
 `npm install -g` per server runs in series before the agent starts, and nobody knows what that
 costs. **The twin now carries this**, as two logged numbers — before the stage, and the stage
 plus the agent — split at the banner, which is the stage's own first instruction. The first
@@ -648,13 +647,13 @@ loader inside the jail). Standing outside the tree does not launch this workspac
 elsewhere; it launches a **different** workspace. The stage then inherits that cwd — `runReal`
 sets no `cmd.Dir`, and neither `sudo` without `--login` nor `env -i` changes directory — so it
 always runs in the workspace it is provisioning, and a workspace-local `mise.toml` is read.
-[§10.8](../../design/macos-user-provisioning.md#108-what-a-mac-has-to-settle) item 9 goes with
-it, for the same reason.
+The reference records the same derivation, so the cwd question is [resolved rather than
+owed](../../reference/macos-user-provisioning.md#what-is-measured-and-what-is-not).
 
 > [!NOTE]
 > **Automated twin: `integration/TestMacosUserProvisioningStageRunsAndRecordsItself`.** One
-> launch settles [§10.8](../../design/macos-user-provisioning.md#108-what-a-mac-has-to-settle)
-> items 1-4 together: the log exists where `provision.StartupLog` says it
+> launch settles four of [what a Mac has to
+> settle](../../reference/macos-user-provisioning.md#what-is-measured-and-what-is-not) together: the log exists where `provision.StartupLog` says it
 > should (so `sandbox-exec` accepted the process and the confined stage could write the
 > sidecar), `↳ mise install` succeeded (so it reached the network), no `PROVISIONING FAILED`,
 > and the banner's timestamp **parses and falls inside this launch's own window** — which is the
@@ -681,10 +680,9 @@ $ sudo chmod 755 /usr/bin/sandbox-exec     # PUT IT BACK
 anyway"* and **the agent still runs**. It must NOT print *"Provisioning was aborted"*, and
 `rc` must not be 1 on account of the stage.
 
-**Settles:** [§4](../../design/macos-user-provisioning.md#4-the-proposed-shape)'s bolded rule
-— *a failing stage must not abort the launch* — which the code inverted until 2026-09-12 for
-exactly this class (see
-[§10.7](../../design/macos-user-provisioning.md#107-the-failure-policy-the-code-did-not-implement)).
+**Settles:** the rule that [a failing stage does not abort the
+launch](../../reference/macos-user-provisioning.md#a-failing-stage-does-not-abort-the-launch),
+which the code inverted until 2026-09-12 for exactly this class.
 The complementary half is the veto: make a declared tool fail to install (a `mise_tools`
 version that does not exist), answer **n** at the prompt, and confirm the launch DOES stop.
 
@@ -696,7 +694,7 @@ session. Nothing in yolo needs modifying to run this check.
 > manual.** `integration/TestMacosUserAFailingProvisioningStageDoesNotAbortTheLaunch` gives the
 > launch a `mise_tools` version that cannot resolve and, non-interactively, requires the stage
 > to fail, say so on the console and in the log, and **let the agent run anyway**. That is
-> [§4](../../design/macos-user-provisioning.md#4-the-proposed-shape)'s rule end-to-end, under a
+> [that rule](../../reference/macos-user-provisioning.md#a-failing-stage-does-not-abort-the-launch) end-to-end, under a
 > real Seatbelt profile, which nothing had ever run. It asserts the EVIDENCE before the verdict —
 > the marker in the log and the red console line first — because a stage that silently succeeded
 > would otherwise satisfy "the launch survived" while testing nothing.
@@ -730,7 +728,7 @@ binaries.
 Both declared tools installed from scratch (`neovim` nightly and `pipx:swarf` latest) under
 `/Users/_yolojail/.yolo/mise/installs`, and the ⚠ tier check holds: that store is a **real
 directory in the account home**, not a symlink into any workspace, while its sibling
-`~/.yolo/bin` is a symlink. [§10.6](../../design/macos-user-provisioning.md#106-two-warnings-retired-and-the-rule-that-retired-them)'s retirement of the `mise_tools` warning was made on code
+`~/.yolo/bin` is a symlink. [The retirement](../../reference/macos-user-provisioning.md#the-two-retired-warnings-and-the-rule-that-retired-them) of the `mise_tools` warning was made on code
 that had never run; it is now measured and correct.
 
 ⚠ **The `lsp_servers` half is NOT evidence either way from this run.** `~/.npm-global/bin` did
@@ -742,7 +740,7 @@ declares its own, and is the instrument.
 strength of code that had never run. The `mise_tools` retirement is measured and correct. The
 `lsp_servers` one was premature, and the gap it described was **wired shut on 2026-09-13**
 rather than papered over with the warning again
-([`OQ-P5`](../../design/macos-user-provisioning.md#decision-ledger)), so an absence here is now
+([`OQ-P5`](../../reference/macos-user-provisioning.md#why-it-is-this-way)), so an absence here is now
 a bug worth reporting rather than a documented limitation.
 
 ⚠ **Check the TIER while you are here**, because it is the one thing a later launch cannot
@@ -770,13 +768,13 @@ workspace's launch is what would reveal it.
 >
 > Both variables now cross into the bootstrap env **and** into the session env file the confined
 > stage sources, resolved through the one recipe table both backends share
-> ([`OQ-P5`](../../design/macos-user-provisioning.md#decision-ledger);
+> ([`OQ-P5`](../../reference/macos-user-provisioning.md#why-it-is-this-way);
 > `macosuser.PlanInvariants` refuses a plan carrying only one of the two crossings). The three
 > published rows that had said *installed* and were corrected to *MEASURED FALSE* have moved
 > again — [`../../guides/macos.md`](../../guides/macos.md), [the provisioner
 > inventory](../../design/provisioner-evidence.md#1-the-provisioner-inventory-per-environment)'s
 > npm/go servers row, and
-> [§10.6](../../design/macos-user-provisioning.md#106-two-warnings-retired-and-the-rule-that-retired-them).
+> [the retired warnings](../../reference/macos-user-provisioning.md#the-two-retired-warnings-and-the-rule-that-retired-them).
 >
 > ⚠ **That is a source fact and not an install.** Nothing off a Mac can run the loop, so this
 > subtest is still the oracle: a green run is what retires the caveat, and a red one now means

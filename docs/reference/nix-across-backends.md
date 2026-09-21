@@ -182,7 +182,7 @@ The most consequential row is the first, and ⚠ **its second cell changed on
 2026-09-12**. On the container backends the image is a **floor**: `git`, `rg`,
 `fd`, node and the rest are present whether or not anyone configured them. Until
 half one of
-[`macos-user-provisioning.md`](../design/macos-user-provisioning.md) landed,
+[`macos-user-provisioning.md`](macos-user-provisioning.md) landed,
 macos-user had no floor at all — a tool the config did not name was present only
 if the Mac's own `/usr/bin` had it, and a blocked-tool rule pointing at `rg`, a
 pack's `requires`, or an MCP wrapper with an absolute path all quietly meant

@@ -262,8 +262,8 @@ to archived docs repointed. They no longer read as in-flight work.
 
 A 138-commit sprint built five accepted designs: [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md),
 [`report-tiers.md`](../reference/report-tiers.md), [`lua-transform-removal.md`](../design/lua-transform-removal.md),
-[`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md) and
-[`macos-user-provisioning.md`](../design/macos-user-provisioning.md). The `design-doc` genre's
+[`macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md) and
+[`../design/macos-user-provisioning.md`](../design/macos-user-provisioning.md). The `design-doc` genre's
 last phase says a built design *graduates* into a `system-doc`; this run asks, for each, whether
 it has earned that.
 
@@ -310,8 +310,8 @@ that route them keep resolving. That is the precedent, and it is what
 | [`report-tiers.md`](../reference/report-tiers.md) | **Yes** — all eight steps | **Yes, and measured with a control** | ✅ **GRADUATED 2026-09-13** |
 | [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md) | **Yes** — the named hole closed 2026-09-12 | Yes | ⏸ **Graduate second, and both named blockers are spent.** What gates it now is [`OQ-DT1`](#open-question) and the size of the rewrite, not a fact about the doc |
 | [`lua-transform-removal.md`](../design/lua-transform-removal.md) | **Yes** | Yes | ↩ **Do not graduate — archive.** There is no system to describe |
-| [`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md) | Code yes, behavior unrun | **No** | ⛔ Blocked on a Mac |
-| [`macos-user-provisioning.md`](../design/macos-user-provisioning.md) | Code yes, behavior unrun | **No** | ⛔ Blocked on a Mac |
+| [`macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md) | Code yes, behavior unrun | **No** | ⛔ Blocked on a Mac — **unblocked and ✅ GRADUATED 2026-09-21** to [`../reference/macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md), on the same hardware session and nightly job |
+| [`../design/macos-user-provisioning.md`](../design/macos-user-provisioning.md) | Code yes, behavior unrun | **No** | ⛔ Blocked on a Mac — **unblocked and ✅ GRADUATED 2026-09-21** to [`../reference/macos-user-provisioning.md`](../reference/macos-user-provisioning.md), once a hardware session and a nightly job had supplied the measurements |
 
 ---
 
@@ -499,13 +499,14 @@ Both are genuinely built in Go. `DeriveDarwinHomeLayout`, `InstallDarwinHomeLayo
 `PROVISIONING FAILED` marker. The short suite is green.
 
 **And not one runtime claim about either has been observed.**
-[`macos-user-provisioning.md`](../design/macos-user-provisioning.md) says so in a `> [!WARNING]`
-at the top: both halves were implemented from a Linux jail, where there is no `sandbox-exec`, no
+[`../design/macos-user-provisioning.md`](../design/macos-user-provisioning.md) said so in a `> [!WARNING]`
+at the top (the doc has since been measured and graduated): both halves were implemented from a Linux jail, where there is no `sandbox-exec`, no
 `_yolojail` account, and `RunMacosUser` fails closed. What *is* measured is the nix evaluation and
 the Go half against fake homes.
-[`macos-user-home-tiers.md` §10](../design/macos-user-home-tiers.md#10-what-shipped) is built the
-same way — it explicitly separates *"pinned by a test"* from *"reasoned and still owed a Mac"*, and
-it names **two defects it does not fix**, both runtime behavior on a backend CI cannot run.
+[`macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md#what-is-measured-and-by-what)
+was built the same way and has since been measured and graduated too — its measurement table still
+separates *"pinned by a test"* from *"reasoned"*, and of the **two defects it named and did not
+fix**, one was fixed and automated and one is open on purpose.
 
 [The runbook](runbooks/macos-user-manual-checks.md) is unambiguous: items 5–9 are new as of
 2026-09-12 and **none has ever been run**; they are a dependency chain, not a list. Items 1–4 did
@@ -576,9 +577,9 @@ references are invisible to `vantage-check`** and are the ones that go silently 
 | Doc | Doc refs | Go refs | `OQ` ids cited from Go |
 | :--- | ---: | ---: | :--- |
 | [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md) | 57 | 47 | 8 |
-| [`macos-user-provisioning.md`](../design/macos-user-provisioning.md) | 53 | 27 | 3 |
+| [`../design/macos-user-provisioning.md`](../design/macos-user-provisioning.md) | 53 | 27 | 3 |
 | `report-tiers.md` | 36 | 50 | 6 |
-| [`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md) | 34 | 17 | 1 |
+| [`macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md) | 34 | 17 | 1 |
 | [`lua-transform-removal.md`](../design/lua-transform-removal.md) | 32 | 20 | 1 |
 
 [`AGENTS.md`](../../AGENTS.md) itself cites `report-tiers.md` three times with anchors, for the
@@ -662,11 +663,14 @@ Go half was the real work and it was **not** a path rewrite — see the finding 
 > is green with one predicted subtest red. The assessment above says *"not one runtime claim about
 > either has been observed"*; that was true when it was written and is false now.
 >
-> **They still should not graduate yet, for a different and smaller reason.**
-> [`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md)'s own *What shipped* still
-> separates what a test pins from what is *"reasoned and still owed a Mac"* — the `SharedDirs`
-> mirror ordering has no test and the section says so. That is a partial-measurement problem, not a
-> hardware one, and it is a much shorter distance to close than this file assumed.
+> **Held one more beat for a different and smaller reason, then graduated 2026-09-21.**
+> [`macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md)'s *What shipped* still
+> separated what a test pins from what is *"reasoned and still owed a Mac"* — the `SharedDirs`
+> mirror ordering has no test and said so. That was a partial-measurement problem, not a hardware
+> one, it was a much shorter distance to close than this file assumed, and the graduated
+> reference carries the distinction forward as its
+> [measurement table](../reference/macos-user-home-tiers.md#what-is-measured-and-by-what) rather
+> than dropping it.
 
 > [!WARNING]
 > **2. Graduating breaks numbered-section citations in Go comments, and the repo has never fixed them.**
@@ -714,8 +718,8 @@ Go half was the real work and it was **not** a path rewrite — see the finding 
 | :--- | :--- | :--- |
 | [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md) | **Not yet** | Unchanged from above: seven residue items to re-state in present tense, and **one tombstone defect with a data-loss path that should be fixed as code before the move**, not documented as behavior. 11 doc files and 46 Go files — the largest of the set. |
 | [`lua-transform-removal.md`](../design/lua-transform-removal.md) | **Fold, do not graduate** | Unchanged: a removal doc has no system to describe, and `pack-system.md` already owns the surviving derive sandbox. |
-| [`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md) | **Not yet** | Finding 1: hardware-measured now, but its own *What shipped* still owes a Mac on the mirror ordering. |
-| [`macos-user-provisioning.md`](../design/macos-user-provisioning.md) | **Not assessable** | Held by another workflow throughout this pass. Assessed, not touched. |
+| [`macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md) | **Not yet** — ✅ **graduated 2026-09-21** | Finding 1: hardware-measured, but its own *What shipped* still owed a Mac on the mirror ordering. Closed by stating the gap in the reference's [measurement table](../reference/macos-user-home-tiers.md#what-is-measured-and-by-what) rather than by waiting for it; the design path is a superseded stub. |
+| [`../design/macos-user-provisioning.md`](../design/macos-user-provisioning.md) | **Not assessable** | Held by another workflow throughout this pass. Assessed, not touched. ✅ **Graduated 2026-09-21** to [`../reference/macos-user-provisioning.md`](../reference/macos-user-provisioning.md); the design path is a superseded stub. |
 | `darwin-image-provenance.md` | **Folded 2026-09-18; stub DELETED** | Finding 3, carried out: the identity invariant and its placement rule, both safety rulings, the stale-hatch-in-CI trap, the pre-cutover diagnostic and all four `OQ-IP` ids are now in [`../reference/image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md). The design path was a **redirect stub**, and it is gone: the citations in `flake.nix`, `internal/image/`, `integration/` and `.github/workflows/` were repointed at the reference on 2026-09-18 (the last of them `1ea2ea11`, which cost an image rebuild), leaving this record's own two as the last inbound links — they were dropped to prose in the same commit that deleted the file, which is why the name above is no longer one. Finding 3's last clause is **closed rather than routed**: a `macos-user` nightly exists now. |
 
 ### The one loose end this graduation left — closed

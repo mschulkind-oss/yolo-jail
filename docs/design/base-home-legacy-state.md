@@ -37,7 +37,7 @@ keeps it from coming back.
 
 **Reads with:** [`base-home-legacy-state-plan.md`](base-home-legacy-state-plan.md) (the
 implementation sketch — incomplete while the questions above are open), and
-[`macos-user-home-tiers.md`](macos-user-home-tiers.md) (whose [`OQ-HT2`](macos-user-home-tiers.md#decision-ledger) must not be reused silently).
+[`../reference/macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md) (whose [`OQ-HT2`](../reference/macos-user-home-tiers.md#oq-ht2) must not be reused silently).
 
 ---
 
@@ -649,13 +649,14 @@ The migration runs host-side, before backend dispatch — `ensureStorage()` is a
 | :--- | :--- | :--- |
 | **podman** | base `:ro` plus per-workspace overlay (selected packs only) | The target case. Detects and moves the host base copy; leaves the overlay alone |
 | **Apple Container** | `wsState` bound whole at `/home/agent` (`internal/cli/run/assemble_parts.go:60`); **no whole-`GlobalHome` bind** | The host base still holds whatever earlier podman launches wrote; the walk runs and cleans **that**. It is not a no-op on a converted host. Shared dirs are bound read-write from `GlobalHome` (`:90-92`), and `seedAgentDir` still reads the base (`internal/cli/run/prepare.go:409`) |
-| **macos-user** | `/Users/_yolojail` is the account home; after A′, workspace dirs are symlinks into the sidecar | The migration walks the **invoking admin's** `~/.local/share/yolo-jail/home`, which macos-user never mounts; it is a no-op when that base is empty and never touches `/Users/_yolojail`. Pre-A′ workspace state in the real account home is [OQ-HT2](macos-user-home-tiers.md#decision-ledger)/[OQ-BH7](#OQ-BH7), not this walk |
+| **macos-user** | `/Users/_yolojail` is the account home; after A′, workspace dirs are symlinks into the sidecar | The migration walks the **invoking admin's** `~/.local/share/yolo-jail/home`, which macos-user never mounts; it is a no-op when that base is empty and never touches `/Users/_yolojail`. Pre-A′ workspace state in the real account home is [OQ-HT2](../reference/macos-user-home-tiers.md#oq-ht2)/[OQ-BH7](#OQ-BH7), not this walk |
 
-The macos-user case is where [`OQ-HT2`](macos-user-home-tiers.md#decision-ledger) must not be
+The macos-user case is where [`OQ-HT2`](../reference/macos-user-home-tiers.md#oq-ht2) must not be
 silently reused. That ruling — *"No migration. Discard the old layout; wiping
 `/Users/_yolojail` is a supported reset"* — was affordable **because its stated premise held:
 nobody had used that backend for real work, so there were no transcripts to preserve**
-(`docs/design/macos-user-home-tiers.md:706-718`). The container base inverts every clause of
+([`OQ-HT2`](../reference/macos-user-home-tiers.md#oq-ht2) states the premise it was ruled on).
+The container base inverts every clause of
 that premise: it is used, it holds real transcripts, and they are pooled across workspaces.
 **The discard is scoped to the clean macos-user account and is not precedent for the container
 base.** [OQ-BH7](#OQ-BH7) asks whether even that scope still holds after A′.
@@ -692,7 +693,7 @@ base.** [OQ-BH7](#OQ-BH7) asks whether even that scope still holds after A′.
 | **A. Delete the legacy bytes outright** | **Rejected** — [R1](#13-decision-ledger)/[R2](#13-decision-ledger). Transcripts have no regeneration path |
 | **B. Leave them, only warn** | **Rejected** — the exposure and the re-infection both survive. A warning is not a fix |
 | **C. A new explicit command only (`yolo base-home archive`), no launch-path attempt** | **Runner-up** — cleanest TTY story, but nothing runs on a host that never invokes it, and R3's "retry later" implies an attempt. Feeds [OQ-BH2](#OQ-BH2) |
-| **D. Per-workspace rescue copy, then delete the base** | **Rejected** — pooled transcripts have no single destination, and the copy would have to guess a workspace. This is the leaning [`OQ-HT2`](macos-user-home-tiers.md#decision-ledger) overrode for a backend where it was affordable |
+| **D. Per-workspace rescue copy, then delete the base** | **Rejected** — pooled transcripts have no single destination, and the copy would have to guess a workspace. This is the leaning [`OQ-HT2`](../reference/macos-user-home-tiers.md#oq-ht2) overrode for a backend where it was affordable |
 | **E. Move the bytes into each workspace's own overlay** | **Rejected** — same no-single-destination problem, plus it would *seed* the exact runtime the design removes |
 | **F. Shadow every unselected state dir, no eviction** | **Complement, not a substitute** — closes the read path structurally but leaves the bytes and the seed. Feeds [OQ-BH6](#OQ-BH6) |
 | **G. Bump `StorageLayoutVersion` to 3 and share its marker** | **Rejected** — the marker (`internal/storage/ensure.go:277`) is written with no regard to whether any heal happened, and is therefore at 2 on every host except one permanently deferring on dangling mise symlinks, so it would stamp-without-apply every existing host and couple the base-home migration to the mise heal ([§5.7](#57-the-trigger-and-where-it-runs)). The **chosen skeleton is a separate marker**, with detection in the existing host-only path and apply where a TTY and the console exist |
@@ -850,14 +851,14 @@ base.** [OQ-BH7](#OQ-BH7) asks whether even that scope still holds after A′.
 
    <!-- vantage: oq id=OQ-BH7 leaning="The macos-user home-tiers discard ruling stays scoped to the clean macos-user account and does not generalize to the container base; the migration walks the invoking admin's GlobalHome, which macos-user never mounts, so it is a no-op on a laid-out account. Pre-A' real dirs in the account home remain the occupied-layout refusal, never a move." -->
 
-   The ruling in question is [`OQ-HT2`](macos-user-home-tiers.md#decision-ledger).
+   The ruling in question is [`OQ-HT2`](../reference/macos-user-home-tiers.md#oq-ht2).
    A′ made the account home's workspace dirs symlinks into the per-workspace sidecar, so the
    workspace tier is already where it belongs and the walk has nothing to move. The live
-   question is whether [`OQ-HT2`](macos-user-home-tiers.md#decision-ledger)'s discard should be
+   question is whether [`OQ-HT2`](../reference/macos-user-home-tiers.md#oq-ht2)'s discard should be
    re-opened for a machine that *has* used the backend for real work since A′ shipped, and
    whether the migration should ever move a real dir there.
 
-   _Leaning:_ [`OQ-HT2`](macos-user-home-tiers.md#decision-ledger) holds where it was ruled (a
+   _Leaning:_ [`OQ-HT2`](../reference/macos-user-home-tiers.md#oq-ht2) holds where it was ruled (a
    clean account), does not extend to the
    container base, and macos-user needs detection only.
 

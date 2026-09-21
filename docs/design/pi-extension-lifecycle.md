@@ -53,8 +53,8 @@ CLAIMED by this doc and invoked nowhere in the tree.
 fetch/resolve axis and names `internal/packsrc` + `packs.lock.json`),
 [`slots-and-contributions.md`](./slots-and-contributions.md) (the role model of the same
 constellation), [`program-delivery.md`](program-delivery.md) (the launcher and `agent_updates`
-foundation), and [`macos-user-home-tiers.md`](macos-user-home-tiers.md) (the machine vs workspace
-storage tier design).
+foundation), and [`../reference/macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md)
+(the machine vs workspace storage tiers, as built).
 
 ---
 

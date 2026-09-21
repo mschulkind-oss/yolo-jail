@@ -206,7 +206,9 @@ The corpus-wide count of 318 `ref/unlinked-file` findings therefore *understates
 
 ### D11. `vantage/oq-missing` and `vantage/oq-id-format` cannot both be satisfied
 
-`docs/design/macos-user-home-tiers.md:173`, measured both directions:
+`docs/design/macos-user-home-tiers.md:173`, measured both directions (that file is a superseded
+stub since 2026-09-21 and the ids were renamed `OQ-HT1…4` before then, so the line number is a
+record of what was measured rather than a place to look):
 
 - **without** the `oq` directive → `vantage/oq-missing` demands one
 - **with** it → `vantage/oq-id-format` refuses: *"`OQ-HT-2` is not a usable open-question id"*
