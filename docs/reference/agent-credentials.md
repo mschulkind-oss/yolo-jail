@@ -224,6 +224,11 @@ which also **copies each file source** into a root-owned tree the sandbox reads 
 
 ### The Claude OAuth broker
 
+**What is on the wire — which single hostname is intercepted, which single grant is terminated, why
+a credential *file* is involved at all, and the open question of whether to share the credential —
+is [`claude-oauth-interposition.md`](claude-oauth-interposition.md)'s.** This section owns the
+broker's place among the credential channels, its rulings, and the threshold defect below.
+
 The broker exists because **yolo moved the credentials file out from under the vendor's own
 cross-process lock.** Anthropic mints single-use refresh tokens, so two Claudes refreshing in the
 same window burn one another's token — and Claude Code already solves that for itself. It takes a
