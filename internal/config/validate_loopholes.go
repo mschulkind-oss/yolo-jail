@@ -526,19 +526,31 @@ func WorkspaceLoopholeSwitches(workspace string) map[string]WorkspaceLoopholeSwi
 // ValidateConfig does and returns only the messages that make it INVALID. It
 // is the seam for commands that read the config WITHOUT the full schema pass
 // (`yolo loopholes list`/`status`): an entry this returns messages for must be
-// refused, not honored, because Status executes doctor_cmd from what it reads
-// (loophole-packaging.md §4.1 finding 2).
+// refused, not honored, because Status executes doctor_cmd from what it reads.
+//
+// The finding this seam exists for did NOT graduate into
+// docs/reference/loophole-system.md and lives in no doc today: the loophole
+// commands load config through LoadJSONCFile/LoadWorkspaceConfig, which PARSE
+// ONLY, so a workspace entry carrying just description+doctor_cmd — no
+// `command`, which validateInlineService requires — was printed as active by
+// `yolo loopholes list` and its doctor_cmd would have been run on the host by
+// Status, while `yolo check` rejected the same file. It is in git history, as
+// "The finding" in `git show 9190a4d1^:docs/design/loophole-packaging.md`; its
+// live regression is TestEvilDoctorWorkspaceEntryIsRefused in
+// internal/loopholes.
 //
 // info is the file-backed loophole the name resolves to (nil when none);
 // userInstalledInline reports whether the USER config installs an inline
-// service under this name (either counts as "installed" for the §4.3b
-// enable-uninstalled rule). fromWorkspace applies the workspace-scope rules;
+// service under this name (either counts as "installed" for the
+// enable-uninstalled rule, docs/reference/loophole-system.md#the-two-verbs). fromWorkspace applies the workspace-scope rules;
 // inJail downgrades them to the warnings ValidateConfig would emit, which this
 // function does NOT return — matching the launch path, which honors such an
 // entry in-jail and refuses it on the host. srcFile names the entry's origin
 // in the scope messages. workspace is the workspace these commands are reading
-// from, for the §4.3a placement rule — which applies at EITHER scope, because it
-// is about the target file rather than the declaring one.
+// from, for the placement rule
+// (docs/reference/loophole-system.md#the-placement-rule) — which applies at
+// EITHER scope, because it is about the target file rather than the declaring
+// one.
 func LoopholeEntryErrors(name string, specV any, info *LoopholeInfo, userInstalledInline, fromWorkspace, inJail bool, srcFile, workspace string) []string {
 	errs := &[]string{}
 	warns := &[]string{}

@@ -208,7 +208,13 @@ var (
 	// by discover.go's synthesizeConfigLoopholes, and `jail_endpoint` is the
 	// canonical form of the `jail_socket` alias that validateInlineService
 	// itself prefix-checks — all three used to be "unknown key" errors here
-	// while the rest of the machinery honored them (loophole-packaging.md R5).
+	// while the rest of the machinery honored them. That drift was found while
+	// the loophole packaging design was being written and is recorded nowhere
+	// today: it did not graduate into docs/reference/loophole-system.md, whose
+	// own `R5` is a DIFFERENT rule (install is user-scope, enable is either).
+	// The original is the doc/code-drift risk R5 in
+	// `git show 9190a4d1^:docs/design/loophole-packaging.md`;
+	// TestInlineLoopholeKeysLoaderReadsAreKnown is what keeps it fixed.
 	//
 	// `preamble` is the same rule applied on arrival rather than in arrears:
 	// synthesizeConfigLoopholes reads it (defaulting FALSE, the opposite of a

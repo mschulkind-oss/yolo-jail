@@ -30,6 +30,25 @@ questions that never got a ruling.
 
 Both are cheap to rule and expensive to discover later. Neither blocks anything shipped.
 
+> [!NOTE]
+> **Two pieces of the old body did NOT graduate, and are cited from Go.** They live in git
+> history only — `git show 9190a4d1^:docs/design/loophole-packaging.md` is the last revision
+> that carried them:
+>
+> - **"The finding"** (old §4.1, finding 2) — the loophole commands load config with no schema
+>   pass, so an entry `yolo check` rejects was honored by `yolo loopholes list` and its
+>   `doctor_cmd` would have run on the host. Its live form is `config.LoopholeEntryErrors` and
+>   `TestEvilDoctorWorkspaceEntryIsRefused`.
+> - **risk R5** — the doc/code drift where `knownHostServiceKeys` contradicted the keys the
+>   loader reads. Its live form is that census in `internal/config/config.go` and
+>   `TestInlineLoopholeKeysLoaderReadsAreKnown`. ⚠ **Not to be confused with
+>   [`loophole-system.md`](../reference/loophole-system.md#principles)'s own `R5`**
+>   (*install is user-scope; enable is either scope*), which is an unrelated rule — a mechanical
+>   repoint of the Go citations would have resolved and meant something else.
+>
+> Everything else the body held is in
+> [`loophole-system.md`](../reference/loophole-system.md).
+
 ## Open questions
 
 #### <a id="oq-lp5"></a>💬 **[OQ-LP5](#oq-lp5)** — does `jail_env` stay refused for pack-shipped loopholes?

@@ -147,7 +147,10 @@ func cmdDeps(t *testing.T, out, errBuf *bytes.Buffer, userJSON, wsJSON string) D
 	}
 }
 
-// Regression for loophole-packaging.md §4.1 finding 2 (the evil-doctor case):
+// Regression for the evil-doctor case. The finding is in no doc — it did not
+// graduate into docs/reference/loophole-system.md; it is "The finding" in
+// `git show 9190a4d1^:docs/design/loophole-packaging.md`, and this test is what
+// keeps it closed:
 // the loophole commands read config with NO schema pass, so a workspace entry
 // carrying only description+doctor_cmd — which `yolo check` REJECTS (no
 // command, and doctor_cmd is workspace-illegal) — was still honored by

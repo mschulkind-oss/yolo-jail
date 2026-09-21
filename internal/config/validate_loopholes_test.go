@@ -14,11 +14,15 @@ type fakeResolver map[string]LoopholeInfo
 
 func (f fakeResolver) Known() (map[string]LoopholeInfo, bool) { return f, true }
 
-// R5 of loophole-packaging.md found knownHostServiceKeys contradicting the rest
-// of the loophole machinery: the loader reads `description` and `doctor_cmd`
-// (discover.go), and validateInlineService itself prefix-checks `jail_endpoint`
-// — yet all three were "unknown key" errors on an inline entry. The census is
-// reconciled: every key the loader reads validates.
+// knownHostServiceKeys once contradicted the rest of the loophole machinery:
+// the loader reads `description` and `doctor_cmd` (discover.go), and
+// validateInlineService itself prefix-checks `jail_endpoint` — yet all three
+// were "unknown key" errors on an inline entry. The census is reconciled: every
+// key the loader reads validates.
+//
+// The finding did not graduate into docs/reference/loophole-system.md — whose
+// `R5` is an unrelated rule — and lives in no doc. It is the doc/code-drift
+// risk R5 in `git show 9190a4d1^:docs/design/loophole-packaging.md`.
 func TestInlineLoopholeKeysLoaderReadsAreKnown(t *testing.T) {
 	t.Setenv("YOLO_VERSION", "")
 	cfg := decode(t, `{"loopholes": {"svc": {
