@@ -35,8 +35,7 @@ a sink cannot be reported to it ([OQ-DB5](#oq-db5)).
 **Start at [§3](#3-the-failures-are-the-specification)** — the six failures and the one
 measurement each needed. [§4](#4-the-proposal) falls out of that table and nothing else.
 
-**Needs your ruling:** [OQ-DB1](#oq-db1), [OQ-DB2](#oq-db2), [OQ-DB3](#oq-db3),
-[OQ-DB4](#oq-db4), [OQ-DB5](#oq-db5).
+**Needs your ruling:** [OQ-DB1](#oq-db1), [OQ-DB2](#oq-db2), [OQ-DB3](#oq-db3), [OQ-DB4](#oq-db4), [OQ-DB5](#oq-db5).
 
 **Reads with:** [`perf-logging.md`](../reference/perf-logging.md) (the host half this extends;
 P5 forbids the obvious shortcut), [`report-tiers.md`](../reference/report-tiers.md) ([`OQ-RO3`](../reference/report-tiers.md#why-its-this-way),

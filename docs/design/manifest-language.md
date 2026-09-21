@@ -39,9 +39,7 @@ written today is a migration debt tomorrow, so the format should be chosen once.
 > pack "conventionally" mounts something removes a claim. The first is the goal; the second is
 > forbidden under every option below.
 
-**Needs your ruling:** [`OQ-M1`](#OQ-M1) (do the model change?), [`OQ-M2`](#OQ-M2) (which syntax?),
-[`OQ-M3`](#OQ-M3) (may a manifest be pure code that returns data?),
-[`OQ-M4`](#OQ-M4) (does the user config share the language?).
+**Needs your ruling:** [`OQ-M1`](#OQ-M1) (do the model change?), [`OQ-M2`](#OQ-M2) (which syntax?), [`OQ-M3`](#OQ-M3) (may a manifest be pure code that returns data?), [`OQ-M4`](#OQ-M4) (does the user config share the language?).
 
 **Reads with:** [`pack-system.md`](../reference/pack-system.md) (the contribution model and the
 total-enumeration rule), [`trust-paths.md`](./trust-paths.md) (the origin gate and why a pack

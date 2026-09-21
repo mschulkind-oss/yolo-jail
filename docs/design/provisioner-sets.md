@@ -68,10 +68,7 @@ The survey that forced all of it — the inventory, the coverage matrix, the nix
 [`provisioner-evidence.md`](provisioner-evidence.md), and you need it to **check** the argument
 rather than to follow it.
 
-**Needs your ruling:** [`OQ-PS1`](#OQ-PS1), [`OQ-PS5`](#OQ-PS5), [`OQ-PS6`](#OQ-PS6),
-[`OQ-PS7`](#OQ-PS7), [`OQ-PS8`](#OQ-PS8), [`OQ-PS9`](#OQ-PS9), [`OQ-PS10`](#OQ-PS10),
-[`OQ-PS11`](#OQ-PS11), [`OQ-PS12`](#OQ-PS12), [`OQ-NX4`](#OQ-NX4), [`OQ-NX5`](#OQ-NX5),
-[`OQ-NX8`](#OQ-NX8), [`OQ-NX9`](#OQ-NX9).
+**Needs your ruling:** [`OQ-PS1`](#OQ-PS1), [`OQ-PS5`](#OQ-PS5), [`OQ-PS6`](#OQ-PS6), [`OQ-PS7`](#OQ-PS7), [`OQ-PS8`](#OQ-PS8), [`OQ-PS9`](#OQ-PS9), [`OQ-PS10`](#OQ-PS10), [`OQ-PS11`](#OQ-PS11), [`OQ-PS12`](#OQ-PS12), [`OQ-NX4`](#OQ-NX4), [`OQ-NX5`](#OQ-NX5), [`OQ-NX8`](#OQ-NX8), [`OQ-NX9`](#OQ-NX9).
 
 > [!NOTE]
 > **Scope note — this doc absorbed

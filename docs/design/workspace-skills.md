@@ -43,8 +43,7 @@ layer on purpose. The links variant writes into a repo yolo does not own.
 **Start at [§4.1](#41-mechanism-a--the-staged-mirror)** — the mirror, and the symlink rule
 that reshapes it. [§6](#6-both-notches-honestly) is where the host answer has to differ.
 
-**Needs your ruling:** [OQ-WS1](#OQ-WS1), [OQ-WS2](#OQ-WS2), [OQ-WS3](#OQ-WS3),
-[OQ-WS4](#OQ-WS4), [OQ-WS5](#OQ-WS5), [OQ-WS6](#OQ-WS6).
+**Needs your ruling:** [OQ-WS1](#OQ-WS1), [OQ-WS2](#OQ-WS2), [OQ-WS3](#OQ-WS3), [OQ-WS4](#OQ-WS4), [OQ-WS5](#OQ-WS5), [OQ-WS6](#OQ-WS6).
 
 **Reads with:** [`workspace-skills-plan.md`](workspace-skills-plan.md) (the implementation
 sketch — incomplete, and unstable while these questions are open);
