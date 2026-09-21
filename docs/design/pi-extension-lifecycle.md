@@ -82,14 +82,8 @@ When Pi runs:
    `checkForPackageUpdates()` asynchronously in the background. It iterates through all configured
    packages, queries the npm registry, and if newer versions exist, injects an eye-catching warning
    box directly into the chat viewport:
-   ```text
-   ┌────────────────────────────────────────────────────────┐
-   │ Package Updates Available                              │
-   │ Package updates are available. Run pi update --extensions│
-   │ Packages:                                              │
-   │ - pi-lens                                              │
-   └────────────────────────────────────────────────────────┘
-   ```
+   a box reading *"Package Updates Available — run `pi update --extensions`"*, naming each
+   stale package.
    This check runs unconditionally unless `PI_OFFLINE=1` is exported in the environment. Pi
    provides no setting in `settings.json` to disable or suppress this notification.
 
@@ -147,23 +141,9 @@ Because `.pi` is workspace-scoped, each workspace jail receives an isolated dire
 > to materialize. Read [§3.2](#32-execution-tier-pre-launch-auto-refresh) as the materializer, not the resolver.
 
 The architecture consists of three coordinated tiers: storage decoupling, pre-launch auto-refresh,
-and cross-jail mutual exclusion.
-
-```
-Host Filesystem (~/.local/share/yolo-jail/home/)
-   │
-   └── .pi-shared-npm/               <--- Machine-scoped storage (scope: "machine")
-          ├── package.json
-          └── node_modules/
-                 └── pi-lens/
-
-Container / Jail A (/home/agent/)         Container / Jail B (/home/agent/)
-   ├── .pi/ (workspace state)                 ├── .pi/ (workspace state)
-   │    ├── agent/sessions/ (isolated)        │    ├── agent/sessions/ (isolated)
-   │    └── agent/npm ───[symlink]──┐         │    └── agent/npm ───[symlink]──┐
-   └── .pi-shared-npm/ ◄────────────┘         └── .pi-shared-npm/ ◄────────────┘
-        (bind mount from host)                     (bind mount from host)
-```
+and cross-jail mutual exclusion. One machine-scoped `~/.pi-shared-npm` holds the `package.json` and
+`node_modules`; each jail's workspace-scoped `~/.pi/agent/npm` is a **symlink** to it (a bind
+mount from the host), while `~/.pi/agent/sessions` stays per-workspace.
 
 ### 3.1 Storage tier: Decoupling packages from session state
 

@@ -229,23 +229,15 @@ internal language server is not user-configurable and its docs never mention LSP
 is the `mcp-language-server` bridge deleted when gemini retired. Those two are facts about the
 agents, not gaps in YOLO.
 
-**The archetypes, restated**
+**The four archetypes, and what each costs:** a **config table** (Copilot, opencode — a rename
+plus shape moves; a new agent of this kind costs a derive, not a mechanism); an **extension**
+(Pi — render the package's config, as YOLO already does for its MCP); a **plugin** (Claude — the
+only one needing a manifest, and what option D targets); and **none** (Codex, agy — a bridge is a
+workaround, not a projection).
 
-1. **Config table** (Copilot, opencode) — the agent reads a server table from a file YOLO owns.
-   The projection is a rename plus shape moves (`fileExtensions` → `extensions`, and opencode
-   fuses `command`+`args`). A new agent of this kind costs a derive, not a mechanism.
-2. **Extension** (Pi) — no built-in LSP; a package supplies it. YOLO renders that package's
-   config, exactly as it already does for Pi's MCP.
-3. **Plugin** (Claude) — LSP arrives through a plugin, not a settings key. The only archetype
-   that needs a manifest, and the one the `generate` option (D) targets.
-4. **None** (Codex, agy) — no LSP surface at all; a bridge is a workaround, not a projection.
-
-**So does the feature earn its keep?** Yes, on the argument MCP already won: one canonical
-`lsp_servers` table, projected per agent, so a user configures a language server once. Four of
-the six agents can consume it today or with a small producer; the other two cannot consume LSP
-from anyone. The problem was never that the feature is Claude-shaped — it is that three
-projections were never written, and Claude's is the only one that needed a *plugin* rather than a
-config key.
+**The feature earns its keep**, on the argument MCP already won: four of the six agents can
+consume one canonical `lsp_servers` table today or with a small producer. The problem was never
+that it is Claude-shaped — it is that three projections were never written.
 
 ## 3. Options
 
