@@ -52,7 +52,9 @@ func DoRefresh(credsPath string) RefreshResult {
 	// want of exactly this line).
 	logInfo("do_refresh: shared=%s", describeCreds(credsPath))
 	return withRefreshLock(func() RefreshResult {
-		if cached := CachedTokens(credsPath); cached != nil {
+		// cachedForRefresh, NOT CachedTokens: this is the refresh path, whose
+		// floor must exceed the requesting agent's own due-threshold.
+		if cached := cachedForRefresh(credsPath); cached != nil {
 			logInfo("cache hit: at=%s rt=%s exp=%s",
 				fpOf(cached, "accessToken"), fpOf(cached, "refreshToken"), expiresAtStr(cached))
 			return AsOAuthResponse(cached)

@@ -51,6 +51,44 @@ const (
 	BackgroundRefreshMaxFastRetries   = 12
 )
 
+// Token-freshness floors, in MILLISECONDS of remaining access-token life.
+//
+// THERE ARE TWO NUMBERS BECAUSE THERE ARE TWO QUESTIONS, and one constant
+// answering both is the defect this pair replaces. "Is there a token worth
+// handing out?" is about liveness. "The caller says it is due — should I mint?"
+// is about the CALLER's threshold, and a floor below that one is answerable only
+// by returning the very token the caller has already judged stale.
+const (
+	// ConsumerRefreshDueMS is the near-expiry threshold of the agent on the
+	// other side of the terminator: Claude Code treats a token as due when
+	// `Date.now() + 300000 >= expiresAt` (measured, 2.1.278). It is NOT ours to
+	// choose — it is a fact about the client, recorded here so the floor below
+	// can be derived from it instead of colliding with it by accident.
+	ConsumerRefreshDueMS int64 = 300_000
+
+	// RefreshCacheFloorMS is what DoRefresh serves from cache above and mints
+	// below. It MUST EXCEED ConsumerRefreshDueMS.
+	//
+	// It was 90_000, which is under it, and the gap was a 210-second window in
+	// which an agent asked for a refresh and got its own access token back with
+	// HTTP 200. Claude reads an unchanged token as a failed refresh — it counts
+	// them and throws `api_request_oauth_refresh_exhausted` at the second — so
+	// the window ended sessions. MEASURED before this changed: 364 of 380
+	// successful refresh replies in one jail's log carried 90–299s of life.
+	//
+	// The extra minute is margin for clock skew between host and jail and for
+	// the round trip itself; the exact size is not load-bearing, but the
+	// INEQUALITY is. A storm is not a risk: DoRefresh re-checks this floor
+	// inside the flock, so jails arriving behind the winner see the new token.
+	RefreshCacheFloorMS int64 = ConsumerRefreshDueMS + 60_000
+
+	// LiveTokenFloorMS is the liveness floor for the `cached` action, which
+	// asks whether a usable token exists rather than whether to mint one. This
+	// is the original 90s, and it stays: a token with two minutes left is a
+	// perfectly good answer to that question.
+	LiveTokenFloorMS int64 = 90_000
+)
+
 // tokenURL returns the upstream token endpoint, honoring the test-only
 // override env var.
 func tokenURL() string {
@@ -148,9 +186,25 @@ func asInt64(v any) (int64, bool) {
 	}
 }
 
-// CachedTokens returns the on-disk oauth object iff the access token has >= 90s
-// headroom, else nil.
+// CachedTokens returns the on-disk oauth object iff the access token still has
+// LiveTokenFloorMS of life, else nil. This is the `cached` ACTION's question —
+// is there a usable token — and not the refresh path's; see cachedForRefresh.
 func CachedTokens(credsPath string) *jsonx.OrderedMap {
+	return cachedAbove(credsPath, LiveTokenFloorMS)
+}
+
+// cachedForRefresh is the floor DoRefresh serves from, and it is deliberately a
+// DIFFERENT and higher one: a refresh request carries the caller's own judgement
+// that the token is due, so answering it from a cache below the caller's
+// threshold hands back the token that was just rejected.
+func cachedForRefresh(credsPath string) *jsonx.OrderedMap {
+	return cachedAbove(credsPath, RefreshCacheFloorMS)
+}
+
+// cachedAbove is the shared body: the on-disk oauth object iff the access token
+// has at least floorMS of life. An unreadable or unparseable file is not a
+// cache hit, so the caller falls through to whatever it does without one.
+func cachedAbove(credsPath string, floorMS int64) *jsonx.OrderedMap {
 	oauth, err := oauthFromCreds(credsPath)
 	if err != nil {
 		return nil // no cached tokens on read/parse error.
@@ -159,7 +213,7 @@ func CachedTokens(credsPath string) *jsonx.OrderedMap {
 	if v, ok := oauth.Get("expiresAt"); ok {
 		expiresAtMS, _ = asInt64(v)
 	}
-	if expiresAtMS-nowMS() < 90_000 {
+	if expiresAtMS-nowMS() < floorMS {
 		return nil
 	}
 	return oauth

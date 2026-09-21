@@ -787,7 +787,10 @@ Claude's notion of "due"; they are the same number.
 > one jail's terminator log: **364 of 380** successful refresh replies carried
 > 90–299 seconds of life. yolo therefore disagrees with itself — the refresher
 > agrees with Claude and the cache does not — and `force` is dropped at the
-> terminator, so Claude cannot override it. Recorded as a live defect in
+> terminator, so Claude cannot override it. **FIXED 2026-09-20** by splitting the one
+> constant into the two questions it was answering — a liveness floor for the
+> `cached` action, and a refresh floor DERIVED as `ConsumerRefreshDueMS + 60_000`
+> so the inequality lives in the source. Recorded in
 > [`agent-credentials.md`](../reference/agent-credentials.md#-the-90300-threshold-mismatch--a-live-defect).
 
 **Still no proactive timer on the interactive path** —

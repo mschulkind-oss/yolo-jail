@@ -349,8 +349,18 @@ does. Three aggravating facts:
 - **Measured in one jail's terminator log:** of 380 successful refresh replies, **364 (96%)**
   carried 90–299 seconds of life — i.e. were the caller's own token handed back.
 
-The fix is to raise the cache floor above Claude's threshold so the two agree; it is tracked as a
-defect and not yet built.
+**FIXED 2026-09-20.** The floor was one constant answering two different questions, and the fix
+splits them: `LiveTokenFloorMS` (90s) still answers the `cached` action's *is there a usable
+token*, while `RefreshCacheFloorMS` — **derived** as `ConsumerRefreshDueMS + 60_000`, so the
+inequality is in the source rather than in two numbers that happen to differ — answers the refresh
+path's *should I mint*. `DoRefresh` reads the second. The derivation is pinned by a test that fails
+if the floor ever sits below the consumer's threshold again, and a behavioural test asserts the two
+paths disagree inside the old window.
+
+⚠ **`force` is still dropped**, and closing this did not close that. It is a separate and optional
+improvement: with the floor above Claude's threshold there is nothing for a force to override in
+normal operation, so it now only matters if the consumer's threshold moves and yolo's constant does
+not follow.
 
 #### What the broker does *not* buy
 
@@ -638,7 +648,9 @@ $ rg -n '"scope": "host"' packs/*/loopholes/*/manifest.jsonc
 | Endpoint file | `<name>.endpoint`, mode `0600`, named by `YOLO_SERVICE_<NAME>_ENDPOINT` | `internal/svcendpoint` |
 | Declared-service socket | `<name>.sock`, named by `YOLO_SERVICE_<NAME>_SOCKET` | `internal/loopholes` |
 | Broker refresh lock | `oauthbroker.RefreshLockPath` | `internal/oauthbroker/refresh.go` |
-| Broker cache floor | **90s** — serve the on-disk token above this, refresh below it. ⚠ Below Claude's own 300s threshold; see [the mismatch](#-the-90300-threshold-mismatch--a-live-defect) | `internal/oauthbroker/oauthbroker.go` (`CachedTokens`) |
+| Broker refresh floor | **`ConsumerRefreshDueMS + 60_000`** = 360s — `DoRefresh` serves the on-disk token above this and mints below it. Derived, not written, so it cannot drift under the consumer's threshold ([why](#-the-90300-threshold-mismatch--a-live-defect)) | `internal/oauthbroker/oauthbroker.go` (`RefreshCacheFloorMS`, `cachedForRefresh`) |
+| Broker liveness floor | **90s** — the `cached` action's floor, a different question and deliberately lower | `internal/oauthbroker/oauthbroker.go` (`LiveTokenFloorMS`, `CachedTokens`) |
+| Consumer due-threshold | **300s** — Claude Code's own `Date.now()+300000>=expiresAt`. A fact about the client, recorded so the floor above derives from it | `internal/oauthbroker/oauthbroker.go` (`ConsumerRefreshDueMS`); measured, 2.1.278 |
 | Background refresher | lead **300s**, tick **60s**, fast retry **5s** × **12** | `internal/oauthbroker/oauthbroker.go` (`BackgroundRefresh*`) |
 | Vendor refresh lock | `<configDir>/.oauth_refresh.lock`, `realpath:false`, stale `60000`, update `5000` — **per-jail**, never follows the shared-creds symlink | Claude Code bundle (`acquireOAuthRefreshLock`), measured |
 | Broker credentials file | the shared-credentials dir under the global home | `internal/storage` (`ensure.go`), `internal/entrypoint/claude.go` |
