@@ -1,7 +1,7 @@
 ---
 title: "Who owns the config file — declared host management, and the way out of capture"
 date: 2026-09-09
-status: accepted
+status: in-review
 tags: [design, config, host, capture, packs, ownership]
 summary: "yolo decides who owns an agent's config file by inferring it from the confinement notch, and the inference is wrong for anyone who adopted `yolo host apply`. Declare ownership in the user config instead, make the host render like a jail when it is owned, and build the promotion path that turns a captured in-jail edit into a declared one — the verb a shipped message already advises and nothing implements."
 vantage:
@@ -10,16 +10,24 @@ vantage:
 
 # Who owns the config file — declared host management, and the way out of capture
 
-**Status:** BUILT 2026-09-12; amended 2026-09-20 and settled the same day. A ruling narrowed
-the adoption drop, which opened one follow-on — how a derive declares it regenerates a table in
-full — and that was **decided as an implementation shape rather than escalated**, because every
-candidate produced identical user-visible behaviour and differed only in what the code carries.
-Zero questions open. The
-adoption drop no longer takes a computed table that asserts nothing, *wholesale against
-`computed`* is withdrawn as the general rule, and the half of the signal needed to narrow
-the rest does not exist — decided as [`CO13`](#13-decision-ledger) — an implementation shape, not a ruling
-here ([the drop-narrowing ruling](#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule)
+**Status:** BUILT 2026-09-12; amended twice on 2026-09-20, and **back in review** after the
+second.
+
+**The first amendment narrowed the adoption drop.** It no longer takes a computed table that
+asserts nothing, *wholesale against `computed`* is withdrawn as the general rule, and the half
+of the signal needed to narrow the rest does not exist — decided as
+[`CO13`](#13-decision-ledger), an **implementation shape rather than an escalation**, because
+every candidate produced identical user-visible behaviour and differed only in what the code
+carries ([the drop-narrowing ruling](#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule)
 carries the ruling and the measurements). Everything below it stands.
+
+**The second reverses [`OQ-CO1`](#13-decision-ledger)**: `assert` is retired, `none` and `own`
+are the two values left, and `none` becomes the default
+([§4.5](#45-retiring-assert--the-two-value-key)). ⚠ It is **recorded and unbuilt**, so every
+present-tense claim below still describes a three-value key, deliberately. The reversal takes
+the ground out from under a second ledger row and leaves one declaration unspellable — that is
+[`OQ-CO14`](#oq-co14), and it is why the status moved rather than the ledger row simply gaining
+a date.
 
 MEASURED: verification after it landed measured four gaps, and a
 second pass over [`OQ-CO12`](#13-decision-ledger) found six more things.
@@ -54,10 +62,12 @@ re-measured after it say so at the point they are stated.
 `yolo config reset`, which discards it. There is no way to carry it to another
 jail, to the host, or into anything declared.
 
-**The shape.** One user-scope key (`host_management: none | assert | own`)
-selects the host notch's surface mode; `own` makes the host render like a jail;
-`yolo config promote` lifts captured keys into the conventional local pack,
-which renders at every notch.
+**The shape.** One user-scope key (`host_management`) selects the host notch's surface mode;
+`own` makes the host render like a jail; `yolo config promote` lifts captured keys into the
+conventional local pack, which renders at every notch. The key shipped with **three** values and
+is ruled down to **two** — `none` (the new default) and `own`
+([§4.5](#45-retiring-assert--the-two-value-key)); `assert` is what ships today and what this
+document still describes in the present tense below.
 
 **Cost.** It reverses **four** rulings recorded in
 [`environment-manager-plan.md`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)
@@ -67,21 +77,28 @@ settled by [`OQ-CO11`](#13-decision-ledger) on 2026-09-11. See
 
 **Start at [§4](#4-declaring-ownership--the-host_management-key)** — the key is what makes every other question answerable.
 
-**One thing here needs a ruling, and it is the newest row.** Every question this design
-or its build opened is settled ([§13](#13-decision-ledger)), the last of those
-([`OQ-CO12`](#13-decision-ledger)) on 2026-09-12 — and [`CO13`](#13-decision-ledger) is
-OPEN, filed 2026-09-20 by a ruling that narrowed the adoption drop and could only narrow it
-halfway ([the drop-narrowing ruling](#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule)).
+**Two things here need a ruling, and both were opened by rulings.** Every question this design
+or its build opened was settled ([§13](#13-decision-ledger)), the last of those
+([`OQ-CO12`](#13-decision-ledger)) on 2026-09-12 — then [`CO13`](#13-decision-ledger) was filed
+2026-09-20 by a ruling that narrowed the adoption drop and could only narrow it halfway
+([the drop-narrowing ruling](#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule)),
+and [`OQ-CO14`](#oq-co14) the same
+day by the ruling that retired `assert`
+([§4.5](#45-retiring-assert--the-two-value-key)). **A settled design reopens exactly this
+way**, and twice in one day is a fact about the sprint rather than about the design.
 ⚠ **Settled is not the same as clean, and the difference is recorded rather than rounded off.**
 Two sections carry **live residue** — measured behavior that no ruling covers and no commit closed:
 [§6.3.3](#633-what-survives-as-a-guard)'s one unnetted adoption loss, and
 [§11](#11-success-criteria)'s six, found by verifying the ruling above rather than by trusting it.
 Both sit in the body as present-tense behavior, because that is what they are.
-**What is left is the graduation rewrite, not another pass over this file.** Every
-ruling is already folded into [§13](#13-decision-ledger) and the sections it governs; what still
+**The graduation rewrite is no longer the only thing left, and it should now WAIT.** Every
+ruling is folded into [§13](#13-decision-ledger) and the sections it governs; what still
 reads as sequencing is [§10](#10-what-i-would-build-in-order)'s build order, which is now history,
 and [§6.3](#63-the-one-asymmetry-that-survives-deletion)'s argument, which a reference would have
-to re-state as a contract. That rewrite is scoped in
+to re-state as a contract. ⚠ But [§4.5](#45-retiring-assert--the-two-value-key) retires a value
+the reference would have to state as current, so graduating this file before
+[`OQ-CO14`](#oq-co14) is ruled
+would mint a `CURRENT` doc with a known expiry. That rewrite is scoped in
 [`doc-triage.md`](../plans/doc-triage.md#2-config-ownership-and-promotionmd--both-named-blockers-are-closed-and-the-rewrite-is-larger-than-they-were),
 which no longer holds a live question against this file; [`OQ-DT1`](../plans/doc-triage.md#open-question)
 decides when the move happens, and it is the maintainer's.
@@ -481,6 +498,15 @@ rather than aspirational — `own` *is* the jail's mode.
 | `assert` | `rmw` | shared: yolo owns declared keys, user owns the rest | today's behavior |
 | `own` | `stateful` | yolo — the file is derived output | composes the whole file, captures edits |
 
+> [!IMPORTANT]
+> **That is the SHIPPED key, and the middle row is ruled out**
+> ([§4.5](#45-retiring-assert--the-two-value-key), 2026-09-20). Two values remain and the
+> **default moves to `none`**, which changes the first row's meaning as much as it deletes the
+> second: `none` stops being the value a user opts into and becomes the one they start at. The
+> table stays as written because it describes the tree, and everything in this section below it
+> is present-tense about `assert` for the same reason — the ruling is recorded, the build is
+> not done, and a design doc that describes an unbuilt tree cannot be checked against one.
+
 Consequences worth stating because users act on them:
 
 - Under `none`, the host file is today still **read** into a jail as the `host`
@@ -550,6 +576,18 @@ That is the whole migration: a default, and one refusal in the command whose
 whole job is to audit what is declared. There is no rewrite of anyone's files at
 upgrade, and no host apply behaves differently until its user writes the key.
 
+> [!WARNING]
+> **The last sentence is exactly what the 2026-09-20 ruling costs, and it is why the ruling
+> reopened this document.** The whole migration above works because the default **equals
+> today's behaviour**, so the upgrade is unobservable and no notice is owed —
+> [`OQ-CO2`](#13-decision-ledger) rules "neither prompt nor notice" on that ground and on no
+> other. Moving the default to `none` ([§4.5](#45-retiring-assert--the-two-value-key)) removes
+> the ground: for a user who has run `yolo host apply` and never wrote the key, the flip means
+> yolo silently stops maintaining a file it has been maintaining, leaving the keys it last
+> wrote in place with nothing left to retire them. [`OQ-CO2`](#13-decision-ledger)'s conclusion may well survive —
+> but it has to be re-argued rather than inherited, which is
+> [`OQ-CO14`](#oq-co14).
+
 **Adopting `own` later needs no ceremony either, and that is a property of the
 render engine rather than a promise made here** —
 [§6.3](#63-the-one-asymmetry-that-survives-deletion) has the mechanism and the
@@ -594,6 +632,168 @@ both are read: `host_management` says *how* the host renders,
 > fires on every apply is the mechanism `confirmHostLosses`' own docstring refuses
 > to build.
 
+### 4.5 Retiring `assert` — the two-value key
+
+**RULED 2026-09-20, not built.** `host_management` keeps **`none` and `own`**, and **`none`
+becomes the unset answer**. The maintainer's reason, verbatim: *"shouldn't they just be a single
+promote away from having their configs managed correctly? assert is just too fragile in
+general."* This **reverses [`OQ-CO1`](#13-decision-ledger)** — the only ruling in
+[§13](#13-decision-ledger) this design has taken back — and the reference doc that owns the
+notch carries the same ruling from its own side
+([`config-target-resolution.md`](../reference/config-target-resolution.md#ruled-2026-09-20-not-built-retiring-assert)).
+
+#### Why this is a reversal on new information, and not a flip-flop
+
+**[`OQ-CO1`](#13-decision-ledger) was not wrong when it was ruled.** Its recorded reasoning is
+one sentence — *"`assert` is shipped behavior with real users, so collapsing it is either a
+regression or a forced escalation to `own`"* — which weighs **migration** cost and the cost of
+explaining a third value, and names no engine mechanism at all. Two things have changed under it.
+
+**1. The escalation is no longer forced** (MEASURED, `git log -S` 2026-09-20). `yolo config
+promote` did not exist on 2026-09-10: it shipped two days after the ruling (`4223ca95`), in the
+same sprint as `host_management` itself (`6012ff9e`). It declares a captured key into the
+conventional local pack and clears **only that key**
+(`TestPromoteDeclaresTheKeyLocallyAndClearsOnlyThatKey`), so the choice is no longer "regress or
+have your whole file composed" — it is one verb, per key, into something declared. That is the
+maintainer's sentence, and it is the half of [`OQ-CO1`](#13-decision-ledger)'s premise that has expired rather than
+been overruled.
+
+**2. Mechanism cost was never on the balance.** What keeping `assert` obliges the engine to
+carry is set out from the notch's side in
+[what keeping `assert` costs](../reference/config-target-resolution.md#what-keeping-assert-costs-measured-here),
+and [§4.5.2](#452-what-the-ruling-does-not-delete--the-mechanism-tally-corrected) corrects the
+tally against the tree.
+
+> [!WARNING]
+> **One overstatement to refuse, because a reader can check it in a minute and flip the ruling
+> back on it.** It is tempting to say the machinery postdates [`OQ-CO1`](#13-decision-ledger) and so could not have
+> been weighed. That is true of **one** of the three mechanisms and false of the others, dated
+> with `git log -S` on 2026-09-20: the render/baseline mark (`HostLayerRender`,
+> `hostLayerIsRender`) arrived in `369c6f63` on 2026-09-18, **eight days after** the ruling,
+> while `layerRetired`/`RetiredLayer` and `LayerAsserted`'s refusal of `host` both arrived in
+> `ecf35644` on 2026-08-03, **five weeks before** it. So *"ruled on incomplete information"* is
+> exact for the mark and for promote, and for the rest the honest word is **uncounted** — they
+> were there to be weighed and [`OQ-CO1`](#13-decision-ledger)'s sentence does not weigh them.
+
+#### 4.5.1 What actually carries it: `assert` is the one contract where P6 and P7 collide
+
+[`config-target-resolution.md`](../reference/config-target-resolution.md#principles)'s **P6** —
+*"yolo never reads back a file it writes"* — and its **P7** — *"adopting yolo requires no
+migration"*, the fresh user's `~/.claude/settings.json` composing into a jail transparently —
+are both satisfiable at `none` and at `own`, and **only at `assert` does satisfying one break
+the other.** The chain, READ in the tree on 2026-09-20:
+
+1. **P6 is defended by a mark that is per FILE.** The launcher labels a delivered host copy a
+   *render* from `entrypoint.HostSurfaceRendered`, which is `hostProvenanceExists` — *"has yolo
+   EVER asserted this surface in this home"* (`run.hostLayerIsRender`). A labelled copy is a
+   **baseline**, never a layer.
+2. **Under `assert` one file carries both authorships and no sidecar separates them.** The
+   file holds the user's own keys *and* the keys yolo rmw-asserts into it, so a per-file answer
+   has to pick one for both.
+3. **It picks baseline, and the justification does not hold at this contract.**
+   `HostLayerRender`'s own docstring says a render-composed surface drops none of the user's keys
+   because *"they are the CAPTURE, which is already its own layer"* — true at `own`, and there
+   **is no host capture at `assert`**: [`OQ-CO3`](#13-decision-ledger) scoped the capture store
+   to `own`, and `render.HostAssertModes` does not run `stateful`.
+4. **So on an `assert` home, one `yolo host apply` is enough to stop the user's own keys
+   reaching any jail.** The host layer is gone by the mark, and nothing else carries them.
+
+That is P7 inverted by the mechanism built to serve P6 — and it is confined to `assert` by
+construction: at `none` yolo writes nothing, so the file stays purely the user's and composes as
+a layer; at `own` what the user typed lives in the capture overlay, which is a layer of its own,
+so the baseline answer costs nothing. **The mark is not wrong. It is being asked a per-file
+question about a file with two owners**, which is the shape of the fragility the ruling names.
+
+> [!NOTE]
+> **Step 4 is a READ of two shipped mechanisms' interaction, not a run.** Each link is measured
+> — the census records `rmw` under `assert`, every recording render writes the provenance
+> record, and `hostLayerIsRender` reads exactly that record — but the end-to-end loss has not
+> been reproduced on a live `assert` home, and whoever builds the retirement should reproduce it
+> before quoting it as a user-visible defect. The sibling doc reaches the same hazard from the
+> migration side and leaves it live work
+> ([there](../reference/config-target-resolution.md#does-the-renderbaseline-disposition-become-dead)).
+
+**Three things the ruling deletes outright**, each measured rather than inferred:
+
+- **The coercion.** `render.HostAssertModes` renders *every* composing surface through `rmw` —
+  a surface declaring `stateful` or `computed` included. That coercion is what puts the two
+  `readsHost` surfaces on the write path at all, and it is the whole of step 2 above.
+  `HostOwnedModes` coerces nothing.
+- **`--to host`.** `refuseHostPromoteContract`
+  ([`configpromotewrite.go`](../../internal/cli/configpromotewrite.go)) refuses the destination
+  under `none` *and* under `own`, for opposite and both-principled reasons, so `assert` is the
+  only contract it is legal at. Retiring it leaves the destination with no posture to exist in —
+  a **dissolution**, not a deprecation, and [§5.1](#51-surface)'s table and its `IMPORTANT` note
+  go with it.
+- **The transition no guard can see.** `confirmHostLosses` fires only on
+  `FirstApply && EntryLosses` ([`apply.go`](../../internal/cli/apply.go)), and `FirstApply` is
+  false on a home yolo has already asserted — so the `assert` → `own` switch, the exact one that
+  drops a deep-merged leaf, is **unprompted today** ([§6.3.2](#632-the-three-classes-adoption-does-not-cover)).
+  With `none` the only starting contract, an adoption is a first apply by construction and the
+  prompt can fire at the moment it was written for. ⚠ Not retroactively: a home asserted into
+  *before* the retirement keeps its record, so this is a property of new homes and one more face
+  of [`OQ-CO14`](#oq-co14).
+
+#### 4.5.2 What the ruling does NOT delete — the mechanism tally, corrected
+
+**MEASURED 2026-09-20, and it cuts against the argument as first written.** The claim that the
+three mechanisms are *"precisely the price of `assert` existing"* is true of the coercion and
+**not** of two of the three, because **`own` runs and records `rmw` too**:
+`render.HostOwnedModes` holds `rmw` in both its `runs` and its `records` set, deliberately —
+*"`own` is the USER's statement about who owns the file; it is not a licence to overrule the
+PACK's statement about what kind of file it is"* — and the rmw writer's provenance gate is
+`Modes().Records(manifest.ModeRMW)` ([`prism.go`](../../internal/entrypoint/prism.go)), which is
+true there. The surfaces that declare `rmw` today are `claude/config` and `copilot/config`
+(`rg -n '"mode": "rmw"' packs/*/pack.json`), both files holding live agent state. So:
+
+| Mechanism | At an `own` host after the retirement |
+| :--- | :--- |
+| `layerRetired` / `RetiredLayer`, and `retireUnclaimed`'s use of the previous record | **Live.** `rmwProvenance` still derives `host` for every key the file already had and still needs the previous record to tell yolo's leftovers from the user's keys |
+| `LayerAsserted`'s refusal of `host` — the laundering asymmetry | **Live**, and for the same surfaces, since it is the filter that record passes through |
+| The render/baseline mark | **Live.** `own` writes the host file, so a jail must still be told those bytes are a render rather than a layer |
+
+**What the ruling removes is not the mechanisms — it is the one contract under which they cannot
+be made to agree.** Two corollaries follow, and both are worth having before anyone builds this:
+
+- **The P6 exposure narrows to nothing even though rmw survives.** Neither `claude/config` nor
+  `copilot/config` declares `readsHost`, and `readsHost` is the only channel by which a host file
+  re-enters a jail as a layer ([§5.1.1](#511-why-only-two-surfaces-have-a-host-layer)). So an
+  `own` host's rmw surfaces are written and never read back — P6 is satisfied by the *pairing*
+  of the two declarations, not by the absence of rmw.
+- **The mark's objection dies, but the mark does not.** The
+  [MARK warning](../reference/config-target-resolution.md#a-staged-copy-is-not-always-a-layer)
+  rejects keying the render/layer decision on POSTURE because *"an absent `host_management`
+  resolves to `assert`"*, so a posture test would mislabel every default install. Moving the
+  default to `none` removes that premise. ⚠ It does **not** follow that posture can then replace
+  the mark: under `own` a surface whose render is refused (`hostMechanismRefusal` — a keyless
+  surface, a file yolo cannot parse) leaves the user's bytes in place and writes no record, so
+  the mark still answers per surface where a posture can only answer per home. Whether to
+  substitute is a question for whoever builds this, and the fail-safe answer is to keep reading
+  the mark.
+
+#### What this ruling obliges
+
+Recorded here rather than in [§10](#10-what-i-would-build-in-order), whose build order is
+history:
+
+1. **Rule [`OQ-CO14`](#oq-co14)
+   first.** It decides what the other steps do to an existing installation, and one of its faces
+   re-opens [`OQ-CO2`](#13-decision-ledger)'s "neither prompt nor notice".
+2. **Drop the value and move the default**, together — `config.KnownHostManagements`, the
+   validator's enumeration, and `config.HostManagementDeclared`'s absent-key answer. Doing
+   either alone reproduces the failure the MARK warning describes, from the other end.
+3. **Delete `render.HostAssertModes` and its census entry**, leaving the host notch two
+   contracts. The `excluded` reasons that name `assert` as the remedy (`HostOwnedModes` tells a
+   `computed` surface to *"set `host_management: assert`"*) need new text, not deletion.
+4. **Dissolve `--to host`**: `refuseHostPromoteContract`, the destination table in
+   [§5.1](#51-surface), `promoteDestHost`, and the per-surface `promotionNoHostLayer`
+   classification that only that destination reaches.
+5. **Re-verify, do not assume, that the three mechanisms in
+   [§4.5.2](#452-what-the-ruling-does-not-delete--the-mechanism-tally-corrected) still have
+   their `own`-side callers** after the census loses an entry. The table above says they do; a
+   build that deletes one on the strength of the ruling's original wording would take
+   `claude/config`'s anti-laundering pass with it.
+
 ---
 
 ## 5. Promotion — the way out of capture
@@ -637,6 +837,15 @@ $ yolo config promote <agent[/surface]> [--keys a,b] [--to <dest>]
 | `pack:<name>` | the same, in that pack's `pack.json` | **refused for a fetched pack** — not the user's file to edit |
 | `host` | the keys themselves, into the surface's own real-home file | only under `host_management: assert`; refused under `own` (the file is derived — promote to a pack) and under `none`. **Reaches a jail for only two shipped surfaces** — see below |
 | `workspace` | *(nothing to write to)* | **out of scope for this design** ([§13](#13-decision-ledger)) |
+
+> [!IMPORTANT]
+> **The `host` row is dissolved by the 2026-09-20 ruling, not narrowed**
+> ([§4.5](#45-retiring-assert--the-two-value-key)). Its own "only under `host_management:
+> assert`" is the whole of it: `refuseHostPromoteContract` refuses the destination under `none`
+> and under `own` on principled and opposite grounds, so retiring `assert` leaves it legal
+> nowhere. The `IMPORTANT` note below — why `local` and `host` are not equivalent — becomes
+> history rather than guidance, and it is kept because the reasoning is what makes the
+> dissolution obviously right rather than a casualty.
 
 Promotion **shows what it is about to write and asks**; `--accept-promotion` is
 the only way past the confirmation, and it is the scripting path rather than a
@@ -1149,6 +1358,17 @@ file is derived.
 
 Under `assert` the host stays `rmw` and today's behavior is unchanged. Under
 `none` the host renders nothing.
+
+> [!IMPORTANT]
+> **The census loses an entry, and `own` does not inherit what it held**
+> ([§4.5](#45-retiring-assert--the-two-value-key)). Retiring `assert` deletes
+> `render.HostAssertModes` — with it the **coercion**, which is the only thing that made a
+> surface declaring `stateful` or `computed` render through `rmw` at a real home. What it does
+> **not** delete is `rmw` at the host: `HostOwnedModes` runs *and records* it for a surface
+> whose pack declared it, on the reasoning its own comment gives, so the notch keeps two
+> mechanisms rather than becoming `stateful`-only
+> ([§4.5.2](#452-what-the-ruling-does-not-delete--the-mechanism-tally-corrected)). The census is
+> where that distinction is visible at all, which is the paragraph below making its own case.
 
 **Which mechanisms a notch runs is written down in the mode census, and `own` is
 an edit to that statement.** The **mode census** — `render.ModeSet`, one entry
@@ -1780,7 +2000,11 @@ After adoption, a removal is ordinary and reported, exactly as it is in a jail.
   and stays there. This doc only adds one more thing `--sealed` refuses.
 - **Packs are not made mandatory.** `host_management: assert` — hand-edit the
   host file, no pack — remains fully supported and is the right answer for a
-  single machine.
+  single machine. ⚠ **The 2026-09-20 ruling withdraws this bullet**
+  ([§4.5](#45-retiring-assert--the-two-value-key)): with `assert` retired, the no-pack answer is
+  `none` — yolo writes nothing and the file stays entirely the user's to hand-edit — and the
+  single machine that wants yolo's keys in it uses `own` plus `promote`. What is given up is
+  the *shared* file, which is the thing the ruling calls fragile, not the hand edit.
 - **No new secret model.** Sensitive keys are *refused* — no redaction, no vault,
   no taint propagation. The deny-list itself is new work
   ([§5.3](#53-classification--what-a-machine-can-decide-and-what-it-cannot)).
@@ -1819,6 +2043,17 @@ three-value enum**, narrowly: the boolean cannot express the difference between
 now" — which is precisely the ambiguity that produced this document. If `assert`
 proves not to be a real population, this becomes right.
 
+> [!IMPORTANT]
+> **C's condition was met on 2026-09-20, by a different route than the one it named**
+> ([§4.5](#45-retiring-assert--the-two-value-key)). It is not that `assert` proved to be an
+> empty population — nobody measured that — but that the shared file it expresses proved to be
+> the one contract where [P6 and P7 collide](#451-what-actually-carries-it-assert-is-the-one-contract-where-p6-and-p7-collide).
+> The outcome is C's shape with C's spelling refused: **two values, keeping the
+> `none`/`own` vocabulary** rather than a boolean, because the words say which way the
+> ownership runs and `manage_host: false` does not distinguish "mine" from "unmanaged by
+> anyone". Recording this is the point of the row — an alternative rejected *conditionally* is
+> the cheapest thing in a design to re-check, and this one named its own condition.
+
 **D. Infer ownership from whether a provenance record exists.** No new key: if
 yolo has ever applied to this home, it owns it. **Rejected** — it is inference
 again (P1), it silently escalates on first apply, and it makes an irreversible
@@ -1848,7 +2083,7 @@ already has.
 | Promotion silently demotes a key that then reverts | Precedence check is a **refusal**, not a warning ([§5.4](#54-promotion-moves-a-key-down-the-stack)) — and the class is empty for `--to local`; the check protects `--to pack:<name>` |
 | A credential is promoted into a pack, and the pack is pushed — or already sits in a sidecar | Promote's deny-list ([§5.3](#53-classification--what-a-machine-can-decide-and-what-it-cannot), new work); `--force` is per-key and named in output; the sidecar half is a capture-time question at every notch ([§6.2](#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to)), listed for the roadmap |
 | The local pack becomes an unreviewable pile of promoted keys | Every promotion is an ordinary edit to a readable `pack.json`; `yolo pack lint` and `footprint` already report its claims |
-| Three-value enum confuses users who wanted a switch | Explained in `yolo config-ref` and at the point of the act (`none` names the key that made it write nothing). Accepted: the value a confused user lands on is `assert`, which is what they already have |
+| Three-value enum confuses users who wanted a switch | Explained in `yolo config-ref` and at the point of the act (`none` names the key that made it write nothing). Accepted: the value a confused user lands on is `assert`, which is what they already have. ⚠ **The mitigation inverts under [§4.5](#45-retiring-assert--the-two-value-key)**: with two values the confusion largely goes, and what a confused user lands on becomes `none` — yolo writing nothing, which is the safe landing but no longer "what they already have". That swap is [`OQ-CO14`](#oq-co14)'s face 2, stated here as a risk because this row is where a reader looks for it |
 | A jail-side agent cannot promote, so the workflow stalls where the work happens | The refusal names the host command; the request channel ([§5.5](#55-where-promote-may-run)) is designed for when there is evidence to shape its prompt |
 
 ---
@@ -2253,12 +2488,16 @@ recorded rather than folded into the criterion.
 > BACKLOG's is [§5.4](#54-promotion-moves-a-key-down-the-stack)'s residual
 > precedence case seen from the pack side.
 
-**None open.** Every question the design itself opened is settled — the last three on
-2026-09-11 — and so is the one its BUILD opened ([`OQ-CO12`](#13-decision-ledger), ruled
-2026-09-12, which closed this section for eight days). One follow-on was opened by a RULING
-on 2026-09-20 and **decided the same day as an implementation shape**, because its four
-candidates differed in what the code carries and not in what a user gets. All of them are in
-[§13](#13-decision-ledger), with the rulings themselves living in the sections they govern.
+**One open, and the design opened neither.** Every question the design itself opened is settled
+— the last three on 2026-09-11 — and so is the one its BUILD opened
+([`OQ-CO12`](#13-decision-ledger), ruled 2026-09-12, which closed this section for eight days).
+Two follow-ons were opened by RULINGS on 2026-09-20. The first was **decided the same day as an
+implementation shape**, because its four candidates differed in what the code carries and not in
+what a user gets ([`CO13`](#13-decision-ledger)). The second is
+[`OQ-CO14`](#oq-co14) and is
+**open**, because its candidates differ in what the user gets by the width of their whole
+installation. All of them are in [§13](#13-decision-ledger), with the rulings themselves living
+in the sections they govern.
 
 ### `CO13` — how a derive says it fills a computed table in full — **DECIDED**
 
@@ -2343,7 +2582,71 @@ is configured. Building [`CO13`](#13-decision-ledger) owns that call site too, o
 disagree about which keys are tables — which is the exact failure `hostTableKeys`' own
 docstring says it exists to prevent.
 
-⚠ **One open question is not one outstanding item, and the two are kept apart on purpose.**
+#### Does retiring `assert` change `CO13`'s scope?
+
+**No — it neither dissolves nor narrows it, and the premise that it might rests on a misreading
+of what `CO13` is for.** Worth recording, because "the RMW notch is going away, so the thing
+that exists for the RMW notch goes with it" is the available inference and it is wrong twice
+over. MEASURED 2026-09-20:
+
+- **`CO13`'s mechanism is `stateful`, not `rmw`.** The drop it governs is `dropComputedTables`,
+  inside `ComposeStateful`'s first-migration branch — a whole-file composition adopting a file
+  that already exists. `rmw` never reaches it. The case that produced the ruling is a **jail**
+  first migration (`mise` on a jail with no pin,
+  [the drop-narrowing ruling](#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule)),
+  and a jail runs `stateful` at every posture: `render.Target.censusNotch` drops ownership for
+  every kind but the host, because `host_management` has no referent inside a container.
+- **Its host half survives too, in the arm that remains.** `hostTableKeys` is computed **before**
+  the mechanism switch in `RenderHostPack` and its layer is passed into **both** arms — the
+  stateful arm's own comment says so: *"it holds for both arms: under `own` the same layer is
+  what makes `mcpServers` a table yolo regenerates rather than one adoption freezes at whatever
+  the file held."* So the over-claim `CO13`'s scope note records is an `own`-side fact as much
+  as an `assert`-side one.
+- **What does change is the population, not the scope.** `hostTableKeys` runs on every host
+  apply today because the unset key resolves to `assert`; after the flip it runs only where a
+  user declared `own`. That lowers the blast radius of the over-claim and lowers nothing else.
+  The one simplification is small and real: the host stops having more than one RENDERING
+  contract for *"one declaration, both notches"* to hold across.
+
+**So `CO13` is unchanged by the retirement and is not blocked by it.** The two can be built in
+either order — and if the retirement lands first, whoever builds `CO13` has one fewer host
+contract to make the declaration agree across.
+
+### <a id="oq-co14"></a>[`OQ-CO14`](#oq-co14) — what the retirement does to a config already on `assert` — **OPEN**
+
+**Opened 2026-09-20 by the ruling in [§4.5](#45-retiring-assert--the-two-value-key).** It is a
+question and not an implementation shape by this section's own test — *do the alternatives
+differ in what the USER gets?* — and here they differ by the width of the installation: refusing
+the launch, silently ceasing to manage a file yolo has been maintaining, and silently beginning
+to compose that file whole are three different mornings.
+
+**Two faces, one question, and they may resolve differently.** It is filed as one because a
+single migration answers both, and both must be answered before the value is dropped:
+
+1. **A user config that says `"assert"`.** That is a declaration the user made on purpose, and
+   after the retirement it is unspellable. Refuse the launch naming `own` and `promote`? Resolve
+   it to `none` with a notice? Resolve it to `own`, which is the one answer that takes deletion
+   authority over a real home from a value the user chose for the opposite reason?
+2. **An absent key on a home yolo has already asserted into.** The user never declared anything;
+   today the unset state resolves to `assert` and yolo keeps the file current. After the flip it
+   resolves to `none`: yolo stops, and the keys it last wrote stay in the file with nothing left
+   to retire them — plus the mark those writes left, which is what makes the file arrive in a
+   jail as a baseline rather than a layer
+   ([§4.5.1](#451-what-actually-carries-it-assert-is-the-one-contract-where-p6-and-p7-collide)).
+   Whether the retirement clears the mark, or names `yolo host apply --revert` as the remedy, is
+   part of this.
+
+**It re-opens [`OQ-CO2`](#13-decision-ledger), which is why it cannot be left to the build.**
+That ruling's "neither prompt nor notice" rests on one stated ground — the unset state equals
+today's behaviour, so nobody is interrupted to be told nothing changed
+([§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running)). Moving the default
+to `none` removes the ground without touching the conclusion, and a conclusion whose only
+premise has expired has to be re-argued rather than inherited. ⚠ **Face 2 is the one this
+document is likeliest to get wrong**, because it is invisible on the maintainer's own machine:
+a developer who has written the key is unaffected by either face.
+
+⚠ **Two open questions are not two outstanding items, and the questions are kept apart from the
+residue on purpose.**
 Seven measured behaviors are unclosed and live in the body as present-tense **residue** rather
 than here: [§6.3.3](#633-what-survives-as-a-guard)'s unnetted overlay-sidecar loss, and
 [§11](#11-success-criteria)'s
@@ -2373,8 +2676,18 @@ body text and compacted here, keeping the exact `OQ-CO` ids so citations from
 sibling docs and code comments continue to resolve. **Every row but the last is
 settled** — the ones the design opened, the last three of those on 2026-09-11, and
 [`OQ-CO12`](#13-decision-ledger), which its build opened, on 2026-09-12.
-[`CO13`](#13-decision-ledger) is OPEN: a RULING opened it, which is the one way a
-settled design reopens.
+[`CO13`](#13-decision-ledger) and [`OQ-CO14`](#13-decision-ledger) are OPEN: a RULING opened
+each, which is the one way a settled design reopens.
+
+> [!WARNING]
+> **One row here is REVERSED, and it is the first one.** [`OQ-CO1`](#13-decision-ledger) is the
+> only ruling this design has taken back, on 2026-09-20
+> ([§4.5](#45-retiring-assert--the-two-value-key)). The row is kept with its original reasoning
+> intact and the reversal beside it, for the reason the note below keeps the four foreign
+> reversals visible: **a ruling overwritten in place reads as though it was never made**, and
+> the next reader re-derives the original from the same premises. Reading [`OQ-CO1`](#13-decision-ledger) and stopping
+> at the ✅ is the mistake this warning exists to prevent — the `Built` cell is still true,
+> which is exactly why it is not evidence that the ruling still holds.
 
 **Settled and built are two axes, and the second does not follow from the first.** Each `Built`
 cell names the symbol that carries the ruling, read off the tree on 2026-09-12 rather than off
@@ -2399,8 +2712,8 @@ and its residue is the larger of the two.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| [`OQ-CO1`](#13-decision-ledger) | **Three values** (`none`/`assert`/`own`). `assert` is shipped behavior with real users, so collapsing it is either a regression or a forced escalation to `own`. The cost — one more thing to explain — is paid down by [`OQ-CO2`](#13-decision-ledger) removing the prompt that would have explained it. Alternative C in [§8](#8-alternatives-considered) resolves as rejected. | 2026-09-10 | [§4.1](#41-the-key) | ✅ `config.KnownHostManagements` holds the three, and the validator's message enumerates that same list |
-| [`OQ-CO2`](#13-decision-ledger) | **Neither prompt nor notice** — the unset state is `assert`, silently. Each value explains itself at the point of the act; `apply --sealed` is the one place an unset key bites. *Against the leaning:* the ambiguity this design fixes was **inference**, not silence, so a documented default that equals today's behavior is declared in the only sense that matters. | 2026-09-10 | [§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running) | ✅ `config.HostManagementDeclared` gives the two absences different answers — absent ⇒ `assert`, silently; unreadable ⇒ `none` — and `TestApplySealedRefusesAnUnsetHostManagement` pins the one place an unset key bites |
+| [`OQ-CO1`](#13-decision-ledger) | ⛔ **REVERSED 2026-09-20 — two values (`none`/`own`), and `none` is the default** ([§4.5](#45-retiring-assert--the-two-value-key)). *The 2026-09-10 ruling, kept verbatim:* **Three values** (`none`/`assert`/`own`). `assert` is shipped behavior with real users, so collapsing it is either a regression or a forced escalation to `own`. The cost — one more thing to explain — is paid down by [`OQ-CO2`](#13-decision-ledger) removing the prompt that would have explained it. Alternative C in [§8](#8-alternatives-considered) resolves as rejected. *Why it could be reversed without having been wrong:* the escalation it feared was forced only because `yolo config promote` did not exist yet (it shipped two days later), and its balance weighs migration cost while naming no engine mechanism — [§4.5](#45-retiring-assert--the-two-value-key) has the dating and [§4.5.2](#452-what-the-ruling-does-not-delete--the-mechanism-tally-corrected) corrects the mechanism tally the reversal is tempted to overstate. Alternative C's conditional rejection resolves as **substantially adopted** | 2026-09-10, reversed 2026-09-20 | [§4.1](#41-the-key), [§4.5](#45-retiring-assert--the-two-value-key) | ✅ **for the reversed ruling** — `config.KnownHostManagements` holds the three and the validator's message enumerates that same list. ⬜ **the reversal is unbuilt**, and its steps are in [§4.5](#45-retiring-assert--the-two-value-key) |
+| [`OQ-CO2`](#13-decision-ledger) | **Neither prompt nor notice** — the unset state is `assert`, silently. Each value explains itself at the point of the act; `apply --sealed` is the one place an unset key bites. *Against the leaning:* the ambiguity this design fixes was **inference**, not silence, so a documented default that equals today's behavior is declared in the only sense that matters. ⚠ **Its stated ground expires with [`OQ-CO1`](#13-decision-ledger)'s reversal** — `none` is not today's behaviour, so the silence has to be re-argued rather than inherited. The conclusion is not withdrawn here; it is [`OQ-CO14`](#13-decision-ledger)'s to re-rule | 2026-09-10 | [§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running) | ✅ `config.HostManagementDeclared` gives the two absences different answers — absent ⇒ `assert`, silently; unreadable ⇒ `none` — and `TestApplySealedRefusesAnUnsetHostManagement` pins the one place an unset key bites |
 | [`OQ-CO3`](#13-decision-ledger) | **Yes, host-side capture under `own` only** — and it is a precondition of adoption, not an added capability: capture-then-regenerate is what makes the first owned render reproduce the file. The refusal stays for `none` and `assert`. Reverses env-manager plan [`OQ-4`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)/[`OQ-5`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase) — see [§3](#3-the-diagnosis--one-asymmetry-three-unrelated-justifications). | 2026-09-10 | [§6.2](#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to), [§6.3.1](#631-adoption-is-capture-then-regenerate) | ✅ the owned render's capture store (the one `render.Target.SidecarDir` resolves for the host notch) and host-side `reset`, both keyed off `hostOwnsSurfaces` — ⚠ **with one deliberate narrowing**: the `config capture` VERB stays refused host-side even under `own`, because `refuseHostSideWrite` rests that half on privacy rather than on ownership |
 | [`OQ-CO4`](#13-decision-ledger) | **Keep `local` as the default; the guard is the confirmation, not the flag.** Promote lists the selected keys and asks; `--accept-promotion` is the only way past it. **Not `--yes`** — this repo has already declined the generic form: `config.AcceptConfigChangesFlag` (`internal/config/snapshot.go:81`) is `--accept-config-changes`, and its docstring rules that an approval must be a flag naming what is approved, never an env var a child process inherits. `--force` stays free for overriding a *refusal*. | 2026-09-10 | [§5.1](#51-surface), [§5.7](#57-forbidden-behavior) | ✅ `--accept-promotion` in `parsePromoteArgs`; `local` is `resolvePromoteDest`'s default |
 | [`OQ-CO5`](#13-decision-ledger) | **Refuse-with-instructions in v1.** Design the jail→host request channel but do not build it until promote has been used enough to know which keys people actually promote — the transport is free, the consent prompt is what needs the evidence. | 2026-09-11 | [§5.5](#55-where-promote-may-run) | ✅ `refuseInJailPromote` names the host command. The jail→host request channel is designed and unbuilt, which is the ruling |
@@ -2411,7 +2724,8 @@ and its residue is the larger of the two.
 | [`OQ-CO10`](#13-decision-ledger) | **The declaration moves ONTO the surface** so the binding is structural instead of a `path.Base` match, and **the read fails CLOSED** — which turns the `macos-user` silent drop into a refusal that names the backend. The disclosure survives (it comes from the declaration being present and enumerable, not from a separate kind), and the `reads-host` kind stays for `host_files`, whose entries have no mirrored twin. Coverage becomes a visible per-surface yes/no, making `mise/config` a deliberate **no**. Promote refuses `--to host` on a surface with no host layer. | 2026-09-11 | [§5.1.1](#511-why-only-two-surfaces-have-a-host-layer) | ✅ `manifest.Surface.ReadsHost` is the predicate, `packload.SurfaceHostFile` derives the `/ctx` path both halves evaluate, and `packload.HostLayerReport` makes the read fail closed; a launch that delivered nothing reports `unsupported` and is not refused. ⚠ The status cell read *"`macos-user` reports `unsupported` and is not refused"* until 2026-09-13: DP-L1 gave that backend a delivery mechanism, so it now reports `supported` and REFUSES an unreadable delivered file like every other backend, and `unsupported` became a fact about a launch rather than about a backend |
 | [`OQ-CO12`](#13-decision-ledger) | **Keys-and-values, not bytes** — and the two silent deletions are BUGS, fixed on their own rather than absorbed. A composing renderer that sorts keys is the contract `own` states, and matching `rmw`'s byte layout would make the capture path carry formatting it has no reason to know about. So JSON key order and a TOML surface's comments and generated header are CONFORMANT; a key valued `null` or `{}` disappearing is not, at any depth. The comparator is the surface codec's own decode, defined in [§11](#11-success-criteria). | 2026-09-12 | [§11](#11-success-criteria), [§6.3.1](#631-adoption-is-capture-then-regenerate) | ✅ `TestSwitchingToOwnPreservesKeysAndValues` states the criterion over deliberately non-canonical fixtures — asserting both that the bytes differ and that the values do not — and `TestSwitchingToOwnKeepsACanonicalFileByteIdentical` keeps the stricter byte comparison where it is still the sharper instrument. Both deletions are FIXED (2026-09-12): `dropNullLeaves` keeps an object the user wrote empty, and `agentcfg.Inputs.LiteralNulls` carries a literal `null` beside the layer stack because no merge patch can hold one. ⚠ `hostStatefulWouldChange` stays a BYTE comparison deliberately, so a conformant reformat is still disclosed as a pending change. ⚠ **Built is not complete**: a second verification pass the same day measured [six live items](#what-the-criterion-does-not-see--live-residue-measured-after-the-ruling) the relaxed criterion cannot see or the fixes did not reach — a JSON integer past 2^53 rounded, the stale tombstone making `config diff` and `promote` misreport a null the user ADDED, a host-file null on a `readsHost` surface, a latent `reinstateAt` panic, an undeclared provenance divergence, and an `assert`-side non-finite float. None is fixed |
 | [`OQ-CO11`](#13-decision-ledger) | **The read-in `host` layer stays — decided by [`OQ-CO10`](#13-decision-ledger), not separately.** Ruling a mechanism's binding, failure direction and coverage decides that it exists; asking in the same breath whether to delete it is incoherent. Supersedes env-manager plan [`OQ-3`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase). | 2026-09-11 | [§5.1.1](#511-why-only-two-surfaces-have-a-host-layer), [§3](#3-the-diagnosis--one-asymmetry-three-unrelated-justifications) | n/a — a ruling to KEEP. The layer stands, restructured by [`OQ-CO10`](#13-decision-ledger) rather than removed |
-| [`CO13`](#13-decision-ledger) | **OPEN — how does a derive say it fills a computed table IN FULL?** The 2026-09-20 ruling narrowed the adoption drop to the leaves yolo regenerated, which settles the EMPTY table and leaves the non-empty one guessing. The leaf half of the signal already exists (a computed table's key set IS the asserted set, tombstones included); the fill-in-full half exists nowhere, and four candidate discriminators were measured to flip on configuration rather than intent. It has to be declared by the derive; WHERE is the question. | — | [the decision](#co13--how-a-derive-says-it-fills-a-computed-table-in-full--decided), [the drop-narrowing ruling](#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule) | ⬜ open. What DID land: `dropComputedTables` skips an EMPTY computed table (`TestComposeStatefulFirstMigrationKeepsResidueUnderAnEmptyComputedTable`), the non-empty cost is pinned by `TestComposeStatefulFirstMigrationStillTakesAPartlyAssertedTable`, and the `mise` [§4.1](#41-the-key) goldens moved to the opposite verdict under names that say so. ⚠ The same over-claim at the HOST notch (`hostTableKeys`' sentinel probe) is untouched and belongs to whoever closes this |
+| [`CO13`](#13-decision-ledger) | **OPEN — how does a derive say it fills a computed table IN FULL?** The 2026-09-20 ruling narrowed the adoption drop to the leaves yolo regenerated, which settles the EMPTY table and leaves the non-empty one guessing. The leaf half of the signal already exists (a computed table's key set IS the asserted set, tombstones included); the fill-in-full half exists nowhere, and four candidate discriminators were measured to flip on configuration rather than intent. It has to be declared by the derive; WHERE is the question. | — | [the decision](#co13--how-a-derive-says-it-fills-a-computed-table-in-full--decided), [the drop-narrowing ruling](#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule) | ⬜ open. What DID land: `dropComputedTables` skips an EMPTY computed table (`TestComposeStatefulFirstMigrationKeepsResidueUnderAnEmptyComputedTable`), the non-empty cost is pinned by `TestComposeStatefulFirstMigrationStillTakesAPartlyAssertedTable`, and the `mise` [§4.1](#41-the-key) goldens moved to the opposite verdict under names that say so. ⚠ The same over-claim at the HOST notch (`hostTableKeys`' sentinel probe) is untouched and belongs to whoever closes this. ⚠ **Unaffected by [`OQ-CO1`](#13-decision-ledger)'s reversal**, checked rather than assumed: the drop is a `stateful` mechanism and the host probe feeds both `own` arms, so retiring `assert` moves the population and not the scope ([the check](#does-retiring-assert-change-co13s-scope)) |
+| [`OQ-CO14`](#13-decision-ledger) | **OPEN — what does retiring `assert` do to a config, and a home, already on it?** Two faces, one migration: a user config that *says* `"assert"` becomes unspellable, and an absent key on a home yolo has already asserted into flips from "keep maintaining this file" to "stop, and leave what was written". The second **re-opens [`OQ-CO2`](#13-decision-ledger)**, whose "neither prompt nor notice" rests entirely on the unset state equalling today's behaviour. It is a question rather than an implementation shape by [§12](#12-follow-ons-and-the-one-this-design-settled-itself)'s own test: refusing, silently ceasing to manage, and silently composing the whole file are three different outcomes for the same user. | — | [the question](#oq-co14), [§4.5](#45-retiring-assert--the-two-value-key) | ⬜ open, and it blocks the value being dropped rather than following it |
 | — | **The adoption archive's layout and failure policy, decided at build time** because [`OQ-CO7`](#13-decision-ledger) left them open and one of them contradicts what that ruling assumed. Keyed by SURFACE, not by the `<stamp>/` generation the other buckets use — under the stamped layout `yolo prune`'s keep-newest-3 would sweep the originals of every surface but the newest few, which is the loss this bucket exists to prevent performed by yolo's own reaper. Idempotent on the archive's own existence, so a second adoption cannot overwrite the user's original with yolo's output. A copy that cannot be written REFUSES the adoption rather than warning past it. Not an OQ; recorded because the first of them departs from [§6.3.3](#633-what-survives-as-a-guard)'s original text. | 2026-09-12 | [§6.3.3](#633-what-survives-as-a-guard) | ✅ `render.Target.ArchivePath` (layout), `entrypoint.archiveAdoption` (idempotency, refusal); `TestPruneLeavesTheAdoptionArchiveAlone` pins the reaper half across the two packages that each know only their own half |
 | — | **Terminology: the absent key is the *unset* state, never the "undeclared" one** — *undeclared* is reserved for the input-closure tier ([§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running)'s note). Not an OQ; recorded because renaming it later costs four anchors. | 2026-09-10 | [§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running) | n/a — terminology |
 

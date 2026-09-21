@@ -22,6 +22,25 @@ tags: [host, apply, render, staleness, approvals, wrappers]
 
 **Status:** CURRENT as of 2026-09-18, verified against `e7dc1d4d`.
 
+> [!IMPORTANT]
+> **A ruling dated 2026-09-20 narrows "active host management" to `own` alone — and it is NOT
+> BUILT.** `host_management` keeps two values, `none` and `own`, with **`none` as the new
+> default**; `assert` is retired, because it is the only mode in which yolo both writes a host
+> file and reads it back. **Everything below describes the shipped tree**, where "active" means
+> `assert` **or** `own` and an absent key resolves to `assert`. Two consequences for this gate
+> when the ruling lands, neither of which moves a line of its mechanism:
+>
+> - **"Active management" reads `own`.** Every `assert`-or-`own` phrase below loses its first
+>   term; nothing else about the disposition table changes, because the two modes were never
+>   distinguished *by* this gate — they were the two answers that were not `none`.
+> - **The `HostManagementNone` early return becomes the default path.** It is a minority branch
+>   today; afterwards a machine that never declared ownership never reaches the survey at all,
+>   which is the silence the gate's own comment already describes as the correct behaviour
+>   there.
+>
+> The decision lives in
+> [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md#4-declaring-ownership--the-host_management-key).
+
 `yolo host apply` renders pack surfaces into the invoking user's real `$HOME`. Nothing
 re-examines them afterwards, so what is in an agent's config files and what the packs now say
 drift apart in silence. Every generated launch wrapper already execs `yolo host -- <bin>`, and
@@ -30,8 +49,9 @@ reload it. So the **host launch gate** *(coined here)* keeps that launch synchro
 under an opt-in key (`host_apply_on_launch`, which defaults to true when `host_wrappers` is on)
 it compares the render against the home, execs straight through when nothing would change,
 automatically synchronizes host configuration without prompting when drift is detected under
-active host management (`assert` or `own`), and pauses to prompt on a TTY (or refuses off a TTY)
-only when first-time adoption would overwrite unmanaged keys (`FirstApply && EntryLosses`).
+active host management (`assert` or `own` — `own` alone once the ruling above is built), and
+pauses to prompt on a TTY (or refuses off a TTY) only when first-time adoption would overwrite
+unmanaged keys (`FirstApply && EntryLosses`).
 
 | Component | Lives in |
 | :--- | :--- |
@@ -253,7 +273,8 @@ the opt-out escape hatch. `yolo check` prints a line either way — the feature 
 and is off — so the mechanism is never invisible to someone wondering whether it ran.
 
 > [!IMPORTANT]
-> **Consent for safe updates is tied to active host management.** Under `assert` or `own`, opting
+> **Consent for safe updates is tied to active host management.** Under `assert` or `own` (`own`
+> alone once the 2026-09-20 ruling at the top of this page is built), opting
 > into host wrappers licenses yolo to keep managed surfaces synchronized without interactive prompts.
 > Interactive confirmation is reserved for first-time adoption that would overwrite unmanaged host
 > keys (`FirstApply && EntryLosses`), where a launch under an enabled key still prompts on a TTY
@@ -441,6 +462,13 @@ when `host_management` is active (`assert` or `own`). Under `host_management: "n
 jail, host apply is skipped. This couples pack updates with host configuration synchronization so
 users do not need to run `yolo host apply --assert` manually after fetching pack updates.
 
+> **⚠ Two spellings of "assert" meet in this paragraph, and only one of them is being retired.**
+> The `--assert` **flag** on `yolo host apply` is the write-for-real posture and the
+> [2026-09-20 ruling](#the-host-launch-gate--how-a-real-home-render-is-kept-from-going-stale)
+> does not touch it. What the ruling retires is the `host_management` **value** `"assert"`, so
+> the coupling condition above narrows from `assert`-or-`own` to `own`; the command it runs
+> keeps its flag. Unbuilt — both terms are live today.
+
 ## What this does not do
 
 - **It does not detect staleness on any other command.** P1.
@@ -487,7 +515,7 @@ place the values themselves are stated.
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |
 | Opt-in key | `host_apply_on_launch`, boolean, default matches `host_wrappers` (true when enabled), **user scope only** | `config.HostApplyOnLaunchEnabled`; `yolo config-ref` is the user-facing authority |
-| Pack update coupling | `yolo pack update` runs `host apply --assert` under `assert`/`own` on host | `cli.packUpdate`, `cli.hostApplyFromPackUpdate` |
+| Pack update coupling | `yolo pack update` runs `host apply --assert` under `assert`/`own` on host — the 2026-09-20 ruling narrows the condition to `own` and leaves the flag alone (unbuilt) | `cli.packUpdate`, `cli.hostApplyFromPackUpdate` |
 | Non-TTY approval | `YOLO_ACCEPT_CONFIG_CHANGES` (any non-empty value) | `cli.acceptConfigChangesEnv` |
 | Observe budget | 1s, then cannot-determine | `cli.hostApplyGateBudget` |
 | Per-home lock | a flock under the global storage lock dir, keyed by the resolved home | `cli.hostApplyLockPath`, `cli.tryHostApplyLock` |

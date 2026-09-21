@@ -36,6 +36,17 @@ claimed your host `~/.claude/settings.json` no longer composes into a jail. It d
 > here — `--assert` writing jail-bypass keys onto a real machine — is fixed; you still
 > review what it writes (next).
 
+> **⚠ A RULING DATED 2026-09-20 EXPIRES ONE INSTRUCTION BELOW. It is NOT BUILT.** The
+> maintainer ruled that `host_management` keeps **two** values — `none` and `own` — and that
+> **`none` becomes the default**. `assert`, which is the default today and the only mode in
+> which yolo both writes a file in your real home *and* reads that same file back, is
+> **retired**. **Nothing in this guide has been rebuilt for it**: every command, gate and
+> refusal described below is the behaviour of the `yolo` you have, `assert` included. One
+> instruction genuinely expires — [`yolo host apply --revert`](#step-3-apply-it-for-real) is
+> gated on `host_management: "assert"` and the ruling names no successor value — so read the ⚠
+> beside it before you rely on that verb. The decision, and what it obliges, live in
+> [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md#4-declaring-ownership--the-host_management-key).
+
 This guide takes you from "yolo just runs claude in a jail with my hand-tuned
 `~/.claude/settings.json`" to "my agent environment is a **pack** I own — declared,
 locked, portable — and I can render that same config onto my **real machine**, not just
@@ -450,6 +461,31 @@ with the attribution the removal rests on. It needs `host_management: "assert"` 
 yolo wrote nothing to withdraw, and at `"own"` the file is derived output you delete rather
 than retreat from key by key.
 
+> **⚠ THAT GATE IS THE INSTRUCTION THE 2026-09-20 RULING EXPIRES, and the replacement is not
+> decided.** The paragraph above is true of the `yolo` you have — `yolo host apply --help`
+> states the same gate, in the same terms — and it stays true until the ruling is built.
+> But the ruling retires `host_management: "assert"`, which is the **only** value `--revert`
+> accepts, and it does not say what the verb accepts afterwards. The homes that will need
+> `--revert` most are exactly the ones today's default already asserted into. So:
+>
+> - **If you want yolo back out of your real home, run `yolo host apply --revert` while the
+>   value it gates on still exists.** It is a dry run until you add `--assert`; nothing is
+>   written by looking.
+> - **If you want those keys to keep being managed, the ruling's own answer is to declare them
+>   rather than assert them** — `yolo config promote` turns a **captured** key into a
+>   `config-overlay` contribution in your local pack, and a declared key renders at every
+>   notch, `own` included. That is the "one verb away" the ruling rests on, and the verb ships
+>   today; what is unbuilt is the retirement, not the promotion. ⚠ **Mind the word *captured*.**
+>   Promotion's input is a key yolo already recorded in a capture overlay, so it is the clean
+>   path for a key you edited inside a jail. A key that only ever existed in your hand-written
+>   `~/.claude/settings.json` is not that: nothing reads an existing host file into a pack for
+>   you (see [What is not built yet](#what-is-not-built-yet-so-youre-not-surprised)), so that
+>   half is still the manual re-authoring of [Part 1](#part-1--move-your-setup-into-a-pack).
+>
+> Do **not** pre-emptively write `"host_management": "none"` expecting the new default: at the
+> `yolo` you have, that value means yolo writes nothing at all, so a host render you are
+> relying on stops happening.
+
 The narrower move is unchanged and still the right one most of the time: "stop managing this
 one key" is "stop declaring it and re-apply," which drops it.
 
@@ -557,6 +593,10 @@ A few things the design calls for are **not built**:
 - **A provision-without-launch at the jail notch.** `yolo apply` at jail currently directs
   you to `yolo -- <cmd>` (or `yolo -- true` to provision and exit); a dedicated no-exec
   provision is a follow-up.
+- **The retirement of `host_management: "assert"`.** Ruled 2026-09-20, built nowhere. Until it
+  lands, `assert` exists, it is what an absent `host_management` resolves to, and
+  `yolo host apply --revert` still requires it — see the banner at the top of this guide and
+  the ⚠ under [Step 3](#step-3-apply-it-for-real).
 - **A `pack import`/`adopt` verb for CONFIG.** Config surfaces are still manual re-authoring
   (Part 1) — nothing reads your existing `~/.claude/settings.json` into a pack for you. Your
   existing `skills` and briefing prose ARE migrated for you, on the first `yolo host apply --assert`
