@@ -107,8 +107,9 @@ func TestDroppedPackFileMountpointIsRetiredFromWorkspaceOverlay(t *testing.T) {
 	if _, err := os.Lstat(target); !os.IsNotExist(err) {
 		t.Fatalf("dropped contribution left its mountpoint behind: %v", err)
 	}
-	if _, err := os.Lstat(manifest); !os.IsNotExist(err) {
-		t.Fatalf("empty ownership manifest was not retired: %v", err)
+	retired := loadPackFilesMountpointManifest(manifest)
+	if retired.Version != packFilesMountpointManifestVersion || len(retired.Entries) != 0 {
+		t.Fatalf("post-retirement manifest = %+v, want only the completed migration marker", retired)
 	}
 }
 
@@ -148,6 +149,55 @@ func TestOldRuntimeCreatedEmptyFileIsAdoptedAndLaterRetired(t *testing.T) {
 	preparePackFiles(nil, wsState, "podman")
 	if _, err := os.Lstat(target); !os.IsNotExist(err) {
 		t.Fatalf("pre-manifest runtime scaffold was not adopted and retired: %v", err)
+	}
+}
+
+func TestPreLedgerDroppedSiblingIsArchivedOnce(t *testing.T) {
+	wsState := filepath.Join(t.TempDir(), ".yolo", "home")
+	managed := filepath.Join(wsState, "pi", "agent", "extensions", "yolo-openai-auth.js")
+	orphan := filepath.Join(wsState, "pi", "agent", "extensions", "thinking-preview.ts")
+	if err := os.MkdirAll(filepath.Dir(managed), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{managed, orphan} {
+		if err := os.WriteFile(path, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// This is the ledger written by 8a4029f3: it records the still-active target but
+	// predates the one-time sibling migration, so it has no version field.
+	manifest := filepath.Join(filepath.Dir(wsState), packFilesMountpointManifestName)
+	if err := os.WriteFile(manifest, []byte(`{"entries":{"pi/agent/extensions/yolo-openai-auth.js":{"kind":"file"}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := workspaceFilesPack(t, "pi", "extension.js",
+		".pi/agent/extensions/yolo-openai-auth.js", ".pi")
+
+	archived := preparePackFiles([]*packload.Pack{p}, wsState, "podman")
+	if len(archived) != 1 {
+		t.Fatalf("archived = %v, want the one legacy orphan", archived)
+	}
+	if _, err := os.Lstat(orphan); !os.IsNotExist(err) {
+		t.Fatalf("legacy orphan still occupies the live extension path: %v", err)
+	}
+	if body, err := os.ReadFile(archived[0]); err != nil || len(body) != 0 {
+		t.Fatalf("archived orphan is not recoverable: body=%q err=%v", body, err)
+	}
+	if !fileIsEmptyRegular(managed) {
+		t.Fatal("the currently claimed mountpoint was archived with its stale sibling")
+	}
+
+	// The version marker makes this a migration, not a standing policy that removes any
+	// empty file a user later creates beside an extension yolo manages.
+	userEmpty := filepath.Join(filepath.Dir(managed), "user-empty.ts")
+	if err := os.WriteFile(userEmpty, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if again := preparePackFiles([]*packload.Pack{p}, wsState, "podman"); len(again) != 0 {
+		t.Fatalf("legacy migration ran twice and archived new user content: %v", again)
+	}
+	if !fileIsEmptyRegular(userEmpty) {
+		t.Fatal("a post-migration user-created empty file was removed")
 	}
 }
 

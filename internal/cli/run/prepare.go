@@ -388,7 +388,9 @@ func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, loadedPacks []*packload.
 	// destination below writable pack state belongs in wsState and carries an ownership
 	// record so a dropped contribution can retire it; destinations in the read-only base,
 	// plus skills and briefings, still need their GlobalHome mountpoints.
-	preparePackFiles(loadedPacks, wsState, rt)
+	for _, archived := range preparePackFiles(loadedPacks, wsState, rt) {
+		o.pr(o.Stdout).printf("[yellow]Archived an unclaimed zero-byte legacy pack-file mountpoint: %s[/yellow]", archived)
+	}
 	preparePackFilesGlobal(loadedPacks, rt)
 	for _, target := range packSkillTargets(loadedPacks) {
 		_ = os.MkdirAll(filepath.Join(paths.GlobalHome(), filepath.FromSlash(target.Dest)), 0o755)

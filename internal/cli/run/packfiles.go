@@ -219,8 +219,10 @@ func packFilesSkipWarning(t packFilesTarget) string {
 // maps `.pi/...` to `<wsState>/pi/...`, while Apple Container maps it to
 // `<wsState>/.pi/...` through its whole-home bind.
 const packFilesMountpointManifestName = "pack-files-mountpoints.json"
+const packFilesMountpointManifestVersion = 1
 
 type packFilesMountpointManifest struct {
+	Version int                            `json:"version"`
 	Entries map[string]packFilesMountpoint `json:"entries"`
 }
 
@@ -238,7 +240,7 @@ type packFilesMountpoint struct {
 // writable. On podman it lives there only when it is below a pack-declared workspace state
 // dir; every other target lives in the machine-wide read-only base and cannot safely be
 // retired from one workspace's view of the configured packs.
-func preparePackFiles(packs []*packload.Pack, wsState, rt string) {
+func preparePackFiles(packs []*packload.Pack, wsState, rt string) []string {
 	manifestPath := filepath.Join(filepath.Dir(wsState), packFilesMountpointManifestName)
 	previous := loadPackFilesMountpointManifest(manifestPath)
 	current := map[string]packFilesTarget{}
@@ -249,6 +251,11 @@ func preparePackFiles(packs []*packload.Pack, wsState, rt string) {
 				current[rel] = t
 			}
 		}
+	}
+	var archived []string
+	migrationApplicable := rt != "macos-user" && hasSingleFilePackTarget(current) // parity: NotApplicable — macos-user does not deliver `files` contributions.
+	if migrationApplicable && previous.Version < packFilesMountpointManifestVersion {
+		archived = archiveLegacyPackFileMountpoints(wsState, current)
 	}
 
 	// Retire first, so a contribution changing shape at one destination can recreate the
@@ -270,7 +277,13 @@ func preparePackFiles(packs []*packload.Pack, wsState, rt string) {
 		delete(previous.Entries, rel)
 	}
 
-	next := &packFilesMountpointManifest{Entries: map[string]packFilesMountpoint{}}
+	next := &packFilesMountpointManifest{
+		Version: previous.Version,
+		Entries: map[string]packFilesMountpoint{},
+	}
+	if migrationApplicable {
+		next.Version = packFilesMountpointManifestVersion
+	}
 	for rel, t := range current {
 		dest := filepath.Join(wsState, rel)
 		kind := packFilesTargetKind(t)
@@ -319,11 +332,82 @@ func preparePackFiles(packs []*packload.Pack, wsState, rt string) {
 		}
 	}
 
-	if len(next.Entries) == 0 {
+	if len(next.Entries) == 0 && next.Version == 0 {
 		_ = os.Remove(manifestPath)
-		return
+		return archived
 	}
 	_ = savePackFilesMountpointManifest(manifestPath, next)
+	return archived
+}
+
+func hasSingleFilePackTarget(targets map[string]packFilesTarget) bool {
+	for _, t := range targets {
+		if isFile(t.Src) {
+			return true
+		}
+	}
+	return false
+}
+
+// archiveLegacyPackFileMountpoints is the one-time bridge from the implementation that
+// let the OCI runtime create unrecorded zero-byte targets. There is no proof left for one
+// exact file after its contribution disappears. The strongest recoverable inference is an
+// unclaimed empty regular file directly beside a currently managed single-file target: that
+// is the precise shape crun left for thinking-preview.ts. Move, never delete, because an
+// empty file the user intentionally put there has the same bytes.
+func archiveLegacyPackFileMountpoints(wsState string, current map[string]packFilesTarget) []string {
+	claimed := map[string]struct{}{}
+	dirs := map[string]struct{}{}
+	for rel, t := range current {
+		claimed[filepath.Clean(rel)] = struct{}{}
+		if isFile(t.Src) {
+			dirs[filepath.Dir(rel)] = struct{}{}
+		}
+	}
+	var archived []string
+	for relDir := range dirs {
+		dir := filepath.Join(wsState, relDir)
+		if !pathParentWithin(filepath.Join(dir, "candidate"), wsState) {
+			continue
+		}
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			rel := filepath.Join(relDir, entry.Name())
+			if _, current := claimed[rel]; current {
+				continue
+			}
+			src := filepath.Join(wsState, rel)
+			if !fileIsEmptyRegular(src) {
+				continue
+			}
+			if dest, err := archiveLegacyPackFileMountpoint(wsState, rel); err == nil {
+				archived = append(archived, dest)
+			}
+		}
+	}
+	sort.Strings(archived)
+	return archived
+}
+
+func archiveLegacyPackFileMountpoint(wsState, rel string) (string, error) {
+	dest := filepath.Join(filepath.Dir(wsState), "archive", "pack-files", "legacy", rel)
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return "", err
+	}
+	base := dest
+	for i := 2; ; i++ {
+		if _, err := os.Lstat(dest); os.IsNotExist(err) {
+			break
+		}
+		dest = fmt.Sprintf("%s.%d", base, i)
+	}
+	if err := os.Rename(filepath.Join(wsState, rel), dest); err != nil {
+		return "", err
+	}
+	return dest, nil
 }
 
 func pathUnderAny(rel string, roots []string) bool {
