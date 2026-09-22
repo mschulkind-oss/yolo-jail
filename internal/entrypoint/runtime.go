@@ -183,49 +183,50 @@ func daemonCommandMatches(argv, wanted []string) bool {
 	return true
 }
 
-var (
-	findJailDaemonOrphans = findOrphanedJailDaemons
-	killJailDaemonOrphan  = killOrphanedJailDaemon
-)
+var findJailDaemonOrphans = findOrphanedJailDaemons
 
-// killOrphanedJailDaemon is intentionally a hard reclaim. A daemon left behind
-// without its supervisor is already outside the supervisor's graceful shutdown
-// contract; SIGKILL gives the next boot a definite ownership boundary rather
-// than waiting indefinitely for an unowned process to cooperate.
-func killOrphanedJailDaemon(pid int) error {
-	err := syscall.Kill(pid, syscall.SIGKILL)
-	if err != nil && !errors.Is(err, syscall.ESRCH) {
-		return err
-	}
-	deadline := time.Now().Add(time.Second)
-	for {
-		err = syscall.Kill(pid, 0)
-		if errors.Is(err, syscall.ESRCH) {
-			return nil
-		}
-		if err != nil && !errors.Is(err, syscall.EPERM) {
-			return err
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("process did not exit after SIGKILL")
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-}
-
-func reclaimOrphanedJailDaemons(e *Env) error {
+// refuseOnOrphanedJailDaemons REPORTS an orphaned daemon and refuses the boot. It does
+// not kill (docs/design/wire-bridge-port-collision.md, OQ-PC3).
+//
+// # Why the detection stays and the SIGKILL went
+//
+// The detection is precise and worth keeping: it runs only after BOTH the current and
+// legacy supervisor PID files proved dead, and daemonCommandMatches compares the full
+// argv, so a process merely holding the daemon's port is never a candidate. What went is
+// the action — a SIGKILL taken on an INFERENCE about ownership, against a failure nobody
+// has observed. "An unsupervised daemon is outside the graceful-shutdown contract" is a
+// reason not to WAIT for cooperation; it was never a reason to kill.
+//
+// # Why this refuses rather than adopting
+//
+// Adoption was the other permitted action and is NOT taken, for a reason the tree
+// imposes: readiness reaches the entrypoint through a pipe the supervisor hands the daemon
+// it starts (cmd.ExtraFiles plus paths.JailDaemonReadyFDEnv, in
+// startJailDaemonSupervisor). An orphan was started by a supervisor that is gone, so it
+// holds no such pipe and cannot report through it. Adopting would mean treating a process
+// as serving its declared endpoint on the strength of its argv — the same inference the
+// kill was removed for. Establishing it for real needs an endpoint probe that does not
+// exist here, so refusing and naming the PID is the honest outcome.
+//
+// The message carries the PID because that is the one fact that turns this from a mystery
+// into a command the operator can type.
+func refuseOnOrphanedJailDaemons(e *Env) error {
 	orphans, err := findJailDaemonOrphans(e.Getenv("YOLO_JAIL_DAEMONS"))
 	if err != nil {
 		return fmt.Errorf("find orphaned in-jail daemons: %w", err)
 	}
-	for _, orphan := range orphans {
-		e.warn(fmt.Sprintf("yolo: reclaiming orphaned in-jail daemon %s (pid %d); no live supervisor owns it", orphan.Name, orphan.PID))
-		if err := killJailDaemonOrphan(orphan.PID); err != nil {
-			return fmt.Errorf("reclaim orphaned in-jail daemon %s (pid %d): %w", orphan.Name, orphan.PID, err)
-		}
-		e.warn(fmt.Sprintf("yolo: reclaimed orphaned in-jail daemon %s (pid %d)", orphan.Name, orphan.PID))
+	if len(orphans) == 0 {
+		return nil
 	}
-	return nil
+	var names []string
+	for _, orphan := range orphans {
+		e.warn(fmt.Sprintf("yolo: in-jail daemon %s is running as pid %d with no live supervisor",
+			orphan.Name, orphan.PID))
+		names = append(names, fmt.Sprintf("%s (pid %d)", orphan.Name, orphan.PID))
+	}
+	return fmt.Errorf("orphaned in-jail daemon(s) hold this jail's service ports with no supervisor: %s\n"+
+		"yolo will not kill a process on the strength of its command line. Inspect it, then "+
+		"`kill <pid>` if it is yours to reclaim", strings.Join(names, ", "))
 }
 
 // `yolo-jaild supervise` as a detached child, once, guarded by a tmpfs PID
@@ -244,7 +245,7 @@ func startJailDaemonSupervisor(e *Env) error {
 		}
 		return nil
 	}
-	if err := reclaimOrphanedJailDaemons(e); err != nil {
+	if err := refuseOnOrphanedJailDaemons(e); err != nil {
 		return err
 	}
 	readyNames := strings.Fields(strings.ReplaceAll(e.Getenv(paths.JailDaemonReadyNamesEnv), ",", " "))

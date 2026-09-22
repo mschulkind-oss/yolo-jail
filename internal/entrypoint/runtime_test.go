@@ -127,30 +127,86 @@ func TestFindOrphanedJailDaemonsMatchesOnlyDeclaredCommand(t *testing.T) {
 	}
 }
 
-func TestReclaimOrphanedJailDaemonsReportsAndKillsExactOrphan(t *testing.T) {
-	oldFind, oldKill := findJailDaemonOrphans, killJailDaemonOrphan
+// TestOrphanedJailDaemonRefusesAndNamesThePID pins OQ-PC3's ruling: the detection stays,
+// the SIGKILL is gone, and the boot refuses carrying the PID.
+//
+// It asserts the REFUSAL rather than the absence of a kill, because "no kill happened" is
+// also true of a build where the whole detection was deleted — and the detection is the
+// half the ruling kept.
+func TestOrphanedJailDaemonRefusesAndNamesThePID(t *testing.T) {
+	oldFind := findJailDaemonOrphans
 	findJailDaemonOrphans = func(string) ([]orphanedJailDaemon, error) {
 		return []orphanedJailDaemon{{Name: "wire-bridge", PID: 8214}}, nil
 	}
-	var killed []int
-	killJailDaemonOrphan = func(pid int) error {
-		killed = append(killed, pid)
-		return nil
-	}
-	t.Cleanup(func() {
-		findJailDaemonOrphans, killJailDaemonOrphan = oldFind, oldKill
-	})
+	t.Cleanup(func() { findJailDaemonOrphans = oldFind })
 
 	var stderr bytes.Buffer
 	e := NewEnv(map[string]string{"YOLO_JAIL_DAEMONS": "present"})
 	e.Stderr = &stderr
-	if err := reclaimOrphanedJailDaemons(e); err != nil {
-		t.Fatal(err)
+
+	err := refuseOnOrphanedJailDaemons(e)
+	if err == nil {
+		t.Fatal("an orphaned daemon must REFUSE the boot; got nil — the ruling replaced the " +
+			"SIGKILL with a refusal, not with silence")
 	}
-	if len(killed) != 1 || killed[0] != 8214 {
-		t.Fatalf("killed = %v, want only pid 8214", killed)
+	if !strings.Contains(err.Error(), "8214") || !strings.Contains(err.Error(), "wire-bridge") {
+		t.Errorf("the refusal must name the daemon and its PID — that is the one fact that makes "+
+			"it actionable; got: %v", err)
 	}
-	if got := stderr.String(); !strings.Contains(got, "reclaiming orphaned in-jail daemon wire-bridge (pid 8214)") || !strings.Contains(got, "reclaimed orphaned in-jail daemon wire-bridge (pid 8214)") {
-		t.Fatalf("reclaim must report its action directly, got:\n%s", got)
+	if !strings.Contains(err.Error(), "kill <pid>") {
+		t.Errorf("the refusal must hand the operator the command yolo declined to run itself; got: %v", err)
+	}
+	if got := stderr.String(); !strings.Contains(got, "wire-bridge is running as pid 8214") {
+		t.Errorf("the orphan must be reported per-daemon on stderr, got:\n%s", got)
+	}
+}
+
+// TestStartSupervisorRefusesOnAnOrphan pins the CALL SITE, not just the callee.
+//
+// This repo has shipped the other shape repeatedly: a test that exercises a helper
+// directly stays green when the production caller is deleted, so the guard can be switched
+// off wholesale with the unit gate passing. Delete the refuseOnOrphanedJailDaemons call
+// from startJailDaemonSupervisor and this test goes red; the two tests above do not.
+func TestStartSupervisorRefusesOnAnOrphan(t *testing.T) {
+	oldPIDFile, oldLegacy, oldFind := supervisorPIDFile, legacySupervisorPIDFiles, findJailDaemonOrphans
+	dir := t.TempDir()
+	supervisorPIDFile = filepath.Join(dir, "absent-yolo-jaild.pid")
+	legacySupervisorPIDFiles = []string{filepath.Join(dir, "absent-legacy.pid")}
+	findJailDaemonOrphans = func(string) ([]orphanedJailDaemon, error) {
+		return []orphanedJailDaemon{{Name: "wire-bridge", PID: 8214}}, nil
+	}
+	t.Cleanup(func() {
+		supervisorPIDFile, legacySupervisorPIDFiles, findJailDaemonOrphans = oldPIDFile, oldLegacy, oldFind
+	})
+
+	var stderr bytes.Buffer
+	e := NewEnv(map[string]string{"YOLO_JAIL_DAEMONS": `[{"name":"wire-bridge","cmd":["yolo-jaild","wire-bridge"]}]`})
+	e.Stderr = &stderr
+
+	err := startJailDaemonSupervisor(e)
+	if err == nil {
+		t.Fatal("startJailDaemonSupervisor must propagate the orphan refusal; got nil — either the " +
+			"call was removed or its error is being swallowed")
+	}
+	if !strings.Contains(err.Error(), "8214") {
+		t.Errorf("the refusal must reach the caller intact, PID included; got: %v", err)
+	}
+}
+
+// TestNoOrphansIsNotARefusal keeps the common path honest: the refusal fires on a FINDING,
+// never on the check having run.
+func TestNoOrphansIsNotARefusal(t *testing.T) {
+	oldFind := findJailDaemonOrphans
+	findJailDaemonOrphans = func(string) ([]orphanedJailDaemon, error) { return nil, nil }
+	t.Cleanup(func() { findJailDaemonOrphans = oldFind })
+
+	var stderr bytes.Buffer
+	e := NewEnv(map[string]string{"YOLO_JAIL_DAEMONS": "present"})
+	e.Stderr = &stderr
+	if err := refuseOnOrphanedJailDaemons(e); err != nil {
+		t.Fatalf("no orphans must not refuse: %v", err)
+	}
+	if stderr.String() != "" {
+		t.Errorf("no orphans must say nothing, got:\n%s", stderr.String())
 	}
 }

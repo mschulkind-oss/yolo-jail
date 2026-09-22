@@ -79,6 +79,43 @@ func ParsePortForwards(entries []any, warn func(string)) ([]PortForward, error) 
 	return result, nil
 }
 
+// discloseImplicitProviderForwards prints ONE line per port a user provider caused to be
+// forwarded, naming the port and the provider that asked for it (OQ-PC2,
+// docs/design/wire-bridge-port-collision.md).
+//
+// # Why this is not suppressible, and why that is right here
+//
+// A forward is a hole into the host: a port the user never wrote is bound inside the jail
+// and a socket is opened on the launcher. The user's own config cannot be grepped for it,
+// which is precisely what cost four hypotheses when an aliasing defect put the wire
+// bridge's own address into this list. Under the report-tier rules a launch has no quiet
+// mode, so this line is permanent — and that is the correct class for it: it reports
+// something yolo DID, not the absence of something.
+//
+// Only ports that are actually implicit are named. A port the user ALSO declared in
+// forward_host_ports is already visible in their config and in the briefing, so naming it
+// here would report a hole they dug themselves.
+func discloseImplicitProviderForwards(warn func(string), declared []any, sources []providerForward) {
+	if len(sources) == 0 {
+		return
+	}
+	explicit := map[int]bool{}
+	if parsed, err := ParsePortForwards(declared, nil); err == nil {
+		for _, p := range parsed {
+			explicit[p.LocalPort] = true
+		}
+	}
+	for _, src := range sources {
+		if explicit[src.Port] {
+			continue
+		}
+		warn(fmt.Sprintf(
+			"yolo: forwarding host port %d into this jail — provider %q names it on localhost, "+
+				"so the jail reaches the service on YOUR machine at the same port",
+			src.Port, src.Provider))
+	}
+}
+
 // mergeHostForwards appends implicit localhost-provider forwards to the user's
 // explicit forwards. An explicit local port wins: it is a deliberate legacy
 // remap (for example, jail 8080 -> host 9090), whereas the implicit spelling

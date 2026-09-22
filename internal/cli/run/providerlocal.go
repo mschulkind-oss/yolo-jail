@@ -15,29 +15,29 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// localProviderForwards returns the host-loopback ports user providers require.
-// The existing forward_host_ports transport then presents each one at the same
-// localhost port inside a bridged jail. Keeping the URL unchanged is intentional:
-// it works across podman, Apple Container, and any future container backend without
-// putting a runtime-specific gateway hostname in user configuration.
-func localProviderForwards(providers *jsonx.OrderedMap) []any {
+// providerForward is one implicit host-loopback forward, and WHICH PROVIDER asked for it.
+//
+// The provider name exists for the disclosure (OQ-PC2,
+// docs/design/wire-bridge-port-collision.md): a port the user never wrote is bound inside
+// their jail, and a line naming the port without naming who asked for it still leaves them
+// grepping their own config for something that is not in it.
+type providerForward struct {
+	Port     int
+	Provider string
+}
+
+// localProviderForwardSources returns the implicit forwards WITH their provider names, in
+// config order. localProviderForwards is the port-only projection the transport needs.
+//
+// First writer wins on a duplicate port, which matches the port-only behavior: two
+// providers naming one localhost port are one forward, attributed to the one that
+// introduced it.
+func localProviderForwardSources(providers *jsonx.OrderedMap) []providerForward {
 	if providers == nil {
 		return nil
 	}
 	seen := map[int]bool{}
-	var out []any
-	add := func(v any) {
-		s, ok := v.(string)
-		if !ok {
-			return // config validation names malformed URLs before a launch reaches here.
-		}
-		port, ok := hostLoopbackURLPort(s)
-		if !ok || seen[port] {
-			return
-		}
-		seen[port] = true
-		out = append(out, port)
-	}
+	var out []providerForward
 	for _, providerName := range providers.Keys() {
 		provider, ok := providers.Get(providerName)
 		if !ok {
@@ -46,6 +46,18 @@ func localProviderForwards(providers *jsonx.OrderedMap) []any {
 		entry, ok := provider.(*jsonx.OrderedMap)
 		if !ok {
 			continue
+		}
+		add := func(v any) {
+			s, ok := v.(string)
+			if !ok {
+				return
+			}
+			port, ok := hostLoopbackURLPort(s)
+			if !ok || seen[port] {
+				return
+			}
+			seen[port] = true
+			out = append(out, providerForward{Port: port, Provider: providerName})
 		}
 		if base, ok := entry.Get("base_url"); ok {
 			add(base)
@@ -71,6 +83,23 @@ func localProviderForwards(providers *jsonx.OrderedMap) []any {
 				add(base)
 			}
 		}
+	}
+	return out
+}
+
+// localProviderForwards returns the host-loopback ports user providers require.
+// The existing forward_host_ports transport then presents each one at the same
+// localhost port inside a bridged jail. Keeping the URL unchanged is intentional:
+// it works across podman, Apple Container, and any future container backend without
+// putting a runtime-specific gateway hostname in user configuration.
+func localProviderForwards(providers *jsonx.OrderedMap) []any {
+	sources := localProviderForwardSources(providers)
+	if len(sources) == 0 {
+		return nil
+	}
+	out := make([]any, 0, len(sources))
+	for _, src := range sources {
+		out = append(out, src.Port)
 	}
 	return out
 }

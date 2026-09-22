@@ -71,6 +71,9 @@ type packChannel struct {
 	// provider URLs. They originate only in user config, never in a pack endpoint;
 	// see localProviderForwards for why that boundary matters.
 	localProviderForwards []any
+	// localProviderForwardSources is the same set WITH provider attribution, for the
+	// launch disclosure (OQ-PC2). Same walker, two projections — see providerlocal.go.
+	localProviderForwardSources []providerForward
 }
 
 // composePackChannel composes the channel from the config and the STAGED pack set.
@@ -120,12 +123,13 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 		return nil, err
 	}
 	c := &packChannel{
-		profiles:              profiles,
-		providers:             providers,
-		packEnv:               packload.EnvVarsFor(packs, packload.ProfileTable(profiles)),
-		userEnv:               userEnv,
-		resolvedProfiles:      resolved,
-		localProviderForwards: localProviderForwards(cfgMap(cfg, "providers")),
+		profiles:                    profiles,
+		providers:                   providers,
+		packEnv:                     packload.EnvVarsFor(packs, packload.ProfileTable(profiles)),
+		userEnv:                     userEnv,
+		resolvedProfiles:            resolved,
+		localProviderForwards:       localProviderForwards(cfgMap(cfg, "providers")),
+		localProviderForwardSources: localProviderForwardSources(cfgMap(cfg, "providers")),
 	}
 	// The provider environment, one pass over the profile table in table order — the
 	// same iteration the channel file writer makes, so the two spellings emit the same
@@ -227,10 +231,11 @@ func (c *packChannel) deliveryLookup(o *Options, argvPairs map[string]string) fu
 // this launch deliver the variable, and from where — cannot be answered by two walks
 // that disagree about the order.
 //
-// The phrase exists because a refusal has to name where each side was DECLARED (R3,
-// docs/design/protocol-resolution.md): "you have two AWS credential channels" sends a
-// reader hunting through four files, and "env_sources, and a selected pack's env
-// contribution" does not. It never carries the VALUE — these are credentials.
+// The phrase exists because a refusal has to name where each side was DECLARED
+// (docs/reference/protocol-resolution.md#the-four-outcomes): "you have two AWS
+// credential channels" sends a reader hunting through four files, and "env_sources, and
+// a selected pack's env contribution" does not. It never carries the VALUE — these are
+// credentials.
 //
 // It cannot name WHICH pack set a var. packEnv is already the fold
 // (packload.EnvVarsFor), and the launch delivers the fold rather than any one
