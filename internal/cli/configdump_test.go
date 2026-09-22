@@ -4,7 +4,7 @@ package cli
 // merged config plus the validation errors/warnings, and its exit code is the
 // verdict. It was the only ValidateConfig caller passing a nil LoopholeResolver,
 // which was harmless while nothing keyed off "is this loophole installed" — and
-// stopped being harmless when the §4.3b enable-uninstalled rule shipped, because a
+// stopped being harmless when the enable-uninstalled rule shipped, because a
 // nil resolver makes the known set EMPTY and every name read as uninstalled. So the
 // oracle reported a fatal, and exited 1, for a config `yolo check` and the launch
 // path both accept.

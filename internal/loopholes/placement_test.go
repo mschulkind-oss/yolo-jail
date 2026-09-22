@@ -6,9 +6,9 @@ package loopholes
 // resolve: the module dir, and the two host-side argvs after {loophole_dir}
 // substitution.
 //
-// The refusal string itself still spells the rule "§4.3a", the section number it had
-// before the design graduated, which is why that literal is asserted below; the string
-// is minted in internal/config/loopholeplacement.go.
+// The refusal string names the RULE — "the placement rule" — rather than the "§4.3a" it spelled
+// before the design graduated, a number that then existed nowhere for a user to look up. That name
+// is the literal asserted below; the string is minted in internal/config/loopholeplacement.go.
 
 import (
 	"path/filepath"
@@ -34,7 +34,7 @@ func TestPlacementProblemsRefusesAModuleDirInTheWorkspace(t *testing.T) {
 	if len(probs) != 1 {
 		t.Fatalf("problems = %v, want one (the dir refusal subsumes the argv it contains)", probs)
 	}
-	for _, want := range []string{"loophole 'acme'", "module dir", "WHOLE module", "§4.3a"} {
+	for _, want := range []string{"loophole 'acme'", "module dir", "WHOLE module", "the placement rule"} {
 		if !strings.Contains(probs[0], want) {
 			t.Errorf("refusal does not carry %q:\n  %s", want, probs[0])
 		}

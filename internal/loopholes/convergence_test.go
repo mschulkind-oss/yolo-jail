@@ -222,7 +222,8 @@ func TestConfigOverrideAppliesToAPackModule(t *testing.T) {
 	}
 	if lp.Enabled {
 		t.Error("loopholes.acme-proxy.enabled=false must disable a PACK-shipped loophole — " +
-			"otherwise §5.2's toggle has nowhere to write")
+			"otherwise the enable toggle has nowhere to write " +
+			"(docs/reference/loophole-system.md#the-two-verbs)")
 	}
 	if lp.Source != SourcePack {
 		t.Errorf("Source = %q, want %q: an override patches the record in place; taking the "+
@@ -341,8 +342,8 @@ func TestUnvouchedPackDoctorCmdIsNeverExecuted(t *testing.T) {
 	}
 	if _, err := os.Stat(sentinel); err == nil {
 		t.Fatal("THE DOCTOR_CMD RAN. `yolo check` and `yolo loopholes status` are read-only " +
-			"preflight; running host code nothing vouched for from them is the fork §5.1 " +
-			"refuses to leave open")
+			"preflight; running host code nothing vouched for from them is the fork " +
+			"docs/reference/loophole-system.md#selection-and-discovery refuses to leave open")
 	}
 }
 

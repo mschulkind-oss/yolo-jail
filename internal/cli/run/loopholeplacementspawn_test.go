@@ -11,7 +11,7 @@ import (
 
 // TestManifestPlacementRefusesTheSpawn pins landing item 1a's LAST face.
 //
-// §4.3a's placement rule was landed for a CONFIG entry's `command` (refused during
+// the placement rule was landed for a CONFIG entry's `command` (refused during
 // validation) but a MANIFEST's own host_daemon.cmd could not be refused there: two of
 // its three targets are runtime resolutions — the module dir after symlinks, the argv
 // after {loophole_dir} substitution — so a resolved record is the first place they

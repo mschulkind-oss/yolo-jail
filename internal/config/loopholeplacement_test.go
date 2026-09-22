@@ -45,7 +45,7 @@ func TestInlineLoopholeCommandInsideTheWorkspaceIsRefused(t *testing.T) {
 		filepath.Join(ws, "tool.py"),
 		"bind-mounts :rw",
 		"may not live where an agent writes",
-		"§4.3a",
+		"the placement rule",
 	} {
 		if !strings.Contains(hits[0], want) {
 			t.Errorf("refusal %q does not carry %q", hits[0], want)
@@ -60,7 +60,7 @@ func TestInlineLoopholeDoctorCmdInsideTheWorkspaceIsRefused(t *testing.T) {
 	errs, _ := validateScopedIn(t, ws,
 		`{"loopholes": {"svc": {"command": ["/usr/bin/daemon"], "doctor_cmd": ["`+ws+`/check.sh"]}}}`,
 		"", nil)
-	if hits := containing(errs, "config.loopholes.svc.doctor_cmd[0]", "§4.3a"); len(hits) != 1 {
+	if hits := containing(errs, "config.loopholes.svc.doctor_cmd[0]", "the placement rule"); len(hits) != 1 {
 		t.Fatalf("errors = %v, want one placement refusal for doctor_cmd", errs)
 	}
 }
@@ -72,7 +72,7 @@ func TestInlineLoopholeRelativeCommandResolvesAgainstTheWorkspace(t *testing.T) 
 	ws := t.TempDir()
 	errs, _ := validateScopedIn(t, ws,
 		`{"loopholes": {"svc": {"command": ["python3", "./tool.py"]}}}`, "", nil)
-	hits := containing(errs, "config.loopholes.svc.command[1]", "§4.3a")
+	hits := containing(errs, "config.loopholes.svc.command[1]", "the placement rule")
 	if len(hits) != 1 {
 		t.Fatalf("errors = %v, want one placement refusal", errs)
 	}
@@ -110,7 +110,7 @@ func TestPlacementRuleLeavesLegitimateInstallsAlone(t *testing.T) {
 	} {
 		errs, _ := validateScopedIn(t, ws,
 			`{"loopholes": {"svc": {"command": `+cmd+`}}}`, "", nil)
-		if hits := containing(errs, "§4.3a"); len(hits) != 0 {
+		if hits := containing(errs, "the placement rule"); len(hits) != 0 {
 			t.Errorf("command %s drew a placement refusal: %v", cmd, hits)
 		}
 	}
@@ -124,7 +124,7 @@ func TestPlacementRuleDoesNotReadAScriptBodyAsAPath(t *testing.T) {
 	errs, _ := validateScopedIn(t, ws,
 		`{"loopholes": {"svc": {"command": ["sh", "-c", "sleep 300 & echo $! > /tmp/pid; cp seed/x \"$1\"", "svc"]}}}`,
 		"", nil)
-	if hits := containing(errs, "§4.3a"); len(hits) != 0 {
+	if hits := containing(errs, "the placement rule"); len(hits) != 0 {
 		t.Errorf("a script body drew a placement refusal: %v", hits)
 	}
 }
@@ -139,7 +139,7 @@ func TestWorkspaceInstallDrawsTheScopeErrorOnly(t *testing.T) {
 	if hits := containing(errs, "user-scope only"); len(hits) != 1 {
 		t.Fatalf("errors = %v, want the one scope error", errs)
 	}
-	if hits := containing(errs, "§4.3a"); len(hits) != 0 {
+	if hits := containing(errs, "the placement rule"); len(hits) != 0 {
 		t.Errorf("the scope error already refuses the entry; placement added %v", hits)
 	}
 }
@@ -155,7 +155,7 @@ func TestPlacementRuleSkipsAnOverride(t *testing.T) {
 	if hits := containing(errs, "not overridable"); len(hits) != 1 {
 		t.Fatalf("errors = %v, want the not-overridable error", errs)
 	}
-	if hits := containing(errs, "§4.3a"); len(hits) != 0 {
+	if hits := containing(errs, "the placement rule"); len(hits) != 0 {
 		t.Errorf("an override installs nothing; placement added %v", hits)
 	}
 }
@@ -182,7 +182,7 @@ func TestManifestModuleDirInsideTheWorkspaceIsRefused(t *testing.T) {
 	for _, want := range []string{
 		"loophole 'acme'", "module dir " + mod, "bind-mounts :rw",
 		"WHOLE module", "{loophole_dir}", "dlopen",
-		"Install the loophole outside that tree", "§4.3a",
+		"Install the loophole outside that tree", "the placement rule",
 	} {
 		if !strings.Contains(probs[0], want) {
 			t.Errorf("refusal does not carry %q:\n  %s", want, probs[0])

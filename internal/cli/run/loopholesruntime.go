@@ -266,7 +266,7 @@ func (o *Options) startLoopholesMatching(cname, rt string, cfg *jsonx.OrderedMap
 		}
 	}
 	// placementRefused: a loophole whose MANIFEST names host code living where an agent
-	// can rewrite it (§4.3a's placement rule, landing item 1a's manifest faces). The
+	// can rewrite it (the placement rule, landing item 1a's manifest faces). The
 	// config faces are refused earlier, at validation; a manifest's own host_daemon.cmd
 	// and doctor_cmd could not be, because two of the three targets are RUNTIME
 	// resolutions — the module dir after symlinks, the argv after {loophole_dir}
@@ -736,7 +736,7 @@ func (o *Options) resolveDaemonArgv(name string, spec *jsonx.OrderedMap, daemonP
 		s = strings.ReplaceAll(s, "{endpoint}", daemonPath)
 		cmdArgs = append(cmdArgs, strings.ReplaceAll(s, "{socket}", daemonPath))
 	}
-	// The §4.3a PLACEMENT rule, applied to what is about to be EXECUTED: a daemon
+	// The PLACEMENT rule, applied to what is about to be EXECUTED: a daemon
 	// program living inside the workspace this launch mounts :rw (or inside the
 	// jail-home tree) is rewritable by the agent between launches, so no earlier
 	// gate — who declared it, what the lockfile recorded, what the banner printed —

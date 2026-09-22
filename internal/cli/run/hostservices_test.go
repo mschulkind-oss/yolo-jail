@@ -1152,7 +1152,7 @@ func TestAdvertiseHostFollowsTheNetworkNamespace(t *testing.T) {
 	}
 }
 
-// The §4.3a placement rule at the SPAWN: a daemon program inside the workspace
+// The placement rule at the SPAWN: a daemon program inside the workspace
 // this launch mounts :rw is one the agent rewrites, so it is refused instead of
 // started. This is the face config validation cannot cover — a manifest's
 // host_daemon.cmd never passes through the config validator at all.
@@ -1173,7 +1173,7 @@ func TestExternalServiceRefusesADaemonInsideTheWorkspace(t *testing.T) {
 		loopholes.TransportLoopbackTLS, "127.0.0.1", nil); ok {
 		t.Fatal("a daemon inside the mounted workspace must not be spawned")
 	}
-	for _, want := range []string{"wsdaemon", daemon, "§4.3a"} {
+	for _, want := range []string{"wsdaemon", daemon, "the placement rule"} {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("refusal %q does not name %q", buf.String(), want)
 		}

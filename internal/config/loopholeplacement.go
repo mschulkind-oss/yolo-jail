@@ -143,7 +143,7 @@ func LoopholePlacementProblems(label string, argv []string, workspace string) []
 			}
 			out = append(out, label+"["+itoa(i)+"]: "+target+" is inside "+tree.what+
 				", where an agent can rewrite it between launches — installed content "+
-				"may not live where an agent writes (the §4.3a placement rule, "+
+				"may not live where an agent writes (the placement rule, "+
 				"docs/reference/loophole-system.md#the-placement-rule). "+
 				"Move the program outside that tree and name it there.")
 			break
@@ -228,7 +228,7 @@ func loopholeModuleDirProblem(name, moduleDir, workspace string) string {
 			}
 			return "loophole " + pytext.Repr(name) + ": module dir " + dir + " is inside " +
 				tree.what + ", where an agent can rewrite it between launches — installed " +
-				"content may not live where an agent writes (the §4.3a placement rule, " +
+				"content may not live where an agent writes (the placement rule, " +
 				"docs/reference/loophole-system.md#the-placement-rule). " +
 				"This covers the WHOLE module, not just its entry point: {loophole_dir} " +
 				"resolves here, so every host-side field names something an agent can " +

@@ -35,7 +35,7 @@ Both are cheap to rule and expensive to discover later. Neither blocks anything 
 > history only — `git show 9190a4d1^:docs/design/loophole-packaging.md` is the last revision
 > that carried them:
 >
-> - **"The finding"** (old §4.1, finding 2) — the loophole commands load config with no schema
+> - **"The finding"** (finding 2 of the old body) — the loophole commands load config with no schema
 >   pass, so an entry `yolo check` rejects was honored by `yolo loopholes list` and its
 >   `doctor_cmd` would have run on the host. Its live form is `config.LoopholeEntryErrors` and
 >   `TestEvilDoctorWorkspaceEntryIsRefused`.
@@ -103,8 +103,23 @@ with, and its real census is the guest notch's own work to state. So the fail-cl
 is chosen and built; what is still open is only whether `guest` ever gets a census of its own.
 
 **What the answer decides:** the shape of the first loophole on a no-VM, separate-user
-backend — decided deliberately rather than discovered by whoever writes it. It blocks nothing
-shipped, because that backend starts no host services at all.
+backend — decided deliberately rather than discovered by whoever writes it.
+
+**The backend is not idle, so that is not why this blocks nothing.** `macos-user` — which
+[`declaration-parity.md` §8](declaration-parity.md#8-the-guest-notch-is-not-a-backend) calls *the
+guest notch by another name* — has started the WHOLE host-service set since 2026-09-17, through
+the same spawn boundary a container launch uses: `run.Run`'s native arm calls
+`startLoopholesDisclosed`, and `macosuser.EndpointGrantCommands` ACL-grants each published
+endpoint across the uid split. So the first loophole on that backend is not a prospect — loopholes
+run there today.
+
+What blocks nothing is the FUNNEL, and it is unreachable rather than harmless: `render.KindGuest`
+has no constructor, `yolo apply --at guest` returns `render.NotchUnbuilt`, `Target.Fields()` has no
+production caller at all
+([`DP-B34`](declaration-parity.md#53-both-axes-at-once-the-notch-the-briefing-and-the-render-target)),
+and `macos-user` itself runs at `confinement: jail`, reasoning from `render.GuestProfileMacOS()`
+rather than from any field census. So nothing consults the over-permission today, while a loophole
+is live on the very backend this question is about.
 
 _Leaning:_ **split the census when the guest notch lands, and not before.** The funnel is
 wrong for a reason, but inventing a third field set with zero consumers is how a vocabulary

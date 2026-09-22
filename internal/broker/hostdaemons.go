@@ -82,7 +82,7 @@ func BrokerSingleton() Singleton {
 // declaring `host_daemon.scope: "host"`, joined with every host-wide rendezvous
 // that has state on disk, sorted by name.
 //
-// workspace is the tree a launch would mount :rw, used for the §4.3a PLACEMENT
+// workspace is the tree a launch would mount :rw, used for the PLACEMENT
 // rule — a daemon program an agent can rewrite between launches must not be
 // spawned by a management verb either, and the refusal travels on the record as
 // NoSpawn rather than being discovered at the moment of the spawn.

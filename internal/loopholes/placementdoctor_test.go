@@ -1,9 +1,12 @@
 package loopholes
 
 // placementdoctor_test.go is the PLACEMENT rule
-// (docs/reference/loophole-system.md#the-placement-rule) at the DOCTOR face. The
-// refusal string still spells it "§4.3a" — the section number the rule had before the
-// design graduated — which is why that literal is asserted below.
+// (docs/reference/loophole-system.md#the-placement-rule) at the DOCTOR face.
+//
+// The refusal string used to spell it "§4.3a" — the section number the rule carried before the
+// design graduated, and a number that then existed nowhere, so a user reading the refusal had
+// nothing to look up. Dropped 2026-09-22 (roadmap row 4): the refusal names the RULE, and the
+// literal asserted below is that name.
 //
 // The rule had exactly one production caller — the spawn (internal/cli/run's
 // startLoopholes) — and `RunDoctorChecks` never asked for it. Measured: a hand-placed
@@ -98,14 +101,14 @@ func TestDoctorRefusesADoctorCmdInsideTheJailHomeTree(t *testing.T) {
 	if _, statErr := os.Stat(sentinel); statErr == nil {
 		t.Fatal("THE DOCTOR_CMD RAN. `yolo check` and `yolo loopholes status` are read-only " +
 			"preflight, and this argv named a script inside the tree yolo hands the agent — " +
-			"§4.3a's placement rule exists precisely to refuse it, and the doctor path never asked")
+			"the placement rule exists precisely to refuse it, and the doctor path never asked")
 	}
 	if results[0].RC != nil {
 		t.Errorf("rc = %d; a refused placement must not produce an exit status", *results[0].RC)
 	}
 	// REPORTED, with the reason, never silently skipped: silence is indistinguishable from
 	// `no-check`, which reads as "this loophole declares no self-check" — the wrong story.
-	for _, want := range []string{"not run", "probehole", "§4.3a"} {
+	for _, want := range []string{"not run", "probehole", "the placement rule"} {
 		if !strings.Contains(results[0].Output, want) {
 			t.Errorf("the withheld result does not carry %q:\n  %s", want, results[0].Output)
 		}
@@ -213,7 +216,7 @@ func TestSetDoctorAppliesThePlacementRuleToo(t *testing.T) {
 			"was executed through Set.RunDoctorChecks — the placement rule has to hold on both " +
 			"entry points, or it holds on whichever one the next caller does not use")
 	}
-	if !strings.Contains(results[0].Output, "§4.3a") {
+	if !strings.Contains(results[0].Output, "the placement rule") {
 		t.Errorf("the withheld reason must be the PLACEMENT one, not the origin one:\n  %s",
 			results[0].Output)
 	}
