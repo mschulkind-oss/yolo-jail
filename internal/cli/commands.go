@@ -209,6 +209,11 @@ func runPrune(args []string) int {
 	if _, ok := parseOutputFormat("prune", args, os.Stderr); !ok {
 		return 2
 	}
+	// After the REMOVED-flag refusal above, which names replacements — a flag that once existed
+	// deserves the better message, and this generic one catches everything else.
+	if refuseUnknownFlags("prune", args, pruneKnownFlags, os.Stderr) {
+		return 2
+	}
 	return prune.Run(pruneOptions(args))
 }
 
@@ -237,6 +242,15 @@ func refuseRemovedPruneFlags(args []string, out io.Writer) int {
 		return 2
 	}
 	return 0
+}
+
+// pruneKnownFlags is prune's whole flag surface, read off pruneOptions' own scan plus the two the
+// front door parses (--format/--json). Kept beside the scan it mirrors so the two move together.
+var pruneKnownFlags = []string{
+	"--apply", "--cache-age", "--dedup-global", "--image-cache-keep", "--no-build-roots",
+	"--no-containers", "--no-hardlink", "--no-image-cache", "--no-image-roots", "--no-images",
+	"--no-shadowed-home", "--purge-heavy-caches",
+	"--format", "--json", "--help", "-h", "prune",
 }
 
 // pruneOptions turns `yolo prune`'s argv into the engine's Options — the flags plus the three
@@ -740,6 +754,10 @@ func runInit(args []string) int {
 	if answerHelp("init", args, os.Stdout) {
 		return 0
 	}
+	if refuseUnknownFlags("init", args, []string{"--mount", "-m", "--help", "-h", "init"},
+		os.Stderr) {
+		return 2
+	}
 	var mounts []string
 	for i := 1; i < len(args); i++ {
 		a := args[i]
@@ -946,6 +964,10 @@ func runPs(args []string) int {
 	if !ok {
 		return 2
 	}
+	if refuseUnknownFlags("ps", args, []string{"--format", "--json", "--help", "-h", "ps"},
+		os.Stderr) {
+		return 2
+	}
 	ws, err := os.Getwd()
 	if err != nil {
 		ws = "."
@@ -953,6 +975,11 @@ func runPs(args []string) int {
 	detect := func() string { return detectListingRuntime(ws) }
 	return psRun(psRealDeps(psRunCmd, detect, format))
 }
+
+// checkKnownFlags is check/doctor's whole flag surface. `--format` is parsed by
+// parseOutputFormat above; it is listed here so the unknown-flag scan does not refuse it.
+var checkKnownFlags = []string{"--build", "--no-build", "--accept-config-changes", "--format",
+	"--json", "--help", "-h", "check", "doctor"}
 
 // checkOptions turns `yolo check`/`yolo doctor`'s argv into check's Options.
 // ok=false means the caller must return 2: a flag value was refused and the
@@ -983,9 +1010,13 @@ func checkOptions(args []string, errw io.Writer) (check.Options, bool) {
 		return opts, false
 	}
 	opts.Format = format
-	// Parse flags. Only --build/--no-build are defined for check/doctor; any
-	// stray flag is ignored (typer would error, but the front door has already
-	// classified this as the check subcommand — the flag surface is tiny).
+	// A stray flag is MISUSE, not noise (self-documenting-cli.md requirement 3). This scan used
+	// to ignore anything it did not recognise and return check's normal code, so `--no-buld`
+	// ran a full build and reported success — the operator asked for one thing, the machine did
+	// another, and the exit code agreed with the machine.
+	if refuseUnknownFlags("check", args, checkKnownFlags, errw) {
+		return opts, false
+	}
 	for _, a := range args {
 		switch a {
 		case "--no-build":
@@ -1054,11 +1085,28 @@ func runRun(args []string) int {
 	}
 	opts := run.NewDefaultOptions()
 	opts.Color = true
-	// Nothing here can fail: the fold makes no refusal, so a mistyped flag is either
-	// swallowed or read as the command it follows, never an early exit. The one
-	// refusal the fold used to make (a -p with no readable name) went with the
-	// heuristic that needed it — docs/reference/providers.md OQ-PT5.
-	parseRunArgs(args, &opts)
+	// A MISTYPED FLAG IS MISUSE, and this is the refusal the fold itself cannot make
+	// (self-documenting-cli.md requirement 3). parseRunArgs either swallows an unknown flag or
+	// reads it as the command it follows — so `yolo --dry-runn -- claude` launched for real, and
+	// `yolo --netwrok host -- claude` launched on the default network with nothing said.
+	//
+	// ⚠ IT SCANS ONLY YOLO'S OWN TOKENS, and there are TWO ways they end, not one. The separator
+	// is the obvious one: everything after `--` is the WRAPPED program's argv, and refusing
+	// `claude --dangerously-skip-permissions` would refuse the launch this tool exists for. The
+	// second is an IMPLICIT command start — `yolo run claude --resume` has no separator at all,
+	// and the first bare token begins the command, so `--resume` is the inner program's too. A
+	// scan that stopped only at `--` refused that form outright (measured: exit 2 on `yolo run
+	// bash -c …`, `yolo run claude --resume`), which is why the boundary comes from parseRunArgs
+	// — the switch that DEFINES where the command starts — rather than being re-derived here.
+	//
+	// The parse itself makes no refusal, so running it first commits to nothing.
+	//
+	// The one refusal the fold used to make (a -p with no readable name) went with the heuristic
+	// that needed it — docs/reference/providers.md OQ-PT5.
+	yoloArgs := parseRunArgs(args, &opts)
+	if refuseUnknownFlags("run", args[:yoloArgs], runKnownFlags(), os.Stderr) {
+		return 2
+	}
 	// The global --verbose / -v never reaches parseRunArgs (the front door strips
 	// it before subcommand resolution), so its EXPLICIT half is handed over here.
 	// The env var it publishes already turns recording on through the Getenv seam;

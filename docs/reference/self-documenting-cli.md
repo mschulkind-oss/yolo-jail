@@ -121,14 +121,27 @@ that is the shape the rest should take. A refused `--format` exits 2 with stdout
 a command that refused on stderr and then printed its human report anyway would hand a parser prose
 with a non-zero exit, which is the trap in a friendlier disguise.
 
-> [!WARNING]
-> **This requirement is only half met, and the unmet half is the machine-detectability half.** The
-> flag-parsing commands — `run`, `check`, `init`, `ps`, `prune` — still treat an unrecognized flag as
-> ignorable and return their normal (often 0) code, so a typo'd flag is silently dropped. `check`
-> says so in `checkOptions`' comment; `runInit`'s flag scan has no default arm. Two narrower
-> refusals do exist and are not the general case: `parseOutputFormat` refuses a bad `--format`, and
-> `prune` refuses flags it used to have, by name. Closing this properly is open work, not a
-> documented exemption.
+✅ **Met as of 2026-09-22.** The five flag-parsing commands — `run`, `check`, `init`, `ps`, `prune` —
+now refuse an unrecognized flag on stderr with **exit 2**, through one shared scan
+(`refuseUnknownFlags`). Each command declares its own flag set beside the scan that reads it, and
+`run`'s list is **derived from `runFlags`** rather than retyped, so a flag added to the policy list
+cannot be rejected by the very check meant to accept it.
+
+The two narrower refusals that already existed are kept and still run first, because each gives a
+better message than the general case: `parseOutputFormat` refuses a bad `--format` value, and `prune`
+refuses flags it *used to have* **by name**, pointing at the replacement.
+
+> [!IMPORTANT]
+> **Scanning stops at a bare `--`, and that rule is what makes the refusal safe.** Everything after
+> the separator is the WRAPPED program's argv — `yolo -- claude --dangerously-skip-permissions` is
+> the most common invocation there is, and treating those as yolo's flags would refuse the launch
+> this tool exists for. A flag VALUE is a positional, `--flag=value` matches on the NAME, and a bare
+> `-` stays a positional by convention. Each of those is pinned by a test, the separator case
+> especially: getting it wrong does not degrade the tool, it breaks it.
+>
+> What the refusal replaced was worse than a wrong answer: `yolo --dry-runn -- claude` launched for
+> real, and `yolo check --no-buld` ran a full image build and reported success. The operator asked
+> for one thing, the machine did another, and the exit code agreed with the machine.
 
 ### 4. Top-level help lists every registered command
 

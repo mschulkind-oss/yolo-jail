@@ -114,6 +114,18 @@ Global options are listed by 'yolo --help'; the full config reference is
 // deliberately narrow — it silences the version line and nothing else.
 var runFlags = []string{"--profile", "--timing", "--dry-run", "--network", "--accept-config-changes", "--at"}
 
+// runKnownFlags is runFlags plus the spellings that are not policy: the short forms, help, and the
+// global --verbose the front door strips before subcommand resolution (included so a launch that
+// somehow still carries it is not refused for it).
+//
+// DERIVED from runFlags rather than retyped, so a flag added there cannot be refused by the very
+// scan that is supposed to accept it — and TestTheLaunchHasNoQuietFlag keeps guarding what may go
+// in that list.
+func runKnownFlags() []string {
+	return append(append([]string(nil), runFlags...),
+		"-p", "--help", "-h", "--verbose", "-v", "run")
+}
+
 // applyProfileValue reads one -p/--profile value: "cli=name" (comma-separated,
 // repeatable) merges into the per-CLI selection table, anything else is a bare
 // profile name. Names refuse "=" at declaration (config profiles + the pack
@@ -214,9 +226,23 @@ func runHelp(args []string, out io.Writer) bool {
 // `yolo -p -- claude` reaches this as [-p, run, --, claude], so -p reads the
 // injected "run" as a profile name; mandatory declaration (OQ-CS6) refuses it at
 // launch, naming what IS declared.
-func parseRunArgs(args []string, opts *run.Options) {
+//
+// # The returned boundary, and why the parser owns it
+//
+// It returns the number of LEADING tokens that are yolo's own — everything before the `--`
+// separator or, when there is none, before the implicit command start. That is the only argv slice
+// an unknown-flag refusal may scan (runRun), and it is returned from HERE rather than re-derived
+// there because the boundary is defined by this switch: a caller recomputing it needs a second copy
+// of which flags take a value, and the copy that drifts refuses a launch. `yolo run claude
+// --resume` returns 1 — `--resume` is the inner command's, exactly as `yolo -- claude --resume`'s
+// is.
+//
+// A flag-shaped token this switch does not recognise counts as yolo's and lands INSIDE the
+// boundary, because a mistyped flag is the case the refusal exists for; see the default arm.
+func parseRunArgs(args []string, opts *run.Options) int {
 	afterDashDash := false
 	sawRun := false
+	boundary := len(args)
 	var cmdArgs []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -227,6 +253,7 @@ func parseRunArgs(args []string, opts *run.Options) {
 		switch {
 		case a == "--":
 			afterDashDash = true
+			boundary = i
 		case a == "run" && !sawRun:
 			sawRun = true // the injected/leading subcommand token
 		case a == "--timing":
@@ -289,7 +316,23 @@ func parseRunArgs(args []string, opts *run.Options) {
 			// would error, but the front door already classified this as run).
 			cmdArgs = append(cmdArgs, a)
 			afterDashDash = true
+			// THE BOUNDARY SPLITS THIS ARM IN TWO, because the arm itself does not: it fires
+			// for a MISTYPED FLAG as readily as for a command name, and those are opposite
+			// answers to "whose token is this?". A flag-shaped token is yolo's — it is the
+			// `--dry-runn` the refusal exists to catch — so it goes INSIDE the boundary; a
+			// bare one is the command, so the boundary ends before it and everything from
+			// there on is the inner program's argv.
+			//
+			// The fold's own behaviour is unchanged either way: both still start the command
+			// here, which is why `--dry-runn` reached a real launch as a command name before
+			// there was a refusal to stop it.
+			if len(a) > 1 && a[0] == '-' {
+				boundary = i + 1
+			} else {
+				boundary = i
+			}
 		}
 	}
 	opts.Args = cmdArgs
+	return boundary
 }
