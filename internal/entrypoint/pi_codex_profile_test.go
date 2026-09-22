@@ -44,12 +44,12 @@ func TestPiCodexProfileSelectsBuiltInProviderAndExplicitModel(t *testing.T) {
 	}
 	enabled, ok := settings["enabledModels"].([]any)
 	wantEnabled := []any{
-		"openai-codex/gpt-6-luna",
-		"openai-codex/gpt-6-sol",
 		"openai-codex/gpt-6-astra",
+		"openai-codex/gpt-6-sol",
+		"openai-codex/gpt-6-luna",
 	}
 	if !ok || !reflect.DeepEqual(enabled, wantEnabled) {
-		t.Fatalf("Pi enabledModels = %#v, want only GPT-6 models %#v", settings["enabledModels"], wantEnabled)
+		t.Fatalf("Pi enabledModels = %#v, want only GPT-6 models, most capable first %#v", settings["enabledModels"], wantEnabled)
 	}
 	wantSubagents := map[string]any{
 		"defaultProvider": "openai-codex",

@@ -463,13 +463,14 @@ yolo.derive("pi", "settings", function(ctx)
     -- The subscription catalog currently exposes these as the supported GPT-6
     -- choices. Keep the list explicit: the provider wildcard would also make retired
     -- models selectable, and a future catalog entry needs an intentional policy decision.
-    -- GPT-5.6 Terra has no GPT-6 successor; Sol carries the balanced role now.
+    -- STANDING RULE: order MOST CAPABLE FIRST — Astra, Sol, Luna. GPT-5.6 Terra has no
+    -- GPT-6 successor; Sol carries the balanced role now.
     local model = (ctx.profile and ctx.profile.model) or "gpt-6-sol"
     return {
       enabledModels = {
-        "openai-codex/gpt-6-luna",
-        "openai-codex/gpt-6-sol",
         "openai-codex/gpt-6-astra",
+        "openai-codex/gpt-6-sol",
+        "openai-codex/gpt-6-luna",
       },
       -- Pi-subagents has its own default, independent of Pi's chat selection.
       -- Computed output is intentional here: selection can only lift scalar keys,

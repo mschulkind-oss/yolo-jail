@@ -68,15 +68,21 @@ yolo.derive("claude", "settings", function(ctx)
   -- catalog directly instead of asking users to infer a Claude tier alias.
   -- Replacing the built-ins prevents retired pre-6 choices from leaking into
   -- a Codex-profile launch; `Default` resolves to ANTHROPIC_MODEL below.
+  -- STANDING RULE: the catalog is ordered MOST CAPABLE FIRST — Astra (frontier),
+  -- Sol (balanced), Luna (fast). New models slot in at their capability rank in
+  -- every list below, claude's availableModels/modelPicker and pi's enabledModels
+  -- alike. Note the side effect on availableModels: Claude Code's retained
+  -- `Default` row resolves to the FIRST allowlisted ID, so most-capable-first
+  -- makes Default resolve to Astra; the launched chat is still pinned to Sol by
+  -- ANTHROPIC_MODEL below.
   if ctx.selected_provider == "openai-codex" then
     -- The client retains a hard-coded Default row. Constraining Default makes
-    -- it resolve to the first allowlisted ID (GPT-6 Sol, the balanced model),
-    -- while modelPicker keeps the user-facing choice order below independent
-    -- of that fallback rule. GPT-5.6 Terra has no GPT-6 successor: Sol carries
-    -- the balanced role now, so the medium tier is gone.
+    -- it resolve to the first allowlisted ID (GPT-6 Astra, the frontier model),
+    -- while modelPicker keeps the same most-capable-first order below.
+    -- GPT-5.6 Terra has no GPT-6 successor: Sol carries the balanced role now.
     out.availableModels = {
-      "gpt-6-sol",
       "gpt-6-astra",
+      "gpt-6-sol",
       "gpt-6-luna",
     }
     out.enforceAvailableModels = true
