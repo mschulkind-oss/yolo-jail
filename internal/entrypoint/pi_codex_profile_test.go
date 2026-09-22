@@ -38,34 +38,32 @@ func TestPiCodexProfileSelectsBuiltInProviderAndExplicitModel(t *testing.T) {
 	r.wireProfiles(mustCompactJSON(t, packload.ProfilesWireTable(resolved)))
 	r.render(t, `{"pi":"codex"}`)
 	settings := r.piSettings(t)
-	if settings["defaultProvider"] != "openai-codex" || settings["defaultModel"] != "gpt-5.6-terra" {
-		t.Fatalf("Pi selection = provider %#v model %#v, want openai-codex/gpt-5.6-terra",
+	if settings["defaultProvider"] != "openai-codex" || settings["defaultModel"] != "gpt-6-sol" {
+		t.Fatalf("Pi selection = provider %#v model %#v, want openai-codex/gpt-6-sol",
 			settings["defaultProvider"], settings["defaultModel"])
 	}
 	enabled, ok := settings["enabledModels"].([]any)
 	wantEnabled := []any{
-		"openai-codex/gpt-5.6-luna",
-		"openai-codex/gpt-5.6-terra",
-		"openai-codex/gpt-5.6-sol",
+		"openai-codex/gpt-6-luna",
+		"openai-codex/gpt-6-sol",
 		"openai-codex/gpt-6-astra",
 	}
 	if !ok || !reflect.DeepEqual(enabled, wantEnabled) {
-		t.Fatalf("Pi enabledModels = %#v, want only 5.6-or-newer models %#v", settings["enabledModels"], wantEnabled)
+		t.Fatalf("Pi enabledModels = %#v, want only GPT-6 models %#v", settings["enabledModels"], wantEnabled)
 	}
 	wantSubagents := map[string]any{
 		"defaultProvider": "openai-codex",
-		"defaultModel":    "openai-codex/gpt-5.6-terra",
+		"defaultModel":    "openai-codex/gpt-6-sol",
 		"modelScope": map[string]any{
 			"enforce": true,
 			"strict":  true,
 			"allow": []any{
-				"openai-codex/gpt-5.6-*",
 				"openai-codex/gpt-6-*",
 			},
 		},
 	}
 	if got := settings["subagents"]; !reflect.DeepEqual(got, wantSubagents) {
-		t.Fatalf("Pi subagents = %#v, want a strict 5.6-or-newer Codex policy %#v", got, wantSubagents)
+		t.Fatalf("Pi subagents = %#v, want a strict GPT-6 Codex policy %#v", got, wantSubagents)
 	}
 	models := r.piModels(t)
 	if catalog, _ := models["providers"].(map[string]any); catalog != nil {

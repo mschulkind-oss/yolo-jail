@@ -461,15 +461,15 @@ yolo.derive("pi", "settings", function(ctx)
   -- `/codex/responses` to one that does not. The shipped codex profile selects the stable
   -- default below; a user profile may state another exact Pi model id as `model`.
   if ctx.selected_provider == "openai-codex" then
-    -- The subscription catalog currently exposes these as the supported 5.6-or-newer
+    -- The subscription catalog currently exposes these as the supported GPT-6
     -- choices. Keep the list explicit: the provider wildcard would also make retired
     -- models selectable, and a future catalog entry needs an intentional policy decision.
-    local model = (ctx.profile and ctx.profile.model) or "gpt-5.6-terra"
+    -- GPT-5.6 Terra has no GPT-6 successor; Sol carries the balanced role now.
+    local model = (ctx.profile and ctx.profile.model) or "gpt-6-sol"
     return {
       enabledModels = {
-        "openai-codex/gpt-5.6-luna",
-        "openai-codex/gpt-5.6-terra",
-        "openai-codex/gpt-5.6-sol",
+        "openai-codex/gpt-6-luna",
+        "openai-codex/gpt-6-sol",
         "openai-codex/gpt-6-astra",
       },
       -- Pi-subagents has its own default, independent of Pi's chat selection.
@@ -482,7 +482,6 @@ yolo.derive("pi", "settings", function(ctx)
           enforce = true,
           strict = true,
           allow = {
-            "openai-codex/gpt-5.6-*",
             "openai-codex/gpt-6-*",
           },
         },

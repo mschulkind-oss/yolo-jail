@@ -238,7 +238,7 @@ func TestCodexResponsesLiveSmoke(t *testing.T) {
 	srv := httptest.NewServer(NewCodexResponsesHandler(CodexResponsesBaseURL, endpoint))
 	defer srv.Close()
 
-	for _, model := range []string{"gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra"} {
+	for _, model := range []string{"gpt-6-luna", "gpt-6-sol", "gpt-6-astra"} {
 		t.Run(model, func(t *testing.T) {
 			bodyJSON := `{"model":"` + model + `","max_tokens":64,"stream":true,"thinking":{"type":"adaptive"},"messages":[{"role":"user","content":"Reply with OK."}]}`
 			resp, err := http.Post(srv.URL+"/v1/messages", "application/json", strings.NewReader(bodyJSON))
@@ -261,7 +261,7 @@ func TestCodexResponsesLiveSmoke(t *testing.T) {
 		})
 	}
 	t.Run("hosted web search", func(t *testing.T) {
-		bodyJSON := `{"model":"gpt-5.6-terra","max_tokens":64,"stream":true,"tools":[{"type":"web_search_20260318","name":"web_search"}],"messages":[{"role":"user","content":"Search the web for the current UTC offset of New York and answer in one sentence."}]}`
+		bodyJSON := `{"model":"gpt-6-sol","max_tokens":64,"stream":true,"tools":[{"type":"web_search_20260318","name":"web_search"}],"messages":[{"role":"user","content":"Search the web for the current UTC offset of New York and answer in one sentence."}]}`
 		resp, err := http.Post(srv.URL+"/v1/messages", "application/json", strings.NewReader(bodyJSON))
 		if err != nil {
 			t.Fatal(err)

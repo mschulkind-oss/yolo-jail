@@ -64,25 +64,25 @@ yolo.derive("claude", "settings", function(ctx)
   -- Claude Code's picker accepts exact gateway model IDs.  The Codex Responses
   -- bridge likewise sends model IDs unchanged, so expose the subscription
   -- catalog directly instead of asking users to infer a Claude tier alias.
-  -- Replacing the built-ins prevents retired pre-5.6 choices from leaking into
+  -- Replacing the built-ins prevents retired pre-6 choices from leaking into
   -- a Codex-profile launch; `Default` resolves to ANTHROPIC_MODEL below.
   if ctx.selected_provider == "openai-codex" then
     -- The client retains a hard-coded Default row. Constraining Default makes
-    -- it resolve to the first allowlisted ID (Terra), while modelPicker keeps
-    -- the user-facing choice order below independent of that fallback rule.
+    -- it resolve to the first allowlisted ID (GPT-6 Sol, the balanced model),
+    -- while modelPicker keeps the user-facing choice order below independent
+    -- of that fallback rule. GPT-5.6 Terra has no GPT-6 successor: Sol carries
+    -- the balanced role now, so the medium tier is gone.
     out.availableModels = {
-      "gpt-5.6-terra",
+      "gpt-6-sol",
       "gpt-6-astra",
-      "gpt-5.6-sol",
-      "gpt-5.6-luna",
+      "gpt-6-luna",
     }
     out.enforceAvailableModels = true
     out.modelPicker = {
       options = {
-        { model = "gpt-6-astra",   label = "GPT-6 Astra",   description = "Frontier" },
-        { model = "gpt-5.6-sol",   label = "GPT-5.6 Sol",   description = "Most capable" },
-        { model = "gpt-5.6-terra", label = "GPT-5.6 Terra", description = "Balanced" },
-        { model = "gpt-5.6-luna",  label = "GPT-5.6 Luna",  description = "Fast" },
+        { model = "gpt-6-astra", label = "GPT-6 Astra", description = "Frontier" },
+        { model = "gpt-6-sol",   label = "GPT-6 Sol",   description = "Balanced" },
+        { model = "gpt-6-luna",  label = "GPT-6 Luna",  description = "Fast" },
       },
       replaceBuiltInOptions = true,
     }
@@ -121,14 +121,14 @@ yolo.env("claude", function(ctx)
       -- Pin a fresh Codex-profile chat and every unassigned subagent to the
       -- stable balanced model. The picker above remains available for an
       -- intentional per-session choice.
-      ANTHROPIC_MODEL = (ctx.profile and ctx.profile.model) or "gpt-5.6-terra",
-      CLAUDE_CODE_SUBAGENT_MODEL = (ctx.profile and ctx.profile.model) or "gpt-5.6-terra",
+      ANTHROPIC_MODEL = (ctx.profile and ctx.profile.model) or "gpt-6-sol",
+      CLAUDE_CODE_SUBAGENT_MODEL = (ctx.profile and ctx.profile.model) or "gpt-6-sol",
       -- Claude Code retains its own Default row even when custom picker
-      -- options replace the built-ins. Pin and label that row as Terra too,
+      -- options replace the built-ins. Pin and label that row as Sol too,
       -- so choosing it cannot silently return to the Claude subscription
       -- model advertised by the local client.
-      ANTHROPIC_DEFAULT_OPUS_MODEL = "gpt-5.6-terra",
-      ANTHROPIC_DEFAULT_OPUS_MODEL_NAME = "GPT-5.6 Terra",
+      ANTHROPIC_DEFAULT_OPUS_MODEL = "gpt-6-sol",
+      ANTHROPIC_DEFAULT_OPUS_MODEL_NAME = "GPT-6 Sol",
       ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION = "Balanced (default)",
       -- These are the Responses models' real 1.05M-token context capacity and
       -- Claude Code's documented 1M maximum proactive-compaction threshold.

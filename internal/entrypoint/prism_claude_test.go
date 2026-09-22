@@ -317,14 +317,14 @@ func TestConfigureClaudePrismCodexModelPicker(t *testing.T) {
 		t.Errorf("enforceAvailableModels = %v, want true", got["enforceAvailableModels"])
 	}
 	allowed, ok := got["availableModels"].([]any)
-	if !ok || len(allowed) != 4 || allowed[0] != "gpt-5.6-terra" {
-		t.Errorf("availableModels = %v, want Terra first so Default resolves to Terra", got["availableModels"])
+	if !ok || len(allowed) != 3 || allowed[0] != "gpt-6-sol" {
+		t.Errorf("availableModels = %v, want Sol first so Default resolves to Sol", got["availableModels"])
 	}
 	options, ok := picker["options"].([]any)
 	if !ok {
 		t.Fatalf("modelPicker.options missing/!array: %v", picker["options"])
 	}
-	want := []string{"gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"}
+	want := []string{"gpt-6-astra", "gpt-6-sol", "gpt-6-luna"}
 	if len(options) != len(want) {
 		t.Fatalf("modelPicker.options = %v, want %v", options, want)
 	}

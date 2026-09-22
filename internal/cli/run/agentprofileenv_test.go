@@ -290,14 +290,14 @@ func TestAssembleEmitsCodexBridgeProfileEnv(t *testing.T) {
 		"ANTHROPIC_AUTH_TOKEN")
 	want := []string{
 		"ANTHROPIC_BASE_URL=http://127.0.0.1:8215",
-		"ANTHROPIC_DEFAULT_OPUS_MODEL=gpt-5.6-terra",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL=gpt-6-sol",
 		"ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION=Balanced (default)",
-		"ANTHROPIC_DEFAULT_OPUS_MODEL_NAME=GPT-5.6 Terra",
-		"ANTHROPIC_MODEL=gpt-5.6-terra",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL_NAME=GPT-6 Sol",
+		"ANTHROPIC_MODEL=gpt-6-sol",
 		"CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000",
 		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
 		"CLAUDE_CODE_MAX_CONTEXT_TOKENS=1050000",
-		"CLAUDE_CODE_SUBAGENT_MODEL=gpt-5.6-terra",
+		"CLAUDE_CODE_SUBAGENT_MODEL=gpt-6-sol",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("codex profile env = %q, want %q", got, want)
