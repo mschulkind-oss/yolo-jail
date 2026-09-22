@@ -104,3 +104,45 @@ machine-specific one, or scratch space you do not want in git. The jail already 
 that slot given a home yolo does not overwrite, which is why it was a defect rather than a design
 choice. As an ordinary pack entry appended last it already holds layer 4's precedence, so the fix was
 to DELETE the fourth layer, not repoint it.
+
+## A jail does not shadow workspace MCP config
+
+**Decided 2026-09-22, and the decision is argued in
+[`../design/workspace-mcp-sources.md`](../design/workspace-mcp-sources.md). This entry exists so it is
+not re-proposed.**
+
+**What was considered.** `internal/cli/run/assemble.go` bound `/dev/null` over
+`<workspace>/.vscode/mcp.json` so an in-jail agent read an empty file where the workspace has a real
+one. The stated purpose was to stop `npx`-style MCP servers the jail does not have from being started
+by a *host* VS Code config that happened to sit in the mounted workspace.
+
+**What was chosen instead.** Remove it. **An agent finding the workspace's own MCP config is desired**
+— the file is the repo's or the user's, and keeping config from an agent is not a goal yolo has. The
+canonical `mcp_servers` table is a source, not a filter.
+
+**Why, in the order that settled it.**
+
+1. **The framing was wrong.** There is no "host config must not reach the jail agent" property to
+   protect, so the shadow had no goal to serve.
+2. **It was never a boundary anyway.** Its only in-jail reader is Copilot CLI, which loads *three*
+   repo-root MCP files — `.mcp.json`, `.vscode/mcp.json`, `.devcontainer/devcontainer.json` — and
+   Claude loads a fourth, project `.mcp.json`. One blanked file is not a boundary; the measured sets
+   are in [§2 of the design](../design/workspace-mcp-sources.md#2-what-each-agent-reads-at-project-scope--measured).
+3. **It had a real cost with no matching benefit.** The `/dev/null` bind makes the destination a
+   character device (`1:3`), which git can neither hash nor `git add`; on a **tracked**
+   `.vscode/mcp.json` — a repo that commits one — that is a permanently dirty, uncommittable path.
+   And the bind fired on file *existence*, not on any agent reading it, so jails with no reader paid it
+   for nothing.
+
+**Do not re-add this, and do not "fix" it by binding an empty regular file.** An empty regular file is
+fail-**open** in the one way that matters: git would stage the empty blob, so an in-jail
+`git commit -a` would record an *emptied* config. The device node fails closed, and that is the
+property to keep if the bind ever comes back.
+
+⚠ **A separate concern lives one step over and must not be folded back in.** The bind was `:ro`, so
+removing it makes the file writable by in-jail agents. If the worry is a jailed agent writing a file
+the **host** later executes, that is the blind cell — 
+[`../reference/host-execution-from-the-workspace.md`](../reference/host-execution-from-the-workspace.md#the-two-axes)
+— and its instrument is `workspace_readonly` and its protected-path list, not a `/dev/null` bind.
+Root `.mcp.json` and `.git/hooks` were already writable in-jail, so this was one entry on a list that
+was never complete.

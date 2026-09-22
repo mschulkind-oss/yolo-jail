@@ -235,6 +235,11 @@ change in one place rather than a call-site hunt.
 
 ## What this does not license
 
+- **Not** a filter on a workspace's own MCP config. yolo composes the canonical table as a
+  *source*; a repo's `.vscode/mcp.json` or `.mcp.json` reaching the agent is intended, and the
+  `/dev/null` shadow that used to blank one of them was removed on 2026-09-22 — see
+  [`../design/workspace-mcp-sources.md`](../design/workspace-mcp-sources.md) for the position, the
+  measured per-agent file sets, and the one open precedence question.
 - **Not** a per-tool branch in core. Core publishes the domain table; the pack projects it.
 - **Not** `${VAR}` interpolation, in either notch, in any field.
 - **Not** a new sidecar file for convergence. The fold and the provenance record answer it.
