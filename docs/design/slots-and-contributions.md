@@ -231,7 +231,7 @@ green gate.
    `<slot>/<pack>`; destination borrowing landed it at the slot ROOT, so one `pack.json` delivered
    to two different paths and the host variant put a contributor's whole tree where the owner's own
    content and every other contributor's go — [OQ-4](./pi-pack-extensions.md#10-decision-ledger)
-   and §8 invariant 2 ("collisions are impossible"), violated at one of two notches. The join now
+   and [§8](./pi-pack-extensions.md#8-invariants-and-failure-modes) invariant 2 ("collisions are impossible"), violated at one of two notches. The join now
    lives in ONE function both notches call
    ([`packload.SlotLanding`](../../internal/packload/mergedest.go)), and
    [`filesslotparity_test.go`](../../internal/cli/run/filesslotparity_test.go) pins the two against
@@ -507,7 +507,7 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    the live case), it carries a `Kind` and no address, so it must match slots by SOMETHING — and the
    only candidates are a conventional name or the kind itself.
 
-   <!-- vantage: oq id=OQ-D8 leaning="Conventional names, and say so: the slot for a kind is named for the kind (`briefing`, `skills`), so `to: \"pi/briefing\"` is writable without reading pi's manifest and the kind-only borrower still resolves." -->
+   <!-- vantage: oq id=OQ-D8 leaning="Conventional names, and say so: the slot for a kind is named for the kind (`briefing`, `skills`), so `to: pi/briefing` is writable without reading pi's manifest and the kind-only borrower still resolves." -->
 
    _Leaning:_ conventional, and stated as a rule rather than left to convention — the slot that
    receives a `kind` is NAMED for that kind. It is the only reading under which a content pack can
@@ -624,7 +624,7 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
 | **OQ-D1** | **A second axis, `exposes`.** A `kind` names a contribution; a slot is not one, and making it a kind puts the receiving role inside the supplying vocabulary | 2026-09-20 | [§2](#2-what-a-kind-is-and-what-a-slot-is), [§6](#6-open-questions) | no |
 | **OQ-D2** | **The agent (`bin`) name**, `<bin>/<slot>` — content survives swapping which pack supplies the agent. ⚠ Ratifies what `briefing` and `skills` already do in all seven agent packs; only `files` lacked it | 2026-09-20 | [§3](#3-the-address-the-agent-never-the-pack) | partly — the address exists for two of three kinds |
 | **OQ-D3** | **All three kinds.** The conflation is identical and fixing `files` alone leaves two kinds carrying the flag. ⚠ The original leaning was WITHDRAWN first (`agents` appears in no shipped manifest, and every `briefing`/`skills` contribution is already unambiguously a destination), then ruled the same way in the opposite direction once [OQ-D5](#OQ-D5) made the migration a DELETION rather than a rename | 2026-09-20 | [§6](#6-open-questions) | no |
-| **OQ-D5** | **Declared once per pack (B), stated as a rule about core's vocabulary:** core knows an "agent" only insofar as it identifies a config target; a pack provides **0 or 1** and must NAME the one it provides — declared, never derived | 2026-09-20 | [§6](#OQ-D5) | no. ⚠ [OQ-D11](#OQ-D11) is the unpriced half: core's own `mise`/`user` surface owners are not agents and have no pack to take an identity from |
+| **OQ-D5** | **Declared once per pack (B), stated as a rule about core's vocabulary:** core knows an "agent" only insofar as it identifies a config target; a pack provides **0 or 1** and must NAME the one it provides — declared, never derived | 2026-09-20 | [`OQ-D5`](#OQ-D5) | no. ⚠ [OQ-D11](#OQ-D11) is the unpriced half: core's own `mise`/`user` surface owners are not agents and have no pack to take an identity from |
 | **OQ-D4** | **Provisional.** `exposes`/`accepts` read as the receiving end; `to` is the shortest thing that is not `into`. Settled only until someone proposes better. ⚠ Its own "must not collide with an existing key" is already unmet — `to` is a JSON key three times in this schema (a jail path, a `/ctx` path, a protocol), and `adapts.to` would sit inside the same contribution entry as a slot `to` | 2026-09-20 | [§6](#6-open-questions) | no |
 | **OQ-D6** | — **open, and the BLOCKER.** The migration window: a shipped pack that drops `into` bricks an older baked entrypoint's boot, or silently delivers every briefing and skill nowhere. `TestShippedAgentPacksKeepIntoForSkew` already draws the boundary — only a user's own pack may reach the addressed shape | — | — | — |
 | **OQ-D7** | — **open.** `accepts` has no vocabulary, no stated consumer and no stated relation to `kind`'s `Combine` — and combining decides whether two packs addressing one slot is legal or fatal | — | — | — |
@@ -633,4 +633,4 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
 | **OQ-D10** | — **open.** "An unmatched `to` is refused at load" collapses two severities the tree split on purpose — unknown NAME fatal, no-such-destination reported — and lands the gate where R5 forbids it (`pack lint` has no config) | — | — | — |
 | **OQ-D11** | — **open.** Pack-scope identity vs core's own surfaces (`mise/config` has no pack) and vs a pack naming a surface for an agent it does not provide (legal today, silently forbidden after) | — | — | — |
 | **OQ-D12** | — **open.** How many slots per agent, and what makes two an error. The prior one-per-agent ruling is now BUILT, so this doc must retire it explicitly | — | — | — |
-| **Alias-root layout** | **`<slot>/<pack>`, at every notch**, through one resolver — [`pi-pack-extensions.md`](./pi-pack-extensions.md) OQ-4 restated where it could be read, since the host notch had violated it since the slot shipped | 2026-09-21 | [§5.1](#51-what-landed-instead-2026-09-21) | **yes** — `packload.SlotLanding`, pinned at both notches |
+| **Alias-root layout** | **`<slot>/<pack>`, at every notch**, through one resolver — [`pi-pack-extensions.md`](./pi-pack-extensions.md) [`OQ-4`](./pi-pack-extensions.md#10-decision-ledger) restated where it could be read, since the host notch had violated it since the slot shipped | 2026-09-21 | [§5.1](#51-what-landed-instead-2026-09-21) | **yes** — `packload.SlotLanding`, pinned at both notches |
