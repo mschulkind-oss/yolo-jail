@@ -688,10 +688,14 @@ func hostFileShapeName(v any) string {
 // and a duplicate of them drifts.
 //
 // Embedded packs only, which is a real and deliberate limit: a CONFIGURED pack's surface
-// path is not reserved here, because resolving one requires the pack store (a filesystem
+// path cannot be reserved HERE, because resolving one requires the pack store (a filesystem
 // read, at config-validation time, that could fail for reasons having nothing to do with
-// the config being validated). A user who declares a host_files entry at a configured
-// pack's surface path gets two writers instead of an error.
+// the config being validated).
+//
+// ⚠ That limit no longer means a configured pack's surface gets two writers. The collision is
+// refused where it is DETECTABLE instead — SurfaceCollisions, called once the packs are loaded
+// (docs/research/local-model-endpoints.md, OQ-LM6: "a FATAL ERROR, not a merge and not a
+// precedence rule").
 func builtinSurfacePaths() []string {
 	surfacePathsOnce.Do(func() {
 		paths := []string{}
@@ -1120,4 +1124,50 @@ func (e HostFileEntry) WritableParent() string {
 		return dir
 	}
 	return e.Path
+}
+
+// SurfaceCollisions reports each host_files entry whose destination is also a surface some
+// LOADED pack composes — the two-writers case OQ-LM6 ruled is a fatal error rather than a merge
+// or a precedence rule (docs/research/local-model-endpoints.md).
+//
+// # Why this is not in checkHostFiles
+//
+// Config validation cannot resolve a configured pack's surfaces: doing so needs the pack store,
+// so a filesystem read that fails for reasons unrelated to the config would fail the config.
+// builtinSurfacePaths therefore covers EMBEDDED packs only, and says so. This function takes
+// already-resolved surface paths and is called by whoever has them — which is the point the
+// collision first becomes detectable.
+//
+// # Why it refuses rather than picking a winner
+//
+// Config claims are keyed by `agent/name`, not by path, which is the only reason one destination
+// can be claimed twice and be representable at all. There is no use case for a pack surface and a
+// host_files entry owning one file, so the config is wrong and says so — the alternative is a
+// silent second writer, and on the maintainer's own machine the colliding path is already
+// pack-managed and mounted :ro, so quietly picking a winner corrupts a working config.
+//
+// surfacePaths may be "~/"-prefixed or home-relative; both spellings are accepted, because the
+// callers read them off different structures. Returns one message per colliding entry, in entry
+// order, or nil.
+func SurfaceCollisions(entries []HostFileEntry, surfacePaths []string) []string {
+	if len(entries) == 0 || len(surfacePaths) == 0 {
+		return nil
+	}
+	owned := make(map[string]bool, len(surfacePaths))
+	for _, p := range surfacePaths {
+		owned[strings.TrimPrefix(p, "~/")] = true
+	}
+	var out []string
+	for _, e := range entries {
+		if !owned[e.Path] {
+			continue
+		}
+		out = append(out, fmt.Sprintf(
+			"config.%s: destination %s is also composed by a selected pack — two writers for one "+
+				"file is refused rather than resolved, because there is no precedence rule that "+
+				"would not silently overwrite one of them. Drop the host_files entry, or deselect "+
+				"the pack that composes that surface",
+			hostFilesKey, pytext.Repr("~/"+e.Path)))
+	}
+	return out
 }

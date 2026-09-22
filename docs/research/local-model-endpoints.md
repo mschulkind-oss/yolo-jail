@@ -1271,6 +1271,25 @@ Carry these forward; do not build on them without re-checking.
    > `~/.pi/agent/models.json` pack-managed and mounted `:ro`, so this ruling is what stops that
    > working config being corrupted.
 
+   ✅ **BUILT 2026-09-22.** `config.SurfaceCollisions` is the predicate and the launch refuses on
+   it, with a non-zero exit and one line per colliding entry naming both remedies (drop the entry,
+   or deselect the pack) and choosing no winner.
+
+   **Why it is not in `checkHostFiles`, which is where a reader looks first.** Config validation
+   *cannot* resolve a configured pack's surfaces — it would need the pack store, so a filesystem
+   read failing for reasons unrelated to the config would fail the config. `builtinSurfacePaths`
+   therefore covers EMBEDDED packs only and now says so out loud, pointing here. The refusal lives
+   where the packs are already loaded, which is the first point the collision is detectable.
+
+   **The asymmetry with every other `host_files` failure is deliberate.** A missing SOURCE is a
+   warning and degrades to the defaults layer — the feature working. Two writers for one
+   destination is a config that cannot be satisfied, so it is fatal.
+
+   ⚠ **What is NOT pinned:** the predicate has unit tests and so does the surface collector, but the
+   wiring between them sits on a path that needs a real container to reach, so deleting the
+   `SurfaceCollisions` call from the launch would leave the unit gate green. That is integration
+   territory and is recorded rather than papered over.
+
 ---
 
 ## Sources

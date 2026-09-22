@@ -1,6 +1,6 @@
 # Managing host agent configs from yolo — the host as a reduced render target
 
-**Status:** DESIGN, 2026-07-27 — largely implemented, and three questions still live: steps 1, 3, 4, 5 and 6 of [§8](#8-what-i-would-actually-do-in-order) have shipped.
+**Status:** DESIGN, 2026-07-27 — largely implemented, and two questions still live: steps 1, 3, 4, 5 and 6 of [§8](#8-what-i-would-actually-do-in-order) have shipped.
 **Step 3 completed 2026-09-17**: the two render paths are collapsed onto `render.Target`, and
 `agentcfg.Compose*` now has no non-test caller outside `internal/render` and `internal/agentcfg`.
 Written as design 2026-07-27, fact-checked 2026-07-30, **re-verified against the tree
@@ -22,7 +22,7 @@ below).
 > | 5. `FieldSet` | ✅ **shipped, and went further** | `internal/render/fieldset.go` with `Honors`/`Refuse`; plus a third state this doc never named — `HostUnimplemented`, *honored-but-unbuilt*, so a kind is never silently absent. |
 > | 6. `yolo config apply --host` | ✅ **shipped** | `applyHost` with `--assert`; end-to-end tests at `internal/cli/applyhostlocalpack_test.go` and `applyhostidempotent_test.go`. |
 >
-> **Three claims in the body are now false and would send a reader wrong:**
+> **Four claims in the body are now false and would send a reader wrong:**
 >
 > 1. ~~**[§3.4](#34-what-this-buys-immediately-before-any-host-target-exists)'s "two hand-maintained tables die" did NOT happen.**~~ **DONE 2026-09-09 —
 >    and what they had already drifted into is the finding.** `surfaceHasHostLayer` and
@@ -48,6 +48,15 @@ below).
 >    (namespaces + Landlock) and `confinement` is a real config key
 >    (`internal/config/confinement.go:45,65`). The fourth row exists in the vocabulary
 >    even where no backend fills it.
+> 4. **[§6.4](#64-what-else-changes-on-a-host-target)'s "a host target should refuse `program` entirely"
+>    is NOT what shipped** (2026-09-12). `render.HostFields` honors the kind and the caller gates it:
+>    at `yolo host apply --assert` a missing declared dependency prints its install command, one
+>    prompt covers the set, and a decline is fatal with nothing written
+>    ([`report-tiers.md`](../reference/report-tiers.md#the-dependency-rule)'s dependency rule owns the
+>    six properties). The bullet's own alternative — *"yes, with an explicit per-invocation
+>    grant"* — is the rule now, so **a reader must not cite this doc for a `program` refusal at the
+>    host notch**; 9.4 in the ledger is the current answer and [§10](#10-the-case-against-stated-fairly)'s
+>    risk bullet is sharper for it.
 >
 > **[§6.1](#61-finding-yolo-already-does-this-and-it-is-destructive) stays in the doc verbatim and must not be softened**: it is the measured
 > evidence that the target was never a parameter, and its probes are what justified
@@ -1110,7 +1119,9 @@ first.** Nothing here needs a new module or a decision about one.
    need to say, because it is the one where we already know silence was the wrong answer.
 6. **Ship `yolo config apply --host`** ([§2.2](#22-so-which-is-it-a-command-or-a-mode) option a) — `observe`, then `assert`, `own` maybe
    never, `install` refused outright ([§6.4](#64-what-else-changes-on-a-host-target)). **This is where the [§2](#2-the-motivation-an-agent-config-that-stops-at-the-container-wall) motivating case lands**: the
-   `pi` pack you already trust, applied to the host you are about to debug on.
+   `pi` pack you already trust, applied to the host you are about to debug on. ⚠ **Two of those
+   four went the other way**: `own` is a shipped `host_management` value, and `program` is
+   confirm-gated rather than refused (postscript item 4).
 
 **If only one of these ever happens, it should be #1.** If two, #1 and #3 — because #3 is the
 reason #1's class of bug exists, and it pays for itself in deleted code before the host target
@@ -1123,8 +1134,8 @@ is even reachable.
 **IDs `9.N` are an API** — `9.1` and `9.7` are cited by name from
 [`yolo-as-environment-manager.md`](yolo-as-environment-manager.md) and
 [`../plans/BACKLOG.md`](../plans/BACKLOG.md), so the numbering below is frozen even
-where an entry is now settled. Status marks added 2026-08-23; five of the eight are
-compacted into the ledger and kept in place only as anchors.
+where an entry is now settled. Status marks added 2026-08-23; every settled entry is
+compacted into the ledger below and kept in place only as an anchor.
 
 ### Decision Ledger
 
@@ -1132,27 +1143,33 @@ compacted into the ledger and kept in place only as anchors.
 | :--- | :--- | :--- | :--- |
 | 9.1 | **The second sense** — yolo is an interface for describing environments agents run in; the host target is one notch of a `confinement` dial, not a special case | 2026-07-27 | [`yolo-as-environment-manager.md`](yolo-as-environment-manager.md); shipped as `internal/render/confinement.go` + the `confinement` config key (`internal/config/confinement.go:45`) |
 | 9.3 | **`capture` does not redact — it REFUSES.** Host-side `capture`/`reset` abort unless `--force`, which removes the leak path wholesale; no notion of "sensitive key" was invented. **Amended 2026-09-12:** `reset` is now EXEMPT under `host_management: own`, because that contract answers the guard's own premise — the files are yolo's derived output, so truncating one to its pure render is the operation working rather than data loss, and adoption depends on it. `capture` stays refused at every contract, deliberately | 2026-08-23; amended 2026-09-12 | `refuseHostSideWrite` / `hostOwnsSurfaces`, [`internal/cli/configdiff.go`](../../internal/cli/configdiff.go) |
+| 9.4 | **`program` at a host target means OFFERED behind a confirm, not "never"** — and the answer came from the tree plus [`report-tiers.md`](../reference/report-tiers.md#the-dependency-rule)'s dependency rule, not from this doc. `HostFields` honors the kind (*"honored but confirm-gated by the caller"*); at `yolo host apply --assert` a missing declared dependency prints the exact install command, one prompt covers the set, a decline is FATAL with nothing written, and an install that leaves the binary missing counts as a decline. The per-invocation grant 9.4 said would need its own design got one | 2026-09-12 | `render.HostFields` + `internal/cli/applyhostdepgate.go`; [`yolo-as-environment-manager.md`](yolo-as-environment-manager.md#OQ-EM1) carries what is left (the elevation-class batching) |
 | 9.5 | **User/machine-scoped, never workspace-scoped**, exactly as [§6.6](#66-a-host-target-is-user-scoped-not-workspace-scoped) argued. The "two workspaces collide" framing was dissolved rather than answered | 2026-08-01 | `Target.ProvenanceDir()` → `<home>/.local/share/yolo-jail/host-provenance/` (`internal/render/target.go`), with the two rejected alternatives written into the doc comment |
 | 9.7 | **Fixed** — macos-user is the `guest` notch and receives packs | 2026-08-23 (verified) | `YOLO_PACK_ROOT` set in `buildBootstrapEnv` (`internal/macosuser/runplan.go`), asserted in `PlanInvariants`; `render.GuestProfileMacOS` (`confinement.go`) |
 | 9.8 | **A real fourth row, and it needed no new concept** — as predicted. Declared in the vocabulary; no backend fills it yet | 2026-08-23 (verified) | `render.GuestProfileLinux()` = namespaces + Landlock (`internal/render/confinement.go`) |
 
 ### Still live
 
-Three remain, and all three are **product/judgment questions rather than missing
-mechanism** — which is why shipping steps 1–6 did not close them.
+Two remain, and both are **product/judgment questions rather than missing
+mechanism** — which is why shipping steps 1–6 did not close them. 9.4 is in the ledger above: the
+tree answered it, and **it answered it the other way**, so the `program`-refusal is no longer
+available as anybody's mitigation.
 
 1. 💬 **9.2 (see below): does a host target defeat the sandbox's purpose?** Still open;
    it decides whether `yolo host apply` is a narrow convenience or the recommended way to
-   configure agents. _Leaning:_ narrow, and state the `program`-refusal as an invariant
-   rather than a default. **Answer:** > _(empty — fill in when decided)_
-2. 💬 **9.4 (see below): what does `program` mean on a host target, if not "never"?**
-   Still "never" in code — `HostUnimplemented`/`Refuse` (`internal/render/fieldset.go`)
-   is the mechanism, and no grant exists. _Leaning:_ keep "never"; a per-invocation
-   grant is a new security surface needing its own design, not a flag.
+   configure agents. _Leaning:_ narrow — but **the mitigation this leaning used to name is gone**.
+   `program` below `jail` is confirm-gated now (9.4), so what bounds the posture is the prompt, the
+   printed commands and the fatal decline, not a refusal. If the answer is "narrow", it has to be
+   stated as a product position and defended somewhere other than the `FieldSet`.
    **Answer:** > _(empty — fill in when decided)_
-3. 💬 **9.6 (see below): do the reservation lists survive contact with a *configured*
-   pack?** Unchanged 2026-08-23 — still init-time, still permissive-on-failure. _Leaning:_
-   leave it; [§3](#3-the-design-inside-yolo) must not make it worse and should not try to fix it.
+2. 💬 **9.6 (see below): do the reservation lists survive contact with a *configured*
+   pack?** **Narrowed, and the permissive half is gone** (2026-09-22): the lists are still
+   init-time and cover EMBEDDED packs only, but the outcome they were feared to produce — a silent
+   second writer — is refused where it becomes detectable, fatally
+   (`config.SurfaceCollisions`). What is left is a *timing* question: that refusal lives in the run
+   pipeline, so a collision with a configured pack's surface stops a launch rather than being caught
+   by `yolo check`. _Leaning:_ leave it; [§3](#3-the-design-inside-yolo) must not make it worse and
+   should not try to fix it.
    **Answer:** > _(empty — fill in when decided)_
 
 The original prose for all eight follows, unedited apart from the status marks.
@@ -1193,10 +1210,16 @@ the agent's workspace does not see host secrets. Options: refuse when `surfacesA
 false (which is [§8](#8-what-i-would-actually-do-in-order) step 1 anyway, and probably sufficient), or key-level redaction, which needs
 a notion of which keys are sensitive and I do not think we should invent one.
 
-**💬 9.4 — OPEN. What does `install` mean on a host target, if not "never"?** "Never" is my recommendation
+**✅ 9.4 — ANSWERED (2026-09-12) by the tree, and NOT with "never". What does `install` mean on a host target, if not "never"?** "Never" was my recommendation
 and also a real limitation: the most useful thing a pack could do for a fresh machine is
-*install the agent*. If the answer is eventually "yes, with an explicit per-invocation grant",
-that grant is a new security surface and needs its own design — it is not a flag.
+*install the agent*. The answer landed as the other branch of this paragraph — *"yes, with an
+explicit per-invocation grant"* — and the grant did get its own design rather than a flag:
+[`report-tiers.md`](../reference/report-tiers.md#the-dependency-rule)'s dependency rule settles the
+six properties (pre-flight, fatal at the prompt rather than at the end, one prompt with every
+command printed, silence is NO, a re-probe decides rather than an exit code, and only `program` is
+offered an install — a `requires` refuses with its remedy named). `render.HostFields` honors the
+kind and `internal/cli/applyhostdepgate.go` is the caller that gates it; there is no
+`--ignore-missing-deps`, deliberately.
 
 **✅ 9.5 — RESOLVED (2026-08-01, [§6.6](#66-a-host-target-is-user-scoped-not-workspace-scoped)): user-scoped; the collision question dissolved. Where does a host target's sidecar live, and who arbitrates?** [§4.4](#44-storage-paths--an-argument-not-a-constant)'s problem. The jail
 target's reconcile sidecars live in `<workspace>/.yolo/prism/`, which is workspace-scoped
@@ -1208,11 +1231,25 @@ sidecar is the only record of who put what there. Last-writer-wins with a shared
 probably right, but it should be *decided*, because the alternative failure is a `--revert` that
 removes another workspace's keys.
 
-**💬 9.6 — OPEN (unchanged 2026-08-23). Do the reservation lists survive contact with a *configured* pack?** [§4.1](#41-reservation-lists--untouched-and-deliberately-so) keeps them
-init-time and untouched, which is correct for the embedded corpus. But if a non-embedded pack
-ever needs to participate in a reservation — and `hostfiles.go:704-710` already documents that as
-a known gap — the lists become fallible, and the failure direction is permissive. [§3](#3-the-design-inside-yolo) must not
-make this worse; it should not try to fix it either.
+**💬 9.6 — OPEN, but NARROWED (2026-09-22). Do the reservation lists survive contact with a *configured* pack?** [§4.1](#41-reservation-lists--untouched-and-deliberately-so) keeps them
+init-time and untouched, which is correct for the embedded corpus — and a configured pack's surface
+still cannot be reserved there, because resolving one needs the pack store, i.e. a filesystem read
+at config-validation time that could fail for reasons having nothing to do with the config being
+validated (`builtinSurfacePaths` says so where it reads `packload.Embedded()`).
+
+**The failure direction is no longer permissive, which is the half this question was really about.**
+A `host_files` entry whose destination is also a configured pack's surface is REFUSED — fatally,
+by `config.SurfaceCollisions`, called once the packs are loaded, on the ruling that two writers for
+one file is an error rather than a merge or a precedence rule. So the reservation list stopped being
+the only thing between a user and a silent second writer.
+
+Two smaller things are left, and neither is the original worry. The refusal lives in the **run
+pipeline**, so it stops a launch rather than failing `yolo check`, whose `host_files` validation is
+the config-time one — shape, scope and the embedded-pack reservations — and never a comparison
+against the loaded packs' surfaces. And it compares against CONFIG surfaces only, so a destination aimed inside a pack's composed
+*skills* tree is matched by nothing ([`synced-skill-trees.md`](synced-skill-trees.md#9-alternatives-considered)
+reaches the same gap from the other side). [§3](#3-the-design-inside-yolo) must not make either
+worse; it should not try to fix them either.
 
 **✅ 9.7 — FIXED (verified 2026-08-23; it gets packs now). macos-user is the existing host-shaped target, and it currently gets no packs at all.**
 `RunDarwinBootstrap` calls `LoadJailPacks` → `ConfigurePackSurfaces` → `RunPackHooks`
@@ -1261,7 +1298,10 @@ Against the whole thing:
 - **A host target is a genuinely new risk surface** and the sandbox is the product. Pointing the
   same pipeline — including pack-supplied `installerUrl` — at a human's live environment is a
   different posture from everything else here, and [§6.4](#64-what-else-changes-on-a-host-target)'s refusals are the only thing standing
-  between the two. Refusals are a weaker guarantee than "there is no code path."
+  between the two. Refusals are a weaker guarantee than "there is no code path." ⚠ **This objection
+  got sharper rather than weaker, and the answer moved**: `program` is no longer refused below
+  `jail` — it is offered behind one confirm, with the command printed and a decline fatal (9.4).
+  What separates the two postures is now a prompt, which is weaker again than a refusal.
 - **`Target` could become the thing that makes every field a matrix.** Today a pack field either
   works or the code doesn't compile. With four targets and a `FieldSet`, every new manifest field
   needs a ruling per row, and the rulings live in a different package from the field. That is

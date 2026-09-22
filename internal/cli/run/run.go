@@ -1182,6 +1182,21 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		out.printf("[yellow]Warning: host_files: %s — no host files staged[/yellow]", hfErr.Error())
 		hostFiles = nil
 	}
+	// TWO WRITERS FOR ONE FILE IS FATAL, and this is the first point it is detectable: config
+	// validation cannot resolve a CONFIGURED pack's surfaces (it would need the pack store), so
+	// the reservation there covers embedded packs only. Here the packs are loaded.
+	//
+	// Fatal rather than a warning, unlike every other host_files failure above it, and the
+	// asymmetry is the ruling (OQ-LM6, docs/research/local-model-endpoints.md): a missing SOURCE
+	// degrades to the defaults layer, which is the feature working; two writers for one
+	// destination is a config that cannot be satisfied, and picking a winner quietly is how a
+	// working :ro-mounted file gets overwritten.
+	if cols := config.SurfaceCollisions(hostFiles, packSurfacePaths(staged.packs)); len(cols) > 0 {
+		for _, c := range cols {
+			out.printf("[bold red]%s[/bold red]", c)
+		}
+		return 1
+	}
 	// Provision each destination's writable staging BEFORE the argv is assembled:
 	// a missing bind source kills the whole container, and the GlobalHome symlink
 	// hatch must exist before the :ro base is applied.
@@ -1262,6 +1277,12 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// caused).
 	forwardHostPorts := o.hostForwardPorts(cfg, rt)
 	if appliedNetMode(rt, o.resolveNetMode(cfg), o.inContainer()) == "bridge" {
+		// Disclose BEFORE merging, while the declared list is still separable from the
+		// implicit one — after the merge there is no way to tell which ports the user wrote
+		// (OQ-PC2). This is the only disclosure site: assembleRunCmd performs the same merge
+		// for the container argv and must not print a second copy.
+		discloseImplicitProviderForwards(func(msg string) { out.printf("[dim]%s[/dim]", msg) },
+			forwardHostPorts, channel.localProviderForwardSources)
 		forwardHostPorts = mergeHostForwards(forwardHostPorts, channel.localProviderForwards)
 	}
 	var portSocketDir string
@@ -2071,4 +2092,27 @@ func refuseUnbuiltNotch(o *Options, cfg *jsonx.OrderedMap) (int, bool) {
 		return 1, true
 	}
 	return 0, false
+}
+
+// packSurfacePaths is every destination the loaded packs compose, for the two-writers refusal.
+//
+// A pack whose surfaces do not resolve contributes NOTHING rather than failing the launch: its own
+// problems are reported on their own path, and a pack that cannot say what it composes cannot be
+// shown to collide with anything. Erring the other way would turn an unrelated pack defect into a
+// host_files error.
+func packSurfacePaths(packs []*packload.Pack) []string {
+	var out []string
+	for _, p := range packs {
+		if p == nil {
+			continue
+		}
+		surfaces, probs := p.Surfaces()
+		if len(probs) > 0 {
+			continue
+		}
+		for _, sf := range surfaces {
+			out = append(out, sf.Path)
+		}
+	}
+	return out
 }
