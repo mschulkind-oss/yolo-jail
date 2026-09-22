@@ -1200,13 +1200,14 @@ below, which is why the tense in this paragraph is the tense it is.
 > the header three lines above it. It is a fifth direction the constraint sentence below never
 > counted. **RULED AND BUILT 2026-09-13: name the absence, keep `/workspace` canonical.** The
 > block gains a native-backend arm giving the real workspace path, the sandbox home and a macOS
-> line, plus an explicit *"There is no `/workspace` on this backend"* — because the three
-> built-in skills carry **25** `/workspace` references between them as static markdown, and this
-> bullet is the one place a macos-user agent learns they mean its own path. The two alternatives
+> line, plus an explicit *"There is no `/workspace` on this backend"* — because the built-in skills
+> spell `/workspace` throughout as static markdown, and this bullet is the one place a macos-user
+> agent learns they mean its own path. The two alternatives
 > were priced and declined: templating those skills is the larger change, and making
 > `/workspace` real (an `/etc/synthetic.conf` entry, the mechanism nix uses for `/nix`) is a
-> host-level mutation gated on [§6.1](#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured)'s
-> unmeasured symlink question. Container bytes are unchanged, and `Home` is threaded from the
+> per-machine host mutation needing a reboot, which
+> [§6.1](#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured) puts off the table for
+> root-dir creation generally. Container bytes are unchanged, and `Home` is threaded from the
 > run path because `jailcontent` cannot import `macosuser` without a cycle through
 > `entrypoint`.
 
@@ -1250,8 +1251,9 @@ three. So the briefing fixes land together or not at all.
 5. **The materialize mechanism** ([OQ-DP4](#decision-ledger): build it).
    [DP-L1](#6-alignable-with-the-mechanism-and-its-cost) — five cells, and the largest single
    piece of work in this catalog. Read [§6.1](#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured)
-   first: the mechanism is a copy under `/var/yolo-jail`, the `:ro` half is free for four of the
-   five cells, and probe 3 there is the measurement that has never been made.
+   first: the mechanism is a copy under `/var/yolo-jail`, and the `:ro` half really is free for four
+   of the five cells — probe 3 there OBSERVED it on hardware, `EPERM` from the profile's root write
+   deny rather than `EACCES` from the root-owned directory's DAC.
 6. **The third launch spelling**, if [OQ-DP7](#OQ-DP7) says close it:
    [DP-B44](#562-the-rows), which is a behaviour change and a launcher split rather than an
    edit. [DP-B43](#562-the-rows) — macos-user's undelivered aliases — rides with it or with

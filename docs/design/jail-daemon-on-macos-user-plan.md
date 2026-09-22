@@ -1,24 +1,26 @@
 ---
 title: "Plan: start a jail daemon on macos-user"
 date: 2026-09-17
-status: draft
+status: in-review
 tags: [macos-user, loopholes, jail-daemon, parity, plan]
-summary: "The in-jail half of the loophole lifecycle on the native macOS backend. The host half shipped 2026-09-17; the payload that names the daemons is composed inside a container argv builder and nothing native reads it. Steps 1, 2 and 5 are buildable cold. Steps 3 and 4 are blocked on two questions nobody has filed: how a declared argv resolves with no image, and whether the daemon runs confined."
+summary: "The in-jail half of the loophole lifecycle on the native macOS backend. The host half shipped 2026-09-17. Steps 1 and 2 shipped 2026-09-18 — one exported payload composer, hoisted above the backend dispatch, and a Declined: line per declared daemon — so the backend now names what it will not run; step 5 (retracting the stale prose) is buildable cold and partly landed. Still no jail daemon runs anywhere on this backend. Steps 3 and 4 are blocked on OQ-DP8 and OQ-DP9 in declaration-parity.md: how a declared argv resolves with no image, and whether the daemon runs confined."
 vantage:
   status-chip: true
 ---
 
 # Plan: start a jail daemon on macos-user
 
-**Status:** DESIGN, 2026-09-21. Steps 1, 2 and 5 are buildable cold; steps 3 and 4 are blocked on
-[OQ-DP8](declaration-parity.md#OQ-DP8) and [OQ-DP9](declaration-parity.md#OQ-DP9). Written against
-`6ded2789`, 2026-09-17; re-headed 2026-09-21 because a reader could not tell from it what was
-broken.
+**Status:** PARTLY BUILT, 2026-09-22. **Steps 1 and 2 shipped 2026-09-18** (`f6387968`): the
+payload is composed once above the backend dispatch and the native arm declines each entry by
+name. Step 5 is buildable cold and partly landed. Steps 3 and 4 — the ones that would make a jail
+daemon actually run — are blocked on [OQ-DP8](declaration-parity.md#OQ-DP8) and
+[OQ-DP9](declaration-parity.md#OQ-DP9).
 
 > **In short.** Half of every loophole is a process that runs *inside* the jail. On
-> `macos-user` that half has never run — the list of which daemons to start is composed inside
-> a **container argv builder**, and the native backend never reads it. So the backend accepts
-> the declarations, starts nothing, and until 2026-09-18 said nothing either.
+> `macos-user` that half has never run, and it still does not: the backend accepts the
+> declarations and starts nothing. What changed is that it now SAYS so — one `Declined:` line
+> per declared daemon. The silence is fixed; the absence is not, and the absence is what steps
+> 3 and 4 are for.
 
 ## What this is for, if you have no context
 
@@ -64,8 +66,9 @@ cross. Where a jail daemon does meet the transport it is a **client** of it, rea
 endpoint file `yolo-ps` reads, and it carries no crossing claim for that reason
 ([`loophole-system.md:519`](../reference/loophole-system.md)).
 
-**What a user actually experiences today.** Nothing dramatic, which is the problem — a bare
-`"packs": ["claude"]` on this backend selects three jail daemons and starts none:
+**What a user actually experiences today.** A launch line naming three declined daemons, and then
+three failures that arrive later and elsewhere — a bare `"packs": ["claude"]` on this backend
+selects three jail daemons and starts none:
 
 - **Codex cannot refresh its token.** `packs/codex` sets
   `CODEX_REFRESH_TOKEN_URL_OVERRIDE` to `127.0.0.1:1460`, and the adapter that should be
@@ -78,11 +81,12 @@ endpoint file `yolo-ps` reads, and it carries no crossing claim for that reason
   worth reading, because it is not the one you would guess: that terminator may not need to exist
   **on any backend**.
 
-**Why it cannot just be switched on.** The payload naming the daemons is built inside the
-container argv assembler, and `macosuser` is a different path that never sees it. Hoisting the
-composition above the backend dispatch is the approved mechanism
-([`DP-L3`](declaration-parity.md#decision-ledger)) and is most of steps 1 and 2. What it does not
-settle is the two things a builder cannot proceed without, and both are now filed:
+**Why it cannot just be switched on.** The payload naming the daemons used to be built inside the
+container argv assembler, where `macosuser` — a different path — never saw it. Hoisting the
+composition above the backend dispatch was the approved mechanism
+([`DP-L3`](declaration-parity.md#decision-ledger)) and is most of steps 1 and 2; that hoist
+shipped, and it bought the decline rather than a daemon. What `DP-L3` does not settle is the two
+things a builder cannot proceed without, and both are now filed:
 
 | Owed | Question |
 | :--- | :--- |
@@ -105,8 +109,10 @@ first thing to be wrong — an overtaken line is a note to correct, never a spec
 ## What is actually broken, measured
 
 `packs/claude` [`needs`](../reference/wire-bridge.md#needs--a-conditional-pack-dependency) both
-`openai-auth` and `wire-bridge` **unconditionally**, so a bare `"packs": ["claude"]` on this
-backend selects two jail daemons and starts neither, with nothing said:
+`openai-auth` and `wire-bridge` **unconditionally** and declares a loophole of its own, so a bare
+`"packs": ["claude"]` on this backend selects three jail daemons and starts none. Two of the three
+are what steps 3 and 4 would fix; the third is declined for good ([Don't](#dont)). The launch
+names each of them:
 
 | Declaration | `jail_daemon.cmd` | Native state |
 | :--- | :--- | :--- |
@@ -119,10 +125,11 @@ backend selects two jail daemons and starts neither, with nothing said:
 
 | Path | Change |
 | :--- | :--- |
-| [`internal/loopholes/runtime.go`](../../internal/loopholes/runtime.go) | extract the payload composition (`runtime.go:264-268`, `:307-311`) into an exported producer; `runtimeArgsFor` calls it, so there stays exactly one composer |
-| [`internal/cli/run/run.go`](../../internal/cli/run/run.go) | compose the payload **above** the backend dispatch and pass it into `MacosUserRun` |
-| [`internal/cli/run/assemble.go`](../../internal/cli/run/assemble.go) | `assemble.go:890` consumes the hoisted value instead of calling `serviceJailDaemons` itself |
-| [`internal/macosuser/jaildaemon.go`](../../internal/macosuser) | new — native argv resolution, the runnable/not classifier, the decline line |
+| [`internal/loopholes/runtime.go`](../../internal/loopholes/runtime.go) | **done** — the composition is the exported `Set.JailDaemons`, which `runtimeArgsFor` calls, so there is exactly one composer and no ungated twin |
+| [`internal/cli/run/run.go`](../../internal/cli/run/run.go) | **done** — `jailDaemonsFor` is a statement of `Run`'s own body, **above** the backend dispatch; both arms read that one value |
+| [`internal/cli/run/assemble.go`](../../internal/cli/run/assemble.go) | **done** — assembly only SERIALIZES the hoisted payload; it no longer calls `serviceJailDaemons` itself |
+| [`internal/cli/run/jaildaemondecline.go`](../../internal/cli/run/jaildaemondecline.go) | **done** — the decline printer, and it landed here rather than in `macosuser`: it reads the composed payload, so it needs nothing native |
+| [`internal/macosuser/jaildaemon.go`](../../internal/macosuser) | new — native argv resolution and the spawn. **No runnable/not classifier**; see step 2 |
 | [`internal/macosuser/runplan.go`](../../internal/macosuser/runplan.go) | `RunPlan.JailDaemonArgv`, built beside `ProvisionArgv`; one new `PlanInvariants` rule |
 | [`internal/macosuser/orchestrator.go`](../../internal/macosuser/orchestrator.go) | start/stop bracket around `RunWithProxy`; one new `Deps` seam |
 | [`internal/cli/internal.go`](../../internal/cli/internal.go) | step 3 only — a dispatch for the in-jail daemons, if that is the ruling |
@@ -194,13 +201,21 @@ backend selects two jail daemons and starts neither, with nothing said:
 
 ## Build order
 
-1. **Extract the payload producer.** One composer, called by `runtimeArgsFor` and by the hoisted
-   site. Keep `Set`'s origin gate: an unapproved `SourcePack` contributes nothing.
+Steps 1 and 2 shipped 2026-09-18 (`f6387968`) and are kept below because 3, 4 and 5 are written
+against them.
+
+1. **Extract the payload producer.** SHIPPED as `loopholes.Set.JailDaemons` — one composer, called
+   by `runtimeArgsFor` and by the hoisted site, with `Set`'s origin gate intact (an unapproved
+   `SourcePack` contributes nothing) and no ungated package-level twin.
    → `go test ./internal/loopholes ./internal/cli/run`
-2. **Hoist the composition above the backend dispatch, and decline natively by name.** The native
-   arm classifies each entry runnable or not and prints one line per declined daemon, naming the
-   pack, the daemon and the reason. This closes the *silent* half of `DP-B7` on its own and is the
-   only step with no open question under it. Shape (a) of
+2. **Hoist the composition above the backend dispatch, and decline natively by name.** SHIPPED —
+   `run.jailDaemonsFor` is a statement of `run.Run`'s own body, above the dispatch, and both arms
+   read that one value. **The per-entry classifier this step asked for was deliberately not
+   built:** on this backend the verdict does not vary, so it would be a function with one branch
+   whose second branch was written from guesses
+   ([`jaildaemondecline.go`](../../internal/cli/run/jaildaemondecline.go) carries that reasoning).
+   The REASON is therefore stated once for the set and the NAMES one per daemon. This closed the
+   *silent* half of `DP-B7` and was the only step with no open question under it. Shape (a) of
    [`OQ-DP5`](declaration-parity.md#decision-ledger) — a coded decline plus a banner line, **not**
    a warning. → `go test ./internal/cli/run`
 3. **Resolve `argv[0]` natively.** Blocked; see [Blockers](#blockers). Whatever the ruling, the
@@ -212,15 +227,16 @@ backend selects two jail daemons and starts neither, with nothing said:
    exit path the env-file sweep already covers. Kill the process **group**, matching container
    teardown. Blocked on the same ruling as step 3 plus the confinement half.
    → `go test ./internal/macosuser`
-5. **Retract the stale prose.** Independent of 3 and 4, and worth landing with step 2.
+5. **Retract the stale prose.** Independent of 3 and 4, and half landed with step 2 — the two
+   remaining targets are listed under [Ships with](#ships-with).
    → `uvx vantage-check docs/`
 
 ## Verification split
 
 | Step | A Linux `go test` proves | The Mac runner proves | A human must run |
 | :--- | :--- | :--- | :--- |
-| 1 | the container argv is byte-identical before and after, and the gate still drops an unapproved pack. Mutation: delete the producer call from `runtimeArgsFor` and the container test must fail | — | — |
-| 2 | the classifier's verdict per declaration, and that the decline line is emitted for each — asserted at the call site, not on the classifier alone | that the line appears on a real launch | — |
+| 1 | **done** — the container argv is byte-identical either way, and the gate still drops an unapproved pack (`TestJailDaemonPayloadArgvIsByteIdentical`, `TestJailDaemonsHonorsTheOriginGate`). Mutation: delete the producer call from `runtimeArgsFor` and the container test fails | — | — |
+| 2 | **done** — that one decline line is emitted per declared daemon, asserted by driving `Run` rather than the printer, so deleting the call from the native arm fails the tests | that the line appears on a real launch | — |
 | 3 | `yolo <subcommand> --version`-class dispatch only; no daemon is started by a test | that the resolved path is executable as the sandbox account | — |
 | 4 | the argv shape: `sandbox-exec -f <profile>` present, wrapped by `ExecWithEnvFile`, no composed value on the argv, and `PlanInvariants` refusing a payload with no argv | `TestMacosUserJailDaemonStarts` in [`integration/macosuserjaildaemon_test.go`](../../integration): with `hello-daemon` enabled, `~/.local/state/yolo-jail-daemons/hello-daemon.log` exists **and is non-empty** (empty is the spawn-failure symptom), and no supervisor survives the session | two concurrent launches of one workspace, for the `1460` collision; and whether Codex actually refreshes through the adapter — no automated test may start an agent |
 | 5 | `vantage-check` link and anchor resolution | — | — |
@@ -236,21 +252,24 @@ backend selects two jail daemons and starts neither, with nothing said:
   from `assemble.go`") is exactly what step 1 does. Re-point it at the hoisted site — do not relax
   it until green. Same for the `YOLO_JAIL_DAEMONS`-appears-exactly-once assertions there and in
   [`internal/cli/run/wirebridgepack_test.go`](../../internal/cli/run/wirebridgepack_test.go).
-- **Docs whose claims this makes false**, by path:
-  - [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md) — the
-    "Linux-only boot steps … **the daemon supervisor** … are deliberately **not** run" sentence
-    (`macos-user-nix-and-features.md:216-218`), which carries no id and no rationale beyond "no-ops
-    or nonsensical on a native user". Retract it in place, the way that doc retracts twice already.
-    Its "loopholes: mostly moot" section also still says no host service starts here and that
-    `EndpointGrantCommands` has no call site — both already falsified on 2026-09-17.
-  - [`loopholes.md`](../guides/loopholes.md) — the backend table row giving `macos-user`
-    **nothing**, "that arm returns from `Run()` long before `startLoopholes` is reached".
-  - [`OQ-T4`](../reference/loophole-transport.md#oq-t4) says the separate-user grant "stays built
-    and uncalled" — amend, do not delete; and the second clause of
-    [where a loophole does nothing](../reference/loophole-system.md#where-a-loophole-does-nothing).
-  - [`declaration-parity.md`](declaration-parity.md) — mark `DP-B7` closed and `DP-L3` built in
-    [§11](declaration-parity.md#11-what-i-would-build-in-order)'s note, which that doc names as the
-    authority for which rows a wave closed.
+- **Docs whose claims this makes false**, by path. This is step 5, and it is half done:
+  - **DONE** — [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md): the
+    "Linux-only boot steps … **the daemon supervisor** … are deliberately **not** run" sentence now
+    carries a warning retracting it in place, and the "loopholes: mostly moot" section names both of
+    its 2026-09-17 falsehoods (that no host service starts here, and that `EndpointGrantCommands`
+    has no call site) as retracted.
+  - **DONE** — [`loopholes.md`](../guides/loopholes.md): the backend table row no longer gives
+    `macos-user` **nothing**. It gives "every host daemon, and no jail daemon", and points at the
+    decline printer.
+  - **OUTSTANDING** — [`OQ-T4`](../reference/loophole-transport.md#oq-t4) still rests the
+    separate-user grant's "stays built and uncalled" on the backend starting "no host services at
+    all", which has been false since 2026-09-17. Amend, do not delete. Same for the backend clause
+    of [where a loophole does nothing](../reference/loophole-system.md#where-a-loophole-does-nothing),
+    which still reads "a no-VM user-level backend that never reaches loophole startup".
+  - **DONE** — [`declaration-parity.md`](declaration-parity.md): `DP-B7`'s silence half is marked
+    closed both in its row and in [§11](declaration-parity.md#11-what-i-would-build-in-order)'s
+    note, the authority that doc names for which rows a wave closed. `DP-L3` stays **approved and
+    unbuilt**, which is correct — steps 3 and 4 are what would build it.
 - **Roadmap:** 📦 row 5 of [`roadmap.md`](../plans/roadmap.md) moves in the same commit as this
   file's status.
 - **Cheap and yours:** the producer's return type (`[]any` matching today's payload is fine — it is

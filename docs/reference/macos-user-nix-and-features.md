@@ -512,23 +512,26 @@ only place the values themselves are stated.
 | Content-overlay wire var | `YOLO_DARWIN_HOME_OVERLAY` | `internal/cli/run/macoshomeoverlay.go`, `entrypoint.InstallHomeOverlay` |
 | Pack tree wire var | `YOLO_PACK_ROOT`, baked onto the bootstrap argv | `macosuser.BuildRunPlan`, asserted by `PlanInvariants` |
 | Login-rc PATH var | `YOLO_DARWIN_LOGIN_PATH`, assembled from `macosuser.SandboxPath` | `entrypoint.DarwinBootstrapOptions`, `WriteLoginRC` |
-| Unified-logging dial | `macos_log`: `off` / `user` / `full` — ⚠ **pinned at `off`; the key has no way in**, see the warning below | `macosuser.MacosLogWrapperScript`, `macosuser.macosLogMode`, `entrypoint.InstallYoloLog` |
+| Unified-logging dial | `macos_log`: `off` / `user` / `full`, default `off` | `macosuser.MacosLogWrapperScript`, `macosuser.macosLogMode`, `entrypoint.InstallYoloLog` |
 | Seatbelt write policy | deny all, re-allow the workspace, the sandbox home, and the temp dirs | `macosuser.SeatbeltProfile` |
 | Seatbelt read denials | under the users root (with intermediate literals re-allowed), under `/Volumes` except the boot volume, and the keychain dir | `macosuser.SeatbeltProfile`, `ancestorLiterals` |
 | Process visibility | allowed wholesale | `macosuser.SeatbeltProfile` |
 | The narrower capture profile | drops the workspace and the sandbox home from the write set | `macosuser.SeatbeltCaptureProfile` |
 | Host nix daemon opt-in (container backends only) | `YOLO_NIX_HOST_DAEMON` | `internal/cli/run/hostprobes.go` |
 
-> [!WARNING]
-> **`macos_log` is a dial with no way in.** Every piece of the feature ships — `macosLogMode`
-> reads the key, `MacosLogWrapperScript` generates the `yolo-log` helper in all three modes, the
-> native bootstrap installs it — but `macos_log` is **not in core's accepted top-level key set**
-> (`config.knownTopLevelConfigKeys`), and an unrecognized key is a **fatal** config error, not a
-> warning. So a workspace that declares it never launches (`config.macos_log: unknown key`,
-> measured 2026-09-16) and every workspace that does launch gets the `off` default — whose own
-> remedy text tells the user to set the key yolo refuses. Reachable through nothing else: no
-> `security` subkey, no env var a user is meant to set. The fix is core's, not this backend's:
-> one entry in that key set plus the `config-ref` row an accepted key owes.
+> [!NOTE]
+> **`macos_log` now validates, and the class it came from is worth keeping.** The key was READ,
+> HONORED and DOCUMENTED long before it was ACCEPTED: the bootstrap installed the `yolo-log` helper
+> from it in all three modes while `config.knownTopLevelConfigKeys` had no entry — and an
+> unrecognized key is a **fatal** config error, so every workspace declaring it was refused,
+> including the one the helper's own remedy text told the user to write. It is accepted now
+> (`internal/config/config.go`'s key set, plus the `config-ref` row an accepted key owes), and
+> `internal/config/macoslog_test.go` pins the mundane fact that the key validates at all, *"because
+> that is the fact that was false."*
+>
+> **The reusable lesson is the gap, not the key:** a dial can be fully implemented, fully
+> documented and completely unreachable, and nothing in either half notices. Reading a key is not
+> accepting it.
 
 ## Why it's this way
 
