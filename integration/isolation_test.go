@@ -8,18 +8,18 @@ import (
 	"time"
 )
 
-// Isolation tests: AGENTS.md placement, per-side venv/mise shadowing, VS Code
-// MCP shadowing, and Overmind
-// socket isolation. Each asserts that host-side workspace state does not leak
-// through the /workspace bind mount into the jail (and vice versa).
+// Isolation tests: AGENTS.md placement, per-side venv/mise shadowing, the
+// REMOVED VS Code MCP shadow (now asserted visible), and Overmind socket
+// isolation. Each asserts that host-side workspace state does not leak through
+// the /workspace bind mount into the jail (and vice versa).
 
-// TestWorkspaceIsolation confirms five independent host↔jail isolation
-// properties in ONE jail launch. All five use the tempProject fixture and their
-// host-side setups write to DISJOINT workspace paths (AGENTS.md, .venv/*,
-// .vscode/mcp.json, .overmind.sock), so co-locating them causes no interference;
-// merged to pay the ~12-13s container cold-start once instead of five times.
-// Each property keeps its own fenced probe + independent assertion, so leak/
-// shadow coverage is fully preserved:
+// TestWorkspaceIsolation confirms five independent host↔jail properties in ONE
+// jail launch. All five use the tempProject fixture and their host-side setups
+// write to DISJOINT workspace paths (AGENTS.md, .venv/*, .vscode/mcp.json,
+// .overmind.sock), so co-locating them causes no interference; merged to pay the
+// ~12-13s container cold-start once instead of five times. Each property keeps
+// its own fenced probe + independent assertion, so leak/shadow coverage is
+// preserved:
 //
 //  1. AGENTS.md — workspace file untouched while generated AGENTS context is
 //     mounted into ~/.copilot and ~/.codex.
@@ -27,8 +27,10 @@ import (
 //     store) is shadowed by the per-side .yolo/home dir, not leaked through the
 //     /workspace bind.
 //  3. mise store — MISE_DATA_DIR is the neutral /mise and the store is writable.
-//  4. .vscode/mcp.json — shadowed with /dev/null so a host VS Code MCP config
-//     can't reach the jail agents.
+//  4. .vscode/mcp.json — NOT shadowed: the /dev/null shadow was removed
+//     2026-09-22, so the file READS THROUGH in-jail. This is the end-to-end pin
+//     on that removal, asked in the one place a container's mount namespace can
+//     actually answer it.
 //  5. Overmind — OVERMIND_SOCKET points outside /workspace, and a host
 //     .overmind.sock is not visible in the jail.
 //
@@ -62,7 +64,8 @@ func TestWorkspaceIsolation(t *testing.T) {
 		[]byte("host venv contents\n"), 0o644); err != nil {
 		t.Fatalf("writing host-marker: %v", err)
 	}
-	// (4) a host .vscode/mcp.json to be shadowed.
+	// (4) a host .vscode/mcp.json, whose /dev/null shadow was removed 2026-09-22 —
+	// planted so the probe below can assert it reads through.
 	vscodeDir := filepath.Join(dir, ".vscode")
 	if err := os.MkdirAll(vscodeDir, 0o755); err != nil {
 		t.Fatalf("creating .vscode: %v", err)
@@ -109,9 +112,14 @@ func TestWorkspaceIsolation(t *testing.T) {
 	if !strings.Contains(mise, "MISE_DATA_DIR=/mise") || !strings.Contains(mise, "MISE_STORE_WRITABLE") {
 		t.Fatalf("mise store not neutral+writable:\n%s", mise)
 	}
-	// (4) .vscode/mcp.json shadowed to empty (/dev/null).
-	if strings.Contains(vscode, "bad") || strings.Contains(vscode, "servers") {
-		t.Fatalf("workspace .vscode/mcp.json leaked into jail:\n%s", vscode)
+	// (4) .vscode/mcp.json READS THROUGH: the /dev/null shadow over it was removed
+	// 2026-09-22 (assemble.go's shadow block has the long form). Asserting the marker is
+	// PRESENT is what pins the removal; the opposite assertion is the one that used to live
+	// here, and a silent re-add would otherwise pass unnoticed.
+	if !strings.Contains(vscode, "bad") || !strings.Contains(vscode, "servers") {
+		t.Fatalf("workspace .vscode/mcp.json was shadowed in-jail. The /dev/null shadow "+
+			"over it was removed on 2026-09-22; if it came back, in-jail git can no longer "+
+			"`git add` this file (the bind makes it a character device).\n%s", vscode)
 	}
 	// (5) OVERMIND_SOCKET is set + outside /workspace; host .overmind.sock hidden.
 	sock := ""

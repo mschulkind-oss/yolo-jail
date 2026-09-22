@@ -135,8 +135,11 @@ config, the global mise config, git identity — as distinct from yolo's own
 - **User scope, yolo-owned.** yolo writes each generated file under `/home/agent`, into a
   per-workspace writable overlay. This is the *only* config surface yolo regenerates.
 - **Workspace scope, agent-owned and host-mirrored.** yolo writes no agent's
-  project-scope config. The enumerated exceptions are the `/dev/null` shadows over a
-  VS Code MCP file and an overmind socket — isolation artifacts, not agent config.
+  project-scope config. The one enumerated exception is the `/dev/null` shadow over an
+  overmind socket — a route artifact, not agent config. (Workspace MCP config is NOT
+  shadowed, by position: an agent finding `.vscode/mcp.json` is desired. A shadow over it
+  was removed on 2026-09-22 — it was never a boundary, and its character-device
+  destination made a tracked file unaddable in git.)
 - **Managed scope, yolo-owned and outside both.** Security-boundary keys go to an agent's
   *managed* config where one exists, which yolo owns outright with no contention.
 

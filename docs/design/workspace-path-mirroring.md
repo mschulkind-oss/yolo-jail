@@ -572,7 +572,7 @@ and `hostrender.go:386,429,916`. What was never parameterized is a short list:
 | :--- | :--- |
 | `assemble_parts.go:59,106` | the two mounts |
 | `assemble.go:322` | `--workdir` |
-| `assemble.go:532,535` | `/dev/null` shadow-outs of `.vscode/mcp.json` and `.overmind.sock` |
+| `assemble.go:715` | `/dev/null` shadow-out of `.overmind.sock` (the `.vscode/mcp.json` twin was removed 2026-09-22) |
 | `assemble.go` | `MISE_TRUSTED_CONFIG_PATHS` |
 | `mounts.go:37,50,109` | `workspace_readonly` and per-side shadow joins |
 | `command.go` | `startupLog = "/workspace/.yolo/startup.log"` |

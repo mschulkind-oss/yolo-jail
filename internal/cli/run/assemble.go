@@ -651,20 +651,40 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		}
 	}
 
-	// --- shadow .vscode/mcp.json + .overmind.sock ---
-	// Each makes the agent read an EMPTY file where the host has a real one: an agent that
-	// reads `<workspace>/.vscode/mcp.json` tries to start MCP servers this jail does not
-	// have, and `<workspace>/.overmind.sock` is a host socket it cannot use (OVERMIND_SOCKET
-	// points at /tmp/overmind.sock instead).
+	// --- shadow .overmind.sock ---
+	// `<workspace>/.overmind.sock` is a host socket this jail cannot use (OVERMIND_SOCKET
+	// points at /tmp/overmind.sock instead). Binding /dev/null over it makes the path read as
+	// an EMPTY file rather than expose a socket the jail has no route to.
 	//
 	// ⚠ A SHADOW IS NOT A WRITE, and only the bind can tell them apart. `/workspace` is bound
-	// READ-WRITE — that is the product — so `/workspace/.vscode/mcp.json` IS the user's file
-	// on the host. Emptying it from the entrypoint would not shadow it, it would TRUNCATE it.
+	// READ-WRITE — that is the product — so `/workspace/.overmind.sock` IS the user's file on
+	// the host. Emptying it from the entrypoint would not shadow it, it would TRUNCATE it.
 	// Do not "simplify" this into a boot-time write; shadowbinds_test.go states the same.
+	//
+	// ⚠ A SECOND SHADOW WAS REMOVED HERE ON 2026-09-22, AND THE REMOVAL STATES A POSITION:
+	// yolo does NOT shadow workspace MCP config, and does not want to. An agent finding the
+	// workspace's `.vscode/mcp.json` is DESIRED — it is the repo's or the user's own config,
+	// and keeping config from an agent is not a goal here. Do not re-add this as an
+	// "isolation" measure; there is no such goal to serve. (It would not have served one
+	// anyway — copilot loads three repo-root MCP files and Claude loads a fourth, so one
+	// blanked file was never a boundary — which is the other reason to refuse that framing.)
+	//
+	// The costs that DID justify the removal are mechanical:
+	//
+	//   - A DEVICE NODE BREAKS GIT. The /dev/null bind makes the destination a character
+	//     device (1:3), which git can neither hash nor `git add`; on a TRACKED file — a repo's
+	//     committed `.vscode/mcp.json` — that is a permanently dirty, uncommittable path.
+	//   - IT FIRED ON FILE EXISTENCE, NOT ON A READER, so every jail that had the file paid
+	//     that cost whether or not anything in it read the file.
+	//   - DO NOT "FIX" A RE-ADD BY BINDING AN EMPTY REGULAR FILE. That is fail-OPEN in the one
+	//     way that matters: git would stage the empty blob, so an in-jail `git commit -a` would
+	//     record an EMPTIED config. The device node fails closed, and that is the property to
+	//     keep if this bind ever comes back.
+	//
+	// `.overmind.sock` shares none of that: it is a socket rather than a tracked file, and no
+	// git operation needs it. Its shadow is about a ROUTE — the jail has no way to the host's
+	// overmind daemon — not about keeping workspace content from an agent.
 	var shadowed []string
-	if fileExists(filepath.Join(o.Workspace, ".vscode", "mcp.json")) {
-		shadowed = append(shadowed, ".vscode/mcp.json")
-	}
 	if fileExists(filepath.Join(o.Workspace, ".overmind.sock")) {
 		shadowed = append(shadowed, ".overmind.sock")
 	}
@@ -685,12 +705,12 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 			//
 			// The skip is unchanged and the failure it avoids is now worse than the one
 			// first described: not "the agent reads the real file" but "the agent gets an
-			// I/O error from a path the workspace says is a JSON file". A shadow exists to
-			// read as EMPTY, and ENXIO is not empty.
+			// I/O error from a path it expected to open". A shadow exists to read as EMPTY,
+			// and ENXIO is not empty.
 			out.print("[yellow]Not shadowing " + strings.Join(shadowed, ", ") +
 				": on Apple Container a /dev/null bind arrives with the wrong device node, " +
 				"so reading it fails instead of returning empty. The agent will see the " +
-				"workspace's real file. Use `YOLO_RUNTIME=podman` to shadow it.[/yellow]")
+				"workspace's real path. Use `YOLO_RUNTIME=podman` to shadow it.[/yellow]")
 		} else {
 			for _, rel := range shadowed {
 				runCmd = append(runCmd, "-v", "/dev/null:/workspace/"+rel+":ro")

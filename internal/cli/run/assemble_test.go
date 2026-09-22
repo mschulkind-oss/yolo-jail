@@ -550,7 +550,7 @@ func podmanLinuxGolden(home string) []string {
 	add("-v", hostServiceSocketsDir("yolo-ws-abcd1234", false)+":/run/yolo-services:rw")
 	// devices/gpu/kvm: none. resources: podman always gets --pids-limit 32768.
 	add("--pids-limit", "32768")
-	// nvim/vscode/overmind/workspace_readonly: none.
+	// nvim/overmind/workspace_readonly: none (the fixture has no .overmind.sock).
 	// per-side shadows, sorted: .venv then node_modules (host paths absent → dir
 	// mounts added anyway, which is the same unconditional behaviour .venv has
 	// always had). node_modules joined the DEFAULT set on 2026-08-23 — see

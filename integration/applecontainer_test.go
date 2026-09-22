@@ -255,13 +255,13 @@ func TestAppleContainerMachineWideTierArrives(t *testing.T) {
 //
 // `apple/container#1089` — "Apple Container cannot bind a single FILE" — is cited in seven Go
 // files and five docs, and it drives real behaviour: six `acMaterialize` call sites copy
-// instead of binding, and the two `/dev/null` shadow binds are SKIPPED outright with no
+// instead of binding, and the `/dev/null` shadow bind is SKIPPED outright with no
 // fallback at all (shadowbinds_test.go). Until this test nothing measured it — which is
 // exactly the shape `#889` had when it inverted on the first run that could check it.
 //
 // ⚠ THE TWO SHAPES HAVE DIFFERENT ANSWERS, and folding them together is how this stays
 // wrong. A REGULAR FILE binds correctly on 1.1.0. A CHARACTER DEVICE — which is what
-// `/dev/null` is, and the shadows are the only site that binds one — arrives as a node with
+// `/dev/null` is, and the shadow is the only site that binds one — arrives as a node with
 // the WRONG major:minor and is unreadable. So "cannot bind a single file" is false, while the
 // shadow skip that cites it is still right, for a reason nobody had written down.
 //
@@ -337,9 +337,10 @@ func TestAppleContainerBindsASingleFile(t *testing.T) {
 	case strings.Contains(got, "read=[]") && strings.Contains(got, "type=character special file"):
 		t.Errorf("MEASURED: the /dev/null shadow WORKS on Apple Container.\n\n"+
 			"version: %s\n%s\n\n"+
-			"This is news, not a regression: both shadows are currently SKIPPED on this "+
-			"backend (assemble.go, guarded by TestTheDevNullShadowsAreSkippedOnAppleContainer), "+
-			"so an agent there reads the user's real .vscode/mcp.json and .overmind.sock. If a "+
+			"This is news, not a regression: the shadow is currently SKIPPED on this "+
+			"backend (assemble.go, guarded by TestTheDevNullShadowIsSkippedOnAppleContainer), "+
+			"so an agent there reads the user's real .overmind.sock. (The `.vscode/mcp.json` "+
+			"shadow was removed 2026-09-22 and is not this test's subject.) If a "+
 			"char-device bind now reads as empty, that skip is withheld for no reason.",
 			version, got)
 	case !strings.Contains(got, "character special file"):

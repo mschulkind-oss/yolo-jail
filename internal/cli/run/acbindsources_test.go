@@ -121,11 +121,16 @@ func TestNoAppleContainerBindHasANonDirectorySource(t *testing.T) {
 //
 // IT IS EMPTY, and the loop above is what emptied it: both rows were assemble.go's `/dev/null`
 // shadows of `.vscode/mcp.json` and `.overmind.sock`, emitted on every backend with NO runtime
-// gate, and they are gated and disclosed as of 2026-09-14 (shadowbinds_test.go). Keep the map
-// and the ratchet: the next instance of this class arrives as a test failure either way, and a
-// list that has to be re-created is a list somebody works around instead.
+// gate, and they are gated and disclosed as of 2026-09-14 (shadowbinds_test.go). The
+// `.vscode/mcp.json` half was REMOVED on 2026-09-22 as a position — yolo does not shadow
+// workspace MCP config, and an agent finding it is desired; the costs were mechanical (a
+// character-device destination unaddable in git, and a bind fired on file existence) and it
+// was never a boundary anyway (assemble.go's shadow block has the long form). Only
+// `.overmind.sock` remains. Keep the map and the ratchet: the next instance of this class
+// arrives as a test failure either way, and a list that has to be re-created is a list somebody
+// works around instead.
 //
-// ⚠ Those two rows were the measured example of what backendparity_test.go's census
+// ⚠ Those rows were the measured example of what backendparity_test.go's census
 // structurally CANNOT see, and that is why this file exists beside it. There was no `rt ==`
 // branch to leave unclassified — the divergence was an ABSENT gate, and a grep over the source
 // has nothing to match. Only the argv showed it. A census of declared branches and a census of
@@ -133,7 +138,7 @@ func TestNoAppleContainerBindHasANonDirectorySource(t *testing.T) {
 //
 // ⚠ AND THE OBVIOUS FIX WAS A DATA-LOSS BUG. This comment used to offer "have the entrypoint
 // write the empty file in-jail, which works on every backend and needs no bind at all". It does
-// not work: `/workspace` is bound READ-WRITE, so `/workspace/.vscode/mcp.json` IS the user's
+// not work: `/workspace` is bound READ-WRITE, so `/workspace/.overmind.sock` IS the user's
 // file on the host, and writing an empty one truncates it. A shadow and a write are opposites
 // here and only the bind distinguishes them, so the fix taken was the other candidate — skip
 // on that backend and print why.
@@ -143,11 +148,14 @@ var knownNonDirectoryACBinds = map[string]string{}
 //
 // The fixture plants the two workspace files whose shadow binds were emitted with NO runtime
 // gate at all until 2026-09-14 (`-v /dev/null:/workspace/.vscode/mcp.json:ro` and the
-// .overmind.sock twin). They are the reason this test is not hypothetical: a bind that no
-// `rt ==` branch guards is invisible to backendparity_test.go's census by construction — it is
-// one of the two "absence" shapes that census cannot see. The fixture keeps planting them
-// because it is the podman argv that must still carry them, and because a gate that is removed
-// should fail here rather than silently.
+// `.overmind.sock` twin). Only the `.overmind.sock` half is emitted any more — the other was
+// removed 2026-09-22 (assemble.go's shadow block) — but `.vscode/mcp.json` STAYS in the fixture
+// so this census also proves it is not bound on this backend. They are the reason this test is
+// not hypothetical: a bind that no `rt ==` branch guards is invisible to
+// backendparity_test.go's census by construction — it is one of the "absence" shapes that
+// census cannot see. The fixture keeps planting them because it is the podman argv that must
+// still carry the survivor, and because a gate that is removed should fail here rather than
+// silently.
 func acBindSources(t *testing.T) map[string]string {
 	t.Helper()
 	ws := t.TempDir()
