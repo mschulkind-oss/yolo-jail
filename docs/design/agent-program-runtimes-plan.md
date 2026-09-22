@@ -3,22 +3,23 @@ title: "Agent program runtimes — companion sketch"
 date: 2026-09-21
 status: draft
 tags: [sketch, packs, programs, mise, node, launchers]
-summary: "File-level map and measured anchors for [agent-program-runtimes.md]. A parking lot, not a hand-off: no design decision lives here, and it must not be built from while it is a SKETCH."
+summary: "File-level map and measured anchors for [agent-program-runtimes.md]. SPENT — the feature it sketched is built; no design decision lives here and nothing is owed."
 vantage:
   status-chip: true
 ---
 
 # Agent program runtimes — companion sketch
 
-**Status:** SKETCH, 2026-09-22 — incomplete, but no longer unstable: every question in
-[`agent-program-runtimes.md`](agent-program-runtimes.md) is ruled, so this is ready to be completed
-by `implementation-plan` against the tree.
+**Status:** SPENT, 2026-09-22 — the feature this sketched is BUILT, so nothing is owed here. Kept
+for the measured anchors below, which are what a later reader actually comes for; the behaviour is
+[`agent-program-runtimes.md`](agent-program-runtimes.md)'s.
 
 > [!IMPORTANT]
-> **Not a hand-off artifact.** An agent must not build from this while it is stamped SKETCH. What a
-> real plan's product is — the map, the reuse, the traps — is written only by someone who has just
-> read the tree, and that is `implementation-plan`'s job. That precondition is now MET:
-> [`agent-program-runtimes.md`](agent-program-runtimes.md)'s four questions were ruled 2026-09-22.
+> **Not a hand-off artifact, and no longer a pending one either.** This was stamped SKETCH with the
+> usual "an agent must not build from this" fence, which outlived its purpose the same day: the four
+> questions were ruled and the work shipped without this file ever being completed into a plan. The
+> fence is dropped rather than left standing over finished work — a doc telling the next agent not to
+> build what is already built costs a reading of the tree to disprove.
 
 **Reads with:** [`agent-program-runtimes.md`](agent-program-runtimes.md) — **the design wins on
 behavior.** If an entry here contradicts that doc, this file is wrong.
