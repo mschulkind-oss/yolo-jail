@@ -8,7 +8,8 @@ summary: "A pack can declare a program from npm or from a vendor installer, and 
 
 # A fork is a package with no registry — distributing source-built programs through a pack
 
-**Status:** DESIGN, 2026-09-21. Nothing built. Evidence verified against `80f294c1`.
+**Status:** DECIDED, 2026-09-22. **Every ruling is in; nothing is built.** Evidence verified
+against `5a2535e4`.
 
 > **In short.** A fork is not a new kind of thing — it is the `installer` route with the
 > registry removed and a build step added, and capture already exists for exactly that
@@ -16,7 +17,7 @@ summary: "A pack can declare a program from npm or from a vendor installer, and 
 > only because a capture is materialized into the same absolute home it was made in.
 
 **Why it matters.** `via:` is a closed set of two, `npm` and `installer`
-([`contributes.go:496-497`](../../internal/packdecl/contributes.go)), and a fork satisfies
+(`knownVias` in [`contributes.go`](../../internal/packdecl/contributes.go)), and a fork satisfies
 neither. Today distributing one means installing it by hand on every machine — which is the
 thing packs exist to delete.
 
@@ -29,8 +30,8 @@ a path that has never run outside unit tests. Every consumer pays a local build.
 
 **Start at [§5](#5-relocation-is-the-design-not-the-build)** — the build is the easy half.
 
-**Needs your ruling:** [OQ-FP1](#OQ-FP1), [OQ-FP2](#OQ-FP2), [OQ-FP3](#OQ-FP3),
-[OQ-FP4](#OQ-FP4), [OQ-FP5](#OQ-FP5), [OQ-FP6](#OQ-FP6).
+**Needs your ruling:** [OQ-FP7](#OQ-FP7), [OQ-FP8](#OQ-FP8), [OQ-FP9](#OQ-FP9) — the original six
+were ruled 2026-09-22 and these three came out of ruling them.
 
 **Reads with:** [`forked-programs-as-packs-plan.md`](forked-programs-as-packs-plan.md) (the
 implementation sketch — incomplete, and unstable while the questions above are open),
@@ -62,8 +63,8 @@ run the program.
 
 | Piece | What it is | Where |
 | :--- | :--- | :--- |
-| `via: "npm"` | `npm install -g <package>`, version optionally in the spec | [`contributes.go:496`](../../internal/packdecl/contributes.go) |
-| `via: "installer"` | run a vendor script and keep whatever it did | [`contributes.go:497`](../../internal/packdecl/contributes.go) |
+| `via: "npm"` | `npm install -g <package>`, version optionally in the spec | `knownVias`, [`contributes.go`](../../internal/packdecl/contributes.go) |
+| `via: "installer"` | run a vendor script and keep whatever it did | `knownVias`, [`contributes.go`](../../internal/packdecl/contributes.go) |
 | Capture store | `<CapturesDir>/entries/<key>/tree/`, unpacked, with `.yolo-capture-complete` written last | [`capture/store.go`](../../internal/capture/store.go) |
 | Materialize | reflink → hardlink → copy | [`capture/materialize.go`](../../internal/capture/materialize.go) |
 | Relocation | records every absolute reference to the capture-time home, and decides whether the entry may move at all | [`capture/relocate.go`](../../internal/capture/relocate.go) |
@@ -139,6 +140,41 @@ flowchart LR
 reflink/hardlink/copy ladder, the GC, the selection rule, and the PATH position a program
 occupies once installed. All of that is capture's, unchanged.
 
+### 4.1 A fork declares itself a fork, and the base keeps the name
+
+A fork does **not** win a name collision, and it does not re-declare the program it forks. It
+declares that it *is a fork of* a base pack, and supplies the artifact that pack's program resolves
+to. Selecting it is a **configuration** act — "use this fork for this thing" — not a shadowing one.
+
+**The reason is not taste: shadowing is already refused.** A pack claims an agent's name by
+declaring `program` with that `bin`
+([`footprint.go:976-986`](../../internal/packload/footprint.go) — *"A pack claims a name by OWNING
+part of that agent's plumbing: `program` by `bin` — it installs the launcher"*). Two selected packs
+claiming one name **refuses the launch** before anything is staged, via `AgentNameCollisions`
+([`packs.go:439-446`](../../internal/cli/run/packs.go)). So a fork that declared `bin: "pi"` beside
+`packs/pi` would not shadow it — the launch would simply fail, and there is already a test using a
+`claude-matt-fork` fixture for exactly that shape.
+
+**The vocabulary already exists**, and reusing it is the difference between one override mechanism
+and two. `config-overlay` ([`kinds.go:85-88`](../../internal/packdecl/kinds.go)) is *"a contribution
+to a config surface OWNED by another pack. Ordered after the owner (later-wins), with per-key
+provenance recorded so an override of the owner's key is legible."* A fork is that relation applied
+to a `program`'s delivery rather than to a config surface: the base owns the name, the fork
+contributes the bytes, and provenance records which one won.
+
+What that buys, and it is the maintainer's stated requirement: **a fork does not have to replicate
+the base pack.** It inherits the base's launch flags, autonomy posture, profiles, briefing and
+skills, and declares only the source address and the build recipe — *"we don't want a fork to have
+to fully replicate the initial package because that would be silly for a little change."*
+
+⚠ **One inheritance limit, measured.** The `NOTE` in [§3](#3-why-this-is-not-an-agent-feature) is
+right about launch flags and **wrong about the autonomy posture's config half**: a config patch folds
+only into a surface the **same pack** owns (keyed `"agent/name"`), and a patch naming no surface of
+that pack is dropped and reported
+([`contributes.go`](../../internal/packdecl/contributes.go), the config-patch fold). So "the fork
+inherits the base's contributions" needs stating per kind rather than as a blanket claim — which is
+[`OQ-FP8`](#OQ-FP8).
+
 ## 5. Relocation is the design, not the build
 
 This is the section the rest of the doc exists to reach.
@@ -169,7 +205,7 @@ rather than an implementation detail:
   says it cannot be moved"*. For a fork that refusal is not an error state to engineer away;
   it may be the honest answer.
 
-[OQ-FP1](#OQ-FP1) is which strategy this takes, and it is the doc's central question. The
+[OQ-FP1](#14-decision-ledger) is which strategy this takes, and it is the doc's central question. The
 three candidates, with what each costs:
 
 | Strategy | How | Cost |
@@ -191,11 +227,29 @@ from everything that could change the bytes:
 - the **resolved revision** of the source (not the ref — a branch name is not an identity);
 - the **build recipe**, hashed, so editing the command invalidates the entry;
 - the **platform** the build ran on (OS and architecture);
-- the **notch**, if [OQ-FP1](#OQ-FP1) rules build-per-notch.
+- the **notch**, if the implementation builds per notch ([`OQ-FP1`](#14-decision-ledger) leaves the
+  relocation strategy to the implementer, so this component is contingent on which one is chosen).
 
 **Anything not in that list is asserted not to change the output.** The toolchain version is the
-uncomfortable one: a different compiler produces different bytes from the same inputs, and
-including it means a toolchain bump rebuilds every fork. [OQ-FP2](#OQ-FP2).
+uncomfortable one: a different compiler produces different bytes from the same inputs, and including
+it means a toolchain bump rebuilds every fork. It is **excluded from the key and RECORDED anyway**
+([`OQ-FP2`](#14-decision-ledger)) — a stale-but-working binary is the acceptable failure, but a
+reader has to be able to find out which compiler produced what is on their PATH.
+
+> [!WARNING]
+> **The store does not key on inputs at all today, so this section is not expressible without new
+> receipt fields.** A capture entry is keyed by the **digest of the output tree**, and selection is
+> `(bin, platform)` → newest receipt wins
+> ([`select.go:20-47`](../../internal/capture/select.go)). There is no input-side key anywhere in the
+> store, which makes "the key includes the revision, the recipe and the platform" a **change to the
+> receipt schema** rather than a use of what exists. `install-capture.md`'s own blockers say to stop
+> and ask before adding per-entry metadata a later yolo must parse, so this is a gate on the build,
+> not a detail of it.
+>
+> ⚠ **The toolchain record must not go in the capture MANIFEST.** `manifest.go:67-71` states the
+> invariant it would break: *"Nothing about the run that produced it is in here, so two
+> byte-identical captures produce two byte-identical manifests."* The record belongs on the `record`
+> receipt beside the entry, where run-specific facts already live.
 
 > [!WARNING]
 > **A branch ref must never key an entry.** `main` names different bytes on different days,
@@ -211,9 +265,14 @@ code from a repository the pack names, and a pack may come from anywhere.
 Two properties follow, and both are stated because a reasonable implementation might break
 either:
 
-- **The build gets no credentials.** A capture jail is a fresh temp workspace; it must not
-  receive `env_sources`, `host_files`, or any loophole. Building a fork is not a reason to
-  hand a build script the machine's secrets.
+- **The build must get no credentials** — and ⚠ **the mechanism as built does not honour that
+  today.** `runCaptureJail` ([`capturehost.go:308-395`](../../internal/cli/capturehost.go))
+  suppresses exactly four things (the captures dir, never-attach, accept-config-changes, the TTY)
+  and otherwise runs the ordinary pipeline against the USER's config — so `env_sources` is
+  hydrated, `YOLO_HOST_FILES` is emitted, and host loopholes start. A fork build is arbitrary code
+  from a repository a pack named, which makes closing that gap a **precondition of this route**
+  rather than a hardening pass after it. Building a fork is not a reason to hand a build script the
+  machine's secrets.
 - **The build may reach the network, and that is disclosed.** Fetching dependencies is most of
   what a build does, so refusing the network would refuse the feature. The existing pack
   disclosure banner already says when a pack runs code and reaches the internet; a fork build
@@ -221,7 +280,7 @@ either:
 
 **The artifact then runs on the host**, which is the real escalation and is not new — a
 `via: "installer"` program already does. What *is* new is that the bytes came from a build the
-pack author controls rather than a vendor's release. [OQ-FP6](#OQ-FP6) asks whether that
+pack author controls rather than a vendor's release. [OQ-FP6](#14-decision-ledger) asks whether that
 deserves its own disclosure.
 
 ## 8. Notch coverage, and the one that does not exist
@@ -242,7 +301,7 @@ deserves its own disclosure.
 **`macos-user` is the interesting backend**, not a footnote: it has no mounts, so its capture
 already runs against a throwaway staging home and already needs relocation. A fork there is
 the existing hard case, not a new one — which makes it the best place to find out whether
-[OQ-FP1](#OQ-FP1)'s relocation strategy actually holds.
+[OQ-FP1](#14-decision-ledger)'s relocation strategy actually holds.
 
 ## 9. Failure modes
 
@@ -252,7 +311,7 @@ the existing hard case, not a new one — which makes it the best place to find 
 | Build fails | the program is unavailable and the reason is printed; **the launch is not refused** — a broken fork is one missing tool, not a broken jail |
 | Build succeeds, produces no expected output | treated as a failed build, named as such rather than admitted as an empty capture |
 | Entry is not relocatable into the asking notch | that notch does not get the program, and says which notch it was built for |
-| Two builds of the same key race | the store's existing completion marker and per-program lock decide; the loser adopts the winner's entry rather than building again |
+| Two builds of the same key race | the existing per-program lock decides, and ⚠ **it REFUSES rather than waits**: a non-blocking flock whose loser prints and exits non-zero ([`capturehost.go:136-152`](../../internal/cli/capturehost.go)). It does not adopt the winner's entry. Whether a fork build should instead WAIT for the winner is [`OQ-FP7`](#OQ-FP7) |
 | Store entry half-written (crash mid-build) | the missing `.yolo-capture-complete` makes it detectable and it is rebuilt |
 | Toolchain absent in the capture jail | a build-time failure like any other; the pack is responsible for declaring what it needs to build |
 
@@ -270,7 +329,7 @@ the existing hard case, not a new one — which makes it the best place to find 
 | Alternative | Verdict |
 | :--- | :--- |
 | **A. Tell people to publish a private npm package** | **Rejected** — it works, and it moves the cost from "build locally" to "run a registry", which is a much larger ask for one person's fork. It also forecloses forks of things that are not npm packages. |
-| **B. A `mise` tool or nix derivation per fork** | **Runner-up, and the one to revisit.** Both already build from source and both already pin. Rejected for now because neither reaches the *host* notch through yolo, and because a nix derivation is a much steeper authoring cost than a build command. Feeds [OQ-FP3](#OQ-FP3). |
+| **B. A `mise` tool or nix derivation per fork** | **Runner-up, and the one to revisit.** Both already build from source and both already pin. Rejected for now because neither reaches the *host* notch through yolo, and because a nix derivation is a much steeper authoring cost than a build command. Feeds [OQ-FP3](#14-decision-ledger). |
 | **C. Ship prebuilt artifacts in the pack** | **Rejected** — a pack becomes a binary distribution channel, needs per-platform artifacts, and the maintainer explicitly accepted local builds instead. |
 | **D. `via: "installer"` with a build script as the installer** | **Rejected, but it is the closest thing to free.** It would work today with no new vocabulary — and it has no pinning, no revision in the key, and no way to tell a rebuild from a re-download. That absence is the whole feature. |
 | **E. Bind the fork's source into the jail and build on every launch** | **Rejected** — pays the build cost per launch instead of per revision, and makes a launch depend on a compiler. |
@@ -280,7 +339,7 @@ the existing hard case, not a new one — which makes it the best place to find 
 1. **The declaration and the pin**, with no build: a pack can name a source, `resolve` records
    a revision, and `yolo` reports what it would build. Nothing is built; the vocabulary is
    exercised.
-2. **The build and the capture**, jail notch only. This is where [OQ-FP1](#OQ-FP1) stops being
+2. **The build and the capture**, jail notch only. This is where [OQ-FP1](#14-decision-ledger) stops being
    theoretical, because a jail-only artifact needs no relocation at all.
 3. **The host notch**, which is the relocation work and should not start until step 2 has
    produced a real artifact to relocate.
@@ -310,94 +369,67 @@ the existing hard case, not a new one — which makes it the best place to find 
 
 ## 13. Open Questions
 
-1. 💬 <a id="OQ-FP1"></a>**[OQ-FP1](#OQ-FP1): build once and relocate, build per notch, or build to a fixed prefix?**
-   This is the design's load-bearing decision and everything in
-   [§5](#5-relocation-is-the-design-not-the-build) feeds it. It decides whether relocation —
-   a real but never-exercised path — becomes load-bearing for every backend, or stays a
-   `macos-user` carve-out while forks pay N builds.
+Three questions are open, and all three were raised by ruling the original six.
 
-   <!-- vantage: oq id=OQ-FP1 leaning="Build per notch. It is the only candidate whose failure mode is cost rather than a subtly wrong binary, and the local build cost is already accepted. Revisit if N builds proves intolerable in practice." -->
+1. 💬 <a id="OQ-FP7"></a>**[OQ-FP7](#OQ-FP7): should the loser of a build race WAIT for the winner?**
+   The per-program lock is a non-blocking flock whose loser prints and exits non-zero
+   ([`capturehost.go:136-152`](../../internal/cli/capturehost.go)) — correct for `yolo capture`, which
+   a human invoked and can re-run. It is wrong for an eager build inside a launch: the second launch
+   would refuse over a build the first is already doing, and the artifact it needs appears seconds
+   later. Stakes: whether an eager fork build can share the existing lock at all.
 
-   _Leaning:_ **Build per notch.** It is the only one of the three whose failure mode is cost
-   rather than a subtly wrong binary, and the build cost is already accepted. A compiler
-   embeds `RUNPATH`s and interpreter lines that a textual rewrite cannot always reach.
+   <!-- vantage: oq id=OQ-FP7 leaning="Wait, with a bounded timeout, and only on the launch path. The capture verb keeps refusing because a human can retry; a launch cannot, and refusing a jail because another jail is building the same artifact is the unused-agent fatal the 2026-09-03 reversal deleted, in a new costume." -->
 
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 <a id="OQ-FP2"></a>**[OQ-FP2](#OQ-FP2): does the toolchain version key the entry?**
-   Including it is correct and means a toolchain bump rebuilds every fork on the machine.
-   Excluding it asserts that the same source and recipe produce equivalent bytes under a
-   different compiler, which is false in general and usually harmless in practice.
-
-   <!-- vantage: oq id=OQ-FP2 leaning="Exclude it from the key, and make a toolchain change a reason the user can force a rebuild explicitly. Correctness here costs a rebuild storm on every toolchain bump, and the wrong outcome is a stale-but-working binary rather than a broken one." -->
-
-   _Leaning:_ **Exclude it**, and give the user an explicit rebuild. The wrong outcome is a
-   stale-but-working binary; the cost of the correct answer is a rebuild storm on every bump.
+   _Leaning:_ **Wait, bounded, and only on the launch path.** The `capture` verb keeps its refusal —
+   a human can retry. A launch cannot, and refusing a jail because another jail is building the same
+   bytes is the mis-scoped fatal the 2026-09-03 reversal deleted, in a new costume.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 <a id="OQ-FP3"></a>**[OQ-FP3](#OQ-FP3): is this a new `via`, or is it `mise`/nix wearing a pack?**
-   Alternative B is the runner-up and it is not obviously wrong: both already build from source
-   and pin. The case against is that neither reaches the host notch through yolo and both cost
-   more to author. This decides whether yolo grows a build pipeline or borrows one.
+2. 💬 <a id="OQ-FP8"></a>**[OQ-FP8](#OQ-FP8): what exactly does a fork inherit from its base, per kind?**
+   [§4.1](#41-a-fork-declares-itself-a-fork-and-the-base-keeps-the-name) says a fork must not have to
+   replicate its base, and one limit is already measured: a config patch folds only into a surface the
+   **same pack** owns, so a patch naming no surface of that pack is dropped and reported. Launch flags
+   and autonomy postures key on the `bin` and travel; config patches do not. Stakes: whether
+   inheritance is a per-kind table in the schema or a single rule with exceptions.
 
-   <!-- vantage: oq id=OQ-FP3 leaning="A new via, borrowing packsrc for pinning and capture for the artifact. Borrowing mise or nix would import their notch coverage, which is the thing this design needs and neither has." -->
+   <!-- vantage: oq id=OQ-FP8 leaning="A per-kind table, written down. The kinds already differ in whether they key on a bin or on an owning pack, so a single rule would be false for at least one of them — and the failure mode is a silently dropped contribution, which is the worst shape available." -->
 
-   _Leaning:_ **A new `via`**, borrowing `packsrc` for pinning and capture for the artifact.
-   Borrowing `mise` or nix means importing their notch coverage, which is precisely what
-   neither has.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-4. 💬 <a id="OQ-FP4"></a>**[OQ-FP4](#OQ-FP4): what triggers the first build — a launch, or an explicit act?**
-   Auto-capture exists today and fires on a launch for `via: "installer"`, behind a cost line
-   and a hatch. A fork build is a much larger cost than an installer download, and the first
-   launch after adding a pack would pay it.
-
-   <!-- vantage: oq id=OQ-FP4 leaning="Explicit act to build, with the launch reporting that a declared program has no artifact and naming the command. A multi-minute compile inside a launch is the wrong surprise, and it is exactly the kind of cost auto-capture's own hatch exists to let people avoid." -->
-
-   _Leaning:_ **Explicit act**, with the launch reporting the absence and naming the command.
-   A multi-minute compile is the wrong thing to discover inside a launch.
+   _Leaning:_ **A per-kind table, written down.** The kinds already differ in whether they key on a
+   `bin` or on an owning pack, so one blanket rule is false for at least one of them — and its failure
+   mode is a silently dropped contribution.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-5. 💬 <a id="OQ-FP5"></a>**[OQ-FP5](#OQ-FP5): may a fork shadow a program another pack declares?**
-   The motivating case is a forked `pi`, and `packs/pi` already declares `pi`. Either the fork
-   replaces it by declaring the same `bin` — with some precedence rule — or a fork must take a
-   different name and every invocation, alias and launch flag keyed on `pi` misses it.
+3. 💬 <a id="OQ-FP9"></a>**[OQ-FP9](#OQ-FP9): what does an eager build do on `macos-user`, which the eager slot cannot reach?**
+   [`OQ-FP4`](#14-decision-ledger) puts the build at the notch's readiness act, and on the container
+   backends that is auto-capture's existing slot — which sits **below the `macos-user` return** in the
+   run pipeline, so nothing there emits the captures-dir variable and slice 6's relocation rewrite is
+   unbuilt. So the ruling is unimplementable on the one backend [§8](#8-notch-coverage-and-the-one-that-does-not-exist)
+   calls the interesting one. Stakes: whether this route ships container-only with a named gap, or
+   waits for the backend.
 
-   <!-- vantage: oq id=OQ-FP5 leaning="Same bin, and the fork wins when both are selected, because a fork whose whole purpose is to be the pi you run is useless under another name. It needs a loud disclosure at launch, since silently shadowing a shipped agent is exactly the surprise the disclosure banner exists for." -->
+   <!-- vantage: oq id=OQ-FP9 leaning="Ship container-only with the gap named and reported at launch on that backend, rather than blocking the route. macos-user is where relocation has to be proven anyway, so it wants its own slice — but a fork pack selected there must say it got nothing, not silently deliver no program." -->
 
-   _Leaning:_ **Same `bin`, fork wins, loudly disclosed.** A fork under a different name misses
-   every alias and launch flag keyed on the original, which defeats the use case.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-6. 💬 <a id="OQ-FP6"></a>**[OQ-FP6](#OQ-FP6): does a source-built artifact get its own disclosure?**
-   A `via: "installer"` program already discloses that it runs an unpinned vendor script. A
-   fork inverts the trust: the build is pinned and auditable, but the bytes come from a
-   repository the pack author chose rather than a vendor's release, and they then run on the
-   host.
-
-   <!-- vantage: oq id=OQ-FP6 leaning="Yes, and it should name the resolved revision rather than the ref. The existing banner already has the right shape and place; a fork line that says which commit produced the binary on your PATH is cheap and is the one fact a reader cannot get anywhere else." -->
-
-   _Leaning:_ **Yes, naming the resolved revision.** It is one line in a banner that already
-   exists, and the commit that produced the binary on your PATH is the one fact nothing else
-   records.
+   _Leaning:_ **Ship container-only, with the gap named and reported on that backend.** `macos-user`
+   is where relocation must be proven anyway and wants its own slice; what it must not do is silently
+   deliver no program.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
 ## 14. Decision Ledger
 
-No rulings yet. Rows land here as [§13](#13-open-questions)'s questions are answered, and the
-ruling itself moves into the body section it governs.
+The six questions this doc opened are ruled. Three new ones ([§13](#13-open-questions)) came out of
+ruling them.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| — | — | — | — | — |
+| OQ-FP1 | **The implementer's choice** — build-per-notch, build-once-and-relocate or a fixed prefix are an implementation decision, not a design one. Whatever works. ⚠ It therefore stops being a design blocker, and [§6](#6-identity-what-keys-a-fork-entry)'s notch key component becomes contingent on which is chosen rather than on a pending ruling | 2026-09-22 | [§5](#5-relocation-is-the-design-not-the-build), [§6](#6-identity-what-keys-a-fork-entry) | — |
+| OQ-FP2 | **Exclude the toolchain from the key, AND record it anyway.** A toolchain change is a reason the user can force a rebuild explicitly; correctness would cost a rebuild storm on every bump, and the wrong outcome is stale-but-working rather than broken. But the toolchain is **recorded and disclosed**, because which compiler produced the binary on your PATH is a fact nothing else keeps. ⚠ On the `record` receipt, never the capture manifest, whose stated invariant is that nothing about the producing run is in it | 2026-09-22 | [§6](#6-identity-what-keys-a-fork-entry) | — |
+| OQ-FP3 | **A new `via`**, borrowing `packsrc` for pinning and capture for the artifact. Borrowing `mise` or nix would import their notch coverage, which is the thing this design needs and neither has | 2026-09-22 | [§4](#4-the-proposed-shape), [§10](#10-alternatives-with-verdicts) | — |
+| OQ-FP4 | **Eager, at the notch's readiness act — not an explicit act and not on first use.** yolo runs complete environments: before a launch runs anything that needs the fork, the fork is built. Core cannot know what the jail will launch (there is no agent registry and no argv sniffing), so the trigger is the SELECTED PACK SET, which is statically knowable — the shape `installerBins` already implements for auto-capture. ⚠ A hit builds nothing, so [§9](#9-failure-modes)'s *"never rebuild on a timer or on every launch"* survives unchanged | 2026-09-22 | [§4](#4-the-proposed-shape), [§9](#9-failure-modes) | — |
+| OQ-FP5 | **A fork DECLARES that it is a fork of a base pack; it does not win a name.** The base keeps the name claim, the fork supplies the bytes, and selecting the fork is configuration rather than shadowing — reusing `config-overlay`'s existing owner/contributor/provenance relation. "Same bin, fork wins" was **rejected**, and is in any case unreachable: two selected packs claiming one agent name refuse the launch via `AgentNameCollisions`. A fork must not have to replicate its base | 2026-09-22 | [§4.1](#41-a-fork-declares-itself-a-fork-and-the-base-keeps-the-name) | — |
+| OQ-FP6 | **Yes — a source-built artifact gets its own disclosure, naming the resolved REVISION rather than the ref.** The existing banner has the right shape and place, and the commit that produced the binary on your PATH is the one fact a reader cannot get anywhere else | 2026-09-22 | [§7](#7-trust-and-what-the-build-may-touch) | — |

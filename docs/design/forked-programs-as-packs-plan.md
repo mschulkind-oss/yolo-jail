@@ -44,7 +44,7 @@ Worth listing because it is most of the feature, and the temptation will be to r
 ## Declaration surface, sketched
 
 Shape only; the field names are the implementer's and the `via` spelling is
-[OQ-FP3](forked-programs-as-packs.md#OQ-FP3)'s.
+[OQ-FP3](forked-programs-as-packs.md#14-decision-ledger)'s.
 
 ```jsonc
 {
@@ -60,7 +60,7 @@ Shape only; the field names are the implementer's and the `via` spelling is
 - `produces` exists so a build that exits 0 and writes nothing is a *failed* build rather than
   an empty capture. The design names that failure mode; this is the mechanism.
 - `install_hints`, `protocols` and `flags` are unchanged — a forked program is still a program.
-- Blocked on [OQ-FP5](forked-programs-as-packs.md#OQ-FP5) for whether `bin` may collide with a
+- Blocked on [OQ-FP5](forked-programs-as-packs.md#14-decision-ledger) for whether `bin` may collide with a
   shipped pack's.
 
 ## Pinning
@@ -81,7 +81,7 @@ strategy; these are the facts nobody has:
 - Whether `relocate.go`'s text/binary classification declines the binary cases (expected) and
   what fraction of a real artifact that is.
 - Whether a Node-based fork (the motivating case) embeds anything at all — a JS tree may be
-  entirely relocatable, which would make [OQ-FP1](forked-programs-as-packs.md#OQ-FP1) much
+  entirely relocatable, which would make [OQ-FP1](forked-programs-as-packs.md#14-decision-ledger) much
   cheaper than the general case suggests.
 
 ⚠ That last one is worth measuring **first**: if the motivating fork is relocatable, the design's
@@ -109,4 +109,4 @@ leaning may be over-cautious for the case that prompted it.
   banner. Find all three before editing one.
 - Auto-capture's trigger enumerates `via: "installer"`
   ([`run/autocapture.go`](../../internal/cli/run/autocapture.go)). Blocked on
-  [OQ-FP4](forked-programs-as-packs.md#OQ-FP4) for whether a source route joins it.
+  [OQ-FP4](forked-programs-as-packs.md#14-decision-ledger) for whether a source route joins it.
