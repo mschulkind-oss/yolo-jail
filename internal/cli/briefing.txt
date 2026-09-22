@@ -44,8 +44,10 @@ need to know.
 
 [bold cyan]TOOLS AVAILABLE INSIDE[/bold cyan]
 
-  Runtimes:  Node.js 22, Python 3.13, Go (managed by mise)
-  Editors:   nvim (stable by default, configurable via mise_tools)
+  Runtimes:  Node.js, Python and Go are baked into the image. A workspace
+             `mise.toml` pin overrides any of them for that workspace, so run
+             `node --version` to see what THIS jail resolved.
+  Editors:   nvim, baked into the image; override it with mise_tools
   CLI tools: rg, fd, bat, jq, git, gh, curl, strace, uv, tmux
   Agents:    whichever a configured pack installs — there is NO `agents` config
              key any more, and no default, so a jail with no packs has no agent.
