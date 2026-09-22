@@ -748,12 +748,23 @@ is [OQ-AS2](#OQ-AS2) rather than a recommendation, because this repo's standing 
 delete a drift-prone form rather than keep updating it — and Safehouse's own 106-to-3 commit
 ratio is the strongest available evidence for that lesson.
 
-### 8.6 Do not auto-widen to the enclosing repo — **free, worth checking**
+### 8.6 Do not auto-widen to the enclosing repo — **already yolo's behaviour, nothing to adopt**
 
 Safehouse resolves the workdir to the invocation directory and **explicitly does not walk up to
 the enclosing git repo**: *"Launching from `repo/subdir` grants `repo/subdir`, not `repo/`."*
-That is a good anti-surprise default. yolo's workspace resolution is a different mechanism and
-this may already be its behaviour; I did not verify it, and it is cheap to check.
+yolo arrives at the same anti-surprise default by a different mechanism: **a launch's workspace is
+the cwd, full stop.** `Run` fills it from `os.Getwd()`, there is no `--workspace` flag, and the
+container gets `-v <that path>:/workspace` — so `yolo` in `repo/subdir` grants `repo/subdir` and
+the enclosing repo is invisible to the jail
+([`internal/cli/run/runcmd.go`](../../internal/cli/run/runcmd.go),
+[`assemble_parts.go`](../../internal/cli/run/assemble_parts.go)).
+
+yolo *does* have an upward walk, and it is the thing that makes this question look open:
+`resolveWorkspaceRoot` in [`internal/cli/configtarget.go`](../../internal/cli/configtarget.go),
+the CONFIG-TARGET resolver behind the `yolo config` verbs. It walks up looking for a **workspace
+marker** — a `.yolo/config-boot.json` or one of the workspace config file names — never for a
+`.git`, it stops at a credential-boundary directory, and it decides which config file a verb
+reads. It cannot widen a launch's grant.
 
 ---
 
@@ -805,7 +816,6 @@ equivalent logic is already Go and already tested.
   the CI triggers; I did not run them.
 - **[§5.4](#54-where-they-disagree-about-the-same-agent) disagreement 3** — whether pi really
   reads `~/.aws/credentials` and gcloud ADC. Settling it needs a Mac and a pi login.
-- **Whether yolo auto-widens the workspace to an enclosing repo** ([§8.6](#86-do-not-auto-widen-to-the-enclosing-repo--free-worth-checking)).
 - **The claim that Safehouse's `~/.claude.json` write grant is *needed*** rather than incidental.
   A profile may be legitimately wider than observed behaviour; I did not establish which this is.
 - **Their `.safehouse` trust file's own protections.** I read that
