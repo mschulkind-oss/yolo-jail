@@ -127,6 +127,20 @@ that placement:
 3. **It is one decision, not one per agent** — the `host_wrappers` config key, top level beside
    `host_files`. Not opted in means no directory, no wrappers, and no messages at all;
    `yolo host --` still works.
+
+   ⚠ **And since 2026-09-22 that decision is usually DERIVED rather than made.** An unset
+   `host_wrappers` is **ON** when `host_management` is `"own"`, because `own` means yolo composes the
+   agent's config file whole — and a config file cannot carry a credential, so without a wrapper on
+   PATH a bare `claude` gets the config and none of the environment it assumes. Declaring `own` and
+   nothing else left exactly that half-configured host, and `yolo doctor` was silent about it because
+   [the section that reports this state](#apply-reports-actions-check-reports-state) short-circuits on the opt-in.
+   An explicit `false` still wins. ⚠ `"assert"` does **not** derive, because it is `host_management`'s
+   own unset default — deriving from it would put a PATH claim on every machine that declared nothing.
+
+   **`yolo host wrappers enable`/`disable` are DELETED** (they now refuse, naming the derivation). A
+   verb whose whole effect was writing one boolean into the user's config made yolo a second writer
+   of a file the user owns, for a line they can type themselves — and with the default derived, the
+   common case needs no line at all. `yolo host wrappers status` survives, because it only reads.
 4. **The wrapper is three lines and holds no logic** — a header comment and
    `exec yolo host -- <program> "$@"`. One env-composition implementation (P4).
 
@@ -186,13 +200,13 @@ was removed outright:
 | Spelling | Role |
 | :--- | :--- |
 | `yolo apply --at host` | The systematic form. The notch stays one value of the `confinement` dial, so every notch is spelled the same way |
-| `yolo host apply` | The ergonomic form, and where the host-**only** verbs live: `yolo host env`, `yolo host wrappers enable`, and the exec half `yolo host -- <cmd>` |
+| `yolo host apply` | The ergonomic form, and where the host-**only** verbs live: `yolo host env`, `yolo host wrappers status`, and the exec half `yolo host -- <cmd>` |
 | `yolo apply --host` | **Removed.** Not deprecated with a message |
 
 Removal does not re-special-case the host. The dial governs *what the notch is*; `yolo host`
 governs *where its ergonomics live*, and it earns a namespace for a reason no other notch can
 match: only the host has a user shell and a `PATH` to claim, so `yolo host env` and
-`yolo host wrappers enable` have no `jail` or `guest` counterpart and nowhere else to go.
+`yolo host wrappers status` have no `jail` or `guest` counterpart and nowhere else to go.
 
 **`--` is parsed before any verb**, and that ordering is the whole grammar: the exec half takes
 flags before the separator (`yolo host -p bedrock -- claude`), so the first argument is routinely
@@ -280,19 +294,19 @@ exit.
 
 ## Current values
 
-Verified at `38873c0d`. The prose above explains what each of these is for; this table is the
-only place the values themselves are stated.
+Verified at `38873c0d`, and the opt-in and verb rows re-verified 2026-09-22. The prose above
+explains what each of these is for; this table is the only place the values themselves are stated.
 
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |
-| Opt-in key | `host_wrappers` (boolean, user scope) | `config.HostWrappersEnabled`, documented by `yolo config-ref` |
+| Opt-in key | `host_wrappers` (boolean, user scope) — **unset DERIVES from `host_management`: on at `"own"`, off otherwise.** An explicit `false` wins; `"assert"` does not derive, being host_management's own unset default | `config.HostWrappersEnabled`, documented by `yolo config-ref` |
 | Host wrapper dir | `<host state>/bin/wrap` | `paths.WrapDir`, `paths.WrapDirUnder` |
 | Generated-bin parent | `<host state>/bin` | `paths.GeneratedBinDir` |
 | Jail blocker dir (first on PATH) | `~/.yolo/bin/block` | `entrypoint.BootPath` |
 | Jail launcher dir (second on PATH, ahead of every install prefix) | `~/.yolo/bin/launch` | `entrypoint.BootPath` |
 | Wrapper body | `exec yolo host -- <bin> "$@"`, with a generated-by header | `hostwrap.Body` |
 | Wrapper set | every valid bin name a selected pack's `program` contributions install | `hostwrap.Bins` over `Pack.HonoredInstalls` |
-| `yolo host` verbs | `apply`, `env`, `wrappers`, and the `--` exec half | `internal/cli` (`hostMain`) |
+| `yolo host` verbs | `apply`, `env`, `wrappers` (**`status` only** — `enable`/`disable` were deleted 2026-09-22 and now refuse), and the `--` exec half | `internal/cli` (`hostMain`) |
 | `yolo host env` formats | `export` (default), `json` | `internal/cli` (`hostEnv`) |
 | Profile flag | `--profile <name>` / `-p <name>` | `internal/cli` (`parseHostExecFlags`) |
 | rc line writer | `yolo host apply --shell-init` | `internal/cli` (`runShellInit`) |

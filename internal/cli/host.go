@@ -39,7 +39,7 @@ Usage:
   yolo host [flags] -- <command> [args...]   run a command with the composed environment
   yolo host apply [flags]                    render config surfaces into your real home
   yolo host env [flags]                      print the composed environment
-  yolo host wrappers [status|enable|disable] manage the PATH launch wrappers
+  yolo host wrappers [status]                report the PATH launch wrappers
 
 Exec flags (yolo host -- ...):
   --profile <name>, -p <name>   Profile/provider preset for the wrapped agent.
@@ -829,20 +829,22 @@ func hostWrappers(args []string, out, errw io.Writer, color bool) int {
 	case "status":
 		return hostWrappersStatus(pr, errw)
 	case "enable", "disable":
-		want := verb == "enable"
-		if err := setHostWrappers(want); err != nil {
-			fmt.Fprintf(errw, "yolo host wrappers %s: %v\n", verb, err)
-			return 1
-		}
-		pr.Printf("[green]host_wrappers = %v[/green] in %s", want, paths.UserConfigPath())
-		if want {
-			pr.Printf("Run [bold]yolo host apply --assert[/bold] to generate the wrappers.")
-		} else {
-			pr.Printf("Run [bold]yolo host apply --assert[/bold] to remove them.")
-		}
-		return 0
+		// DELETED 2026-09-22. These wrote `host_wrappers` into the user's config file — a verb
+		// whose whole effect was a one-key edit anyone can make by hand, and which therefore
+		// existed to make yolo the author of a line the user owns. Two reasons it went:
+		//
+		//  - `host_wrappers` is now DERIVED: unset at `host_management: "own"` means ON, so the
+		//    common case needs no key at all and the verb had nothing left to enable.
+		//  - A command that edits a config file is a second writer of that file. `yolo config`
+		//    is where config edits live; a per-key mutation verb beside it is drift.
+		fmt.Fprintf(errw, "yolo host wrappers: `%s` was removed — wrappers are ON by default "+
+			"when `host_management` is \"own\", so there is usually nothing to set.\n"+
+			"To force them off, put `\"host_wrappers\": false` in %s yourself; an explicit value "+
+			"always wins over the default.\nRun `yolo host wrappers status` to see what is in "+
+			"effect.\n", verb, paths.UserConfigPath())
+		return 2
 	default:
-		fmt.Fprintf(errw, "yolo host wrappers: unknown verb %q (want status, enable or disable)\n", verb)
+		fmt.Fprintf(errw, "yolo host wrappers: unknown verb %q (want status)\n", verb)
 		return 1
 	}
 }

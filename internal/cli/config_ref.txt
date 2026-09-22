@@ -620,7 +620,17 @@
       ]
 
   [bold]host_wrappers[/bold] (boolean): Generate launch wrappers for host agents.
-    Default false.  When true, `yolo host apply` writes one small wrapper per
+    [bold]Default: ON when host_management is "own", otherwise off.[/bold]  You usually
+    do not write this key at all — `own` means yolo composes an agent's config file
+    whole, and a config file cannot carry a credential (api_key_env_name holds a
+    variable's NAME), so without a wrapper on your PATH a bare `claude` would get the
+    config and none of the environment it assumes.  Declaring `own` and nothing else
+    used to leave exactly that half-configured host, and `yolo doctor` said nothing.
+    An explicit [bold]false[/bold] still wins: if you want yolo to own your config files
+    and refuse to have anything put on your PATH, say so and it is honored.
+    [bold]"assert" does NOT enable them[/bold] — it is host_management's own unset default,
+    so deriving from it would put a PATH claim on every machine that declared nothing.
+    When on, `yolo host apply` writes one small wrapper per
     program your selected packs install into
     [bold]~/.local/share/yolo-jail/bin/wrap[/bold], each a three-line `exec` into
     `yolo host -- <program>`.  Put that directory FIRST on your PATH and a bare
@@ -1853,7 +1863,7 @@
 
   yolo                      Start interactive jail shell
   yolo -- <command>         Run a command inside the jail
-  yolo --new -- <command>   Force a new container
+  yolo stop                 Stop the jail, so the next launch is a new container
   yolo check                Validate config and preflight the build
   yolo ps                   List running jail containers
   yolo init                 Create yolo-jail.jsonc in current directory

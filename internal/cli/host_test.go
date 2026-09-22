@@ -377,40 +377,6 @@ func TestComposeHostEnvReadsUserScopeOnly(t *testing.T) {
 	}
 }
 
-func TestSetJSONCBoolPreservesComments(t *testing.T) {
-	cases := []struct {
-		name, in, want string
-	}{
-		{
-			name: "replaces an existing value, keeping the comment",
-			in:   "{\n  // keep me\n  \"host_wrappers\": false,\n  \"packs\": []\n}\n",
-			want: "{\n  // keep me\n  \"host_wrappers\": true,\n  \"packs\": []\n}\n",
-		},
-		{
-			name: "inserts when absent",
-			in:   "{\n  // keep me\n  \"packs\": []\n}\n",
-			want: "{\n  \"host_wrappers\": true,\n  // keep me\n  \"packs\": []\n}\n",
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got, ok := setJSONCBool(tc.in, "host_wrappers", true)
-			if !ok {
-				t.Fatal("setJSONCBool reported failure")
-			}
-			if got != tc.want {
-				t.Errorf("got:\n%q\nwant:\n%q", got, tc.want)
-			}
-			if !strings.Contains(got, "// keep me") {
-				t.Error("the comment was lost — the user's JSONC must survive")
-			}
-		})
-	}
-	if _, ok := setJSONCBool("not json at all", "host_wrappers", true); ok {
-		t.Error("setJSONCBool claimed success on a file with no object")
-	}
-}
-
 // TestApplyHostGeneratesWrappersOnlyWhenOptedIn is the end-to-end contract of OQ-4's
 // first bullet: not opted in means NO directory and no messages at all.
 func TestApplyHostGeneratesWrappersOnlyWhenOptedIn(t *testing.T) {

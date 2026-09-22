@@ -335,3 +335,113 @@ func TestHostManagementRowSaysAssertWhenUnset(t *testing.T) {
 			r.warned, out)
 	}
 }
+
+// hostManagementFixture is hostWrappersFixture with an arbitrary user config body, for the
+// DERIVED cases — where `host_wrappers` is absent and `host_management` decides.
+func hostManagementFixture(t *testing.T, body string, wrappers []string, pathEnv string) (*Options, *reporter, *bytes.Buffer) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfg := filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
+	if err := os.MkdirAll(filepath.Dir(cfg), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if wrappers != nil {
+		dir := filepath.Join(home, ".local", "share", "yolo-jail", "bin", "wrap")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for _, w := range wrappers {
+			if err := os.WriteFile(filepath.Join(dir, w), []byte("#!/bin/sh\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	// "<WRAP>" in pathEnv stands for the wrapper dir. Only this fixture knows the home it just
+	// minted, and a caller that computed the path itself would be testing its own arithmetic — which
+	// is exactly the bug the first draft of TestHostManagementOwnPassesOncePathIsRight had.
+	pathEnv = strings.ReplaceAll(pathEnv, "<WRAP>",
+		filepath.Join(home, ".local", "share", "yolo-jail", "bin", "wrap"))
+
+	var buf bytes.Buffer
+	o := &Options{Getenv: func(k string) string {
+		switch k {
+		case "PATH":
+			return pathEnv
+		case "YOLO_VERSION":
+			return ""
+		}
+		return ""
+	}}
+	return o, newReporter(&buf, false), &buf
+}
+
+// TestHostManagementOwnIsNoLongerSilent is the reported defect, as a test.
+//
+// A maintainer had `host_management: "own"` set, no `host_wrappers` key, no wrappers generated —
+// and `yolo doctor` was GREEN and said nothing, because this whole section returned early on the
+// absent opt-in. That is a half-configured host: `own` means yolo composes the agent's config file
+// whole, but a config file cannot carry a credential, so without a wrapper on PATH a bare `claude`
+// gets the config and none of the environment it assumes.
+//
+// The opt-in is now DERIVED from `own`, so the section runs and says what is missing.
+func TestHostManagementOwnIsNoLongerSilent(t *testing.T) {
+	o, r, buf := hostManagementFixture(t, `{"host_management": "own"}`, nil, "/bin")
+	o.sectionHostWrappers(r)
+
+	got := buf.String()
+	if got == "" {
+		t.Fatal("doctor said NOTHING about a host yolo owns the config files of and has no wrappers " +
+			"for — this is the reported defect, and it is what the derivation exists to end")
+	}
+	if r.warned == 0 {
+		t.Errorf("a host with no wrappers generated must WARN, not pass silently:\n%s", got)
+	}
+	// It must name the command that fixes it, or the report diagnoses without resolving.
+	if !strings.Contains(got, "yolo host apply --assert") {
+		t.Errorf("the warning must name the command that generates them; got:\n%s", got)
+	}
+}
+
+// And the resolution path's next step: wrappers generated, but the dir is not on PATH. The whole
+// point of the section is that this is observable — the wrappers exist and do nothing.
+func TestHostManagementOwnWarnsWhenTheDirIsNotOnPath(t *testing.T) {
+	o, r, buf := hostManagementFixture(t, `{"host_management": "own"}`, []string{"claude"}, "/bin:/usr/bin")
+	o.sectionHostWrappers(r)
+
+	got := buf.String()
+	if r.warned == 0 {
+		t.Errorf("generated wrappers that nothing on PATH reaches must WARN:\n%s", got)
+	}
+	if !strings.Contains(got, "PATH") {
+		t.Errorf("the warning must say the dir is not on PATH; got:\n%s", got)
+	}
+}
+
+// The end of the resolution path: wrappers generated AND on PATH -> the section passes.
+func TestHostManagementOwnPassesOncePathIsRight(t *testing.T) {
+	o, r, buf := hostManagementFixture(t, `{"host_management": "own"}`, []string{"claude"},
+		"<WRAP>:/bin")
+	o.sectionHostWrappers(r)
+
+	if r.warned != 0 {
+		t.Errorf("a fully configured host must not warn:\n%s", buf.String())
+	}
+	if r.passed == 0 {
+		t.Errorf("a fully configured host must PASS, not stay silent:\n%s", buf.String())
+	}
+}
+
+// ⚠ `assert` must stay silent. It is host_management's own UNSET default, so deriving wrappers from
+// it would turn a PATH claim on — and this section on — for every user who has declared nothing.
+func TestHostManagementAssertStaysSilent(t *testing.T) {
+	o, r, buf := hostManagementFixture(t, `{"host_management": "assert"}`, nil, "/bin")
+	o.sectionHostWrappers(r)
+	if buf.Len() != 0 || r.warned != 0 || r.passed != 0 {
+		t.Errorf("assert must not derive wrappers — it is the unset default, so this would nag "+
+			"everyone:\n%s", buf.String())
+	}
+}

@@ -36,13 +36,35 @@ func HostWrappersEnabled() bool {
 
 // hostWrappersValue reads the key out of an already-loaded config map. Split out so the
 // validator and the tests can exercise the same reading without touching the real home.
+//
+// # Unset DEFAULTS TO ON at `host_management: "own"` — a derivation, not a second opt-in
+//
+// `own` means yolo composes the agent's config file WHOLE; it is derived output. But a config
+// file cannot carry a credential — `api_key_env_name` holds a variable's NAME, and the value
+// arrives only through the environment channel, which is `yolo host -- <agent>`. Without a
+// wrapper on PATH a bare `claude` gets the config and none of the environment it assumes, so
+// `own` with no wrappers is a HALF-CONFIGURED host — and it was reachable by declaring one key
+// without knowing a second existed.
+//
+// Deriving rather than asking twice is the move `host_apply_on_launch` already makes one level
+// down (it defaults to THIS key's value), so the chain is
+// `host_management: own` -> wrappers -> apply-on-launch, each link a derivation nobody spells.
+//
+// ⚠ An EXPLICIT `false` still wins, and that is why the key survives at all: someone who wants
+// yolo to own their config files and refuses to have anything put on their PATH must be able to
+// say so.
+//
+// ⚠ `assert` does NOT enable them, and the asymmetry is load-bearing rather than timid: `assert`
+// is host_management's own UNSET default, so deriving from it would switch a PATH claim on for
+// every user who has declared nothing at all — which is the one direction this key must never
+// fail in.
 func hostWrappersValue(cfg *jsonx.OrderedMap) bool {
-	v, present := cfg.Get(hostWrappersKey)
-	if !present || v == nil {
-		return false
+	if v, present := cfg.Get(hostWrappersKey); present && v != nil {
+		b, ok := v.(bool)
+		return ok && b
 	}
-	b, ok := v.(bool)
-	return ok && b
+	mode, declared := hostManagementValue(cfg)
+	return declared && mode == HostManagementOwn
 }
 
 // UserScopeConfig loads ONLY the machine-wide user config (plus its own
