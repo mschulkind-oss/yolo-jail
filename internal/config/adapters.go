@@ -1,6 +1,6 @@
 package config
 
-// The adapters config key: docs/design/protocol-resolution.md §6
+// The adapters config key: docs/reference/protocol-resolution.md#the-adapters-address
 
 // adapters.go implements the `adapters` config key — the one field of an adapter a user
 // may override, which is the ADDRESS the conversion is served at.

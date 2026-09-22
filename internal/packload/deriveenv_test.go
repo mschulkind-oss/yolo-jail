@@ -325,9 +325,9 @@ func providerPack(t *testing.T, endpointsJSON string) *Pack {
 // THE RULE IS THE SAME AND ITS ENFORCER MOVED. Until 2026-09-18 a provider that NAMED a
 // protocol claude does not speak, and carried a key, had that key composed with no base
 // URL beside it — so a third-party credential went to api.anthropic.com. The derive
-// guarded that shape as an explicitly INTERIM measure; protocol-resolution.md's step 3
-// makes it unreachable instead, so the middle case below is now a REFUSAL of the launch
-// rather than a quietly keyless environment, and the guard is gone from the derive.
+// guarded that shape as an explicitly INTERIM measure; protocol-resolution.md makes it
+// unreachable instead, so the middle case below is now a REFUSAL of the launch rather
+// than a quietly keyless environment, and the guard is gone from the derive.
 //
 // The other two shapes must keep working, and they are why the rule can never become the
 // simpler "only emit a key when routed": a provider naming NO endpoint has repointed

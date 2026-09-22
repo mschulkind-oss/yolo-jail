@@ -270,9 +270,9 @@ func TestShippedWireBridgePackIsServiceOnly(t *testing.T) {
 }
 
 // TestAUserMovesTheBridgesAddress pins the CALL SITE of the adapter address override
-// (protocol-resolution.md §6, build step 7), not the composer that honors it: the launch
-// must READ the user's `adapters` table, and deleting that read from composedProviders
-// leaves this test as the only thing that notices.
+// (protocol-resolution.md), not the composer that honors it: the launch must READ the
+// user's `adapters` table, and deleting that read from composedProviders leaves this
+// test as the only thing that notices.
 //
 // WHY IT IS CONFIGURABLE AT ALL, and the reason is measured rather than hypothetical: in a
 // container `127.0.0.1` is the jail's own private loopback, so a collision is only possible

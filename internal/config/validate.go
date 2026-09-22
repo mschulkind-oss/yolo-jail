@@ -1171,7 +1171,7 @@ func validateProviders(config *jsonx.OrderedMap, workspace string, errs, warns *
 		}
 		reportUnknownKeys(cfg, knownProviderKeys, path, errs)
 		if base, has := cfg.Get("base_url"); has && base != nil {
-			// REMOVED (protocol-resolution.md §5), and this is the entry's ONLY message
+			// REMOVED (protocol-resolution.md), and this is the entry's ONLY message
 			// about that key: the checks below would each ask the user to fix the shape of
 			// something they must delete.
 			validateProviderShorthandRetired(path, errs, warns)
@@ -1418,7 +1418,7 @@ func validateProviderAddressScope(workspace string, errs *[]string) {
 }
 
 // validateProviderShorthandRetired reports the DELETED single-protocol `base_url`
-// shorthand on a provider entry (protocol-resolution.md §5).
+// shorthand on a provider entry (protocol-resolution.md).
 //
 // It is the THIRD member of the retired-declaration set — `journal` and `host_processes`
 // above are the top-level keys, `packdecl.retiredKinds` is the contribution kinds — and it

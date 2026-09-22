@@ -1,9 +1,10 @@
 package packload
 
-// Protocol resolution: docs/design/protocol-resolution.md
+// Protocol resolution: docs/reference/protocol-resolution.md
 
 // protocolresolution.go pairs an AGENT with a PROVIDER by the wire protocol each of them
-// declares, and produces an address or a refusal (design §3). It is the reader for the
+// declares, and produces an address or a refusal
+// (docs/reference/protocol-resolution.md#the-four-outcomes). It is the reader for the
 // `protocols` list packdecl added in step 2, and it is what makes that list mean something.
 //
 // # What it may not know
@@ -76,7 +77,7 @@ type composeOpts struct {
 // (config.LoadAdapterAddresses reads them). An entry replaces the address the declaring
 // pack shipped and changes nothing else: the PAIR is the pack's claim, and a user who
 // wanted a different conversion would be declaring an adapter rather than moving one
-// (protocol-resolution.md §6).
+// (protocol-resolution.md).
 func WithAdapterAddresses(m map[string]string) ComposeOption {
 	return func(o *composeOpts) { o.adapterAddresses = m }
 }

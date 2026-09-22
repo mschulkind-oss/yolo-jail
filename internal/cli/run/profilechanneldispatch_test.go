@@ -213,7 +213,7 @@ func writeUserConfig(t *testing.T, home, body string) {
 // was legal alone, and per-field composition merged them into exactly the pair the
 // validator refuses when a user writes it whole — pointing claude at z.ai and everything
 // else at the user's proxy, silently. The SHORTHAND HALF IS NO LONGER LEGAL
-// (protocol-resolution.md §5), so the pair cannot be manufactured from a config the host
+// (protocol-resolution.md), so the pair cannot be manufactured from a config the host
 // validated, and what this fixture now meets is the removal refusal one layer earlier.
 // packload.ComposeProviders keeps its own refusal for the one path that can still reach it
 // — an in-jail config SNAPSHOT, where a retired key is a warning rather than an error so a

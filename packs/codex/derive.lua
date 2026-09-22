@@ -54,13 +54,13 @@ end
 -- endpoint speaks anthropic would emit an entry with no URL.
 --
 -- ⚠ THE SHORTHAND ARM STAYS, AND IT IS NOT DEAD CODE. The key is REMOVED from user config
--- (docs/design/protocol-resolution.md), but `validateProviderShorthandRetired` is an ERROR
--- ON THE HOST AND A WARNING IN A JAIL — in here the config is the host-generated snapshot,
--- so a jail launched by a host `yolo` that predates the removal still carries the key and
--- `knownProviderKeys` still passes it through. Deleting this arm turns that jail's provider
--- into one with no address. Measured 2026-09-18: removing it reddens six cases in
--- internal/entrypoint/selectionapply_test.go. It goes when the snapshot can no longer
--- carry the key, not when the host config refuses it.
+-- (docs/reference/protocol-resolution.md), but `validateProviderShorthandRetired` is an
+-- ERROR ON THE HOST AND A WARNING IN A JAIL — in here the config is the host-generated
+-- snapshot, so a jail launched by a host `yolo` that predates the removal still carries the
+-- key and `knownProviderKeys` still passes it through. Deleting this arm turns that jail's
+-- provider into one with no address. Measured 2026-09-18: removing it reddens six cases in
+-- internal/entrypoint/selectionapply_test.go. It goes when the snapshot can no longer carry
+-- the key, not when the host config refuses it.
 local function providerEndpoint(prov)
   if type(prov) ~= "table" then return nil end
   if prov.base_url then

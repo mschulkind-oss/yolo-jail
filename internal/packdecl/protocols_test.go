@@ -1,8 +1,9 @@
 package packdecl
 
 // protocols_test.go pins the AGENT'S HALF of the pairing
-// (docs/design/protocol-resolution.md §3, build step 2): the `protocols` list a `program`
-// contribution declares, the kinds that may not carry it, and the shapes it may not have.
+// (docs/reference/protocol-resolution.md#the-three-declarations, build step 2): the
+// `protocols` list a `program` contribution declares, the kinds that may not carry it,
+// and the shapes it may not have.
 //
 // STEP 2 LANDS INERT BY DESIGN — nothing reads the field yet — so what these tests can
 // assert is exactly the declaration: it decodes, it reaches the accessor the resolver will

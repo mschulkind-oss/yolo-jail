@@ -131,7 +131,7 @@ func ComposeProviders(user *jsonx.OrderedMap, packs []*Pack, opts ...ComposeOpti
 			return nil, err
 		}
 	}
-	// LAST, over the finished table (protocol-resolution.md §3, outcome 2). An adapter
+	// LAST, over the finished table (protocol-resolution.md, outcome 2). An adapter
 	// contributes an address for a protocol a provider does not offer, and it is applied
 	// here rather than at delivery because the composed table is what every consumer of an
 	// address reads — each agent's derive, and the adapter's own daemon deciding where to
@@ -366,7 +366,7 @@ func spokenProtocols(packs []*Pack) map[string]bool {
 // an endpoints map.
 //
 // ITS POPULATION SHRANK TO ONE PATH and it is not dead. The shorthand is REMOVED
-// (protocol-resolution.md §5), so a config the HOST validated can no longer carry it at
+// (protocol-resolution.md), so a config the HOST validated can no longer carry it at
 // all — but a retired key is an ERROR ON THE HOST AND A WARNING IN A JAIL, because in-jail
 // the config is the host-generated snapshot and refusing there would stop every nested
 // launch over a key the in-jail user cannot fix at its source. A nested launch therefore

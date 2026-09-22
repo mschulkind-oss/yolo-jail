@@ -133,7 +133,7 @@ func TestCerebrasPackShipsTheCatalogTheDerivesRead(t *testing.T) {
 // TestCerebrasPackComposesTheBridgedClaudeRoute: claude selected beside cerebras and
 // the bridge composes the loopback URL — the address the ADAPTER declares, resolved
 // into cerebras's entry because claude speaks anthropic, cerebras offers openai, and a
-// selected pack adapts one into the other (protocol-resolution.md §3, outcome 2). The
+// selected pack adapts one into the other (protocol-resolution.md, outcome 2). The
 // derive is UNCHANGED and still cannot see whether a bridge exists (wire-bridge.md
 // §3.3): it reads an endpoint like any other, and the endpoint is composed rather than
 // hand-written.

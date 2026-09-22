@@ -32,7 +32,7 @@ Nothing is owed here.
 files held by concurrent work:
 
 - three links to this file's decision ledger in
-  [`protocol-resolution.md`](protocol-resolution.md), which another workflow holds;
+  [`../reference/protocol-resolution.md`](../reference/protocol-resolution.md);
 - one roadmap row in [`../plans/roadmap.md`](../plans/roadmap.md), which the maintainer owns;
 - seven prose citations of this path in the Go and Lua trees —
   `packs/cerebras/README.md`, `packs/copilot/derive.lua`, `packs/claude/derive.lua`,

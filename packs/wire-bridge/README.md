@@ -33,8 +33,8 @@ agent's provider environment points at `http://127.0.0.1:8214` — the address
 THIS pack declares, composed into cerebras's entry by the resolver because
 cerebras offers `openai`, the agent speaks `anthropic`, and this pack declares
 the conversion between them
-([protocol-resolution.md](../../docs/design/protocol-resolution.md) §3). The
-daemon staged here answers at that address: it speaks the Anthropic Messages
+([protocol-resolution.md](../../docs/reference/protocol-resolution.md#the-four-outcomes)).
+The daemon staged here answers at that address: it speaks the Anthropic Messages
 wire to the agent, translates to Cerebras's chat-completions upstream, and reads
 the credential once at boot from `yolo-user-env.sh`. Nothing about the setup
 grows a second step, and no provider has to name a yolo-internal port.

@@ -2,7 +2,7 @@
 
 -- The provider's URL for the protocol opencode speaks — `openai`, which is also what
 -- packs/opencode declares in its `protocols` list. ONE spelling: the single-protocol
--- `base_url` shorthand is deleted (protocol-resolution.md §5), because the same bare field
+-- `base_url` shorthand is deleted (protocol-resolution.md), because the same bare field
 -- meant `openai` here and `anthropic` in claude's derive. Total over non-tables so the call
 -- site stays a one-line gate. Returns nil when the provider names no URL an openai-speaking
 -- agent can use, which is what keeps the gate below honest: a provider whose only endpoint

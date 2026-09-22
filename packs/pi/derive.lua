@@ -35,11 +35,10 @@ end
 
 -- The provider's URL for the protocol THIS agent speaks — `openai` first, then native
 -- `openai-responses`, which are also packs/pi's declared protocol preference. ONE spelling:
--- the single-protocol `base_url`
--- shorthand is deleted (protocol-resolution.md §5), because the same bare field meant
--- `openai` here and `anthropic` in claude's derive — one line of user config, two
--- contradictory readings, decided by whichever agent happened to consume it. A user config
--- carrying it is a validation refusal naming `endpoints.openai.base_url`.
+-- the single-protocol `base_url` shorthand is deleted (protocol-resolution.md), because the
+-- same bare field meant `openai` here and `anthropic` in claude's derive — one line of user
+-- config, two contradictory readings, decided by whichever agent happened to consume it. A
+-- user config carrying it is a validation refusal naming `endpoints.openai.base_url`.
 -- Total over non-tables so the call site stays a one-line gate. Returns nil when the
 -- provider names no URL an openai-speaking agent can use, which is what keeps that gate
 -- honest: a provider whose only endpoint speaks a protocol pi cannot would otherwise emit

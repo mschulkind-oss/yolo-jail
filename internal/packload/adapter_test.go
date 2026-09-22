@@ -1,8 +1,9 @@
 package packload
 
-// adapter_test.go pins OUTCOME 2 (docs/design/protocol-resolution.md §3): a pairing that
-// has no common protocol resolves anyway when some selected pack declares the conversion,
-// and the address it resolves to is the ADAPTER's own declaration.
+// adapter_test.go pins OUTCOME 2
+// (docs/reference/protocol-resolution.md#the-four-outcomes): a pairing that has no common
+// protocol resolves anyway when some selected pack declares the conversion, and the
+// address it resolves to is the ADAPTER's own declaration.
 //
 // The measurement that matters is the SHIPPED one at the bottom: `packs/cerebras` used to
 // hand-write yolo's internal loopback port into a provider manifest, and the composed table

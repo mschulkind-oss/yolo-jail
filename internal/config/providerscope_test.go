@@ -41,7 +41,7 @@ func providerScopeErrors(t *testing.T, wsConfig, mergedConfig string) []string {
 // to.
 //
 // ONE SPELLING NOW. The bare `base_url` shorthand used to be the other half of this rule
-// and is REMOVED (protocol-resolution.md §5) — a workspace config carrying it earns the
+// and is REMOVED (protocol-resolution.md) — a workspace config carrying it earns the
 // removal message alone, which
 // TestTheRemovedShorthandIsNotAlsoAScopeError pins: telling someone their deleted key is
 // in the wrong file is two contradictory instructions about one line. Deleting a spelling

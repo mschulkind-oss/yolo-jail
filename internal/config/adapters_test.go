@@ -1,7 +1,8 @@
 package config
 
-// adapters_test.go pins the `adapters` config key (docs/design/protocol-resolution.md §6):
-// the one field of an adapter a user may set, and the scope rule that governs it.
+// adapters_test.go pins the `adapters` config key
+// (docs/reference/protocol-resolution.md#the-adapters-address): the one field of an
+// adapter a user may set, and the scope rule that governs it.
 
 import (
 	"os"

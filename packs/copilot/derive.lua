@@ -77,10 +77,11 @@ yolo.env("copilot", function(ctx)
       wire = "responses"
     end
   -- ⚠ NOT DEAD CODE, though the key is REMOVED from user config
-  -- (docs/design/protocol-resolution.md): `validateProviderShorthandRetired` is an error on
-  -- the HOST and only a warning IN A JAIL, where the config is the host-generated snapshot,
-  -- so a jail launched by an older host `yolo` still carries the shorthand. This arm is what
-  -- keeps that jail's provider addressable. See packs/codex/derive.lua for the measurement.
+  -- (docs/reference/protocol-resolution.md): `validateProviderShorthandRetired` is an error
+  -- on the HOST and only a warning IN A JAIL, where the config is the host-generated
+  -- snapshot, so a jail launched by an older host `yolo` still carries the shorthand. This
+  -- arm is what keeps that jail's provider addressable. See packs/codex/derive.lua for the
+  -- measurement.
   elseif p.base_url then
     base = p.base_url
     if p.wire_api == "anthropic" then

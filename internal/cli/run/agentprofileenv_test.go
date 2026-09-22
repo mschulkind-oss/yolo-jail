@@ -280,7 +280,7 @@ func TestAssembleEmitsCodexBridgeProfileEnv(t *testing.T) {
 		// unconditionally. They became load-bearing when the codex route stopped being a
 		// literal in claude's derive — openai-auth declares the Responses endpoint the
 		// subscription serves, wire-bridge declares the address that fronts it, and core
-		// composes the pair into the provider entry (protocol-resolution.md §3).
+		// composes the pair into the provider entry (protocol-resolution.md).
 		[]string{"claude", "openai-auth", "wire-bridge"})
 	got := la.channelEnv(t, "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL",
 		"ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME",

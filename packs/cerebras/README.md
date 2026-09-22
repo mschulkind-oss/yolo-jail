@@ -17,7 +17,7 @@ anthropic-speaking agent reaches it through the `wire-bridge` pack this pack's `
 entry joins whenever claude or copilot is in the launch — that pack declares the
 `openai → anthropic` conversion and the address it serves, and the resolver composes
 that address into this provider's entry
-([protocol-resolution.md](../../docs/design/protocol-resolution.md) §3;
+([protocol-resolution.md](../../docs/reference/protocol-resolution.md#the-four-outcomes);
 [wire-bridge.md](../../docs/reference/wire-bridge.md) §3). The manifest used to carry
 the bridge's loopback URL itself, which asserted a fact only the bridge could make true. The one alias is
 `qwen-3.8-27b` (public since 2026-09-03; agentic-coding tuned, parallel tool calls +

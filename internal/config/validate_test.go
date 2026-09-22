@@ -669,7 +669,7 @@ func TestWireAPIEnumIsPackdeclsSet(t *testing.T) {
 // credential travels by NAME through api_key_env_name.
 //
 // Asked of `endpoints.<protocol>.base_url`, which is the only address spelling a user has
-// since protocol-resolution.md §5 deleted the bare one. The rule did not change with the
+// since protocol-resolution.md deleted the bare one. The rule did not change with the
 // field: an address is an address wherever it is written.
 func TestValidateProvidersBaseURLMustBeAnAddress(t *testing.T) {
 	for _, u := range []string{
@@ -738,7 +738,7 @@ func TestValidateProvidersEnvShapeIsRetired(t *testing.T) {
 	}
 }
 
-// THE SINGLE-PROTOCOL SHORTHAND IS REMOVED (protocol-resolution.md §5), and the refusal
+// THE SINGLE-PROTOCOL SHORTHAND IS REMOVED (protocol-resolution.md), and the refusal
 // names the explicit spelling — the shape `journal` and `host_processes` already use for a
 // retired key.
 //

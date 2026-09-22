@@ -4,7 +4,7 @@ package check
 //
 // The gate is `packload.AgentEnv`'s: a profiled agent pointed at a provider whose
 // endpoints it cannot speak, with no selected pack declaring an adapter between them,
-// refuses the launch (docs/design/protocol-resolution.md). It shipped there and only
+// refuses the launch (docs/reference/protocol-resolution.md). It shipped there and only
 // there, so a config `yolo check` called clean was still refused at launch — the one thing
 // `check` exists to prevent, and the same defect capabilities.go was written to fix for the
 // capability gate, one feature later.

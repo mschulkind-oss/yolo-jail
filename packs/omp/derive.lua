@@ -11,7 +11,7 @@ local ompDialect = {
 -- OMP can speak every yolo dialect it maps above, so choose the first endpoint in OMP's
 -- stable preference order — which is also the order packs/omp declares in its `protocols`
 -- list — rather than fabricating a URL for an endpoint it cannot identify. The
--- single-protocol `base_url` shorthand is deleted (protocol-resolution.md §5): it named no
+-- single-protocol `base_url` shorthand is deleted (protocol-resolution.md): it named no
 -- protocol, so it could not say which dialect to map, and the same field meant different
 -- wires to different agents.
 local function providerEndpoint(prov)

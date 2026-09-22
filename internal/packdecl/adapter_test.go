@@ -1,7 +1,8 @@
 package packdecl
 
-// adapter_test.go pins the `adapter` kind's schema (docs/design/protocol-resolution.md §3,
-// OQ-PR1): a protocol PAIR, an ADDRESS, and nothing about who runs it.
+// adapter_test.go pins the `adapter` kind's schema
+// (docs/reference/protocol-resolution.md#the-three-declarations, OQ-PR1): a protocol PAIR,
+// an ADDRESS, and nothing about who runs it.
 //
 // The ruling this file exists to keep is the one review round three reached by instances
 // rather than argument — an adapter is NOT a field on `service` — so the first test is the
@@ -12,9 +13,9 @@ import (
 	"testing"
 )
 
-// THE DAEMONLESS ADAPTER VALIDATES. It is §3's second and third provisioning shapes — a
-// remote gateway you already pay for, a proxy already running on your host — and the
-// coupled design could not express either.
+// THE DAEMONLESS ADAPTER VALIDATES. It is the three declarations' second and third
+// provisioning shapes — a remote gateway you already pay for, a proxy already running on
+// your host — and the coupled design could not express either.
 func TestAnAdapterNeedsNoDaemon(t *testing.T) {
 	for _, raw := range []string{
 		`{"kind":"adapter","adapts":{"from":"openai","to":"anthropic"},"address":"https://gw.example/v1"}`,

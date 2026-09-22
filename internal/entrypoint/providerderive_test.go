@@ -22,8 +22,9 @@ func TestGatewayProviderPacksDeclareOnlyStableFacts(t *testing.T) {
 		// used to carry was the wire bridge's listen address, hand-copied into a provider
 		// manifest; it is the adapter's own declaration now, composed into this entry at
 		// launch when an anthropic-speaking agent is selected beside it
-		// (docs/design/protocol-resolution.md §6 — the adapter owns its address). The
-		// `needs` entry below is unchanged and is what joins that adapter.
+		// (docs/reference/protocol-resolution.md#the-adapters-address — the adapter owns
+		// its address). The `needs` entry below is unchanged and is what joins that
+		// adapter.
 		{"kilo", "KILO_API_KEY", "https://api.kilo.ai/api/gateway", "openai-chat-completions", "", true},
 	}
 	for _, tt := range tests {
@@ -144,7 +145,7 @@ func TestPiDeriveHandlesLocalProviderContextAndKey(t *testing.T) {
 	got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, map[string]map[string]any{
 		manifest.SourceProviders: {
 			// The address is written UNDER ITS PROTOCOL, the only spelling a provider has
-			// since the single-protocol shorthand was deleted (protocol-resolution.md §5):
+			// since the single-protocol shorthand was deleted (protocol-resolution.md):
 			// a bare URL meant `openai` to this derive and `anthropic` to claude's, which
 			// is exactly the ambiguity a local OpenAI-speaking server made dangerous.
 			"local": map[string]any{
@@ -548,12 +549,13 @@ func TestProviderDerivesResolveAnEndpointsOnlyProvider(t *testing.T) {
 // single-protocol `base_url` still reached pi's catalog with its own `wire_api`
 // translated — "what every provider written before `endpoints` existed relies on".
 //
-// ITS SUBJECT IS DELETED, not renamed (docs/design/protocol-resolution.md §5). The bare
-// field named no protocol, so the same line meant `openai` to pi and `anthropic` to
-// claude: one config line, two agents, two different services — and its headline case was
-// the trap, because llama.cpp, ollama and vLLM all speak OpenAI, so `claude` plus a bare
-// URL pointed ANTHROPIC_BASE_URL at a server it could not talk to. A user config carrying
-// it is now a validation refusal naming `endpoints.<protocol>.base_url`
+// ITS SUBJECT IS DELETED, not renamed
+// (docs/reference/protocol-resolution.md#the-single-protocol-base_url-shorthand-is-removed).
+// The bare field named no protocol, so the same line meant `openai` to pi and `anthropic`
+// to claude: one config line, two agents, two different services — and its headline case
+// was the trap, because llama.cpp, ollama and vLLM all speak OpenAI, so `claude` plus a
+// bare URL pointed ANTHROPIC_BASE_URL at a server it could not talk to. A user config
+// carrying it is now a validation refusal naming `endpoints.<protocol>.base_url`
 // (config.validateProviderShorthandRetired), and the four derives that read it no longer
 // have the branch. What the shorthand's body shared with the endpoints path — the
 // credential reference, the dialect translation — is unchanged and is pinned by the tests
@@ -608,7 +610,7 @@ func TestProviderDerivesTranslateTheCanonicalVocabulary(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// The address and its dialect both live under the ENDPOINT, which is the only
 			// spelling a provider has since the single-protocol shorthand was deleted
-			// (protocol-resolution.md §5). The endpoint KEY is the protocol family an agent
+			// (protocol-resolution.md). The endpoint KEY is the protocol family an agent
 			// files its read under; `wire_api` is the dialect that URL speaks, and this test
 			// is about translating the second, so every row uses one key and varies the
 			// dialect.

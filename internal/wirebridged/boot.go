@@ -68,10 +68,10 @@ const ServiceName = "wire-bridge"
 // packs/wire-bridge declares the same address on its `openai-responses → anthropic`
 // adaptation, and the resolver composes it into openai-codex's entry, so the Claude
 // derive reads an endpoint like any other instead of hand-copying this constant
-// (docs/design/protocol-resolution.md §3). openai-codex remains CREDENTIAL-free in
-// YOLO_PROVIDERS — its row names no key variable, and this daemon's Codex route takes
-// its access-token view from openai-auth, never from a generated file; what the row
-// carries is the public Responses ADDRESS, which is the upstream below.
+// (docs/reference/protocol-resolution.md#the-four-outcomes). openai-codex remains
+// CREDENTIAL-free in YOLO_PROVIDERS — its row names no key variable, and this daemon's
+// Codex route takes its access-token view from openai-auth, never from a generated file;
+// what the row carries is the public Responses ADDRESS, which is the upstream below.
 //
 // The route selection reads the TABLE and keeps this constant as its DEFAULT: routeFor's
 // Codex branch binds the composed entry's `endpoints.anthropic.base_url` when there is

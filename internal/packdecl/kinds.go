@@ -229,8 +229,8 @@ const (
 	KindService Kind = "service"
 
 	// KindAdapter: a PROTOCOL CONVERSION served at an address — `adapts: {from, to}`
-	// plus the `address` that speaks `to` (docs/design/protocol-resolution.md §3,
-	// OQ-PR1).
+	// plus the `address` that speaks `to`
+	// (docs/reference/protocol-resolution.md#the-three-declarations, OQ-PR1).
 	//
 	// IT SAYS NOTHING ABOUT WHO RUNS IT, and that separation IS the ruling. The
 	// leaning was a field on `service`, on the argument that every adapter is a proxy

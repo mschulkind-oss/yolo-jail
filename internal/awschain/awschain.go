@@ -79,8 +79,8 @@ const (
 //
 // They live here rather than at either caller for the same reason the refusal text does:
 // this package holds the rule AND its wording, and an origin phrase is half of what makes
-// the refusal actionable (R3, docs/design/protocol-resolution.md). They name yolo's own
-// delivery mechanisms, never a config SHAPE — nothing here reads one.
+// the refusal actionable (docs/reference/protocol-resolution.md#the-four-outcomes). They
+// name yolo's own delivery mechanisms, never a config SHAPE — nothing here reads one.
 const (
 	// FromEnvSources is the hydrated `env_sources` secret channel: where a jail using
 	// AWS_BEARER_TOKEN_BEDROCK today gets it (design §8, "Pre-existing state").
@@ -110,8 +110,9 @@ const (
 // `where` is a human phrase naming the DECLARATION SITE ("env_sources (the secret
 // channel)", "a selected pack's `kind: \"env\"` contribution", …) — the half of a
 // refusal that turns "you configured two things" into "you configured THESE two, here
-// and here". R3 of docs/design/protocol-resolution.md is the standing rule: the wrong
-// declaration has to be visible in the refusal rather than in a later support request.
+// and here". docs/reference/protocol-resolution.md#the-four-outcomes is the standing
+// rule: the wrong declaration has to be visible in the refusal rather than in a later
+// support request.
 //
 // ⚠ IT IS NEVER THE VALUE, and the signature is what enforces that: these two variables
 // are a credential and a pointer at one, and this package's whole output is text a

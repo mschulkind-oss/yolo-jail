@@ -30,8 +30,8 @@ func lookupOf(m map[string]string) OriginLookup {
 // TestExclusivityRefusalNamesBothArmsAndBothOrigins is the positive case: both
 // channels delivered, so the refusal has to say WHICH two and WHERE each came from.
 // Naming only the variables would send a reader hunting through four files for the
-// declaration — R3 of docs/design/protocol-resolution.md, the rule the origin phrase
-// exists for.
+// declaration — docs/reference/protocol-resolution.md#the-four-outcomes, the rule the
+// origin phrase exists for.
 func TestExclusivityRefusalNamesBothArmsAndBothOrigins(t *testing.T) {
 	lines := ExclusivityRefusal(lookupOf(map[string]string{
 		BearerTokenVar: "env_sources (the secret channel)",

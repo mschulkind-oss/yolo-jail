@@ -1,8 +1,8 @@
 package packload
 
 // agentprotocols_test.go is the SHIPPED-PACK census for the agent's wire declaration
-// (docs/design/protocol-resolution.md §3, build step 2): which of the packs yolo ships
-// declare `protocols`, with what, and why each value is the one its own derive reads.
+// (docs/reference/protocol-resolution.md#the-three-declarations): which of the packs yolo
+// ships declare `protocols`, with what, and why each value is the one its own derive reads.
 //
 // R3 is the risk this file exists against: "an agent pack declares its protocols wrongly
 // and a working setup starts refusing". A declaration nothing measures is a guess, so the
@@ -195,7 +195,7 @@ func TestProtocolDeclarationDoesNotTouchTheComposedTable(t *testing.T) {
 }
 
 // THE SHORTHAND IS GONE FROM THE SHIPPED DERIVE, measured through the real
-// packs/claude/derive.lua (protocol-resolution.md §5).
+// packs/claude/derive.lua (protocol-resolution.md).
 //
 // A provider carrying a bare `base_url` used to reach that producer and become
 // ANTHROPIC_BASE_URL — including the trailing-/v1 strip, which existed only for this

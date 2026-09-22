@@ -121,7 +121,7 @@ func AgentEnv(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map[string
 		return nil, nil
 	}
 	selected := ProviderFor(cfg.resolved, profile)
-	// THE PROTOCOL GATE (protocol-resolution.md §3), above the derive and not inside it.
+	// THE PROTOCOL GATE (protocol-resolution.md), above the derive and not inside it.
 	// A derive composes VARIABLES; whether this agent can be pointed at this provider at
 	// all is a question about two DECLARATIONS, and core answers it — which is the line
 	// OQ-CS8 draws and the reason nothing below learns a protocol name.

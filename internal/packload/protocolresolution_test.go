@@ -1,10 +1,11 @@
 package packload
 
-// protocolresolution_test.go pins the resolver (docs/design/protocol-resolution.md §3-§4)
-// through its PRODUCTION CALL SITE. Every case below goes in at AgentEnv — the runner both
-// notches reduce through — rather than at ResolveProtocol, because a test that exercises the
-// helper and passes when the call site is deleted is not a test of the gate. The last test
-// in this file is exactly that mutation, written down.
+// protocolresolution_test.go pins the resolver
+// (docs/reference/protocol-resolution.md#the-four-outcomes) through its PRODUCTION CALL
+// SITE. Every case below goes in at AgentEnv — the runner both notches reduce through —
+// rather than at ResolveProtocol, because a test that exercises the helper and passes when
+// the call site is deleted is not a test of the gate. The last test in this file is exactly
+// that mutation, written down.
 //
 // §4.1's degenerate table is the spine: each row is a way there is NOTHING to resolve, and
 // each is a launch that works today and has to keep working. A resolver is only as good as
