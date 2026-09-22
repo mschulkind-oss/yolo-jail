@@ -84,6 +84,39 @@ type Contribution struct {
 	// the declared value (which is exactly what all three skills readers did).
 	From string `json:"from,omitempty"` // pack-relative source path
 	Into string `json:"into,omitempty"` // home-relative jail destination
+	// Reserved names CHILDREN of `into` that yolo must not touch — neither adopt nor compose
+	// over. `skills` only.
+	//
+	// # Why a pack declares this and core does not know the names
+	//
+	// `~/.claude/skills/synced/` is a SYNC ROOT: a bucket Claude Code fills from a registration
+	// that lives outside it, so nothing yolo does inside it survives the next sync. Adoption
+	// moved it into the local pack and composed a byte-identical copy back, which looks like
+	// success and loses the user's edits on the next upstream sync
+	// (docs/design/synced-skill-trees.md, the measured data loss).
+	//
+	// The name belongs to the agent that owns the tree, not to core. Hardcoding "synced" here
+	// is how core learns what an agent is, one vendor string at a time — the coupling this
+	// package's tier comment already refuses by name, and the ruling on OQ-ST2.
+	Reserved []string `json:"reserved,omitempty"`
+	// NodeFloor is the MINIMUM Node version this program's entrypoint requires. `program` only.
+	//
+	// # Why a program declares it and core does not derive it
+	//
+	// Which Node runs an npm-delivered agent CLI is decided today by whichever `mise.toml` the
+	// WORKSPACE ships, because the launcher execs a `#!/usr/bin/env node` script and mise's
+	// shims precede /bin on the jail PATH. That is the project's interpreter doing the agent's
+	// job: a repo pinning Node 20 makes an agent whose bundle needs 22.19 unrunnable, and the
+	// error names a missing module export rather than a version.
+	//
+	// DECLARED rather than read from the installed package's `engines` (OQ-AR4): core does not
+	// guess, and the package is not installed when `yolo check` runs, so a derived floor could
+	// never be validated. A program that declares nothing keeps today's behaviour exactly —
+	// which is load-bearing, since `opencode-ai` ships a native ELF through the same `via: npm`
+	// route and must never be wrapped in an interpreter.
+	//
+	// See nodefloor.go for the comparison, and why a mise selector cannot express this.
+	NodeFloor string `json:"node_floor,omitempty"`
 	// After, as `"host:<path>"` on a `briefing`, prepends the user's own host file to the
 	// jail's composed briefing (run.briefingHostOverlay → jailcontent.PrependHostBriefing) — so a
 	// personal AGENTS.md outranks anything a pack ships INSIDE A JAIL.
@@ -320,9 +353,9 @@ type Contribution struct {
 
 	// Protocols are the WIRE PROTOCOLS THE INSTALLED PROGRAM SPEAKS, in preference order
 	// — the agent's half of the pairing every other party already declares
-	// (docs/design/protocol-resolution.md §3). A provider says which protocol each of its
-	// endpoints speaks; an adapter says which protocol it turns into which other one; this
-	// is the agent saying which ones it can be pointed at at all.
+	// (docs/reference/protocol-resolution.md#the-three-declarations). A provider says which
+	// protocol each of its endpoints speaks; an adapter says which protocol it turns into
+	// which other one; this is the agent saying which ones it can be pointed at at all.
 	//
 	// THE NAMES ARE `endpoints` KEYS, not `wire_api` VALUES, and the difference is load
 	// bearing: `endpoints.anthropic` is the map key a provider declares its URL under and
@@ -341,18 +374,18 @@ type Contribution struct {
 	// reason).
 	//
 	// ABSENT MEANS UNCONSTRAINED, and that is the compatibility shape rather than an
-	// oversight (§4.1's last row): an agent that states nothing constrains nothing, so a
-	// pack that has not been updated resolves DIRECT for every provider, exactly as it did
-	// before the field existed. An agent that DOES declare is the one whose broken pairings
-	// become refusals.
+	// oversight (the degenerate-inputs table): an agent that states nothing constrains
+	// nothing, so a pack that has not been updated resolves DIRECT for every provider,
+	// exactly as it did before the field existed. An agent that DOES declare is the one
+	// whose broken pairings become refusals.
 	//
-	// ORDER IS PREFERENCE (§4.1): resolution walks the list and the first protocol that
-	// resolves wins, so a pack that speaks two wires says which one it would rather be
-	// given. `copilot` is the shipped case — it prefers `anthropic` and falls back to
-	// `openai`, which is what its derive already does by hand.
+	// ORDER IS PREFERENCE (the same table): resolution walks the list and the first
+	// protocol that resolves wins, so a pack that speaks two wires says which one it would
+	// rather be given. `copilot` is the shipped case — it prefers `anthropic` and falls
+	// back to `openai`, which is what its derive already does by hand.
 	Protocols []string `json:"protocols,omitempty"`
 
-	// --- adapter (docs/design/protocol-resolution.md §3, OQ-PR1) ---
+	// --- adapter (docs/reference/protocol-resolution.md#the-three-declarations, OQ-PR1) ---
 	// Adapts is the protocol PAIR this contribution converts, and Address is where the
 	// converted wire is served. Together they are the whole kind: an adapter says WHAT it
 	// turns into WHAT, and WHERE — and nothing about who runs it.
@@ -370,11 +403,12 @@ type Contribution struct {
 	// the most shareable artifact yolo has, and a credential in one is in front of everyone
 	// who installs the pack.
 	//
-	// WHERE IT COMES FROM DEPENDS ON THE SHAPE (§6). An adapter that ships its own daemon
-	// declares the address that daemon binds; one naming a remote gateway or a proxy the
-	// user already runs carries an address the user owns, and yolo neither defaults it nor
-	// moves it. The declaration is identical in all three, which is the point — only the
-	// presence of a sibling `service` contribution tells them apart.
+	// WHERE IT COMES FROM DEPENDS ON THE SHAPE
+	// (docs/reference/protocol-resolution.md#the-adapters-address). An adapter that ships
+	// its own daemon declares the address that daemon binds; one naming a remote gateway or
+	// a proxy the user already runs carries an address the user owns, and yolo neither
+	// defaults it nor moves it. The declaration is identical in all three, which is the
+	// point — only the presence of a sibling `service` contribution tells them apart.
 	Address string `json:"address,omitempty"`
 
 	// --- service (docs/reference/wire-bridge.md §2.1, WB-D16) ---
@@ -633,7 +667,7 @@ func (m *Manifest) InstallContributions() []Install {
 		if c.Kind != KindProgram {
 			continue
 		}
-		in := Install{Bin: c.Bin, Flags: c.Flags}
+		in := Install{Bin: c.Bin, Flags: c.Flags, NodeFloor: c.NodeFloor}
 		// The KIND comes from the closed via table, never from a case in this switch:
 		// that is the coupling to KnownVia, and it is what stops this projection from
 		// learning a mechanism the decoders would still drop (see knownVias). A via
@@ -1050,7 +1084,7 @@ func (m *Manifest) Adapters() []AdapterContribution {
 
 // SpokenProtocols returns the wire protocols the program this pack installs at bin
 // speaks, in the declared preference order — the agent half of the resolver's three
-// declarations (docs/design/protocol-resolution.md §3).
+// declarations (docs/reference/protocol-resolution.md#the-three-declarations).
 //
 // Keyed by BIN, and discovered exactly as NativeCapabilities is, for that accessor's
 // reason: a `program` contribution has no `agent` field, the bin IS the agent's name in
@@ -1060,8 +1094,8 @@ func (m *Manifest) Adapters() []AdapterContribution {
 //
 // NIL IS "UNCONSTRAINED", not "speaks nothing": the empty list is refused at authoring
 // time (protocolsProblems), so nil can only mean the pack declared no preference, which
-// §4.1 resolves DIRECT for every provider. A caller must not read nil as an empty set and
-// refuse on it.
+// the degenerate-inputs table resolves DIRECT for every provider. A caller must not read
+// nil as an empty set and refuse on it.
 //
 // First match wins and the loop does not merge two: `program` is CombineExclusive per bin,
 // so a second contribution naming one bin is a collision the loader already refuses.
@@ -1718,9 +1752,9 @@ func capabilitiesProblems(label string, c Contribution) []string {
 }
 
 // protocolsProblems checks the `protocols` list — the agent's wire declaration
-// (docs/design/protocol-resolution.md §3), guarded in capabilitiesProblems' shape because
-// it is the same shape of mistake: a list declared on a kind that has no consumer for it
-// is a fact nothing can ever read.
+// (docs/reference/protocol-resolution.md#the-three-declarations), guarded in
+// capabilitiesProblems' shape because it is the same shape of mistake: a list declared on
+// a kind that has no consumer for it is a fact nothing can ever read.
 //
 // ONE KIND, and it is `program` rather than `program` + `requires`: the resolver asks the
 // pack that OWNS an agent's CLI which wires that agent speaks, and it finds that pack by
@@ -1983,6 +2017,36 @@ func validateContribution(label string, c Contribution) []string {
 			"%s: kind %q does not take \"profile\" — the modifier gates config-overlay "+
 				"(on the target surface's agent) and env (on the launch's profile table); "+
 				"no consumer reads it on this kind", label, c.Kind))
+	}
+	// `node_floor` is program's alone, refused in `profile`'s position and for `profile`'s
+	// reason: the only consumer is the launcher generator's interpreter resolution, so a floor
+	// on a content kind is a declaration that silently governs nothing.
+	if c.NodeFloor != "" && c.Kind != KindProgram {
+		problems = append(problems, fmt.Sprintf(
+			"%s: kind %q does not take \"node_floor\" — it selects the interpreter a PROGRAM's "+
+				"entrypoint is exec'd under, so only \"program\" has an entrypoint to run", label, c.Kind))
+	}
+	if prob := nodeFloorProblem(label+": \"node_floor\"", c.NodeFloor); prob != "" {
+		problems = append(problems, prob)
+	}
+	// `reserved` is skills' alone, refused in `profile`'s position and for `profile`'s reason:
+	// the only consumer is the skills destination walk, so a reserved name on any other kind is
+	// a declaration that silently protects nothing.
+	if len(c.Reserved) > 0 && c.Kind != KindSkills {
+		problems = append(problems, fmt.Sprintf(
+			"%s: kind %q does not take \"reserved\" — it fences CHILDREN of a skills "+
+				"destination, so only \"skills\" has a tree to fence", label, c.Kind))
+	}
+	for _, r := range c.Reserved {
+		// A reserved entry is matched against a single directory ENTRY name, so anything
+		// carrying path structure could never match and would read as protection that is not
+		// there — the worst failure available for a fence.
+		if r == "" || r == "." || r == ".." || strings.ContainsAny(r, `/\`) {
+			problems = append(problems, fmt.Sprintf(
+				"%s: \"reserved\" entry %q must be a bare child name — it is compared against "+
+					"one directory entry, so a path could never match and the fence would "+
+					"silently protect nothing", label, r))
+		}
 	}
 	// `update` is program's alone, refused in `profile`'s position and for `profile`'s
 	// reason: a verb declared on `requires` (which installs nothing) or on a content kind
@@ -2316,10 +2380,11 @@ func validateContribution(label string, c Contribution) []string {
 				"its jail half is mounted at /etc/yolo-jail/loopholes/<name>, which core owns")
 		}
 	case KindAdapter:
-		// The pair and the address ARE the kind (protocol-resolution.md §3). A pairless
-		// adapter converts nothing; an addressless one converts something and gives the
-		// resolver nowhere to point — and the resolver's whole output is an address, so
-		// either omission is a declaration with no answer in it.
+		// The pair and the address ARE the kind
+		// (protocol-resolution.md#the-three-declarations). A pairless adapter converts
+		// nothing; an addressless one converts something and gives the resolver nowhere to
+		// point — and the resolver's whole output is an address, so either omission is a
+		// declaration with no answer in it.
 		switch {
 		case c.Adapts == nil:
 			problems = append(problems, label+": kind \"adapter\" needs \"adapts\" "+

@@ -500,6 +500,27 @@ which declares no destinations at all and borrows them from the other selected p
 *inherited* a tier per destination, so one skill acquired two invocation names without the
 pack ever choosing either. Values are unnamespaced (the default), `flat` (the same thing
 said out loud), and `namespaced` (one subtree per destination, invoked `<pack>:<skill>`).
+
+**A skills contribution may also RESERVE children of its destination** — `reserved`, a list of bare
+child names yolo neither adopts nor composes over. It sits beside the tier rule because it is the
+same kind of fact about a destination, and it is **pack-declared for the reason the tier is
+per-pack**: the name belongs to whoever owns the tree. Core learning one vendor's directory name is
+how core learns what an agent is, one string at a time
+([`OQ-ST2`](../design/synced-skill-trees.md#OQ-ST2)).
+
+`packs/claude` reserves `synced`. `~/.claude/skills/synced/` is a **sync root**: a bucket Claude Code
+fills from a registration that lives *outside* it, so nothing written inside survives that tool's
+next sync. It defeats every other guard — not dot-prefixed, a real directory, in no ownership record,
+and carrying no manifest at its own level, because a sync root's manifests are two levels down, one
+per identity bucket. So it was adopted, moved into the local pack and composed back byte-identically,
+which looks like success and loses the user's edits later.
+
+- The fence applies at **every posture** — a reserved child is never a pending change.
+- A **non-empty** reserved child is reported, naming why yolo declines. An empty one is silent, so a
+  user with the feature on and nothing synced gets no line.
+- An entry must be a **bare child name**; the schema refuses one carrying path structure, because it
+  is compared against a single directory entry and could never match — a fence that cannot match is
+  worse than none, since it reads as protection.
 A pack still carrying a per-contribution `"tier"` is refused BY NAME with the migration in
 the message, rather than failing on the strict decoder's bare unknown-field error.
 
@@ -581,7 +602,7 @@ the reason the layout is what it is: many packs can address one slot without a
 sole-ownership collision, and nothing is ever delivered AT the slot root, where the owner's own
 tree and every other contributor's live. A tree bound at the root with addressed trees nested
 inside it is the nested-mount conflict `files` was reshaped to remove
-([`pi-pack-extensions.md`](../design/pi-pack-extensions.md), OQ-4/OQ-6).
+([`OQ-4`](../design/pi-pack-extensions.md#10-decision-ledger)/[`OQ-6`](../design/pi-pack-extensions.md#10-decision-ledger)).
 
 > [!WARNING]
 > **One slot per agent, and one addressed tree per agent per pack; a second of either is a load

@@ -31,7 +31,8 @@
     {
       "agent": "claude",
       "into": ".claude/skills",
-      "kind": "skills"
+      "kind": "skills",
+      "reserved": ["synced"]
     },
     {
       "config": [

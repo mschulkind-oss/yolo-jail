@@ -186,6 +186,12 @@ func applyHostSkills(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	if reportSkillCollisions(pr, dests) {
 		return 1
 	}
+	// THE RECOVERY REPORT (§7, R1's report half), before the adoption gate rather than after:
+	// a user whose home is ALREADY wrong should learn it before being asked to approve anything
+	// else, and the finding is about a previous apply rather than about this one.
+	for _, r := range hostskills.ReservedInLocalPack(dests, req.LocalPackSkills) {
+		printSkillResult(pr, survey, r)
+	}
 	adoptions, foreignPlugins := hostskills.Adoptions(dests, req)
 	for _, r := range foreignPlugins {
 		// A plugin the user authored is left alone at every posture — never adopted, never
@@ -404,10 +410,15 @@ func printSkillResult(pr richtext.Printer, survey *hostApplySurvey, r hostskills
 	// the whole point of grouping by name rather than by destination, since fourteen skills in
 	// five agent dirs are seventy of these lines and fourteen facts (P1).
 	//
-	// The exception is a REFUSAL, which no count and no group states: yolo declined to deliver
-	// this entry, and a reader who never sees the line never learns it. A loss with no other
-	// representation is not compressible (the remedy contract).
-	if r.Action == hostskills.ActionRefused {
+	// The exceptions are a REFUSAL and a RESERVED tree, which no count and no group states: yolo
+	// declined to act on this entry, and a reader who never sees the line never learns it. A fact
+	// with no other representation is not compressible (the remedy contract).
+	//
+	// ⚠ ActionReserved belongs here rather than with the skipped entries it resembles. §4.2 asks
+	// for a line "emitted where a user is already looking", and detail-on-demand is not that: a
+	// fence the user only discovers under --verbose reads, later, as yolo having lost their
+	// skills.
+	if r.Action == hostskills.ActionRefused || r.Action == hostskills.ActionReserved {
 		pr.Printf("  ["+color+"]skills[/"+color+"]     %-24s %s  [dim]%s[/dim]",
 			r.Name, r.Action, r.Detail)
 		return
@@ -443,6 +454,12 @@ func skillFateOf(a hostskills.Action) (skillFate, bool) {
 // move content out of a directory the user looks at, and a REFUSAL is a blocker — one of the
 // two members of tier 3 — so all three are itemized; a plain composition is a run fact.
 func skillResultTier(a hostskills.Action, fate skillFate, counted bool) reportTier {
+	// A reserved tree is NOT a loss: nothing left a directory and nothing was declined to the
+	// user — yolo composed around a tree that was never its to deliver. Tiering it as a loss would
+	// put "1 loss" in a verdict for a home where nothing happened.
+	if a == hostskills.ActionReserved {
+		return tierRun
+	}
 	if a == hostskills.ActionRefused || (counted && fate != skillComposed) {
 		return tierLoss
 	}

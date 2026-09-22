@@ -3,14 +3,16 @@ title: "Synced skill trees — implementation sketch"
 date: 2026-09-18
 status: draft
 tags: [plan, sketch, skills, packs, host-notch, claude]
-summary: "The parking lot for `synced-skill-trees.md`: the measurement transcript that doc cites, the seams a real implementation-plan will need, and the checks to re-run before building. Not a hand-off artifact — no design decision is made here, and five questions in the design are open."
+summary: "The parking lot for `synced-skill-trees.md`: the measurement transcripts that doc cites, and the checks worth re-running against them. Not a hand-off artifact — no design decision is made here. The design's fence, notice and recovery report shipped 2026-09-22, so the build-side notes here are history; its one remaining question belongs to the config-ownership axis."
 vantage:
   status-chip: true
 ---
 
 # Synced skill trees — implementation sketch
 
-**Status:** SKETCH, 2026-09-18 — incomplete, and unstable while questions are open.
+**Status:** SKETCH, 2026-09-18 — **what survives is the measurement**. The design's three steps (the
+fence, the notice, the recovery report) shipped 2026-09-22, so this file's value is the transcripts
+its sibling cites and the checks worth re-running against them, not a route to build.
 
 > [!WARNING]
 > **Do not build from this.** It is a parking lot that keeps
@@ -64,8 +66,11 @@ Applied: 1 composed skill.
 `new-from-upstream` is gone and `pdf-tools` is back to its pre-edit bytes, in both the
 destination and the local pack. **That one output line is the entire notice.**
 
-**To re-run this after a fix:** the assertion is that run 3 leaves both the new skill and the
-edit intact, and that run 1 lists `my-own-skill` and *not* `synced`.
+**The fix landed 2026-09-22, and the assertion is now a unit test rather than a re-run.**
+`TestAdoptionsFenceOffAReservedChild` builds this shape — a bucket holding a manifest two levels
+down, under a reserved parent, beside a hand-written skill — and fails if `synced` is adopted, if
+the hand-written skill is lost with it, or if the notice is silent about a non-empty root. Run 1
+now lists `my-own-skill` and not `synced`, so run 3 has nothing to revert.
 
 ## The second measurement: an empty bucket, and the plugins-side twin
 
@@ -95,8 +100,12 @@ $ HOME=$FAKE yolo host apply
   ⚠ 1 skill in your agent skill dirs is yours, not yolo's, and would move into your local pack: synced
 ```
 
-An **empty** sync root is adopted, because `Adoptions` tests only non-dot-and-directory. The
-`.bucket-…` marker is excluded twice over (dot-prefixed, and not a directory).
+An **empty** sync root was adopted too, because `Adoptions` tests only non-dot-and-directory. The
+`.bucket-…` marker is excluded twice over (dot-prefixed, and not a directory). Both halves are
+pinned now: the fence excludes the root at every posture, and
+`TestReservedRootWithOnlyAnIdentityBucketIsSilent` builds exactly this shape — empty bucket plus
+marker — and fails if it produces a line, because that line would fire for every user with the
+feature on and nothing synced.
 
 > [!WARNING]
 > **This jail cannot measure the skills-side timing, and an absent `~/.claude/skills/synced`
@@ -178,38 +187,48 @@ design question — recorded here so they are not re-discovered.
 
 ## Where the claude.ai facts came from
 
-All read out of `~/.local/share/claude/versions/2.1.275` (an ELF bundle, so `grep -a -o -E`
-over it rather than a JS file), never from vendor docs — the lesson
+All read out of the `claude` bundle under `~/.local/share/claude/versions/` (an ELF bundle, so
+`grep -a -o -E` over it rather than a JS file), never from vendor docs — the lesson
 [`../plans/pack-host-management-plan.md`](../plans/pack-host-management-plan.md#n6-new--copilot-reads-claudes-plugin-manifests-and-namespaces-plugin-skills)
 records. The load-bearing extract is the bucket-name module: a `synced` constant beside
 `.trash` and `.staging`, the UUID regex, a two-argument minter joining its arguments with `_`
 and defaulting the second to `unbound`, a parser returning `{org, account}`, and a telemetry
 redactor emitting the literal `"<org>_<account>"`.
 
-**Re-verify on a version bump** — this is a private layout with no compatibility promise. The
-cheapest probe is the redaction template: if `"<org>_<account>"` is still in the binary, the
-naming has not moved.
+**The layout is private with no compatibility promise, and it has survived every bump this jail has
+seen.** Re-checked 2026-09-22, two releases after the original read: the redactor's two templates,
+the `.bucket-` constant, the `~g` generation-suffix regex, the `anthropic-skills:<name>` session
+line, the `claude.ai-synced` source kind and the reserved-name refusal are all present and
+unchanged, in the same module.
 
-## Seams a real plan will need
+**The cheapest probe is the redaction template** — `grep -a -c '<org>_<account>' <bundle>`; if it is
+still in the binary the naming has not moved. Worth running when one of these facts is about to
+carry a decision, which is a smaller occasion than every bump: no fact here has moved across a bump
+yet, and the fence does not depend on the layout at all — it depends only on the *name*
+`synced`, which the binary refuses to load a skill under
+([§2.3](synced-skill-trees.md#23-reserved-siblings)).
+
+## Seams — where the fence landed, and what is still loose
 
 - **The fence's read point** is `hostskills.Adoptions` in
-  [`../../internal/hostskills/compose.go`](../../internal/hostskills/compose.go) — the same
-  function that already implements four exclusions, each with its reasoning in the doc comment.
-  A fifth exclusion is the shape; it needs the destination's declaring pack in scope, which
-  `Destination` does not carry today (it carries `Layers`, each with a `Pack`).
-- **The declaration** belongs beside `SkillsTier` on the manifest
-  ([`../../internal/packdecl/packdecl.go`](../../internal/packdecl/packdecl.go)) — per pack or
-  per contribution is an open shape, but note tier went manifest-level for a reason that may
-  apply here too.
+  [`../../internal/hostskills/compose.go`](../../internal/hostskills/compose.go), and it went in
+  **first** rather than as a fifth exclusion: it is the only check protecting a tree yolo must not
+  reason about, so it precedes the four that ask *"is this yolo's?"*. `Destination` grew a
+  `Reserved` field, unioned across the layers that declare it, which is what the walk consults.
+- **The declaration** went **per contribution**, not per manifest beside `skills_tier`: a `skills`
+  contribution takes `reserved`, a list of bare child names, and the schema refuses the field on
+  every other kind and refuses an entry carrying path structure (a fence that cannot match reads as
+  protection that is not there).
 - **The jail half** is
   [`../../internal/jailcontent/skills.go`](../../internal/jailcontent/skills.go)'s
-  `copySkillSubdirs`. Today it is only reachable with a broken home behind it; after the fence
-  it should stay unreachable, and a test that pins the CALL SITE rather than the helper is the
-  one that would notice.
+  `copySkillSubdirs`, and it is now reachable only through a home the fence arrived too late for
+  ([§7](synced-skill-trees.md#7-homes-that-are-already-wrong)). A test that pins the CALL SITE
+  rather than the helper is the one that would notice if that changed.
 - **`yolo pack init --from-plugin`** already writes `skills_tier: namespaced` and a `skills`
   contribution into `.claude/skills`, and copies the tree rather than linking it (packstage
   refuses an escaping symlink, so a link would stage into no jail). That is the synced-plugin
-  route and it needs no new code — only a pointer from the snapshot's output.
+  route and it needs no new code — the notice points at `yolo pack --help` rather than at a
+  command that does it for the user.
 - **`packload.SkillsSourceDir`** is the one resolver for a contribution's `from`, used by all
   three former hardcoding call sites. Anything new that reads a pack's skills source goes
   through it.
@@ -221,27 +240,25 @@ naming has not moved.
   archive, so it is the one to do first, which is the opposite of where the function comment
   points.
 
-## Checks to re-run before building
+## Checks worth re-running
 
-- `hostskills.Collisions` is enforced structurally before any write and exits non-zero — confirm
-  a snapshot cannot slip a name past it ([§5](synced-skill-trees.md#5-naming-and-collisions)
-  ruling 4 depends on this).
-- `host_files` destination reservation lists do **not** name `.claude/skills`, so a user can
-  already aim one there. Nothing cross-references `host_files` destinations against pack-declared
-  skills mounts — worth measuring before the design's
-  [§9](synced-skill-trees.md#9-alternatives-considered) `host_files` paragraph is relied on
-  either way.
+- **A `host_files` entry can be aimed inside a composed skills destination, and nothing checks
+  it.** Read 2026-09-22: `.claude/skills` appears in no reservation (`reservedHomeFiles` covers
+  files yolo mounts or materializes; `builtinSurfacePaths` covers composed CONFIG surfaces), and the
+  two-writers refusal (`config.SurfaceCollisions`, run-pipeline only) compares a destination against
+  pack config surfaces, which a skills destination is not. So the design's
+  [§9](synced-skill-trees.md#9-alternatives-considered) `host_files` paragraph rests on an
+  unchecked overlap — which is one of the reasons that route is rejected, not a thing to go build on.
 - The `:ro` skills mount is not guarded on `roBindsUnsupported`, unlike the pack host-grant
   path — on Apple Container below its read-only floor the staged skills dir is effectively
   writable. Irrelevant to the fence, relevant to any claim that a jail cannot edit its skills.
 
-## Blocked entries
+## What was blocked, and is not any more
 
-- The snapshot's destination layout, its record file and its command spelling are all blocked on
-  [OQ-ST1](synced-skill-trees.md#OQ-ST1) — a dedicated pack and the local pack need different
-  records and different removal stories, so writing either down now would be a guess.
-- Whether the fence needs a user-scope spelling is blocked on
-  [OQ-ST2](synced-skill-trees.md#OQ-ST2).
-- Whether anything is emitted on the launch stream is blocked on
-  [OQ-ST3](synced-skill-trees.md#OQ-ST3); a launch has no quiet mode, so this is not a line that
-  can be added provisionally.
+Nothing here waits on a ruling. The snapshot's layout, record file and command spelling went with
+the snapshot ([OQ-ST1](synced-skill-trees.md#OQ-ST1) dissolved); the fence's declaration site was
+ruled and built per contribution ([OQ-ST2](synced-skill-trees.md#OQ-ST2)); and the launch stream
+stays silent by ruling ([OQ-ST3](synced-skill-trees.md#OQ-ST3) — the notice is host-notch only,
+because a launch discloses what yolo DID to a jail and a line added there is permanent). The one
+sub-question left open is whether a USER may add reserved children in their own config, and it
+gates nothing.

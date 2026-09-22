@@ -11,6 +11,8 @@ package hostskills
 // MOVES DIRECTORIES, so that is load-bearing beyond the usual.
 
 import (
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1109,4 +1111,234 @@ func sortedKeysOf(m map[string]bool) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// TestAdoptionsFenceOffAReservedChild is the measured data loss, reproduced.
+//
+// The shape matters: `synced` clears every OTHER skip in Adoptions — it is not dot-prefixed, it IS
+// a directory, it sits in no ownership record, and it carries no manifest AT ITS OWN LEVEL, because
+// a sync root's manifests are two levels down, one per identity bucket. So the fixture builds
+// exactly that: an identity bucket holding a real plugin, under a reserved parent. Without the
+// fence this is adopted, moved into the local pack, and composed back byte-identically — which
+// looks like success until the next upstream sync.
+func TestAdoptionsFenceOffAReservedChild(t *testing.T) {
+	d, _ := composeFixture(t, TierFlat, "one")
+	d.Reserved = []string{"synced"}
+	req := composeReq(t)
+	if err := os.MkdirAll(d.Dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A sync root with its manifest two levels down — the shape that defeats the plugin check.
+	bucket := filepath.Join(d.Dir, "synced", "1111-2222_3333-4444")
+	if err := os.MkdirAll(filepath.Join(bucket, ".claude-plugin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bucket, ".claude-plugin", "plugin.json"),
+		[]byte(`{"name":"from-claude-ai"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeSkill(t, d.Dir, "mine", "HAND WRITTEN")
+
+	adoptions, reported := Adoptions([]Destination{d}, req)
+
+	for _, a := range adoptions {
+		if a.Name == "synced" {
+			t.Fatalf("ADOPTED the reserved sync root — this is the measured data loss: %+v", a)
+		}
+	}
+	if len(adoptions) != 1 || adoptions[0].Name != "mine" {
+		t.Fatalf("the fence must not cost the user's own skills; got %+v", adoptions)
+	}
+	// The notice: a fence nobody is told about is how a user concludes yolo lost their skills.
+	var notice *Result
+	for i := range reported {
+		if reported[i].Name == "synced" {
+			notice = &reported[i]
+		}
+	}
+	if notice == nil {
+		t.Fatal("a non-empty reserved child must be REPORTED, not skipped silently")
+	}
+	if notice.WouldChange {
+		t.Error("a reserved child is declined at every posture, so it is never a pending change")
+	}
+	if notice.Action != ActionReserved {
+		t.Errorf("the notice needs its OWN action — ActionSkippedUser prints detail-on-demand, and "+
+			"a fence a user only sees under --verbose reads later as yolo losing their skills; got %q",
+			notice.Action)
+	}
+	for _, want := range []string{"next sync", "claude plugin list", "yolo pack --help"} {
+		if !strings.Contains(notice.Detail, want) {
+			t.Errorf("the notice must state the fact, how to LOOK, and what to do instead — "+
+				"missing %q in: %s", want, notice.Detail)
+		}
+	}
+	if !strings.Contains(notice.Detail, "next sync") {
+		t.Errorf("the notice must say WHY yolo declines, or it reads as yolo being broken; got %q",
+			notice.Detail)
+	}
+}
+
+// An EMPTY reserved child is fenced but NOT announced — otherwise every user with the feature
+// switched on and nothing synced gets a line about a directory they have never filled.
+func TestAdoptionsSayNothingAboutAnEmptyReservedChild(t *testing.T) {
+	d, _ := composeFixture(t, TierFlat, "one")
+	d.Reserved = []string{"synced"}
+	req := composeReq(t)
+	if err := os.MkdirAll(filepath.Join(d.Dir, "synced"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	adoptions, reported := Adoptions([]Destination{d}, req)
+	if len(adoptions) != 0 {
+		t.Errorf("an empty reserved child is still fenced; got %+v", adoptions)
+	}
+	if len(reported) != 0 {
+		t.Errorf("an empty reserved child must be silent; got %+v", reported)
+	}
+}
+
+// TestComposeHostSkillsUnionsReservedAcrossLayers pins the CALL SITE that carries the declaration
+// from the pack manifest onto the destination. A fence that the walker supports but nothing
+// populates protects nothing, and no test of Adoptions alone would notice.
+//
+// Union, not last-wins: a fence is a safety property, so one pack declaring a name is enough and a
+// later layer must not be able to un-declare it.
+func TestComposeHostSkillsUnionsReservedAcrossLayers(t *testing.T) {
+	home := t.TempDir()
+	dests := ComposeHostSkills(reservedPackFixture(t), home)
+	if len(dests) != 1 {
+		t.Fatalf("want one destination, got %d", len(dests))
+	}
+	if !dests[0].IsReserved("synced") {
+		t.Fatalf("the pack's declared reserved child did not reach the destination: %+v",
+			dests[0].Reserved)
+	}
+	if len(dests[0].Reserved) != 1 {
+		t.Errorf("a name declared by two layers must appear once; got %v", dests[0].Reserved)
+	}
+}
+
+// reservedPackFixture builds TWO packs that both declare the same reserved child, through the real
+// manifest decoder rather than by hand-filling the struct — so the test also proves the field
+// survives JSON decoding, which a literal Contribution would not.
+func reservedPackFixture(t *testing.T) []*packload.Pack {
+	t.Helper()
+	var out []*packload.Pack
+	for _, name := range []string{"claude", "local"} {
+		m, problems := packdecl.Decode([]byte(`{
+  "name": "` + name + `",
+  "contributes": [
+    {"kind": "skills", "agent": "claude", "into": ".claude/skills", "reserved": ["synced"]}
+  ]
+}`))
+		if len(problems) > 0 {
+			t.Fatalf("fixture manifest for %q did not decode cleanly: %v", name, problems)
+		}
+		out = append(out, &packload.Pack{Name: name, Decl: m})
+	}
+	return out
+}
+
+// TestReservedRootWithOnlyAnIdentityBucketIsSilent is the cried-wolf case §4.2 names, and it is
+// the measured shape rather than an invented one: a sync bucket is minted from the user's IDENTITY,
+// so it exists as soon as the feature is switched on and stays EMPTY until something syncs, with a
+// zero-byte `.bucket-<uuid>` marker beside it.
+//
+// Keyed on existence this fires for every user with the feature on and nothing synced, forever,
+// about nothing — the line that teaches a reader to skip yolo's output.
+func TestReservedRootWithOnlyAnIdentityBucketIsSilent(t *testing.T) {
+	d, _ := composeFixture(t, TierFlat, "one")
+	d.Reserved = []string{"synced"}
+	req := composeReq(t)
+	root := filepath.Join(d.Dir, "synced")
+	if err := os.MkdirAll(filepath.Join(root, "1111-2222_3333-4444"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".bucket-1111-2222_3333-4444"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	adoptions, reported := Adoptions([]Destination{d}, req)
+	if len(adoptions) != 0 {
+		t.Errorf("still fenced regardless of content; got %+v", adoptions)
+	}
+	if len(reported) != 0 {
+		t.Fatalf("an identity-minted EMPTY bucket plus its marker is not content — this notice "+
+			"would fire for everyone, forever, about nothing; got %+v", reported)
+	}
+}
+
+// A bucket holding a synced PLUGIN is content, even though its only entry is dot-prefixed. Pins the
+// asymmetry: dot-skipping applies beside the buckets, never inside one.
+func TestReservedRootWithADotOnlyBucketIsContent(t *testing.T) {
+	d, _ := composeFixture(t, TierFlat, "one")
+	d.Reserved = []string{"synced"}
+	req := composeReq(t)
+	bucket := filepath.Join(d.Dir, "synced", "1111-2222_3333-4444")
+	if err := os.MkdirAll(filepath.Join(bucket, ".claude-plugin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, reported := Adoptions([]Destination{d}, req)
+	if len(reported) != 1 {
+		t.Fatalf("a bucket whose only entry is `.claude-plugin/` IS a synced plugin — going silent "+
+			"there hides a tree the user does have; got %+v", reported)
+	}
+}
+
+// TestReservedInLocalPackFindsAnAlreadyAdoptedSyncRoot is §7's recovery report: the damage the
+// fence arrived too late to prevent.
+//
+// A local-pack skills entry whose NAME is a reserved child can only have got there by a previous
+// apply adopting it — so finding the name is finding the defect, invisibly present on any home that
+// ran `yolo host apply --assert` before the fence existed.
+func TestReservedInLocalPackFindsAnAlreadyAdoptedSyncRoot(t *testing.T) {
+	d, _ := composeFixture(t, TierFlat, "one")
+	d.Reserved = []string{"synced"}
+	local := t.TempDir()
+	// What a previous adoption left: the sync root, moved wholesale into the local pack.
+	if err := os.MkdirAll(filepath.Join(local, "synced", "1111_2222", "a-skill"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// And a skill the user really does own, which must not be reported.
+	if err := os.MkdirAll(filepath.Join(local, "mine"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	found := ReservedInLocalPack([]Destination{d}, local)
+	if len(found) != 1 || found[0].Name != "synced" {
+		t.Fatalf("want exactly the adopted sync root, got %+v", found)
+	}
+	if found[0].WouldChange {
+		t.Error("the report half moves nothing, so it is never a pending change")
+	}
+	// It must name where the tree CAME FROM — that is the fact the user cannot reconstruct.
+	if !strings.Contains(found[0].Detail, filepath.Join(d.Dir, "synced")) {
+		t.Errorf("the finding must name the destination it was taken out of; got %q", found[0].Detail)
+	}
+	// And it must NOT claim to have fixed anything, since §7 rules nothing moves unasked.
+	for _, forbidden := range []string{"restored", "moved back", "put back for you"} {
+		if strings.Contains(found[0].Detail, forbidden) {
+			t.Errorf("the report half must not imply it acted; found %q in: %s",
+				forbidden, found[0].Detail)
+		}
+	}
+}
+
+// No local pack, or a local pack with nothing reserved in it, finds nothing — the common case, and
+// it must cost no output.
+func TestReservedInLocalPackIsQuietOnACleanHome(t *testing.T) {
+	d, _ := composeFixture(t, TierFlat, "one")
+	d.Reserved = []string{"synced"}
+	local := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(local, "mine"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := ReservedInLocalPack([]Destination{d}, local); len(got) != 0 {
+		t.Errorf("a clean local pack must report nothing; got %+v", got)
+	}
+	if got := ReservedInLocalPack([]Destination{d}, ""); len(got) != 0 {
+		t.Errorf("no local pack must report nothing; got %+v", got)
+	}
 }

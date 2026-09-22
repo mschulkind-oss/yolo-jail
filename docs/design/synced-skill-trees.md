@@ -3,17 +3,20 @@ title: "The sync root is not a skill"
 date: 2026-09-18
 status: in-review
 tags: [design, skills, packs, host-notch, claude, adoption, trust]
-summary: "~/.claude/skills/synced/<uuid>_<uuid>/ is a sync root, not a skill: a bucket named after the user's Anthropic identity, filled by Claude Code, and regenerated from a registration that lives outside it. yolo has never heard of it, so `yolo host apply` reads it as a single hand-written skill named `synced`, moves the whole tree into the user's local pack, and thereafter reverts every update the syncer pushes — measured, including for an empty bucket. A transition path for such a user therefore starts with a fence, not a copier."
+summary: "~/.claude/skills/synced/<uuid>_<uuid>/ is a sync root, not a skill: a bucket named after the user's Anthropic identity, filled by Claude Code, and regenerated from a registration that lives outside it. Until `packs/claude` reserved the name, `yolo host apply` read it as a single hand-written skill named `synced`, moved the whole tree into the user's local pack and thereafter reverted every update the syncer pushed — measured, including for an empty bucket. yolo now composes around it and says so on a non-empty one: the transition for such a user is a notice, not a copier."
 vantage:
   status-chip: true
 ---
 
 # The sync root is not a skill
 
-**Status:** DESIGN, 2026-09-20 — **the transition is a NOTICE, not a mechanism**, and that
-ruling DELETED most of this design. Nothing built; two questions remain
-([OQ-ST2](#OQ-ST2) — the fence's declaration site, and [OQ-ST5](#OQ-ST5), which belongs to the
-config-ownership axis rather than this one). [OQ-ST1](#OQ-ST1) and [OQ-ST4](#OQ-ST4) DISSOLVED
+**Status:** DECIDED, 2026-09-22 — **the transition is a NOTICE, not a mechanism**, and that ruling
+DELETED most of this design. ✅ **All three of [§12](#12-what-i-would-build-in-order)'s steps are BUILT
+2026-09-22**: the fence, the notice, and the recovery's REPORT half (which is all R1 asked to ship —
+the *offer* to put a tree back is deliberately not built, per [§7](#7-homes-that-are-already-wrong)).
+One question remains
+([OQ-ST5](#OQ-ST5), which belongs to the config-ownership axis rather than this one;
+[OQ-ST2](#OQ-ST2) was ruled and is now built). [OQ-ST1](#OQ-ST1) and [OQ-ST4](#OQ-ST4) DISSOLVED
 with the snapshot and the drift report; [§4.3](#43-what-was-deleted-with-the-snapshot-and-why)
 records what went and why. The fence — the fix for the measured data loss — is untouched and
 was always separable.
@@ -27,9 +30,10 @@ where it is claimed.
 > registration that lives outside it**. yolo cannot own a directory like that, so a transition
 > path for a user who has one starts with a fence, not a copier.
 
-**Why it matters.** yolo has never heard of it, so `yolo host apply` takes it as a
-hand-written skill named `synced`. Measured: the second apply **deleted a newly synced skill
-and reverted an edited one**, reporting `Applied: 1 composed skill.`
+**Why it matters.** Core still knows no vendor's directory name, so a destination with no
+`reserved` declaration takes a sync root as a hand-written skill named `synced`. Measured before
+`packs/claude` declared one: the second apply **deleted a newly synced skill and reverted an
+edited one**, reporting `Applied: 1 composed skill.`
 
 **The shape.** A pack-declared **fence** that stops yolo composing inside another tool's tree,
 and a **notice** when it finds a non-empty one — naming the path, and pointing at the pack
@@ -40,7 +44,8 @@ deliberate trade: the snapshot that would have done it for them is
 [deleted](#43-what-was-deleted-with-the-snapshot-and-why), because the population needing it is
 probably nobody and a mechanism nobody needs is a standing obligation.
 
-**Start at [§3](#3-what-yolo-does-with-it-today)** — what happens today is the design.
+**Start at [§3](#3-what-yolo-does-with-it-today)** — the measured loss is what every rule here
+rests on, and [§4.1](#41-the-fence--the-part-that-is-not-optional)'s fence is what now stops it.
 
 **Needs your ruling:** [OQ-ST5](#OQ-ST5) only — and it belongs to the config-ownership axis
 rather than this one, so it should be ruled beside
@@ -123,8 +128,9 @@ The user's report was *"appears to come from installing a Claude plugin."* That 
 reading and it is wrong in the way that matters: the directory is not per-plugin, so nothing
 about it is per-install.
 
-The layout facts in this section were read out of the `claude` 2.1.275 binary installed in this
-jail on 2026-09-18, and the ones in
+The layout facts in this section were read out of the `claude` binary installed in this jail on
+2026-09-18 and re-checked against two later releases of it on 2026-09-22 — the bucket module is
+unchanged — and the ones in
 [§2.4](#24-two-sync-roots-one-bucket-name-and-only-one-is-exposed) were then measured on disk —
 never from vendor docs, following the lesson
 [`../plans/pack-host-management-plan.md`](../plans/pack-host-management-plan.md#n6-new--copilot-reads-claudes-plugin-manifests-and-namespaces-plugin-skills)
@@ -237,8 +243,11 @@ That single property does more work in this design than anything else measured
 
 ## 3. What yolo does with it today
 
-Checked against the working tree on 2026-09-18, at the commit whose subject is *fix(run):
-Ctrl-C left the terminal wearing the jail's tab*.
+Measured against the working tree on 2026-09-18, before any pack declared a reserved child.
+[§3.1](#31-in-a-jail-nothing-and-that-is-right) is unchanged by the fence.
+[§3.2](#32-on-the-host-yolo-eats-it--measured) is what a composed skills destination still does
+with a vendor-written tree **when no pack has reserved the name** — which is every destination
+yolo composes except `.claude/skills`, and was that one too until 2026-09-22.
 
 ### 3.1 In a jail: nothing, and that is right
 
@@ -255,8 +264,11 @@ should. **This half needs no change** — see [OQ-ST3](#OQ-ST3) for whether the 
 
 ### 3.2 On the host: yolo eats it — MEASURED
 
-`packs/claude` declares `{"kind": "skills", "agent": "claude", "into": ".claude/skills"}`, so
-`yolo host apply` composes the user's **real** `~/.claude/skills` wholesale. Its adoption scan
+`packs/claude` declares
+`{"kind": "skills", "agent": "claude", "into": ".claude/skills", "reserved": ["synced"]}`, so
+`yolo host apply` composes the user's **real** `~/.claude/skills` wholesale. The `reserved` half is
+[§4.1](#41-the-fence--the-part-that-is-not-optional)'s fence and it landed 2026-09-22; everything
+below is what the walk does without one. Its adoption scan
 (`hostskills.Adoptions`) walks that directory's top-level entries and excludes four kinds:
 a path in the composed record, a path in the legacy record, a yolo-marked plugin dir, and a
 hand-authored plugin dir. It also skips dot-entries and non-directories.
@@ -274,8 +286,10 @@ $ HOME=$FAKE yolo host apply
   ⚠ 1 skill in your agent skill dirs is yours, not yolo's, and would move into your local pack: synced
 ```
 
-So the exposure is not limited to hosts with content in the tree. Every host whose Claude Code
-has minted a bucket is in it.
+So the exposure was never limited to hosts with content in the tree: every host whose Claude Code
+had minted a bucket was in it. That is why the fence applies at every posture while the notice
+keys on CONTENT ([§4.2](#42-the-notice--what-replaces-the-transition)) — the two halves answer
+different questions about the same directory.
 
 Measured against a throwaway home holding a bucket with two skills plus one hand-written
 skill — transcript compressed, the full run is in
@@ -324,12 +338,13 @@ a third thing, and the confirmation prompt cannot rescue it: the prompt names th
 `synced`, the user says `y` once for the whole list, and `synced` is a plausible-looking name
 for a skill.
 
-The jail half is unaffected today only because nothing there reads the host — but the moment a
-host apply has run, the local pack carries `synced/` and the jail composition copies it in
-wholesale (`copySkillSubdirs` copies every immediate subdirectory with no `SKILL.md` test),
-which puts the organization and account UUIDs of the user's Anthropic identity into every jail
-and every other agent's skills directory. **Code-read, not measured** — it follows from the
-copier, but no jail was launched to watch it.
+The jail half is unaffected only because nothing there reads the host — but on a home where an
+apply had already adopted the tree, the local pack carries `synced/` and the jail composition
+copies it in wholesale (`copySkillSubdirs` copies every immediate subdirectory with no `SKILL.md`
+test), which puts the organization and account UUIDs of the user's Anthropic identity into every
+jail and every other agent's skills directory. **Code-read, not measured** — it follows from the
+copier, but no jail was launched to watch it. Those homes are the ones
+[§7](#7-homes-that-are-already-wrong) reports on, and the fence cannot reach back and undo them.
 
 ## 4. The components — and the two this design no longer has
 
@@ -363,9 +378,9 @@ Behaviour, exhaustively:
 
 | Situation | What happens |
 | :--- | :--- |
-| A reserved child exists at a destination | Excluded from adoption; **one report line** naming it and saying yolo composes around it |
+| A reserved child exists at a destination | Excluded from adoption at every posture. **One report line** when it holds content, naming it and saying yolo composes around it ([§4.2](#42-the-notice--what-replaces-the-transition) is why the line is keyed on content rather than existence) |
 | A reserved child does not exist | Nothing at all — no line, no directory created |
-| A pack's `skills` contribution ships a directory whose name is a reserved child of its destination | **Refused at apply and at launch**, naming the pack and the reserved name (it could never load anyway — [§2.3](#23-reserved-siblings)) |
+| A pack's `skills` contribution ships a directory whose name is a reserved child of its destination | Should be **refused at apply and at launch**, naming the pack and the reserved name (it could never load anyway — [§2.3](#23-reserved-siblings)). ⚠ **Specified here and NOT built**: `Destination.IsReserved` is consulted by the adoption walk and the local-pack scan, and by nothing that reads a contribution's shipped names, so such a directory is delivered instead |
 | Two packs declare reserved children at one destination | The union; a name is reserved if any declaring pack says so |
 | A reserved child is a dangling symlink | Left alone. The dangling-link carve-out exists for *absent content*; a reserved name is not yolo's to reason about either way |
 
@@ -462,28 +477,29 @@ those bytes in a pack and then in every jail. The same caution
 
 ## 7. Homes that are already wrong
 
-This is not hypothetical state to migrate — any user who has run `yolo host apply --assert`
-against a home with a sync root already has one, and it is invisible because the tree looks
-right.
+This is not hypothetical state to migrate — any user who ran `yolo host apply --assert` against a
+home with a sync root before the fence existed already has one, and it is invisible because the
+tree looks right. The fence stops the damage and cannot reach back and undo it.
 
-The recovery is its own decision and the doc states it rather than leaving it to the
-implementer: when the local pack holds a `skills/` entry whose name is a reserved child of any
-declared destination, yolo **reports it and offers to put it back**, and does nothing without
-being told. Not automatic, because the two copies may have diverged by then and yolo cannot
-know which one the user wants; not silent, because the whole defect is that it was silent.
+So the recovery is a **report**: when the local pack holds a `skills/` entry whose name is a
+reserved child of any declared destination, yolo names it, names the destination the tree was
+taken out of, says a PREVIOUS apply put it there, and claims to have fixed nothing
+(`hostskills.ReservedInLocalPack`). A local-pack entry carrying a reserved name can only have got
+there by adoption, so finding the name finds the defect.
 
-What the offer restores: the sync root's content moves back under the destination, the local
-pack entry goes away, and the composed record forgets it. Any *newer* content the syncer has
-since written into the destination wins — the copy in the local pack is by definition the
-older one.
+**It reports and does not offer to move anything back, and that is a decision rather than a
+shortfall.** [§2.4](#24-two-sync-roots-one-bucket-name-and-only-one-is-exposed) makes a restore
+usually pointless: the source regenerates, so for most users the destination has already refilled
+itself and the local pack's copy is a stale fork to discard. But a user who never
+re-authenticated, or whose organization has since turned Skills off (the content is then in
+`.trash`, not re-downloadable), holds the only copy there is — and **nothing yolo can read
+distinguishes those two users**, which makes the same move a tidy-up for one and data loss for the
+other. The report therefore says what happened and where to look, and the move is the user's.
 
-[§2.4](#24-two-sync-roots-one-bucket-name-and-only-one-is-exposed) makes this cheaper than it
-looks and says so out loud: the source regenerates, so for most users the sync root will already
-have refilled itself by the time they run the recovery, and the local pack's copy is a stale
-fork to discard rather than the only surviving copy. It is still not automatic — a user who
-never re-authenticated, or whose organization has since turned Skills off (the content is then
-in `.trash`, not re-downloadable), holds the only copy there is, and yolo cannot tell those
-users apart from the others.
+What a restore means, for the user doing it by hand: the sync root's content goes back under the
+destination, the local pack entry goes away, and the composed record forgets it. Any *newer*
+content the syncer has since written into the destination wins — the copy in the local pack is by
+definition the older one.
 
 ## 8. A worked migration: state already in a file yolo is about to own
 
@@ -756,13 +772,15 @@ is what should happen to a leaf yolo has never asserted, which is [OQ-ST5](#OQ-S
   `/ctx/host-user/` and recursively copies it into the destination, and in the implicit `copy`
   mode it re-renders **every boot** — so alone among the options it is evergreen for free, with
   no snapshot, no record and no drift report. What it cannot do is any of the rest of this
-  design: it delivers the vendor's tree *verbatim*, bucket directory and all
-  ([§5](#5-naming-and-collisions--mostly-moot-now-and-the-part-that-is-not) exists to drop that name), it has no collision answer at
+  design: it delivers the vendor's tree *verbatim*, identity-named bucket directory and all
+  (which is [R5](#10-risks)'s leak), it has no collision answer at
   either notch, it records no provenance, and in-jail edits are silently discarded on the next
   boot. And its destination would land inside the `:ro` skills mount the same pack already
-  declares — **an interaction nothing in the tree checks and nobody has measured.** An
-  unverified mount interaction is not a foundation, but this is the route to reach for if
-  [OQ-ST4](#OQ-ST4) rules that evergreen matters more than naming.
+  declares — **an overlap nothing in the tree checks**: `.claude/skills` is in no `host_files`
+  reservation (`reservedHomeFiles`, `builtinSurfacePaths`), and the two-writer refusal
+  (`config.SurfaceCollisions`) compares a destination against pack CONFIG surfaces, which a skills
+  destination is not. Rejected outright rather than held open: the transition is a notice, so
+  there is no copier for an evergreen delivery to be better than.
 - **Two-way sync — yolo writes accepted changes back into the sync root.** *Rejected, and this
   is the one to keep rejecting.* It makes yolo a second writer of a vendor's tree, which is the
   defect this whole doc is about, pointed the other way.
@@ -771,11 +789,11 @@ is what should happen to a leaf yolo has never asserted, which is [OQ-ST5](#OQ-S
 
 | Risk | Mitigation |
 | :--- | :--- |
-| **R1.** The fence lands and the recovery in [§7](#7-homes-that-are-already-wrong) does not, leaving existing broken homes frozen instead of fixed | They ship together or the fence ships with a loud report naming the local-pack entry; a fence alone makes the damage permanent by making it unreachable |
-| **R2.** A pack declares a reserved child that is not one, silently hiding a real user skill from adoption | A reserved child is reported by name at every apply that meets one — the fence is disclosed, not quiet |
+| **R1.** The fence lands and the recovery in [§7](#7-homes-that-are-already-wrong) does not, leaving existing broken homes frozen instead of fixed | **MET 2026-09-22** — they shipped together, the recovery as the loud report naming the local-pack entry (`hostskills.ReservedInLocalPack`). A fence alone would have made the damage permanent by making it unreachable |
+| **R2.** A pack declares a reserved child that is not one, silently hiding a real user skill from adoption | A reserved child **holding content** is reported by name at every apply that meets one — the fence is disclosed, not quiet. An empty one is silent, which is the whole of the gap and it can hide nothing: a real user skill has a `SKILL.md` in it |
 | **R3.** ~~The snapshot's copies rot and the user believes they are current~~ | **DISSOLVED 2026-09-20** — yolo holds no copy, so nothing of yolo's can rot. The risk moved to the USER, who now maintains their own pack copy knowingly rather than yolo maintaining one on their behalf badly. That is the trade [§4.3](#43-what-was-deleted-with-the-snapshot-and-why) accepted |
 | **R4.** ~~Org-authored synced content reaches every jail through the local pack, with symlinks dereferenced~~ | **DISSOLVED 2026-09-20** — nothing reaches a jail through yolo, because yolo copies nothing. ⚠ The dereference hazard itself is NOT dissolved; it is why [§6](#6-degenerate-inputs) keeps the symlink row and why the notice must never grow into a copier |
-| **R5.** The identity UUIDs leak into jails as directory names | The bucket name is dropped by construction ([§5](#5-naming-and-collisions--mostly-moot-now-and-the-part-that-is-not)) — only item names travel |
+| **R5.** The identity UUIDs leak into jails as directory names | Nothing of yolo's carries them — with no copier, no bucket name travels. The one path left is a home the fence reached too late, where an earlier adoption already put the bucket into the local pack ([§3.3](#33-why-nothing-caught-it), [§7](#7-homes-that-are-already-wrong)) |
 | **R6.** A second vendor ships a sync root and nobody notices | P2's pack-declared fence is the only part of this that generalises for free; core needs no change |
 
 ## 11. What this does not propose
@@ -804,7 +822,9 @@ is what should happen to a leaf yolo has never asserted, which is [OQ-ST5](#OQ-S
 ## 12. What I would build, in order
 
 Prose, not tickets. **Three steps, down from five** — the two that were the snapshot and its
-blocking ruling are gone ([§4.3](#43-what-was-deleted-with-the-snapshot-and-why)).
+blocking ruling are gone ([§4.3](#43-what-was-deleted-with-the-snapshot-and-why)). ✅ **All three
+landed 2026-09-22, in this order**; what each one shipped as is in the
+[ledger](#15-decision-ledger).
 
 1. **The fence**, with its declaration on the agent pack and its report line. It stands alone, it
    is the part that stops ongoing damage, and it depends on no ruling — including
@@ -816,10 +836,11 @@ blocking ruling are gone ([§4.3](#43-what-was-deleted-with-the-snapshot-and-why
 3. **The recovery** in [§7](#7-homes-that-are-already-wrong) — ship it with the fence (R1), even
    if it is only the report half at first.
 
-Then the corpus: [`../../AGENTS.md`](../../AGENTS.md)'s skill-priority paragraph gains the fence;
-G32's row is re-read against [§3.2](#32-on-the-host-yolo-eats-it--measured);
-[`../reference/pack-system.md`](../reference/pack-system.md#skills) gains the reserved-child rule
-beside the tier rule.
+Then the corpus: [`../../AGENTS.md`](../../AGENTS.md)'s skill-priority paragraph carries the fence
+and [`../reference/pack-system.md`](../reference/pack-system.md#skills) carries the reserved-child
+rule beside the tier rule — both 2026-09-22. **G32's row is the one that has not been re-read**: it
+still treats the host tree as inert, which [§3.2](#32-on-the-host-yolo-eats-it--measured)
+disproved ([§11](#11-what-this-does-not-propose) says why the ruling holds whichever way G32 goes).
 
 ## 13. What done looks like
 
@@ -833,8 +854,10 @@ described snapshotting and drift went with them.
   and where to read about putting a skill in a pack of your own.
 - A home whose bucket is **empty** runs the same command and prints **nothing** about it — this is
   the common host, and a line here would be the one that teaches people to skim.
-- A home whose local pack already contains `skills/synced/` is told so by name, with the command
-  that puts it back, and nothing moves until that command is run.
+- A home whose local pack already contains `skills/synced/` is told so by name, told which
+  destination it was taken out of, and told that a previous apply did it — and nothing moves. The
+  put-it-back half is [§7](#7-homes-that-are-already-wrong)'s decision not to guess for the one
+  user who holds the only copy.
 
 ## 14. Open Questions
 
@@ -847,7 +870,7 @@ plus a corpus-wide search for a prior ruling on reserved names or vendor-written
 returned nothing. The rulings that *do* bear on this are cited where they bind —
 [§1](#1-verdict-and-the-principles-it-rests-on),
 [§4.1](#41-the-fence--the-part-that-is-not-optional) and [§5](#5-naming-and-collisions--mostly-moot-now-and-the-part-that-is-not) — and
-none of them answers these five. [OQ-ST5](#OQ-ST5) was searched separately and later: the
+none of them answers what is left below. [OQ-ST5](#OQ-ST5) was searched separately and later: the
 adoption-granularity class it sits on IS ruled on, in
 [`config-ownership-and-promotion.md`](config-ownership-and-promotion.md#632-the-three-classes-adoption-does-not-cover)
 and at `dropComputedTables` itself, and both stop at the same edge — they record the residue as
@@ -919,6 +942,9 @@ once the signal exists.
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
 | <a id="OQ-ST1"></a>**ST1** | ~~Which pack owns a snapshotted skill?~~ **DISSOLVED.** There is no snapshot, so nothing is copied into a pack and nothing owns a copy. This was the central ruling of the deleted design | 2026-09-20 | [§4.3](#43-what-was-deleted-with-the-snapshot-and-why) | n/a |
+| <a id="OQ-ST2"></a>**ST2** | ✅ **BUILT 2026-09-22. Pack-declared, per P2** — a `skills` contribution takes `reserved`, a list of bare child names, and `packs/claude` declares `["synced"]`. Core knows no vendor's directory name: hardcoding `synced` is how core learns what an agent is, one string at a time, which is the coupling `internal/hostskills`' tier comment already refuses. The fence is FIRST in the adoption walk, applies at every posture, and reports a NON-EMPTY reserved child only. ⚠ The sub-question — may a USER add reserved children in their own config? — is still **not ruled**, and gated nothing | 2026-09-20 · built 2026-09-22 | [§12](#12-what-i-would-build-in-order) step 1 | ✅ `Contribution.Reserved`, `Destination.IsReserved`, the fence in `hostskills.Adoptions`, and `packs/claude`'s declaration — each half pinned by a test proven to fail without it |
 | <a id="OQ-ST3"></a>**ST3** | **The sync root IS announced, at the host notch only** — the apply, which is where yolo is about to take the folder over. Not at launch: the launch stream discloses what yolo DID to a jail, "there is content elsewhere you did not ask for" is not that, and by [`OQ-RO3`](../reference/report-tiers.md#why-its-this-way) a line added there is permanent | 2026-09-20 | [§4.2](#42-the-notice--what-replaces-the-transition) | no |
 | <a id="OQ-ST4"></a>**ST4** | ~~Does drift ever do more than report?~~ **DISSOLVED.** There is no drift report — yolo holds no copy, so there is nothing to compare against | 2026-09-20 | [§4.3](#43-what-was-deleted-with-the-snapshot-and-why) | n/a |
+| <a id="ST-N"></a>**The notice** | ✅ **BUILT 2026-09-22.** Its own action (`ActionReserved`), printed in the DEFAULT view beside a refusal rather than as detail-on-demand — [§4.2](#42-the-notice--what-replaces-the-transition) asks for a line "emitted where a user is already looking", and a fence discovered only under `--verbose` reads later as yolo having lost the user's skills. Tiered as a run fact, not a loss: nothing left a directory. States all three things — the fact, `claude plugin list` to look, and `yolo pack --help` to use the content instead. ⚠ Keyed on CONTENT, not existence: a bucket is minted from the user's IDENTITY and is empty until something syncs, so an existence test would fire for every user with the feature on and nothing synced — dot-skipping applies BESIDE the buckets and never inside one, since a synced plugin is exactly a `.claude-plugin/` dir | 2026-09-20 · built 2026-09-22 | [§4.2](#42-the-notice--what-replaces-the-transition) | ✅ pinned through a real apply, not just its helper |
+| <a id="ST-R"></a>**The recovery** | ✅ **REPORT HALF BUILT 2026-09-22** (`hostskills.ReservedInLocalPack`), which is what R1 asked for. A local-pack skills entry whose NAME is a reserved child can only have got there by a previous apply adopting it, so finding the name finds the defect. It names the destination the tree was taken out of, says it came from a PREVIOUS apply, and claims to have fixed nothing. ⚠ **The offer to put it back is NOT built, deliberately** — by then the copies may have diverged, and a user who never re-authenticated or whose org turned Skills off holds the only copy there is; those users are indistinguishable from here | 2026-09-20 · report built 2026-09-22 | [§7](#7-homes-that-are-already-wrong) | ✅ report only; the offer is not |
 | **The transition itself** | **A NOTICE, not a mechanism.** yolo fences, says so on a non-empty reserved child, names the path, points at the pack documentation — and copies, moves and tracks nothing. The population needing a carried transition is probably nobody: `~/.claude/skills/` does not exist at all on the maintainer's own host | 2026-09-20 | [§4](#4-the-components--and-the-two-this-design-no-longer-has) | no |

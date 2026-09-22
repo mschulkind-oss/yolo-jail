@@ -118,6 +118,24 @@ type Destination struct {
 	// wins a same-named skill at flat tier, which is what makes the local pack outrank a shared
 	// pack's copy.
 	Layers []Layer
+	// Reserved names children of Dir that yolo must not touch, declared by the packs
+	// contributing here. UNION across layers, not last-wins: a fence is a safety property, so
+	// one pack declaring a name is enough and a later layer cannot un-declare it.
+	Reserved []string
+}
+
+// IsReserved reports whether a child NAME of this destination is fenced off.
+//
+// Compared against one directory entry name, which is why the schema refuses a reserved entry
+// carrying path structure: it could never match, and a fence that cannot match is worse than no
+// fence because it reads as protection.
+func (d Destination) IsReserved(name string) bool {
+	for _, r := range d.Reserved {
+		if r == name {
+			return true
+		}
+	}
+	return false
 }
 
 // Packs names the contributing packs in composition order, for a report line.
@@ -218,6 +236,11 @@ func ComposeHostSkills(packs []*packload.Pack, homeDir string) []Destination {
 				l.Sources = []string{src}
 			}
 			d.Layers = append(d.Layers, l)
+			for _, r := range c.Reserved {
+				if !d.IsReserved(r) {
+					d.Reserved = append(d.Reserved, r)
+				}
+			}
 		}
 	}
 	out := make([]Destination, 0, len(order))
@@ -474,6 +497,37 @@ func Adoptions(dests []Destination, req ComposeRequest) (adoptions []Adoption, p
 				if _, ok := req.Legacy.Owner(path); ok {
 					continue
 				}
+			}
+			// THE FENCE, and it comes before every other skip because it is the only one
+			// protecting a tree yolo must not reason about at all
+			// (docs/design/synced-skill-trees.md §12 step 1, OQ-ST2).
+			//
+			// A reserved child cleared every check below it: `synced` is not dot-prefixed, IS a
+			// directory, sits in no ownership record, and carries no manifest AT THIS LEVEL —
+			// its manifests are two levels down, one per identity bucket. So it was adopted,
+			// moved into the local pack, and composed back byte-identically. That looks like
+			// success, and the loss lands on the NEXT upstream sync.
+			//
+			// Reported rather than skipped silently, and only when NON-EMPTY: a fence nobody is
+			// told about is how a user concludes yolo lost their skills. WouldChange is false at
+			// every posture — this is a thing yolo declines to touch, not a pending change.
+			if d.IsReserved(name) {
+				if reservedTreeHasContent(path) {
+					plugins = append(plugins, Result{
+						Name: name, Path: path, Action: ActionReserved,
+						// The notice states three things and does nothing (§4.2): the FACT, how
+						// to LOOK, and what to do if the user wants that content in a jail.
+						Detail: "another tool owns this tree and regenerates it from a " +
+							"registration outside it, so anything yolo wrote inside would be lost " +
+							"on that tool's next sync — yolo composes around it and will not read, " +
+							"write, move or archive it. Look with `claude plugin list` (its own tool " +
+							"is the authority on its own tree; yolo does not parse it). To use this " +
+							"content in a jail, add the skill to a pack of your own — " +
+							"`yolo pack --help`",
+						WouldChange: false,
+					})
+				}
+				continue
 			}
 			if IsYoloPluginDir(path) {
 				continue
@@ -979,4 +1033,107 @@ func moveTree(src, dst string) error {
 		return err
 	}
 	return os.RemoveAll(src)
+}
+
+// reservedTreeHasContent reports whether a reserved tree holds anything a user would recognise
+// as theirs — the predicate the notice fires on (§4.2).
+//
+// # It is keyed on CONTENT, and "has an entry" is the wrong test
+//
+// A sync root's bucket is minted from the user's IDENTITY, so it exists as soon as the feature is
+// switched on and is EMPTY until something syncs; beside it sits a zero-byte `.bucket-<uuid>`
+// marker (§2.4, measured). Both are entries. A notice keyed on existence would therefore fire for
+// every user who has the feature on and nothing synced, forever, about nothing — which is the
+// cried-wolf line that teaches a reader to skip yolo's output.
+//
+// So: dot-prefixed entries are markers and never content, and a child DIRECTORY counts only if it
+// holds a non-dot entry of its own. An unreadable dir counts as empty — the notice is a courtesy,
+// and failing to stat is not worth a report.
+func reservedTreeHasContent(path string) bool {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".") {
+			// The `.bucket-<uuid>` marker, and any other dotfile the owning tool keeps BESIDE
+			// its buckets. Dot-skipping applies at THIS level only: inside a bucket a dot-entry
+			// is real content — a synced plugin is exactly a `.claude-plugin/` directory — and
+			// skipping it there would go silent on a tree the user does have.
+			continue
+		}
+		if !e.IsDir() {
+			return true // a loose file someone put there is content
+		}
+		inner, err := os.ReadDir(filepath.Join(path, e.Name()))
+		if err != nil {
+			continue
+		}
+		if len(inner) > 0 {
+			return true // a bucket with anything in it
+		}
+	}
+	return false
+}
+
+// ReservedInLocalPack finds the damage the fence arrived too late to prevent: a local-pack skills
+// entry whose NAME is a reserved child of some declared destination.
+//
+// That is a sync root a previous `yolo host apply --assert` adopted — moved out of the user's home
+// and composed back byte-identically, so the tree looked right and the loss landed on the owning
+// tool's next sync (docs/design/synced-skill-trees.md §7).
+//
+// # Report only, deliberately
+//
+// This returns findings and moves nothing. §7 rules the recovery "reports it and offers to put it
+// back, and does nothing without being told" — not automatic, because by now the two copies may
+// have diverged and yolo cannot know which the user wants; not silent, because the whole defect was
+// that it was silent. R1 ships the REPORT half first, which is this function; the offer is not built.
+//
+// # Why the name is enough, and what it cannot tell
+//
+// A reserved name is declared by the pack that owns the destination, so an entry carrying that name
+// in the local pack can only have got there by adoption — a user does not spontaneously create a
+// `skills/synced/` of their own. What this CANNOT tell is whether the sync root has since refilled
+// itself: §2.4's regeneration means most users' destination already holds newer content and the
+// local copy is a stale fork, but a user who never re-authenticated, or whose organization turned
+// Skills off, holds the only copy there is. Those users are indistinguishable from here, which is
+// exactly why nothing moves without being told.
+func ReservedInLocalPack(dests []Destination, localPackSkills string) []Result {
+	if localPackSkills == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(localPackSkills)
+	if err != nil {
+		return nil
+	}
+	var out []Result
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+		path := filepath.Join(localPackSkills, name)
+		if fi, serr := os.Stat(path); serr != nil || !fi.IsDir() {
+			continue
+		}
+		for _, d := range dests {
+			if !d.IsReserved(name) {
+				continue
+			}
+			out = append(out, Result{
+				Name: name, Path: path, Action: ActionReserved,
+				Detail: "this is a sync root a PREVIOUS apply adopted out of " +
+					filepath.Join(d.Dir, name) + " — another tool owns that tree, so the copy here " +
+					"is a fork that tool stopped updating. yolo now fences the name and will not " +
+					"touch it again, but it does not put this back on its own: the two copies may " +
+					"have diverged, and only you know which one you want. Check whether that tool " +
+					"has already refilled the original; if it has, this copy is stale and can go",
+				WouldChange: false,
+			})
+			break
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out
 }

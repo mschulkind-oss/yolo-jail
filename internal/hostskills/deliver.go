@@ -52,6 +52,16 @@ const (
 	ActionCleared Action = "cleared a dangling symlink"
 	// ActionRefused is an entry yolo declined to deliver, with a reason.
 	ActionRefused Action = "refused"
+	// ActionReserved is a child of a destination that a pack FENCED off — another tool's tree,
+	// which yolo neither adopts nor composes over
+	// (docs/design/synced-skill-trees.md §4.2, OQ-ST2).
+	//
+	// Its own action rather than ActionSkippedUser, and the difference is where the line prints:
+	// a skipped entry reaches the reader through the verdict's counts, so its per-entry line is
+	// detail-on-demand. A reserved tree is in NO count and NO group — the notice is the only
+	// representation it has, which is the same property that makes ActionRefused uncompressible.
+	// POSTURE-INDEPENDENT: yolo declines it at dry run and at --assert alike.
+	ActionReserved Action = "reserved (another tool's)"
 	// ActionMoved is a user's skill MIGRATED into the local pack — the §6a-2 answer, and the one
 	// action that describes content LEAVING a destination without being archived. Distinct from
 	// ActionArchived precisely because the outcome is different in kind: an archived skill is
