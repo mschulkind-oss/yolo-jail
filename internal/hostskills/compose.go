@@ -498,9 +498,16 @@ func Adoptions(dests []Destination, req ComposeRequest) (adoptions []Adoption, p
 					continue
 				}
 			}
-			// THE FENCE, and it comes before every other skip because it is the only one
-			// protecting a tree yolo must not reason about at all
-			// (docs/design/synced-skill-trees.md §12 step 1, OQ-ST2).
+			// THE FENCE (docs/design/synced-skill-trees.md §12 step 1, OQ-ST2). It comes before
+			// the manifest probe that let `synced` through, and before adoption — which is the
+			// position that matters, since adoption is the damage.
+			//
+			// ⚠ It does NOT come before every skip: the two ownership checks above run first, so
+			// a home an EARLIER apply already adopted never reaches here — the tree is in the
+			// composed record and is skipped as yolo's own. That population is reached by
+			// `ReservedInLocalPack` instead (§7), which finds a local-pack skills/ entry carrying
+			// a reserved name; a name can only have got there by adoption. Do not "fix" this
+			// ordering without reading §7: the fence and that report cover two different homes.
 			//
 			// A reserved child cleared every check below it: `synced` is not dot-prefixed, IS a
 			// directory, sits in no ownership record, and carries no manifest AT THIS LEVEL —
