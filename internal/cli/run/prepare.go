@@ -57,7 +57,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	// together on purpose. On Apple Container the applied mode is bridge however the key
 	// is set, so an unhonored `network.mode: "host"` no longer takes the ports with it,
 	// here or in the argv.
-	publishPorts, forwardHostPorts := briefingPortsFor(appliedNet, netSec)
+	publishPorts, forwardHostPorts := briefingPortsFor(appliedNet, netSec, cfgMap(cfg, "providers"))
 
 	// Blocked-tools → jailcontent.BlockedTool records.
 	blocked := blockedToolRecords(config.NormalizeBlockedToolsWith(cfgMap(cfg, "security"),
@@ -113,6 +113,12 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	// PACK-DECLARED skills destinations. A pack mount whose source is "skills" says
 	// "put my skills tree here"; core builds a staging dir per pack and mounts it there.
 	jailcontent.SetPackSkillTargets(packSkillTargets(loadedPacks))
+
+	// The user's `lsp_servers` table, for the one plugin yolo renders from it — option D of
+	// docs/design/claude-lsp-plugins.md. Injected rather than read inside jailcontent for the
+	// same reason the two setters above are: that package is called from here and does not read
+	// config itself.
+	jailcontent.SetLSPServers(cfgMap(cfg, "lsp_servers"))
 
 	// Skills staging.
 	staging, err := jailcontent.PrepareSkills(cname, homeDir(), nil)
@@ -276,11 +282,27 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 //
 // A FUNCTION rather than six inline lines, for the reason briefingLoopholes gives
 // below: the same expression retyped in a test asserts nothing about this file.
-func briefingPortsFor(netMode string, netSec *jsonx.OrderedMap) (publish, forward []any) {
-	if netMode != "bridge" || netSec == nil {
+// briefingPortsFor is the port pair the briefing describes, and the forward half is the
+// MERGED list rather than the config section (OQ-PC2,
+// docs/design/wire-bridge-port-collision.md).
+//
+// A forward a user provider caused is a hole into the host that the user's own config cannot
+// be grepped for — so a briefing built from `network.forward_host_ports` alone tells the
+// agent a port is closed when the launch has opened it. Merging here rather than at the call
+// site is deliberate: this function is what refreshJailBriefings calls, so the merge cannot
+// be lost by a caller that forgets it.
+//
+// netSec may be nil while providers is not — a config with providers and no `network`
+// section still forwards, which is why the nil guard moved off the early return.
+func briefingPortsFor(netMode string, netSec, providers *jsonx.OrderedMap) (publish, forward []any) {
+	if netMode != "bridge" {
 		return nil, nil
 	}
-	return asAnyList(mapGet(netSec, "ports")), asAnyList(mapGet(netSec, "forward_host_ports"))
+	if netSec != nil {
+		publish = asAnyList(mapGet(netSec, "ports"))
+		forward = asAnyList(mapGet(netSec, "forward_host_ports"))
+	}
+	return publish, mergeHostForwards(forward, localProviderForwards(providers))
 }
 
 // briefingLoopholes is the loophole list the jail's briefing advertises — census site 1

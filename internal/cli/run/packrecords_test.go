@@ -161,6 +161,7 @@ var launchScopedPackRecords = map[string]string{
 	"loopholes.SetPackSupersessions":  "loopholes.SnapshotPackSupersessions",
 	"jailcontent.SetPackSkillDirs":    "jailcontent.PackSkillDirs",
 	"jailcontent.SetPackSkillTargets": "jailcontent.PackSkillTargets",
+	"jailcontent.SetLSPServers":       "jailcontent.LSPServers",
 }
 
 // processWidePackRecords are the ones a launch must NOT restore: they are registered once

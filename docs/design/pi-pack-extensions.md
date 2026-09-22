@@ -34,11 +34,12 @@ stands; only its field-level encoding is under revision.
 
 **Where we arrived, in one list:**
 
-1. **Delivery is one primitive.** Lift `kind: "files"`'s audience refusal so a content pack
-   can address `agents: ["pi"]` exactly as `skills` and `briefing` already do. Nothing new is
-   invented; no `kind: "extensions"`, no per-agent Go.
-2. **No `target` axis.** One files destination per agent; a second is a load error. (`target`
-   was Architecture B's extra routing token, and it is dropped.)
+1. **Delivery is one primitive.** ✅ **Built.** `kind: "files"`'s audience refusal is lifted, so a
+   content pack addresses `agents: ["pi"]` exactly as `skills` and `briefing` already do. Nothing
+   new was invented; no `kind: "extensions"`, no per-agent Go.
+2. **No `target` axis.** One files destination per agent; a second is a load error — ✅ enforced
+   2026-09-21 (`packdecl.validateFilesDestinations`; see [§8](#8-invariants-and-failure-modes)).
+   (`target` was Architecture B's extra routing token, and it is dropped.)
 3. **Agent Plugins 1.0 is the portable standard** ([agent-plugins.org](https://agent-plugins.org/)),
    not Claude's format. Portable = `skills/` + `mcp.json`; everything else travels namespaced —
    and a full Claude plugin still reaches Claude in full ([§1.2](#12-the-standard-under-this-agent-plugins-10)).
@@ -46,18 +47,26 @@ stands; only its field-level encoding is under revision.
    materialized and the agent reads it.
 5. **Hooks are disclosed, not gated.** Same trust class as skills and briefings, which can
    already instruct arbitrary action.
-6. **Fetching is a different axis**, owned by [`pi-extension-lifecycle.md`](./pi-extension-lifecycle.md),
-   and YOLO already has a pinned resolver for it (`internal/packsrc` + `packs.lock.json`).
+6. **Fetching is a different axis**, owned by [`pi-extension-lifecycle.md`](./pi-extension-lifecycle.md).
+   Its resolver half already ships (`internal/packsrc` + `packs.lock.json`); the materializer half
+   does not.
 7. **`claude_plugins` is retired**, and nothing like it replaces it — no agent-named hook:
    deliver plugin trees locally, decompose them, or author one YOLO-owned Agent Plugins 1.0
-   plugin rather than calling `claude plugins install`.
+   plugin rather than calling `claude plugins install`. ✅ **Built 2026-09-20**: the hook and
+   `installClaudePlugins` are deleted and `packdecl` refuses the name with that migration. Its one
+   live consumer took the **author-one-plugin** route, not the decomposing one —
+   [`claude-lsp-plugins.md`](./claude-lsp-plugins.md)'s option D, built 2026-09-22.
 
-**Why you might question all of it:**
+**The load path is no longer a question, and the answer carries one trap.** Claude reads a
+YOLO-authored plugin with **no marketplace** — auto-loaded from `~/.claude/skills/*` — but a
+`.claude-plugin/plugin.json` **is mandatory on that path**: the root-level manifest fallback that
+marketplace and archive installs enjoy does not apply, so a manifest at the tree root is simply not
+found. Measured statically against Claude Code 2.1.278
+([`OQ-LSP3`](./claude-lsp-plugins.md#OQ-LSP3) in
+[`claude-lsp-plugins.md`](./claude-lsp-plugins.md)).
 
-- **The load path is still unmeasured.** Agent Plugins 1.0 support is ruled in; what is left is
-  a build detail — whether Claude reads a YOLO-authored plugin directly or needs a
-  `.claude-plugin/` manifest beside the portable root. Either way the plugin half and the hook
-  retirement land.
+**Why you might still question all of it:**
+
 - **"Against the standard" overpromises.** The portable set is *only* skills + MCP; hooks,
   LSP, commands and agents are client-specific by construction. One artifact does less than the
   phrase suggests.
@@ -100,7 +109,7 @@ one hook it retires.
 | Agent | Unit | Where it is read | Activation |
 | :--- | :--- | :--- | :--- |
 | **Pi** | a `.ts`/`.js` file | `~/.pi/agent/extensions/*.ts`, or a subdir with `index.ts` | automatic once present |
-| **Claude** | a directory with `.claude-plugin/plugin.json` | a plugin cache, seeded or loaded locally | `enabledPlugins` in settings |
+| **Claude** | a directory with `.claude-plugin/plugin.json` | a plugin cache, seeded or loaded locally — including auto-loaded from `~/.claude/skills/*` | `enabledPlugins` in settings, except on the local arms, which are enabled by default |
 | **Codex, Copilot** | the same `.claude-plugin/` layout | their own plugin commands | marketplace + enable |
 | **Skills (any)** | a `SKILL.md` tree | the agent's skills dir | automatic once present |
 
@@ -273,20 +282,22 @@ pack-declaration reform, before the plugin survey. Its own comment calls it "a d
 admission rather than an oversight." A second tool now wants the same shape, so it is re-ruled
 rather than cited as precedent.
 
-### 7.1 What it does
+### 7.1 What it did
 
-`packs/claude/derive.lua` writes `enabledPlugins` (ordinary config). The hook's only job is to
-`claude plugins install` the plugin so the cache holds what `enabledPlugins` names.
+`packs/claude/derive.lua` wrote `enabledPlugins` (ordinary config), and the hook's only job was to
+`claude plugins install` the plugin so the cache held what `enabledPlugins` named. Both are gone
+now: the hook was deleted with the ruling below, and the derive's `enabledPlugins` with the LSP
+rework that replaced it.
 
 ### 7.2 The decision
 
 **Retire the hook.** YOLO places the plugin tree and Claude reads it. Two ways to fill it:
 
-- **Decompose** — map the plugin's components onto kinds YOLO already owns. This is the LSP
-  case exactly: [`claude-lsp-plugins.md`](./claude-lsp-plugins.md).
-- **Author one YOLO-owned Agent Plugins 1.0 plugin** and load it locally — `--plugin-dir`, or
-  a `./`-prefixed marketplace source. `packs/matt-craft` already ships a plugin tree, so the
-  shape is proven even though the load path is not.
+- **Decompose** — map the plugin's components onto kinds YOLO already owns.
+- **Author one YOLO-owned Agent Plugins 1.0 plugin** and load it locally — off the skills tree,
+  which needs no flag at all, or via `--plugin-dir`. ✅ **This is the route the LSP case took**
+  ([`claude-lsp-plugins.md`](./claude-lsp-plugins.md), built 2026-09-22), so the shape and the load
+  path are both proven: `jailcontent.writeLSPPlugin` renders one such tree every boot.
 
 **The one alternative kept:** seeding Claude's plugin state and deleting the hook. It works
 and is measured, but it reproduces the vendor cache layout, which is the thing
@@ -308,7 +319,8 @@ and is measured, but it reproduces the vendor cache layout, which is the thing
    `<alias>/<pack>` — measured 2026-09-21, and the notches disagreed (the jail emitted a duplicate
    mount podman refuses; the host merged both trees silently). Refused at the manifest as of the
    same day, with the remedy being one `from`; whether it should instead MERGE is
-   [`slots-and-contributions.md`](./slots-and-contributions.md)'s `OQ-D12`.
+   [`slots-and-contributions.md`](./slots-and-contributions.md)'s
+   [`OQ-D12`](./slots-and-contributions.md#OQ-D12).
 3. Delivery is read-only and non-fatal; a missing source warns and skips.
 4. The owner's derive is pure — it reads the addressed set and returns config.
 
@@ -341,7 +353,7 @@ addressed, so nothing mounts at the slot root. See [§3](#3-the-candidate-archit
 | **Placer** | YOLO places; no vendor install verb runs in a jail | 2026-09-19 | [§2](#2-principles) | — |
 | **Derive sources** | A declared source may be another pack's addressed content | 2026-09-19 | [§6](#6-what-a-derive-may-read--the-rule-being-sharpened) | — |
 | **OQ-1** | No `target` axis — one files destination per agent; a second is a load error | 2026-09-19 | this doc | **yes, 2026-09-21** — `packdecl.validateFilesDestinations`, authoring path only. It had shipped unimplemented: a manifest declaring two loaded clean, and the jail then honored the LAST while the host honored BOTH |
-| **OQ-2** | Retire `claude_plugins`, and add nothing like it (no agent-named hook). Deliver plugin trees locally — decompose, or author one YOLO-owned Agent Plugins 1.0 plugin | 2026-09-19 | [§7](#7-reopening-claude_plugins) | — |
+| **OQ-2** | Retire `claude_plugins`, and add nothing like it (no agent-named hook). Deliver plugin trees locally — decompose, or author one YOLO-owned Agent Plugins 1.0 plugin | 2026-09-19 | [§7](#7-reopening-claude_plugins) | **yes, 2026-09-20** — the hook and `installClaudePlugins` deleted, `packdecl` refusing the name with the migration. Its one consumer landed 2026-09-22 on the author-one-plugin route ([`claude-lsp-plugins.md`](./claude-lsp-plugins.md)) |
 | **OQ-3** | `pi-extensions/` is the recommended source directory | 2026-09-19 | this doc | — |
 | **OQ-4** | Subdirectory per pack inside the alias | 2026-09-19 | this doc | **yes, 2026-09-21** — `packload.SlotLanding`, the one resolver both notches call. The jail had joined since the day it shipped; destination borrowing never did, so the HOST wrote a contributor's tree at the alias ROOT, which is the layout this ruling exists to prevent |
 | **OQ-5** | Support Agent Plugins 1.0 directly; a `.claude-plugin/` manifest beside the portable root is acceptable for Claude | 2026-09-19 | this doc | build |

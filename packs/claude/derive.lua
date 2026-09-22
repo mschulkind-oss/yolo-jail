@@ -45,20 +45,22 @@ end)
 -- leaf and so claims none of the agent's own entries under the same key
 -- (agentcfg.dropComputedTables).
 yolo.derive("claude", "settings", function(ctx)
-  local plugin = {
-    python     = "pyright-lsp@claude-plugins-official",
-    typescript = "typescript-lsp@claude-plugins-official",
-    go         = "gopls-lsp@claude-plugins-official",
-  }
-  local enabled = {}
-  for lang, id in pairs(plugin) do
-    if ctx.lsp_servers[lang] then enabled[id] = true end
-  end
+  -- enabledPlugins IS NO LONGER WRITTEN AT ALL, and that is OQ-LSP1's option D
+  -- (docs/design/claude-lsp-plugins.md). This used to map three hardcoded languages to three
+  -- `claude-plugins-official` marketplace ids and enable the ones `lsp_servers` mentioned --
+  -- an arbitrary, five-language-short subset of a table yolo already owns, and INERT besides,
+  -- since the hook that installed those plugins was retired and nothing filled what this
+  -- named.
+  --
+  -- yolo now renders ONE plugin of its own from the whole `lsp_servers` table
+  -- (jailcontent.writeLSPPlugin). A plugin auto-loaded from the skills tree is ENABLED BY
+  -- DEFAULT there -- the settings test for that sentinel is opt-OUT, measured against Claude
+  -- Code 2.1.278 -- so there is no id for this derive to assert, and dropping the table also
+  -- drops its whole interaction with agentcfg.dropComputedTables.
   local env = {}
   if next(ctx.lsp_servers) then env.ENABLE_LSP_TOOL = "1" end
   local out = {
     mcpServers = ctx.tombstone,
-    enabledPlugins = enabled,
     env = env,
   }
   -- Claude Code's picker accepts exact gateway model IDs.  The Codex Responses
@@ -113,7 +115,7 @@ yolo.env("claude", function(ctx)
     -- way to keep true. The openai-auth pack now declares the Responses endpoint the
     -- subscription actually serves, and the adapter that fronts it declares its own
     -- address, so core composes the pairing into this provider's entry exactly as it does
-    -- for every other bridged provider (protocol-resolution.md §3, outcome 2).
+    -- for every other bridged provider (protocol-resolution.md, outcome 2).
     local codexEp = (type(p) == "table" and type(p.endpoints) == "table"
       and type(p.endpoints.anthropic) == "table" and p.endpoints.anthropic.base_url) or nil
     return {
@@ -143,7 +145,7 @@ yolo.env("claude", function(ctx)
   local routed = false -- claude is pointed at a non-first-party Anthropic-wire host
   local baseUrl = nil
   -- The provider's address for the protocol claude speaks, and there is ONE spelling of
-  -- it: the single-protocol `base_url` shorthand is deleted (protocol-resolution.md §5).
+  -- it: the single-protocol `base_url` shorthand is deleted (protocol-resolution.md).
   -- The same bare field meant `openai` to pi and `anthropic` here, so one line of user
   -- config pointed two agents at two different services — and its headline case, a local
   -- llama.cpp/ollama/vLLM endpoint, speaks OpenAI, so this branch aimed

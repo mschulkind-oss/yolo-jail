@@ -79,17 +79,15 @@ func TestConfigureClaudePrismFirstMigration(t *testing.T) {
 		t.Errorf("skipDangerousModePermissionPrompt = %v, want true", got["skipDangerousModePermissionPrompt"])
 	}
 
-	// DYNAMIC enabledPlugins: python is present -> its plugin is enabled.
-	plugins, ok := got["enabledPlugins"].(map[string]any)
-	if !ok {
-		t.Fatalf("enabledPlugins missing/!object: %v", got["enabledPlugins"])
-	}
-	if plugins["pyright-lsp@claude-plugins-official"] != true {
-		t.Errorf("enabledPlugins[pyright] = %v, want true", plugins["pyright-lsp@claude-plugins-official"])
-	}
-	// A LSP that is NOT configured must not be enabled (tombstoned).
-	if _, present := plugins["gopls-lsp@claude-plugins-official"]; present {
-		t.Errorf("enabledPlugins[gopls] present (%v); should be tombstoned", plugins["gopls-lsp@claude-plugins-official"])
+	// enabledPlugins IS NOT WRITTEN, and that is the point of OQ-LSP1's option D: the three
+	// hardcoded marketplace ids are gone, so a configured LSP no longer produces a plugin
+	// TOGGLE here. The servers reach Claude through the plugin jailcontent renders, which is
+	// enabled by default where it lands and needs no id asserted.
+	if plugins, present := got["enabledPlugins"]; present {
+		if m, isMap := plugins.(map[string]any); !isMap || len(m) > 0 {
+			t.Errorf("enabledPlugins = %#v; yolo asserts no plugin toggle any more — a non-empty "+
+				"one here is the hardcoded-id behaviour coming back", plugins)
+		}
 	}
 
 	// DYNAMIC env.ENABLE_LSP_TOOL: at least one LSP is configured.
@@ -277,11 +275,14 @@ func TestConfigureClaudePrismNoLSP(t *testing.T) {
 
 	got := decodeJSONFile(t, filepath.Join(e.ClaudeDir(), "settings.json"))
 
-	if plugins, ok := got["enabledPlugins"].(map[string]any); ok {
-		for _, pm := range claudeLSPPluginOrder {
-			if plugins[pm.plugin] == true {
-				t.Errorf("enabledPlugins[%s] = true, want unset (no LSP configured)", pm.plugin)
-			}
+	// enabledPlugins is not written AT ALL any more — OQ-LSP1's option D deleted the three
+	// hardcoded marketplace ids this used to iterate. The assertion is therefore stronger than
+	// it was: not "none of yolo's ids is true" but "yolo asserts no plugin toggle", which is
+	// what lets a user's own enables survive a render untouched.
+	if plugins, ok := got["enabledPlugins"]; ok {
+		if m, isMap := plugins.(map[string]any); !isMap || len(m) > 0 {
+			t.Errorf("enabledPlugins = %#v; yolo no longer asserts any plugin toggle — the LSP "+
+				"servers reach Claude through a rendered plugin instead", plugins)
 		}
 	}
 
@@ -373,10 +374,12 @@ func TestConfigureClaudePrismUserSettingSurvives(t *testing.T) {
 	if !ok || perms["defaultMode"] != "acceptEdits" {
 		t.Errorf("permissions.defaultMode = %v, want acceptEdits (managed regenerates)", got["permissions"])
 	}
-	// Dynamic plugin toggle still regenerates.
-	plugins, ok := got["enabledPlugins"].(map[string]any)
-	if !ok || plugins["pyright-lsp@claude-plugins-official"] != true {
-		t.Errorf("enabledPlugins[pyright] = %v, want true (computed regenerates)", got["enabledPlugins"])
+	// The DYNAMIC computed leaf that survives is env.ENABLE_LSP_TOOL — enabledPlugins went with
+	// the hardcoded ids (OQ-LSP1's option D), so "the computed layer regenerates" is asserted on
+	// the leaf that is still computed rather than on one that no longer exists.
+	env, ok := got["env"].(map[string]any)
+	if !ok || env["ENABLE_LSP_TOOL"] != "1" {
+		t.Errorf("env.ENABLE_LSP_TOOL = %v, want \"1\" (computed regenerates)", got["env"])
 	}
 }
 

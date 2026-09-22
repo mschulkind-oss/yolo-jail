@@ -155,6 +155,14 @@ func PrepareSkills(cname, homeDir string, agentNames []string) (string, error) {
 				return "", err
 			}
 		}
+		// 3. yolo's OWN LSP plugin, LAST — see writeLSPPlugin for why this is not one of the
+		//    layers above and why last is the only position that holds. Written into every
+		//    skills destination: Claude is the agent that reads a plugin, and a destination
+		//    that is not Claude's simply has a directory no tool there looks for, which is
+		//    cheaper than teaching this loop which agent is which (core knows no agents).
+		if err := writeLSPPlugin(skillsDir); err != nil {
+			return "", err
+		}
 	}
 	return staging, nil
 }

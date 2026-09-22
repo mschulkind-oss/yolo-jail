@@ -53,10 +53,12 @@ func packRecordScope() func() {
 	restoreSupersessions := loopholes.SnapshotPackSupersessions()
 	skillDirs := jailcontent.PackSkillDirs()
 	skillTargets := jailcontent.PackSkillTargets()
+	lspServers := jailcontent.LSPServers()
 	return func() {
 		restoreModules()
 		restoreSupersessions()
 		jailcontent.SetPackSkillDirs(skillDirs)
 		jailcontent.SetPackSkillTargets(skillTargets)
+		jailcontent.SetLSPServers(lspServers)
 	}
 }
