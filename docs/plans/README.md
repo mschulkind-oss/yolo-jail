@@ -320,6 +320,34 @@ in the course of making its link check green — and the closer the rest of the 
 the more this one file looks like the only thing left to fix. It is not. (The doc's own header
 quotes a figure of its own, taken when it was written; it drifts for the same reason.)
 
+**So run the check with that path excluded BY NAME**, which is the form this section was missing and
+the reason it kept failing to stop anyone:
+
+```console
+$ uvx vantage-check $(git ls-files '*.md' | grep '^docs/' \
+    | grep -v 'docs/research/vantage-check-0.5.9-findings.md')
+✓ 197 files checked, nothing to fix
+```
+
+⚠ **Prose alone did not work.** On 2026-09-22 an agent widened its check to `docs/research/` for the
+first time, saw a 50-error cluster, read it as rot and dispatched four fixers at it — the exact
+mistake the paragraph above predicts. Two of them refused on their own, citing this section and the
+file's own note; nothing was damaged. But the 2026-09-18 graduation sweep *had* already rewritten a
+path inside `D10`'s specimen, so that is twice a sweep has arrived here. A rule that only explains
+itself is one every new sweep has to be told; the command above is the half that travels.
+
+**Do not read a change in that file's count as new work.** It was 46 when written, 49 then 48 during
+the 2026-09-12 close-out, and 50 under vantage-check 0.6.2 — with the file unchanged throughout. The
+number measures the checker, not the document.
+
+⚠ **And the mechanical fix is not merely unnecessary there, it is WRONG.** Re-verified against 0.6.2
+on 2026-09-22, and stated without quoting an example for the reason this section already gives: the
+checker still reports a **suffixed** id or section number as its unsuffixed stem, and collapses a
+**range** of ids onto its first member. So applying the fix at the reported column appends the
+dropped suffix *outside* the link it just created, silently turning a citation of one ruling into a
+citation of the ruling it supersedes half of. Those are the report's own `D1` and `D7`, still live,
+and they are why it is a report rather than a cleanup task.
+
 ---
 
 ## macOS revival + distribution
@@ -373,7 +401,7 @@ here:
 | [../design/agent-program-runtimes.md](../design/agent-program-runtimes.md) | The Node that runs an npm-delivered agent CLI is chosen by the *workspace's* `mise.toml`, because the generated launcher execs a `#!/usr/bin/env node` symlink and mise's shims precede `/bin` — so a repo pinning Node 20 makes pi fail at `import` with an error naming a module export and neither the pack nor the pin. Adds a declared Node floor to a `program` contribution and resolves one interpreter into the generated launcher, leaving the workspace pin authoritative for everything except that one process. `opencode-ai`'s native ELF is why the pin must be opt-in per program. | **Design, nothing built** — the fix direction is ruled (not a startup refusal, and not touching the workspace pin); four questions, routed as [roadmap row 38](roadmap.md#-needs-you). Companion sketch: [../design/agent-program-runtimes-plan.md](../design/agent-program-runtimes-plan.md). |
 | [../design/workspace-mcp-sources.md](../design/workspace-mcp-sources.md) | Which workspace MCP files reach an in-jail agent, and the one thing left open. States the position — a repo's or the user's own MCP config reaching the agent is **desired** — records the measured per-agent project-scope file sets (Copilot reads three, Claude a fourth), and keeps the record of the `.vscode/mcp.json` shadow removed 2026-09-22. | **DESIGN 2026-09-22** — one question open ([`OQ-WM1`](../design/workspace-mcp-sources.md#OQ-WM1): what yolo says when a workspace file and `mcp_servers` name one server), routed as [roadmap row 40](roadmap.md#-needs-you). The removal itself is BUILT; the anti-re-proposal record is [`retired-decisions.md`](retired-decisions.md). |
 
-| [../reference/image-retention.md](../reference/image-retention.md) | **Image and GC-root retention, as built.** Two reapers asking two different questions: the image reaper asks liveness and gets it from the runtime; the nix GC-root reaper asks a cache question and gets a pure age cutoff. Image retention is one current-image pointer per workspace — no global count, no undo buffer — and an unreachable authority declines the sweep. | **GRADUATED 2026-09-18** from [`../design/the-load-sentinel-is-not-a-liveness-oracle.md`](../design/the-load-sentinel-is-not-a-liveness-oracle.md), which is still a redirect **stub**, though not for the reason this row used to give. The seven prose citations it named in `internal/prune/` and `internal/cli/` were all repointed at [`image-retention.md#why-its-this-way`](../reference/image-retention.md#why-its-this-way). **Two survive, in a directory nobody was looking at:** `internal/image/stockimage.go` and `internal/image/autoload.go`, and they are ⚠ **line-wrapped mid-path across two comment lines**, so every `<basename>\.md` scan — including the sweep's own — reports this stub at zero inbound. `stockimage.go`'s also cites the old doc's section 4, *Consumer A* — a numbering the reference did not inherit, so that half of the citation resolves nowhere even after the path is fixed. Repoint those two and the stub is deletable. `P1`–`P3` and every [OQ-LS](../reference/image-retention.md#why-its-this-way) ruling resolve in the reference's why-appendix. The `imageroots.go`/`autoload.go` comment contradiction the design recorded is **fixed**. |
+| [../reference/image-retention.md](../reference/image-retention.md) | **Image and GC-root retention, as built.** Two reapers asking two different questions: the image reaper asks liveness and gets it from the runtime; the nix GC-root reaper asks a cache question and gets a pure age cutoff. Image retention is one current-image pointer per workspace — no global count, no undo buffer — and an unreachable authority declines the sweep. | **GRADUATED 2026-09-18** from `docs/design/the-load-sentinel-is-not-a-liveness-oracle.md`, and that redirect stub is **deleted (2026-09-22)** — every prose citation it existed to protect now points at [`image-retention.md#why-its-this-way`](../reference/image-retention.md#why-its-this-way) or at the reference's own [load-sentinel section](../reference/image-retention.md#the-load-sentinel-and-what-it-may-be-cited-for). ⚠ **Two of them hid from every `<basename>\.md` scan by line-wrapping mid-path across two comment lines** in `internal/image/` — a scan that reports zero inbound for a path is not evidence until it has been run against the wrapped spellings too. `P1`–`P3` and every [OQ-LS](../reference/image-retention.md#why-its-this-way) ruling resolve in the reference's why-appendix. The `imageroots.go`/`autoload.go` comment contradiction the design recorded is **fixed**. |
 | [../design/layer-aware-image-delivery.md](../design/layer-aware-image-delivery.md) | Replace `streamLayeredImage` + `podman load` with nix2container + `skopeo copy`, so a rebuild ships the layers that changed instead of all 3.47 GB. Measured: 81.0s of a 96.1s load is the stream; the customisation layer is 0.78% of the image. | **Draft 2026-09-08; all five RULED 2026-09-08.** [OQ-LI1](../design/layer-aware-image-delivery.md#91-decision-ledger) was right-sized rather than answered as posed: the cachix was already shipped, `cache.nixos.org` is the default underneath it, and the patched skopeo is a **34-second** cold build (MEASURED) of which only two closure paths are built — so the copier is simply built when needed, and the cache may never be load-bearing. [OQ-LI5](../design/layer-aware-image-delivery.md#91-decision-ledger) DELETED the legacy stream instead of sizing a rollback window, which retires risk R3 and makes the pre-flip measurement the safety property (R8). Remaining gate is a human one: the go/no-go plus one `nix:`-copy boot per backend. |
 
 ## Provider & profile machinery
