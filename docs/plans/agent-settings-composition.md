@@ -546,8 +546,9 @@ surface is verifiable.
   bespoke writer ever existed). Each `Configure*Prism` retires its bespoke merge
   and gains the Lua transform + `render` for free; each landed + verified in a
   nested jail on its own. The non-agent surfaces — **MCP** (`mcp.go`), **LSP**,
-  **mise** (`mise.go`), **identity** — are not yet ported and keep their bespoke
-  generators for now.
+  **identity** — are not yet ported and keep their bespoke generators for now.
+  ⚠ **mise IS ported** (`internal/entrypoint/prism_mise.go`), which this bullet used
+  to deny while the summary above it said so — the summary was right.
 
 **Phase C — deletion (serial, last).** ✅ **Done (2026-07-22) for the agent-config
 surfaces.** The `YOLO_PRISM_SURFACES` cutover gate is retired, `boot.go` calls the

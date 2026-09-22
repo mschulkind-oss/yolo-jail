@@ -217,7 +217,7 @@ Two sinks are wired by the run pipeline:
   window exists: `housekeeping.slot took 62.891s` was the last line of the
   maintainer's `launch.log` on 2026-09-19, printed a minute into a live session.
   Nothing is lost — the event is already in the file, and `--timing`'s table renders
-  it — and this is not a quiet mode (`OQ-RO3`): the notice is a diagnostic, every
+  it — and this is not a quiet mode ([`OQ-RO3`](report-tiers.md#why-its-this-way)): the notice is a diagnostic, every
   disclosure prints before the spawn, and the window closes before the teardown
   notices that name a slow quit. Same rule, same reason as `housekeepingNote`'s
   refusal to write to the terminal at all (`housekeeping.go`, property 2); the slot

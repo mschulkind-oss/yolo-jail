@@ -57,10 +57,10 @@ is the first thing to be wrong. Never twist the code to match it.
 > (live == oldest) where it is the only thing standing between keep-newest-K and an unusable
 > launcher. Caught by `TestVersionPruneNeverRemovesTheLiveVersion` before it shipped.
 
-**Banked, re-verified in this jail 2026-09-03:** `claude.stamp` last touched 2026-08-25 — the
-hourly poll has not fired in 9 days, because the install prefixes precede the launch dir on
-`BootPath` and the launcher is unreachable after its own first install. `@openai/codex` 0.145.0
-(2026-07-25), `@github/copilot` 1.0.48 (**2026-05-15**).
+**Banked, the pre-change baseline, re-verified in this jail 2026-09-03:** `claude.stamp` last
+touched 2026-08-25 — the hourly poll had not fired in 9 days, because the install prefixes
+preceded the launch dir on `BootPath` and the launcher was unreachable after its own first
+install. `@openai/codex` 0.145.0 (2026-07-25), `@github/copilot` 1.0.48 (**2026-05-15**).
 
 ## Map
 
@@ -113,10 +113,12 @@ hourly poll has not fired in 9 days, because the install prefixes precede the la
    the honest cost. AGENTS.md's *"a test that pins the CALLEE while the CALL SITE is unpinned is not
    a test"* applies hard: the test must fail when the **check** is deleted, not merely show the check
    works. See Ships with for the shape.
-3. **Two PATH strings, and only their ends are pinned.** `BootPath` and the `.bashrc` export already
-   disagree about `$HOME/.local/bin` (5th vs 2nd) and `TestBashrcPathMatchesBootPathOrder`
-   (`launcherdir_test.go:171`) asserts only "block first, launch last" — so moving one and not the
-   other passes today. Both change; that test becomes a real order comparison.
+3. **Two PATH strings, and both carry the whole order.** `BootPath` and the `.bashrc` export are
+   independently written spellings of one order, and `TestBashrcPathMatchesBootPathOrder` compares
+   them entry by entry — so moving one without the other is red. (It asserted only "block first,
+   launch last" before this plan, which is how the two came to disagree about `$HOME/.local/bin`
+   for months; the full comparison is part of what landed, and it is what keeps them from drifting
+   in the middle again.)
 4. **Re-entrancy is new.** With the launch dir ahead of the install prefixes, any bare-name call of
    the program from inside the update — a vendor installer that runs `claude`, an npm postinstall
    that runs `copilot` — now resolves back to the launcher. Absolute `$REAL_BIN` covers the

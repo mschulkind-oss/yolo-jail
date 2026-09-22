@@ -426,7 +426,7 @@ Rename, don't redesign:
 > reaching them through the `~/.yolo/bin/launch/<name>` shims and the profile channel, so the
 > command a launch happens to run is not a profile target and the refusal could only block
 > legitimate launches — a shell, a script, a probe. The EXPLICIT `-p <cli>=<name>` half of the
-> check survives unchanged, and is the half §2.5's argument was always about: that spelling
+> check survives unchanged, and is the half [§2.5](#25-the-stringly-typed-hole-that-is-live-today)'s argument was always about: that spelling
 > names a CLI, so a typo in it asserts something false and nothing downstream would say so
 > (`checkProfileTargets`, `internal/cli/run/packs.go`).
 

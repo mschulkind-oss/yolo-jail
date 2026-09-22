@@ -13,6 +13,8 @@ summary: "Both backends realize `packages:` with nix on the host, and that is wh
 
 # nix across the backends — one tool, two products
 
+**Status:** CURRENT as of 2026-09-04, verified against `ef5945e3`.
+
 Every yolo backend gets its `packages:` from nix, run on the **host**, by the
 invoking user. What differs is *what nix is asked to produce*, and almost every
 other difference follows from that one.

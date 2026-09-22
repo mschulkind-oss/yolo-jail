@@ -418,7 +418,7 @@ graduation owes is an ordinary re-filing rather than a rewrite of the claim itse
 to the question this assessment asked: [`OQ-CO7`](../design/config-ownership-and-promotion.md#13-decision-ledger)'s
 archive is built, [`OQ-CO12`](../design/config-ownership-and-promotion.md#13-decision-ledger) is
 ruled and both deletions it measured are fixed, the doc's last Open Question is compacted and its
-[§12](../design/config-ownership-and-promotion.md#12-open-questions) reads **None**. It has
+[§12](../design/config-ownership-and-promotion.md#12-follow-ons-and-the-one-this-design-settled-itself) reads **None**. It has
 completed the `design-doc` genre's settled phase and is a graduation CANDIDATE. The only thing
 holding it is [`OQ-DT1`](#open-question) — sequencing, and the maintainer's.
 

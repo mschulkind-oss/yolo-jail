@@ -15,8 +15,9 @@ the code actually does and what remains open.
 >
 > - **The key no longer validates.** `transform` is out of `host_files`' known-key set, so an
 >   entry still carrying it is a `yolo check` error — the generic `unknown key` one, not a named
->   "this was removed". [Example 3](#example-3--rich-seed-from-host-transform-one-managed-key) below still shows it and is the one snippet in this
->   doc that must not be copied as written; drop the `transform` line and it is correct again.
+>   "this was removed". [Example 3](#example-3--rich-seed-from-host-one-managed-key) carried the
+>   field and was the one snippet here that could not be copied as written; the line was **dropped
+>   2026-09-22**, so every snippet in this doc now validates.
 > - **The [Transforms on non-object surfaces](#transforms-on-non-object-surfaces) capability is gone**, and its worked case — rewriting
 >   `/Users/matt/` to `/home/agent/` inside a host `.npmrc` — is the concrete gap the removal
 >   accepts. The declarative answers are `mode: capture` (edit once in the jail, the overlay
@@ -1108,7 +1109,7 @@ that earns the capture exception, so it says `"mode": "capture"` explicitly.
 }
 ```
 
-### Example 3 — rich: seed from host, transform, one managed key
+### Example 3 — rich: seed from host, one managed key
 
 User scope only (`source` present). The dir entry is copied wholesale.
 
@@ -1123,7 +1124,6 @@ or key order must survive byte-for-byte.
   "host_files": [
     {
       "source": "~/.config/starship.toml",   // → toml codec, same dest path
-      "transform": "~/.config/yolo-jail/starship.lua",
       "managed": { "add_newline": true }
     },
     { "path": "~/.config/nvim/", "source": "~/dotfiles/nvim/", "mode": "copy" }
