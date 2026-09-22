@@ -68,21 +68,24 @@ yolo.derive("claude", "settings", function(ctx)
   -- catalog directly instead of asking users to infer a Claude tier alias.
   -- Replacing the built-ins prevents retired pre-6 choices from leaking into
   -- a Codex-profile launch; `Default` resolves to ANTHROPIC_MODEL below.
-  -- STANDING RULE: the catalog is ordered MOST CAPABLE FIRST — Astra (frontier),
-  -- Sol (balanced), Luna (fast). New models slot in at their capability rank in
-  -- every list below, claude's availableModels/modelPicker and pi's enabledModels
-  -- alike. Note the side effect on availableModels: Claude Code's retained
-  -- `Default` row resolves to the FIRST allowlisted ID, so most-capable-first
-  -- makes Default resolve to Astra; the launched chat is still pinned to Sol by
-  -- ANTHROPIC_MODEL below.
+  --
+  -- TWO ORDERS, ON PURPOSE, mirroring Claude's own picker (a `Default` row above
+  -- the explicit models). modelPicker.options is the USER-FACING list and follows
+  -- the STANDING RULE: most capable first — Astra (frontier), Sol (balanced),
+  -- Luna (fast); pi's enabledModels follows it too. availableModels is NOT a
+  -- display list: it is the enforcement set, and its FIRST entry is the model
+  -- Claude Code's RETAINED built-in `Default` row resolves to. So it is ordered
+  -- Default-first — Sol, the balanced model — which makes that row resolve to Sol
+  -- while the explicit list below still reads Astra, Sol, Luna. Keep the two in
+  -- agreement on membership; only the first element's role differs.
   if ctx.selected_provider == "openai-codex" then
-    -- The client retains a hard-coded Default row. Constraining Default makes
-    -- it resolve to the first allowlisted ID (GPT-6 Astra, the frontier model),
-    -- while modelPicker keeps the same most-capable-first order below.
+    -- The client retains a hard-coded Default row. Constraining Default makes it
+    -- resolve to the FIRST allowlisted ID (GPT-6 Sol, the balanced default);
+    -- modelPicker then lists the models most-capable-first beneath it.
     -- GPT-5.6 Terra has no GPT-6 successor: Sol carries the balanced role now.
     out.availableModels = {
-      "gpt-6-astra",
       "gpt-6-sol",
+      "gpt-6-astra",
       "gpt-6-luna",
     }
     out.enforceAvailableModels = true
