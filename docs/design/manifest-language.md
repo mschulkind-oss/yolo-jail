@@ -226,7 +226,9 @@ Dhall (total, typed).
    <!-- vantage: oq id=OQ-M1 leaning="Yes. Grouping by kind and deriving the pack's identity are syntax-independent and are the two largest sources of redundancy." -->
 
    _Leaning:_ Yes — it is independent of the syntax decision, needs no dependency, and removes the
-   bulk of the measured redundancy. Re-measure before choosing a language.
+   bulk of the measured redundancy. ⚠ **The re-measure this used to require was TAKEN 2026-09-22
+   without building anything, and it retired the gzip metric rather than answering with it** — see
+   [OQ-M2](#OQ-M2). So M1 no longer gates on a measurement, and M2 no longer gates on M1.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -235,9 +237,39 @@ Dhall (total, typed).
 
    <!-- vantage: oq id=OQ-M2 leaning="JSON restructured if it reads well; else data-only Lua (already vendored); Starlark only if we accept a new dependency for a purpose-built hermetic language." -->
 
-   _Leaning:_ Decide after [OQ-M1](#OQ-M1) and a re-measure. If a language is needed, Lua is the
-   cheapest (vendored, familiar, comments + reuse) and Starlark the best-designed at the cost of a
-   dependency.
+   ⚠ **MEASURED 2026-09-22, and the result is that this question should be DISSOLVED rather than
+   answered on the stated rule.** The re-measure was takeable with no build — I restructured
+   `packs/claude/pack.json` by hand per [§4](#4-the-options)'s option A, machine-checked both variants fact-preserving, and
+   canonicalised them identically to the baseline:
+
+   | rendering | raw | gzip | ratio |
+   | :--- | ---: | ---: | ---: |
+   | baseline | 4142 | 1006 | 0.243 |
+   | A1 (strict option A) | 3313 | 942 | 0.284 |
+   | A2 (+ keyed by discriminator) | 2838 | 879 | 0.310 |
+   | data-only Lua, A2's facts | 2227 | 841 | 0.378 |
+
+   Neither restructuring reaches this doc's ~0.40 threshold, so the rule as written would answer
+   "get a language". **Three measurements say the rule is unsound:**
+
+   - **Prose at the manifest's size is 0.49, not 0.40.** The 0.40 came from a 17 761-byte README, and
+     the ratio rises with size, so the target was never size-matched to what it judges.
+   - **`jq -c` alone reaches 0.368** — minifying the baseline, with zero model change and zero
+     readability gain, gets 92% of the way to the target. 44% of the baseline is indent whitespace.
+   - **The numerator barely moves**: A1 drops 20% of raw bytes and only **6.4%** of gzip bytes. That
+     is the signature of deleting *already-predicted* redundancy — so the ratio necessarily RISES
+     whenever you remove better-than-average-compressible bytes.
+
+   > [!WARNING]
+   > **Compression ratio is orthogonal to the complaint it was chosen to quantify.** The objection is
+   > about what a HUMAN must read; gzip had already predicted the repetition, which is why deleting
+   > it moves the number the wrong way. Direction is robust across xz/bzip2 and levels 1–9; the
+   > THRESHOLD is not. Do not re-derive a byte-ratio gate for this question.
+
+   _Leaning:_ **Strike the re-measure precondition and decide on readability, not ratio.** If a
+   language is still wanted, Lua remains the cheapest (vendored, familiar, comments + reuse) and
+   Starlark the best-designed at the cost of a dependency — but the measurement no longer argues for
+   either.
 
    **Answer:**
    > _(empty — fill in when decided)_

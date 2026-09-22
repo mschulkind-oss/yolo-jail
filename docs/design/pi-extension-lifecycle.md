@@ -13,9 +13,10 @@ vantage:
 **Status:** DECIDED, 2026-09-20. **The STORAGE tier ([§3.1](#31-storage-tier-decoupling-packages-from-session-state),
 [OQ-1](#OQ-1)) shipped 2026-09-21; the refresh and concurrency tiers are not built.** The
 resolve-and-pin half of [OQ-2](#OQ-2) rests on `internal/packsrc` + `packs.lock.json`, which
-SHIP; the materializer rests on a Pi CLI flag this tree never invokes, and confirming it is
-still the next slice — nothing in [§3.2](#32-execution-tier-pre-launch-auto-refresh) or
-[§3.3](#33-concurrency-tier-cross-jail-mutual-exclusion) was built with
+SHIP; the materializer rests on a Pi CLI flag this tree never invokes, and **that flag is
+CONFIRMED as of 2026-09-22** ([OQ-2](#OQ-2)) — so what is left is building the materializer, not
+checking whether it can exist. Nothing in [§3.2](#32-execution-tier-pre-launch-auto-refresh) or
+[§3.3](#33-concurrency-tier-cross-jail-mutual-exclusion) shipped with
 [§3.1](#31-storage-tier-decoupling-packages-from-session-state), deliberately, since every
 line of it depends on that flag.
 
@@ -44,11 +45,14 @@ fall back to running the existing installed extension version.
 **Start at [§3](#3-the-proposed-architecture)** — the storage and execution split. The rest falls out of it.
 
 **Needs your ruling:** **None** — all three were ruled 2026-09-20. See
-[§7](#7-decision-ledger). ⚠ One check is owed before the build: `pi update --extensions` is
-CLAIMED by this doc and invoked nowhere in the tree.
+[§7](#7-decision-ledger). ✅ **The one check owed before the build is DONE (2026-09-22)**:
+`pi update --extensions` is REAL — parsed by the installed pi 0.87.0's argv handler, accepted only
+under `update`, and non-interactive. Measured statically from the bundle, so the no-agent-probing rule
+holds. See [`OQ-2`](#OQ-2).
 
 **Reads with:** [`pi-extension-lifecycle-plan.md`](pi-extension-lifecycle-plan.md)
-(the companion implementation sketch — incomplete while [`OQ-1`](#OQ-1) and [`OQ-2`](#OQ-2) are open),
+(the companion implementation sketch — its blocking questions were ruled 2026-09-20, so what it owes
+now is completion against the tree rather than a decision),
 [`pi-pack-extensions.md`](./pi-pack-extensions.md) (the accepted sibling that assigns this doc the
 fetch/resolve axis and names `internal/packsrc` + `packs.lock.json`),
 [`slots-and-contributions.md`](./slots-and-contributions.md) (the role model of the same
@@ -323,15 +327,32 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
    > package-manager half — no npm reimplemented — but the **version choice moves to YOLO**: the
    > seam a distributor must own, since no ecosystem here ships a lockfile or a rollback.
 
-   ⚠ **The resolver half already exists; the materializer half is the unverified one.**
+   **The resolver half already exists; the materializer half is the one still to build.**
    `internal/packsrc` ships `addr.go`, `lock.go` and `store.go`, and `packs.lock.json` is real at
    `~/.config/yolo-jail/packs.lock.json` (`LoadLock`/`Save`, beside the user config) — so (c) is
    an extension of a shipping mechanism rather than a new one, which is most of why it is the
-   right answer. **`pi update --extensions` is CLAIMED, not verified**: nothing in this tree
-   invokes that flag, and AGENTS.md forbids probing an agent CLI beyond `--version`, so slice one
-   of the build is confirming the flag exists and is non-interactive before anything depends on
-   it. If it does not, (b) — a Go entrypoint subcommand — is the fallback materializer and the
-   ruling's resolve-and-pin half is unaffected.
+   right answer.
+
+   ✅ **`pi update --extensions` is VERIFIED, 2026-09-22 — slice one's check is done and the flag
+   is real.** Measured STATICALLY against the installed `@earendil-works/pi-coding-agent@0.87.0`,
+   by reading its bundle rather than running it, so `AGENTS.md`'s rule that nothing probes an agent
+   CLI beyond `--version` is intact:
+
+   - The argv parser handles `--extensions` explicitly and accepts it **only** under the `update`
+     command — `if (arg === "--extensions") { command === "update" ? extensionsFlag = true :
+     invalidOption = invalidOption ?? arg; continue }`. Its siblings on the same command are
+     `--self`, `--models` and `--all`. So the flag is not merely mentioned in help text; it is
+     parsed, and it is rejected as an invalid option anywhere else.
+   - It is the spelling Pi itself prescribes: two separate user-facing strings tell the user to run
+     `<app> update --extensions`, one when extensions were skipped and one from the
+     package-update notification.
+   - **Non-interactive**: the update path holds no interactive primitive — no `createInterface`,
+     `inquirer`, `prompts(`, `await confirm` or `question(` anywhere in it.
+
+   So (b), a Go entrypoint subcommand, is **not needed as the materializer**, and the fallback
+   stays what it was: a fallback. ⚠ What this does NOT establish is the flag's exit code or its
+   behaviour offline — a static read cannot see either, and the implementer should not assume
+   success is the only outcome.
 
 3. ✅ **OQ-3: Handling Pi's in-app update notification check.**
    Pi's interactive TUI unconditionally runs `checkForPackageUpdates()` on startup if not offline,
@@ -362,5 +383,5 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
 | **OQ-1** | **Machine-scoped storage.** Extensions are shared tool capabilities like global binaries; per-workspace copies waste disk and, load-bearingly, create cross-jail version drift | 2026-09-20 | [§6](#6-open-questions) | **yes**, 2026-09-21 — `packs/pi` declares `.pi-shared-npm` at `scope: "machine"` plus a `shared_directory` hook (NOT `shared_extension_storage`; see [§3.1](#31-storage-tier-decoupling-packages-from-session-state)) **MEASURED in a nested jail 2026-09-21**: `~/.pi/agent/npm -> ../../.pi-shared-npm`, resolving and writable, and a write inside the jail landed at the LAUNCHER's `~/.local/share/yolo-jail/home/.pi-shared-npm/` — so the store is genuinely machine-scoped across the boundary, which is the cross-jail drift the ruling is about. |
-| **OQ-2** | **Option (c).** YOLO resolves and PINS through `internal/packsrc` + `packs.lock.json`; the launcher only materializes, under a non-blocking lock. Pi keeps the package-manager half; the VERSION CHOICE moves to YOLO, the seam a distributor must own since no ecosystem here ships a lockfile or rollback. ⚠ The resolver ships; the materializer's `pi update --extensions` flag is unverified | 2026-09-20 | [§6](#6-open-questions), [Alternative D](#alternative-d-resolve-and-pin-through-yolos-existing-pack-source-store) | no |
+| **OQ-2** | **Option (c).** YOLO resolves and PINS through `internal/packsrc` + `packs.lock.json`; the launcher only materializes, under a non-blocking lock. Pi keeps the package-manager half; the VERSION CHOICE moves to YOLO, the seam a distributor must own since no ecosystem here ships a lockfile or rollback. ✅ The resolver ships, and the materializer's `pi update --extensions` flag is **VERIFIED** — parsed by pi 0.87.0 only under `update`, and non-interactive (read statically from the bundle, 2026-09-22). ⚠ Still unknown, because a static read cannot see them: its exit code and its behaviour offline | 2026-09-20 | [§6](#6-open-questions), [Alternative D](#alternative-d-resolve-and-pin-through-yolos-existing-pack-source-store) | not built — but the check that gated the slice is done |
 | **OQ-3** | **Leave Pi's in-app notification untouched.** The pre-launch update runs before the TUI starts, so the check passes cleanly in the normal path. ⚠ Conditional on [OQ-2](#OQ-2)'s pin: a correctly pinned older extension WILL trigger the warning, and it will be right — yolo does not suppress a vendor's honest notice about a version yolo chose | 2026-09-20 | [§6](#6-open-questions) | no |

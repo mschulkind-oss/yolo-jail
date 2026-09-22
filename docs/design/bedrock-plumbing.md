@@ -347,9 +347,36 @@ agent's vocabulary, and core resolves no model.
 | Agent | Catalog | Selection | Region / profile |
 | :--- | :--- | :--- | :--- |
 | **codex** | `[model_providers.amazon-bedrock]` with `aws.region`, plus `base_url` **only for the runtime family** (the mantle provider writes none, so codex's own default stands); **no other fields** — codex refuses them | `model_provider = "amazon-bedrock"`, `model = <resolved id>` | `aws.region` from `region`; `aws.profile` from the `aws_profile` option when set |
-| **opencode** | `provider["amazon-bedrock"] = { npm: "@ai-sdk/amazon-bedrock", options: { region, profile? }, models: {…} }` — **not** the `@ai-sdk/openai-compatible` + `baseURL` shape the derive writes today | `model = "amazon-bedrock/<resolved id>"` | `options.region`, `options.profile` |
+| **opencode** | ⚠ **This cell is WRONG as written — see the measurement below.** It proposes `provider["amazon-bedrock"] = { npm: "@ai-sdk/amazon-bedrock", options: { region, profile? }, models: {…} }`, and both of those fields would break the mantle family | `model = "amazon-bedrock/<resolved id>"` | `options.region`, `options.profile` |
 | **pi** | `providers["bedrock-openai"] = { api: "bedrock-converse-stream", models: [...] }` — **runtime family only**; the mantle provider yields no pi row, because Converse is not served there | `defaultProvider` / `defaultModel` | region via `AWS_REGION` in the jail env |
 | **claude** | none (claude has no catalog) | env, as today | `AWS_REGION` from `region` |
+
+> [!WARNING]
+> **MEASURED 2026-09-22 against the installed opencode 1.18.32, and the opencode row above would
+> ship a defect.** Read statically from its bundle; no agent was started.
+>
+> **opencode already routes Bedrock's OpenAI-shaped models to mantle by default, with no user
+> config.** Its vendored `@ai-sdk/amazon-bedrock` 4.0.166 ships a first-class
+> `@ai-sdk/amazon-bedrock/mantle` factory, and its embedded models.dev catalog marks **13** bedrock
+> models with `provider:{npm:"@ai-sdk/amazon-bedrock/mantle", api:"…bedrock-mantle.${AWS_REGION}.api.aws/openai/v1"}`
+> — including all three GPT-5.6 ids in **bare** spelling. The geo-prefixed ids (`global.`, `us.`,
+> `in.`) carry no override and so take the provider default, which is runtime. **So [§5](#5-two-families-two-providers--because-the-family-and-the-ids-are-one-entry)'s
+> model-id premise is not merely right, opencode enforces it structurally.**
+>
+> **Which is why the proposed cell is a defect.** The config→catalog merge resolves
+> `npm = config.provider?.npm ?? … ?? model.api.npm`, so a **provider-level** `npm:"@ai-sdk/amazon-bedrock"`
+> **overrides the catalog's per-model mantle markers** and silently drags every bare-spelled id onto
+> the runtime endpoint, where that spelling is wrong. `options.endpoint`/`baseURL` does the same via
+> `baseURL !== "" ? baseURL : model.api.url`. The derive must therefore set mantle **per model**, or
+> **omit `npm` entirely** and let the catalog decide.
+>
+> ⚠ **And `options.region` alone does not enable the provider.** Autoload gates on six credential
+> signals — `AWS_PROFILE`/`options.profile`, `AWS_ACCESS_KEY_ID`, a bearer token, `options.apiKey`,
+> `AWS_WEB_IDENTITY_TOKEN_FILE`, or the container-credentials vars — and **region is not one of them**.
+> A derive that writes only `region` yields `autoload: false`.
+>
+> **What this measurement cannot show:** whether any of it reaches AWS. This is client-side intent
+> only — no request was made, so whether that endpoint accepts those ids is still unmeasured.
 
 Selection keys keep riding the reserved `selection` namespace with the edge-triggered apply
 — nothing about Bedrock changes the "write on activation, never on absence" rule, and an

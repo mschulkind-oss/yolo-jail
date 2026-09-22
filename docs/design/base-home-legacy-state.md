@@ -117,6 +117,28 @@ The taxonomy is the design's central artifact. Four classes, applied per leaf:
 > **0 bytes**, every one an empty directory, and `.copilot` contributing none. So the observed
 > range across two hosts is 0 B to 34 MB, which is no distribution at all.
 >
+> ⚠ **RE-MEASURED 2026-09-22, and it is worse than "no distribution" — the 34 MB is no longer
+> observable on the host it was measured on.** The base home here is **921 bytes**: 44 dirs, 20
+> files, 3 symlinks, nineteen of the files empty, and the single non-zero one is a claude CONFIG
+> surface the shipped classifier deliberately KEEPS. Zero runtime bytes. Run through the doc's own
+> instrument rather than by hand — `noteLegacyBaseHome` printed nothing, meaning `Bytes()==0`,
+> nothing unreadable, no refused root — and a before/after `find` showed the tree byte-identical.
+>
+> **Two hostile results worth keeping:**
+>
+> - **This is probably a RE-MEASURE, not a third host.** The "second host" reading is fingerprinted
+>   in code by the fossils in this very base — `.foo`, `.filespack`, `yolo-it-newdir`, `.pi-lens`,
+>   `.yolo-shims` are all present here. N stays 2.
+> - **The outlier is gone, and the code says it cannot recur.** The launch log records the
+>   maintainer's host launching after the refusal commit with **zero** base-home warnings, and the
+>   disclosure states why: the base is bound `:ro` into every podman jail, so every write the host
+>   CLI makes into `GlobalHome` is an `os.MkdirAll` of a DIRECTORY, never a file.
+>
+> **So the 34 MB is a HISTORICAL observation of a condition the code now prevents**, and every base
+> home measurable today is at 0 actionable bytes. Anything below that was sized to VOLUME needs
+> re-reading with that in mind: the migration is cheap because there is nothing to migrate, not
+> because the mechanism was overstated.
+>
 > **What that does and does not undermine.** [R1](#13-decision-ledger)/[R2](#13-decision-ledger)
 > — move, never delete — stand on N=1 without help: one host holding irreplaceable transcripts
 > is a sufficient reason never to delete them, and no distribution would change it. What IS

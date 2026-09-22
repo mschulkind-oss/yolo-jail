@@ -97,7 +97,7 @@ When `yolo check` runs on the host (or in a jail), core collects all `traps` con
 
 ### Approach B: Pack Self-Checks via Executable Scripts
 
-Packs already support self-checks (`internal/crossaudit`). A pack can contribute a self-check script:
+A pack contributes an executable check that `yolo check` runs:
 
 ```json
 {
@@ -116,6 +116,25 @@ The script runs during `yolo check` and emits structured diagnostic output:
 WARN: ~/.pi/agent/APPEND_SYSTEM.md exists but is bypassed by YOLO home isolation.
 ```
 
+**`self_check` is a NEW contribution kind, exactly as `traps` is — B does not ride an existing
+facility.** `packdecl`'s contribution set is closed (`packdecl.KnownKinds`, backed by the
+`footprints` table) and carries no `self_check` and no `traps`; the one retired kind is `launch`.
+The executable self-check that *does* ship is a **loophole manifest's `doctor_cmd`** — run by
+`yolo check` through `loopholes.Set.RunDoctorChecks` and graded line by line into FAIL / NOTE / OK
+by `check.reportSelfCheckLines` — and a pack reaches it only by shipping a **loophole**. Two
+properties of that seam make it the wrong host for a trap, whichever way [`OQ-1`](#oq-1) goes:
+
+- **It is activation-gated.** `yolo check` reaches a `doctor_cmd` only for a loophole that is
+  enabled *and* whose `requires` are met; otherwise the row renders `disabled` or `inactive` and
+  the command never runs. A bypassed dotfile is inert whether or not any loophole is switched on,
+  so the diagnostic has to fire on pack SELECTION.
+- **A pack with no loophole has nowhere to hang one** — and `pi`, the motivating case, ships none.
+
+So the real comparison in [§4](#4-evaluation-of-alternatives) is new-kind versus new-kind. What B
+additionally costs is the execution seam and an origin gate for a fetched pack's script; `doctor_cmd`
+has the precedent (an unapproved pack's comes back `RC=nil`, reported as *withheld* rather than
+silently skipped), but a precedent is something to re-implement, not a facility to reuse.
+
 ---
 
 ## 4. Evaluation of Alternatives
@@ -125,9 +144,13 @@ WARN: ~/.pi/agent/APPEND_SYSTEM.md exists but is bypassed by YOLO home isolation
 | **Purity** | Pure JSON data; hermetic, inspectable, fast | Executable shell/binary; requires interpreter |
 | **Performance** | Instant (single `os.Stat` in Go) | Subprocess spawn per pack |
 | **Extensibility** | Limited to path conditions (`exists`, `not_exists`) | Arbitrary logic (grep file contents, inspect git branches) |
-| **Security** | Safe to evaluate without executing untrusted code | Executes script from pack |
+| **Security** | Safe to evaluate without executing untrusted code | Executes script from pack; needs an origin gate |
+| **New vocabulary** | one new contribution kind | one new contribution kind, plus an execution seam and that gate |
 
-Approach A provides the tightest fit for file-existence diagnostics without introducing execution overhead or security concerns during `yolo check`.
+Neither approach is free — the closed kind set has no member for either
+([§3](#3-proposed-mechanism)) — so the choice is not "reuse versus invent". Approach A provides the
+tightest fit for file-existence diagnostics without introducing execution overhead or security
+concerns during `yolo check`.
 
 ---
 
@@ -135,7 +158,7 @@ Approach A provides the tightest fit for file-existence diagnostics without intr
 
 1. <a id="oq-1"></a>💬 **[`OQ-1`](#oq-1) — Should file diagnostics be declarative JSON facts in `pack.json` (Approach A) or executable scripts (Approach B)?**
    - **Option (a) [Recommended]:** Declarative JSON under `"kind": "traps"`. Fast, safe, and easily inspectable by `yolo check`.
-   - **Option (b):** Executable pack self-checks. More flexible for complex inspections, but slower and executes code.
+   - **Option (b):** Executable pack self-checks. More flexible for complex inspections, but slower, executes pack code, and needs an origin gate of its own. Both options cost a new contribution kind — the existing `doctor_cmd` seam belongs to a loophole and is activation-gated ([§3](#3-proposed-mechanism)), so it cannot carry this.
 
 2. <a id="oq-2"></a>💬 **[`OQ-2`](#oq-2) — Where should trap diagnostics run?**
    - **Option (a) [Recommended]:** In `yolo check` only. `yolo check` is the designated diagnostic tool for environment health; launches and applies should stay fast and focused on execution.
