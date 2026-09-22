@@ -117,3 +117,95 @@ func TestServeUsesCallerOwnedDynamicListener(t *testing.T) {
 		t.Fatal("Serve did not stop when caller closed listener")
 	}
 }
+
+// TestHandlerAcceptsCodexJSONBody is the defect this file could not see.
+//
+// Codex POSTs JSON — `.header("Content-Type","application/json").json(&refresh_request)` — and has
+// since 0.56.0, through the installed 0.145.0 and current 0.155.1. The handler read the request with
+// `r.ParseForm()`, which for an application/json body reads NOTHING, so every Codex refresh was
+// answered `unsupported_grant_type` (400) and the adapter could not serve the one client it exists
+// for.
+//
+// ⚠ NO TEST CAUGHT IT because every fixture here was form-encoded: the handler and its tests agreed
+// with each other and with nothing else. That is why this case is written in Codex's OWN shape rather
+// than added as a variant of the form one.
+func TestHandlerAcceptsCodexJSONBody(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	var got string
+	h := Handler(func(_ context.Context, caller string) (Token, error) {
+		got = caller
+		return Token{AccessToken: "access", RefreshToken: "yolo-broker:8",
+			ExpiresAtMS: now.Add(time.Hour).UnixMilli()}, nil
+	}, func() time.Time { return now })
+
+	// Codex's measured body: JSON, with client_id alongside the two fields that matter.
+	body := `{"client_id":"app_EMoamEEZ73f0CkXaXp7hrann","grant_type":"refresh_token",` +
+		`"refresh_token":"old"}`
+	req := httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("a Codex-shaped JSON request must be served; status = %d, body = %s",
+			rr.Code, rr.Body.String())
+	}
+	if got != "old" {
+		t.Errorf("the caller's refresh token did not reach the broker: got %q", got)
+	}
+}
+
+// A charset parameter must not defeat the content-type match — real clients send it.
+func TestHandlerAcceptsJSONWithACharsetParameter(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	h := Handler(func(_ context.Context, _ string) (Token, error) {
+		return Token{AccessToken: "access", RefreshToken: "yolo-broker:8",
+			ExpiresAtMS: now.Add(time.Hour).UnixMilli()}, nil
+	}, func() time.Time { return now })
+	req := httptest.NewRequest(http.MethodPost, "/oauth/token",
+		strings.NewReader(`{"grant_type":"refresh_token","refresh_token":"old"}`))
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("a charset parameter must not defeat the match; status = %d", rr.Code)
+	}
+}
+
+// The FORM branch survives. The OAuth spec's token endpoint is form-encoded, so dropping it would
+// trade one silent incompatibility for another.
+func TestHandlerStillAcceptsFormEncoded(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	h := Handler(func(_ context.Context, _ string) (Token, error) {
+		return Token{AccessToken: "access", RefreshToken: "yolo-broker:8",
+			ExpiresAtMS: now.Add(time.Hour).UnixMilli()}, nil
+	}, func() time.Time { return now })
+	req := httptest.NewRequest(http.MethodPost, "/oauth/token",
+		strings.NewReader(RefreshForm("old").Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("form-encoded must keep working; status = %d", rr.Code)
+	}
+}
+
+// Truncated JSON is MALFORMED, not "grant_type missing" — answering the latter sends the caller
+// looking at the wrong field.
+func TestHandlerRejectsTruncatedJSONAsMalformed(t *testing.T) {
+	h := Handler(func(_ context.Context, _ string) (Token, error) {
+		t.Fatal("the broker must not be called for a body that did not decode")
+		return Token{}, nil
+	}, time.Now)
+	req := httptest.NewRequest(http.MethodPost, "/oauth/token",
+		strings.NewReader(`{"grant_type":"refresh_`))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "invalid_request") {
+		t.Errorf("want invalid_request, got %s", rr.Body.String())
+	}
+}

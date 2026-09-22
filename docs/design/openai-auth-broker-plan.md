@@ -9,6 +9,37 @@ summary: "What the machine-wide OpenAI credential service still needs: the macos
 # Plan: shared OpenAI subscription authentication
 
 **Design:** [`openai-auth-broker.md`](openai-auth-broker.md) · **Status:** DESIGN,
+
+> [!WARNING]
+> **MEASURED 2026-09-22, and two of this plan's steps change shape. Read before building either.**
+>
+> **Step 3's blocker is dead, and a bigger defect was underneath it.** The "version floor is pinned
+> nowhere" blocker assumed a floor worth refusing on. Measured across 13 Codex release tags by
+> downloading each source tree: the refresh handling arrived in **0.56.0** (2025-11-07), absent at
+> 0.55.0 and earlier, present at every release since. Today's `latest` is 0.155.1 and this jail has
+> 0.145.0 — so **every installable Codex clears the floor by about a year**, and a launch-time
+> refusal would be dead code.
+>
+> ✅ **What was underneath it is FIXED (2026-09-22): the adapter could not serve Codex at all.**
+> Codex POSTs a JSON body — `.header("Content-Type","application/json").json(&refresh_request)`,
+> true at 0.56.0, at 0.145.0 and at 0.155.1 — while
+> [`openaiauthadapter.Handler`](../../internal/openaiauthadapter/handler.go) read the request with
+> `r.ParseForm()`, which for `application/json` reads **nothing**. Every Codex refresh was answered
+> `unsupported_grant_type` (400). ⚠ **No test caught it because every fixture was form-encoded** —
+> the handler and its tests agreed with each other and with nothing else. `readTokenRequest` now
+> decodes both encodings, and the Codex-shaped test is verified to fail against the old behaviour.
+>
+> **Step 4 is a ruling plus a rewrite, not a retry.** "Whether Pi's own 401 path calls
+> `refreshToken`" is measured: pi 0.87.0 has **no such path**. Both call sites of the composed
+> `oauth.refresh(...)` are **expiry-gated**, and 401 appears in none of its three retry classifiers
+> (408/409/429/5xx only). The Codex API resolves the bearer **once** and its generic catch replays
+> the same headers, so a retry there can never present a new token. Every 401→refresh in the bundle
+> belongs to a vendored third-party SDK acting on its own cache. So
+> `packs/pi/extensions/yolo-openai-auth.js` having no retry is **correct, not partial** — the
+> extension API exposes no status to hook.
+>
+> **What these static reads cannot show:** no exit codes, no network failure paths, and nothing about
+> whether a refreshed token is actually accepted upstream.
 2026-09-17 — steps 1–8 are built or partial, steps 10–12 are buildable cold, step 9 owes
 one ruling. **Written against** `365f0ecf`, re-checked step by step against the tree; the
 2026-09-14 draft predates the entire implementation.

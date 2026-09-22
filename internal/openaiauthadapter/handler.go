@@ -9,6 +9,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -44,15 +45,15 @@ func Handler(refresh Refresh, now func() time.Time) http.Handler {
 			writeError(w, http.StatusNotFound, "invalid_request", "unknown OpenAI credential endpoint")
 			return
 		}
-		if err := r.ParseForm(); err != nil {
+		grantType, callerRefresh, ok := readTokenRequest(r)
+		if !ok {
 			writeError(w, http.StatusBadRequest, "invalid_request", "malformed token request")
 			return
 		}
-		if r.Form.Get("grant_type") != "refresh_token" {
+		if grantType != "refresh_token" {
 			writeError(w, http.StatusBadRequest, "unsupported_grant_type", "only refresh_token is supported")
 			return
 		}
-		callerRefresh := r.Form.Get("refresh_token")
 		if callerRefresh == "" {
 			writeError(w, http.StatusBadRequest, "invalid_request", "refresh_token is required")
 			return
@@ -154,3 +155,52 @@ func Serve(listener net.Listener, refresh Refresh) error {
 	}
 	return err
 }
+
+// readTokenRequest pulls the grant type and refresh token out of a token request, accepting BOTH a
+// JSON body and a form-encoded one.
+//
+// # Why JSON, and why this was a live defect
+//
+// Codex POSTs JSON — `.header("Content-Type","application/json").json(&refresh_request)` — and has
+// since 0.56.0 (2025-11-07), through the installed 0.145.0 and current 0.155.1. This handler read
+// the request with `r.ParseForm()`, which for an `application/json` body reads NOTHING: the form is
+// empty, `grant_type` comes back "", and every Codex refresh was answered
+// `unsupported_grant_type` (400). Measured 2026-09-22 by running Codex's request shape through
+// `ParseForm` directly.
+//
+// So the adapter could not serve the one client it exists for, and no test caught it because every
+// fixture was form-encoded — the handler and its tests agreed with each other and with nothing else.
+//
+// The form branch is KEPT rather than replaced: the OAuth spec's token endpoint is form-encoded, so
+// a future client that follows it must still work, and dropping the branch would trade one silent
+// incompatibility for another.
+//
+// Field names agree across both encodings (`client_id`, `grant_type`, `refresh_token`), which is why
+// a decode is the whole fix.
+func readTokenRequest(r *http.Request) (grantType, refreshToken string, ok bool) {
+	ct := r.Header.Get("Content-Type")
+	if i := strings.IndexByte(ct, ';'); i >= 0 {
+		ct = ct[:i] // strip a charset parameter
+	}
+	if strings.EqualFold(strings.TrimSpace(ct), "application/json") {
+		var body struct {
+			GrantType    string `json:"grant_type"`
+			RefreshToken string `json:"refresh_token"`
+		}
+		// A body this cannot decode is malformed, not empty: answering "grant_type missing" for
+		// truncated JSON would send the caller looking at the wrong field.
+		if err := json.NewDecoder(io.LimitReader(r.Body, tokenRequestBodyLimit)).Decode(&body); err != nil {
+			return "", "", false
+		}
+		return body.GrantType, body.RefreshToken, true
+	}
+	if err := r.ParseForm(); err != nil {
+		return "", "", false
+	}
+	return r.Form.Get("grant_type"), r.Form.Get("refresh_token"), true
+}
+
+// tokenRequestBodyLimit bounds the decode. A token request is a few hundred bytes; the limit exists
+// so a malformed or hostile body cannot make this handler read without end, the same reason every
+// other body reader in this tree is bounded.
+const tokenRequestBodyLimit = 64 << 10
