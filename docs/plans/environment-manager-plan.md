@@ -14,7 +14,7 @@ Sequences [`../design/yolo-as-environment-manager.md`](../design/yolo-as-environ
 > | **1** — one renderer (`internal/render`) | ✅ **SHIPPED**, but **1.4 landed 2026-08-12, not 08-01** (`a39628ad`) | macOS staging UNVERIFIED on real hardware |
 > | **2** — the `confinement` key | ✅ **SHIPPED** (`internal/config/confinement.go`, `internal/render/confinement.go`) | none |
 > | **3** — `apply` + `describe` | ✅ **SHIPPED** (`internal/cli/apply.go`, `describe.go`) | none |
-> | **4** — `yolo host apply` | ⚠️ **PARTIAL** — 4.1/4.2/4.4 shipped; **4.3 (confirm-gated install) NOT built** | `internal/cli/applyhostdeps.go:113-116` prints a static "Phase 4.3" note instead |
+> | **4** — `yolo host apply` | ✅ **SHIPPED**, 4.3 included | `internal/cli/applyhostdeps.go` resolves a pack's `program` AND `requires` into the host's real dep state and offers the install; its own package comment records that it **replaces** the static "not run by `apply --host` yet" line this row used to cite, which was *"true and useless: the gate is real, but the line never said WHICH binary was missing"* |
 > | **5** — `--sealed` + closure | ⚠️ **PARTIAL** — 5.1/5.2/5.4 shipped; **5.3 (capture as staging area, `yolo config promote`) NOT built** | the refusal at `apply.go:635` uses the word "promote" as English prose (the only command it names is `yolo config reset`, which exists) — but the verb the LEANING wants still does not |
 > | **6** — dep provisioning | ⚠️ **PARTIAL** — 6.1/6.2/6.3 shipped (`internal/depcheck/`, `yolo check-deps`); **6.4 (offer-to-run) NOT built** | `internal/cli/checkdeps.go:9-12` defers it by name |
 > | **7** — the `guest` notch | ❌ **NOT BUILT** — as previously stated | see below |
@@ -332,7 +332,8 @@ description (and `--json` supersedes `config dump`), and `--at` selects a notch.
 > confirm-gated one that [§4.1](../design/yolo-as-environment-manager.md#41-the-escape-valve-which-is-the-actual-user-story) of the design doc and item 4.3 below both specify. `yolo host apply`
 > prints a static pointer instead: *"apply --host reports host deps; it installs nothing. The
 > confirm-gated install is env-manager plan Phase 4.3"*
-> (`internal/cli/applyhostdeps.go:113-116`). So [OQ-6](#open-questions-to-resolve-before-their-phase)/[OQ-7](#open-questions-to-resolve-before-their-phase)'s resolutions are recorded but
+> (`internal/cli/applyhostdeps.go` — ⚠ the static line this passage describes is GONE; the file now
+> resolves deps and offers the install). So [OQ-6](#open-questions-to-resolve-before-their-phase)/[OQ-7](#open-questions-to-resolve-before-their-phase)'s resolutions are recorded but
 > unconsumed. This is the single largest gap between the design doc and the tree.
 
 **Design/reasoning:** `host-render-target.md` [§6](../design/host-render-target.md#6-the-host-as-a-reduced-target) (the whole section), [§6.5](../design/host-render-target.md#65-the-posture-stated-as-a-table) postures,
