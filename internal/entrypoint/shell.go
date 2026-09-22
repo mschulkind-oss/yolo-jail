@@ -2,6 +2,7 @@ package entrypoint
 
 import (
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -312,6 +313,9 @@ func BootstrapScript(e *Env) string {
 	r := strings.NewReplacer(
 		"__YOLO_MISE_SHIMS__", e.MiseShims(),
 		"__YOLO_MCP_NPM_PACKAGES__", mcpPresetNpmPackages(e),
+		// The distinct Node floors every selected pack's programs declare, space-separated.
+		// Baked for macos-user's `env -i`, per the comment at the consuming site.
+		"__YOLO_NODE_FLOORS__", declaredNodeFloors(e),
 		"__YOLO_RECEIPTS_FILE__", shquote.Quote(receiptsFile(e)),
 		"__YOLO_RECEIPT_LSP_NPM__", shquote.Quote(receiptPrefix("lsp-npm", "", "")),
 		"__YOLO_RECEIPT_LSP_GO__", shquote.Quote(receiptPrefix("lsp-go", "", "")),
@@ -421,6 +425,42 @@ fc-cache -f >/dev/null 2>&1
 # Lazy-install launchers in ~/.yolo/bin/launch/ install them on first use, keeping boot
 # fast.  They no longer update themselves on a timer — "yolo pack update" is the act that
 # resolves a new version.  Only MCP/LSP tools that agents depend on are installed here.
+
+# --- Node floors: install what a declared program needs, then REFUSE if it is absent ----
+# OQ-AR2's eager half and OQ-AR3's refusal (docs/design/agent-program-runtimes.md).
+#
+# THIS is the eager slot, and the reason is ordering: launcher generation runs before
+# mise install AND host-side under yolo check, so the generator may resolve but must not
+# install.  This script runs in the provisioning stage — after the CA bundle, after
+# mise install, in the one place that already installs over the network.
+#
+# The floors are BAKED, not read from the environment: macos-user runs the stage under
+# env -i, so an inherited variable would be a silent no-op there.
+#
+# ⚠ mise install node@<floor> is the right call here even though a mise SELECTOR IS A
+# PREFIX rather than a floor.  That asymmetry is the whole point: a prefix is wrong for
+# ACCEPTING an installed version (it would fetch 22.19.0 while 22.23.2 sits there) and
+# exactly right for INSTALLING one, because what it fetches satisfies >= floor.
+YOLO_NODE_FLOORS="__YOLO_NODE_FLOORS__"
+if [ -n "$YOLO_NODE_FLOORS" ]; then
+    for _floor in $YOLO_NODE_FLOORS; do
+        if yolo internal node-floor-satisfied "$_floor" >/dev/null 2>&1; then
+            continue
+        fi
+        echo "  ↳ installing node@$_floor (a selected pack declares it)" >&2
+        mise install "node@$_floor" >&2 || true
+        if ! yolo internal node-floor-satisfied "$_floor" >/dev/null 2>&1; then
+            # REFUSAL, not a warning: a jail that cannot run a program its own config
+            # selected is not a ready environment, and reporting success while leaving it
+            # unready states a result that was not achieved.  The provisioning stage's
+            # failure path carries this to the user.
+            echo "yolo: no Node satisfying >=$_floor is available, and installing one failed." >&2
+            echo "      A selected pack declares a program that cannot run without it." >&2
+            echo "      Fix the network, or drop the pack that declares the floor." >&2
+            exit 1
+        fi
+    done
+fi
 
 # --- MCP preset tools (gated on the ENABLED presets, D6) ----------------
 # Empty when no preset needs an npm package, so a jail that wants none installs
@@ -636,3 +676,40 @@ fi
 # stderr kept: creation failures must reach the startup log.
 "$_uv" venv --clear "/workspace/$_vp" --python "$_py" || true
 `
+
+// declaredNodeFloors is the space-separated set of DISTINCT Node floors the selected packs'
+// `program` contributions declare, for the bootstrap's eager install and its refusal.
+//
+// Distinct, and sorted, for the reason every other baked list here is: two packs declaring 22.19
+// is one install, and a stable order keeps the generated script byte-stable across boots so a
+// diff of two bootstrap scripts means something.
+//
+// A pack whose installs cannot be resolved contributes nothing rather than failing generation —
+// its own problems are reported on their own path, and a pack that cannot say what it installs
+// cannot be shown to need an interpreter.
+func declaredNodeFloors(e *Env) string {
+	seen := map[string]bool{}
+	var out []string
+	// LoadJailPacks, the same source every other generator in this package reads. An error
+	// contributes nothing: a boot that cannot load packs has a louder problem than a missing
+	// interpreter, and it is reported on its own path.
+	packs, err := LoadJailPacks(e)
+	if err != nil {
+		return ""
+	}
+	for _, p := range packs {
+		if p == nil {
+			continue
+		}
+		installs, _ := p.HonoredInstalls()
+		for _, in := range installs {
+			if in.NodeFloor == "" || seen[in.NodeFloor] {
+				continue
+			}
+			seen[in.NodeFloor] = true
+			out = append(out, in.NodeFloor)
+		}
+	}
+	sort.Strings(out)
+	return strings.Join(out, " ")
+}

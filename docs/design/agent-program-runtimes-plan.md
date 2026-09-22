@@ -10,13 +10,15 @@ vantage:
 
 # Agent program runtimes — companion sketch
 
-**Status:** SKETCH, 2026-09-21 — incomplete, and unstable while questions are open.
+**Status:** SKETCH, 2026-09-22 — incomplete, but no longer unstable: every question in
+[`agent-program-runtimes.md`](agent-program-runtimes.md) is ruled, so this is ready to be completed
+by `implementation-plan` against the tree.
 
 > [!IMPORTANT]
 > **Not a hand-off artifact.** An agent must not build from this while it is stamped SKETCH. What a
 > real plan's product is — the map, the reuse, the traps — is written only by someone who has just
-> read the tree, and that is `implementation-plan`'s job once
-> [`agent-program-runtimes.md`](agent-program-runtimes.md)'s questions are ruled.
+> read the tree, and that is `implementation-plan`'s job. That precondition is now MET:
+> [`agent-program-runtimes.md`](agent-program-runtimes.md)'s four questions were ruled 2026-09-22.
 
 **Reads with:** [`agent-program-runtimes.md`](agent-program-runtimes.md) — **the design wins on
 behavior.** If an entry here contradicts that doc, this file is wrong.
@@ -75,7 +77,10 @@ resolution happens once per boot or once per program are the implementer's calls
   (`resetAnchorDir`) or it disappears on the next boot.
 - **`generate_agent_launchers` runs before `generate_mise_config`** in `boot.go`'s genStep list, and
   before the `mise install` provisioning step. A cold boot therefore has no mise-installed node at
-  generation time — this is the fact that shapes [OQ-AR2](agent-program-runtimes.md#OQ-AR2).
+  generation time — and [`OQ-AR2`](agent-program-runtimes.md#decision-ledger) resolved it by SPLITTING
+  the two: the generator resolves and bakes, the provisioning stage installs. ⚠ A second reason the
+  generator may not install: it also runs host-side as a dry run under `yolo check`
+  (`internal/cli/check/entrypoint.go:81-96`).
 - **Every spliced value is `shquote`'d into a bare position** (`npmLauncherTemplate`'s contract).
   A version string is attacker-influenceable only through a pack, but the contract has no
   exemptions and `launchersplice_test.go`'s hostile-value table is where a miss would show.
@@ -85,15 +90,17 @@ resolution happens once per boot or once per program are the implementer's calls
   a test that exercises the resolver directly will stay green if the splice is dropped from the
   generator.
 
-## 4. Open blockers
+## 4. Blockers, cleared 2026-09-22
 
-Every entry that would rest on an unruled decision names it. None of these can be resolved here.
+All four rulings are in the design's
+[Decision Ledger](agent-program-runtimes.md#decision-ledger). What each one settled for this sketch:
 
-- The value's meaning shapes the comparator and the manifest grammar —
-  [OQ-AR1](agent-program-runtimes.md#OQ-AR1).
-- Whether anything is installed, and where, decides whether this sketch grows a launcher-lazy
-  branch or a boot branch — [OQ-AR2](agent-program-runtimes.md#OQ-AR2).
-- The unsatisfiable case decides whether the resolver returns a path, a path plus a warning, or a
-  refusal for that one program — [OQ-AR3](agent-program-runtimes.md#OQ-AR3).
-- Declared versus derived decides whether there is a schema change at all —
-  [OQ-AR4](agent-program-runtimes.md#OQ-AR4).
+- **The value is a floor**, so the comparator is a version compare against candidates yolo
+  enumerates — ⚠ **not** a mise selector, which is a prefix that FETCHES rather than accepts
+  (measured: `mise install --dry-run node@22.19` installs 22.19.0 with 22.23.2 already present).
+- **Installation is eager and lives in the provisioning stage**, not in a launcher-lazy branch and
+  not in the generator. This sketch grows neither of the two branches it was hedging between.
+- **The unsatisfiable case REFUSES the launch** — so the resolver's failure return is a refusal that
+  names the pack, the program, the floor and what is available, not a path-plus-warning.
+- **The floor is declared**, so there IS a schema change: one optional field on `program`, refused on
+  every other kind.

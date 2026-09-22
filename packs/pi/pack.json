@@ -10,6 +10,7 @@
         "dnf": "pi-coding-agent"
       },
       "kind": "program",
+      "node_floor": "22.19",
       "package": "@earendil-works/pi-coding-agent",
       "protocols": [
         "openai",

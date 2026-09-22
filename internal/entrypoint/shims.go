@@ -508,8 +508,32 @@ func npmAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath string,
 		"__YOLO_SERVERS_ENABLED__", shquote.Quote(boolFlag(!servers.empty())),
 		"__YOLO_SERVERS_NPM__", shquote.Quote(servers.npm),
 		"__YOLO_SERVERS_GO__", shquote.Quote(servers.gomods),
+		// THE RESOLVED INTERPRETER, as an exec PREFIX rather than a variable, and that shape is
+		// what keeps the no-floor case byte-identical: an empty prefix leaves the line exactly
+		// `exec "$REAL_BIN" …` (docs/design/agent-program-runtimes.md §3.3, which makes
+		// byte-identity a test rather than an intention).
+		//
+		// A declared floor that resolves to NOTHING also renders empty here. The refusal for that
+		// case is the launch's (§3.4), not this generator's — a content generator that refused
+		// would refuse during `yolo check`, which is an observe verb.
+		"__YOLO_EXEC_PREFIX__", nodeExecPrefix(inst.NodeFloor),
 	}, launchFlagSplices(flags)...)...)
 	return r.Replace(npmLauncherTemplate)
+}
+
+// nodeExecPrefix renders the resolved interpreter as a shell-quoted word plus one space, or "".
+//
+// Quoted for the splice contract every other value here obeys: the path lands in a BARE argv
+// position, so a directory with a space in it must not become two words. The trailing space is part
+// of the value rather than the template, because the template must read `exec "$REAL_BIN"` unchanged
+// when there is no prefix — putting the space in the template would leave `exec  "$REAL_BIN"` and
+// break the byte-identity the no-floor case is pinned on.
+func nodeExecPrefix(floor string) string {
+	node := ResolveNodeForFloor(floor)
+	if node == "" {
+		return ""
+	}
+	return shquote.Quote(node) + " "
 }
 
 // nativeAgentLauncher renders the installer-URL launcher for one `program via native`
@@ -1039,7 +1063,7 @@ case ":${_YOLO_LAUNCHER_ACTIVE:-}:" in
     *":$BIN:"*)
         if [ -x "$REAL_BIN" ]; then
             _yolo_launch_argv "$@"
-            exec "$REAL_BIN" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}
+            exec __YOLO_EXEC_PREFIX__"$REAL_BIN" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}
         fi
         echo "  ⚠ $BIN not available" >&2
         exit 1
@@ -1321,7 +1345,7 @@ fi
 
 if [ -x "$REAL_BIN" ]; then
     _yolo_launch_argv "$@"
-    exec "$REAL_BIN" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}
+    exec __YOLO_EXEC_PREFIX__"$REAL_BIN" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}
 else
     echo "  ⚠ $BIN not available" >&2
     exit 1

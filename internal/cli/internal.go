@@ -20,6 +20,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthdaemon"
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthhost"
 	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/serialdaemon"
 )
@@ -31,7 +32,7 @@ import (
 // rewrite semantics.
 func runInternal(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-materialize|capture-run|config-dump|daemon|darwin-bootstrap|migrate-host|openai-auth|openai-auth-client|refresh-servers|bundle-dir> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-materialize|capture-run|config-dump|daemon|darwin-bootstrap|migrate-host|node-floor-satisfied|openai-auth|openai-auth-client|refresh-servers|bundle-dir> [args...]")
 		return 2
 	}
 	switch args[0] {
@@ -75,6 +76,13 @@ func runInternal(args []string) int {
 		// the GENERATED AGENT LAUNCHERS before they exec the agent. Hidden for
 		// capture-materialize's reason: it installs into the home it is pointed at.
 		return runRefreshServers(args[1:])
+	case "node-floor-satisfied":
+		// OQ-AR3's predicate, called by the GENERATED BOOTSTRAP SCRIPT before and after it
+		// installs. It exists as a subcommand because the resolution is Go (a version compare
+		// over the mise store) while the eager slot is a shell stage — and a shell
+		// reimplementation of the comparison is the second implementation this repo keeps
+		// deleting. Exit 0 = satisfied, 1 = not, 2 = misuse.
+		return runNodeFloorSatisfied(args[1:])
 	case "bundle-dir":
 		// The flake-bundle paths `just install` stages through, printed so the
 		// recipe never recomputes them — the drift that once aimed `rm -rf` at the
@@ -380,7 +388,7 @@ func runConfigDump(args []string) int {
 	}
 	// A REAL resolver, like check.go's sectionMergedConfig and the launch
 	// preflight: with nil the known-loophole set is empty, so every name reads as
-	// uninstalled and the §4.3b enable-uninstalled rule fires a fatal for a config
+	// uninstalled and the enable-uninstalled rule fires a fatal for a config
 	// both other callers accept. An oracle that disagrees with the thing it is an
 	// oracle for is worse than no oracle.
 	errs, warns := config.ValidateConfig(cfg, workspace, loopholes.NewResolver())
@@ -419,4 +427,27 @@ func envMap(environ []string) map[string]string {
 		}
 	}
 	return out
+}
+
+// runNodeFloorSatisfied answers "is a Node meeting this floor available?" for the bootstrap's eager
+// install and its refusal (docs/design/agent-program-runtimes.md, OQ-AR2/OQ-AR3).
+//
+// Silent by design — the caller redirects both streams and branches on the exit code alone, so
+// anything printed here would be noise in a startup log. The floor is validated before it is used:
+// a floor the comparison cannot handle exits 2 rather than reporting "not satisfied", because
+// answering a malformed question with "no" would send the bootstrap into an install it cannot
+// complete.
+func runNodeFloorSatisfied(args []string) int {
+	if len(args) != 1 || args[0] == "" {
+		fmt.Fprintln(os.Stderr, "usage: yolo internal node-floor-satisfied <floor>")
+		return 2
+	}
+	if !packdecl.ValidNodeFloor(args[0]) {
+		fmt.Fprintf(os.Stderr, "yolo internal node-floor-satisfied: %q is not a comparable floor\n", args[0])
+		return 2
+	}
+	if entrypoint.ResolveNodeForFloor(args[0]) == "" {
+		return 1
+	}
+	return 0
 }

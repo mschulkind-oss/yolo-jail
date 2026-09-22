@@ -74,16 +74,20 @@ JSON
 	if err := os.MkdirAll(filepath.Dir(realPi), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	fakePi := `#!/bin/bash
-node -e '
+	// A NODE script with a node shebang, because that is what pi actually ships — its bin is a
+	// symlink to a JS bundle whose shebang is `#!/usr/bin/env node`. It used to be a bash wrapper
+	// that shelled out to `node -e`, which worked only while the launcher exec'd `$REAL_BIN`
+	// directly. Once `packs/pi` declared a `node_floor`, the launcher began exec'ing
+	// `<resolved node> "$REAL_BIN"` — correct for the real bin, and a SyntaxError for a bash
+	// wrapper. The fixture was wrong about the thing it stands in for; the launcher was right.
+	fakePi := `#!/usr/bin/env node
 const fs = require("fs");
 const auth = JSON.parse(fs.readFileSync(process.env.AUTH_PATH));
 const settings = JSON.parse(fs.readFileSync(process.env.SETTINGS_PATH));
 const c = auth["openai-codex"];
 if (!c || c.type !== "oauth" || c.access !== "fresh-access" || c.refresh !== "yolo-broker:2" || c.expires <= Date.now()) process.exit(11);
 if (settings.defaultProvider !== "openai-codex" || settings.defaultModel !== "gpt-6-sol") process.exit(12);
-'
-echo PI_READY
+console.log("PI_READY");
 `
 	if err := os.WriteFile(realPi, []byte(fakePi), 0o755); err != nil {
 		t.Fatal(err)

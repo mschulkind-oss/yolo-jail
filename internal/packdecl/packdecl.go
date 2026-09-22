@@ -207,6 +207,16 @@ type Install struct {
 	Package string `json:"package,omitempty"`
 	// Flags are extra npm install flags.
 	Flags []string `json:"flags,omitempty"`
+	// NodeFloor is the minimum Node version this program's entrypoint requires, projected from
+	// the contribution so the launcher generator can resolve an interpreter without re-reading
+	// the manifest. "" means the program declared none and keeps today's exec exactly.
+	//
+	// Projected for EVERY via rather than inside the kind switch, for UpdateVerb's reason: it is
+	// a fact about the PROGRAM's entrypoint, not about how the program arrived. Only the npm
+	// launcher consumes it today — a native installer's binary is not exec'd through an
+	// interpreter — but a projection that dropped it for other vias would silently discard a
+	// declaration the schema accepted.
+	NodeFloor string `json:"node_floor,omitempty"`
 	// InstallerURL is a curl-piped installer (kind == "native").
 	//
 	// This is the sharpest thing a manifest can name: a URL whose contents run as a
