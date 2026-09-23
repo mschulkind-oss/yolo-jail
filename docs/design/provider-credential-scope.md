@@ -10,7 +10,8 @@ vantage:
 
 # Every provider's credential reaches every agent, and a profile cannot narrow it
 
-**Status:** DESIGN, 2026-09-22. Nothing built. Evidence verified against `b99ca9b4`.
+**Status:** DESIGN, 2026-09-23. No gate built. Code evidence verified against `7ad8358c`; pi
+evidence measured statically against the installed pi 0.87.1.
 
 > **In short.** A profile selects which provider an agent *uses*; it does not decide which
 > provider credentials an agent *can see* — so selecting one provider grants the agent every
@@ -33,8 +34,7 @@ the launch over the key it just withheld ([§3.2](#32-the-pre-flight-refuses-wha
 
 **Start at [§3](#3-where-the-gate-can-sit)** — the layer choice decides everything else.
 
-**Needs your ruling:** [OQ-CN1](#OQ-CN1), [OQ-CN2](#OQ-CN2), [OQ-CN3](#OQ-CN3),
-[OQ-CN4](#OQ-CN4), [OQ-CN5](#OQ-CN5).
+**Needs your ruling:** [OQ-CN1](#OQ-CN1), [OQ-CN2](#OQ-CN2), [OQ-CN3](#OQ-CN3), [OQ-CN4](#OQ-CN4), [OQ-CN5](#OQ-CN5).
 
 **Scope note.** Split out of [`provider-switching.md`](provider-switching.md), which raised this as
 [`OQ-PS5`](provider-switching.md#OQ-PS5) on 2026-09-21 and is otherwise entirely about **model-id renaming** — the alias
@@ -75,9 +75,9 @@ loops over every hydrated key with no gate of any kind
 ([`userenv.go:96-102`](../../internal/cli/run/userenv.go)).
 
 Two things in that file *are* profile-scoped, and they are the reason the gap is easy to miss: a
-pack's `profile`-gated `env` contribution ([`packload.go:604-644`](../../internal/packload/packload.go)),
+pack's `profile`-gated `env` contribution ([`packload.go:612-651`](../../internal/packload/packload.go)),
 and the per-agent provider shape variables
-([`profilechannel.go:138-147`](../../internal/cli/run/profilechannel.go)). A profile already decides
+([`profilechannel.go:142-151`](../../internal/cli/run/profilechannel.go)). A profile already decides
 *what claude's `ANTHROPIC_AUTH_TOKEN` is*. It decides nothing about what pi can read.
 
 > [!WARNING]
@@ -120,18 +120,51 @@ belongs to which provider must therefore be legible in both.
 This is the finding that reframes the question, and it is measured against the **installed**
 programs rather than their docs.
 
-| Agent | Does a credential decide the menu? | Does it ship a narrowing key? |
-| :--- | :--- | :--- |
-| **pi** 0.87.0 | yes — availability *is* credential presence ([`models.js:256-274`](#5-evidence)) | no |
-| **opencode** | no — catalog rows register without an auth check | **yes** — `enabled_providers` / `disabled_providers` |
-| **claude** | no | **yes** — `enforceAvailableModels` + `replaceBuiltInOptions` |
+| Agent | Does a credential decide the menu? | Its narrowing key, and how hard it holds | Does yolo set it? |
+| :--- | :--- | :--- | :--- |
+| **pi** 0.87.1 | yes — availability *is* credential presence ([`models.js:256-274`](#5-evidence)) | **`enabledModels` — a soft shortlist** ([§2.4.1](#241-what-pis-enabledmodels-actually-constrains)) | **yes**, for every pi-reachable selected provider ([`pi derive.lua:520-543`](../../packs/pi/derive.lua)) |
+| **opencode** | no — catalog rows register without an auth check | `enabled_providers` / `disabled_providers` — hard, per its schema | no |
+| **claude** | no | `enforceAvailableModels` + `replaceBuiltInOptions` — an enforced allowlist | `openai-codex` only ([`claude derive.lua:81-100`](../../packs/claude/derive.lua)) |
 
-So *"narrowing the catalog cannot work"* is true of pi and false as a general claim. opencode's own
-schema says `enabled_providers` means **"When set, ONLY these providers will be enabled. All other
-providers will be ignored"**, and yolo does not set it. claude already writes
-`availableModels`, `enforceAvailableModels = true` and a `modelPicker` with
-`replaceBuiltInOptions = true` — **already gated on the selected provider** —
-at [`derive.lua:69-89`](../../packs/claude/derive.lua), for `openai-codex` only.
+So every agent measured ships a narrowing key; what differs is **how hard it holds and whether
+yolo sets it.** opencode's own schema says `enabled_providers` means **"When set, ONLY these
+providers will be enabled. All other providers will be ignored"**, and yolo does not set it.
+claude's enforced menu is **already gated on the selected provider**, for `openai-codex` only.
+pi's is already set on every profile launch — and it is the weakest of the three.
+
+### 2.4.1 What pi's `enabledModels` actually constrains
+
+pi documents the key as *"Model patterns used for startup selection and model cycling"*
+(`docs/settings.md:16`). MEASURED 2026-09-23 by reading the installed 0.87.1 package — never
+running a session. Anchors are in the unbundled `dist/`; the `pi` bin runs
+`dist/bundle/cli.js`, and every distinctive string below is present in its
+`chunks/chunk-OJP47DM6.js`.
+
+| Surface | What a non-empty `enabledModels` does | Anchor |
+| :--- | :--- | :--- |
+| Resolution | patterns match only **credentialed** models, so a pattern for a provider with no credential matches nothing and warns | `core/model-resolver.js:204-280`, `main.js:641-644` |
+| Startup selection | the saved default if it is in scope, else the **first** scoped model — an out-of-scope default is **replaced, not refused** | `main.js:382-402` |
+| `--model` | **bypasses** the scope entirely: resolved against the full runtime before the scope is consulted | `main.js:359-381` |
+| A resumed session | the scope does not pick the model | `main.js:382`, `core/model-resolver.js:493` |
+| `/model` picker | opens on the **scoped** view, but **Tab toggles to all** — every credentialed model | `modes/interactive/components/model-selector.js:52,104-108,200-206,302-311` |
+| `/model <term>` and its completions | scope-only | `modes/interactive/interactive-mode.js:446-448,4207-4213` |
+| Ctrl+P cycling | scope-only | `core/agent-session.js:1683-1700` |
+| Switching the model | checks **auth only**, never scope — nothing refuses an out-of-scope model | `core/agent-session.js:1645-1648` |
+| Save-as-default from the all view | **appends** the model to the session scope and to `enabledModels` in the **global** settings file | `core/agent-session.js:1653-1656,1663-1676`, `core/settings-manager.js:956-958` |
+| `/scoped-models` | edits `enabledModels` interactively | `core/slash-commands.js:7`, `modes/interactive/interactive-mode.js:4347-4410` |
+
+**So `enabledModels` is a default view, never a boundary.** It shapes what pi starts on, cycles
+through and completes. It forbids nothing: the escapes are one keystroke (Tab) and one flag
+(`--model`), and the shortlist grows as it is used. It also **fails open**: a scope whose patterns
+match no credentialed model is empty, and an empty scope means no scope at all
+(`main.js:642-644`). So `yolo -p zai -- pi` already starts on zai
+([`pi derive.lua:520-543`](../../packs/pi/derive.lua)), and Bedrock is still one Tab away in the
+picker. The measured symptom is the all view, and no pi key reaches it.
+
+INFERRED, not measured: pi writes an appended pattern back to `~/.pi/agent/settings.json`, and
+yolo's `settings` derive re-emits `enabledModels` on the next launch. Whether a user's appended
+model survives that depends on how the render merges a derive's plain key, which this doc has not
+traced.
 
 > [!IMPORTANT]
 > **Credentials are not the only gate even for pi.** A **stored** credential outranks the
@@ -147,7 +180,7 @@ at [`derive.lua:69-89`](../../packs/claude/derive.lua), for `openai-codex` only.
 is **half** wrong, and the half that is right is the load-bearing half.
 
 A provider declaration carries `api_key_env_name`, and it has at least nine non-test consumers —
-four pack derives ([`pi:392`](../../packs/pi/derive.lua), [`opencode:86`](../../packs/opencode/derive.lua),
+four pack derives ([`pi:391`](../../packs/pi/derive.lua), [`opencode:86`](../../packs/opencode/derive.lua),
 [`codex:134`](../../packs/codex/derive.lua), [`omp:37`](../../packs/omp/derive.lua)),
 `providers.go:561` and `:617-618`, `deriveenv.go:245`, `footprint.go:464`, and
 `wirebridged/boot.go:668`. The mapping exists; **no consumer of it lives in the delivery path.**
@@ -178,7 +211,7 @@ flowchart TD
 | Layer | What a gate there achieves | What it misses |
 | :--- | :--- | :--- |
 | Hydration | nothing — it has no profile to gate on | everything |
-| `composePackChannel` | the best-informed site: holds hydrated env, the profile table, the composed provider table and resolved profiles at once ([`profilechannel.go:82-129`](../../internal/cli/run/profilechannel.go)) | must still fan out to three vehicles |
+| `composePackChannel` | the best-informed site: holds hydrated env, the profile table, the composed provider table and resolved profiles at once ([`profilechannel.go:85-153`](../../internal/cli/run/profilechannel.go)) | must still fan out to three vehicles |
 | `writeUserEnvFile` | the exported environment | the rendered config, and two other backends |
 | `hydrateProviders` | the rendered config | the exported environment |
 
@@ -207,7 +240,7 @@ the host notch honours it. The container path drops it, because
 *"Unset has no file spelling"* ([`userenv.go:117-123`](../../internal/cli/run/userenv.go)).
 
 ⚠ **Only claude and copilot register a `yolo.env` producer at all**
-([`claude:101`](../../packs/claude/derive.lua), [`copilot:63`](../../packs/copilot/derive.lua)), so
+([`claude:112`](../../packs/claude/derive.lua), [`copilot:63`](../../packs/copilot/derive.lua)), so
 for pi, codex, opencode, omp and agy a profile contributes no environment at either notch. A design
 built on the producer reaches two agents.
 
@@ -226,43 +259,49 @@ built on the producer reaches two agents.
 
 ## 5. Evidence
 
-Code, verified 2026-09-22 against `b99ca9b4`:
+Code, verified 2026-09-23 against `7ad8358c`:
 
 | Claim | Anchor |
 | :--- | :--- |
 | The unfiltered loop over every hydrated key | `internal/cli/run/userenv.go:96-102` |
 | The frozen contract is the grammar; the pinned test checks rendering | `internal/cli/run/userenv.go:21-28`, `userenv_test.go:13-31` |
 | Hydration takes no profile/agent/provider | `internal/config/envsources.go:130-195` |
-| The best-informed gate site | `internal/cli/run/profilechannel.go:82-129` |
+| The best-informed gate site | `internal/cli/run/profilechannel.go:85-153` |
 | `hydrateProviders` sets `api_key` on every composed entry | `internal/packload/deriveenv.go:232-254` |
 | The pre-flight is scoped to packs, not the profile | `internal/packload/providers.go:461-481`, `internal/cli/run/providerpreflight.go:21-26` |
 | The second and third vehicles | `internal/macosuser/orchestrator.go:273-277`, `internal/cli/host.go:500-515` |
 | The container's fifth reader, on the agent launch path | `internal/cli/run/command.go:52` |
-| claude's already-gated enforced menu | `packs/claude/derive.lua:69-89` |
+| claude's already-gated enforced menu | `packs/claude/derive.lua:81-100` |
+| yolo already writes pi's `enabledModels` for every selected provider | `packs/pi/derive.lua:449`, `:470-474` (`openai-codex`), `:520-543` (the rest) |
 | The tombstone, and its container no-op | `internal/packload/deriveenv.go:176-178`, `internal/cli/run/userenv.go:117-123` |
 | `guest` refuses every verb | `internal/render/fieldset.go:24-27` |
 
-Vendor, measured in this jail 2026-09-22 against the **installed** packages:
+Vendor, measured in this jail against the **installed** packages — 2026-09-22 at pi 0.87.0, the
+`pi-ai` anchors re-read 2026-09-23 at 0.87.1:
 
 | Claim | Anchor |
 | :--- | :--- |
-| pi is 0.87.0 and compiles in 41 providers | `@earendil-works/pi-ai/dist/models.generated.js:44-86` |
+| pi compiles in 41 providers | `@earendil-works/pi-ai/dist/models.generated.js:44-86` |
 | pi's availability is credential presence | `pi-ai/dist/models.js:256-274` (`if (!auth) return []` at `:267-268`); `dist/core/model-runtime.js:171,187-190` |
 | pi ships its own 39-pair key→provider map | `pi-ai/dist/env-api-keys.js:63-112` |
 | A stored credential outranks the environment | `pi-ai/dist/auth/resolve.js:20-24`, code at `:40-54` |
 | Bedrock has four env spellings in pi | `pi-ai/dist/env-api-keys.js:120-153` |
+| pi's `enabledModels` is a soft shortlist | [§2.4.1](#241-what-pis-enabledmodels-actually-constrains), in `pi-coding-agent/dist` |
 | opencode ships `enabled_providers` / `disabled_providers` | its config schema |
 
-⚠ **A `pi --version` probe during this measurement ran the evergreen launcher and upgraded pi
-0.85.1 → 0.87.0 in this jail.** Every version-sensitive number above is at 0.87.0. Anything
-measured against pi before 2026-09-21 23:42 is a different program —
-[`agent-program-runtimes.md`](agent-program-runtimes.md) still says 0.86.1.
+⚠ **`pi --version` runs the evergreen launcher, and that can upgrade pi in place** — one probe on
+2026-09-21 took this jail from 0.85.1 to 0.87.0. So a pi number is a claim about the version it was
+read at, and [`agent-program-runtimes.md`](agent-program-runtimes.md) records an older one.
 
 ## 6. Open Questions
 
 1. 💬 <a id="OQ-CN1"></a>**[OQ-CN1](#OQ-CN1): where does the key→provider association live?**
    `api_key_env_name` exists with nine consumers but is **single-valued**, and yolo's `bedrock`
-   declaration sets it to nothing — so the provider causing the measured symptom is unmapped. The
+   declaration sets it to nothing — so the provider causing the measured symptom is unmapped.
+   A second credential route to the same service does **not** make one provider multi-keyed in a
+   new way: Bedrock over SSO (`AWS_PROFILE`) and Bedrock over static keys are **two providers**
+   ([`OQ-BR8`](bedrock-plumbing.md#OQ-BR8)), so a gate keyed by provider stays sufficient — each
+   provider's list names its own route's variables, and selecting one withholds the other. The
    stakes: whether the gate can be built on a field that already exists, or needs a multi-valued
    one, and whether a user must restate a fact about zai in their own config.
 
@@ -306,16 +345,23 @@ measured against pi before 2026-09-21 23:42 is a different program —
    > _(empty — fill in when decided)_
 
 4. 💬 <a id="OQ-CN4"></a>**[OQ-CN4](#OQ-CN4): is the goal narrowing the MENU or withholding the CREDENTIAL?**
-   They come apart. For pi they coincide. For opencode and claude a menu primitive already exists
-   and is cheaper and exact. And for pi a stored credential defeats the credential route entirely,
-   so withholding cannot deliver "zai and nothing else" for a user who has logged in. The stakes:
-   whether this is one mechanism or a per-agent capability the provider system dispatches on.
+   They come apart, and the three agents sit at three points
+   ([§2.4](#24-the-agents-disagree-about-what-a-credential-even-decides)). opencode and claude ship
+   a hard menu key, cheaper and exact. For pi, "narrow the menu" means writing `enabledModels`
+   patterns for the selected provider — and **yolo already does**. That is as strong as pi's menu
+   gets: a default view that Tab and `--model` both escape, and that fails open
+   ([§2.4.1](#241-what-pis-enabledmodels-actually-constrains)). So for pi the menu half is built,
+   and the only lever left on the all view is the credential — which a stored credential in turn
+   defeats. The stakes: whether this is one mechanism, or a per-agent capability the provider
+   system dispatches on and discloses strength for.
 
-   <!-- vantage: oq id=OQ-CN4 leaning="Both, and say which is which: withholding is the security property and applies everywhere; menu narrowing is the ergonomic one and should use each agent's own primitive where it has one. Framing it as a single mechanism is what makes it look impossible." -->
+   <!-- vantage: oq id=OQ-CN4 leaning="Both, named separately. Withholding is the security property and applies everywhere. Menu narrowing is the ergonomic one and uses each agent's own key: hard for opencode and claude, and for pi the soft enabledModels shortlist yolo already writes, which must never be described as a restriction." -->
 
    _Leaning:_ **Both, named separately.** Withholding is the security property and applies
-   everywhere; menu-narrowing is the ergonomic one and should use each agent's own key where one
-   exists. Treating them as one mechanism is what made this look unbuildable.
+   everywhere. Menu narrowing is the ergonomic one and uses each agent's own key — hard for opencode
+   and claude, soft for pi, where the `enabledModels` shortlist yolo already writes is the ceiling
+   and must never be described as a restriction. Treating the two as one mechanism is what made this
+   look unbuildable.
 
    **Answer:**
    > _(empty — fill in when decided)_
