@@ -194,13 +194,13 @@ func TestHostBriefingMigrationMovesProseIntoTheLocalPack(t *testing.T) {
 	if len(results) != 1 || !strings.Contains(results[0].Action, "moved your prose into") {
 		t.Fatalf("the migration must MOVE, not archive; got %+v", results)
 	}
+	// VERBATIM and UNANNOTATED. The local pack is composed into every agent's briefing, so a
+	// provenance marker written here (the old `<!-- migrated from … -->`) would reach the agent
+	// as a label on the user's own rules. The apply report carries provenance instead.
 	local := readFile(t, req.LocalPackAGENTS)
-	if !strings.Contains(local, "Always run the tests.") {
-		t.Errorf("the user's prose did not reach the local pack:\n%s", local)
-	}
-	if !strings.Contains(local, "<!-- migrated from "+dest+" -->") {
-		t.Errorf("the migrated section is unattributed — the union caveat's whole mitigation "+
-			"is knowing which file each section came from:\n%s", local)
+	if local != userProse {
+		t.Errorf("the local pack must hold the user's prose verbatim, with no marker:\n"+
+			"got  %q\nwant %q", local, userProse)
 	}
 	// And the destination is then regenerated from the packs alone.
 	if _, err := RenderHostBriefings(packs, home, req, false); err != nil {
@@ -217,8 +217,10 @@ func TestHostBriefingMigrationMovesProseIntoTheLocalPack(t *testing.T) {
 }
 
 // THE UNION CAVEAT. Several destinations migrating in one pass CONCATENATE into the one local
-// AGENTS.md, each attributed, and nothing is dropped. No dedup-by-similarity is attempted, so
-// two agents with the same rule yield two near-identical sections — deliberately.
+// AGENTS.md, in adoption order, separated by one blank line exactly as composed pack prose is,
+// and nothing is dropped. No marker names the source of each section (the apply report does),
+// and no dedup-by-similarity is attempted, so two agents with the same rule yield two
+// near-identical sections — deliberately.
 func TestHostBriefingMigrationUnionsSeveralDestinations(t *testing.T) {
 	home := t.TempDir()
 	claudeDest := filepath.Join(home, ".claude", "CLAUDE.md")
@@ -247,11 +249,19 @@ func TestHostBriefingMigrationUnionsSeveralDestinations(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 	local := readFile(t, req.LocalPackAGENTS)
-	for _, want := range []string{"# Claude rules", "# Codex rules",
-		"<!-- migrated from " + claudeDest + " -->", "<!-- migrated from " + codexDest + " -->"} {
-		if !strings.Contains(local, want) {
-			t.Errorf("the union lost %q:\n%s", want, local)
+	const want = "# Claude rules\n\nShared rule.\n\n# Codex rules\n\nShared rule.\n"
+	if local != want {
+		t.Errorf("the union is not the adopted sections verbatim, in order, one blank line "+
+			"apart:\ngot  %q\nwant %q", local, want)
+	}
+	for _, need := range []string{"# Claude rules", "# Codex rules"} {
+		if !strings.Contains(local, need) {
+			t.Errorf("the union lost %q:\n%s", need, local)
 		}
+	}
+	if strings.Contains(local, "<!--") {
+		t.Errorf("the union carries a comment — the local pack must not annotate the user's "+
+			"prose:\n%s", local)
 	}
 	// NO dedup: the shared rule appears once per source, which is what "leave the editing to
 	// the user" means concretely.
@@ -290,6 +300,10 @@ func TestHostBriefingMigrationAppendsToAnExistingLocalPack(t *testing.T) {
 		if !strings.Contains(local, want) {
 			t.Errorf("the migration replaced instead of appending (%q missing):\n%s", want, local)
 		}
+	}
+	if want := "My earlier prose.\n\nNewly migrated prose.\n"; local != want {
+		t.Errorf("the appended section is not the user's prose one blank line after the "+
+			"existing content, unannotated:\ngot  %q\nwant %q", local, want)
 	}
 }
 

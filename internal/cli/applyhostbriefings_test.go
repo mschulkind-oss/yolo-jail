@@ -98,7 +98,8 @@ func countLines(report string, all ...string) int {
 // THE ONE-WAY DOOR. A hand-written briefing is not adopted without an explicit `y`, and the
 // prompt fires exactly once, on the line that names the file.
 func TestApplyHostBriefingConfirmsBeforeAdoptingUserProse(t *testing.T) {
-	home, _ := userProseFixture(t, "# My rules\n\nAlways run the tests.\n")
+	const userProse = "# My rules\n\nAlways run the tests.\n"
+	home, _ := userProseFixture(t, userProse)
 
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
 	if rc != 0 {
@@ -112,8 +113,13 @@ func TestApplyHostBriefingConfirmsBeforeAdoptingUserProse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the user's prose did not reach the local pack: %v\n%s", err, report)
 	}
-	if !strings.Contains(string(local), "Always run the tests.") {
-		t.Errorf("the local pack does not carry the migrated prose:\n%s", local)
+	// VERBATIM, and nothing else: the local pack is the user's own file, composed into every
+	// agent's briefing, so an annotation written here (the old `<!-- migrated from … -->`
+	// marker) would reach the agent as a label on the user's own rules. Provenance lives in the
+	// apply report, which names the adopted destination.
+	if string(local) != userProse {
+		t.Errorf("the local pack must hold the migrated prose verbatim, unannotated:\n"+
+			"got  %q\nwant %q", local, userProse)
 	}
 	// BEHAVIOR-PRESERVING, which is the whole difference between this and an archive: the
 	// destination is REGENERATED, and the user's instructions are still in it — now arriving
@@ -130,11 +136,12 @@ func TestApplyHostBriefingConfirmsBeforeAdoptingUserProse(t *testing.T) {
 		t.Errorf("the user's instructions no longer reach their agent — the migration is "+
 			"supposed to preserve behavior, not merely avoid deleting:\n%s", got)
 	}
-	// The `migrated from` marker is written into the LOCAL PACK'S source file and nowhere else,
-	// so finding it here proves the prose was composed back through that pack. (The per-pack
-	// `from pack:` label used to be the evidence; it is off by default now.)
-	if !strings.Contains(string(got), "<!-- migrated from ") {
-		t.Errorf("the user's prose did not come through the local pack:\n%s", got)
+	// That line is ALSO the proof the prose came through the local pack: the destination was
+	// regenerated from packs alone, and the only other pack here ships "Pack rule: use rg.", so
+	// the user's rule can only have arrived via the local pack checked above.
+	if strings.Contains(string(got), "<!-- migrated from ") {
+		t.Errorf("the compiled briefing carries a migration marker — the user's own rules must "+
+			"not arrive labelled:\n%s", got)
 	}
 	if strings.Contains(string(got), "<!-- from pack:") {
 		t.Errorf("a default composition carries a per-pack label; briefing_provenance is off:\n%s", got)

@@ -359,12 +359,18 @@ func hostBriefingArchiveAction(path string, req HostBriefingRequest, observe boo
 }
 
 // appendToLocalPackBriefing appends one adopted destination's prose to the local pack's
-// AGENTS.md, attributed to the file it came from.
+// AGENTS.md, as the user wrote it, separated from what is already there by one blank line —
+// the same spacing jailcontent.ComposePackBriefings puts between composed pack sections.
 //
 // APPEND, not overwrite: a user migrating three agents' briefings in one apply, or migrating a
-// second agent months later, must not have the first one replaced. The attribution comment is
-// the union caveat's whole mitigation — it is what makes "why do I have two copies of this rule?"
-// answerable by reading the file.
+// second agent months later, must not have the first one replaced.
+//
+// NO PROVENANCE MARKER, deliberately. The file is the user's own, and the local pack composes it
+// into every agent's briefing, so a comment naming the file each section came from would reach
+// the agent too — the same annotation `briefing_provenance` stopped emitting by default, because
+// labelled, the user's every-repository rules read to an agent as someone else's
+// (config.BriefingProvenance). The apply REPORT is where provenance lives: it names each adopted
+// destination at the moment of migration.
 func appendToLocalPackBriefing(dest string, a HostBriefingAdoption) error {
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return err
@@ -373,8 +379,7 @@ func appendToLocalPackBriefing(dest string, a HostBriefingAdoption) error {
 	if err != nil {
 		return err
 	}
-	section := "<!-- migrated from " + a.Path + " -->\n" +
-		strings.TrimRight(a.Existing, " \t\r\n") + "\n"
+	section := strings.TrimRight(a.Existing, " \t\r\n") + "\n"
 	merged := section
 	if strings.TrimSpace(existing) != "" {
 		merged = strings.TrimRight(existing, "\n") + "\n\n" + section

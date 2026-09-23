@@ -226,11 +226,13 @@ func reportBriefingAdoptions(pr richtext.Printer, adoptions []entrypoint.HostBri
 		"by hand will not survive the next apply — edit the local pack instead.[/dim]", localPack)
 	if len(adoptions) > 1 {
 		// THE UNION CAVEAT, warned about rather than resolved. Prose has no name to dedup on,
-		// so several agents' briefings landing in one file is left for the user to edit — with
-		// a provenance comment per section so they can tell which was which.
-		pr.Printf("[yellow]  ⚠ %d destinations merge into that ONE file, each under a "+
-			"`<!-- migrated from … -->` comment. If your agents shared rules you will have "+
-			"near-duplicate sections — yolo does not guess which to drop.[/yellow]",
+		// so several agents' briefings landing in one file is left for the user to edit. The
+		// file carries no per-section marker — the local pack is composed into every agent's
+		// briefing, where one would read as a label on the user's own rules — so THIS report,
+		// which lists the destinations in merge order, is where provenance lives.
+		pr.Printf("[yellow]  ⚠ %d destinations merge into that ONE file, one section each, in "+
+			"the order listed above. If your agents shared rules you will have near-duplicate "+
+			"sections — yolo does not dedup them or guess which to drop.[/yellow]",
 			len(adoptions))
 	}
 }
