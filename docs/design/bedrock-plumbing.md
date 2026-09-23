@@ -1,23 +1,24 @@
 ---
 title: "Bedrock plumbing: one service, four agents, two arms"
 date: 2026-09-04
-status: draft
+status: in-review
 tags: [packs, providers, profiles, bedrock, aws, codex, gpt]
 summary: "How GPT-5.6 (and anything else Bedrock serves) reaches codex, pi and opencode. The surprise: three of the four agents already ship their own amazon-bedrock provider reading the same AWS_BEARER_TOKEN_BEDROCK, so the work is not an endpoint — it is picking ONE endpoint family so one model-id spelling is right for all of them, and teaching three derives to bind natively to an endpoint-less provider."
 ---
 
 # Bedrock plumbing: one service, four agents, two arms
 
-**Status:** SKETCH, 2026-09-04 — **this arm is still unbuilt, and the OTHER one is not** (amended
-2026-09-18). Bedrock now reaches yolo by two routes and this doc knows only one of them: the
+**Status:** DESIGN, 2026-09-23 — eight rulings owed, and **this arm is still unbuilt while the
+OTHER one is not** (drafted 2026-09-04, amended 2026-09-18, [OQ-BR8](#OQ-BR8) opened
+2026-09-23). Bedrock now reaches yolo by two routes and this doc knows only one of them: the
 NATIVE arm below, where codex, opencode and pi each ship an `amazon-bedrock` provider on one
 credential, and the SSO-backed arm designed in
 [`sso-backed-bedrock.md`](sso-backed-bedrock.md), whose host credential service and jail-side
 adapter landed on 2026-09-18 (`b94351fe`, `e76e43b2`, `9fc4879d`). They are siblings, not
 alternatives: that one answers *where the credential comes from*, this one answers *which
 endpoint family and model-id spelling each agent needs*. Its plan's done-condition 7 is blocked
-on this doc. Nothing of THIS doc is built. Every code claim verified against
-`4c60a220`; every vendor claim carries its source and date in [§14](#14-evidence-and-how-to-re-check-it).
+on this doc. Nothing of THIS doc is built. Code claims verified against `4c60a220`, except
+[D5](#7-traps--read-before-writing-code) and [OQ-BR8](#OQ-BR8)'s, verified at `7ad8358c`; every vendor claim carries its source and date in [§14](#14-evidence-and-how-to-re-check-it).
 
 **The short version.** Bedrock reaches an agent two ways, and yolo should build the first
 and document the second. The **native arm** *(coined here)* is the path where the agent's
@@ -33,8 +34,11 @@ model ids are **one entry, shipped twice**: `-p bedrock-gpt` for runtime,
 `-p bedrock-gpt-mantle` for mantle, both available to measure against each other.
 
 **The most important section is [§5](#5-two-families-two-providers--because-the-family-and-the-ids-are-one-entry)** — why the family is a provider entry rather than a
-knob. Everything else follows from it. **[§7](#7-traps--read-before-writing-code) is the one to read before writing code**: four
-traps, two of which are live defects in shipped code that no test catches.
+knob. Everything else follows from it. **[§7](#7-traps--read-before-writing-code) is the one to read before writing code**: five
+traps, three of them live in shipped code today.
+
+**Needs your ruling:** [OQ-BR1](#OQ-BR1), [OQ-BR2](#OQ-BR2), [OQ-BR3](#OQ-BR3), [OQ-BR4](#OQ-BR4), [OQ-BR8](#OQ-BR8), [OQ-BR5](#OQ-BR5), [OQ-BR6](#OQ-BR6), [OQ-BR7](#OQ-BR7).
+Rule [OQ-BR4](#OQ-BR4) and [OQ-BR8](#OQ-BR8) together; they are one function.
 
 **Scope note.** The general problem this doc's P1 names — *a model id is provider-local, so
 every provider switch is a rename, and yolo only does half of it* — is split out into
@@ -431,6 +435,15 @@ that nobody configured it for. The config-overlay twin does **not** have this pr
 `internal/packoverlay/packoverlay.go:194` gates on `profiles[key.Agent]`, agent-scoped. A
 shared Bedrock profile name makes this routine rather than theoretical. **[OQ-BR4](#OQ-BR4).**
 
+**D5 (live hazard). A second profile over `bedrock` silently loses every gated fact.** D2's
+twin, pointing the other way: where D2 fires a gate for the wrong agent, D5 fails to fire it
+for the right one. Every `profile:`-gated contribution matches the profile NAME literally, while
+every derive matches the PROVIDER the name resolves to. A user profile `bedrock-sso` over
+provider `bedrock` validates and selects, and then `-p bedrock-sso` delivers at most the
+provider's region: no `CLAUDE_CODE_USE_BEDROCK`, no `claude/settings` overlay, no
+credential pointer. Nothing reports it, by rule. **[OQ-BR8](#OQ-BR8)** has the evidence and
+the options.
+
 **D3. codex actively manages its `amazon-bedrock` entry.** The binary carries
 *"configuration changed while clearing the managed Amazon Bedrock model provider; retrying
 once"* and *"Amazon Bedrock login cannot select `X` because `Y` sets `model_provider` to
@@ -581,7 +594,8 @@ provider the catalog dropped. Never carry a region allowlist or a model catalog 
    it is the motivating case and because `codex doctor` verifies it cheaply.
 5. **opencode and pi bindings** — mechanically similar, each with its own provenance
    comment recording the version its spelling was read from.
-6. **Close D2** (per [OQ-BR4](#OQ-BR4)'s ruling) with a test that fails when the call site is deleted.
+6. **Close D2 and D5 together** (per [OQ-BR4](#OQ-BR4) and [OQ-BR8](#OQ-BR8), ruled as one),
+   each with a test that fails when the call site is deleted.
 7. **The gateway-arm recipe** in the user guide, and the model-id/endpoint-family pairing
    (P1) stated where a user will hit it.
 8. **Fold the settled parts into `docs/reference/providers.md`** and retire this doc via
@@ -681,7 +695,110 @@ provider the catalog dropped. Never carry a region allowlist or a model catalog 
    **Answer:**
    > _(empty — fill in when decided)_
 
-5. 💬 **OQ-BR5: Is pi bound through `bedrock-converse-stream`, or through the gateway?** pi
+5. 💬 **OQ-BR8: What does a contribution's gate key on — the profile NAME, or the provider it
+   selects?** Depends on [OQ-BR2](#OQ-BR2), whose marker is what a provider-keyed fact would
+   match; rule it with [OQ-BR4](#OQ-BR4), which is the same function asked from the other
+   side ([D5](#7-traps--read-before-writing-code) and D2). Stakes: whether a user's second intent over a shipped provider is a
+   supported case or a silent trap, and whether the credential adapter's port stays written in
+   three places.
+
+   **The split, measured at `7ad8358c`.** Gates and derives answer "is Bedrock selected?"
+   through different keys:
+
+   | Consumer | Keys on | Where |
+   | :--- | :--- | :--- |
+   | `env` gate | the literal NAME: `EnvFold` → `profileActive` → `installsActiveBin`, `profiles[bin] == name` | [`packload.go:612-661`](../../internal/packload/packload.go), the match at `:656` |
+   | `config-overlay` gate | the literal NAME: `profiles[key.Agent] != ov.Profile` | [`packoverlay.go:194`](../../internal/packoverlay/packoverlay.go) |
+   | surface derive | the resolved PROVIDER: `packload.ProviderFor(resolved, profiles[s.Agent])` | [`packsurfaces.go:273-280`](../../internal/entrypoint/packsurfaces.go) |
+   | env derive | the resolved PROVIDER: `selected := ProviderFor(cfg.resolved, profile)` | [`deriveenv.go:123`](../../internal/packload/deriveenv.go) |
+
+   MEASURED: neither gate file calls `ProviderFor`. An inactive gate is a clean skip by rule,
+   with no error or report ([`packoverlay.go:147-153`](../../internal/packoverlay/packoverlay.go),
+   [`contributes.go:213-214`](../../internal/packdecl/contributes.go)).
+
+   **What that does to a second profile.** A user profile `bedrock-sso` over provider
+   `bedrock` validates and selects. `-p bedrock-sso` then exports `AWS_REGION` only, where the
+   provider declares a region. That comes from claude's derive, which keys on `ctx.selected_provider`
+   ([`derive.lua:113`](../../packs/claude/derive.lua), `:193`). Three things are lost, silently:
+
+   - `CLAUDE_CODE_USE_BEDROCK` from claude's gated `env` ([`pack.json:141-147`](../../packs/claude/pack.json))
+   - the gated `claude/settings` overlay (`pack.json:148-159`)
+   - aws-auth's `AWS_CONTAINER_CREDENTIALS_FULL_URI` pointer ([`pack.json:7-13`](../../packs/aws-auth/pack.json))
+
+   MEASURED by a triage on 2026-09-23; re-derived here by reading the gates at HEAD, not
+   re-run. So claude may run first-party on whatever login it holds. INFERRED: no request was
+   made.
+
+   **Not Bedrock-specific.** The same shape ships twice more, MEASURED:
+
+   - [`packs/pi/pack.json:37-44`](../../packs/pi/pack.json) gates the codex prelaunch env on the name `codex`
+   - [`packs/llamacpp/pack.json:36-42`](../../packs/llamacpp/pack.json) gates `CLAUDE_CODE_ATTRIBUTION_HEADER=0` on the name `llamacpp`
+
+   **The port is written three times.** The adapter's `127.0.0.1:1461` appears in
+   [`handler.go:67`](../../internal/awscredadapter/handler.go) (`DefaultListen`), in the
+   loophole's
+   [`manifest.jsonc:149`](../../packs/aws-auth/loopholes/aws-auth/manifest.jsonc) and in
+   [`packs/aws-auth/pack.json:11`](../../packs/aws-auth/pack.json). MEASURED: they are pinned
+   against each other by [`aws_auth_pointer_test.go:44`](../../packs/aws_auth_pointer_test.go),
+   which reads only the embedded `pack.json`. INFERRED: a user pack's copy is checked by
+   nothing, and the workaround below writes exactly that copy.
+
+   **It breaks a case the design called supported.** The deleted
+   `provider-catalog-and-selection.md`, under *What a profile is*, names *"a user adding a second intent over the
+   same provider"* as the case selection resolution exists for (`git show
+   4e4ca2d1^:docs/design/provider-catalog-and-selection.md`, line 398). The SELECTION half was
+   fixed there: `ProviderFor` reads the resolved table, user profiles included. The GATE half
+   never moved.
+
+   **Prior rulings, each checked for whether it already answers this:**
+
+   | Ruling | What it settled | Does it answer this? |
+   | :--- | :--- | :--- |
+   | [`OQ-PT8`](../reference/providers.md#profiles-and-options), 2026-09-01 | Moved profile bodies onto name-keyed `profile:` contributions | **No.** Its ledger row records it as *derived* from two earlier rulings. Name versus provider was a consequence, never a choice |
+   | [`OQ-CS9`](../reference/providers.md#profiles-and-options) | Profiles point at a provider; no `extends` | **Yes, for one option:** it rules out `bedrock-sso extends bedrock` |
+   | [`OQ-PT3`](../reference/providers.md#profiles-and-options) | Moved zai's gated URL literal into claude's derive | **It is the precedent** the leaning follows |
+
+   **Options:**
+
+   | Option | Verdict |
+   | :--- | :--- |
+   | **Key provider facts on the provider**, mostly in the agent's derive keyed on `ctx.selected_provider`, then on [OQ-BR2](#OQ-BR2)'s marker once it rules | **Leaning** |
+   | Let a profile `extends` another, so `bedrock-sso` inherits `bedrock`'s gates | **Rejected**: it reopens [`OQ-CS9`](../reference/providers.md#profiles-and-options) |
+   | Make the gate match the selected provider's NAME instead | **Weaker than the leaning.** The fact stays in a manifest, keyed on one provider name, so a second provider for a variant loses it again |
+   | Warn at launch when a gate's name differs from the selected profile over the same provider | **Rejected as the fix**: it reports the trap instead of removing it. The one piece kept is a `yolo check` note for a USER pack whose name gate differs from the selected profile over the same provider |
+
+   **The leaning, concretely:**
+
+   - claude's `CLAUDE_CODE_USE_BEDROCK` moves into claude's derive, in both env and settings.
+   - llamacpp's attribution header becomes a provider option.
+   - pi's codex prelaunch env moves into a pi derive.
+   - aws-auth's adapter address is composed into the provider row, as codex's Responses
+     address already is ([`packs/openai-auth/pack.json:11-14`](../../packs/openai-auth/pack.json)).
+     That removes the duplicated `1461` and makes the pointer per-agent rather than jail-wide,
+     which is also [OQ-BR4](#OQ-BR4)'s leak. ⚠ Provider names are sole-owned across packs
+     ([§3](#3-what-yolo-has-today)), so aws-auth cannot add a field to claude's `bedrock` row.
+     It ships its own provider, which is the next bullet.
+   - Two variants of one service are modelled as two PROVIDERS, not two profiles over one.
+
+   **Working today, as a workaround.** Declare a second provider in user `providers` (for
+   example `bedrock-sso`, with its own `region`) and a profile over it. Then add a local pack
+   (`~/.config/yolo-jail/local`) whose `env` and `config-overlay` contributions are gated on
+   the new name. They restate `CLAUDE_CODE_USE_BEDROCK=1` in both places, plus
+   `AWS_CONTAINER_CREDENTIALS_FULL_URI=http://127.0.0.1:1461/credentials`. That is the fourth,
+   unchecked copy of the port. MEASURED working by the 2026-09-23 triage.
+
+   _Leaning:_ Key provider facts on the provider. Put them in each agent's derive, keyed on
+   `ctx.selected_provider` today and on [OQ-BR2](#OQ-BR2)'s marker once it rules. Compose
+   aws-auth's adapter address into its own provider row, and model variants as providers. Rule
+   it with [OQ-BR4](#OQ-BR4). Keep only a `yolo check` note for a user pack whose name gate
+   disagrees with the selected profile.
+
+   <!-- vantage: oq id=OQ-BR8 leaning="Key provider facts on the PROVIDER, mostly in the agent's derive keyed on ctx.selected_provider and on OQ-BR2's service marker once it rules: claude's CLAUDE_CODE_USE_BEDROCK in env and settings, llamacpp's header as a provider option, pi's codex prelaunch env via a pi derive. Compose aws-auth's adapter address into its own provider row, removing the duplicated 1461, and model two variants as two providers. Rule with OQ-BR4. Not extends (reopens OQ-CS9); not a warning alone (reports the trap instead of removing it) — keep only a yolo check note for a user pack whose name gate differs from the selected profile over the same provider." -->
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+6. 💬 **OQ-BR5: Is pi bound through `bedrock-converse-stream`, or through the gateway?** pi
    ships a native Converse client, but reaching it means the derive emits an `api` value
    with no canonical `wire_api` behind it — a per-agent fact with no cross-agent vocabulary.
    The alternative is pointing pi at `/openai/v1` with `openai-responses`, which stays
@@ -698,7 +815,7 @@ provider the catalog dropped. Never carry a region allowlist or a model catalog 
    **Answer:**
    > _(empty — fill in when decided)_
 
-6. 💬 **OQ-BR6: Should the launch refuse when no region is resolvable?** [§8](#8-behaviour-this-design-fixes) proposes
+7. 💬 **OQ-BR6: Should the launch refuse when no region is resolvable?** [§8](#8-behaviour-this-design-fixes) proposes
    refusing, on the grounds that every native client fails without one and a boot that dies
    at first request is worse. The counter: yolo cannot see `AWS_REGION` arriving from an
    ambient chain the agent can read, so a refusal could be wrong — the same
@@ -715,7 +832,7 @@ provider the catalog dropped. Never carry a region allowlist or a model catalog 
    **Answer:**
    > _(empty — fill in when decided)_
 
-7. 💬 **OQ-BR7: Is `endpoint_family` its own provider field, or does it fall out of the
+8. 💬 **OQ-BR7: Is `endpoint_family` its own provider field, or does it fall out of the
    marker?** [§6.1](#61-three-providers-because-a-models-map-cannot-hold-two-model-families) proposes a field beside `region` holding `runtime` | `mantle`, which each
    derive reads to decide whether to override codex's `base_url` and whether it can serve
    the entry at all. The alternative is folding it into `service` (`aws-bedrock-runtime` vs
