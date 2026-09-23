@@ -8,9 +8,12 @@ summary: "A stub. The loophole packaging design is built and its as-built accoun
 
 # Loophole packaging — the two questions still open
 
-**Status:** GRADUATED, 2026-08-13 — the design is built and its as-built account is
-[`../reference/loophole-system.md`](../reference/loophole-system.md). What stays here is the two
+**Status:** DESIGN, 2026-09-23 — a stub that owes two rulings and nothing else. The design itself
+graduated on 2026-08-13 and its as-built account is
+[`../reference/loophole-system.md`](../reference/loophole-system.md); what stays here is the two
 questions that never got a ruling.
+
+**Needs your ruling:** [OQ-LP5](#oq-lp5), [OQ-LP7](#oq-lp7).
 
 > [!IMPORTANT]
 > **The design is BUILT, and this file is no longer where it is described.**

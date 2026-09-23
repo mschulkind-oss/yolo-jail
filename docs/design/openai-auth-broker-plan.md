@@ -8,7 +8,11 @@ summary: "What the machine-wide OpenAI credential service still needs: the macos
 
 # Plan: shared OpenAI subscription authentication
 
-**Design:** [`openai-auth-broker.md`](openai-auth-broker.md) · **Status:** DESIGN,
+**Status:** DECIDED, 2026-09-23 — steps 1–8 are built or partial, steps 10 and 11 shipped
+2026-09-18 (`36c47baa`, `4de78ac0`), step 9 waits on
+[OQ-OA6](openai-auth-broker.md#OQ-OA6), and step 12 is the checks nothing automated reaches.
+
+**Design:** [`openai-auth-broker.md`](openai-auth-broker.md)
 
 > [!WARNING]
 > **MEASURED 2026-09-22, and two of this plan's steps change shape. Read before building either.**
@@ -40,16 +44,16 @@ summary: "What the machine-wide OpenAI credential service still needs: the macos
 >
 > **What these static reads cannot show:** no exit codes, no network failure paths, and nothing about
 > whether a refreshed token is actually accepted upstream.
-2026-09-17 — steps 1–8 are built or partial, steps 10–12 are buildable cold, step 9 owes
-one ruling. **Written against** `365f0ecf`, re-checked step by step against the tree; the
-2026-09-14 draft predates the entire implementation.
+**Written against** `365f0ecf` on 2026-09-17, re-checked step by step against the tree; the
+2026-09-14 draft predates the entire implementation. Steps 10 and 11 landed after that check.
 
 **Precedence:** the design wins on behavior, the tree wins on implementation facts, and
 this file is advice — the first thing here to be wrong. Never twist the code to match it.
 
-**What is left:** the `macos-user` refresh consumer (9) · Apple Container, which is a
-*disclosure* job and not a transport job (10) · host-only import and logout (11) · the
-checks nothing automated reaches (12). The rest is built, two steps differently from how
+**What is left:** the `macos-user` refresh consumer (9, waiting on
+[OQ-OA6](openai-auth-broker.md#OQ-OA6)) · the checks nothing automated reaches (12). Apple
+Container's disclosure (10, `36c47baa`) and host-only import and logout (11, `4de78ac0`)
+shipped 2026-09-18. The rest is built, two steps differently from how
 the original hand-off described them. **Read
 [`jail-daemon-on-macos-user-plan.md`](jail-daemon-on-macos-user-plan.md) before step 9:**
 it owns the generic in-jail-daemon half of this backend, already records this service's
@@ -247,7 +251,7 @@ prove it — read *Instruments* below before believing a green.
 
 ## Blockers
 
-- **Stop and ask: route (a) or (b) for step 9.** Route (b) is the cheaper path and un-blocks
+- **Stop and ask: route (a) or (b) for step 9** — filed as [OQ-OA6](openai-auth-broker.md#OQ-OA6). Route (b) is the cheaper path and un-blocks
   this service from the two unfiled rulings
   [`jail-daemon-on-macos-user-plan.md`](jail-daemon-on-macos-user-plan.md) is waiting on —
   and it is consistent with what already ships, since the loopback-TLS front itself runs

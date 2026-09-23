@@ -8,10 +8,10 @@ summary: "Build hand-off for sso-backed-bedrock.md, written against the tree: th
 
 # Plan: Bedrock from a host SSO login
 
-**Status:** IN PROGRESS, 2026-09-18 — steps **1–4 are built** (`internal/awsauth`,
-`internal/awsauthdaemon`, `internal/awscredadapter`, `packs/aws-auth`); steps 5–8 are not.
-DECIDED 2026-09-17, when the design was ruled
-and nothing was built; a sketch before that, and a **hand-off** promoted against the tree at
+**Status:** DECIDED, 2026-09-23 — steps **1–4 and 6 are built** (`internal/awsauth`,
+`internal/awsauthdaemon`, `internal/awscredadapter`, `packs/aws-auth`; step 6's exclusivity
+refusal and `~/.aws` grant conflict landed 2026-09-18); steps 5, 7 and 8 are not. Ruled
+2026-09-17, when nothing was built; a sketch before that, and a **hand-off** promoted against the tree at
 `6ded2789`. See [Progress](#progress) for what landed and what a real host still has to
 settle.
 
@@ -138,7 +138,7 @@ Report a real-host result with `podman info --format '{{.Host.RootlessNetworkCmd
 
 | # | Step | Proves | Verify |
 | :--- | :--- | :--- | :--- |
-| 1 | **BUILT, less the dispatch row** ([Progress](#progress)) — `internal/awsauth` + `internal/awsauthdaemon`: resolve via `aws`, cache by profile, flock, pre-mint ticker, `--self-check` minting once and printing the four keys with the secret elided. The `runInternalDaemon` row and its dispatch test (mirror `TestInternalDaemonDispatchRoutesOpenAIAuthBroker`) are **still owed** | `go test ./internal/awsauth/... ./internal/awsauthdaemon/...`; `yolo internal daemon aws-auth --self-check --settings <file>` | unit; the self-check wants a host with an `aws` login |
+| 1 | **BUILT** ([Progress](#progress); the dispatch row landed in `700d7699`) — `internal/awsauth` + `internal/awsauthdaemon`: resolve via `aws`, cache by profile, flock, pre-mint ticker, `--self-check` minting once and printing the four keys with the secret elided. The `runInternalDaemon` row is pinned by `TestInternalDaemonDispatchRoutesAWSAuth` | `go test ./internal/awsauth/... ./internal/awsauthdaemon/...`; `yolo internal daemon aws-auth --self-check --settings <file>` | unit; the self-check wants a host with an `aws` login |
 | 2 | **BUILT** — the narrowing setting, inside step 1's settings file: absent → refuse at spawn naming the key; un-narrowed by name → serve, plus the disclosure line. Two of its three call sites exist (spawn log, `--self-check` `NOTE:`); the LAUNCH line is a call to `Narrowing.DisclosureLine` from `writeLoopholeSettings` | unit cases: absent, N2 role + policy, un-narrowed by name | unit |
 | 3 | **BUILT**, and NOT YET REACHABLE ([Blockers](#blockers) 7) — `internal/awscredadapter` + the `yolo-jaild` row; the manifest; `packs/embed.go`; the census rows | `yolo pack lint packs/aws-auth`; in a nested jail selecting the pack, `curl -s $AWS_CONTAINER_CREDENTIALS_FULL_URI` returns the four keys, or the 4xx `Code`/`Message` with no session | nested proves the transport is **wired**; that the jail reaches the front is **real rootless host** only |
 | 4 | **BUILT** — `packs/aws-auth/pack.json` (the gated `env` pointer) and README | `yolo pack footprint packs/aws-auth`: one env key, one loophole, no host grant | unit |

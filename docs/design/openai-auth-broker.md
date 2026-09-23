@@ -8,10 +8,14 @@ summary: "A machine-wide OpenAI credential service owns refresh-token rotation a
 
 # One OpenAI refresh owner for Codex, Pi, hosts, and jails
 
-**Status:** IN PROGRESS, 2026-09-14. The canonical transaction, host service,
-container adapters, pack dependency, browser login, managed host launch, status
-and self-check are implemented. Host-only import/logout and final backend
-verification remain.
+**Status:** DESIGN, 2026-09-23 — built except one backend's refresh consumer, and
+that one owes a ruling. The canonical transaction, host service, container
+adapters, pack dependency, browser login, managed host launch, status and
+self-check are implemented, and so are host-only import and logout
+(`4de78ac0`, 2026-09-18) and Apple Container reporting the service inert
+(`36c47baa`, 2026-09-18). **Not built:** a Codex refresh consumer on
+`macos-user`, which is [OQ-OA6](#OQ-OA6). **Unmeasured:** the
+[§7](#7-completion-criteria) criteria only real hardware reaches.
 
 > **In short.** A yolo host service owns one OpenAI subscription grant and is
 > the only component allowed to refresh it. Codex and Pi receive compatible
@@ -30,7 +34,7 @@ host Codex keeps its existing home and, if logged in there, an independent grant
 
 **Start at [§2](#2-one-writer-and-two-views)** — the ownership rule.
 
-**Needs your ruling:** **None.**
+**Needs your ruling:** [OQ-OA6](#OQ-OA6).
 
 **Reads with:** [`openai-auth-broker-plan.md`](openai-auth-broker-plan.md) (the
 implementation hand-off), [`../research/openai-subscription-auth.md`](../research/openai-subscription-auth.md)
@@ -193,3 +197,34 @@ bodies, authorization codes, PKCE verifiers, or callback query strings.
 | OQ-OA3 | `yolo host -- codex` shares the broker through a managed Codex home; direct host Codex remains untouched. | 2026-09-14 |
 | OQ-OA4 | Container browser callbacks use one temporary, state-routed host relay; `macos-user` uses its native loopback. | 2026-09-14 |
 | OQ-OA5 | All backends use authenticated loopback TLS and the same refresh algorithm; none intercepts `auth.openai.com`. | 2026-09-14 |
+
+## 9. Open questions
+
+1. 💬 **OQ-OA6: On `macos-user`, does Codex's refresh adapter come from a launch-owned listener, or wait for native jail daemons?**
+   [§4](#4-backend-transport) says this backend uses the same adapters and does not run the
+   container-only in-jail daemon, but the shipped Codex adapter IS that daemon
+   (`yolo-jaild openai-auth-adapter`, declared as the manifest's `jail_daemon`), and
+   `macos-user` starts no jail daemon at all. So `packs/codex`'s static
+   `CODEX_REFRESH_TOKEN_URL_OVERRIDE` reaches the sandbox pointing at a port nothing binds: a
+   session works until its first access token expires, then every refresh fails. The two ways
+   out are route (a), wait for
+   [`jail-daemon-on-macos-user-plan.md`](jail-daemon-on-macos-user-plan.md)'s steps 3 and 4,
+   which are blocked on [OQ-DP8](declaration-parity.md#OQ-DP8) and
+   [OQ-DP9](declaration-parity.md#OQ-DP9), and route (b), give this one service a
+   launch-owned adapter on `127.0.0.1:0` beside the host services, carry its URL into the
+   sandbox environment over the pack's static value, and close it when the agent exits. Route
+   (b) is the shape `internal/openaiauthhost` already ships for `yolo host -- codex`.
+
+   **What it decides:** whether `macos-user` Codex outlives its first access token before the
+   generic jail-daemon work lands, and whether one manifest key may have two delivery
+   mechanisms, a declared jail daemon on containers and a launcher-owned listener here.
+
+   <!-- vantage: oq id=OQ-OA6 leaning="Route (b), a launch-owned adapter. It is the openaiauthhost shape already shipped for host Codex, it matches §4's statement that this backend does not run the container-only in-jail daemon, and it needs neither OQ-DP8 nor OQ-DP9. The cost is a second delivery mechanism for one manifest key, which OQ-DP9's confinement ruling could later make unnecessary." -->
+
+   _Leaning:_ **Route (b).** It is already written once, it matches what
+   [§4](#4-backend-transport) says this backend does, and it is subject to neither blocker. The
+   cost is real: two delivery mechanisms for one manifest key, which
+   [OQ-DP9](declaration-parity.md#OQ-DP9)'s confinement ruling might later make unnecessary.
+
+   **Answer:**
+   > _(empty — fill in when decided)_

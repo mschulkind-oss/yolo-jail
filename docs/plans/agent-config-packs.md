@@ -7,6 +7,8 @@ questions are still live. Re-checked
 its scope verdict**, not as a plan. What is still live is four open questions, now named
 **[OQ-ACP1](#-oq-acp1--what-happens-when-two-people-attach-to-the-same-jail-with-different-pack-sets) … [OQ-ACP4](#-oq-acp4--whether-pruning-needs-usage-telemetry-to-be-anybodys-job)** at the end. *(The old header said "ROADMAP item: 5" — a numbering the
 2026-08-17 restructure retired; the roadmap holds states and OQ IDs now.)*
+
+**Needs your ruling:** [OQ-ACP1](#-oq-acp1--what-happens-when-two-people-attach-to-the-same-jail-with-different-pack-sets), [OQ-ACP2](#-oq-acp2--whether-opencodes-skills-gap-should-be-closed-by-writing-into-workspace), [OQ-ACP3](#-oq-acp3--whether-the-prism-should-become-a-standalone-tool-that-also-manages-host-configs), [OQ-ACP4](#-oq-acp4--whether-pruning-needs-usage-telemetry-to-be-anybodys-job).
 **Research base:** [`../research/agent-config-distribution.md`](../research/agent-config-distribution.md)
 (14 agents surveyed, 6 distribution mechanisms, measured git plumbing).
 

@@ -10,9 +10,12 @@ vantage:
 
 # An agent's interpreter belongs to the pack, not the workspace
 
-**Status:** DECIDED, 2026-09-22. **Every ruling is in, and all of it is BUILT.** Claims about the tree were measured in a jail at `753bcb88` on 2026-09-21 and
-re-checked at `b99ca9b4` on 2026-09-22; what could not be measured from inside a jail is marked
-UNVERIFIED.
+**Status:** BUILT 2026-09-22 (`54d7d73f`). UNMEASURED: the failure in
+[§1](#1-the-failure-measured) and the tree's claims were measured in a jail (`753bcb88`, 2026-09-21;
+re-checked at `b99ca9b4`, 2026-09-22), but no run of the shipped fix is recorded — a Node-20
+workspace launching pi through the pinned launcher, or the bootstrap's floor install and refusal
+firing — and the macos-user node is UNVERIFIED ([§4](#4-what-this-does-not-do)). **Every ruling is
+in, and all of it is built.**
 
 **Built:** the declaration (`node_floor` on a `program` contribution, refused on every other kind and
 for a value the comparison cannot handle), the floor comparison, `packs/pi` declaring `22.19`, **and
@@ -336,10 +339,10 @@ deliberation that produced them is in git.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| AR-L1 | The fix is a **declared Node floor plus a pinned interpreter in the generated launcher** — not a refusal over a legitimate workspace pin, and not a change to that pin. ⚠ Amended 2026-09-22: it *is* a refusal when nothing satisfies the floor ([`OQ-AR3`](#decision-ledger)), which is a different case | 2026-09-21 · amended 2026-09-22 | [§3](#3-the-shape), [§3.4](#34-an-unsatisfiable-floor-refuses) | — |
-| AR-L2 | The pin is **opt-in per `program`**, never a blanket rule for `via: npm` | 2026-09-21 | [§3.1](#31-the-declaration) | — |
-| AR-L3 | The workspace pin stays authoritative for **everything except the agent's own process** | 2026-09-21 | [§4](#4-what-this-does-not-do) | — |
-| OQ-AR1 | The declared value is a **minimum (floor)**, compared against the candidate's version — because the vendor's own constraint is a range floor, and a floor survives the image moving to a newer Node without a manifest edit. ⚠ A mise SELECTOR cannot express it: selectors are prefixes that fetch rather than accept, measured | 2026-09-22 | [§3.2](#32-resolution) | — |
-| OQ-AR2 | **Eager, at the jail's readiness act — there is no lazy path.** An interpreter is *environment*, and the environment is provisioned before the agent runs. Resolution splits from installation because `GenerateAgentLaunchers` also runs host-side under `yolo check` and runs before `GenerateCABundle`, so the generator resolves and the **provisioning stage** installs. ⚠ This does NOT reverse [`OQ-PD12a`](program-delivery.md#decision-ledger), which governs *currency* (is the agent's own binary current?) rather than *readiness*; `shell.go:420-423` already draws that line | 2026-09-22 | [§3.2](#32-resolution) | — |
-| OQ-AR3 | **An unsatisfiable floor REFUSES the launch**, naming the pack, the program, the floor and what is available. If a pack is selected, the jail must be able to run what it declares. No escape hatch. ⚠ First fatal in the provisioning class, whose five neighbours all degrade — the cost and the residual objection are stated rather than engineered away | 2026-09-22 | [§3.4](#34-an-unsatisfiable-floor-refuses) | — |
-| OQ-AR4 | The floor is **declared** in the manifest, not read from the installed package — core does not guess, and the package does not exist at `yolo check` time | 2026-09-22 | [§3.1](#31-the-declaration) | — |
+| AR-L1 | The fix is a **declared Node floor plus a pinned interpreter in the generated launcher** — not a refusal over a legitimate workspace pin, and not a change to that pin. ⚠ Amended 2026-09-22: it *is* a refusal when nothing satisfies the floor ([`OQ-AR3`](#decision-ledger)), which is a different case | 2026-09-21 · amended 2026-09-22 | [§3](#3-the-shape), [§3.4](#34-an-unsatisfiable-floor-refuses) | ✅ `54d7d73f` |
+| AR-L2 | The pin is **opt-in per `program`**, never a blanket rule for `via: npm` | 2026-09-21 | [§3.1](#31-the-declaration) | ✅ `54d7d73f` |
+| AR-L3 | The workspace pin stays authoritative for **everything except the agent's own process** | 2026-09-21 | [§4](#4-what-this-does-not-do) | ✅ `54d7d73f` |
+| OQ-AR1 | The declared value is a **minimum (floor)**, compared against the candidate's version — because the vendor's own constraint is a range floor, and a floor survives the image moving to a newer Node without a manifest edit. ⚠ A mise SELECTOR cannot express it: selectors are prefixes that fetch rather than accept, measured | 2026-09-22 | [§3.2](#32-resolution) | ✅ `54d7d73f` |
+| OQ-AR2 | **Eager, at the jail's readiness act — there is no lazy path.** An interpreter is *environment*, and the environment is provisioned before the agent runs. Resolution splits from installation because `GenerateAgentLaunchers` also runs host-side under `yolo check` and runs before `GenerateCABundle`, so the generator resolves and the **provisioning stage** installs. ⚠ This does NOT reverse [`OQ-PD12a`](program-delivery.md#decision-ledger), which governs *currency* (is the agent's own binary current?) rather than *readiness*; `shell.go:420-423` already draws that line | 2026-09-22 | [§3.2](#32-resolution) | ✅ `54d7d73f` |
+| OQ-AR3 | **An unsatisfiable floor REFUSES the launch**, naming the pack, the program, the floor and what is available. If a pack is selected, the jail must be able to run what it declares. No escape hatch. ⚠ First fatal in the provisioning class, whose five neighbours all degrade — the cost and the residual objection are stated rather than engineered away | 2026-09-22 | [§3.4](#34-an-unsatisfiable-floor-refuses) | ✅ `54d7d73f` |
+| OQ-AR4 | The floor is **declared** in the manifest, not read from the installed package — core does not guess, and the package does not exist at `yolo check` time | 2026-09-22 | [§3.1](#31-the-declaration) | ✅ `54d7d73f` |

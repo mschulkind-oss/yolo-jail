@@ -14,6 +14,8 @@ vantage:
 [§3](#3-the-finding-reads-are-allow-default) is what makes this a design rather than a config-key
 ticket, and it is verified against the profile generator rather than reasoned from the docs.
 
+**Needs your ruling:** [OQ-CW1](#OQ-CW1), [OQ-CW2](#OQ-CW2), [OQ-CW3](#OQ-CW3), [OQ-CW4](#OQ-CW4).
+
 **Scope: `macos-user` only.** The container backends bind the workspace at a fixed destination and
 place no restriction on where it lives on the host, so none of this applies to them. On `macos-user`
 there is no mount and no namespace: the agent runs as a second local account reading the same

@@ -24,6 +24,8 @@ jail, dated), **READ FROM CODE** (traced but not observed running) or **NOT MEAS
 was re-verified as an ancestor of `HEAD` on 2026-09-06 — a rebase had left earlier revisions of
 this doc, and the roadmap, citing SHAs that resolve as objects but are not ancestors.
 
+**Needs your ruling:** [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split).
+
 > [!IMPORTANT]
 > **AMENDED 2026-09-03 — the doc reopened, and [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) is the amendment.** This document
 > ruled *no-evergreen* as a principle covering every resolver ([OQ-PD3](#decision-ledger)) and

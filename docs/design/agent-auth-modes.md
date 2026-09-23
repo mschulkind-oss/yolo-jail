@@ -8,8 +8,11 @@ summary: "SUPERSEDED IN PART 2026-09-12. The provider/profile half (§4, §5) sh
 
 # Auth modes and cloud provider swapping — declarative profiles across agents
 
-**Status:** SUPERSEDED, 2026-09-12 — in part. Accepted 2026-08-29, expanded from the 2026-08-05
-sketch, and half of it replaced by a shipped reference. Read the banner before the body.
+**Status:** SUPERSEDED, 2026-09-12 — in part, by [`../reference/providers.md`](../reference/providers.md).
+Accepted 2026-08-29, expanded from the 2026-08-05 sketch, and half of it replaced by that shipped
+reference. Read the banner before the body.
+
+**Needs your ruling:** [OQ-9](#OQ-9).
 
 > [!IMPORTANT]
 > **The half this doc is named after is superseded; the rest is the argument its successor never
@@ -54,7 +57,7 @@ sketch, and half of it replaced by a shipped reference. Read the banner before t
 > - `api_key_env` → **`api_key_env_name`** (`8b24a67a`).
 > - The `wire_api` values in [§4.1](#41-configuration-schema--examples) (`openai_completions`, `anthropic_bedrock`) were never members of
 >   the shipped enum, which is canonical and closed: `anthropic`, `openai-chat-completions`,
->   `openai-responses` (`internal/packdecl/contributes.go:1473`, per 💬 18's [OQ-PT1](../reference/providers.md#why-its-this-way)).
+>   `openai-responses` (`knownWireAPIs`, `internal/packdecl/contributes.go:2795`, per [OQ-PT1](../reference/providers.md#why-its-this-way)).
 > - There is no Bedrock *bundle switching* ([§5.1](#51-per-agent-projection-mechanisms) item 1's shape): bedrock shipped as a
 >   `kind: "provider"` + `kind: "profile"` pair inside `packs/claude/pack.json` (`4f589610`), and
 >   model IDs are pinned in the **user's** `providers.bedrock.models`, never in a pack.
@@ -432,7 +435,7 @@ dropped it without answering it (the roadmap and sibling docs cited it as [`auth
    whether `env_sources` is the permanent answer.
 
    _Leaning:_ leave it on `env_sources` until a second multi-var credential shows up. The
-   provider-catalog work (💬 19's [OQ-CS8](../reference/providers.md#why-its-this-way)) is moving env composition into per-agent env derives,
+   provider-catalog work ([OQ-CS8](../reference/providers.md#why-its-this-way)) is moving env composition into per-agent env derives,
    which can read whatever the environment holds — that likely absorbs this question rather than
    answering it, and deciding it now would design against a moving surface.
 

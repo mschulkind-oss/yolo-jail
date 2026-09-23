@@ -1,12 +1,15 @@
 ---
 title: "Backend gap tracker: the 705-cell audit, its 32 overturned hard claims, and the ranked backlog they produce"
 date: 2026-09-16
-status: current
+status: accepted
 tags: [gap-tracker, backend-parity, macos-user, apple-container, podman, silent-drops, refutation, measured]
 summary: "Four setups crossed with every closed vocabulary yolo has — config keys, pack contribution kinds, shipped loopholes — plus the user-facing capabilities that are not keys, audited cell by cell (705 cells, 14 agents), then every 'impossible' and 'ruled-wontfix' claim handed to an adversarial refuter. 33 hard claims were attacked and 32 fell; exactly one survived (NVIDIA passthrough on Apple Container). What is left is a backlog of 35 ranked gaps — most of them small, several of them silent losses of a shipped default, one of them launch-breaking — and a silent-drop table naming the file that should print each missing notice. A measurement pass on 2026-09-16 settled 15 of the 22 cells no reading could settle, verified three more claims their own footnotes had flagged as untested, and found two defects the grid had classified as working, including the whole podman/macOS column that had zero measured cells out of 141: the Mac's loopback IS forwarded, the DNAT fixup is NOT, and on Apple Container TCP crosses in neither direction while a published unix socket crosses in the wrong one."
 ---
 
 # Backend gap tracker
+
+**Status:** CURRENT — a living tracker: the ranked gap backlog and the silent-drop table are kept
+true as gaps close, and each row carries its own measurement date.
 
 **Audience:** the engineer who writes the design docs next. Every row here is meant to be openable — `file:line`
 citations are deliberate and are the point of the document, not decoration. Where a line number is quoted from an

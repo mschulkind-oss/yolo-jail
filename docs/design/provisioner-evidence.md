@@ -10,7 +10,7 @@ vantage:
 
 # What each environment can actually provision — the survey, the coverage matrix and the nix resolver
 
-**Status:** EVIDENCE, 2026-09-20 — the companion to
+**Status:** CURRENT — the evidence companion to
 [`provisioner-sets.md`](provisioner-sets.md), split out of it on 2026-09-20 because one document
 was carrying both the argument and everything the argument stands on. **Nothing here proposes
 anything and nothing here needs a ruling**: every ruling, every leaning and every open question

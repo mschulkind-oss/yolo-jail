@@ -1,6 +1,6 @@
 ---
 title: "RUNBOOK — what a Claude plugin install actually writes, probed from the host"
-status: current
+status: accepted
 date: 2026-09-19
 tags: [runbook, host, claude, plugins, skills, synced, transition]
 summary: "Three questions a jail structurally cannot answer about Claude Code's plugin machinery — what a populated installed_plugins.json holds, which sync root a real install materializes into, and what `claude plugin uninstall` removes — each with the exact command, what a useful answer looks like, and why the jail cannot get there. Carries the data-loss warning that must be read before any `yolo host apply --assert` on a host with a synced skills tree."
@@ -8,22 +8,26 @@ summary: "Three questions a jail structurally cannot answer about Claude Code's 
 
 # RUNBOOK — what a Claude plugin install actually writes, probed from the host
 
+**Status:** CURRENT — a procedure, and its three questions (Q1–Q3) are still unanswered: no real
+plugin install has been probed from a host yet.
+
 **Audience:** an agent (or the maintainer) on the **host**, not in a jail.
 **Time:** ~15 minutes. **Needs:** a real Claude Code login on that host. **Writes:** nothing
 outside a throwaway plugin install you undo at the end.
 
 > [!CAUTION]
-> **Do not run `yolo host apply --assert` on this host until the fence lands.**
-> `hostskills.Adoptions` offers `~/.claude/skills/synced/` as one adoption named `synced` —
-> it is a non-dot directory, in no ownership record, and `pluginpack.ManifestPath` finds no
-> manifest at that level because the manifests are two levels down. An assert MOVES the sync
-> root into `~/.config/yolo-jail/local/skills/synced/` and composes a byte-identical copy
-> back, so nothing looks wrong; the loss arrives on the NEXT apply after an upstream sync,
-> which deletes a new skill and reverts an edited one. See
-> [`synced-skill-trees.md`](../../design/synced-skill-trees.md) and roadmap row 0.
+> **Check the host's `yolo` is at `113d6731` (2026-09-22) or later before any
+> `yolo host apply --assert`.** That commit is the fence: `packs/claude` reserves `synced`, so
+> `hostskills.Adoptions` never adopts `~/.claude/skills/synced/`, and reports it as
+> `reserved (another tool's)` when it is non-empty. An older `yolo` offers it as one adoption named `synced` — a non-dot directory
+> in no ownership record, whose manifests sit two levels down where `pluginpack.ManifestPath`
+> does not look — and an assert then MOVES the sync root into
+> `~/.config/yolo-jail/local/skills/synced/` and composes a byte-identical copy back. Nothing
+> looks wrong until the NEXT apply after an upstream sync, which deletes a new skill and reverts
+> an edited one. See [`synced-skill-trees.md`](../../design/synced-skill-trees.md).
 >
 > **`yolo host apply` WITHOUT `--assert` is a dry run** and is safe. Use it to check exposure:
-> if `synced` appears in the adoption list, this host is exposed.
+> if `synced` appears as an adoption at all, this host's `yolo` predates the fence.
 
 ## Why a jail cannot answer these
 
@@ -120,7 +124,8 @@ the design:
 - Use a plugin you are happy to remove. Do not probe with one you rely on.
 - Nothing here needs `sudo`, and nothing should touch `~/.config/yolo-jail/`.
 - If `yolo host apply` (dry run) already shows `synced` as an adoption **before** you start,
-  say so — it means the host was exposed independently of this probe.
+  say so — it means the host's `yolo` predates the fence and was exposed independently of this
+  probe.
 
 ## Where the answers go
 

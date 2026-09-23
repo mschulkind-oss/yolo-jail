@@ -1,6 +1,6 @@
 # Mac agent guide — how to run the Track M verification
 
-**Status:** CURRENT — the runbook sequencer (2026-07-21), **still the entry point, and one
+**Status:** CURRENT — the runbook sequencer, **still the entry point, and one
 prerequisite has changed.** Re-checked 2026-08-23: before any of this runs, that Mac's
 `~/.config/yolo-jail/config.jsonc` needs its removed `agents` key renamed to `packs`, or **every**
 `yolo` invocation there refuses with the config-invalid fatal, on every backend. The machine was

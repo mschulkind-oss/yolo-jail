@@ -10,7 +10,7 @@ vantage:
 
 # Plan: one resolved config target — spent
 
-**Status:** SPENT, 2026-09-18 — every build step landed, and the design it served graduated to
+**Status:** GRADUATED, 2026-09-18 — every build step landed, and the design it served graduated to
 [`../reference/config-target-resolution.md`](../reference/config-target-resolution.md). A plan
 is a hand-off artifact, not an evergreen record; this one has been consumed.
 

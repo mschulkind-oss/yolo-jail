@@ -8,11 +8,15 @@ summary: "Two questions, one verdict. Mirroring just the workspace is a good ide
 
 # Should the jail mount the workspace at the host's own path?
 
-**Status:** SKETCH, 2026-09-04. **Reopened and extended the same day** — see the
-postscript. Nothing built, and my recommendation is still that nothing should be, but the
-reason has changed completely. This doc exists to make the *no* checkable rather than
+**Status:** DESIGN, 2026-09-23 — sketched 2026-09-04 and **reopened and extended the same day** (see
+the postscript); eleven questions owe a ruling. No mirroring is built, and my recommendation is
+still that none should be, but the reason has changed completely. The one piece that was worth
+doing regardless, `-trimpath` in `scripts/build-go.sh`, shipped 2026-09-09 (`6bfcfe7b`,
+[`OQ-WP2`](#decision-ledger)). This doc exists to make the *no* checkable rather than
 reflexive — the question was asked once before, answered no for reasons that have since
 expired, and deserves a fresh answer rather than a citation.
+
+**Needs your ruling:** [OQ-WP1](#OQ-WP1), [OQ-WP3](#OQ-WP3), [OQ-WP4](#OQ-WP4), [OQ-WP5](#OQ-WP5), [OQ-WP6](#OQ-WP6), [OQ-WP7](#OQ-WP7), [OQ-WP8](#OQ-WP8), [OQ-WP9](#OQ-WP9), [OQ-WP10](#OQ-WP10), [OQ-WP11](#OQ-WP11), [OQ-WP12](#OQ-WP12) — [OQ-WP8](#OQ-WP8) is the closure question.
 
 > **Postscript, 2026-09-04 — the question got bigger, and my central argument became a
 > variable.** [§1](#1-verdict-and-the-five-claims-it-rests-on)–[§11](#11-risks) answer a **narrow** question: mount the *workspace* at the host path,
@@ -315,7 +319,7 @@ source path.
 `runtime.Caller` output from a jail-built binary run *on the host* names a path that does
 not exist there. Mirroring fixes it. **So does adding `-trimpath` to `scripts/build-go.sh`,
 which is one line, matches what the image build already does, and is worth doing whatever
-the verdict on mirroring** — see [`OQ-WP2`](#open-questions).
+the verdict on mirroring** — and it shipped 2026-09-09 ([`OQ-WP2`](#decision-ledger)).
 
 ### 3.2 CONFIRMED: one machine-shared cache directory is keyed by the collapsed name
 
@@ -811,7 +815,7 @@ cannot"* — this covers no new cell). Worse than either pole in practice, becau
 skill, briefing and pack would have to hedge on a value it cannot know.
 
 **D. Fix the three confirmed problems individually.** — **Accepted as the recommendation.**
-`-trimpath` in `scripts/build-go.sh` closes [§3.1](#31-confirmed-jail-built-go-binaries-carry-workspace-source-paths) for one line ([`OQ-WP2`](#OQ-WP2)). [§3.2](#32-confirmed-one-machine-shared-cache-directory-is-keyed-by-the-collapsed-name) is a log
+`-trimpath` in `scripts/build-go.sh` closed [§3.1](#31-confirmed-jail-built-go-binaries-carry-workspace-source-paths) for one line ([`OQ-WP2`](#decision-ledger), shipped 2026-09-09). [§3.2](#32-confirmed-one-machine-shared-cache-directory-is-keyed-by-the-collapsed-name) is a log
 directory and I would leave it ([`OQ-WP3`](#OQ-WP3)). [§3.3](#33-confirmed-workspace-paths-written-in-jail-are-dead-on-the-host) is documentation, and the briefing already
 says the true thing. This is the "targeted fix beats a general one when the general one has a
 worse cost profile" call, and it is a judgement, not a derivation.
@@ -1286,20 +1290,6 @@ and it already has a home in the tree.
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 **OQ-WP2: Add `-trimpath` to `scripts/build-go.sh` regardless?**
-   Independent of the verdict. It closes [§3.1](#31-confirmed-jail-built-go-binaries-carry-workspace-source-paths) (394 dead source paths in the shipped `yolo`
-   binary), matches what `flake.nix:149` already does for the image build, and costs one
-   line. The only thing it trades away is the ability to jump to source from a `dist-go`
-   binary *inside* the jail, where the paths do resolve.
-
-   _Leaning:_ Yes, do it, as its own commit with its own test. It is the one piece of the
-   proposal's value that is available for nearly nothing.
-
-   <!-- vantage: oq id=OQ-WP2 leaning="Yes, add `-trimpath` to `scripts/build-go.sh`, as its own commit with its own test. It closes §3.1 (394 dead `/workspace/` source paths in the shipped `yolo` binary) for one line, and it is the one piece of the proposal's value available for nearly nothing." -->
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
 3. 💬 **OQ-WP3: Leave the `~/.cache/claude-cli-nodejs/-workspace` collision alone?**
    Every jail on the machine writes into that one key ([§3.2](#32-confirmed-one-machine-shared-cache-directory-is-keyed-by-the-collapsed-name)). Today it holds MCP logs.
    Fixing it means binding a per-workspace directory over one vendor-specific path — a
@@ -1470,11 +1460,13 @@ and it already has a home in the tree.
 
 ## Decision Ledger
 
-No decisions are settled yet — every question above is live. The one *inherited* ruling this
-doc is built on top of, recorded so it is not silently re-litigated:
+One question is settled — [`OQ-WP2`](#decision-ledger), by building it; every other question above is
+live. The rows after it are *inherited* rulings this doc is built on top of, recorded so they are not
+silently re-litigated:
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
+| OQ-WP2 | **`-trimpath` in `scripts/build-go.sh`, independent of the verdict** — shipped 2026-09-09 (`6bfcfe7b`) as the leaning proposed, with its own test pinning the flag against `flake.nix`'s hermetic build (`internal/entrypoint/gobuildflags_test.go`). The measurement behind it outgrew [§3.1](#31-confirmed-jail-built-go-binaries-carry-workspace-source-paths): a jail-run build can bake the HOST's absolute source paths into a shipped binary, because Go's build cache reuses compile actions recorded under another directory — so the flag keeps the maintainer's home layout out of an artifact, not just dead paths | 2026-09-09 | [§3.1](#31-confirmed-jail-built-go-binaries-carry-workspace-source-paths), [§10](#10-alternatives-each-with-a-verdict) alternative D |
 | OQ-MP1 | Same-path workspace mount ("option A") rejected; superseded by the state-separation bundle | 2026-07-03 | [`../research/mise-host-jail-path-mismatch.md`](../research/mise-host-jail-path-mismatch.md) · this doc [§2.3](#23-the-prior-art-and-why-it-is-not-the-answer) re-examines it, because two of its three reasons have expired |
 | [`OQ-2`](#decision-ledger) (env-manager) | Host management is user-scoped; the workspace contributes nothing, so `${workspace}` surfaces are refused at the host notch | 2026-08-01 | `docs/plans/environment-manager-plan.md:689-694` · [§12.7](#127-the-notch-model--no-statement-anywhere-names-paths-as-the-obstacle) relies on it: mirroring cannot supply a referent the design says must not exist |
 | — (`29b00697`) | `macos-user` shares only neutral ground, never the host home — because a foreign uid reaching a leaf inside `~` needs traversal on `/Users/<you>`, *"exactly where a stray grant silently exposes `~/.ssh`"* | 2026-07-13 | [§12.8](#128-macos-users-neutral-ground-is-it-a-constraint-or-a-choice) · the reason is grant **routing**, independent of whether paths match |

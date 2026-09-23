@@ -10,8 +10,12 @@ vantage:
 
 # Plan: OpenRouter and Kilo provider packs
 
-**Design:** [`gateway-provider-packs.md`](gateway-provider-packs.md) ·
-**Status:** shipped · Written against `a97ee688`, 2026-09-15.
+**Status:** BUILT 2026-09-15 (`f7b14308`). MEASURED: the two manifests, the codex credential-field
+fix and the per-agent projections are pinned by `internal/entrypoint/providerderive_test.go`; no run
+against a live OpenRouter or Kilo endpoint is recorded. Written against `a97ee688`, 2026-09-15.
+
+**Design:** [`gateway-provider-packs.md`](gateway-provider-packs.md) — which is not yet a graduation
+candidate; its status line says why.
 
 Precedence: the design wins on behavior, the tree wins on fact, this file is
 advice and is the first thing to be wrong.

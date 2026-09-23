@@ -3,10 +3,17 @@ title: "Handoff: the claims that shipped on reading, and the Mac that can settle
 status: in-review
 date: 2026-09-13
 tags: [macos-user, handoff, seatbelt, declaration-parity, ci, image]
-summary: "Seven threads landed on 2026-09-13 whose correctness was read off source rather than observed. All of them are now measured on hardware except the nightly's unexplained exit 125: the three Seatbelt probes ran (nothing inverted — Seatbelt evaluates the target, so DP-L1's mechanism stays a copy), and one launch settled the briefing batch and both notice sets. Two defects were found in the process, both fixed: the workspace reached SeatbeltProfile un-resolved, which made its rules dead and was masking a bypass of the neutral-ground refusal, and the briefing's Packages section offered a resources cap this backend ignores by ruling. DP-L1 (the largest cell, shipped unit-tested-only) is now measured END TO END: `--dry-run` composes the real context tree host-side with no sudo, so byte selection, layout and destination were observed without a password, and the privileged crossing then passed on hardware — all four §6 items, including the fail-closed read — whose stated procedure had to be corrected first, because the per-launch restage re-creates any file removed from the staged tree."
+summary: "Seven threads landed on 2026-09-13 whose correctness was read off source rather than observed. All of them are now measured on hardware, and the nightly's exit 125 turned out to be two more links, both fixed: the three Seatbelt probes ran (nothing inverted — Seatbelt evaluates the target, so DP-L1's mechanism stays a copy), and one launch settled the briefing batch and both notice sets. Two defects were found in the process, both fixed: the workspace reached SeatbeltProfile un-resolved, which made its rules dead and was masking a bypass of the neutral-ground refusal, and the briefing's Packages section offered a resources cap this backend ignores by ruling. DP-L1 (the largest cell, shipped unit-tested-only) is now measured END TO END: `--dry-run` composes the real context tree host-side with no sudo, so byte selection, layout and destination were observed without a password, and the privileged crossing then passed on hardware — all four §6 items, including the fail-closed read — whose stated procedure had to be corrected first, because the per-launch restage re-creates any file removed from the staged tree."
 ---
 
 # Handoff: the claims that shipped on reading, and the Mac that can settle them
+
+**Status:** CURRENT — a sequencer whose threads are all measured. The three Seatbelt probes, the
+briefing batch, both notice sets and `DP-L1`'s privileged crossing ran on hardware, and
+[§4](#4-the-nightly--five-links-all-now-named)'s `exit 125` was two more links, both fixed. What is
+left needs no Mac: the `Nightly macOS Integration` workflow is not yet steadily green (the Actions
+API, read 2026-09-23: green 2026-09-19 and 2026-09-21, red 2026-09-18, 2026-09-20 and 2026-09-22),
+and whether the three NON-STOCK tests should skip on a builder-less runner is unruled.
 
 **Audience:** an agent or human at a real Mac. Each thread says whether it needs Apple Silicon,
 a password, or only a Mac.

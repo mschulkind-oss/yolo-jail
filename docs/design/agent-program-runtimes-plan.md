@@ -1,18 +1,20 @@
 ---
 title: "Agent program runtimes — companion sketch"
 date: 2026-09-21
-status: draft
+status: accepted
 tags: [sketch, packs, programs, mise, node, launchers]
-summary: "File-level map and measured anchors for [agent-program-runtimes.md]. SPENT — the feature it sketched is built; no design decision lives here and nothing is owed."
+summary: "File-level map and measured anchors for [agent-program-runtimes.md]. BUILT — the feature it sketched shipped; no design decision lives here and nothing is owed."
 vantage:
   status-chip: true
 ---
 
 # Agent program runtimes — companion sketch
 
-**Status:** SPENT, 2026-09-22 — the feature this sketched is BUILT, so nothing is owed here. Kept
-for the measured anchors below, which are what a later reader actually comes for; the behaviour is
-[`agent-program-runtimes.md`](agent-program-runtimes.md)'s.
+**Status:** BUILT 2026-09-22 (`54d7d73f`). UNMEASURED: no run of the shipped fix is recorded.
+The feature this sketched shipped, so nothing is owed here; the design's status line says what was
+and was not observed. Kept for the measured anchors below, which are what a later reader actually comes
+for; the behaviour is [`agent-program-runtimes.md`](agent-program-runtimes.md)'s, and this file goes
+when that design graduates.
 
 > [!IMPORTANT]
 > **Not a hand-off artifact, and no longer a pending one either.** This was stamped SKETCH with the

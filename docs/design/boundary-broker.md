@@ -1,7 +1,14 @@
 # A stateful broker on the jail boundary — approvals for what crosses
 
-**Status:** SKETCH, 2026-08-05. Nothing built. Where the answer is "this already exists,"
-it says so.
+**Status:** DESIGN, 2026-09-23 — sketched 2026-08-05; nothing built (re-checked 2026-09-23: no
+approval queue or `yolo approve` verb exists under `internal/` or `cmd/`), and four questions in
+[§9](#9-open-questions-for-the-maintainer) are the maintainer's. Where the answer is "this already
+exists," it says so.
+
+**Needs your ruling:** four, all in [§9](#9-open-questions-for-the-maintainer) — OQ-A, OQ-C, OQ-E and [OQ-B1b](#9-open-questions-for-the-maintainer).
+OQ-A (is the synchronous version enough) sizes B2; OQ-C asks whether the jail sees the result or
+just success; OQ-E is where the human answers, the packaging half only; the last is whether to
+vendor unYOLO's policy engine or re-derive it.
 
 **The thesis, from the maintainer:**
 
@@ -400,7 +407,7 @@ becomes cheap to justify.
 
 ## 9. Open questions for the maintainer
 
-**Three are live — A, C and the packaging half of E.** OQ-A is the one that sizes the project:
+**Four are live — A, C, the packaging half of E, and B1b.** OQ-A is the one that sizes the project:
 if synchronous-only suffices, most of [§7](#7-what-i-would-build-in-order) step 3 never gets written. OQ-B is settled and OQ-D was
 delegated; both are in [§9.1](#91-decision-ledger) so they stop being counted as open here.
 

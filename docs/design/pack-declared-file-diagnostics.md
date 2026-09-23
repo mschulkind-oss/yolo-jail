@@ -10,12 +10,12 @@ vantage:
 
 # Pack-declared file diagnostics: detecting bypassed dotfiles without core agent knowledge
 
-**Status:** IN-REVIEW, 2026-09-18. Three open questions ([`OQ-1`](#oq-1), [`OQ-2`](#oq-2), [`OQ-3`](#oq-3)) need ruling.
+**Status:** DESIGN, 2026-09-18. Nothing built; three open questions need a ruling.
 
-**Needs your ruling:**
-- [`OQ-1`](#oq-1) — Declarative JSON trap patterns vs. executable pack self-checks
-- [`OQ-2`](#oq-2) — Diagnostic execution scope: `yolo check` only vs. launch/apply notice
-- [`OQ-3`](#oq-3) — Scan root boundaries: host `$HOME` vs. active workspace
+**Needs your ruling:** [`OQ-1`](#oq-1), [`OQ-2`](#oq-2), [`OQ-3`](#oq-3).
+They ask, in order: declarative JSON trap patterns or executable pack self-checks; whether the
+diagnostic runs in `yolo check` only or also as a launch/apply notice; and whether the scan covers
+host `$HOME` only or the active workspace too.
 
 The companion sketch is [`pack-declared-file-diagnostics-plan.md`](pack-declared-file-diagnostics-plan.md).
 

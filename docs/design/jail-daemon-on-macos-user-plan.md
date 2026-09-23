@@ -10,7 +10,8 @@ vantage:
 
 # Plan: start a jail daemon on macos-user
 
-**Status:** PARTLY BUILT, 2026-09-22. **Steps 1 and 2 shipped 2026-09-18** (`f6387968`): the
+**Status:** DECIDED, 2026-09-22 — work is owed, and two of its steps wait on rulings filed in another
+doc. **Steps 1 and 2 shipped 2026-09-18** (`f6387968`): the
 payload is composed once above the backend dispatch and the native arm declines each entry by
 name. Step 5 is buildable cold and partly landed. Steps 3 and 4 — the ones that would make a jail
 daemon actually run — are blocked on [OQ-DP8](declaration-parity.md#OQ-DP8) and

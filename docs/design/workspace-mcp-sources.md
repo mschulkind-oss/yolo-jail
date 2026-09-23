@@ -14,6 +14,8 @@ vantage:
 The removal in [§3](#3-the-removal-2026-09-22) is BUILT and owes no ruling; the position it rests on is
 recorded in [`../plans/retired-decisions.md`](../plans/retired-decisions.md).
 
+**Needs your ruling:** [OQ-WM1](#OQ-WM1).
+
 > **In short.** yolo composes one canonical MCP server table from the user's config and each pack
 > projects it into that agent's own file. A workspace may *also* carry MCP config — a committed
 > `.vscode/mcp.json`, a project `.mcp.json`, a devcontainer — and the agents that read those files

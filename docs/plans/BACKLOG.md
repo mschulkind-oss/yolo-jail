@@ -4,6 +4,8 @@
 packs cluster, and **seven questions are live** in its stages. Created 2026-07-26; **restamped
 2026-08-23** (header + Stage E + Stage G).
 
+**Needs your ruling:** [E1](#-e1--collapse-host_files-modes-43-copy-merges-into-readonly), [E2](#-e2--readonly-as-a-real-ro-mount-instead-of-0o444), [E5](#-e5--manageddefaults-array-append-pinning), [S5](#-s5--a-jail-resolves-a-skill-name-collision-silently), [OQ-CO](#-oq-co--two-packs-writing-one-config-overlay-key-is-silent-last-one-wins), [OQ-S4](#-oq-s4--should-the-jail-narrow-its-skills-fan-out-to-match-the-host), [OQ-E4](#-oq-e4--do-stateful-surfaces-get-comment-preservation-too).
+
 **Why this exists.** The design work produced 8 docs / ~4,800 lines, and the actionable items
 ended up spread across three of them. This file is the only place that answers *"what do I
 pick up?"* Everything else is reasoning, and is linked per item.

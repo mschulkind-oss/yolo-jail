@@ -8,8 +8,14 @@ summary: "A `packages` entry like `rocmPackages.clr` fails because yolo reads an
 
 # Nested nixpkgs attribute paths in `packages` — and why output selection is the same operation
 
-**Status:** SKETCH, 2026-08-22. Nothing built. **Re-verified 2026-08-23: still nothing
-built**, and `60376fed` does not invalidate any premise below — see the postscript.
+**Status:** DESIGN, 2026-09-23 — sketched 2026-08-22, and it owes one ruling,
+[OQ-1](#OQ-1), which decides the resolver's central rule. Nothing built: re-checked 2026-09-23,
+`packageNameRe` is still the single-optional-dot pattern and `flake.nix` still has no
+`attrByPath`, `hasAttrByPath` or `resolvePackagePath`. `60376fed` does not invalidate any premise
+below — see the postscript, whose line anchors have drifted since it was written; follow the
+symbol names.
+
+**Needs your ruling:** [OQ-1](#OQ-1).
 
 > [!NOTE]
 > **Postscript, 2026-08-23 — audit against the tree, and against `60376fed`.**

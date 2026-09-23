@@ -4,14 +4,19 @@
 inside a Linux jail, which is exactly why this document exists: everything below was either
 verified by reading code or is explicitly marked as unverifiable from here.
 
-**Status:** DESIGN, 2026-08-03 — a handoff, **host-gated, restamped 2026-08-23** (written 2026-08-03; [§§1](#1-what-the-three-notches-are-and-why-the-middle-one-matters), 3, 7, 8
-are unchanged from that date). `guest` is the one notch of three that does not work. Phases
+**Status:** DECIDED, 2026-09-23 — a handoff that owes work, not a ruling: all four of its questions
+are answered ([§9](#9-open-questions)), and Phase 7 is unbuilt and host-gated. Written 2026-08-03 and
+restamped 2026-08-23; [§§1](#1-what-the-three-notches-are-and-why-the-middle-one-matters), 3, 7, 8
+are unchanged from the first date. `guest` is the one notch of three that does not work. Phases
 0–6, 8, and 9 of [`environment-manager-plan.md`](environment-manager-plan.md) are shipped;
 **Phase 7 is not built**, and it is host/Mac-gated rather than blocked on any design
 decision. **What moved since 2026-08-03:** [§2](#2-the-bug-that-was-fixed-blind--your-first-job-is-to-run-it)'s item 1.4 is now *half*-answered rather than
 wholly unverified (the confinement half was measured on a Mac 2026-08-19), and [§5](#5-the-nix-prerequisite--shipped-verified-2026-08-23)'s nix
-prerequisite has **shipped** — it is no longer a prerequisite, it is done. Four live
-questions are collected in [§9](#9-open-questions); three of them are questions only a Mac can answer.
+prerequisite has **shipped** — it is no longer a prerequisite, it is done. The four questions
+[§9](#9-open-questions) collected are all answered: a Mac session on 2026-09-11 settled the two only a
+Mac could, and a commit settled the MCP-wrapper one.
+
+**Needs your ruling:** None.
 
 **Reads with:** [`environment-manager-plan.md`](environment-manager-plan.md) Phase 7 (the
 spec), [`../reference/macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md)
@@ -333,86 +338,20 @@ target's refusal be a message while the jail stays loud-and-halting.
 
 ## 9. Open Questions
 
-Four questions this handoff cannot answer from a Linux jail. Three of them need a Mac; the
-fourth needs a ruling. IDs are stable — cite them from commits and sibling docs.
+No question is open. All four this handoff filed are answered — three by a Mac session and one by
+a commit — and each is a ledger row below. The ids are stable; commits and sibling docs cite them.
 
-1. 💬 **OQ-GN1: Does the `sudo -u _yolojail` pack staging actually reach the sandbox?**
-   This is the surviving half of item 1.4 ([§2](#2-the-bug-that-was-fixed-blind--your-first-job-is-to-run-it)). The confinement half was measured on
-   2026-08-19 — the sandbox reads the staged pack root and runs the toolchain — so what is
-   left is the root-owned copy into `/var/yolo-jail/packs/<session>` (`a+rX`) and the
-   sandbox-uid read of it. **What it decides:** whether *every other statement in this
-   document* holds, since all of them assume packs reach the sandbox; and whether the pack
-   system has one backend or two.
+| ID | Ruling / Answer | Date | Settled by |
+| :--- | :--- | :--- | :--- |
+| OQ-GN1 | **Yes — the `sudo -u _yolojail` pack staging reaches the sandbox.** `StagePackCommands` staged the session's two local packs (44 + 3 files) and the surfaces rendered from them on real hardware, including a `config-overlay` key reaching `claude/settings`. So the pack system has one backend story, not two, and the statements in this document that assume packs reach the sandbox hold. | 2026-09-11 | A Mac session, recorded in [`macos-support-matrix.md`](../research/macos-support-matrix.md) ([§4](../research/macos-support-matrix.md#4-whats-proven-vs-whats-the-next-gate), item 2) |
+| OQ-GN2 | **Renamed, by hand.** The Mac's config uses `packs`, `yolo check` is green there (41 passed, 4 warnings) and the installed binary is current. The reason it was a question still holds for the next one: an agent does not edit a maintainer's personal host config. | 2026-09-11 | The same session ([`macos-support-matrix.md`](../research/macos-support-matrix.md#4-whats-proven-vs-whats-the-next-gate), item 1) |
+| OQ-GN3 | **Pushed, and the cache is also being read.** Run `31749547095` (`v0.8.0`, 2026-08-13), job `push-image-cache`, both arches green, logged `Pushed image closures to yolo-jail.cachix.org`, and the same run substituted four paths **from** the cache. So D4's remaining work is one item, the Mac download proof. | 2026-09-02 | The Actions log |
+| OQ-GN4 | **Skip on macOS, and say so — not ported.** The darwin generation entry writes no MCP wrappers, because their bodies are Linux-absolute (`/usr/bin/chromium`, `exec /bin/node`, `/etc/fonts`) and a darwin variant would have to guess at Chrome, node and fontconfig on a machine yolo did not provision. | 2026-09-03 | `d28f951f` (`internal/entrypoint/darwin.go`, the `NO MCP WRAPPERS HERE` comment) |
 
-   <!-- vantage: oq id=OQ-GN1 leaning="It works. `PlanInvariants` already refuses a plan whose staging path and `YOLO_PACK_ROOT` disagree, and the 2026-08-19 run proves the read side; the residual risk is ACL/ownership on the copy, not the design." -->
-
-   _Leaning:_ It works. `PlanInvariants` already refuses a plan where the staging path and
-   `YOLO_PACK_ROOT` disagree, and the 2026-08-19 run proves the read side of the boundary.
-   The residual risk is ACL/ownership on the copy, not the design — which is why the check is
-   cheap (`yolo run --dry-run` for the `packs:` line, then look for
-   `~/.claude/settings.json` in the sandbox home).
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-GN2: Rename the Mac's `agents` key to `packs`, or leave that machine as-is?**
-   Measured 2026-08-19: the Mac's `~/.config/yolo-jail/config.jsonc` still uses the **removed**
-   `agents` key, so no current `yolo` launches there on any backend — `yolo check` included —
-   and its installed `yolo` was 531 commits stale. All four selected names (`claude`, `pi`,
-   `codex`, `agy`) exist as packs, so the rename is the entire fix. **What it decides:**
-   whether the next Mac session can run *anything* on this list. It gates [OQ-GN1](#9-open-questions), D4's
-   download proof, and the whole of [§4](#4-what-else-on-the-mac-is-gated-beyond-phase-7).
-
-   <!-- vantage: oq id=OQ-GN2 leaning="Rename it — but an agent should not touch a maintainer's personal host config, so do it by hand as the first step of the next Mac session." -->
-
-   _Leaning:_ Rename it — but **an agent should not touch a maintainer's personal host
-   config**, which is the only reason this is a question rather than a commit. Doing it as the
-   first step of the next Mac session, by hand, costs one minute.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. ~~💬~~ **OQ-GN3: Has the Cachix cache actually been pushed to?** Two docs disagreed;
-   neither was checkable from a Linux jail without reading the Actions log. **What it
-   decided:** whether D4's remaining work is one item (the Mac download proof) or two.
-
-   _Leaning was:_ Pushed — but by inference from the workflow, not observation, and the
-   disagreement was itself the evidence nobody had looked.
-
-   **Answer (2026-09-02): PUSHED, and the cache is also being READ.** The leaning was
-   right and the inference is now unnecessary. Measured from the Actions log: run
-   **`31749547095`** (`v0.8.0`, 2026-08-13), job `push-image-cache`, **both** arches
-   success, gate open (`Set up Cachix` with the real token, `skipPush: false`), step
-   logged `Pushed image closures to yolo-jail.cachix.org`. The same run substituted the
-   four this-repo-source paths **from** `yolo-jail.cachix.org`
-   (`these 4 paths will be fetched (507.7 KiB download, 25.7 MiB unpacked)`), which is
-   the stronger fact. **So D4's remaining work is ONE item — the Mac download proof — and
-   a Mac visit can close it.** [`README.md`](README.md) was the correct half; [`handoff-cachix-cache.md`](handoff-cachix-cache.md)
-   is corrected.
-
-   ⚠ **Chasing it found a defect, now fixed:** all six CI `nix build` calls lacked
-   `--accept-flake-config`, so nix discarded the flake's own substituter with a warning.
-   The push job read the cache only because `cachix-action` adds the substituter to
-   `nix.conf` itself; `ci.yml`, `nightly-macos.yml` and `packs.yml` have no such action
-   and were rebuilding the closure from source every run. **This matters for the Mac
-   proof**: the flag is what makes `yolo check`'s "served from the binary cache" claim
-   true off a release runner.
-
-4. 💬 **OQ-GN4: The three Linux-path MCP wrappers a macos-user home gets — skip, port, or
-   document as dead?** `internal/entrypoint/darwin.go:59` runs `GenerateMCPWrappers`
-   unconditionally, and the bodies hardcode `/usr/bin/chromium`, `exec /bin/node` and
-   `/etc/fonts` (`internal/entrypoint/mcp_wrappers.go:26-27,39,72-74`) with no `GOOS` guard.
-   The revival plan's J2 step 2 *decided* to skip them natively and document the gap; the tree
-   does neither. **What it decides:** a small correctness question now, and a real one once
-   `guest` renders the same surfaces on both platforms — [§3](#3-phase-7-as-specified)'s "portable surface set" cannot
-   include a wrapper that is portable in name only.
-
-   <!-- vantage: oq id=OQ-GN4 leaning="Guard the generation on `GOOS` and say so, rather than porting: three dead files are a defect with a one-line fix, while a darwin chromium wrapper is a real feature with real paths to get right. Port later if someone actually wants chrome-devtools-mcp on a Mac." -->
-
-   _Leaning:_ Guard the generation on `GOOS` and say so, rather than porting. A darwin
-   chromium wrapper is a real feature with real paths to get right; three dead files are a
-   defect with a one-line fix. Port later if someone actually wants chrome-devtools-mcp on a
-   Mac.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+> [!WARNING]
+> **`--accept-flake-config` is load-bearing for the Mac download proof** (found chasing [OQ-GN3](#9-open-questions),
+> now fixed). All six CI `nix build` calls lacked it, so nix discarded the flake's own substituter
+> with a warning; the push job read the cache only because `cachix-action` adds the substituter to
+> `nix.conf` itself, and `ci.yml`, `nightly-macos.yml` and `packs.yml` were rebuilding the closure
+> from source every run. The flag is what makes `yolo check`'s "served from the binary cache" claim
+> true off a release runner.

@@ -1,6 +1,6 @@
 ---
 title: "RUNBOOK — what a Mac session should measure about provisioners"
-status: current
+status: accepted
 date: 2026-09-20
 tags: [runbook, macos, macos-user, nix, brew, capture, provisioners]
 summary: "Five items no Linux jail can reach, about how a binary actually gets provisioned on a Mac: whether the macos-user guest has any working program provisioner, whether the generated Brewfile applies with its casks, whether nix refuses the unfree agent CLIs on darwin, whether capture's recording half works on hardware, and whether Seatbelt resolves `..` physically. Each item carries the command, what it decides, and the 2026-09-11 measurement that answered it — four of which corrected the item that asked them. Also: which items need a human at a password prompt, and what the sibling manual-checks runbook already settled so you do not re-run it."
@@ -8,7 +8,7 @@ summary: "Five items no Linux jail can reach, about how a binary actually gets p
 
 # RUNBOOK — what a Mac session should measure about provisioners
 
-**Status:** CURRENT — **all five items have been RUN** (2026-09-11) and each carries its result
+**Status:** CURRENT — **all five items have been RUN**, and each carries its result and run date
 inline. Re-run an item when the code under it moves; read the result before the verdict, because
 four of the five corrected the item that asked them.
 
