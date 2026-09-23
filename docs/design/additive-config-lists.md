@@ -22,7 +22,7 @@ vantage:
 
 **Start at [The proposed contract](#the-proposed-contract)** — it distinguishes appending entries from replacing an array.
 
-**Needs your ruling:** [OQ-1](#OQ-1), [OQ-2](#OQ-2).
+**Needs your ruling:** [OQ-AL1](#OQ-AL1), [OQ-AL2](#OQ-AL2).
 
 **Reads with:** [`pack-system.md`](../reference/pack-system.md) (current pack/overlay semantics), [`config-ownership-and-promotion.md`](./config-ownership-and-promotion.md) (configuration layer ownership).
 
@@ -78,18 +78,18 @@ With Matt's Pi package list and the personal contribution selected, Pi receives 
 
 ## Open Questions
 
-1. 💬 **OQ-1: Should list contributions be allowed on host-applied surfaces immediately?** The read-modify-write host path can retain data after a pack disappears. A jail-only first release avoids claiming reversible host ownership that has not been proved, but makes a pack's declaration behave differently at the two rendering boundaries.
+1. 💬 **OQ-AL1: Should list contributions be allowed on host-applied surfaces immediately?** The read-modify-write host path can retain data after a pack disappears. A jail-only first release avoids claiming reversible host ownership that has not been proved, but makes a pack's declaration behave differently at the two rendering boundaries.
 
-   <!-- vantage: oq id=OQ-1 leaning="Support both host and jail only once host removal can distinguish pack-owned entries from identical user-owned entries; otherwise refuse host apply rather than silently retain or delete." -->
+   <!-- vantage: oq id=OQ-AL1 leaning="Support both host and jail only once host removal can distinguish pack-owned entries from identical user-owned entries; otherwise refuse host apply rather than silently retain or delete." -->
 
    _Leaning:_ Support both only when host removal can distinguish pack-owned entries from identical user-owned entries; otherwise refuse host apply rather than silently retain or delete.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 **OQ-2: Can a later list contribution re-add an entry removed by an earlier overlay?** Applying additions after all ordinary overlays is simple, but it means an overlay cannot express a durable per-entry veto; allowing such a veto would need another operation rather than merge-patch null.
+2. 💬 **OQ-AL2: Can a later list contribution re-add an entry removed by an earlier overlay?** Applying additions after all ordinary overlays is simple, but it means an overlay cannot express a durable per-entry veto; allowing such a veto would need another operation rather than merge-patch null.
 
-   <!-- vantage: oq id=OQ-2 leaning="Yes; later additive contributions add entries after ordinary overlays, while only higher capture, computed and managed layers can replace the final array." -->
+   <!-- vantage: oq id=OQ-AL2 leaning="Yes; later additive contributions add entries after ordinary overlays, while only higher capture, computed and managed layers can replace the final array." -->
 
    _Leaning:_ Yes; additions follow ordinary overlays, while higher capture, computed and managed layers can still replace the final array.
 
