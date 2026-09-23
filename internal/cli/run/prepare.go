@@ -208,8 +208,11 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	// already hold every pack's prose, and this loop is about to compose the same packs again.
 	// See entrypoint.GeneratedHostBriefings — the briefing half of S3.
 	generated := entrypoint.GeneratedHostBriefings(home)
+	// And, in a jail, every destination: there each one is a read-only bind of the OUTER
+	// launch's staged briefing, which that record cannot know about (mayPrependHostBriefing).
+	dests := briefingDestinations(loadedPacks)
 	briefingsWritten := 0
-	for _, d := range briefingDestinations(loadedPacks) {
+	for _, d := range dests {
 		// Pack prose last. `d.Agent` is the identity this destination declared for itself,
 		// and prose that named an audience reaches it only if that audience names this
 		// identity. Each pack's section is labelled with its name only when the user's
@@ -218,7 +221,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		content := jailcontent.ComposePackBriefings(briefingBody, packBriefings, d.Agent,
 			config.BriefingProvenance(cfg))
 		if hostOverlay := briefingHostOverlay(d.After); hostOverlay != "" {
-			if src := filepath.Join(home, hostOverlay); !generated[src] {
+			if src := filepath.Join(home, hostOverlay); mayPrependHostBriefing(src, home, dests, generated) {
 				content = jailcontent.PrependHostBriefing(src, content)
 			}
 		}

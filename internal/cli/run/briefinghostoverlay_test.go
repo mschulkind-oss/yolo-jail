@@ -62,9 +62,22 @@ func TestJailBriefingPrependsWhenTheOwnershipRecordIsCorrupt(t *testing.T) {
 // briefingWithHostFile composes the claude pack's briefing against a host
 // ~/.claude/CLAUDE.md holding hostContent, recording it as yolo's own composition when
 // generated is true, and returns the text actually staged for the jail.
+//
+// It is pinned OUT of a jail, because these tests are about the host-apply record; in a jail
+// a destination is never prepended at all (mayPrependHostBriefing), and leaving the answer to
+// YOLO_VERSION would make them pass in CI and fail when the suite runs inside a jail.
 func briefingWithHostFile(t *testing.T, hostContent string, generated bool,
 	tweak ...func(home string)) string {
 	t.Helper()
+	return briefingWithHostFileAt(t, false, hostContent, generated, tweak...)
+}
+
+// briefingWithHostFileAt is briefingWithHostFile with the launcher's side of the jail
+// boundary stated explicitly.
+func briefingWithHostFileAt(t *testing.T, inJail bool, hostContent string, generated bool,
+	tweak ...func(home string)) string {
+	t.Helper()
+	pinLauncherInJail(t, inJail)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	ws := t.TempDir()
