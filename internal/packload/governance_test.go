@@ -1,7 +1,7 @@
 package packload
 
 // governance_test.go pins GovernedSources — the ONE predicate the jail briefing composer, the jail
-// skills reader and the host notch's borrower all derive from (pack-briefing-defaults.md §3.3, R5).
+// skills reader and the host notch's borrower all derive from (docs/reference/pack-system.md#briefing-governance, #briefing-r5).
 // The notch-level call-site tests live beside each notch: internal/cli/run
 // (TestJailBriefingMattShape, TestJailSkillsBroadcastSurvivesANarrowerTree), internal/cli
 // (TestApplyHostBriefingMattShape) and internal/cli/run's cross-notch parity test.
@@ -25,24 +25,55 @@ func rels(sources []GovernedSource) []string {
 	return out
 }
 
+// caseFolds reports whether the filesystem holding t.TempDir() folds case (default APFS, which the
+// macOS CI runner and a Mac's packs sit on), by creating a probe and stat'ing another spelling of it.
+// A fixture that writes two case-variant names must ask first: on a folding filesystem the second
+// write lands in the first file, and the tree is not the one the test describes.
+func caseFolds(t *testing.T) bool {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "foldprobe"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := os.Stat(filepath.Join(dir, "FOLDPROBE"))
+	switch {
+	case err == nil:
+		return true
+	case os.IsNotExist(err):
+		return false
+	default:
+		t.Fatalf("case-folding probe: %v", err)
+		return false
+	}
+}
+
 // briefing/ is read ONE LEVEL DEEP, `*.md` ONLY, exact case, and ordered BYTE-WISE by name — not by
-// directory order and not case-folded (§3.1).
+// directory order and not case-folded (pack-system.md#briefing-directory). `B.md` < `a.md` < `c.md` byte-wise, where a case-folded
+// sort would put `a.md` first, so the order is proven on every filesystem. The case-variant NAMES —
+// `b.md` beside `B.md`, `Briefing/` beside `briefing/` — can only coexist on a case-sensitive one;
+// on a folding filesystem `Briefing/` is TestGovernedBriefingIgnoresACaseVariantDirectoryOnAFoldingFilesystem's.
 func TestGovernedBriefingReadsTheDirectoryShallowMarkdownOnlyBytewise(t *testing.T) {
-	p := addressedPack(t, "p", map[string]string{
-		"briefing/b.md":        "b\n",
-		"briefing/B.md":        "upper\n", // 'B' < 'a' < 'b' byte-wise
+	files := map[string]string{
+		"briefing/B.md":        "upper\n",
 		"briefing/a.md":        "a\n",
+		"briefing/c.md":        "c\n",
 		"briefing/notes.txt":   "not markdown\n",
 		"briefing/x.MD":        "wrong case\n",
 		"briefing/sub/deep.md": "not read\n",
-		"Briefing/cap.md":      "not the convention\n",
 		"briefing/empty.md":    "\n \t\n", // blank: silent, delivers nothing
-	})
+	}
+	want := []string{"briefing/B.md", "briefing/a.md", "briefing/c.md"}
+	if !caseFolds(t) {
+		files["briefing/b.md"] = "b\n" // 'B' < 'a' < 'b' byte-wise
+		files["Briefing/cap.md"] = "not the convention\n"
+		want = []string{"briefing/B.md", "briefing/a.md", "briefing/b.md", "briefing/c.md"}
+	}
+	p := addressedPack(t, "p", files)
 	got, problems := p.GovernedSources(packdecl.KindBriefing)
 	if len(problems) != 0 {
 		t.Errorf("problems = %v, want none — nothing here was DECLARED", problems)
 	}
-	if want := []string{"briefing/B.md", "briefing/a.md", "briefing/b.md"}; !reflect.DeepEqual(rels(got), want) {
+	if !reflect.DeepEqual(rels(got), want) {
 		t.Fatalf("sources = %v, want %v", rels(got), want)
 	}
 	for _, s := range got {
@@ -56,7 +87,7 @@ func TestGovernedBriefingReadsTheDirectoryShallowMarkdownOnlyBytewise(t *testing
 	}
 }
 
-// THE MATT SHAPE (§2.2, §3.3): house rules under briefing/ and ONE addressed file beside them.
+// THE MATT SHAPE (pack-system.md#one-governance-reader, pack-system.md#briefing-governance): house rules under briefing/ and ONE addressed file beside them.
 // Declaring the narrow delivery must ADD it, never switch the broad one off (P3).
 func TestGovernedBriefingAnAddressedFileAddsToTheBroadcast(t *testing.T) {
 	pi := packdecl.Contribution{Kind: packdecl.KindBriefing, From: "files/pi-rules.md", Agents: []string{"pi"}}
@@ -119,7 +150,7 @@ func TestGovernedBriefingAnOmittedFromTakesTheRemainder(t *testing.T) {
 	}
 }
 
-// ORDER-INDEPENDENT (§3.3): reversing `contributes` changes neither membership nor routing.
+// ORDER-INDEPENDENT (pack-system.md#briefing-governance): reversing `contributes` changes neither membership nor routing.
 func TestGovernedBriefingIgnoresContributesOrder(t *testing.T) {
 	files := map[string]string{
 		"briefing/pi.md": "pi\n", "briefing/a.md": "a\n", "files/extra.md": "x\n",
@@ -276,7 +307,7 @@ func TestResolveDestinationsMattShapeBorrowsForBothGovernors(t *testing.T) {
 }
 
 // `{into: ".claude/CLAUDE.md"}` names the unclaimed convention BY OMISSION, so briefing/ goes to
-// that one path and nowhere else — the no-widening promise kept by the files being named (§3.3).
+// that one path and nowhere else — the no-widening promise kept by the files being named (pack-system.md#briefing-governance).
 func TestResolveDestinationsAnIntoGovernsTheConventionWithoutWidening(t *testing.T) {
 	claude := agentPack(t, "claude", packdecl.Contribution{Kind: packdecl.KindBriefing,
 		Agent: "claude", Into: ".claude/CLAUDE.md"})
@@ -293,7 +324,7 @@ func TestResolveDestinationsAnIntoGovernsTheConventionWithoutWidening(t *testing
 	}
 }
 
-// P2 INCLUDES THE BROADCASTING PACK'S OWN DESTINATIONS (§3.5): an agent pack shipping prose
+// P2 INCLUDES THE BROADCASTING PACK'S OWN DESTINATIONS (pack-system.md#briefing-p5): an agent pack shipping prose
 // reaches its own agent. The self-skip in borrowedDestinations made the host notch skip it while
 // the jail's nil audience reached it.
 func TestResolveDestinationsABroadcastReachesItsOwnPacksDestination(t *testing.T) {
@@ -339,7 +370,8 @@ func TestSkillsSourceDirADestinationSourcesNothing(t *testing.T) {
 	}
 }
 
-// foldCase fakes a case-insensitive filesystem (default APFS) for one directory of a pack: every
+// foldCase fakes a case-insensitive filesystem (default APFS) for one directory of a pack, on a
+// case-SENSITIVE one only (on a folding filesystem the symlink name already exists): every
 // PATH open of `<root>/<folded>` reaches `<root>/<onDisk>` (a symlink stands in for the case
 // folding), while a LISTING of the root — through the readDir seam — shows only the on-disk name,
 // exactly as APFS does. That is the pair of facts the bug lives between: opening "briefing" by path
@@ -366,14 +398,24 @@ func foldCase(t *testing.T, root, onDisk, folded string) {
 	}
 }
 
-// `Briefing/` IS NOT THE CONVENTION ON A CASE-INSENSITIVE FILESYSTEM EITHER (§3.1). Opening
+// `Briefing/` IS NOT THE CONVENTION ON A CASE-INSENSITIVE FILESYSTEM EITHER (pack-system.md#briefing-directory). Opening
 // "<root>/briefing" by path there opens `Briefing/`; the root must be listed and the name compared,
 // or a Mac broadcasts what Linux ignores. LoadDir's reserved-basename refusal shares the probe, so
 // a `Briefing/AGENTS.md` is not refused as a source it is not.
+//
+// On a folding filesystem (the macOS runner) this is the REAL thing, no seam involved; on a
+// case-sensitive one foldCase simulates it. Either way the premise is asserted first: a path open
+// of "<root>/briefing" must reach `Briefing/`, or the test would pass without exercising the bug.
 func TestGovernedBriefingIgnoresACaseVariantDirectoryOnAFoldingFilesystem(t *testing.T) {
 	root := proseTree(t, map[string]string{"Briefing/cap.md": "not the convention\n",
 		"Briefing/AGENTS.md": "a repository file\n"})
-	foldCase(t, root, "Briefing", "briefing")
+	if !caseFolds(t) {
+		foldCase(t, root, "Briefing", "briefing")
+	}
+	if fi, err := os.Stat(filepath.Join(root, "briefing", "cap.md")); err != nil || !fi.Mode().IsRegular() {
+		t.Fatalf("fixture: \"briefing/cap.md\" does not reach Briefing/cap.md by path (%v) — "+
+			"nothing here is folding case", err)
+	}
 	p, probs := LoadDir(root, "p")
 	if len(probs) != 0 {
 		t.Errorf("LoadDir refused a file inside `Briefing/`, which is not the convention: %v", probs)
