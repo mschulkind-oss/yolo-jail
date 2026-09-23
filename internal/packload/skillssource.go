@@ -14,17 +14,15 @@ package packload
 //
 // ONE resolver for all three, deliberately: three copies of "read <root>/skills" is how the
 // field came to be ignored in the first place, and a fourth reader added later would inherit
-// the same bug. The precedence matches `briefing`'s, which already honored `from`
-// (entrypoint/hostbriefing.go's hostBriefingProse): the declared value first, the convention
-// as the fallback.
+// the same bug.
+//
+// THE PRECEDENCE DOES NOT MATCH `briefing`'s, and this header used to say it did while it did
+// not (pack-briefing-defaults.md §2.4): briefing's `from` was a fallback chain to AGENTS.md, and
+// skills' has always been the only source. Since that design they do agree — a declared source
+// is the ONLY source, for both kinds (P4) — and WHICH sources a pack delivers, and who governs
+// each, is governance.go's answer for both kinds rather than a gate each reader keeps.
 
 import (
-	"fmt"
-	"os"
-	"path"
-	"path/filepath"
-	"strings"
-
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
@@ -55,30 +53,16 @@ import (
 // bounds a declared path and not a symlink inside the tree; on the jail path packstage has
 // already refused escaping symlinks, and on the host path an unstaged tree is only ever a
 // pack the user pointed at themselves.
+//
+// A DESTINATION (`agent` set) SOURCES NOTHING and returns "", "" (pack-briefing-defaults.md P5):
+// an agent pack's `{agent, into}` names where content lands, and reading the pack's own skills/
+// through it made the destination line double as a delivery. An agent pack's skills/ still ships
+// — as the implicit broadcast (GovernedSources), which reaches its own destination like any other.
 func (p *Pack) SkillsSourceDir(c packdecl.Contribution) (string, string) {
-	rel := c.SkillsSource()
-	root := filepath.Clean(p.Root)
-	dir := filepath.Clean(filepath.Join(root, filepath.FromSlash(rel)))
-	conventional := path.Clean(rel) == packdecl.DefaultSkillsDir
-
-	if root != "" && root != "." && !strings.HasPrefix(dir, root+string(filepath.Separator)) {
-		return "", fmt.Sprintf("pack %s: skills `from` %q escapes the pack tree — refused", p.Name, rel)
-	}
-	fi, err := os.Stat(dir) // Stat, not Lstat: a symlinked skills dir is legitimate
-	switch {
-	case err == nil && fi.IsDir():
-		return dir, ""
-	case conventional:
-		// The convention, absent. Normal — see the doc comment.
+	if c.Agent != "" {
 		return "", ""
-	case err != nil:
-		return "", fmt.Sprintf("pack %s declares `skills` from %q, which is not in its "+
-			"content — no skills delivered from it (check the `from` path, and any "+
-			"only/exclude filters)", p.Name, rel)
-	default:
-		return "", fmt.Sprintf("pack %s declares `skills` from %q, which is a file, not a "+
-			"directory — a skills source holds one subdirectory per skill", p.Name, rel)
 	}
+	return p.skillsDir(c.SkillsSource())
 }
 
 // SkillsSource is one resolved skills source: the absolute directory, and the AUDIENCE the
@@ -97,55 +81,34 @@ type SkillsSource struct {
 	Agents []string
 }
 
-// SkillsSources is the resolved sources, in declaration order and deduplicated by DIR, plus
-// one problem per declaration that could not be honored.
+// SkillsSources is the resolved sources, in declaration order with the implicit one last, plus
+// one problem per declaration that could not be honored — GovernedSources(KindSkills), carrying
+// each governor's audience.
 //
-// DEDUPLICATED BY DIR, WITH THE AUDIENCES UNIONED and a broadcast absorbing every audience —
-// the same rule run.packBriefingProses applies to identical prose, and needed for the same
-// reason: two contributions may name the same source (or omit `from` twice and get the
-// conventional dir twice), and copying that tree once per contribution would be one delivery
-// reported as several. A broadcast wins because it already reaches everywhere an audience
-// could.
+// THERE IS NO `declared` GATE any more (pack-briefing-defaults.md §3.3). The conventional skills/
+// tree is ONE unit: it broadcasts implicitly unless some content contribution names it, and a
+// contribution naming a DIFFERENT tree (`{from: "extra-skills", agents: ["pi"]}`) no longer
+// switches it off. A destination (`agent` set) names nothing. So a pack that is just a `skills/`
+// tree needs no manifest at all, and one that adds a narrower tree beside it keeps the broad one.
 //
-// A pack declaring NO skills contribution falls back to the conventional dir, which is the
-// zero-ceremony merge the jail path depends on: a pack that is just a `skills/` tree and an
-// AGENTS.md needs no manifest at all, and its skills still reach whichever agent pack owns
-// the destination. That fallback lives here rather than at the call site because both jail
-// call sites need it identically, and the one that forgot it would silently drop every
-// manifest-less pack's skills.
+// Deduplicated by DIR, with the audiences UNIONED and a broadcast absorbing every audience, as a
+// fallback only: two content contributions naming one source are refused on the strict path
+// (OQ-PB5), but two distinct keys can still resolve to one directory (a symlink), and copying
+// that tree twice would be one delivery reported as two.
 func (p *Pack) SkillsSources() (sources []SkillsSource, problems []string) {
+	governed, problems := p.GovernedSources(packdecl.KindSkills)
 	index := map[string]int{}
-	add := func(c packdecl.Contribution) {
-		dir, prob := p.SkillsSourceDir(c)
-		if prob != "" {
-			problems = append(problems, prob)
-		}
-		if dir == "" {
-			return
-		}
-		if i, seen := index[dir]; seen {
-			if len(sources[i].Agents) == 0 || len(c.Agents) == 0 {
+	for _, g := range governed {
+		if i, seen := index[g.Abs]; seen {
+			if len(sources[i].Agents) == 0 || len(g.By.Agents) == 0 {
 				sources[i].Agents = nil
-				return
+				continue
 			}
-			sources[i].Agents = append(sources[i].Agents, c.Agents...)
-			return
-		}
-		index[dir] = len(sources)
-		sources = append(sources, SkillsSource{Dir: dir, Agents: c.Agents})
-	}
-	declared := false
-	for _, c := range p.Decl.Contributions() {
-		if c.Kind != packdecl.KindSkills {
+			sources[i].Agents = append(sources[i].Agents, g.By.Agents...)
 			continue
 		}
-		declared = true
-		add(c)
-	}
-	if !declared {
-		// Zero-ceremony: no manifest (or none mentioning skills) still merges skills/, and it
-		// has no manifest to name an audience in, so it broadcasts.
-		add(packdecl.Contribution{Kind: packdecl.KindSkills})
+		index[g.Abs] = len(sources)
+		sources = append(sources, SkillsSource{Dir: g.Abs, Agents: append([]string(nil), g.By.Agents...)})
 	}
 	return sources, problems
 }

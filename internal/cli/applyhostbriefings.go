@@ -11,18 +11,22 @@ package cli
 //
 // The order below is load-bearing:
 //
+//  0. MOVE — a local pack an earlier yolo migrated into its ROOT AGENTS.md has that file moved
+//     to briefing/local.md, because a root AGENTS.md is no longer read as pack prose
+//     (pack-briefing-defaults.md §4). A refused move STOPS the kind here: composing without it
+//     would regenerate every destination without the user's own instructions.
 //  1. ADOPT — ask which destinations hold prose yolo cannot prove it wrote, and CONFIRM. The
 //     first apply that takes over a hand-written ~/.claude/CLAUDE.md is a one-way door, so it
 //     rides the same warn-and-confirm gate confirmHostLosses established, with the same
 //     fail-closed-on-nil-stdin contract.
-//  2. MIGRATE — MOVE that prose into the local pack's AGENTS.md, so it still reaches every
-//     agent. Archive is the fallback, never the first answer (§6a as amended).
+//  2. MIGRATE — MOVE that prose into the local pack's briefing/local.md, so it still reaches
+//     every agent. Archive is the fallback, never the first answer (§6a as amended).
 //  3. RENDER — compose and write.
 //  4. RETIRE — archive a destination yolo composed that no active pack contributes to any more,
 //     so dropping the last contributing pack does not leave an orphan.
 //
-// Steps 1 and 2 must not run in observe: a dry run writes nothing, so there is nothing to
-// confirm, and the migration is reported as `would move` instead.
+// Steps 0, 1 and 2 must not run in observe: a dry run writes nothing, so there is nothing to
+// confirm, and the moves are reported as `would move` instead.
 
 import (
 	"io"
@@ -54,23 +58,36 @@ func hostBriefingManifestPath(home string) string {
 }
 
 // localPackBriefingPath is where an adopted destination's prose MOVES to: the conventional local
-// pack's own AGENTS.md.
+// pack's own briefing file, entrypoint.LocalPackBriefingRel (briefing/local.md).
+//
+// Not the pack's root AGENTS.md, where it went before: that basename is the repository's own
+// instructions and is never read as pack prose (pack-briefing-defaults.md P1), so prose migrated
+// there would stop reaching every agent on the apply that promised it would keep reaching them.
+func localPackBriefingPath(home string) string {
+	dir := localPackDirUnder(home)
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, filepath.FromSlash(entrypoint.LocalPackBriefingRel))
+}
+
+// localPackDirUnder is the conventional local pack's directory, resolved under `home`.
 //
 // Derived from the home this apply is rendering into, not from paths.LocalPackDir(), and that
 // distinction is load-bearing: paths.LocalPackDir() reads $HOME, so a test (or any caller
 // rendering into a home it was handed) would migrate the user's prose into their REAL config
 // dir. GlobalStorageUnder exists for exactly this reason and this follows it.
-func localPackBriefingPath(home string) string {
+func localPackDirUnder(home string) string {
 	// The same "beside config.jsonc" convention paths.LocalPackDir encodes, resolved under an
 	// explicit home. Spelled through paths' own constants so the two cannot drift.
 	rel, err := filepath.Rel(paths.Home(), paths.LocalPackDir())
 	if err != nil || rel == "" || rel == "." {
 		return ""
 	}
-	return filepath.Join(home, rel, "AGENTS.md")
+	return filepath.Join(home, rel)
 }
 
-// applyHostBriefings runs the four steps for the whole pack set and returns an rc contribution.
+// applyHostBriefings runs the steps above for the whole pack set and returns an rc contribution.
 //
 // `loaded` is the ACTIVE set (post-ResolveDestinations, so a zero-ceremony pack already declares
 // its destinations); `candidates` adds every pack yolo ships, because a dropped pack's
@@ -78,12 +95,14 @@ func localPackBriefingPath(home string) string {
 // and `complete` says every pack the config NAMES resolved this run — without which the retire
 // pass would read an unreachable fetched pack as a dropped one (see HostBriefingRequest).
 //
-// `reload` re-resolves the pack set, and is called ONCE, after a confirmed migration. The
-// migration creates the conventional local pack, which is included by convention rather than by
-// config — so the set resolved before it ran cannot contain it, and the render would otherwise
-// drop the user's just-migrated prose for exactly one apply. nil means "no reload available",
-// which is correct for the no-packs-configured caller and fails safe everywhere else (the
-// pre-migration set is still rendered).
+// `reload` re-resolves the pack set, and is called after a confirmed migration and after a
+// written local-pack move — at most once each. The migration creates the conventional local
+// pack, which is included by convention rather than by config — so the set resolved before it
+// ran cannot contain it, and the render would otherwise drop the user's just-migrated prose for
+// exactly one apply. The move is the same problem one step earlier: the set was resolved while
+// the local pack's prose sat in a file no reader reads, so its broadcast is not in that set. nil
+// means "no reload available", which is correct for the no-packs-configured caller and fails
+// safe everywhere else (the pre-migration set is still rendered).
 func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	loaded, candidates []*packload.Pack, active map[string]bool, complete bool,
 	home, stamp string, write bool, reload func() []*packload.Pack, survey *hostApplySurvey) int {
@@ -100,20 +119,80 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		Manifest: man,
 		// The kind's own bucket (V3) — see hostArchiveRoot. A retired briefing used to be
 		// archived under `archive/skills`, which is a directory naming a different kind.
-		ArchiveRoot:     hostArchiveRoot(string(packdecl.KindBriefing)),
-		Stamp:           stamp,
-		LocalPackAGENTS: localPackBriefingPath(home),
-		PackSetComplete: complete,
-		Provenance:      config.BriefingProvenanceUser(),
+		ArchiveRoot:       hostArchiveRoot(string(packdecl.KindBriefing)),
+		Stamp:             stamp,
+		LocalPackBriefing: localPackBriefingPath(home),
+		PackSetComplete:   complete,
+		Provenance:        config.BriefingProvenanceUser(),
 	}
 
 	rc := 0
+	// reresolve swaps in a freshly resolved pack set (see `reload`), keeping the old one when no
+	// reload is available or it finds nothing.
+	reresolve := func() {
+		if reload == nil {
+			return
+		}
+		if fresh := reload(); len(fresh) > 0 {
+			loaded = fresh
+			candidates = append(fresh, embeddedPacksForPrune()...)
+			for _, p := range fresh {
+				active[p.Name] = true
+			}
+		}
+	}
+
+	// 0. MOVE the local pack's root AGENTS.md, BEFORE anything reads the pack set: the adoption
+	// comparison and the render both compose the local pack, and until the move it composes
+	// nothing (a root AGENTS.md is never read, pack-briefing-defaults.md P1).
+	mv, mverr := entrypoint.MoveLegacyLocalPackBriefing(localPackDirUnder(home), !write)
+	if mv != nil {
+		// tierLoss: the user's own prose moves between files, which is the migration's class
+		// and must stay itemized. A refusal is recorded as changing nothing, for the survey's
+		// reason (a launch gate must not stop on a condition applying cannot fix); its own
+		// red line below is what reports it.
+		survey.note(tierLoss, string(packdecl.KindBriefing), mv.Surface, mv.Path,
+			mv.WouldChange && mverr == nil)
+		if mverr == nil {
+			pr.Printf("  [yellow]%-20s %s[/yellow]", mv.Surface, mv.Action)
+		}
+	}
+	if mverr != nil {
+		// STOP the kind. The local pack's prose is unreadable where it is, so composing now
+		// would regenerate every destination WITHOUT it, and the retire pass would archive a
+		// destination the local pack was the only contributor to — the loss the move exists to
+		// prevent, performed by the same apply.
+		pr.Printf("  [red]briefing   refused[/red] — %v", mverr)
+		pr.Printf("  [dim]No briefing destination was composed or retired. Resolve the two " +
+			"files and re-run `yolo host apply`.[/dim]")
+		return 1
+	}
+	// REPORT every declared briefing source that delivers nothing (pack-briefing-defaults.md
+	// §3.4): absent, a directory, blank, escaping, or a reserved basename. The declaration
+	// delivers nothing from that file — nothing else is read in its place (P4) — and the author
+	// hears it here as the jail launch says it, rather than finding a destination short of prose.
+	// At warning severity, like the launch: the rest of the pack set still composes.
+	reportBriefingSourceProblems(pr, loaded)
+	if mv != nil {
+		if !write {
+			// The preview cannot compose what the move would make readable without making the
+			// move, and a preview composed WITHOUT it would report every destination the local
+			// pack feeds as losing the user's prose, or as an orphan to retire. Say so rather
+			// than print that.
+			pr.Printf("  [dim]briefing destinations are not previewed: they are composed after " +
+				"that move, which a dry run does not make.[/dim]")
+			return rc
+		}
+		// The local pack's prose is readable now; re-resolve so its broadcast is in the set.
+		reresolve()
+	}
+
 	adoptions := entrypoint.HostBriefingAdoptions(loaded, home, man, req.Provenance)
 	if len(adoptions) > 0 {
 		if !write {
 			// OBSERVE reports the adoption and the migration WITHOUT prompting — which is how
 			// the user learns what the write would take over before any prompt exists.
-			reportBriefingAdoptions(pr, adoptions, req.LocalPackAGENTS)
+			reportBriefingAdoptions(pr, adoptions, req.LocalPackBriefing)
 			mres, _ := entrypoint.MigrateHostBriefings(adoptions, req, true)
 			for _, r := range mres {
 				// tierLoss: a MIGRATION moves the user's own prose out of the destination
@@ -122,7 +201,7 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 				survey.note(tierLoss, string(packdecl.KindBriefing), r.Surface, r.Path, r.WouldChange)
 				pr.Printf("  [yellow]%-20s %s[/yellow]  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
 			}
-		} else if !confirmBriefingAdoption(pr, out, stdin, adoptions, req.LocalPackAGENTS) {
+		} else if !confirmBriefingAdoption(pr, out, stdin, adoptions, req.LocalPackBriefing) {
 			// Declining is a legitimate answer and leaves the destinations alone — including
 			// the render, since composing over prose the user just declined to migrate is the
 			// data loss the gate exists to prevent. The rc is unchanged for the reason
@@ -133,7 +212,7 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 				"own prose, and none was regenerated.[/bold yellow]", len(adoptions))
 			pr.Printf("[dim]Re-run and answer `y`, or move the prose into %s yourself (yolo "+
 				"composes it back into every destination from there). Nothing was moved or "+
-				"written.[/dim]", req.LocalPackAGENTS)
+				"written.[/dim]", req.LocalPackBriefing)
 			return rc
 		} else {
 			mres, merr := entrypoint.MigrateHostBriefings(adoptions, req, false)
@@ -147,15 +226,7 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 			// The migration just created the local pack, so re-resolve before composing (see
 			// `reload`). Only on the CONFIRMED path: the observe and decline branches wrote
 			// nothing, so there is no new pack to find.
-			if reload != nil {
-				if fresh := reload(); len(fresh) > 0 {
-					loaded = fresh
-					candidates = append(fresh, embeddedPacksForPrune()...)
-					for _, p := range fresh {
-						active[p.Name] = true
-					}
-				}
-			}
+			reresolve()
 		}
 	}
 
@@ -201,6 +272,23 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		}
 	}
 	return rc
+}
+
+// reportBriefingSourceProblems prints each pack's briefing governance problems once per pack.
+// Governance reads the pack's ORIGINAL declaration, so a ResolveDestinations clone reports its own
+// declarations, never the synthesized borrower copies twice.
+func reportBriefingSourceProblems(pr richtext.Printer, packs []*packload.Pack) {
+	seen := map[string]bool{}
+	for _, p := range packs {
+		if p == nil || seen[p.Name] {
+			continue
+		}
+		seen[p.Name] = true
+		_, probs := p.GovernedSources(packdecl.KindBriefing)
+		for _, prob := range probs {
+			pr.Printf("  [yellow]⚠ briefing: %s[/yellow]", prob)
+		}
+	}
 }
 
 // reportBriefingAdoptions names every destination about to become yolo-owned and what becomes of

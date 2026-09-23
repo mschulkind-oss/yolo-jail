@@ -112,18 +112,27 @@ func TestSkillsSourceEmptyFromResolvesToConvention(t *testing.T) {
 // A NON-CONVENTIONAL source that is not there delivers nothing, so it is reported. A
 // declaration yolo accepts and ignores is the defect being fixed; a declaration yolo accepts
 // and silently no-ops would just move it.
+//
+// And the conventional skills/ beside it is NOT a substitute for it — it is a delivery of its own
+// (pack-briefing-defaults.md P3, P4). No contribution names skills/, so it is the implicit
+// broadcast, governed by nobody; the missing `my-skills` contributes nothing, and nothing arrives
+// in its place under its audience or its `into`.
 func TestSkillsSourceReportsMissingDeclaredDir(t *testing.T) {
 	p := skillsPack(t,
 		`{"contributes":[{"kind":"skills","from":"my-skills","into":".x/skills"}]}`,
 		"skills") // the CONVENTIONAL dir exists; the declared one does not
 
-	dirs, problems := sourceDirs(p)
-	if len(dirs) != 0 {
-		t.Errorf("SkillsSources() = %v, want none — a missing declared source must NOT "+
-			"silently fall back to skills/, which is the bug being fixed", dirs)
-	}
+	governed, problems := p.GovernedSources(packdecl.KindSkills)
 	if len(problems) != 1 || !strings.Contains(problems[0], "my-skills") {
 		t.Fatalf("problems = %v, want one naming my-skills", problems)
+	}
+	if len(governed) != 1 || governed[0].Rel != "skills" || !governed[0].Implicit {
+		t.Fatalf("GovernedSources = %+v, want exactly the conventional skills/, IMPLICIT — the "+
+			"missing declared source must deliver nothing, and skills/ must not be read AS it", governed)
+	}
+	if governed[0].By.Into != "" || governed[0].By.From != "" {
+		t.Errorf("skills/ is governed by %+v, want the zero governor — attributing it to the "+
+			"`my-skills` contribution is the silent substitution P4 forbids", governed[0].By)
 	}
 }
 
@@ -201,18 +210,38 @@ func TestSkillsSourceRefusesEscapingFrom(t *testing.T) {
 	}
 }
 
-// Two contributions naming ONE source (the same skills delivered to two agents' dirs) is one
-// tree to read, so the source list is deduped — a repeat would copy the same content twice.
-func TestSkillsSourceDedupesRepeatedSource(t *testing.T) {
-	p := skillsPack(t, `{"contributes":[
+// Two contributions naming ONE source is REFUSED on the strict path (pack-briefing-defaults.md
+// OQ-PB5): a source has exactly one governor, and "the same skills to two agents" is one
+// contribution with `agents: [a, b]`. LoadDir is where a launch meets that refusal.
+//
+// The readers keep a dedup as the FALLBACK, for the tolerant in-jail decode (which runs no
+// sibling checks) and a host caller that discarded its Decode problems: a repeat is one tree,
+// read once, governed by the first.
+func TestSkillsSourceRepeatedSourceIsRefusedAndReadOnce(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(`{"contributes":[
 		{"kind":"skills","from":"my-skills","into":".claude/skills"},
-		{"kind":"skills","from":"my-skills","into":".codex/skills"}]}`, "my-skills")
+		{"kind":"skills","from":"./my-skills","into":".codex/skills"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "my-skills", "example"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p, probs := LoadDir(root, "sf")
+	if len(probs) != 1 || !strings.Contains(probs[0], "contributes[1]") ||
+		!strings.Contains(probs[0], "contributes[0]") {
+		t.Fatalf("LoadDir problems = %v, want the OQ-PB5 refusal naming both indices", probs)
+	}
 	dirs, problems := sourceDirs(p)
 	if len(problems) > 0 {
 		t.Fatalf("problems: %v", problems)
 	}
 	if len(dirs) != 1 {
-		t.Fatalf("dirs = %v, want one (deduped)", dirs)
+		t.Fatalf("dirs = %v, want one — the fallback reads a repeated source once", dirs)
+	}
+	governed, _ := p.GovernedSources(packdecl.KindSkills)
+	if len(governed) != 1 || governed[0].By.Into != ".claude/skills" {
+		t.Errorf("GovernedSources = %+v, want one source governed by the FIRST contribution", governed)
 	}
 }
 

@@ -84,6 +84,14 @@ type Pack struct {
 	// visible. Always empty on the strict authoring path, where the same manifest is
 	// refused as a load problem instead.
 	SkewNotes []string
+
+	// origDecl is the declaration this pack was CLONED FROM by ResolveDestinations, or nil for a
+	// pack that is not a clone. The clone's Decl appends a synthesized `{into, from}` copy of each
+	// borrower, and per-file governance must never be computed from that list: every explicit
+	// `from` would have two governors, and the implicit borrower would read as an omitted-`from`
+	// declaration that switches the implicit broadcast off (governance.go's header). Unexported
+	// because nothing outside governance needs to know a pack was resolved.
+	origDecl *packdecl.Manifest
 }
 
 // Surfaces decodes the pack's surface declarations, resolving each one's host layer to
@@ -776,9 +784,46 @@ func LoadDir(root, name string) (*Pack, []string) {
 	if name == "" {
 		name = filepath.Base(root)
 	}
+	problems = append(problems, reservedBriefingFiles(root, name)...)
 	return &Pack{
 		Name: name, Root: root, Decl: decl, SkewNotes: skewNotes,
 	}, problems
+}
+
+// reservedBriefingFiles refuses a file inside the pack's briefing/ directory whose basename is a
+// repository's own agent-instruction file — `briefing/AGENTS.md`, `briefing/CLAUDE.md`,
+// `briefing/GEMINI.md` (pack-briefing-defaults.md OQ-PB2). Agent tools read those names at any
+// depth, so one inside briefing/ is the dual-reader file P1 removes, one directory down.
+//
+// HERE, and at no second site, because a LoadDir problem is already fatal at every launch site
+// (run's stagePacks) and at `yolo pack lint`. NOT at `yolo check`: check/packs.go loads with
+// `len(probs) == 0` and drops a pack with problems without reporting them, so a pack carrying this
+// file passes check and is refused at launch — a gap in check, not a reason for a second site.
+// The message is packdecl's, so the manifest's refusal of `from: "AGENTS.md"` and this one spell
+// the same move. Checked with or without a manifest: a manifest-less pack's briefing/ is the
+// convention too. Governance never reads such a file even for a caller that discards this
+// problem.
+func reservedBriefingFiles(root, name string) []string {
+	// Only inside the directory spelled exactly `briefing` — the one governance reads — so a
+	// `Briefing/AGENTS.md` on a case-insensitive filesystem is not refused as a source it is not.
+	dir, ok := conventionalBriefingDir(root)
+	if !ok {
+		return nil
+	}
+	entries, err := readDir(dir)
+	if err != nil {
+		return nil
+	}
+	var problems []string
+	for _, e := range entries {
+		rel := packdecl.DefaultBriefingDir + "/" + e.Name()
+		if !packdecl.RepositoryInstructionFile(rel) {
+			continue
+		}
+		problems = append(problems, "pack "+name+": "+
+			packdecl.ReservedBriefingSourceProblem("file", rel))
+	}
+	return problems
 }
 
 // MaterializeEmbedded copies the embedded official packs into dest and returns them.

@@ -177,3 +177,47 @@ func TestApplyHostReportsAnAudienceThatReachedNoDestinationOfThatKind(t *testing
 			"author to name a path is the one thing P4 forbids:\n%s", report)
 	}
 }
+
+// THE HOST CALL SITE FOR PER-FILE GOVERNANCE — the matt shape (pack-briefing-defaults.md §2.2,
+// §3.7) through the real apply entry point. House rules under briefing/, ONE addressed file for
+// alphacli beside them, and the pack repository's own AGENTS.md at the root. alphacli must get the
+// house rules AND its addressed file as one section; betacli must get the house rules — the
+// delivery the old `declares`/`declared` gate switched off the moment the addressed line existed —
+// and the root AGENTS.md reaches neither.
+//
+// Mutation (reported): restoring the gate in packload's borrowingSources — no implicit borrower
+// once the pack declares any briefing contribution — drops the house rules from both homes.
+func TestApplyHostBriefingMattShape(t *testing.T) {
+	home := audienceFixture(t, `"alphacli"`)
+	house := ""
+	// audienceFixture's house pack lives beside the agent packs; find it through the config.
+	cfg, err := os.ReadFile(filepath.Join(home, ".config", "yolo-jail", "config.jsonc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, part := range strings.Split(string(cfg), `"`) {
+		if strings.HasPrefix(part, "file://") && strings.HasSuffix(part, "/house") {
+			house = strings.TrimPrefix(part, "file://")
+		}
+	}
+	if house == "" {
+		t.Fatalf("no house pack in the fixture config:\n%s", cfg)
+	}
+	writeFile(t, filepath.Join(house, "briefing", "house-rules.md"), "House rules.\n")
+	writeFile(t, filepath.Join(house, "AGENTS.md"), "Contributor guide for the house repo.\n")
+
+	rc, report := applyWith(t, true, strings.NewReader("y\n"))
+	if rc != 0 {
+		t.Fatalf("host apply --assert rc=%d\n%s", rc, report)
+	}
+	alpha, _ := os.ReadFile(filepath.Join(home, ".alpha", "AGENTS.md"))
+	beta, _ := os.ReadFile(filepath.Join(home, ".beta", "AGENTS.md"))
+	if string(alpha) != "House rules.\n\nAlpha-only rule.\n" {
+		t.Errorf(".alpha/AGENTS.md = %q, want the house rules and the addressed file, one section "+
+			"in filename order\n%s", alpha, report)
+	}
+	if string(beta) != "House rules.\n" {
+		t.Errorf(".beta/AGENTS.md = %q, want the house rules alone — declaring a narrower "+
+			"briefing must not switch the broadcast off\n%s", beta, report)
+	}
+}

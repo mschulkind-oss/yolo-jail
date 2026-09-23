@@ -3,11 +3,11 @@ package packload
 // mergedest.go answers the question a ZERO-CEREMONY pack cannot answer for itself: where does
 // its content go, when the pack never says?
 //
-// A pack that is just a `skills/` tree and an AGENTS.md — no pack.json at all — is the entry
-// point `yolo pack --help` and the migration guide both promote, and in a jail it works: the
-// boot path collects every selected pack's skills source (SkillsSourceDirs' `if !declared`
-// fallback) and its prose (run.packBriefingProses), then merges the union into every destination
-// any pack DECLARED. The host render did not, because it iterates `Decl.Contributions()` and a
+// A pack that is just a `skills/` tree and a `briefing/` directory — no pack.json at all — is the
+// entry point `yolo pack --help` and the migration guide both promote, and in a jail it works: the
+// boot path collects every selected pack's governed skills sources (SkillsSources) and prose
+// (run.packBriefingProses), both over GovernedSources, then merges the union into every
+// destination any pack DECLARED. The host render did not, because it iterates `Decl.Contributions()` and a
 // manifest-less pack has none — so `pack lint` said `✓ pack ok`, the apply printed nothing
 // about it, and a real $HOME received zero files (docs/plans/feedback-real-pack-adoption.md F1).
 //
@@ -45,6 +45,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -52,7 +53,7 @@ import (
 
 // inferrableKinds are the kinds a silent pack's content can be routed for: the two with a
 // CONVENTIONAL source, which are the two the zero-ceremony promise is about ("a skills dir and
-// an AGENTS.md at the pack root").
+// a briefing dir at the pack root").
 //
 // `files` IS HERE ONLY FOR THE ADDRESSED SHAPE — `{agents: [...], from: ...}` with no `into` —
 // and the distinction is load-bearing rather than tidy. It has no conventional location
@@ -138,8 +139,10 @@ type AddressedDelivery struct {
 // ResolveDestinations resolves this pack's delivery destinations against `set`, the packs the
 // caller is rendering, and returns the pack to render plus what the inference concluded.
 //
-// A DECLARATION IS HONORED EXACTLY, and only silence is inferred — per kind, so a pack that
-// declares `skills` and no `briefing` gets its prose routed without its skills being rerouted.
+// A DECLARATION IS HONORED EXACTLY, and only silence is inferred — per FILE since
+// pack-briefing-defaults.md §3.3 (per kind before it), so a pack that declares `skills` and no
+// `briefing` gets its prose routed without its skills being rerouted, and a pack that declares one
+// narrow briefing keeps its unnamed briefing/ files broadcasting (borrowingSources).
 // That is narrower than the jail, deliberately: in a jail the skills source list is GLOBAL
 // (every pack's skills reach every destination), so a pack declaring `into: ".claude/skills"`
 // also has its skills merged into `.pi/agent/skills`. Mirroring that here would mean an
@@ -227,6 +230,13 @@ func (p *Pack) ResolveDestinations(set []*Pack) Destinations {
 		out.Inferred...)
 	clone := *p
 	clone.Decl = &decl
+	// The clone remembers what was DECLARED, because governance must be computed from that and
+	// never from `decl`, which now holds a synthesized copy of every borrower (governance.go).
+	// Kept when p is itself a clone, so resolving twice cannot launder synthesized entries into
+	// the declaration.
+	if clone.origDecl == nil {
+		clone.origDecl = p.Decl
+	}
 	out.Pack = &clone
 	return out
 }
@@ -255,62 +265,67 @@ func ResolveDestinations(set []*Pack) ([]*Pack, []Destinations) {
 // borrowingSources returns one contribution per DESTINATION THIS PACK NEEDS INFERRED for `kind`,
 // each carrying the source its content is to be read from.
 //
-// Two shapes reach the inference, and they arrive here as one list on purpose — everything after
-// this point treats them identically, which is what keeps the addressed shape from being a second
-// code path with its own way to be forgotten:
+// For `briefing` and `skills` it is DERIVED FROM THE GOVERNANCE PREDICATE (GovernedSources) and
+// keeps no gate of its own — which is the host third of pack-briefing-defaults.md R5. Two shapes,
+// one list, so everything after this point treats them identically:
 //
-//   - AN ADDRESSED CONTRIBUTION — `{from: "prose/claude.md", agents: ["claude"]}`. It is returned
-//     as itself, `from` and `agents` intact, because both are answers only IT holds: the audience
-//     narrows the destinations, and the source says which of the pack's files goes to them.
-//   - THE ZERO-CEREMONY BORROWER — a synthetic zero-value contribution, returned only when the
-//     pack said nothing about the kind at all. No `from` (the convention), no `agents`
-//     (broadcast), which is exactly the pack with no pack.json that this whole file exists for.
+//   - EVERY INTO-LESS GOVERNOR, returned as itself: an addressed contribution (`{from:
+//     "prose/claude.md", agents: ["claude"]}`, whose audience narrows the destinations and whose
+//     source says which file goes to them) or a declared broadcast (`{kind: briefing}`, neither
+//     field — P2, now spellable in a manifest).
+//   - THE IMPLICIT BORROWER — a synthetic zero-value contribution, returned when some source is
+//     governed by NO declaration. No `from` (the files nobody named), no `agents` (broadcast).
 //
-// The zero-ceremony borrower is gated on `declares` rather than on "the list came back empty",
-// and the difference is a pack that named its own `into` and nothing else: it has no borrowing
-// contribution AND must not get the implicit one, or a declaration would be widened into every
-// other agent's directory — the one thing ResolveDestinations' contract promises not to do.
+// THE `declares` GATE IS GONE, and it was the trap (§2.2): "the pack declared a destination of its
+// own for this kind" switched the implicit borrower off for the WHOLE kind, so any declaration
+// removed a delivery it did not name. The contract that gate protected — a pack naming its own
+// `into` must not be widened into every other agent's directory — is now kept by the FILES being
+// named: a content `{kind: briefing, into: ".claude/CLAUDE.md"}` governs every unclaimed
+// briefing/*.md by omission, so none is Implicit and no borrower is synthesized for it (§3.3).
+//
+// A DESTINATION (`agent` set) governs nothing, so it never suppresses anything here either.
+//
+// In DECLARATION order, with the implicit borrower last, so the Addressed report reads in the
+// order the author wrote the manifest.
 func (p *Pack) borrowingSources(kind packdecl.Kind) []packdecl.Contribution {
-	var out []packdecl.Contribution
-	for _, c := range p.Decl.Contributions() {
-		if c.Kind == kind && c.Into == "" {
-			out = append(out, c)
+	if kind == packdecl.KindFiles {
+		// `files` HAS NO CONVENTIONAL SOURCE, so no borrower is ever synthesized for it: a
+		// `{Kind: files}` carries no `from` and would route nothing while claiming a destination.
+		// Only an ADDRESSED contribution (`agents`, and its own `from`) reaches borrowing.
+		var out []packdecl.Contribution
+		for _, c := range p.declaration() {
+			if c.Kind == kind && c.Into == "" && c.Agent == "" {
+				out = append(out, c)
+			}
 		}
+		return out
 	}
-	// `files` HAS NO CONVENTIONAL SOURCE, so the zero-ceremony borrower must never fire for it:
-	// a synthesized `{Kind: files}` carries no `from` and would route nothing while claiming a
-	// destination. Only an ADDRESSED contribution (`agents`, and its own `from`) reaches
-	// borrowing for this kind.
-	if len(out) == 0 && kind != packdecl.KindFiles && !p.declares(kind) {
-		out = append(out, packdecl.Contribution{Kind: kind})
+	sources, _ := p.GovernedSources(kind)
+	type governor struct {
+		c        packdecl.Contribution
+		order    int
+		implicit bool
+	}
+	var govs []governor
+	seen := map[string]bool{}
+	for _, s := range sources {
+		key := s.By.SourceKey()
+		if seen[key] || (!s.Implicit && s.By.Into != "") {
+			continue
+		}
+		seen[key] = true
+		govs = append(govs, governor{c: s.By, order: s.order, implicit: s.Implicit})
+	}
+	sort.SliceStable(govs, func(i, j int) bool { return govs[i].order < govs[j].order })
+	out := make([]packdecl.Contribution, 0, len(govs))
+	for _, g := range govs {
+		if g.implicit {
+			out = append(out, packdecl.Contribution{Kind: kind})
+			continue
+		}
+		out = append(out, g.c)
 	}
 	return out
-}
-
-// declares reports whether the pack names any DESTINATION of its own for `kind`.
-//
-// A DESTINATION, not a contribution of the kind — and after briefing-audiences.md those are two
-// different questions. A contribution that names an AUDIENCE (`agents`) and no `into` has said
-// who its content is for and deliberately nothing about where that content goes, because where
-// an agent reads is the agent pack's business (P4). Reading it as a declaration would skip
-// inference for the kind entirely and deliver the prose NOWHERE — silently, since there is no
-// destination left to notice the absence at.
-//
-// Equivalent to the old `c.Kind == kind` for every manifest that predates the field: `into` was
-// required on all three staged-tree kinds, so a contribution of the kind always carried one.
-//
-// WHAT IT GUARDS IS NOW THE ZERO-CEREMONY BORROWER, not the whole kind (borrowingSources). The
-// narrowing matters for the pack that declares BOTH — an `into` for one destination it does know
-// about, and an addressed contribution beside it. Skipping the kind wholesale would drop the
-// addressed one on the floor without a word, which is the failure this predicate was tightened to
-// prevent, reached from the other side.
-func (p *Pack) declares(kind packdecl.Kind) bool {
-	for _, c := range p.Decl.Contributions() {
-		if c.Kind == kind && c.Into != "" {
-			return true
-		}
-	}
-	return false
 }
 
 // audienceOf is the set of agent names ONE borrowing contribution addresses, or nil when it names
@@ -347,11 +362,11 @@ func audienceOf(c packdecl.Contribution) map[string]bool {
 //     business and nothing the borrower could keep current (P4).
 //   - `from` comes from `src` — the borrowing contribution — and is EMPTY exactly when the
 //     borrower named no source, which resolves to the CONVENTIONAL one: this pack's own `skills/`
-//     or AGENTS.md. That is the whole shape of the thing: the destination is borrowed, the
+//     or the briefing/ files no declaration names (matched back by SourceKey, governance.go). That is the whole shape of the thing: the destination is borrowed, the
 //     content never is. It was hardcoded to "" until an ADDRESSED contribution could name a
 //     source of its own (§4.1) — for the zero-ceremony pack the two spellings are the same
 //     string, since it has no manifest to name a source in, but for `{from: "prose/claude.md",
-//     agents: ["claude"]}` blanking it substitutes the pack's conventional AGENTS.md for the file
+//     agents: ["claude"]}` blanking it substitutes the pack's conventional prose for the file
 //     the author addressed, silently. NEVER the DECLARING pack's `from`, which names a path in
 //     ITS tree — that is the inheritance TestResolveDestinationsDoesNotInheritTier pins.
 //   - THE TIER IS NOT INHERITED, and that inheritance is what S2 removed. It used to be, on the
@@ -397,9 +412,12 @@ func borrowedDestinations(src packdecl.Contribution, p *Pack, set []*Pack) []pac
 	var out []packdecl.Contribution
 	seen := map[string]bool{}
 	for _, other := range set {
-		// Skipping p makes the rule literal — the destinations come from the OTHER packs —
-		// rather than a consequence of the caller having already checked that p declares none.
-		if other == nil || other == p {
+		// p ITSELF IS IN THE SET, deliberately (pack-briefing-defaults.md P2, §3.5). A broadcast
+		// reaches every destination of its kind the selected set declares — the broadcasting
+		// pack's own included — and an agent pack shipping prose to its own agent addresses
+		// itself. The jail's nil audience already reaches those destinations, so skipping p here
+		// is what made the two notches diverge.
+		if other == nil {
 			continue
 		}
 		for _, c := range other.Decl.Contributions() {
@@ -470,7 +488,7 @@ func SlotLanding(kind packdecl.Kind, slot, pack string) string {
 // which is F1's own signature reached through the new field.
 //
 // Both arms ask THE RESOLVER THE RENDER WILL ASK, rather than re-deriving a path: SkillsSourceDir
-// for skills (hostskills.ComposeHostSkills' own call) and BriefingProseFor for briefing
+// for skills (hostskills.ComposeHostSkills' own call) and GovernedBriefingFor for briefing
 // (ComposeHostBriefings'). A probe that computed the source itself is how three readers came to
 // disagree about the conventional skills dir (skillssource.go's opening comment), and here it
 // would be worse than drift — a "carries" that says yes and a render that then delivers nothing
@@ -478,34 +496,32 @@ func SlotLanding(kind packdecl.Kind, slot, pack string) string {
 func (p *Pack) carriesFor(c packdecl.Contribution) bool {
 	switch c.Kind {
 	case packdecl.KindSkills:
-		dir, prob := p.SkillsSourceDir(c)
-		if dir == "" || prob != "" {
-			return false
-		}
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			return false
-		}
-		for _, e := range entries {
-			// Stat, not the DirEntry, matching hostskills.collectSkills: a symlink to a
-			// directory is a legitimate skill and an Lstat-shaped IsDir would drop it. Only
-			// directories count — a loose .md file in a skills dir is not a skill to any of
-			// these tools, so a pack holding only one carries nothing to deliver.
-			fi, serr := os.Stat(filepath.Join(dir, e.Name()))
-			if serr == nil && fi.IsDir() {
-				return true
+		// The governed tree for THIS contribution's key — the predicate's answer, not a
+		// re-derived path.
+		sources, _ := p.GovernedSources(packdecl.KindSkills)
+		for _, s := range governedBy(sources, c.SourceKey()) {
+			entries, err := os.ReadDir(s.Abs)
+			if err != nil {
+				continue
+			}
+			for _, e := range entries {
+				// Stat, not the DirEntry, matching hostskills.collectSkills: a symlink to a
+				// directory is a legitimate skill and an Lstat-shaped IsDir would drop it. Only
+				// directories count — a loose .md file in a skills dir is not a skill to any of
+				// these tools, so a pack holding only one carries nothing to deliver.
+				fi, serr := os.Stat(filepath.Join(s.Abs, e.Name()))
+				if serr == nil && fi.IsDir() {
+					return true
+				}
 			}
 		}
 		return false
 	case packdecl.KindBriefing:
-		// Non-blank, matching what the briefing renders honor: a whitespace-only file yields no
-		// block, so counting it as content would promise a delivery that then reports "ships no
-		// briefing prose". BriefingProseFor applies the same emptiness test (it right-trims and
-		// falls through), over BriefingCandidates rather than DefaultBriefingFiles alone — so a
-		// declared `from` is read first and the convention remains the fallback, which is that
-		// kind's contractual chain and not a widening invented here.
-		text, _ := p.BriefingProseFor(c)
-		return text != ""
+		// Non-blank, matching what the briefing renders honor: the predicate returns no source for
+		// a blank file, so a contribution carries prose exactly when some file it governs has any.
+		// No fallback: a declared `from` that is missing carries NOTHING (P4).
+		sources, _ := p.GovernedBriefingFor(c)
+		return len(sources) > 0
 	case packdecl.KindFiles:
 		// A `files` tree carries content when its declared source exists — the same question
 		// packFilesTargets asks at the jail notch. An empty `from` is the zero-ceremony shape

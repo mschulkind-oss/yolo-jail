@@ -89,7 +89,10 @@ func writeCensusPack(t *testing.T, dir string) {
 			t.Fatal(err)
 		}
 	}
-	write("AGENTS.md", "# census pack\n\nprose\n")
+	if err := os.MkdirAll(filepath.Join(dir, "briefing"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write("briefing/prose.md", "# census pack\n\nprose\n")
 	write("skills/censusskill/SKILL.md", "---\nname: censusskill\ndescription: d\n---\nbody\n")
 	write("files/marker.txt", "marker\n")
 	// The loophole module the `loophole` contribution names. `name` MUST equal the
@@ -109,7 +112,7 @@ func writeCensusPack(t *testing.T, dir string) {
 		packdecl.KindRequires: `{"kind":"requires","bin":"censusreq",` +
 			`"install_hints":{"brew":"census-req","apt":"census-req"}}`,
 		packdecl.KindSkills:   `{"kind":"skills","from":"skills","into":".census/skills"}`,
-		packdecl.KindBriefing: `{"kind":"briefing","from":"AGENTS.md","into":".census/AGENTS.md"}`,
+		packdecl.KindBriefing: `{"kind":"briefing","from":"briefing/prose.md","into":".census/AGENTS.md"}`,
 		packdecl.KindFiles:    `{"kind":"files","from":"files","into":".census/files"}`,
 		packdecl.KindConfig: `{"kind":"config","config":[{"agent":"census","name":"settings",` +
 			`"codec":"json","path":"~/.census/settings.json","mode":"rmw",` +

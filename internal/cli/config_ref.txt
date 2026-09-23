@@ -1083,7 +1083,7 @@
     Example (user config): {"neovim": "nightly", "pipx:some-tool": "latest"}
 
   [bold]packs[/bold] (array): Everything a jail has beyond a bare shell — a coding agent
-    and its config, shared skills, AGENTS.md prose.  [bold yellow]USER SCOPE ONLY[/bold yellow]: read from
+    and its config, shared skills, briefing prose.  [bold yellow]USER SCOPE ONLY[/bold yellow]: read from
     ~/.config/yolo-jail/config.jsonc directly, never from a workspace config.  A
     `packs` key in yolo-jail.jsonc is a `yolo check` error, because a workspace
     config travels with the repo and is agent-editable, so it must not decide what
@@ -1157,22 +1157,36 @@
                     own updater, while a distro package pins whatever that repo has.
                     So hints matter most on `requires`, where yolo installs nothing.
       skills        {from (pack dir), into (~ dir)} — merged (built-in < pack < yours).
-                    `from` IS honored, at both notches and by wrapped-plugin discovery; a
-                    pack with no manifest merges its skills/ dir.  A `from` naming a dir
-                    the pack lacks delivers nothing and says so (except the CONVENTIONAL
-                    skills/, whose absence is normal for a pack that only names a dest).
+                    `from` IS honored, at both notches and by wrapped-plugin discovery; it
+                    defaults to skills/.  A `from` naming a dir the pack lacks delivers
+                    nothing and says so; an absent CONVENTIONAL skills/ is silent.
                     Takes `agent` and `agents` on the same terms as `briefing` below: the
                     owning pack declares which agent reads a destination, and a content
-                    pack addresses its tree to a name instead of a path.
+                    pack addresses its tree to a name instead of a path — or names
+                    neither, and it reaches every skills destination.  skills/ is ONE
+                    unit: it broadcasts unless a contribution names it, so adding a
+                    narrower tree beside it keeps it broadcasting.
       briefing      {from, into, after:"host:<path>" to prepend your own file first,
-                    agent, agents}.  `agent` is the IDENTITY a destination declares for
-                    itself — the launcher command whose agent reads that `into`, declared
-                    by the pack that OWNS the name.  `agents` is the AUDIENCE a
-                    contribution names: deliver this prose only where a matching `agent`
-                    was declared.  A contribution gives `into` OR `agents`, never both —
-                    naming who it is for is what makes the destination inferable, and a
-                    content pack has no business naming a path it cannot keep current.
-                    NO `agents` means BROADCAST, which is what every pack does today.
+                    agent, agents}.  A pack's prose is every *.md directly inside its
+                    briefing/ dir (filename order), plus any file a `from` names.  A root
+                    AGENTS.md, CLAUDE.md or GEMINI.md is NEVER read: it is the pack
+                    repository's own instructions.  A `from` with one of those basenames,
+                    or such a file inside briefing/, is refused.  `from` names exactly ONE
+                    file; one that is missing or blank delivers nothing (a launch warns),
+                    and no other file is read in its place.  Omitted, `from` means every
+                    briefing/ file no other contribution names.
+                    `agent` is the IDENTITY a destination declares for itself — the
+                    launcher command whose agent reads that `into`, declared by the pack
+                    that OWNS the name.  A destination SOURCES NOTHING: `from` on one is
+                    refused.  `agents` is the AUDIENCE a content contribution names:
+                    deliver this prose only where a matching `agent` was declared.  A
+                    contribution gives `into` OR `agents`, never both — naming who it is
+                    for is what makes the destination inferable, and a content pack has
+                    no business naming a path it cannot keep current.  Giving NEITHER
+                    means BROADCAST, with or without a manifest: {"kind": "briefing"}.
+                    Each file has ONE governing contribution, so declarations only add:
+                    {"from": "files/pi.md", "agents": ["pi"]} beside briefing/ delivers
+                    both.  Two content contributions naming one source are refused.
                     One name has exactly ONE owning pack, across `program`, `launch`,
                     `briefing` and `skills`; two claimants is a launch error naming both.
                     The vocabulary is the packs you SELECTED and nothing wider: naming an
@@ -1182,8 +1196,8 @@
                     pack lint` reports the targeting and refuses nothing: it reads one pack
                     root with no config, so it cannot know what you selected.
       files         {from, into} — an opaque tree the pack owns, bind-mounted :ro at
-                    `into` in the jail.  Unlike skills/briefing, `from` IS honored (a
-                    file or a dir).  Sole-owned: two packs claiming one `into` is a
+                    `into` in the jail.  Unlike skills/briefing, `from` is REQUIRED (a
+                    file or a dir), and `into` or `agents` too: files never broadcasts.  Sole-owned: two packs claiming one `into` is a
                     launch error naming both.  At the HOST notch it is WRITTEN into
                     your real home rather than bound: only paths yolo's ownership
                     record claims, the previous copy archived first, and a render
@@ -1343,8 +1357,8 @@
                     nothing to read the endpoint.
     NOTE (shipped behavior): two packs declaring a skills `into` at the SAME path fail
     the jail at boot.  (This note also said a jail ignored `briefing.from` and read a
-    root AGENTS.md regardless.  That was fixed 2026-08-04 — both notches resolve
-    through one candidate chain, declared `from` first, the convention behind it.)
+    root AGENTS.md regardless.  Both notches now resolve every pack through one
+    predicate, and neither reads a root AGENTS.md at all.)
     Entry forms — a bare name, a source string, or an object:
       source      required unless the entry is a bare embedded-pack name.
                   file:///abs/path (local) or
@@ -1363,9 +1377,10 @@
     is built-in skills < pack skills < your own ~/.<agent>/skills, so a pack may
     override a yolo built-in but never a skill you wrote.
     Pack prose is appended to each briefing as plain text, one blank line between
-    packs (`briefing_provenance: true` labels each with its pack).  To EACH briefing unless
-    the contribution named an audience: prose carrying `agents` reaches only the
-    destinations whose owner declared a matching `agent`, at both notches.
+    files and between packs (`briefing_provenance: true` labels each pack's section
+    once).  To EACH briefing unless the file's contribution named an audience: prose
+    carrying `agents` reaches only the destinations whose owner declared a matching
+    `agent`, at both notches.
     Tooling: [bold]yolo pack init|lint|ls|explain|footprint[/bold].  `lint` runs the real
     staging rules (the escaping-symlink refusal) AND validates the pack.json
     manifest (unknown kind, missing field, unknown key — every problem, not the

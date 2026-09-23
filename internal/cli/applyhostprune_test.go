@@ -25,7 +25,7 @@ import (
 const dropPackJSON = `{"name":"dropme","description":"d","contributes":[
   {"kind":"skills","from":"skills","into":".claude/skills"},
   {"kind":"files","from":"bin","into":".claude/bin"},
-  {"kind":"briefing","from":"AGENTS.md","into":".claude/CLAUDE.md"}]}`
+  {"kind":"briefing","from":"briefing/prose.md","into":".claude/CLAUDE.md"}]}`
 
 // dropFixture writes a pack tree and a user config selecting it, and returns the home and the
 // pack dir. Selecting `claude` alongside is what makes the skills DESTINATION discoverable
@@ -38,7 +38,7 @@ func dropFixture(t *testing.T, packJSON string) (home, packDir string) {
 	writeFile(t, filepath.Join(packDir, "skills", "demo", "SKILL.md"),
 		"---\nname: demo\ndescription: d\n---\nDemo body.\n")
 	writeFile(t, filepath.Join(packDir, "bin", "pick.sh"), "#!/bin/sh\necho pick\n")
-	writeFile(t, filepath.Join(packDir, "AGENTS.md"), "Dropme prose.\n")
+	writeFile(t, filepath.Join(packDir, "briefing", "prose.md"), "Dropme prose.\n")
 
 	selectPacks(t, home, `"claude",{"source":"file://`+packDir+`","name":"dropme"}`)
 	t.Setenv("HOME", home)

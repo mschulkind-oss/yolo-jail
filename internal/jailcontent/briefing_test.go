@@ -105,6 +105,28 @@ func TestComposePackBriefingsLabelsEachPackWhenAsked(t *testing.T) {
 }
 
 // A pack with no briefing must leave no trace — no empty attributed section.
+// ONE LABEL PER CONTIGUOUS RUN of one pack's entries, never one per entry: a pack's several
+// briefing/ files are one section under the pack's one label (pack-briefing-defaults.md §3.1
+// "Joining"), and a file routed to a different agent is simply absent — it does not split the
+// section in two. The host composes the same bytes (run's TestJailAndHostComposeTheSameBriefing).
+func TestComposePackBriefingsLabelsAPacksFilesOnce(t *testing.T) {
+	packs := []PackBriefing{
+		{Name: "matt", Text: "House rules."},
+		{Name: "matt", Text: "Pi only.", Agents: []string{"pi"}},
+		{Name: "matt", Text: "Late rule."},
+		{Name: "zc", Text: "Zero."},
+	}
+	got := ComposePackBriefings("", packs, "claude", true)
+	want := "\n\n<!-- from pack: matt -->\nHouse rules.\n\nLate rule.\n\n<!-- from pack: zc -->\nZero.\n"
+	if got != want {
+		t.Errorf("claude:\n got %q\nwant %q", got, want)
+	}
+	got = ComposePackBriefings("", packs, "pi", false)
+	if want := "\n\nHouse rules.\n\nPi only.\n\nLate rule.\n\nZero.\n"; got != want {
+		t.Errorf("pi, unlabelled:\n got %q\nwant %q", got, want)
+	}
+}
+
 func TestComposePackBriefingsSkipsEmpty(t *testing.T) {
 	got := ComposePackBriefings("BASE\n", []PackBriefing{{Name: "quiet", Text: "  \n"}}, "claude", true)
 	if strings.Contains(got, "quiet") {

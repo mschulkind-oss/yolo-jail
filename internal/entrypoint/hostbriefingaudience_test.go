@@ -146,7 +146,7 @@ func TestHostNotchStillBroadcastsAnUnaudiencedContribution(t *testing.T) {
 	got := composeAudienced(t, t.TempDir(),
 		identityPack(t, "claude", ".claude/CLAUDE.md", "claude"),
 		identityPack(t, "codex", ".codex/AGENTS.md", "codex"),
-		addressedPack(t, "house", "AGENTS.md", "Everyone's rule.\n"))
+		addressedPack(t, "house", "briefing/everyone.md", "Everyone's rule.\n"))
 
 	for _, dest := range []string{".claude/CLAUDE.md", ".codex/AGENTS.md"} {
 		if !strings.Contains(got[dest], "Everyone's rule.") {
@@ -255,6 +255,87 @@ func TestResolutionRecordsWhatAnAddressedContributionReached(t *testing.T) {
 		if len(o.Orphaned) != 1 || o.Orphaned[0].Kind != packdecl.KindBriefing {
 			t.Errorf("the kind-level orphan signal every existing reader keys on must survive; "+
 				"got %v", o.Orphaned)
+		}
+	}
+}
+
+// govPack is a content pack over a pack-relative file map with the given contributions — the
+// shapes pack-briefing-defaults.md §3.3 governs per file.
+func govPack(t *testing.T, name string, files map[string]string,
+	contributes ...packdecl.Contribution) *packload.Pack {
+	t.Helper()
+	root := t.TempDir()
+	for rel, body := range files {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return &packload.Pack{Name: name, Root: root,
+		Decl: &packdecl.Manifest{Contributes: contributes}}
+}
+
+// A DECLARED BROADCAST — `{"kind": "briefing"}`, neither `into` nor `agents` — reaches every
+// destination at the host notch (P2, now spellable in a manifest), carrying every briefing/ file.
+func TestHostNotchDeliversADeclaredBroadcast(t *testing.T) {
+	got := composeAudienced(t, t.TempDir(),
+		identityPack(t, "claude", ".claude/CLAUDE.md", "claude"),
+		identityPack(t, "codex", ".codex/AGENTS.md", "codex"),
+		govPack(t, "house", map[string]string{"briefing/a.md": "A.\n", "briefing/b.md": "B.\n"},
+			packdecl.Contribution{Kind: packdecl.KindBriefing}))
+	for _, dest := range []string{".claude/CLAUDE.md", ".codex/AGENTS.md"} {
+		if got[dest] != "A.\n\nB.\n" {
+			t.Errorf("%s = %q, want both briefing/ files, in filename order", dest, got[dest])
+		}
+	}
+}
+
+// ONE PACK IS ONE SECTION at one destination, sorted by filename and under ONE label — however
+// many contributions carry its files there, and in whatever order they are declared. Appending
+// per contribution (the pre-change host compose) interleaved them by `contributes` order and
+// labelled each, which the jail never did.
+func TestHostNotchComposesOnePackAsOneSortedSection(t *testing.T) {
+	files := map[string]string{
+		"briefing/a.md": "A.\n", "briefing/c.md": "C.\n", "extra/b.md": "B.\n",
+	}
+	for _, order := range [][]int{{0, 1}, {1, 0}} {
+		cs := []packdecl.Contribution{
+			{Kind: packdecl.KindBriefing, From: "extra/b.md", Agents: []string{"claude"}},
+			{Kind: packdecl.KindBriefing, From: "briefing/c.md", Agents: []string{"claude"}},
+		}
+		house := govPack(t, "house", files, cs[order[0]], cs[order[1]])
+		resolved, _ := packload.ResolveDestinations([]*packload.Pack{
+			identityPack(t, "claude", ".claude/CLAUDE.md", "claude"), house})
+		home := t.TempDir()
+		dests := ComposeHostBriefings(resolved, home, true)
+		if len(dests) != 1 {
+			t.Fatalf("destinations = %+v, want claude's alone", dests)
+		}
+		want := "<!-- from pack: house -->\nA.\n\nC.\n\nB.\n"
+		if dests[0].Content != want {
+			t.Errorf("order %v: content = %q, want %q", order, dests[0].Content, want)
+		}
+		if wantPacks := []string{"claude", "house"}; strings.Join(dests[0].Packs, ",") !=
+			strings.Join(wantPacks, ",") {
+			t.Errorf("order %v: Packs = %v, want each pack once: %v", order, dests[0].Packs, wantPacks)
+		}
+	}
+}
+
+// An agent pack's own briefing/ prose reaches ITS OWN destination as well as every other (P2,
+// §3.5). The host used to skip the broadcasting pack's own destinations while the jail reached
+// them.
+func TestHostNotchBroadcastReachesTheBroadcastingPacksOwnDestination(t *testing.T) {
+	claude := govPack(t, "claude", map[string]string{"briefing/own.md": "Own.\n"},
+		packdecl.Contribution{Kind: packdecl.KindBriefing, Agent: "claude", Into: ".claude/CLAUDE.md"})
+	got := composeAudienced(t, t.TempDir(), claude,
+		identityPack(t, "pi", ".pi/agent/AGENTS.md", "pi"))
+	for _, dest := range []string{".claude/CLAUDE.md", ".pi/agent/AGENTS.md"} {
+		if got[dest] != "Own.\n" {
+			t.Errorf("%s = %q, want the claude pack's own prose", dest, got[dest])
 		}
 	}
 }

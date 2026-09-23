@@ -130,7 +130,7 @@ func TestApplyHostNoDestinationKeepsTheIntoRemedy(t *testing.T) {
 			`{"kind":"skills","from":"skills","into":".solo/skills"}]}`)
 	writeFile(t, filepath.Join(packDir, "skills", "sskill", "SKILL.md"),
 		"---\nname: sskill\ndescription: d\n---\nbody\n")
-	writeFile(t, filepath.Join(packDir, "AGENTS.md"), "Solo prose.\n")
+	writeFile(t, filepath.Join(packDir, "briefing", "prose.md"), "Solo prose.\n")
 	selectPacks(t, home, `{"source":"file://`+packDir+`","name":"solo"}`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))

@@ -138,7 +138,7 @@ func TestDecodeTolerantStillValidatesStructure(t *testing.T) {
 	// still malformed in a way both agree on, so it must fail at both decoders.
 	for name, manifest := range map[string]string{
 		"missing kind":    `{"name":"a","contributes":[{"into":"x"}]}`,
-		"missing field":   `{"name":"a","contributes":[{"kind":"skills","from":"skills"}]}`,
+		"missing field":   `{"name":"a","contributes":[{"kind":"files","from":"tree"}]}`,
 		"bad skills_tier": `{"name":"a","skills_tier":"nope"}`,
 	} {
 		if _, problems, _ := DecodeTolerant([]byte(manifest)); len(problems) == 0 {

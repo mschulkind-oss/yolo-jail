@@ -20,6 +20,7 @@ package cli
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -55,7 +56,7 @@ import (
 // true rather than being contradicted by six silently-active packs.
 const packUsage = `yolo pack — author and inspect agent config packs
 
-A pack is a directory of jail CONFIG — skills, briefing prose (AGENTS.md), composed
+A pack is a directory of jail CONFIG — skills, briefing prose (briefing/*.md), composed
 config files, and optionally a tool to install — delivered into every jail you launch.
 Everything a jail has beyond a bare shell arrives as a pack: with no packs configured, a
 jail gets nothing but the built-ins, and no coding agent.
@@ -65,9 +66,16 @@ What a pack delivers:
   • a SHARED pack of your own skills and house rules, applied in every project
   • per-project narrowing of that corpus, via only/exclude
 
-A zero-ceremony pack needs no manifest: a skills/ dir and an AGENTS.md at the pack
-root are staged as-is. A pack.json adds a "contributes" list, one typed entry per
-effect, with a "kind" from a closed set:
+A zero-ceremony pack needs no manifest: its skills/ tree and every *.md directly inside
+its briefing/ dir reach every selected agent. A root AGENTS.md, CLAUDE.md or GEMINI.md
+is NEVER shipped — agent tools read those names as the pack REPOSITORY's own
+instructions — so shipped prose lives under briefing/.
+
+A pack.json adds a "contributes" list, one typed entry per effect, with a "kind" from a
+closed set. A "skills" or "briefing" entry naming neither "into" nor "agents" is a
+broadcast, to every agent. Each entry governs only the files its "from" names (an
+omitted briefing "from" names every briefing/*.md no other entry names), so declaring
+one file's audience never stops another file from shipping:
 
   program          install a tool onto PATH ("protocols" names the wire protocols
                    that tool can be pointed at, in preference order)
@@ -235,10 +243,17 @@ func packMain(args []string, out, errw io.Writer, color bool) int {
 	}
 }
 
-// packInit scaffolds a minimal, VALID pack: a skills dir with one real skill and an
-// AGENTS.md. It writes a working example rather than empty placeholders, because the
-// first question an author has is "what shape does this need to be", and an empty
-// dir answers nothing.
+// packInit scaffolds a minimal, VALID pack: a skills dir with one real skill and one briefing
+// file, briefing/<pack>.md. It writes a working example rather than empty placeholders, because
+// the first question an author has is "what shape does this need to be", and an empty dir answers
+// nothing.
+//
+// THE PROSE IS UNDER briefing/, NEVER A ROOT AGENTS.md (pack-briefing-defaults.md P1). This
+// scaffold used to write AGENTS.md, which every agent tool also reads as the pack REPOSITORY's own
+// instructions, and then advised an addressed contribution that silently switched that file off
+// (§2.2). The advice now lives in the README, which ships nowhere, and it shows the two shapes the
+// per-file rule (§3.3) makes safe: a contribution naming a NEW file ADDS an audience beside the
+// broadcast, and one naming a briefing/ file narrows that file alone.
 //
 // --from-plugin <dir> wraps an EXISTING agent plugin instead, which is what turns "you can
 // pull in a plugin" from documented into trivial.
@@ -270,25 +285,20 @@ func packInit(args []string, out, errw io.Writer) int {
 		return packInitFromPlugin(fromPlugin, abs, name, out, errw)
 	}
 
+	briefingRel := scaffoldBriefingRel(name)
 	type packFile struct{ rel, content string }
 	files := []packFile{
-		{"AGENTS.md", "# " + name + "\n\n" +
-			"Prose here is appended to every selected agent's briefing, as plain text.\n" +
-			"Write instructions an agent should follow in every project using this pack.\n\n" +
-			"To address ONE agent instead, declare a briefing that names its audience and\n" +
-			"no path: {\"kind\": \"briefing\", \"from\": \"prose/claude.md\",\n" +
-			"\"agents\": [\"claude\"]} — where that agent reads is its own pack's business.\n"},
+		{briefingRel, "# " + name + "\n\n" +
+			"Replace this with instructions an agent should follow in every project using\n" +
+			"this pack. Every *.md directly inside briefing/ is appended to every selected\n" +
+			"agent's briefing, as plain text.\n"},
 		{filepath.Join("skills", "example", "SKILL.md"), "---\n" +
 			"name: example\n" +
 			"description: Replace this with when the agent should read this skill. This line is what an agent sees when deciding whether to open it, so make it specific.\n" +
 			"---\n\n# Example skill\n\n" +
 			"Skills land in each agent's skills dir. A pack skill overrides a yolo\n" +
 			"built-in of the same name, but never the user's own local skill.\n"},
-		{"README.md", "# " + name + "\n\n" +
-			"A yolo-jail agent config pack. Consume it by adding to\n" +
-			"`~/.config/yolo-jail/config.jsonc`:\n\n" +
-			"```jsonc\n\"packs\": [\"file://" + abs + "\"]\n```\n\n" +
-			"Validate changes with `yolo pack lint`.\n"},
+		{"README.md", scaffoldReadme(name, abs, briefingRel)},
 	}
 	// A SLICE, not a map: `init` output must be deterministic, and Go map iteration
 	// is not.
@@ -299,6 +309,50 @@ func packInit(args []string, out, errw io.Writer) int {
 	}
 	fmt.Fprintf(out, "\nPack scaffolded at %s\nNext: yolo pack lint %s\n", abs, dir)
 	return 0
+}
+
+// scaffoldBriefingRel is the pack-relative briefing file `pack init` writes: briefing/<pack>.md,
+// slash-separated (it is shown to the author and compared against lint's listing).
+//
+// A pack directory NAMED like a repository instruction file (a dir called `CLAUDE`) would scaffold
+// briefing/CLAUDE.md, which LoadDir refuses (OQ-PB2) — so the scaffold would fail its own lint.
+// That one case falls back to a neutral name.
+func scaffoldBriefingRel(name string) string {
+	rel := packdecl.DefaultBriefingDir + "/" + name + ".md"
+	if !packdecl.ConventionalBriefingFile(rel) || packdecl.RepositoryInstructionFile(rel) {
+		rel = packdecl.DefaultBriefingDir + "/prose.md"
+	}
+	return rel
+}
+
+// scaffoldAddressedExample is the one-contribution manifest the scaffold's README tells an author
+// to write to ADD prose for one agent. A function, not a literal inside the README, so the test
+// that follows the advice (packlintdeliveries_test.go) writes the same bytes the author reads.
+func scaffoldAddressedExample(name string) string {
+	quoted, _ := json.Marshal(name) // a directory name may carry a quote
+	return `{"name": ` + string(quoted) + `, "contributes": [` + "\n" +
+		`  {"kind": "briefing", "from": "prose/claude.md", "agents": ["claude"]}]}`
+}
+
+// scaffoldReadme is the scaffolded README: how to consume the pack, and how its prose is routed.
+func scaffoldReadme(name, abs, briefingRel string) string {
+	return "# " + name + "\n\n" +
+		"A yolo-jail agent config pack. Consume it by adding to\n" +
+		"`~/.config/yolo-jail/config.jsonc`:\n\n" +
+		"```jsonc\n\"packs\": [\"file://" + abs + "\"]\n```\n\n" +
+		"Validate changes with `yolo pack lint`, which lists every delivery.\n\n" +
+		"## Briefing prose\n\n" +
+		"Every `*.md` directly inside `briefing/` reaches every selected agent's briefing,\n" +
+		"with no manifest. A root `AGENTS.md` or `CLAUDE.md` is this repository's own agent\n" +
+		"instructions and is never shipped.\n\n" +
+		"To ADD prose for one agent, keep the broadcast and declare only the new file's\n" +
+		"audience, in a `pack.json`:\n\n" +
+		"```json\n" + scaffoldAddressedExample(name) + "\n```\n\n" +
+		"`" + briefingRel + "` still reaches every agent; `prose/claude.md` reaches claude\n" +
+		"only. Where that agent reads is its own pack's business.\n\n" +
+		"To NARROW a file that is already in `briefing/`, name it:\n" +
+		"`{\"kind\": \"briefing\", \"from\": \"" + briefingRel + "\", \"agents\": [\"claude\"]}`.\n" +
+		"Every other `briefing/` file keeps broadcasting.\n"
 }
 
 // writeScaffoldFile writes one scaffolded file, never clobbering: `init` on an existing pack
@@ -414,11 +468,29 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	// only/exclude is reported as absent rather than linted as if it shipped.
 	problems = append(problems, pack.LoopholeDeclProblems()...)
 
-	// The skills SOURCE dirs this pack actually delivers from, pack-relative. Every
-	// `skills` contribution's `from`, or the conventional dir when the manifest names none.
-	skillRoots := pack.Decl.SkillsSources()
-	if len(skillRoots) == 0 {
-		skillRoots = []string{packdecl.DefaultSkillsDir}
+	// WHAT THIS PACK DELIVERS, from the one governance predicate every notch reads
+	// (packload.GovernedSources, pack-briefing-defaults.md R5) — never re-derived here. A linter
+	// spelling the rule a second time is a linter free to disagree with the jail, and the rule it
+	// would have to spell is per FILE (§3.3): the conventional skills/ tree and every unnamed
+	// briefing/*.md keep broadcasting beside any narrower declaration.
+	skillSources, _ := pack.GovernedSources(packdecl.KindSkills)
+	briefingSources, briefingProblems := pack.GovernedSources(packdecl.KindBriefing)
+
+	// The skills SOURCE dirs this pack actually delivers from, pack-relative: every content
+	// contribution's source that exists, plus skills/ when nothing names it.
+	var skillRoots []string
+	for _, src := range skillSources {
+		skillRoots = append(skillRoots, src.Rel)
+	}
+
+	// §3.4: a declared briefing `from` that is absent, not a file, or blank delivers NOTHING and
+	// is reported — at lint, the treatment an unreadable `skills` source gets below, which is a
+	// failure. Only when the manifest itself decoded clean: a manifest problem (an escaping or
+	// reserved `from`) is already reported by LoadDir, and the predicate would say it twice.
+	missingBriefingSource := false
+	if len(manifestProblems) == 0 && len(briefingProblems) > 0 {
+		missingBriefingSource = true
+		problems = append(problems, briefingProblems...)
 	}
 	// A NON-CONVENTIONAL `from` that stages nothing delivers nothing, at either notch.
 	// Reported as a lint failure because this is the authoring boundary: `from` used to be
@@ -436,8 +508,8 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	// convention) is exempt for the same reason an explicit `"skills"` is.
 	missingSkillsSource := false
 	for _, c := range pack.Decl.Contributions() {
-		if c.Kind != packdecl.KindSkills {
-			continue
+		if c.Kind != packdecl.KindSkills || c.Agent != "" {
+			continue // a DESTINATION sources nothing (P5)
 		}
 		src := c.SkillsSource()
 		if path.Clean(src) == packdecl.DefaultSkillsDir {
@@ -487,7 +559,12 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	// message, so it was useless in the one case it existed for.
 	//
 	// The two honest questions, separated (docs/plans/roadmap.md §7):
-	claimed, unclaimed := stagedContent(res.Staged, pack, skillRoots)
+	briefingRels := make([]string, 0, len(briefingSources))
+	for _, src := range briefingSources {
+		briefingRels = append(briefingRels, src.Rel)
+	}
+	claimed, unclaimed := stagedContent(res.Staged, pack, append(skillRoots, briefingRels...))
+	notes := unshippedNotes(res.Staged, briefingRels)
 
 	// The two are MUTUALLY EXCLUSIVE by construction, not by accident: a pack that declares
 	// nothing gets question 1's answer and a pack that declares something gets question 2's,
@@ -500,7 +577,7 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	// one, and printing a second, contradictory line beside it is how a fixed rule becomes new
 	// noise.
 	switch {
-	case missingSkillsSource, missingFilesSource:
+	case missingSkillsSource, missingFilesSource, missingBriefingSource:
 		// Already diagnosed, precisely. `files` joins this arm for the identical reason
 		// skills is here: a typo'd `from` leaves the pack's real tree UNCLAIMED, so question
 		// 2 fires too — telling the author to "move them under skills/" content that is
@@ -508,17 +585,24 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	// 1. DOES THIS PACK DO ANYTHING? Zero declared contributions AND nothing a reader picks
 	//    up by convention. Both halves are required: the pack `pack init` scaffolds has no
 	//    pack.json at all, and the jail's zero-ceremony merge still delivers its skills/ tree
-	//    and its AGENTS.md (packload.SkillsSourceDirs' and packload.BriefingProseFor's
-	//    undeclared fallbacks) — so "declares nothing" alone would fail-lint the scaffold.
+	//    and its briefing/*.md (packload.GovernedSources' implicit broadcast) — so "declares
+	//    nothing" alone would fail-lint the scaffold.
 	case len(pack.Decl.Contributions()) == 0 && len(claimed) == 0:
 		msg := "pack declares ZERO contributions and ships nothing read by convention — it " +
 			"would do nothing in a jail. Add a contributes[] entry to pack.json " +
-			"(`yolo pack --help` lists the kinds), or ship a skills/ tree or an AGENTS.md, " +
-			"which a jail reads with no manifest at all"
+			"(`yolo pack --help` lists the kinds), or ship a skills/ tree or prose under " +
+			"briefing/, which a jail reads with no manifest at all"
 		if len(unclaimed) > 0 {
 			// Name what it DID stage. "Does nothing" is hard to believe while looking at a
 			// directory full of files, and the files are the evidence for the claim.
 			msg += " (staged, and read by nothing: " + strings.Join(sampleOf(unclaimed, 3), ", ") + ")"
+		}
+		if roots := rootInstructionFiles(res.Staged); len(roots) > 0 {
+			// The likeliest reason a pack reaches this line since the move: its prose is a root
+			// AGENTS.md, which is the repository's and never shipped (P1). Said here as well as
+			// in the info lines, because this is the line the author reads first.
+			msg += " (" + strings.Join(roots, ", ") + " is not shipped: a repository's own agent " +
+				"instructions — move shipped prose under briefing/)"
 		}
 		problems = append(problems, msg)
 
@@ -531,7 +615,7 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	case len(claimed) == 0 && len(unclaimed) > 0:
 		problems = append(problems, fmt.Sprintf(
 			"pack stages %d file(s) nothing reads (%s) — no contribution names those paths, "+
-				"and none is in a conventionally-read location (skills/, AGENTS.md). Name them "+
+				"and none is in a conventionally-read location (skills/, briefing/*.md). Name them "+
 				"with a `skills`/`files`/`briefing` contribution, or move them under skills/",
 			len(unclaimed), strings.Join(sampleOf(unclaimed, 3), ", ")))
 	}
@@ -561,38 +645,48 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 		for _, p := range problems {
 			pr.Printf("[red]✗[/red] %s", p)
 		}
+		// The not-shipped lines print on failure too: a pack failing "does nothing" because its
+		// prose is a root AGENTS.md needs exactly that line to know why.
+		printUnshippedNotes(pr, notes)
 		return 1
 	}
 
 	pr.Printf("[green]✓[/green] pack ok — %d file(s) stage", len(res.Staged))
+	printPackDeliveries(pr, pack, skillSources, briefingSources)
+	printUnshippedNotes(pr, notes)
 
-	// Advice: if a custom pack explicitly declares `briefing` or `skills` into a destination
-	// an AGENT PACK already owns, remind the author that a root-level AGENTS.md or skills/
-	// is routed there anyway — destinations are the union across selected packs and the
-	// content copied into each is the union of every pack's tree (run.packSkillTargets +
-	// jailcontent.PrepareSkills), so re-declaring one buys nothing.
+	// Advice: a custom pack whose CONTENT contribution names an `into` an AGENT PACK already
+	// declares is told what that line DOES, which is narrow. Under per-file governance
+	// (pack-briefing-defaults.md §3.3) the line routes the files it governs to that one path at
+	// the host notch, and dropping it returns them to the broadcast — every destination the
+	// selected packs declare. So dropping it WIDENS delivery. This advisory used to say the line
+	// "adds nothing (drop it…)", which was backwards in the direction that matters (§2.6): an
+	// author following it sent prose meant for one agent to all of them.
 	//
 	// DERIVED FROM THE PACKS, never a literal list. It was a literal until 2026-08-31, and
 	// by then 5 of its 11 entries were wrong: it still named `.gemini/antigravity-cli/skills`
 	// after agy moved to `.gemini/config/skills`, named `.opencode/AGENTS.md` and
 	// `.opencode/skills` when opencode uses `.config/opencode/`, and named `.claude/AGENTS.md`
 	// which no pack has ever declared. A stale entry does not merely fail to advise — it
-	// advises WRONGLY, and this one told an author to delete the contribution that was the
-	// only thing delivering their skills.
+	// advises WRONGLY.
+	//
+	// A DESTINATION (`agent` set) is not advised on: it sources nothing (P5), so it has no
+	// delivery to widen or narrow.
 	for i, c := range pack.Decl.Contributions() {
-		if c.Kind != packdecl.KindBriefing && c.Kind != packdecl.KindSkills {
+		if (c.Kind != packdecl.KindBriefing && c.Kind != packdecl.KindSkills) || c.Agent != "" {
 			continue
 		}
 		owner, owned := agentPackDest(c.Kind, c.Into, pack.Name)
 		if !owned {
 			continue
 		}
-		kindSrc := "AGENTS.md"
-		if c.Kind == packdecl.KindSkills {
-			kindSrc = "skills/"
-		}
-		pr.Printf("[yellow]ℹ[/yellow] contributes[%d]: %s into %q is already declared by the %s pack — root-level %s in your pack is routed to every destination the selected packs declare, so this line adds nothing (drop it, unless you need the destination when %s is NOT selected; to reach %s and NOTHING ELSE, replace `into` with `agents: [\"%s\"]`)",
-			i, c.Kind, c.Into, owner, kindSrc, owner, owner, owner)
+		pr.Printf("[yellow]ℹ[/yellow] contributes[%d]: %s into %q is already declared by the %s "+
+			"pack. This line sends %s to that one path at `yolo host apply` (in a jail, every "+
+			"agent receives it either way). Dropping it WIDENS that delivery, to every agent the "+
+			"selected packs provide. Keep it if you need "+
+			"that path when %s is NOT selected; to reach %s and NOTHING ELSE, replace `into` "+
+			"with `agents: [\"%s\"]`",
+			i, c.Kind, c.Into, owner, governedDescription(c), owner, owner, owner)
 	}
 
 	// The footprint: what this pack CLAIMS on the environment. An author who never
@@ -695,53 +789,61 @@ func reportShippedSurfaceClash(pr richtext.Printer, p *packload.Pack) {
 // README is a legitimate shape, and flagging its README would make the replacement check
 // noise for exactly the packs the rule it replaced wrongly rejected. Root-level only: a
 // README INSIDE a skills dir is content, and is claimed by that dir anyway.
+//
+// A root AGENTS.md, CLAUDE.md or GEMINI.md is ALSO not content, and is tested through
+// packdecl.RepositoryInstructionFile rather than listed here, so the names have one authority.
+// It is the repository's own agent instructions (pack-briefing-defaults.md P1): not shipping it
+// is correct for a repository pack, so it draws an INFO line (unshippedNotes), never "nothing
+// reads this" — something does read it, just not yolo.
 var packNonContentFiles = map[string]bool{
 	"pack.json": true, "pack.jsonc": true, "derive.lua": true,
 	"README.md": true, "LICENSE": true, "LICENSE.md": true, "CHANGELOG.md": true,
 	".gitignore": true, ".gitattributes": true,
 }
 
+// isNonContentRootFile reports whether a staged pack-relative path is a root-level file that is
+// not pack content (packNonContentFiles, or a repository instruction file).
+func isNonContentRootFile(staged string) bool {
+	if strings.Contains(staged, "/") {
+		return false
+	}
+	return packNonContentFiles[staged] || packdecl.RepositoryInstructionFile(staged)
+}
+
 // stagedContent splits a pack's staged files into the ones some reader would pick up
 // (CLAIMED — named by a contribution's source, or sitting in a conventionally-read
 // location) and the ones nothing reads (UNCLAIMED). Non-content files (the manifest, the
-// derive script, repo hygiene) are in neither.
+// derive script, repo hygiene, the repository's own instruction files) are in neither.
 //
 // It answers the question `pack lint`'s old "neither a skills/ dir nor an AGENTS.md" rule
 // was reaching for and got wrong. The difference is that this asks about the CLAIMS a pack
 // makes rather than about two hardcoded paths, so a `files` tree, a non-conventional
 // `skills` source and a declared `briefing` all count as read — which they are.
 //
-// skillRoots is the resolved skills sources (SkillsSources(), or the conventional dir when
-// the manifest declares none), passed in because the caller already computed it and the two
-// must agree: a pack whose skills the linter reads from one dir and counts as claimed in
-// another is the same silent-ignore bug in a new place.
-func stagedContent(staged []string, pack *packload.Pack, skillRoots []string) (claimed, unclaimed []string) {
-	// Every pack-relative path a reader looks at. Dirs and single files both, since
-	// `briefing.from` names a file and `skills.from` names a dir.
-	sources := append([]string{}, skillRoots...)
-	// The conventional briefing file is read whether or not a `briefing` contribution names
-	// it: a pack with no manifest at all still contributes it (the undeclared fallback both
-	// notches apply — run.packBriefingProses and packload.ResolveDestinations), and a declared
-	// `from` falls back to it (BriefingCandidates).
-	//
-	// READ FROM packdecl, never re-listed here. This was a hardcoded {"AGENTS.md",
-	// "CLAUDE.md"} and it went stale the day CLAUDE.md left DefaultBriefingFiles
-	// (2026-08-17, pack-code-separation.md §3.3): lint went on counting a root CLAUDE.md as
-	// CLAIMED — "some reader picks this up" — after every reader had stopped, so the check
-	// whose whole job is to say when nothing reads a file said nothing about the one file
-	// nothing read. A second copy of a convention is a copy that drifts silently, which is
-	// the same failure mode the `from` resolvers were unified to end (briefingsource.go).
-	sources = append(sources, packdecl.DefaultBriefingFiles()...)
+// delivered is every source the governance predicate says this pack delivers — the skills
+// dirs and the briefing files, implicit ones included (packload.GovernedSources) — passed in
+// because the caller already computed it and the two must agree: a pack whose content the
+// linter reads from one place and counts as claimed in another is the same silent-ignore bug
+// in a new place. That is also why no briefing convention is listed here any more. This used
+// to append packdecl's retired default-briefing-file list (a root AGENTS.md), and before that
+// a hardcoded {"AGENTS.md", "CLAUDE.md"} that went on counting CLAUDE.md as claimed after every
+// reader had stopped; the predicate is the one list, so it cannot drift from what a jail reads.
+func stagedContent(staged []string, pack *packload.Pack, delivered []string) (claimed, unclaimed []string) {
+	// Every pack-relative path a reader looks at. Dirs and single files both.
+	sources := append([]string{}, delivered...)
 	for _, c := range pack.Decl.Contributions() {
 		switch c.Kind {
-		// KindLoophole is here for the same reason as the other two: its `from` names a
+		// KindLoophole is here for the same reason as `files`: its `from` names a
 		// DIRECTORY of content a reader picks up — internal/loopholes loads
 		// <from>/manifest.jsonc, and everything the manifest references ({loophole_dir}/x)
 		// resolves inside that dir. Omitted, `pack lint` rejected every pack whose only
 		// contribution is a loophole ("stages N file(s) nothing reads", naming the manifest
 		// the whole pack exists to deliver), which is the accepted-and-ignored shape this
 		// check was rewritten to stop producing.
-		case packdecl.KindFiles, packdecl.KindBriefing, packdecl.KindLoophole:
+		//
+		// KindBriefing is NOT here: its delivered files are in `delivered`, and a declared
+		// `from` that delivers nothing (absent, blank) is not "claimed" by being named.
+		case packdecl.KindFiles, packdecl.KindLoophole:
 			if c.From != "" {
 				sources = append(sources, c.From)
 			}
@@ -749,7 +851,7 @@ func stagedContent(staged []string, pack *packload.Pack, skillRoots []string) (c
 	}
 
 	for _, s := range staged {
-		if !strings.Contains(s, "/") && packNonContentFiles[s] {
+		if isNonContentRootFile(s) {
 			continue
 		}
 		if stagedPathClaimed(s, sources) {
@@ -759,6 +861,159 @@ func stagedContent(staged []string, pack *packload.Pack, skillRoots []string) (c
 		unclaimed = append(unclaimed, s)
 	}
 	return claimed, unclaimed
+}
+
+// deliveryNote is one conventional-looking staged path lint will NOT ship, and why
+// (pack-briefing-defaults.md §3.6, P6). Info, never a failure.
+type deliveryNote struct{ rel, why string }
+
+// The two §3.6 reasons, verbatim from the design so the author reads the rule, not a paraphrase.
+const (
+	notShippedRepositoryFile = "not shipped: this is the repository's own agent instructions — " +
+		"ship prose under briefing/"
+	notReadInBriefingDir = "not read: briefing/ is read one level deep, *.md only"
+)
+
+// rootInstructionFiles is the root-level repository instruction files a pack staged, in
+// packdecl's name order.
+func rootInstructionFiles(staged []string) []string {
+	have := map[string]bool{}
+	for _, s := range staged {
+		have[s] = true
+	}
+	var out []string
+	for _, n := range packdecl.RepositoryInstructionFileNames() {
+		if have[n] {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// unshippedNotes names every conventional-looking staged file the pack will not ship: a root
+// AGENTS.md/CLAUDE.md/GEMINI.md (the repository's, P1), and anything inside briefing/ that the
+// convention does not read — a subdirectory (named once) or a non-*.md file. A path a declared
+// `from` names IS delivered, so it is never named here; delivered is the governance predicate's
+// briefing Rels.
+//
+// A reserved name INSIDE briefing/ (briefing/AGENTS.md) is not named here: LoadDir refuses it,
+// fatally, with the move (OQ-PB2).
+func unshippedNotes(staged, delivered []string) []deliveryNote {
+	var notes []deliveryNote
+	for _, n := range rootInstructionFiles(staged) {
+		notes = append(notes, deliveryNote{n, notShippedRepositoryFile})
+	}
+	isDelivered := map[string]bool{}
+	for _, d := range delivered {
+		isDelivered[d] = true
+	}
+	prefix := packdecl.DefaultBriefingDir + "/"
+	subdirUnread := map[string]bool{}
+	var subdirs []string
+	for _, s := range staged {
+		rest, ok := strings.CutPrefix(s, prefix)
+		if !ok || isDelivered[s] {
+			continue
+		}
+		if sub, _, nested := strings.Cut(rest, "/"); nested {
+			if !subdirUnread[sub] {
+				subdirUnread[sub] = true
+				subdirs = append(subdirs, prefix+sub+"/")
+			}
+			continue
+		}
+		if !packdecl.ConventionalBriefingFile(s) {
+			notes = append(notes, deliveryNote{s, notReadInBriefingDir})
+		}
+	}
+	for _, d := range subdirs {
+		notes = append(notes, deliveryNote{d, notReadInBriefingDir})
+	}
+	return notes
+}
+
+// printUnshippedNotes prints unshippedNotes, one info line each.
+func printUnshippedNotes(pr richtext.Printer, notes []deliveryNote) {
+	for _, n := range notes {
+		pr.Printf("[yellow]ℹ[/yellow] %s: %s", n.rel, n.why)
+	}
+}
+
+// printPackDeliveries is lint's delivery listing (pack-briefing-defaults.md §3.6, P6): every
+// `briefing` file and `skills` tree this pack delivers, where each one goes, and which are the
+// IMPLICIT broadcast — the deliveries no line of the manifest names, and so the ones an author
+// cannot see by reading it.
+//
+// Built from the governance predicate the three notches read (the caller passes its answers),
+// and deliberately NOT from packload.FootprintOf: the footprint feeds Collisions and the launch
+// banners, so an implicit claim added there would change launch output.
+//
+// What lint cannot see is the selected pack set — it takes one pack and no config — so a
+// broadcast says "every agent", and the resolved list is `yolo host apply`'s and the launch
+// banner's to print.
+func printPackDeliveries(pr richtext.Printer, p *packload.Pack, skills, briefing []packload.GovernedSource) {
+	if len(skills)+len(briefing) == 0 {
+		return
+	}
+	// The declaration index of each governor, by SourceKey, so a declared delivery names the
+	// line that routes it. First wins, matching the governance fallback for a repeat.
+	index := map[packdecl.Kind]map[string]int{}
+	for i, c := range p.Decl.Contributions() {
+		if c.Agent != "" {
+			continue
+		}
+		if index[c.Kind] == nil {
+			index[c.Kind] = map[string]int{}
+		}
+		if _, seen := index[c.Kind][c.SourceKey()]; !seen {
+			index[c.Kind][c.SourceKey()] = i
+		}
+	}
+	pr.Printf("[dim]delivers:[/dim]")
+	line := func(src packload.GovernedSource) {
+		rel := src.Rel
+		if src.By.Kind == packdecl.KindSkills {
+			rel += "/"
+		}
+		where := deliveryAudience(src.By, src.Implicit)
+		if !src.Implicit {
+			if i, ok := index[src.By.Kind][src.By.SourceKey()]; ok {
+				where += fmt.Sprintf("  [dim](contributes[%d])[/dim]", i)
+			}
+		}
+		pr.Printf("  [cyan]%-14s[/cyan] %s → %s", string(src.By.Kind), rel, where)
+	}
+	for _, src := range briefing {
+		line(src)
+	}
+	for _, src := range skills {
+		line(src)
+	}
+}
+
+// deliveryAudience is where one governing contribution sends what it governs, for the listing.
+func deliveryAudience(c packdecl.Contribution, implicit bool) string {
+	switch {
+	case implicit:
+		return "every agent (implicit broadcast)"
+	case c.Into != "":
+		return c.Into
+	case len(c.Agents) > 0:
+		return strings.Join(c.Agents, ", ")
+	}
+	return "every agent (declared broadcast)"
+}
+
+// governedDescription names what one content contribution governs, in the advisory's words.
+func governedDescription(c packdecl.Contribution) string {
+	key := c.SourceKey()
+	switch {
+	case c.Kind == packdecl.KindBriefing && key == "":
+		return "every " + packdecl.DefaultBriefingDir + "/*.md no other contribution names"
+	case c.Kind == packdecl.KindSkills:
+		return strings.TrimSuffix(key, "/") + "/"
+	}
+	return key
 }
 
 // stagedPathClaimed reports whether one staged path is the source itself or lives under it.

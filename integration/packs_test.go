@@ -11,7 +11,11 @@ import (
 
 // TestPackDeliversSkillAndBriefing is C3 end to end in a real container: a local
 // (file://) pack's skills/ tree reaches the agent's :ro-mounted skills dir, and its
-// AGENTS.md prose reaches the briefing WITH a provenance header naming the pack.
+// briefing/ prose reaches the briefing WITH a provenance header naming the pack — which
+// `briefing_provenance: true` asks for, the label having been off by default since
+// 0c74ff45. Its root AGENTS.md is the pack repository's own and must NOT arrive
+// (pack-briefing-defaults.md P1): this is the test that catches a notch that stopped
+// reading the new convention, or went on reading the old one, end to end.
 //
 // The provenance header is the part worth an integration test rather than a unit
 // test: pack prose is instructions the agent will follow, so if attribution were
@@ -33,8 +37,15 @@ func TestPackDeliversSkillAndBriefing(t *testing.T) {
 		[]byte("---\nname: pack-demo\ndescription: from a pack\n---\n# Pack Demo\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(pack, "AGENTS.md"),
+	if err := os.MkdirAll(filepath.Join(pack, "briefing"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pack, "briefing", "rules.md"),
 		[]byte("PACKRULE always prefer rg\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pack, "AGENTS.md"),
+		[]byte("REPOGUIDE for contributors to this pack\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -42,12 +53,13 @@ func TestPackDeliversSkillAndBriefing(t *testing.T) {
 	// and briefing the user pack layers into) and the user pack under test. One key, because
 	// `packs` is a single user-scope list — there is no separate "official" tier.
 	dir := writeProject(t, `{}`)
-	packHome(t, `{"packs": ["claude", "file://`+pack+`"]}`)
+	packHome(t, `{"briefing_provenance": true, "packs": ["claude", "file://`+pack+`"]}`)
 
 	r := runYolo(t, dir,
 		`ls /home/agent/.claude/skills/pack-demo/SKILL.md && `+
 			`rg -c PACKRULE /home/agent/.claude/CLAUDE.md && `+
-			`rg -c 'from pack:' /home/agent/.claude/CLAUDE.md`)
+			`rg -c 'from pack:' /home/agent/.claude/CLAUDE.md && `+
+			`! rg -q REPOGUIDE /home/agent/.claude/CLAUDE.md`)
 	if r.rc != 0 {
 		t.Fatalf("pack delivery failed: rc %d\nstdout: %s\nstderr: %s", r.rc, r.stdout, r.stderr)
 	}
@@ -479,7 +491,10 @@ func TestFzfAcceptanceCaseInJail(t *testing.T) {
 	if err := os.Chmod(script, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(pack, "AGENTS.md"),
+	if err := os.MkdirAll(filepath.Join(pack, "briefing"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pack, "briefing", "fzf.md"),
 		[]byte("Use the fzf finder.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -489,7 +504,7 @@ func TestFzfAcceptanceCaseInJail(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(pack, "pack.json"),
 		[]byte(`{"name":"fzfpack","contributes":[`+
 			`{"kind":"files","from":"bin","into":".claude/bin"},`+
-			`{"kind":"briefing","from":"AGENTS.md","into":".claude/CLAUDE.md"},`+
+			`{"kind":"briefing","from":"briefing/fzf.md","into":".claude/CLAUDE.md"},`+
 			`{"kind":"config","config":[{"agent":"claude","name":"fzfsettings",`+
 			`"codec":"json","path":"~/.claude/fzf-settings.json","mode":"rmw",`+
 			`"managed":{"fileSuggestion":{"type":"command",`+
@@ -537,7 +552,10 @@ func TestHostComposedBriefingIsNotDeliveredTwice(t *testing.T) {
 	requireJail(t)
 
 	pack := t.TempDir()
-	if err := os.WriteFile(filepath.Join(pack, "AGENTS.md"),
+	if err := os.MkdirAll(filepath.Join(pack, "briefing"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pack, "briefing", "rules.md"),
 		[]byte("PACKRULE always prefer rg\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

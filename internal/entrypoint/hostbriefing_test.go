@@ -20,13 +20,14 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
-// briefingPack builds a pack whose root is a temp dir carrying `prose` as AGENTS.md and which
-// declares a briefing into `into`. The `after: host:` half is declared too, because that is the
-// shape the shipped packs use and the host render must ignore it (§6a: the host no longer
-// preserves the user's file in place, so there is nothing to prepend).
+// briefingPack builds a pack whose root is a temp dir carrying `prose` as briefing/prose.md — the
+// conventional source (pack-briefing-defaults.md §3.1; a root AGENTS.md is never read) — and which
+// declares a briefing into `into`, `from` omitted. The `after: host:` half is declared too,
+// because that is the shape the shipped packs use and the host render must ignore it (§6a: the
+// host no longer preserves the user's file in place, so there is nothing to prepend).
 func briefingPack(t *testing.T, name, into, prose string) *packload.Pack {
 	t.Helper()
-	return briefingPackFrom(t, name, into, "AGENTS.md", "AGENTS.md", prose)
+	return briefingPackFrom(t, name, into, "", "briefing/prose.md", prose)
 }
 
 // briefingPackFrom is briefingPack with the declared `from` and the file actually written split
@@ -61,13 +62,18 @@ func briefingReq(t *testing.T, home string) (HostBriefingRequest, *hostskills.Ma
 	t.Helper()
 	man := &hostskills.Manifest{Entries: map[string]string{}}
 	return HostBriefingRequest{
-		Manifest:        man,
-		ArchiveRoot:     hostskills.ArchiveRoot(filepath.Join(home, "archive")),
-		Stamp:           "20260804-000000",
-		LocalPackAGENTS: filepath.Join(home, ".config", "yolo-jail", "local", "AGENTS.md"),
+		Manifest:          man,
+		ArchiveRoot:       hostskills.ArchiveRoot(filepath.Join(home, "archive")),
+		Stamp:             "20260804-000000",
+		LocalPackBriefing: filepath.Join(localPackDir(home), filepath.FromSlash(LocalPackBriefingRel)),
 		// The ordinary case: every configured pack resolved. The false path has its own test.
 		PackSetComplete: true,
 	}, man
+}
+
+// localPackDir is the conventional local pack's root under a TEMP home.
+func localPackDir(home string) string {
+	return filepath.Join(home, ".config", "yolo-jail", "local")
 }
 
 // readFile lives in hostfiles_test.go — the package's shared read-or-fail helper.
@@ -167,8 +173,8 @@ func TestHostBriefingRenderTwiceIsByteIdentical(t *testing.T) {
 	}
 }
 
-// THE MIGRATION. A hand-written destination's prose lands in the local pack's AGENTS.md, where
-// yolo composes it back into every destination — behavior-PRESERVING, not merely
+// THE MIGRATION. A hand-written destination's prose lands in the local pack's briefing/local.md,
+// where yolo composes it back into every destination — behavior-PRESERVING, not merely
 // non-destructive. Nothing is archived on this path, because a move is not a loss.
 func TestHostBriefingMigrationMovesProseIntoTheLocalPack(t *testing.T) {
 	home := t.TempDir()
@@ -197,7 +203,7 @@ func TestHostBriefingMigrationMovesProseIntoTheLocalPack(t *testing.T) {
 	// VERBATIM and UNANNOTATED. The local pack is composed into every agent's briefing, so a
 	// provenance marker written here (the old `<!-- migrated from … -->`) would reach the agent
 	// as a label on the user's own rules. The apply report carries provenance instead.
-	local := readFile(t, req.LocalPackAGENTS)
+	local := readFile(t, req.LocalPackBriefing)
 	if local != userProse {
 		t.Errorf("the local pack must hold the user's prose verbatim, with no marker:\n"+
 			"got  %q\nwant %q", local, userProse)
@@ -214,10 +220,27 @@ func TestHostBriefingMigrationMovesProseIntoTheLocalPack(t *testing.T) {
 		t.Errorf("the user's prose is still in the destination — it MOVED, so this apply's "+
 			"output should carry it only via the local pack:\n%s", got)
 	}
+	// And the LOCAL PACK DELIVERS IT: loaded as the convention loads it (no manifest), the file
+	// the migration wrote is one the readers read. A migration into a file no reader reads — the
+	// root AGENTS.md it used to write — would pass every assertion above and still take the
+	// user's instructions away from their agents.
+	localPack, problems := packload.LoadDir(localPackDir(home), "local")
+	if len(problems) != 0 {
+		t.Fatalf("the migrated local pack does not load clean: %v", problems)
+	}
+	resolved, _ := packload.ResolveDestinations(append(packs, localPack))
+	if _, err := RenderHostBriefings(resolved, home, req, false); err != nil {
+		t.Fatalf("render with the local pack: %v", err)
+	}
+	if got := readFile(t, dest); !strings.Contains(got, "Always run the tests.") ||
+		!strings.Contains(got, "Pack rule one.") {
+		t.Errorf("the local pack does not compose the migrated prose back into the "+
+			"destination:\n%s", got)
+	}
 }
 
 // THE UNION CAVEAT. Several destinations migrating in one pass CONCATENATE into the one local
-// AGENTS.md, in adoption order, separated by one blank line exactly as composed pack prose is,
+// briefing file, in adoption order, separated by one blank line exactly as composed pack prose is,
 // and nothing is dropped. No marker names the source of each section (the apply report does),
 // and no dedup-by-similarity is attempted, so two agents with the same rule yield two
 // near-identical sections — deliberately.
@@ -248,7 +271,7 @@ func TestHostBriefingMigrationUnionsSeveralDestinations(t *testing.T) {
 	if _, err := MigrateHostBriefings(adoptions, req, false); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	local := readFile(t, req.LocalPackAGENTS)
+	local := readFile(t, req.LocalPackBriefing)
 	const want = "# Claude rules\n\nShared rule.\n\n# Codex rules\n\nShared rule.\n"
 	if local != want {
 		t.Errorf("the union is not the adopted sections verbatim, in order, one blank line "+
@@ -276,10 +299,10 @@ func TestHostBriefingMigrationUnionsSeveralDestinations(t *testing.T) {
 func TestHostBriefingMigrationAppendsToAnExistingLocalPack(t *testing.T) {
 	home := t.TempDir()
 	req, _ := briefingReq(t, home)
-	if err := os.MkdirAll(filepath.Dir(req.LocalPackAGENTS), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(req.LocalPackBriefing), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(req.LocalPackAGENTS, []byte("My earlier prose.\n"), 0o644); err != nil {
+	if err := os.WriteFile(req.LocalPackBriefing, []byte("My earlier prose.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	dest := filepath.Join(home, ".claude", "CLAUDE.md")
@@ -295,7 +318,7 @@ func TestHostBriefingMigrationAppendsToAnExistingLocalPack(t *testing.T) {
 	if _, err := MigrateHostBriefings(adoptions, req, false); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	local := readFile(t, req.LocalPackAGENTS)
+	local := readFile(t, req.LocalPackBriefing)
 	for _, want := range []string{"My earlier prose.", "Newly migrated prose."} {
 		if !strings.Contains(local, want) {
 			t.Errorf("the migration replaced instead of appending (%q missing):\n%s", want, local)
@@ -321,7 +344,7 @@ func TestHostBriefingMigrationArchivesWhenThereIsNoLocalPack(t *testing.T) {
 	}
 	packs := []*packload.Pack{briefingPack(t, "claude", ".claude/CLAUDE.md", "Pack prose.\n")}
 	req, _ := briefingReq(t, home)
-	req.LocalPackAGENTS = "" // no resolvable local pack
+	req.LocalPackBriefing = "" // no resolvable local pack
 
 	adoptions := HostBriefingAdoptions(packs, home, req.Manifest, false)
 	results, err := MigrateHostBriefings(adoptions, req, false)
@@ -488,8 +511,8 @@ func TestHostBriefingObserveWritesNothing(t *testing.T) {
 	if got := readFile(t, dest); got != mine {
 		t.Errorf("observe modified the destination:\n%s", got)
 	}
-	if _, err := os.Stat(req.LocalPackAGENTS); !os.IsNotExist(err) {
-		t.Errorf("observe created the local pack's AGENTS.md (stat err=%v)", err)
+	if _, err := os.Stat(req.LocalPackBriefing); !os.IsNotExist(err) {
+		t.Errorf("observe created the local pack's briefing file (stat err=%v)", err)
 	}
 	if len(man.Entries) != 0 {
 		t.Errorf("observe recorded ownership it never asserted: %v", man.Entries)
@@ -656,10 +679,14 @@ func TestHostBriefingRendersEveryContributionOfOnePack(t *testing.T) {
 	home := t.TempDir()
 	root := t.TempDir()
 	for name, body := range map[string]string{
-		"AGENTS.md":      "General prose.\n",
-		"house-rules.md": "House rules prose.\n",
+		"briefing/general.md": "General prose.\n",
+		"house-rules.md":      "House rules prose.\n",
 	} {
-		if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o644); err != nil {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -767,5 +794,335 @@ func TestGeneratedHostBriefingsExcludesTheUsersOwnFile(t *testing.T) {
 func TestGeneratedHostBriefingsFailsOpenWithNoRecord(t *testing.T) {
 	if got := GeneratedHostBriefings(t.TempDir()); len(got) != 0 {
 		t.Errorf("want an empty set with no record on disk, got %v", got)
+	}
+}
+
+// writeLegacyLocalPack writes `prose` as the local pack's ROOT AGENTS.md — where an earlier yolo
+// migrated the user's prose — and returns the pack dir and the two paths the move concerns.
+func writeLegacyLocalPack(t *testing.T, prose string) (dir, legacy, target string) {
+	t.Helper()
+	dir = localPackDir(t.TempDir())
+	legacy = filepath.Join(dir, "AGENTS.md")
+	target = filepath.Join(dir, "briefing", "local.md")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacy, []byte(prose), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir, legacy, target
+}
+
+// THE MOVE (pack-briefing-defaults.md §4). The local pack's root AGENTS.md is no longer read as
+// pack prose, so yolo moves the file it put there into briefing/ — verbatim — and the local pack
+// then delivers it again. Reported, naming both files.
+func TestMoveLegacyLocalPackBriefingMovesIntoBriefing(t *testing.T) {
+	const prose = "# My rules\n\nAlways run the tests.\n"
+	dir, legacy, target := writeLegacyLocalPack(t, prose)
+
+	res, err := MoveLegacyLocalPackBriefing(dir, false)
+	if err != nil {
+		t.Fatalf("move: %v", err)
+	}
+	if res == nil || !res.WouldChange || !strings.Contains(res.Action, "moved") ||
+		!strings.Contains(res.Action, legacy) || !strings.Contains(res.Action, target) {
+		t.Fatalf("the move must be reported, naming both files; got %+v", res)
+	}
+	if _, err := os.Lstat(legacy); !os.IsNotExist(err) {
+		t.Errorf("the root AGENTS.md is still there after the move (stat err=%v)", err)
+	}
+	if got := readFile(t, target); got != prose {
+		t.Errorf("the moved prose is not verbatim:\ngot  %q\nwant %q", got, prose)
+	}
+	// The point of the move: the local pack's readers now read it.
+	p, problems := packload.LoadDir(dir, "local")
+	if len(problems) != 0 {
+		t.Fatalf("the moved local pack does not load clean: %v", problems)
+	}
+	srcs, _ := p.GovernedSources(packdecl.KindBriefing)
+	if len(srcs) != 1 || !srcs[0].Implicit || srcs[0].Rel != LocalPackBriefingRel {
+		t.Errorf("the moved file is not the local pack's implicit broadcast; got %+v", srcs)
+	}
+	// And a second run has nothing left to do.
+	if res, err := MoveLegacyLocalPackBriefing(dir, false); res != nil || err != nil {
+		t.Errorf("a second move must be a no-op; got %+v, %v", res, err)
+	}
+}
+
+// The migration writer and the move name ONE file, so a migration after the move appends to the
+// moved prose rather than starting a second file whose join order nobody chose.
+func TestLocalPackBriefingRelIsWhereTheMigrationWrites(t *testing.T) {
+	home := t.TempDir()
+	req, _ := briefingReq(t, home)
+	want := filepath.Join(localPackDir(home), "briefing", "local.md")
+	if req.LocalPackBriefing != want {
+		t.Fatalf("fixture drift: %q", req.LocalPackBriefing)
+	}
+	if packdecl.RepositoryInstructionFile(LocalPackBriefingRel) {
+		t.Errorf("%s is a reserved basename; LoadDir would refuse the local pack", LocalPackBriefingRel)
+	}
+	if !packdecl.ConventionalBriefingFile(LocalPackBriefingRel) {
+		t.Errorf("%s is not in the conventional briefing source, so nothing reads it",
+			LocalPackBriefingRel)
+	}
+}
+
+// THE TARGET IS TAKEN: refused, naming both files, and NEITHER is touched — which text wins is
+// the user's decision (§4: "refuses, naming both files, rather than choosing one").
+func TestMoveLegacyLocalPackBriefingRefusesWhenTheTargetExists(t *testing.T) {
+	dir, legacy, target := writeLegacyLocalPack(t, "Old prose.\n")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("Newer prose.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, observe := range []bool{true, false} {
+		res, err := MoveLegacyLocalPackBriefing(dir, observe)
+		if err == nil {
+			t.Fatalf("observe=%v: a taken target must refuse; got %+v", observe, res)
+		}
+		for _, name := range []string{legacy, target} {
+			if !strings.Contains(err.Error(), name) {
+				t.Errorf("observe=%v: the refusal must name %s: %v", observe, name, err)
+			}
+		}
+		if res == nil || res.WouldChange || !strings.HasPrefix(res.Action, "refused") {
+			t.Errorf("observe=%v: want a refused result that changes nothing; got %+v", observe, res)
+		}
+		if got := readFile(t, legacy); got != "Old prose.\n" {
+			t.Errorf("observe=%v: the refusal touched %s: %q", observe, legacy, got)
+		}
+		if got := readFile(t, target); got != "Newer prose.\n" {
+			t.Errorf("observe=%v: the refusal touched %s: %q", observe, target, got)
+		}
+	}
+}
+
+// OBSERVE writes nothing, and still says what the move would do.
+func TestMoveLegacyLocalPackBriefingObserveWritesNothing(t *testing.T) {
+	dir, legacy, target := writeLegacyLocalPack(t, "Prose.\n")
+	res, err := MoveLegacyLocalPackBriefing(dir, true)
+	if err != nil || res == nil || !res.WouldChange || !strings.HasPrefix(res.Action, "would move") {
+		t.Fatalf("want a 'would move' preview; got %+v, %v", res, err)
+	}
+	if got := readFile(t, legacy); got != "Prose.\n" {
+		t.Errorf("observe changed %s: %q", legacy, got)
+	}
+	if _, err := os.Lstat(filepath.Dir(target)); !os.IsNotExist(err) {
+		t.Errorf("observe created %s (stat err=%v)", filepath.Dir(target), err)
+	}
+}
+
+// NOTHING TO MOVE is silent: no local pack, no AGENTS.md, or an AGENTS.md that never delivered
+// prose (a directory, a dangling link).
+func TestMoveLegacyLocalPackBriefingNothingToMove(t *testing.T) {
+	if res, err := MoveLegacyLocalPackBriefing("", false); res != nil || err != nil {
+		t.Errorf("no local pack location: got %+v, %v", res, err)
+	}
+	if res, err := MoveLegacyLocalPackBriefing(filepath.Join(t.TempDir(), "absent"), false); res != nil || err != nil {
+		t.Errorf("no local pack: got %+v, %v", res, err)
+	}
+	dir := localPackDir(t.TempDir())
+	if err := os.MkdirAll(filepath.Join(dir, "AGENTS.md"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := MoveLegacyLocalPackBriefing(dir, false); res != nil || err != nil {
+		t.Errorf("a directory named AGENTS.md: got %+v, %v", res, err)
+	}
+	dir2 := localPackDir(t.TempDir())
+	if err := os.MkdirAll(dir2, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(dir2, "nowhere.md"), filepath.Join(dir2, "AGENTS.md")); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := MoveLegacyLocalPackBriefing(dir2, false); res != nil || err != nil {
+		t.Errorf("a dangling link: got %+v, %v", res, err)
+	}
+}
+
+// A SYMLINK is refused rather than moved: renaming it one directory deeper would break a relative
+// link, and rewriting the user's link is not yolo's to do.
+func TestMoveLegacyLocalPackBriefingRefusesASymlink(t *testing.T) {
+	dir := localPackDir(t.TempDir())
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "rules.txt"), []byte("Prose.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("rules.txt", filepath.Join(dir, "AGENTS.md")); err != nil {
+		t.Fatal(err)
+	}
+	res, err := MoveLegacyLocalPackBriefing(dir, false)
+	if err == nil || res == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("want a symlink refusal; got %+v, %v", res, err)
+	}
+	if fi, lerr := os.Lstat(filepath.Join(dir, "AGENTS.md")); lerr != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("the refusal touched the user's link: %v", lerr)
+	}
+}
+
+// AN INTERRUPTED MOVE — both names one file, which a crash between the link and the remove
+// leaves — is FINISHED, not refused: nothing is chosen between, so a refusal would only wedge
+// every later apply.
+func TestMoveLegacyLocalPackBriefingFinishesAnInterruptedMove(t *testing.T) {
+	dir, legacy, target := writeLegacyLocalPack(t, "Prose.\n")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(legacy, target); err != nil {
+		t.Skipf("no hard links here: %v", err)
+	}
+	res, err := MoveLegacyLocalPackBriefing(dir, false)
+	if err != nil || res == nil || !strings.Contains(res.Action, "finished moving") {
+		t.Fatalf("want the interrupted move finished; got %+v, %v", res, err)
+	}
+	if _, err := os.Lstat(legacy); !os.IsNotExist(err) {
+		t.Errorf("the root AGENTS.md survived (stat err=%v)", err)
+	}
+	if got := readFile(t, target); got != "Prose.\n" {
+		t.Errorf("the target lost its prose: %q", got)
+	}
+}
+
+// A LOCAL pack.json STILL NAMING THE LEGACY FILE REFUSES THE MOVE, naming the edit, and touches
+// nothing. Moving it anyway would widen delivery: governance never reads the reserved `from`, so
+// briefing/local.md would be named by nobody and broadcast to every agent — prose the user
+// addressed to claude alone, sent to all of them by the apply that moved it.
+func TestMoveLegacyLocalPackBriefingRefusesWhileAManifestNamesTheLegacyFile(t *testing.T) {
+	for _, contrib := range []string{
+		`{"kind":"briefing","from":"AGENTS.md","agents":["claude"]}`,
+		`{"kind":"briefing","from":"./AGENTS.md","into":".claude/CLAUDE.md"}`,
+	} {
+		dir, legacy, target := writeLegacyLocalPack(t, "Claude only.\n")
+		manifest := filepath.Join(dir, packdecl.ManifestName)
+		if err := os.WriteFile(manifest, []byte(`{"name":"local","contributes":[`+contrib+`]}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		for _, observe := range []bool{true, false} {
+			res, err := MoveLegacyLocalPackBriefing(dir, observe)
+			if err == nil {
+				t.Fatalf("%s observe=%v: want a refusal, got %+v", contrib, observe, res)
+			}
+			for _, want := range []string{manifest, `"briefing/local.md"`, "EVERY agent"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("%s observe=%v: the refusal must name %s: %v", contrib, observe, want, err)
+				}
+			}
+			if res == nil || res.WouldChange {
+				t.Errorf("%s observe=%v: a refusal changes nothing; got %+v", contrib, observe, res)
+			}
+			if got := readFile(t, legacy); got != "Claude only.\n" {
+				t.Errorf("%s observe=%v: the refusal touched %s", contrib, observe, legacy)
+			}
+			if _, err := os.Lstat(target); !os.IsNotExist(err) {
+				t.Errorf("%s observe=%v: the refusal created %s", contrib, observe, target)
+			}
+		}
+	}
+	// A manifest pointing elsewhere — or at the new name — does not block the move.
+	dir, _, target := writeLegacyLocalPack(t, "Prose.\n")
+	if err := os.WriteFile(filepath.Join(dir, packdecl.ManifestName),
+		[]byte(`{"name":"local","contributes":[{"kind":"briefing","from":"briefing/local.md","agents":["claude"]},`+
+			`{"kind":"briefing","agent":"claude","into":".claude/CLAUDE.md"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := MoveLegacyLocalPackBriefing(dir, false); err != nil {
+		t.Fatalf("a manifest already naming the new file must not block the move: %v", err)
+	}
+	if got := readFile(t, target); got != "Prose.\n" {
+		t.Errorf("the move did not happen: %q", got)
+	}
+}
+
+// loadDiscardingProblems writes a pack tree and loads it the way `yolo host apply` loads a local
+// pack (packForCheckDeps): through LoadDir, with its problems DISCARDED. The host-notch guards
+// below exist for exactly that caller — the launch would have refused each of these manifests.
+func loadDiscardingProblems(t *testing.T, name, manifest string, files map[string]string) *packload.Pack {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), name)
+	files[packdecl.ManifestName] = manifest
+	for rel, body := range files {
+		full := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p, _ := packload.LoadDir(root, name)
+	if p == nil {
+		t.Fatalf("LoadDir(%s) returned no pack", name)
+	}
+	return p
+}
+
+// composedAt is the composed content of the destination at home-relative `rel`, "" if none.
+func composedAt(dests []HostBriefingDestination, home, rel string) string {
+	for _, d := range dests {
+		if d.Path == filepath.Join(home, filepath.FromSlash(rel)) {
+			return d.Content
+		}
+	}
+	return ""
+}
+
+// A DESTINATION SOURCES NOTHING AT THE HOST NOTCH (P5). An agent pack that addresses one of its
+// briefing/ files to ANOTHER agent must not also compose it into its own destination: its
+// `{agent, into}` line names where content lands, and read as an omitted-`from` contribution it
+// would carry the pack's whole briefing/ remainder — the file addressed to pi alone.
+func TestComposeHostBriefingsAnAgentPacksDestinationCarriesNothing(t *testing.T) {
+	home := t.TempDir()
+	claude := loadDiscardingProblems(t, "claude", `{"name":"claude","contributes":[`+
+		`{"kind":"briefing","agent":"claude","into":".claude/CLAUDE.md"},`+
+		`{"kind":"briefing","agents":["pi"]}]}`,
+		map[string]string{"briefing/forpi.md": "PI ONLY PROSE\n"})
+	pi := loadDiscardingProblems(t, "pi", `{"name":"pi","contributes":[`+
+		`{"kind":"briefing","agent":"pi","into":".pi/agent/AGENTS.md"}]}`, map[string]string{})
+	resolved, _ := packload.ResolveDestinations([]*packload.Pack{claude, pi})
+	dests := ComposeHostBriefings(resolved, home, false)
+	if got := composedAt(dests, home, ".claude/CLAUDE.md"); got != "" {
+		t.Errorf("~/.claude/CLAUDE.md = %q, want nothing — prose addressed to pi reached claude "+
+			"through claude's own destination line", got)
+	}
+	if got := composedAt(dests, home, ".pi/agent/AGENTS.md"); got != "PI ONLY PROSE\n" {
+		t.Errorf("~/.pi/agent/AGENTS.md = %q, want the addressed prose", got)
+	}
+}
+
+// A RESERVED `from` IS NEVER READ AT THE HOST NOTCH, even when its refusal was discarded (P1).
+// `yolo host apply` loads a local pack with its problems dropped, so the validator's refusal of
+// `from: "AGENTS.md"` does not stop it; governance must still not read the repository's file into
+// the user's briefing.
+func TestComposeHostBriefingsNeverReadsADiscardedReservedFrom(t *testing.T) {
+	home := t.TempDir()
+	claude := loadDiscardingProblems(t, "claude", `{"name":"claude","contributes":[`+
+		`{"kind":"briefing","agent":"claude","into":".claude/CLAUDE.md"}]}`, map[string]string{})
+	local := loadDiscardingProblems(t, "local", `{"name":"local","contributes":[`+
+		`{"kind":"briefing","from":"AGENTS.md"}]}`, map[string]string{"AGENTS.md": "REPO GUIDE\n"})
+	resolved, _ := packload.ResolveDestinations([]*packload.Pack{claude, local})
+	for _, d := range ComposeHostBriefings(resolved, home, false) {
+		if strings.Contains(d.Content, "REPO GUIDE") {
+			t.Errorf("%s composed a reserved `from` whose refusal was discarded:\n%s", d.Path, d.Content)
+		}
+	}
+}
+
+// TWO CONTRIBUTIONS CARRYING ONE FILE TO ONE DESTINATION COMPOSE IT ONCE. OQ-PB5 refuses the
+// manifest on the strict path, but the host reads a local pack with that refusal discarded; the
+// governors fold, yet both declarations still reach the destination, so the per-destination dedup
+// is what keeps the prose from appearing twice.
+func TestComposeHostBriefingsADuplicateSourceComposesOnce(t *testing.T) {
+	home := t.TempDir()
+	dup := loadDiscardingProblems(t, "dup", `{"name":"dup","contributes":[`+
+		`{"kind":"briefing","from":"a.md","into":".claude/CLAUDE.md"},`+
+		`{"kind":"briefing","from":"./a.md","into":".claude/CLAUDE.md"}]}`,
+		map[string]string{"a.md": "Once only.\n"})
+	got := composedAt(ComposeHostBriefings([]*packload.Pack{dup}, home, false), home, ".claude/CLAUDE.md")
+	if got != "Once only.\n" {
+		t.Errorf("~/.claude/CLAUDE.md = %q, want the prose exactly once", got)
 	}
 }

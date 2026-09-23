@@ -40,7 +40,7 @@ func overlayDropFixture(t *testing.T, packJSON string) string {
 	home := t.TempDir()
 	packDir := filepath.Join(t.TempDir(), "dropme")
 	writeFile(t, filepath.Join(packDir, "pack.json"), packJSON)
-	writeFile(t, filepath.Join(packDir, "AGENTS.md"), "Dropme prose.\n")
+	writeFile(t, filepath.Join(packDir, "briefing", "prose.md"), "Dropme prose.\n")
 	writeFile(t, filepath.Join(packDir, "bin", "pick.sh"), "#!/bin/sh\necho pick\n")
 
 	selectPacks(t, home, `"claude",{"source":"file://`+packDir+`","name":"dropme"}`)
@@ -177,7 +177,7 @@ func TestApplyHostKeyOnlyDropStillAsksBeforeRemoving(t *testing.T) {
 		`{"name":"keyonly","description":"d","contributes":[
 		  {"kind":"config-overlay","surface":"claude/settings",
 		   "config":{"managed":{"fileSuggestion":{"type":"command","command":"~/x.sh"}}}}]}`)
-	writeFile(t, filepath.Join(packDir, "AGENTS.md"), "prose\n")
+	writeFile(t, filepath.Join(packDir, "briefing", "prose.md"), "prose\n")
 	selectPacks(t, home, `"claude",{"source":"file://`+packDir+`","name":"keyonly"}`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
@@ -350,7 +350,7 @@ func TestApplyHostKeepsOverlayKeyAnotherPackStillContributes(t *testing.T) {
 		`{"name":"keeper","description":"d","contributes":[
 		  {"kind":"config-overlay","surface":"claude/settings",
 		   "config":{"managed":{"fileSuggestion":{"type":"command","command":"~/bin/keeper.sh"}}}}]}`)
-	writeFile(t, filepath.Join(keeperDir, "AGENTS.md"), "Keeper prose.\n")
+	writeFile(t, filepath.Join(keeperDir, "briefing", "prose.md"), "Keeper prose.\n")
 	selectPacks(t, home, `"claude",{"source":"file://`+keeperDir+`","name":"keeper"}`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))

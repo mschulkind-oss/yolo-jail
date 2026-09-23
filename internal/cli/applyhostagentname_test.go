@@ -30,7 +30,7 @@ func twoOwnerFixture(t *testing.T) (home string) {
 	writeFile(t, filepath.Join(fork, "pack.json"),
 		`{"name":"claude-fork","description":"f","contributes":[`+
 			`{"kind":"briefing","into":".claude/CLAUDE.md","agent":"claude"}]}`)
-	writeFile(t, filepath.Join(fork, "AGENTS.md"), "Fork prose.\n")
+	writeFile(t, filepath.Join(fork, "briefing", "prose.md"), "Fork prose.\n")
 
 	selectPacks(t, home,
 		`{"source":"file://`+official+`","name":"claude-official"},`+
@@ -86,7 +86,7 @@ func TestApplyHostAcceptsOnePackOwningItsOwnName(t *testing.T) {
 		`{"name":"solocli","description":"s","contributes":[`+
 			`{"kind":"program","bin":"solocli","via":"npm","package":"solocli"},`+
 			`{"kind":"briefing","into":".solo/AGENTS.md","agent":"solocli"}]}`)
-	writeFile(t, filepath.Join(solo, "AGENTS.md"), "Solo prose.\n")
+	writeFile(t, filepath.Join(solo, "briefing", "prose.md"), "Solo prose.\n")
 	selectPacks(t, home, `{"source":"file://`+solo+`","name":"solocli"}`)
 	// The pack declares `program solocli`, and a writing apply now refuses over a declared
 	// binary that is missing (§4.9). This fixture is about NAME OWNERSHIP, so the host it

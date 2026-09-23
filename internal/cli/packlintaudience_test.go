@@ -62,7 +62,7 @@ func TestPackLintStillRefusesAgentsBesideInto(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "pack.json"),
 		`{"name":"house","description":"h","contributes":[`+
 			`{"kind":"briefing","into":".claude/CLAUDE.md","agents":["claude"]}]}`)
-	writeFile(t, filepath.Join(dir, "AGENTS.md"), "House rules.\n")
+	writeFile(t, filepath.Join(dir, "briefing", "house.md"), "House rules.\n")
 
 	var out, errw bytes.Buffer
 	if rc := packMain([]string{"lint", dir}, &out, &errw, false); rc == 0 {

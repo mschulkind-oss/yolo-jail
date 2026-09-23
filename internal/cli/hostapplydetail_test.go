@@ -61,8 +61,8 @@ func detailFixture(t *testing.T) string {
 			`{"kind":"requires","bin":"detailbin","install_hints":{"apt":"detailbin-pkg"}},`+
 			`{"kind":"config","config":[{"agent":"dp","name":"settings","codec":"json",`+
 			`"path":"~/.dp/settings.json","mode":"rmw","managed":{"detailKey":"detailValue"}}]},`+
-			`{"kind":"briefing","from":"AGENTS.md","into":".detail/AGENTS.md"}]}`)
-	writeFile(t, filepath.Join(packDir, "AGENTS.md"), "Detail prose.\n")
+			`{"kind":"briefing","from":"briefing/prose.md","into":".detail/AGENTS.md"}]}`)
+	writeFile(t, filepath.Join(packDir, "briefing", "prose.md"), "Detail prose.\n")
 	writeFile(t, filepath.Join(packDir, "skills", "demo", "SKILL.md"), "---\nname: demo\n---\n")
 	selectPacks(t, home, `{"source":"file://`+packDir+`","name":"detailpack"}`)
 	t.Setenv("HOME", home)

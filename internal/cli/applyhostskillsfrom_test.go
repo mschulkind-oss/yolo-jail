@@ -26,7 +26,7 @@ func hostSkillsFixture(t *testing.T, srcDir, from string) string {
 	writeFile(t, filepath.Join(packDir, "pack.json"),
 		`{"name":"sf","description":"d","contributes":[`+
 			`{"kind":"skills","from":"`+from+`","into":".claude/skills"}]}`)
-	writeFile(t, filepath.Join(packDir, "AGENTS.md"), "sf prose\n")
+	writeFile(t, filepath.Join(packDir, "briefing", "prose.md"), "sf prose\n")
 	if srcDir != "" {
 		writeFile(t, filepath.Join(packDir, srcDir, "sfskill", "SKILL.md"),
 			"---\nname: sfskill\ndescription: d\n---\nbody\n")

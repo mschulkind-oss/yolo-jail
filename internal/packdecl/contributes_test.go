@@ -12,7 +12,7 @@ func TestProjectionsFromContributes(t *testing.T) {
 	m := &Manifest{Contributes: []Contribution{
 		{Kind: KindProgram, Bin: "claude", Via: "installer", URL: "https://x/i.sh"},
 		{Kind: KindSkills, From: "skills", Into: ".claude/skills"},
-		{Kind: KindBriefing, From: "AGENTS.md", Into: ".claude/CLAUDE.md", After: "host:.claude/CLAUDE.md"},
+		{Kind: KindBriefing, From: "briefing/claude.md", Into: ".claude/CLAUDE.md", After: "host:.claude/CLAUDE.md"},
 		{Kind: KindState, At: ".claude", Scope: "workspace"},
 		{Kind: KindState, At: ".creds", Scope: "machine", Why: "shared creds"},
 		{Kind: KindReadsHost, Host: ".claude/settings.json", Into: "host-claude/settings.json"},
@@ -42,7 +42,7 @@ func TestProjectionsFromContributes(t *testing.T) {
 		if mt.From == "skills" {
 			sawSkills = true
 		}
-		if mt.From == "AGENTS.md" && mt.HostOverlay == ".claude/CLAUDE.md" {
+		if mt.From == "briefing/claude.md" && mt.HostOverlay == ".claude/CLAUDE.md" {
 			sawBriefing = true
 		}
 	}
@@ -118,17 +118,24 @@ func TestValidateContributes(t *testing.T) {
 		{"autonomy escaping launch bin", Contribution{Kind: KindAutonomy,
 			Autonomous: &AutonomyPosture{Launch: []AutonomyLaunch{{Bin: "../x"}}}},
 			"bare program name"},
-		{"skills no into", Contribution{Kind: KindSkills, From: "skills"}, "needs \"into\""},
+		// A content contribution naming neither `into` nor `agents` is a BROADCAST on skills and
+		// briefing (pack-briefing-defaults.md P2); a DESTINATION (`agent` set) still needs its
+		// path. briefingdefaults_test.go pins the same boundary through Decode.
+		{"skills broadcast", Contribution{Kind: KindSkills, From: "skills"}, ""},
+		{"skills destination no into", Contribution{Kind: KindSkills, Agent: "acme"}, "needs \"into\""},
 		// `from` is CONVENTIONAL on skills/briefing and MANDATORY on files. The three
 		// live together because the boundary between them is the schema decision, and a
 		// regression would move exactly one of these rows.
 		{"skills no from", Contribution{Kind: KindSkills, Into: ".acme/skills"}, ""},
 		{"briefing no from", Contribution{Kind: KindBriefing, Into: ".acme/A.md"}, ""},
 		{"files no from", Contribution{Kind: KindFiles, Into: ".acme/prompts"}, "needs \"from\""},
-		// `into` stays required on all three — a destination has one right answer per
-		// AGENT, so there is no convention to fall back to (see validateContribution).
-		{"briefing no into", Contribution{Kind: KindBriefing, From: "AGENTS.md"}, "needs \"into\""},
+		// `into` is required of a DESTINATION on all three, and of `files` CONTENT that names no
+		// audience — files cannot broadcast, and its refusal says why. Briefing content with
+		// neither is the broadcast.
+		{"briefing broadcast", Contribution{Kind: KindBriefing, From: "briefing/acme.md"}, ""},
+		{"briefing destination no into", Contribution{Kind: KindBriefing, Agent: "acme"}, "needs \"into\""},
 		{"files no into", Contribution{Kind: KindFiles, From: "prompts"}, "needs \"into\""},
+		{"files no into says why", Contribution{Kind: KindFiles, From: "prompts"}, "cannot broadcast"},
 		{"machine state no because", Contribution{Kind: KindState, At: ".x", Scope: "machine"}, "needs a \"because\""},
 		{"state escaping path", Contribution{Kind: KindState, At: "../etc"}, "must not contain"},
 		{"unknown hook", Contribution{Kind: KindHook, Hook: "nope"}, "unknown hook"},
@@ -239,7 +246,7 @@ func TestHostCrossingsAreTheFourShapesPackJSONCanExpress(t *testing.T) {
 		{Kind: KindMount, Host: "datasets/acme", Into: "acme-data"},
 		{Kind: KindReadsHost, Host: ".config/acme/key"},
 		{Kind: KindProgram, Bin: "acme", Via: "installer", URL: "https://acme/i.sh"},
-		{Kind: KindBriefing, From: "AGENTS.md", Into: ".acme/A.md", After: "host:.acme/A.md"},
+		{Kind: KindBriefing, From: "briefing/acme.md", Into: ".acme/A.md", After: "host:.acme/A.md"},
 		{Kind: KindEnv, Vars: map[string]string{"ACME_MODE": "fast"}}, // NOT host access
 		{Kind: KindSkills, From: "skills", Into: ".acme/skills"},      // NOT host access
 	}}
@@ -581,38 +588,31 @@ func TestSkillsFromIsOptionalAndDefaults(t *testing.T) {
 	}
 }
 
-// Same pair for `briefing`: an omitted `from` resolves to AGENTS.md, and a declared one is
-// tried FIRST without dropping the convention behind it (the precedence hostBriefingProse
-// implements).
-//
-// AGENTS.md is the WHOLE convention, and pinning that is this test's second job. The default
-// was the pair ["AGENTS.md", "CLAUDE.md"] until 2026-08-17; pack-code-separation.md §3.3
-// ruled the claude name out of core, on the grounds that AGENTS.md is the cross-tool
-// convention and CLAUDE.md is one tool's own. A pack whose prose lives anywhere else — that
-// file included — writes `from`, which is what `from` is for.
+// Same pair for `briefing`: an omitted `from` validates, and names the convention's REMAINDER
+// (SourceKey "") rather than a file — so it can never compare equal to a declared path — while a
+// declared `from` is the one source it names, cleaned (R4). The convention is the briefing/
+// DIRECTORY (OQ-PB1); AGENTS.md is no part of it (P1), and briefingdefaults_test.go pins the
+// refusal of that name as a source.
 func TestBriefingFromIsOptionalAndDefaults(t *testing.T) {
 	m, probs := Decode([]byte(`{"name":"acme","contributes":[
 	  {"kind":"briefing","into":".acme/A.md","after":"host:.acme/A.md"}]}`))
 	if len(probs) != 0 {
 		t.Fatalf("omitting `from` on briefing must validate, got %v", probs)
 	}
-	want := []string{"AGENTS.md"}
-	if got := m.Contributions()[0].BriefingCandidates(); !equalStrings(got, want) {
-		t.Errorf("BriefingCandidates() = %v, want %v — an omitted `from` must resolve to "+
-			"the one conventional name", got, want)
+	if got := m.Contributions()[0].SourceKey(); got != "" {
+		t.Errorf("SourceKey() = %q, want \"\" — an omitted `from` names the remainder of %s/, "+
+			"not a path", got, DefaultBriefingDir)
 	}
 	m, probs = Decode([]byte(`{"name":"acme","contributes":[
-	  {"kind":"briefing","from":"prose/BRIEF.md","into":".acme/A.md"}]}`))
+	  {"kind":"briefing","from":"./prose/BRIEF.md","into":".acme/A.md"}]}`))
 	if len(probs) != 0 {
 		t.Fatalf("declared `from` must still validate, got %v", probs)
 	}
-	want = []string{"prose/BRIEF.md", "AGENTS.md"}
-	if got := m.Contributions()[0].BriefingCandidates(); !equalStrings(got, want) {
-		t.Errorf("BriefingCandidates() = %v, want %v", got, want)
+	if got := m.Contributions()[0].SourceKey(); got != "prose/BRIEF.md" {
+		t.Errorf("SourceKey() = %q, want the cleaned declared path %q", got, "prose/BRIEF.md")
 	}
-	if got := DefaultBriefingFiles(); !equalStrings(got, []string{"AGENTS.md"}) {
-		t.Errorf("DefaultBriefingFiles() = %v, want exactly [AGENTS.md] — core names no "+
-			"tool-specific briefing file", got)
+	if DefaultBriefingDir != "briefing" {
+		t.Errorf("DefaultBriefingDir = %q, want \"briefing\" (OQ-PB1)", DefaultBriefingDir)
 	}
 }
 
@@ -634,18 +634,6 @@ func TestFilesFromStaysRequired(t *testing.T) {
 		t.Errorf("files combine = %v, want %v — the premise of the required `from`",
 			fp.Combine, CombineExclusive)
 	}
-}
-
-func equalStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 // autonomy validation: at least one posture, and a launch entry needs a bin.

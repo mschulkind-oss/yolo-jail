@@ -29,7 +29,7 @@ func localPackFixture(t *testing.T, alongside, skill, body string) string {
 	local := filepath.Join(home, ".config", "yolo-jail", "local")
 	writeFile(t, filepath.Join(local, "skills", skill, "SKILL.md"),
 		"---\nname: "+skill+"\ndescription: d\n---\n"+body+"\n")
-	writeFile(t, filepath.Join(local, "AGENTS.md"), "My own briefing prose.\n")
+	writeFile(t, filepath.Join(local, "briefing", "prose.md"), "My own briefing prose.\n")
 	selectPacks(t, home, alongside)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))

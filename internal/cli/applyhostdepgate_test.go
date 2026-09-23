@@ -61,8 +61,8 @@ func depGateFixtureWithConfig(t *testing.T, contributions ...string) (home, brie
 	writeFile(t, filepath.Join(packDir, "pack.json"),
 		`{"name":"gatepack","description":"g","contributes":[`+
 			strings.Join(contributions, ",")+`,`+gateConfigJSON+`,`+
-			`{"kind":"briefing","from":"AGENTS.md","into":".gate/AGENTS.md"}]}`)
-	writeFile(t, filepath.Join(packDir, "AGENTS.md"), "Gate prose.\n")
+			`{"kind":"briefing","from":"briefing/prose.md","into":".gate/AGENTS.md"}]}`)
+	writeFile(t, filepath.Join(packDir, "briefing", "prose.md"), "Gate prose.\n")
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
 		`{"packs":[{"source":"file://`+packDir+`","name":"gatepack"}]}`)
 	t.Setenv("HOME", home)

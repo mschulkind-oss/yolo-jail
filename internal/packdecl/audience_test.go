@@ -51,18 +51,54 @@ func TestDestinationIdentityValidates(t *testing.T) {
 	}
 }
 
-// `into` STAYS REQUIRED for a contribution that names no audience. This is the rule the
-// conditional must not have widened into "into is optional now": an unaudienced briefing with no
-// destination is the delivered-nowhere failure, and it has to stay unrepresentable.
+// `into` STAYS REQUIRED FOR A DESTINATION. P2 (pack-briefing-defaults.md) made route-less
+// briefing and skills CONTENT a broadcast, so the rule this pins moved: the conditional must not
+// have widened into "into is optional now" for the other role. A destination (`agent` set) IS
+// its path — with no `into` it names a landing place that does not exist — so it stays refused,
+// and `files` content, which cannot broadcast (§5), still needs a route.
 func TestIntoStillRequiredWithoutAnAudience(t *testing.T) {
 	for _, raw := range []string{
-		`{"kind":"briefing"}`,
-		`{"kind":"skills","from":"skills"}`,
-		// `files` is ADDRESSED now — its `into` comes from the agent pack's alias — so the row
-		// that used to sit here moved to TestAudienceWithoutIntoValidates above.
+		`{"kind":"briefing","agent":"claude"}`,
+		`{"kind":"skills","agent":"claude"}`,
+		`{"kind":"files","agent":"pi"}`,
 	} {
 		if probs := decodeOne(t, raw); !strings.Contains(probs, `needs "into"`) {
-			t.Errorf("%s must still be refused for a missing `into`, got %q", raw, probs)
+			t.Errorf("destination %s must still be refused for a missing `into`, got %q", raw, probs)
+		}
+	}
+	if probs := decodeOne(t, `{"kind":"files","from":"tree"}`); !strings.Contains(probs, `needs "into" or "agents"`) {
+		t.Errorf(`route-less files content must be refused, naming both routes, got %q`, probs)
+	}
+}
+
+// `agent` BESIDE `agents` WITH NO `into` validated before P5 and is refused now, so its refusal
+// names both readings of what the author meant instead of a bare `needs "into"`.
+func TestAgentBesideAgentsNamesBothReadings(t *testing.T) {
+	for _, raw := range []string{
+		`{"kind":"briefing","agent":"claude","agents":["pi"]}`,
+		`{"kind":"skills","agent":"claude","agents":["pi"]}`,
+		`{"kind":"files","from":"tree","agent":"pi","agents":["pi"]}`,
+	} {
+		probs := decodeOne(t, raw)
+		for _, want := range []string{`needs "into"`, `drop "agent"`, `give it "into" and drop "agents"`} {
+			if !strings.Contains(probs, want) {
+				t.Errorf("%s: refusal must contain %q, got %q", raw, want, probs)
+			}
+		}
+	}
+}
+
+// ROUTE-LESS BRIEFING AND SKILLS CONTENT IS A BROADCAST (P2), so it validates: silence means
+// every destination of the kind, in a manifest as well as without one.
+func TestRoutelessContentIsABroadcast(t *testing.T) {
+	for _, raw := range []string{
+		`{"kind":"briefing"}`,
+		`{"kind":"briefing","from":"prose/all.md"}`,
+		`{"kind":"skills"}`,
+		`{"kind":"skills","from":"skills"}`,
+	} {
+		if probs := decodeOne(t, raw); probs != "" {
+			t.Errorf("route-less content %s is a broadcast and must validate, got %q", raw, probs)
 		}
 	}
 }

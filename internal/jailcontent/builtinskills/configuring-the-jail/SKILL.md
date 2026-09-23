@@ -231,8 +231,11 @@ does **not** project those files into `/home/agent/` inside the jail.
      (e.g. `~/.config/yolo-jail/packs/matt`). The plural `"agents"` is the AUDIENCE — who your prose
      is for — and is the only one of the two a content pack writes; the singular `"agent"` is the
      IDENTITY an AGENT pack declares for a destination it OWNS, so it belongs to the pack that
-     installs pi, not to yours. Omit `"from"` to have yolo read the pack's own `AGENTS.md`, and omit
-     the audience entirely to reach every agent.
+     installs pi, not to yours. Omit `"from"` to carry every `*.md` in the pack's `briefing/`
+     directory that no other entry names, and omit the audience entirely to reach every agent. A
+     root `AGENTS.md` is never shipped: it is the pack repository's own instructions, and a
+     `"from"` naming `AGENTS.md`, `CLAUDE.md` or `GEMINI.md` is refused. Each file has one
+     governing entry, so declaring one file's audience never stops the rest shipping.
      YOLO composes these into `/home/agent/.pi/agent/AGENTS.md` in the jail and
      `~/.pi/agent/AGENTS.md` on the host via `yolo host apply`.
   2. **Workspace Project Files** (Per-repository) — place instructions in `<workspace>/AGENTS.md`

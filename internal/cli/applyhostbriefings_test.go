@@ -33,8 +33,8 @@ func userProseFixture(t *testing.T, userProse string) (home, packDir string) {
 	packDir = filepath.Join(t.TempDir(), "prosepack")
 	writeFile(t, filepath.Join(packDir, "pack.json"),
 		`{"name":"prosepack","description":"p","contributes":[`+
-			`{"kind":"briefing","from":"AGENTS.md","into":".claude/CLAUDE.md"}]}`)
-	writeFile(t, filepath.Join(packDir, "AGENTS.md"), "Pack rule: use rg.\n")
+			`{"kind":"briefing","from":"briefing/prose.md","into":".claude/CLAUDE.md"}]}`)
+	writeFile(t, filepath.Join(packDir, "briefing", "prose.md"), "Pack rule: use rg.\n")
 	writeFile(t, filepath.Join(home, ".claude", "CLAUDE.md"), userProse)
 
 	selectPacks(t, home, `"claude",{"source":"file://`+packDir+`","name":"prosepack"}`)
@@ -43,9 +43,11 @@ func userProseFixture(t *testing.T, userProse string) (home, packDir string) {
 	return home, packDir
 }
 
-// localPackAGENTS is where a migrated destination's prose must land, under the TEMP home.
-func localPackAGENTS(home string) string {
-	return filepath.Join(home, ".config", "yolo-jail", "local", "AGENTS.md")
+// localPackBriefing is where a migrated destination's prose must land, under the TEMP home: the
+// local pack's briefing/local.md, never its root AGENTS.md, which no reader reads as pack prose
+// (pack-briefing-defaults.md P1).
+func localPackBriefing(home string) string {
+	return filepath.Join(home, ".config", "yolo-jail", "local", "briefing", "local.md")
 }
 
 // treeHashes is a recursive {relative path → sha256} of a home, for asserting that observe wrote
@@ -109,7 +111,7 @@ func TestApplyHostBriefingConfirmsBeforeAdoptingUserProse(t *testing.T) {
 		t.Fatalf("want exactly ONE adoption prompt line, got %d:\n%s", n, report)
 	}
 	// The prose MOVED into the local pack — behavior-preserving, not merely non-destructive.
-	local, err := os.ReadFile(localPackAGENTS(home))
+	local, err := os.ReadFile(localPackBriefing(home))
 	if err != nil {
 		t.Fatalf("the user's prose did not reach the local pack: %v\n%s", err, report)
 	}
@@ -159,7 +161,7 @@ func TestApplyHostBriefingFailsClosedWithoutStdin(t *testing.T) {
 	if got, err := os.ReadFile(dest); err != nil || string(got) != userProse {
 		t.Errorf("an unconfirmable adoption modified the user's briefing: %v %q", err, got)
 	}
-	if _, err := os.Stat(localPackAGENTS(home)); !os.IsNotExist(err) {
+	if _, err := os.Stat(localPackBriefing(home)); !os.IsNotExist(err) {
 		t.Errorf("an unconfirmable adoption moved prose into the local pack (stat err=%v)", err)
 	}
 	// The rc is deliberately unchanged, for confirmDroppedPackRetire's reason: nothing the user
@@ -187,7 +189,7 @@ func TestApplyHostBriefingDeclineLeavesEverything(t *testing.T) {
 	if rc, report := applyWith(t, true, strings.NewReader("y\n")); rc != 0 {
 		t.Fatalf("adoption after a decline rc=%d\n%s", rc, report)
 	}
-	local, err := os.ReadFile(localPackAGENTS(home))
+	local, err := os.ReadFile(localPackBriefing(home))
 	if err != nil || !strings.Contains(string(local), "Always run the tests.") {
 		t.Errorf("declining must be a deferral, not a dead end: %v %q", err, local)
 	}
@@ -269,8 +271,8 @@ func TestApplyHostBriefingCleanHomeNeverPrompts(t *testing.T) {
 	packDir := filepath.Join(t.TempDir(), "prosepack")
 	writeFile(t, filepath.Join(packDir, "pack.json"),
 		`{"name":"prosepack","description":"p","contributes":[`+
-			`{"kind":"briefing","from":"AGENTS.md","into":".claude/CLAUDE.md"}]}`)
-	writeFile(t, filepath.Join(packDir, "AGENTS.md"), "Pack rule: use rg.\n")
+			`{"kind":"briefing","from":"briefing/prose.md","into":".claude/CLAUDE.md"}]}`)
+	writeFile(t, filepath.Join(packDir, "briefing", "prose.md"), "Pack rule: use rg.\n")
 	selectPacks(t, home, `"claude",{"source":"file://`+packDir+`","name":"prosepack"}`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
@@ -301,8 +303,8 @@ func TestApplyHostBriefingDroppingThePackLeavesNoOrphan(t *testing.T) {
 	packDir := filepath.Join(t.TempDir(), "prosepack")
 	writeFile(t, filepath.Join(packDir, "pack.json"),
 		`{"name":"prosepack","description":"p","contributes":[`+
-			`{"kind":"briefing","from":"AGENTS.md","into":".claude/CLAUDE.md"}]}`)
-	writeFile(t, filepath.Join(packDir, "AGENTS.md"), "Pack rule: use rg.\n")
+			`{"kind":"briefing","from":"briefing/prose.md","into":".claude/CLAUDE.md"}]}`)
+	writeFile(t, filepath.Join(packDir, "briefing", "prose.md"), "Pack rule: use rg.\n")
 	selectPacks(t, home, `"claude",{"source":"file://`+packDir+`","name":"prosepack"}`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
@@ -352,5 +354,34 @@ func TestApplyHostBriefingLabelsPackProseWhenTheUserConfigAsks(t *testing.T) {
 	}
 	if !strings.Contains(string(got), "<!-- from pack: prosepack -->\nPack rule: use rg.") {
 		t.Errorf("briefing_provenance: true did not label the pack's prose:\n%s", got)
+	}
+}
+
+// A DECLARED BRIEFING SOURCE THAT DELIVERS NOTHING IS REPORTED AT THE HOST NOTCH TOO
+// (pack-briefing-defaults.md §3.4, §10): an absent `from` and a blank one each print a warning
+// naming the path, as the jail launch does. Before, the host dropped the problem, and with the
+// fallback chain gone the prose was then lost without a word.
+func TestApplyHostReportsAnUnmetBriefingFrom(t *testing.T) {
+	home := t.TempDir()
+	packDir := filepath.Join(t.TempDir(), "gappy")
+	writeFile(t, filepath.Join(packDir, "pack.json"),
+		`{"name":"gappy","description":"p","contributes":[`+
+			`{"kind":"briefing","from":"prose/missing.md","agents":["claude"]},`+
+			`{"kind":"briefing","from":"prose/blank.md","agents":["claude"]}]}`)
+	writeFile(t, filepath.Join(packDir, "prose", "blank.md"), "  \n")
+	selectPacks(t, home, `"claude",{"source":"file://`+packDir+`","name":"gappy"}`)
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+
+	for _, write := range []bool{false, true} {
+		rc, report := applyWith(t, write, nil)
+		if rc != 0 {
+			t.Fatalf("write=%v: an unmet `from` is a warning, not a failure; rc=%d\n%s", write, rc, report)
+		}
+		for _, want := range []string{"prose/missing.md", "prose/blank.md"} {
+			if n := countLines(report, "⚠ briefing", "gappy", want); n != 1 {
+				t.Errorf("write=%v: want ONE warning naming %s, got %d:\n%s", write, want, n, report)
+			}
+		}
 	}
 }

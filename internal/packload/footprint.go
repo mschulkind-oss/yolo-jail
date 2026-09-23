@@ -277,7 +277,11 @@ func audienceTarget(c packdecl.Contribution) string {
 	if len(c.Agents) > 0 {
 		return "→ " + strings.Join(c.Agents, ", ")
 	}
-	return "" // neither: the zero-ceremony broadcast, which names nothing by design
+	// Neither: a declared BROADCAST (pack-briefing-defaults.md P2) — valid in a manifest now, and
+	// it reaches every destination of its kind the selected set declares. A blank here read as
+	// "goes nowhere", the opposite of what it does. `pack lint` takes no config, so it cannot
+	// list the agents; the resolved list is the apply's and the launch banner's to print (§3.6).
+	return "→ every agent"
 }
 
 // filesTarget is the TARGET column for a `files` claim, and the one that could not simply reuse

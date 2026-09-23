@@ -2,7 +2,7 @@ package packload
 
 // mergedest_test.go pins the ZERO-CEREMONY destination inference (finding F1).
 //
-// The defect it guards: a pack with `skills/` + `AGENTS.md` and NO pack.json declared no
+// The defect it guards: a pack with `skills/` + `briefing/` and NO pack.json declared no
 // destination, so the host render — which iterates declarations — did nothing and said nothing,
 // while the jail merged it fine. These tests assert the inference at the unit level; the
 // end-to-end assertion that a skill LANDS in a real (temp) home is in internal/cli.
@@ -23,8 +23,10 @@ func agentPack(t *testing.T, name string, contributes ...packdecl.Contribution) 
 		Decl: &packdecl.Manifest{Contributes: contributes}}
 }
 
-// zeroCeremonyPack writes a pack tree with NO pack.json: a skills dir holding one skill and an
-// AGENTS.md. skills=false omits the skills tree, prose=false omits the AGENTS.md.
+// zeroCeremonyPack writes a pack tree with NO pack.json: a skills dir holding one skill and a
+// briefing/prose.md — the conventional prose source (pack-briefing-defaults.md §3.1; a root
+// AGENTS.md is the repository's and is never read). skills=false omits the skills tree,
+// prose=false omits the briefing file.
 func zeroCeremonyPack(t *testing.T, name string, skills, prose bool) *Pack {
 	t.Helper()
 	root := t.TempDir()
@@ -38,7 +40,10 @@ func zeroCeremonyPack(t *testing.T, name string, skills, prose bool) *Pack {
 		}
 	}
 	if prose {
-		if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# prose\n"), 0o644); err != nil {
+		if err := os.MkdirAll(filepath.Join(root, "briefing"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "briefing", "prose.md"), []byte("# prose\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -109,11 +114,10 @@ func TestResolveDestinationsInfersFromTheSelectedSet(t *testing.T) {
 	claude := agentPack(t, "claude",
 		packdecl.Contribution{Kind: packdecl.KindSkills, From: "skills",
 			Into: ".claude/skills", Tier: "namespaced"},
-		packdecl.Contribution{Kind: packdecl.KindBriefing, From: "AGENTS.md",
-			Into: ".claude/CLAUDE.md", After: "host:.claude/CLAUDE.md"})
+		packdecl.Contribution{Kind: packdecl.KindBriefing, Into: ".claude/CLAUDE.md", After: "host:.claude/CLAUDE.md"})
 	pi := agentPack(t, "pi",
 		packdecl.Contribution{Kind: packdecl.KindSkills, From: "skills", Into: ".pi/agent/skills"},
-		packdecl.Contribution{Kind: packdecl.KindBriefing, From: "AGENTS.md", Into: ".pi/agent/AGENTS.md"})
+		packdecl.Contribution{Kind: packdecl.KindBriefing, Into: ".pi/agent/AGENTS.md"})
 	zc := zeroCeremonyPack(t, "zc", true, true)
 
 	set := []*Pack{claude, pi, zc}
@@ -185,7 +189,7 @@ func TestResolveDestinationsDoesNotInheritTier(t *testing.T) {
 	// `after` must NOT be inherited: on a briefing it means "prepend the user's own file", which
 	// is the agent pack's job at that destination.
 	briefer := agentPack(t, "claude", packdecl.Contribution{Kind: packdecl.KindBriefing,
-		From: "AGENTS.md", Into: ".claude/CLAUDE.md", After: "host:.claude/CLAUDE.md"})
+		Into: ".claude/CLAUDE.md", After: "host:.claude/CLAUDE.md"})
 	zc2 := zeroCeremonyPack(t, "zc2", false, true)
 	d2 := zc2.ResolveDestinations([]*Pack{briefer, zc2})
 	if len(d2.Inferred) != 1 || d2.Inferred[0].After != "" {
@@ -307,9 +311,10 @@ func TestResolveDestinationsRoutesAnAddressedBriefingFrom(t *testing.T) {
 	}
 }
 
-// The WRONG-CONTENT half on its own: the pack also happens to carry a conventional AGENTS.md, so
-// the inference succeeds either way and only the CONTENT tells the two apart. This is the case
-// that stays green when the routing is fixed and the synthesis is not.
+// The WRONG-CONTENT half on its own: the pack also happens to carry a root AGENTS.md, so only the
+// CONTENT tells a correct synthesis from one that substituted a different file. That root file is
+// the repository's own instructions and is never read as prose at all (pack-briefing-defaults.md
+// P1), so it must neither arrive in place of the addressed file nor broadcast beside it.
 func TestResolveDestinationsAddressedBriefingBeatsTheConventionalFile(t *testing.T) {
 	claude := agentPack(t, "claude", packdecl.Contribution{Kind: packdecl.KindBriefing,
 		Into: ".claude/CLAUDE.md", Agent: "claude"})
@@ -648,7 +653,7 @@ func TestResolveDestinationsLeavesADeclaringPackAlone(t *testing.T) {
 func TestResolveDestinationsInfersPerKind(t *testing.T) {
 	claude := agentPack(t, "claude",
 		packdecl.Contribution{Kind: packdecl.KindSkills, From: "skills", Into: ".claude/skills"},
-		packdecl.Contribution{Kind: packdecl.KindBriefing, From: "AGENTS.md", Into: ".claude/CLAUDE.md"})
+		packdecl.Contribution{Kind: packdecl.KindBriefing, Into: ".claude/CLAUDE.md"})
 	half := zeroCeremonyPack(t, "half", true, true)
 	half.Decl = &packdecl.Manifest{Contributes: []packdecl.Contribution{{
 		Kind: packdecl.KindSkills, From: "skills", Into: ".mine/skills"}}}
@@ -689,7 +694,7 @@ func TestResolveDestinationsReportsAnOrphanedKind(t *testing.T) {
 func TestResolveDestinationsIgnoresAPackWithNoContent(t *testing.T) {
 	claude := agentPack(t, "claude",
 		packdecl.Contribution{Kind: packdecl.KindSkills, From: "skills", Into: ".claude/skills"},
-		packdecl.Contribution{Kind: packdecl.KindBriefing, From: "AGENTS.md", Into: ".claude/CLAUDE.md"})
+		packdecl.Contribution{Kind: packdecl.KindBriefing, Into: ".claude/CLAUDE.md"})
 	empty := zeroCeremonyPack(t, "empty", false, false)
 
 	d := empty.ResolveDestinations([]*Pack{claude, empty})
@@ -721,13 +726,16 @@ func TestResolveDestinationsIgnoresALooseFileSkillsDir(t *testing.T) {
 	}
 }
 
-// A WHITESPACE-ONLY AGENTS.md is not prose. The briefing render yields no block for it, so
+// A WHITESPACE-ONLY briefing file is not prose. The briefing render yields no block for it, so
 // counting it as content would infer a destination and then report "ships no briefing prose".
 func TestResolveDestinationsIgnoresBlankProse(t *testing.T) {
 	claude := agentPack(t, "claude", packdecl.Contribution{
-		Kind: packdecl.KindBriefing, From: "AGENTS.md", Into: ".claude/CLAUDE.md"})
+		Kind: packdecl.KindBriefing, Into: ".claude/CLAUDE.md"})
 	blank := zeroCeremonyPack(t, "blank", false, false)
-	if err := os.WriteFile(filepath.Join(blank.Root, "AGENTS.md"),
+	if err := os.MkdirAll(filepath.Join(blank.Root, "briefing"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(blank.Root, "briefing", "blank.md"),
 		[]byte("\n \n\t\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

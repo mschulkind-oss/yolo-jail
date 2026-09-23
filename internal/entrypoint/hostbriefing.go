@@ -22,10 +22,12 @@ package entrypoint
 //     however many packs contribute to it, so the destination's content is a function of the
 //     pack SET rather than of which pack was rendered last.
 //   - THE USER'S PROSE MOVES, it is not archived away (§6a, amended). A hand-written
-//     destination is migrated into ~/.config/yolo-jail/local/AGENTS.md, where the LOCAL PACK
-//     composes it back into every destination — so the migration is behavior-PRESERVING rather
-//     than merely non-destructive. Archiving is the FALLBACK for prose that cannot be moved.
-//     See MigrateHostBriefings.
+//     destination is migrated into ~/.config/yolo-jail/local/briefing/local.md, where the LOCAL
+//     PACK composes it back into every destination — so the migration is behavior-PRESERVING
+//     rather than merely non-destructive. Archiving is the FALLBACK for prose that cannot be
+//     moved. See MigrateHostBriefings. A local pack an earlier yolo migrated into its root
+//     AGENTS.md — no longer read as pack prose (pack-briefing-defaults.md §4) — is moved to that
+//     same file first; see MoveLegacyLocalPackBriefing.
 //   - A FIRST APPLY THAT ADOPTS A DESTINATION IS CONFIRMED. Taking wholesale ownership of a
 //     file the user wrote is a one-way door, and the CLI's confirmHostLosses gate is where it
 //     is opened. This package reports what WOULD be adopted (HostBriefingAdoptions) and never
@@ -40,8 +42,10 @@ package entrypoint
 //     the user's file in place to pull from.
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -73,11 +77,15 @@ type HostBriefingRequest struct {
 	ArchiveRoot hostskills.ArchiveRoot
 	// Stamp names the archive generation, so one apply groups its moves together.
 	Stamp string
-	// LocalPackAGENTS is the absolute path of the local pack's own AGENTS.md
-	// (paths.LocalPackDir()/AGENTS.md) — where a pre-existing destination's prose MOVES to.
-	// Empty disables the move and falls back to archiving, which is what a caller with no
-	// resolvable local pack location should do rather than guess one.
-	LocalPackAGENTS string
+	// LocalPackBriefing is the absolute path of the local pack's own briefing file
+	// (paths.LocalPackDir()/briefing/local.md, LocalPackBriefingRel) — where a pre-existing
+	// destination's prose MOVES to. Empty disables the move and falls back to archiving, which
+	// is what a caller with no resolvable local pack location should do rather than guess one.
+	//
+	// Under briefing/, never the pack root: a root AGENTS.md is the repository's own
+	// instructions and is never read as pack prose (pack-briefing-defaults.md P1), so prose
+	// migrated there would stop reaching every agent on the very apply that promised it would.
+	LocalPackBriefing string
 	// PackSetComplete asserts that every pack the config NAMES resolved this run. Only then
 	// can PruneHostBriefings conclude that a destination has no contributor left.
 	//
@@ -131,10 +139,19 @@ type HostBriefingAdoption struct {
 // have an owner. Computing it three times from three loops is how the two notches came to
 // disagree about `from` in the first place.
 //
+// ONE SECTION PER PACK PER DESTINATION, not one per contribution (pack-briefing-defaults.md
+// §3.1). A pack reaches one destination through several contributions — its own `{into}`
+// declarations and the synthesized `{into, from}` copies ResolveDestinations made of its borrowers
+// — and the files those carry are gathered, deduplicated, sorted byte-wise by pack-relative path
+// and appended as ONE section under ONE label. That is the order and the contiguity the jail
+// produces from the same governance predicate (run.packBriefingProses → ComposePackBriefings), so
+// one pack set composes to identical bytes at both notches. Appending per contribution interleaved
+// a pack's files by `contributes` order and labelled each.
+//
 // The union caveat lives here: several packs naming ONE destination is the `briefing` kind's
-// CombineConcat footprint, so they are concatenated in pack order — each under a provenance
-// label when `provenance` is on. No dedup-by-similarity is attempted — prose has no name, so "these two sections say the
-// same thing" is a judgement yolo would get wrong.
+// CombineConcat footprint, so their sections are concatenated in pack order — each under a
+// provenance label when `provenance` is on. No dedup-by-similarity is attempted — prose has no
+// name, so "these two sections say the same thing" is a judgement yolo would get wrong.
 func ComposeHostBriefings(packs []*packload.Pack, homeDir string, provenance bool) []HostBriefingDestination {
 	var order []string
 	byPath := map[string]*HostBriefingDestination{}
@@ -142,11 +159,24 @@ func ComposeHostBriefings(packs []*packload.Pack, homeDir string, provenance boo
 		if p == nil {
 			continue
 		}
+		// This pack's contributions to each destination, grouped, in first-appearance order.
+		var paths []string
+		carried := map[string][]packload.GovernedSource{}
 		for _, c := range p.Decl.Contributions() {
 			if c.Kind != packdecl.KindBriefing || c.Into == "" {
 				continue
 			}
 			path := filepath.Join(homeDir, filepath.FromSlash(c.Into))
+			if _, seen := carried[path]; !seen {
+				paths = append(paths, path)
+				carried[path] = nil
+			}
+			// A DESTINATION (`agent` set) carries nothing (P5); a content contribution carries
+			// the files it governs, matched back to its governor by source key.
+			sources, _ := p.GovernedBriefingFor(c)
+			carried[path] = append(carried[path], sources...)
+		}
+		for _, path := range paths {
 			d, seen := byPath[path]
 			if !seen {
 				d = &HostBriefingDestination{Path: path}
@@ -154,17 +184,12 @@ func ComposeHostBriefings(packs []*packload.Pack, homeDir string, provenance boo
 				order = append(order, path)
 			}
 			// The destination is recorded even for a pack that ships no prose, because that
-			// pack is still an OWNER: the six shipped agent packs declare `briefing` to name
-			// the file their agent reads, and the content comes from the user's own packs
-			// merging into it. Dropping them from Packs would make a destination with content
-			// look ownerless the moment the content pack was the only one listed.
+			// pack is still an OWNER: the shipped agent packs declare `briefing` to name the
+			// file their agent reads, and the content comes from the user's own packs merging
+			// into it. Dropping them from Packs would make a destination with content look
+			// ownerless the moment the content pack was the only one listed. Once per pack.
 			d.Packs = append(d.Packs, p.Name)
-			// One section per CONTRIBUTION, so a pack declaring two destinations delivers to
-			// both. This was the host's own asymmetry for a while — the jail's composition took
-			// one (pack, text) pair and could deliver only the first — and briefing-audiences.md
-			// §5 closed it: run.packBriefingProses now enumerates per contribution too, so both
-			// notches honor a pack's second `from`.
-			prose, _ := p.BriefingProseFor(c)
+			prose := packload.JoinBriefingSources(sortedUniqueSources(carried[path]))
 			if prose == "" {
 				continue
 			}
@@ -178,9 +203,28 @@ func ComposeHostBriefings(packs []*packload.Pack, homeDir string, provenance boo
 	return out
 }
 
-// appendHostBriefingSection adds one pack's section, matching jailcontent.ComposePackBriefings'
-// spacing byte-for-byte so the same prose reads the same at both notches — labelled only when
-// `provenance` is on.
+// sortedUniqueSources is one pack's sources for one destination, deduplicated by pack-relative
+// path (two contributions reaching one destination may carry the same file) and sorted byte-wise
+// by it — the governance predicate's own order, so the section matches the jail's.
+func sortedUniqueSources(in []packload.GovernedSource) []packload.GovernedSource {
+	seen := map[string]bool{}
+	out := make([]packload.GovernedSource, 0, len(in))
+	for _, s := range in {
+		if seen[s.Rel] {
+			continue
+		}
+		seen[s.Rel] = true
+		out = append(out, s)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Rel < out[j].Rel })
+	return out
+}
+
+// appendHostBriefingSection adds one pack's section — all of its files for this destination,
+// already joined (packload.JoinBriefingSources) — matching jailcontent.ComposePackBriefings'
+// spacing byte-for-byte so the same prose reads the same at both notches: one blank line between
+// files and between packs, and the pack's ONE label heading its section only when `provenance` is
+// on.
 func appendHostBriefingSection(base, pack, prose string, provenance bool) string {
 	section := strings.TrimRight(prose, " \t\r\n") + "\n"
 	if provenance {
@@ -290,9 +334,9 @@ func GeneratedHostBriefings(home string) map[string]bool {
 	return out
 }
 
-// MigrateHostBriefings moves each adopted destination's prose into the local pack's AGENTS.md,
-// so the user's instructions keep reaching their agents — through the layer model instead of a
-// loose file. Returns one result per adoption.
+// MigrateHostBriefings moves each adopted destination's prose into the local pack's briefing
+// file (HostBriefingRequest.LocalPackBriefing), so the user's instructions keep reaching their
+// agents — through the layer model instead of a loose file. Returns one result per adoption.
 //
 // MOVE, NOT ARCHIVE (§6a as amended). Archiving is safe but it is not a MIGRATION: the prose
 // ends up in a timestamped directory nothing reads, and getting it back is manual. Moving it
@@ -301,9 +345,9 @@ func GeneratedHostBriefings(home string) map[string]bool {
 // location, an unwritable config dir) — so nothing is ever deleted whichever path runs.
 //
 // The union caveat is at its sharpest here and is handled by ADMITTING it rather than resolving
-// it: several agents' briefings merging into one local AGENTS.md are concatenated in destination
-// order under a provenance header naming the file each section came from, and the caller warns
-// that it happened. Prose has no name to dedup on, so leaving the editing to the user is the
+// it: several agents' briefings merging into one local briefing file are concatenated in
+// destination order, and the caller lists that order and warns that it happened (the file itself
+// carries no marker; see appendToLocalPackBriefing). Prose has no name to dedup on, so leaving the editing to the user is the
 // honest outcome.
 //
 // observe computes and writes nothing, which is why the caller can preview a migration it has
@@ -313,7 +357,7 @@ func MigrateHostBriefings(adoptions []HostBriefingAdoption, req HostBriefingRequ
 	var out []HostRenderResult
 	for _, a := range adoptions {
 		res := HostRenderResult{Surface: "briefing/migrate", Path: a.Path}
-		if req.LocalPackAGENTS == "" {
+		if req.LocalPackBriefing == "" {
 			// No local pack location: fall back to the archive, which loses nothing but does
 			// not preserve behavior. Named as the fallback so the difference is visible.
 			res.Action, res.WouldChange = hostBriefingArchiveAction(a.Path, req, observe,
@@ -322,11 +366,11 @@ func MigrateHostBriefings(adoptions []HostBriefingAdoption, req HostBriefingRequ
 			continue
 		}
 		if observe {
-			res.Action, res.WouldChange = "would move your prose into "+req.LocalPackAGENTS, true
+			res.Action, res.WouldChange = "would move your prose into "+req.LocalPackBriefing, true
 			out = append(out, res)
 			continue
 		}
-		if err := appendToLocalPackBriefing(req.LocalPackAGENTS, a); err != nil {
+		if err := appendToLocalPackBriefing(req.LocalPackBriefing, a); err != nil {
 			// A failed move must not silently become a wholesale overwrite of the user's file
 			// on the render that follows. Archive instead — the fallback exists for exactly
 			// this — and report both halves so the user knows which one ran.
@@ -335,7 +379,7 @@ func MigrateHostBriefings(adoptions []HostBriefingAdoption, req HostBriefingRequ
 			out = append(out, res)
 			continue
 		}
-		res.Action, res.WouldChange = "moved your prose into "+req.LocalPackAGENTS, true
+		res.Action, res.WouldChange = "moved your prose into "+req.LocalPackBriefing, true
 		out = append(out, res)
 	}
 	return out, nil
@@ -359,8 +403,9 @@ func hostBriefingArchiveAction(path string, req HostBriefingRequest, observe boo
 }
 
 // appendToLocalPackBriefing appends one adopted destination's prose to the local pack's
-// AGENTS.md, as the user wrote it, separated from what is already there by one blank line —
-// the same spacing jailcontent.ComposePackBriefings puts between composed pack sections.
+// briefing file (LocalPackBriefingRel), as the user wrote it, separated from what is already
+// there by one blank line — the same spacing jailcontent.ComposePackBriefings puts between
+// composed pack sections.
 //
 // APPEND, not overwrite: a user migrating three agents' briefings in one apply, or migrating a
 // second agent months later, must not have the first one replaced.
@@ -385,6 +430,183 @@ func appendToLocalPackBriefing(dest string, a HostBriefingAdoption) error {
 		merged = strings.TrimRight(existing, "\n") + "\n\n" + section
 	}
 	return WriteStringInPlace(dest, merged, 0o644)
+}
+
+// LocalPackBriefingRel is the ONE file, relative to the local pack's root, that yolo writes the
+// user's migrated prose into — both the adoption migration (MigrateHostBriefings) and the move
+// of an older local pack's root AGENTS.md (MoveLegacyLocalPackBriefing). One name for both, so
+// the two can never race each other into two files whose join order the user did not choose.
+//
+// Under briefing/, the only conventional prose source (pack-briefing-defaults.md §3.1), and
+// deliberately NOT named AGENTS.md: that basename is refused inside briefing/ (OQ-PB2), so a
+// move keeping the old name would turn the user's prose into a launch refusal.
+const LocalPackBriefingRel = packdecl.DefaultBriefingDir + "/local.md"
+
+// LegacyLocalPackBriefingRel is where an earlier yolo migrated the user's prose: the local
+// pack's ROOT AGENTS.md, which is no longer read as pack prose (P1).
+const LegacyLocalPackBriefingRel = "AGENTS.md"
+
+// MoveLegacyLocalPackBriefing moves the local pack's root AGENTS.md — the file an earlier yolo
+// migrated the user's prose into — to LocalPackBriefingRel, so it reaches every agent again
+// (pack-briefing-defaults.md §4). yolo chose that location, so yolo moves it; a third-party
+// pack's AGENTS.md is its author's to move, and nothing here touches one.
+//
+// Returns nil, nil when there is nothing to move. Otherwise one result naming both files, and a
+// non-nil error when the move is REFUSED — in which case the caller must stop the briefing
+// render before it composes: the local pack's prose is unreadable where it is, so composing now
+// would regenerate every destination WITHOUT the user's own instructions, and a retire pass
+// would archive a destination the local pack was the only contributor to.
+//
+// The cases, each chosen so that nothing of the user's is ever lost or chosen between:
+//
+//   - ABSENT, a directory, or a dangling symlink: nothing to move. None of them ever delivered
+//     prose (the old reader was os.ReadFile), so there is nothing to restore.
+//   - THE TARGET EXISTS: refused, naming both files. Which text wins — or how the two merge — is
+//     the user's decision, not a guess of ours. The one exception is the SAME file under both
+//     names, which is what an interrupted move below leaves; finishing it chooses nothing.
+//   - A SYMLINK to a file: refused, naming both files. Renaming it one directory deeper would
+//     silently break a relative link, and rewriting the user's link is not ours to do.
+//   - Otherwise it MOVES, without clobbering: os.Link fails on an existing target where
+//     os.Rename would overwrite it, so a file created between the check and the move is still
+//     never replaced.
+//
+// It does NOT rewrite the local pack's pack.json — and it REFUSES while that pack.json still names
+// the legacy file in a briefing `from`. Such a declaration is refused at launch anyway (packdecl's
+// reserved-basename refusal), but here it is worse than refused: governance never reads the
+// reserved `from`, so the moved briefing/local.md would be named by NOBODY and become the implicit
+// broadcast — prose the user routed to one agent (`agents`, `into`) composed into every agent's
+// briefing, by the apply that moved it. The refusal names the one-line edit that makes the move
+// delivery-preserving; the user's declarations stay theirs to write.
+//
+// observe writes nothing and reports what the move would do — including the refusal.
+func MoveLegacyLocalPackBriefing(localPackDir string, observe bool) (*HostRenderResult, error) {
+	if localPackDir == "" {
+		return nil, nil
+	}
+	legacy := filepath.Join(localPackDir, filepath.FromSlash(LegacyLocalPackBriefingRel))
+	target := filepath.Join(localPackDir, filepath.FromSlash(LocalPackBriefingRel))
+	lfi, err := os.Lstat(legacy)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return moveRefused(legacy, target, fmt.Sprintf("could not inspect %s: %v", legacy, err))
+	}
+	res := &HostRenderResult{Surface: "briefing/local-pack", Path: legacy}
+	switch {
+	case lfi.IsDir():
+		return nil, nil
+	case lfi.Mode()&os.ModeSymlink != 0:
+		fi, serr := os.Stat(legacy)
+		if serr != nil || fi.IsDir() {
+			return nil, nil // dangling, or a link to a directory: it never delivered prose
+		}
+		return moveRefused(legacy, target, fmt.Sprintf(
+			"%s is a symlink; yolo does not move or rewrite your link. Point a link at %s "+
+				"yourself (or move the file there) and remove %s", legacy, target, legacy))
+	case !lfi.Mode().IsRegular():
+		return nil, nil
+	}
+	if why := legacyFromDeclaration(localPackDir); why != "" {
+		return moveRefused(legacy, target, why)
+	}
+	if tfi, terr := os.Lstat(target); terr == nil {
+		if os.SameFile(lfi, tfi) {
+			// An interrupted move: both names are one file. Finishing it loses nothing.
+			if observe {
+				res.Action, res.WouldChange = "would finish moving "+legacy+" → "+target, true
+				return res, nil
+			}
+			if rerr := os.Remove(legacy); rerr != nil {
+				return moveRefused(legacy, target, fmt.Sprintf("could not remove %s: %v",
+					legacy, rerr))
+			}
+			res.Action, res.WouldChange = "finished moving "+legacy+" → "+target, true
+			return res, nil
+		}
+		return moveTargetTaken(legacy, target)
+	} else if !os.IsNotExist(terr) {
+		return moveRefused(legacy, target, fmt.Sprintf("could not inspect %s: %v", target, terr))
+	}
+	if observe {
+		res.Action, res.WouldChange = "would move "+legacy+" → "+target+
+			" (a root AGENTS.md is no longer read as pack prose)", true
+		return res, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return moveRefused(legacy, target, fmt.Sprintf("could not create %s: %v",
+			filepath.Dir(target), err))
+	}
+	if lerr := os.Link(legacy, target); lerr != nil {
+		if os.IsExist(lerr) {
+			return moveTargetTaken(legacy, target)
+		}
+		// A filesystem without hard links: the Lstat above is the no-clobber check.
+		if rerr := os.Rename(legacy, target); rerr != nil {
+			return moveRefused(legacy, target, fmt.Sprintf("could not move it: %v", rerr))
+		}
+	} else if rerr := os.Remove(legacy); rerr != nil {
+		// Both names now hold the same file, which the next apply finishes (the SameFile case).
+		return moveRefused(legacy, target, fmt.Sprintf("moved, but could not remove %s: %v",
+			legacy, rerr))
+	}
+	res.Action, res.WouldChange = "moved "+legacy+" → "+target+
+		" (a root AGENTS.md is no longer read as pack prose)", true
+	return res, nil
+}
+
+// legacyFromDeclaration is the refusal text for a local pack.json whose briefing CONTENT
+// contribution names the legacy root file in `from`, or "" when none does (or there is no readable
+// pack.json — a manifest-less local pack broadcasts its briefing/ either way, so the move
+// preserves its delivery exactly).
+//
+// Parsed loosely, not through packdecl.Decode: the declaration this looks for is one packdecl
+// refuses, and the question is only "does the user's file still point at the old name?".
+func legacyFromDeclaration(localPackDir string) string {
+	manifest := filepath.Join(localPackDir, packdecl.ManifestName)
+	data, err := os.ReadFile(manifest)
+	if err != nil {
+		return ""
+	}
+	var m struct {
+		Contributes []struct {
+			Kind   string   `json:"kind"`
+			From   string   `json:"from"`
+			Agent  string   `json:"agent"`
+			Into   string   `json:"into"`
+			Agents []string `json:"agents"`
+		} `json:"contributes"`
+	}
+	if json.Unmarshal(data, &m) != nil {
+		return ""
+	}
+	for i, c := range m.Contributes {
+		if c.Kind != string(packdecl.KindBriefing) || c.Agent != "" || c.From == "" ||
+			path.Clean(c.From) != LegacyLocalPackBriefingRel {
+			continue
+		}
+		return fmt.Sprintf("%s contributes[%d] names %q as its briefing `from`, and a root "+
+			"AGENTS.md is no longer read as pack prose — so the moved file would be named by no "+
+			"declaration and reach EVERY agent, not the audience that contribution routes it to. "+
+			"Change that `from` to %q in %s, then re-run `yolo host apply` to move the file",
+			manifest, i, c.From, LocalPackBriefingRel, manifest)
+	}
+	return ""
+}
+
+// moveTargetTaken is the refusal for a target that already holds something else — the case §4
+// rules on: refuse, naming both files, rather than choosing one.
+func moveTargetTaken(legacy, target string) (*HostRenderResult, error) {
+	return moveRefused(legacy, target, fmt.Sprintf(
+		"both %s and %s exist, and yolo will not choose between them. Merge what you want to "+
+			"keep into %s and delete %s — a root AGENTS.md is no longer read as pack prose",
+		legacy, target, target, legacy))
+}
+
+func moveRefused(legacy, target, why string) (*HostRenderResult, error) {
+	err := fmt.Errorf("refused to move the local pack's briefing %s → %s: %s", legacy, target, why)
+	return &HostRenderResult{Surface: "briefing/local-pack", Path: legacy,
+		Action: "refused: " + why}, err
 }
 
 // RenderHostBriefings composes every briefing destination the pack set names and writes it,

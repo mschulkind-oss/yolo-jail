@@ -42,7 +42,7 @@ func reservedFixture(t *testing.T) string {
 	writeFile(t, filepath.Join(packDir, "pack.json"),
 		`{"name":"rf","description":"d","contributes":[`+
 			`{"kind":"skills","into":".claude/skills","reserved":["synced"]}]}`)
-	writeFile(t, filepath.Join(packDir, "AGENTS.md"), "rf prose\n")
+	writeFile(t, filepath.Join(packDir, "briefing", "prose.md"), "rf prose\n")
 	writeFile(t, filepath.Join(packDir, "skills", "rfskill", "SKILL.md"),
 		"---\nname: rfskill\ndescription: d\n---\nbody\n")
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),

@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -78,10 +79,15 @@ type Contribution struct {
 	// --- skills / briefing / files (staged trees) ---
 	// From is the pack-relative source path. OPTIONAL for `skills` and `briefing`,
 	// which each have a conventional source, and REQUIRED for `files`, which does not
-	// (see validateContribution). Read it through SkillsSource() / BriefingCandidates()
-	// rather than off the struct: an absent `from` means the convention, and a call
-	// site that resolves that by hand is a call site that can quietly stop honoring
-	// the declared value (which is exactly what all three skills readers did).
+	// (see validateContribution). Read it through SourceKey() (or SkillsSource()) rather
+	// than off the struct: an absent `from` means the convention, and a call site that
+	// resolves that by hand is a call site that can quietly stop honoring the declared
+	// value (which is exactly what all three skills readers did).
+	//
+	// A DECLARED `from` NAMES EXACTLY ONE SOURCE, and a destination (`agent` set) names none
+	// (pack-briefing-defaults.md P4, P5). On `briefing` it names one file, never one whose
+	// basename is a repository instruction file (RepositoryInstructionFile); omitted, it names
+	// every *.md directly inside DefaultBriefingDir that no sibling contribution names.
 	From string `json:"from,omitempty"` // pack-relative source path
 	Into string `json:"into,omitempty"` // home-relative jail destination
 	// Reserved names CHILDREN of `into` that yolo must not touch — neither adopt nor compose
@@ -156,14 +162,28 @@ type Contribution struct {
 	// never named by any selector.
 	Agent string `json:"agent,omitempty"`
 	// Agents is the AUDIENCE a contribution names: deliver this content only to the
-	// destinations whose owner declared a matching Agent. ABSENT MEANS BROADCAST — the
-	// pre-field behavior, which is what lets a zero-ceremony pack (no manifest to put a
-	// selector in) keep working untouched.
+	// destinations whose owner declared a matching Agent.
+	//
+	// ABSENT MEANS BROADCAST, on `briefing` and `skills`, with or without a manifest
+	// (pack-briefing-defaults.md P2). A content contribution naming neither `agents` nor
+	// `into` reaches every destination of its kind that the selected pack set declares —
+	// the same thing core's synthetic zero-ceremony borrower does for a pack with no
+	// manifest, so the two spellings of "every agent" are one behavior. It names no agent,
+	// so briefing-audiences.md P3's fatal unmatched-audience rule cannot fire, and an agent
+	// pack selected later receives it with no edit. `files` does NOT broadcast: it has no
+	// conventional source and its destinations are agent-specific slot types, so a `files`
+	// contribution still names `into` or `agents` (validateContribution says why).
 	//
 	// A contribution that names its audience must NOT name a path: `agents` and `into` are
-	// two answers to one question and an entry gives exactly one (validateContribution).
+	// two answers to one question and an entry gives at most one (validateContribution).
 	// That is the whole point of the field — a house-rules pack hardcoding
 	// ".claude/CLAUDE.md" would be coupled to a fact only the claude pack can keep current.
+	//
+	// It routes only the sources its contribution GOVERNS (pack-briefing-defaults.md §3.3):
+	// the file its `from` names, or — `from` omitted — the convention's files no sibling
+	// names. Nothing declared about one file changes where a different file goes (P3), so
+	// an addressed `{"from": "files/pi.md", "agents": ["pi"]}` beside a briefing/ directory
+	// ADDS pi's file and leaves the directory broadcasting.
 	//
 	// Taken by `briefing`, `skills` and `files`, and refused on every other kind: the three
 	// kinds whose content many packs deliver into destinations AGENT packs name, which is the
@@ -1234,10 +1254,11 @@ func (c Contribution) SkillsSource() string {
 // SkillsSources returns the resolved pack-relative source dir of every `skills`
 // contribution, in declaration order, deduplicated.
 //
-// Deduplicated because two contributions naming one source (a pack delivering the same
-// skills to two agents' dirs — the ordinary multi-agent case) is ONE tree to read: the
-// jail path stages the union of these into a per-pack dir, so a repeat would copy the
-// same content twice for no effect.
+// Deduplicated as a FALLBACK only. Two content contributions naming one source are refused
+// on the strict path (validateDuplicateContentSources, pack-briefing-defaults.md OQ-PB5 —
+// several audiences are one `agents` list), but the tolerant in-jail decode runs no sibling
+// checks, and there a repeat is still ONE tree to read: the jail path stages the union of
+// these into a per-pack dir, so a repeat would copy the same content twice for no effect.
 //
 // EMPTY for a pack with no `skills` contribution, and that is load-bearing rather than
 // incidental: the jail's zero-ceremony merge reads DefaultSkillsDir for such a pack, so
@@ -1260,59 +1281,141 @@ func (m *Manifest) SkillsSources() []string {
 	return out
 }
 
-// DefaultBriefingFiles are the conventional pack-relative files a `briefing` contribution
-// reads when it declares no `from`, in precedence order.
+// DefaultBriefingDir is the conventional pack-relative DIRECTORY a pack ships briefing prose
+// from: every regular *.md directly inside it (pack-briefing-defaults.md §3.1, OQ-PB1). It sits
+// beside DefaultSkillsDir for the reason that directory exists — a component directory is a
+// location only yolo reads, where a root instruction file is also read by every agent working
+// in the pack's repository (P1).
 //
-// THERE IS ONE, and it is AGENTS.md. This returned ["AGENTS.md", "CLAUDE.md"] until
-// 2026-08-17, defended on the grounds that "both names are in the wild and a pack author
-// should not have to know which one yolo happens to read". That argument is about the
-// world, not about this repo, and it still lost (pack-code-separation.md §3.3): AGENTS.md
-// is the CROSS-TOOL convention and CLAUDE.md is one particular tool's own, so a core schema
-// package reading the second for free is core knowing about that tool — the last such
-// mention outside the migration debt. yolo picks one convention and it picks the shared one.
-//
-// The cost is bounded and was measured before the deletion, not after: no pack in the tree
-// or on the maintainer's host relied on the fallback. The six shipped packs carry no
-// briefing prose file at all (their `briefing` contribution exists to name a DESTINATION,
-// which is unaffected — `.claude/CLAUDE.md` as an `into` is a path, not a source), and every
-// local pack names AGENTS.md in an explicit `from`. So the pair never had a second
-// inhabitant; what changed is only what a FUTURE pack gets without asking.
-//
-// A pack whose prose lives elsewhere — CLAUDE.md included — writes `from` explicitly, which
-// is what `from` is for, and gets a REPORT if that file turns out to be missing
-// (packload.missingBriefingFromProblem) rather than the silence a conventional name buys.
-// The return stays a SLICE rather than a single string because BriefingCandidates prepends
-// `from` to it, and because a second convention is a data change if one ever earns its way in.
-func DefaultBriefingFiles() []string { return []string{"AGENTS.md"} }
+// It is a directory rather than a root BRIEFING.md because one file cannot be the unit per-file
+// governance routes (§3.3), and because uppercase root Markdown is the repository's grammar,
+// which is how AGENTS.md acquired its second reader.
+const DefaultBriefingDir = "briefing"
 
-// BriefingCandidates returns the pack-relative files THIS briefing contribution's prose
-// may live in, in precedence order: the declared `from` first, then the convention.
-// The caller reads the first one that exists and is non-empty.
+// repositoryInstructionFiles are the basenames agent tools read as a REPOSITORY'S OWN
+// instructions, wherever in a tree they sit. Copilot CLI alone reads all three
+// (pack-briefing-defaults.md Appendix A). Exact case: that is how the tools match them.
+var repositoryInstructionFiles = []string{"AGENTS.md", "CLAUDE.md", "GEMINI.md"}
+
+// RepositoryInstructionFileNames returns the basenames RepositoryInstructionFile refuses, in a
+// fresh slice. For a reader that has to ENUMERATE them — `yolo pack lint` naming a root file it
+// will not ship — rather than test one path.
+func RepositoryInstructionFileNames() []string {
+	return append([]string(nil), repositoryInstructionFiles...)
+}
+
+// RepositoryInstructionFile reports whether the pack-relative path rel has a basename an agent
+// tool reads as a repository's own instructions: AGENTS.md, CLAUDE.md or GEMINI.md, exact case.
 //
-// Same shape and the same reason as SkillsSource: `from` is optional on this kind because
-// every reader already falls back to the convention (entrypoint's hostBriefingProse builds
-// exactly this list), so requiring it in the schema only made the author write a literal
-// the resolver would have supplied.
+// THE ONE AUTHORITY FOR P1 ("one file, one reader", pack-briefing-defaults.md OQ-PB2): such a
+// file is never a briefing SOURCE — not as a declared `from` (validateContribution refuses it)
+// and not inside DefaultBriefingDir (packload.LoadDir refuses it). At ANY depth, because the
+// tools read those names in subdirectories too, so depth does not make one safe, and an allowed
+// exception is how the dual use comes back one pack at a time.
 //
-// It is the AUTHORITY for that precedence, and since 2026-08-04 the ONLY copy of it: both
-// readers go through packload.BriefingProseFor, which calls this. Before that they each inlined
-// the pair — hostBriefingProse `from`-first-then-convention, run.readPackBriefing
-// convention-only, ignoring `from` — and a pack whose prose lived elsewhere briefed at the host
-// notch and not in a jail (roadmap.md §6a-4). SkillsSource is the precedent this
-// followed.
-//
-// A FALLBACK CHAIN is the contract, not a single choice, and that is the one place `briefing`
-// differs from `skills`: a declared `from` that is absent resolves to the convention rather than
-// refusing, because the host notch always did that and narrowing it would break packs.
-// BriefingProseFor makes the fallback loud instead of silent.
-//
-// Kind is NOT checked, for the reason SkillsSource states: this is a method on a
-// contribution the caller has already filtered by kind.
-func (c Contribution) BriefingCandidates() []string {
-	if c.From == "" {
-		return DefaultBriefingFiles()
+// It is about SOURCES only. A DESTINATION is a path in an agent's home, and five shipped ones
+// end in AGENTS.md because that is the file those agents read; `after: "host:AGENTS.md"` names a
+// host file. Neither is a source, and neither is asked.
+func RepositoryInstructionFile(rel string) bool {
+	if rel == "" {
+		return false
 	}
-	return append([]string{c.From}, DefaultBriefingFiles()...)
+	base := path.Base(path.Clean(rel))
+	for _, n := range repositoryInstructionFiles {
+		if base == n {
+			return true
+		}
+	}
+	return false
+}
+
+// ConventionalBriefingFile reports whether the pack-relative path rel has the SHAPE of a
+// conventional briefing source: `briefing/<name>.md`, exactly one level inside
+// DefaultBriefingDir, matching `*.md` with Go's path.Match semantics. Case-sensitive on both
+// halves — `Briefing/x.md` and `briefing/x.MD` are not the convention.
+//
+// Shape only, deliberately. Whether the file exists, is regular and non-empty is the reader's
+// question, and a reserved basename inside the directory (`briefing/AGENTS.md`) answers TRUE
+// here and is refused by packload.LoadDir — which is where "this file is in the convention AND
+// may not be" becomes one message naming the move, instead of a file that silently fails to
+// match anything.
+func ConventionalBriefingFile(rel string) bool {
+	if rel == "" {
+		return false
+	}
+	clean := path.Clean(rel)
+	dir, base := path.Split(clean)
+	if dir != DefaultBriefingDir+"/" {
+		return false
+	}
+	ok, _ := path.Match("*.md", base)
+	return ok
+}
+
+// SourceKey is the cleaned pack-relative source THIS content contribution names — the key
+// per-file governance matches on (pack-briefing-defaults.md §3.3, R4) and OQ-PB5 refuses a
+// duplicate of.
+//
+//   - A declared `from` is path.Clean'd, so `./briefing/a.md` and `briefing/a.md` are one key.
+//   - An omitted `from` on `skills` is DefaultSkillsDir: the skills tree is ONE unit, so
+//     `{"kind":"skills"}` and `{"kind":"skills","from":"skills"}` name the same source.
+//   - An omitted `from` on `briefing` is "": it names the REMAINDER of DefaultBriefingDir —
+//     every file no sibling names — which is not a path, and must never compare equal to one.
+//
+// Kind is otherwise NOT checked, and neither is `agent`: a destination sources nothing (P5), so
+// a caller asking for a destination's key has already made the mistake this cannot repair.
+func (c Contribution) SourceKey() string {
+	if c.From == "" {
+		if c.Kind == KindSkills {
+			return DefaultSkillsDir
+		}
+		return ""
+	}
+	return path.Clean(c.From)
+}
+
+// ReservedBriefingSourceProblem is the refusal for a briefing SOURCE whose basename is a
+// repository instruction file (RepositoryInstructionFile), naming the move. field labels the
+// problem ("contributes[2].from", or a pack-relative location for a file found inside
+// DefaultBriefingDir); rel is the offending pack-relative path.
+//
+// Exported so packload.LoadDir's refusal of `briefing/AGENTS.md` spells the same remedy as the
+// manifest's: one ruling (OQ-PB2), one sentence.
+func ReservedBriefingSourceProblem(field, rel string) string {
+	clean := path.Clean(rel)
+	base := path.Base(clean)
+	target := DefaultBriefingDir + "/prose.md"
+	msg := fmt.Sprintf("%s %q: a file named %s is a repository's own agent instructions — agent "+
+		"tools read that name at any depth — so yolo never ships it as pack prose. ", field, rel, base)
+	if dir, _ := path.Split(clean); dir == DefaultBriefingDir+"/" {
+		return msg + fmt.Sprintf("Rename it inside %s/, e.g. `git mv %s %s`, and point any "+
+			"\"from\" naming it at %q", DefaultBriefingDir, clean, target, target)
+	}
+	return msg + fmt.Sprintf("Move the prose under %s/ with another name, e.g. `git mv %s %s`, "+
+		"then set \"from\": %q — or drop \"from\", and this contribution carries every "+
+		"%s/*.md no other contribution names", DefaultBriefingDir, clean, target, target,
+		DefaultBriefingDir)
+}
+
+// contentNoun names what a content contribution of kind k ships, for a refusal that has to
+// spell the addressed alternative.
+func contentNoun(k Kind) string {
+	switch k {
+	case KindBriefing:
+		return "prose"
+	case KindSkills:
+		return "skills"
+	}
+	return "tree"
+}
+
+// orPlaceholder returns v, or placeholder when v is empty — for a refusal that echoes a field
+// the author may not have written.
+func orPlaceholder(v, placeholder string) string {
+	if v == "" {
+		return placeholder
+	}
+	return v
 }
 
 // LoopholeSources returns the pack-relative module directory of every `loophole`
@@ -1564,6 +1667,7 @@ func (m *Manifest) validateContributions() []string {
 	problems = append(problems, m.validateAdapterPairs()...)
 	problems = append(problems, m.validateFilesDestinations()...)
 	problems = append(problems, m.validateAddressedFiles()...)
+	problems = append(problems, m.validateDuplicateContentSources()...)
 	return problems
 }
 
@@ -1660,6 +1764,65 @@ func (m *Manifest) validateAddressedFiles() []string {
 			}
 			seen[a] = i
 		}
+	}
+	return problems
+}
+
+// validateDuplicateContentSources refuses two CONTENT contributions of one kind in ONE pack that
+// name the same source (pack-briefing-defaults.md OQ-PB5): the same cleaned `from`, or both
+// omitting it and so both naming the convention. `briefing` and `skills` only — the two kinds
+// per-file governance covers.
+//
+// An ERROR, not a dedup, because it contradicts the rule the governance predicate rests on: a
+// named file has exactly ONE governing contribution (§3.3), and with two the answer to "where does
+// this file go?" is whichever the reader happened to meet first. Every legitimate shape already
+// has a one-contribution spelling — `agents: [a, b]` for several audiences, silence for all of
+// them — so nothing that works is lost. It is also what lets a synthesized host-side copy be
+// matched back to its governor by SourceKey alone.
+//
+// DESTINATIONS (`agent` set) are outside the rule: they source nothing (P5), and two of them in
+// one pack are validateFilesDestinations' business for the kind where that matters.
+//
+// Strict path only, like validateAddressedFiles and every sibling in this family: DecodeTolerant
+// validates entries one at a time and cannot see siblings, and the boot treats a problem as fatal.
+// The LAUNCHER decodes strictly, so this is the launch refusal; the tolerant readers keep a dedup
+// as the fallback for the in-jail read.
+func (m *Manifest) validateDuplicateContentSources() []string {
+	type key struct {
+		kind Kind
+		src  string
+	}
+	var problems []string
+	seen := map[key]int{}
+	for i, c := range m.Contributes {
+		if (c.Kind != KindBriefing && c.Kind != KindSkills) || c.Agent != "" {
+			continue
+		}
+		k := key{c.Kind, c.SourceKey()}
+		first, dup := seen[k]
+		if !dup {
+			seen[k] = i
+			continue
+		}
+		named := fmt.Sprintf("the source %q", k.src)
+		if k.src == "" {
+			named = fmt.Sprintf("every %s/*.md no other contribution names (both omit \"from\")",
+				DefaultBriefingDir)
+		}
+		// The example keeps the duplicated `from` whenever the source is not the kind's
+		// convention: dropping it would move the merged contribution onto the convention and
+		// stop the named file being delivered at all.
+		fromPart := ""
+		if k.src != "" && !(c.Kind == KindSkills && k.src == DefaultSkillsDir) {
+			fromPart = fmt.Sprintf(",\"from\":%q", k.src)
+		}
+		problems = append(problems, fmt.Sprintf(
+			"contributes[%d]: a second %q contribution naming %s (first at contributes[%d]) — a "+
+				"source has exactly one governing contribution, so two would each route the same "+
+				"files and neither would be the rule. Make them one contribution: list every "+
+				"audience in one \"agents\" array (e.g. {\"kind\":%q%s,\"agents\":[\"claude\",\"pi\"]}), "+
+				"or omit both \"into\" and \"agents\" to reach every agent",
+			i, string(c.Kind), named, first, string(c.Kind), fromPart))
 	}
 	return problems
 }
@@ -2164,60 +2327,79 @@ func validateContribution(label string, c Contribution) []string {
 			}
 		}
 	case KindSkills, KindBriefing, KindFiles:
-		// `from` is required on `files` ONLY, and the split is the whole point rather than
-		// an inconsistency. `skills` and `briefing` each have a CONVENTIONAL source that
-		// every reader already falls back to — DefaultSkillsDir for skills (see
-		// SkillsSource), AGENTS.md for briefing (entrypoint's
-		// hostBriefingProse, run.readPackBriefing) — so demanding the field made every pack
-		// author write a literal the resolver would have supplied anyway, and the validator
-		// was the only half of the code that thought it mattered. `files` is
-		// CombineExclusive over an ARBITRARY path with no conventional location, so there is
-		// nothing to default to: the declaration is the only thing that can name the tree.
+		// A contribution of these three kinds is ONE OF TWO THINGS, and which one is decided by
+		// `agent` alone (pack-briefing-defaults.md P5):
 		//
-		// `into` stays required on all three, and that is not symmetry-for-its-own-sake
-		// either. A source has one right answer per KIND; a destination has one right answer
-		// per AGENT, so inferring it means inferring the agent set — which is what the
-		// `packs` list is for. The jail already infers a skills destination where the host
-		// does not, and that asymmetry is a silent no-op bug, not a convention to spread.
-		if c.Kind == KindFiles {
-			if c.Agent != "" {
-				// A DESTINATION is a bare SLOT: it names where addressed content lands and ships
-				// none of its own. Letting it carry `from` is the overload that made the slot a
-				// mount with addressed mounts nested inside it (pi-pack-extensions.md §3), so it
-				// is refused rather than accepted-and-ignored. A pack that wants to ship its own
-				// tree addresses it to the agent like any other content.
-				if c.From != "" {
-					problems = append(problems, fmt.Sprintf(
-						"%s: a files DESTINATION (agent %q) takes no \"from\" — it declares where "+
-							"addressed content lands and ships none of its own; to ship the pack's "+
-							"own tree, address it: {\"agents\":[%q],\"from\":%q}",
-						label, c.Agent, c.Agent, c.From))
-				}
-			} else {
-				req("from", c.From)
-			}
-		}
-		// `into` and `agents` ARE TWO ANSWERS TO ONE QUESTION, and an entry gives exactly
-		// one. That falls out of the paragraph above rather than adding to it: a destination
-		// has one right answer PER AGENT, so `into` could not be inferred while the agent set
-		// was unknown — and a selector supplies precisely that missing input. Naming the
-		// audience therefore makes the destination inferable (packload.ResolveDestinations
-		// borrows it from the pack that OWNS that agent), and naming both would be a content
-		// pack asserting a path it has no business knowing (briefing-audiences.md §4.1, P4).
+		//   - A DESTINATION (`agent` set) is where addressed content lands: an agent pack's
+		//     `{agent, into}`. It needs `into` — the path is the whole declaration — and it
+		//     SOURCES NOTHING, for every kind. `from` on one is refused rather than
+		//     accepted-and-ignored, because reading it as content is the overload that made a
+		//     files slot a mount with addressed mounts nested inside it (pi-pack-extensions.md
+		//     §3), and on briefing/skills it made every agent pack's destination line read the
+		//     pack's own root prose into its own agent. `agent` without `into` stays refused.
 		//
-		// `files` joins the addressed shape here: an addressed files contribution names its
-		// audience and borrows the destination from the agent pack that declares the alias,
-		// exactly as `briefing` and `skills` do — and names no `into` of its own (P4).
-		if addressed := len(c.Agents) > 0; addressed {
-			if c.Into != "" {
+		//   - CONTENT (no `agent`) is what a pack ships. It names its route by `into` (a path),
+		//     by `agents` (an audience whose destination is borrowed from the pack owning that
+		//     agent), or — for `briefing` and `skills` only — by NEITHER, which is a BROADCAST to
+		//     every destination of the kind the selected pack set declares (P2, "silence means
+		//     broadcast", and now a manifest can say it). That is exactly what core's synthetic
+		//     zero-ceremony borrower does, so the resolver already handles the nil audience.
+		//
+		// `files` is the exception on both axes, and the reason is the same one twice: it has no
+		// CONVENTIONAL source (it is CombineExclusive over an arbitrary tree, so the declaration
+		// is the only thing that can name it, and `from` stays required) and its destinations
+		// are agent-specific slot TYPES (pi extensions, themes), so "every agent" has no meaning
+		// for it (pack-briefing-defaults.md §5). `skills` and `briefing` each have a convention
+		// — DefaultSkillsDir, and every *.md directly inside DefaultBriefingDir — so an omitted
+		// `from` there names the convention rather than nothing.
+		switch {
+		case c.Agent != "":
+			if c.Into == "" && len(c.Agents) > 0 {
+				// `agent` beside `agents` validated before P5 (an audience made `into` optional
+				// whatever else the entry carried), so the one shape this switch newly refuses
+				// gets a message that spells both readings rather than a bare `needs "into"`.
 				problems = append(problems, fmt.Sprintf(
-					"%s: kind %q takes \"into\" or \"agents\", not both — a contribution that "+
-						"names its audience has its destination inferred from the pack that owns "+
-						"that agent, and must not name a path it cannot keep current",
-					label, c.Kind))
+					"%s: kind %q needs \"into\" — \"agent\" makes it a DESTINATION, which "+
+						"names where addressed content lands. If this entry is CONTENT for %v, "+
+						"drop \"agent\" ({\"kind\":%q,\"agents\":[...]}); if it is %q's "+
+						"destination, give it \"into\" and drop \"agents\"",
+					label, c.Kind, c.Agents, string(c.Kind), c.Agent))
+			} else {
+				req("into", c.Into)
 			}
-		} else {
-			req("into", c.Into)
+			if c.From != "" {
+				problems = append(problems, fmt.Sprintf(
+					"%s: a %s DESTINATION (agent %q) takes no \"from\" — it declares where "+
+						"addressed content lands and ships none of its own; to ship the pack's "+
+						"own %s, address it: {\"kind\":%q,\"agents\":[%q],\"from\":%q}",
+					label, c.Kind, c.Agent, contentNoun(c.Kind), string(c.Kind), c.Agent, c.From))
+			}
+		case c.Kind == KindFiles:
+			req("from", c.From)
+			if c.Into == "" && len(c.Agents) == 0 {
+				problems = append(problems, fmt.Sprintf(
+					"%s: kind \"files\" needs \"into\" or \"agents\" — unlike briefing and "+
+						"skills it cannot broadcast: it has no conventional source, and its "+
+						"destinations are agent-specific slot types, so \"every agent\" means "+
+						"nothing for it. Name the audience: {\"kind\":\"files\",\"agents\":[\"<agent>\"],\"from\":%q}",
+					label, orPlaceholder(c.From, "<tree>")))
+			}
+		case c.Kind == KindBriefing && c.From != "" && RepositoryInstructionFile(c.From):
+			problems = append(problems, ReservedBriefingSourceProblem(label+".from", c.From))
+		}
+		// `into` and `agents` ARE TWO ANSWERS TO ONE QUESTION, and an entry gives at most
+		// one. A destination has one right answer PER AGENT, so `into` cannot be inferred
+		// while the agent set is unknown — and a selector supplies precisely that missing
+		// input. Naming the audience therefore makes the destination inferable
+		// (packload.ResolveDestinations borrows it from the pack that OWNS that agent), and
+		// naming both would be a content pack asserting a path it has no business knowing
+		// (briefing-audiences.md §4.1, P4). Naming NEITHER is the broadcast above.
+		if len(c.Agents) > 0 && c.Into != "" {
+			problems = append(problems, fmt.Sprintf(
+				"%s: kind %q takes \"into\" or \"agents\", not both — a contribution that "+
+					"names its audience has its destination inferred from the pack that owns "+
+					"that agent, and must not name a path it cannot keep current",
+				label, c.Kind))
 		}
 		// The audience namespace IS the bin namespace (OQ-BA1), so it gets the bin
 		// namespace's guard — reusing binProblem is what stops the two drifting apart.

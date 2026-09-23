@@ -239,3 +239,19 @@ func TestFootprintClaimsGatedConfigOverlay(t *testing.T) {
 		t.Errorf("the gate changed more than the Detail: %+v vs %+v", plain, c)
 	}
 }
+
+// A DECLARED BROADCAST (`{kind: briefing}` / `{kind: skills}`, neither `into` nor `agents`) is
+// valid in a manifest now (pack-briefing-defaults.md P2), and its TARGET says where it goes —
+// every agent — rather than the blank that read as "nowhere".
+func TestFootprintNamesADeclaredBroadcastsTarget(t *testing.T) {
+	m := &packdecl.Manifest{Contributes: []packdecl.Contribution{
+		{Kind: packdecl.KindBriefing},
+		{Kind: packdecl.KindSkills},
+	}}
+	cs := claimSet(FootprintOf(pk("house", m)))
+	for _, kind := range []string{"briefing", "skills"} {
+		if _, ok := cs[kind+" → every agent"]; !ok {
+			t.Errorf("no %q claim targeting every agent; claims = %v", kind, cs)
+		}
+	}
+}

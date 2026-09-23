@@ -28,7 +28,7 @@ func zeroCeremonyFixture(t *testing.T, alongside string) (home, packDir string) 
 	packDir = filepath.Join(t.TempDir(), "zc")
 	writeFile(t, filepath.Join(packDir, "skills", "zcskill", "SKILL.md"),
 		"---\nname: zcskill\ndescription: d\n---\nZero-ceremony body.\n")
-	writeFile(t, filepath.Join(packDir, "AGENTS.md"), "Zero-ceremony prose.\n")
+	writeFile(t, filepath.Join(packDir, "briefing", "prose.md"), "Zero-ceremony prose.\n")
 
 	entry := `{"source":"file://` + packDir + `","name":"zc"}`
 	if alongside != "" {
@@ -156,7 +156,7 @@ func TestApplyHostDeclaringPackIsUnaffectedByTheInference(t *testing.T) {
 			`{"kind":"skills","from":"skills","into":".claude/skills"}]}`)
 	writeFile(t, filepath.Join(packDir, "skills", "decskill", "SKILL.md"),
 		"---\nname: decskill\ndescription: d\n---\nbody\n")
-	writeFile(t, filepath.Join(packDir, "AGENTS.md"), "Declaring prose.\n")
+	writeFile(t, filepath.Join(packDir, "briefing", "prose.md"), "Declaring prose.\n")
 	// `pi` is selected too, so an inference that ignored the declaration would land there.
 	selectPacks(t, home, `"claude","pi",{"source":"file://`+packDir+`","name":"declaring"}`)
 	t.Setenv("HOME", home)
@@ -189,7 +189,7 @@ func TestApplyHostPartlyDeclaringPackReportsInertProseWithoutFailing(t *testing.
 			`{"kind":"skills","from":"skills","into":".partly/skills"}]}`)
 	writeFile(t, filepath.Join(packDir, "skills", "pskill", "SKILL.md"),
 		"---\nname: pskill\ndescription: d\n---\nbody\n")
-	writeFile(t, filepath.Join(packDir, "AGENTS.md"), "Partly prose.\n")
+	writeFile(t, filepath.Join(packDir, "briefing", "prose.md"), "Partly prose.\n")
 	selectPacks(t, home, `{"source":"file://`+packDir+`","name":"partly"}`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))

@@ -533,7 +533,7 @@ func TestPrepareWsStateCreatesSkillsAndBriefingMountpointsInGlobalHome(t *testin
 	root := t.TempDir()
 	manifest := `{"name":"custom-contributor","contributes":[
 		{"kind":"skills","from":"skills","into":".pi/agent/skills"},
-		{"kind":"briefing","from":"AGENTS.md","into":".pi/agent/AGENTS.md"}
+		{"kind":"briefing","into":".pi/agent/AGENTS.md"}
 	]}`
 	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)

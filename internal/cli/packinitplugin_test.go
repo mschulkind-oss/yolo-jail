@@ -180,7 +180,7 @@ func TestPlainInitStillScaffoldsTheExampleSkill(t *testing.T) {
 	if rc := packMain([]string{"init", dir}, &out, &errw, false); rc != 0 {
 		t.Fatalf("rc = %d: %s", rc, errw.String())
 	}
-	for _, rel := range []string{"AGENTS.md", "skills/example/SKILL.md", "README.md"} {
+	for _, rel := range []string{"briefing/plain-pack.md", "skills/example/SKILL.md", "README.md"} {
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err != nil {
 			t.Errorf("%s missing: %v", rel, err)
 		}

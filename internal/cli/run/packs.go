@@ -1032,74 +1032,35 @@ func packRoot(entry config.PackEntry, getenv func(string) string) (string, error
 }
 
 // packBriefingProses is every briefing prose this pack delivers into a JAIL — one entry per
-// briefing CONTRIBUTION that resolves to content, each carrying the AUDIENCE that
-// contribution named.
+// GOVERNED SOURCE, in the governance predicate's order (byte-wise by pack-relative path), each
+// carrying the AUDIENCE its governing contribution named.
 //
-// It honors each contribution's declared `from` and warns about one that cannot be honored,
-// which is what it replaced a reader for: that reader took a DIRECTORY and scanned
-// `AGENTS.md`/`CLAUDE.md` unconditionally, so a pack declaring `from: "house-rules.md"` had it
-// honored at the host notch and silently IGNORED here (roadmap.md §6a-4). Both readers go
-// through packload, which is the same convergence `skills` needed for the same reason — three
-// hardcoded conventional-source joins are how the field came to be validated and ignored.
+// THERE IS NO `declared` BRANCH (pack-briefing-defaults.md §3.3, R5). It used to read the pack's
+// AGENTS.md only when the pack declared no briefing contribution at all, so declaring one narrow
+// delivery — `{from: "files/pi-rules.md", agents: ["pi"]}` — silently stopped the pack's house
+// rules reaching anyone. packload.GovernedSources is now the one answer, shared with the jail
+// skills reader and the host notch: every briefing/*.md no declaration names broadcasts, a named
+// file goes where its governor says, and a destination (`agent` set) ships nothing.
 //
-// ONE ENTRY PER CONTRIBUTION, where packload.BriefingProse returns one per PACK. That
-// function's own docstring records why: "the jail's composition takes one (pack, text) pair
-// per pack, so a pack declaring two briefing contributions with two different `from` files
-// cannot deliver both there … making the jail match would mean composing per destination,
-// which is a larger change". This is that larger change (briefing-audiences.md §5), so the
-// per-pack reader is no longer the right one and is no longer called from the launch path.
+// ONE ENTRY PER FILE, so jailcontent.ComposePackBriefings filters each file by its own audience
+// at each destination and joins a pack's surviving files as one section (one provenance label per
+// contiguous run of the pack's entries) — the section the host notch composes whole
+// (entrypoint.ComposeHostBriefings), byte for byte (TestJailAndHostComposeTheSameBriefing).
 //
-// IDENTICAL PROSE IS DELIVERED ONCE, with the audiences UNIONED and a BROADCAST absorbing
-// every audience. That is not tidiness, it is the regression the per-contribution reading
-// would otherwise introduce: two contributions that name no `from` both resolve to the same
-// conventional AGENTS.md, so a pack naming two destinations and no source would have its prose
-// composed TWICE into every briefing — something the old first-non-empty-wins reader could not
-// do. Deduping on the resolved TEXT rather than on the source path is deliberate: the source a
-// contribution resolved to is not returned by BriefingProseFor (its precedence is a fallback
-// chain), and two files with identical content are one delivery either way.
+// A declared source that cannot be honored delivers nothing and is WARNED about (§3.4's severity,
+// unchanged); nothing else is read in its place (P4).
+//
+// A content contribution's `into` is not carried: in a jail every destination receives every
+// broadcast, which is the documented jail/host asymmetry (packload.ResolveDestinations), out of
+// scope here.
 func (o *Options) packBriefingProses(name string, p *packload.Pack) []jailcontent.PackBriefing {
-	var out []jailcontent.PackBriefing
-	index := map[string]int{}
-	add := func(text string, agents []string) {
-		text = strings.TrimRight(text, " \t\r\n")
-		if text == "" {
-			return
-		}
-		if i, seen := index[text]; seen {
-			if len(out[i].Agents) == 0 || len(agents) == 0 {
-				out[i].Agents = nil // a broadcast reaches everywhere an audience could
-				return
-			}
-			out[i].Agents = append(out[i].Agents, agents...)
-			return
-		}
-		index[text] = len(out)
-		out = append(out, jailcontent.PackBriefing{Name: name, Text: text, Agents: agents})
+	sources, problems := p.GovernedSources(packdecl.KindBriefing)
+	for _, prob := range problems {
+		o.pr(o.Stdout).print("[yellow]Warning: " + prob + "[/yellow]")
 	}
-	warn := func(prob string) {
-		if prob != "" {
-			o.pr(o.Stdout).print("[yellow]Warning: " + prob + "[/yellow]")
-		}
-	}
-	declared := false
-	for _, c := range p.Decl.Contributions() {
-		if c.Kind != packdecl.KindBriefing {
-			continue
-		}
-		declared = true
-		text, prob := p.BriefingProseFor(c)
-		warn(prob)
-		add(text, c.Agents)
-	}
-	if !declared {
-		// THE ZERO-CEREMONY PACK, and the fallback lives here for the reason
-		// packload.BriefingProse's does: the call site that forgot it would silently drop
-		// every manifest-less pack's prose. It has no manifest to name a source OR an
-		// audience in, so it is a broadcast of the conventional file — which is exactly what
-		// P2 promises keeps working untouched.
-		text, prob := p.BriefingProseFor(packdecl.Contribution{Kind: packdecl.KindBriefing})
-		warn(prob)
-		add(text, nil)
+	out := make([]jailcontent.PackBriefing, 0, len(sources))
+	for _, src := range sources {
+		out = append(out, jailcontent.PackBriefing{Name: name, Text: src.Text, Agents: src.By.Agents})
 	}
 	return out
 }

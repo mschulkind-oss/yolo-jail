@@ -21,10 +21,16 @@ func TestPackInitScaffoldLintsClean(t *testing.T) {
 	if rc := packMain([]string{"init", dir}, &out, &errw, false); rc != 0 {
 		t.Fatalf("init rc = %d: %s", rc, errw.String())
 	}
-	for _, want := range []string{"AGENTS.md", "SKILL.md", "README.md"} {
+	// The prose file is briefing/<pack>.md, never a root AGENTS.md: that name is every agent
+	// tool's REPOSITORY instructions, and yolo does not ship it (pack-briefing-defaults.md P1).
+	briefing := "briefing/" + filepath.Base(dir) + ".md"
+	for _, want := range []string{"create " + briefing, "SKILL.md", "README.md"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("init did not create %s:\n%s", want, out.String())
 		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "AGENTS.md")); err == nil {
+		t.Error("init scaffolded a root AGENTS.md, which yolo never ships as pack prose")
 	}
 	out.Reset()
 	errw.Reset()
@@ -39,7 +45,8 @@ func TestPackInitDoesNotClobber(t *testing.T) {
 	dir := t.TempDir()
 	var out, errw bytes.Buffer
 	packMain([]string{"init", dir}, &out, &errw, false)
-	edited := filepath.Join(dir, "AGENTS.md")
+	rel := "briefing/" + filepath.Base(dir) + ".md"
+	edited := filepath.Join(dir, filepath.FromSlash(rel))
 	if err := os.WriteFile(edited, []byte("MY OWN PROSE\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +54,7 @@ func TestPackInitDoesNotClobber(t *testing.T) {
 	if rc := packMain([]string{"init", dir}, &out, &errw, false); rc != 0 {
 		t.Fatal(errw.String())
 	}
-	if !strings.Contains(out.String(), "skip AGENTS.md") {
+	if !strings.Contains(out.String(), "skip "+rel) {
 		t.Errorf("re-run should report a skip:\n%s", out.String())
 	}
 	if data, _ := os.ReadFile(edited); !strings.Contains(string(data), "MY OWN PROSE") {
@@ -167,13 +174,16 @@ func TestPackLintNamesTheOwningPack(t *testing.T) {
 	dir := t.TempDir()
 	var out, errw bytes.Buffer
 	packMain([]string{"init", dir}, &out, &errw, false)
-	// One destination an agent pack owns, one nobody owns (agy moved off this path).
+	// One destination an agent pack owns, one nobody owns (agy moved off this path). Two
+	// SOURCES, because one source named by two contributions is refused (OQ-PB5).
 	manifest := `{"name":"t","contributes":[` +
 		`{"kind":"skills","from":"skills","into":".claude/skills"},` +
-		`{"kind":"skills","from":"skills","into":".gemini/antigravity-cli/skills"}]}`
+		`{"kind":"skills","from":"more-skills","into":".gemini/antigravity-cli/skills"}]}`
 	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	writeFile(t, filepath.Join(dir, "more-skills", "other", "SKILL.md"),
+		"---\nname: other\ndescription: d\n---\nbody\n")
 	out.Reset()
 	errw.Reset()
 	if rc := packMain([]string{"lint", dir}, &out, &errw, false); rc != 0 {
@@ -182,6 +192,13 @@ func TestPackLintNamesTheOwningPack(t *testing.T) {
 	report := out.String()
 	if !strings.Contains(report, "already declared by the claude pack") {
 		t.Errorf("lint did not name the owning pack for .claude/skills:\n%s", report)
+	}
+	// And it must say what dropping the line DOES, which is widen (pack-briefing-defaults.md
+	// §2.6). It used to say the line "adds nothing (drop it…)" — advice that, followed, sent
+	// content meant for one path to every agent.
+	if !strings.Contains(report, "WIDENS") || strings.Contains(report, "adds nothing") {
+		t.Errorf("the advisory must say dropping the line widens delivery, never that the "+
+			"line adds nothing:\n%s", report)
 	}
 	// The other one must stay SILENT — no pack declares it, so it is the author's own
 	// destination, and this is the case the literal list got backwards. Checked against the
@@ -340,13 +357,13 @@ func TestShippedPacksLintClean(t *testing.T) {
 }
 
 // A pack delivering skills and prose by CONVENTION, with no manifest at all, does work and
-// must lint clean — the zero-ceremony shape the jail reads through
-// packload.SkillsSourceDirs' undeclared fallback and packload.BriefingProse. Guards the
+// must lint clean — the zero-ceremony shape the jail reads through the governance predicate's
+// implicit broadcast (packload.GovernedSources: skills/ and briefing/*.md). Guards the
 // obvious wrong implementation of the zero-contributions check: keying it on the manifest
 // alone would fail-lint the pack `pack init` scaffolds.
 func TestPackLintAcceptsZeroCeremonyPack(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "AGENTS.md"), "prose\n")
+	writeFile(t, filepath.Join(dir, "briefing", "rules.md"), "prose\n")
 	writeFile(t, filepath.Join(dir, "skills", "example", "SKILL.md"),
 		"---\nname: example\ndescription: d\n---\nbody\n")
 
@@ -356,37 +373,42 @@ func TestPackLintAcceptsZeroCeremonyPack(t *testing.T) {
 	}
 }
 
-// lint's claimed-paths set must track packdecl.DefaultBriefingFiles, not a private copy of
-// it. CLAUDE.md left that list on 2026-08-17 (pack-code-separation.md §3.3), and lint kept
-// its own hardcoded `{"AGENTS.md", "CLAUDE.md"}` — so a pack whose only content is a root
-// CLAUDE.md was counted as CLAIMED ("some reader picks this up") by the one check whose job
-// is to say when nothing does. It linted clean and briefed nothing, which is precisely the
-// accepted-and-ignored shape both checks were rewritten to stop producing.
+// lint's claimed-paths set must track the governance predicate the jail reads, not a private
+// copy of the convention. It kept its own hardcoded `{"AGENTS.md", "CLAUDE.md"}` after
+// CLAUDE.md left the convention (2026-08-17), and then read packdecl's default-file list
+// after AGENTS.md left it too (pack-briefing-defaults.md P1) — each time counting a file as
+// CLAIMED ("some reader picks this up") that no reader picked up, so a pack whose only content
+// was that file linted clean and briefed nothing.
 //
 // Pinned as behavior rather than by asserting the literal, because the defect is the
 // DUPLICATION: a test on the list's contents would have stayed green while the two copies
 // drifted, which is how this survived the rename in the first place.
 func TestPackLintTracksTheBriefingConvention(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "CLAUDE.md"), "prose\n")
+	// Neither repository instruction file is a briefing source any more, so a pack whose only
+	// content is one does nothing — and the refusal must say WHY, naming the file.
+	for _, name := range []string{"CLAUDE.md", "AGENTS.md"} {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, name), "prose\n")
 
+		var out, errw bytes.Buffer
+		if rc := packMain([]string{"lint", dir}, &out, &errw, false); rc == 0 {
+			t.Fatalf("lint accepted a pack whose only content is %s; nothing ships that name "+
+				"any more, so the pack does nothing:\n%s", name, out.String())
+		}
+		got := out.String()
+		if !strings.Contains(got, name+" is not shipped") ||
+			!strings.Contains(got, name+": "+notShippedRepositoryFile) {
+			t.Errorf("lint did not say why %s is not delivered:\n%s", name, got)
+		}
+	}
+
+	// The other half, so the fix cannot be "call everything unclaimed": briefing/*.md IS the
+	// convention, and a pack carrying only that lints clean.
+	conv := t.TempDir()
+	writeFile(t, filepath.Join(conv, "briefing", "rules.md"), "prose\n")
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"lint", dir}, &out, &errw, false); rc == 0 {
-		t.Fatalf("lint accepted a pack whose only content is CLAUDE.md; nothing reads that "+
-			"name any more, so the pack does nothing:\n%s", out.String())
-	}
-	if got := out.String(); !strings.Contains(got, "CLAUDE.md") {
-		t.Errorf("lint did not name the unread file:\n%s", got)
-	}
-
-	// The other half, so the fix cannot be "call everything unclaimed": AGENTS.md IS still
-	// the convention, and a pack carrying only that one still lints clean.
-	agents := t.TempDir()
-	writeFile(t, filepath.Join(agents, "AGENTS.md"), "prose\n")
-	out.Reset()
-	errw.Reset()
-	if rc := packMain([]string{"lint", agents}, &out, &errw, false); rc != 0 {
-		t.Fatalf("lint rejected a pack carrying the conventional AGENTS.md (rc=%d):\n%s",
+	if rc := packMain([]string{"lint", conv}, &out, &errw, false); rc != 0 {
+		t.Fatalf("lint rejected a pack carrying the conventional briefing/rules.md (rc=%d):\n%s",
 			rc, out.String())
 	}
 }
@@ -421,7 +443,7 @@ func TestPackLintTypoedFromDrawsOneDiagnosis(t *testing.T) {
 func TestPackLintValidatesManifest(t *testing.T) {
 	dir := t.TempDir()
 	var out, errw bytes.Buffer
-	packMain([]string{"init", dir}, &out, &errw, false) // valid skeleton (skills + AGENTS.md)
+	packMain([]string{"init", dir}, &out, &errw, false) // valid skeleton (skills + briefing/)
 
 	// A manifest with an unknown kind AND a missing required field.
 	manifest := `{"contributes":[{"kind":"nonsense"},{"kind":"program","bin":"x"}]}`
@@ -523,7 +545,7 @@ func TestPackExplainReportsFilteredFiles(t *testing.T) {
 		t.Errorf("explain did not list the staged skill:\n%s", got)
 	}
 	// The whole point: the excluded files are named.
-	if !strings.Contains(got, "AGENTS.md") || !strings.Contains(got, "filtered out") {
+	if !strings.Contains(got, "briefing/") || !strings.Contains(got, "filtered out") {
 		t.Errorf("explain must report what the filters dropped:\n%s", got)
 	}
 }
@@ -899,7 +921,7 @@ func TestPackLintReadsDeclaredSkillsFrom(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "pack.json"),
 		`{"name":"sf","contributes":[{"kind":"skills","from":"my-skills","into":".claude/skills"}]}`)
-	writeFile(t, filepath.Join(dir, "AGENTS.md"), "prose\n")
+	writeFile(t, filepath.Join(dir, "briefing", "prose.md"), "prose\n")
 	// A skill dir under the DECLARED source with no SKILL.md: invisible to every agent.
 	writeFile(t, filepath.Join(dir, "my-skills", "broken", "notes.md"), "x")
 
@@ -919,7 +941,7 @@ func TestPackLintFlagsMissingDeclaredSkillsFrom(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "pack.json"),
 		`{"name":"sf","contributes":[{"kind":"skills","from":"my-skills","into":".claude/skills"}]}`)
-	writeFile(t, filepath.Join(dir, "AGENTS.md"), "prose\n")
+	writeFile(t, filepath.Join(dir, "briefing", "prose.md"), "prose\n")
 	// The CONVENTIONAL dir exists; the declared one does not. The old code read this one.
 	writeFile(t, filepath.Join(dir, "skills", "example", "SKILL.md"),
 		"---\nname: example\ndescription: d\n---\nbody\n")
@@ -941,7 +963,7 @@ func TestPackLintAcceptsConventionalFromWithNoSkills(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "pack.json"),
 		`{"name":"dest","contributes":[{"kind":"skills","from":"skills","into":".claude/skills"}]}`)
-	writeFile(t, filepath.Join(dir, "AGENTS.md"), "prose\n")
+	writeFile(t, filepath.Join(dir, "briefing", "prose.md"), "prose\n")
 
 	var out, errw bytes.Buffer
 	if rc := packMain([]string{"lint", dir}, &out, &errw, false); rc != 0 {
@@ -976,7 +998,7 @@ func TestPackLintFootprintNamesSkillsSource(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "pack.json"),
 		`{"name":"sf","contributes":[{"kind":"skills","from":"my-skills","into":".claude/skills"}]}`)
-	writeFile(t, filepath.Join(dir, "AGENTS.md"), "prose\n")
+	writeFile(t, filepath.Join(dir, "briefing", "prose.md"), "prose\n")
 	writeFile(t, filepath.Join(dir, "my-skills", "example", "SKILL.md"),
 		"---\nname: example\ndescription: d\n---\nbody\n")
 

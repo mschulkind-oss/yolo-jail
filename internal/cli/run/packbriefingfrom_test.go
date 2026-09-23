@@ -19,9 +19,9 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 )
 
-// localBriefingPack writes a pack declaring `from` for its briefing and carrying its prose at
-// `file` (which may differ from `from` — that is the whole point), and configures it as the only
-// pack. `file` empty ships no prose at all.
+// localBriefingPack writes a pack declaring `from` for its briefing (empty omits it) and carrying
+// its prose at the pack-relative `file` (which may differ from `from` — that is the whole point),
+// and configures it as the only pack. `file` empty ships no prose at all.
 func localBriefingPack(t *testing.T, from, file, prose string) *Options {
 	t.Helper()
 	home := packHome(t)
@@ -29,10 +29,17 @@ func localBriefingPack(t *testing.T, from, file, prose string) *Options {
 	if err := os.MkdirAll(packDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writePack(t, packDir, `{"contributes":[{"kind":"briefing","from":"`+from+
-		`","into":".claude/CLAUDE.md"}]}`)
+	fromField := ""
+	if from != "" {
+		fromField = `"from":"` + from + `",`
+	}
+	writePack(t, packDir, `{"contributes":[{"kind":"briefing",`+fromField+`"into":".claude/CLAUDE.md"}]}`)
 	if file != "" {
-		if err := os.WriteFile(filepath.Join(packDir, file), []byte(prose), 0o644); err != nil {
+		full := filepath.Join(packDir, filepath.FromSlash(file))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(prose), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -69,111 +76,130 @@ func TestJailBriefingHonorsCustomFrom(t *testing.T) {
 	}
 }
 
-// The CONVENTION still works: `from: "AGENTS.md"` reads AGENTS.md, which every shipped pack
-// declares. A fix that only honored a custom `from` would break all six.
+// The CONVENTION is briefing/ (pack-briefing-defaults.md §3.1): an omitted `from` reads every
+// briefing/*.md, and a `from` naming one of them reads that one. A fix that only honored a custom
+// `from` would break every manifest-less pack.
 func TestJailBriefingDefaultFromStillWorks(t *testing.T) {
-	o := localBriefingPack(t, "AGENTS.md", "AGENTS.md", "Conventional prose.\n")
-	briefings, warnings := stagedBriefings(t, o)
-	if len(briefings) != 1 || !strings.Contains(briefings[0].Text, "Conventional prose.") {
-		t.Fatalf("briefings = %+v, want the conventional AGENTS.md\nwarnings:\n%s",
-			briefings, warnings)
-	}
-	if strings.Contains(warnings, "Warning") {
-		t.Errorf("unexpected warning:\n%s", warnings)
+	for _, from := range []string{"", "briefing/prose.md"} {
+		o := localBriefingPack(t, from, "briefing/prose.md", "Conventional prose.\n")
+		briefings, warnings := stagedBriefings(t, o)
+		if len(briefings) != 1 || !strings.Contains(briefings[0].Text, "Conventional prose.") {
+			t.Fatalf("from=%q: briefings = %+v, want briefing/prose.md\nwarnings:\n%s",
+				from, briefings, warnings)
+		}
+		if strings.Contains(warnings, "Warning") {
+			t.Errorf("from=%q: unexpected warning:\n%s", from, warnings)
+		}
 	}
 }
 
-// CLAUDE.md is NOT the other half of the convention, and this test is the inverted twin of the
-// one that used to pin that it was (TestJailBriefingFallsBackToClaudeMd, deleted in name only).
-// packdecl.DefaultBriefingFiles returns ["AGENTS.md"] alone since 2026-08-17
-// (pack-code-separation.md §3.3): AGENTS.md is the cross-tool convention, CLAUDE.md is one
-// tool's own, and core reading the second for free was the last claude name in the schema layer.
-//
-// It is kept rather than deleted because the JAIL notch is where the old behavior was reached
-// by a different code path than the host's, and "the fallback is gone at both notches" is the
-// claim worth a regression test. Both halves matter: the pack briefs nothing on the convention
-// alone, and one `from` line is the entire remedy.
-func TestJailBriefingDoesNotFallBackToClaudeMd(t *testing.T) {
+// A ROOT AGENTS.md / CLAUDE.md IS NEVER READ, at the jail notch as at the host (P1): it is the
+// pack REPOSITORY'S own instructions. The pack briefs nothing from it, silently (OQ-PB3 — no
+// notice), and naming it in `from` is REFUSED at launch with the edit spelled out, which is the
+// shape the maintainer's own local packs have (§4's second exception).
+func TestJailBriefingNeverReadsARootInstructionFile(t *testing.T) {
 	home := packHome(t)
 	packDir := filepath.Join(t.TempDir(), "bf")
 	if err := os.MkdirAll(packDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	writePack(t, packDir, `{"contributes":[{"kind":"briefing","into":".claude/CLAUDE.md"}]}`)
-	if err := os.WriteFile(filepath.Join(packDir, "CLAUDE.md"),
-		[]byte("Claude-md prose.\n"), 0o644); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{"AGENTS.md", "CLAUDE.md"} {
+		if err := os.WriteFile(filepath.Join(packDir, name),
+			[]byte("Repository guide.\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	writeUserPacks(t, home, `[{"source":"file://`+packDir+`","name":"bf"}]`)
 
 	briefings, warnings := stagedBriefings(t, &Options{Workspace: t.TempDir()})
 	if len(briefings) != 0 {
-		t.Fatalf("briefings = %+v, want none: CLAUDE.md is no longer a conventional SOURCE "+
-			"(it is only this pack's destination)\nwarnings:\n%s", briefings, warnings)
+		t.Fatalf("briefings = %+v, want none: a root instruction file is never a SOURCE\n"+
+			"warnings:\n%s", briefings, warnings)
+	}
+	if strings.Contains(warnings, "Warning") {
+		t.Errorf("a root AGENTS.md that is not shipped is announced nowhere (OQ-PB3):\n%s", warnings)
 	}
 
-	// The remedy is one line of manifest, and it must work.
-	writePack(t, packDir,
-		`{"contributes":[{"kind":"briefing","from":"CLAUDE.md","into":".claude/CLAUDE.md"}]}`)
-	briefings, warnings = stagedBriefings(t, &Options{Workspace: t.TempDir()})
-	if len(briefings) != 1 || !strings.Contains(briefings[0].Text, "Claude-md prose.") {
-		t.Fatalf("briefings = %+v, want the prose an explicit `from` names\nwarnings:\n%s",
-			briefings, warnings)
+	for _, from := range []string{"AGENTS.md", "CLAUDE.md"} {
+		writePack(t, packDir, `{"contributes":[{"kind":"briefing","from":"`+from+
+			`","into":".claude/CLAUDE.md"}]}`)
+		o := &Options{Workspace: t.TempDir(), Stdout: &bytes.Buffer{}}
+		jailcontent.SetPackSkillDirs(nil)
+		_, _, _, err := o.stagePacks("yolo-test-briefingfrom")
+		if err == nil || !strings.Contains(err.Error(), from) ||
+			!strings.Contains(err.Error(), "git mv "+from+" briefing/") {
+			t.Errorf("from=%q: stagePacks err = %v, want a launch refusal spelling the move", from, err)
+		}
 	}
 }
 
-// A pack with NO manifest still contributes its AGENTS.md — the zero-ceremony case both notches
-// depend on, and the one a naive "iterate the contributions" fix would drop.
+// A pack with NO manifest still contributes its briefing/ prose — the zero-ceremony case both
+// notches depend on, and the one a naive "iterate the contributions" fix would drop. Its root
+// AGENTS.md does not come along.
 func TestJailBriefingZeroCeremonyPackStillContributes(t *testing.T) {
 	home := packHome(t)
 	packDir := filepath.Join(t.TempDir(), "bare")
-	if err := os.MkdirAll(packDir, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(packDir, "briefing"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(packDir, "briefing", "bare.md"),
+		[]byte("Bare pack prose.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(packDir, "AGENTS.md"),
-		[]byte("Bare pack prose.\n"), 0o644); err != nil {
+		[]byte("Repository guide.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	writeUserPacks(t, home, `[{"source":"file://`+packDir+`","name":"bare"}]`)
 
 	briefings, warnings := stagedBriefings(t, &Options{Workspace: t.TempDir()})
-	if len(briefings) != 1 || !strings.Contains(briefings[0].Text, "Bare pack prose.") {
-		t.Fatalf("briefings = %+v, want the manifest-less pack's prose\nwarnings:\n%s",
-			briefings, warnings)
+	if len(briefings) != 1 || briefings[0].Text != "Bare pack prose." || len(briefings[0].Agents) != 0 {
+		t.Fatalf("briefings = %+v, want the manifest-less pack's briefing/ prose, broadcast\n"+
+			"warnings:\n%s", briefings, warnings)
 	}
 }
 
-// A declared source yolo could not read still FALLS BACK to the convention — that is
-// BriefingCandidates' documented contract and what the host notch has always done — but the
-// fallback is no longer SILENT.
-//
-// The distinction matters more here than for `skills`, which refuses outright: this pack briefs
-// successfully with somebody else's content, so without the warning the author's only symptom is
-// prose they did not write appearing in their agent's instructions.
-func TestJailBriefingWarnsWhenADeclaredFromFallsBack(t *testing.T) {
-	// The pack ships AGENTS.md but declares house-rules.md.
-	o := localBriefingPack(t, "house-rules.md", "AGENTS.md", "Conventional prose.\n")
-	briefings, warnings := stagedBriefings(t, o)
-	if len(briefings) != 1 || !strings.Contains(briefings[0].Text, "Conventional prose.") {
-		t.Fatalf("briefings = %+v, want the conventional fallback (BriefingCandidates' "+
-			"contract)\nwarnings:\n%s", briefings, warnings)
-	}
-	if !strings.Contains(warnings, "house-rules.md") {
-		t.Errorf("the ignored declaration was silent — the author gets prose they did not name, "+
-			"with nothing saying why:\n%s", warnings)
-	}
-}
-
-// A declared source missing with NO conventional file either delivers nothing, and says so with
-// the sharper message: this pack briefs NOTHING, which is a different problem than briefing with
-// the wrong file.
-func TestJailBriefingWarnsWhenADeclaredFromDeliversNothing(t *testing.T) {
-	o := localBriefingPack(t, "house-rules.md", "", "")
+// A DECLARED SOURCE IS THE ONLY SOURCE (§3.4, P4). A `from` yolo could not read delivers NOTHING
+// and is warned about; it no longer falls back to the pack's AGENTS.md, the substitution the
+// deleted from-then-convention fallback chain used to make.
+func TestJailBriefingDeclaredFromIsTheOnlySource(t *testing.T) {
+	// The pack ships a root AGENTS.md but declares house-rules.md.
+	o := localBriefingPack(t, "house-rules.md", "AGENTS.md", "Repository guide.\n")
 	briefings, warnings := stagedBriefings(t, o)
 	if len(briefings) != 0 {
-		t.Errorf("briefings = %+v, want none — nothing in the pack holds prose", briefings)
+		t.Fatalf("briefings = %+v, want none — no other file may arrive in the declared "+
+			"source's place\nwarnings:\n%s", briefings, warnings)
 	}
 	if !strings.Contains(warnings, "house-rules.md") || !strings.Contains(warnings, "no prose") {
-		t.Errorf("the warning must say the pack briefs nothing at all:\n%s", warnings)
+		t.Errorf("the unmet declaration was silent:\n%s", warnings)
+	}
+}
+
+// A declared source missing BESIDE a briefing/ directory: the missing one is reported and
+// delivers nothing, and the briefing/ file still broadcasts — as ITSELF, governed by nobody, not as
+// a stand-in for the declared file (P3).
+func TestJailBriefingWarnsWhenADeclaredFromDeliversNothing(t *testing.T) {
+	o := localBriefingPack(t, "house-rules.md", "briefing/other.md", "Other prose.\n")
+	briefings, warnings := stagedBriefings(t, o)
+	if len(briefings) != 1 || briefings[0].Text != "Other prose." {
+		t.Errorf("briefings = %+v, want only briefing/other.md", briefings)
+	}
+	if !strings.Contains(warnings, "house-rules.md") || !strings.Contains(warnings, "no prose") {
+		t.Errorf("the warning must say the declared source delivered nothing:\n%s", warnings)
+	}
+}
+
+// A repository instruction file INSIDE briefing/ is a LAUNCH REFUSAL (OQ-PB2), through the LoadDir
+// problem stagePacks already treats as fatal — the one site that covers every notch — naming the
+// rename.
+func TestJailBriefingRefusesAReservedNameInsideTheBriefingDir(t *testing.T) {
+	o := localBriefingPack(t, "", "briefing/AGENTS.md", "Dual use.\n")
+	o.Stdout = &bytes.Buffer{}
+	jailcontent.SetPackSkillDirs(nil)
+	_, _, _, err := o.stagePacks("yolo-test-briefingfrom")
+	if err == nil || !strings.Contains(err.Error(), "briefing/AGENTS.md") ||
+		!strings.Contains(err.Error(), "git mv briefing/AGENTS.md briefing/") {
+		t.Errorf("stagePacks err = %v, want a launch refusal naming the file and the rename", err)
 	}
 }

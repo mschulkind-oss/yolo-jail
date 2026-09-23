@@ -780,15 +780,16 @@ func loopholeFirst(desc string) string {
 
 // PackBriefing is one pack's contribution to an agent briefing (C3).
 //
-// ONE PER CONTRIBUTION since briefing-audiences.md, where it used to be one per PACK. That is
-// the limit §5 lifts: with a single (pack, text) pair, a pack declaring two briefing
-// contributions with two different `from` files could deliver only the first into a jail,
-// while the host render honored both. The caller (run.packBriefingProses) is what enumerates
-// them; this type only had to stop being the bottleneck.
+// ONE PER SOURCE FILE since pack-briefing-defaults.md (one per contribution before it, one per
+// PACK before briefing-audiences.md §5). A pack's entries arrive contiguous and in filename order
+// (run.packBriefingProses, over packload.GovernedSources), each with its own audience, so a
+// destination receives exactly the files addressed to it and still reads them as one section.
 type PackBriefing struct {
 	// Name is the pack's name, used for the provenance header.
 	Name string
-	// Text is the pack's AGENTS.md prose, already read.
+	// Text is the prose of ONE of the pack's governed briefing sources — a file under its
+	// briefing/ directory, or the one a contribution's `from` names — already read. Never a root
+	// AGENTS.md: that is the repository's own file, and yolo does not ship it (P1).
 	Text string
 	// Agents is the AUDIENCE this prose names — the launcher commands it is FOR. EMPTY MEANS
 	// BROADCAST, which is the pre-field behavior and the only behavior a pack with no
@@ -814,16 +815,22 @@ type PackBriefing struct {
 // that declares no identity is simply never named by any selector (R4) — an addressed
 // contribution skips it, and a broadcast one still reaches it.
 //
-// `provenance` labels each pack's section with `<!-- from pack: NAME -->`, and it is OFF unless
+// `provenance` labels each pack's SECTION with `<!-- from pack: NAME -->`, and it is OFF unless
 // the user's `briefing_provenance` asks for it (config.BriefingProvenance says why: the label
 // made agents treat the user's own every-repository rules as someone else's, and Claude strips
-// HTML comments before it reads the file anyway). Off, sections are separated by one blank
+// HTML comments before it reads the file anyway). Off, entries are separated by one blank
 // line and nothing else — the host notch's appendHostBriefingSection matches this byte for byte.
+//
+// ONE LABEL PER CONTIGUOUS RUN of one pack's delivered entries, not one per entry: a pack's
+// several briefing/ files are ONE section headed by the pack's one label (pack-briefing-defaults.md
+// §3.1 "Joining"), and a file the pack routed elsewhere is simply absent — it does not split the
+// section in two. That is the unit the host composes (one section per pack per destination).
 //
 // Empty text is skipped rather than emitting an empty section: a pack with no
 // briefing should leave no trace.
 func ComposePackBriefings(base string, packs []PackBriefing, agent string, provenance bool) string {
 	out := base
+	last, started := "", false
 	for _, p := range packs {
 		if !addressesAgent(p.Agents, agent) {
 			continue
@@ -833,9 +840,10 @@ func ComposePackBriefings(base string, packs []PackBriefing, agent string, prove
 			continue
 		}
 		out = strings.TrimRight(out, "\n") + "\n\n"
-		if provenance {
+		if provenance && (!started || p.Name != last) {
 			out += "<!-- from pack: " + p.Name + " -->\n"
 		}
+		last, started = p.Name, true
 		out += text + "\n"
 	}
 	return out

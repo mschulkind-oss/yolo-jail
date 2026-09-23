@@ -115,15 +115,55 @@ func TestJailSkillsZeroCeremonyPackStillMerges(t *testing.T) {
 
 // A declared source that is not in the staged content delivers nothing, and says so. A
 // declaration yolo accepts and silently no-ops would just relocate the original defect.
+//
+// The conventional skills/ beside it still ships — as the IMPLICIT BROADCAST, governed by no
+// declaration (pack-briefing-defaults.md P3), never as a stand-in for my-skills: the declared
+// source's absence is reported, and skills/ is delivered because nothing names it.
 func TestJailSkillsWarnsOnMissingDeclaredFrom(t *testing.T) {
 	// The pack ships skills/ but declares my-skills/: the old code read skills/ regardless.
 	o := localSkillsPack(t, "skills", "my-skills")
 	dirs, warnings := stagedSkillDirs(t, o)
-	if len(dirs) != 0 {
-		t.Errorf("skill dirs = %v, want none — a missing declared source must not fall back "+
-			"to skills/", dirs)
+	if len(dirs) != 1 || filepath.Base(dirs[0]) != "skills" {
+		t.Errorf("skill dirs = %v, want only the implicitly broadcast skills/", dirs)
 	}
 	if !strings.Contains(warnings, "my-skills") {
 		t.Errorf("no warning naming the missing source:\n%s", warnings)
+	}
+}
+
+// THE JAIL SKILLS CALL SITE FOR PER-FILE GOVERNANCE (pack-briefing-defaults.md §3.3): a pack
+// whose skills/ tree broadcasts, plus ONE narrower tree addressed to pi. Declaring the narrow tree
+// must ADD it — the old `if !declared` in SkillsSources switched skills/ off the moment any skills
+// contribution existed, so the pack's broad skills reached nobody.
+//
+// Mutation (reported): restoring that gate — reading the conventional tree only when the pack
+// declares no skills contribution — drops skills/ and fails here.
+func TestJailSkillsBroadcastSurvivesANarrowerTree(t *testing.T) {
+	home := packHome(t)
+	packDir := filepath.Join(t.TempDir(), "sf")
+	if err := os.MkdirAll(packDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writePack(t, packDir, `{"contributes":[{"kind":"skills","from":"pi-skills","agents":["pi"]}]}`)
+	writeSkillTree(t, filepath.Join(packDir, "skills"), "everyone")
+	writeSkillTree(t, filepath.Join(packDir, "pi-skills"), "pionly")
+	writeUserPacks(t, home, `["pi",{"source":"file://`+packDir+`","name":"sf"}]`)
+
+	o := &Options{Workspace: t.TempDir(), Stdout: &bytes.Buffer{}}
+	jailcontent.SetPackSkillDirs(nil)
+	t.Cleanup(func() { jailcontent.SetPackSkillDirs(nil) })
+	if _, _, _, err := o.stagePacks("yolo-test-skillsbroadcast"); err != nil {
+		t.Fatalf("stagePacks: %v", err)
+	}
+	got := map[string]string{}
+	for _, src := range jailcontent.PackSkillDirs() {
+		got[filepath.Base(src.Dir)] = strings.Join(src.Agents, ",")
+	}
+	if a, ok := got["pi-skills"]; !ok || a != "pi" {
+		t.Errorf("pi-skills staged as %v, want addressed to pi; all = %v", a, got)
+	}
+	if a, ok := got["skills"]; !ok || a != "" {
+		t.Errorf("skills/ staged = %v (audience %q), want it BROADCAST beside the narrower tree; "+
+			"all = %v", ok, a, got)
 	}
 }

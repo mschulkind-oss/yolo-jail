@@ -131,9 +131,12 @@ func TestEveryAgentPackDeclaresItsBriefingIdentity(t *testing.T) {
 
 // THE SHIPPED PACKS KEEP `into` FOREVER, and this is a VERSION-BOUNDARY constraint rather than
 // a style rule. DecodeTolerant ignores unknown FIELDS, so adding `agent`/`agents` is skew-safe —
-// but it still validates the entries it keeps, and an entrypoint baked before this change
-// refuses `{"kind":"briefing"}` with `kind "briefing" needs "into"`. That is a fatal boot, from
-// a manifest the host staged, unrecoverable without a `just load`.
+// but it still validates the entries it keeps, and an entrypoint baked before the audiences
+// field — or before pack-briefing-defaults.md made `{"kind":"briefing"}` a valid broadcast (P2) —
+// refuses that entry with `kind "briefing" needs "into"`. Today's entrypoint accepts it; an OLD
+// one still in someone's image does not. That is a fatal boot, from a manifest the host staged,
+// unrecoverable without a `just load`. (An agent pack's `{agent, into}` DESTINATION also still
+// needs `into` today, at every version.)
 //
 // The image rebuilds on every launch while the host `yolo` moves only on `just install`, so the
 // two halves are skewed by default. A shipped pack that dropped `into` for the new shape would

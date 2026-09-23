@@ -399,11 +399,13 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		loaded = append(loaded, p)
 	}
 	// reloadPacks re-runs exactly the resolution above. The briefing migration CREATES the local
-	// pack (it moves the user's prose into ~/.config/yolo-jail/local/AGENTS.md), and the local
-	// pack is included by CONVENTION — implicitly, on the strength of that directory existing.
-	// So the set resolved before the migration does not contain it, and without a re-resolve the
-	// migrated prose would only reach the destinations on the NEXT apply: the same apply that
-	// promised "your instructions still reach your agents" would have removed them for one run.
+	// pack (it moves the user's prose into ~/.config/yolo-jail/local/briefing/local.md), and the
+	// local pack is included by CONVENTION — implicitly, on the strength of that directory
+	// existing. So the set resolved before the migration does not contain it, and without a
+	// re-resolve the migrated prose would only reach the destinations on the NEXT apply: the same
+	// apply that promised "your instructions still reach your agents" would have removed them
+	// for one run. The move of an older local pack's root AGENTS.md into that file needs it too:
+	// until the move, that prose is in a file no reader reads.
 	// Found by asserting idempotency, not by reading the flow.
 	reloadPacks := func() []*packload.Pack {
 		fresh, ferr := config.LoadPacks(nil)

@@ -224,11 +224,14 @@ func TestFetchedPackBriefingOverlayPrependsTheUsersOwnFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("pack prose\n"), 0o644); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "briefing"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "briefing", "prose.md"), []byte("pack prose\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(
-		`{"name":"acme","contributes":[{"kind":"briefing","from":"AGENTS.md",`+
+		`{"name":"acme","contributes":[{"kind":"briefing","from":"briefing/prose.md",`+
 			`"into":"AGENTS.md","after":"host:AGENTS.md"}]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -258,11 +261,14 @@ func TestFetchedPackBriefingOverlayPrependsTheUsersOwnFile(t *testing.T) {
 	// for a build that prepends every host AGENTS.md to every briefing whether or not a pack
 	// asked. The same fixture minus the `after` must NOT carry it.
 	plainRoot := t.TempDir()
-	if err := os.WriteFile(filepath.Join(plainRoot, "AGENTS.md"), []byte("pack prose\n"), 0o644); err != nil {
+	if err := os.MkdirAll(filepath.Join(plainRoot, "briefing"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(plainRoot, "briefing", "prose.md"), []byte("pack prose\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(plainRoot, "pack.json"), []byte(
-		`{"name":"acme","contributes":[{"kind":"briefing","from":"AGENTS.md",`+
+		`{"name":"acme","contributes":[{"kind":"briefing","from":"briefing/prose.md",`+
 			`"into":"AGENTS.md"}]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -216,37 +216,108 @@ func TestJailBriefingDeliversBothOfAPacksTwoProseFiles(t *testing.T) {
 	}
 }
 
-// THE DEDUP THE PER-CONTRIBUTION READING NEEDS. Two contributions naming no `from` resolve to
-// the SAME conventional AGENTS.md, so without deduping, a pack declaring two destinations and
-// no source would have its prose composed twice into every briefing — a regression the old
-// first-non-empty-wins reader could not produce.
+// TWO CONTRIBUTIONS NAMING ONE SOURCE ARE A LAUNCH REFUSAL (pack-briefing-defaults.md OQ-PB5).
+// This used to be a dedup: two `into`s and no `from` both resolved to AGENTS.md, and the reader
+// composed it once. Under per-file governance a file has exactly ONE governor, so the pair is
+// refused naming both — and its one-contribution spelling (silence: every agent) composes each
+// file exactly once into every destination.
 func TestJailBriefingComposesIdenticalProseOnce(t *testing.T) {
 	home := packHome(t)
 	packDir := filepath.Join(t.TempDir(), "twice")
-	if err := os.MkdirAll(packDir, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(packDir, "briefing"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	writePack(t, packDir, `{"name":"twice","contributes":[`+
 		`{"kind":"briefing","into":".claude/CLAUDE.md"},`+
 		`{"kind":"briefing","into":".codex/AGENTS.md"}]}`)
-	if err := os.WriteFile(filepath.Join(packDir, "AGENTS.md"),
+	if err := os.WriteFile(filepath.Join(packDir, "briefing", "rule.md"),
 		[]byte("Only rule.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	writeUserPacks(t, home, `[{"source":"file://`+packDir+`","name":"twice"}]`)
 
 	o := &Options{Workspace: t.TempDir(), Stdout: discardBuf()}
+	_, _, _, err := o.stagePacks("yolo-test-twice")
+	if err == nil || !strings.Contains(err.Error(), "contributes[1]") ||
+		!strings.Contains(err.Error(), "contributes[0]") {
+		t.Fatalf("stagePacks err = %v, want the OQ-PB5 refusal naming both contributions", err)
+	}
+
+	// The one-contribution spelling, beside two agent packs.
+	writePack(t, packDir, `{"name":"twice","contributes":[{"kind":"briefing"}]}`)
 	_, packs, proses, err := o.stagePacks("yolo-test-twice")
 	if err != nil {
 		t.Fatalf("stagePacks: %v", err)
 	}
-	if len(proses) != 1 {
-		t.Fatalf("want ONE prose entry for one file read twice, got %d: %+v", len(proses), proses)
+	if len(proses) != 1 || len(proses[0].Agents) != 0 {
+		t.Fatalf("want ONE broadcast prose entry for one file, got %+v", proses)
 	}
+	packs = append(packs, jailDest(t, "claude", ".claude/CLAUDE.md", "claude"),
+		jailDest(t, "codex", ".codex/AGENTS.md", "codex"))
 	got := jailBriefings(t, packs, proses)
+	if len(got) != 2 {
+		t.Fatalf("destinations = %v, want claude's and codex's", got)
+	}
 	for dest, body := range got {
 		if n := strings.Count(body, "Only rule."); n != 1 {
 			t.Errorf("%s carries the pack's prose %d times, want once:\n%s", dest, n, body)
+		}
+	}
+}
+
+// THE JAIL CALL SITE FOR PER-FILE GOVERNANCE — the matt shape (pack-briefing-defaults.md §2.2,
+// §3.7) through the real stagePacks and refreshJailBriefings. House rules under briefing/, plus
+// ONE addressed file for pi: Claude must get the house rules (the broadcast the old `if !declared`
+// branch switched off the moment the addressed line was added), and pi must get both, in filename
+// order, as one section. The root AGENTS.md — the pack repository's own guide — reaches neither.
+//
+// Mutation (reported): restoring an `if !declared` gate in packBriefingProses, so the implicit
+// broadcast is read only when the pack declares no briefing, drops the house rules and fails here.
+func TestJailBriefingMattShape(t *testing.T) {
+	home := packHome(t)
+	packDir := filepath.Join(t.TempDir(), "matt")
+	for rel, body := range map[string]string{
+		"briefing/house-rules.md": "House rules.\n",
+		"files/pi-rules.md":       "Pi rules.\n",
+		"AGENTS.md":               "Contributor guide for the matt repository.\n",
+	} {
+		full := filepath.Join(packDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writePack(t, packDir, `{"contributes":[`+
+		`{"kind":"briefing","agents":["pi"],"from":"files/pi-rules.md"}]}`)
+	// The SHIPPED claude and pi packs, so the audience pre-flight has a pi to find and the
+	// destinations are the real ones. Both carry `after: "host:…"`, so the jail side is pinned:
+	// in CI the launcher is on the host and in here it is in a jail (briefingreadback.go).
+	writeUserPacks(t, home, `["claude","pi",{"source":"file://`+packDir+`","name":"matt"}]`)
+	pinLauncherInJail(t, false)
+
+	o := &Options{Workspace: t.TempDir(), Stdout: discardBuf()}
+	_, packs, proses, err := o.stagePacks("yolo-test-matt")
+	if err != nil {
+		t.Fatalf("stagePacks: %v", err)
+	}
+	got := jailBriefings(t, packs, proses)
+
+	claude, pi := got[".claude/CLAUDE.md"], got[".pi/agent/AGENTS.md"]
+	if !strings.Contains(claude, "House rules.") {
+		t.Errorf("claude's briefing lost the house rules — declaring a narrower briefing "+
+			"switched the broadcast off:\n%s", claude)
+	}
+	if strings.Contains(claude, "Pi rules.") {
+		t.Errorf("pi-addressed prose reached claude:\n%s", claude)
+	}
+	if !strings.Contains(pi, "House rules.\n\nPi rules.\n") {
+		t.Errorf("pi's briefing = %q, want the house rules then pi-rules as one section", pi)
+	}
+	for dest, body := range got {
+		if strings.Contains(body, "Contributor guide") {
+			t.Errorf("%s carries the pack repository's AGENTS.md — never pack prose (P1)", dest)
 		}
 	}
 }

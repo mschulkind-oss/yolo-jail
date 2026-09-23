@@ -1,112 +1,41 @@
 package packload
 
-// briefingsource.go resolves a `briefing` contribution's SOURCE — the pack-relative file its
-// prose is read from. It is skillssource.go's sibling, and it exists for the same reason: a
-// `from` that one notch honored and the other ignored.
+// briefingsource.go resolves a `briefing` contribution's PROSE — what one contribution delivers —
+// for a reader that holds a contribution rather than a pack. It is skillssource.go's sibling, and
+// it exists for the same reason: a `from` that one notch honored and the other ignored
+// (roadmap.md §6a-4 — the host render built `[from, "AGENTS.md", "CLAUDE.md"]` while the jail
+// scanned the conventional pair unconditionally).
 //
-// The divergence was verified rather than inferred (roadmap.md §6a-4): the host
-// render built `[from, "AGENTS.md", "CLAUDE.md"]`, while `run.readPackBriefing` took a
-// DIRECTORY and scanned the conventional pair unconditionally — so a pack declaring
-// `from: "house-rules.md"` briefed at the host and stayed silent in a jail. That is the
-// accepted-and-ignored defect `skills` had, in the sibling kind, and the fix is the same one:
-// ONE resolver both readers go through, so a third reader cannot inherit a fourth spelling.
+// It is now a thin reader over the governance predicate (governance.go), and that is the whole
+// change pack-briefing-defaults.md made here:
 //
-// packdecl.Contribution.BriefingCandidates() owns the PRECEDENCE (declared `from` first, then
-// the convention); this owns reading the pack's tree through it — the same split
-// SkillsSource()/SkillsSourceDir() already uses.
+//   - AGENTS.md IS NEVER READ (P1). The convention is every *.md directly inside briefing/.
+//   - THE FALLBACK CHAIN IS GONE (§3.4, P4). A declared `from` that is absent, not a file, blank or
+//     escaping delivers NOTHING and is reported. It used to deliver the pack's AGENTS.md instead,
+//     with a "used instead" warning — a named source quietly replaced by a different file.
+//   - A DESTINATION SOURCES NOTHING (P5). An agent pack's `{agent, into}` names where content
+//     lands; it used to also read the pack's own root prose into its own agent.
+//   - WHAT A CONTRIBUTION CARRIES IS DECIDED PER FILE (§3.3). An omitted `from` carries the files
+//     no sibling names — so this cannot be answered from the contribution alone, and asks the pack.
 
 import (
-	"fmt"
-	"os"
-	"path"
-	"path/filepath"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
-// BriefingProseFor resolves ONE briefing contribution to its prose, right-trimmed, plus a
-// problem string when the declaration could not be honored.
+// BriefingProseFor resolves ONE briefing contribution to the prose it carries — its governed
+// files joined as one section (JoinBriefingSources), in filename order — plus a problem string when
+// its declared source could not be honored ("" otherwise).
 //
-// THE PRECEDENCE IS A FALLBACK CHAIN, not a single choice, and that is `briefing`'s documented
-// difference from `skills`: BriefingCandidates returns `[from, AGENTS.md]` and its
-// contract is "the caller reads the first one that exists and is non-empty". So a declared `from`
-// that is absent still resolves to the convention — narrowing that here would change what the
-// HOST notch has always done, which is the opposite of the convergence this file is for.
+// The contribution is matched to its governor by SourceKey, so a synthesized ResolveDestinations
+// copy (`{into, from}`) answers with exactly what the declaration it was borrowed for governs, and
+// a synthesized implicit borrower (`{into}`, no `from`) with the implicit broadcast's files.
 //
-// What DOES change is that the fallback stops being silent. A non-conventional `from` yolo could
-// not read yields a problem NAMING it even when the convention then supplied prose, because that
-// is the accepted-and-ignored shape the whole §6a-4 fix is about: the author named a file, got
-// somebody else's content, and nothing said so. `skills` resolves this by refusing (SkillsSourceDir
-// returns no dir); `briefing` reports and carries on, since its fallback is contractual.
-//
-// A CONVENTIONAL `from` that is absent is NOT a problem, and the noise/signal line is drawn there
-// for SkillsSourceDir's reason: a briefing contribution whose job is to name the DESTINATION other
-// packs merge into carries no prose file of its own — all six shipped packs are exactly that shape
-// — so warning would fire on every launch and every apply of a stock config, which is how a
-// warning stops being read. (They reached that shape by dropping the redundant `from: "AGENTS.md"`
-// literals this sentence used to cite; the resolver behaves identically either way, which is the
-// point of routing both spellings through BriefingCandidates.)
-//
-// The containment check is hostBriefingProse's, kept verbatim in intent: `from` is manifest data,
-// packdecl.Validate rejects ".." at the authoring boundary, but a caller may hold a pack whose
-// Decode problems it discarded (`yolo host apply` reads a local pack through packForCheckDeps, which
-// does exactly that). A "../../.ssh/id_rsa" that slipped through would otherwise be copied into a
-// file the user reads as INSTRUCTIONS.
+// It has NO PRODUCTION CALLER: ComposeHostBriefings and carriesFor call GovernedBriefingFor
+// directly. The guards it exercises (P5, the reserved `from`) are pinned at that call site by
+// entrypoint's ComposeHostBriefings tests, so deleting this wrapper and its tests unpins nothing.
 func (p *Pack) BriefingProseFor(c packdecl.Contribution) (string, string) {
-	root := filepath.Clean(p.Root)
-	declaredMissed := c.From != "" && !isConventionalBriefingFile(c.From)
-	for _, rel := range c.BriefingCandidates() {
-		full := filepath.Clean(filepath.Join(root, filepath.FromSlash(rel)))
-		if root != "" && root != "." && !strings.HasPrefix(full, root+string(filepath.Separator)) {
-			// Refused outright rather than falling through to the convention, matching
-			// SkillsSourceDir: an escaping `from` is not a path that happens to be missing, it is
-			// a declaration that must never be resolved at all.
-			return "", fmt.Sprintf("pack %s: briefing `from` %q escapes the pack tree — refused",
-				p.Name, rel)
-		}
-		data, err := os.ReadFile(full)
-		if err != nil {
-			continue
-		}
-		text := strings.TrimRight(string(data), " \t\r\n")
-		if text == "" {
-			continue
-		}
-		if rel == c.From {
-			declaredMissed = false
-		}
-		return text, missingBriefingFromProblem(p.Name, c.From, declaredMissed, text != "")
-	}
-	return "", missingBriefingFromProblem(p.Name, c.From, declaredMissed, false)
-}
-
-// missingBriefingFromProblem is the "your `from` was not read" message, or "" when there is
-// nothing to say. `fellBack` distinguishes the two consequences, because they need different
-// remedies: prose from the wrong file is a silent substitution, and no prose at all is a pack
-// that briefs nothing.
-func missingBriefingFromProblem(pack, from string, missed, fellBack bool) string {
-	if !missed {
-		return ""
-	}
-	if fellBack {
-		return fmt.Sprintf("pack %s declares `briefing` from %q, which is not in its content — "+
-			"its conventional AGENTS.md was used instead (check the `from` path, and "+
-			"any only/exclude filters)", pack, from)
-	}
-	return fmt.Sprintf("pack %s declares `briefing` from %q, which is not in its content — no "+
-		"prose delivered from it (check the `from` path, and any only/exclude filters)",
-		pack, from)
-}
-
-// isConventionalBriefingFile reports whether rel names one of the conventional briefing files,
-// so an explicit `from: "AGENTS.md"` is indistinguishable in intent from an omitted one.
-func isConventionalBriefingFile(rel string) bool {
-	clean := path.Clean(rel)
-	for _, name := range packdecl.DefaultBriefingFiles() {
-		if clean == name {
-			return true
-		}
-	}
-	return false
+	sources, problems := p.GovernedBriefingFor(c)
+	return JoinBriefingSources(sources), strings.Join(problems, "; ")
 }
