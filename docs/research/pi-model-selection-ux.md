@@ -81,7 +81,17 @@ remained available and Pi fell back to one of them. The fix belongs in the
 authentication-before-model-resolution path; changing the selector would only
 hide the cause.
 
-## 2. Existing extension solutions
+## 2. Subagent defaults do not follow non-Codex profiles
+
+**Source-verified 2026-09-23.** The shipped [`Pi settings derive`](../../packs/pi/derive.lua#L449-L544) returns `subagents` only when `selected_provider == "openai-codex"`. That branch emits a qualified `openai-codex/gpt-6-sol` default (or the selected profile model), plus an enforced, strict `openai-codex/gpt-6-*` scope. For another reachable provider the derive returns `enabledModels` and `selection`, but **no `subagents`**. With no provider selected or an unreachable provider it returns an empty result. The existing [`codex profile test`](../../internal/entrypoint/pi_codex_profile_test.go#L18-L71) checks the Codex branch; it does not check the non-Codex omission.
+
+The installed `pi-subagents` documentation (`docs/models.md`, checked in this jail on 2026-09-23) says its precedence is per-run override → role override → agent frontmatter → `subagents.defaultModel` → **parent session model**. Therefore the absence of `subagents` is **not** an independent fixed package default: ordinary builtin agents inherit the parent model, while an agent declaring its own model can still use that. With no `modelScope`, no strict allow-list prevents a per-run or agent model outside the active provider. Scope is a rejection policy, not a model selector; it does not itself pin a default. The installed extension also says a project-level `modelScope` replaces the user-level one, so a generated user setting is not an absolute policy boundary.
+
+This is a reproducible code-path gap, but **the claimed OpenRouter launch was not independently inspected here**. The current jail's `~/.pi/agent/settings.json`, inspected on 2026-09-23, instead has `defaultProvider: zai`, `defaultModel: glm-5` and an explicit Codex `subagents` policy; those values can reflect the host settings layer or an earlier write. A missing computed key does not by itself prove the final rendered file lacks that key: host, capture, workspace and overlays can preserve it. Verify a specific launch with `yolo config render --explain pi/settings` or its rendered file and provenance, rather than inferring it solely from the derive branch.
+
+**Verdict:** fix the non-Codex policy gap only after deciding whether child agents should be pinned to the profile's exact model, to its provider's configured model set, or to a separate explicit budget/policy set. Reusing the Codex `gpt-6-*` allow-list on OpenRouter would either block valid models or allow the wrong provider. Cover both branches through the production rendering call site, including transition from Codex to a non-Codex profile and a provider without a resolvable model. Do not assert that simply moving the Codex block out of its branch is sufficient.
+
+## 3. Existing extension solutions
 
 Two published extensions demonstrate the main alternate interfaces:
 
@@ -109,7 +119,7 @@ conflicts with a built-in binding; see the
 An extension must therefore introduce another command and another key, exactly
 as the two picker packages do.
 
-## 3. Recommendation
+## 4. Recommendation
 
 ### Adopt now: native profile scope
 
@@ -155,7 +165,7 @@ two extensions above, read `ctx.scopedModels` rather than the entire registry
 when a yolo profile is active, and expose a new command rather than pretending
 to replace `/model`.
 
-## 4. Sources and re-check points
+## 5. Sources and re-check points
 
 - [Pi 0.85.1-era model selector source](https://github.com/earendil-works/pi/blob/f9bcd351dc3cedf989bc5fc0f8aa012db5737df2/packages/coding-agent/src/modes/interactive/components/model-selector.ts) — row format, provider sorting, model scope, and Tab behavior.
 - [Pi model resolver source](https://github.com/earendil-works/pi/blob/f9bcd351dc3cedf989bc5fc0f8aa012db5737df2/packages/coding-agent/src/core/model-resolver.ts) — exact matching and glob resolution against provider-qualified ids.
