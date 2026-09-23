@@ -84,7 +84,8 @@ absent MCP preset, which shows up as a server simply not in its config. Those st
 
 Reasons are for the person changing the rule, not the agent obeying it. They belong
 where that person will look: a `README.md` at the pack root (which is not a briefing
-source — only `AGENTS.md` is), a design doc, or a code comment beside the rule.
+source — only the `*.md` files in the pack's `briefing/` directory, and a file a manifest names,
+are), a design doc, or a code comment beside the rule.
 
 `packs/guardrails/README.md` is the worked example, and it says so about itself in its second
 paragraph: the blocker prints *what* to use instead at the moment it refuses, and the README says
@@ -99,7 +100,8 @@ an agent must know before acting, which is sometimes long. The claim is about th
 
 > [!WARNING]
 > **A `README.md` at a pack root is not a briefing source, and that is load-bearing rather than
-> incidental.** Only `AGENTS.md` is read into a jail's briefing
-> ([`agent-briefings.md`](agent-briefings.md)). So a pack author who wants the reasoning recorded
-> without paying for it every session already has the right file — and one who moves that prose into
-> `AGENTS.md` "so it is documented" has quietly re-created the failure above.
+> incidental.** Only the pack's `briefing/` files are read into a jail's briefing
+> ([`agent-briefings.md`](agent-briefings.md)), and a root `AGENTS.md` is not read either: it is the
+> pack repository's own agent instructions. So a pack author who wants the reasoning recorded
+> without paying for it every session already has the right file — and one who moves that prose
+> under `briefing/` "so it is documented" has quietly re-created the failure above.

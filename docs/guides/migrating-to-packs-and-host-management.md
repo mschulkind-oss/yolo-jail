@@ -115,12 +115,12 @@ $ yolo describe         # the resolved environment: confinement, packs, a descri
 
 ### Step 1: scaffold a pack
 
-A pack is just a directory. `pack init` writes a valid skeleton — a house-rules
-`AGENTS.md` and one example skill, no manifest needed:
+A pack is just a directory. `pack init` writes a valid skeleton — a house-rules file
+under `briefing/` and one example skill, no manifest needed:
 
 ```console
 $ yolo pack init ~/code/my-agent-pack
-  create AGENTS.md
+  create briefing/my-agent-pack.md
   create skills/example/SKILL.md
   create README.md
 
@@ -132,15 +132,24 @@ That directory now looks like:
 
 ```
 my-agent-pack/
-├── AGENTS.md              # prose appended to every jail's briefing, attributed to the pack
+├── briefing/
+│   └── my-agent-pack.md   # prose appended to every agent's briefing
 ├── skills/
 │   └── example/SKILL.md   # a skill (needs YAML frontmatter: name + description)
 └── README.md
 ```
 
-Edit `AGENTS.md` to hold your house rules; add real skills under `skills/<name>/SKILL.md`.
-The `skills/` + `AGENTS.md` layout is the **zero-ceremony** path — it works with no
-`pack.json` at all.
+Edit `briefing/my-agent-pack.md` to hold your house rules; every `*.md` directly inside
+`briefing/` is delivered, in filename order, so you can split them across files. Add real skills
+under `skills/<name>/SKILL.md`. The `skills/` + `briefing/` layout is the **zero-ceremony** path
+— it works with no `pack.json` at all.
+
+> **A root `AGENTS.md` is not shipped.** Agent tools read `AGENTS.md`, `CLAUDE.md` and
+> `GEMINI.md` as the instructions for working *in* a repository, and a pack is usually a
+> repository, so yolo leaves those files to that reader and never delivers them into a jail. A pack
+> written before `briefing/` existed ships nothing from its root `AGENTS.md` until you move it:
+> `mkdir briefing && git mv AGENTS.md briefing/house-rules.md`. Nothing at launch tells you;
+> `yolo pack lint` lists what the pack delivers and names the root file it does not ship.
 
 > **Migration is manual re-authoring — there is no import.** `pack init` scaffolds an
 > empty skeleton; it does **not** read, convert, or adopt your existing
@@ -159,7 +168,7 @@ from a closed set of fifteen:
 |---|---|
 | `program` | a tool on PATH that **yolo installs** (`via: npm`/`installer`) |
 | `requires` | a tool that must **already** be on PATH — asserted, never installed |
-| `skills` / `briefing` | a skills tree / prose (usually the zero-ceremony dir + `AGENTS.md`) |
+| `skills` / `briefing` | a skills tree / prose (usually the zero-ceremony `skills/` + `briefing/` dirs) |
 | `files` | an opaque tree the pack owns, bind-mounted `:ro` in the jail |
 | `config` | a composed config surface (e.g. `~/.claude/settings.json`) |
 | `config-overlay` | keys asserted onto *another* pack's surface |
@@ -196,6 +205,17 @@ static env var:
 `mode: "rmw"` means yolo owns only the keys it declares (`managed`) and leaves the rest
 of the file alone — the key property that makes host management safe (Part 2).
 
+**A manifest never switches your `briefing/` files off.** Each file is governed by the one
+contribution that names it, so adding prose for one agent is a line about the new file only:
+
+```jsonc
+{ "kind": "briefing", "from": "prose/pi.md", "agents": ["pi"] }
+```
+
+That sends `prose/pi.md` to pi, and every `briefing/` file still reaches every agent. To narrow a
+file already in `briefing/`, name it with `from` and an `agents` list. `{"kind": "briefing"}` with
+neither `into` nor `agents` is a broadcast, to every agent the jail selects.
+
 The manifest schema is documented in full by `yolo config-ref` (the `packs` section) and
 [../reference/pack-system.md](../reference/pack-system.md).
 
@@ -212,6 +232,10 @@ declares 2 claim(s):
   config   claude/settings   rmw → ~/.claude/settings.json
   env      MY_FLAG           =on
 ```
+
+Lint also lists every delivery the pack makes, the implicit broadcasts of `briefing/` and
+`skills/` included, and names each conventional-looking file it will not ship, such as a root
+`AGENTS.md`.
 
 `yolo pack footprint ~/code/my-agent-pack` shows the same claims plus any collision, and
 works on a pack you are still authoring (not just the shipped ones).
@@ -247,7 +271,7 @@ $ yolo pack status   # locked commits + config/lock drift
 $ yolo -- claude
 ```
 
-Your `AGENTS.md` is appended to the briefing (attributed to your pack), your skills are
+Your `briefing/` files are appended to the briefing, your skills are
 merged into the agent's skills dir, and your `config` surface is rendered. Inside the
 jail, an agent can confirm the running config matches what's on disk — and whether a
 restart is owed after an edit — with:
@@ -394,8 +418,8 @@ Three things this tells you — but note the last is a real gap, not honesty:
 - **`skills` and `briefing` ARE written**, and yolo owns those destinations **outright** — this
   changed on 2026-08-04 and the earlier text here (saying they were silently skipped) is no
   longer true. Each skills directory and each briefing file is **composed wholesale** from your
-  pack set, exactly as a jail composes them, so the `AGENTS.md` and skills you authored in Part 1
-  do reach your real home. Two consequences worth knowing before your first `--assert`:
+  pack set, exactly as a jail composes them, so the `briefing/` prose and skills you authored in
+  Part 1 do reach your real home. Two consequences worth knowing before your first `--assert`:
   - **Skills and prose you already had are MIGRATED, once, behind a confirmation.** They move into
     `~/.config/yolo-jail/local/` (the conventional *local pack*), and yolo composes them back into
     **every** agent's destination from there — so the same skills reach the same agents, and now

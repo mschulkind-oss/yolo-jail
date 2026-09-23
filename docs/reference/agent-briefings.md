@@ -52,7 +52,7 @@ Agents read instruction files at different scopes. YOLO defines three architectu
 
 | Path | Mechanism | Scope | Recommended use |
 | :--- | :--- | :--- | :--- |
-| **Option A: Pack Briefing Audience** | Pack contribution (`"kind": "briefing", "agent": "pi"` or `"agents": ["pi"]`) | Global (Host + Jails) | Personal or team-wide agent rules, behavioral directives, and prompt additions. Composed into `~/.<agent>/agent/AGENTS.md` (host) and `/home/agent/.<agent>/agent/AGENTS.md` (jail). |
+| **Option A: Pack Briefing Audience** | Pack contribution (`"kind": "briefing", "agents": ["pi"]`, or no audience to reach every agent) | Global (Host + Jails) | Personal or team-wide agent rules, behavioral directives, and prompt additions. Composed into `~/.<agent>/agent/AGENTS.md` (host) and `/home/agent/.<agent>/agent/AGENTS.md` (jail). |
 | **Option B: Workspace Project File** | `<workspace>/AGENTS.md` or `<workspace>/CLAUDE.md` | Per-repository | Rules specific to a repository's codebase and development workflow. Live bind-mounted; yolo never rewrites project files. |
 | **Option C: Explicit Projection** | `host_files` in user config (`yolo-jail.jsonc`) | Per-jail bridge | Explicit projection of legacy host dotfiles into a sandbox. |
 
@@ -122,11 +122,15 @@ There is no tool inventory and no MCP listing: agents read their own generated c
 instructions into every generated briefing, legal at user or workspace scope.
 
 **4. Each selected pack's prose that this destination's audience admits**, appended last, in
-config order, **unlabelled** — one blank line between packs and nothing else. Empty prose is
-skipped rather than emitting an empty section.
+config order, **unlabelled** — one blank line between packs and nothing else. Within a pack its
+files are ordered by pack-relative path, byte-wise, and joined with the same one blank line, so a
+pack's prose reads as one section. Empty prose is skipped rather than emitting an empty section.
+What a pack ships is its `briefing/` directory and any file a contribution names with `from` —
+never a root `AGENTS.md`, `CLAUDE.md` or `GEMINI.md`, which is the pack repository's own
+([`pack-system.md`](pack-system.md#what-a-pack-is-on-disk)).
 
-**`briefing_provenance: true` labels each pack's section** with `<!-- from pack: NAME -->`, as a
-debugging aid. It is off by default, for two measured reasons:
+**`briefing_provenance: true` labels each pack's section** with `<!-- from pack: NAME -->`, once
+per section however many files it joins, as a debugging aid. It is off by default, for two measured reasons:
 
 - **The label worked against the prose.** A pack's briefing is the user's own rules for every
   repository, and an agent that sees "from pack: X" reads it as someone else's, scoped to
@@ -196,29 +200,41 @@ derived enforcement tail is appended on the guest, host and unrecognized paths o
 **Parts 1–4 are composed per destination, and parts 1 and 4 actually differ.** A `briefing`
 contribution may carry an `agents` list — the launcher commands its prose is *for* — and it
 then reaches only the destinations whose owning pack declared a matching `agent` identity. A
-contribution naming no audience **broadcasts**, which is what every shipped pack does, so the
-default composition is unchanged.
+contribution naming no audience and no `into` **broadcasts**, and so does every `briefing/` file
+no contribution names. That holds with a manifest as well as without one: `{"kind": "briefing"}`
+is a valid declaration of "every agent", and needs no agent names that a jail might not select.
 
-**Empty is broadcast** on both sides of the match, and the whole safety of landing the field
-ahead of any pack adopting it rests on that: a jail full of packs that name no audience
-composes exactly what it did before. A destination that declared no identity still receives
-every broadcast and no addressed prose.
+**Empty is broadcast** on both sides of the match. A jail full of packs that name no audience
+composes every pack's prose into every destination. A destination that declared no identity
+still receives every broadcast and no addressed prose.
 
 **The match is against a declared string, never anything derived.** A content pack names *who*
 and never *where*: where an agent reads is that agent pack's business and changes when the
 agent changes.
 
+**The audience is per FILE, not per pack.** Each source file has exactly one governing
+contribution: the one whose `from` names it, or else the one that omits `from`, or else nobody,
+which is the implicit broadcast. So a pack that adds
+`{"from": "files/pi-rules.md", "agents": ["pi"]}` beside its `briefing/` directory delivers both:
+pi's file to pi, and the directory to everyone. Declaring one narrow delivery never switches off
+a broader one it does not name
+([`pack-briefing-defaults.md` §3.3](../design/pack-briefing-defaults.md#33-a-file-is-governed-by-the-contribution-that-names-it)).
+A destination (`agent` + `into`) sources nothing, so an agent pack's own destination line
+suppresses nothing either.
+
 This is why composition happens **inside** the per-destination write loop. Composing once
 above it was what made scoping impossible — a pack whose rules applied to one agent had to
-broadcast them to all of them or drop them. Two consequences of the move:
+broadcast them to all of them or drop them. Two consequences:
 
-- The composition input is one entry **per `briefing` contribution** rather than one text per
-  pack, so a pack declaring two contributions with two different `from` files delivers
-  **both**. That was a live limit of the jail notch, which the host render never had.
-- Identical prose from one pack is composed **once** per destination, with audiences unioned
-  and a broadcast absorbing every audience. Two contributions naming no `from` resolve to the
-  same conventional file, so without this a pack naming two destinations and no source would
-  say everything twice.
+- The composition input is one entry **per source file**, each carrying its governor's audience,
+  in the pack's filename order. At each destination the entries the audience excludes drop out,
+  and the rest join as the pack's one section.
+- One file is composed **once** per destination, because it has one governor. Two content
+  contributions naming one source are refused at launch
+  ([`OQ-PB5`](../design/pack-briefing-defaults.md#decision-ledger)); one `agents` list names
+  several audiences. The host notch composes the same bytes from the same predicate
+  (`packload.GovernedSources`), and
+  [`briefingparity_test.go`](../../internal/cli/run/briefingparity_test.go) compares the two.
 
 ## Staging and delivery
 
@@ -376,6 +392,7 @@ only place the values themselves are stated.
 | Skills staging subdirectory | `skills-<pack>` | `jailcontent.SkillStagingName` |
 | Host-briefing prepend selector | `after: "host:<home-relative path>"` on a `briefing` contribution | `packdecl` (`Contribution.After`), `run.briefingHostOverlay` |
 | Ownership record gating the prepend | the host-briefing manifest under the user's config dir | `entrypoint.HostBriefingManifestPath`, `HostBriefingOwner` |
+| Pack prose sources | every `*.md` directly inside a pack's `briefing/`, plus any file a `from` names; one governing contribution each | `packload.GovernedSources`, `run.packBriefingProses` |
 | Per-pack label (off by default) | `<!-- from pack: NAME -->`, when `briefing_provenance: true` | `jailcontent.ComposePackBriefings`, `entrypoint.appendHostBriefingSection`; `config.BriefingProvenance` |
 | Host/jail separator | `---` between the prepended host prose and the rest | `jailcontent.PrependHostBriefing` |
 | Extra-prose config key | `agents_md_extra` (string; user or workspace scope) | `jailcontent.ComposeBriefing`; `yolo config-ref` |
@@ -391,7 +408,8 @@ Forward-facing rulings a maintainer would otherwise undo, with their original id
 | `S3` | Neither briefings nor skills read yolo's own generated host output back in | Once the host notch composes a destination wholesale, reading it back in composes every pack twice — measured, byte-identical duplicates in prose, and last-writer-wins invisibility in skills. The user's own content reaches a jail through the conventional local pack instead, which is an ordinary pack entry with ordinary precedence. |
 | `R2` | The destination enumeration and the staging-name encoding live in one place each, called by both halves | A mismatch does not fail the launch — podman binds an absent file source happily — so the failure is a *blank briefing*, which nothing reports. Coupling by comment had already let the two drift. |
 | `R4` | A destination that declares no identity can be named by no `agents` selector, but still receives every broadcast | It is the state every pack was in before the field existed, so treating it as an error would break every existing pack, and treating it as matchable would deliver addressed prose to a destination that never claimed the identity. |
-| `P2` | An audience-less contribution **broadcasts** | This is what let the field land ahead of any pack adopting it: a jail of packs that name nobody composes exactly what it did before. |
+| `P2` | An audience-less contribution **broadcasts**, and since [`pack-briefing-defaults.md`](../design/pack-briefing-defaults.md#32-silence-means-broadcast-in-a-manifest-too) a manifest can say so | This is what let the field land ahead of any pack adopting it: a jail of packs that name nobody composes exactly what it did before. It also makes a broadcast portable: listing every agent by name is fatal in any jail that does not select one of them. |
+| `OQ-PB2` | `AGENTS.md`, `CLAUDE.md` and `GEMINI.md` are never a pack-prose source, at any depth ([ledger](../design/pack-briefing-defaults.md#decision-ledger)) | Agent tools read those names as a repository's own instructions, and a pack is usually a repository. Shipping one gave a single file two readers who wanted different things from it. |
 | `P4` | A content pack names **who** its prose is for, never **where** it goes | Where an agent reads is that agent pack's business and changes when the agent changes; a content pack naming a path would have to be edited every time an agent moved its file. |
 | `OQ-BA2` | The audience match is against a **declared** string, never anything derived | A derived identity (a pack name, a path segment) would silently change meaning the moment either was renamed, and nothing would report it. |
 | `C2` | The confinement header derives its enforcement vector from the notch's profile | A header that claims a container for a notch that has none is the dangerous falsehood — an agent treats its home as disposable. Deriving keeps it true for a notch nobody has enumerated yet. |

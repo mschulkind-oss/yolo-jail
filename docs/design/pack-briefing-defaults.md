@@ -3,16 +3,28 @@ title: "A pack's AGENTS.md has two readers, and declaring anything takes one of 
 date: 2026-09-22
 status: accepted
 tags: [design, packs, briefing, skills, defaults, audiences, zero-ceremony, prior-art]
-summary: "DECIDED. A pack's root AGENTS.md is read by two unrelated audiences — agents working IN the pack's repository, and every agent in every jail that selects the pack — and yolo's delivery defaults undo each other: declaring one narrow briefing silently stops the pack's AGENTS.md from shipping, while broadcasting from a manifest is refused outright. AGENTS.md stays the repository's (ruled). Shipped prose moves to a location only yolo reads — a `briefing/` component directory (ruled), the shape of Cursor's plugin rules and of every shipped component (`skills/`, `agents/`), rather than a root file like the two formats that collide — broadcast becomes declarable, and every declaration becomes additive and per-file."
+summary: "BUILT 2026-09-23 in the tree; the §10 real-jail check is still outstanding. A pack's root AGENTS.md is read by two unrelated audiences — agents working IN the pack's repository, and every agent in every jail that selects the pack — and yolo's delivery defaults undo each other: declaring one narrow briefing silently stops the pack's AGENTS.md from shipping, while broadcasting from a manifest is refused outright. AGENTS.md stays the repository's (ruled). Shipped prose moves to a location only yolo reads — a `briefing/` component directory (ruled), the shape of Cursor's plugin rules and of every shipped component (`skills/`, `agents/`), rather than a root file like the two formats that collide — broadcast becomes declarable, and every declaration becomes additive and per-file."
 vantage:
   status-chip: true
 ---
 
 # A pack's AGENTS.md has two readers, and declaring anything takes one of them away
 
-**Status:** DECIDED, 2026-09-22. Nothing built. Every question is ruled
-([Decision Ledger](#decision-ledger)); what is owed is the build in
-[§9](#9-what-i-would-build-in-order). Evidence verified at `3ac4e8b1`.
+**Status:** BUILT 2026-09-23. MEASURED: in a nested jail launched against this build from a
+throwaway workspace, with the maintainer's pack set, matt-craft's root `AGENTS.md` reaches **none**
+of the five agents' briefings (it reached all five before), and pi still receives the addressed
+`files/pi-rules.md`. Also pinned by call-site tests, each verified to fail when its call site is
+reverted, and by a cross-notch byte-parity test. UNMEASURED: a launched jail routing one pack's
+`briefing/` files per agent (`packs` is user-scope only, so a throwaway pack cannot be selected
+without editing the live config — `yolo pack lint`'s delivery listing shows that routing), and the
+integration suite, compiled but not run.
+
+Built from [the plan](pack-briefing-defaults-plan.md). Every question is ruled
+([Decision Ledger](#decision-ledger)), and each ruling's **Built** cell names what implements it.
+One predicate, `packload.GovernedSources`, answers "which files does this pack deliver, and who
+routes each one?" for the jail briefing, the jail skills and the host notch alike. The
+[§2](#2-what-happens-today) evidence was verified at `3ac4e8b1` and describes the tree before this
+build.
 
 > **In short.** yolo reads a pack's content through defaults that override each other, and it reads
 > prose from the one filename the rest of the agent ecosystem already reserves for a different
@@ -44,8 +56,10 @@ broadcast", is ruled and was never true for a manifest — this doc makes it tru
 [`slots-and-contributions.md`](slots-and-contributions.md) (`exposes` will re-spell the fields
 this doc changes; its [OQ-D8](slots-and-contributions.md#OQ-D8) and
 [OQ-D9](slots-and-contributions.md#OQ-D9) are affected, see [§8](#8-how-this-sits-with-the-sibling-designs));
-[`pack-briefing-defaults-plan.md`](pack-briefing-defaults-plan.md) (the implementation sketch — to
-be completed into a plan against the tree before the build).
+[`pack-briefing-defaults-plan.md`](pack-briefing-defaults-plan.md) (the build plan this was
+implemented from, grounded in the tree at `5df91b7d`). The shipped behaviour is stated in
+[`pack-system.md`](../reference/pack-system.md#briefing) and
+[`agent-briefings.md`](../reference/agent-briefings.md#audiences-what-varies-per-destination).
 
 ---
 
@@ -116,7 +130,7 @@ change.
 A pack with no manifest broadcasts its root `AGENTS.md` and `skills/`. The fallback is gated on
 the pack declaring **nothing** of that kind — `if !declared` in the jail composer
 ([`packs.go:1084-1101`](../../internal/cli/run/packs.go#L1084-L1101)), the same gate for skills
-([`skillssource.go:137-148`](../../internal/packload/skillssource.go#L137-L148)), and
+([`skillssource.go:137-148`](../../internal/packload/skillssource.go) at `3ac4e8b1`), and
 `borrowingSources`' `len(out) == 0 && !p.declares(kind)` at the host notch
 ([`mergedest.go`](../../internal/packload/mergedest.go)). All three sites agree, which is how the
 trap reaches every notch.
@@ -174,7 +188,7 @@ case. It is not a new question.
 ### 2.4 On briefing, `from` is a preference
 
 A briefing's source is a fallback chain, `[from, AGENTS.md]`
-([`BriefingCandidates`](../../internal/packdecl/contributes.go#L1311)). A declared `from` that is
+(`packdecl.Contribution.BriefingCandidates`, which this build deleted). A declared `from` that is
 absent or whitespace-only delivers the pack's `AGENTS.md` instead, with a warning. `skills` does
 the opposite: an absent declared source delivers **nothing**, with a warning
 ([`skillssource.go:58-83`](../../internal/packload/skillssource.go#L58-L83)). That file's header
@@ -366,7 +380,9 @@ matt-craft needs **no** edit: its leak stops because yolo stops reading the file
     is the implementer's; it affects only the join order.
   - The next `yolo host apply` moves an existing `local/AGENTS.md` into `local/briefing/` and
     reports the move. If the target name is already taken it refuses, naming both files, rather
-    than choosing one.
+    than choosing one. It also refuses while the local `pack.json` names `AGENTS.md` in a briefing
+    `from`, naming the one-line edit: the reserved `from` is never read, so the moved file would be
+    named by no declaration and broadcast to every agent instead of the audience it was routed to.
   - Until that apply runs, the local pack's old `AGENTS.md` is not delivered — the same hard cut as
     any other pack. With `host_apply_on_launch` on, the next wrapped launch runs that apply.
 - **Fetched packs.** A fetched pack whose `AGENTS.md` is a contributor guide (matt-craft) is fixed
@@ -375,10 +391,12 @@ matt-craft needs **no** edit: its leak stops because yolo stops reading the file
 - **Host destinations yolo already composed.** They are composed wholesale under the ownership
   record, so the next `yolo host apply` recomposes them without the dropped prose. No separate
   cleanup is needed.
-- **Existing manifests.** Every manifest valid today stays valid (P2 is a relaxation), with one
-  three exceptions, each refused with the corrected spelling: `from` on a destination-declaring
-  `briefing` or `skills` contribution (P5), which no shipped pack uses; a reserved basename as a
-  source ([OQ-PB2](#decision-ledger)); and two contributions naming one source
+- **Existing manifests.** Every manifest valid today stays valid (P2 is a relaxation), with four
+  exceptions, each refused with the corrected spelling: `from` on a destination-declaring
+  `briefing` or `skills` contribution (P5), which no shipped pack uses; `agent` beside `agents`
+  with no `into` (P5 makes `agent` mean "destination", so the refusal names both readings: drop
+  `agent` for content, or give it `into` for a destination); a reserved basename as a source
+  ([OQ-PB2](#decision-ledger)); and two contributions naming one source
   ([OQ-PB5](#decision-ledger)).
 
 ## 5. Non-goals
@@ -487,12 +505,12 @@ into the sections each one governs.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| P1 | The repository's instruction files (`AGENTS.md`, `CLAUDE.md`) stay where they are, as the repository's; shipped prose moves to a different location. *(Maintainer: "the repo briefing one has to stay in place. Can't change that one. Gonna have to pick something else for the other one.")* | 2026-09-22 | [§3.1](#31-the-briefing-directory-is-what-a-pack-ships-agentsmd-is-never-read) | — |
-| OQ-PB1 | Shipped prose lives in a `briefing/` directory of `*.md` files at the pack root, beside `skills/`: read one level deep, ordered per pack by filename, never globally | 2026-09-22 | [§3.1](#31-the-briefing-directory-is-what-a-pack-ships-agentsmd-is-never-read) | — |
-| OQ-PB2 | A source whose basename is `AGENTS.md`, `CLAUDE.md` or `GEMINI.md` — an explicit `from`, or a file inside `briefing/` — is refused at any depth, naming the move | 2026-09-22 | [§3.1](#31-the-briefing-directory-is-what-a-pack-ships-agentsmd-is-never-read) | — |
-| OQ-PB3 | Ship-day cut is hard: a root `AGENTS.md` stops being read. Never a refusal, and **no notice** at launch or host apply; only `yolo pack lint`'s listing shows it | 2026-09-22 | [§4](#4-state-that-already-exists) | — |
-| OQ-PB4 | No separate rule for fetched packs: selecting a pack is the consent; P6's delivery list is the disclosure; a per-file consumer toggle only if a real third-party pack abuses it | 2026-09-22 | [§5](#5-non-goals) | — |
-| OQ-PB5 | Two content contributions of one kind in one pack naming the same source are refused at lint and launch, naming both. *(Raised in review: "why do we allow this and not fatal? surely this is an error?")* | 2026-09-22 | [§3.2](#32-silence-means-broadcast-in-a-manifest-too) | — |
+| P1 | The repository's instruction files (`AGENTS.md`, `CLAUDE.md`) stay where they are, as the repository's; shipped prose moves to a different location. *(Maintainer: "the repo briefing one has to stay in place. Can't change that one. Gonna have to pick something else for the other one.")* | 2026-09-22 | [§3.1](#31-the-briefing-directory-is-what-a-pack-ships-agentsmd-is-never-read) | ✅ 2026-09-23 — a root `AGENTS.md`, `CLAUDE.md` or `GEMINI.md` is read at no notch; `packload.GovernedSources` reads only `briefing/*.md` and declared `from`s |
+| OQ-PB1 | Shipped prose lives in a `briefing/` directory of `*.md` files at the pack root, beside `skills/`: read one level deep, ordered per pack by filename, never globally | 2026-09-22 | [§3.1](#31-the-briefing-directory-is-what-a-pack-ships-agentsmd-is-never-read) | ✅ 2026-09-23 — `packdecl.DefaultBriefingDir`, `ConventionalBriefingFile`; byte-wise per pack at both notches, pinned by `TestJailAndHostComposeTheSameBriefing` |
+| OQ-PB2 | A source whose basename is `AGENTS.md`, `CLAUDE.md` or `GEMINI.md` — an explicit `from`, or a file inside `briefing/` — is refused at any depth, naming the move | 2026-09-22 | [§3.1](#31-the-briefing-directory-is-what-a-pack-ships-agentsmd-is-never-read) | ✅ 2026-09-23 — a reserved `from` in `validateContribution` (both decode paths); a reserved file in `briefing/` in `packload.LoadDir`, fatal at launch and at lint |
+| OQ-PB3 | Ship-day cut is hard: a root `AGENTS.md` stops being read. Never a refusal, and **no notice** at launch or host apply; only `yolo pack lint`'s listing shows it | 2026-09-22 | [§4](#4-state-that-already-exists) | ✅ 2026-09-23 — no hatch and no launch notice; the conventional local pack's `AGENTS.md` is moved by `yolo host apply` ([§4](#4-state-that-already-exists)) |
+| OQ-PB4 | No separate rule for fetched packs: selecting a pack is the consent; P6's delivery list is the disclosure; a per-file consumer toggle only if a real third-party pack abuses it | 2026-09-22 | [§5](#5-non-goals) | ✅ nothing to build — the predicate has no fetch-origin branch |
+| OQ-PB5 | Two content contributions of one kind in one pack naming the same source are refused at lint and launch, naming both. *(Raised in review: "why do we allow this and not fatal? surely this is an error?")* | 2026-09-22 | [§3.2](#32-silence-means-broadcast-in-a-manifest-too) | ✅ 2026-09-23 — `validateDuplicateContentSources`, strict path; the tolerant in-jail read folds a repeat so each file is delivered once |
 
 ## Appendix A. Prior art: how other agent ecosystems ship instructions
 

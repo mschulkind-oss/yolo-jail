@@ -531,6 +531,8 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    the kind — core owns that value, so it survives the schema change untouched. The audience LIST is
    the whole loss.
 
+   > **Premise changed, not ruled here:** since [`pack-briefing-defaults.md`](pack-briefing-defaults.md#32-silence-means-broadcast-in-a-manifest-too) a manifest CAN declare broadcast (`{"kind":"briefing"}` is valid), and two content contributions sharing one `from` are refused ([`OQ-PB5`](pack-briefing-defaults.md#decision-ledger)), so `to` needs a broadcast spelling.
+
    <!-- vantage: oq id=OQ-D9 leaning="`to` takes one address or a list of them, decoded as N deliveries of one source — the same thing two `agents` entries mean today, so no behaviour moves and the provenance stays per destination." -->
 
    _Leaning:_ a list, decoded as N deliveries of one source, because that is precisely what

@@ -162,30 +162,58 @@ A pack is a directory. Nothing in it is mandatory.
 ```
 my-pack/
 ├── pack.json      # optional — the manifest
-├── AGENTS.md      # optional — prose concatenated into every briefing
+├── briefing/      # optional — every *.md directly inside is prose for every agent
+│   └── house-rules.md
 ├── derive.lua     # optional — Lua producers for config dynamic layers
 └── skills/        # optional — one dir per skill, each with a SKILL.md
     └── rust-review/
         └── SKILL.md
 ```
 
-The zero-ceremony pack — an `AGENTS.md` plus a `skills/` tree, no `pack.json` — is a
+The zero-ceremony pack — a `briefing/` directory plus a `skills/` tree, no `pack.json` — is a
 complete, useful pack: house rules and a skill corpus applied in every jail. `yolo pack
 init` scaffolds exactly this.
 
-`AGENTS.md` is the **only** conventional briefing filename (`packdecl.DefaultBriefingFiles`).
-`CLAUDE.md` was the second candidate until 2026-08-17 and is not read by anything now: it is
-Claude Code's own name, where `AGENTS.md` is the cross-tool convention, and yolo picks one.
-A pack whose prose lives elsewhere names it with an explicit `from`, which is what `from` is
-for.
+**`briefing/` is the conventional prose source** (`packdecl.DefaultBriefingDir`), and it is a
+directory of files rather than one file
+([`OQ-PB1`](../design/pack-briefing-defaults.md#decision-ledger)):
+
+- Every regular `*.md` **directly** inside it is read. A subdirectory is not read, nor is a file
+  with another extension. Names match case-sensitively, so `Briefing/` is not the convention.
+- A pack's files are ordered **by filename, byte-wise**, and stay contiguous. Packs keep their
+  config order, so one pack's filenames never reorder another pack's prose.
+- An empty or whitespace-only file contributes nothing, silently. So does an absent `briefing/`.
+
+**A root `AGENTS.md`, `CLAUDE.md` or `GEMINI.md` is never read as pack prose**, with or without a
+manifest, at any notch ([`P1`](../design/pack-briefing-defaults.md#1-verdict)). Agent tools read
+those names as a *repository's own* instructions, and a pack is often a repository, so shipping
+one gave that file two readers: agents working in the pack's repository, and every agent in every
+jail selecting the pack. The repository keeps it. A root `AGENTS.md` used to be the conventional
+source, and a pack whose `AGENTS.md` was meant to ship delivers nothing from it until the file
+moves under `briefing/`. That is a hard cut, with no notice at launch or at `yolo host apply`
+([`OQ-PB3`](../design/pack-briefing-defaults.md#decision-ledger)). One text for both readers is
+written once under `briefing/` and pointed at from the in-repository file (`CLAUDE.md` can say
+`@briefing/house-rules.md`).
+
+**Those three basenames are refused as a SOURCE at any depth**
+([`OQ-PB2`](../design/pack-briefing-defaults.md#decision-ledger)), both ways, with a message
+spelling the `git mv`:
+
+- a `briefing` `from` naming one (`packdecl.RepositoryInstructionFile`, in the validator, so the
+  tolerant in-jail decode refuses it too);
+- a file with one of those names inside `briefing/` — a fatal `packload.LoadDir` problem, so it
+  refuses every launch and `yolo pack lint`.
+
+The rule is about sources only. A destination path ending in `AGENTS.md`, which several shipped
+agent packs declare, and `after: "host:AGENTS.md"` are not sources, and neither is checked.
 
 > [!WARNING]
-> **`DefaultBriefingFiles` is the authority, and the blast radius of changing it is every
-> site that re-lists the pair.** `yolo pack lint` carried its own hardcoded copy and went on
-> counting a root `CLAUDE.md` as content some reader picks up after every reader had stopped
-> — so a pack whose only content was a `CLAUDE.md` linted clean while briefing nothing.
-> `TestPackLintTracksTheBriefingConvention` pins the behavior rather than the list, because
-> a test on the literal stays green through exactly that drift.
+> **A pack's conventional sources have ONE reader, `packload.GovernedSources`.** The jail briefing
+> composer, the jail skills reader and the host notch's borrower all derive from it
+> ([`governance.go`](../../internal/packload/governance.go)). Each used to keep its own "does
+> this pack declare anything of this kind?" gate. The three agreed, which is how one trap
+> reached every notch: declaring one narrow delivery switched off the pack's whole implicit
+> broadcast. A fourth reader that re-lists the convention will drift the same way.
 
 Content rules are enforced at staging by `internal/packstage`, and a violation is **fatal,
 not skipped** — a pack that half-stages is worse than one that fails loudly:
@@ -484,14 +512,25 @@ which is what lets a content-only pack carry a remedy.
 A skills tree merged into an agent's skills dir. Precedence is built-in < pack < the user's
 own tree, so a local skill always wins. `from` defaults to `skills/`, and is honored at both
 notches and by wrapped-plugin discovery through one resolver (`packload.SkillsSourceDir`).
-`into` is required unless the contribution names an `agents` audience instead.
+
+A content contribution routes by `into` (a path), by `agents` (an audience), or by **neither**,
+which broadcasts to every skills destination the selected packs declare — the same rule as
+[`briefing`](#briefing), including who governs what. The `skills/` tree is **one unit**: it
+broadcasts implicitly unless a content contribution names it, by omitting `from` or by
+`from: "skills"`. A contribution naming a *different* tree adds that tree and leaves `skills/`
+broadcasting. Two content contributions naming one tree are refused
+([`OQ-PB5`](../design/pack-briefing-defaults.md#decision-ledger)).
+
+A **destination** (`agent` + `into`, the line every agent pack uses to name where its agent
+reads skills) sources nothing, and `from` on one is refused, naming the addressed spelling
+([`P5`](../design/pack-briefing-defaults.md#1-verdict)). An agent pack that carries a `skills/`
+tree of its own ships it as the implicit broadcast, which reaches its own destination like any
+other pack's.
 
 A `from` naming a directory the pack does not contain delivers nothing and is **reported by
 name** — a warning at launch, a `refused` line and a non-zero exit at `yolo host apply` —
-rather than silently falling back. The *conventional* `skills/` being absent is the one
-exemption, and not an oversight: the agent packs declare `from: "skills"` and carry no
-skills of their own (their contribution exists to NAME the destination other packs merge
-into), so complaining there would fire on every launch of a stock config.
+rather than silently falling back. An absent *conventional* `skills/` is silent, because most
+packs carry none.
 
 `skills_tier` is a **per-pack** choice, not per contribution, and that is the whole of the
 ruling behind it: a tier decides what a skill is CALLED, which is a global property.
@@ -539,26 +578,80 @@ the message, rather than failing on the strict decoder's bare unknown-field erro
 Prose concatenated into a briefing file, attributed to its pack. **The destination is
 generated wholesale at every notch**, so a hand edit does not survive.
 
-`from` is optional; absent, the candidate is the conventional `AGENTS.md`. Both notches
-resolve it through `packload.BriefingProseFor`, and the precedence is a **fallback chain**
-rather than a single choice — a declared `from` that is not in the pack's content falls back
-to the convention and WARNS, naming the file that was not read. `skills` refuses in the same
-situation; the difference is deliberate, because narrowing the briefing chain would break
-packs that relied on the host behavior.
+A contribution is one of two things, decided by `agent` alone:
 
-`into` is required unless the contribution names an `agents` audience — and deliberately not
-conventionalized: a source has one right answer per KIND, a destination one per AGENT, so
-inferring it would mean inferring the agent set. `agent` is the IDENTITY a destination
-declares for itself (the launcher command whose agent reads it), declared by the pack that
-OWNS that name; nothing is derived from the pack's `program`/`requires` bins — the string is
-declared, carried, and compared literally. `agents` is the AUDIENCE, and **absent means
-broadcast**. A contribution gives `into` OR `agents`, never both: a content pack that
-hardcoded `.claude/CLAUDE.md` would be coupled to a fact only the claude pack can keep
-current. The vocabulary is the SELECTED packs' agent names and nothing wider — naming an
-agent your `packs` do not provide is fatal at launch and at `yolo host apply`.
+| Written | What it is | Sources |
+| :--- | :--- | :--- |
+| `{kind:"briefing", agent:"claude", into:".claude/CLAUDE.md"}` | a **destination** — the file an agent reads, declared by the pack that owns that agent | **nothing**; `from` on one is refused, naming the addressed spelling ([`P5`](../design/pack-briefing-defaults.md#1-verdict)) |
+| `{kind:"briefing"}`, `{kind:"briefing", from:"…", agents:["pi"]}`, `{kind:"briefing", into:"…"}` | **content** — prose this pack ships | the files it governs (below) |
+
+`agent` is the IDENTITY a destination declares for itself (the launcher command whose agent
+reads it), declared by the pack that OWNS that name; nothing is derived from the pack's
+`program`/`requires` bins — the string is declared, carried, and compared literally. A
+destination needs `into`.
+
+Content routes by **one of three answers**:
+
+- **`agents`**, the AUDIENCE: only destinations whose owner declared a matching `agent`. The
+  vocabulary is the SELECTED packs' agent names and nothing wider — naming an agent your `packs`
+  do not provide is fatal at launch and at `yolo host apply`.
+- **`into`**, a path. A content pack that hardcoded `.claude/CLAUDE.md` would be coupled to a fact
+  only the claude pack can keep current, which is why `agents` exists. `into` and `agents` together
+  are refused.
+- **Neither**: a **broadcast** to every briefing destination the selected packs declare, the
+  broadcasting pack's own included. That is what a pack with no manifest gets, and since
+  [`pack-briefing-defaults.md`](../design/pack-briefing-defaults.md#32-silence-means-broadcast-in-a-manifest-too)
+  a manifest can say it too: `{"kind": "briefing"}` is valid. It names no agent, so it can never
+  be an unmatched audience, and an agent pack selected later receives it with no edit. With no
+  destination selected it is simply unused, never fatal.
+
+**Each file has exactly ONE governing contribution**, and declarations only ever ADD
+([`§3.3`](../design/pack-briefing-defaults.md#33-a-file-is-governed-by-the-contribution-that-names-it)):
+
+- A declared `from` names **exactly that one file**, anywhere in the pack. It is compared after
+  `path.Clean`, so `./briefing/a.md` and `briefing/a.md` are one file.
+- A content contribution that **omits `from`** governs every `briefing/*.md` that no other
+  contribution names. That is how a pack narrows its whole convention in one line.
+- A `briefing/` file that **nobody** names broadcasts implicitly.
+- A destination governs nothing, so an agent pack's `{agent, into}` line never switches off its
+  own pack's broadcast.
+
+So `{"kind": "briefing", "from": "files/pi-rules.md", "agents": ["pi"]}` beside a `briefing/`
+directory delivers **both**: `pi-rules.md` to pi, and every `briefing/` file to every agent.
+Naming `briefing/pi.md` the same way narrows that one file and leaves the rest broadcasting. The
+order of the `contributes` list never changes which files are delivered, or where.
+
+**Two content contributions naming one source are refused**, naming both
+([`OQ-PB5`](../design/pack-briefing-defaults.md#decision-ledger)): the same cleaned `from`, or
+both omitting it. Every legitimate shape already has a one-contribution spelling — one `agents`
+list for several audiences, silence for all of them. The check is a sibling check, so it runs on
+the strict decode, which is the launcher's and `yolo pack lint`'s. The tolerant
+in-jail read folds a repeat instead, so each file is still delivered once.
+
+**A declared source is the only source**
+([`P4`](../design/pack-briefing-defaults.md#1-verdict)). A `from` that is absent, a directory,
+empty or whitespace-only delivers **nothing** from that contribution, and nothing else is read in
+its place. The jail launch and `yolo host apply` both warn, naming the path, and the rest of the
+pack set still composes. A `from` escaping the pack tree is refused outright. The old fallback chain,
+`[from, AGENTS.md]`, is gone: it quietly delivered a different file than the one named.
+
+One pack's files reach a destination as **one section**: its governed files, byte-wise by
+pack-relative path, joined with one blank line, which is also the spacing between packs. A file
+routed elsewhere is simply absent and does not split the section. `briefing_provenance: true`
+heads each pack's section with one label, never one per file. The jail
+(`jailcontent.ComposePackBriefings`) and the host (`entrypoint.ComposeHostBriefings`) produce the
+same bytes, pinned against each other by
+[`briefingparity_test.go`](../../internal/cli/run/briefingparity_test.go).
+
+> [!NOTE]
+> **A content `into` narrows at the host notch only**, for `briefing` and `skills` alike.
+> `ResolveDestinations` sends a content `{"into": ".claude/CLAUDE.md"}` there and nowhere else, so
+> a declaration is never widened into every other agent's directory. A jail carries no `into` for
+> pack content and composes it into every destination, as a broadcast. `ResolveDestinations`
+> records the asymmetry as deliberate. Name an audience with `agents` to narrow at both notches.
 
 `after: "host:<path>"` prepends the user's own briefing at that host path ahead of the
-composed content, so a personal `AGENTS.md` still outranks the pack's. It is **jail-only**:
+composed content, so the user's own file still outranks the pack's. It is **jail-only**:
 at the host notch the path it names IS the generated destination, so there is no
 user-maintained file left to prepend.
 
@@ -572,9 +665,15 @@ user-maintained file left to prepend.
 
 The first apply into a destination the user wrote is CONFIRMED, once, and fails closed on a
 non-interactive stdin — taking wholesale ownership of a file the user wrote is a one-way
-door. Their prose is MOVED into the conventional local pack
-(`~/.config/yolo-jail/local/AGENTS.md`), from which yolo composes it back into every
-destination, so their instructions keep reaching their agents. To add personal prose, edit
+door. Their prose is MOVED into the conventional local pack, as a file under
+`~/.config/yolo-jail/local/briefing/`, from which yolo composes it back into every
+destination, so their instructions keep reaching their agents. A local pack from before
+`briefing/` holds that prose at `local/AGENTS.md`, which is no longer read; the next
+`yolo host apply` moves it under `local/briefing/` and says so, and refuses, naming both files,
+if the target name is already taken. It also refuses while the local `pack.json` still names
+`AGENTS.md` in a briefing `from`, naming the edit: the moved file would otherwise be named by no
+declaration and reach every agent, not the audience that `from` routed it to. To add personal
+prose, edit
 the local pack, not the destination. Dropping the last contributing pack **archives** the
 destination rather than leaving a generated file with no owner; nothing is ever deleted.
 
@@ -1530,8 +1629,8 @@ other two ([`OQ-RO3`](report-tiers.md#why-its-this-way): a launch has no quiet m
 
 | Verb | What it does |
 | :--- | :--- |
-| `yolo pack init [dir]` | scaffold a valid skeleton (`AGENTS.md`, an example skill, `README.md`); never a `pack.json` |
-| `yolo pack lint [dir]` | run the real staging executor **and** validate the manifest — every problem, not the first — then print the pack's footprint |
+| `yolo pack init [dir]` | scaffold a valid skeleton (`briefing/<pack>.md`, an example skill, `README.md`); never a `pack.json` |
+| `yolo pack lint [dir]` | run the real staging executor **and** validate the manifest — every problem, not the first — then print the pack's footprint and every delivery, implicit broadcasts included, plus an info line for each conventional-looking file it will not ship (a root `AGENTS.md`, a subdirectory or non-`.md` file in `briefing/`) |
 | `yolo pack ls` | list configured packs and what each stages |
 | `yolo pack explain <name>` | stage one pack and show what it stages and what it dropped (`file://` local only) |
 | `yolo pack footprint [ref]` | claims + cross-pack collisions + review summary; `[ref]` may be an embedded pack name or a local path, so you can inspect a pack you are authoring |
@@ -1602,7 +1701,9 @@ only place the values themselves are stated.
 | Kind set | the `footprints` map key, from which `KnownKinds()` derives (sorted alphabetically) | `packdecl.footprints`, count-pinned by `packdecl.TestKnownKindsCoverEveryConstant` |
 | Hook set | `shared_credentials`, `shared_directory`, `per_jail_history`. `claude_plugins` was a member until it was retired ([`OQ-2`](../design/pi-pack-extensions.md#10-decision-ledger), 2026-09-19 — retire it and add nothing like it, no agent-named hook); the name is not unknown but REFUSED, with a migration message | `packdecl.KnownHooks`, drift-pinned by `entrypoint.TestHookSetsAgree`; the refusal is `packdecl.RetiredHook` |
 | Manifest top-level keys | `name`, `description`, `contributes`, `skills_tier`, `supersedes`, `needs` | `packdecl.Manifest` |
-| Conventional briefing source | `AGENTS.md` (alone since 2026-08-17) | `packdecl.DefaultBriefingFiles` |
+| Conventional briefing source | every `*.md` directly inside `briefing/` | `packdecl.DefaultBriefingDir`, `packdecl.ConventionalBriefingFile` |
+| Never a briefing source | `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, at any depth | `packdecl.RepositoryInstructionFile` |
+| Which contribution governs each source | one per file, destinations excluded | `packload.GovernedSources` |
 | Conventional skills source | `skills/` | `packdecl.Contribution.SkillsSource` |
 | Blocker dir (first on PATH) | `~/.yolo/bin/block` | `entrypoint.BootPath` |
 | Launcher dir (second on PATH) | `~/.yolo/bin/launch` | `entrypoint.BootPath` |
@@ -1613,7 +1714,7 @@ only place the values themselves are stated.
 | Mounted pack root | `YOLO_PACK_ROOT` | `internal/cli/run/packs.go`, `packsrc.Store` |
 | Host staging root | `<global storage>/agents/<container>/packs/<slug>` | `paths.AgentsDir`, `PackEntry.Slug` |
 | Lockfile | `~/.config/yolo-jail/packs.lock.json` (beside the user config) | `packsrc/lock.go` |
-| Conventional local pack | `~/.config/yolo-jail/local` (`AGENTS.md`, `skills/`) | `paths.LocalPackDir` |
+| Conventional local pack | `~/.config/yolo-jail/local` (`briefing/`, `skills/`) | `paths.LocalPackDir` |
 | Config-surface layer order | `defaults < host < workspace < config-overlay < capture-overlay < computed < managed` | `internal/agentcfg` |
 | Surface modes | `stateful` (default), `computed`, `rmw`, `unrendered` | `internal/agentcfg/manifest` |
 | `state` scopes | `workspace` (default), `machine` (requires `because`) | `packdecl` |

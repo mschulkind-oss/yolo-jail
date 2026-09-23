@@ -3,7 +3,8 @@
 Tools the jail refuses in favour of a faster one for the same work.
 
 Not shipped into the jail — a README at a pack root is not a briefing source (that
-is `AGENTS.md`), and nothing here needs to reach an agent up front. The blocker
+is a `briefing/` directory, which this pack does not have), and nothing here needs to
+reach an agent up front. The blocker
 prints its own message and its own alternative at the moment it refuses, which is
 where that information belongs. This file is for whoever edits these rules.
 
