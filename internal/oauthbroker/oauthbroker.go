@@ -13,7 +13,7 @@
 // Cert generation is the one contract here that is NOT frozen and has been
 // deliberately broken: it used to exec openssl five times with the byte-identical
 // --init-ca script, and cert.go mints with crypto/x509 now
-// (docs/design/broker-ca-and-nested-hosts.md §8 item 4). The CA's private key no
+// (docs/reference/claude-oauth-interposition.md#how-the-ca-and-leaf-are-minted). The CA's private key no
 // longer touches disk, and the certificates are P-256 rather than RSA. Nothing
 // outside this package pinned either fact — the jail verifies a chain, not an
 // algorithm.

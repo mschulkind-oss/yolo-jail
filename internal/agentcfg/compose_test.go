@@ -32,9 +32,9 @@ const piHostJSON = `{
 // surface: defaults < host, then the managed floor, with per-key provenance.
 //
 // It is what is left of the §6.5 worked example after the Lua transform was
-// removed (docs/design/lua-transform-removal.md §5.5). That example's whole
+// removed (docs/reference/pack-system.md#the-managed-floor). That example's whole
 // point was its ② step — a script dropping an element out of the `extensions`
-// array — which is the capability §6 of the removal doc records as a deliberate
+// array — which is the capability pack-system.md#oq-lt2 records as a deliberate
 // gap. The layering either side of that step is still the pipeline's contract,
 // so it is asserted here without a script.
 func TestComposeMergesThenEnforces(t *testing.T) {
@@ -129,7 +129,7 @@ func TestComposeComputedLayer(t *testing.T) {
 //
 // It was written to outlive TestComposeComputedBelowManagedAndTransform, which
 // proved this and "a transform can reshape a computed value" at once and died
-// with the transform (docs/design/lua-transform-removal.md §5.5). No other test
+// with the transform (docs/reference/pack-system.md#the-managed-floor). No other test
 // in this file pins it against computed: TestComposeComputedLayer only ranks
 // computed against overlay, and the *EnforcesManaged suite feeds host bytes.
 func TestComposeManagedWinsOverComputed(t *testing.T) {
@@ -276,8 +276,7 @@ func TestComposeDeepEnforcePreservesHostSibling(t *testing.T) {
 
 // TestComposeManagedNilValueIsAssignedNotDeleted pins the ONE case where the
 // managed floor and the merge fold disagree, so the floor can be moved out of
-// luahook without changing meaning (docs/design/lua-transform-removal.md §4.2
-// item 1, risk R1).
+// luahook without changing meaning (docs/reference/pack-system.md#lt-r1).
 //
 // engine.go's mergeValue is RFC 7386: a null under a key DELETES the key. The
 // floor's enforceValue is not — a non-object managed value, nil included, is
@@ -304,7 +303,7 @@ func TestComposeManagedNilValueIsAssignedNotDeleted(t *testing.T) {
 	v, present := res.ConfigMap()["nulled"]
 	if !present {
 		t.Fatal("a nil-valued managed key must ASSIGN null, not delete the key — " +
-			"enforceValue is not RFC 7386 (§4.2 item 1)")
+			"enforceValue is not RFC 7386 (docs/reference/pack-system.md#lt-r1)")
 	}
 	if v != nil {
 		t.Errorf("nulled = %#v, want an explicit nil assigned over the host value", v)

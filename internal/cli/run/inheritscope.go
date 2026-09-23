@@ -147,7 +147,7 @@ func inheritScopeFiles(effective *jsonx.OrderedMap, rt, launchedAt string) (file
 //
 // The user's ~/.config/yolo-jail/config.lua crossed here too, as the host's own file and
 // unfiltered, because it was a Lua transform script rather than a config with keys to
-// classify. The transform is gone (docs/design/lua-transform-removal.md) and so is that
+// classify. The transform is gone (docs/reference/pack-system.md#oq-lt1) and so is that
 // bind: nothing in the jail reads the file, so mounting it would be one more host path
 // crossing for no reader.
 func (o *Options) userConfigMountArgs(rt, wsState string) []string {

@@ -176,7 +176,7 @@ jobs:
         # job reading the cache only by the action's grace.
         # Since layer-aware delivery landed the out-link is a nix2container
         # image.json rather than a script whose stdout is a docker-archive
-        # (docs/design/layer-aware-image-delivery.md), so the tar this job
+        # (docs/reference/image-staging-vs-baking.md#delivering-into-the-runtime), so the tar this job
         # UPLOADS is produced by a `skopeo copy` into the docker-archive
         # transport. The copier is realized beside the image as `./result-1`; it
         # is a source build over nixpkgs' skopeo that no public cache serves, so

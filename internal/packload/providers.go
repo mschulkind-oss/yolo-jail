@@ -4,7 +4,7 @@ package packload
 
 // providers.go composes the PROVIDERS table a launch feeds its derives: the packs'
 // shipped `kind: "provider"` service facts, laid UNDER the user's `providers` config
-// entries (profiles-as-pack-variants.md §4.1 as ruled, OQ-12).
+// entries (docs/reference/providers.md#how-the-table-composes, #pv-oq-12).
 //
 // The composition happens HERE, in the host CLI, and exactly once per launch: its output
 // is what crosses to the jail as YOLO_PROVIDERS, and the in-jail side reads that table
@@ -54,7 +54,7 @@ import (
 // the way in (below) and shippedProviderEntry allocates every level it emits. That is what
 // makes the adapter pass, which writes into the finished table, a writer of this table
 // alone; it was not true, and the consequence was a bound port
-// (docs/design/wire-bridge-port-collision.md).
+// (docs/reference/wire-bridge.md#the-invariant-that-keeps-the-adapters-address-out-of-the-users-map).
 //
 // A provider NAME claimed by two packs is refused by the launch pre-flight (the kind is
 // sole-owned by name; the claim target is the bare name, so packload.Collisions' generic
@@ -102,8 +102,8 @@ func ComposeProviders(user *jsonx.OrderedMap, packs []*Pack, opts ...ComposeOpti
 		// any such alias, which is how a user's provider entry acquired the wire bridge's
 		// own 127.0.0.1:8214 and run.localProviderForwards then read it back as a
 		// host-loopback forward the user had asked for — a port bound in the jail four
-		// lines before the bridge tried to bind it (docs/design/wire-bridge-port-collision.md,
-		// OQ-PC1: the ruling is to fix the mutation, not the read).
+		// lines before the bridge tried to bind it (docs/reference/wire-bridge.md#oq-pc1:
+		// the ruling is to fix the mutation, not the read).
 		//
 		// The copy is DEEP because the value is a tree: a one-level clone would leave
 		// `endpoints` shared and addEndpoint would write through it unchanged. One copy
@@ -527,7 +527,7 @@ func entryString(entry *jsonx.OrderedMap, key string) string {
 }
 
 // ProviderCredentialGaps is the SELECTED-PACK CREDENTIAL PRE-FLIGHT
-// (profiles-as-pack-variants.md §6.2 as rescoped by OQ-13; the requirement itself re-ruled
+// (docs/reference/providers.md#the-credential-preflight, #pv-oq-13; the requirement itself re-ruled
 // by OQ-PT4): every provider the composed table CATALOGS — present and carrying an
 // endpoint, per requiredProviders — must have the variable its api_key_env_name points at
 // set in the launch environment, or the launch is refused. An entry the table does not
@@ -545,7 +545,7 @@ func entryString(entry *jsonx.OrderedMap, key string) string {
 //
 // consulted is what the caller asked for credentials — the env_sources entries it walked,
 // the invoking environment, whatever this notch actually consults — and is quoted verbatim
-// in the facts. Naming it is the §6.1 half of the ruling: env_sources fails open (a
+// in the facts. Naming it is the providers.md#the-credential-preflight half of the ruling: env_sources fails open (a
 // missing file warns and skips), so without this line the reader is told only that a key
 // never arrived, not which channel was supposed to bring it.
 //

@@ -1,7 +1,7 @@
 package run
 
 // briefingaudience_test.go guards the jail notch's briefing mount against the shape
-// briefing-audiences.md makes legal: a `briefing` that names an AUDIENCE and no destination.
+// docs/reference/agent-briefings.md#audiences-what-varies-per-destination makes legal: a `briefing` that names an AUDIENCE and no destination.
 //
 // The defect this pins was LATENT rather than hypothetical. The mount loop filtered on `Kind`
 // alone while both of its host-side siblings (entrypoint.ComposeHostBriefings and

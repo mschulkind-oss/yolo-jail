@@ -115,7 +115,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	jailcontent.SetPackSkillTargets(packSkillTargets(loadedPacks))
 
 	// The user's `lsp_servers` table, for the one plugin yolo renders from it — option D of
-	// docs/design/claude-lsp-plugins.md. Injected rather than read inside jailcontent for the
+	// docs/reference/mcp-configuration.md#oq-lsp1. Injected rather than read inside jailcontent for the
 	// same reason the two setters above are: that package is called from here and does not read
 	// config itself.
 	jailcontent.SetLSPServers(cfgMap(cfg, "lsp_servers"))
@@ -194,7 +194,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	// jail wrote NO briefing at all. It now follows declarations, so a pack always gets
 	// its briefing whether or not anything calls it an agent.
 	//
-	// AND IT IS NOW DESTINATION-FIRST, which is the jail half of briefing-audiences.md §5.
+	// AND IT IS NOW DESTINATION-FIRST, which is the jail half of docs/reference/agent-briefings.md#where-each-notch-narrows.
 	// Composition used to happen ABOVE this loop — one body, folded once, written to every
 	// destination — so the loop was per (pack, contribution) with a per-PACK staging name and
 	// every file held identical bytes. That is what made scoping impossible: a pack whose
@@ -289,7 +289,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 // below: the same expression retyped in a test asserts nothing about this file.
 // briefingPortsFor is the port pair the briefing describes, and the forward half is the
 // MERGED list rather than the config section (OQ-PC2,
-// docs/design/wire-bridge-port-collision.md).
+// docs/reference/wire-bridge.md#oq-pc2).
 //
 // A forward a user provider caused is a hole into the host that the user's own config cannot
 // be grepped for — so a briefing built from `network.forward_host_ports` alone tells the
@@ -548,14 +548,14 @@ func packSkillTargets(loadedPacks []*packload.Pack) []jailcontent.SkillTarget {
 			// A CONTRIBUTION THAT NAMES NO DESTINATION IS NOT A DESTINATION. An ADDRESSED
 			// skills tree (`{"kind":"skills","agents":["claude"]}`) declares who its content
 			// is FOR and never where it goes, because where an agent reads is that agent
-			// pack's business (briefing-audiences.md P4) — so `Into` is empty by design, and
+			// pack's business (docs/reference/agent-briefings.md#ba-p4) — so `Into` is empty by design, and
 			// its content reaches real destinations by AUDIENCE MATCHING, not by a mount of
 			// its own.
 			//
 			// Without this guard `Dest` was "", the bind resolved to the home ROOT, and podman
 			// refused every such launch with `"/home/agent": duplicate mount destination`.
 			// Measured 2026-09-03 and reproduced at 49bb2088, so it shipped with
-			// briefing-audiences steps 1-2 on 2026-09-02; an addressed BRIEFING was never
+			// the audience selector's first two build steps on 2026-09-02; an addressed BRIEFING was never
 			// affected because only skills mount.
 			if c.Into == "" {
 				continue

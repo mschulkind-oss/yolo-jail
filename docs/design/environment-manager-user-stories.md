@@ -168,7 +168,7 @@ when the definition does not bind. If yolo's answer to "is this the environment 
    > `computed` → `managed` (enforced as a floor)
    >
    > *(A Lua `transform` layer sat between `computed` and `managed` when this note was written;
-   > it was removed on 2026-09-11 — [`lua-transform-removal.md`](lua-transform-removal.md) — so
+   > it was removed on 2026-09-11 — [`OQ-LT1`](../reference/pack-system.md#oq-lt1) — so
    > this note and the three others in this doc that enumerated it now name `computed` and
    > `managed` alone. Nothing else about the ordering moved.)*
    >

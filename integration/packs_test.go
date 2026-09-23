@@ -14,7 +14,7 @@ import (
 // briefing/ prose reaches the briefing WITH a provenance header naming the pack — which
 // `briefing_provenance: true` asks for, the label having been off by default since
 // 0c74ff45. Its root AGENTS.md is the pack repository's own and must NOT arrive
-// (pack-briefing-defaults.md P1): this is the test that catches a notch that stopped
+// (docs/reference/pack-system.md#briefing-p1): this is the test that catches a notch that stopped
 // reading the new convention, or went on reading the old one, end to end.
 //
 // The provenance header is the part worth an integration test rather than a unit

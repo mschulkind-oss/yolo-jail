@@ -241,7 +241,7 @@ func TestFootprintClaimsGatedConfigOverlay(t *testing.T) {
 }
 
 // A DECLARED BROADCAST (`{kind: briefing}` / `{kind: skills}`, neither `into` nor `agents`) is
-// valid in a manifest now (pack-briefing-defaults.md P2), and its TARGET says where it goes —
+// valid in a manifest now (docs/reference/pack-system.md#briefing-p2), and its TARGET says where it goes —
 // every agent — rather than the blank that read as "nowhere".
 func TestFootprintNamesADeclaredBroadcastsTarget(t *testing.T) {
 	m := &packdecl.Manifest{Contributes: []packdecl.Contribution{

@@ -136,7 +136,7 @@ func (s *OverlaySet) For(agent, name string) []agentcfg.Overlay {
 //
 // profiles is the ACTIVE profile table the CALLER's render resolved — packload.ProfileTable's
 // lowering of YOLO_USE_PROFILES in the jail, of the config's use_profiles at the host —
-// keyed by CLI name, and it gates the `profile` MODIFIER (profiles-as-pack-variants.md §7):
+// keyed by CLI name, and it gates the `profile` MODIFIER (docs/reference/providers.md#the-profile-modifier):
 // an overlay declaring a profile contributes only while that name is the one active for the
 // surface's OWNING agent, which is the target identity's agent segment (an "agent/name"
 // identity's agent half IS a CLI name, the namespace the table keys on). Taking the table
@@ -145,8 +145,8 @@ func (s *OverlaySet) For(agent, name string) []agentcfg.Overlay {
 // same render — the caller already resolved it once for all of them.
 //
 // An inactive profile is a CLEAN SKIP — no error, no orphan report, no applied notice —
-// because selection is the optionality (§7.1, the same rule that makes an unselected owner
-// a skip rather than a refusal) and profile VALUES are free-form (parent OQ-3): a name
+// because selection is the optionality (providers.md#the-profile-modifier, the same rule that makes an unselected owner
+// a skip rather than a refusal) and profile VALUES were free-form (providers.md#pv-oq-3, since superseded by #oq-cs6): a name
 // nothing selected is inert, and reporting it would be a launch that second-guesses the
 // user's `-p`. A profile-gated overlay whose target has no owner while the profile IS
 // active is still an orphan — R2's report fires for the reason that actually stopped the

@@ -1,7 +1,7 @@
 package packload
 
 // agentaudience.go is the P3 refusal: an `agents` selector may name only an agent THIS JAIL
-// HAS, and anything else is fatal (briefing-audiences.md §4.3, OQ-BA3).
+// HAS, and anything else is fatal (docs/reference/agent-briefings.md#two-severities-an-unknown-name-is-fatal-an-unmatched-destination-is-reported, #oq-ba3).
 //
 // # The one question this file answers, and the one it does not
 //
@@ -33,13 +33,16 @@ import (
 
 // AgentAudienceProblems reports every `agents` selector in `packs` that names an agent this
 // pack set does not have. One message per (pack, kind, offending name), in a deterministic
-// order, each naming the four things R3 asks a diagnostic for: the offending string, the
-// declaring pack, the candidate list, and a did-you-mean.
+// order, each naming the four things a diagnostic owes the reader by R3 of
+// docs/reference/stringly-typed-references-principle.md#r3-rich-diagnostics--the-message-is-most-of-the-value:
+// the offending string, the declaring pack, the candidate list, and a did-you-mean.
 //
 // EMPTY MEANS THE LAUNCH MAY PROCEED. The caller decides the severity — every caller makes it
-// fatal today, and §4.3 says why the gate lands at the launch pre-flight and `yolo host apply`
+// fatal today, and agent-briefings.md#two-severities-an-unknown-name-is-fatal-an-unmatched-destination-is-reported says why the gate lands at the launch pre-flight and `yolo host apply`
 // rather than at `yolo pack lint`: lint takes a single pack root with NO config, so it cannot
-// know the enabled set and must not pretend to (R5 — move the gate, do not lower the severity).
+// know the enabled set and must not pretend to (R5 of
+// docs/reference/stringly-typed-references-principle.md#r5-place-the-gate-where-the-reference-is-decidable-and-the-failure-is-actionable:
+// move the gate, do not lower the severity).
 func AgentAudienceProblems(packs []*Pack) []string {
 	have := AgentNames(packs)
 	known := map[string]bool{}
@@ -116,7 +119,7 @@ func agentAudienceMessage(pack, kind, name string, have []string) string {
 		"pack that provides %q", strings.Join(have, ", "), name)
 }
 
-// nearestAgentName is the did-you-mean §4.3 asks for: the closest candidate within an
+// nearestAgentName is the did-you-mean agent-briefings.md#two-severities-an-unknown-name-is-fatal-an-unmatched-destination-is-reported asks for: the closest candidate within an
 // edit-distance budget that scales with the name's length, or "" when nothing is close enough
 // to be worth guessing at.
 //

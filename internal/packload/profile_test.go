@@ -63,7 +63,7 @@ func TestProfileEnvDeliversAndDeclarationCarriesTheOverlay(t *testing.T) {
 	}
 }
 
-// A gated env later-wins over the pack's own static `env` (OQ-8): the gate is the more
+// A gated env later-wins over the pack's own static `env` (providers.md#pv-oq-8): the gate is the more
 // specific intent, declared after the baseline, and overriding it is not a collision.
 // (The shrink also retired the body's null-means-unset half — both maps are plain string
 // maps now, so the fold is assignments only.)

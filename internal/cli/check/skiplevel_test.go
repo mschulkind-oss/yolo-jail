@@ -171,7 +171,7 @@ func TestNoSectionReportsASkippedAreaAsAPass(t *testing.T) {
 					t.Errorf("%s:%d reports a skipped area as a [PASS]: %q\n"+
 						"    Use r.skip (or r.hostFact for a fact about the host) instead. "+
 						"A check that did not look must not be counted as a pass — "+
-						"docs/design/broker-ca-and-nested-hosts.md, OQ-3. Nine sites did "+
+						"docs/reference/claude-oauth-interposition.md#oq-3. Nine sites did "+
 						"this, and an all-green in-jail run included areas nobody checked.",
 						name, fset.Position(lit.Pos()).Line, msg)
 					return true

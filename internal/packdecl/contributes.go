@@ -85,7 +85,7 @@ type Contribution struct {
 	// value (which is exactly what all three skills readers did).
 	//
 	// A DECLARED `from` NAMES EXACTLY ONE SOURCE, and a destination (`agent` set) names none
-	// (pack-briefing-defaults.md P4, P5). On `briefing` it names one file, never one whose
+	// (docs/reference/pack-system.md#briefing-p4, #briefing-p5). On `briefing` it names one file, never one whose
 	// basename is a repository instruction file (RepositoryInstructionFile); omitted, it names
 	// every *.md directly inside DefaultBriefingDir that no sibling contribution names.
 	From string `json:"from,omitempty"` // pack-relative source path
@@ -146,7 +146,7 @@ type Contribution struct {
 	// fetched-pack prompt — docs/design/trust-paths.md, 2026-09-04.)
 	After string `json:"after,omitempty"`
 
-	// --- audiences (briefing-audiences.md) ---
+	// --- audiences (docs/reference/agent-briefings.md#audiences-what-varies-per-destination) ---
 	// Agent is the IDENTITY a destination declares for itself: "this `into` is where the
 	// agent launched as `claude` reads". It is the same field name, holding the same
 	// string, that a config surface already uses to name its owner (`"agent": "pi"` in
@@ -165,11 +165,11 @@ type Contribution struct {
 	// destinations whose owner declared a matching Agent.
 	//
 	// ABSENT MEANS BROADCAST, on `briefing` and `skills`, with or without a manifest
-	// (pack-briefing-defaults.md P2). A content contribution naming neither `agents` nor
+	// (docs/reference/pack-system.md#briefing-p2). A content contribution naming neither `agents` nor
 	// `into` reaches every destination of its kind that the selected pack set declares —
 	// the same thing core's synthetic zero-ceremony borrower does for a pack with no
 	// manifest, so the two spellings of "every agent" are one behavior. It names no agent,
-	// so briefing-audiences.md P3's fatal unmatched-audience rule cannot fire, and an agent
+	// so docs/reference/agent-briefings.md#ba-p3's fatal unmatched-audience rule cannot fire, and an agent
 	// pack selected later receives it with no edit. `files` does NOT broadcast: it has no
 	// conventional source and its destinations are agent-specific slot types, so a `files`
 	// contribution still names `into` or `agents` (validateContribution says why).
@@ -179,7 +179,7 @@ type Contribution struct {
 	// That is the whole point of the field — a house-rules pack hardcoding
 	// ".claude/CLAUDE.md" would be coupled to a fact only the claude pack can keep current.
 	//
-	// It routes only the sources its contribution GOVERNS (pack-briefing-defaults.md §3.3):
+	// It routes only the sources its contribution GOVERNS (docs/reference/pack-system.md#briefing-governance):
 	// the file its `from` names, or — `from` omitted — the convention's files no sibling
 	// names. Nothing declared about one file changes where a different file goes (P3), so
 	// an addressed `{"from": "files/pi.md", "agents": ["pi"]}` beside a briefing/ directory
@@ -286,7 +286,7 @@ type Contribution struct {
 	Autonomous *AutonomyPosture `json:"autonomous,omitempty"`
 	Guarded    *AutonomyPosture `json:"guarded,omitempty"`
 
-	// --- provider (profiles-as-pack-variants.md §4.1 as ruled, OQ-12) ---
+	// --- provider (docs/reference/providers.md#how-the-table-composes, #pv-oq-12) ---
 	// Name is REQUIRED and is the provider's whole identity: the key the entry lands
 	// under in the composed `providers` table, what a profile's `provider` field names,
 	// and what the derives emit as the provider/model id. Sole-owned across packs
@@ -315,7 +315,7 @@ type Contribution struct {
 	// never the credential. It is the one key-shaped field on the kind, which is what
 	// makes a literal key unrepresentable: the user hydrates the variable through
 	// env_sources or the invoking environment, and the pack ships only where to look.
-	// The `_name` is the value's type read out loud (parent OQ-6), the same distinction
+	// The `_name` is the value's type read out loud (providers.md#pv-oq-6), the same distinction
 	// the `providers` config key draws with `api_key_env`.
 	APIKeyEnvName string `json:"api_key_env_name,omitempty"`
 	// Region is the region a regional provider is reached through — Bedrock's address
@@ -487,9 +487,9 @@ type Contribution struct {
 	// shipped service declares a key in this build.
 	Settings []ServiceSetting `json:"settings,omitempty"`
 
-	// --- profile (docs/reference/providers.md §5.2) ---
-	// Provider is the profile's WHOLE BODY since OQ-PT8 shrank the kind (the sibling
-	// doc's §5.4 note is the ruling): a profile is a NAMED SELECTION OVER A PROVIDER —
+	// --- profile (docs/reference/providers.md#declaring-and-selecting-a-profile) ---
+	// Provider is the profile's WHOLE BODY since OQ-PT8 shrank the kind (providers.md#oq-pt8
+	// is the ruling): a profile is a NAMED SELECTION OVER A PROVIDER —
 	// `name` is the selector the user types, `provider` is what it selects — and
 	// everything a `kind: "profile"` used to carry besides (a config patch, launch
 	// flags, an env map) was never a profile at all. Those are CONTRIBUTIONS GATED ON A
@@ -1255,7 +1255,7 @@ func (c Contribution) SkillsSource() string {
 // contribution, in declaration order, deduplicated.
 //
 // Deduplicated as a FALLBACK only. Two content contributions naming one source are refused
-// on the strict path (validateDuplicateContentSources, pack-briefing-defaults.md OQ-PB5 —
+// on the strict path (validateDuplicateContentSources, docs/reference/pack-system.md#oq-pb5 —
 // several audiences are one `agents` list), but the tolerant in-jail decode runs no sibling
 // checks, and there a repeat is still ONE tree to read: the jail path stages the union of
 // these into a per-pack dir, so a repeat would copy the same content twice for no effect.
@@ -1282,19 +1282,19 @@ func (m *Manifest) SkillsSources() []string {
 }
 
 // DefaultBriefingDir is the conventional pack-relative DIRECTORY a pack ships briefing prose
-// from: every regular *.md directly inside it (pack-briefing-defaults.md §3.1, OQ-PB1). It sits
+// from: every regular *.md directly inside it (docs/reference/pack-system.md#briefing-directory, #oq-pb1). It sits
 // beside DefaultSkillsDir for the reason that directory exists — a component directory is a
 // location only yolo reads, where a root instruction file is also read by every agent working
 // in the pack's repository (P1).
 //
 // It is a directory rather than a root BRIEFING.md because one file cannot be the unit per-file
-// governance routes (§3.3), and because uppercase root Markdown is the repository's grammar,
+// governance routes (docs/reference/pack-system.md#briefing-governance), and because uppercase root Markdown is the repository's grammar,
 // which is how AGENTS.md acquired its second reader.
 const DefaultBriefingDir = "briefing"
 
 // repositoryInstructionFiles are the basenames agent tools read as a REPOSITORY'S OWN
 // instructions, wherever in a tree they sit. Copilot CLI alone reads all three
-// (pack-briefing-defaults.md Appendix A). Exact case: that is how the tools match them.
+// (the retired briefing-defaults design's prior-art survey). Exact case: that is how the tools match them.
 var repositoryInstructionFiles = []string{"AGENTS.md", "CLAUDE.md", "GEMINI.md"}
 
 // RepositoryInstructionFileNames returns the basenames RepositoryInstructionFile refuses, in a
@@ -1307,7 +1307,7 @@ func RepositoryInstructionFileNames() []string {
 // RepositoryInstructionFile reports whether the pack-relative path rel has a basename an agent
 // tool reads as a repository's own instructions: AGENTS.md, CLAUDE.md or GEMINI.md, exact case.
 //
-// THE ONE AUTHORITY FOR P1 ("one file, one reader", pack-briefing-defaults.md OQ-PB2): such a
+// THE ONE AUTHORITY FOR P1 ("one file, one reader", docs/reference/pack-system.md#oq-pb2): such a
 // file is never a briefing SOURCE — not as a declared `from` (validateContribution refuses it)
 // and not inside DefaultBriefingDir (packload.LoadDir refuses it). At ANY depth, because the
 // tools read those names in subdirectories too, so depth does not make one safe, and an allowed
@@ -1353,7 +1353,7 @@ func ConventionalBriefingFile(rel string) bool {
 }
 
 // SourceKey is the cleaned pack-relative source THIS content contribution names — the key
-// per-file governance matches on (pack-briefing-defaults.md §3.3, R4) and OQ-PB5 refuses a
+// per-file governance matches on (docs/reference/pack-system.md#briefing-governance, #briefing-r4) and OQ-PB5 refuses a
 // duplicate of.
 //
 //   - A declared `from` is path.Clean'd, so `./briefing/a.md` and `briefing/a.md` are one key.
@@ -1769,12 +1769,12 @@ func (m *Manifest) validateAddressedFiles() []string {
 }
 
 // validateDuplicateContentSources refuses two CONTENT contributions of one kind in ONE pack that
-// name the same source (pack-briefing-defaults.md OQ-PB5): the same cleaned `from`, or both
+// name the same source (docs/reference/pack-system.md#oq-pb5): the same cleaned `from`, or both
 // omitting it and so both naming the convention. `briefing` and `skills` only — the two kinds
 // per-file governance covers.
 //
 // An ERROR, not a dedup, because it contradicts the rule the governance predicate rests on: a
-// named file has exactly ONE governing contribution (§3.3), and with two the answer to "where does
+// named file has exactly ONE governing contribution (pack-system.md#briefing-governance), and with two the answer to "where does
 // this file go?" is whichever the reader happened to meet first. Every legitimate shape already
 // has a one-contribution spelling — `agents: [a, b]` for several audiences, silence for all of
 // them — so nothing that works is lost. It is also what lets a synthesized host-side copy be
@@ -2052,7 +2052,7 @@ func (m *Manifest) validateServiceNames() []string {
 	return problems
 }
 
-// validateProfileNames refuses a profile NAME declared twice by ONE pack (§3.4).
+// validateProfileNames refuses a profile NAME declared twice by ONE pack (providers.md#declaring-and-selecting-a-profile).
 //
 // Within a pack the name is sole-owned: it is the selector value, and ProfileFor returns
 // the FIRST match, so a second declaration with the same name would silently replace the
@@ -2328,7 +2328,7 @@ func validateContribution(label string, c Contribution) []string {
 		}
 	case KindSkills, KindBriefing, KindFiles:
 		// A contribution of these three kinds is ONE OF TWO THINGS, and which one is decided by
-		// `agent` alone (pack-briefing-defaults.md P5):
+		// `agent` alone (docs/reference/pack-system.md#briefing-p5):
 		//
 		//   - A DESTINATION (`agent` set) is where addressed content lands: an agent pack's
 		//     `{agent, into}`. It needs `into` — the path is the whole declaration — and it
@@ -2349,7 +2349,7 @@ func validateContribution(label string, c Contribution) []string {
 		// CONVENTIONAL source (it is CombineExclusive over an arbitrary tree, so the declaration
 		// is the only thing that can name it, and `from` stays required) and its destinations
 		// are agent-specific slot TYPES (pi extensions, themes), so "every agent" has no meaning
-		// for it (pack-briefing-defaults.md §5). `skills` and `briefing` each have a convention
+		// for it (docs/reference/pack-system.md#briefing-non-goals). `skills` and `briefing` each have a convention
 		// — DefaultSkillsDir, and every *.md directly inside DefaultBriefingDir — so an omitted
 		// `from` there names the convention rather than nothing.
 		switch {
@@ -2393,7 +2393,7 @@ func validateContribution(label string, c Contribution) []string {
 		// input. Naming the audience therefore makes the destination inferable
 		// (packload.ResolveDestinations borrows it from the pack that OWNS that agent), and
 		// naming both would be a content pack asserting a path it has no business knowing
-		// (briefing-audiences.md §4.1, P4). Naming NEITHER is the broadcast above.
+		// (docs/reference/agent-briefings.md#the-two-halves-and-why-neither-knows-the-others-business, #ba-p4). Naming NEITHER is the broadcast above.
 		if len(c.Agents) > 0 && c.Into != "" {
 			problems = append(problems, fmt.Sprintf(
 				"%s: kind %q takes \"into\" or \"agents\", not both — a contribution that "+

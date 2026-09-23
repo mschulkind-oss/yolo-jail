@@ -127,9 +127,9 @@ const (
 	// packs the way a second config writer would.
 	KindAutonomy Kind = "autonomy"
 	// KindProfile: a NAMED SELECTION OVER A PROVIDER
-	// (docs/reference/providers.md §5.2) — `name` is the selector `-p` sets and
+	// (docs/reference/providers.md#declaring-and-selecting-a-profile) — `name` is the selector `-p` sets and
 	// `provider` is what it selects. THAT IS THE WHOLE BODY, since OQ-PT8 shrank the kind
-	// (the sibling doc's §5.4 note is the ruling): everything a `kind: "profile"` used to
+	// (providers.md#oq-pt8 is the ruling): everything a `kind: "profile"` used to
 	// carry besides — a config patch, launch flags, a static env map — was never a profile
 	// at all, but a contribution GATED ON a profile name, and it now lives that way in the
 	// kinds that own those channels, under the `profile` modifier. packs/claude's
@@ -138,19 +138,19 @@ const (
 	// NOT origin-gated, like autonomy: it names an entry of the composed `providers`
 	// table — a reference into the user's config, not a read of it — so it makes no
 	// host-access claim; the credential behind that name is a variable the user hydrates,
-	// and whether it is hydrated is the launch pre-flight's question (parent §6.2), not an
+	// and whether it is hydrated is the launch pre-flight's question (providers.md#the-credential-preflight), not an
 	// approval `pack install` can grant.
 	//
 	// Exclusive by (pack, name) — the claim target carries BOTH, deliberately, because
 	// unlike a provider name a profile name is NOT globally owned: `bedrock` in packs/claude
 	// and `bedrock` in packs/pi are unrelated declarations that happen to share a selector
-	// value, and neither can touch the other's surfaces (§3.4). Within one pack the same
+	// value, and neither can touch the other's surfaces (providers.md#declaring-and-selecting-a-profile). Within one pack the same
 	// name twice is a load error (validateProfileNames), which is what makes the key
 	// exclusive at all.
 	KindProfile Kind = "profile"
 	// KindProvider: a NAMED PROVIDER'S SERVICE FACTS — the endpoints that speak each
 	// wire protocol, and the model aliases an agent can ask for by name
-	// (profiles-as-pack-variants.md §4.1 as ruled, OQ-12). The pack composes them INTO
+	// (docs/reference/providers.md#how-the-table-composes, #pv-oq-12). The pack composes them INTO
 	// the user's `providers` config table (pack defaults < user overrides, per field),
 	// and the composed table feeds the unchanged YOLO_PROVIDERS → ctx.providers chain
 	// the three derives already read; the pack authorship a user never has to repeat is
@@ -405,7 +405,7 @@ var footprints = map[Kind]Footprint{
 	KindProfile: {
 		// Exclusive by (pack, name), and the target carries both — the pack prefix is what
 		// keeps the generic exclusive loop in packload.Collisions from ever firing, because
-		// two packs selecting the same NAME are the unrelated-coincidence case §3.4 rules
+		// two packs selecting the same NAME are the unrelated-coincidence case providers.md#declaring-and-selecting-a-profile rules
 		// legal. Not review-worthy: a variant narrows or retunes what the pack already
 		// ships, and the env half is literal strings exactly like `env`.
 		Kind: KindProfile, Combine: CombineExclusive,

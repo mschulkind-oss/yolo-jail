@@ -10,7 +10,8 @@ vantage:
 
 # Slots are not kinds: a pack accepts content through a named exposure, addressed by agent
 
-**Status:** the ROLE MODEL is decided (2026-09-20) and the BUILD is blocked (2026-09-21).
+**Status:** DESIGN, 2026-09-21 — seven rulings are owed. The ROLE MODEL is decided (2026-09-20) and
+the BUILD is blocked (2026-09-21).
 [OQ-D1](#6-open-questions)–[OQ-D5](#OQ-D5) are ruled and stand. An attempt to build slice 1 on
 2026-09-21 stopped at seven places where the doc does not say enough for an implementer to proceed
 without CHOOSING A BEHAVIOUR — filed below as [OQ-D6](#OQ-D6)–[OQ-D12](#OQ-D12), one of them
@@ -48,7 +49,8 @@ names an **agent**, so the pack that supplies that agent is replaceable without 
 content. And it is the vocabulary lever for the manifest's readability problem — most of what
 makes a pack file hard to read is guessing which of several shapes a `kind` is in.
 
-**Needs your ruling:** **seven**, all found by trying to build it and all of the same shape — a
+**Needs your ruling:** [OQ-D6](#OQ-D6), [OQ-D7](#OQ-D7), [OQ-D8](#OQ-D8), [OQ-D9](#OQ-D9), [OQ-D10](#OQ-D10), [OQ-D11](#OQ-D11), [OQ-D12](#OQ-D12).
+All **seven** were found by trying to build it and all have the same shape — a
 choice a reasonable implementer would make silently, that changes what lands on disk or whether a
 jail boots: [OQ-D6](#OQ-D6) (the migration window — **the blocker**), [OQ-D7](#OQ-D7) (`accepts`
 has no vocabulary and no stated relation to `kind`), [OQ-D8](#OQ-D8) (what the briefing and skills
@@ -59,7 +61,7 @@ prior one-slot-per-agent ruling is now BUILT and this doc legalizes what it refu
 [OQ-D1](#6-open-questions)–[OQ-D5](#OQ-D5) stay ruled; see [§7](#7-decision-ledger).
 
 **Reads with:** [`pack-system.md`](../reference/pack-system.md) (the `contributes` vocabulary),
-[`briefing-audiences.md`](./briefing-audiences.md) (the `agent`/`agents` mechanism this splits
+[`agent-briefings.md`](../reference/agent-briefings.md#audiences-what-varies-per-destination) (the `agent`/`agents` mechanism this splits
 apart), [`stringly-typed-references-principle.md`](../reference/stringly-typed-references-principle.md)
 (what a name may reference), [`pi-pack-extensions.md`](./pi-pack-extensions.md) (the concrete
 case, and the bug that forced this), [`pi-pack-extensions-plan.md`](./pi-pack-extensions-plan.md)
@@ -337,7 +339,7 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    | :--- | :--- | :--- |
    | **A — the slot carries it** | `{"name": "briefing", "agent": "claude", "into": ".claude/CLAUDE.md", "accepts": "concat"}` | `agent` does **not** disappear; it is renamed in place, and [§2](#2-what-a-kind-is-and-what-a-slot-is)'s claim is false as written |
    | **B — the pack declares its identity once** | pack-level `"agent": "claude"`, then `{"name": "briefing", "into": …}` | The repetition goes, which is [`manifest-language.md`](./manifest-language.md)'s concern exactly — but it is a second structural change riding on this one |
-   | **C — derived from the `program` bin** | `{"name": "briefing", "into": …}`, agent inferred | **Mechanically available and ruled out.** Measured 2026-09-20: the declared `agent` equals the pack's own `program` bin in **7 of 7** agent packs, `oh-omp` included — so the derivation would work. [`OQ-BA2`](./briefing-audiences.md#decision-ledger) forbade it anyway: nothing in the `-p` chain derives an identity, the name is typed and compared literally, and there is no bin→pack index |
+   | **C — derived from the `program` bin** | `{"name": "briefing", "into": …}`, agent inferred | **Mechanically available and ruled out.** Measured 2026-09-20: the declared `agent` equals the pack's own `program` bin in **7 of 7** agent packs, `oh-omp` included — so the derivation would work. [`OQ-BA2`](../reference/agent-briefings.md#oq-ba2) forbade it anyway: nothing in the `-p` chain derives an identity, the name is typed and compared literally, and there is no bin→pack index |
 
    That 7-of-7 is the fact that reframes this question. The `agent` key on a destination is not
    carrying information today — it **restates the pack's own `program` bin, every time**. So the
@@ -376,7 +378,7 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    <!-- vantage: oq id=OQ-D5 leaning="B — declare the agent identity once per pack. It is the only candidate that removes the 7-of-7 redundancy rather than renaming or re-deriving it, and OQ-BA2 already refused the derivation." -->
 
    _Leaning:_ **B**, the pack declaring its identity once. It is the only candidate that *removes*
-   the redundancy rather than renaming it (A) or re-deriving what [`OQ-BA2`](./briefing-audiences.md#decision-ledger) refused (C) — and it is
+   the redundancy rather than renaming it (A) or re-deriving what [`OQ-BA2`](../reference/agent-briefings.md#oq-ba2) refused (C) — and it is
    the same lever [`manifest-language.md`](./manifest-language.md) is pulling, so the two should be
    ruled together rather than twice.
 
@@ -411,7 +413,7 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    `agents` config key, and no idea what an agent *is* or *does*. What it has — and has had since
    config surfaces were keyed — is a **name that resolves an address**. The rule says so out loud
    and bounds it: one per pack, declared, never inferred (which is
-   [`OQ-BA2`](./briefing-audiences.md#decision-ledger)'s ruling restated at pack scope).
+   [`OQ-BA2`](../reference/agent-briefings.md#oq-ba2)'s ruling restated at pack scope).
 
    **The cost, stated:** a pack supplying two agents becomes two packs. Nothing ships that shape,
    so the constraint is free today and is a real restriction tomorrow.
@@ -531,7 +533,7 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    the kind — core owns that value, so it survives the schema change untouched. The audience LIST is
    the whole loss.
 
-   > **Premise changed, not ruled here:** since [`pack-briefing-defaults.md`](pack-briefing-defaults.md#32-silence-means-broadcast-in-a-manifest-too) a manifest CAN declare broadcast (`{"kind":"briefing"}` is valid), and two content contributions sharing one `from` are refused ([`OQ-PB5`](pack-briefing-defaults.md#decision-ledger)), so `to` needs a broadcast spelling.
+   > **Premise changed, not ruled here:** since [briefing P2](../reference/pack-system.md#briefing-p2) a manifest CAN declare broadcast (`{"kind":"briefing"}` is valid), and two content contributions sharing one `from` are refused ([`OQ-PB5`](../reference/pack-system.md#oq-pb5)), so `to` needs a broadcast spelling.
 
    <!-- vantage: oq id=OQ-D9 leaning="`to` takes one address or a list of them, decoded as N deliveries of one source — the same thing two `agents` entries mean today, so no behaviour moves and the provenance stays per destination." -->
 
@@ -550,7 +552,7 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
     on why: **is the name in the vocabulary?** is FATAL (the addressing author's mistake), while
     **did the name reach a destination of this kind?** is REPORTED — *"where the remedy is a line in
     the owning pack rather than a line in the addressing one"* — because refusing the launch over it
-    *"would punish the wrong author"* (briefing-audiences R1/R4, and the `files` half of it is
+    *"would punish the wrong author"* (agent-briefings.md [R1](../reference/agent-briefings.md#ba-r1)/[R4](../reference/agent-briefings.md#ba-r4), and the `files` half of it is
     implemented verbatim in the run pipeline). `to: "pi/extensions"` fuses them into one string: `pi`
     unknown is case 1, `pi` known with no `extensions` slot is case 2. "Refused at load" also lands
     the gate where R5 says it must not be — `yolo pack lint` takes a pack root with no config and

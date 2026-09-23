@@ -1,6 +1,6 @@
 package packload
 
-// agentnamecollisions_test.go pins OQ-BA6/BA7 (briefing-audiences.md §4.2): an agent NAME has
+// agentnamecollisions_test.go pins OQ-BA6/BA7 (docs/reference/agent-briefings.md#one-agent-name-one-owning-pack): an agent NAME has
 // exactly one owning pack, across every kind that claims one.
 //
 // The pass exists because the generic exclusive loop cannot see the claim — two of the four

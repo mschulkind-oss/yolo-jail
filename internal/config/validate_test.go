@@ -615,7 +615,7 @@ func providerErrors(t *testing.T, body string) []string {
 // the derives translate it into each agent's own spelling, and a name outside the set
 // translates to nothing, so it would reach every consumer as no protocol — silently, from
 // a jail that booted green. The vocabulary is closed for the reason Rule 4 closes any
-// fixed syntactic slot (profiles-as-pack-variants.md §4.3), and the set itself is
+// fixed syntactic slot (docs/reference/providers.md#how-the-table-composes), and the set itself is
 // packdecl's — the layer a manifest declares the same field in.
 func TestValidateProvidersWireAPIIsAClosedEnum(t *testing.T) {
 	for _, api := range packdecl.KnownWireAPIs() {
@@ -665,7 +665,7 @@ func TestWireAPIEnumIsPackdeclsSet(t *testing.T) {
 }
 
 // `https://user:tok@host/v1` is a credential in a git-tracked config file, and this rule
-// is the check (profiles-as-pack-variants.md §4.3): a base_url routes an ADDRESS, and the
+// is the check (docs/reference/providers.md#principles): a base_url routes an ADDRESS, and the
 // credential travels by NAME through api_key_env_name.
 //
 // Asked of `endpoints.<protocol>.base_url`, which is the only address spelling a user has

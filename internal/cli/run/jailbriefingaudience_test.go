@@ -1,7 +1,7 @@
 package run
 
-// jailbriefingaudience_test.go is the JAIL NOTCH's gate on briefing-audiences.md — the half
-// §5 calls "a structural move" and the plan calls "the whole remaining feature".
+// jailbriefingaudience_test.go is the JAIL NOTCH's gate on docs/reference/agent-briefings.md#audiences-what-varies-per-destination —
+// the half #where-each-notch-narrows describes, which the retired design called "a structural move".
 //
 // WHY IT IS A DIFFERENT TEST FROM THE HOST NOTCH'S. The two notches route an audience by
 // completely different mechanisms, which design risk R3 is about: the host resolves a
@@ -169,7 +169,7 @@ func TestJailBriefingSkipsADestinationWithNoDeclaredIdentity(t *testing.T) {
 	}
 }
 
-// THE LIMIT §5 LIFTS FOR FREE, end to end through the launch path: a pack declaring TWO
+// THE LIMIT THE DESTINATION-FIRST MOVE LIFTS FOR FREE (agent-briefings.md#where-each-notch-narrows), end to end through the launch path: a pack declaring TWO
 // briefing contributions with two different `from` files now delivers BOTH into a jail.
 //
 // packload.BriefingProse recorded this as a live limit — "the jail's composition takes one
@@ -210,13 +210,13 @@ func TestJailBriefingDeliversBothOfAPacksTwoProseFiles(t *testing.T) {
 		if !strings.Contains(joined, want) {
 			t.Errorf("the jail path dropped %q — a pack's SECOND briefing contribution used to "+
 				"be unreachable in a jail (packload.BriefingProse's recorded limit), and lifting "+
-				"it is what §5 says the destination-first move buys for free; got: %v",
+				"it is what the destination-first move (agent-briefings.md#where-each-notch-narrows) buys for free; got: %v",
 				want, texts)
 		}
 	}
 }
 
-// TWO CONTRIBUTIONS NAMING ONE SOURCE ARE A LAUNCH REFUSAL (pack-briefing-defaults.md OQ-PB5).
+// TWO CONTRIBUTIONS NAMING ONE SOURCE ARE A LAUNCH REFUSAL (docs/reference/pack-system.md#oq-pb5).
 // This used to be a dedup: two `into`s and no `from` both resolved to AGENTS.md, and the reader
 // composed it once. Under per-file governance a file has exactly ONE governor, so the pair is
 // refused naming both — and its one-contribution spelling (silence: every agent) composes each
@@ -265,8 +265,8 @@ func TestJailBriefingComposesIdenticalProseOnce(t *testing.T) {
 	}
 }
 
-// THE JAIL CALL SITE FOR PER-FILE GOVERNANCE — the matt shape (pack-briefing-defaults.md §2.2,
-// §3.7) through the real stagePacks and refreshJailBriefings. House rules under briefing/, plus
+// THE JAIL CALL SITE FOR PER-FILE GOVERNANCE — the matt shape (docs/reference/pack-system.md#one-governance-reader,
+// pack-system.md#briefing-governance) through the real stagePacks and refreshJailBriefings. House rules under briefing/, plus
 // ONE addressed file for pi: Claude must get the house rules (the broadcast the old `if !declared`
 // branch switched off the moment the addressed line was added), and pi must get both, in filename
 // order, as one section. The root AGENTS.md — the pack repository's own guide — reaches neither.

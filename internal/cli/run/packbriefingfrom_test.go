@@ -76,7 +76,7 @@ func TestJailBriefingHonorsCustomFrom(t *testing.T) {
 	}
 }
 
-// The CONVENTION is briefing/ (pack-briefing-defaults.md §3.1): an omitted `from` reads every
+// The CONVENTION is briefing/ (docs/reference/pack-system.md#briefing-directory): an omitted `from` reads every
 // briefing/*.md, and a `from` naming one of them reads that one. A fix that only honored a custom
 // `from` would break every manifest-less pack.
 func TestJailBriefingDefaultFromStillWorks(t *testing.T) {
@@ -96,7 +96,7 @@ func TestJailBriefingDefaultFromStillWorks(t *testing.T) {
 // A ROOT AGENTS.md / CLAUDE.md IS NEVER READ, at the jail notch as at the host (P1): it is the
 // pack REPOSITORY'S own instructions. The pack briefs nothing from it, silently (OQ-PB3 — no
 // notice), and naming it in `from` is REFUSED at launch with the edit spelled out, which is the
-// shape the maintainer's own local packs have (§4's second exception).
+// shape the maintainer's own local packs have (pack-system.md#local-pack-briefing-move's second exception).
 func TestJailBriefingNeverReadsARootInstructionFile(t *testing.T) {
 	home := packHome(t)
 	packDir := filepath.Join(t.TempDir(), "bf")
@@ -160,7 +160,7 @@ func TestJailBriefingZeroCeremonyPackStillContributes(t *testing.T) {
 	}
 }
 
-// A DECLARED SOURCE IS THE ONLY SOURCE (§3.4, P4). A `from` yolo could not read delivers NOTHING
+// A DECLARED SOURCE IS THE ONLY SOURCE (pack-system.md#briefing-p4, P4). A `from` yolo could not read delivers NOTHING
 // and is warned about; it no longer falls back to the pack's AGENTS.md, the substitution the
 // deleted from-then-convention fallback chain used to make.
 func TestJailBriefingDeclaredFromIsTheOnlySource(t *testing.T) {

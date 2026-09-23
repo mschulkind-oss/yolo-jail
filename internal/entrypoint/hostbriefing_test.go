@@ -21,7 +21,7 @@ import (
 )
 
 // briefingPack builds a pack whose root is a temp dir carrying `prose` as briefing/prose.md — the
-// conventional source (pack-briefing-defaults.md §3.1; a root AGENTS.md is never read) — and which
+// conventional source (docs/reference/pack-system.md#briefing-directory; a root AGENTS.md is never read) — and which
 // declares a briefing into `into`, `from` omitted. The `after: host:` half is declared too,
 // because that is the shape the shipped packs use and the host render must ignore it (§6a: the
 // host no longer preserves the user's file in place, so there is nothing to prepend).
@@ -813,7 +813,7 @@ func writeLegacyLocalPack(t *testing.T, prose string) (dir, legacy, target strin
 	return dir, legacy, target
 }
 
-// THE MOVE (pack-briefing-defaults.md §4). The local pack's root AGENTS.md is no longer read as
+// THE MOVE (docs/reference/pack-system.md#local-pack-briefing-move). The local pack's root AGENTS.md is no longer read as
 // pack prose, so yolo moves the file it put there into briefing/ — verbatim — and the local pack
 // then delivers it again. Reported, naming both files.
 func TestMoveLegacyLocalPackBriefingMovesIntoBriefing(t *testing.T) {
@@ -868,7 +868,7 @@ func TestLocalPackBriefingRelIsWhereTheMigrationWrites(t *testing.T) {
 }
 
 // THE TARGET IS TAKEN: refused, naming both files, and NEITHER is touched — which text wins is
-// the user's decision (§4: "refuses, naming both files, rather than choosing one").
+// the user's decision (pack-system.md#local-pack-briefing-move: "refuses, naming both files, rather than choosing one").
 func TestMoveLegacyLocalPackBriefingRefusesWhenTheTargetExists(t *testing.T) {
 	dir, legacy, target := writeLegacyLocalPack(t, "Old prose.\n")
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {

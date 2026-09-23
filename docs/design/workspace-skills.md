@@ -152,7 +152,7 @@ design leans on:
   ([`../reference/jail-home.md`](../reference/jail-home.md)). Rebuilt on **every**
   invocation, attach included, clearing *inside* the directory so the bind's inode survives.
 - **An audience per source.** A source may name `agents`; empty is broadcast
-  ([`briefing-audiences.md`](briefing-audiences.md)). This is the only point at which "who is
+  ([`agent-briefings.md`](../reference/agent-briefings.md#audiences-what-varies-per-destination)). This is the only point at which "who is
   this for?" is asked.
 - **Symlinks are dereferenced on copy** — deliberately, "because its source is the user's own
   home" ([`../reference/pack-system.md`](../reference/pack-system.md#skills)). A pack's

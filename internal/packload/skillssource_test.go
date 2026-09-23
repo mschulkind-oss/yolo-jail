@@ -114,7 +114,7 @@ func TestSkillsSourceEmptyFromResolvesToConvention(t *testing.T) {
 // and silently no-ops would just move it.
 //
 // And the conventional skills/ beside it is NOT a substitute for it — it is a delivery of its own
-// (pack-briefing-defaults.md P3, P4). No contribution names skills/, so it is the implicit
+// (docs/reference/pack-system.md#briefing-p3, #briefing-p4). No contribution names skills/, so it is the implicit
 // broadcast, governed by nobody; the missing `my-skills` contributes nothing, and nothing arrives
 // in its place under its audience or its `into`.
 func TestSkillsSourceReportsMissingDeclaredDir(t *testing.T) {
@@ -210,8 +210,8 @@ func TestSkillsSourceRefusesEscapingFrom(t *testing.T) {
 	}
 }
 
-// Two contributions naming ONE source is REFUSED on the strict path (pack-briefing-defaults.md
-// OQ-PB5): a source has exactly one governor, and "the same skills to two agents" is one
+// Two contributions naming ONE source is REFUSED on the strict path
+// (docs/reference/pack-system.md#oq-pb5): a source has exactly one governor, and "the same skills to two agents" is one
 // contribution with `agents: [a, b]`. LoadDir is where a launch meets that refusal.
 //
 // The readers keep a dedup as the FALLBACK, for the tolerant in-jail decode (which runs no

@@ -186,7 +186,7 @@ func daemonCommandMatches(argv, wanted []string) bool {
 var findJailDaemonOrphans = findOrphanedJailDaemons
 
 // refuseOnOrphanedJailDaemons REPORTS an orphaned daemon and refuses the boot. It does
-// not kill (docs/design/wire-bridge-port-collision.md, OQ-PC3).
+// not kill (docs/reference/wire-bridge.md#oq-pc3).
 //
 // # Why the detection stays and the SIGKILL went
 //

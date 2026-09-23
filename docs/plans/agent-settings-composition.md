@@ -33,8 +33,8 @@ workspace-widenable) and both keys hard-error.
 > [!IMPORTANT]
 > **Postscript, 2026-09-11 — the Lua transform in this doc's title is REMOVED.** [§1](#1-the-decision-in-one-paragraph)–[§10](#10-retiring-the-host__files-keys-decided---implemented-2026-07-23)
 > are kept in their original tense and describe the design as it was settled on 2026-07-20; this
-> note says what has since been taken out of the tree. The removal is designed and ruled in
-> [`lua-transform-removal.md`](../design/lua-transform-removal.md).
+> note says what has since been taken out of the tree. The removal is ruled in
+> [`pack-system.md`](../reference/pack-system.md#oq-lt1) ([`OQ-LT1`](../reference/pack-system.md#oq-lt1), [`OQ-LT2`](../reference/pack-system.md#oq-lt2)).
 >
 > - **[§3](#3-the-lua-transform--the-abstraction) is gone in full** — the `config.lua` files (user and workspace), the
 >   per-surface `transform` key on a pack surface and on a `host_files` entry, the `transform`
@@ -53,7 +53,7 @@ workspace-widenable) and both keys hard-error.
 >
 > **Two rulings, both 2026-09-11, both recorded here because this is where the next author looks.**
 >
-> - **[`OQ-LT1`](../design/lua-transform-removal.md#13-decision-ledger) — delete it outright.** No refusal machinery, no deprecation window, no named
+> - **[`OQ-LT1`](../reference/pack-system.md#oq-lt1) — delete it outright.** No refusal machinery, no deprecation window, no named
 >   "this was removed" error. *"Nobody is using it. Just delete it and pretend it never existed."*
 >   The design's leaning had proposed permanent named refusals; that is code written for nobody.
 >   Both declared channels still fail closed through machinery that already exists — an unknown
@@ -61,7 +61,7 @@ workspace-widenable) and both keys hard-error.
 >   — so the loudness is free. The one genuinely silent case is accepted rather than unnoticed:
 >   the two `config.lua` files were loaded *by existence*, so a non-empty one stops applying with
 >   nothing said. Known instances at removal: zero.
-> - **[`OQ-LT2`](../design/lua-transform-removal.md#13-decision-ledger) — principle 4 retires with the transform.** *"Transform with Lua, not a data
+> - **[`OQ-LT2`](../reference/pack-system.md#oq-lt2) — principle 4 retires with the transform.** *"Transform with Lua, not a data
 >   vocabulary"* ([§2](#2-six-principles-the-line-in-the-sand)) was the rejection of a `drop`/`dropItems`/`set` op-set in favour of a
 >   general hook. With the hook gone the rejection has nothing to defend, and the maintainer's
 >   stated reason for it — *"I just didn't want to create a generic DSL out of JSON — we don't

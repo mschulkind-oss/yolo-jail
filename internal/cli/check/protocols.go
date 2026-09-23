@@ -44,7 +44,7 @@ import (
 //     file exists to close.
 //   - The inputs would not assemble → a WARN naming why, and NEVER silence. "I could not
 //     look" reported as a pass is the defect OQ-3 ruled against in
-//     docs/design/broker-ca-and-nested-hosts.md; the same rule binds here.
+//     docs/reference/claude-oauth-interposition.md#oq-3; the same rule binds here.
 //
 // ⚠ IT CANNOT SEE `-p`. `check` reads configuration; a `-p <name>` is an argument to a
 // launch that has not happened, and `effectiveUseProfiles` folds it in ABOVE this. So a

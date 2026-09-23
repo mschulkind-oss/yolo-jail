@@ -99,7 +99,7 @@ func TestTheCopierArgvIsWhatSkopeoNeeds(t *testing.T) {
 	}
 }
 
-// TestACopyFailurePrintsSkopeosOwnWordsAndSaysNoImageWasWritten is §3.8's
+// TestACopyFailurePrintsSkopeosOwnWordsAndSaysNoImageWasWritten is image-staging-vs-baking.md#failure-paths'
 // requirement on the error text, and it is a requirement rather than a courtesy:
 // skopeo commits the image record LAST, so a failed copy leaves orphan blobs and
 // no image, and a reader who cannot tell that is left guessing whether a partial
@@ -126,7 +126,7 @@ func TestACopyFailurePrintsSkopeosOwnWordsAndSaysNoImageWasWritten(t *testing.T)
 	}
 }
 
-// TestACopyIsRetriedExactlyOnce pins the bound in §3.6. One recovery from a
+// TestACopyIsRetriedExactlyOnce pins the bound in image-staging-vs-baking.md#failure-paths. One recovery from a
 // transient loss — a neighbour holding the c/storage lock, a blob write
 // interrupted — and never a loop that re-copies gigabytes forever.
 //
@@ -230,7 +230,7 @@ func TestPodmanHappyPathCopiesAndNeverWritesATar(t *testing.T) {
 // TestPodmanOnMacOSTakesAnArchiveBecauseTheVMOwnsTheStore is the arm the DESIGN
 // LEFT UNSERVED, and the reason it is a test rather than a comment.
 //
-// §3.4 said podman/macOS stays "unchanged (stream into `podman load`)" — but
+// The retired design said podman/macOS stays "unchanged (stream into `podman load`)" — but
 // OQ-LI5 deleted the stream, so "unchanged" named a mechanism that no longer
 // exists. The fact underneath is real and measured elsewhere (C8, 2026-09-07,
 // `prefixUnreachableFromVM`): that backend's containers-storage lives INSIDE the
@@ -415,7 +415,7 @@ func TestCopierBuildFailureRefusesTheLaunchAndNamesTheAttr(t *testing.T) {
 	}
 }
 
-// TestTheCopiedSkippedReportSplitsTheInventory is §3.10's claim as a test: the
+// TestTheCopiedSkippedReportSplitsTheInventory is image-staging-vs-baking.md#what-a-copy-reports' claim as a test: the
 // ratio is what the whole change asserts, so it has to be computed from the
 // manifest the copy actually read and the digests the destination actually held.
 func TestTheCopiedSkippedReportSplitsTheInventory(t *testing.T) {
@@ -424,7 +424,7 @@ func TestTheCopiedSkippedReportSplitsTheInventory(t *testing.T) {
 		{Digest: "sha256:bbb", Size: 100_000_000},
 		{Digest: "sha256:ccc", Size: 27_000_000},
 	}
-	// The §3.10 item-1 shape: everything but the top layer is already there.
+	// The warm-relaunch shape: everything but the top layer is already there.
 	r := ReportFor(layers, map[string]struct{}{
 		"sha256:aaa": {}, "sha256:bbb": {},
 	})
@@ -590,7 +590,7 @@ func TestImageCopierOutLinkIsOutOfBothReapersReach(t *testing.T) {
 }
 
 // TestImageCopierBinaryNamesSkopeoInsideTheStorePath pins the layout the attr
-// produces, because §3.2's fourth property is that a PATH lookup is never the
+// produces, because image-staging-vs-baking.md#delivering-into-the-runtime's rule is that a PATH lookup is never the
 // answer: an unpatched skopeo rejects the `nix:` transport in a way that reads as
 // a broken image rather than as a wrong binary.
 func TestImageCopierBinaryNamesSkopeoInsideTheStorePath(t *testing.T) {

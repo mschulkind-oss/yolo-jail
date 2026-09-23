@@ -567,7 +567,7 @@ func hostScopedEndpoints(rt string, cfg *jsonx.OrderedMap) []string {
 //     nested launch minted its OWN P-256 CA in its OWN state directory, mounted the trio,
 //     and published /run/yolo-services/claude-oauth-broker.endpoint — `openssl verify
 //     -verify_hostname platform.claude.com` returned OK against the real mounted files
-//     (docs/design/broker-ca-and-nested-hosts.md §5.1). A nested jail runs its own broker;
+//     (docs/reference/claude-oauth-interposition.md#a-nested-jail-runs-its-own-broker). A nested jail runs its own broker;
 //     it does not borrow its launcher's.
 //
 // `OQ-2` ruled exactly that — nesting earns affordances, not exemptions, and a jail that

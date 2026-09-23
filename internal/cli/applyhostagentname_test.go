@@ -1,7 +1,7 @@
 package cli
 
 // applyhostagentname_test.go is the `yolo host apply` half of the agent-name exclusivity
-// pre-flight (briefing-audiences.md OQ-BA6/BA7).
+// pre-flight (docs/reference/agent-briefings.md#oq-ba6, #oq-ba7).
 //
 // It matters most at THIS notch, which is why it is refused here as well as at launch: the
 // render routes an addressed contribution to "where <name> reads", and with two owners the

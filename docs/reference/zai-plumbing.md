@@ -33,8 +33,8 @@ vocabulary, the derives, selection, and per-agent delivery. Nothing general is r
 | The shipped-pack acceptance test | `internal/cli/run/zaipack_test.go` |
 
 **Reads with:** [`providers.md`](providers.md) (the mechanism — read it first),
-[`../design/profiles-as-pack-variants.md`](../design/profiles-as-pack-variants.md) (the parent
-design, and the index for that arc's `OQ-N` rulings),
+[the profile-variant rulings](providers.md#the-profile-variant-rulings) (the index for the
+parent design's `OQ-N` rulings),
 [`pack-system.md`](pack-system.md) (the `provider` and `profile` kinds as pack contributions).
 
 ---

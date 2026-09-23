@@ -22,7 +22,7 @@ func TestPackInitScaffoldLintsClean(t *testing.T) {
 		t.Fatalf("init rc = %d: %s", rc, errw.String())
 	}
 	// The prose file is briefing/<pack>.md, never a root AGENTS.md: that name is every agent
-	// tool's REPOSITORY instructions, and yolo does not ship it (pack-briefing-defaults.md P1).
+	// tool's REPOSITORY instructions, and yolo does not ship it (docs/reference/pack-system.md#briefing-p1).
 	briefing := "briefing/" + filepath.Base(dir) + ".md"
 	for _, want := range []string{"create " + briefing, "SKILL.md", "README.md"} {
 		if !strings.Contains(out.String(), want) {
@@ -193,8 +193,8 @@ func TestPackLintNamesTheOwningPack(t *testing.T) {
 	if !strings.Contains(report, "already declared by the claude pack") {
 		t.Errorf("lint did not name the owning pack for .claude/skills:\n%s", report)
 	}
-	// And it must say what dropping the line DOES, which is widen (pack-briefing-defaults.md
-	// §2.6). It used to say the line "adds nothing (drop it…)" — advice that, followed, sent
+	// And it must say what dropping the line DOES, which is widen
+	// (docs/reference/pack-system.md#briefing-lint-listing). It used to say the line "adds nothing (drop it…)" — advice that, followed, sent
 	// content meant for one path to every agent.
 	if !strings.Contains(report, "WIDENS") || strings.Contains(report, "adds nothing") {
 		t.Errorf("the advisory must say dropping the line widens delivery, never that the "+
@@ -376,7 +376,7 @@ func TestPackLintAcceptsZeroCeremonyPack(t *testing.T) {
 // lint's claimed-paths set must track the governance predicate the jail reads, not a private
 // copy of the convention. It kept its own hardcoded `{"AGENTS.md", "CLAUDE.md"}` after
 // CLAUDE.md left the convention (2026-08-17), and then read packdecl's default-file list
-// after AGENTS.md left it too (pack-briefing-defaults.md P1) — each time counting a file as
+// after AGENTS.md left it too (docs/reference/pack-system.md#briefing-p1) — each time counting a file as
 // CLAIMED ("some reader picks this up") that no reader picked up, so a pack whose only content
 // was that file linted clean and briefed nothing.
 //

@@ -91,7 +91,7 @@ func binsOf(p *packload.Pack) []string {
 }
 
 // EVERY AGENT PACK'S BRIEFING DECLARES ITS IDENTITY, AND IT EQUALS THE BIN
-// (briefing-audiences.md §4.2, OQ-BA2). Nothing DERIVES a destination's audience from the
+// (docs/reference/agent-briefings.md#one-agent-name-one-owning-pack, #oq-ba2). Nothing DERIVES a destination's audience from the
 // declaring pack's bins — the whole design turns on the name being a string the pack wrote
 // about itself, exactly as its config surfaces already do — so the two being equal is an
 // invariant a test has to hold, not one the code can.
@@ -132,7 +132,7 @@ func TestEveryAgentPackDeclaresItsBriefingIdentity(t *testing.T) {
 // THE SHIPPED PACKS KEEP `into` FOREVER, and this is a VERSION-BOUNDARY constraint rather than
 // a style rule. DecodeTolerant ignores unknown FIELDS, so adding `agent`/`agents` is skew-safe —
 // but it still validates the entries it keeps, and an entrypoint baked before the audiences
-// field — or before pack-briefing-defaults.md made `{"kind":"briefing"}` a valid broadcast (P2) —
+// field — or before the briefing defaults (docs/reference/pack-system.md#briefing-p2) made `{"kind":"briefing"}` a valid broadcast (P2) —
 // refuses that entry with `kind "briefing" needs "into"`. Today's entrypoint accepts it; an OLD
 // one still in someone's image does not. That is a fatal boot, from a manifest the host staged,
 // unrecoverable without a `just load`. (An agent pack's `{agent, into}` DESTINATION also still

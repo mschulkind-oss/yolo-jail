@@ -26,7 +26,7 @@ package entrypoint
 //     PACK composes it back into every destination — so the migration is behavior-PRESERVING
 //     rather than merely non-destructive. Archiving is the FALLBACK for prose that cannot be
 //     moved. See MigrateHostBriefings. A local pack an earlier yolo migrated into its root
-//     AGENTS.md — no longer read as pack prose (pack-briefing-defaults.md §4) — is moved to that
+//     AGENTS.md — no longer read as pack prose (docs/reference/pack-system.md#local-pack-briefing-move) — is moved to that
 //     same file first; see MoveLegacyLocalPackBriefing.
 //   - A FIRST APPLY THAT ADOPTS A DESTINATION IS CONFIRMED. Taking wholesale ownership of a
 //     file the user wrote is a one-way door, and the CLI's confirmHostLosses gate is where it
@@ -83,7 +83,7 @@ type HostBriefingRequest struct {
 	// is what a caller with no resolvable local pack location should do rather than guess one.
 	//
 	// Under briefing/, never the pack root: a root AGENTS.md is the repository's own
-	// instructions and is never read as pack prose (pack-briefing-defaults.md P1), so prose
+	// instructions and is never read as pack prose (docs/reference/pack-system.md#briefing-p1), so prose
 	// migrated there would stop reaching every agent on the very apply that promised it would.
 	LocalPackBriefing string
 	// PackSetComplete asserts that every pack the config NAMES resolved this run. Only then
@@ -139,8 +139,8 @@ type HostBriefingAdoption struct {
 // have an owner. Computing it three times from three loops is how the two notches came to
 // disagree about `from` in the first place.
 //
-// ONE SECTION PER PACK PER DESTINATION, not one per contribution (pack-briefing-defaults.md
-// §3.1). A pack reaches one destination through several contributions — its own `{into}`
+// ONE SECTION PER PACK PER DESTINATION, not one per contribution
+// (docs/reference/pack-system.md#briefing-directory). A pack reaches one destination through several contributions — its own `{into}`
 // declarations and the synthesized `{into, from}` copies ResolveDestinations made of its borrowers
 // — and the files those carry are gathered, deduplicated, sorted byte-wise by pack-relative path
 // and appended as ONE section under ONE label. That is the order and the contiguity the jail
@@ -437,7 +437,7 @@ func appendToLocalPackBriefing(dest string, a HostBriefingAdoption) error {
 // of an older local pack's root AGENTS.md (MoveLegacyLocalPackBriefing). One name for both, so
 // the two can never race each other into two files whose join order the user did not choose.
 //
-// Under briefing/, the only conventional prose source (pack-briefing-defaults.md §3.1), and
+// Under briefing/, the only conventional prose source (docs/reference/pack-system.md#briefing-directory), and
 // deliberately NOT named AGENTS.md: that basename is refused inside briefing/ (OQ-PB2), so a
 // move keeping the old name would turn the user's prose into a launch refusal.
 const LocalPackBriefingRel = packdecl.DefaultBriefingDir + "/local.md"
@@ -448,7 +448,7 @@ const LegacyLocalPackBriefingRel = "AGENTS.md"
 
 // MoveLegacyLocalPackBriefing moves the local pack's root AGENTS.md — the file an earlier yolo
 // migrated the user's prose into — to LocalPackBriefingRel, so it reaches every agent again
-// (pack-briefing-defaults.md §4). yolo chose that location, so yolo moves it; a third-party
+// (docs/reference/pack-system.md#local-pack-briefing-move). yolo chose that location, so yolo moves it; a third-party
 // pack's AGENTS.md is its author's to move, and nothing here touches one.
 //
 // Returns nil, nil when there is nothing to move. Otherwise one result naming both files, and a
@@ -594,7 +594,7 @@ func legacyFromDeclaration(localPackDir string) string {
 	return ""
 }
 
-// moveTargetTaken is the refusal for a target that already holds something else — the case §4
+// moveTargetTaken is the refusal for a target that already holds something else — the case pack-system.md#local-pack-briefing-move
 // rules on: refuse, naming both files, rather than choosing one.
 func moveTargetTaken(legacy, target string) (*HostRenderResult, error) {
 	return moveRefused(legacy, target, fmt.Sprintf(

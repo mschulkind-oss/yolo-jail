@@ -517,7 +517,7 @@ as the whole bill:
   standalone tool either ships branded `yolo` or renames it and breaks every existing
   `derive.lua`. (It was also the global a user's `config.lua` saw, until the Lua config
   transform was removed on 2026-09-11 —
-  [`../design/lua-transform-removal.md`](../design/lua-transform-removal.md).)
+  [`OQ-LT1`](../reference/pack-system.md#oq-lt1).)
 - **`manifest.Surface` has no json tags and no schema version**, both prerequisites
   for the data-loaded registry the manifest's own docstring anticipates
   (`manifest.go:48-52`).

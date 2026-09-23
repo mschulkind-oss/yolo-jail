@@ -248,11 +248,11 @@ func packMain(args []string, out, errw io.Writer, color bool) int {
 // the first question an author has is "what shape does this need to be", and an empty dir answers
 // nothing.
 //
-// THE PROSE IS UNDER briefing/, NEVER A ROOT AGENTS.md (pack-briefing-defaults.md P1). This
+// THE PROSE IS UNDER briefing/, NEVER A ROOT AGENTS.md (docs/reference/pack-system.md#briefing-p1). This
 // scaffold used to write AGENTS.md, which every agent tool also reads as the pack REPOSITORY's own
 // instructions, and then advised an addressed contribution that silently switched that file off
-// (§2.2). The advice now lives in the README, which ships nowhere, and it shows the two shapes the
-// per-file rule (§3.3) makes safe: a contribution naming a NEW file ADDS an audience beside the
+// (pack-system.md#one-governance-reader). The advice now lives in the README, which ships nowhere, and it shows the two shapes the
+// per-file rule (pack-system.md#briefing-governance) makes safe: a contribution naming a NEW file ADDS an audience beside the
 // broadcast, and one naming a briefing/ file narrows that file alone.
 //
 // --from-plugin <dir> wraps an EXISTING agent plugin instead, which is what turns "you can
@@ -469,9 +469,9 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	problems = append(problems, pack.LoopholeDeclProblems()...)
 
 	// WHAT THIS PACK DELIVERS, from the one governance predicate every notch reads
-	// (packload.GovernedSources, pack-briefing-defaults.md R5) — never re-derived here. A linter
+	// (packload.GovernedSources, docs/reference/pack-system.md#briefing-r5) — never re-derived here. A linter
 	// spelling the rule a second time is a linter free to disagree with the jail, and the rule it
-	// would have to spell is per FILE (§3.3): the conventional skills/ tree and every unnamed
+	// would have to spell is per FILE (pack-system.md#briefing-governance): the conventional skills/ tree and every unnamed
 	// briefing/*.md keep broadcasting beside any narrower declaration.
 	skillSources, _ := pack.GovernedSources(packdecl.KindSkills)
 	briefingSources, briefingProblems := pack.GovernedSources(packdecl.KindBriefing)
@@ -483,7 +483,7 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 		skillRoots = append(skillRoots, src.Rel)
 	}
 
-	// §3.4: a declared briefing `from` that is absent, not a file, or blank delivers NOTHING and
+	// pack-system.md#briefing-p4: a declared briefing `from` that is absent, not a file, or blank delivers NOTHING and
 	// is reported — at lint, the treatment an unreadable `skills` source gets below, which is a
 	// failure. Only when the manifest itself decoded clean: a manifest problem (an escaping or
 	// reserved `from`) is already reported by LoadDir, and the predicate would say it twice.
@@ -657,10 +657,10 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 
 	// Advice: a custom pack whose CONTENT contribution names an `into` an AGENT PACK already
 	// declares is told what that line DOES, which is narrow. Under per-file governance
-	// (pack-briefing-defaults.md §3.3) the line routes the files it governs to that one path at
+	// (docs/reference/pack-system.md#briefing-governance) the line routes the files it governs to that one path at
 	// the host notch, and dropping it returns them to the broadcast — every destination the
 	// selected packs declare. So dropping it WIDENS delivery. This advisory used to say the line
-	// "adds nothing (drop it…)", which was backwards in the direction that matters (§2.6): an
+	// "adds nothing (drop it…)", which was backwards in the direction that matters (pack-system.md#briefing-lint-listing): an
 	// author following it sent prose meant for one agent to all of them.
 	//
 	// DERIVED FROM THE PACKS, never a literal list. It was a literal until 2026-08-31, and
@@ -792,7 +792,7 @@ func reportShippedSurfaceClash(pr richtext.Printer, p *packload.Pack) {
 //
 // A root AGENTS.md, CLAUDE.md or GEMINI.md is ALSO not content, and is tested through
 // packdecl.RepositoryInstructionFile rather than listed here, so the names have one authority.
-// It is the repository's own agent instructions (pack-briefing-defaults.md P1): not shipping it
+// It is the repository's own agent instructions (docs/reference/pack-system.md#briefing-p1): not shipping it
 // is correct for a repository pack, so it draws an INFO line (unshippedNotes), never "nothing
 // reads this" — something does read it, just not yolo.
 var packNonContentFiles = map[string]bool{
@@ -864,10 +864,11 @@ func stagedContent(staged []string, pack *packload.Pack, delivered []string) (cl
 }
 
 // deliveryNote is one conventional-looking staged path lint will NOT ship, and why
-// (pack-briefing-defaults.md §3.6, P6). Info, never a failure.
+// (docs/reference/pack-system.md#briefing-lint-listing, #briefing-p6). Info, never a failure.
 type deliveryNote struct{ rel, why string }
 
-// The two §3.6 reasons, verbatim from the design so the author reads the rule, not a paraphrase.
+// The two lint-listing reasons (pack-system.md#briefing-lint-listing), verbatim from the retired
+// design so the author reads the rule, not a paraphrase.
 const (
 	notShippedRepositoryFile = "not shipped: this is the repository's own agent instructions — " +
 		"ship prose under briefing/"
@@ -939,7 +940,7 @@ func printUnshippedNotes(pr richtext.Printer, notes []deliveryNote) {
 	}
 }
 
-// printPackDeliveries is lint's delivery listing (pack-briefing-defaults.md §3.6, P6): every
+// printPackDeliveries is lint's delivery listing (docs/reference/pack-system.md#briefing-lint-listing, #briefing-p6): every
 // `briefing` file and `skills` tree this pack delivers, where each one goes, and which are the
 // IMPLICIT broadcast — the deliveries no line of the manifest names, and so the ones an author
 // cannot see by reading it.

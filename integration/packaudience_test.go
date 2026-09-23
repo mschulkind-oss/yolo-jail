@@ -1,6 +1,6 @@
 package integration
 
-// packaudience_test.go is briefing-audiences.md end to end in a real container: an ADDRESSED
+// packaudience_test.go is docs/reference/agent-briefings.md#audiences-what-varies-per-destination end to end in a real container: an ADDRESSED
 // contribution reaches the agent it named and NOTHING ELSE.
 //
 // It is here rather than only in unit tests because the jail's two halves live in different

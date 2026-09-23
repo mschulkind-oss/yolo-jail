@@ -81,7 +81,7 @@ func ParsePortForwards(entries []any, warn func(string)) ([]PortForward, error) 
 
 // discloseImplicitProviderForwards prints ONE line per port a user provider caused to be
 // forwarded, naming the port and the provider that asked for it (OQ-PC2,
-// docs/design/wire-bridge-port-collision.md).
+// docs/reference/wire-bridge.md#oq-pc2).
 //
 // # Why this is not suppressible, and why that is right here
 //

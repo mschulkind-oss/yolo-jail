@@ -1,14 +1,14 @@
 package entrypoint
 
-// hostbriefingaudience_test.go is the HOST NOTCH's own gate on briefing-audiences.md — design
-// risk R3, which asks for the assertion per notch because §5 shows the two notches change
+// hostbriefingaudience_test.go is the HOST NOTCH's own gate on docs/reference/agent-briefings.md#audiences-what-varies-per-destination —
+// R3 (docs/reference/agent-briefings.md#ba-r3), which asks for the assertion per notch because #where-each-notch-narrows shows the two notches change
 // differently.
 //
-// WHAT IT PINS, AND WHERE THE FILTER ACTUALLY IS. §5 describes the host half as "a filter" in
+// WHAT IT PINS, AND WHERE THE FILTER ACTUALLY IS. The retired design described the host half as "a filter" in
 // ComposeHostBriefings, beside the `prose == ""` skip. Measured against the tree, that filter
 // is not needed and must not be added: an addressed contribution carries no `into`, so it
 // never reaches the per-destination loop at all — the narrowing already happened upstream, in
-// packload's borrowedDestinations, which is the same filter §4.1 asks for. The host notch's
+// packload's borrowedDestinations, which is the same filter #the-two-halves-and-why-neither-knows-the-others-business describes. The host notch's
 // contribution is the PAIRING: ResolveDestinations, then compose. So every test here drives
 // that pairing, exactly as internal/cli/apply.go does, rather than either half alone. Delete
 // the audience check in borrowedDestinations and these go red — which is the point, since a
@@ -25,7 +25,7 @@ import (
 )
 
 // identityPack is an AGENT pack: it names the file its agent reads AND declares the identity
-// that file answers to, which is the pair §4.1's first block describes.
+// that file answers to, which is the pair agent-briefings.md#the-two-halves-and-why-neither-knows-the-others-business describes.
 func identityPack(t *testing.T, name, into, agent string) *packload.Pack {
 	t.Helper()
 	return &packload.Pack{
@@ -96,7 +96,7 @@ func TestHostNotchDeliversAddressedProseOnlyToItsAudience(t *testing.T) {
 	}
 }
 
-// AND IT DELIVERS THE SOURCE IT NAMED. A pack shipping two files, one per agent, is §4.1's
+// AND IT DELIVERS THE SOURCE IT NAMED. A pack shipping two files, one per agent, is agent-briefings.md#the-two-halves-and-why-neither-knows-the-others-business's
 // own two-entry example — and the case a per-KIND answer cannot express, because the union of
 // the audiences would send both files to both agents.
 func TestHostNotchDeliversEachAddressedSourceToItsOwnAudience(t *testing.T) {
@@ -179,7 +179,7 @@ func TestHostNotchSkipsADestinationWithNoDeclaredIdentity(t *testing.T) {
 	}
 }
 
-// OWNERSHIP IS UNAFFECTED (§5, §7): a pack that SKIPS a destination does not become an owner
+// OWNERSHIP IS UNAFFECTED (agent-briefings.md#where-each-notch-narrows): a pack that SKIPS a destination does not become an owner
 // of it. The `Packs` list is what the prune reads to decide a destination still has a
 // contributor, so an addressed pack listed at every destination would keep a file alive that
 // nothing writes to.
@@ -260,7 +260,7 @@ func TestResolutionRecordsWhatAnAddressedContributionReached(t *testing.T) {
 }
 
 // govPack is a content pack over a pack-relative file map with the given contributions — the
-// shapes pack-briefing-defaults.md §3.3 governs per file.
+// shapes docs/reference/pack-system.md#briefing-governance governs per file.
 func govPack(t *testing.T, name string, files map[string]string,
 	contributes ...packdecl.Contribution) *packload.Pack {
 	t.Helper()
@@ -326,7 +326,7 @@ func TestHostNotchComposesOnePackAsOneSortedSection(t *testing.T) {
 }
 
 // An agent pack's own briefing/ prose reaches ITS OWN destination as well as every other (P2,
-// §3.5). The host used to skip the broadcasting pack's own destinations while the jail reached
+// pack-system.md#briefing-p5). The host used to skip the broadcasting pack's own destinations while the jail reached
 // them.
 func TestHostNotchBroadcastReachesTheBroadcastingPacksOwnDestination(t *testing.T) {
 	claude := govPack(t, "claude", map[string]string{"briefing/own.md": "Own.\n"},

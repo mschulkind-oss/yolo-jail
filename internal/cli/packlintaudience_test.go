@@ -1,7 +1,7 @@
 package cli
 
 // packlintaudience_test.go is R5 applied literally — "move the gate, do not lower the
-// severity" (briefing-audiences.md §4.3): `yolo pack lint` must NOT refuse an unknown agent
+// severity" (docs/reference/agent-briefings.md#two-severities-an-unknown-name-is-fatal-an-unmatched-destination-is-reported): `yolo pack lint` must NOT refuse an unknown agent
 // name.
 //
 // This is a NEGATIVE, and it is the kind of test that only exists because the temptation is

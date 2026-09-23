@@ -393,7 +393,7 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 	}
 
 	// THE FIFTH bespoke pre-flight: a profile selector keyed to a CLI name no pack
-	// installs (profiles-as-pack-variants.md §2.5, §8). The spelling is `-p <cli>=<name>`
+	// installs (docs/reference/providers.md#what-the-launch-checks-and-prints). The spelling is `-p <cli>=<name>`
 	// — the one that NAMES a CLI — and it keys the profile by a CLI name the way
 	// `use_profiles` does in config, which is validated there and is NOT validated
 	// anywhere here, because a flag never reaches ValidateConfig. Without this the typo
@@ -412,7 +412,7 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 	}
 
 	// THE SIXTH bespoke pre-flight: a provider NAME shipped by two declarations
-	// (profiles-as-pack-variants.md §4.1, OQ-12). Beside the others, because this is
+	// (docs/reference/providers.md#how-the-table-composes, #pv-oq-12). Beside the others, because this is
 	// where the pack set becomes complete, and FATAL because the collision has no
 	// runtime symptom to fall back on: the composed providers table is keyed by name, so
 	// the second shipper would silently replace the first while both packs' `footprint`
@@ -424,7 +424,7 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 	}
 
 	// THE SEVENTH bespoke pre-flight: an AGENT NAME claimed by two packs
-	// (briefing-audiences.md OQ-BA6/BA7). Beside the others, for the reason all seven are
+	// (docs/reference/agent-briefings.md#oq-ba6, #oq-ba7). Beside the others, for the reason all seven are
 	// here — this is where the pack set becomes complete, and it covers attach too — and
 	// FATAL because every consumer of the name resolves it by literal against whichever
 	// declaration it happens to read: `-p claude=<profile>`, `use_profiles.claude`, and now
@@ -446,7 +446,7 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 	}
 
 	// THE EIGHTH bespoke pre-flight, and the other half of the same namespace: an `agents`
-	// selector naming an agent this jail does not HAVE (briefing-audiences.md P3, OQ-BA3).
+	// selector naming an agent this jail does not HAVE (docs/reference/agent-briefings.md#ba-p3, #oq-ba3).
 	// The vocabulary is the SELECTED packs' claims and nothing wider, so a typo and a name
 	// belonging to a pack the user did not select fail identically — from the jail's point of
 	// view they are the same mistake, with the same two remedies.
@@ -1035,7 +1035,7 @@ func packRoot(entry config.PackEntry, getenv func(string) string) (string, error
 // GOVERNED SOURCE, in the governance predicate's order (byte-wise by pack-relative path), each
 // carrying the AUDIENCE its governing contribution named.
 //
-// THERE IS NO `declared` BRANCH (pack-briefing-defaults.md §3.3, R5). It used to read the pack's
+// THERE IS NO `declared` BRANCH (docs/reference/pack-system.md#briefing-governance, #briefing-r5). It used to read the pack's
 // AGENTS.md only when the pack declared no briefing contribution at all, so declaring one narrow
 // delivery — `{from: "files/pi-rules.md", agents: ["pi"]}` — silently stopped the pack's house
 // rules reaching anyone. packload.GovernedSources is now the one answer, shared with the jail
@@ -1047,7 +1047,7 @@ func packRoot(entry config.PackEntry, getenv func(string) string) (string, error
 // contiguous run of the pack's entries) — the section the host notch composes whole
 // (entrypoint.ComposeHostBriefings), byte for byte (TestJailAndHostComposeTheSameBriefing).
 //
-// A declared source that cannot be honored delivers nothing and is WARNED about (§3.4's severity,
+// A declared source that cannot be honored delivers nothing and is WARNED about (pack-system.md#briefing-p4's severity,
 // unchanged); nothing else is read in its place (P4).
 //
 // A content contribution's `into` is not carried: in a jail every destination receives every

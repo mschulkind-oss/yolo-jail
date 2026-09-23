@@ -597,7 +597,7 @@ type EnvFoldEntry struct {
 // table, not the target surface's agent — an env has no surface to name one, which is
 // the one way it differs from config-overlay's gate (packoverlay.go).
 //
-// It is the one definition of the OQ-8 order, and the order is the whole point:
+// It is the one definition of the OQ-8 order (providers.md#pv-oq-8), and the order is the whole point:
 // unconditional then gated PER PACK, so a later pack's unconditional value beats an
 // earlier pack's gated one — the cross-pack rule is unchanged by the gate. EnvVarsFor is
 // this sequence reduced over a map (the jail notch's form: the env starts empty, so a
@@ -661,7 +661,7 @@ func (p *Pack) installsActiveBin(name string, profiles map[string]string) bool {
 }
 
 // EnvVarsFor is the pack env fold as a map — the launch's CLI-keyed profile table
-// applied (OQ-8), so each pack's gated env folds AFTER its unconditional `env` and a
+// applied (providers.md#pv-oq-8), so each pack's gated env folds AFTER its unconditional `env` and a
 // gated value later-wins over its own pack's default: the gate is the more specific
 // intent, declared after the baseline, and overriding it is not a collision.
 //
@@ -703,7 +703,7 @@ func (p *Pack) HonoredInstalls() (granted []packdecl.Install, refused []string) 
 // PATH, one per `program` contribution with a bin.
 //
 // "CLI name" is the namespace a `use_profiles` key resolves in
-// (profiles-as-pack-variants.md §2.5): `program` is CombineExclusive by bin, so a CLI
+// (docs/reference/providers.md#the-profile-modifier): `program` is CombineExclusive by bin, so a CLI
 // name resolves to at most one pack and the agents a config yields ARE the bins its
 // packs install. Config validation and the launch pre-flight both answer "does this key
 // name an installed CLI" through this one method, so the two cannot disagree about what
@@ -792,7 +792,7 @@ func LoadDir(root, name string) (*Pack, []string) {
 
 // reservedBriefingFiles refuses a file inside the pack's briefing/ directory whose basename is a
 // repository's own agent-instruction file — `briefing/AGENTS.md`, `briefing/CLAUDE.md`,
-// `briefing/GEMINI.md` (pack-briefing-defaults.md OQ-PB2). Agent tools read those names at any
+// `briefing/GEMINI.md` (docs/reference/pack-system.md#oq-pb2). Agent tools read those names at any
 // depth, so one inside briefing/ is the dual-reader file P1 removes, one directory down.
 //
 // HERE, and at no second site, because a LoadDir problem is already fatal at every launch site

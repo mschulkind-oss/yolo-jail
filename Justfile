@@ -213,7 +213,7 @@ build-image-minimal:
 
 # Build and DELIVER the image into the container runtime.
 #
-# Since layer-aware delivery landed (docs/design/layer-aware-image-delivery.md)
+# Since layer-aware delivery landed (docs/reference/image-staging-vs-baking.md#delivering-into-the-runtime)
 # `./result` is a nix2container image.json, not a script whose stdout is a
 # docker-archive, and the thing that reads it is the patched skopeo `build-image`
 # realizes beside it at ./result-1. `skopeo copy` negotiates per blob with
@@ -270,7 +270,7 @@ test:
     # YOLO_TEST_REAL_PACK_INSTALLS keeps the tests that install a shipped pack's program
     # from its VENDOR. CI does not set it on the push path — that question is asked on a
     # `packs/**` change and weekly instead, because no commit can cause a vendor's release
-    # to break (docs/design/agent-install-in-ci.md §6.1.1). A local full run wants
+    # to break (docs/reference/agent-install-in-ci.md#three-triggers-matched-to-three-causes). A local full run wants
     # everything, so this recipe asks for it.
     YOLO_TEST_REAL_PACK_INSTALLS=1 go test -count=1 -timeout 0 ./integration
 

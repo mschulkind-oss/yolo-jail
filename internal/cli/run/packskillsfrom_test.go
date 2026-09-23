@@ -117,7 +117,7 @@ func TestJailSkillsZeroCeremonyPackStillMerges(t *testing.T) {
 // declaration yolo accepts and silently no-ops would just relocate the original defect.
 //
 // The conventional skills/ beside it still ships — as the IMPLICIT BROADCAST, governed by no
-// declaration (pack-briefing-defaults.md P3), never as a stand-in for my-skills: the declared
+// declaration (docs/reference/pack-system.md#briefing-p3), never as a stand-in for my-skills: the declared
 // source's absence is reported, and skills/ is delivered because nothing names it.
 func TestJailSkillsWarnsOnMissingDeclaredFrom(t *testing.T) {
 	// The pack ships skills/ but declares my-skills/: the old code read skills/ regardless.
@@ -131,7 +131,7 @@ func TestJailSkillsWarnsOnMissingDeclaredFrom(t *testing.T) {
 	}
 }
 
-// THE JAIL SKILLS CALL SITE FOR PER-FILE GOVERNANCE (pack-briefing-defaults.md §3.3): a pack
+// THE JAIL SKILLS CALL SITE FOR PER-FILE GOVERNANCE (docs/reference/pack-system.md#briefing-governance): a pack
 // whose skills/ tree broadcasts, plus ONE narrower tree addressed to pi. Declaring the narrow tree
 // must ADD it — the old `if !declared` in SkillsSources switched skills/ off the moment any skills
 // contribution existed, so the pack's broad skills reached nobody.

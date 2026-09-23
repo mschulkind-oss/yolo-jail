@@ -110,7 +110,7 @@ func (r *reporter) warn(msg, note string) {
 // # Why this level exists
 //
 // A check that did not look must not be counted as a pass — the principle OQ-3 ruled in
-// docs/design/broker-ca-and-nested-hosts.md, with the spelling delegated here. Nine sites
+// docs/reference/claude-oauth-interposition.md#oq-3, with the spelling delegated here. Nine sites
 // across five section files used to call r.ok on an area they had DECLINED to examine
 // ("Inside jail — loophole checks skipped"), so an all-green in-jail run included areas
 // nobody checked, and the pass count said so with a straight face. It was one of the three

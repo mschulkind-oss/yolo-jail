@@ -142,7 +142,7 @@ func runSuite(m *testing.M) int {
 // warmJail pays the suite's ONE-TIME container costs here, where nothing is being
 // timed, instead of inside whichever test happens to run first.
 //
-// The defect it exists for (docs/design/agent-install-in-ci.md §4.1, measured on CI run
+// The defect it exists for (docs/reference/agent-install-in-ci.md#mode-b, measured on CI run
 // 32419507352): the first container test absorbs podman's first-container create, the
 // entrypoint's mise install, and bootstrap's MCP npm downloads — and is then judged
 // against YOLO_TEST_JAIL_TIMEOUT, a PER-COMMAND cap sized for steady-state work.
@@ -204,7 +204,7 @@ func warmJail() {
 	//
 	// So the premise fails here. On linux CI the image matches the source tree, no build
 	// runs, and the warmup earns its place (1m56s, moving 116s of one-time cost out of the
-	// first test — docs/design/agent-install-in-ci.md §11). On darwin the first container
+	// first test — docs/reference/agent-install-in-ci.md#oq-ci4). On darwin the first container
 	// test absorbs the image realisation instead, which is exactly what it did on the green
 	// 2026-08-23 nightly. Twelve minutes a night for nothing is worse than an honest
 	// attribution gap on one platform.
@@ -559,19 +559,19 @@ const defaultJailTimeoutSeconds = 300
 // showed: on the 2026-08-22 nightly the warmup hung, burned the full 20-minute
 // YOLO_TEST_JAIL_TIMEOUT, was killed, and warmed NOTHING — twenty minutes of dead wall
 // clock added to a job by an optimisation that exists to REMOVE misattributed time
-// (docs/design/agent-install-in-ci.md §5.2). A failed warmup has to be cheap, because
+// (docs/reference/agent-install-in-ci.md#suite-warmup). A failed warmup has to be cheap, because
 // nothing depends on it succeeding.
 //
 // The bound is not a fraction of jailTimeout(), because the two deadlines answer different
 // questions: a test's budget must cover the work the test asserts, while a warmup's need
 // only cover work worth PRE-PAYING. So it is sized against the benefit — the one-time cost
 // the warmup exists to move out of the first test, measured at ~100s on x64 and ~680s on
-// macOS (docs/design/agent-install-in-ci.md §4.1). A warmup that costs more than the
+// macOS (docs/reference/agent-install-in-ci.md#oq-ci4). A warmup that costs more than the
 // misattribution it removes has stopped being worth waiting for.
 //
 // THERE IS NO LONGER A DARWIN BRANCH HERE, and its removal is the more useful record.
-// This function briefly carried a 12-minute darwin ceiling, reasoned from §4.1's ~8x
-// platform factor. The next nightly used every second of it and warmed nothing (warmJail),
+// This function briefly carried a 12-minute darwin ceiling, reasoned from an ~8x darwin-vs-x64
+// platform factor the retired design doc estimated. The next nightly used every second of it and warmed nothing (warmJail),
 // because on darwin a warmup is a full image realisation rather than a slow container start
 // — so the branch was answering "how slow is macOS" when the question was "does a warmup
 // mean anything here". It does not, warmJail returns early there, and a ceiling for a code
@@ -914,9 +914,9 @@ const realPackInstallsEnv = "YOLO_TEST_REAL_PACK_INSTALLS"
 // third-party vendors' CURRENT releases still install. Asking it on every push made a green
 // main go red with no commit — on 2026-08-20 codex's linux-arm64 tarball was published 37
 // minutes after the parent `@latest` resolved to, and three tests failed for a defect in
-// nobody's repository (docs/design/agent-install-in-ci.md §5, Mode A).
+// nobody's repository (docs/reference/agent-install-in-ci.md#mode-a).
 //
-// So the trigger moves to where the causation is (§6.1.1): a `packs/**` change, which CAN
+// So the trigger moves to where the causation is (#three-triggers-matched-to-three-causes): a `packs/**` change, which CAN
 // break this and is commit-caused, and a weekly schedule, which catches vendor drift. The
 // every-push gate keeps the assertions that a commit can break — config rendering, pack
 // selection, and the two install MECHANISMS from pinned bytes.
@@ -929,7 +929,7 @@ func requireRealPackInstalls(t *testing.T) {
 	t.Helper()
 	if os.Getenv(realPackInstallsEnv) == "" {
 		t.Skipf("skipping real-vendor pack install: this question is asked on a `packs/**` "+
-			"change and weekly, not on every push (docs/design/agent-install-in-ci.md §6.1.1). "+
+			"change and weekly, not on every push (docs/reference/agent-install-in-ci.md#three-triggers-matched-to-three-causes). "+
 			"Set %s=1 to run it here; `just test` already does.", realPackInstallsEnv)
 	}
 }
@@ -945,7 +945,7 @@ func requireRealPackInstalls(t *testing.T) {
 // FILES select claude (providers, profiles-options, packs, pack-audience, pack-home,
 // codex-selection; thirteen selection sites between them), so leaving the trigger on would
 // put a real vendor download on every push: the exact failure
-// docs/design/agent-install-in-ci.md §6.1.1 moved that class of question away from.
+// docs/reference/agent-install-in-ci.md#three-triggers-matched-to-three-causes moved that class of question away from.
 //
 // So it is OFF by default and ON under YOLO_TEST_REAL_PACK_INSTALLS — `just test`, a
 // `packs/**` change, and the weekly schedule — where a vendor install is already what the

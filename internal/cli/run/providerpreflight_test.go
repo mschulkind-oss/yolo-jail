@@ -14,8 +14,8 @@ import (
 	officialpacks "github.com/mschulkind-oss/yolo-jail/packs"
 )
 
-// This file pins the SELECTED-PACK CREDENTIAL PRE-FLIGHT (profiles-as-pack-variants.md
-// §6.2 as rescoped by OQ-13, the requirement itself re-ruled by OQ-PT4): every provider
+// This file pins the SELECTED-PACK CREDENTIAL PRE-FLIGHT
+// (docs/reference/providers.md#the-credential-preflight, #pv-oq-13; the requirement itself re-ruled by OQ-PT4): every provider
 // the composed table CATALOGS — present and carrying an endpoint — refuses the launch when
 // the credential variable its api_key_env_name points at was never hydrated, and an entry
 // the table does not hold is nobody's requirement.
@@ -273,7 +273,7 @@ func TestCheckProviderCredentialsExistenceOnlyWithoutAKeyVariable(t *testing.T) 
 	}
 }
 
-// OQ-13's scope is the SELECTED pack. A pack that ships a provider and needs a key is
+// providers.md#pv-oq-13's scope is the SELECTED pack. A pack that ships a provider and needs a key is
 // inert when this launch does not select it — which is the ordinary case for a shared
 // workspace config that names more providers than any one machine has keys for. Pinned as
 // a contrast in both directions, so the silence cannot be the check being inert.
@@ -328,7 +328,7 @@ func TestFreshLaunchChecksProviderCredentialsOnTheAssembledEnv(t *testing.T) {
 	if _, ok := pos[check]; !ok {
 		t.Fatalf("runContainer no longer calls %s. The check still exists and its unit tests "+
 			"still pass, so a launch with no provider credential would start a jail that fails "+
-			"its first API call and say nothing — the failure §6.1 records. If the seam moved, "+
+			"its first API call and say nothing — the failure providers.md#the-credential-preflight records. If the seam moved, "+
 			"move this assertion with it rather than deleting it. (The macos-user arm's own "+
 			"call site is pinned at the dispatch, not here — see "+
 			"TestProfileChannelPreflightRefusesTheMacosUserLaunch.)", check)

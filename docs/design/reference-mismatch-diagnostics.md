@@ -48,8 +48,8 @@ supersession relocation (step 4).**
 **Reads with:** [`stringly-typed-references-principle.md`](../reference/stringly-typed-references-principle.md)
 (R1–R5, which this executes), [`gate-placement-principle.md`](../reference/gate-placement-principle.md) (R5's
 parent — put the gate where the authority changes), and
-[`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) [§8](./profiles-as-pack-variants.md#8-fail-closed-but-on-the-right-set) (the same two-questions split,
-applied to a design that has not shipped).
+[`providers.md`](../reference/providers.md#what-the-launch-checks-and-prints) (the same
+two-questions split, as the profile system ships it).
 
 ---
 
@@ -202,7 +202,7 @@ existing check or gives an existing namespace the check its neighbours already h
 > untouched: the `use_profiles` KEY check it is really about is shipped in both places, and so is
 > its flag twin `-p <cli>=<name>`, which names a CLI and can therefore still be mistyped
 > (`checkProfileTargets`, `internal/cli/run/packs.go`; the full argument is in
-> [`profiles-as-pack-variants.md` §3.3](./profiles-as-pack-variants.md#33-the-selector-and-where-it-comes-from)).
+> [`providers.md`](../reference/providers.md#what-the-launch-checks-and-prints)).
 
 ### 4.2 An invented `wire_api`
 
@@ -400,7 +400,7 @@ reaches nobody.
 - **Not a general audit of every warning in the tree.** Step 1 fixes the *channel*; individual
   warnings elsewhere keep their current severity unless a later doc argues otherwise.
 - **Not `pack-fragment` target resolution.** That mechanism does not exist; see
-  [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) [§8](./profiles-as-pack-variants.md#8-fail-closed-but-on-the-right-set).
+  [`providers.md`](../reference/providers.md#what-the-launch-checks-and-prints).
 
 ---
 

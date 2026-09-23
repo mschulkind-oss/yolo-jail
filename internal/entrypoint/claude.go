@@ -5,7 +5,7 @@ package entrypoint
 // marketplace, which the derive enabled when the matching language appeared in
 // `lsp_servers`.
 //
-// DELETED 2026-09-22 by OQ-LSP1's option D (docs/design/claude-lsp-plugins.md): yolo now
+// DELETED 2026-09-22 by OQ-LSP1's option D (docs/reference/mcp-configuration.md#oq-lsp1): yolo now
 // renders ONE plugin of its own whose `lspServers` comes from the user's whole
 // `lsp_servers` table, so there is no per-language opinion left to hardcode and no
 // marketplace id to enable. jailcontent.writeLSPPlugin is the replacement, and it needs no

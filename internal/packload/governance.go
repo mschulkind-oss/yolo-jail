@@ -1,7 +1,7 @@
 package packload
 
 // governance.go is THE ONE ANSWER to "which of this pack's files does it deliver, and which of its
-// contributions decides where each one goes?" (pack-briefing-defaults.md §3.3, R5).
+// contributions decides where each one goes?" (docs/reference/pack-system.md#briefing-governance, #briefing-r5).
 //
 // Three readers ask that question and all three used to answer it themselves, each behind its own
 // `declared` gate: the jail briefing composer (run.packBriefingProses' `if !declared`), the jail
@@ -9,7 +9,7 @@ package packload
 // (borrowingSources' `!p.declares(kind)`). The three agreed, which is how one trap reached every
 // notch: declaring ONE narrow delivery switched off the pack's whole implicit broadcast, so a pack
 // that added `{from: "files/pi-rules.md", agents: ["pi"]}` beside its house rules stopped shipping
-// the house rules to anyone (§2.2). Now all three derive from GovernedSources and none keeps a gate
+// the house rules to anyone (pack-system.md#one-governance-reader). Now all three derive from GovernedSources and none keeps a gate
 // of its own — a fourth reader added later asks this function or it asks nothing.
 //
 // THE RULE, per kind:
@@ -20,7 +20,7 @@ package packload
 //     exists only when no content contribution omits `from`.
 //   - `skills`: an omitted `from` means `skills`, and that tree is ONE unit: Implicit only when no
 //     content contribution names it.
-//   - `files` governs nothing here: it has no convention to broadcast (§5).
+//   - `files` governs nothing here: it has no convention to broadcast (pack-system.md#briefing-non-goals).
 //
 // A DESTINATION (`agent` set) GOVERNS NOTHING AND SOURCES NOTHING (P5). Counting one as an
 // omitted-`from` content contribution would switch off every agent pack's own implicit broadcast,
@@ -68,7 +68,7 @@ type GovernedSource struct {
 	order int
 }
 
-// governanceProblem is one §3.4 report, keyed by the governor's SourceKey so a per-contribution
+// governanceProblem is one pack-system.md#briefing-p4 report, keyed by the governor's SourceKey so a per-contribution
 // reader (GovernedBriefingFor, which the host render calls) can say which declaration it is about.
 type governanceProblem struct {
 	key string
@@ -80,11 +80,11 @@ type governanceProblem struct {
 //
 // Only `briefing` and `skills` return sources; `files` (and every other kind) returns nil.
 //
-// ORDER: briefing sources sort byte-wise by Rel across the whole pack — the §3.1 "within a pack,
+// ORDER: briefing sources sort byte-wise by Rel across the whole pack — the pack-system.md#briefing-directory "within a pack,
 // its files are ordered by filename" — so the order is a property of the tree and not of the
-// `contributes` list (§3.3). Skills sources keep declaration order, with the implicit source last.
+// `contributes` list (pack-system.md#briefing-governance). Skills sources keep declaration order, with the implicit source last.
 //
-// PROBLEMS are §3.4's only: a declared `from` that is absent, not a file (a directory, for
+// PROBLEMS are pack-system.md#briefing-p4's only: a declared `from` that is absent, not a file (a directory, for
 // skills), blank, or escaping the pack tree delivers nothing and is reported — at today's warning
 // severity, which the caller chooses. It NEVER quietly delivers another file (P4). An absent
 // convention is silent: most packs carry no prose. A `briefing/AGENTS.md` is not reported here —
@@ -195,7 +195,7 @@ func readProse(full string) (text string, isDir bool, ok bool) {
 var readDir = os.ReadDir
 
 // conventionalBriefingDir is the pack's briefing/ directory, returned only when the pack root holds
-// an entry spelled EXACTLY packdecl.DefaultBriefingDir (§3.1: "Names match case-sensitively.
+// an entry spelled EXACTLY packdecl.DefaultBriefingDir (pack-system.md#briefing-directory: "Names match case-sensitively.
 // `Briefing/` is not the convention."). Opening "<root>/briefing" by path is not that check: on a
 // case-insensitive filesystem it opens `Briefing/`, and every entry would then be labelled
 // `briefing/<name>` and broadcast. The root is listed and the name compared instead, so both
@@ -415,7 +415,7 @@ func (p *Pack) GovernedBriefingFor(c packdecl.Contribution) ([]GovernedSource, [
 }
 
 // JoinBriefingSources joins one pack's briefing sources into its SECTION: one blank line between
-// files, exactly the spacing between packs (§3.1 "Joining"), so a pack's files read the same
+// files, exactly the spacing between packs (pack-system.md#briefing-directory "Joining"), so a pack's files read the same
 // whether a destination composes them one entry at a time (the jail) or as one section (the host).
 func JoinBriefingSources(sources []GovernedSource) string {
 	texts := make([]string, 0, len(sources))

@@ -178,7 +178,7 @@ defaults → host → workspace → config-overlay:<pack>… → overlay (captur
 ```
 
 (A Lua `transform` layer sat between `computed` and `managed` until 2026-09-11,
-when it was removed — [`lua-transform-removal.md`](lua-transform-removal.md).
+when it was removed — [`OQ-LT1`](../reference/pack-system.md#oq-lt1).
 Every layer above is still in [`compose.go`](../../internal/agentcfg/compose.go).)
 
 `managed` is a floor: a pack's own asserted keys win everything. `overlay` is the
@@ -862,7 +862,7 @@ have been built here in any case, because three separate pieces are missing: the
 ([`compose.go`](../../internal/agentcfg/compose.go) is its only reader), and
 `render.Host` leaves it empty *by definition* — the docstring that stated so sat
 on `prism.go`'s `targetTransformScript`, which went with the Lua transform on
-2026-09-11 ([`lua-transform-removal.md`](lua-transform-removal.md)) — so the
+2026-09-11 ([`OQ-LT1`](../reference/pack-system.md#oq-lt1)) — so the
 destination could never reach the host at all.
 Whoever wires that layer owns one argument this design will not pre-empt: the
 workspace config is **jail-writable**, and a layer an agent can edit sitting above
@@ -1073,7 +1073,7 @@ is that yolo declines to read it.
    `narrowOverlay`, [`promote.go`](../../internal/agentcfg/promote.go)). The one
    dead class this step used to add — a key the Lua `transform` rewrote, which
    `narrowOverlay` never saw — went with the transform on 2026-09-11
-   ([`lua-transform-removal.md`](lua-transform-removal.md)). Redundant
+   ([`OQ-LT1`](../reference/pack-system.md#oq-lt1)). Redundant
    is free and it is most of the noise: **re-measured 2026-09-12**, this
    development jail carries three captured top-level keys across three surfaces —
    `codex/config`'s `mcp_servers`, `mise/config`'s `tools`, `opencode/config`'s
@@ -1248,7 +1248,7 @@ the second moot:
    layers claim.
 2. ~~**A `transform`-overridden key never won at `overlay` either.**~~ **Moot
    since 2026-09-11**, when the Lua transform was removed
-   ([`lua-transform-removal.md`](lua-transform-removal.md)): there is no such key
+   ([`OQ-LT1`](../reference/pack-system.md#oq-lt1)): there is no such key
    any more, and the argument rests on the fact either side of it.
 3. **What is left is another pack's `config-overlay` on the same key, ordered
    later** — and the conventional local pack folds **last**
@@ -1290,7 +1290,7 @@ pack ([`assemble.go`](../../internal/cli/run/assemble.go)), and a filtered
 `config.jsonc` snapshot also crosses
 ([`inheritscope.go`](../../internal/cli/run/inheritscope.go)) — the host's
 `config.lua` crossed here too until the Lua transform was removed on 2026-09-11
-([`lua-transform-removal.md`](lua-transform-removal.md)); what no jail can do is write
+([`OQ-LT1`](../reference/pack-system.md#oq-lt1)); what no jail can do is write
 anything under the host's `~/.config/yolo-jail/`, which is the boundary promote
 needs — a manifest is an input to composition, and an agent that could rewrite one
 in-jail could grant its own pack a host file on the next boot.
@@ -1992,7 +1992,7 @@ After adoption, a removal is ordinary and reported, exactly as it is in a jail.
 - **No change to the jail's precedence stack.** `defaults → host → workspace →
   config-overlay → capture → computed → managed` stays as it is (the Lua
   `transform` layer this line also named was removed on 2026-09-11, by
-  [`lua-transform-removal.md`](lua-transform-removal.md) rather than by anything
+  [`OQ-LT1`](../reference/pack-system.md#oq-lt1) rather than by anything
   here).
   [§5.4](#54-promotion-moves-a-key-down-the-stack) works *around* it deliberately
   rather than reordering it.

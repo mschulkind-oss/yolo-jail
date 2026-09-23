@@ -1,6 +1,6 @@
 package cli
 
-// packlintdeliveries_test.go pins pack-briefing-defaults.md §3.6 at the one place an author
+// packlintdeliveries_test.go pins docs/reference/pack-system.md#briefing-lint-listing at the one place an author
 // looks before a launch: `yolo pack lint` lists EVERY delivery, the implicit broadcast included,
 // and names every conventional-looking file it will not ship (P6).
 //
@@ -41,7 +41,7 @@ func hasLine(report string, parts ...string) bool {
 	return false
 }
 
-// THE matt SHAPE (§2.2, §3.7): house rules in briefing/ plus one addressed file outside it.
+// THE matt SHAPE (pack-system.md#one-governance-reader, pack-system.md#briefing-governance): house rules in briefing/ plus one addressed file outside it.
 // Before per-file governance the addressed line switched the house rules off and lint said
 // nothing; now lint must show BOTH deliveries, and say which one no manifest line names.
 func TestPackLintListsTheImplicitBroadcastBesideAnAddressedFile(t *testing.T) {
@@ -93,7 +93,7 @@ func TestPackLintListsADeclaredBroadcastAsDeclared(t *testing.T) {
 	}
 }
 
-// §3.6's not-shipped line, for each root repository instruction file: INFO, not a warning or a
+// pack-system.md#briefing-lint-listing's not-shipped line, for each root repository instruction file: INFO, not a warning or a
 // failure — for a repository pack, not shipping it is correct — and never listed as a delivery.
 func TestPackLintNamesRootInstructionFilesAsNotShipped(t *testing.T) {
 	dir := t.TempDir()
@@ -117,7 +117,7 @@ func TestPackLintNamesRootInstructionFilesAsNotShipped(t *testing.T) {
 			t.Errorf("%s is listed as a delivery:\n%s", name, report)
 		}
 		if hasLine(report, "✗", name) || hasLine(report, "⚠", name) {
-			t.Errorf("%s drew a failure or warning — it is info (§3.6):\n%s", name, report)
+			t.Errorf("%s drew a failure or warning — it is info (pack-system.md#briefing-lint-listing):\n%s", name, report)
 		}
 	}
 	if strings.Contains(report, "nothing reads") {
@@ -125,7 +125,7 @@ func TestPackLintNamesRootInstructionFilesAsNotShipped(t *testing.T) {
 	}
 }
 
-// §3.6's not-read line: a subdirectory of briefing/ (named ONCE, however many files it holds)
+// pack-system.md#briefing-lint-listing's not-read line: a subdirectory of briefing/ (named ONCE, however many files it holds)
 // and a non-*.md file in it. A file a declared `from` names IS delivered, even from a
 // subdirectory, so it is never named — the note is about the convention, not about `from`.
 func TestPackLintNamesWhatBriefingDoesNotRead(t *testing.T) {
@@ -160,9 +160,9 @@ func TestPackLintNamesWhatBriefingDoesNotRead(t *testing.T) {
 	}
 }
 
-// §10: "`yolo pack init`, followed by the scaffold's own advice, lints as TWO deliveries." The
+// The briefing design's done-criterion: "`yolo pack init`, followed by the scaffold's own advice, lints as TWO deliveries." The
 // advice is followed literally — the manifest is the bytes the README shows — so a scaffold whose
-// advice switches the broadcast off (the old AGENTS.md scaffold, §2.2) fails here.
+// advice switches the broadcast off (the old AGENTS.md scaffold, pack-system.md#one-governance-reader) fails here.
 func TestPackInitAdviceAddsToTheBroadcast(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "scaf")
 	var out, errw bytes.Buffer
@@ -178,7 +178,7 @@ func TestPackInitAdviceAddsToTheBroadcast(t *testing.T) {
 		t.Fatalf("the README does not show the addressed manifest this test follows:\n%s", readme)
 	}
 	for _, want := range []string{
-		// narrowing is a contribution NAMING a briefing/ file (§3.6)
+		// narrowing is a contribution NAMING a briefing/ file (pack-system.md#briefing-lint-listing)
 		`"from": "briefing/scaf.md", "agents": ["claude"]`,
 		"still reaches every agent",
 	} {
@@ -217,7 +217,7 @@ func TestPackInitNeverScaffoldsAReservedBriefingName(t *testing.T) {
 	}
 }
 
-// §3.4 at lint: a declared briefing `from` that does not exist delivers nothing and FAILS lint —
+// pack-system.md#briefing-p4 at lint: a declared briefing `from` that does not exist delivers nothing and FAILS lint —
 // the treatment a missing `skills` source already gets — and no other file is listed in its
 // place. The pack's own briefing/ files still broadcast (P3), and the unclaimed-content advice
 // does not pile on.
@@ -240,7 +240,7 @@ func TestPackLintFailsAMissingDeclaredBriefingFrom(t *testing.T) {
 	}
 }
 
-// §4's three new refusals reach lint, each naming its fix: a reserved `from`, a reserved name
+// The three briefing refusals (pack-system.md#oq-pb2, #oq-pb5) reach lint, each naming its fix: a reserved `from`, a reserved name
 // inside briefing/, and two contributions naming one source (OQ-PB5, naming both).
 func TestPackLintRefusesTheBriefingDefaultsExceptions(t *testing.T) {
 	cases := []struct {
@@ -287,7 +287,7 @@ func TestPackLintRefusesTheBriefingDefaultsExceptions(t *testing.T) {
 
 // The advisory on a content `into` an agent pack owns, for briefing: it names what the line
 // governs and that dropping it WIDENS — the correction of the old "adds nothing (drop it…)"
-// (§2.6). The skills half is TestPackLintNamesTheOwningPack.
+// (pack-system.md#briefing-lint-listing). The skills half is TestPackLintNamesTheOwningPack.
 func TestPackLintAdvisorySaysDroppingABriefingIntoWidens(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "briefing", "rules.md"), "Rules.\n")
@@ -311,7 +311,7 @@ func TestPackLintAdvisorySaysDroppingABriefingIntoWidens(t *testing.T) {
 	}
 }
 
-// `yolo pack --help` states the new convention (§3.6): prose under briefing/, a root AGENTS.md
+// `yolo pack --help` states the new convention (pack-system.md#briefing-lint-listing): prose under briefing/, a root AGENTS.md
 // never shipped, and silence as broadcast in a manifest too.
 func TestPackUsageStatesTheBriefingConvention(t *testing.T) {
 	var out, errw bytes.Buffer
@@ -329,7 +329,7 @@ func TestPackUsageStatesTheBriefingConvention(t *testing.T) {
 	}
 }
 
-// Per-file governance for skills (§3.3): a declared, non-conventional skills source does not
+// Per-file governance for skills (pack-system.md#briefing-governance): a declared, non-conventional skills source does not
 // switch off the pack's skills/ tree, which keeps broadcasting — so lint must list it AND hold
 // it to the SKILL.md rule. Reading the declared sources alone (the old SkillsSources gate) would
 // pass a broken skill in a tree every agent receives.

@@ -18,7 +18,7 @@ import (
 // providerForward is one implicit host-loopback forward, and WHICH PROVIDER asked for it.
 //
 // The provider name exists for the disclosure (OQ-PC2,
-// docs/design/wire-bridge-port-collision.md): a port the user never wrote is bound inside
+// docs/reference/wire-bridge.md#oq-pc2): a port the user never wrote is bound inside
 // their jail, and a line naming the port without naming who asked for it still leaves them
 // grepping their own config for something that is not in it.
 type providerForward struct {

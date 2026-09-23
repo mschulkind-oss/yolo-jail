@@ -103,10 +103,10 @@ func TestEnsureCAAndLeafMintsAChainAJailWillTrust(t *testing.T) {
 }
 
 // TestEnsureCAAndLeafKeepsTheCAPrivateKeyOffDisk is the half of the original
-// defect the image bake did not touch (docs/design/broker-ca-and-nested-hosts.md
-// OQ-1): the CA is the trust anchor every jail on this host believes, so its
-// private key on disk is a standing authority to impersonate any host to any
-// jail.
+// defect the image bake did not touch
+// (docs/reference/claude-oauth-interposition.md#oq-1): the CA is the trust anchor every jail
+// on this host believes, so its private key on disk is a standing authority to
+// impersonate any host to any jail.
 //
 // It sweeps the WHOLE state dir for private-key PEM rather than stat'ing ca.key,
 // because the failure it guards against is "a private key ended up on disk", not
@@ -366,7 +366,7 @@ func TestNoOpensslInThisPackage(t *testing.T) {
 		for _, imp := range file.Imports {
 			if imp.Path.Value == `"os/exec"` {
 				t.Errorf("%s imports os/exec; cert minting is crypto/x509 now "+
-					"(docs/design/broker-ca-and-nested-hosts.md §8 item 4) and this "+
+					"(docs/reference/claude-oauth-interposition.md#how-the-ca-and-leaf-are-minted) and this "+
 					"package no longer shells out to anything", name)
 			}
 		}

@@ -1,7 +1,7 @@
 ---
 status: current
-verified: 2026-09-09
-verified_commit: a3922298
+verified: 2026-09-23
+verified_commit: 7ad8358c
 covers:
   - internal/packdecl/
   - internal/packload/
@@ -15,6 +15,8 @@ covers:
   - internal/cli/run/packhostgrants.go
   - internal/cli/run/packloopholes.go
   - internal/cli/pack.go
+  - internal/cli/applyhostbriefings.go
+  - internal/entrypoint/hostbriefing.go
   - internal/agentcfg/
   - internal/loopholedecl/settings.go
   - internal/loopholedecl/capabilities.go
@@ -24,7 +26,12 @@ tags: [packs, config, kinds, manifest, prism, trust, disclosure]
 
 # The pack system — how a jail gets everything in it
 
-**Status:** CURRENT as of 2026-09-09, verified against `a3922298`.
+**Status:** CURRENT as of 2026-09-23, verified against `7ad8358c`. MEASURED in CI at `7ad8358c`
+(run 35820702335): a pack's `briefing/` prose reaches a real container and its root `AGENTS.md`
+does not (`TestPackDeliversSkillAndBriefing`). UNMEASURED: no launched jail has been observed
+routing one pack's `briefing/` files to *different* agents. The container audience test routes a
+file outside `briefing/`, and `yolo pack lint`'s [delivery listing](#briefing-lint-listing) is
+where that routing is visible today.
 
 A **pack** is a directory of jail configuration — skills, briefing prose, composed config
 files, environment variables, and optionally a tool to install — that yolo delivers into
@@ -50,7 +57,10 @@ they are rendered into a jail.
 | Jail-side render — one loop, no switch on a tool name | `internal/entrypoint` (`ConfigurePackSurfaces`, `packhooks.go`) |
 | Config surfaces, the layer fold, the four modes | `internal/agentcfg` (`manifest.Surface`, `Compose`, `ManifestWith`) |
 | `config-overlay` fold and the `profile` gate | `internal/packoverlay` |
-| The Lua sandbox: `yolo.derive` / `yolo.env` | `internal/agentcfg/luahook` (`DeriveCtx`) |
+| The managed floor — the compose pipeline's last step | `internal/agentcfg` (`enforceManaged`, `enforceManagedTOML`) |
+| The Lua sandbox: `yolo.derive` / `yolo.env` | `internal/agentcfg/luahook` (`GopherLuaVM`, `DeriveCtx`) |
+| Which contribution governs each prose and skills source | `internal/packload` (`GovernedSources`) |
+| The local pack's legacy `AGENTS.md` move | `internal/entrypoint` (`MoveLegacyLocalPackBriefing`), run by `yolo host apply` |
 | The packs yolo ships | `packs/` (each a directory; `packs/embed.go` is the embed) |
 | CLI surface | `internal/cli/pack.go` (`packMain`) |
 
@@ -58,7 +68,9 @@ they are rendered into a jail.
 `profile:` modifier, and everything a selection does — the authority for all of it),
 [`../guides/loopholes.md`](../guides/loopholes.md) (what a loophole is, and its settings
 block), [`wire-bridge.md`](wire-bridge.md) (`needs`, and the `service`
-kind), [`../design/trust-paths.md`](../design/trust-paths.md) (the 25 trust paths, and why
+kind), [`protocol-resolution.md`](protocol-resolution.md) (the `adapter` kind and `protocols`),
+[`agent-briefings.md`](agent-briefings.md) (what a composed briefing contains around the pack
+prose), [`../design/trust-paths.md`](../design/trust-paths.md) (the 25 trust paths, and why
 there is no approval gate), [`../design/program-delivery.md`](../design/program-delivery.md)
 (the launcher, its PATH position, and evergreen updates).
 
@@ -123,7 +135,8 @@ new named hook in core.
 - **The source set for `derive` stays closed and core-owned.** A pack *projects* from
   core's tables into its tool's dialect; it never invents a source.
 
-- **`derive` is deterministic.**
+- **`derive` is deterministic** — required of every script, and not fully enforced by the
+  sandbox; see [the derive slot](#derive-determinism).
 
 - **The MOUNT is the filter.** The entrypoint renders every pack it finds under the mounted
   pack root, so staging only the selected packs — and clearing the tree first — is what
@@ -174,29 +187,37 @@ The zero-ceremony pack — a `briefing/` directory plus a `skills/` tree, no `pa
 complete, useful pack: house rules and a skill corpus applied in every jail. `yolo pack
 init` scaffolds exactly this.
 
-**`briefing/` is the conventional prose source** (`packdecl.DefaultBriefingDir`), and it is a
-directory of files rather than one file
-([`OQ-PB1`](../design/pack-briefing-defaults.md#decision-ledger)):
+<a id="briefing-directory"></a>**`briefing/` is the conventional prose source**
+(`packdecl.DefaultBriefingDir`), and it is a directory of files rather than one file
+([`OQ-PB1`](#oq-pb1)):
 
 - Every regular `*.md` **directly** inside it is read. A subdirectory is not read, nor is a file
-  with another extension. Names match case-sensitively, so `Briefing/` is not the convention.
-- A pack's files are ordered **by filename, byte-wise**, and stay contiguous. Packs keep their
-  config order, so one pack's filenames never reorder another pack's prose.
+  with another extension; `yolo pack lint` names each one it skips. A symlinked prose file is
+  followed.
+- Names match case-sensitively, so `Briefing/` is not the convention — on a case-insensitive
+  filesystem too (default APFS, which `macos-user` and a Mac's `yolo host apply` read packs
+  from): the directory is read only when the pack root holds an entry spelled exactly `briefing`,
+  never by opening the path.
+- A pack's delivered prose is ordered **byte-wise by pack-relative path** and stays contiguous.
+  That order covers every file the pack delivers, a declared `from` outside `briefing/` included,
+  so `briefing/x.md` precedes `files/pi-rules.md`. Packs keep their config order, so one pack's
+  filenames never reorder another pack's prose, and a rename inside one pack reorders only that
+  pack's section.
 - An empty or whitespace-only file contributes nothing, silently. So does an absent `briefing/`.
 
 **A root `AGENTS.md`, `CLAUDE.md` or `GEMINI.md` is never read as pack prose**, with or without a
-manifest, at any notch ([`P1`](../design/pack-briefing-defaults.md#1-verdict)). Agent tools read
+manifest, at any notch ([P1 (briefing defaults)](#briefing-p1)). Agent tools read
 those names as a *repository's own* instructions, and a pack is often a repository, so shipping
 one gave that file two readers: agents working in the pack's repository, and every agent in every
 jail selecting the pack. The repository keeps it. A root `AGENTS.md` used to be the conventional
 source, and a pack whose `AGENTS.md` was meant to ship delivers nothing from it until the file
 moves under `briefing/`. That is a hard cut, with no notice at launch or at `yolo host apply`
-([`OQ-PB3`](../design/pack-briefing-defaults.md#decision-ledger)). One text for both readers is
+([`OQ-PB3`](#oq-pb3)). One text for both readers is
 written once under `briefing/` and pointed at from the in-repository file (`CLAUDE.md` can say
 `@briefing/house-rules.md`).
 
 **Those three basenames are refused as a SOURCE at any depth**
-([`OQ-PB2`](../design/pack-briefing-defaults.md#decision-ledger)), both ways, with a message
+([`OQ-PB2`](#oq-pb2)), both ways, with a message
 spelling the `git mv`:
 
 - a `briefing` `from` naming one (`packdecl.RepositoryInstructionFile`, in the validator, so the
@@ -204,16 +225,37 @@ spelling the `git mv`:
 - a file with one of those names inside `briefing/` — a fatal `packload.LoadDir` problem, so it
   refuses every launch and `yolo pack lint`.
 
+The two refusals share one message (`packdecl.ReservedBriefingSourceProblem`), so the manifest
+spelling and the file spelling teach the same move. The explicit-`from` refusal is on `briefing`
+alone; a `skills` or `files` `from` is not checked against the basenames.
+
+> [!WARNING]
+> **`yolo check` does not report the `briefing/AGENTS.md` refusal.** `check` keeps a pack only
+> when `packload.LoadDir` returns no problems, and drops one that has problems without printing
+> them, so a pack carrying `briefing/AGENTS.md` passes `yolo check` and is then refused at
+> launch. `yolo pack lint` does report it. The gap is in `check`, and `packload`'s own comment
+> records it as such; do not answer it with a second refusal site.
+
 The rule is about sources only. A destination path ending in `AGENTS.md`, which several shipped
 agent packs declare, and `after: "host:AGENTS.md"` are not sources, and neither is checked.
 
+<a id="one-governance-reader"></a><a id="briefing-r5"></a>
+
 > [!WARNING]
-> **A pack's conventional sources have ONE reader, `packload.GovernedSources`.** The jail briefing
-> composer, the jail skills reader and the host notch's borrower all derive from it
-> ([`governance.go`](../../internal/packload/governance.go)). Each used to keep its own "does
-> this pack declare anything of this kind?" gate. The three agreed, which is how one trap
+> **A pack's conventional sources have ONE reader, `packload.GovernedSources`**
+> (R5 (briefing defaults), [ruled](#briefing-r5-row)). The jail briefing composer, the jail skills reader,
+> the host notch's borrower, `yolo host apply` and `yolo pack lint` all derive from it
+> ([`governance.go`](../../internal/packload/governance.go)). Each notch used to keep its own
+> "does this pack declare anything of this kind?" gate. The three agreed, which is how one trap
 > reached every notch: declaring one narrow delivery switched off the pack's whole implicit
 > broadcast. A fourth reader that re-lists the convention will drift the same way.
+
+> [!WARNING]
+> **Governance reads the pack's ORIGINAL declaration, never a `ResolveDestinations` clone.** The
+> clone appends a synthesized `{into, from}` copy of each borrowed destination, so reading it
+> gives every explicit `from` two governors and turns the implicit borrower into an
+> omitted-`from` content line — and the implicit broadcast vanishes at the host notch only.
+> `Pack.origDecl` is the pointer the clone keeps for exactly this.
 
 Content rules are enforced at staging by `internal/packstage`, and a violation is **fatal,
 not skipped** — a pack that half-stages is worse than one that fails loudly:
@@ -345,7 +387,7 @@ the semantic axis, and it is short:
 
 | Combine | Meaning | Kinds that use it |
 | :--- | :--- | :--- |
-| **Exclusive** | one owner per target; a second claim is an error | `program` (by bin) · `files` (by path) · `config` (by surface identity) · `autonomy` · `loophole` (by loophole name) · `service` (by service name) · `provider` (by provider name) · `blocked-tool` (by bin) · `profile` (by pack + name) |
+| **Exclusive** | one owner per target; a second claim is an error | `program` (by bin) · `files` (by path) · `config` (by surface identity) · `autonomy` · `loophole` (by loophole name) · `service` (by service name) · `provider` (by provider name) · `adapter` (by `from → to` pair) · `blocked-tool` (by bin) · `profile` (by pack + name) |
 | **Shared** | many independent claimants are the ordinary case | `requires` · `reads-host` · `mount` |
 | **Merge** | many inputs into one target is the feature | `skills` · `env` (a key claimed twice collides) |
 | **Concat** | ordered concatenation | `briefing` |
@@ -473,6 +515,21 @@ fault class no user can act on.
 > dynamically and misattributed. Found by CI, whose arm64 install job was red while the
 > x86-64 one was green.
 
+`protocols` is **which wire protocols the installed binary can be pointed at** — a list of
+provider endpoint keys (`anthropic`, `openai`), in preference order. It is read on `program`
+alone, because it is a fact about a binary; absent means unconstrained, and an empty list is
+refused. [`protocol-resolution.md`](protocol-resolution.md) is what reads it.
+
+`node_floor` is the **minimum Node version the program's own entrypoint needs**, again on
+`program` alone. Without it, the workspace's `mise` pin chooses the interpreter an npm-delivered
+agent runs under, because the launcher execs a `#!/usr/bin/env node` script and mise's shims
+precede `/bin`. With it, resolution enumerates the installed Node candidates, picks one satisfying
+the floor, and the launcher execs that interpreter; the workspace pin still governs everything
+else. The floor is declared, never read from the package's `engines`, because the package is not
+installed when `yolo check` runs. It is opt-in per program since a `via: npm` package can ship a
+native binary that must never be wrapped in an interpreter. `packdecl` (`nodefloor.go`) holds the
+comparison.
+
 `install_hints` maps a host package manager to the package that provides `bin` there. Used
 below the `jail` notch, where yolo bakes no image, by `yolo check-deps` / `apply` to probe
 for the binary and emit a runnable manifest. One key names an installer *flavor* rather than
@@ -518,12 +575,12 @@ which broadcasts to every skills destination the selected packs declare — the 
 [`briefing`](#briefing), including who governs what. The `skills/` tree is **one unit**: it
 broadcasts implicitly unless a content contribution names it, by omitting `from` or by
 `from: "skills"`. A contribution naming a *different* tree adds that tree and leaves `skills/`
-broadcasting. Two content contributions naming one tree are refused
-([`OQ-PB5`](../design/pack-briefing-defaults.md#decision-ledger)).
+broadcasting ([P3 (briefing defaults)](#briefing-p3)). Two content contributions naming one tree
+are refused ([`OQ-PB5`](#oq-pb5)).
 
 A **destination** (`agent` + `into`, the line every agent pack uses to name where its agent
 reads skills) sources nothing, and `from` on one is refused, naming the addressed spelling
-([`P5`](../design/pack-briefing-defaults.md#1-verdict)). An agent pack that carries a `skills/`
+([P5 (briefing defaults)](#briefing-p5)). An agent pack that carries a `skills/`
 tree of its own ships it as the implicit broadcast, which reaches its own destination like any
 other pack's.
 
@@ -578,17 +635,44 @@ the message, rather than failing on the strict decoder's bare unknown-field erro
 Prose concatenated into a briefing file, attributed to its pack. **The destination is
 generated wholesale at every notch**, so a hand edit does not survive.
 
+Six rules govern what a pack's prose and skills deliver. Code comments cite them as
+"P1 (briefing defaults)" through "P6", so a bare `P1` never resolves to
+[this doc's own principles](#principles) or to
+[`agent-briefings.md`](agent-briefings.md#why-its-this-way)'s audience rows:
+
+- <a id="briefing-p1"></a>**P1 (briefing defaults). One file, one reader.** yolo never ships a file
+  as pack prose if an agent tool reads it as a repository's own instructions — today `AGENTS.md`,
+  `CLAUDE.md` and `GEMINI.md`. Those files stay where they are, as the repository's; shipped prose
+  lives [under `briefing/`](#briefing-directory).
+- <a id="briefing-p2"></a>**P2 (briefing defaults). Silence means broadcast, in a manifest too.** A
+  `briefing` or `skills` content contribution naming neither `into` nor `agents` reaches every
+  destination of its kind in the selected pack set. It is the audience rule [P2](agent-briefings.md#ba-p2) made reachable
+  from a `pack.json`.
+- <a id="briefing-p3"></a>**P3 (briefing defaults). Declarations add; they never subtract.** A
+  contribution governs the files it names, and nothing it declares about one file changes whether
+  a different file is delivered.
+- <a id="briefing-p4"></a>**P4 (briefing defaults). A named source is the only source.** A declared
+  `from` that cannot be read delivers nothing. It never quietly delivers a different file.
+- <a id="briefing-p5"></a>**P5 (briefing defaults). A destination accepts content; it never
+  supplies it.** A contribution that declares a destination (`agent` + `into`) sources nothing,
+  for `briefing`, `skills` and `files` alike.
+- <a id="briefing-p6"></a>**P6 (briefing defaults). Every delivery is visible before the first
+  launch**, the implicit ones included, and so is every conventional-looking file that is *not*
+  delivered — the [lint listing](#briefing-lint-listing).
+
 A contribution is one of two things, decided by `agent` alone:
 
 | Written | What it is | Sources |
 | :--- | :--- | :--- |
-| `{kind:"briefing", agent:"claude", into:".claude/CLAUDE.md"}` | a **destination** — the file an agent reads, declared by the pack that owns that agent | **nothing**; `from` on one is refused, naming the addressed spelling ([`P5`](../design/pack-briefing-defaults.md#1-verdict)) |
+| `{kind:"briefing", agent:"claude", into:".claude/CLAUDE.md"}` | a **destination** — the file an agent reads, declared by the pack that owns that agent | **nothing**; `from` on one is refused, naming the addressed spelling ([P5 (briefing defaults)](#briefing-p5)) |
 | `{kind:"briefing"}`, `{kind:"briefing", from:"…", agents:["pi"]}`, `{kind:"briefing", into:"…"}` | **content** — prose this pack ships | the files it governs (below) |
 
 `agent` is the IDENTITY a destination declares for itself (the launcher command whose agent
 reads it), declared by the pack that OWNS that name; nothing is derived from the pack's
 `program`/`requires` bins — the string is declared, carried, and compared literally. A
-destination needs `into`.
+destination needs `into`. An `agent` beside `agents` with no `into` is refused with both readings
+spelled — drop `agent` for content, or give it `into` for a destination — because P5 makes
+`agent` mean "destination".
 
 Content routes by **one of three answers**:
 
@@ -599,17 +683,19 @@ Content routes by **one of three answers**:
   only the claude pack can keep current, which is why `agents` exists. `into` and `agents` together
   are refused.
 - **Neither**: a **broadcast** to every briefing destination the selected packs declare, the
-  broadcasting pack's own included. That is what a pack with no manifest gets, and since
-  [`pack-briefing-defaults.md`](../design/pack-briefing-defaults.md#32-silence-means-broadcast-in-a-manifest-too)
-  a manifest can say it too: `{"kind": "briefing"}` is valid. It names no agent, so it can never
-  be an unmatched audience, and an agent pack selected later receives it with no edit. With no
-  destination selected it is simply unused, never fatal.
+  broadcasting pack's own included. That is what a pack with no manifest gets, and a manifest
+  can say it too ([P2 (briefing defaults)](#briefing-p2)): `{"kind": "briefing"}` is valid. It
+  names no agent, so it can never be an unmatched audience, and an agent pack selected later
+  receives it with no edit. With no destination selected it is simply unused, never fatal.
 
-**Each file has exactly ONE governing contribution**, and declarations only ever ADD
-([`§3.3`](../design/pack-briefing-defaults.md#33-a-file-is-governed-by-the-contribution-that-names-it)):
+<a id="briefing-governance"></a>**Each file has exactly ONE governing contribution**, and
+declarations only ever ADD ([P3 (briefing defaults)](#briefing-p3)):
 
-- A declared `from` names **exactly that one file**, anywhere in the pack. It is compared after
-  `path.Clean`, so `./briefing/a.md` and `briefing/a.md` are one file.
+- <a id="briefing-r4"></a>A declared `from` names **exactly that one file**, anywhere in the pack.
+  It is compared after `path.Clean`, so `./briefing/a.md` and `briefing/a.md` are one file
+  (R4 (briefing defaults): governance keys on the *cleaned* pack-relative path, or two spellings
+  of one file would read as two files with two governors). Every declared `from` also passes a
+  lexical in-pack containment check before it is read.
 - A content contribution that **omits `from`** governs every `briefing/*.md` that no other
   contribution names. That is how a pack narrows its whole convention in one line.
 - A `briefing/` file that **nobody** names broadcasts implicitly.
@@ -622,14 +708,16 @@ Naming `briefing/pi.md` the same way narrows that one file and leaves the rest b
 order of the `contributes` list never changes which files are delivered, or where.
 
 **Two content contributions naming one source are refused**, naming both
-([`OQ-PB5`](../design/pack-briefing-defaults.md#decision-ledger)): the same cleaned `from`, or
+([`OQ-PB5`](#oq-pb5)): the same cleaned `from`, or
 both omitting it. Every legitimate shape already has a one-contribution spelling — one `agents`
-list for several audiences, silence for all of them. The check is a sibling check, so it runs on
-the strict decode, which is the launcher's and `yolo pack lint`'s. The tolerant
-in-jail read folds a repeat instead, so each file is still delivered once.
+list for several audiences, silence for all of them. The check is a sibling check
+(`validateDuplicateContentSources`), so it runs on the strict decode, which is the launcher's and
+`yolo pack lint`'s. The tolerant in-jail read folds a repeat instead, so each file is still
+delivered once: the FIRST contribution governs, and when neither names an `into` their audiences
+union, a broadcast absorbing any list.
 
 **A declared source is the only source**
-([`P4`](../design/pack-briefing-defaults.md#1-verdict)). A `from` that is absent, a directory,
+([P4 (briefing defaults)](#briefing-p4)). A `from` that is absent, a directory,
 empty or whitespace-only delivers **nothing** from that contribution, and nothing else is read in
 its place. The jail launch and `yolo host apply` both warn, naming the path, and the rest of the
 pack set still composes. A `from` escaping the pack tree is refused outright. The old fallback chain,
@@ -642,6 +730,35 @@ heads each pack's section with one label, never one per file. The jail
 (`jailcontent.ComposePackBriefings`) and the host (`entrypoint.ComposeHostBriefings`) produce the
 same bytes, pinned against each other by
 [`briefingparity_test.go`](../../internal/cli/run/briefingparity_test.go).
+
+<a id="briefing-lint-listing"></a>**`yolo pack lint` lists every delivery before any launch**
+([P6 (briefing defaults)](#briefing-p6)). Under a `delivers:` header it prints each `briefing`
+file and `skills` tree the pack delivers and where it goes, from the same `GovernedSources` answer
+the notches use (deliberately not from the footprint, which feeds the launch banners). An implicit
+delivery reads `every agent (implicit broadcast)`, a `{"kind": "briefing"}` with no route reads
+`every agent (declared broadcast)`, and a declared one names the `contributes[i]` line that routes
+it. Lint takes one pack and no config, so it cannot resolve "every agent" into names; the resolved
+list is `yolo host apply`'s and the launch banner's to print. It then names, one info line each,
+every conventional-looking file it will **not** ship: a root `AGENTS.md`, `CLAUDE.md` or
+`GEMINI.md` (the repository's own instructions — info, not a warning, because not shipping it is
+correct), and a subdirectory or non-`*.md` file inside `briefing/`. Its advisory on a content
+`into` that an agent pack already declares says that dropping the line **widens** delivery back to
+the broadcast.
+
+`yolo pack init` scaffolds `briefing/<pack>.md` — or `briefing/prose.md` when the directory's own
+name is a reserved basename, so the scaffold never fails its own lint — and keeps its advice on
+addressed contributions in the scaffold's `README.md`, which ships nowhere.
+
+<a id="briefing-non-goals"></a>What the briefing rules deliberately do **not** do:
+
+- **`files` does not broadcast.** Its destinations are typed slots, and "every agent" has no
+  meaning for one, so a `files` contribution still names `into` or `agents`.
+- **A filename never addresses.** `briefing/claude.md` reaches every agent like any other file;
+  audience is a manifest field, never an implicit rule read from a name.
+- **No per-file consumer toggle and no fetch-origin rule** ([`OQ-PB4`](#oq-pb4)). Selecting a pack
+  is the consent for its prose, as for every other kind.
+- **The severity of a mistyped `from`** stays a warning here; whether it should refuse belongs to
+  [`reference-mismatch-diagnostics.md`](../design/reference-mismatch-diagnostics.md).
 
 > [!NOTE]
 > **A content `into` narrows at the host notch only**, for `briefing` and `skills` alike.
@@ -665,17 +782,38 @@ user-maintained file left to prepend.
 
 The first apply into a destination the user wrote is CONFIRMED, once, and fails closed on a
 non-interactive stdin — taking wholesale ownership of a file the user wrote is a one-way
-door. Their prose is MOVED into the conventional local pack, as a file under
-`~/.config/yolo-jail/local/briefing/`, from which yolo composes it back into every
-destination, so their instructions keep reaching their agents. A local pack from before
-`briefing/` holds that prose at `local/AGENTS.md`, which is no longer read; the next
-`yolo host apply` moves it under `local/briefing/` and says so, and refuses, naming both files,
-if the target name is already taken. It also refuses while the local `pack.json` still names
-`AGENTS.md` in a briefing `from`, naming the edit: the moved file would otherwise be named by no
-declaration and reach every agent, not the audience that `from` routed it to. To add personal
-prose, edit
-the local pack, not the destination. Dropping the last contributing pack **archives** the
+door. Their prose is MOVED into the conventional local pack, as
+`~/.config/yolo-jail/local/briefing/local.md`, from which yolo composes it back into every
+destination, so their instructions keep reaching their agents. To add personal prose, edit the
+local pack, not the destination. Dropping the last contributing pack **archives** the
 destination rather than leaving a generated file with no owner; nothing is ever deleted.
+
+<a id="local-pack-briefing-move"></a>**The local pack's legacy `AGENTS.md` is moved by yolo,
+because yolo chose that location.** An earlier yolo migrated adopted prose to the local pack's
+root `AGENTS.md`, which is no longer read ([P1 (briefing defaults)](#briefing-p1)). The first step
+of the `briefing` kind in `yolo host apply` (`entrypoint.MoveLegacyLocalPackBriefing`) moves it to
+the same `briefing/local.md` the adoption writes — one name for both writers, so the two never
+race into two files whose join order the user did not choose — and says so. Each case is chosen
+so that nothing of the user's is lost or chosen between:
+
+- **Nothing to move** — absent, a directory, or a dangling link: silent, since none of them ever
+  delivered prose.
+- **The target name is taken** — refused, naming both files. The one exception is the same file
+  under both names, which is what an interrupted move leaves; that is finished.
+- **A symlink** — refused, naming both files, since renaming it one directory deeper would break a
+  relative link and rewriting the user's link is not yolo's to do.
+- **The local `pack.json` still names `AGENTS.md` in a briefing `from`** — refused, naming the
+  edit: governance never reads a reserved `from`, so the moved file would be named by no
+  declaration and broadcast to every agent instead of the audience that `from` routed it to.
+- Otherwise it moves **without clobbering**: a hard link then an unlink, so a file created at the
+  target between the check and the move is never replaced. Only a filesystem without hard links
+  falls back to a rename, behind the earlier existence check. A dry run reports `would move` and
+  writes nothing.
+
+A refused move **stops the briefing kind before it composes**: composing without the local pack's
+prose would regenerate every destination without the user's own instructions, and could archive a
+destination the local pack was the only contributor to. A third-party pack's `AGENTS.md` is its
+author's to move; nothing touches one.
 
 #### `files`
 
@@ -921,6 +1059,18 @@ answering the same question for the daemon that `program` answers for the vendor
 The service half is **declared and carried**: nothing reads it yet, so a service is started
 on every platform whatever it says.
 
+#### `adapter`
+
+A **protocol conversion served at an address**: `adapts: {from, to}` plus the `address` that
+speaks `to`. It says nothing about who runs it, and that separation is the rule — a remote
+gateway, a proxy the user already runs, and a daemon a pack ships all declare the same thing. A
+pack that does run its adapter declares the daemon separately, as a `service` or a `loophole`,
+which is where that crossing is reviewed; `packs/wire-bridge` declares both. Exclusive by the
+pair, never by pack, so one pack declaring two pairs is ordinary and two packs both claiming one
+conversion collide. Not review-worthy: an address is the same class of fact a provider endpoint
+is. How core pairs an agent's `protocols` with a provider's endpoints through an adapter is
+[`protocol-resolution.md`](protocol-resolution.md)'s, and nothing here restates it.
+
 #### `blocked-tool`
 
 Refuses a tool inside the jail, printing a message and an alternative instead of running it.
@@ -1029,7 +1179,7 @@ sidecars to clean up, and `readsHost` declares that the user's own copy of this 
 from their real home, is composed as the `host` layer.
 
 The engine composes a surface by folding layers with RFC-7386 merge semantics, lowest to
-highest precedence:
+highest precedence, and then applies [the managed floor](#the-managed-floor):
 
 ```
 defaults < host < workspace < config-overlay < capture-overlay < computed(derive) < managed
@@ -1057,9 +1207,46 @@ defaults < host < workspace < config-overlay < capture-overlay < computed(derive
   surfaces.
 - **`computed`** is the per-boot dynamic layer produced by [`derive`](#the-derive-slot); a
   null value there is an RFC-7386 tombstone that deletes the key.
-- **`managed`** is the floor yolo always wins.
+- **`managed`** is the floor yolo always wins. It is not one of the folded layers: it is
+  re-asserted over the fold's result as the pipeline's last step.
 
 `${workspace}` in a map key is substituted with the container workspace path.
+
+### The managed floor
+
+<a id="lt-p3"></a>The **managed floor** is the step that re-asserts a surface's `managed` layer over
+everything the fold produced, so yolo's non-negotiable keys win the rendered file whatever any
+layer below said. It belongs to the compose pipeline, in `internal/agentcfg` (`enforceManaged`, and
+`enforceManagedTOML` for a `toml` surface), not to any VM — P3 (transform removal): nothing about
+it is Lua, and it used to live as a method on the transform's Lua context, which is how a
+disconnected part hides. It reads the surface's own declared `managed` layer directly, so nothing
+the fold did can move it.
+
+Its semantics differ from the fold's merge on purpose:
+
+- <a id="lt-r1"></a>**For JSON, a managed `null` is ASSIGNED, not deleted.** The fold is RFC 7386,
+  where a null under a key deletes the key. The floor is not: a managed null means "this key
+  renders as null", not "drop whatever the host set". For **TOML**, which has no literal null, a
+  managed null deletes that key, since assigning it would produce a file the encoder must refuse.
+  Pinned by `TestEnforceManagedNilIsAssignedNotDeleted`, `TestComposeManagedNilValueIsAssignedNotDeleted`
+  and `TestComposeTOMLManagedNullDeletesOnlyItsKey` (R1 (transform removal): the floor must not
+  change meaning when it moves).
+- **Deep for objects.** A managed object merges key by key into the composed object, so a host
+  `permissions.ask` survives beside a managed `permissions.allow`. A managed scalar or array
+  replaces, deep-copied, so the result never shares structure with the managed layer.
+- <a id="lt-r3"></a>**Whole-value for a keyless surface.** On a `raw` or `lines` surface a non-nil
+  managed layer replaces the entire rendered value — `managed` there means "this file is exactly
+  these bytes". Pinned without any script by `TestEnforceManagedKeylessReplacesWholeValue` and
+  `TestComposeRawManagedReplacesWholeFile` (R3 (transform removal): the keyless floor's only proof
+  once ran through a transform script).
+- **In place.** When both sides are objects, the composed map is mutated and the same map
+  returned; a copying rewrite would change aliasing for a caller still holding the merged map.
+  Pinned by `TestEnforceManagedMutatesConfigInPlace`.
+
+> [!WARNING]
+> **Do not reuse the fold's `mergeValue` for the floor, however tidy one merge looks.** The two are
+> one `if` apart on a null value and read as interchangeable; unifying them silently turns a
+> managed null from "render null" into "delete the host's key".
 
 ### The four modes
 
@@ -1259,6 +1446,39 @@ The contract:
   `ctx.empty_array` is the sentinel for an intentional empty JSON array, which Lua cannot
   distinguish from an empty object.
 - It runs in the sandboxed Lua VM, and it must be deterministic.
+
+The VM (`luahook.GopherLuaVM`, pure-Go gopher-lua, vendored so the hermetic image build works
+offline) is **the derive path's alone**: the `luahook` package's whole identity is the pack derive
+sandbox. It opens only the base, string, table and math libraries and then strips every forbidden
+global by subtraction — no `os`, `io`, `require`, `package`, code loaders, `print` or environment
+reassignment — so a script's only channel in or out is the context the VM marshals. A run is bounded
+by a wall-clock budget, and a Lua error surfaces as a loud Go error carrying file and line, never as
+a partial computed layer. `internal/agentcfg`, the compose engine, does not link Lua at all; the
+config-composition pipeline has no user-supplied script slot.
+
+<a id="lt-p1"></a>
+
+> [!WARNING]
+> **The sandbox pieces in `luahook` look like transform leftovers and are shared core.** Until the
+> config transform was removed ([`OQ-LT1`](#oq-lt1)) the package served two callers, and the
+> removal was a SPLIT, not a deletion (P1 (transform removal): `derive.lua` runs exactly as it did,
+> and every proof of the *shared* sandbox was re-expressed on the derive path before the
+> transform's tests went). `openSandboxLibs`, `extraStrippedGlobals`, `ForbiddenGlobals`,
+> `wrapLuaErr` — whose `lua transform error:` prefix is a wording leftover, not a sign the
+> function is dead — the marshallers and `GopherLuaVM` itself are what every shipped `derive.lua`
+> runs on. `TestEveryShippedPackDeriveStillRuns` (`luahook/shippedpacks_test.go`) is the tripwire:
+> it runs every `packs/*/derive.lua` through the real VM, across all three registration spaces,
+> because a fixture script exercises only the API subset its author wrote. The
+> `TestDeriveSandbox_*` tests carry the sandbox proofs themselves.
+
+<a id="derive-determinism"></a>
+
+> [!WARNING]
+> **"Must be deterministic" is a requirement on the script, not a property the sandbox
+> enforces.** The `math` library is opened whole and neither stripped-globals list names
+> `math.random`, so a `derive.lua` can call it and produce a different computed layer every
+> boot. Nothing yolo ships does. Closing it is one name in `extraStrippedGlobals` plus a test; the
+> package doc and `sandbox.go` record the gap.
 
 The **canonical MCP-server type** lives in core: `name → {command, args, env}`, open and
 additively versioned, so a new transport is a new optional field that never breaks an
@@ -1666,9 +1886,14 @@ directly.
 
 Rulings a future change would otherwise undo, kept with their original IDs — those IDs are
 cited from code comments and sibling docs, and this appendix is where they resolve. The two
-rows marked *(profiles)* resolve in
-[`../design/profiles-as-pack-variants.md`](../design/profiles-as-pack-variants.md)'s ledger,
-which is still the index for that arc's other rulings.
+rows marked *(profiles)* are the retired profile-variant design's, and resolve in full in
+[`providers.md`](providers.md#the-profile-variant-rulings), which is the index for that arc's
+other rulings. Ids from the two folded-in designs keep
+their original spelling and are QUALIFIED where the bare id already means something here:
+*briefing defaults* (the `briefing/` convention — its P1–P6, R4 and R5 are
+[in the `briefing` section](#briefing)) and *transform removal* (its P1, P3, R1 and R3 are
+[in the derive slot](#lt-p1) and [the managed floor](#the-managed-floor)). The unqualified
+**R1–R5** below are the config-overlay rulings.
 
 | Ruling | Why it holds |
 | :--- | :--- |
@@ -1684,16 +1909,24 @@ which is still the index for that arc's other rulings.
 | **[OQ-CAP](#why-its-this-way)** — `supersedes` is a top-level manifest key, not a kind | A contribution that contributes nothing is a category error; the thing that IS a contribution is the loophole. Pinned rejected by `TestSupersedesIsNotAContributionKind`. |
 | **[OQ-TP6](../design/trust-paths.md#decision-ledger)** — a refused pack contribution refuses the launch | Withheld-with-a-notice let a jail come up missing what it was told to load. |
 | **[OQ-TP9](../design/trust-paths.md#decision-ledger)** — no fetched-pack host-access approval gate; disclosure replaces it | The gate refused an actor who had already passed a stronger one, and its containment rationale was refuted by `npm install -g` running `postinstall` ungated. |
-| **[OQ-1](../design/profiles-as-pack-variants.md#14-decision-ledger)** (profiles) — `autonomy` and `profile` stay two kinds | The confinement-conditional keys live in `autonomy` "and nowhere else", and the selectors are asymmetric: autonomy keys off the constructor-only fail-closed notch, profile names arrive through a merge an agent can edit. |
-| **[OQ-16](../design/profiles-as-pack-variants.md#14-decision-ledger)/[OQ-17](../design/profiles-as-pack-variants.md#14-decision-ledger)** (profiles) — the `profile` gate on `config-overlay` reads user-scope config at the HOST notch | A gated overlay rewrites real-home keys and a workspace config is agent-editable; inside a jail the blast radius is the disposable home, so the jail notch uses the full effective table. |
+| **[OQ-1](providers.md#pv-oq-1)** (profiles) — `autonomy` and `profile` stay two kinds | The confinement-conditional keys live in `autonomy` "and nowhere else", and the selectors are asymmetric: autonomy keys off the constructor-only fail-closed notch, profile names arrive through a merge an agent can edit. |
+| **[OQ-16](providers.md#pv-oq-16)/[OQ-17](providers.md#pv-oq-17)** (profiles) — the `profile` gate on `config-overlay` reads user-scope config at the HOST notch | A gated overlay rewrites real-home keys and a workspace config is agent-editable; inside a jail the blast radius is the disposable home, so the jail notch uses the full effective table. |
 | **Q1.3** — `requires` is its own kind, CombineShared | Install and presence are different claims; conflating them made a pack either lie about a baked binary or lose its `install_hints` entirely. `requires` owns no path, so many packs requiring one binary is not a collision. |
 | **Q2.1** — several `program` contributions per pack, each with its own launcher | Exclusivity is per `bin`; `shellcheck` + `shfmt` in one pack is ordinary, and there is no case for constricting packs. |
 | **Q3.1** — prune only unconfigured slugs, contents-only; keep the unresolvable | Clear-then-restage would discard a pack the user still wants because it could not be fetched; the staging root's inode is captured by a live jail's bind. |
 | **WB-D9..D12** — `needs` names an embedded pack, resolves before staging, joins user selection, and always prints | A fetched pack needs-ing another would make selection a supply-chain channel; a silent join is the one forbidden behavior. |
+| <a id="oq-pb1"></a>[**OQ-PB1**](#oq-pb1) (briefing defaults) — shipped prose lives in a `briefing/` directory of `*.md` files at the pack root, read one level deep, ordered per pack and never globally | A root `BRIEFING.md` would be shipped content spelled in the repository's grammar (uppercase root Markdown), which is how `AGENTS.md` got its second reader, and one file cannot be the unit per-file governance routes. A global sort across packs would let one pack's filenames reorder another pack's rules. |
+| <a id="oq-pb2"></a>[**OQ-PB2**](#oq-pb2) (briefing defaults) — `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` are refused as a SOURCE at any depth, naming the move | Agent tools read those names in subdirectories too, so depth does not make one safe, and an allowed opt-in (`from: "AGENTS.md"`) returns the dual-reader defect one pack at a time. One text for both readers is already spelled `CLAUDE.md` → `@briefing/x.md`. |
+| <a id="oq-pb3"></a>[**OQ-PB3**](#oq-pb3) (briefing defaults) — the cut is hard: a root `AGENTS.md` stops being read, with no refusal, no notice at launch or host apply, and no hatch | A notice would fire forever on every correctly-unshipped repository guide; the pack may be someone else's repository, so it cannot be a refusal; and a hatch would keep the second reader alive behind a variable. `yolo pack lint`'s listing is where an author looks. |
+| <a id="oq-pb4"></a>[**OQ-PB4**](#oq-pb4) (briefing defaults) — no separate rule for fetched packs | Selecting a pack is the consent, as for every other kind, and the lint listing is the disclosure. A rule keyed on how a pack was fetched makes one pack behave two ways; a per-file consumer toggle waits for a real third-party pack that abuses always-on prose. |
+| <a id="oq-pb5"></a>[**OQ-PB5**](#oq-pb5) (briefing defaults) — two content contributions of one kind naming one source are refused, naming both | They contradict "one governing contribution per file", and every legitimate shape has a one-contribution spelling (`agents: [a, b]`, or silence). Strict decode only; the tolerant in-jail read folds a repeat so each file is still delivered once. |
+| <a id="briefing-r5-row"></a>**R5** (briefing defaults) — one predicate, `packload.GovernedSources`, for every notch that reads a pack's sources | The gate used to live at three sites that agreed, which is how one trap reached every notch; a fourth site with its own gate drifts. See [the warning](#briefing-r5). |
+| <a id="oq-lt1"></a>[**OQ-LT1**](#oq-lt1) (transform removal) — the config transform (`config.lua`, `host_files[].transform`, a surface's `transform`) is deleted outright: no named refusal, no deprecation window | It had no user, and permanent named refusals would be code written for nobody. A stale key is still loud for free: the `host_files` key set (`knownHostFileKeys`) is closed and surface and overlay decoding is `DisallowUnknownFields`, so each is refused as an unknown key — the basis the ruling rests on, pinned by `TestHostFilesRetiredTransformKey` and `TestDecodeOverlayRejectsUnknownField`. A leftover `config.lua` file is simply never read. Do not add a `validateJournalRetired`-style refusal for it, and do not widen `knownHostFileKeys` back. |
+| <a id="oq-lt2"></a>[**OQ-LT2**](#oq-lt2) (transform removal) — principle 4 of the agent-settings composition design ("Lua, not a data-filter vocabulary") retires with the transform; the two gaps it leaves are accepted | Nothing declarative edits inside a host-supplied array or conditionally on its value, and nothing makes a declared, portable, *partial* edit of a raw file the host also owns. The answer is `capture` once (state) or `content:` (a jail-specific copy); a declarative `filter`/`replace` op is designed against a real case or not at all. Do not reintroduce a post-merge script slot to close either gap. |
 
 ## Current values
 
-Verified at `a3922298`. The prose above explains what each of these is for; this table is the
+Verified at `7ad8358c`. The prose above explains what each of these is for; this table is the
 only place the values themselves are stated.
 
 | Value | Setting | Defined in |
@@ -1704,6 +1937,9 @@ only place the values themselves are stated.
 | Conventional briefing source | every `*.md` directly inside `briefing/` | `packdecl.DefaultBriefingDir`, `packdecl.ConventionalBriefingFile` |
 | Never a briefing source | `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, at any depth | `packdecl.RepositoryInstructionFile` |
 | Which contribution governs each source | one per file, destinations excluded | `packload.GovernedSources` |
+| Briefing source order within a pack | byte-wise by cleaned pack-relative path | `packload.GovernedSources` |
+| Local pack's migrated prose | `~/.config/yolo-jail/local/briefing/local.md`; legacy `local/AGENTS.md` | `entrypoint.LocalPackBriefingRel`, `entrypoint.LegacyLocalPackBriefingRel` |
+| Scaffolded briefing file | `briefing/<pack>.md`, or `briefing/prose.md` for a reserved name | `cli.scaffoldBriefingRel` |
 | Conventional skills source | `skills/` | `packdecl.Contribution.SkillsSource` |
 | Blocker dir (first on PATH) | `~/.yolo/bin/block` | `entrypoint.BootPath` |
 | Launcher dir (second on PATH) | `~/.yolo/bin/launch` | `entrypoint.BootPath` |
@@ -1715,13 +1951,17 @@ only place the values themselves are stated.
 | Host staging root | `<global storage>/agents/<container>/packs/<slug>` | `paths.AgentsDir`, `PackEntry.Slug` |
 | Lockfile | `~/.config/yolo-jail/packs.lock.json` (beside the user config) | `packsrc/lock.go` |
 | Conventional local pack | `~/.config/yolo-jail/local` (`briefing/`, `skills/`) | `paths.LocalPackDir` |
-| Config-surface layer order | `defaults < host < workspace < config-overlay < capture-overlay < computed < managed` | `internal/agentcfg` |
+| Config-surface layer order | `defaults < host < workspace < config-overlay < capture-overlay < computed`, then the managed floor | `internal/agentcfg` (`Compose`) |
+| Managed null | JSON: assigned (renders `null`); TOML: deletes the key | `agentcfg.enforceManaged`, `agentcfg.enforceManagedTOML` |
+| Derive VM run budget | 5s wall clock | `luahook.DefaultTimeout` |
+| Derive sandbox libraries | base, string, table, math (whole — `math.random` included) | `luahook.openSandboxLibs`, `ForbiddenGlobals`, `extraStrippedGlobals` |
+| Packs shipping a `derive.lua` | `agy`, `claude`, `codex`, `copilot`, `omp`, `opencode`, `pi` | `packs/*/derive.lua`, all run by `TestEveryShippedPackDeriveStillRuns` |
 | Surface modes | `stateful` (default), `computed`, `rmw`, `unrendered` | `internal/agentcfg/manifest` |
 | `state` scopes | `workspace` (default), `machine` (requires `because`) | `packdecl` |
 | `skills_tier` values | `""` / `flat` (default), `namespaced` | `packdecl.Manifest.SkillsTier` |
 | Derive registrations | `yolo.derive(agent, surface, fn)`, `yolo.env(agent, fn)` | `internal/agentcfg/luahook` |
 | Derive ctx sentinels | `ctx.tombstone`, `ctx.empty_array` | `luahook/derive.go` |
-| Derive ctx sources | `ctx.mcp_servers`, `ctx.lsp_servers`, `ctx.providers`, `ctx.selected_provider`, `ctx.profile_name`, `ctx.profile` | `luahook.DeriveCtx` |
+| Derive ctx sources | live tables `ctx.mcp_servers`, `ctx.lsp_servers`, `ctx.providers`, `ctx.use_profiles`; scalars `ctx.agent`, `ctx.surface`, `ctx.selected_provider`, `ctx.profile_name`; `ctx.profile` | `luahook.DeriveCtx`, `knownDeriveSources` |
 | Loophole settings token | `{settings}` in a manifest `cmd` | `internal/loopholes/settings.go` |
 | Settings types | `string`, `bool`, `int`, `string_list` | `loopholedecl/settings.go` |
 | Settings scope default | `user` | `loopholedecl/settings.go` |

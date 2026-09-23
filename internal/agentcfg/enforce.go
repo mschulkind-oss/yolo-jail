@@ -4,9 +4,11 @@ package agentcfg
 // `managed` layer over everything the fold produced, so yolo's non-negotiable
 // keys win the rendered file regardless of what any layer below them said.
 //
-// It lived as a method on luahook.Ctx until docs/design/lua-transform-removal.md
-// §4.2 lifted it here unchanged. Nothing about it is Lua: it is the last step of
-// the §3.1 pipeline (… → enforce(managed) → encode), so it belongs to the
+// Architecture and invariants: docs/reference/pack-system.md#the-managed-floor.
+//
+// It lived as a method on luahook.Ctx until the transform removal lifted it here
+// unchanged. Nothing about it is Lua: it is the last step of the compose
+// pipeline (… → enforce(managed) → encode), so it belongs to the
 // pipeline's own package. The move preserved three semantics that a tidier
 // rewrite would each silently change. Items 1 and 3 are pinned by tests in
 // enforce_test.go that name them; item 2 is STRUCTURAL at HEAD rather than

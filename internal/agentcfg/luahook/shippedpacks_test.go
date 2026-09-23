@@ -2,7 +2,7 @@ package luahook
 
 // shippedpacks_test.go runs every derive.lua yolo SHIPS through the real VM.
 //
-// It is the tripwire docs/design/lua-transform-removal.md P1 names: the transform
+// It is the tripwire docs/reference/pack-system.md#lt-p1 names: the transform
 // removal was a SPLIT of this package, not a deletion, and "derive.lua still runs
 // byte-for-byte as it does today" is the condition the cut had to meet. Every other
 // test here drives a FIXTURE script, and a fixture exercises the API subset its author

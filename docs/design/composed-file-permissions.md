@@ -42,7 +42,7 @@ IDs (`CFP-*`) minted 2026-08-23.
    blanket rule would silently downgrade those.~~
 
    **2026-09-12: the second half of that leaning has lost its referent.** The Lua transform is
-   removed ([`lua-transform-removal.md`](lua-transform-removal.md)), so no surface carries one and
+   removed ([`pack-system.md`](../reference/pack-system.md#oq-lt1)), so no surface carries one and
    the per-surface-vs-blanket call now turns on `managed`/`defaults` and the overlay alone.
    Whoever answers CFP-1 owns that re-weighing; this note does not make it.
 

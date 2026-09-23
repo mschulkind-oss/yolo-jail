@@ -875,7 +875,7 @@ defaults < host < workspace < config-overlay:<pack> < overlay(capture) < compute
 ```
 
 A post-merge Lua `transform` sat between `computed` and `managed` until 2026-09-11
-([`lua-transform-removal.md`](../design/lua-transform-removal.md)); the derive Lua this
+([`OQ-LT1`](../reference/pack-system.md#oq-lt1)); the derive Lua this
 section goes on to use is the other half of that package and is untouched.
 
 `computed` — what `derive.lua` returns — sits **above** the captured in-jail

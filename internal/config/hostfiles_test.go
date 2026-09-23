@@ -112,7 +112,7 @@ func TestHostFilesUnknownKey(t *testing.T) {
 }
 
 // TestHostFilesRetiredTransformKey is the SAFETY ARGUMENT of OQ-LT1
-// (docs/design/lua-transform-removal.md), pinned.
+// (docs/reference/pack-system.md#oq-lt1), pinned.
 //
 // The Lua transform was deleted outright with no deprecation window and no named
 // refusal saying "this was removed" — explicitly because the generic closed-key-set

@@ -1,7 +1,9 @@
 package jailcontent
 
 // lspplugin.go renders ONE yolo-authored Claude plugin whose `lspServers` comes from the user's own
-// `lsp_servers` table — option D of docs/design/claude-lsp-plugins.md, ruled by OQ-LSP1.
+// `lsp_servers` table — option D, ruled by OQ-LSP1 (docs/reference/mcp-configuration.md#oq-lsp1).
+//
+// Architecture and invariants: docs/reference/mcp-configuration.md#lsp-claudes-route-is-a-generated-plugin.
 //
 // # What it replaces
 //
@@ -13,7 +15,7 @@ package jailcontent
 //
 // # Why a plugin at all, and why this path
 //
-// MEASURED against Claude Code 2.1.278 (OQ-LSP3, 2026-09-22), statically from its bundle:
+// MEASURED against Claude Code 2.1.278 (OQ-LSP3, docs/reference/mcp-configuration.md#oq-lsp3, 2026-09-22), statically from its bundle:
 //
 //   - Claude accepts LSP servers ONLY from a plugin. Nothing in settings.json takes an `lspServers`
 //     table, so there is no non-plugin route (that was option E, refuted).

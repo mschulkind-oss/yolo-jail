@@ -393,7 +393,7 @@ inapplicable kinds are refused by name.
 > layer), and the capture overlay does **not** outrank every declared layer — it loses to
 > `computed`/`managed` ([`compose.go`](../../internal/agentcfg/compose.go); the `transform`
 > layer this note also listed was removed 2026-09-11,
-> [`lua-transform-removal.md`](../design/lua-transform-removal.md)), which is why it is a
+> [`OQ-LT1`](../reference/pack-system.md#oq-lt1)), which is why it is a
 > closure problem rather than a correctness one. **This is
 > user-stories Q1's unbuilt half.**
 

@@ -6,12 +6,12 @@ package run
 // The defect: packSkillTargets set `Dest: c.Into` for every `skills` contribution, and an
 // ADDRESSED one (`{"kind":"skills","agents":["claude"]}`) has no `into` by design — it names
 // who its content is FOR, and where that agent reads is the agent pack's business
-// (briefing-audiences.md P4). So Dest was "", the mount destination collapsed to the home
+// (docs/reference/agent-briefings.md#ba-p4). So Dest was "", the mount destination collapsed to the home
 // root, and podman refused the launch with `"/home/agent": duplicate mount destination` —
 // every jail launch, for any pack carrying an addressed skills tree.
 //
 // Measured 2026-09-03: reproduced at 49bb2088 (before that day's work), so it shipped with
-// briefing-audiences steps 1-2 on 2026-09-02. An addressed BRIEFING was unaffected; only
+// the audience selector's first two build steps on 2026-09-02. An addressed BRIEFING was unaffected; only
 // skills mount.
 
 import (

@@ -4,7 +4,7 @@ package luahook
 
 // derive.go is the whole Lua slot: the PRODUCER a pack declares. A mutator
 // (transform) half stood beside it in vm.go until
-// docs/design/lua-transform-removal.md deleted it; vm.go is now the VM and its
+// the transform removal (docs/reference/pack-system.md#oq-lt1) deleted it; vm.go is now the VM and its
 // sandbox and nothing else, so there is no other half to be distinct from.
 //
 // A `derive` runs PRE-merge: it receives the live config tables (mcp_servers,

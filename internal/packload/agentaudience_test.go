@@ -1,6 +1,6 @@
 package packload
 
-// agentaudience_test.go pins P3/OQ-BA3 (briefing-audiences.md §4.3): an `agents` selector may
+// agentaudience_test.go pins P3/OQ-BA3 (docs/reference/agent-briefings.md#two-severities-an-unknown-name-is-fatal-an-unmatched-destination-is-reported): an `agents` selector may
 // name only an agent this pack set HAS, and anything else is a problem with one message.
 //
 // The severity is the caller's — every one makes it fatal — so these tests are about the

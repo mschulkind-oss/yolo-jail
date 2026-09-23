@@ -178,7 +178,7 @@ Three items the roadmap used to hold separately are the same defect:
 |---|---|
 | `sectionRunningJails` (`check.go:514`) | reports the **nested** podman's view; prints `[PASS] No jails currently running` while the host has one |
 | `sectionGPUNvidia` (`sections_devices.go:38`) | three `[FAIL]`s for host facts read from the wrong side |
-| broker-ca **[OQ-3](../design/broker-ca-and-nested-hosts.md#7-open-questions)** | `[PASS]` on a section that was *skipped* — the shape that hid a daemon that never started |
+| broker-ca **[OQ-3](../reference/claude-oauth-interposition.md#oq-3)** | `[PASS]` on a section that was *skipped* — the shape that hid a daemon that never started |
 
 Each is currently a small question about one section's wording. **They are one question about
 `check`'s vocabulary:** a section knows whether its facts are host-authoritative, jail-observable, or

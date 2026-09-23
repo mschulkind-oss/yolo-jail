@@ -6,7 +6,7 @@ import (
 )
 
 // enforce_test.go pins the managed floor DIRECTLY, at the function
-// docs/design/lua-transform-removal.md §4.2 lifted out of luahook.Ctx.
+// the transform removal lifted out of luahook.Ctx (docs/reference/pack-system.md#the-managed-floor).
 //
 // The compose-level pins stay the ones that prove the floor is WIRED — delete
 // the enforceManaged call in compose.go and TestComposeManagedNilValueIsAssigned‑
@@ -35,7 +35,7 @@ func TestEnforceManagedNilIsAssignedNotDeleted(t *testing.T) {
 	v, present := got["nulled"]
 	if !present {
 		t.Fatal("the floor DELETED a nil-valued managed key; it must ASSIGN it " +
-			"(enforceValue is not RFC 7386 — §4.2 item 1)")
+			"(enforceValue is not RFC 7386 — docs/reference/pack-system.md#lt-r1)")
 	}
 	if v != nil {
 		t.Errorf("nulled = %#v, want an explicit nil assigned over the host value", v)
@@ -131,7 +131,7 @@ func TestEnforceManagedSharesNoStructureWithManaged(t *testing.T) {
 }
 
 // TestEnforceManagedMutatesConfigInPlace pins the ALIASING, which is the third
-// thing the move had to preserve (§4.2 / enforce.go item 3): when both sides are
+// thing the move had to preserve (enforce.go item 3): when both sides are
 // objects the config map handed in is the map written to and the map returned.
 //
 // This is not an aesthetic claim about the code — it is what any caller still
@@ -151,7 +151,7 @@ func TestEnforceManagedMutatesConfigInPlace(t *testing.T) {
 	}
 	if !sameMap(gotMap, config) {
 		t.Error("the returned object is a different map from the config passed in; " +
-			"the floor enforces IN PLACE (§4.2 item 3)")
+			"the floor enforces IN PLACE (enforce.go item 3)")
 	}
 	if config["defaultProjectTrust"] != "always" {
 		t.Errorf("caller's map was not written through: %#v", config)

@@ -59,7 +59,7 @@ func TestAutoLoadImageFreshLoad(t *testing.T) {
 	if !strings.Contains(out.String(), "Done: loaded image") {
 		t.Errorf("expected done message, got %q", out.String())
 	}
-	// §3.10: the copied-vs-skipped ratio IS the claim, so it must reach the human.
+	// image-staging-vs-baking.md#what-a-copy-reports: the copied-vs-skipped ratio IS the claim, so it must reach the human.
 	if !strings.Contains(out.String(), "Copied image:") {
 		t.Errorf("expected the copied/skipped report, got %q", out.String())
 	}

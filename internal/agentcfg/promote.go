@@ -39,7 +39,7 @@ import (
 //
 // (§5.2 named a second dead class — a key the Lua `transform` rewrote, which narrowOverlay
 // never saw because its signature takes only the two owner layers. That class is EMPTY as
-// of docs/design/lua-transform-removal.md: the transform step is gone from Compose, so
+// of the transform's removal (docs/reference/pack-system.md#oq-lt1): the transform step is gone from Compose, so
 // nothing folds above the overlay but `computed` and `managed`, and both are parameters
 // here.)
 //

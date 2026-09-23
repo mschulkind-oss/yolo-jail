@@ -1,6 +1,6 @@
 package packdecl
 
-// audience_test.go pins the `agent`/`agents` pair briefing-audiences.md adds to the manifest:
+// audience_test.go pins the `agent`/`agents` pair docs/reference/agent-briefings.md#audiences-what-varies-per-destination adds to the manifest:
 // the identity a DESTINATION declares for itself, and the AUDIENCE a contribution names instead
 // of a path.
 //
@@ -51,11 +51,11 @@ func TestDestinationIdentityValidates(t *testing.T) {
 	}
 }
 
-// `into` STAYS REQUIRED FOR A DESTINATION. P2 (pack-briefing-defaults.md) made route-less
+// `into` STAYS REQUIRED FOR A DESTINATION. P2 (docs/reference/pack-system.md#briefing-p2) made route-less
 // briefing and skills CONTENT a broadcast, so the rule this pins moved: the conditional must not
 // have widened into "into is optional now" for the other role. A destination (`agent` set) IS
 // its path — with no `into` it names a landing place that does not exist — so it stays refused,
-// and `files` content, which cannot broadcast (§5), still needs a route.
+// and `files` content, which cannot broadcast (pack-system.md#briefing-non-goals), still needs a route.
 func TestIntoStillRequiredWithoutAnAudience(t *testing.T) {
 	for _, raw := range []string{
 		`{"kind":"briefing","agent":"claude"}`,
@@ -103,7 +103,7 @@ func TestRoutelessContentIsABroadcast(t *testing.T) {
 	}
 }
 
-// `into` AND `agents` TOGETHER ARE REFUSED (§4.1, P4). The content pack that wrote both would
+// `into` AND `agents` TOGETHER ARE REFUSED (agent-briefings.md#the-two-halves-and-why-neither-knows-the-others-business, #ba-p4). The content pack that wrote both would
 // hardcode a path only the agent pack can keep current, which is exactly the coupling the
 // selector replaces — and it would also be ambiguous, since the declaration and the inference
 // would each name a destination.

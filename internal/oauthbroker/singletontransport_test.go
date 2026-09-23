@@ -196,7 +196,7 @@ func framed(body string) []byte {
 // short-circuit on isFile() and the test would need no external binary — which
 // meant the one harness that runs the real daemon deliberately skipped the step
 // that killed the real daemon 2,549 times
-// (docs/design/broker-ca-and-nested-hosts.md). Minting is in-process now, so the
+// (docs/reference/claude-oauth-interposition.md#the-brokers-ca-minting-rotation-and-a-nested-host). Minting is in-process now, so the
 // daemon does it for real here, and TestSingletonMintsItsCAOnAVirginStateDir
 // below is what reads the result.
 func startSingleton(t *testing.T) (string, string, func() string, func()) {

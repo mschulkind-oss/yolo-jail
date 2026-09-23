@@ -1,6 +1,6 @@
 package jailcontent
 
-// lspplugin_test.go covers option D's renderer (docs/design/claude-lsp-plugins.md, OQ-LSP1): ONE
+// lspplugin_test.go covers option D's renderer (docs/reference/mcp-configuration.md#oq-lsp1): ONE
 // yolo-authored plugin whose lspServers comes from the user's own lsp_servers table.
 
 import (

@@ -36,7 +36,7 @@ func TestOpensslStaysOnTheCoreFloor(t *testing.T) {
 		t.Error(`"openssl" left ImageCoreNames.
 
 Two live consumers still need it, and NEITHER is internal/oauthbroker, which stopped
-shelling out to it in 4ceab956:
+shelling out to it in d5bb1e5d:
 
   * internal/macosuser/real.go — "openssl rand -base64 32" mints the sandbox identity's
     password. macos-user bakes no image, so this floor list IS where that binary comes

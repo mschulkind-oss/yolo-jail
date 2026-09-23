@@ -13,7 +13,7 @@ import (
 )
 
 // C9 — DELIVER THE IMAGE AS A NEGOTIATED COPY, NOT AS A STREAM.
-// docs/design/layer-aware-image-delivery.md
+// docs/reference/image-staging-vs-baking.md#delivering-into-the-runtime
 //
 // This file replaces streamload.go, and the replacement is a different SHAPE of
 // problem rather than a faster version of the same one. What was here:
@@ -22,8 +22,8 @@ import (
 // sequential tar with no protocol for asking the destination which blobs it
 // already holds, so every launch that saw a new store path re-shipped the whole
 // image — 81 s of a 96 s load on the maintainer's host, and the customisation
-// layer that a `flake.nix` edit is guaranteed to move was 0.78% of it (§2.1,
-// §2.2). `podman load` also spooled all 3.55 GB to /var/tmp before parsing, so
+// layer that a `flake.nix` edit is guaranteed to move was 0.78% of it
+// (image-staging-vs-baking.md#cost-model). `podman load` also spooled all 3.55 GB to /var/tmp before parsing, so
 // "no tar" was true of yolo's disk and not of podman's.
 //
 // What is here now: `.#ociImage` is a nix2container image.json NAMING its layer
@@ -53,7 +53,7 @@ import (
 const copyTailLines = 12
 
 // CopyReport is what a completed copy says about the bytes, and it exists
-// because that ratio IS the claim this whole change makes (§3.10: "the launch
+// because that ratio IS the claim this whole change makes (image-staging-vs-baking.md#what-a-copy-reports: "the launch
 // prints bytes copied *and* bytes skipped, because that ratio is the whole
 // claim"). A duration alone cannot distinguish "the negotiation worked" from
 // "this machine is fast today".
@@ -91,7 +91,7 @@ func (r CopyReport) String() string {
 // Deliberately a narrow struct rather than the upstream type: the only fields
 // with a consumer here are the per-layer digest and size, and depending on the
 // generator's Go module for a two-field read would make a nix-level dependency
-// into a Go-level one — which §4's "the Go side is untouched" is a promise about
+// into a Go-level one — which the retired design's "the Go side is untouched" was a promise about
 // (`vendor/` does not grow, the goSrc fileset does not grow).
 type imageManifest struct {
 	Layers []struct {
@@ -230,7 +230,7 @@ func ImageCopierOutLink(repoRoot string) string {
 // BuildImageCopier realizes `.#imageCopier` in repoRoot and returns the path of
 // the skopeo binary inside it, plus the retained nix stderr tail. A "" path
 // means the build FAILED (runNixBuild's contract) and the caller must refuse the
-// launch — there is no second delivery mechanism to fall back to (§3.5).
+// launch — there is no second delivery mechanism to fall back to (image-staging-vs-baking.md#one-mechanism-no-way-back).
 //
 // It is built LAZILY, only on a launch that is about to copy, because a launch
 // whose image is already loaded should build nothing. Cold it is 2m27s against
@@ -264,7 +264,7 @@ func BuildImageCopier(repoRoot string, out io.Writer) (string, []string) {
 // ImageCopierBinary is the skopeo inside a realized `.#imageCopier` output.
 //
 // Spelled here rather than at the call site so the one place that knows the
-// layout is the one place that names the attr. §3.2's fourth property is that a
+// layout is the one place that names the attr. image-staging-vs-baking.md#delivering-into-the-runtime's rule is that a
 // `PATH` lookup is NEVER the answer: the `nix:` transport is a patch, so an
 // unpatched skopeo on someone's PATH would fail confusingly, and the launch runs
 // the copier the flake built.
@@ -344,7 +344,7 @@ func copyImage(argv []string, out io.Writer) (bool, []string) {
 	lines := tail.tail()
 	code, known := exitCodeOf(cmd)
 	// NO IMAGE WAS WRITTEN, and saying so is a requirement rather than a
-	// courtesy (§3.8): skopeo commits the image record LAST, so a failed or
+	// courtesy (image-staging-vs-baking.md#failure-paths): skopeo commits the image record LAST, so a failed or
 	// interrupted copy leaves orphan blobs and no image under the ref. The reader
 	// must never be left guessing whether a partial image is now runnable.
 	reportPipeEnd(out, "the image copy failed; NO image was written to the destination",
@@ -379,7 +379,7 @@ func copyImage(argv []string, out io.Writer) (bool, []string) {
 // unnamed because it has never been measured here, and the denylist is for what
 // has.
 //
-// AND THERE IS NO FALLBACK BEYOND IT (§3.5, OQ-LI5). A second failure abandons
+// AND THERE IS NO FALLBACK BEYOND IT (image-staging-vs-baking.md#one-mechanism-no-way-back, OQ-LI5). A second failure abandons
 // the launch. `streamLayeredImage` is deleted, there is no legacy knob, and a
 // copy that cannot complete leaves no image under the content ref. What the
 // launch CAN now do is name a cause instead of stopping at "it failed", which is

@@ -1,7 +1,7 @@
 package run
 
 // packproviderexclusive_test.go is the LAUNCH half of provider-name exclusivity
-// (profiles-as-pack-variants.md §4.1, OQ-12): two declarations of one provider name fail
+// (docs/reference/providers.md#how-the-table-composes, #pv-oq-12): two declarations of one provider name fail
 // the launch, before the container exists, naming both.
 //
 // Why it belongs at this call site rather than only in packload: the collision has NO

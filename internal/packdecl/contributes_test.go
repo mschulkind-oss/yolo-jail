@@ -119,7 +119,7 @@ func TestValidateContributes(t *testing.T) {
 			Autonomous: &AutonomyPosture{Launch: []AutonomyLaunch{{Bin: "../x"}}}},
 			"bare program name"},
 		// A content contribution naming neither `into` nor `agents` is a BROADCAST on skills and
-		// briefing (pack-briefing-defaults.md P2); a DESTINATION (`agent` set) still needs its
+		// briefing (docs/reference/pack-system.md#briefing-p2); a DESTINATION (`agent` set) still needs its
 		// path. briefingdefaults_test.go pins the same boundary through Decode.
 		{"skills broadcast", Contribution{Kind: KindSkills, From: "skills"}, ""},
 		{"skills destination no into", Contribution{Kind: KindSkills, Agent: "acme"}, "needs \"into\""},

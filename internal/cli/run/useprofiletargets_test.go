@@ -15,10 +15,10 @@ import (
 )
 
 // This file pins the FLAG half of the CLI-name namespace
-// (profiles-as-pack-variants.md §2.5, §3.3): `-p <cli>=<name>` keys a profile by CLI
+// (docs/reference/providers.md#declaring-and-selecting-a-profile): `-p <cli>=<name>` keys a profile by CLI
 // name, and a name no resolvable pack installs is refused at launch. The CONFIG half
 // is validated by ValidateConfig; the flags never reach a config validator, so the
-// launch pipeline owns this check — the same silent-typo hole §2.5 documents,
+// launch pipeline owns this check — the same silent-typo hole the profile-variant design documented,
 // arriving through argv.
 //
 // THE BARE `-p <name>` IS NOT IN THAT NAMESPACE and is not checked against it. It
@@ -194,7 +194,7 @@ func assembleWithProfilesAssembled(t *testing.T, cfg *jsonx.OrderedMap, packs []
 	return assembled{argv: o.assembleRunCmd(in), o: o, in: in}
 }
 
-// GLOBAL -p (§3.3, OQ-5): `-p bedrock` with NO command keys the name for every selected
+// GLOBAL -p (providers.md#what-the-launch-checks-and-prints, #pv-oq-5): `-p bedrock` with NO command keys the name for every selected
 // pack, by the CLI name each one installs. Before this the empty-argv case was a no-op
 // — the target bin was "" and the assignment was silently skipped — so `yolo -p dev`
 // looked accepted and selected nothing.
@@ -267,7 +267,7 @@ func TestAssembleBareProfileReachesTheCLIsWithANonAgentCommand(t *testing.T) {
 	}
 }
 
-// THE LAUNCH LINE (§3.3): one line per distinct name, naming what DECLARED it and who
+// THE LAUNCH LINE (providers.md#what-the-launch-checks-and-prints): one line per distinct name, naming what DECLARED it and who
 // RECEIVED it. RECEIVED is every selected pack — the table crosses to the jail whole
 // and every pack's derive sees all of it — and DECLARED is the packs shipping a
 // `profile` variant with that name. `glm` is a name no shipped pack declares, so this
@@ -294,7 +294,7 @@ func TestNoteUseProfilesPrintsDeclaredAndReceived(t *testing.T) {
 	if !strings.Contains(out.String(), want) {
 		t.Errorf("launch line %q, want it to contain %q", out.String(), want)
 	}
-	// OQ-10: the line may not claim the name was honored. What a derive does with the
+	// providers.md#pv-oq-10: the line may not claim the name was honored. What a derive does with the
 	// string is unobservable from here, and a transparency print that overclaims is
 	// the silent-skip failure wearing a badge.
 	if strings.Contains(out.String(), "honored") {
@@ -394,7 +394,7 @@ func TestFreshLaunchPrintsTheProfileLineBesideTheHostAccessLine(t *testing.T) {
 
 // profilePackFixture is a real staged-shape pack (LoadDir, not a hand-built struct) that
 // installs `claude`, declares the `bedrock` selection, and gates one env entry on it —
-// overriding the pack's own static baseline, the shape §3.4's later-wins rule exists to
+// overriding the pack's own static baseline, the shape providers.md#pv-oq-8's later-wins rule exists to
 // resolve.
 func profilePackFixture(t *testing.T, name string) *packload.Pack {
 	t.Helper()

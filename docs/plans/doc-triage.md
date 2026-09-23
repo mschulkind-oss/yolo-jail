@@ -1,8 +1,18 @@
 # Documentation triage — proposed reorganization (for review)
 
-**Status:** DESIGN, 2026-07-03 — the triage itself was ✅ EXECUTED that day (`5eb1643`, `9721660`)
-and is kept as the record of what was archived and why, not as a pending proposal; the 2026-09-12
-graduation assessment appended to it holds **one live ruling**.
+**Status:** BUILT 2026-07-03 (`5eb1643`, `9721660`). MEASURED: the 2026-09-09 re-run re-bucketed
+every doc in `docs/design/` against the code, not against its status line. Kept as the record of
+what was archived and why, not as a pending proposal; the 2026-09-12 graduation assessment's one
+question, [OQ-DT1](#decision-ledger), was answered 2026-09-13 by doing it.
+
+**Needs your ruling:** None.
+
+> [!NOTE]
+> **Postscript, 2026-09-23 — some docs this record names are gone.** `lua-transform-removal.md` was
+> folded into [`pack-system.md`](../reference/pack-system.md#oq-lt1) ([`OQ-LT1`](../reference/pack-system.md#oq-lt1), [`OQ-LT2`](../reference/pack-system.md#oq-lt2), the managed
+> floor) and deleted, as recommended below. `profiles-as-pack-variants.md` graduated into
+> [`providers.md`](../reference/providers.md#the-profile-variant-rulings), and `pack-profiles.md`
+> was retired with it. Their names stay below as the record; links to them now point where the text went.
 
 > [!NOTE]
 > **RE-RUN 2026-09-09, and this file's taxonomy is what it ran on.** Every doc in `docs/design/` was
@@ -256,12 +266,12 @@ to archived docs repointed. They no longer read as in-flight work.
 
 > [!IMPORTANT]
 > **ASSESSMENT ONLY. No graduation was performed.** Graduating five docs is its own body of work
-> and the maintainer chooses whether and when ([`OQ-DT1`](#open-question)). What follows is a
+> and the maintainer chooses whether and when ([`OQ-DT1`](#decision-ledger)). What follows is a
 > per-doc verdict, walked against the code rather than against the status lines — which is what
 > [the lesson for the next run](#the-lesson-for-the-next-run) asked of this one.
 
 A 138-commit sprint built five accepted designs: [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md),
-[`report-tiers.md`](../reference/report-tiers.md), [`lua-transform-removal.md`](../design/lua-transform-removal.md),
+[`report-tiers.md`](../reference/report-tiers.md), [`lua-transform-removal.md`](../reference/pack-system.md#oq-lt1),
 [`macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md) and
 [`../design/macos-user-provisioning.md`](../design/macos-user-provisioning.md). The `design-doc` genre's
 last phase says a built design *graduates* into a `system-doc`; this run asks, for each, whether
@@ -309,7 +319,7 @@ that route them keep resolving. That is the precedent, and it is what
 | :--- | :--- | :--- | :--- |
 | [`report-tiers.md`](../reference/report-tiers.md) | **Yes** — all eight steps | **Yes, and measured with a control** | ✅ **GRADUATED 2026-09-13** |
 | [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md) | **Yes** — the named hole closed 2026-09-12 | Yes | ⏸ **Graduate second, and both named blockers are spent.** What gates it now is [`OQ-DT1`](#open-question) and the size of the rewrite, not a fact about the doc |
-| [`lua-transform-removal.md`](../design/lua-transform-removal.md) | **Yes** | Yes | ↩ **Do not graduate — archive.** There is no system to describe |
+| [`lua-transform-removal.md`](../reference/pack-system.md#oq-lt1) | **Yes** | Yes | ↩ **Do not graduate — archive.** There is no system to describe |
 | [`macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md) | Code yes, behavior unrun | **No** | ⛔ Blocked on a Mac — **unblocked and ✅ GRADUATED 2026-09-21** to [`../reference/macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md), on the same hardware session and nightly job |
 | [`../design/macos-user-provisioning.md`](../design/macos-user-provisioning.md) | Code yes, behavior unrun | **No** | ⛔ Blocked on a Mac — **unblocked and ✅ GRADUATED 2026-09-21** to [`../reference/macos-user-provisioning.md`](../reference/macos-user-provisioning.md), once a hardware session and a nightly job had supplied the measurements |
 
@@ -420,7 +430,7 @@ archive is built, [`OQ-CO12`](../design/config-ownership-and-promotion.md#13-dec
 ruled and both deletions it measured are fixed, the doc's last Open Question is compacted and its
 [§12](../design/config-ownership-and-promotion.md#12-follow-ons-and-the-one-this-design-settled-itself) reads **None**. It has
 completed the `design-doc` genre's settled phase and is a graduation CANDIDATE. The only thing
-holding it is [`OQ-DT1`](#open-question) — sequencing, and the maintainer's.
+holding it is [`OQ-DT1`](#decision-ledger) — sequencing, and the maintainer's.
 
 ⚠ **What is honestly still in the way is the SIZE of the rewrite, and it grew on 2026-09-12.**
 Neither half is a blocker in the sense the two named ones were — nothing is unruled and nothing is
@@ -460,7 +470,7 @@ $ go list -deps ./internal/packload | grep -c gopher-lua
 4
 ```
 
-The seam held exactly as [§4](../design/lua-transform-removal.md#4-the-boundary--what-goes-what-stays-what-moves)
+The seam held exactly as [its boundary](../reference/pack-system.md#the-derive-slot)
 drew it. `internal/luahook` no longer exists at the top level; the surviving package is
 `internal/agentcfg/luahook` and its entire exported surface is the derive sandbox — `GopherLuaVM`,
 `DeriveCtx`, `DeriveVM`, `Derive`, `DeriveRegistration`, `DeriveRegistrations`. `Transform` and
@@ -477,15 +487,15 @@ no transform in it. Graduating this doc would mint a **second authority for one 
 is the failure [this file's own 2026-09-09 run](#where-the-work-was-hardest-and-why) named as the
 shape that actually causes drift: *one fact, four copies, three of them wrong*.
 
-So the disposition is **C, archive** — but not freely. [`OQ-LT1`](../design/lua-transform-removal.md#13-decision-ledger) is cited from Go, and there are 20
+So the disposition is **C, archive** — but not freely. [`OQ-LT1`](../reference/pack-system.md#oq-lt1) is cited from Go, and there are 20
 Go references and 32 doc references to the path. Per
 [the Rule-IDs-are-an-API warning](#what-the-disposition-is-not-allowed-to-do), the cheap correct
-move is to fold the seam rule and [`OQ-LT1`](../design/lua-transform-removal.md#13-decision-ledger) into `pack-system.md`'s why-appendix — one paragraph
+move is to fold the seam rule and [`OQ-LT1`](../reference/pack-system.md#oq-lt1) into `pack-system.md`'s why-appendix — one paragraph
 saying *the VM is the derive path's alone, the transform half is gone, and `Enforce` is the
 pipeline's not the VM's* — and then archive.
 
 ⚠ **One stale line to fix whatever is decided.** The doc's status says two rows of
-[§5.6](../design/lua-transform-removal.md#56-documentation) are *"deliberately still open"*:
+its documentation section are *"deliberately still open"*:
 [`roadmap.md`](roadmap.md) and [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md).
 **Both closed.** The ownership doc describes the transform in the past tense throughout, and the
 roadmap's row 30 is ✅ with the doc sweeps recorded as closing 2026-09-12. The status line is
@@ -580,7 +590,7 @@ references are invisible to `vantage-check`** and are the ones that go silently 
 | [`../design/macos-user-provisioning.md`](../design/macos-user-provisioning.md) | 53 | 27 | 3 |
 | `report-tiers.md` | 36 | 50 | 6 |
 | [`macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md) | 34 | 17 | 1 |
-| [`lua-transform-removal.md`](../design/lua-transform-removal.md) | 32 | 20 | 1 |
+| [`lua-transform-removal.md`](../reference/pack-system.md#oq-lt1) | 32 | 20 | 1 |
 
 [`AGENTS.md`](../../AGENTS.md) itself cites `report-tiers.md` three times with anchors, for the
 no-quiet-mode rule. That is an inbound reference a `docs/`-scoped grep misses, and so is
@@ -605,7 +615,7 @@ not after it.
    contract, and **seven** residue items as present-tense behavior rather than two. **Fix the
    tombstone's two misreporting readers before the move, not after** — it is the one item of the
    seven with a data-loss path, and a reference is the wrong place to document a lie as behavior.
-4. **Fold [`lua-transform-removal.md`](../design/lua-transform-removal.md) into
+4. **Fold [`lua-transform-removal.md`](../reference/pack-system.md#oq-lt1) into
    [`../reference/pack-system.md`](../reference/pack-system.md) and archive it.** Do not mint a
    second reference for one subsystem.
 5. **Leave the macOS pair in `docs/design/` until a Mac runs
@@ -616,28 +626,13 @@ not after it.
 roadmap row, and batching them is how an anchor gets missed — the failure this file has now recorded
 in both directions across three runs.
 
-### Open question
+<a id="open-question"></a>
 
-1. 💬 **OQ-DT1: Graduate now, or hold the whole set until the macOS pair can move with them?**
+### Decision ledger
 
-   <!-- vantage: oq id=OQ-DT1 leaning="Graduate report-tiers alone and now; the pair may wait months for a Mac and there is no benefit to coupling them." -->
-
-   _Leaning:_ Graduate `report-tiers.md` alone, now. The macOS pair is
-   blocked on hardware nobody can schedule, and holding a finished reference hostage to it keeps a
-   shipped system described in the planning tree for months. The counter-argument is real but
-   weaker: five graduations done together share one re-pointing sweep, and
-   [`AGENTS.md`](../../AGENTS.md)'s *Where things live* table would be edited once instead of three
-   times.
-
-   **Answer:**
-   > **Graduate, and do not hold the set.** Answered 2026-09-13 by doing it:
-   > [`report-tiers.md`](../reference/report-tiers.md) graduated alone, and the coupling argument
-   > died on measurement rather than on judgement. The macOS pair turned out **not** to be blocked
-   > on hardware at all — the runbook records a full ten-item hardware session on 2026-09-12 — so
-   > the thing the set would have been waiting for had already happened, and holding would have
-   > bought nothing. The shared-sweep argument for batching also inverts: the re-pointing sweep is
-   > per-doc and the docs share almost no inbound references, so batching buys one `AGENTS.md` edit
-   > and risks the missed anchor this file has now recorded in both directions across three runs.
+| ID | Ruling / Decision | Date | Settled in | Built |
+| :--- | :--- | :--- | :--- | :--- |
+| OQ-DT1 | **Graduate one at a time; do not hold the set for the macOS pair.** The coupling argument died on measurement: the pair was never blocked on hardware (the runbook records a ten-item hardware session on 2026-09-12), and batching buys one `AGENTS.md` edit while risking the missed anchor this file has recorded in both directions. | 2026-09-13 | [Recommendation](#recommendation), [the 2026-09-13 graduation](#the-2026-09-13-graduation--one-doc-moved-and-three-verdicts-above-it-are-now-stale) | ✅ [`report-tiers.md`](../reference/report-tiers.md) graduated alone 2026-09-13 |
 
 ---
 
@@ -706,7 +701,7 @@ Go half was the real work and it was **not** a path rewrite — see the finding 
 > which is that ruling — and carries it twice in its Current values. Graduating would mint a
 > second authority for one subsystem, which is the failure
 > [the 2026-09-09 run](#where-the-work-was-hardest-and-why) named. The correct disposition is
-> [`lua-transform-removal.md`](../design/lua-transform-removal.md)'s: **fold what is not yet
+> [`lua-transform-removal.md`](../reference/pack-system.md#oq-lt1)'s: **fold what is not yet
 > absorbed — `P1`, `P2`, and [`OQ-IP1`](../reference/image-staging-vs-baking.md#why-its-this-way) as a
 > stated invariant — into that reference's why-appendix,
 > then archive.** Its separate finding, that no CI job exercises `macos-user` at all, belongs in
@@ -717,7 +712,7 @@ Go half was the real work and it was **not** a path rewrite — see the finding 
 | Doc | Disposition | Reason |
 | :--- | :--- | :--- |
 | [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md) | **Not yet** | Unchanged from above: seven residue items to re-state in present tense, and **one tombstone defect with a data-loss path that should be fixed as code before the move**, not documented as behavior. 11 doc files and 46 Go files — the largest of the set. |
-| [`lua-transform-removal.md`](../design/lua-transform-removal.md) | **Fold, do not graduate** | Unchanged: a removal doc has no system to describe, and `pack-system.md` already owns the surviving derive sandbox. |
+| [`lua-transform-removal.md`](../reference/pack-system.md#oq-lt1) | **Fold, do not graduate** | Unchanged: a removal doc has no system to describe, and `pack-system.md` already owns the surviving derive sandbox. |
 | [`macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md) | **Not yet** — ✅ **graduated 2026-09-21** | Finding 1: hardware-measured, but its own *What shipped* still owed a Mac on the mirror ordering. Closed by stating the gap in the reference's [measurement table](../reference/macos-user-home-tiers.md#what-is-measured-and-by-what) rather than by waiting for it; the design path is a superseded stub. |
 | [`../design/macos-user-provisioning.md`](../design/macos-user-provisioning.md) | **Not assessable** | Held by another workflow throughout this pass. Assessed, not touched. ✅ **Graduated 2026-09-21** to [`../reference/macos-user-provisioning.md`](../reference/macos-user-provisioning.md); the design path is a superseded stub. |
 | `darwin-image-provenance.md` | **Folded 2026-09-18; stub DELETED** | Finding 3, carried out: the identity invariant and its placement rule, both safety rulings, the stale-hatch-in-CI trap, the pre-cutover diagnostic and all four `OQ-IP` ids are now in [`../reference/image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md). The design path was a **redirect stub**, and it is gone: the citations in `flake.nix`, `internal/image/`, `integration/` and `.github/workflows/` were repointed at the reference on 2026-09-18 (the last of them `1ea2ea11`, which cost an image rebuild), leaving this record's own two as the last inbound links — they were dropped to prose in the same commit that deleted the file, which is why the name above is no longer one. Finding 3's last clause is **closed rather than routed**: a `macos-user` nightly exists now. |

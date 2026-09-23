@@ -10,6 +10,8 @@ that is resolved; see [Is `cache_relocations` the right
 level? — **OQ-CR1**](#-oq-cr1--is-cache_relocations-the-right-level-held) under Open Questions.
 **Filed:** 2026-07-21.
 
+**Needs your ruling:** [OQ-CR1](#-oq-cr1--is-cache_relocations-the-right-level-held), [OQ-CR2](#-oq-cr2--whether-the-relocation-should-also-be-reflected-host-side), [OQ-CR3](#-oq-cr3--whether-cache_relocations-should-accept-a-per-workspace-override-for-read-only-sharing) — all three HELD; CR1 and CR2 resolve together.
+
 ## The problem
 
 `~/.local/share/yolo-jail/cache` is a single directory on whatever filesystem
@@ -187,7 +189,7 @@ silent no-ops, not the security boundary. This is the *mechanism* the Lua
 transform used — a fixed path, never the merged config — though never the same
 *policy*, since that loader deliberately read both scopes. The transform and its
 loader were removed on 2026-09-11
-([`lua-transform-removal.md`](../design/lua-transform-removal.md)), which changes
+([`OQ-LT1`](../reference/pack-system.md#oq-lt1)), which changes
 nothing here: `cache_relocations` reads its own fixed path for its own reason.
 
 **Correction (found in review, 2026-07-21).** An earlier draft of this table

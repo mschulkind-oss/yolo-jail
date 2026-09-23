@@ -645,7 +645,7 @@ Add language servers via `lsp_servers` in your config. The binary must already b
 | **Copilot** | natively, via `~/.copilot/lsp-config.json` — any server you declare |
 | **Claude Code** | via plugins; YOLO enables the official `pyright` / `typescript` / `gopls` plugin when you declare the matching server name |
 | **Codex, agy** | the agent has no LSP support |
-| **Pi, opencode** | not configured by YOLO today (both agents can take it — see [`docs/design/claude-lsp-plugins.md`](../design/claude-lsp-plugins.md)) |
+| **Pi, opencode** | not configured by YOLO today (both agents can take it — see [`mcp-configuration.md`](../reference/mcp-configuration.md#lsp-claudes-route-is-a-generated-plugin)) |
 
 Servers are spawned on-demand when an agent analyzes matching file types.
 

@@ -876,7 +876,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// the ONE place either is computed — refreshJailBriefings writes through the same two
 	// functions. That coupling used to be a comment saying the names must match, and a
 	// mismatch is silent: a missing bind source for a FILE is not an error the way a missing
-	// dir is, so the jail simply comes up with a blank briefing (briefing-audiences.md R2).
+	// dir is, so the jail simply comes up with a blank briefing (docs/reference/agent-briefings.md#ba-r2).
 	//
 	// The DEDUP-BY-DESTINATION that used to sit here is in briefingDestinations now, for the
 	// same reason: `briefing` is CombineConcat — several packs contributing prose at one path
@@ -1084,7 +1084,7 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		env = append(env, "-e", "YOLO_PROGRAMS_AUTOPRUNE=1")
 	}
 	// The profile-derived provider environment — the env shape a provider declares for
-	// the protocol an agent speaks (OQ-14), which for bedrock is AWS_REGION and the
+	// the protocol an agent speaks (providers.md#pv-oq-14, since superseded by #oq-cs8), which for bedrock is AWS_REGION and the
 	// model ids — is composed by internal/agentenv, which is ALSO what
 	// `yolo host -- <agent>` applies on the host. One implementation, so the two notches
 	// cannot drift — that is the jail/host parity claim in host-agent-environment.md §2.2,

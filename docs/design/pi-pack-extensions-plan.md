@@ -54,7 +54,7 @@ is replaced by a per-pack subdirectory, and the `claude_plugins` decision is ret
    auto-discover).
 6. **`packs/claude/*` + remove `HookClaudePlugins`** — deliver the LSP plugin trees by file
    (author one YOLO-owned Agent Plugins 1.0 plugin — **not** the "YOLO's canonical LSP tables" path,
-   which [`claude-lsp-plugins.md`](./claude-lsp-plugins.md) retires: YOLO must not pick a server),
+   which [`mcp-configuration.md`](../reference/mcp-configuration.md#lsp-claudes-route-is-a-generated-plugin) retires: YOLO must not pick a server),
    keep the `enabledPlugins` derive, and delete the hook, the `packdecl.KnownHooks` entry, and
    the `packhook` case.
 

@@ -265,7 +265,7 @@ func TestOverlayOntoOwnSurfaceResolves(t *testing.T) {
 	}
 }
 
-// --- the `profile` modifier (profiles-as-pack-variants.md §7) ---------------------------------
+// --- the `profile` modifier (docs/reference/providers.md#the-profile-modifier) ---
 //
 // One optional field gating a cross-pack contribution on a profile being ACTIVE for the
 // surface's OWNING agent — the target identity's agent segment, which is a CLI name, the
@@ -312,8 +312,8 @@ func TestGatedOverlayResolvesWhenProfileIsActiveForTheOwner(t *testing.T) {
 // THE GATE'S NEGATIVE HALF, three ways to be inactive: another name active at that agent,
 // NO name active at that agent, and the name active at a DIFFERENT agent (the table keys
 // on the surface's owner, not on the contributor). All three are a clean skip — no keys,
-// no error, no orphan, no applied notice — because selection is the optionality (§7.1)
-// and profile values are free-form (parent OQ-3), so an unmatched name is inert.
+// no error, no orphan, no applied notice — because selection is the optionality (providers.md#the-profile-modifier)
+// and profile values are free-form (providers.md#pv-oq-3, since superseded by #oq-cs6), so an unmatched name is inert.
 func TestGatedOverlaySkipsCleanlyWhenProfileIsNotActive(t *testing.T) {
 	cases := []struct {
 		name     string

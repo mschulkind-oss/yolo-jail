@@ -1,6 +1,6 @@
 package packdecl
 
-// briefingdefaults_test.go pins the schema half of pack-briefing-defaults.md: the rules a
+// briefingdefaults_test.go pins the schema half of the briefing defaults (docs/reference/pack-system.md#briefing): the rules a
 // manifest is refused or accepted by, through Decode — the door a pack author knocks on —
 // rather than through validateContributions, so a check that is written but never wired into
 // the strict path fails here.
@@ -37,7 +37,7 @@ func TestContentWithNoRouteIsABroadcast(t *testing.T) {
 	}
 }
 
-// `files` DOES NOT BROADCAST (§5), and the refusal names the reason and the addressed
+// `files` DOES NOT BROADCAST (pack-system.md#briefing-non-goals), and the refusal names the reason and the addressed
 // spelling rather than only the missing field.
 func TestFilesWithNoRouteIsRefusedWithTheReason(t *testing.T) {
 	probs := decodeOne(t, `{"kind":"files","from":"prompts"}`)
@@ -246,7 +246,7 @@ func TestDuplicateContentSourcesAreRefused(t *testing.T) {
 
 // What OQ-PB5 does NOT refuse: different sources, the same source across kinds, and a
 // DESTINATION beside the pack's own content — which is exactly how an agent pack addresses
-// prose to itself (§3.5). Two destinations are not content either.
+// prose to itself (pack-system.md#briefing-p5). Two destinations are not content either.
 func TestDistinctSourcesAndDestinationsAreNotDuplicates(t *testing.T) {
 	for _, contributes := range []string{
 		`{"kind":"briefing","from":"briefing/a.md","agents":["pi"]},{"kind":"briefing"}`,

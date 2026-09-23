@@ -249,8 +249,8 @@ func TestComposeJSONHostArrayFailsClosed(t *testing.T) {
 // individually. Coarse, but it is what enforce means without keys, and it must
 // beat every layer below it.
 //
-// REWRITTEN WITHOUT A TRANSFORM (docs/design/lua-transform-removal.md §4.2 item
-// 2, risk R3). This was the ONLY test of the keyless leg of the managed floor,
+// REWRITTEN WITHOUT A TRANSFORM (docs/reference/pack-system.md#lt-r3).
+// This was the ONLY test of the keyless leg of the managed floor,
 // and it drove it through a Lua script — so deleting the transform would have
 // taken the proof with it and left the floor's whole-value-replacement branch
 // unasserted at exactly the moment it is lifted into internal/agentcfg. Managed

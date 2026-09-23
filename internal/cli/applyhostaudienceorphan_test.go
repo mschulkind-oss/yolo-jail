@@ -4,7 +4,7 @@ package cli
 // applyHost — the call site of reportInferredDestinations.
 //
 // There are two ways a pack's content can reach nothing, and until the audience selector landed
-// (docs/design/briefing-audiences.md, shipped 2026-09-02) there was one:
+// (docs/reference/agent-briefings.md#audiences-what-varies-per-destination, shipped 2026-09-02) there was one:
 //
 //   - NO DESTINATION EXISTS for the kind, anywhere in `packs`. Remedy: select an agent pack, or
 //     declare an `into`.

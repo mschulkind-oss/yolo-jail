@@ -687,7 +687,7 @@ Observable, on a machine that upgrades onto this:
   ([`minimal-disk-footprint.md`](minimal-disk-footprint.md) [§9](./minimal-disk-footprint.md#9-risks) R7).
 - **What it forecloses:** nothing in image-staging's candidate ranking (its shipped rows are now
   [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md)'s body; C6 is
-  [`layer-aware-image-delivery.md`](layer-aware-image-delivery.md)'s). C6 and C4 stay exactly as ranked there;
+  [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#delivering-into-the-runtime)'s). C6 and C4 stay exactly as ranked there;
   this doc only re-prices C6 as the floor-setter.
 - **What it does not buy:** the ~65 GB of *live* cache on this host, the device's non-yolo growth
   ([`minimal-disk-footprint.md`](minimal-disk-footprint.md) [§2.4](./minimal-disk-footprint.md#24-re-measured-2026-09-02--the-backlog-is-gone-here-and-the-device-kept-filling-anyway)),

@@ -483,7 +483,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		return 1
 	}
 	// And REFUSE an agent NAME claimed by two packs, for the same reason and in the same
-	// position (briefing-audiences.md OQ-BA6/BA7). It matters most at THIS notch: the render
+	// position (docs/reference/agent-briefings.md#oq-ba6, #oq-ba7). It matters most at THIS notch: the render
 	// below routes an addressed contribution to "where <name> reads", so with two owners the
 	// prose lands wherever the resolution loop saw first — in a real home, with nothing said.
 	if cols := packload.AgentNameCollisions(loaded); len(cols) > 0 {
@@ -986,7 +986,7 @@ func confirmHostLosses(pr richtext.Printer, out io.Writer, stdin io.Reader,
 // silently, which is the whole defect. `len(Contributions()) == 0` is the honest test for it
 // rather than a heuristic — after ResolveDestinations a pack's declaration is everything it
 // will ever be asked to do, so an empty one means it will do nothing. An ADDRESSED contribution
-// is the third half, added by briefing-audiences.md, and it needed its own line rather than a
+// is the third half, added by the audience selector (docs/reference/agent-briefings.md#ba-r1), and it needed its own line rather than a
 // wider one: "declares no destination" is FALSE of it. A pack saying `agents: ["claude"]`
 // declared exactly who its prose is for and deliberately not where that prose goes (P4), so
 // reporting it as silence describes the opposite of what the author did — and leaves them

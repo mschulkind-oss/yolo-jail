@@ -26,7 +26,7 @@ package luahook
 // applies. It used to have a companion: AllowedGlobals, the positive list, and
 // ValidateSandbox, a static lint that scanned a script for a forbidden name
 // before running it. Both went with the config transform
-// (docs/design/lua-transform-removal.md §4.1) — the lint had no production caller
+// (docs/reference/pack-system.md#lt-p1) — the lint had no production caller
 // in its whole life, and the VM's stripped environment always was the boundary.
 
 // ForbiddenGlobals is the set of Lua globals the sandbox environment MUST NOT

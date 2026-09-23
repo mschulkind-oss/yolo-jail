@@ -130,7 +130,7 @@ falls back to downloading and reinstalling live.
 | `packs/claude/pack.json` | delete the `managed.preferences` block (lines 58–62); KEEP the surface — its `retireOnFirstRender` is load-bearing, and a surface with neither `managed` nor `defaults` is valid (`packs/agy/pack.json:41-47`) |
 | `README.md:290-293` | the "installed via" column for copilot/codex |
 | `docs/design/program-delivery.md` [§3.5](../design/program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) | the per-agent table's "Today" column |
-| `docs/design/agent-install-in-ci.md` [§2.3](../design/agent-install-in-ci.md#23-two-mechanisms-six-packs-nine-installs) | "two mechanisms, six packs, nine installs" — the split moves |
+| [`agent-install-in-ci.md`](../reference/agent-install-in-ci.md#two-install-mechanisms) | "two mechanisms, six packs, nine installs" — the split moves |
 | `integration/installmechanism_test.go:14-22` | header says "eight of them the same npm code path" |
 
 ## Reuse
@@ -220,7 +220,7 @@ edit, so each step's proof is its own CI cell on both arches.
 - **Integration:** none new. Steps 2 and 3 are proven by the existing per-pack cells.
 - **No test may start an agent.** `--version` only; that is what `packMatrix` already does.
 - **Docs, by path:** `README.md:290-293`; `docs/design/program-delivery.md` [§3.5](../design/program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)'s per-agent table
-  ("Today" column for copilot/codex); `docs/design/agent-install-in-ci.md` [§2.3](../design/agent-install-in-ci.md#23-two-mechanisms-six-packs-nine-installs) (the eight-npm/one-
+  ("Today" column for copilot/codex); [`agent-install-in-ci.md`](../reference/agent-install-in-ci.md#two-install-mechanisms) (the eight-npm/one-
   native split, and the "nine installs" arithmetic); `integration/installmechanism_test.go`'s
   header comment.
 - **Norms:** `just format` then `just check-ci` before each commit (the pre-commit hook runs it);

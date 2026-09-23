@@ -570,7 +570,7 @@ func podmanLinuxGolden(home string) []string {
 	// ~/.claude/settings.json, which is the state the jail must NOT refuse for.
 	add("-e", packload.HostLayerEnvVar+`={"delivery":"supported"}`)
 	// PACK-DECLARED briefing mount: the claude pack declares AGENTS.md -> .claude/CLAUDE.md.
-	// The staged name is per-DESTINATION since briefing-audiences.md — RFC 6901-escaped (`/`
+	// The staged name is per-DESTINATION since docs/reference/agent-briefings.md#ba-r2 — RFC 6901-escaped (`/`
 	// → `~1`), injective, computed by run.briefingStagingName, which the write half uses too.
 	// It was per-PACK while every destination received the same composed body; once the body
 	// varies with the destination's audience, the pack no longer identifies a file. The literal
@@ -594,7 +594,7 @@ func podmanLinuxGolden(home string) []string {
 // (OQ-LP9), and its CONTENT is asserted in inheritscope_test.go. This is the one assertion
 // that stays here: that the destination path appears on the argv at all. It used to name
 // the host's config.lua as a second destination; that bind went with the Lua transform
-// (docs/design/lua-transform-removal.md §5.4), and its absence is pinned by
+// (docs/reference/pack-system.md#oq-lt1), and its absence is pinned by
 // TestUserConfigLuaNoLongerCrosses.
 func TestUserConfigMountDeliversTheGeneratedConfig(t *testing.T) {
 	_, wsState := inheritHome(t, `{"packs": ["claude"]}`)
@@ -612,7 +612,7 @@ func TestUserConfigMountDeliversTheGeneratedConfig(t *testing.T) {
 // a hand-written stub — otherwise the golden would pin what the test author believed
 // the pack says instead of what it says.
 // claudeBriefingDest is the destination packs/claude declares for its briefing, and since
-// briefing-audiences.md it is also the STAGING KEY (briefingStagingName is keyed by
+// docs/reference/agent-briefings.md#ba-r2 it is also the STAGING KEY (briefingStagingName is keyed by
 // destination, not by pack — the composed content now varies per destination, so the pack no
 // longer identifies a file). Named rather than repeated in five test files so a change to the
 // shipped pack's `into` breaks in one place.

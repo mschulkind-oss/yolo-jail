@@ -51,7 +51,7 @@ func (o *Options) sectionGPUNvidia(r *reporter, merged *jsonx.OrderedMap) {
 	// toolkit, the runtime, and a CDI spec under /etc. From inside a jail none of it is
 	// present, so this section used to tell an in-jail reader their GPU setup was broken
 	// in four [FAIL]s when it was merely not visible from where they were standing. That
-	// is OQ-3's other direction (docs/design/broker-ca-and-nested-hosts.md), and
+	// is OQ-3's other direction (docs/reference/claude-oauth-interposition.md#oq-3), and
 	// reporter.hostFact is the answer to it: same badge as a skip, because the reader's
 	// action is the same in both cases — none.
 	if o.inJail() {

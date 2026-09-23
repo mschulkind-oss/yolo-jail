@@ -1,10 +1,12 @@
 ---
 status: current
-verified: 2026-09-21
-verified_commit: 9018aa9c
+verified: 2026-09-23
+verified_commit: 7ad8358c
 covers:
   - internal/oauthterminator/
   - internal/oauthbroker/
+  - internal/broker/brokerlifecycle.go
+  - internal/cli/check/reporter.go
   - internal/loopholes/runtime.go
   - internal/entrypoint/system.go
   - internal/entrypoint/packhooks.go
@@ -14,17 +16,18 @@ covers:
   - internal/cli/run/assemble_parts.go
   - packs/claude/loopholes/claude-oauth-broker/
   - packs/claude/pack.json
-tags: [credentials, oauth, interception, broker, tls, claude]
+tags: [credentials, oauth, interception, broker, tls, claude, nested-jails]
 summary: "What yolo interposes on for Claude OAuth and what it leaves alone: exactly one hostname is
   routed to loopback, exactly one grant on it is terminated, everything else on that host is proxied,
-  and model traffic is never touched. Then the question the mechanism keeps provoking — why a
-  credential FILE is involved at all — answered by enumerating every channel Claude Code 2.1.278 will
-  accept a credential on and what each one cannot do."
+  and model traffic is never touched. How the broker's CA is minted in-process and why its private key
+  never touches disk, and why a nested jail runs its own broker. Then the question the mechanism keeps
+  provoking — why a credential FILE is involved at all — answered by enumerating every channel Claude
+  Code 2.1.278 will accept a credential on and what each one cannot do."
 ---
 
 # Claude OAuth interposition — one hostname, one grant, and why there is still a file
 
-**Status:** CURRENT as of 2026-09-21, verified against `9018aa9c`.
+**Status:** CURRENT as of 2026-09-23, verified against `7ad8358c`.
 
 > **In short.** yolo interposes on **one hostname** (`platform.claude.com`), and on that hostname it
 > terminates **one grant** (`grant_type=refresh_token`) and proxies everything else. Model traffic to
@@ -45,6 +48,9 @@ long answer that lives in the vendor binary, not in this tree.
 | `--add-host` emission, state-file mounts, the CA env var | `internal/loopholes/runtime.go` (`runtimeArgsWith`) |
 | The in-jail TLS terminator | `internal/oauthterminator` (`makeHandler`, `IsRefreshGrant`, `Refresh`, `ProxyUpstream`) |
 | The host daemon: refresh, proxy, mirror | `internal/oauthbroker` (`DoRefresh`, `DoProxy`, `maybePropagateTokenResponse`) |
+| The broker's CA and leaf: mint, serialization, legacy sweep | `internal/oauthbroker` (`EnsureCAAndLeaf`, `withCertLock`, `caAndLeafAreCurrent`) |
+| The failed-spawn warning | `internal/broker` (`BrokerSpawn`, `reportFailedSpawn`, `brokerWaitForSocket`) |
+| `yolo check`'s `[SKIP]` level | `internal/cli/check` (`reporter.skip`, `reporter.hostFact`) |
 | The shared-credentials symlink | `internal/entrypoint/packhooks.go` (`linkSharedCredential`); `packs/claude/pack.json` |
 | The OpenSSL-family CA bundle | `internal/entrypoint/system.go` (`GenerateCABundle`), `boot.go`, `shell.go` |
 | Backend scope | `internal/loopholes/runtime.go` (`admitsJailSideEffects`); `internal/cli/run` (`startLoopholes`, `hostScopedEndpointIsUnpublishable`, `jaildaemondecline.go`) |
@@ -198,8 +204,8 @@ independent paths.
   `"ca_cert": "{state}/ca.crt"` (`manifest.jsonc:80`) and
   `"state_files": ["ca.crt", "server.crt", "server.key"]` (`:86`); `runtime.go:341-358` emits one
   `-v <src>:/var/lib/yolo-jail/loopholes/<name>/<rel>:ro` per declared file and `:366-386` collects
-  the CA path. The CA's **private** key stays host-side — signing is `cert.go:33-47`'s host-only job.
-  Verified live: that directory holds `ca.crt`, `server.crt` and `server.key` (mode `0600`) and
+  the CA path. The CA's **private** key never crosses, because it never exists on disk at all — see
+  [the broker's CA](#the-brokers-ca-minting-rotation-and-a-nested-host). Verified live: that directory holds `ca.crt`, `server.crt` and `server.key` (mode `0600`) and
   nothing else. The served leaf is `CN=platform.claude.com` with
   `SAN DNS:platform.claude.com, DNS:localhost`, issued by
   `O=yolo-jail, OU=local, CN=yolo-jail-claude-oauth-broker`.
@@ -234,6 +240,195 @@ choice**: the vendor offers no supported way to repoint `TOKEN_URL`. `CLAUDE_COD
 checked against a hardcoded allowlist and a non-member throws
 `CLAUDE_CODE_CUSTOM_OAUTH_URL is not an approved endpoint.` (offset 189498422), and the
 `CLAUDE_LOCAL_OAUTH_*` variables only select a localhost dev config.
+
+### The broker's CA: minting, rotation, and a nested host
+
+The trust anchor every jail on a host installs is a CA the host-side broker mints for itself. Two
+properties of that mint are load-bearing, and both are easy to undo by accident: it needs **no
+external tool**, and it leaves **no CA private key** anywhere a process can read it back.
+
+#### How the CA and leaf are minted
+
+`EnsureCAAndLeaf` in `internal/oauthbroker` mints both halves **in-process with `crypto/x509`**. It
+runs on every daemon start and on a hand-run `--init-ca` / `--force-init-ca`, and it is idempotent:
+if the three files a jail mounts are present and no legacy CA key is (see
+[below](#upgrade-and-rotation)), it returns without touching anything. Otherwise it generates the CA
+key, self-signs the CA, generates the leaf key, signs the leaf with the CA, and writes three files —
+`ca.crt`, `server.crt` (the leaf alone, no chain: the client holds the anchor out of band) and
+`server.key`. The CA key is then dropped with the function's stack.
+
+**Both keys are ECDSA P-256**, for two reasons. Every verifier in the picture accepts it — Node through
+`NODE_EXTRA_CA_CERTS`, the OpenSSL-family clients through the jail's CA bundle, and Go's
+`tls.LoadX509KeyPair` in the terminator. And it is fast: RSA keygen in Go has a tail long enough to
+threaten the spawn deadline, and a slow mint surfaces as *"the singleton did not bind its socket"*,
+which reads as a lifecycle bug rather than a crypto one.
+
+The certificate shapes carry three deliberate details, each with a reason that outlives the values:
+
+- **The leaf's SAN set is the load-bearing part** — the intercepted hostname (what Claude asks for)
+  and `localhost` (what a hand-run `curl` asks for). Modern clients ignore `CommonName`, so dropping
+  either SAN breaks the handshake with a hostname mismatch and nothing else changes.
+- **`NotBefore` is backdated**, because the verifier sits in a container that may be behind a
+  podman-machine VM's clock, and a not-yet-valid certificate fails with an error that looks nothing
+  like a clock problem. `internal/svcendpoint` backdates by the same slack for the same reason.
+- **The lifetime is long and expiry buys nothing.** The pair is local, regenerable and reachable only
+  from this machine's own jails, and an expired broker CA costs a debugging session that starts nowhere
+  near a clock. Serials are random, so no counter file is needed, and the CA subject is kept
+  byte-identical to what the retired `openssl` path emitted, so an upgraded host's CA looks like the
+  one a human already learned.
+
+**The two private keys are not in the same position, and the asymmetry is the design:**
+
+| Key | On disk? | Why |
+| :--- | :--- | :--- |
+| The **CA** private key | **Never** | Nothing ever reads it back. It is the anchor every jail on the host trusts, so on disk it would be a standing authority to impersonate any hostname to every jail — the defect issue #33 was about |
+| The **leaf** private key | **Yes, necessarily** | `server.key` is bind-mounted into the jail because `yolo-jaild oauth-terminator` — a different process in a different namespace — serves TLS with it. Keeping it off disk would mean the jail minting its own leaf, which is a redesign of the loophole, not a property of the mint |
+
+`TestEnsureCAAndLeafKeepsTheCAPrivateKeyOffDisk` pins the first row, `TestNoOpensslInThisPackage`
+pins the absence of any `openssl` exec in the package, and `TestOpensslAcceptsTheGoMintedChain` runs
+`openssl verify` over a Go-minted chain wherever an `openssl` binary is present (it skips otherwise).
+
+> [!WARNING]
+> **Do not reuse this code for `internal/svcendpoint`, and do not make this CA that transport's trust
+> anchor.** `svcendpoint` mints an ephemeral certificate whose key never leaves process memory and is
+> never mounted anywhere — the property that stops a jail impersonating the listener. The broker's
+> leaf key *is* mounted into every jail, so it cannot provide that property. `svcendpoint`'s own
+> `mintCert` comment says the same from its side.
+
+#### One mint at a time, and never a mixed trio
+
+**A mixed trio must never exist** — a `ca.crt` from one mint beside a `server.crt`/`server.key` from
+another. A launch binds the three files by inode, so a jail gets the mixture whole and its terminator
+serves a leaf that chains to nothing: a TLS failure that presents nowhere near the state directory.
+
+Ordering the three writes inside one function does not prevent that, because it says nothing about two
+processes. So the whole mint runs under an **exclusive `flock` on `cert.lock`** in `BrokerDir()`, and
+the currency check is re-run *inside* the lock: the loser of a race adopts the winner's complete trio
+instead of minting a second one over it — the same shape `DoRefresh`'s in-lock cache check has. The
+lock is a deliberate sibling of `refresh.lock`, keyed on the same `BrokerDir()`, so every broker
+process in one home contends on the same inode however its socket is spelled. It is host-side
+bookkeeping, outside the manifest's `state_files`, and never crosses into a jail. A lock that cannot be
+taken is a **hard error**, never a reason to mint unlocked (`withCertLock`, the same stance as
+`withRefreshLock`). `TestConcurrentEnsureCAAndLeafNeverLeavesAMixedTrio` pins it.
+
+> [!WARNING]
+> **The spawn flock in `internal/broker` is not the cert mutex, even though it happens to be held on
+> the daemon path.** A hand-run `--init-ca` takes no socket lock at all, and a lock about socket
+> ownership doing unasked duty as a cert mutex is exactly what `cert.lock` replaced. Do not remove
+> `withCertLock` on the grounds that the daemon is already serialized.
+
+Each file is written **atomically on its own** — a temp file in the same directory, `chmod`, then
+`rename` — so a launch racing a re-mint binds either the old file or the new one, never a torn one. The
+three renames are **not** atomic as a set. Minters are serialized by the lock, but a launch *reading*
+the trio takes no lock, so a microseconds-wide window remains in which it could bind one new file
+beside two old ones. Closing it would take a generation directory.
+
+#### Upgrade and rotation
+
+**An upgrading host re-mints.** The retired `openssl` path left four files behind — `ca.key`,
+`ca.srl`, `leaf.cnf`, `server.csr` — and `ca.key` is the one that matters: it is the private key of the
+anchor that host's jails already trust. `caAndLeafAreCurrent` treats a surviving `ca.key` as
+**not current**, so the first run after an upgrade mints a fresh P-256 pair instead of keeping the old
+RSA CA in service forever, and the four leftovers are **removed** rather than ignored. The sweep runs
+*after* the three writes, so a failed mint leaves the old material intact and consistent. Without the
+`ca.key` clause the port would retire the defect only on machines that never had it
+(`TestEnsureCAAndLeafRetiresALegacyOpensslCAKey`).
+
+**Rotation is safe for running jails.** `--force-init-ca` regenerates both halves together. Each of the
+three files is bind-mounted **by inode**, so a running jail keeps the complete old trio it launched
+with while the next launch binds a complete new one. What a running jail does *not* do is pick up the
+new CA: Node reads `NODE_EXTRA_CA_CERTS` once per process, so the re-minted anchor takes effect for
+Claude only at its next start (see [above](#how-the-handshake-is-trusted)).
+
+#### Why the image still bakes openssl
+
+`openssl` sits on the image's core package floor (`coreFloorNames` in `flake.nix`) although nothing in
+`internal/oauthbroker` or `internal/svcendpoint` execs it any more. It was added when the broker minted
+by shelling out to it, and it stays for **two other consumers**: `internal/macosuser` runs
+`openssl rand` to mint the sandbox identity's password, and the generated `sha256sum` shim in
+`internal/entrypoint` falls back to `openssl dgst`. Neither appears in the image's argv, so a closure
+audit reads the entry as unused. It is not, and the `flake.nix` comment on the entry says so.
+
+> [!WARNING]
+> **An invisible dependency on a host tool is the failure class to watch for here.** When the broker
+> shelled out to `openssl`, every launch whose *host was itself a jail* killed the singleton at
+> startup — socket never bound, no endpoint file, and once the reachability witness became fatal a
+> **refused** launch of the very nested jail `AGENTS.md` makes mandatory for verifying Go changes. On a
+> real host `openssl` is simply always there, so the dependency hid for months. A host-wide daemon
+> must not assume the host has a general-purpose userland: a nested launch's host is a jail.
+
+#### A nested jail runs its own broker
+
+**A launcher that is itself inside a jail is an ordinary launcher.** It ensures its own host-wide
+singleton — the outer jail playing "the host" — which mints its own CA in its own `BrokerDir()`, mounts
+that trio into the nested jail, and publishes the endpoint. Nothing borrows the outer launcher's
+broker, and nothing on the nested path is special-cased
+([`OQ-2`](#oq-2)): the principle is that **nesting earns affordances, not exemptions**, because a jail
+that behaves differently cannot test the thing it is nested inside. Where nesting genuinely forces a
+difference the repo names it and keeps it small (`--userns=host`, `--net=host`; see `AGENTS.md`).
+
+Measured 2026-09-18, not re-run for this stamp: a nested launch minted its own P-256 CA, mounted the
+trio, and published `/run/yolo-services/claude-oauth-broker.endpoint`, and `openssl verify
+-verify_hostname platform.claude.com` returned OK against the real mounted files. The record lives in
+`hostScopedEndpointIsUnpublishable`'s doc comment in `internal/cli/run`.
+
+So `hostScopedEndpointIsUnpublishable` withholds a host-scoped endpoint variable on **one** launch
+shape only — Apple Container, which has no publisher for anything but the OpenAI service (see
+[where the interposition exists](#where-the-interposition-exists-at-all)). It has no nested-jail arm,
+and it reads no socket. `TestBrokerEnvEmittedInANestedJailWithNoSingleton` pins the nested case:
+the variable is emitted whether or not the launcher's own singleton is up, which is the same treatment
+a real host gets.
+
+> [!WARNING]
+> **Do not reintroduce a "nested launcher with no singleton" gate.** It existed briefly as containment,
+> and both of its justifications are spent — the mint needs no tool, and a nested launcher has CA state
+> of its own. A gate keyed on nesting would also make "no Claude auth in a nested jail" permanent by
+> design.
+
+#### A failed spawn reports itself
+
+`BrokerSpawn` in `internal/broker` waits for the new daemon's socket with `brokerWaitForSocket`, which
+tells a **dead** child from a **slow** one in milliseconds and returns whether the socket appeared.
+When it did not, `reportFailedSpawn` prints a warning into the launch output naming the loophole, the
+fault class, the socket path it expected and the log that holds the reason. The two classes send the
+reader to different places: an exit means the log's tail *is* the reason, while a timeout means the
+process is alive and stuck and the log may hold nothing.
+
+The warning is **deliberately not fatal**, and `BrokerSpawn`'s return value is unchanged. A jail
+without Claude auth is degraded, not unlaunchable, and the reachability witness is already the gate
+that refuses (see [`loopback-tls-reachability.md`](loopback-tls-reachability.md#which-fault-classes-escalate)).
+This line is the diagnostic that names *why* that gate is about to fire, emitted at the moment the
+fact is known. `TestBrokerSpawnWarnsOnDeadChild`, `TestBrokerSpawnWarnsOnBindTimeout` and
+`TestRealDepsDeliversTheFailedSpawnWarning` pin it, the last through the production `Deps`.
+
+> [!WARNING]
+> **The daemon's own log has no reader.** Nothing in the tree parses a
+> `host-service-<name>.log`; `yolo check` and the broker's self-check only tell a human to tail it.
+> That is why the spawn warning has to be printed where the launch is watched. A detector whose answer
+> is discarded is how a broker that died at every nested start stayed invisible for months.
+
+#### `yolo check` does not count a skip as a pass
+
+**A check that did not look must not be counted as a pass** ([`OQ-3`](#oq-3)). Inside a jail,
+several `yolo check` sections step aside because the area they probe is the host's — loopholes, the
+image, host-service liveness, device nodes and others — and each now reports that through
+`reporter.skip`: a `[SKIP]` line with a note saying where to check instead, counted in its own bucket,
+**excluded from the pass tally**, and recorded in `--format json`. The summary shows the skip count only
+when it is non-zero, so a host run, where nothing skips, reads as it always did. A skip never touches
+the exit code, which is decided by failures alone.
+
+`reporter.hostFact` covers the opposite direction: a section that would otherwise grade an invisible
+host fact as `[FAIL]` — the NVIDIA and AMD GPU checks — and tell an in-jail reader their setup is broken
+when it is merely not visible from there. It is the same `[SKIP]` badge with a mandatory "where to
+check" note, because the reader's action is the same in both cases: none. `skiplevel_test.go` pins the
+level, and `TestNoSectionReportsASkippedAreaAsAPass` scans every section file for an "I did not look"
+message still routed through `r.ok`.
+
+> [!NOTE]
+> **The broker section's own grade is unchanged.** Run on a host, a dead broker daemon is still an
+> `r.warn` (*"loophole claude-oauth-broker: daemon not running"*), not a failure. The skip level is
+> about what an in-jail run claims to have checked, and it does not license probing host loopholes
+> from inside a jail.
 
 ### The `/login` flow is not terminated — it is the enrollment path
 
@@ -412,11 +607,12 @@ does not have.
 
 The canonical location is `CLAUDE_SECURESTORAGE_CONFIG_DIR ?? CLAUDE_CONFIG_DIR ?? ~/.claude`, joined
 with `.credentials.json` (`function Wb()`, offset 191037919). **yolo sets neither variable** and
-reaches the shared file by symlink instead: `packs/claude/pack.json:159-175` declares `.claude` as
-`{"kind":"state","scope":"workspace"}` and `.claude-shared-credentials` as `scope: "machine"`, joined
-by the `shared_credentials` hook, which
-[`packhooks.go:106-139`](../../internal/entrypoint/packhooks.go) renders as a **relative** symlink
-(`filepath.Rel` at `:132`) into a directory the pack declared shared (`:111`). Live in this jail:
+reaches the shared file by symlink instead: [`packs/claude/pack.json`](../../packs/claude/pack.json)
+declares `.claude` as `{"kind":"state","scope":"workspace"}` and `.claude-shared-credentials` as
+`scope: "machine"`, joined by the `shared_credentials` hook, which `linkSharedCredential` in
+[`internal/entrypoint`](../../internal/entrypoint/packhooks.go) renders as a **relative** symlink
+(`filepath.Rel`, in the shared `linkIntoSharedDir`) into a directory the pack declared shared
+(`declaresSharedDir`). Live in this jail:
 `~/.claude/.credentials.json -> ../.claude-shared-credentials/.credentials.json`. The broker's own
 default target is the same file under the global home
 ([`oauthbrokercmd.go:15-21`](../../internal/oauthbroker/oauthbrokercmd.go)).
@@ -580,15 +776,9 @@ On both, the agent talks straight to `platform.claude.com` with its own file-bas
 serialization. `macos-user` does not need the file *sharing* — one real home means one real credentials
 file — but it does lose the *refresh serialization* across concurrent sessions.
 
-> [!NOTE]
-> **One stale summary to fix while you are here.**
-> [`loopholeinert.go:10-15` and `:58-62`](../../internal/cli/run/loopholeinert.go) both assert that
-> `startLoopholes` *"returns nil for rt == \"container\" BEFORE any external service starts, so EVERY
-> pack-shipped host daemon is skipped there."* That is no longer true —
-> `loopholesruntime.go:172-174` starts `openai-auth-broker` on that backend, and
-> `assemble_parts.go:606-611` calls its own allow-list check "the second spelling" of the same fact.
-> The `backendInertReason` body itself (`:74-95`) is correct and well-measured; only the two summary
-> sentences above it overstate the skip.
+`backendInertReason` ([`loopholeinert.go`](../../internal/cli/run/loopholeinert.go)) reports every
+loophole inert on Apple Container, the admitted OpenAI service included: its daemon starts and writes
+its endpoint file, and the jail still cannot dial it.
 
 ## What it does not buy
 
@@ -625,7 +815,27 @@ precision each one needed.
 > standing between yolo and a clear that would blank the machine-wide shared credentials file for
 > every workspace. Anyone "improving" the broker to pass upstream's error through verbatim fires it.
 
+### What the CA work does not license
+
+The in-process mint, the nested-host ruling and the `[SKIP]` level are each bounded, and each is
+easy to over-read:
+
+- **Not** a redesign of the broker, its singleton model or its transport. Moving the leaf key off disk
+  would mean the jail minting its own leaf — a redesign of the loophole, which none of this licenses.
+- **Not** a change to the reachability witness's severity rulings. It behaved correctly: an enabled
+  service the jail could not use is exactly what it reported
+  ([`loopback-tls-reachability.md`](loopback-tls-reachability.md#why-its-this-way)).
+- **Not** a general "audit every discarded return value" project. The failed-spawn warning is one call
+  site with a known consequence; a tree-wide sweep is a different proposal with a different cost.
+- **Not** licence to make `yolo check` probe host loopholes from inside a jail. The `[SKIP]` level is
+  about the *reporting level* of a skip, not about removing it.
+
 ## Open question
+
+> [!NOTE]
+> **Two reference docs define an `oq-ci1` anchor.** [This doc's](#oq-ci1) asks whether the Claude
+> credential should be shared at all. [`agent-install-in-ci.md#oq-ci1`](agent-install-in-ci.md#oq-ci1)
+> is an unrelated CI-pinning ruling. Cite either one as a file-qualified link, never as bare text.
 
 ### <a id="oq-ci1"></a>[`OQ-CI1`](#oq-ci1) — should the credential be shared at all?
 
@@ -645,7 +855,8 @@ machinery, and it is only yolo's scoping split that defeats them.
 measured above: a jail login cannot close in the browser, because the vendor's `redirect_uri` names
 the jail's loopback, so it takes the manual-paste path through the human's host browser. It is also a
 cost yolo has already ruled against once, in the strongest terms the corpus has for this:
-[`packhooks.go:102-105`](../../internal/entrypoint/packhooks.go) records that re-authenticating in
+`linkSharedCredential`'s doc comment in [`packhooks.go`](../../internal/entrypoint/packhooks.go)
+records that re-authenticating in
 every workspace is *"wrong behavior, not an inconvenience"*, which is why the machine tier exists at
 all.
 
@@ -669,6 +880,9 @@ than it currently looks; if it does not, the cost stands as stated.
 | **The refresh token a jail presents is discarded at the jail edge** | Structural rather than defensive: `Refresh` forwards no body and `DoRefresh` takes only a path, so a jail cannot spend a stale token even with serialization switched off entirely. |
 | **The flock is taken host-side, not in a singleton** | Host-side is where every backend agrees on the inode. The daemon being one process is not required — the lock derives from `$HOME` — and a shared-file lock would be backend-dependent. |
 | **yolo's broker errors are never the string `invalid_grant`** | The vendor's dead-token classifier fires on that string at status 400/401, and the terminator already answers 400. Passing the upstream error through verbatim would blank the machine-wide credential file. |
+| <a id="oq-1"></a>[**`OQ-1`**](#oq-1) (broker-ca) — **bake `openssl` *and* port the mint to `crypto/x509`, both** | The bake is not a substitute for retiring the dependency: a host-wide daemon that shells out to a tool fails on any host lacking it, and a nested launch's host is a jail. The port also takes the CA private key off disk. The bake stays regardless, for two consumers this ruling was never about ([why](#why-the-image-still-bakes-openssl)). |
+| <a id="oq-2"></a>[**`OQ-2`**](#oq-2) (broker-ca) — **a nested jail runs its own broker singleton**, like any other host | Nesting earns affordances, not exemptions: a jail that behaves differently cannot test the thing it is nested inside, and a special case here is one carried forever. So the endpoint-withholding gate has no nested arm ([how](#a-nested-jail-runs-its-own-broker)). |
+| <a id="oq-3"></a>[**`OQ-3`**](#oq-3) (broker-ca) — **a check that did not look must not be counted as a pass** | The principle is the ruling and the token was delegated: `[SKIP]` with its own counter, excluded from the pass tally, plus `hostFact` for a fact about the host rather than the reader. An all-green in-jail run that includes areas nobody examined offers them as evidence ([how](#yolo-check-does-not-count-a-skip-as-a-pass)). |
 
 ## Current values
 
@@ -686,6 +900,14 @@ offset for re-measurement.
 | Per-hop deadline | 30s on each side | `internal/oauthterminator/client.go`; `internal/oauthbroker/http.go` (`httpClient`) |
 | Jail-side trust files | `ca.crt`, `server.crt`, `server.key` under `/var/lib/yolo-jail/loopholes/<name>/`, each `:ro` per file; the CA **key** never crosses | `manifest.jsonc` (`state_files`, `ca_cert`); `internal/loopholes/runtime.go`; `internal/oauthbroker/cert.go` |
 | Served leaf | `CN=platform.claude.com`, `SAN DNS:platform.claude.com, DNS:localhost` | `internal/oauthbroker/cert.go` (leaf template) |
+| CA and leaf key algorithm | ECDSA P-256, minted in-process; the CA key is never written | `internal/oauthbroker/cert.go` (`mintCAAndLeaf`) |
+| CA and leaf lifetime | 10 years (`10 * 365 * 24h`), matching the retired `-days 3650` | `internal/oauthbroker/cert.go` (`certLifetime`) |
+| `NotBefore` backdate | 1h, the same slack `internal/svcendpoint` uses | `internal/oauthbroker/cert.go` (`certSkewSlack`) |
+| Serials, CA subject | 128-bit random; `O=yolo-jail, OU=local, CN=yolo-jail-claude-oauth-broker` | `internal/oauthbroker/cert.go` (`randomSerial`, `caCommonName`) |
+| Mint lock | `cert.lock` under `BrokerDir()`, exclusive `flock`; never mounted into a jail | `internal/oauthbroker/cert.go` (`certLockPath`, `withCertLock`) |
+| Swept legacy artifacts | `ca.key`, `ca.srl`, `leaf.cnf`, `server.csr`; a surviving `ca.key` forces a re-mint | `internal/oauthbroker/cert.go` (`legacyOpensslArtifacts`, `caAndLeafAreCurrent`) |
+| Mint entry points | daemon start; `--init-ca` (idempotent), `--force-init-ca` (rotates both halves) | `internal/oauthbroker/oauthbrokercmd.go` |
+| Spawn deadline | 5s for a just-spawned singleton to bind its socket, then the failed-spawn warning | `internal/broker/brokerlifecycle.go` (`BrokerSpawnTimeout`) |
 | Node/Bun trust var | `NODE_EXTRA_CA_CERTS`, one path — ⚠ joined as a list by yolo, read as a single filename by the consumer ([why that matters](#how-the-handshake-is-trusted)) | `internal/loopholes/runtime.go`; Claude Code 2.1.278 (`node:tls` compat, offset 22158845) |
 | OpenSSL-family trust vars | `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO` → `$HOME/.yolo-ca-bundle.crt` | `internal/entrypoint/system.go` (`GenerateCABundle`), `boot.go`, `shell.go`; bound from the workspace in `internal/cli/run/assemble_parts.go` |
 | Vendor credential path | `CLAUDE_SECURESTORAGE_CONFIG_DIR ?? CLAUDE_CONFIG_DIR ?? ~/.claude` + `.credentials.json`; yolo sets **neither** variable | Claude Code 2.1.278 (`Wb()`, offset 191037919); `packs/claude/pack.json`, `internal/entrypoint/packhooks.go` |

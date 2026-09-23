@@ -1,7 +1,7 @@
 package cli
 
 // applyhostlocalmove_test.go pins the local-pack MOVE at the command level
-// (pack-briefing-defaults.md §4): an earlier yolo migrated the user's adopted prose into the
+// (docs/reference/pack-system.md#local-pack-briefing-move): an earlier yolo migrated the user's adopted prose into the
 // local pack's ROOT AGENTS.md, which is no longer read as pack prose (P1). yolo chose that
 // location, so the next `yolo host apply` moves it into briefing/, reports the move, and refuses
 // — naming both files — when the target is already taken.

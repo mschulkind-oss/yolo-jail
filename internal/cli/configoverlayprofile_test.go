@@ -1,7 +1,7 @@
 package cli
 
 // configoverlayprofile_test.go covers the `profile` modifier on config-overlay at the
-// HOST notch's user-facing surface (profiles-as-pack-variants.md §7, build-order step 6):
+// HOST notch's user-facing surface (docs/reference/providers.md#the-profile-modifier):
 // `yolo host apply` renders a gated overlay only while its name is the active profile at
 // the target surface's agent, and reads that selection from the USER config — the scope
 // every host composition draws. Same fixture style as configoverlay_test.go: a throwaway
@@ -75,7 +75,7 @@ func TestApplyHostRendersGatedOverlayWhenProfileSelected(t *testing.T) {
 
 // Without the profile selected, the apply SUCCEEDS, the owner's surface carries only the
 // owner's keys, and nothing about config-overlay is reported — the same clean skip the
-// jail render makes, because selection is the optionality (§7.1).
+// jail render makes, because selection is the optionality (providers.md#the-profile-modifier).
 func TestApplyHostSkipsGatedOverlayWhenProfileNotSelected(t *testing.T) {
 	gatedFixture(t, `{"acme":"bedrock"}`, map[string]string{
 		"acme":     acmeOwnerPackJSON,

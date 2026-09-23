@@ -447,7 +447,7 @@ func BrokerSpawn(deps Deps) string {
 // the caller here threw the answer away. That is how a broker which died at
 // startup 2,549 times in a single jail stayed invisible for months: the only
 // record was a log nobody reads, and the consequence surfaced three layers later
-// as a refused launch (docs/design/broker-ca-and-nested-hosts.md §3.1).
+// as a refused launch (docs/reference/claude-oauth-interposition.md#a-failed-spawn-reports-itself).
 //
 // Deliberately NOT fatal, and BrokerSpawn's return value is unchanged. The
 // broker is a host-wide singleton; a jail without Claude auth is degraded, not

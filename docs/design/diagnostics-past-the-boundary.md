@@ -39,8 +39,8 @@ measurement each needed. [§4](#4-the-proposal) falls out of that table and noth
 
 **Reads with:** [`perf-logging.md`](../reference/perf-logging.md) (the host half this extends;
 P5 forbids the obvious shortcut), [`report-tiers.md`](../reference/report-tiers.md) ([`OQ-RO3`](../reference/report-tiers.md#why-its-this-way),
-the ruling this must not dent), [`wire-bridge-port-collision.md`](wire-bridge-port-collision.md)
-(the motivating investigation; its [`OQ-PC2`](wire-bridge-port-collision.md#oq-pc2) owns *disclosure*, a different question from
+the ruling this must not dent), [`wire-bridge.md`](../reference/wire-bridge.md#what-can-hold-the-listen-port-before-the-bridge-does)
+(where the motivating investigation graduated; its [`OQ-PC2`](../reference/wire-bridge.md#oq-pc2) owns *disclosure*, a different question from
 *recording*), [`loopback-tls-reachability.md`](../reference/loopback-tls-reachability.md) (the
 witness whose failure is this design's trigger).
 
@@ -231,7 +231,7 @@ row `0b`.
 ### 3.2 The 8214 failure, as the worked case
 
 The ordering that makes it fatal is a fact, re-verified independently of
-[`wire-bridge-port-collision.md`](wire-bridge-port-collision.md): `internal/entrypoint/boot.go`
+[`wire-bridge.md`](../reference/wire-bridge.md#forwarders-start-before-daemons-so-a-forward-always-wins): `internal/entrypoint/boot.go`
 calls `startContainerPortForwarding` and *then* `startJailDaemonSupervisor`, four lines
 apart. Two properties of the earlier call are what made the failure mute:
 
@@ -244,7 +244,7 @@ apart. Two properties of the earlier call are what made the failure mute:
    *occupied* and can never answer *by whom* — which is the only answer that was wanted.
    There is no `/proc/net/tcp` parsing anywhere in the tree at `16ef96cb`.
 
-Note what this is not: [`OQ-PC2`](wire-bridge-port-collision.md#oq-pc2) in the sibling doc asks whether an implicit provider forward
+Note what this is not: [`OQ-PC2`](../reference/wire-bridge.md#oq-pc2) in the wire-bridge reference asks whether an implicit provider forward
 should be **disclosed** on the launch terminal. That is a question about the user's
 attention and it stays there. This doc asks only whether it is **recorded**, which is a
 question about a file, and the two answers are independent.

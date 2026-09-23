@@ -7,15 +7,15 @@ package packload
 // scanned the conventional pair unconditionally).
 //
 // It is now a thin reader over the governance predicate (governance.go), and that is the whole
-// change pack-briefing-defaults.md made here:
+// change the briefing/ convention (docs/reference/pack-system.md#briefing) made here:
 //
 //   - AGENTS.md IS NEVER READ (P1). The convention is every *.md directly inside briefing/.
-//   - THE FALLBACK CHAIN IS GONE (§3.4, P4). A declared `from` that is absent, not a file, blank or
+//   - THE FALLBACK CHAIN IS GONE (P4, #briefing-p4). A declared `from` that is absent, not a file, blank or
 //     escaping delivers NOTHING and is reported. It used to deliver the pack's AGENTS.md instead,
 //     with a "used instead" warning — a named source quietly replaced by a different file.
 //   - A DESTINATION SOURCES NOTHING (P5). An agent pack's `{agent, into}` names where content
 //     lands; it used to also read the pack's own root prose into its own agent.
-//   - WHAT A CONTRIBUTION CARRIES IS DECIDED PER FILE (§3.3). An omitted `from` carries the files
+//   - WHAT A CONTRIBUTION CARRIES IS DECIDED PER FILE (pack-system.md#briefing-governance). An omitted `from` carries the files
 //     no sibling names — so this cannot be answered from the contribution alone, and asks the pack.
 
 import (

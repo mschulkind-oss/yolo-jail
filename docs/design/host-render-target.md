@@ -804,7 +804,7 @@ reads two different files:
 ```
 
 (A `lua` layer sat between `computed` and `managed` in this diagram until the Lua config
-transform was removed on 2026-09-11 — [`lua-transform-removal.md`](lua-transform-removal.md).
+transform was removed on 2026-09-11 — [`OQ-LT1`](../reference/pack-system.md#oq-lt1).
 Nothing else about the ordering moved.)
 
 On a host target there is only one file, so the composition becomes a **fixpoint over its

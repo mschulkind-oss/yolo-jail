@@ -731,7 +731,7 @@ wrong one to sequence on.
 
    **The integration suite does not cover this slice, deliberately.** Six of its files select the
    `claude` pack, so a live trigger would put a ~205 MiB vendor download on every push — the class
-   [`agent-install-in-ci.md` §6.1.1](../design/agent-install-in-ci.md#611-three-triggers-matched-to-three-causes) moved off that trigger. The
+   [`agent-install-in-ci.md`](../reference/agent-install-in-ci.md#three-triggers-matched-to-three-causes) moved off that trigger. The
    harness therefore sets `YOLO_NO_AUTO_CAPTURE=1` unless `YOLO_TEST_REAL_PACK_INSTALLS` is set,
    riding that existing gate rather than inventing a second one. It could not assert "this launch
    captured" in any case: `.local/share/yolo-jail` is one of `packHomeSharedStores`, so every

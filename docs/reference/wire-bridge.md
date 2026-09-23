@@ -1,21 +1,26 @@
 ---
 status: current
-verified: 2026-09-15
-verified_commit: e0d62605
+verified: 2026-09-23
+verified_commit: 7ad8358c
 covers:
   - internal/wirebridge/
   - internal/wirebridged/
   - internal/packload/needs.go
   - internal/packdecl/needs.go
   - internal/cli/run/packservices.go
+  - internal/cli/run/providerlocal.go
+  - internal/cli/run/hostports.go
   - packs/wire-bridge/
-tags: [packs, providers, services, claude, translation, needs]
+tags: [packs, providers, services, claude, translation, needs, networking, diagnosis]
 summary: "An in-jail translating reverse proxy that manufactures an Anthropic-Messages endpoint on the jail's loopback for OpenAI chat-completions providers and Claude's Codex Responses profile — plus the `service` contribution kind and `needs`, a pack dependency resolved at selection."
 ---
 
 # The wire bridge — an Anthropic endpoint on the jail's loopback
 
-**Status:** CURRENT as of 2026-09-15, verified against `e0d62605`.
+**Status:** CURRENT as of 2026-09-23, verified against `7ad8358c`. UNMEASURED on the host that
+reported the listen-port collision: that the provider-table fix ends it is inferred from an
+in-process reproduction, and no launch there has been observed succeeding
+([what can hold the listen port](#what-can-hold-the-listen-port-before-the-bridge-does)).
 
 A **wire bridge** *(coined here)* is an in-jail daemon that manufactures, on the jail's own
 loopback, a wire protocol a provider does not natively serve, by translating to one it does.
@@ -29,11 +34,10 @@ and a wire protocol is not a config dialect. So the missing thing is a protocol 
 has to run somewhere — the jail is the only place that needs it, because what the agent consumes
 is a base URL, and a base URL can be the jail's own loopback.
 
-**The endpoint trick is the load-bearing part, and it still changes no derive — but the bridge
-declares its own address now.** Until 2026-09-18 each consuming provider hand-wrote the bridge's
-loopback URL as its `anthropic` endpoint. Today `packs/wire-bridge` declares an `adapter`
-contribution per conversion — `adapts: {from, to}` plus an `address` — and core composes that
-address into every provider entry that offers the `from` and lacks the `to`
+**The endpoint trick is the load-bearing part, and it changes no derive.** The bridge declares
+its own address: `packs/wire-bridge` carries an `adapter` contribution per conversion —
+`adapts: {from, to}` plus an `address` — and core composes that address into every provider entry
+that offers the `from` and lacks the `to`
 ([`protocol-resolution.md`](protocol-resolution.md)). The agent's existing derive emits the
 composed URL as its base URL exactly as it would emit any other. The derive cannot see whether a
 bridge exists, and should not.
@@ -46,23 +50,24 @@ bridge exists, and should not.
 > already applied — so a user-scope `adapters.<from>-><to>.address` moves the listener and the
 > agent together, on either route.
 >
-> ⚠ **This was half-true until 2026-09-20 and the asymmetry is worth remembering, because it is
-> the shape to watch for.** The Codex `openai-responses → anthropic` route was selected by agent
-> and provider name in `routeFor`'s first branch and returned **before any endpoint was read**, so
-> the daemon bound `wirebridged.CodexResponsesListenAddr` whatever the `adapters` key said while
-> the composed entry — and therefore Claude's base URL — followed the override. Overriding that
-> pair pointed the agent at a port nothing was listening on. The constant survives as the DEFAULT
-> for an entry naming no anthropic endpoint; what changed is that it is no longer reached ahead of
-> the table.
+> ⚠ **Do not let a route choose its bind before it reads the composed entry.** The Codex
+> `openai-responses → anthropic` route is selected by agent and provider name in `routeFor`, and a
+> branch that returns there before reading `endpoints.anthropic.base_url` binds
+> `wirebridged.CodexResponsesListenAddr` whatever the `adapters` key says, while Claude's base URL
+> follows the override — the agent then dials a port nothing listens on. The constant is the
+> DEFAULT for an entry naming no anthropic endpoint, never a second writer of the port.
 
 | Component | Lives in |
 | :--- | :--- |
-| Translation, both directions, I/O-free | `internal/wirebridge` (`request.go`, `response.go`, `stream.go`) |
+| Translation, both directions, I/O-free | `internal/wirebridge` (`request.go`, `response.go`, `stream.go`, and `responses.go` for the Codex route) |
 | The daemon: listener, upstream dial, SSE framing, status codes, key read | `internal/wirebridged` (`boot.go`, `handler.go`, `endpoint.go`, `keyfile.go`) |
 | The serve-or-idle decision, made once | `internal/wirebridged` (`WillServe`, `routeFor`) |
-| `needs` — the schema and its validation | `internal/packdecl` (`needs.go`, `Need`, `WhenBins`) |
+| `needs` — the schema and its validation | `internal/packdecl` (`needs.go`, `PackNeed`, `WhenBins`) |
 | `needs` — the selection closure | `internal/packload` (`ResolveNeeds`) |
-| Wiring the endpoint variable only when the daemon will serve | `internal/cli/run` (`serviceEndpointEnvArgs`) |
+| Wiring the endpoint and readiness variables only when the daemon will serve | `internal/cli/run` (`serviceEndpointEnvArgs`) |
+| The daemon's one log sink, and the sentence naming what holds a port | `internal/wirebridged` (`diag.go`, `describePortHolder`), over `internal/listeners` |
+| Implicit localhost-provider forwards, their merge and their disclosure | `internal/cli/run` (`localProviderForwardSources`, `mergeHostForwards`, `discloseImplicitProviderForwards`, `briefingPortsFor`) |
+| In-jail forwarders, the readiness wait, the orphan refusal | `internal/entrypoint` (`startContainerPortForwarding`, `startJailDaemonSupervisor`, `refuseOnOrphanedJailDaemons`) |
 | The pack itself — the first `kind: "service"`, and the two `adapter` contributions that declare its addresses | `packs/wire-bridge` |
 
 **Reads with:** [`providers.md`](providers.md) (what a provider declares and which agent reads
@@ -173,10 +178,17 @@ being **selection-lazy**.
 At boot the daemon reads the composed provider table and the resolved selection. If some agent's
 active profile names a provider whose `anthropic` endpoint is jail-local — routed *at this
 bridge* — it serves that provider's `openai` endpoint upstream. Otherwise it **idles healthy**:
-binds nothing, publishes nothing, and prints one line naming the exact absent fact. While idle,
-it watches the complete per-entry channel for a later attach and wakes when that attach selects
-a routed provider. Once serving, its upstream stays fixed for the daemon lifetime: concurrent
+binds nothing, publishes nothing, and prints one line naming the exact absent fact — once per
+distinct reason, because the answer is re-evaluated on every poll of the channel. While idle, it
+watches the complete per-entry channel for a later attach and wakes when that attach selects a
+routed provider. Once serving, its upstream stays fixed for the daemon lifetime: concurrent
 entries may still use the earlier route, so the latest attach must not redirect their traffic.
+
+The one boot on which an idle is **not** healthy is a boot waiting on the bridge's readiness. The
+launcher asks for readiness only when its own serve decision said *serve*, so a daemon that idles
+there has disagreed with the launcher about one decision. It answers `failed` with its idle reason
+rather than leaving the entrypoint waiting for an attach that will never come
+([the readiness wait](#lifecycle-and-failure-behavior)).
 
 Coarse condition + lazy daemon = precise behavior, with vocabulary a manifest can state without
 knowing anything about profiles. The cost is a healthy idle process in launches where the agent
@@ -224,7 +236,7 @@ The bridge implements **what the agent sends**, not the whole Anthropic API.
 | stop reasons | map onto the upstream's finish reasons | finish reason |
 | usage | map through | usage |
 | cache-control blocks | strip — silently ignored, never an error | — |
-| the model id | **passthrough verbatim** | model |
+| the model id | **passthrough**, normalized only for gateways: Claude's `[1m]` context suffix is stripped, and a bare `deepseek-…` id gains its `deepseek/` vendor prefix | model |
 
 **Auth.** Inbound: **none** — the bridge ignores whatever token the agent sends, because the jail
 is the boundary and every process in it already reads the same environment file. (The agent's
@@ -269,28 +281,194 @@ provider's key, read once at boot.
   daemon binary rather than a new binary — so the "a new `cmd/` binary must be registered in two
   more places or it vanishes" trap never even opens. Restart on failure.
 - **Startup order.** Daemons start at boot, before the agent command. The bridge **binds its port
-  before writing its endpoint file**, so the file appearing means the listener exists. The
-  reachability witness then covers it: a bridge that cannot bind refuses the boot — which is
-  precisely the failure mode the preflight philosophy wants, because the alternative is an agent
-  handed a base URL that dies at first request in a way nobody attributes.
-- **The key channel.** The credential crosses as it does for every non-first-party agent: the
-  launcher writes a `0600` environment file from hydrated env sources, and the bridge reads that
-  file at startup, once, into memory. One writer, one reader; the daemon never appears in a
-  process listing with the key. Its own process environment is the fallback for notches where the
-  file may not exist.
+  before writing its endpoint file** (a temp file renamed into place), so the file appearing means
+  the listener exists. It announces the address it is about to bind before trying, so the log
+  records how far it got even when the bind hangs.
+- **The readiness wait — a bridge that cannot serve refuses the boot.** When the launcher's serve
+  decision says the bridge will serve, it also names the bridge as a *ready-required* daemon. The
+  entrypoint then hands the supervisor a one-shot readiness pipe, prints the daemon's log path, and
+  blocks until the bridge answers `ready` or `failed <reason>`. Every way a serving boot can fall
+  short answers `failed`: a bind error, a failed endpoint publish, a missing provider credential,
+  a Codex route with no credential-service endpoint, or a daemon that idles on a boot the launcher
+  registered, which is a contradiction between the two call sites of one decision. The entrypoint
+  refuses the boot with `jail daemon "wire-bridge" cannot publish its required endpoint: <reason>`.
+  The reachability witness, keyed on the endpoint variable, is the second line behind it. Either
+  way the failure lands at boot, which is what the preflight philosophy wants: the alternative is
+  an agent handed a base URL that dies at first request in a way nobody attributes. On a bind
+  failure the reason carries the address, the syscall error and **what holds the port** — see
+  [what can hold the listen port](#what-can-hold-the-listen-port-before-the-bridge-does).
+- **An orphaned daemon refuses the boot; it is never killed.** When the entrypoint finds no live
+  supervisor (a fresh container, or a re-entry whose supervisor died), it looks for processes whose full argv matches a
+  configured daemon. If it finds any, it names each one with its PID and refuses, and it neither
+  kills nor adopts ([OQ-PC3](#oq-pc3)).
+- **The key channel.** On the chat-completions route the credential crosses as it does for every
+  non-first-party agent: the launcher writes a `0600` environment file from hydrated env sources,
+  and the bridge reads that file at startup, once, into memory. One writer, one reader; the daemon
+  never appears in a process listing with the key. Its own process environment is the fallback
+  for notches where the file may not exist, and a file that exists but cannot be read is reported
+  rather than silently skipped. The Codex route reads no key at all: it asks the OpenAI credential
+  service for an access-only token view per request, and a 401 gets exactly one fresh view before
+  the refusal is relayed.
+- **Shutdown.** The daemon stops on `SIGINT`/`SIGTERM` (the supervisor's stop signal) and, when it
+  was serving, removes its endpoint file, because a file that outlives its listener points the
+  next reader at a closed port. A healthy idle waits on the same signal.
 - **Upstream failures.** A 4xx is relayed with the **same status**, anthropic-shaped, so the agent
   renders it and owns the retry decision. Every 5xx, timeout, or unreachable dial becomes a **502**
   in the same shape — the family an agent backs off on — logged as one line of status and latency,
   never a body. The upstream's own error *message* is forwarded (it goes to the agent, which
   displays it) but never logged, and a body that does not parse is replaced by a status line
   rather than quoted: an HTML error page in a JSON field helps nobody. **The bridge adds no
-  retries of its own** — the agent's retry loop is the retry policy.
+  retries of its own** — the agent's retry loop is the retry policy — apart from the Codex route's
+  single retry on a 401 with a fresh token view. A stream that fails mid-flight, or ends without a
+  finish reason, is closed with an anthropic `error` event, the only legal way to fail inside
+  SSE, and the cause goes to the log. A response the client never received is logged as a failed
+  delivery rather than as the status the bridge intended.
 - **Concurrency.** A stateless proxy; concurrent requests are fine and there is no shared mutable
   state after boot. Ordering cannot matter, because every request is independent.
 
 **Forbidden, and each for its own reason:** never dial anything but the boot-selected upstream
 (read once from the composed table, never from request content); never listen off loopback; never
 log request or response bodies, or the key; never cache bodies to disk.
+
+## What can hold the listen port before the bridge does
+
+The bridge's listen port is on the jail's own loopback, in a network namespace no other jail
+shares. So the process that can take the port first is one this same boot started. A report of
+`cannot bind 127.0.0.1:<port>: … address already in use` is therefore a question about **this
+container's own boot**, and this section is the map for answering it.
+
+### Forwarders start before daemons, so a forward always wins
+
+The entrypoint starts the in-jail port forwarders (`startContainerPortForwarding`) before the
+`start_jail_daemon_supervisor` step. Each forward is a `socat` listening on the jail's
+`127.0.0.1:<port>` with `reuseaddr`, and `reuseaddr` does not help a later binder. So when the
+launch's forward list carries a port that is also an adapter's address, the forwarder takes it
+unconditionally and the bridge, binding second, is the one that reports.
+
+The ordering is not a defect and does not change. Nothing legitimate ever puts an adapter's
+address in the forward list, so the protection is keeping that list clean, not re-sequencing the
+boot.
+
+### Only a user's provider URL becomes an implicit forward
+
+The forward list has exactly two sources: the user's `network.forward_host_ports`, and **implicit
+localhost-provider forwards**. An implicit forward is the port of a provider URL whose host is a
+loopback spelling. A user who writes `http://localhost:11434` in `providers` is naming an inference
+server on the machine that launches yolo, so yolo forwards that host port into the jail at the same
+number and leaves the URL unchanged.
+
+**Pack endpoints never become forwards.** A pack's endpoint is a service fact, and wire-bridge
+legitimately names jail loopback. So the implicit forwards are read from the **user's own
+`providers` config map**, never from the composed table: the composed table carries the adapter
+addresses, and reading it would turn every bridged provider into a forward of the bridge's own
+port.
+
+The rest of the rule:
+
+- **An explicit forward wins.** `mergeHostForwards` keeps a user's `forward_host_ports` entry for
+  a local port and drops the implicit one, because an explicit `8080:9090` is a deliberate remap.
+- **Bridge network mode only.** Implicit forwards are merged only when the applied network mode is
+  bridge. Under host networking the jail already shares the launcher's loopback.
+- **Disclosed, by port and provider** ([OQ-PC2](#oq-pc2)). The launch prints one line per implicit
+  port, naming the provider that asked for it. A port the user also wrote in `forward_host_ports`
+  is not named, because their config already shows it. The line is printed once, from the launch
+  pipeline, before the merge: the container-argv assembly performs the same merge silently, so
+  the disclosure is not printed twice. The briefing's **Forwarded Host Ports** section is fed
+  from the merged list. `briefingPortsFor` does the merge itself, so a caller cannot forget it.
+  The disclosure is a launch line and a briefing section. It is **not** a row in the pack
+  banner, so a reader who sees only the banner learns nothing about a forwarded port.
+
+> [!WARNING]
+> **The launch-line half of that disclosure has no call-site test.** Only the helper is
+> pinned. Removing the `discloseImplicitProviderForwards` call from the launch pipeline leaves
+> the unit suite green. The briefing half is pinned by rendering the real briefing
+> (`TestRenderedBriefingNamesAnImplicitProviderForward`).
+
+### The invariant that keeps the adapter's address out of the user's map
+
+The adapter pass writes each adapter's address into every eligible provider entry as
+`endpoints.anthropic.base_url`, and it runs last over the finished composed table. That write is
+safe only because **the composed provider table owns its output**. `packload.ComposeProviders`
+deep-copies the user layer on the way in, and `shippedProviderEntry` allocates every level it
+emits, so no object reachable from the table belongs to the caller or to a pack declaration. The
+adapter pass is therefore a writer of the table alone.
+
+The failure this prevents is exactly the collision above. Take a user-scope `providers.<name>`
+that no selected pack ships, carrying `endpoints.openai` or `endpoints.openai-responses` and no
+`anthropic` endpoint. That is the shipped shape for a local inference server. If the table stores
+that entry by reference, the adapter pass writes the bridge's own loopback address into the
+user's own map. The implicit-forward read then finds a loopback URL and forwards the bridge's
+port, and the forwarder takes it before the bridge starts. Grepping `~/.config/yolo-jail/` for the
+port returns nothing in that state, because the number is composed in at launch.
+
+> [!WARNING]
+> **The copy has to be DEEP, and a one-level clone looks sufficient and is not.** A provider
+> entry is a tree. Clone only the entry and `endpoints` stays shared, so the adapter pass writes
+> through it unchanged and the symptom is identical. `jsonx.DeepCopy` is the copier: unlike
+> `jsonx.Plain` it lowers nothing, so key order and integer literals survive and a copied config
+> re-encodes byte-identically. One copy at the composer's read covers every sink, including
+> `mergeUnder` writing sub-values of the user's entry into a pack-shipped one. Reverting it
+> turns `TestComposeProvidersDoesNotWriteThroughToTheUsersMap` and
+> `TestTheComposedTableSharesNoObjectWithTheUsersMap` (`internal/packload`) and
+> `TestComposingProvidersAddsNoImplicitHostForward` (`internal/cli/run`) red, the last one
+> reporting the leaked port by number.
+
+### The other holders, and what each says
+
+- **A forward that could not start.** When a forward's port is already bound, the forwarder skips
+  that port and says what holds it. It reads `/proc` through `internal/listeners`, once for the
+  whole loop and only if some port is held. The skip is reported in two registers. A holder whose argv is this boot
+  path's own `socat` for that port is an already-established forward, on a re-entered container
+  working as designed. Anything else is a warning that the forward will not exist.
+- **The bridge's own bind failure** carries the address, the syscall error and the port holder
+  (`describePortHolder`, over the same `internal/listeners` snapshot). The holder lookup is
+  tri-state: it names the holder, or says that no LISTEN socket on that port is in this
+  namespace's tables, or says it could not look and why. An unreadable table is never reported
+  as an absence.
+- **An orphaned daemon.** A daemon whose supervisor died reparents to PID 1 and keeps its listener.
+  The entrypoint runs again on every attach to the same container, and a fresh supervisor would
+  otherwise spawn a rival that prints this same bind error. After both the current and the legacy
+  supervisor PID files prove dead, the entrypoint walks `/proc` for processes whose **full argv**
+  matches a configured daemon: same length, same executable base name, every later element equal.
+  A process that merely holds the port is never a candidate. If it finds one, it names each orphan
+  and its PID and refuses the boot ([OQ-PC3](#oq-pc3)).
+- **Another jail.** This is impossible in bridge mode, where `/proc` and the loopback belong to
+  the container: yolo passes no `--pid` flag. A nested jail is the exception. It is forced onto
+  `--net=host`, so two nested jails share one loopback and a genuine cross-jail collision can
+  happen there.
+
+> [!NOTE]
+> **Local packs are outside this map.** The only adapters yolo ships are `packs/wire-bridge`'s two.
+> A local pack may declare its own `adapter`, a `service` with a `jail_daemon`, or a provider.
+> A second declaration of an adapter's address would be a different bug with the same message.
+
+### Where the post-mortem lives
+
+A refused boot tears the container down (`--rm`), and with it the process table and the
+listeners. These are the facts that survive:
+
+- **The bridge's own log**, `~/.local/state/yolo-jail-daemons/wire-bridge.log` in the jail. The
+  supervisor points the daemon's stdout and stderr at it, and the readiness wait prints its path
+  as `Daemon diagnostics:`. It sits in the jail home, so it outlives the container in the
+  workspace's home overlay under `<workspace>/.yolo/home`. Nothing the daemon logs is gated: no
+  verbosity dial exists, by the same rule that gives a launch no quiet mode
+  ([`OQ-RO3`](report-tiers.md#why-its-this-way)).
+- **The host socat log**, `<cname>-socat.log` under `~/.local/share/yolo-jail/logs/`. The launcher
+  creates it only when the launch has at least one forward, so its existence alone is evidence of
+  a forward on a config that declares none. The jail-side forwarders write their own
+  `~/.yolo-socat.log`.
+- **Not host `ss`.** The host half of a forward is `socat UNIX-LISTEN:…`, a filesystem socket, so
+  `ss -ltnp` on the host is empty while the jail-side socat holds the TCP port. An empty host
+  table clears nothing.
+- **`YOLO_HOLD_ON_REFUSAL=1`** makes a boot that is about to refuse print how to get in and then
+  block, so the failed container can be `podman exec`'d into instead of reconstructed.
+
+> [!NOTE]
+> **Two misleading lines accompany this failure.** The reachability reporter that follows a
+> refused bridge calls it a "host service". Its lead sentence, *"yolo requested host-loopback
+> forwarding for this jail"*, quotes the launch's `YOLO_HOST_LOOPBACK` disposition. That
+> disposition is per launch and names no service. Neither line means the bridge was given a
+> forward.
 
 ## What this does not license
 
@@ -305,8 +483,13 @@ log request or response bodies, or the key; never cache bodies to disk.
   true, the bridge grows auth before it grows anything else.
 - **No provider-side knob for the port.** The address is the *adapter's* own declaration, with
   exactly one user-scope override (`adapters.<from>-><to>.address`) and nothing else: a provider
-  cannot move it, and a workspace config cannot set it at all. What that override actually reaches
-  is not uniform — see [the listen address](#the-listen-address).
+  cannot move it, and a workspace config cannot set it at all. The override moves the bind and the
+  agent's URL together, on both routes — see [the listen address](#the-listen-address).
+- **No `macos-user` bridge.** That backend starts no jail daemons: a launch there names each
+  declared one, the bridge included, as not running, and does not fail. It also has no network
+  namespace, so an adapter's port there would be a host port, and nothing in
+  [what can hold the listen port](#what-can-hold-the-listen-port-before-the-bridge-does) has been
+  worked through for that blast radius.
 
 ## Why it's this way
 
@@ -326,15 +509,18 @@ Rulings a future change would otherwise undo, with their original IDs.
 | <a id="wb-d10"></a>[**WB-D10**](#wb-d10) — needs resolve as a transitive closure before staging; cycles refuse the launch naming the loop; explicit user selection is joined, never overridden | The mount is the filter, so a pack the closure adds after staging renders nothing. The join rule alone would terminate the walk, so the cycle is checked **structurally** rather than left to termination to imply: manifests that need each other are an authoring bug the user is owed by name. |
 | <a id="wb-d11"></a>[**WB-D11**](#wb-d11) — user config carries no `needs` key; a dead loopback URL is a `yolo check` warning | The user's own config is the user's own dead URL, and refusing it would make a diagnosis into an error. |
 | <a id="wb-d12"></a>[**WB-D12**](#wb-d12) — every auto-inclusion prints, at launch and in `yolo check` | A silent join is the one forbidden behavior of the closure. |
-| <a id="wb-d13"></a>[**WB-D13**](#wb-d13) — the listen port is manifest-borne | Still manifest-borne, in a **different manifest** since 2026-09-18: `packs/wire-bridge`'s own `adapter` contributions rather than each consumer's provider entry. It is no longer *fixed* — a user-scope `adapters.<from>-><to>.address` replaces it, because on `macos-user` there is no network namespace and an adapter's ports are host ports. One writer and a witness-fatal collision are what the ruling bought, and both survive the move. ⚠ The override reaches only one of the two routes: see [the listen address](#the-listen-address). |
+| <a id="wb-d13"></a>[**WB-D13**](#wb-d13) — the listen port is manifest-borne | It lives in `packs/wire-bridge`'s own `adapter` contributions, not in each consumer's provider entry. It is not *fixed*: a user-scope `adapters.<from>-><to>.address` replaces it, because on `macos-user` there is no network namespace and an adapter's ports are host ports. One writer and a boot-fatal collision are what the ruling buys. The override reaches both routes, and [the listen address](#the-listen-address) says what breaks if a route binds before reading the entry. |
 | <a id="wb-d14"></a>[**WB-D14**](#wb-d14) — `count_tokens` refuses (404) | A zero-stub is measurably worse than a refusal: it poisons the number it answers, where a 404 falls back to the agent's own estimator. |
 | <a id="wb-d15"></a>[**WB-D15**](#wb-d15) — thinking has a route-specific disposition: chat-completions omits it; Responses maps explicit `enabled` budgets conservatively and lets every non-budget mode use the provider default | Responses exposes documented effort values but no adaptive value. An explicit budget is enough intent to map; every other mode means the provider, not the bridge, chooses. |
 | <a id="wb-d16"></a>[**WB-D16**](#wb-d16) — `kind: "service"` is primary vocabulary; loopholes re-form as service + boundary grants | A daemon with no grants is not a loophole, and naming it one would make the trust model unreadable. The re-forming is a follow-up, not a prerequisite. |
+| <a id="oq-pc1"></a>[**OQ-PC1**](#oq-pc1) — fix the mutation, not the read: `ComposeProviders` deep-copies the user layer, and the implicit-forward read stays on the user's config map | A composer that writes through its input is a one-writer violation, and the implicit-forward read was only the first consumer caught by it. Reordering that one read would leave every later reader of the config looking at an edited map. See [the invariant](#the-invariant-that-keeps-the-adapters-address-out-of-the-users-map). |
+| <a id="oq-pc2"></a>[**OQ-PC2**](#oq-pc2) — an implicit provider forward is disclosed: one launch line per port naming the provider, and the briefing's Forwarded Host Ports section fed from the merged list | A forward is a hole into the host, and the user's own config cannot be grepped for a port they never wrote. The launch has no quiet mode ([`OQ-RO3`](report-tiers.md#why-its-this-way)), so the line is permanent, and that is right: it reports something yolo **did** (it bound a port in the jail and opened a socket on the host), not an absence. Do not gate it, and do not move it after the merge, where the declared and implicit ports can no longer be told apart. |
+| <a id="oq-pc3"></a>[**OQ-PC3**](#oq-pc3) — the orphan check keeps its detection and refuses, naming each orphan's PID; it never kills and never adopts | `SIGKILL` on an argv match acts irreversibly on an *inference* about ownership. A straight revert would lose the only guard against an in-container fault that prints the bridge's bind error. Adoption is rejected because an orphan's supervisor is gone, so the orphan holds no readiness pipe. Adopting it would treat a process as serving its endpoint on the strength of its argv, which is the same inference. |
 | <a id="wb-d17"></a>[**WB-D17**](#wb-d17) — more than one agent bin is a bridge consumer, and the serve predicate walks every active profile | Found while building: a derive that *prefers* an anthropic endpoint when a provider declares one makes that agent a consumer too, and a single-bin condition would have shipped those launches a dead URL with no bridge included. |
 
 ## Current values
 
-Verified at `38873c0d`. The prose above explains what each of these is for; this table is the
+Verified at `7ad8358c`. The prose above explains what each of these is for; this table is the
 only place the values themselves are stated.
 
 | Value | Setting | Defined in |
@@ -342,13 +528,20 @@ only place the values themselves are stated.
 | Service name (supervisor entry, endpoint stem, manifest `endpoint`) | `wire-bridge` | `wirebridged.ServiceName` |
 | Endpoint file | `wire-bridge.endpoint` under the jail services dir | `wirebridged.EndpointFile` |
 | Listen address, `openai → anthropic` | `http://127.0.0.1:8214` — the adapter's declared `address`, composed into each eligible provider's `endpoints.anthropic.base_url` and parsed back out by the daemon; a user-scope `adapters.openai->anthropic.address` replaces it | `packs/wire-bridge/pack.json`, read by `wirebridged.routeFor` |
-| Listen address, `openai-responses → anthropic` (the Codex route) | `127.0.0.1:8215` — the adapter's declared `address`, composed into `openai-codex`'s `endpoints.anthropic.base_url` and parsed back out by the daemon, exactly as the row above; `wirebridged.CodexResponsesListenAddr` is the DEFAULT when the entry names no anthropic endpoint, not a bypass of it | `packs/wire-bridge/pack.json`, read by `wirebridged.routeFor`; default in `wirebridged.CodexResponsesListenAddr` |
+| Listen address, `openai-responses → anthropic` (the Codex route) | `http://127.0.0.1:8215` — the adapter's declared `address`, composed into `openai-codex`'s `endpoints.anthropic.base_url` and parsed back out by the daemon, exactly as the row above; `wirebridged.CodexResponsesListenAddr` is the DEFAULT when the entry names no anthropic endpoint, not a bypass of it | `packs/wire-bridge/pack.json`, read by `wirebridged.routeFor`; default in `wirebridged.CodexResponsesListenAddr` |
 | Address override key | `adapters.<from>-><to>.address`, **user scope only** | `internal/config/adapters.go`, `yolo config-ref` |
 | Restart policy | on failure | `packs/wire-bridge/pack.json` |
 | Served path | `POST /v1/messages` and nothing else | `internal/wirebridged/handler.go` |
-| Upstream path | the provider's `openai` base URL plus chat-completions | `internal/wirebridged/handler.go` |
+| Upstream path | the provider's `openai` base URL plus `/chat/completions`; on the Codex route, the subscription base plus `/responses` | `wirebridged.NewHandler`, `wirebridged.CodexResponsesBaseURL` |
+| Upstream timeout | 10 minutes, the one timeout the daemon adds | `wirebridged.upstreamTimeout` |
 | Upstream error mapping | 4xx same-status; every 5xx, timeout or dial failure → 502 | `bridgeHandler.relayUpstreamError` |
 | Endpoint variable | `YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT`, emitted only when the daemon will serve | `run.serviceEndpointEnvArgs`, `wirebridged.WillServe` |
+| Ready-required daemons | `YOLO_JAIL_DAEMON_READY_NAMES=wire-bridge`, emitted beside the endpoint variable | `paths.JailDaemonReadyNamesEnv` |
+| Readiness pipe | `YOLO_JAIL_DAEMON_READY_FD`, always descriptor 3 in the daemon; one `ready <name>` or `failed <name> <reason>` line | `paths.JailDaemonReadyFDEnv` |
+| Daemon log | `~/.local/state/yolo-jail-daemons/wire-bridge.log` in the jail | `supervisor.LogDir` |
+| Host forward log | `~/.local/share/yolo-jail/logs/<cname>-socat.log`, created only when a launch forwards a port | `internal/cli/run/network.go` |
+| In-jail forward log | `~/.yolo-socat.log` | `entrypoint.startContainerPortForwarding` |
+| Hold a refused boot open | `YOLO_HOLD_ON_REFUSAL=1` | `paths.HoldOnRefusalEnv` |
 | Selection inputs the daemon re-reads | the composed providers, use-profiles and resolved-profiles tables | `wirebridged.routeFor` |
 | `needs` entry fields | the pack name, and the bin condition | `internal/packdecl/needs.go` |
 | Manifest top-level keys | see [`pack-system.md`](pack-system.md)'s Current values | `packdecl.Manifest` |

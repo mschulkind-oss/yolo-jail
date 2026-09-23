@@ -7,8 +7,8 @@ package luahook
 // WHY IT IS A SEPARATE FILE FROM derive_test.go. These proofs are not about what
 // a derive does; they are about the properties every script this package runs
 // gets, whoever runs it. They lived in vm_test.go and were asserted through
-// Apply — the config TRANSFORM, which docs/design/lua-transform-removal.md
-// removes (§4.1, §5.5). Deleting vm_test.go with the transform would take the
+// Apply — the config TRANSFORM, which was removed
+// (docs/reference/pack-system.md#lt-p1). Deleting vm_test.go with the transform would take the
 // forbidden-globals, safe-libs, timeout, error-location, compile-error and
 // round-trip proofs with it and leave the derive sandbox asserted by
 // TestDerive_Sandboxed alone — one script, one global. P1 of that design

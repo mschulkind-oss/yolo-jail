@@ -46,7 +46,7 @@ end)
 -- (agentcfg.dropComputedTables).
 yolo.derive("claude", "settings", function(ctx)
   -- enabledPlugins IS NO LONGER WRITTEN AT ALL, and that is OQ-LSP1's option D
-  -- (docs/design/claude-lsp-plugins.md). This used to map three hardcoded languages to three
+  -- (docs/reference/mcp-configuration.md#oq-lsp1). This used to map three hardcoded languages to three
   -- `claude-plugins-official` marketplace ids and enable the ones `lsp_servers` mentioned --
   -- an arbitrary, five-language-short subset of a table yolo already owns, and INERT besides,
   -- since the hook that installed those plugins was retired and nothing filled what this

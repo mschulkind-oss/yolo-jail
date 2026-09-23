@@ -167,7 +167,7 @@ func TestBrokerEnvSuppressedWhenLoopholeDisabled(t *testing.T) {
 // then `EnsureCAAndLeaf` stopped needing it at all (`d5bb1e5d`, in-process crypto/x509),
 // and MEASURED 2026-09-18 a nested launch minted its OWN P-256 CA in its OWN state
 // directory and published /run/yolo-services/claude-oauth-broker.endpoint
-// (docs/design/broker-ca-and-nested-hosts.md §5.1). `OQ-2` ruled the general form: a
+// (docs/reference/claude-oauth-interposition.md#a-nested-jail-runs-its-own-broker). `OQ-2` ruled the general form: a
 // nested jail runs its own broker singleton like any other host, because nesting earns
 // affordances, not exemptions, and a jail that behaves differently cannot test the thing
 // it is nested inside.

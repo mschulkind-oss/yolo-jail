@@ -7,7 +7,7 @@ import (
 // storewrite.go answers ONE question, and answers it BEFORE anything runs: from
 // which user namespace must the copier write podman's `containers-storage`?
 //
-// docs/design/layer-aware-image-delivery.md §3.4b.
+// docs/reference/image-staging-vs-baking.md#the-namespace-the-copy-writes-from.
 //
 // # Why a byte-copier needs a namespace at all
 //
@@ -75,7 +75,7 @@ import (
 // byte of the layer negotiation that buys. Nothing degrades, nothing is retried
 // into a second shape, and NO FAILURE selects between two paths — the mode podman
 // is in selects, from a fact read before the copy starts, exactly as the backend
-// selects the archive on macOS (§3.4a). A fallback would be "copy, and if it
+// selects the archive on macOS (image-staging-vs-baking.md#archive-destinations). A fallback would be "copy, and if it
 // fails write an archive instead"; this file is why that is not needed.
 //
 // # And why the wrapper cannot be unconditional
@@ -201,7 +201,7 @@ func rootlessField(infoJSON string) string {
 }
 
 // StoreWriteNote is the line a launch prints about the namespace it chose, and it
-// is printed on EVERY delivery rather than only on the interesting one. §3.4a's
+// is printed on EVERY delivery rather than only on the interesting one. image-staging-vs-baking.md#archive-destinations's
 // rule for a decision with more than one outcome is that "the launch says which
 // it took": a mode nobody can see is a mode nobody can debug, and the two
 // failures this decision can produce — a refused `podman unshare`, a copier that
@@ -222,7 +222,7 @@ func StoreWriteNote(rootless PodmanRootless) string {
 // retryWouldHelp reports whether an immediate second attempt at a failed copy can
 // possibly do better, and the reason when it cannot.
 //
-// A REFUSAL IS NOT A LOST RACE. §3.6 bounds the retry at exactly one and argues
+// A REFUSAL IS NOT A LOST RACE. image-staging-vs-baking.md#failure-paths bounds the retry at exactly one and argues
 // it from transience — a neighbour holding the c/storage lock, a blob write
 // interrupted — and every one of those recovers because the second attempt meets
 // a different world. A kernel that refused the mapping refuses identically one

@@ -95,14 +95,14 @@ func ociBuildArgv(attr, outLink string, extraArgs []string) []string {
 const (
 	// ImageAttrDefault is the jail image — since C9 a nix2container image.json
 	// naming its layer digests, not a script that streams a docker-archive
-	// (docs/design/layer-aware-image-delivery.md).
+	// (docs/reference/image-staging-vs-baking.md#delivering-into-the-runtime).
 	ImageAttrDefault = ".#ociImage"
 	// ImageAttrLean is ImageAttrDefault without the store-deliverable bulk.
 	ImageAttrLean = ".#ociImageLean"
 	// ImageCopierAttr is the skopeo carrying nix2container's `nix:` SOURCE
 	// TRANSPORT — the only program that can read an `image.json` and negotiate
 	// per blob with `containers-storage`. Stock skopeo does not have it, so the
-	// launch runs THIS store path and never a `PATH` lookup (§3.2's fourth
+	// launch runs THIS store path and never a `PATH` lookup (image-staging-vs-baking.md#delivering-into-the-runtime, the fourth
 	// property; layercopy.go's BuildImageCopier is the one caller).
 	//
 	// EXPORTED, unlike installPrefixAttr, because `yolo check`'s dry-run probe

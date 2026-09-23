@@ -265,7 +265,7 @@ func TestNothingToInheritDeliversNoFile(t *testing.T) {
 // The host's own ~/.config/yolo-jail/config.lua used to cross here UNFILTERED — the only
 // file this function bound straight off the human's real disk rather than generating — as
 // the user half of the "user then workspace" Lua transform pair (A13). The transform is
-// gone (docs/design/lua-transform-removal.md §5.4), and so is the bind.
+// gone (docs/reference/pack-system.md#oq-lt1), and so is the bind.
 //
 // Pinned in the NEGATIVE, with the file actually present, because that is the direction
 // the mistake runs: nothing in the jail reads it any more, so re-adding the mount would be

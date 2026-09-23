@@ -79,7 +79,7 @@ modifiers, no background/inverse. One audited surface still wants more than that
    `workspace`→`[cyan]`, `overlay`→`[magenta]`, `managed`→`[green]`, so the
    closed layer set gets one distinct color each. (It was six layers and six
    hues when this was written; `transform`→`[yellow]` went with the Lua
-   transform on 2026-09-11 — [`lua-transform-removal.md`](../design/lua-transform-removal.md) — so the palette now has a
+   transform on 2026-09-11 — [`OQ-LT1`](../reference/pack-system.md#oq-lt1) — so the palette now has a
    hue to spare rather than a gap.)
 2. **`check` badges use background/inverse video. (still open.)**
    `reporter.go:20-21` renders `[FAIL]` white-on-red and `[WARN]` black-on-yellow
@@ -164,7 +164,7 @@ Highest value, low risk (text stays byte-identical after strip).
   canonical surface identity (`pi/settings`) and flags (`--explain`,
   `--help, -h`)→cyan; file paths→cyan or dim.
   (Written when `configUsage` named the two `config.lua` files; both are gone
-  with the Lua transform — [`lua-transform-removal.md`](../design/lua-transform-removal.md) — so the paths left to
+  with the Lua transform — [`OQ-LT1`](../reference/pack-system.md#oq-lt1) — so the paths left to
   color are whatever the help text names today.)
 - [ ] **`yolo init` / `init-user-config`** (init.go L66/73/76/105/108) —
   **Impact: med · Effort: low-med.** Color the scaffolder's own status lines to

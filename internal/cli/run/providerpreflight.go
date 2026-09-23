@@ -10,7 +10,7 @@ import (
 )
 
 // checkProviderCredentials is the SEVENTH bespoke launch pre-flight
-// (profiles-as-pack-variants.md §6.2 as rescoped by OQ-13): a SELECTED pack that requires
+// (docs/reference/providers.md#the-credential-preflight, #pv-oq-13): a SELECTED pack that requires
 // a provider — by shipping one, or by a variant naming one — is refused when the composed
 // providers table has no such entry or when the credential variable that entry points at
 // is not set in what this launch would deliver. It returns the lines to print and whether
@@ -18,10 +18,10 @@ import (
 // refusal into a LOUD CONTINUATION, and a caller that only looked at len(lines) would exit
 // on the notice (measured — this is the bug the first nested launch caught).
 //
-// Scoped to the SELECTED set, not to the active profile, per OQ-13: "configured but never
+// Scoped to the SELECTED set, not to the active profile, per providers.md#pv-oq-13: "configured but never
 // selected stays inert" is withdrawn, because a variant that resolved to nothing has
 // already written a config pointing at a provider the launch never delivered, and the
-// symptom is the mysterious auth failure §6.1 records rather than anything yolo says.
+// symptom is the mysterious auth failure providers.md#the-credential-preflight records rather than anything yolo says.
 // The packs argument IS the selected set — the same slice staging produced — so an
 // unselected pack cannot reach this.
 //

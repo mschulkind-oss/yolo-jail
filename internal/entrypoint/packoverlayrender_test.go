@@ -448,7 +448,7 @@ func TestHostRenderWithNilOverlaySetIsUnchanged(t *testing.T) {
 	}
 }
 
-// --- the `profile` modifier at the render paths (profiles-as-pack-variants.md §7) --------------
+// --- the `profile` modifier at the render paths (docs/reference/providers.md#the-profile-modifier) ---
 //
 // These drive ConfigurePackSurfaces itself, not the collector: the jail's profile table
 // is resolved inside that function and handed to packoverlay.Collect there, so a wiring

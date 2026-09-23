@@ -262,7 +262,7 @@ func TestFlakeAndLauncherAgreeOnThePrefixLayout(t *testing.T) {
 	// `$out/` and not `./`: the mkdirs moved from `streamLayeredImage`'s
 	// fakeRootCommands (which ran in the tar's own cwd) into the top tier's
 	// symlinkJoin postBuild when C9 replaced the generator
-	// (docs/design/layer-aware-image-delivery.md). Same directories, same
+	// (docs/reference/image-staging-vs-baking.md#the-layer-plan). Same directories, same
 	// consequence for pid1, one prefix.
 	for _, dest := range []string{JailPrefixBinDir, JailPrefixShareDir} {
 		if !strings.Contains(flake, "$out"+dest) {

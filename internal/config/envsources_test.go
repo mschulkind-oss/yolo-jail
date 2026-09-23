@@ -225,8 +225,8 @@ func TestEnvSourcesAnchorBesideTheDeclaringFile(t *testing.T) {
 	}
 }
 
-// DescribeEnvSources is the "here is where I looked" half of the §6.2 credential refusal
-// (profiles-as-pack-variants.md §6.1): a launch that refuses because a key never arrived
+// DescribeEnvSources is the "here is where I looked" half of the providers.md#the-credential-preflight credential refusal
+// (docs/reference/providers.md#the-credential-preflight): a launch that refuses because a key never arrived
 // has to name the entries it walked, or the reader is left hunting through their config
 // for the channel that was supposed to deliver it. Pinned per entry kind, because a
 // description that renders a dotenv file as "(inline dict)" — or a path that never

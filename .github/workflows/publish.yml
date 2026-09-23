@@ -154,7 +154,7 @@ jobs:
       # skopeo, so cache.nixos.org has never seen it and every consumer would
       # otherwise compile it (~2m against our nixpkgs, measured 2026-09-09).
       #
-      # ⚠ THIS MAY NEVER BECOME LOAD-BEARING (layer-aware-image-delivery.md
+      # ⚠ THIS MAY NEVER BECOME LOAD-BEARING (docs/reference/image-staging-vs-baking.md#why-its-this-way,
       # OQ-LI1). The cache makes the copier FAST to obtain; a miss means the
       # consumer builds it, and that is the whole consequence — no path may
       # degrade, no path may require --accept-flake-config to FUNCTION, and

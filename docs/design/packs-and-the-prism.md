@@ -53,7 +53,7 @@ mechanism — *a pack contributes a **layer** to a prism surface*
 `workspace` layer, which is implemented, tested, and has **zero non-test producers**
 today. It folds above `defaults` and `host` and below `overlay`/`computed`/`managed`
 (a Lua `transform` layer sat between the last two until 2026-09-11 —
-[`lua-transform-removal.md`](lua-transform-removal.md)) — meaning a company pack can set a
+[`OQ-LT1`](../reference/pack-system.md#oq-lt1)) — meaning a company pack can set a
 default a user then overrides in-jail, and
 can never overrule what yolo asserts. That ordering is not a coincidence; it is what makes
 packs safe to accept from a colleague's branch.

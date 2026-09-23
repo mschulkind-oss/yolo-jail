@@ -13,7 +13,7 @@ package cli
 //
 //  0. MOVE — a local pack an earlier yolo migrated into its ROOT AGENTS.md has that file moved
 //     to briefing/local.md, because a root AGENTS.md is no longer read as pack prose
-//     (pack-briefing-defaults.md §4). A refused move STOPS the kind here: composing without it
+//     (docs/reference/pack-system.md#local-pack-briefing-move). A refused move STOPS the kind here: composing without it
 //     would regenerate every destination without the user's own instructions.
 //  1. ADOPT — ask which destinations hold prose yolo cannot prove it wrote, and CONFIRM. The
 //     first apply that takes over a hand-written ~/.claude/CLAUDE.md is a one-way door, so it
@@ -61,7 +61,7 @@ func hostBriefingManifestPath(home string) string {
 // pack's own briefing file, entrypoint.LocalPackBriefingRel (briefing/local.md).
 //
 // Not the pack's root AGENTS.md, where it went before: that basename is the repository's own
-// instructions and is never read as pack prose (pack-briefing-defaults.md P1), so prose migrated
+// instructions and is never read as pack prose (docs/reference/pack-system.md#briefing-p1), so prose migrated
 // there would stop reaching every agent on the apply that promised it would keep reaching them.
 func localPackBriefingPath(home string) string {
 	dir := localPackDirUnder(home)
@@ -144,7 +144,7 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 
 	// 0. MOVE the local pack's root AGENTS.md, BEFORE anything reads the pack set: the adoption
 	// comparison and the render both compose the local pack, and until the move it composes
-	// nothing (a root AGENTS.md is never read, pack-briefing-defaults.md P1).
+	// nothing (a root AGENTS.md is never read, docs/reference/pack-system.md#briefing-p1).
 	mv, mverr := entrypoint.MoveLegacyLocalPackBriefing(localPackDirUnder(home), !write)
 	if mv != nil {
 		// tierLoss: the user's own prose moves between files, which is the migration's class
@@ -167,8 +167,8 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 			"files and re-run `yolo host apply`.[/dim]")
 		return 1
 	}
-	// REPORT every declared briefing source that delivers nothing (pack-briefing-defaults.md
-	// §3.4): absent, a directory, blank, escaping, or a reserved basename. The declaration
+	// REPORT every declared briefing source that delivers nothing
+	// (docs/reference/pack-system.md#briefing-p4): absent, a directory, blank, escaping, or a reserved basename. The declaration
 	// delivers nothing from that file — nothing else is read in its place (P4) — and the author
 	// hears it here as the jail launch says it, rather than finding a destination short of prose.
 	// At warning severity, like the launch: the rest of the pack set still composes.

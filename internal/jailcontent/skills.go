@@ -26,7 +26,7 @@ import (
 // user's own copy still outranks a shared pack's. There is no fourth layer: the one
 // that read the destination back in was S3's defect.
 //
-// IT CARRIES AN AUDIENCE PER SOURCE since briefing-audiences.md, where it was a flat
+// IT CARRIES AN AUDIENCE PER SOURCE since the audience selector (docs/reference/agent-briefings.md#audiences-what-varies-per-destination), where it was a flat
 // []string. A flat list was the `skills` half of the same defect the briefing half had: the
 // list is GLOBAL — every selected pack's skills reach every destination — so a source that
 // arrived as a bare path had no way to say who it was for, and a claude-specific skill was
@@ -145,7 +145,7 @@ func PrepareSkills(cname, homeDir string, agentNames []string) (string, error) {
 		//    SkillTarget for why that was circular.
 		for _, src := range packSkillDirs {
 			// THE AUDIENCE FILTER, and it is the whole `skills` half of
-			// briefing-audiences.md. The list is global, so this is the only point at which
+			// docs/reference/agent-briefings.md#audiences-what-varies-per-destination. The list is global, so this is the only point at which
 			// "who is this content for?" can be asked — and it is asked against the string
 			// the DESTINATION declared about itself, never anything derived (OQ-BA2).
 			if !sourceAddressesAgent(src.Agents, target.Agent) {

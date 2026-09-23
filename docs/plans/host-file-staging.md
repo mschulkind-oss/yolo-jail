@@ -9,7 +9,7 @@ the code actually does and what remains open.
 > [!IMPORTANT]
 > **Postscript, 2026-09-11 — `host_files[].transform` is REMOVED, and so is the Lua transform
 > it pointed at.** The design and the rulings are in
-> [`lua-transform-removal.md`](../design/lua-transform-removal.md); [`OQ-LT1`](../design/lua-transform-removal.md#13-decision-ledger) there ruled
+> [`pack-system.md`](../reference/pack-system.md#oq-lt1); [`OQ-LT1`](../reference/pack-system.md#oq-lt1) there ruled
 > *"delete it outright"*, with no deprecation window and no named refusal. Three consequences for
 > this doc:
 >
@@ -493,7 +493,7 @@ managed lifecycle** as structured ones (intent #4).
 > **REMOVED 2026-09-11. This whole section describes a capability the tree no longer has.** It
 > was built as described — `Ctx.Config` was widened to `any` and `vm.go` kind-checked the
 > returned value against the surface's codec — and then deleted with the rest of the transform
-> ([`lua-transform-removal.md`](../design/lua-transform-removal.md), [`OQ-LT1`](../design/lua-transform-removal.md#13-decision-ledger)). The section is kept because the `.npmrc` example
+> ([`OQ-LT1`](../reference/pack-system.md#oq-lt1)). The section is kept because the `.npmrc` example
 > below is the clearest statement of what the removal gives up: a declared, portable, *partial*
 > rewrite of a file the host also owns. Today that is `mode: capture` and one edit in the jail,
 > or an inline `content:` copy. Read the rest as history.

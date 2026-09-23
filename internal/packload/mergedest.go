@@ -27,7 +27,7 @@ package packload
 // A SECOND PACK NOW ASKS THE SAME QUESTION, and it asks it deliberately rather than by omission:
 // an ADDRESSED contribution — `{kind: briefing, from: "prose/claude.md", agents: ["claude"]}` —
 // names WHO its content is for and never WHERE it goes, because where an agent reads is that
-// agent pack's business (briefing-audiences.md P4, §4.1). So the inference is no longer only the
+// agent pack's business (docs/reference/agent-briefings.md#ba-p4, #the-two-halves-and-why-neither-knows-the-others-business). So the inference is no longer only the
 // manifest-less pack's fallback: it is the mechanism `agents` is defined in terms of, and the two
 // arrive here together (borrowingSources). What the addressed shape adds is a source of its own —
 // the zero-ceremony pack has no manifest to name one in, and the code below was written when that
@@ -112,7 +112,7 @@ type Orphan struct {
 	// Kind is the content kind that reached nothing.
 	Kind packdecl.Kind
 	// Agents is the `agents` selector of the contribution that reached nothing — the launcher
-	// commands its content was FOR (briefing-audiences.md §4.1). EMPTY means the contribution
+	// commands its content was FOR (docs/reference/agent-briefings.md#the-two-halves-and-why-neither-knows-the-others-business). EMPTY means the contribution
 	// named no audience, so it was eligible for every destination of its kind and there were
 	// none.
 	Agents []string
@@ -140,7 +140,7 @@ type AddressedDelivery struct {
 // caller is rendering, and returns the pack to render plus what the inference concluded.
 //
 // A DECLARATION IS HONORED EXACTLY, and only silence is inferred — per FILE since
-// pack-briefing-defaults.md §3.3 (per kind before it), so a pack that declares `skills` and no
+// docs/reference/pack-system.md#briefing-governance (per kind before it), so a pack that declares `skills` and no
 // `briefing` gets its prose routed without its skills being rerouted, and a pack that declares one
 // narrow briefing keeps its unnamed briefing/ files broadcasting (borrowingSources).
 // That is narrower than the jail, deliberately: in a jail the skills source list is GLOBAL
@@ -161,7 +161,7 @@ type AddressedDelivery struct {
 // provably unchanged.
 //
 // THE UNIT OF INFERENCE IS A CONTRIBUTION, NOT A KIND, and that is what the addressed shape
-// (`from` + `agents`, briefing-audiences.md §4.1) changed. A zero-ceremony pack has one implicit
+// (`from` + `agents`, docs/reference/agent-briefings.md#the-two-halves-and-why-neither-knows-the-others-business) changed. A zero-ceremony pack has one implicit
 // borrower per kind and nothing to distinguish, so the two readings were the same reading — until
 // a pack could declare `{from: "prose/claude.md", agents: ["claude"]}` beside
 // `{from: "prose/pi.md", agents: ["pi"]}`. Folding those into one question per kind loses the
@@ -266,7 +266,7 @@ func ResolveDestinations(set []*Pack) ([]*Pack, []Destinations) {
 // each carrying the source its content is to be read from.
 //
 // For `briefing` and `skills` it is DERIVED FROM THE GOVERNANCE PREDICATE (GovernedSources) and
-// keeps no gate of its own — which is the host third of pack-briefing-defaults.md R5. Two shapes,
+// keeps no gate of its own — which is the host third of docs/reference/pack-system.md#briefing-r5. Two shapes,
 // one list, so everything after this point treats them identically:
 //
 //   - EVERY INTO-LESS GOVERNOR, returned as itself: an addressed contribution (`{from:
@@ -276,12 +276,12 @@ func ResolveDestinations(set []*Pack) ([]*Pack, []Destinations) {
 //   - THE IMPLICIT BORROWER — a synthetic zero-value contribution, returned when some source is
 //     governed by NO declaration. No `from` (the files nobody named), no `agents` (broadcast).
 //
-// THE `declares` GATE IS GONE, and it was the trap (§2.2): "the pack declared a destination of its
+// THE `declares` GATE IS GONE, and it was the trap (pack-system.md#one-governance-reader): "the pack declared a destination of its
 // own for this kind" switched the implicit borrower off for the WHOLE kind, so any declaration
 // removed a delivery it did not name. The contract that gate protected — a pack naming its own
 // `into` must not be widened into every other agent's directory — is now kept by the FILES being
 // named: a content `{kind: briefing, into: ".claude/CLAUDE.md"}` governs every unclaimed
-// briefing/*.md by omission, so none is Implicit and no borrower is synthesized for it (§3.3).
+// briefing/*.md by omission, so none is Implicit and no borrower is synthesized for it (pack-system.md#briefing-governance).
 //
 // A DESTINATION (`agent` set) governs nothing, so it never suppresses anything here either.
 //
@@ -337,7 +337,7 @@ func (p *Pack) borrowingSources(kind packdecl.Kind) []packdecl.Contribution {
 // unaudienced contribution. Both must keep reaching every destination.
 //
 // IT ASKS ONE CONTRIBUTION, not the union across a kind, which is the change the addressed shape
-// forced. The union was answering "who is this PACK for?", and §4.1's two-entry example is a pack
+// forced. The union was answering "who is this PACK for?", and agent-briefings.md#the-two-halves-and-why-neither-knows-the-others-business's two-entry example is a pack
 // that is for two agents with two different files — a question with no single answer, whose union
 // broadcasts each file to both. Only into-less contributions are ever passed here, because a
 // contribution carrying an `into` named its own destination and never reaches the inference.
@@ -364,7 +364,7 @@ func audienceOf(c packdecl.Contribution) map[string]bool {
 //     borrower named no source, which resolves to the CONVENTIONAL one: this pack's own `skills/`
 //     or the briefing/ files no declaration names (matched back by SourceKey, governance.go). That is the whole shape of the thing: the destination is borrowed, the
 //     content never is. It was hardcoded to "" until an ADDRESSED contribution could name a
-//     source of its own (§4.1) — for the zero-ceremony pack the two spellings are the same
+//     source of its own (agent-briefings.md#the-two-halves-and-why-neither-knows-the-others-business) — for the zero-ceremony pack the two spellings are the same
 //     string, since it has no manifest to name a source in, but for `{from: "prose/claude.md",
 //     agents: ["claude"]}` blanking it substitutes the pack's conventional prose for the file
 //     the author addressed, silently. NEVER the DECLARING pack's `from`, which names a path in
@@ -412,7 +412,7 @@ func borrowedDestinations(src packdecl.Contribution, p *Pack, set []*Pack) []pac
 	var out []packdecl.Contribution
 	seen := map[string]bool{}
 	for _, other := range set {
-		// p ITSELF IS IN THE SET, deliberately (pack-briefing-defaults.md P2, §3.5). A broadcast
+		// p ITSELF IS IN THE SET, deliberately (docs/reference/pack-system.md#briefing-p2, #briefing-p5). A broadcast
 		// reaches every destination of its kind the selected set declares — the broadcasting
 		// pack's own included — and an agent pack shipping prose to its own agent addresses
 		// itself. The jail's nil audience already reaches those destinations, so skipping p here

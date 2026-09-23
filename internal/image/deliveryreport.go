@@ -10,7 +10,7 @@ import (
 
 // The bounded-stderr reporting the delivery path needs, kept intact from
 // streamload.go when C9 replaced the stream with a copy
-// (docs/design/layer-aware-image-delivery.md). It moved rather than being
+// (docs/reference/image-staging-vs-baking.md#what-a-copy-reports). It moved rather than being
 // rewritten because the job did not change: a failed delivery must print the
 // tool's OWN words, and "Error loading image into podman." with no cause is the
 // C1 silent-fallback defect one layer down.

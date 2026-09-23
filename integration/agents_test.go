@@ -17,8 +17,8 @@ import (
 // Every test drives a real container, so each calls requireJail(t) first, which
 // also gates them out of `go test -short`. No test here calls t.Parallel():
 // these are network-heavy (npm/go/native-installer fetches on first use) and can
-// be per-arch flaky. Per the CI policy (ci.yml), a red cell in one arch means
-// gating that agent out of that arch's matrix — not weakening the assertion here.
+// be per-arch flaky. A red cell in one arch means gating that pack out of that arch
+// through packCase.vendorSkipArch below — not weakening the assertion here.
 
 // TestAgentToolsAvailable confirms codex and copilot are both present inside a jail whose
 // `packs` name them.
@@ -42,7 +42,7 @@ func TestAgentToolsAvailableDirect(t *testing.T) {
 	// `command -v`, not `--version`: the bug this test exists for was "copilot: command not
 	// found" — /mise/shims missing from the NON-LOGIN-shell PATH — and resolution is exactly
 	// what that bug broke. Running the binary would additionally install it from the vendor,
-	// which is a different question on a different trigger (§6.1.1), and would put this
+	// which is a different question on a different trigger (docs/reference/agent-install-in-ci.md#three-triggers-matched-to-three-causes), and would put this
 	// assertion behind a network fetch it never needed.
 	r := runYoloDirect(t, dir, "bash", "-c", "command -v copilot")
 	if r.rc != 0 {
@@ -150,13 +150,13 @@ func TestPackMatrixCoversEveryShippedProgram(t *testing.T) {
 // shipped agent pack, one jail proves that the pack's `surfaces` rendered its config with the
 // expected auto-approve marker, and that the pack's `install` declaration produced a launcher.
 //
-// It installs NOTHING, and separating it out is the point (docs/design/agent-install-in-ci.md
-// §3). Of the three assertions its sibling makes, only this one is genuinely per-pack — five
+// It installs NOTHING, and separating it out is the point (docs/reference/agent-install-in-ci.md#what-each-assertion-needs).
+// Of the three assertions its sibling makes, only this one is genuinely per-pack — five
 // packs have five codecs, paths and marker keys, and a render bug in one says nothing about
 // the others — and it was the one held hostage by a network install it never needed, because
 // the sibling bundled `<bin> --version` and the config grep into a single shell command.
 //
-// Asserting the LAUNCHER exists rather than that the binary runs is the P3 line: the
+// Asserting the LAUNCHER exists rather than that the binary runs is the P3 line (docs/reference/agent-install-in-ci.md#p3): the
 // launcher's existence proves the pack's `install` declaration was read and rendered, which
 // is yolo's job. Whether the vendor's current release then installs is the vendor's, and it
 // is asked by TestPackInstallsVersionsAndConfigures on the triggers that can cause it.
@@ -227,7 +227,7 @@ func TestPackSelectionPrunesUnselected(t *testing.T) {
 	// No `codex --version` here. Every assertion below is about which launchers and configs
 	// yolo GENERATED for the selected pack and withheld for the others, and none of them
 	// needs the vendor's tarball — the install was incidental to the test's subject and put
-	// its pruning assertion behind a network fetch (§6.1.1).
+	// its pruning assertion behind a network fetch (docs/reference/agent-install-in-ci.md#three-triggers-matched-to-three-causes).
 	cmd := strings.Join([]string{
 		"test -x $HOME/.yolo/bin/launch/codex",
 		"! test -e $HOME/.yolo/bin/launch/copilot",

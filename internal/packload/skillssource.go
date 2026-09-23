@@ -17,7 +17,7 @@ package packload
 // the same bug.
 //
 // THE PRECEDENCE DOES NOT MATCH `briefing`'s, and this header used to say it did while it did
-// not (pack-briefing-defaults.md §2.4): briefing's `from` was a fallback chain to AGENTS.md, and
+// not (docs/reference/pack-system.md#briefing-p4): briefing's `from` was a fallback chain to AGENTS.md, and
 // skills' has always been the only source. Since that design they do agree — a declared source
 // is the ONLY source, for both kinds (P4) — and WHICH sources a pack delivers, and who governs
 // each, is governance.go's answer for both kinds rather than a gate each reader keeps.
@@ -54,7 +54,7 @@ import (
 // already refused escaping symlinks, and on the host path an unstaged tree is only ever a
 // pack the user pointed at themselves.
 //
-// A DESTINATION (`agent` set) SOURCES NOTHING and returns "", "" (pack-briefing-defaults.md P5):
+// A DESTINATION (`agent` set) SOURCES NOTHING and returns "", "" (docs/reference/pack-system.md#briefing-p5):
 // an agent pack's `{agent, into}` names where content lands, and reading the pack's own skills/
 // through it made the destination line double as a delivery. An agent pack's skills/ still ships
 // — as the implicit broadcast (GovernedSources), which reaches its own destination like any other.
@@ -71,7 +71,7 @@ func (p *Pack) SkillsSourceDir(c packdecl.Contribution) (string, string) {
 // The audience travels WITH the source because that is the only place it can travel: the jail
 // merges every selected pack's skills into every declared destination through one global list
 // (jailcontent's packSkillDirs), so a source that arrived as a bare path had no way to say who
-// it was for — which is `skills`' half of the defect briefing-audiences.md closes, and it is
+// it was for — which is `skills`' half of the defect the audience selector (docs/reference/agent-briefings.md#audiences-what-varies-per-destination) closes, and it is
 // the same shape jailcontent.PackBriefing needed for `briefing`.
 type SkillsSource struct {
 	// Dir is the absolute source directory.
@@ -85,7 +85,7 @@ type SkillsSource struct {
 // one problem per declaration that could not be honored — GovernedSources(KindSkills), carrying
 // each governor's audience.
 //
-// THERE IS NO `declared` GATE any more (pack-briefing-defaults.md §3.3). The conventional skills/
+// THERE IS NO `declared` GATE any more (docs/reference/pack-system.md#briefing-governance). The conventional skills/
 // tree is ONE unit: it broadcasts implicitly unless some content contribution names it, and a
 // contribution naming a DIFFERENT tree (`{from: "extra-skills", agents: ["pi"]}`) no longer
 // switches it off. A destination (`agent` set) names nothing. So a pack that is just a `skills/`

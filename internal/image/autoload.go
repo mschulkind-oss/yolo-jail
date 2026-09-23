@@ -701,7 +701,7 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 		// re-shipped every byte in 39.5 s (and 12.8 s even when nothing had
 		// changed at all).
 		//
-		// THERE IS NO SECOND MECHANISM AND NO FALLBACK (§3.5, OQ-LI5). A failed
+		// THERE IS NO SECOND MECHANISM AND NO FALLBACK (image-staging-vs-baking.md#one-mechanism-no-way-back, OQ-LI5). A failed
 		// copy abandons the launch — it does not stream, because there is nothing
 		// left to stream with, and a fallback that hid a broken new mechanism
 		// would produce confident wrong results, which is the C1 defect that made
@@ -753,7 +753,7 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 		// 2m27s compile in front of every other launch's copy to save a cache hit.
 		//
 		// THE SPAN IS SEPARATE FROM image.layer_copy, deliberately: that span is
-		// the acceptance criterion layer-aware-image-delivery.md §3.10 sets a 15 s
+		// the acceptance criterion docs/reference/image-staging-vs-baking.md#what-a-copy-reports sets a 15 s
 		// budget against for a warm launch, and folding a lock wait into it would
 		// make a launch that behaved perfectly read as a regression.
 		clsp := o.Perf.Span("image.copy_lock")
@@ -835,13 +835,13 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 		switch {
 		case peerDelivered:
 			// SAID, not silently skipped. The copied/skipped ratio is a claim this
-			// branch owes the reader (§3.10), and "no bytes moved" is an answer to
+			// branch owes the reader (image-staging-vs-baking.md#what-a-copy-reports), and "no bytes moved" is an answer to
 			// it — one whose reason a human otherwise cannot recover, since the
 			// launch that did the work was in another terminal.
 			fmt.Fprintln(out, "  Copied image: nothing — "+contentRef+" was delivered by a "+
 				"concurrent launch while this one waited for the image-copy lock")
 		case invErr == nil:
-			// §3.10: the copied-vs-skipped ratio IS the claim, so it is printed
+			// image-staging-vs-baking.md#what-a-copy-reports: the copied-vs-skipped ratio IS the claim, so it is printed
 			// rather than left to a timing span someone has to enable.
 			fmt.Fprintln(out, "  Copied image: "+ReportFor(layers, present).String())
 		}
@@ -945,7 +945,7 @@ func (o *AutoLoadOptions) pointLatestAt(contentRef string) {
 //     -i` streams the archive over podman's own connection INTO the VM, which is
 //     what makes it the only correct destination there.
 //
-// ⚠ THE SECOND CASE IS THE ONE THE DESIGN LEFT UNSERVED. §3.4 said podman/macOS
+// ⚠ THE SECOND CASE IS THE ONE THE DESIGN LEFT UNSERVED. The retired design said podman/macOS
 // stays "unchanged (stream into `podman load`)" — but OQ-LI5 deleted the stream,
 // so "unchanged" named a mechanism that no longer exists. Without this arm that
 // backend writes into the wrong store and every macOS podman launch fails on an

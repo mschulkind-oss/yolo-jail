@@ -5,7 +5,7 @@ package packload
 // in internal/cli/run/packbriefingfrom_test.go and internal/entrypoint/hostbriefing_test.go.
 //
 // These replaced the fallback-chain tests (`[from, AGENTS.md]`), which pinned the opposite of
-// pack-briefing-defaults.md P1 and P4: that AGENTS.md is the convention, and that a declared
+// docs/reference/pack-system.md#briefing-p1, #briefing-p4: that AGENTS.md is the convention, and that a declared
 // `from` that is missing or blank delivers AGENTS.md instead. Both are now false, by ruling.
 
 import (
@@ -93,7 +93,7 @@ func TestBriefingProseForRefusesAReservedFromEvenWhenTheRefusalWasDiscarded(t *t
 	}
 }
 
-// A declared `from` that is missing, blank or a directory DELIVERS NOTHING AND IS REPORTED (§3.4,
+// A declared `from` that is missing, blank or a directory DELIVERS NOTHING AND IS REPORTED (pack-system.md#briefing-p4,
 // P4) — and no other file arrives in its place, however conventional. The fallback chain is gone.
 func TestBriefingProseForDeclaredSourceIsTheOnlySource(t *testing.T) {
 	cases := map[string]struct {

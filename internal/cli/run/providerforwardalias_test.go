@@ -6,7 +6,7 @@ package run
 // the user's entry by reference, that read saw the wire bridge's own 127.0.0.1:8214 and
 // reported it as a host-loopback forward the user had asked for — so the launch started a
 // socat for it and the in-jail forwarder bound 8214 four lines before the supervisor
-// started the bridge (docs/design/wire-bridge-port-collision.md §2, §3).
+// started the bridge (docs/reference/wire-bridge.md#what-can-hold-the-listen-port-before-the-bridge-does).
 //
 // TestLocalProviderForwardsFindsOnlyUserLoopbackURLs, in this package, is the test that was
 // supposed to catch this and could not: it builds a providers map by hand, so it measures
@@ -26,7 +26,7 @@ func TestComposingProvidersAddsNoImplicitHostForward(t *testing.T) {
 	// so the test needs a home of its own or the developer's config decides the result.
 	t.Setenv("HOME", t.TempDir())
 
-	// §2.3's precondition: a provider no shipped pack ships, offering openai and not
+	// The collision's precondition (wire-bridge.md#only-a-users-provider-url-becomes-an-implicit-forward): a provider no shipped pack ships, offering openai and not
 	// anthropic — the documented shape for a local inference server, and the exact case
 	// localProviderForwards exists to serve.
 	decoded, err := jsonx.Decode([]byte(`{
@@ -71,7 +71,7 @@ func TestComposingProvidersAddsNoImplicitHostForward(t *testing.T) {
 			"Those ports are the wire bridge's, not the user's: the launch forwards them, "+
 			"the in-jail socat binds them before the supervisor runs, and the bridge refuses "+
 			"the launch with \"address already in use\" "+
-			"(docs/design/wire-bridge-port-collision.md).", got)
+			"(docs/reference/wire-bridge.md#what-can-hold-the-listen-port-before-the-bridge-does).", got)
 	}
 
 	// And the adaptation still reached the COMPOSED table, which is the half that must

@@ -484,7 +484,7 @@ func Run(opts Options) (rc int) {
 		o.noteMacosUserPortKeys(cfg)
 		// WHERE THE PROFILE SELECTIONS LANDED, on this arm too. Until the channel hoist
 		// this line had no honest form here — the launch line prints what a launch
-		// DELIVERS (OQ-10: never a verb that overclaims), and this backend delivered
+		// DELIVERS (providers.md#pv-oq-10: never a verb that overclaims), and this backend delivered
 		// nothing. It now layers the whole channel into its plan env, so the line
 		// describes a delivery again. Printed beside the three notes above rather than
 		// beside the container's banner: this is the block that answers "what will this
@@ -760,7 +760,7 @@ func (o *Options) notePackHostAccess(loadedPacks []*packload.Pack) {
 }
 
 // noteUseProfiles prints, to stderr, where this launch's profile selections landed
-// (profiles-as-pack-variants.md §3.3): one line per DISTINCT name in the effective
+// (docs/reference/providers.md#what-the-launch-checks-and-prints): one line per DISTINCT name in the effective
 // table, naming the packs that DECLARE a variant of that name and the packs that
 // RECEIVED it. It reads the same merge the env block emits (effectiveUseProfiles), so
 // the line cannot describe a table the jail did not get.
@@ -772,7 +772,7 @@ func (o *Options) notePackHostAccess(loadedPacks []*packload.Pack) {
 // pack. It is NOT the packs that will act on it: a pack may declare the name and then do
 // its variant work inside a derive this process cannot see.
 //
-// The verb is deliberately never "honored" (OQ-10). What a derive does with the string
+// The verb is deliberately never "honored" (providers.md#pv-oq-10). What a derive does with the string
 // is unobservable from here, and a transparency print that overclaims is the
 // silent-skip failure wearing a badge.
 //
@@ -1236,7 +1236,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	runCmd := o.assembleRunCmd(in)
 	sp.End()
 
-	// THE SEVENTH bespoke pre-flight (profiles-as-pack-variants.md §6.2, OQ-13), at the
+	// THE SEVENTH bespoke pre-flight (docs/reference/providers.md#the-credential-preflight, #pv-oq-13), at the
 	// one point in the pipeline where the assembled launch environment exists to check it
 	// against: userEnv was hydrated above, and runCmd carries every -e pair the container
 	// will start with. Refusing HERE, before the port forwarders and the loophole daemons
@@ -1846,7 +1846,7 @@ func (o *Options) deliverChannelOnAttach(cname, rt string, cfg *jsonx.OrderedMap
 	}
 	// WHERE THE SELECTIONS LANDED, on this arm too — the disclosure line the fresh
 	// path prints beside its banner. An attach that delivers a profile owes the same
-	// sentence; OQ-10's rule (never "honored") travels with it.
+	// sentence; providers.md#pv-oq-10's rule (never "honored") travels with it.
 	o.noteUseProfiles(channel.profiles, staged.packs)
 	return 0
 }

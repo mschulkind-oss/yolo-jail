@@ -1,7 +1,7 @@
 package packdecl
 
 // overlayprofile_test.go pins the `profile` MODIFIER on the config-overlay kind
-// (profiles-as-pack-variants.md §7, build-order step 6): one optional field gating a
+// (docs/reference/providers.md#the-profile-modifier): one optional field gating a
 // cross-pack config contribution on a profile being active for the surface's owning
 // agent. The schema's two halves are tested here — the field decodes and travels with
 // the contribution, and it is REFUSED on every other kind so it cannot be written where

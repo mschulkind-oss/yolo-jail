@@ -15,6 +15,8 @@ this batteries-included approach — the jail is not the novel thing, it is what
 it. Maybe we redescribe ourselves as an agentic development environment describer that can
 describe a jail."*
 
+**Needs your ruling:** [OQ-EM1](#OQ-EM1).
+
 > **Refresh note (2026-07-30).** Two verbs this doc proposed as future now partly exist:
 > **`yolo config dump`** ships (the canonical computed-config dump this doc folds into
 > `describe`), and **`yolo config drift`** ships (compares the workspace config on disk against
@@ -255,7 +257,7 @@ classified by whether it is part of the definition:
 Two inputs left this table on 2026-09-11: the workspace `yolo-jail.config.lua` (Declared) and
 the user `~/.config/yolo-jail/config.lua` (Declared-impure) were the Lua config transform's two
 scripts, and nothing loads either since it was removed
-([`lua-transform-removal.md`](lua-transform-removal.md)). The classification they had is the
+([`OQ-LT1`](../reference/pack-system.md#oq-lt1)). The classification they had is the
 reason they are worth naming here: the workspace one was the only Declared input that *executed
 code*.
 

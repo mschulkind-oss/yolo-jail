@@ -62,7 +62,7 @@ func certLockPath(dir string) string { return filepath.Join(dir, "cert.lock") }
 // is the PRIVATE KEY OF THE TRUST ANCHOR every jail on this host trusts, so
 // anyone who can read it can mint a certificate for any name and be believed by
 // every jail — which is what issue #33 was about, and the half of it that baking
-// `openssl` into the image (docs/design/broker-ca-and-nested-hosts.md §5) did not
+// `openssl` into the image (docs/reference/claude-oauth-interposition.md#why-the-image-still-bakes-openssl) did not
 // touch. The other three are bookkeeping openssl needed and Go does not.
 //
 // They are REMOVED rather than ignored, and a surviving ca.key forces a re-mint
@@ -100,8 +100,8 @@ const certSkewSlack = time.Hour
 
 // EnsureCAAndLeaf creates the CA + leaf cert pair on first run (idempotent).
 //
-// PORTED to crypto/x509 (docs/design/broker-ca-and-nested-hosts.md §8 item 4,
-// ruling OQ-1). It used to shell out to `openssl` five times, which is what
+// PORTED to crypto/x509 (docs/reference/claude-oauth-interposition.md#how-the-ca-and-leaf-are-minted,
+// ruling #oq-1). It used to shell out to `openssl` five times, which is what
 // killed the broker singleton on every launch whose host was itself a jail —
 // 2,549 times in one jail, for months, because the image baked no openssl.
 //
@@ -115,8 +115,8 @@ const certSkewSlack = time.Hour
 // server.key is bind-mounted into the jail because `yolo-jaild oauth-terminator`
 // — a different process, in a different namespace — serves TLS with it. Moving
 // it out of the filesystem means the jail minting its own leaf, which is a
-// redesign of the loophole rather than a port of its cert code, and §6 of the
-// design explicitly does not license one.
+// redesign of the loophole rather than a port of its cert code, and
+// docs/reference/claude-oauth-interposition.md#what-the-ca-work-does-not-license explicitly does not license one.
 //
 // force regenerates both halves (--force-init-ca). Rotating the CA is safe for
 // already-running jails: each of the three files is bind-mounted BY INODE, so a

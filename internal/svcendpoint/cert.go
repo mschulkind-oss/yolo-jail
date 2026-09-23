@@ -39,7 +39,7 @@ const certSkewSlack = time.Hour
 //
 // Do NOT reuse internal/oauthbroker/cert.go here — the verdict is unchanged and
 // one of its two reasons is not. That code shelled out to openssl until the
-// crypto/x509 port (docs/design/broker-ca-and-nested-hosts.md §8 item 4), so THAT
+// crypto/x509 port (docs/reference/claude-oauth-interposition.md#how-the-ca-and-leaf-are-minted), so THAT
 // half of the objection is spent; its CA private key no longer touches disk
 // either. What remains is the half that was always the stronger one: it writes a
 // long-lived LEAF key to disk because a jail-side process serves TLS with it, and

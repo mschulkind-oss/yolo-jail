@@ -1,23 +1,27 @@
 ---
 title: "Every path by which someone else's content runs in your jail"
 date: 2026-09-06
-status: in-review
+status: accepted
 tags: [trust, packs, security, inventory]
 summary: "Twenty-six paths, enumerated from the code, each with when trust is extended and whether the content can change afterwards. Pinning changes an outcome in three of them, because every gate keys on a declaration and none on content. All ten questions are settled — the fetched-pack approval prompt among them, deleted as theatre, and last the disclosure hole that deletion opened: a wrapped plugin's hooks get their own disclosure class, rendered as one counted line per pack."
 ---
 
 # Every path by which someone else's content runs in your jail
 
-**Status:** DESIGN, 2026-08-17 — an inventory; **compacted 2026-09-06 and again 2026-09-14.** Ten
-questions filed and **all ten settled** (seven ruled, three retired).
+**Status:** DECIDED, 2026-09-23 — an inventory, first written 2026-08-17 and **compacted 2026-09-06
+and again 2026-09-14.** Ten questions filed and **all ten settled** (seven ruled, three retired), so
+what is owed is work, not a ruling.
+
+**Needs your ruling:** None.
 
 > [!IMPORTANT]
-> **ONE THING IS OUTSTANDING, and it is the only one:**
-> [`OQ-TP10`](#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner)'s
-> ruling is made and **unbuilt** — plugin claims need a disclosure class of their own, or a wrapped
-> plugin's `hooks` keep running on the agent's lifecycle with nothing on the banner. Everything else
-> here is settled record. [Outstanding work](#outstanding-work) has what a builder needs, including
-> the one sub-decision the ruling deliberately left open.
+> **ONE RULING IS PARTLY BUILT, and it is the only outstanding item:**
+> [`OQ-TP10`](#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner).
+> Its plugin half **shipped 2026-09-17** (`c28bfde7`): a wrapped plugin's hooks and servers get a
+> fourth disclosure class, `disclosureJailExec`, rendered as one counted line per pack at the spawn
+> boundary. **Its `jail_daemon` half is not built**, and the `boot.log` itemization it named has no
+> host-side sink. Everything else here is settled record. [Outstanding work](#outstanding-work) has
+> what a builder of the remaining half needs.
 Every code anchor below was re-checked against the tree on 2026-09-06: the ones that had drifted are
 repinned, and the ones that named code the 2026-09-04 rulings deleted are rewritten to say so (the
 compacting commit lists both). Beyond the rulings, **everything here is inventory** — traced in the
@@ -350,7 +354,7 @@ pre-spawn block for host execution, `yolo pack footprint` on demand.
 | 10 | workspace `env_sources` | host read, exfiltration-shaped | at the config diff, same as 9 | yes — re-read live each launch; a missing file warns and skips |
 | 11 | workspace `mcp_servers` / `lsp_servers` / `packages` / `mise_tools` | in-jail exec | at a diff that shows the NAME, never what it resolves to | mixed — the most useful contrast in the table |
 | 12 | **the config gate itself** (`CheckConfigChanges`) | — it *is* the gate | — | **closed 2026-08-29** (`27b335ce`): a fresh workspace with declared config prompts, a non-TTY changed config refuses; attach still skips it, by design ([§3.3](#33-the-config-gate-is-closed-and-the-scope-model-it-leaves)) |
-| 13 | ~~workspace `yolo-jail.config.lua` — **activated by existing**~~ | ~~agent context, transitively in-jail exec~~ | ~~**never**; not a config key, so outside the diff, drift and snapshot~~ | **REMOVED 2026-09-11.** The Lua config transform is deleted and nothing loads either `config.lua` any more ([`lua-transform-removal.md`](lua-transform-removal.md)) — this crossing no longer exists. It was the one input that executed code at every boot while sitting outside the config diff, drift and snapshot, and that property is what this row was filed for; the removal closes it rather than gating it. The pack-shipped Lua that remains is row 26, which is declared and disclosed |
+| 13 | ~~workspace `yolo-jail.config.lua` — **activated by existing**~~ | ~~agent context, transitively in-jail exec~~ | ~~**never**; not a config key, so outside the diff, drift and snapshot~~ | **REMOVED 2026-09-11.** The Lua config transform is deleted and nothing loads either `config.lua` any more ([`OQ-LT1`](../reference/pack-system.md#oq-lt1)) — this crossing no longer exists. It was the one input that executed code at every boot while sitting outside the config diff, drift and snapshot, and that property is what this row was filed for; the removal closes it rather than gating it. The pack-shipped Lua that remains is row 26, which is declared and disclosed |
 | 14 | workspace `mise.toml` | in-jail exec | **never** — trust asserted *for* you on the podman argv | yes — `git pull`, and `latest` resolves at install |
 | 15 | `agents_md_extra`, blocked-tool messages, source-less `host_files` | agent context | at the diff, which does carry the prose | covered by the diff; the finding is scope asymmetry |
 | 16 | **`.yolo/handover.md`** | agent context, framed as an authoritative task list | **never** — no key, no prompt, no validation, no attribution | **yes, continuously** — an ordinary file any agent can write |
@@ -363,7 +367,7 @@ pre-spawn block for host execution, `yolo pack footprint` on demand.
 | 23 | fetched pack — loophole with a `host_daemon` | **host execution** + a CA trusted in-jail | **never, since 2026-09-04**; disclosed at the spawn boundary, BEFORE the daemon starts (`startLoopholesDisclosed`) | yes — the line pins the argv, not the file ([`OQ-LP8`](../reference/loophole-system.md#oq-lp8)) |
 | 24 | `yolo host apply` | **host write** into your real home | explicit per invocation, `--assert` required | for a local pack, yes — source re-read each apply |
 | 25 | the mirror + ref resolution behind rows 17–23 | selects which bytes every row above delivers | — | **three verified mechanisms** ([§1](#1-the-verdict) row 3) |
-| 26 | **any pack's `derive.lua`** (`yolo.derive` + `yolo.env`) — row added 2026-09-02 from the providers defect report's D9 (distilled into [`providers.md`](../reference/providers.md); on the roadmap it was review thread 💬 18, closed the same day), which found this census had no entry for pack-shipped Lua | **sandboxed Lua execution** — in-jail at every boot with live tables (`deriveComputedLayer`, [`packsurfaces.go`](../../internal/entrypoint/packsurfaces.go)); host-side as a sentinel-input key probe during `yolo host apply` (`hostTableKeys`, [`hostrender.go`](../../internal/entrypoint/hostrender.go)); and host-side at every `yolo host -- <cmd>` launch with REAL inputs, credential included (`packload.AgentEnv`, called from [`host.go`](../../internal/cli/host.go); the jail-launch twin is [`profilechannel.go`](../../internal/cli/run/profilechannel.go); since `3144fbed`). The VM is allowlist-built — `SkipOpenLibs`, no `os`/`io`/`require`/`load`, fresh state, instruction budget ([`vm.go`](../../internal/agentcfg/luahook/vm.go)) — so the grant is *unvalidated config-surface and env output* plus whatever `ctx` carries, **not** process exec | **never, any origin — and that is the ruling** ([`OQ-TP8`](#decision-ledger)): `packload.DeriveScript` reads `<pack root>/derive.lua` with no origin check and no claim ([`deriveenv.go`](../../internal/packload/deriveenv.go)) | yes — the mirror re-resolves, and a derive is content, not a claim |
+| 26 | **any pack's `derive.lua`** (`yolo.derive` + `yolo.env`) — row added 2026-09-02 from the providers defect report's D9 (distilled into [`providers.md`](../reference/providers.md); on the roadmap it was review thread 18, closed the same day), which found this census had no entry for pack-shipped Lua | **sandboxed Lua execution** — in-jail at every boot with live tables (`deriveComputedLayer`, [`packsurfaces.go`](../../internal/entrypoint/packsurfaces.go)); host-side as a sentinel-input key probe during `yolo host apply` (`hostTableKeys`, [`hostrender.go`](../../internal/entrypoint/hostrender.go)); and host-side at every `yolo host -- <cmd>` launch with REAL inputs, credential included (`packload.AgentEnv`, called from [`host.go`](../../internal/cli/host.go); the jail-launch twin is [`profilechannel.go`](../../internal/cli/run/profilechannel.go); since `3144fbed`). The VM is allowlist-built — `SkipOpenLibs`, no `os`/`io`/`require`/`load`, fresh state, instruction budget ([`vm.go`](../../internal/agentcfg/luahook/vm.go)) — so the grant is *unvalidated config-surface and env output* plus whatever `ctx` carries, **not** process exec | **never, any origin — and that is the ruling** ([`OQ-TP8`](#decision-ledger)): `packload.DeriveScript` reads `<pack root>/derive.lua` with no origin check and no claim ([`deriveenv.go`](../../internal/packload/deriveenv.go)) | yes — the mirror re-resolves, and a derive is content, not a claim |
 
 ### Agent context needs no gate of its own
 
@@ -673,48 +677,39 @@ code" — but it is worth building in the three places of [§1](#1-the-verdict) 
 > [`#decision-ledger`](#decision-ledger) and not one reaches a per-question slug, so the stubs were
 > deleted and the ledger is the record. Do not re-add a stub without checking the same way.
 
-**One thing is ruled and unbuilt**, and it is the only outstanding item in this document.
+**One ruling is partly built**, and it is the only outstanding item in this document.
 
 ### [`OQ-TP10`](#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner) — a wrapped plugin's hooks reach the agent's lifecycle and appear in no launch banner
 
 **Ruled (a) 2026-09-14** — plugin claims get a disclosure class of their own. The argument is in the
-[Decision Ledger](#decision-ledger); what follows is only what someone building it needs.
+[Decision Ledger](#decision-ledger); what follows is what shipped and what a builder of the rest needs.
 
-**The facts.** A wrapped plugin's `hooks` and `mcpServers` are reported under `KindSkills`
-([`footprint.go`](../../internal/packload/footprint.go), the `Plugins()` loop), because what they
-declare lives in the plugin's own manifest rather than in `pack.json`.
-[`packloopholes.go`](../../internal/cli/run/packloopholes.go) classifies that kind `disclosureSkip`
-— correctly, for a prose tree — so code that runs on the agent's lifecycle inherits it and reaches
-no banner. Pinned by `TestWrappedPluginHooksAreDeliveredAndDisclosed`
-([`packnohostgate_test.go`](../../internal/cli/run/packnohostgate_test.go)), which asserts the
-footprint claim and states the gap rather than papering over it.
+**Built 2026-09-17 (`c28bfde7`).** The class is a FOURTH one, `disclosureJailExec`
+([`packloopholes.go`](../../internal/cli/run/packloopholes.go)): the other three are axes of
+**host** crossing, and a plugin hook runs in the **jail**, so defaulting it to `disclosureExec` would
+have announced "runs code on the host" about code that does not. `KindSkills` stays
+`disclosureSkip` — reclassifying it (candidate (c), rejected) would announce every skill file and
+bury the hooks in noise — and the override is per-claim, keyed on a `plugin:` target that runs
+code. It renders through `packJailCodeLines`, **one counted line per pack**, as
+[`../reference/report-tiers.md`](../reference/report-tiers.md)'s
+[P5](../reference/report-tiers.md#principles), [P6](../reference/report-tiers.md#principles) and
+[P1](../reference/report-tiers.md#principles) decide, and
+[P4](../reference/report-tiers.md#principles) forbids gating it. Pinned by
+`TestWrappedPluginCodeIsDisclosedAtTheSpawnBoundary` and
+`TestWrappedPluginCodeDisclosureCannotBeSuppressed`
+([`packloopholes_test.go`](../../internal/cli/run/packloopholes_test.go)).
 
-**Why it matters:** [`OQ-TP9`](#decision-ledger) deleted the approval gate while KEEPING this banner
-as the compensating disclosure — *"the only place a user sees what a pack reaches."* That sentence is
-false for exactly the contribution that runs code.
+**Not built — two halves.**
 
-**Do not reclassify `KindSkills`** (that was candidate (c), rejected): it would announce every skill
-file and bury the hooks in the noise that makes `disclosureSkip` right there. Give the claim its own
-kind — `packload` already has the shape, in `SupersedesClaimKind` and `ExecutablesClaimKind`, both
-display-only kinds outside `packdecl`'s closed set.
-
-**The rendering is decided.** [`../reference/report-tiers.md`](../reference/report-tiers.md)'s
-[P5](../reference/report-tiers.md#principles) (*named, not itemized — "appearing once is
-appearing"*), [P6](../reference/report-tiers.md#principles) (*count what the reader cares about; its
-own examples are files, keys, **servers**, **skills***) and
-[P1](../reference/report-tiers.md#principles) (*a property of the pack set is stated once per set*)
-make it **one counted line per pack**, with the itemization landing in `boot.log` through the tee the
-boot catalog already uses. So it costs one line, not one per hook.
-[P4](../reference/report-tiers.md#principles) then forbids gating that line.
-
-> [!WARNING]
-> **What the ruling did NOT settle: which class.** All three of `disclosureSkip` / `disclosureRead` /
-> `disclosureExec` are axes of **host** crossing, and `disclosureSkip`'s own definition calls a
-> jail-internal effect *"what the jail IS"*. A plugin hook runs in the **jail**. So this needs a
-> fourth class, or a changed definition of the first — a decision, not a lookup. **Do not let it
-> default:** the fail-closed default is `disclosureExec`, which would announce "runs code on the
-> host" about code that does not.
-
-**`jail_daemon` is covered** ([§3.2](#32-jail_daemon-is-a-claim-free-crossing-to-supervised-in-jail-execution)) — the same disclosure question with no claim to
-hang a line on, and a class reporting COUNTS can name a zero-claim crossing where one reporting
-claims could not.
+- **`jail_daemon`.** The ruling covers it
+  ([§3.2](#32-jail_daemon-is-a-claim-free-crossing-to-supervised-in-jail-execution)): a loophole
+  declaring only a `jail_daemon` produces zero claims, so a supervised in-jail process is named
+  nowhere, and a class that renders counts can name a zero-claim crossing where one rendering
+  claims could not. What it needs first is the per-launch answer to *"will it actually run"* — a
+  declared daemon whose loophole is disabled, or whose backend is inert, starts nothing, and
+  announcing it anyway is the overclaim the `autonomy` and `profile` rows refuse. That answer
+  belongs to the producer behind `notePackLoopholesInert`, not to a second selection written in the
+  renderer; `macos-user` already has it (it declines every entry by name).
+- **The `boot.log` itemization.** That split is `Env.LogOnly` in the entrypoint, and the launcher's
+  tee copies both streams verbatim, so no host-side detail-only sink exists. `yolo pack footprint`
+  is the itemization pointer instead.

@@ -12,8 +12,8 @@ import "testing"
 // this fixes every script including already-written ones, instead of adding a rule an
 // author has to know.
 //
-// RE-HOMED onto Derive (docs/design/lua-transform-removal.md §5.5): this file asserted
-// the property through Apply — the config transform, which that design removes — and so
+// RE-HOMED onto Derive (docs/reference/pack-system.md#lt-p1): this file asserted
+// the property through Apply — the config transform, which has since been removed — and so
 // would not have COMPILED after the cut, despite the design's test table listing it
 // untouched. The property under test is goToLua's, which stays; only the caller moved.
 // The derive path is the one that still marshals a live Go map in (buildDeriveCtxTable

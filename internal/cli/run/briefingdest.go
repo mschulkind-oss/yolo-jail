@@ -8,7 +8,7 @@ package run
 // destination, and assembleRunCmd bind-MOUNTS that file at the destination. A missing bind
 // source for a FILE is not an error the way a missing directory is — podman happily mounts
 // an empty one — so a disagreement here does not fail the launch, it produces a jail whose
-// agent reads a blank briefing. That is exactly the shape briefing-audiences.md R2 names, and
+// agent reads a blank briefing. That is exactly the shape docs/reference/agent-briefings.md#ba-r2 names, and
 // the two spellings were coupled only by a comment before this file.
 //
 // THE STAGING KEY IS THE DESTINATION, and that is the change §5 calls the jail half's whole
@@ -63,7 +63,7 @@ func briefingDestinations(packs []*packload.Pack) []briefingDest {
 		}
 		for _, c := range p.Decl.Contributions() {
 			// `into` is CHECKED, not assumed, exactly as ComposeHostBriefings and
-			// hostBriefingPaths check it at the host notch. Since briefing-audiences.md a
+			// hostBriefingPaths check it at the host notch. Since the audience selector (docs/reference/agent-briefings.md#the-two-halves-and-why-neither-knows-the-others-business) a
 			// contribution may legally name an AUDIENCE instead of a destination, and the
 			// mount half appends `":/home/agent/" + Into`: an empty `into` would bind a
 			// single staged FILE over /home/agent itself, which is the jail's whole home.

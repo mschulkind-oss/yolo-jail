@@ -1,6 +1,6 @@
 package jailcontent
 
-// skillsaudience_test.go is the `skills` half of briefing-audiences.md inside the jail
+// skillsaudience_test.go is the `skills` half of docs/reference/agent-briefings.md#audiences-what-varies-per-destination inside the jail
 // (OQ-BA4: "`skills` is IN, taking the same `agents` field and every rule unchanged").
 //
 // It is a DIFFERENT mechanism from the briefing half, which is why it needs its own tests

@@ -1,22 +1,27 @@
 ---
 status: current
-verified: 2026-09-09
-verified_commit: d8cf1cf8
+verified: 2026-09-23
+verified_commit: 7ad8358c
 covers:
   - internal/jailcontent/briefing.go
   - internal/jailcontent/skills.go
   - internal/jailcontent/write.go
   - internal/cli/run/prepare.go
   - internal/cli/run/briefingdest.go
+  - internal/cli/run/briefingreadback.go
   - internal/cli/run/backendcaps.go
   - internal/entrypoint/hostbriefing.go
-tags: [briefings, skills, packs, agents-md, staging]
-summary: "Where the text an in-jail agent reads at session start comes from: the four composition parts and what varies per destination, the per-destination staging file and its injective name, the read-only mount that makes an in-jail edit fail, and the inode-preserving refresh that lets a live jail see host edits."
+  - internal/packload/agentaudience.go
+  - internal/packload/mergedest.go
+tags: [briefings, skills, packs, agents-md, staging, audiences]
+summary: "Where the text an in-jail agent reads at session start comes from: the four composition parts, the audience model that decides what varies per destination (the agent/agents fields, the fatal unknown-name gate, one owner per agent name), the per-destination staging file and its injective name, the read-only mount that makes an in-jail edit fail, and the inode-preserving refresh that lets a live jail see host edits."
 ---
 
 # Agent briefings — the text an agent reads at session start
 
-**Status:** CURRENT as of 2026-09-09, verified against `d8cf1cf8`.
+**Status:** CURRENT as of 2026-09-23, verified against `7ad8358c`. MEASURED: the audience
+model runs end to end in a real container in CI's integration jobs, which were green at that
+commit.
 
 Every coding agent reads an instruction file at session start. yolo **composes one per
 destination**, host-side, on every invocation, stages it under a per-jail directory, and
@@ -36,12 +41,17 @@ here too.
 | The per-invocation refresh, and what it feeds the composer | `internal/cli/run` (`refreshJailBriefings`, `briefingPortsFor`, `briefedResourceLimits`, `briefingLoopholes`) |
 | The one enumeration of destinations and staging names | `internal/cli/run` (`briefingDestinations`, `briefingStagingName`, `briefingDest`) |
 | A pack's prose entries | `internal/cli/run` (`packBriefingProses`) |
+| The in-jail read-back refusal on the host prepend | `internal/cli/run` (`mayPrependHostBriefing`) |
+| The audience fields and their validation | `internal/packdecl` (`Contribution.Agent`, `Contribution.Agents`) |
+| The fatal unknown-name gate, and the agent vocabulary | `internal/packload` (`AgentAudienceProblems`, `AgentNames`) |
+| One owner per agent name | `internal/packload` (`AgentNameCollisions`) |
+| Host-side audience resolution and its report | `internal/packload` (`ResolveDestinations`, `Destinations`, `Orphan`, `AddressedDelivery`) |
 | The ownership record that gates the host prepend | `internal/entrypoint` (`GeneratedHostBriefings`, `HostBriefingManifestPath`) |
 
 **Reads with:** [`pack-system.md`](pack-system.md) (the `briefing` and `skills` kinds, and
-`agent` / `agents` on a contribution), [`jail-home.md`](jail-home.md#staged-read-only-content)
-(how staged content is mounted), [`../design/briefing-audiences.md`](../design/briefing-audiences.md)
-(the audience model), [`host-to-jail-handoff.md`](host-to-jail-handoff.md)
+the `contributes` vocabulary), [`jail-home.md`](jail-home.md#staged-read-only-content)
+(how staged content is mounted), [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md)
+(the rules any name-a-component-by-string field follows), [`host-to-jail-handoff.md`](host-to-jail-handoff.md)
 (the Handoff section).
 
 ---
@@ -85,6 +95,14 @@ and variants like `CLAUDE.local.md` are not picked up.
 > user's instructions from their jail is a worse failure than repeating a pack's prose. On a
 > machine that *has* run the host notch, the user's prose arrives through the conventional
 > local pack at part 4 instead — the same route the skills half took.
+>
+> **Inside a jail the record is not enough.** There, "home" is the outer jail's home, and every
+> briefing destination in it is a read-only bind of the *outer* launch's staged file. That is
+> yolo's output too, and the host-apply record cannot know about it. So a nested launch also
+> refuses to prepend a file that is one of the selected packs' briefing destinations. Without
+> that rule a nested jail's briefing held the outer one's entire briefing, every heading twice.
+> Every shipped agent pack declares `after` equal to its own `into`, so this was every nested
+> jail. A prepend source that is not a destination is still prepended in a jail.
 
 `after: "host:…"` is **jail-only**: at the `yolo host apply` notch the path it names *is* the
 generated destination, so the host render ignores it outright. It is no longer origin-gated —
@@ -114,7 +132,8 @@ conditional sections that appear only when their data exists. Emission order, fr
 9. **Additional Context Mounts** — conditional, and filtered to the mounts the backend will
    actually bind.
 10. **Limitations**, **Packages & Resource Limits**, **Skills** — the three standing
-    sections, the last gaining an extra paragraph in a yolo-jail source tree.
+    sections. On a backend with no container the middle one is **Packages**: it offers no
+    resource cap and says outright that `resources` is not enforced there.
 
 There is no tool inventory and no MCP listing: agents read their own generated config.
 
@@ -197,28 +216,203 @@ derived enforcement tail is appended on the guest, host and unrecognized paths o
 
 ### Audiences: what varies per destination
 
-**Parts 1–4 are composed per destination, and parts 1 and 4 actually differ.** A `briefing`
-contribution may carry an `agents` list — the launcher commands its prose is *for* — and it
-then reaches only the destinations whose owning pack declared a matching `agent` identity. A
-contribution naming no audience and no `into` **broadcasts**, and so does every `briefing/` file
-no contribution names. That holds with a manifest as well as without one: `{"kind": "briefing"}`
-is a valid declaration of "every agent", and needs no agent names that a jail might not select.
+**Parts 1–4 are composed per destination, and parts 1 and 4 actually differ.** Two fields on a
+contribution carry the whole mechanism, and they are two opposite roles:
 
-**Empty is broadcast** on both sides of the match. A jail full of packs that name no audience
-composes every pack's prose into every destination. A destination that declared no identity
-still receives every broadcast and no addressed prose.
+- **A destination identity** is the `agent` an agent pack declares beside its own `into`. It
+  means "this path is where the agent launched as `claude` reads". Every shipped pack that
+  installs an agent declares one on its `briefing` destination and on its `skills` destination,
+  and each identity equals that pack's `program` bin.
+- **An audience** is the `agents` list a content contribution names: the launcher commands its
+  content is *for*. It reaches only the destinations whose owning pack declared a matching
+  `agent`. A contribution that carries one is **addressed**.
 
-**The match is against a declared string, never anything derived.** A content pack names *who*
-and never *where*: where an agent reads is that agent pack's business and changes when the
-agent changes.
+A contribution that names no audience and no `into` **broadcasts**, and so does every
+`briefing/` file no contribution names. That holds with a manifest as well as without one:
+`{"kind": "briefing"}` is a valid declaration of "every agent", and it needs no agent names that
+a jail might not select.
 
-**The audience is per FILE, not per pack.** Each source file has exactly one governing
-contribution: the one whose `from` names it, or else the one that omits `from`, or else nobody,
-which is the implicit broadcast. So a pack that adds
-`{"from": "files/pi-rules.md", "agents": ["pi"]}` beside its `briefing/` directory delivers both:
-pi's file to pi, and the directory to everyone. Declaring one narrow delivery never switches off
-a broader one it does not name
-([`pack-briefing-defaults.md` §3.3](../design/pack-briefing-defaults.md#33-a-file-is-governed-by-the-contribution-that-names-it)).
+`packdecl` accepts `agent` and `agents` on three kinds, `briefing`, `skills` and `files`, and
+refuses them on every other kind. That refusal runs ahead of the per-kind checks, so a kind added
+later inherits it. `files` differs in one way: it has no conventional source, and its
+destinations are agent-specific slot types, so it cannot broadcast. A `files` contribution still
+names `into` or `agents`.
+
+> [!NOTE]
+> [`slots-and-contributions.md`](../design/slots-and-contributions.md) proposes replacing the
+> `agent` field with a destination axis (`exposes`). **None of that is built.** The `agent` and
+> `agents` fields described here are the system.
+
+#### The two halves, and why neither knows the other's business
+
+An agent pack owns both the name and the path, because both are facts about its agent. A content
+pack names **who** and never **where**:
+
+```jsonc
+// the agent pack: a DESTINATION. It sources nothing.
+{ "kind": "briefing", "into": ".claude/CLAUDE.md", "agent": "claude" }
+
+// a content pack: addressed prose, and a broadcast beside it
+{ "kind": "briefing", "from": "prose/claude.md", "agents": ["claude"] }
+{ "kind": "briefing" }
+```
+
+The validator enforces the split from both sides:
+
+- **`into` and `agents` together are refused.** They are two answers to one question. A
+  destination has one right answer per agent, so `into` cannot be inferred while the agent is
+  unknown. An audience supplies exactly that input: the destination is then borrowed from the
+  pack that owns the named agent. A content pack that named both would be asserting a path only
+  the agent pack can keep current.
+- **A destination sources nothing.** Once `agent` is set, `from` is refused, and the message
+  gives the addressed spelling that ships the pack's own content. `agent` beside `agents` with no
+  `into` gets its own message, which spells out both readings, because the entry could be either
+  one half-written.
+
+#### The audience principles
+
+These five principles are cited by id from code comments. **In this document `P1`–`P5` are the
+audience model's.** [`pack-system.md`](pack-system.md#briefing)'s briefing defaults have their
+own `P1`–`P6`, which is a separate namespace (its `P5`, for example, is "a destination sources
+nothing").
+
+<a id="ba-p1"></a>**P1. The audience namespace is the launcher-command namespace, and there is no
+second one.** The value of `agent` and of every `agents` entry is a **bin**: the binary basename a
+`program` contribution installs, the word a user types after `yolo --`. That is the namespace
+`-p <name> -- <bin>` and `use_profiles.<cli>` already key on. It is never the pack slug. The
+fields are *spelled* `agent` and `agents` because users think of a launcher command as an agent,
+and because a config surface already names its owner with `"agent": "pi"`. Singular is the
+identity a destination declares; plural is the audience a contribution names. The validator puts
+both through the same guard as `bin` (`packdecl`'s `binProblem`), so the two namespaces cannot
+drift apart.
+
+<a id="ba-p2"></a>**P2. Scoping is opt-in, and silence means broadcast.** A contribution with no
+audience reaches every destination of its kind. An empty identity is the other half of the same
+rule: a destination that declared none still receives every broadcast, and no addressed content.
+This is what let the field land before any pack adopted it. It also makes a broadcast portable,
+because listing every agent by name is fatal in any jail that does not select one of them (P3).
+
+<a id="ba-p3"></a>**P3. The vocabulary is the ENABLED packs, and anything else is fatal.** An
+`agents` entry may name only an agent some pack in `packs` claims. There is no second, laxer tier
+for a name that exists somewhere but is not selected here. `agents: ["cloude"]` and
+`agents: ["codex"]` in a jail without codex fail identically, because from the jail's point of
+view they are the same mistake: the prose names an audience this jail does not have. The remedy
+is the same too: fix the name, or select the pack.
+
+<a id="ba-p4"></a>**P4. A content pack names its audience; it never names a path.** Where an
+agent reads, prose or skills, is the agent pack's business, and it changes when that agent
+changes. A house-rules pack that hardcoded `.claude/CLAUDE.md` would be coupled to a fact it has
+no way to keep current.
+
+<a id="ba-p5"></a>**P5. A name has exactly ONE owner, and that owner provides all of the agent's
+plumbing.** There is one `claude`. The pack that provides it declares where its briefing lands,
+where its skills land, its config surfaces and its launch flags. Two packs cannot both be the
+claude pack. The exclusivity that makes `-p claude=zai` unambiguous is the same exclusivity that
+makes "deliver this prose to claude" unambiguous: one rule, not two.
+
+#### The match is against a declared string
+
+The match compares the audience with the destination's declared `agent`, literally. Nothing is
+derived: not from the pack's name, not from a path, not from the bins the pack installs. The
+profile chain does map a CLI name to a pack, through `packload.binOwner`, which returns the one
+selected pack whose `program` surface installs that bin. That lookup is safe because a `program`
+bin has exactly one owner. It answers "whose launch is this", and the audience match never calls
+it.
+
+> [!WARNING]
+> **Do not derive a destination's identity from its pack's `program` bins, however convenient it
+> looks.** It would make this the only kind whose owner is inferred. A derived identity also
+> changes meaning silently when a pack or a path is renamed. A third-party agent pack that
+> declares no `agent` is therefore unaddressable until it adds one. That cost is accepted, and
+> [`yolo host apply` reports it](#two-severities-an-unknown-name-is-fatal-an-unmatched-destination-is-reported)
+> rather than hiding it.
+
+#### Two severities: an unknown name is fatal, an unmatched destination is reported
+
+An addressed contribution can go wrong in two ways. The severity splits where the user's remedy
+splits:
+
+| Question | Decidable from | Severity | Whose fix |
+| :--- | :--- | :--- | :--- |
+| Is the name in the vocabulary? Does any enabled pack claim `claude` at all? | the claim set alone | **fatal** (P3) | the addressing pack: fix the name, or select the pack |
+| Did the name reach a destination of *this kind*? The pack owning `claude` is here, but does it declare a `skills` destination with `agent: claude`? | resolution | **reported**, never refused | the *owning* pack: an `agent` on its destination of that kind |
+
+Refusing the second case would punish the wrong author, because the addressing pack's `agents` is
+correct.
+
+**The fatal gate is `packload.AgentAudienceProblems`.** Its vocabulary is `packload.AgentNames`
+over the **loaded** packs only, never the embedded universe. It runs at the two points that hold
+the enabled set: the launch pre-flight (`run`'s pack loading, which also covers attach) and
+`yolo host apply`. The refusal names the offending string, the declaring pack, every agent the
+`packs` provide, and a did-you-mean guess. It prints one message for a typo and for an unselected
+pack, because it cannot tell which mistake was made. The wording is notch-neutral ("no pack in
+`packs` provides"), because one of its two callers runs where there is no jail.
+
+`yolo pack lint` does **not** run this gate, and must not. Lint takes a single pack root with no
+config, so it cannot know the enabled set. It reports what a contribution targets and refuses
+nothing. The severity lives upstream, where the user has every remedy. `yolo check` does not run
+it either.
+
+**The report is resolution's outcome, `packload.Destinations`,** which carries two views that are
+not redundant:
+
+- `Orphaned` says *why nothing arrived*. It is one `Orphan` per kind and audience that reached no
+  destination. `Agents` records the orphaned contribution's own selector. An empty list means an
+  unaddressed contribution found no destination of its kind anywhere in `packs`. A non-empty list
+  means an addressed contribution matched no destination, whether or not other destinations of
+  that kind exist. Declaring `into` is the remedy in neither case.
+- `Addressed` says *where everything went*. It is one `AddressedDelivery` per addressed
+  contribution: its audience, its source, and the destinations it reached. An empty destination
+  list is the unmatched case. It describes the successful deliveries too, which an orphan by
+  definition cannot.
+
+`yolo host apply` prints both views (`reportInferredDestinations` in `internal/cli`). An unmatched
+audience is a `no effect` warning at exit status 0. It names the owning pack and the selector, and
+it says outright that declaring `into` is not the remedy. **The jail launch prints no equivalent
+line.** At the jail notch, addressed prose that matches no destination is simply composed into
+none of them, and nothing under `internal/cli/run` reads `Orphaned` or `Addressed`.
+
+**Allowlist only.** No `except: [...]` form exists. Under P3 an author may name only enabled
+agents, so the list is already bounded by the jail rather than by the set of agents in the world.
+A denylist would relieve a burden that does not arise, and it would need its own answer to
+"except an agent that is not enabled", which under P3 is a refusal.
+
+#### One agent name, one owning pack
+
+P5 is enforced by `packload.AgentNameCollisions`, and two packs claiming one name is **fatal** at
+the launch pre-flight, at `yolo host apply` and at `yolo check`. The refusal names every claim
+together with the field it came through. It ends in the one remedy that fits: the two packs cannot
+both be selected. It does not tell a pack author to rename, because the name is the command the
+user types.
+
+A pack claims a name by owning part of that agent's plumbing. **Four kinds claim:** `program`
+through its `bin`, and `briefing`, `skills` and `files` through a declared `agent`.
+`AgentNameCollisions` and `AgentNames` read one shared gathering of those claims, so a name cannot
+be an owner to the collision check and a stranger to the vocabulary check. A pack repeating its
+own name across kinds is one pack owning one name: `packs/claude` claims `claude` three times, and
+single-pack groups are skipped.
+
+> [!WARNING]
+> **`requires` is deliberately not a claim.** A content pack asserting `requires claude` beside
+> the pack that provides claude is the most ordinary dependency a pack can declare, and a pack
+> requiring `fzf` must not collide with another that installs it. That is why `requires` combines
+> as Shared. Nothing is lost by leaving it out: a pack that owns an agent while only asserting its
+> binary still claims the name through the `agent` its briefing or skills declares.
+
+The name needs its own pass, beside `pluginNameCollisions` and `LoopholeNameCollisions`. The
+generic collision loop keys claims by `(kind, target)` and skips every kind that is not
+exclusive, and `briefing` and `skills` merge by design. The key has to cross kinds too:
+`program claude` and `briefing agent: claude` are two different `(kind, target)` pairs. See
+[`pack-system.md`](pack-system.md#collisions-the-generic-loop-cannot-see).
+
+#### Per file, not per pack
+
+**The audience is per FILE.** Each source file has exactly one governing contribution: the one
+whose `from` names it, or else the one that omits `from`, or else nobody, which is the implicit
+broadcast. So a pack that adds `{"from": "files/pi-rules.md", "agents": ["pi"]}` beside its
+`briefing/` directory delivers both: pi's file to pi, and the directory to everyone. Declaring one
+narrow delivery never switches off a broader one it does not name
+([`pack-system.md`](pack-system.md#briefing-governance)).
 A destination (`agent` + `into`) sources nothing, so an agent pack's own destination line
 suppresses nothing either.
 
@@ -231,10 +425,47 @@ broadcast them to all of them or drop them. Two consequences:
   and the rest join as the pack's one section.
 - One file is composed **once** per destination, because it has one governor. Two content
   contributions naming one source are refused at launch
-  ([`OQ-PB5`](../design/pack-briefing-defaults.md#decision-ledger)); one `agents` list names
+  ([`OQ-PB5`](pack-system.md#oq-pb5)); one `agents` list names
   several audiences. The host notch composes the same bytes from the same predicate
   (`packload.GovernedSources`), and
   [`briefingparity_test.go`](../../internal/cli/run/briefingparity_test.go) compares the two.
+
+#### Where each notch narrows
+
+The two notches apply one predicate at different points:
+
+- **The jail** narrows at composition. `jailcontent.ComposePackBriefings` takes the destination's
+  identity and drops every entry whose audience excludes it. For skills,
+  `jailcontent.PrepareSkills` filters every source against each destination's identity before it
+  copies. Both filters implement P2 the same way: an empty audience matches everything, and an
+  empty identity matches only broadcasts.
+- **The host** narrows at resolution. `packload.ResolveDestinations` turns an addressed
+  contribution into ordinary contributions carrying the `into` of each matching destination, one
+  resolution per borrowing contribution. `entrypoint.ComposeHostBriefings` then composes only
+  contributions that carry an `into`, and it has no audience filter of its own.
+
+> [!WARNING]
+> **Do not add an audience check to `ComposeHostBriefings`.** An addressed contribution carries
+> no `into`, so it never reaches that loop. A check there would be dead code sitting beside the
+> real filter, and it would read as though it were doing the narrowing.
+
+Each notch has its own call-site pin, because the two notches narrow in different places and a
+test of the shared predicate alone stays green when a call site is deleted. The host tests drive
+the resolve-then-compose pairing, the way `yolo host apply` does, so they fail when the audience
+check in resolution is removed. The jail tests drive the refresh, so they fail when the
+destination identity stops reaching the compose call, or when either skills wiring is dropped:
+the destination's `agent` or the source's `agents`.
+
+**Reporting at the single-pack views.** `yolo pack lint` and `yolo pack footprint` print an
+addressed contribution's target as `→ <agents>` and a declared broadcast as `→ every agent`. A
+blank target read as "goes nowhere", which is the opposite of what a broadcast does. The detail
+column says either which audience a contribution addresses, or which identity a destination
+declares, so a reader can tell whether a destination is addressable at all.
+
+**Measured end to end in a container.** `integration/packaudience_test.go` selects two agent
+packs and one content pack whose prose and skills are both addressed to one of them. It asserts
+that the prose and the skill are present at that agent's destination and absent from the other.
+A second test asserts that an audience naming an unselected agent refuses the launch.
 
 ## Staging and delivery
 
@@ -291,6 +522,12 @@ config order. A pack may therefore override a built-in — a legitimate reason t
 because the conventional local pack is appended last among packs, a personal skill still
 outranks every shared pack's.
 
+After both layers, yolo writes its **own LSP plugin** into every skills destination, rendered
+from `lsp_servers`, or removes it when that list is empty. This is not a third content layer: it
+is yolo's generated output, and it goes last so that no pack can ship a directory of the same
+name and replace it. Only Claude reads a plugin; at another agent's destination it is a directory
+nothing looks for, which is cheaper than teaching the loop which agent is which.
+
 Each source carries an **audience**, matched against the destination's declared identity by
 the same empty-is-broadcast rule the briefing half uses. Without it the source list is global —
 every selected pack's skills reach every destination — so an agent-specific skill would be
@@ -308,8 +545,8 @@ copied into another agent's tree with nothing able to stop it.
 > reaches the same precedence by the same route every other pack's content takes.
 
 `PrepareSkills` still takes a home directory and an agent-name list; both are vestigial, kept
-because five call sites pass them and churning those would be a bigger diff than the fix with
-no behavior in it.
+because its callers pass them and churning those would be a bigger diff than the fix with no
+behavior in it.
 
 ## Refresh — a live jail sees host edits
 
@@ -379,10 +616,20 @@ gated on at least one briefing having actually been written. See
 - **Not** a fourth skills layer that reads a generated destination.
 - **Not** an inline manual. Anything a `--help` or `yolo config-ref` answers is a pointer, not
   a copy.
+- **Not** per-project scoping. A rule that matters in one repository belongs in that
+  repository's own instruction file, which needs nothing from yolo.
+- **Not** an audience for `agents_md_extra`. It is the user's own config key; prose that should
+  be addressed goes in the local pack instead.
+- **Not** a way for a pack to write where it could not already write. An audience narrows what a
+  pack's own content reaches, and a pack that skips a destination does not become an owner of
+  it.
+- **Not** a denylist, and **not** an audience keyed by pack slug. A slug is a fetch-address
+  artifact that a config entry can rename, so a reference to it can break from a line the
+  referencing pack cannot see.
 
 ## Current values
 
-Verified at `d8cf1cf8`. The prose above explains what each of these is for; this table is the
+Verified at `7ad8358c`. The prose above explains what each of these is for; this table is the
 only place the values themselves are stated.
 
 | Value | Setting | Defined in |
@@ -396,21 +643,38 @@ only place the values themselves are stated.
 | Per-pack label (off by default) | `<!-- from pack: NAME -->`, when `briefing_provenance: true` | `jailcontent.ComposePackBriefings`, `entrypoint.appendHostBriefingSection`; `config.BriefingProvenance` |
 | Host/jail separator | `---` between the prepended host prose and the rest | `jailcontent.PrependHostBriefing` |
 | Extra-prose config key | `agents_md_extra` (string; user or workspace scope) | `jailcontent.ComposeBriefing`; `yolo config-ref` |
-| Built-in skills | one embedded suite, plus a source-tree-only addition | `internal/jailcontent/builtinskills` (`FS`) |
+| Built-in skills | one embedded suite | `internal/jailcontent/builtinskills` (`FS`) |
+| yolo's own LSP plugin | written last into every skills destination when `lsp_servers` is non-empty | `jailcontent.LSPPluginDir`, `writeLSPPlugin` |
+| Audience fields | `agent` (a destination's identity), `agents` (a contribution's audience); accepted on `briefing`, `skills` and `files` only | `packdecl.Contribution` |
+| Shipped agent identities | each equals the pack's `program` bin; for `omp` that is `oh-omp`, not the pack name | `packs/*/pack.json` |
+| Unknown-name gate | fatal at the launch pre-flight and at `yolo host apply`; not in `yolo pack lint` or `yolo check` | `packload.AgentAudienceProblems` |
+| One-owner gate | fatal at the launch pre-flight, `yolo host apply` and `yolo check` | `packload.AgentNameCollisions` |
+| Unmatched-audience report | a `no effect` warning at exit status 0, from `yolo host apply` only | `cli.reportInferredDestinations`, `packload.Destinations` |
+| Footprint target of an addressed or broadcast contribution | `→ <agents>`, or `→ every agent` | `packload.audienceTarget` |
 | Provisioning-failure marker | a known string in `<workspace>/.yolo/startup.log` | `jailcontent.ReadProvisioningFailed` |
 
 ## Why it's this way
 
-Forward-facing rulings a maintainer would otherwise undo, with their original ids.
+Forward-facing rulings a maintainer would otherwise undo, with their original ids. The `R` ids
+are the audience model's (the design called them risks, and each became a ruling when it was
+built). They are prefixed `BA-` in the anchors because other documents use bare `R1`–`R5` for
+their own rules. The audience model's principles `P1`–`P5` are in the body, under
+[The audience principles](#the-audience-principles), anchored `ba-p1` to `ba-p5`.
 
 | ID | Ruling | Why it stays |
 | :--- | :--- | :--- |
-| `S3` | Neither briefings nor skills read yolo's own generated host output back in | Once the host notch composes a destination wholesale, reading it back in composes every pack twice — measured, byte-identical duplicates in prose, and last-writer-wins invisibility in skills. The user's own content reaches a jail through the conventional local pack instead, which is an ordinary pack entry with ordinary precedence. |
-| `R2` | The destination enumeration and the staging-name encoding live in one place each, called by both halves | A mismatch does not fail the launch — podman binds an absent file source happily — so the failure is a *blank briefing*, which nothing reports. Coupling by comment had already let the two drift. |
-| `R4` | A destination that declares no identity can be named by no `agents` selector, but still receives every broadcast | It is the state every pack was in before the field existed, so treating it as an error would break every existing pack, and treating it as matchable would deliver addressed prose to a destination that never claimed the identity. |
-| `P2` | An audience-less contribution **broadcasts**, and since [`pack-briefing-defaults.md`](../design/pack-briefing-defaults.md#32-silence-means-broadcast-in-a-manifest-too) a manifest can say so | This is what let the field land ahead of any pack adopting it: a jail of packs that name nobody composes exactly what it did before. It also makes a broadcast portable: listing every agent by name is fatal in any jail that does not select one of them. |
-| `OQ-PB2` | `AGENTS.md`, `CLAUDE.md` and `GEMINI.md` are never a pack-prose source, at any depth ([ledger](../design/pack-briefing-defaults.md#decision-ledger)) | Agent tools read those names as a repository's own instructions, and a pack is usually a repository. Shipping one gave a single file two readers who wanted different things from it. |
-| `P4` | A content pack names **who** its prose is for, never **where** it goes | Where an agent reads is that agent pack's business and changes when the agent changes; a content pack naming a path would have to be edited every time an agent moved its file. |
-| `OQ-BA2` | The audience match is against a **declared** string, never anything derived | A derived identity (a pack name, a path segment) would silently change meaning the moment either was renamed, and nothing would report it. |
-| `C2` | The confinement header derives its enforcement vector from the notch's profile | A header that claims a container for a notch that has none is the dangerous falsehood — an agent treats its home as disposable. Deriving keeps it true for a notch nobody has enumerated yet. |
-| `OQ-TP9` | A `briefing` contribution's `after: "host:…"` is **not** origin-gated | A fetched pack's `after` is honored like anyone else's; the gate was removed rather than extended. Prepending the user's own file is not a credential crossing. |
+| <a id="s3"></a>[`S3`](#s3) | Neither briefings nor skills read yolo's own generated host output back in | Once the host notch composes a destination wholesale, reading it back in composes every pack twice — measured, byte-identical duplicates in prose, and last-writer-wins invisibility in skills. The user's own content reaches a jail through the conventional local pack instead, which is an ordinary pack entry with ordinary precedence. The in-jail read-back refusal on the host prepend is the same rule at the nesting boundary. |
+| <a id="oq-ba1"></a>[`OQ-BA1`](#oq-ba1) | The audience is keyed by **launcher command (`bin`)**, never by pack slug ([P1](#ba-p1)) | A slug can be renamed per config entry, so a reference to it breaks from a line the referencing pack cannot see. The bin namespace is exclusive by construction, and it is what the user types. |
+| <a id="oq-ba2"></a>[`OQ-BA2`](#oq-ba2) | The audience match is against a **declared** string, never anything derived | A derived identity (a pack name, a path segment, the pack's bins) would silently change meaning the moment either was renamed, and nothing would report it. The profile chain's `packload.binOwner` finds whose launch a CLI name is, through sole-owned `program` bins; the audience match does not use it. |
+| <a id="oq-ba3"></a>[`OQ-BA3`](#oq-ba3) | **Allowlist only**, drawn from the ENABLED packs, and anything else is fatal ([P3](#ba-p3)) | A typo and an unselected agent are the same mistake from the jail's point of view, with the same remedy. A denylist relieves a burden that P3 already bounds, and would need its own answer for an excluded agent that is not enabled. |
+| <a id="oq-ba4"></a>[`OQ-BA4`](#oq-ba4) | **`skills` takes the same fields and every rule unchanged** | The two kinds are parallel: a conventional source, many packs merging into destinations agent packs name. One mechanism, not two. A second, different audience rule for skills would be the drift. |
+| <a id="oq-ba5"></a>[`OQ-BA5`](#oq-ba5) | The fields are spelled **`agent`** (identity) and **`agents`** (audience), and the value is still the bin | The spelling follows what users call a launcher command and what a config surface already calls its owner. Renaming them to `bins` or `for` would change nothing about the namespace and break every manifest. |
+| <a id="oq-ba6"></a>[`OQ-BA6`](#oq-ba6) | The identity is **declared by the agent pack that owns the name**, and two packs claiming one name is **fatal**, through a pass of its own | The generic collision loop skips kinds that merge, which `briefing` and `skills` do by design, so folding this into it makes the collision invisible. |
+| <a id="oq-ba7"></a>[`OQ-BA7`](#oq-ba7) | Ownership is **per NAME, across kinds** ([P5](#ba-p5)) | `claude-official` and `claude-matt-fork` both launch as `claude` and cannot both be selected. A per-kind key would let one own the briefing and the other the program. `-p claude=<profile>`, `use_profiles.claude` and `agents: ["claude"]` would then each resolve to whichever declaration they happened to read. |
+| <a id="ba-r1"></a>[`R1`](#ba-r1) | An addressed contribution that matches no destination of its kind is **reported, not refused** | The addressing pack's `agents` is correct; the fix belongs to the owning pack. Refusing would punish the wrong author, and the fatal half is P3's. `yolo host apply` is where the report lives; the jail launch prints none ([two severities](#two-severities-an-unknown-name-is-fatal-an-unmatched-destination-is-reported)). |
+| <a id="ba-r2"></a>[`R2`](#ba-r2) | The destination enumeration and the staging-name encoding live in one place each, called by both halves | A mismatch does not fail the launch — podman binds an absent file source happily — so the failure is a *blank briefing*, which nothing reports. Coupling by comment had already let the two drift. |
+| <a id="ba-r3"></a>[`R3`](#ba-r3) | Each notch carries its own call-site pin for the audience | The two notches narrow in different places. A test of the shared predicate stays green when either call site is deleted, which is the shape this repo has shipped repeatedly. |
+| <a id="ba-r4"></a>[`R4`](#ba-r4) | A destination that declares no identity can be named by no `agents` selector, but still receives every broadcast | It is the state every pack was in before the field existed, so treating it as an error would break every existing pack, and treating it as matchable would deliver addressed prose to a destination that never claimed the identity. |
+| [`OQ-PB2`](pack-system.md#oq-pb2) | `AGENTS.md`, `CLAUDE.md` and `GEMINI.md` are never a pack-prose source, at any depth (mirrored here; the ruling is pack-system.md's) | Agent tools read those names as a repository's own instructions, and a pack is usually a repository. Shipping one gave a single file two readers who wanted different things from it. |
+| <a id="c2"></a>[`C2`](#c2) | The confinement header derives its enforcement vector from the notch's profile | A header that claims a container for a notch that has none is the dangerous falsehood — an agent treats its home as disposable. Deriving keeps it true for a notch nobody has enumerated yet. |
+| <a id="oq-tp9"></a>[`OQ-TP9`](#oq-tp9) | A `briefing` contribution's `after: "host:…"` is **not** origin-gated | A fetched pack's `after` is honored like anyone else's; the gate was removed rather than extended. Prepending the user's own file is not a credential crossing. |

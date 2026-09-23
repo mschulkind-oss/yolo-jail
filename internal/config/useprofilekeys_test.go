@@ -7,10 +7,10 @@ import (
 	"testing"
 )
 
-// This file pins the KEY namespace check (profiles-as-pack-variants.md §2.5, §8):
+// This file pins the KEY namespace check (docs/reference/providers.md#what-the-launch-checks-and-prints):
 // a `use_profiles` key is a CLI name — a bin some resolvable pack installs — and
 // an unknown one is FATAL. Before the check, {"cloude": "bedrock"} validated clean
-// and silently did nothing, which is the live hole §2.5 documents.
+// and silently did nothing, which is the live hole the profile-variant design documented.
 
 // useProfileKeysHome isolates the pack universe the check reads. The embedded half
 // is fixed by the binary; the CONFIGURED half comes from the user config and the pack
@@ -65,7 +65,7 @@ func TestValidateUseProfilesKeysAreCLINames(t *testing.T) {
 }
 
 // Keys the packs install stay legal — including for a pack this config does not
-// select, which is §8's split: existence is answered against the resolvable universe,
+// select, which is providers.md#what-the-launch-checks-and-prints's split: existence is answered against the resolvable universe,
 // selection only governs whether the contribution renders.
 func TestValidateUseProfilesAcceptsKeysThePacksInstall(t *testing.T) {
 	useProfileKeysHome(t)

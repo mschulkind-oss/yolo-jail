@@ -436,7 +436,7 @@ func TestBrokerSpawnDeadChildFast(t *testing.T) {
 // The three tests below pin the ONE property the 2,549-failure incident turned
 // on: brokerWaitForSocket's answer must reach a human at spawn time. Before
 // this, every one of these cases printed nothing at all — the detector was
-// right and silent (docs/design/broker-ca-and-nested-hosts.md §3.1).
+// right and silent (docs/reference/claude-oauth-interposition.md#a-failed-spawn-reports-itself).
 
 func TestBrokerSpawnWarnsOnDeadChild(t *testing.T) {
 	// The missing-openssl shape: the daemon exits at startup, so the socket

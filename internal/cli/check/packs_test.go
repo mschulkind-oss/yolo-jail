@@ -404,7 +404,7 @@ func TestSectionPacksStillFailsWhenNothingWasStagedEither(t *testing.T) {
 // `yolo check` must catch an agent NAME with two owning packs, for the reason the surface
 // check above exists: the LAUNCH refuses it (the seventh pre-flight,
 // internal/cli/run/packs.go), so a passing check would pass on a config that cannot start a
-// jail. briefing-audiences.md OQ-BA6/BA7.
+// jail. docs/reference/agent-briefings.md#oq-ba6, #oq-ba7.
 //
 // The fixture is the design's own §4.2 example: the shipped `claude` pack, plus a user pack
 // declaring `agent: "claude"` on its own briefing destination. Neither declaration is

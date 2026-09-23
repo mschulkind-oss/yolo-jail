@@ -1,7 +1,7 @@
 package run
 
-// packagentaudience_test.go is the EIGHTH launch pre-flight (briefing-audiences.md P3,
-// OQ-BA3): an `agents` selector naming an agent this jail does not have.
+// packagentaudience_test.go is the EIGHTH launch pre-flight (docs/reference/agent-briefings.md#ba-p3,
+// #oq-ba3): an `agents` selector naming an agent this jail does not have.
 //
 // Through stagePacks, not packload.AgentAudienceProblems — that function has its own unit
 // tests, and a test of it alone would stay green with the pre-flight deleted.

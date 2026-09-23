@@ -683,7 +683,7 @@ func hostFileShapeName(v any) string {
 // that reads config. That reason expired twice over: internal/packload imports luahook
 // itself for the derive path (deriveenv.go), so the edge exists either way, and
 // internal/agentcfg no longer links Lua at all now that the config transform is gone
-// (docs/design/lua-transform-removal.md). What keeps the packs as the source is the
+// (docs/reference/pack-system.md#oq-lt1). What keeps the packs as the source is the
 // original half of the argument that still holds — the real declarations are over there,
 // and a duplicate of them drifts.
 //

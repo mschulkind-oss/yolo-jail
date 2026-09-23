@@ -199,9 +199,9 @@ func ResolveEnvSourcesFull(workspace string, config *jsonx.OrderedMap, warn Warn
 // when cfg declares none.
 //
 // It is the "here is where I looked" half of the launch credential pre-flight
-// (profiles-as-pack-variants.md §6.2): a refusal that says only "ZAI_API_KEY is not set"
+// (docs/reference/providers.md#the-credential-preflight): a refusal that says only "ZAI_API_KEY is not set"
 // sends the reader hunting through their config for the channel that was supposed to
-// deliver it, which is the debugging nightmare §6.1 records. Naming the entries consulted
+// deliver it, which is the debugging nightmare providers.md#the-credential-preflight records. Naming the entries consulted
 // is the same message discipline as the reachability witness's — say what was checked,
 // not only what failed.
 func DescribeEnvSources(workspace string, cfg *jsonx.OrderedMap) []string {

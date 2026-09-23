@@ -1,12 +1,12 @@
 // Package luahook is the sandboxed Lua interpreter yolo runs a pack's
 // derive.lua in — a PRODUCER of config values, never an effect
-// (docs/reference/pack-system.md §7, docs/reference/providers.md).
+// (docs/reference/pack-system.md#the-derive-slot, docs/reference/providers.md).
 //
 // A derive runs PRE-merge: it receives the live config tables (mcp_servers,
 // lsp_servers), the active profile and the pack's own declarations, and RETURNS
 // a fresh object that becomes the composed surface's `computed` layer
-// (agentcfg.Inputs.Computed, filled by entrypoint/packsurfaces.go). Six shipped
-// packs use it — agy, claude, codex, copilot, opencode, pi. What a derive
+// (agentcfg.Inputs.Computed, filled by entrypoint/packsurfaces.go); every shipped
+// agent pack uses it (`ls packs/*/derive.lua`). What a derive
 // registers, what it may read, and the tombstone sentinel are all in derive.go;
 // this doc covers what the package is and the boundary it runs behind.
 //
@@ -23,7 +23,7 @@
 //
 // # It used to be two halves
 //
-// Until docs/design/lua-transform-removal.md this package also held the CONFIG
+// Until the transform removal (docs/reference/pack-system.md#oq-lt1) this package also held the CONFIG
 // TRANSFORM: a user-authored ~/.config/yolo-jail/config.lua or
 // <workspace>/yolo-jail.config.lua that ran POST-merge and mutated the composed
 // surface, reached through an LuaVM interface, a Ctx bridge, a Stage handle and
@@ -41,6 +41,6 @@
 //   - the sandbox opens Lua's `math` library whole, and neither ForbiddenGlobals
 //     nor extraStrippedGlobals names math.random. A derive.lua is required to be
 //     a pure function and can still call it (measured 2026-09-10). That is a real
-//     finding, named as out of scope by the removal doc (§11), and the fix is one
+//     finding, named as out of scope by the removal (docs/reference/pack-system.md#derive-determinism), and the fix is one
 //     line in extraStrippedGlobals plus a test.
 package luahook

@@ -24,7 +24,7 @@ func agentPack(t *testing.T, name string, contributes ...packdecl.Contribution) 
 }
 
 // zeroCeremonyPack writes a pack tree with NO pack.json: a skills dir holding one skill and a
-// briefing/prose.md — the conventional prose source (pack-briefing-defaults.md §3.1; a root
+// briefing/prose.md — the conventional prose source (docs/reference/pack-system.md#briefing-directory; a root
 // AGENTS.md is the repository's and is never read). skills=false omits the skills tree,
 // prose=false omits the briefing file.
 func zeroCeremonyPack(t *testing.T, name string, skills, prose bool) *Pack {
@@ -52,7 +52,7 @@ func zeroCeremonyPack(t *testing.T, name string, skills, prose bool) *Pack {
 }
 
 // addressedPack writes a pack tree from a path→body map and takes an IN-MEMORY manifest: the
-// shape briefing-audiences.md §4.1 gives a content pack — source files at paths of its own
+// shape docs/reference/agent-briefings.md#the-two-halves-and-why-neither-knows-the-others-business gives a content pack — source files at paths of its own
 // choosing, and contributions that name an AUDIENCE (`agents`) instead of a path.
 //
 // Deliberately NOT the conventional layout zeroCeremonyPack writes, and deliberately not routed
@@ -198,7 +198,7 @@ func TestResolveDestinationsDoesNotInheritTier(t *testing.T) {
 	}
 }
 
-// AN ADDRESSED CONTRIBUTION IS ROUTED, AND ONLY TO ITS AUDIENCE (briefing-audiences.md §4.1).
+// AN ADDRESSED CONTRIBUTION IS ROUTED, AND ONLY TO ITS AUDIENCE (docs/reference/agent-briefings.md#the-two-halves-and-why-neither-knows-the-others-business).
 //
 // A content pack says WHO its prose is for and never WHERE it goes: `{kind: briefing, agents:
 // ["claude"]}` with no `into`. Two things have to hold at once, and each is a separate defect
@@ -242,7 +242,7 @@ func TestResolveDestinationsRoutesAnAddressedBriefing(t *testing.T) {
 // it must not do is go inert quietly — the filter has to route into the report the inference
 // already has, not into an empty slice nobody looks at.
 //
-// (What the two GATES then do with that — refuse the launch or report and skip — is §4.3's
+// (What the two GATES then do with that — refuse the launch or report and skip — is agent-briefings.md#two-severities-an-unknown-name-is-fatal-an-unmatched-destination-is-reported's
 // question, not this function's. Here it is data.)
 func TestResolveDestinationsReportsAnUnmatchedAudience(t *testing.T) {
 	claude := agentPack(t, "claude", packdecl.Contribution{Kind: packdecl.KindBriefing,
@@ -263,7 +263,7 @@ func TestResolveDestinationsReportsAnUnmatchedAudience(t *testing.T) {
 }
 
 // AN ADDRESSED CONTRIBUTION NAMES ITS OWN SOURCE, AND THAT IS THE WHOLE POINT OF `from` +
-// `agents` (briefing-audiences.md §4.1 line 194: `{from: "prose/claude.md", agents: ["claude"]}`).
+// `agents` (docs/reference/agent-briefings.md#the-two-halves-and-why-neither-knows-the-others-business: `{from: "prose/claude.md", agents: ["claude"]}`).
 //
 // Two production chokepoints have to give way for this shape to route at all, and each was
 // written for the ZERO-CEREMONY pack, which by construction has no `from`:
@@ -313,8 +313,8 @@ func TestResolveDestinationsRoutesAnAddressedBriefingFrom(t *testing.T) {
 
 // The WRONG-CONTENT half on its own: the pack also happens to carry a root AGENTS.md, so only the
 // CONTENT tells a correct synthesis from one that substituted a different file. That root file is
-// the repository's own instructions and is never read as prose at all (pack-briefing-defaults.md
-// P1), so it must neither arrive in place of the addressed file nor broadcast beside it.
+// the repository's own instructions and is never read as prose at all
+// (docs/reference/pack-system.md#briefing-p1), so it must neither arrive in place of the addressed file nor broadcast beside it.
 func TestResolveDestinationsAddressedBriefingBeatsTheConventionalFile(t *testing.T) {
 	claude := agentPack(t, "claude", packdecl.Contribution{Kind: packdecl.KindBriefing,
 		Into: ".claude/CLAUDE.md", Agent: "claude"})
@@ -339,7 +339,7 @@ func TestResolveDestinationsAddressedBriefingBeatsTheConventionalFile(t *testing
 	}
 }
 
-// `skills` TAKES THE SAME FIELD AND THE PARALLEL IS EXACT (§4.1 line 195, OQ-BA4). Same two
+// `skills` TAKES THE SAME FIELD AND THE PARALLEL IS EXACT (agent-briefings.md#the-two-halves-and-why-neither-knows-the-others-business, #oq-ba4). Same two
 // chokepoints, same fix: the source probe must ask the contribution's `from` (SkillsSourceDir
 // already honors it) and the synthesis must carry it.
 func TestResolveDestinationsRoutesAnAddressedSkillsFrom(t *testing.T) {
@@ -481,7 +481,7 @@ func TestResolveDestinationsOrphansEachUnmatchedAudienceSeparately(t *testing.T)
 	}
 }
 
-// EACH ADDRESSED CONTRIBUTION IS RESOLVED ON ITS OWN — the multi-entry shape §4.1 shows, where one
+// EACH ADDRESSED CONTRIBUTION IS RESOLVED ON ITS OWN — the multi-entry shape agent-briefings.md#the-two-halves-and-why-neither-knows-the-others-business shows, where one
 // pack briefs claude from one file and pi from another. A union over the kind's audiences cannot
 // express it: it yields both destinations with one source, so whichever file the union picked
 // would reach both agents. The pairing is the assertion.

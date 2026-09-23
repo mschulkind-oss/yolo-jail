@@ -4,7 +4,7 @@ name: Pack Installs
 # programs still install from their vendors?
 #
 # It is a separate workflow because the trigger is the whole point
-# (docs/design/agent-install-in-ci.md §6.1.1 — "the trigger should match the causation"):
+# (docs/reference/agent-install-in-ci.md#three-triggers-matched-to-three-causes — "the trigger should match the causation"):
 #
 #   * a `packs/**` change CAN break this and is commit-caused, so it is gated on the commit;
 #   * a vendor's release breaking is NOT commit-caused, so it gets a weekly cadence;
@@ -112,7 +112,7 @@ jobs:
         # discards it with a warning otherwise, and this job has no cachix-action).
         # Since layer-aware delivery landed the out-link is a nix2container
         # image.json rather than a script whose stdout is a docker-archive
-        # (docs/design/layer-aware-image-delivery.md), so the tar this job
+        # (docs/reference/image-staging-vs-baking.md#delivering-into-the-runtime), so the tar this job
         # UPLOADS is produced by a `skopeo copy` into the docker-archive
         # transport. The copier is realized beside the image as `./result-1`; it
         # is a source build over nixpkgs' skopeo that no public cache serves, so
@@ -133,7 +133,7 @@ jobs:
           path: /tmp/jail-image.tar
           retention-days: 1
 
-  # One job per PACK x ARCH, and the fan-out is the ruling (§6, OQ-CI3): a single
+  # One job per PACK x ARCH, and the fan-out is the ruling (docs/reference/agent-install-in-ci.md#oq-ci3): a single
   # sequential job dies on the first bad `npm install` and masks the other five vendors,
   # so a break must name its own vendor. `fail-fast: false` is what makes that true.
   #

@@ -9,7 +9,7 @@ package run
 // the launch hydrates, and the openai endpoint reaching the catalog the three derives read.
 //
 // The pre-flight half is here too, because the pack's whole contract is "select it, drop in
-// a key": a launch that selects the pack without one refuses (OQ-13). That makes the shipped
+// a key": a launch that selects the pack without one refuses (providers.md#pv-oq-13). That makes the shipped
 // set no longer credential-silent, which TestShippedPacksRequireNoCredential records as the
 // one deliberate exception.
 

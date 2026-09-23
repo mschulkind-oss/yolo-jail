@@ -195,8 +195,8 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 		return 1
 	}
 
-	// THE CREDENTIAL PRE-FLIGHT at the host notch (profiles-as-pack-variants.md §6.2,
-	// OQ-13) — the same check the jail's launcher runs, on the environment THIS notch
+	// THE CREDENTIAL PRE-FLIGHT at the host notch (docs/reference/providers.md#the-credential-preflight,
+	// #pv-oq-13) — the same check the jail's launcher runs, on the environment THIS notch
 	// would exec with. Before resolveHostTarget, deliberately: a launch that would fail
 	// at the agent's first API call should be refused while the only thing it has done is
 	// compose an environment.
@@ -276,7 +276,7 @@ func yoloManagedDirs() []string {
 }
 
 // hostComposition is one host agent launch's composed environment, with the facts the
-// §6.2 credential pre-flight reads beside it. It exists because the pre-flight has to
+// credential pre-flight (providers.md#the-credential-preflight) reads beside it. It exists because the pre-flight has to
 // answer against the SAME packs, the SAME composed provider table and the SAME env_sources
 // walk the vars were composed from — loading them a second time would not just double the
 // work, it would let the check and the exec disagree about what the launch carries.
@@ -309,7 +309,7 @@ func (c *hostComposition) environ() []string {
 	return agentenv.Apply(os.Environ(), c.vars)
 }
 
-// credentialGaps is the §6.2 pre-flight for this launch, answered against environ().
+// credentialGaps is the providers.md#the-credential-preflight pre-flight for this launch, answered against environ().
 // getenv is the process lookup, passed rather than closed over so a test can stand in for
 // the shell this process inherited.
 func (c *hostComposition) credentialGaps(getenv func(string) string) []string {
@@ -471,7 +471,7 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 	}
 
 	// (1) the pack env fold, PER PACK — each pack's static `kind: "env"` keys, then the
-	// keys of its `profile`-gated env contributions whose gate is satisfied (OQ-8). The
+	// keys of its `profile`-gated env contributions whose gate is satisfied (providers.md#pv-oq-8). The
 	// sequence is packload.EnvFold's, the ONE fold the jail notch reduces through
 	// packload.EnvVarsFor: folding it here as all-static-then-all-gated instead gave a
 	// key that pack A's gated env and pack B's static both write two answers (the jail
@@ -504,7 +504,7 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 	userEnv, removals := config.ResolveEnvSourcesFull(workspace, scoped, warn)
 	// What this launch consulted for credentials, recorded as it is consulted: the
 	// env_sources entries that survived the scope filter, plus the shell this process
-	// inherited. The §6.2 pre-flight quotes the list verbatim, so a refusal says where it
+	// inherited. The providers.md#the-credential-preflight pre-flight quotes the list verbatim, so a refusal says where it
 	// looked and not only that the key never arrived.
 	c.consulted = append(config.DescribeEnvSources(workspace, scoped), "the invoking shell's environment")
 	for _, k := range userEnv.Keys() {
@@ -561,7 +561,7 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 // of the jail notch's composedProviders (internal/cli/run/assemble.go): the user's
 // `providers` config entries with every selected pack's shipped `kind: "provider"` facts
 // composed under them, per field. Composed ONCE and its result handed to BOTH of this
-// launch's consumers — the provider env derive in composeHostVars and the §6.2 pre-flight's
+// launch's consumers — the provider env derive in composeHostVars and the providers.md#the-credential-preflight pre-flight's
 // c.providers — because packload/providers.go states the composition happens exactly once
 // per launch, and two compositions would be two chances for the check and the exec to
 // disagree about what the launch carries.

@@ -146,7 +146,7 @@ mise manages the *interactive* / *project* toolchains. Two config scopes:
   > user-scope config. A user who needs more than a merge (drop a pin, rewrite a version)
   > writes a `null` tombstone from a declared layer, which deletes a key the layers below
   > supplied; the Lua transform that used to be the answer here was removed on 2026-09-11
-  > ([`../design/lua-transform-removal.md`](../design/lua-transform-removal.md)).
+  > ([`OQ-LT1`](../reference/pack-system.md#oq-lt1)).
 
 - **Workspace** `/workspace/mise.toml` — checked into each repo. This repo's
   (`mise.toml`) pins:

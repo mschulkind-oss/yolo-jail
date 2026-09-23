@@ -66,7 +66,7 @@ func TestDecodeOverlayRejectsEmptyBody(t *testing.T) {
 // mean an overlay that contributes nothing with no signal at all.
 //
 // `transform` is here rather than in the refused-by-name table above because that is the
-// whole of its disposition now: OQ-LT1 of docs/design/lua-transform-removal.md ruled the
+// whole of its disposition now: OQ-LT1 (docs/reference/pack-system.md#oq-lt1) ruled the
 // transform deleted outright, with no named refusal to say it was removed, ON THE BASIS
 // that the generic machinery already fails closed. This is that basis, measured.
 func TestDecodeOverlayRejectsUnknownField(t *testing.T) {

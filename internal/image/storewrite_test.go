@@ -117,7 +117,7 @@ func TestARootlessStoreIsWrittenFromInsidePodmansNamespace(t *testing.T) {
 			t.Errorf("copy prefix = %q, want %q — the namespace decision is not reaching the copy",
 				got, "podman unshare --")
 		}
-		// §3.4a: a decision with more than one outcome has to say which it took.
+		// image-staging-vs-baking.md#archive-destinations: a decision with more than one outcome has to say which it took.
 		if !strings.Contains(out.String(), "podman unshare") {
 			t.Errorf("the launch never said it took the namespace route: %q", out.String())
 		}
@@ -258,7 +258,7 @@ func TestACopyThroughAPrefixKeepsTheChildsOwnWords(t *testing.T) {
 
 // TestARefusedNamespaceIsNotRetried is the retry narrowing, and both polarities
 // are needed to pin it: the two MEASURED permanent refusals must run the copier
-// exactly once and say why, while everything else keeps the single retry §3.6
+// exactly once and say why, while everything else keeps the single retry image-staging-vs-baking.md#failure-paths
 // bounds. Delete the denylist and the first two rows run twice; turn the denylist
 // into an allowlist of transient causes and the third row stops retrying.
 func TestARefusedNamespaceIsNotRetried(t *testing.T) {
@@ -307,7 +307,7 @@ func TestARefusedNamespaceIsNotRetried(t *testing.T) {
 	}
 }
 
-// TestARefusedNamespaceSaysWhatToLookAt: "no remedy to name" is what §3.6 accepted
+// TestARefusedNamespaceSaysWhatToLookAt: "no remedy to name" is what image-staging-vs-baking.md#failure-paths accepted
 // for a failed copy, and for THIS cause it was avoidable. The report has to name
 // the two commands that distinguish the two ways a host gets here, or the reader
 // is left with a syscall name.

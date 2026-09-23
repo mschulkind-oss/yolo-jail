@@ -66,7 +66,7 @@ type fakeRuntime struct {
 //
 // IT EXISTS BECAUSE THE STORE PATH IS NOW A FILE. Since C9 `nix build .#ociImage`
 // resolves to an image.json rather than to a stream script, and the delivery path
-// READS it (ReadLayerInventory, for the copied/skipped report §3.10 requires). A
+// READS it (ReadLayerInventory, for the copied/skipped report image-staging-vs-baking.md#what-a-copy-reports requires). A
 // fixture that hands AutoLoadImage a `/nix/store/…` string with nothing behind it
 // is not modelling the input any more — it models a machine whose manifest is
 // missing, which is a different test.

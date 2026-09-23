@@ -45,7 +45,7 @@ func userProseFixture(t *testing.T, userProse string) (home, packDir string) {
 
 // localPackBriefing is where a migrated destination's prose must land, under the TEMP home: the
 // local pack's briefing/local.md, never its root AGENTS.md, which no reader reads as pack prose
-// (pack-briefing-defaults.md P1).
+// (docs/reference/pack-system.md#briefing-p1).
 func localPackBriefing(home string) string {
 	return filepath.Join(home, ".config", "yolo-jail", "local", "briefing", "local.md")
 }
@@ -358,7 +358,7 @@ func TestApplyHostBriefingLabelsPackProseWhenTheUserConfigAsks(t *testing.T) {
 }
 
 // A DECLARED BRIEFING SOURCE THAT DELIVERS NOTHING IS REPORTED AT THE HOST NOTCH TOO
-// (pack-briefing-defaults.md §3.4, §10): an absent `from` and a blank one each print a warning
+// (docs/reference/pack-system.md#briefing-p4): an absent `from` and a blank one each print a warning
 // naming the path, as the jail launch does. Before, the host dropped the problem, and with the
 // fallback chain gone the prose was then lost without a word.
 func TestApplyHostReportsAnUnmetBriefingFrom(t *testing.T) {

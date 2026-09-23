@@ -1,7 +1,7 @@
 package run
 
 // profilelaunch_test.go pins the DIRECT-INVOCATION half of a pack's launch flags
-// (profiles-as-pack-variants.md §3.4): `yolo -- <bin>` and the interactive alias must
+// (docs/reference/providers.md#declaring-and-selecting-a-profile): `yolo -- <bin>` and the interactive alias must
 // carry the SAME flags for the same launch.
 //
 // The history is why this drives Run() and reads the argv the backend is handed, rather

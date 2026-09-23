@@ -1,7 +1,7 @@
 ---
 status: current
-verified: 2026-09-04
-verified_commit: 582ae850
+verified: 2026-09-23
+verified_commit: 7ad8358c
 covers:
   - internal/packdecl/contributes.go
   - internal/packload/providers.go
@@ -12,29 +12,43 @@ covers:
   - internal/entrypoint/packsurfaces.go
   - internal/entrypoint/prism.go
   - internal/config/profiles.go
+  - internal/packoverlay/packoverlay.go
+  - internal/cli/run/profilechannel.go
+  - internal/cli/run/providerpreflight.go
   - packs/claude/derive.lua
   - packs/codex/derive.lua
   - packs/pi/derive.lua
   - packs/opencode/derive.lua
   - packs/copilot/derive.lua
+  - packs/omp/derive.lua
   - packs/zai/pack.json
   - packs/cerebras/pack.json
   - packs/claude/pack.json
   - packs/openrouter/pack.json
   - packs/kilo/pack.json
+  - packs/llamacpp/pack.json
+  - packs/aws-auth/pack.json
+  - packs/openai-auth/pack.json
 tags: [providers, profiles, packs, derives, selection, zai, cerebras, openrouter, kilo]
 ---
 
 # The provider system — catalog, composition, and selection
 
-**Status:** CURRENT as of 2026-09-03, verified against `fb7b566d`.
+**Status:** CURRENT as of 2026-09-23, verified against `7ad8358c`. It is also the as-built home
+of the profile-variant design (`profiles-as-pack-variants.md`, retired): its surviving rulings
+are [the profile-variant rows](#the-profile-variant-rulings) of the appendix. MEASURED: each
+section was re-read against the code at `7ad8358c` — the profile and preflight sections line by
+line, the per-agent spellings by spot check against the derives. UNMEASURED: Bedrock mode end to end — see
+[the Bedrock example](#two-channels-split-by-payload-type).
 
 A **provider** is a declaration of a service's facts — where its endpoints are, which wire
 protocol each speaks, which model aliases it offers, which environment variable holds its
 credential, and which knobs ("options") a profile may tune. Providers compose into ONE table
-on the host at launch, cross into the jail, and reach five agents through their own packs'
-derives — each in that agent's own vocabulary. A **profile** is user-declared intent: a named
-selection over a provider. **Catalog** (an agent's directory of providers it *could* use) and
+on the host at launch, cross into the jail, and reach each agent through that agent's own
+pack's derives — in that agent's own vocabulary. A **profile** is user-declared intent: a named
+selection over a provider. Whatever a pack does *differently* under a profile is not part of the
+profile: it is an ordinary contribution carrying the **`profile` modifier**, which gates it on
+that name being active. **Catalog** (an agent's directory of providers it *could* use) and
 **selection** (which one it *does* use) are two features with different triggers: catalog rides
 presence, selection is an explicit act.
 
@@ -47,7 +61,10 @@ presence, selection is an explicit act.
 | Lua sandbox: `yolo.derive` / `yolo.env` registrations, derive ctx | `internal/agentcfg/luahook` (`DeriveCtx`, `Derive`) |
 | Selection namespace: edge-triggered apply | `internal/agentcfg` (`SelectionKey`, `ApplySelection`) |
 | Surface render + selection lift | `internal/entrypoint` (`ConfigurePackSurfaces`, prism stateful render) |
-| User config: `providers`, `profiles`, `use_profiles` | `internal/config` (`profiles.go`) |
+| User config: `providers`, `profiles`, `use_profiles` | `internal/config` (`profiles.go`, `UseProfileCLINames`) |
+| The `profile` modifier's two gates | `internal/packload` (`EnvFold`) for `env`; `internal/packoverlay` (`Collect`) for `config-overlay` |
+| Launch-side profile checks, the disclosure line, the credential preflight | `internal/cli/run` (`checkProfileTargets`, `checkProfileDeclarations`, `noteUseProfiles`, `checkProviderCredentials`) |
+| Host-notch composition of the same | `internal/cli` (`composeHostLaunch`, `overlayGateProfiles`) |
 | The agent derives that consume the table, and the provider packs that fill it | `packs/*/derive.lua`; every pack declaring a `provider` contribution |
 
 **Reads with:** [`pack-system.md`](../reference/pack-system.md) (what a pack is, how derives are
@@ -56,7 +73,9 @@ protocols and a provider's endpoints are paired, and the `adapter` contribution 
 address neither side declared), [`local-model-endpoints.md`](../research/local-model-endpoints.md) (the
 source-verified per-agent vocabularies the dialect maps translate into),
 [`cerebras-pack-and-copilot-delivery.md`](cerebras-pack-and-copilot-delivery.md) (which agents a
-provider can reach *at all*, one level below the delivery channels below).
+provider can reach *at all*, one level below the delivery channels below),
+[`host-agent-environment.md`](host-agent-environment.md) (the host notch's own delivery: `yolo
+host --` and its wrapper directory).
 
 ---
 
@@ -69,15 +88,34 @@ the consumers' vocabularies **and** each consumer translates, or it is a free st
 former: three canonical names, and each derive translates canonical → its agent's spelling,
 emitting **nothing** for a protocol that agent cannot speak.
 
-**P2. A rule enforced on one layer of a merge must hold on the merge's output.** The config
-validator refuses a `base_url` + `endpoints` pair in one user-written entry; the composer
-refuses to *manufacture* that pair from two legal inputs. A rule the composer can manufacture
-a violation of is a lint, not an invariant.
+**P2. A rule enforced on one layer of a merge must hold on the merge's output.** An entry-level
+`base_url` beside `endpoints` is refused whichever layer spells it: the config validator
+refuses the key outright on the host, and the composer refuses to *manufacture* the pair from a
+pack's `endpoints` and a user's shorthand — the case that still reaches it in a jail, where the
+validator only warns. A rule the composer can manufacture a violation of is a lint, not an
+invariant.
 
 **A profile is user-declared intent over a provider, and the provider owns the schema of what
 a profile for it may carry.** Pack-shipped profiles are defaults the user overrides, exactly as
 pack-shipped providers are. Core composes facts and resolves names; it never learns what an
 option *means* — the derive decides where each one lands.
+
+**Route by payload type: configuration goes in the agent's config file, secrets and process
+flags go in the process environment.** The two channels fail on different axes, so neither is a
+fallback for the other. A config-surface patch survives every invocation, including the ones
+yolo is not part of (an IDE, cron, an absolute path), but it cannot *deliver* a credential: every
+agent's file names the variable and reads the value from its own environment. Process env
+carries the value and the unsets, but only reaches a process yolo (or its host wrapper)
+launches — and `yolo host apply`, which never runs a process, refuses a pack's `env`
+contribution. A payload that has a config spelling rides the file; the rest rides the env; a pack
+that needs both declares both.
+
+**A pack never carries a credential value, and the schema offers no slot for one.** A pack is a
+distribution artifact, fetched and approved at a commit. The only credential-shaped field is
+`api_key_env_name`, which holds a variable NAME by contract; the value travels `env_sources`
+and is hydrated at launch; a `base_url` carrying userinfo is refused. This is a recommendation
+backed by the schema, not a scanner — content scanning is a product category of its own, and
+yolo does not ship one.
 
 **Catalog from presence; selection by explicit act.** A provider entry that reaches an agent
 lands in that agent's directory — no gate. Telling the agent to *use* it is a separate,
@@ -92,20 +130,62 @@ every depth below it, with one carve-out: a null *inside an options map* is "dec
 default", not a deletion, because dropping a default must not un-declare the option a profile
 may name.
 
+A provider's service facts are a pack's to ship and a user's to override: endpoints and wire
+protocols are the same for every user of a service, so a shareable pack carries them, while the
+credential pointer is a fact about one machine ([OQ-12](#pv-oq-12)). A personal endpoint is
+therefore a user `providers` entry that overrides nothing. The table stays flat — one entry per
+provider — and where one key serves several wire shapes the shape axis lives inside the entry
+as `endpoints.<protocol>` ([OQ-2](#pv-oq-2)).
+
+Last, over the finished table, the **adapter pass** fills in an endpoint for a protocol a
+provider does not serve but a selected adapter converts to — below the user layer, so an address
+the user wrote always wins ([`protocol-resolution.md`](protocol-resolution.md)).
+
 Two refusals guard the output:
 
 - A composed entry carrying both `base_url` and `endpoints` is refused, naming both sources
   (`ProviderAddressConflictMessage`, shared with the config validator so the two layers cannot
-  word it differently). Overriding a pack that ships `endpoints` is spelled
-  `endpoints.<protocol>.base_url`.
+  word it differently). The entry-level `base_url` shorthand itself is retired: the config
+  validator refuses it naming the explicit spelling, `endpoints.<protocol>.base_url`
+  ([`protocol-resolution.md`](protocol-resolution.md#the-single-protocol-base_url-shorthand-is-removed)).
 - A provider NAME claimed by two packs is refused by the launch preflight (sole ownership by
   name).
 
-The credential preflight follows **catalog membership**: a composed entry carrying at least one
-endpoint means the launch demands that entry's `api_key_env_name` be deliverable — *"in the
-dictionary means you need the key."* An entry with no endpoints (Bedrock: ambient AWS chain,
-no pointer) demands nothing, and a `null`-dropped provider leaves the table and stops being
-required. `YOLO_ALLOW_MISSING_PROVIDERS=1` is the escape hatch a refusal names.
+What a composed entry is required to bring — its credential — is
+[the credential preflight](#the-credential-preflight)'s question.
+
+## The credential preflight
+
+A launch refuses when a provider its table **catalogs** has no deliverable credential. Catalog
+membership is the whole trigger ([OQ-PT4](#oq-pt4)): a composed entry carrying at least one
+endpoint demands that the variable its `api_key_env_name` names be set in what the launch would
+deliver — *"in the dictionary means you need the key."* Three consequences follow:
+
+- The scope is the launch's **selected** set ([OQ-13](#pv-oq-13)), never the active profile.
+  Selecting a provider pack is the intent; a pack whose provider has no key has already put an
+  entry in the catalog of every agent that speaks its protocol, and that entry fails at the
+  first request.
+- An entry with no endpoint (Bedrock: the ambient AWS chain, no pointer) demands nothing, and a
+  `null`-dropped provider leaves the table and stops being required. A cataloged entry that
+  names no `api_key_env_name` (a keyless loopback server) demands nothing either.
+- A profile's `provider` creates no requirement of its own: a provider the table does not hold
+  reaches no derive, so there is no delivery to demand a key for.
+
+The refusal names the provider, the pack that shipped it (or the user config, when only the
+user's entry put it there), the variable, and **every channel consulted** — the `env_sources`
+entries and the invoking environment. That last line exists because `env_sources` fails open (a
+missing file warns and skips) while the configuration side fails closed; without it a user is
+told only that a key never arrived, not which channel was meant to bring it.
+
+`YOLO_ALLOW_MISSING_PROVIDERS=1`, forwarded from the host environment, is the escape hatch the
+refusal names. It turns the refusal into a **loud continuation** — the notice says nothing was
+repaired — never into silence. Both notches run the check, on every entry that delivers an
+environment: the jail launcher on a fresh launch, on an attach that rewrites the per-entry
+channel (below), and on every macos-user invocation; `yolo host --` on the environment it is
+about to exec, before it resolves the target. The composition is `ProviderCredentialGaps` in
+`internal/packload`; each notch supplies its own lookup and its own voice. A separate AWS check
+runs beside it on the jail notch — a launch delivering both AWS credential arms at once is
+refused, with no hatch (`internal/awschain`).
 
 ## What crosses to the jail
 
@@ -151,8 +231,8 @@ same hazard one layer down.
 ## The canonical wire_api vocabulary
 
 Three names — `anthropic`, `openai-chat-completions`, `openai-responses` — deliberately
-**nobody's dialect**, so a pass-through cannot work by accident ([OQ-PT1](#why-its-this-way)). Pack authors write
-canonical names; `KnownWireAPI` in `internal/packdecl` is the single closed set, enforced at
+**nobody's dialect**, so a pass-through cannot work by accident ([OQ-PT1](#oq-pt1)). Pack authors write
+canonical names; `KnownWireAPIs` in `internal/packdecl` is the single closed set, enforced at
 manifest and config layers; a value outside it is refused on the authoring path and
 dropped-and-reported across a version boundary (the tolerant skew path).
 
@@ -165,6 +245,7 @@ unverified assertion in a new location:
 | codex | `openai-responses` → `responses` (the only value codex accepts) | **no entry at all** |
 | pi | `anthropic` → `anthropic-messages`; `openai-chat-completions` → `openai-completions`; `openai-responses` → `openai-responses` | no entry |
 | opencode | consumes no protocol field (URL only) | — |
+| omp | the same three spellings as pi | no entry |
 | claude | no config dialect; the env derive reads endpoints directly | composes nothing |
 | copilot | `anthropic` → `COPILOT_PROVIDER_TYPE=anthropic`; `openai-chat-completions` → `TYPE=openai` + `COPILOT_PROVIDER_WIRE_API=completions`; `openai-responses` → `TYPE=openai` + `WIRE_API=responses` (provenance in the derive: copilot 1.0.48 help topic) | composes nothing — the one agent speaking both families; nothing only when the provider names no endpoint |
 
@@ -207,9 +288,13 @@ table, string, math libraries only; no `os`, no `io`). Two registrations:
 > boot.
 
 The derive context (`DeriveCtx`) carries: the live tables (`mcp_servers`, `lsp_servers`,
-`providers`, `use_profiles`), `selected_provider` (the active profile's provider), and
-`profile` (that profile's resolved options). **Selection resolution is one rule**: the
-resolved `YOLO_PROFILES` table (`ProviderFor`) feeds both the surface path and the env path —
+`providers`, `use_profiles`), `agent` and `surface`, `profile_name` (the profile active at this
+agent's CLI name), `selected_provider` (the provider it resolves to), `profile` (that profile's
+resolved options — always a table, empty when no profile is active), and `tombstone`, the one
+spelling of a removal (a Lua `nil` omits a key; it does not remove one). `mcp_servers` is the
+one table filtered before a derive sees it: a server whose job the active authentication source
+already performs is dropped. **Selection resolution is one rule**: the resolved `YOLO_PROFILES`
+table (`ProviderFor`) feeds both the surface path and the env path —
 never the pack manifests, never a Lua re-derivation. The env runner additionally builds a
 **hydrated copy** of the providers table for the derive invocation only, `api_key` resolved
 from the hydrated `env_sources` then the invoking environment. The hydrated copy is
@@ -279,9 +364,9 @@ What each agent actually receives, from one composed table and one selection:
 | codex | `~/.codex/config.toml` `[model_providers.<id>]` (TOML) | top-level `model_provider` + `model` |
 | pi | `~/.pi/agent/models.json` `providers.<id>` (JSON; credential as `apiKey: "${VAR}"` config-value syntax) | `~/.pi/agent/settings.json` `defaultProvider` + `defaultModel` (a pair of bare ids) |
 | opencode | `~/.config/opencode/opencode.json` `provider.<id>` — `baseURL`/`apiKey` live UNDER `options` | top-level `model = "<provider>/<model>"` |
-| oh-omp | `~/.oh-omp/agent/models.yml` `providers.<id>` (YAML; credential as the provider's env-var NAME, which oh-omp resolves before treating it as a literal) | **none** — the derive writes a catalog and no selection key, so a selected profile makes the provider *available* and the user chooses it inside the agent |
+| omp | `~/.oh-omp/agent/models.yml` `providers.<id>` (YAML; credential as the provider's env-var NAME, which oh-omp resolves before treating it as a literal) | **none** — the derive writes a catalog and no selection key, so a selected profile makes the provider *available* and the user chooses it inside the agent |
 | copilot | no catalog (BYOK is env-var-only; no copilot config file has provider keys) | process env from the copilot pack's env derive: `COPILOT_PROVIDER_BASE_URL` (the sole activation gate), `COPILOT_PROVIDER_TYPE`, `COPILOT_PROVIDER_WIRE_API` (openai type only), `COPILOT_MODEL` (required — a provider with no resolvable alias composes nothing at all), `COPILOT_PROVIDER_API_KEY` (a placeholder for a keyless loopback endpoint), `COPILOT_PROVIDER_MAX_PROMPT_TOKENS` ← the provider's `context_window` option |
-| claude | no catalog (claude has no provider directory) | process env from the claude pack's env derive: `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `AWS_REGION`, `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL` (each tier from its own alias; opus from the profile's `model` option; claude's `[1m]` suffix appended when the provider's `context_window` option is ≥ 1000000 — the suffix is claude code's client syntax for the context-1m beta, stripped before the wire), plus three knobs composed from provider facts: `CLAUDE_CODE_AUTO_COMPACT_WINDOW` ← the provider's `context_window` option, `API_TIMEOUT_MS` ← `api_timeout_ms`, and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` on any routed (anthropic base_url) launch |
+| claude | no catalog (claude has no provider directory) | process env from the claude pack's env derive: the address and credential for the provider's `anthropic` endpoint (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` — a dummy token on a routed launch that has no key, so claude never falls back to the user's own subscription login), `AWS_REGION` from the provider's `region`, one model id per claude tier resolved from the provider's aliases (the selected one from the profile's `model` option), and knobs composed from provider options (the context window, request and stream timeouts). Claude's `[1m]` suffix is appended to every model id when the `context_window` option is at least one million — it is Claude Code's client syntax for the context-1m beta, stripped before the wire — and non-essential traffic is disabled on any routed launch. The exact variable set is the derive's, in `packs/claude/derive.lua` |
 
 The spellings are facts about each agent, source-verified and carried as provenance comments
 in the derives (pi 0.84.4's settings-manager keys and its ten-id api registry; opencode's
@@ -353,68 +438,259 @@ never in a release, and redundant once `-p` carried both grammars.)
 > `applyProfileValue` is where `cli=name` is understood; `yolo host` and `yolo host env` parse
 > the flag in their own bodies and accept a bare profile NAME only — one notch runs one agent,
 > so there is nothing for a pair to key against. Neither host parser ever carried the timing
-> meaning, so [OQ-PT5](#why-its-this-way)'s split touched the run path alone: do not "unify"
+> meaning, so [OQ-PT5](#oq-pt5)'s split touched the run path alone: do not "unify"
 > them, the grammars differ because the notches do. The run path's help scan mirrors its parse
 > flag for flag, which is the other half of the split — `-p` consumes the next token there
 > too, so `yolo -p -h` reads a profile named `-h` rather than answering help, deliberately.
 
 ## Profiles and options
 
-Declaration is **mandatory**: a selected name neither a selected pack nor the user `profiles`
-key declares refuses the launch, naming what IS declared. User `profiles` entries are
-user-scope-only, as is `use_profiles` — a workspace spelling of either is refused (a workspace
-file travels with the repo and is agent-editable; it cannot steer which endpoint an agent
-talks to). A profile entry carries `provider` (required) plus option values; the option NAMES
-a profile may use are the provider's declared `options` — a flat name→default map where null
-means *declared, no default*. A profile naming an option the provider does not declare is
-refused, naming what it does accept; **no value validation happens in core** — the derive
-validates, and its errors refuse the launch. There is no `extends`; profiles point at a
-provider, full stop.
+A **profile** is a named selection over one provider, and the name is what the user types. It is
+also the whole of the `profile` kind: whatever a pack does differently while a profile is active
+lives on other contributions, gated by name ([the `profile` modifier](#the-profile-modifier)).
 
-`kind: "profile"` is a selection and nothing else: `{name, provider}`. Everything a profile
-used to carry as a body is a contribution gated by the `profile:` modifier — `kind: "env"` and
-`kind: "config-overlay"` today — and that gate keys on the profile being active for a bin the
-pack installs, else active for any bin (the two-pass rule that keeps a CLI-less pack's gated
-contributions reachable). packs/claude's `bedrock` is the worked example: the profile names
-the provider; a gated env contribution sets `CLAUDE_CODE_USE_BEDROCK`; a gated overlay patches
-claude/settings.
+### Declaring and selecting a profile
+
+Two sources declare profiles. A pack ships `kind: "profile"` — exactly `{name, provider}`, both
+required ([OQ-PT8](#oq-pt8)); the user's `profiles` key declares more, or customizes a pack's by
+name. A pack-shipped profile is a **default the user overrides**, never a second schema: for a
+name both sides declare, the user's values win per option and the pack's provider stands unless
+the user names another. Profiles **point at** a provider; there is no `extends`
+([OQ-CS9](#oq-cs9)), because provider-declared option defaults already remove the duplication
+inheritance would.
+
+The option NAMES a profile may carry are the provider's declared `options` — a flat
+name→default map in which a null means *declared, no default* ([OQ-CS4](#oq-cs4)). A profile
+naming an option the provider does not declare is refused, naming what it does accept; a
+provider that declares no options imposes no census at all. **Core validates no option value**:
+what an option means, and where it lands, is the derive's business, and a derive's error
+refuses the launch. `packload.ResolveProfiles` lowers both sources into one resolved table —
+provider defaults under the profile's own values — once per launch, host-side; it crosses as
+`YOLO_PROFILES` and nothing in the jail re-derives it.
+
+A profile name is sole-owned **within** a pack — a second declaration of one name is a load
+error — and deliberately not across packs: `bedrock` in two packs is two unrelated declarations
+that share a selector value. A name may not contain `=`, because the `-p` grammar dispatches on
+it.
+
+**Declaration is mandatory** ([OQ-CS6](#oq-cs6)): a selected name that neither a selected pack
+nor the user's `profiles` declares refuses the launch, naming what is declared. An undeclared
+name used to be a silent no-op; it is a diagnosable error instead.
+
+The selection itself is a table keyed by **CLI name** — the bin a pack installs — mapping each
+CLI to the profile it runs: `use_profiles` in user config, then `-p` on the command line
+([the flag grammar](#per-agent-delivery)). CLI names are the right key because the namespace is
+already exclusively owned — `program` is sole-owned by bin, so a CLI name resolves to at most
+one pack — and because a pack slug is not what a derive knows itself by. Both `profiles` and
+`use_profiles` are **user-scope-only** ([OQ-CS5](#oq-cs5)): a workspace file travels with the
+repo and is agent-editable, and a profile steers which endpoint and which model an agent talks
+to. The selector's pre-rename spelling, `agent_profiles`, is refused by name with the
+replacement in the message. Every derive receives the **whole** table, so a pack that installs
+no CLI — a provider pack — still reads any CLI's selected name.
+
+> [!WARNING]
+> **`autonomy` and `profile` are two kinds on purpose; do not merge them** ([OQ-1](#pv-oq-1)).
+> Their bodies once looked alike, but their selectors have different authorities. The
+> confinement notch selects an autonomy posture, which no config or CLI can reach; a profile
+> arrives through channels a user — and, before the scope rule, an agent — can write. Merging
+> them puts a notch-owned permission bypass behind a user-owned selector, and the dangerous
+> direction is `-p autonomous` **at the host notch**, which hands a real host the agent's
+> permission bypass.
+
+### The `profile` modifier
+
+Two kinds take `profile: "<name>"`, and each asks a different holder of the name whether it is
+active. An inactive gate is a **clean skip** — no error, no orphan report — because selection is
+the optionality.
+
+| Kind | Active when | Why that key |
+| :--- | :--- | :--- |
+| `config-overlay` | the name is the profile active for the **target surface's owning agent** (the `agent` half of `agent/name`) | the surface names an agent, so the surface is what the gate asks |
+| `env` | the name is active for a bin **this pack** installs — else for **any bin** the launch installs | an env has no surface to name an agent; the second pass is what makes a CLI-less pack's gated env reachable (`packs/aws-auth` and `packs/llamacpp` ship this case) |
+
+Every other kind **refuses** the field, because a modifier nothing reads is an
+accepted-and-ignored declaration. That includes the kinds that cross the boundary — `mount`,
+`state`, `loophole`, and every host read — which are reviewed when a pack is approved: a launch
+flag that switched one on would be a claim the reviewer never saw. A profile stays inside the
+claims its pack already made.
+
+The env half folds **per pack, in delivery order**: the pack's unconditional `env` keys, then
+its satisfied gated ones, so a pack's variant overrides its own default without a load error
+([OQ-8](#pv-oq-8)), while a *later* pack's unconditional value still beats an *earlier* pack's
+gated one. `packload.EnvFold` is the one definition of that order, and both notches reduce the
+same sequence. Provider variables from the agent's env derive are layered after the fold, as
+the more specific intent. Env values are literal strings; a removal has no spelling in a pack's
+env map (only a derive's `ctx.tombstone` removes).
+
+> [!WARNING]
+> **The env gate's wide pass fires across agents.** Because the second pass matches any bin the
+> launch installs, `-p pi=bedrock` satisfies `packs/claude`'s `bedrock`-gated env as well as
+> pi's. That is current behavior, and it is recorded as a defect awaiting a ruling
+> ([`OQ-BR4`](../design/bedrock-plumbing.md#OQ-BR4)) — not the design's rule, which scoped a
+> gate to the pack that owns the CLI. Narrowing it must keep the CLI-less case reachable.
+
+The config-overlay half composes the provider's facts rather than restating them
+([OQ-PT3](#oq-pt3)): a pack that routes an agent through a provider ships the provider entry
+and the profile, and the agent's own derive writes the address — `packs/zai` carries no
+overlay literal. `config-overlay` plus `profile` is also **the** cross-pack mechanism: a
+contribution to another pack's surface, with collision detection, per-key provenance
+(`config-overlay:<pack>` in `yolo config diff`), a footprint row and a fixed layer. There is no
+second, fragment-shaped kind for it ([OQ-16](#pv-oq-16)).
+
+Which table the overlay gate reads depends on the notch ([OQ-17](#pv-oq-17)). In a jail it is
+the table the launcher emitted, `YOLO_USE_PROFILES`, which is the render that actually
+happened. At the host notch — `yolo host apply` and `yolo config diff` — it is the **user-scope**
+`use_profiles` alone, because a gated overlay rewrites the user's real config files — and can
+rewrite where an agent sends the credentials the user already holds (`ANTHROPIC_BASE_URL`).
+
+### Two channels, split by payload type
+
+A profile's payload goes where its type can survive (the payload-type principle, under
+[Principles](#principles)). **Configuration** — endpoints, model aliases, `wire_api`,
+permissions, flags an agent reads from its settings, and the *name* of a credential variable —
+rides the agent's config surface, reached by the agent derive or by a gated `config-overlay`.
+**Environment** — credential values, process flags, and unsets — rides the process env,
+through the env derive or a gated `env`, and reaches only a process yolo launches: `yolo --`,
+`yolo host --`, or the host wrapper.
+
+`packs/claude`'s `bedrock` is the worked example, and it uses both channels ([D8](#pv-d8)). The
+profile names the `bedrock` provider, which the pack ships as a bare name — no endpoint, so it
+is never a credential requirement — and whose region and model ids come from the user's
+`providers.bedrock` entry. A gated `config-overlay` puts `CLAUDE_CODE_USE_BEDROCK` into the
+`env` block of `claude/settings`, so a bare `claude` outside yolo still runs in Bedrock mode; a
+gated `env` sets the same variable for a yolo-launched process; the claude env derive composes
+`AWS_REGION` and the model ids from the provider entry; and `packs/aws-auth` contributes its
+credentials pointer under the same gate. Claude Code honors the settings file's `env` block
+before its first API call ([OQ-4](#pv-oq-4)).
+
+> [!NOTE]
+> **UNMEASURED: Bedrock mode itself.** [OQ-4](#pv-oq-4) was measured with `ANTHROPIC_BASE_URL`
+> as the witness variable — a controlled listener run showed a settings-only value producing
+> traffic identical to the process-env control. `CLAUDE_CODE_USE_BEDROCK` rides the same mechanism, but
+> the re-test with real AWS credentials that was to confirm it before the Go path was deleted
+> has no record of having run, and nothing has yet run Bedrock against a live `aws sso login`.
+
+### What the launch checks and prints
+
+A selector that silently selects nothing looks exactly like one that works, so each spelling
+that can be mistyped is checked against the right set, and each check is fatal:
+
+| Spelling | Checked against | Where |
+| :--- | :--- | :--- |
+| a `use_profiles` **key** | the CLI names every **resolvable** pack installs — selected or not | config validation (`yolo check` and every launch) |
+| `-p <cli>=<name>` | the same namespace | launch preflight (`checkProfileTargets`) — a flag never reaches config validation |
+| a selected profile **name** | the declared set: selected packs' profiles plus the user's `profiles` | launch preflight, both notches |
+
+The key check answers against the **universe**, not the selection: whether a string names a real
+CLI is a fact about the packs this machine can resolve, while selection only decides whether a
+contribution renders. When the universe cannot be enumerated — a configured pack that does not
+resolve — the key check steps aside; that pack is refused on its own terms, first and louder. A
+**bare** `-p <name>` is not checked against anything but the declared set: it keys the name onto
+every CLI the selected packs install, never onto the command after `--`, so there is no CLI name
+in it to mistype.
+
+When anything is selected, the launch prints one line per distinct profile name: **DECLARED** —
+the selected packs shipping a profile of that name — and **RECEIVED** — every selected pack,
+because every derive gets the whole table. It never says *honored* ([OQ-10](#pv-oq-10)): what a
+derive does with the string is unobservable from the launcher, and a transparency line that
+overclaims is the silent-skip failure wearing a badge. An attach that delivers a profile prints
+the same line.
 
 ## What this does not license
 
 - **No reopening the `wire_api` enum** as a free string — that restores the
   pass-through-verbatim failure the closed vocabulary closed.
-- **No agent names in core.** The protocol an agent speaks lives in that agent's derive, not
-  in a Go table; `internal/agentenv`'s agent→protocol map was deleted with the placeholder
-  vocabulary it existed to serve.
+- **No agent names in core.** The protocols an agent speaks are declared by that agent's pack
+  and spelled by its derive, never held in a Go table; `internal/agentenv`'s agent→protocol map
+  was deleted with the placeholder vocabulary it existed to serve, and `internal/agentenv` is now
+  only the environ overlay both notches share.
+- **No cross-pack fragment kind.** A pack reaching another pack's surface does it through
+  `config-overlay`, gated by `profile` when it is conditional. A kind that targets "a pack"
+  rather than a surface cannot say which file it lands in, which layer, who wins a shared key,
+  or what `config diff` shows — the four questions `config-overlay` already answers.
+- **No provider written anywhere but a `provider` contribution or the `providers` key.** A pack
+  names a provider; it never inlines one in an untyped payload, where every check the typed
+  schema buys (the URL rule, the `wire_api` set, the name-only credential pointer) would be one
+  nesting level away from bypassed.
+- **No profile-conditional boundary claims.** The modifier gates `env` and `config-overlay`
+  only; making a mount, a host read, state or a loophole conditional on a launch flag would let
+  an approved pack claim something its reviewer never saw.
+- **No profile on launch flags.** The `launch` kind is retired; a pack's launch flags live only
+  in its autonomy postures, where the confinement notch can withhold them, and a
+  profile-switched flag would be one no notch could take away.
+- **No stacking.** One profile per CLI per launch; two profiles active for one CLI would need
+  a precedence rule between two variants on one key, and no use case has asked for one.
+- **No provider registry or discovery.** Providers are shipped by packs or written by hand.
+- **No secrets scanner.** The schema is the mechanism; a user who wants a content tripwire runs
+  one in CI over the same files.
 - **No gating the catalog on selection.** The directory is the feature; pi and opencode have
   interactive pickers that browse it.
 - **No value schema for options** — a typechecker in core is `wire_api`'s enum one layer up.
 - **No credential VALUE in any composed or wire table.** The name crosses; the value is
   hydrated per derive invocation and in `yolo-user-env.sh` (0600) only.
 
+> [!WARNING]
+> **Three derives currently breach that last line.** The pi, opencode and copilot derives fall
+> back to a literal `options.api_key` when a provider names no `api_key_env_name`, and core
+> validates no option value, so a key written there is accepted, crosses in `YOLO_PROVIDERS`,
+> and lands in the agent's file or environment. The invariant stands and the fallback is the
+> drift: do not document it as a supported spelling.
+
 ## Why it's this way
 
 Rulings a future change would otherwise undo, kept with their original IDs (cited from code
-comments and sibling docs):
+comments and sibling docs). Every row has its own anchor; `#why-its-this-way` still resolves for
+older links.
 
 | Ruling | Why it holds |
 | :--- | :--- |
-| [OQ-PT1](#why-its-this-way) — three canonical names, nobody's dialect | A pass-through cannot work by accident; borrowed spellings cannot be translated because none is canonical. |
-| [OQ-PT2](#why-its-this-way) — refuse the composed `base_url`+`endpoints` pair | The shorthand-as-override is the ambiguous spelling once more than one protocol exists; per-field override is spelled `endpoints.<protocol>.base_url`. |
-| [OQ-PT4](#why-its-this-way) — the credential requirement follows catalog membership | Pack presence means in the dictionary; a `null`-dropped provider leaves the dictionary and the requirement together. |
-| [OQ-PT5](#why-its-this-way) — `--timing` takes the timing meaning; `-p`/`--profile` are name-only | The overloaded parse cost two fix commits; the heuristic is deleted, not made careful. |
-| [OQ-PT9](#why-its-this-way) — everything goes to the derive, credential included | The sandbox never was the boundary: a derive already controls `mcp_servers` commands, and a fetched pack's `env` is granted in-jail exec knowingly. |
-| [OQ-CS1](#why-its-this-way) — selection written into each agent's own key | "Activating a profile should work for all." |
-| [OQ-CS2](#why-its-this-way) — never write the selection key when no profile is active | An interactive in-agent choice must survive the next launch. |
-| [OQ-CS4](#why-its-this-way)/CS7 — provider-declared flat options; core checks the key census only | "Model can't be the only config we'll want"; a validated value set is the enum mistake one layer up. |
-| [OQ-CS5](#why-its-this-way) — `profiles` and `use_profiles` are user-scope-only | A workspace config is agent-editable and travels with the repo; it cannot steer endpoints. |
-| [OQ-CS6](#why-its-this-way) — declaration is mandatory | An undeclared name is diagnosable instead of silently inert; reverses the old free-form ruling deliberately. |
-| [OQ-CS8](#why-its-this-way) — the agent pack composes the binding in its own derive | Core stops holding an agent→protocol table; each agent declares how a selection reaches it. |
-| [OQ-CS10](#why-its-this-way) (withdrawn → constraint) — the host notch runs the env derive | `yolo host -- claude` composes the same environment; the composition is host-launch-time, so the derive is too. |
+| <a id="oq-pt1"></a>[OQ-PT1](#oq-pt1) — three canonical names, nobody's dialect | A pass-through cannot work by accident; borrowed spellings cannot be translated because none is canonical. |
+| <a id="oq-pt2"></a>[OQ-PT2](#oq-pt2) — refuse the composed `base_url`+`endpoints` pair | The shorthand-as-override is the ambiguous spelling once more than one protocol exists; per-field override is spelled `endpoints.<protocol>.base_url`. Retiring the shorthand outright finished this ruling rather than reversing it. |
+| <a id="oq-pt3"></a>[OQ-PT3](#oq-pt3) — a profile-gated `config-overlay` composes the provider's fact rather than restating it | A URL literal in an overlay is a second copy of a provider fact, and the two drift; `packs/zai` ships the provider and the profile and no overlay. |
+| <a id="oq-pt4"></a>[OQ-PT4](#oq-pt4) — the credential requirement follows catalog membership | Pack presence means in the dictionary; a `null`-dropped provider leaves the dictionary and the requirement together. |
+| <a id="oq-pt5"></a>[OQ-PT5](#oq-pt5) — `--timing` takes the timing meaning; `-p`/`--profile` are name-only | The overloaded parse cost two fix commits; the heuristic is deleted, not made careful. |
+| <a id="oq-pt8"></a>[OQ-PT8](#oq-pt8) — `kind: "profile"` is `{name, provider}` and nothing else | A config patch, launch flags and an env map were never a profile; as contributions gated on a profile name they live in the kinds that own those channels, and the CLI-less reachability defect goes with the body rather than being guarded. A `config` on a profile is refused with the migration named. |
+| <a id="oq-pt9"></a>[OQ-PT9](#oq-pt9) — everything goes to the derive, credential included | The sandbox never was the boundary: a derive already controls `mcp_servers` commands, and a fetched pack's `env` is granted in-jail exec knowingly. |
+| <a id="oq-cs1"></a>[OQ-CS1](#oq-cs1) — selection written into each agent's own key | "Activating a profile should work for all." |
+| <a id="oq-cs2"></a>[OQ-CS2](#oq-cs2) — never write the selection key when no profile is active | An interactive in-agent choice must survive the next launch. |
+| <a id="oq-cs3"></a>[OQ-CS3](#oq-cs3) — core resolves no model | The derive gets the active profile and the provider entry and picks its own agent's model and fallback; `default` is an ordinary alias, not a core concept. |
+| <a id="oq-cs4"></a>[OQ-CS4](#oq-cs4)/CS7 — provider-declared flat options; core checks the key census only | "Model can't be the only config we'll want"; a validated value set is the enum mistake one layer up. |
+| <a id="oq-cs5"></a>[OQ-CS5](#oq-cs5) — `profiles` and `use_profiles` are user-scope-only | A workspace config is agent-editable and travels with the repo; it cannot steer endpoints. |
+| <a id="oq-cs6"></a>[OQ-CS6](#oq-cs6) — declaration is mandatory | An undeclared name is diagnosable instead of silently inert; reverses the old free-form ruling deliberately. |
+| <a id="oq-cs8"></a>[OQ-CS8](#oq-cs8) — the agent pack composes the binding in its own derive | Core stops holding an agent→protocol table; each agent declares how a selection reaches it. |
+| <a id="oq-cs9"></a>[OQ-CS9](#oq-cs9) — profiles point at a provider; no `extends` | Provider-declared option defaults already remove the duplication inheritance would fix. |
+| <a id="oq-cs10"></a>[OQ-CS10](#oq-cs10) (withdrawn → constraint) — the host notch runs the env derive | `yolo host -- claude` composes the same environment; the composition is host-launch-time, so the derive is too. |
+
+### The profile-variant rulings
+
+These rows carry the **bare** `OQ-N` ids of the retired profile-variant design
+(`profiles-as-pack-variants.md`), and `D8` from that design's diff table. A bare id is ambiguous
+across this repository — a dozen other docs carry a first question of their own under the same number — so these resolve here only
+when a citation names this doc or the retired design beside them. The anchors carry a `pv-`
+prefix for that reason. Rows marked SUPERSEDED are tombstones: the id is still cited, and the
+row says what replaced it.
+
+| Ruling | Why it holds |
+| :--- | :--- |
+| <a id="pv-oq-1"></a>[OQ-1](#pv-oq-1) — `autonomy` and `profile` stay two kinds | The confinement-conditional keys live in `autonomy` and nowhere else, and the selectors are asymmetric: the notch chooses a posture and nothing a config or CLI writes can reach it, while a profile name arrives through channels a user writes. Merging them puts a permission bypass behind a user-owned selector. |
+| <a id="pv-oq-2"></a>[OQ-2](#pv-oq-2) — `providers` stays flat | A profile selects a provider by name and never reshapes the map; where one credential serves several endpoint shapes, the shape axis lives inside the entry as `endpoints.<protocol>`. |
+| <a id="pv-oq-3"></a>[OQ-3](#pv-oq-3) — SUPERSEDED by [OQ-CS6](#oq-cs6) | Profile names were free-form and never checked. Declaration is now mandatory and an undeclared name refuses the launch; a code comment still reading "profile VALUES are free-form" is stale. What survives is that a gated contribution whose name is not selected is a clean skip. |
+| <a id="pv-oq-4"></a>[OQ-4](#pv-oq-4) — Claude Code honors `settings.json`'s `env` block before the first API call | MEASURED (claude 2.1.252, scratch config dir, inherited `ANTHROPIC_*` scrubbed): a settings-only `ANTHROPIC_BASE_URL` produced traffic identical to the process-env control. It is what lets a flag like `CLAUDE_CODE_USE_BEDROCK` ride the config file — UNMEASURED for that variable itself. |
+| <a id="pv-oq-5"></a>[OQ-5](#pv-oq-5) — SUPERSEDED in part by [OQ-CS6](#oq-cs6) | A bare `-p <name>` still reaches every selected pack — that half stands. "Declared or not" is dead: the name must be declared. |
+| <a id="pv-oq-6"></a>[OQ-6](#pv-oq-6) — `api_key_env` is renamed `api_key_env_name` | The value is the NAME of a variable, and the spelling says so before the regex has to. The old key is refused by name with the replacement in the message. |
+| <a id="pv-oq-7"></a>[OQ-7](#pv-oq-7) — SUPERSEDED by [OQ-PT8](#oq-pt8) | A `null` in a profile's env map once meant *unset*; the map died with the profile body. Pack env values are literal strings, and a derive's `ctx.tombstone` is the only removal. |
+| <a id="pv-oq-8"></a>[OQ-8](#pv-oq-8) — a pack's gated env later-wins over its own static env | The variant is the more specific intent and overrides its own default; it is not a load error. The fold stays per pack, so a later pack's static value still beats an earlier pack's gated one. |
+| <a id="pv-oq-10"></a>[OQ-10](#pv-oq-10) — the launch line says DECLARED and RECEIVED, never "honored" | What a derive does with the string is unobservable from the launcher; a print that overclaims is the silent-skip failure wearing a badge. |
+| <a id="pv-oq-12"></a>[OQ-12](#pv-oq-12) — `kind: "provider"` exists; pack defaults < user overrides | Endpoints are facts about the service and belong in a shareable pack; only the credential pointer is machine-local. It reversed the design's own "providers stay a config key". |
+| <a id="pv-oq-13"></a>[OQ-13](#pv-oq-13) — the credential preflight is scoped to the SELECTED set | Selecting a provider pack is the intent. "Configured but unselected stays inert" was withdrawn: an unkeyed provider in the catalog is a failure at the agent's first request. |
+| <a id="pv-oq-14"></a>[OQ-14](#pv-oq-14) — SUPERSEDED by [OQ-CS8](#oq-cs8) and [OQ-PT9](#oq-pt9) | The provider-declared `env_shape` is gone with its validators; the agent's own pack composes the variables in its env derive, credential included. What survives is "no agent is special-cased" — a code comment citing it as the live binding is stale. |
+| <a id="pv-oq-16"></a>[OQ-16](#pv-oq-16) — `config-overlay` takes a `profile` gate, and it is the cross-pack mechanism | A cross-pack contribution already has collision detection, provenance, a footprint and a layer here; a second, fragment-shaped kind would answer none of those. What the overlay carries was re-ruled by [OQ-PT3](#oq-pt3). |
+| <a id="pv-oq-17"></a>[OQ-17](#pv-oq-17) — the host notch's overlay gate reads USER-SCOPE config only | A gated overlay rewrites real-home keys, and a workspace config is agent-editable. The jail notch reads the table the launcher emitted, whose blast radius is the disposable home. |
+| <a id="pv-d8"></a>[D8](#pv-d8) — Bedrock's non-secret half is a managed patch to `claude/settings` | `yolo host apply` refuses a pack's `env`, and a bare invocation outside yolo gets no process env; the settings file is the channel both survive. The process env still carries the credentials and the region. |
 
 ## Current values
 
-Verified at `fb7b566d`. The prose above explains what each is for; this table is the only
+Verified at `7ad8358c`. The prose above explains what each is for; this table is the only
 place the exact spellings are stated.
 
 | Value | Setting | Defined in |
@@ -424,15 +700,18 @@ place the exact spellings are stated.
 | Selection table env var | `YOLO_USE_PROFILES` | same |
 | Resolved-profiles env var | `YOLO_PROFILES` | same |
 | Selection namespace key | `selection` | `agentcfg.SelectionKey` |
-| Selection record path | `<workspace>/.yolo/prism/<agent>-<name>.selection.json` | entrypoint stateful render |
-| User config keys | `providers` (merged-scope — **except the ADDRESS**), `profiles` / `use_profiles` (user-scope-only) | `internal/config` |
-| Provider address scope | `base_url` and `endpoints.<protocol>.base_url` are **USER-SCOPE ONLY** since 2026-09-17: a workspace `yolo-jail.jsonc` or `yolo-jail.local.jsonc` carrying either is a fatal config error. The rest of a `providers` entry still merges from either scope. The reason is the workspace file is AGENT-EDITABLE, and the address decides where inference goes — [`OQ-LM3`](../research/local-model-endpoints.md#oq-lm3) calls it the one answer that cannot be revised later without a breaking config change | `internal/config/validate.go` |
+| Selection record path | `<workspace>/.yolo/prism/<agent>-<name>.selection.json` in a jail; the state dir's host-capture store at the host notch under `host_management: own` | `render.Target.SelectionPath` |
+| User config keys | `providers` (merged-scope — **except the ADDRESS**), `profiles` / `use_profiles` (user-scope-only); `agent_profiles` refused by name as the old spelling of `use_profiles` | `internal/config` |
+| Provider address scope | `endpoints.<protocol>.base_url` is **USER-SCOPE ONLY** since 2026-09-17: a workspace `yolo-jail.jsonc` or `yolo-jail.local.jsonc` carrying one is a fatal config error. The rest of a `providers` entry still merges from either scope. The reason is the workspace file is AGENT-EDITABLE, and the address decides where inference goes — [`OQ-LM3`](../research/local-model-endpoints.md#oq-lm3) calls it the one answer that cannot be revised later without a breaking config change. The entry-level `base_url` shorthand is refused at any scope | `internal/config/validate.go` |
 | Missing-provider hatch | `YOLO_ALLOW_MISSING_PROVIDERS=1` | `internal/paths` |
+| Kinds that take the `profile` modifier | `env`, `config-overlay` — refused on every other kind | `packdecl` `validateContribution` |
+| Profile flag grammar | `-p` / `--profile`: a bare name, or `cli=name` (comma-separated, repeatable) on the run path; a bare name only on `yolo host` / `yolo host env` | `internal/cli` (`applyProfileValue`) |
+| Profile disclosure line | `Profile <name>: declared: <packs or none>; received: <every selected pack>` | `run.noteUseProfiles` |
 | zai model IDs | `glm-4.6`, `glm-5.3`, `glm-5.3-flash`; the default is `glm-5.3`. These are wire-true IDs; Claude alone appends `[1m]` when `context_window` ≥ 1000000. | `packs/zai/pack.json` |
 | zai Coding Plan OpenAI endpoint | `https://api.z.ai/api/coding/paas/v4` (`openai-chat-completions`) | `packs/zai/pack.json` |
 | zai provider options | `model: glm-5.3`, `context_window: 1000000`, `api_timeout_ms: 3000000` | `packs/zai/pack.json` |
 | zai credential variable | `ZAI_API_KEY` | `packs/zai/pack.json` |
-| llamacpp endpoint | `http://localhost:8080` — a LOCAL inference server (llama.cpp `llama-server`), reached through `network.forward_host_ports` | `packs/llamacpp/pack.json` |
+| llamacpp endpoints | `anthropic`: `http://localhost:8080`; `openai`: `http://localhost:8080/v1` (`openai-chat-completions`) — a LOCAL inference server (llama.cpp `llama-server`), reached through `network.forward_host_ports` | `packs/llamacpp/pack.json` |
 | llamacpp credential | **none.** The provider declares no `api_key_env_name`, so the credential pre-flight requires nothing; each agent's derive supplies its own dummy, which every agent here accepts against a loopback server | `packs/llamacpp/pack.json` |
 | llamacpp model id | `llama` — the `--alias` the recipe tells the server to publish, so one id is true across all agents | `packs/llamacpp/pack.json`, `packs/llamacpp/README.md` |
 | `needs` vocabulary | top-level manifest key — `needs: [{pack, when_bins}]`, conditional pack dependency resolved as a transitive closure at selection (the added pack prints its cause line on the banner); manifests only, never user config | `internal/packdecl/needs.go`, `internal/packload/needs.go` |

@@ -7,7 +7,7 @@ import (
 
 // THE WHOLE POINT IS DEPTH. A one-level clone is the shape that looks correct and is not:
 // the copy's `endpoints` is still the original's, so a write under it lands in the caller's
-// tree (docs/design/wire-bridge-port-collision.md §2.2, step 2).
+// tree (docs/reference/wire-bridge.md#the-invariant-that-keeps-the-adapters-address-out-of-the-users-map).
 func TestDeepCopyIsDeepEnoughToSurviveANestedWrite(t *testing.T) {
 	v, err := Decode([]byte(`{"p": {"endpoints": {"openai": {"base_url": "http://up.example/v1"}}}}`))
 	if err != nil {

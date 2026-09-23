@@ -585,9 +585,9 @@ func validatePacks(workspace string, errs *[]string) {
 }
 
 // UseProfileCLINames is the CLI-name namespace a use_profiles key resolves in
-// (profiles-as-pack-variants.md §2.5, §8): every binary a `program` contribution of a
+// (docs/reference/providers.md#what-the-launch-checks-and-prints): every binary a `program` contribution of a
 // RESOLVABLE pack installs — the packs yolo ships plus whatever the user configured,
-// selected or not. §8's split is why selection is deliberately not consulted here:
+// selected or not. providers.md#what-the-launch-checks-and-prints's split is why selection is deliberately not consulted here:
 // whether a key names a real CLI is answered against the universe, always, and
 // selection only decides whether the chosen profile renders.
 //

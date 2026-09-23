@@ -1,9 +1,12 @@
 ---
 status: current
-verified: 2026-09-09
-verified_commit: d8cf1cf8
+verified: 2026-09-23
+verified_commit: 7ad8358c
 covers:
   - internal/entrypoint/mcp.go
+  - internal/jailcontent/lspplugin.go
+  - internal/config/lsp.go
+  - internal/agentcfg/luahook/derive.go
   - internal/entrypoint/mcp_wrappers.go
   - internal/entrypoint/packsurfaces.go
   - internal/agentcfg/manifest/
@@ -14,17 +17,26 @@ covers:
   - packs/agy/derive.lua
   - packs/pi/derive.lua
 tags: [mcp, lsp, packs, prism, config, wrappers]
-summary: "How MCP and LSP server config reaches an agent: one canonical server table built in-jail from config (presets expanded, null removes, requires_env gates, no ${VAR} interpolation), published as a source that each pack's derive.lua projects into its own tool's dialect. Plus the node/npx wrappers, what is left of their job now that nix-ld covers the loader, and the gap where a custom server bypasses them."
+summary: "How MCP and LSP server config reaches an agent: one canonical server table built in-jail from config (presets expanded, null removes, requires_env gates, no ${VAR} interpolation), filtered by the active source's capabilities, and published as a source that each pack's derive.lua projects into its own tool's dialect — except Claude's LSP, which core renders host-side as one generated yolo-lsp plugin in every skills destination. Plus the node/npx wrappers, what is left of their job now that nix-ld covers the loader, and the gap where a custom server bypasses them."
 ---
 
 # MCP and LSP configuration — one table, projected per tool
 
-**Status:** CURRENT as of 2026-09-09, verified against `d8cf1cf8`.
+**Status:** CURRENT as of 2026-09-23, verified against `7ad8358c`. UNMEASURED: no `claude`
+session has been started against the generated LSP plugin — the facts about Claude's plugin
+loader were read statically from its bundle, and by the no-agent-tests rule a live check is a
+human's ([Claude's LSP route](#lsp-claudes-route-is-a-generated-plugin)).
 
 MCP config is **pack-declarative**. Core builds **one** canonical server table in-jail from
 the user's config — presets expanded, custom entries merged, `requires_env` gates applied —
 and publishes it as a named source. Each pack's `derive.lua` then *projects* that one table
 into its own tool's dialect. Core knows the domain (`mcp_servers`); it never knows the tool.
+
+LSP config follows the same shape for every agent but one. Claude takes a language server only
+from a **plugin**, so core renders one plugin of its own, `yolo-lsp`, from the user's
+`lsp_servers` table and stages it into every skills destination — the one place in this
+pipeline where core writes a vendor's format rather than a pack
+([below](#lsp-claudes-route-is-a-generated-plugin)).
 
 Alongside that, three tiny wrapper scripts sit in front of `node` and `npx` for the servers
 yolo itself declares.
@@ -33,7 +45,10 @@ yolo itself declares.
 | :--- | :--- |
 | Building the canonical table, and the LSP table beside it | `internal/entrypoint` (`Env.LoadMCPServers`, `LoadLSPServers`, `Env.LoadMCPPresetNames`) |
 | Publishing it as a composition source | `internal/entrypoint` (`packsurfaces.go`), `internal/agentcfg/manifest` (`SourceMCPServers`, `SourceLSPServers`) |
+| Capability-driven MCP filtering at the derive boundary | `internal/agentcfg/luahook` (`eligibleMCPServers`, `withoutProvidesKey`, `sourceCapabilities`) |
 | The per-tool projection | each pack's `derive.lua`, run in `internal/agentcfg/luahook` |
+| Claude's generated LSP plugin | `internal/jailcontent` (`writeLSPPlugin`, `SetLSPServers`, `LSPPluginDir`), called from `PrepareSkills` |
+| The LSP install recipes (still present, slated for removal) | `internal/config` (`LSPInstalls`, `lspInstallRecipes`) |
 | The wrapper scripts | `internal/entrypoint` (`GenerateMCPWrappers`, `nodeWrapper`, `npxWrapper`, `chromeWrapper`) |
 | Host-side validation of the two config keys | `internal/config` (`validate.go`) |
 
@@ -50,16 +65,23 @@ used to carry), `yolo config-ref` (the authority for `mcp_servers`, `mcp_presets
 ```
 yolo-jail.jsonc: mcp_servers, mcp_presets, lsp_servers
   → validated host-side
+  ├─ HOST, every launch: lsp_servers → jailcontent.writeLSPPlugin
+  │     → <every skills destination>/yolo-lsp/.claude-plugin/plugin.json
+  │     (Claude's LSP route; mounted at ~/.claude/skills for the claude pack)
   → shipped into the jail as JSON env vars
   → in-jail LoadMCPServers(): expand presets → merge custom entries
       (override / add / null-remove) → apply the requires_env gate
       [NO ${VAR} interpolation, at any notch]
-  → published once as the canonical source table (SourceMCPServers)
-  → each pack's derive.lua PROJECTS that one table into its tool's format
+  → published once as the canonical source tables (SourceMCPServers, SourceLSPServers)
+  → at the derive boundary: drop MCP servers whose `provides` the active
+      source already performs, then strip `provides` from the survivors
+  → each pack's derive.lua PROJECTS those tables into its tool's format
 ```
 
-**There are no per-agent `configure_*` functions and no agent registry.** The projection is
-the pack's, not core's.
+**There are no per-agent `configure_*` functions and no agent registry.** Every MCP
+projection, and every LSP projection except Claude's, is the pack's, not core's. Claude's LSP
+plugin is the exception, and it names no agent: core writes it into every skills
+destination rather than asking which one is Claude's.
 
 ### The rules the one loader enforces
 
@@ -108,6 +130,28 @@ file directly"* — advice to inline a live credential into a file a pack may ca
 surface-wide, so it flagged the `env` case, where a literal `${VAR}` is exactly the desired
 content, in the same words as the `url` case.
 
+### What the derive boundary removes
+
+One more cut happens after the loader and before any pack sees the table, where the derive
+context is built. **Capability-driven MCP delivery** drops a server whose `provides` names a
+capability the launch's **authentication source** already performs — a search MCP is not
+delivered to an agent whose login searches natively. The source is either the provider a
+profile selects (its row's `capabilities`) or, when none is selected, the agent's own built-in
+login (the capabilities its pack's program contribution declares). A server with no `provides`
+makes no claim and always passes; only an exact-name match is dropped. Because it sits at the
+context boundary, no pack can opt out of it and none has to opt in.
+
+Then `provides` itself is stripped from every surviving entry, unconditionally: it is yolo's
+own vocabulary, and a pack that copies an entry verbatim into its agent's file would otherwise
+leak it there.
+
+> [!WARNING]
+> **Do not move the `provides` strip beside the `requires_env` strip in the loader.** The
+> loader runs upstream of the derive boundary, so a `provides` removed there is gone before the
+> filter can read it, and capability-driven delivery silently becomes a no-op with every test
+> green. The two keys are stripped at two layers on purpose: `requires_env` gates delivery and
+> must go first, `provides` feeds the filter and must go after it.
+
 ### The projection, and how tools differ
 
 Each pack declares its own config surface and a `derive.lua` that reads the canonical table
@@ -143,6 +187,98 @@ per-tool one:
 > A missing file is not an error there; the common case is that there was nothing to clean. Do
 > not write a new sidecar to solve a convergence problem: provenance and the fold already
 > answer it.
+
+## LSP: Claude's route is a generated plugin
+
+`lsp_servers` is one table, and agents consume it through different mechanisms:
+
+- **Copilot's** native config is the same shape as yolo's table, so its pack's derive projects
+  every entry near-verbatim, the in-jail way every MCP projection works.
+- **Claude** has no settings-level key for a language server. A server reaches it only through
+  a **plugin** — a directory whose manifest declares `lspServers`, each entry a command plus an
+  extension-to-language map. So yolo authors one: the **LSP plugin**, a directory named
+  `yolo-lsp` whose manifest is rendered from the user's whole `lsp_servers` table. Any language
+  the user configures reaches Claude; there is no per-language list and no marketplace.
+- **opencode and Pi** can take a server (a native `lsp` key; the `pi-lens` extension's config)
+  but no pack writes one yet — see [Unbuilt](#unbuilt). **Codex and agy** have no
+  user-configurable LSP surface at all.
+
+**No server is a default.** An absent `lsp_servers` renders no plugin, projects nothing for
+Copilot, and installs nothing.
+
+### How the plugin is rendered
+
+The launcher renders it **on the host, on every launch**, while it stages each pack's skills
+tree — `writeLSPPlugin`, called from `PrepareSkills`, on both the container backends and
+macos-user. It is not a derive and does not run in the jail. The claude pack delivers its
+skills staging at `~/.claude/skills`, which Claude reads plugins from, so delivery needs
+nothing beyond the mount that already carries skills.
+
+- **Translation.** Each server's `command` passes through and `args` passes through;
+  `fileExtensions` is renamed `extensionToLanguage`. Either list is omitted when empty rather
+  than written empty, so a hand-read manifest shows only what was declared. **An entry with no
+  `command` is skipped**, never rendered: a server yolo cannot spawn would only make Claude
+  report a failure yolo could have declined to cause. (Copilot's derive keeps such an entry,
+  minus the command.) The manifest also carries a `name` and a `description`.
+- **Ownership marker.** The manifest carries yolo's `x-yolo-managed-by` field, which is how the
+  host-side adoption walk (`hostskills.IsYoloPluginDir`) knows the directory is yolo's output
+  and never offers to migrate it into the user's local pack. The value is duplicated between
+  `jailcontent` and `hostskills` rather than imported — `jailcontent` must not depend on the
+  host-skills composer — and a drift test pins the two together.
+- **Written last.** It goes in after the built-in skills and every pack's skills, so a pack
+  that ships a directory of the same name cannot replace it with something Claude would load
+  as an LSP declaration.
+- **Written into every skills destination**, not only Claude's. Core knows no agents, and
+  teaching the staging loop which destination is Claude's would be the agent registry again; a
+  destination whose tool does not read plugins simply holds a directory it ignores (INFERRED
+  from the other agents' loaders, not measured for each).
+- **Removed when empty.** With nothing configured, a stale `yolo-lsp` directory is deleted, so
+  dropping the last server stops it reaching Claude. The staging is cleared per launch anyway;
+  this covers a caller that stages without clearing.
+- **Per-launch state, scoped.** The run pipeline injects the table (`SetLSPServers`) because
+  `jailcontent` reads no config itself. That makes it process-wide state, and auto-capture
+  runs the same pipeline in-process, so `packRecordScope` snapshots and restores it; its
+  source-scan tripwire fails a new record that joins without a declared lifetime.
+
+**Nothing enables the plugin, and nothing needs to.** A plugin auto-loaded from the skills
+tree is enabled by default there — the vendor's settings test for that load path is opt-out
+rather than opt-in — so the claude derive writes **no `enabledPlugins` at all**. Its one LSP
+assertion is `env.ENABLE_LSP_TOOL`, set when any server is configured and absent otherwise.
+
+> [!WARNING]
+> **The `.claude-plugin/` segment is mandatory on this load path.** Claude resolves the
+> manifest only at `<dir>/.claude-plugin/plugin.json` for a plugin loaded off the skills tree;
+> the root-level `plugin.json` fallback that marketplace installs get does not apply. A
+> manifest at the directory root is silently not found.
+
+> [!WARNING]
+> **Do not inline an `lspServers` table into Claude's `settings.json`.** No such key exists:
+> Claude's only producer of LSP configuration takes a plugin, and the one settings-side
+> mention of `lspServers` in its bundle is a hook-scanner exclusion list, not a schema entry.
+> The plugin is the only route, which is why it exists.
+
+> [!WARNING]
+> **Do not bring back per-language `enabledPlugins` toggles, and never tombstone one.** A
+> tombstone is a delete aimed at the lower layers, and the lowest layer under the derive is
+> the user's own host `settings.json` — so "remove yolo's stale enable" removes the user's
+> deliberate enable of the same plugin id. A marketplace id in a host layer is the user's,
+> and composition must leave it alone.
+
+> [!WARNING]
+> **The injection call site is unpinned.** The plugin tests call `SetLSPServers` themselves,
+> and the scope tripwire still finds the setter in `packRecordScope`, so deleting the run
+> pipeline's one injection line switches the feature off with the unit gate green (MEASURED
+> at `7ad8358c`, in a scratch copy of the tree). A test that runs the launch's
+> briefing-and-skills refresh with `lsp_servers` set and asserts the manifest exists is what
+> closes it.
+
+**The plugin is jail-only.** The host render (`yolo apply --at host`) composes skills
+through its own path and does not render `yolo-lsp`.
+
+**Binaries are a separate question.** The plugin and Copilot's projection name a `command`;
+whether it exists is decided elsewhere. Today three server names — the recipe table in
+`internal/config` — still map to packages the bootstrap installs, and every other server's
+`command` must already resolve on `PATH`. That table is slated for deletion ([Unbuilt](#unbuilt)).
 
 ## The node/npx wrapper
 
@@ -241,6 +377,12 @@ change in one place rather than a call-site hunt.
   [`../design/workspace-mcp-sources.md`](../design/workspace-mcp-sources.md) for the position, the
   measured per-agent file sets, and the one open precedence question.
 - **Not** a per-tool branch in core. Core publishes the domain table; the pack projects it.
+  The one exception is Claude's LSP plugin, which core renders in a Claude format — and even
+  that names no agent, going to every skills destination.
+- **Not** a per-language LSP map, a marketplace plugin id, or an `lspServers` key in Claude's
+  settings. The plugin is generated from the user's whole table ([`OQ-LSP1`](#oq-lsp1)).
+- **Not** an opinion about which server serves a language. The user's `command` is the choice;
+  yolo's job is to deliver it.
 - **Not** `${VAR}` interpolation, in either notch, in any field.
 - **Not** a new sidecar file for convergence. The fold and the provenance record answer it.
 - **Not** an `LD_LIBRARY_PATH` export in a wrapper, or anywhere else per call site.
@@ -251,6 +393,20 @@ change in one place rather than a call-site hunt.
 
 ## Unbuilt
 
+**Deleting the LSP install recipes.** `internal/config` still maps three server names
+(`python`, `typescript`, `go`) to packages, resolved by `LSPInstalls` into the two install-list
+variables the bootstrap reads on every backend. The recipe table picks a server for a language,
+which is the opinion the plugin removed from Claude's side; the ruled plan deletes it and its
+install plumbing, after which a configured `command` must resolve on `PATH` and the user brings
+the server through `mise_tools`, a pack program or an absolute path.
+
+**LSP producers for opencode and Pi.** opencode's config file is already a pack surface with no
+`lsp` producer in its derive; Pi's `pi-lens` extension reads `lsp.servers` from
+`~/.pi-lens/config.json`, which no pack writes.
+
+**Removing the `sequential-thinking` preset** is ruled and not built —
+[`OQ-MP1`](../design/mcp-presets-removal.md#decision-ledger).
+
 Auto-installing or bundling an MCP adapter extension for Pi: `packs/pi` projects the canonical
 server table into `~/.pi/agent/mcp.json`, which `pi-mcp-adapter` and `pi-mcp-extension` consume
 natively, but yolo does not auto-install either extension at boot. Deciding whether to bundle
@@ -259,7 +415,7 @@ configuration is a choice about Pi's minimal posture against boot-time network d
 
 ## Current values
 
-Verified at `d8cf1cf8`. The prose above explains what each of these is for; this table is the
+Verified at `7ad8358c`. The prose above explains what each of these is for; this table is the
 only place the values themselves are stated.
 
 | Value | Setting | Defined in |
@@ -275,6 +431,13 @@ only place the values themselves are stated.
 | Where the wired `chrome-devtools` argv gets chromium | resolved against what the launch provides, falling back to the baked `/usr/bin` path | `chromiumExecutablePath` |
 | Retired sidecar name | `yolo-managed-mcp-servers.json`, deleted on first composed render | each pack's `retireOnFirstRender` |
 | Bootstrap-installed MCP packages | gated on the same preset declaration that builds the table | `Env.LoadMCPPresetNames` |
+| MCP entry key the capability filter reads, then strips | `provides` | `luahook.eligibleMCPServers`, `withoutProvidesKey` |
+| LSP plugin directory name | `yolo-lsp` | `jailcontent.LSPPluginDir` |
+| LSP plugin manifest path | `<skills destination>/yolo-lsp/.claude-plugin/plugin.json` | `jailcontent.writeLSPPlugin` |
+| Ownership marker | `x-yolo-managed-by: "yolo-jail"` | `jailcontent.yoloPluginManagedBy`, `hostskills.yoloManagedMarker` |
+| Claude's LSP switch | `env.ENABLE_LSP_TOOL = "1"` in `settings.json`, only when a server is configured | `packs/claude/derive.lua` |
+| Claude Code version the plugin-loader facts were read from | 2.1.278, statically from its bundle | [`OQ-LSP3`](#oq-lsp3) |
+| LSP install recipes (slated for deletion) | `python`, `typescript`, `go` → `YOLO_LSP_NPM_INSTALL` / `YOLO_LSP_GO_INSTALL` | `config.lspInstallRecipes`, `config.LSPInstalls` |
 
 ## Why it's this way
 
@@ -284,4 +447,6 @@ Forward-facing rulings a maintainer would otherwise undo, with their original id
 | :--- | :--- | :--- |
 | `D6` | The bootstrap's npm install for a preset is gated on the **same declaration** that builds the server table | Hardcoding a package list beside the preset table lets the two drift, and the failure is a preset that is configured and whose package was never installed. |
 | Principle 2 of [`pack-system.md`](pack-system.md) | Core publishes the **domain** (`mcp_servers`); the pack owns the **tool's dialect** | A per-tool branch in core is the agent registry coming back through a different door. The projection changes when the tool changes, which is the pack's business. |
+| <a id="oq-lsp1"></a>[`OQ-LSP1`](#oq-lsp1) | **Option D — generate.** yolo authors ONE plugin whose `lspServers` is rendered from the user's own `lsp_servers` table, and delivers it as content. Never a per-language map, never marketplace plugin ids — neither the three it replaced nor the full official set | A per-language map is yolo picking "the" server for a language, which is the user's choice; marketplace ids also need an install path, and a jail runs no vendor install verb. The ruling said "and enables it", but no enable step exists: the skills-tree load path is opt-out. |
+| <a id="oq-lsp3"></a>[`OQ-LSP3`](#oq-lsp3) | Claude **auto-loads a plugin from `~/.claude/skills/*`** with no marketplace, no `enabledPlugins` entry and no flag; it is **enabled by default** there; ONE plugin may declare MANY servers, keyed by server name. Measured statically against Claude Code 2.1.278 | This is the precondition option D rests on, and it is version-pinned. **Falsifier:** a Claude release that removes the skills-tree or session load arm, or a managed-settings `disableSideloadFlags` in force — shipped on by default, or set by a policy on the user's machine. Anyone revisiting it re-reads the installed version's plugin assembler. Two servers claiming one extension is a warning, not a load failure. |
 | Orphan-file cleanup ([`config-migration-to-prism.md`](config-migration-to-prism.md#the-two-sidecars-are-different-kinds-of-thing)) | A retired sidecar is deleted by the surface's owner on first composed render, as **data** rather than Go | It was the last thing left in the per-agent render functions besides the computed layer, and keeping it in Go would keep those functions alive for a one-shot cleanup. |

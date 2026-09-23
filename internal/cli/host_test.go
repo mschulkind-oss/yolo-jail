@@ -839,7 +839,7 @@ func TestHostEnvStillResolvesAbsoluteEnvSourceFiles(t *testing.T) {
 // variant naming it — the shape packs/zai would have (zai-plumbing.md §7). It installs no
 // CLI, which is the ordinary provider pack.
 
-// The host half of the selected-pack credential pre-flight (§6.2, OQ-13): selecting a
+// The host half of the selected-pack credential pre-flight (providers.md#the-credential-preflight, #pv-oq-13): selecting a
 // provider pack with no key hydrated refuses the exec, naming the variable, the provider
 // and where it looked. rc 1 is the pre-flight's own exit; rc 127 below is PATH resolution
 // failing, which is how the two are told apart.

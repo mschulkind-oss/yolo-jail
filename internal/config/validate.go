@@ -1484,7 +1484,7 @@ func providerAddressScopeMessage(path string) string {
 // providerURLProblem returns what is wrong with a provider base_url, or "" when it is a
 // usable address: it must parse as an http or https URL and carry no userinfo.
 //
-// The userinfo half is the credential rule (profiles-as-pack-variants.md §4.3):
+// The userinfo half is the credential rule (docs/reference/providers.md#principles):
 // `https://user:tok@host/v1` is a credential in a git-tracked config file, and this rule
 // is the check. A base_url routes an ADDRESS; the credential travels by NAME through
 // api_key_env_name and is hydrated from env_sources. The scheme half is the same rule
@@ -1623,7 +1623,7 @@ func validateAgentProfilesRetired(config *jsonx.OrderedMap, errs, warns *[]strin
 	}
 	msg := "config.agent_profiles: RENAMED — this key is now `use_profiles`, because " +
 		"the keys were always CLI names and core knows packs, not agents " +
-		"(docs/design/profiles-as-pack-variants.md §3.3). Rename the key in place; " +
+		"(docs/reference/providers.md#declaring-and-selecting-a-profile). Rename the key in place; " +
 		"the values are unchanged."
 	if inJail() {
 		add(warns, msg+" (ignored here: this is the host-generated config snapshot, "+
@@ -1644,7 +1644,7 @@ func validateUseProfiles(config *jsonx.OrderedMap, errs *[]string) {
 		return
 	}
 	// The KEY is a CLI name — the binary a pack installs — and an unknown one is fatal
-	// (§2.5, §8). Before this check {"cloude": "bedrock"} validated clean and silently
+	// (providers.md#what-the-launch-checks-and-prints). Before this check {"cloude": "bedrock"} validated clean and silently
 	// did nothing, which is the live hole the design documents: the values were checked
 	// as strings while the thing they were keyed by was never checked at all.
 	//

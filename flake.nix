@@ -41,13 +41,13 @@
     # Deliberately NOT used for aarch64-darwin — real Mac users stay on 26.11.
     nixpkgs-x86-darwin.url = "github:nixos/nixpkgs/nixpkgs-26.05-darwin";
 
-    # ── The layer-aware image pipeline (docs/design/layer-aware-image-delivery.md) ──
+    # ── The layer-aware image pipeline (docs/reference/image-staging-vs-baking.md#delivering-into-the-runtime) ──
     # `nix2container.buildImage` produces an image.json NAMING per-layer digests
     # instead of a script that streams a docker-archive, and `skopeo-nix2container`
     # is a skopeo carrying a `nix:` source transport that reads it.  Together they
     # replace `streamLayeredImage` + `podman load`, whose sequential tar could not
     # ask the destination which blobs it already held — 81 s of a 96 s image load
-    # was podman re-ingesting layers it had (§2.1).
+    # was podman re-ingesting layers it had (image-staging-vs-baking.md#cost-model).
     #
     # `follows` IS MANDATORY, not hygiene: without it a second nixpkgs closure is
     # locked, evaluated and fetched on every eval of this flake.
@@ -483,7 +483,8 @@
             # skip.  The CLI (darwin_packages.materialize) translates the raw
             # nix abort into an actionable message.  A lock-time fix (pinned
             # nixpkgs as flake inputs) is future work — see
-            # docs/qa/macos-user-review-findings.md #2/#7.
+            # findings #2/#7 of the deleted review, at
+            # `git show 5eb1643f^:docs/qa/macos-user-review-findings.md`.
             src =
               if (!builtins.isString spec) && spec ? nixpkgs then
                 import (builtins.fetchTarball {
@@ -1193,7 +1194,7 @@
           # ⚠ THE CONSUMER THIS WAS BAKED FOR IS GONE, AND THE ENTRY STAYS.
           # It was added for `internal/oauthbroker`'s EnsureCAAndLeaf, which
           # shelled out to `openssl` to mint the broker CA; that function now
-          # mints in-process with crypto/x509 (4ceab956), so nothing in
+          # mints in-process with crypto/x509 (d5bb1e5d), so nothing in
           # internal/oauthbroker or internal/svcendpoint execs openssl at all.
           # What that bake bought is still worth reading, because it is why the
           # dependency was invisible: without it, every launch whose HOST IS
@@ -1202,7 +1203,7 @@
           # fatal, a REFUSED launch of the very nested jail AGENTS.md makes
           # mandatory for verifying Go changes. It hid for months (2,549 dead
           # spawns in one jail) because on a real host openssl is simply always
-          # there. See docs/design/broker-ca-and-nested-hosts.md.
+          # there. See docs/reference/claude-oauth-interposition.md#why-the-image-still-bakes-openssl.
           #
           # TWO LIVE CONSUMERS KEEP IT HERE, and neither appears in this image's
           # argv either, so a closure audit still reads it as unused — it is
@@ -1310,13 +1311,13 @@
         # for a launch that delivers them from the mounted nix store instead. Orthogonal to
         # `minimal`, which is CI's variant and also drops the nested-podman config.
         #
-        # ── THE LAYER PLAN (docs/design/layer-aware-image-delivery.md §3.1) ──────
+        # ── THE LAYER PLAN (docs/reference/image-staging-vs-baking.md#the-layer-plan) ──
         # This used to be `ociTools.streamLayeredImage`, which produced a script
         # whose stdout was a 3.47 GB docker-archive.  A docker-archive is a
         # sequential tar with no protocol for asking the destination which blobs
         # it already holds, so every launch that saw a new store path re-shipped
         # the whole image to move a 27 MB customisation layer — 0.78% of the
-        # archive, and 81 s of a 96 s image load (§2.1, §2.2).  It also could not
+        # archive, and 81 s of a 96 s image load (image-staging-vs-baking.md#cost-model).  It also could not
         # express the layer ORDER: `streamLayeredImage` has no `layers` argument,
         # so nixpkgs' popularity contest decided which store path landed where and
         # the first DIFFERING layer measured at position 78 or 79 of 99.
@@ -1361,7 +1362,7 @@
             # emits `maxLayers - 1` SINGLE-PATH layers in closure-graph
             # (alphabetical) order and dumps the remainder into one tail layer.
             # A real sub-split needs nested `buildLayer`s and is a design question;
-            # nothing here depends on it, because §3.10 sets no target for a
+            # nothing here depends on it, because image-staging-vs-baking.md#cost-model sets no target for a
             # `flake.lock` bump — that case is SUPPOSED to move the base.
             #
             # `nixLd` and `stdenv.cc.cc.lib` are the two store paths the /lib farm
@@ -1406,7 +1407,7 @@
             # It is one `symlinkJoin` over the SAME list, in the SAME order, that
             # `contents` carried — because that is what keeps collision resolution
             # bit-identical across this change, and the polarity flips twice if it
-            # is done any other way (§3.1's VERIFIED note):
+            # is done any other way (image-staging-vs-baking.md#the-layer-plan):
             #
             #   - ACROSS tiers a union filesystem gives the HIGHEST layer the
             #     name, where `lndir` gave it to the FIRST entry.  So the curated
@@ -1766,7 +1767,7 @@
         # lacks.  Stock skopeo does not have it, which is exactly why this is an
         # ATTR rather than a `PATH` lookup: internal/image realizes this path and
         # invokes `<storePath>/bin/skopeo`, so an unpatched skopeo on someone's
-        # PATH can never be what runs (§3.2's fourth property).
+        # PATH can never be what runs (image-staging-vs-baking.md#delivering-into-the-runtime).
         #
         # A SEPARATE ATTR rather than the image's `passthru.copyTo`, which the
         # design left to the implementer: `copyTo` is a shell wrapper bound to ONE

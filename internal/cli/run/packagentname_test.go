@@ -1,6 +1,6 @@
 package run
 
-// packagentname_test.go is the SEVENTH launch pre-flight (briefing-audiences.md OQ-BA6/BA7):
+// packagentname_test.go is the SEVENTH launch pre-flight (docs/reference/agent-briefings.md#oq-ba6, #oq-ba7):
 // an agent NAME claimed by two packs.
 //
 // Everything here drives the real stagePacks rather than packload.AgentNameCollisions, which

@@ -11,7 +11,7 @@ import (
 // exercised once, from bytes this repository chooses.
 //
 // They exist because the agent-install matrix was answering a question it could not
-// answer honestly (docs/design/agent-install-in-ci.md). Nine agent-CLI installs per run,
+// answer honestly (docs/reference/agent-install-in-ci.md). Nine agent-CLI installs per run,
 // eight of them the same npm code path with a different package string (five since codex
 // flipped to its vendor's installer on 2026-09-04 — OQ-PD13; the redundancy moved, it did
 // not go away), every one resolving an unpinned `@latest` — so a green main could go red
@@ -19,7 +19,8 @@ import (
 // on 2026-08-20 codex's linux-arm64 tarball was published 37 minutes after the parent that
 // `@latest` pointed at, and three tests went red for a defect in nobody's repository.
 //
-// The split these tests implement (§6.1, §6.1.1): the every-push gate proves the
+// The split these tests implement (docs/reference/agent-install-in-ci.md#the-every-push-mechanism-cells,
+// #three-triggers-matched-to-three-causes): the every-push gate proves the
 // MECHANISM from pinned bytes, and "do the six vendors' current releases still install?"
 // moves to a weekly job plus a `packs/**`-triggered one, where a failure is caused by
 // something a commit or a calendar can explain.
@@ -111,7 +112,7 @@ func TestPinnedNpmProgramInstallsTheDeclaredVersion(t *testing.T) {
 // TestInstallerProgramRunsThePacksOwnScript is the `installer` (curl-piped) mechanism cell,
 // and it is fully HERMETIC — no registry, no network at all.
 //
-// That is better than the design doc predicted. §6.1 assumed a pinned `installer` fixture
+// That is better than the retired design doc predicted: it assumed a pinned `installer` fixture
 // would need "an installer URL the test controls" and worried about a local HTTP server;
 // two shipped facts make the server unnecessary. The native launcher downloads with
 // `curl -fsSL <url> -o <file>` before running it, and curl in the jail image supports the
@@ -120,8 +121,8 @@ func TestPinnedNpmProgramInstallsTheDeclaredVersion(t *testing.T) {
 //
 // So the mechanism yolo treats as its sharpest — packdecl calls installerUrl "a URL whose
 // contents run as a shell script" — gets a test that reaches a real container while
-// depending on nothing outside this repository. It is also the coverage §2.3 counted as
-// thinnest: eight npm installs per run against one installer install, with `agy` having no
+// depending on nothing outside this repository. It is also the coverage docs/reference/agent-install-in-ci.md#two-install-mechanisms
+// counted as thinnest: eight npm installs per run against one installer install, with `agy` having no
 // cell at all.
 func TestInstallerProgramRunsThePacksOwnScript(t *testing.T) {
 	requireJail(t)

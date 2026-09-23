@@ -50,12 +50,12 @@ type packChannel struct {
 	providers *jsonx.OrderedMap
 	// packEnv is the pack env fold over the profile table (packload.EnvVarsFor): each
 	// selected pack's static `kind: "env"` values with its selected variant's own
-	// literals folded on top (OQ-8).
+	// literals folded on top (providers.md#pv-oq-8).
 	packEnv map[string]string
 	// shapeVars are the provider environment variables the active profiles compose, per
 	// profiled agent, in the order the channel file writes them (packload.AgentEnv over
 	// profiles.Keys() — the env-derive runner). This is the half that routes a hydrated
-	// credential into the agent's process env (OQ-14).
+	// credential into the agent's process env (providers.md#pv-oq-14, since superseded by #oq-cs8).
 	shapeVars []agentenv.Var
 	// userEnv is the hydrated env_sources this launch would deliver — the secret channel
 	// both the env derive's credential and the credential pre-flight consult. Hydrated
@@ -278,7 +278,7 @@ func (c *packChannel) deliverySource(o *Options, argvPairs map[string]string,
 // The order mirrors the container argv's, because layering order is semantics for a key
 // two sources both set: the pack env fold first (sorted — a map has no order and the
 // environment it becomes must not reshuffle between runs), then the provider env vars in
-// table order, so a provider var is the more specific intent and wins (OQ-8's rule at the
+// table order, so a provider var is the more specific intent and wins (providers.md#pv-oq-8's rule at the
 // env boundary rather than the fold's), then the two wire tables.
 //
 // The shape vars' Unset half is skipped, exactly as the container env block skips it:

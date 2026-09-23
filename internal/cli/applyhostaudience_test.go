@@ -1,6 +1,6 @@
 package cli
 
-// applyhostaudience_test.go is the `yolo host apply` half of briefing-audiences.md: the
+// applyhostaudience_test.go is the `yolo host apply` half of docs/reference/agent-briefings.md#audiences-what-varies-per-destination: the
 // command-level pin that an ADDRESSED contribution reaches only its audience in a REAL home,
 // and that the report says so.
 //
@@ -178,8 +178,8 @@ func TestApplyHostReportsAnAudienceThatReachedNoDestinationOfThatKind(t *testing
 	}
 }
 
-// THE HOST CALL SITE FOR PER-FILE GOVERNANCE — the matt shape (pack-briefing-defaults.md §2.2,
-// §3.7) through the real apply entry point. House rules under briefing/, ONE addressed file for
+// THE HOST CALL SITE FOR PER-FILE GOVERNANCE — the matt shape (docs/reference/pack-system.md#one-governance-reader,
+// pack-system.md#briefing-governance) through the real apply entry point. House rules under briefing/, ONE addressed file for
 // alphacli beside them, and the pack repository's own AGENTS.md at the root. alphacli must get the
 // house rules AND its addressed file as one section; betacli must get the house rules — the
 // delivery the old `declares`/`declared` gate switched off the moment the addressed line existed —

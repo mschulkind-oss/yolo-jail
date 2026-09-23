@@ -257,12 +257,12 @@ const execClaimListCap = 5
 
 // audienceTarget is the TARGET column for a `briefing`/`skills` claim: the destination it
 // names, or — for an ADDRESSED contribution, which names an audience and deliberately no path
-// (briefing-audiences.md P4) — the audience itself.
+// (docs/reference/agent-briefings.md#ba-p4) — the audience itself.
 //
 // Without this, an addressed contribution's footprint line had a BLANK target: `into` is the
 // target for these kinds and an addressed contribution has none, so `yolo pack lint` and
 // `yolo pack footprint` printed the kind, a blank, and the detail. That is the reporting gap
-// §9 step 7 names, and it is the worst place for it — the single-pack views are exactly where
+// the audience selector's build step 7 named, and it is the worst place for it — the single-pack views are exactly where
 // an author checks what their manifest does before configuring it.
 //
 // Display only, safe by construction FOR THESE TWO KINDS: `briefing` is CombineConcat and
@@ -277,10 +277,10 @@ func audienceTarget(c packdecl.Contribution) string {
 	if len(c.Agents) > 0 {
 		return "→ " + strings.Join(c.Agents, ", ")
 	}
-	// Neither: a declared BROADCAST (pack-briefing-defaults.md P2) — valid in a manifest now, and
+	// Neither: a declared BROADCAST (docs/reference/pack-system.md#briefing-p2) — valid in a manifest now, and
 	// it reaches every destination of its kind the selected set declares. A blank here read as
 	// "goes nowhere", the opposite of what it does. `pack lint` takes no config, so it cannot
-	// list the agents; the resolved list is the apply's and the launch banner's to print (§3.6).
+	// list the agents; the resolved list is the apply's and the launch banner's to print (pack-system.md#briefing-lint-listing).
 	return "→ every agent"
 }
 
@@ -948,8 +948,8 @@ func agentNameClaims(packs []*Pack) (map[string][]agentNameClaim, []string) {
 }
 
 // AgentNames is the AGENT VOCABULARY this pack set has: every name an enabled pack claims,
-// sorted. It is the candidate list an `agents` selector may draw from (briefing-audiences.md
-// P3), and the list a refusal prints.
+// sorted. It is the candidate list an `agents` selector may draw from (docs/reference/agent-briefings.md#ba-p3),
+// and the list a refusal prints.
 //
 // THE SET IS THE SELECTED PACKS AND NOTHING WIDER, which is the whole content of P3: from the
 // jail's point of view `agents: ["cloude"]` and `agents: ["codex"]` in a jail that did not
@@ -967,7 +967,7 @@ func AgentNames(packs []*Pack) []string {
 }
 
 // AgentNameCollisions finds one AGENT NAME claimed by two different packs — the OQ-BA6/BA7
-// exclusivity briefing-audiences.md §4.2 rules fatal.
+// exclusivity docs/reference/agent-briefings.md#one-agent-name-one-owning-pack rules fatal.
 //
 // # Why it is its own pass
 //
@@ -989,8 +989,8 @@ func AgentNames(packs []*Pack) []string {
 //   - `briefing` / `skills` by `agent` — it declares where that agent READS, which is the
 //     identity an `agents: [...]` selector resolves against (borrowedDestinations).
 //
-// `requires` is NOT a claim, and that is a deliberate departure from §4.2's list of five
-// kinds. Reductio, in two shipped shapes: docs/examples/claude-fzf-pack declares
+// `requires` is NOT a claim, and that is a deliberate departure from the retired audience design's list of five
+// kinds (agent-briefings.md#one-agent-name-one-owning-pack). Reductio, in two shipped shapes: docs/examples/claude-fzf-pack declares
 // `requires fzf` and `requires fd`, so any second pack requiring one of those names — or
 // installing it, which AGENTS.md's PATH-order bullet describes as ordinary — would refuse
 // the launch; and a content pack asserting `requires claude` beside the claude pack that

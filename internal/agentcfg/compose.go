@@ -9,7 +9,7 @@ package agentcfg
 //	overlay ──────┘
 //
 // The Lua transform step that used to sit between the merge and the enforce is
-// GONE (docs/design/lua-transform-removal.md): it had no user, and the package
+// GONE (docs/reference/pack-system.md#oq-lt1): it had no user, and the package
 // it ran on is now the pack derive sandbox alone.
 //
 // It is the single entrypoint shared byte-for-byte by the entrypoint boot

@@ -5,7 +5,7 @@ package run
 // jailcontent.ComposePackBriefings, per destination, filtering each file by audience) or the host
 // does (packload.ResolveDestinations → entrypoint.ComposeHostBriefings, one section per pack per
 // destination). The two notches reach the answer by different mechanisms, which is exactly how
-// they drifted before (pack-briefing-defaults.md R5); nothing compared them until this file.
+// they drifted before (docs/reference/pack-system.md#briefing-r5); nothing compared them until this file.
 //
 // The fixture is chosen so each known way to diverge changes bytes:
 //
@@ -107,7 +107,7 @@ func TestJailAndHostComposeTheSameBriefing(t *testing.T) {
 // host borrows destinations per source (ResolveDestinations → hostskills.ComposeHostSkills). The
 // fixture carries the two shapes where the host's per-source governance can drift from the jail:
 //
-//   - a pack whose skills/ sits beside an ADDRESSED narrower tree — the old §2.2 gate dropped the
+//   - a pack whose skills/ sits beside an ADDRESSED narrower tree — the old pack-system.md#one-governance-reader gate dropped the
 //     implicit skills/ as soon as any skills content contribution existed, at one notch only;
 //   - an agent pack shipping its OWN skills/, which must reach its own destination (no
 //     `other == p` self-skip) and every other agent's.

@@ -12,7 +12,7 @@ package packload
 // through ComposeProviders. So the composition here is the shipped wire-bridge adapter
 // declaration and the shipped claude pack's protocols, not a fixture restating them:
 // a fixture would have gone on passing while the composer poisoned the config
-// (docs/design/wire-bridge-port-collision.md §2.5).
+// (docs/reference/wire-bridge.md#the-invariant-that-keeps-the-adapters-address-out-of-the-users-map).
 
 import (
 	"reflect"
@@ -39,7 +39,8 @@ func bridgedPacks(t *testing.T) []*Pack {
 	return out
 }
 
-// userLocalProvider is §2.3's precondition, spelled as the shipped shape for a local
+// userLocalProvider is the collision's precondition
+// (wire-bridge.md#only-a-users-provider-url-becomes-an-implicit-forward), spelled as the shipped shape for a local
 // inference server: a provider NO pack ships, offering openai and not anthropic. That is
 // the entry ComposeProviders used to store by reference and then write the bridge's
 // address into.
@@ -87,7 +88,7 @@ func TestComposeProvidersDoesNotWriteThroughToTheUsersMap(t *testing.T) {
 			"before: %s\nafter:  %s\n"+
 			"The composed table may hold no object the caller owns: the adapter pass runs "+
 			"over the finished table, and a shared map makes it an editor of the user's "+
-			"config (docs/design/wire-bridge-port-collision.md, OQ-PC1).", before, after)
+			"config (docs/reference/wire-bridge.md#oq-pc1).", before, after)
 	}
 
 	// The adaptation still has to happen — only the write-through stops.
