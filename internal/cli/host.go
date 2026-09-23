@@ -50,7 +50,9 @@ With ` + "`host_apply_on_launch`" + ` enabled (defaulting to on when ` + "`host_
 and automatically synchronizes host configuration before launch — silently exec'ing when fresh.
 When first-time adoption would overwrite unmanaged host keys, it prompts for confirmation or
 reads approval from ` + "`YOLO_ACCEPT_CONFIG_CHANGES`" + ` (any non-empty value, this launch only).
-See ` + "`yolo config-ref`" + `.
+An apply that would ask anything else, or a configured pack that cannot be resolved, renders
+NOTHING: the launch says what needs deciding or fixing, and the agent starts on the render
+already in place. See ` + "`yolo config-ref`" + `.
 
 apply flags:
   --assert        Write. Without it apply is a DRY RUN and writes nothing.
@@ -74,6 +76,10 @@ apply flags:
                   verb does not grow a second output mode.
 
 The report ends in one sentence saying how the run went, with the counts beneath it.
+Packs resolve the way a launch resolves them, offline: a git pack from the pack store
+(` + "`yolo pack install`" + ` fetches it), a local one from its path. If ANY configured pack
+cannot be resolved, an --assert is REFUSED with nothing written — an incomplete pack set
+is never applied — and the dry run names each pack, why, and the fix.
 A missing declared dependency STOPS an --assert: yolo shows the install command each
 pack declares and offers to run it, and a NO refuses the run with nothing written.
 ` + "`yolo pack --help`" + ` says what each contribution kind is, and ` + "`yolo config-ref`" + ` says why
@@ -404,8 +410,16 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 	// so the composed provider table below is user entries over pack facts and never a
 	// workspace's. A pack set that cannot be resolved right now contributes nothing — an
 	// empty slice makes every fold below a no-op — which is loadedHostPacks' own contract,
-	// so the error needs no second handling here.
-	packs, _ := loadedHostPacks()
+	// so the error needs no second handling here. A single pack that does not resolve is
+	// WARNED about by name: it is dropped from this launch's env, and silence would make
+	// its missing provider vars look like a credential problem.
+	packs, unresolved, _ := loadedHostPacks()
+	if warn != nil {
+		for _, u := range unresolved {
+			warn(fmt.Sprintf("pack %s could not be resolved, so it contributes nothing to "+
+				"this launch's environment: %s", u.Name, u.Reason))
+		}
+	}
 	c.packs = packs
 	// The profile this launch selects, resolved once: it gates (1) and feeds (3), and
 	// both must read the same selection or the env a host launch carries and the one its
@@ -521,13 +535,10 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 	// what this launch actually carries: the hydrated env_sources above, then the
 	// environment this process inherited.
 	//
-	// KNOWN GAP, left standing deliberately: loadedHostPacks drops a pack fetched from a
-	// git remote this launch (packForCheckDeps cannot resolve it offline), so an agent
-	// pack that lives in git contributes its env derive to the JAIL notch and nothing to
-	// this one. The gap predates the runner — the old agentenv.Resolve read the
-	// composed table, which the same dropped pack's provider facts were equally absent
-	// from — and closing it means teaching the host notch to resolve git packs, which is
-	// its own decision, not a side effect of this flip.
+	// A GIT PACK CONTRIBUTES HERE TOO: loadedHostPacks resolves through
+	// resolveConfiguredPack, which reads a git pack from the pack store the way a launch
+	// does, so an agent pack that lives in git derives its env at this notch as at the jail.
+	// One the store does not have is dropped and warned about above.
 	lookup := func(name string) (string, bool) {
 		if v, ok := userEnv.Get(name); ok {
 			if s, isStr := v.(string); isStr && s != "" {
@@ -627,21 +638,26 @@ func hostScopedEnvSources(cfg *jsonx.OrderedMap, warn func(string)) *jsonx.Order
 	return out
 }
 
-// loadedHostPacks resolves the selected packs for a host launch. A pack that cannot be
-// resolved right now (an offline git remote) contributes nothing rather than failing the
-// launch: the user asked to run an agent, not to reconcile their pack set.
-func loadedHostPacks() ([]*packload.Pack, error) {
+// loadedHostPacks resolves the selected packs for a host launch, plus every one it could not
+// resolve. A pack that cannot be resolved (a git pack not in the store) contributes nothing
+// rather than failing the launch — the user asked to run an agent, not to reconcile their pack
+// set — but it is RETURNED, so the caller names it rather than dropping it in silence.
+func loadedHostPacks() ([]*packload.Pack, []unresolvedPack, error) {
 	entries, err := config.LoadPacks(nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var packs []*packload.Pack
+	var unresolved []unresolvedPack
 	for _, e := range entries {
-		if p := packForCheckDeps(e); p != nil {
-			packs = append(packs, p)
+		p, rerr := resolveConfiguredPack(e)
+		if rerr != nil {
+			unresolved = append(unresolved, newUnresolvedPack(e.Name, rerr))
+			continue
 		}
+		packs = append(packs, p)
 	}
-	return packs, nil
+	return packs, unresolved, nil
 }
 
 // effectiveHostProfiles returns the use_profiles map with a `-p` override applied to

@@ -29,6 +29,7 @@ package cli
 // confirm, and the moves are reported as `would move` instead.
 
 import (
+	"fmt"
 	"io"
 	"path/filepath"
 
@@ -175,6 +176,11 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	reportBriefingSourceProblems(pr, loaded)
 	if mv != nil {
 		if !write {
+			// NOT A PROMPT, BUT NOT PREVIEWABLE EITHER: what the --assert composes after the move
+			// (and whether it then asks to adopt a destination) is unknown here, so the launch
+			// hook must not run it unattended (hostApplySurvey.PendingDecisions).
+			survey.noteDecision("your local pack's AGENTS.md would move into briefing/, and the " +
+				"briefing destinations composed after that move cannot be previewed")
 			// The preview cannot compose what the move would make readable without making the
 			// move, and a preview composed WITHOUT it would report every destination the local
 			// pack feeds as losing the user's prose, or as an orphan to retire. Say so rather
@@ -190,6 +196,9 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	adoptions := entrypoint.HostBriefingAdoptions(loaded, home, man, req.Provenance)
 	if len(adoptions) > 0 {
 		if !write {
+			// A QUESTION THE --assert WILL ASK — see the skills adoption's twin.
+			survey.noteDecision(fmt.Sprintf("%d briefing %s would have your own prose moved "+
+				"into your local pack", len(adoptions), plural(len(adoptions), "destination", "destinations")))
 			// OBSERVE reports the adoption and the migration WITHOUT prompting — which is how
 			// the user learns what the write would take over before any prompt exists.
 			reportBriefingAdoptions(pr, adoptions, req.LocalPackBriefing)

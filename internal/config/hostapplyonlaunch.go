@@ -16,13 +16,17 @@ const hostApplyOnLaunchKey = "host_apply_on_launch"
 // `yolo host apply` writes into the real $HOME once and nothing ever looks again, so the
 // rendered and would-be-rendered states drift apart silently. Every generated wrapper already
 // execs `yolo host -- <bin>`, and that is the only moment the content matters — agents read
-// their config at startup and do not reload it. With this key on, that launch behaves like a
-// jail launch: a re-apply that would change nothing execs silently, and one that would change
-// something prompts on a TTY and refuses without one.
+// their config at startup and do not reload it. With this key on, that launch re-checks the
+// render: a re-apply that would change nothing execs silently; one that would change only
+// managed keys is applied without a prompt and announced; one that would ASK anything (an
+// adoption, a retire, a missing dependency) or that names a pack it cannot resolve renders
+// nothing, says what needs deciding, and execs; and only a first apply that would drop the
+// user's own entries prompts on a TTY and refuses without one (cli.hostApplyGate is the table).
 //
 // > [!IMPORTANT]
 // > THE KEY ENABLES THE MECHANISM. IT DOES NOT GRANT THE APPROVAL (§1 P4). A launch under an
-// > enabled key still prompts on a TTY and still refuses off one. Treating the key as blanket
+// > enabled key still prompts on a TTY and still refuses off one for a first-apply entry loss,
+// > and never answers any other question on the user's behalf. Treating the key as blanket
 // > pre-authorization was proposed and REFUSED: a key is read on every launch forever with no
 // > act of granting, which is exactly the standing consent
 // > snapshot.go's AcceptConfigChangesFlag exists to prevent. The per-launch approval is an act

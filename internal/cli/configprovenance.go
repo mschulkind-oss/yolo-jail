@@ -105,7 +105,7 @@ type overlayContribution struct {
 // packs only (see internal/cli/surfaces.go). That limitation is exactly wrong here: a
 // third-party pack is the likely OWNER in the Layout C story, so keying on the embedded set
 // would leave the overlay case this command exists for unreportable.
-func overlayContributionRows(t configTarget, agent, surface string) ([]overlayContribution, []string) {
+func overlayContributionRows(t configTarget, agent, surface string) ([]overlayContribution, []unresolvedPack) {
 	packs, unresolved := configuredPacksForInspection()
 	if len(packs) == 0 {
 		return nil, unresolved
@@ -381,26 +381,26 @@ func readProvenance(path string) map[string]string {
 }
 
 // configuredPacksForInspection loads the packs this workspace's config selects, for the
-// read-only inspection commands, plus the names of any that could not be resolved offline.
+// read-only inspection commands, plus every one that could not be resolved and why.
 //
-// EMBEDDED AND LOCAL packs resolve; a git-sourced one needs `yolo pack install` and comes
-// back nil, so its name is returned for the caller to report. That limitation is the same
-// one surfaceManifest() carries and is stated for the same reason: a `config diff` that
-// failed on an unreachable remote would be worse than one that names what it could not
-// read.
-func configuredPacksForInspection() ([]*packload.Pack, []string) {
+// It resolves the way a launch does (resolveConfiguredPack): embedded, local, and a git pack
+// from the pack store, offline. One the store does not have is returned for the caller to
+// report — a `config diff` that failed over it would be worse than one that names what it
+// could not read.
+func configuredPacksForInspection() ([]*packload.Pack, []unresolvedPack) {
 	entries, err := config.LoadPacks(nil)
 	if err != nil {
 		return nil, nil
 	}
 	var packs []*packload.Pack
-	var unresolved []string
+	var unresolved []unresolvedPack
 	for _, e := range entries {
-		if p := packForCheckDeps(e); p != nil {
-			packs = append(packs, p)
+		p, rerr := resolveConfiguredPack(e)
+		if rerr != nil {
+			unresolved = append(unresolved, newUnresolvedPack(e.Name, rerr))
 			continue
 		}
-		unresolved = append(unresolved, e.Name)
+		packs = append(packs, p)
 	}
 	return packs, unresolved
 }

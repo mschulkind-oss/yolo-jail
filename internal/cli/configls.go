@@ -151,9 +151,8 @@ func configLs(t configTarget, args []string, out, errw io.Writer, color bool) in
 		// A pack this command could not read might be the one contributing the key the user is
 		// asking about, so an incomplete answer says so rather than reading as complete.
 		pr.Printf("")
-		pr.Printf("[yellow]⚠ not inspected (fetched packs need `yolo pack install`): %s "+
-			"— any config-overlay they declare is not listed below.[/yellow]",
-			strings.Join(unresolved, ", "))
+		pr.Printf("[yellow]⚠ not inspected — could not be resolved: %s. Any config-overlay "+
+			"they declare is not listed below.[/yellow]", describeUnresolved(unresolved))
 	}
 	if len(overlaid) > 0 {
 		pr.Printf("")

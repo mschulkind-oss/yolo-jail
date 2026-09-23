@@ -415,18 +415,32 @@ func TestApplyHostRetireSparesUserAuthoredPluginDir(t *testing.T) {
 // destination is now a whole yolo-owned file, and archiving it costs the same trip to the state
 // dir — so the two thresholds are now DELIBERATELY THE SAME, and this test pins the convergence
 // rather than the old split.
+//
+// SINCE THE NO-HALF-STATES RULING an --assert over an unresolvable pack is REFUSED outright, so
+// the retire passes are reachable with an incomplete set only from the DRY RUN — which still walks
+// them, and must still not call the unresolved pack's output dropped. Both postures are asserted:
+// the refusal is what protects the home now, and the guard is what keeps the dry run honest.
 func TestApplyHostRetireKeepsUnresolvablePackOutput(t *testing.T) {
 	home, _ := dropFixture(t, dropPackJSON)
+	t.Setenv("YOLO_PACK_ROOT", "") // no staged-tree fallback from the jail running this suite
 	if rc, report := applyWith(t, true, nil); rc != 0 {
 		t.Fatalf("first apply rc=%d\n%s", rc, report)
 	}
-	// Same pack NAME, now addressed at a git remote nothing can reach.
+	// Same pack NAME, now addressed at a git remote nothing fetched into the store.
 	selectPacks(t, home,
-		`"claude",{"source":"git+https://example.invalid/dropme.git","name":"dropme"}`)
+		`"claude",{"source":"git+https://example.invalid/dropme.git?ref=main","name":"dropme"}`)
+
+	dryRC, dry := applyWith(t, false, nil)
+	if dryRC != 0 {
+		t.Fatalf("the dry run is information (OQ-RO5); rc=%d\n%s", dryRC, dry)
+	}
+	if strings.Contains(dry, "/retire") {
+		t.Errorf("the dry run reported an unresolvable pack as dropped:\n%s", dry)
+	}
 
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
-	if rc != 0 {
-		t.Fatalf("apply with an unresolvable pack rc=%d\n%s", rc, report)
+	if rc == 0 {
+		t.Fatalf("an --assert over an unresolvable pack must be refused\n%s", report)
 	}
 	skill, file := deliveredPaths(home)
 	mustExist(t, skill, "the pack is still CONFIGURED, only unresolvable this run")
@@ -575,7 +589,7 @@ func TestApplyHostRetireRefusesNilConfiguredSet(t *testing.T) {
 	var out bytes.Buffer
 	pr := richtext.Printer{W: &out}
 	rc := pruneDroppedPackOutput(pr, &out, strings.NewReader("y\n"), nil, nil, home,
-		"20260803-000000", true, overlayKeyRetirement{})
+		"20260803-000000", true, overlayKeyRetirement{}, nil)
 	if rc == 0 {
 		t.Errorf("a nil configured set must be refused, not treated as 'no pack is active'")
 	}

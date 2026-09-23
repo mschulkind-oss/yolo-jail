@@ -93,6 +93,7 @@ func hostApplyRemedyGroups(s *hostApplySurvey, home string, write bool) []remedy
 		return nil
 	}
 	var out []remedyGroup
+	out = append(out, unresolvedPackGroups(s.UnresolvedPacks())...)
 	out = append(out, missingDepGroups(s)...)
 	if g, ok := droppedEntryGroup(s, home, write); ok {
 		out = append(out, g)
@@ -105,6 +106,50 @@ func hostApplyRemedyGroups(s *hostApplySurvey, home string, write bool) []remedy
 	}
 	if g, ok := droppedCommentGroup(s, write); ok {
 		out = append(out, g)
+	}
+	return out
+}
+
+// unresolvedPackGroups is the unresolvable-pack BLOCKER, grouped by remedy: one group for the
+// git packs (the remedy is `yolo pack install`, which fetches every configured git pack into the
+// store) and one for everything else (a local path or an address only the config can fix). The
+// per-pack REASON is printed where the pack was resolved; the group states the fix once.
+//
+// Shared by the dry run's report and the --assert refusal, so the lines a user reads when the
+// apply refuses are the lines the dry run showed them.
+func unresolvedPackGroups(list []unresolvedPack) []remedyGroup {
+	var git, other []string
+	for _, u := range list {
+		if u.NeedsInstall {
+			git = append(git, u.Name)
+			continue
+		}
+		other = append(other, u.Name)
+	}
+	var out []remedyGroup
+	if len(git) > 0 {
+		out = append(out, remedyGroup{
+			Class:    remedyClassUnresolvedPack,
+			Key:      "yolo pack install",
+			Headline: "configured packs not in the pack store, so nothing can be applied",
+			Items:    git,
+			Remedy: "yolo pack install   (fetches every configured git pack into the store; " +
+				"a launch and this apply then resolve it offline)",
+			VerdictTerm: git[0],
+			Warn:        true,
+		})
+	}
+	if len(other) > 0 {
+		out = append(out, remedyGroup{
+			Class:    remedyClassUnresolvedPack,
+			Key:      paths.UserConfigPath(),
+			Headline: "configured packs that could not be read, so nothing can be applied",
+			Items:    other,
+			Remedy: "fix what is named above for each pack, or remove it from `packs` in " +
+				paths.UserConfigPath(),
+			VerdictTerm: other[0],
+			Warn:        true,
+		})
 	}
 	return out
 }
@@ -303,6 +348,9 @@ func printRemedyGroups(pr richtext.Printer, groups []remedyGroup) {
 // and they are told apart here because a consumer acting on the document needs to know which it
 // is.
 const (
+	// remedyClassUnresolvedPack — a configured pack could not be resolved, so an --assert
+	// refuses the whole apply. A blocker.
+	remedyClassUnresolvedPack = "unresolved_pack"
 	// remedyClassDependency — a declared dependency is missing on this host. A blocker.
 	remedyClassDependency = "missing_dependency"
 	// remedyClassEntryDropped — a named table entry of the user's (an MCP server) goes.

@@ -628,7 +628,7 @@ func UseProfileCLINames() ([]string, bool) {
 		}
 		// nil Getenv: the store falls back to the real environment, which is what a
 		// resolver running behind a read-only surface wants (the staged-tree fallback
-		// is how a nested launch's local packs resolve). See packRoot on the run side.
+		// is how a nested launch's local packs resolve). See PackRoot on the run side.
 		addr, err := packsrc.Parse(entry.Source)
 		if err != nil {
 			return nil, false

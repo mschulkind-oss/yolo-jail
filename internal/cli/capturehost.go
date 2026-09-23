@@ -235,14 +235,15 @@ func resolveCaptureTarget(bin string) (*captureTarget, error) {
 	if err != nil {
 		return nil, err
 	}
-	var refusals, unresolved, npmBins []string
+	var refusals, npmBins []string
+	var unresolved []unresolvedPack
 	for _, e := range entries {
-		p := packForCheckDeps(e)
-		if p == nil {
-			// A fetched pack that was never `yolo pack install`ed, or whose remote is
-			// unreachable. Named rather than skipped: "no pack declares <bin>" would be
-			// a lie about a config that may well declare it.
-			unresolved = append(unresolved, e.Name)
+		p, rerr := resolveConfiguredPack(e)
+		if rerr != nil {
+			// A git pack the pack store does not have (never `yolo pack install`ed), or a
+			// local one whose directory is gone. Named with the reason rather than skipped:
+			// "no pack declares <bin>" would be a lie about a config that may well declare it.
+			unresolved = append(unresolved, newUnresolvedPack(e.Name, rerr))
 			continue
 		}
 		granted, refused := p.HonoredInstalls()
@@ -267,9 +268,8 @@ func resolveCaptureTarget(bin string) (*captureTarget, error) {
 	for _, r := range refusals {
 		fmt.Fprintf(&b, "\n  refused: %s", r)
 	}
-	if len(unresolved) > 0 {
-		fmt.Fprintf(&b, "\n  not resolvable offline (run `yolo pack install`): %s",
-			strings.Join(unresolved, ", "))
+	for _, u := range unresolved {
+		fmt.Fprintf(&b, "\n  could not be resolved, so not searched: %s: %s", u.Name, u.Reason)
 	}
 	return nil, fmt.Errorf("%s", b.String())
 }

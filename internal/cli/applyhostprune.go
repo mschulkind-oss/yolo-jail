@@ -70,9 +70,11 @@ type droppedOutput struct {
 // second. Both halves are the consequence of the same user action — "I removed a pack from my
 // config" — so two [y/N]s for it would be the prompt-fatigue confirmDroppedPackRetire's own
 // docstring warns about. See applyhostoverlaykeys.go for why a key is not archived.
+//
+// `survey` receives the observe posture's note that an --assert would ask (nil-safe).
 func pruneDroppedPackOutput(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	candidates []*packload.Pack, configured map[string]bool, home, stamp string, write bool,
-	keys overlayKeyRetirement) int {
+	keys overlayKeyRetirement, survey *hostApplySurvey) int {
 	// Same guard as PruneHostBriefings, and here it protects the user's actual files: a bug
 	// that made the set empty would read as "every pack is gone" and archive every skill yolo
 	// ever delivered. Refusing an unknown set is the only reading that cannot do that.
@@ -134,6 +136,10 @@ func pruneDroppedPackOutput(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	}
 
 	if !write {
+		// A QUESTION THE --assert WILL ASK (confirmDroppedPackRetire), recorded for the launch
+		// hook (hostApplySurvey.PendingDecisions).
+		survey.noteDecision(fmt.Sprintf("%d path(s) and %d config key(s) a dropped pack left "+
+			"behind would be retired", len(present), len(keys.Orphans)))
 		for _, o := range present {
 			pr.Printf("  [yellow]%-20s would archive (pack no longer configured)[/yellow]  "+
 				"[dim]%s%s[/dim]", o.Pack+"/retire", o.Dest, namespacedNote(o))

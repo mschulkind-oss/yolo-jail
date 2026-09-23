@@ -277,11 +277,11 @@ wrong one to sequence on.
    `darwin/arm64` — the one wrong answer that looks right. So `Manifest.Platform` is set inside and
    the host act copies it into the receipt.
 
-   **(h) Two limits worth knowing.** `resolveCaptureTarget` uses `packForCheckDeps`, the host-side
-   resolver `internal/cli` already had, which resolves EMBEDDED and LOCAL packs but not a FETCHED
-   one out of the packsrc store — so `yolo capture <bin>` for a git-sourced pack reports the pack
-   as "not resolvable offline (run `yolo pack install`)" and names it, rather than resolving it. No
-   shipped pack is fetched. And `dispatchNative` hands every handler the whole argv, so `runCapture`
+   **(h) Two limits worth knowing.** `resolveCaptureTarget` used `packForCheckDeps`, the host-side
+   resolver `internal/cli` already had, which resolved EMBEDDED and LOCAL packs but not a FETCHED
+   one out of the packsrc store. That limit is CLOSED: the resolver is now `resolveConfiguredPack`,
+   which resolves a git pack from the store the way a launch does, and names a pack it cannot
+   resolve with the resolver's reason. And `dispatchNative` hands every handler the whole argv, so `runCapture`
    drops `args[0]` the way `runPack` does; the unit tests called the body directly and were all
    green with the token left in, which is the pinned-callee shape AGENTS.md names — there is now a
    test for the dispatch entry itself.

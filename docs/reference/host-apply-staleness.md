@@ -254,7 +254,10 @@ flowchart TD
     L -->|no| X
     L -->|yes| C{would a re-apply<br/>change anything?}
     C -->|no, or cannot tell| X
-    C -->|yes| M{"first apply with<br/>entry losses?"}
+    C -->|"a configured pack<br/>cannot be resolved"| U["render nothing, name each pack<br/>and the remedy, then exec"]
+    C -->|yes| Q{"would an --assert ask<br/>anything besides the<br/>entry-loss question?"}
+    Q -->|yes| V["render nothing, print the questions<br/>and yolo host apply --assert, then exec"]
+    Q -->|no| M{"first apply with<br/>entry losses?"}
     M -->|no| S["auto-apply silently, notice to stderr, then exec"]
     M -->|yes| D{TTY on stdin?}
     D -->|yes| E[show change list, prompt]
@@ -288,7 +291,9 @@ and is off — so the mechanism is never invisible to someone wondering whether 
 | Situation | Disposition, and the reason |
 | :--- | :--- |
 | Nothing would change | Silent exec. A freshly-applied home must prompt **not at all, ever**, until something actually changes — that is [R3](#r3--the-predicate-models-what-the-writer-produces)'s bar, and the first thing to check when touching the predicate. |
-| Safe managed changes | **Auto-apply silently**, emit a single stderr notice (`yolo host: synchronized host configuration (<targets>)`), and exec immediately. Under `assert` or `own`, updating managed keys is idempotent policy synchronization, not data loss. |
+| A configured pack cannot be resolved (a git pack not in the pack store, a local pack whose directory is gone) | **Render nothing**, name each pack with the resolver's reason and the remedy (`yolo pack install` for a git pack), and exec. An incomplete pack set is never applied — the same rule `yolo host apply --assert` refuses by. The launch still proceeds: nothing was written, so the home holds what the last apply left, a consistent render of an older set rather than a partial render of this one. |
+| An `--assert` would ask something: a skills or briefing adoption, a dropped pack's retire, a missing declared dependency (its install offer or refusal), or a briefing composition the dry run cannot preview | **Render nothing**, print each question and `yolo host apply --assert` (which asks them where they can be answered), and exec. The auto-apply's report is buffered, so a question asked there is one the user cannot see: measured, that was a launch hanging after the banner on a TTY, a silent "no" off one followed by a `synchronized` notice for work that did not happen, and a declined install of *another* pack's missing binary refusing this program's launch. |
+| Safe managed changes | **Auto-apply silently**, emit a single stderr notice (`yolo host: synchronized host configuration (<targets>)`), and exec immediately. Under `assert` or `own`, updating managed keys is idempotent policy synchronization, not data loss. The apply never reads stdin, and the notice names what the apply itself changed, never what the observe pass predicted. |
 | First apply overwriting unmanaged keys (`FirstApply && EntryLosses`), TTY | Show the change list, prompt, apply on accept. A **decline aborts the launch**, as it does in the jail: launching anyway would make the question a formality, and applying anyway would make "no" mean nothing. |
 | First apply overwriting unmanaged keys, no TTY, no approval | **Refuse**, and apply nothing. Consistency with `yolo run` beats a host special case, and the prompt is the guard that makes an irreversible config-surface loss safe. |
 | First apply overwriting unmanaged keys, no TTY, approval present | Apply, then exec. |
@@ -358,12 +363,13 @@ Four properties, each with its reason:
 
 Two classes, because they end differently.
 
-- **Cannot determine** — a malformed pack manifest, an unreadable or unresolvable home, an
-  unreachable `file://` pack, a lock another process holds, a budget overrun. The predicate has no
+- **Cannot determine** — a malformed pack manifest, an unreadable or unresolvable home, a lock
+  another process holds, a budget overrun. (An unresolvable *pack* is not in this class any more:
+  the observe pass names it, so the gate reports it by name — [the dispositions](#the-dispositions).) The predicate has no
   answer, so there is no change to refuse over: **exec**, with at most one line to stderr. This
   follows the house rule the source-skew gate states — a gate that cannot prove its condition does
   not fire.
-- **Determined, and a change is needed** — the four dispositions above. This is the only path that
+- **Determined, and a change is needed** — the dispositions above. This is the only path that
   can stop a launch, and it stops it *with a remedy*.
 
 **The budget is a stuck-detector, not a tuning knob**, which is why there is no config key and no

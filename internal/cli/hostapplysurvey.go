@@ -148,6 +148,16 @@ type hostApplySurvey struct {
 	installedDeps []string
 	firstApply    bool
 	failedPacks   []string
+	// unresolvedPacks are the configured packs this run could not resolve, with the resolver's
+	// reason. A BLOCKER that outranks every other: an --assert over them is refused before the
+	// first write (no half states), so the verdict of a dry run that found one is "would refuse".
+	unresolvedPacks []unresolvedPack
+	// decisions are the questions an --assert would put to the user that the survey has no other
+	// record of — a skills or briefing adoption, a dropped pack's retire, a briefing composition
+	// the dry run cannot preview. Noted by the OBSERVE posture at the point the writing posture
+	// would prompt, so the launch hook can know BEFORE writing that an apply is not one it may
+	// run unattended (PendingDecisions).
+	decisions []string
 
 	// home is the home THIS apply rendered into, and zeroPacks whether it took the
 	// no-packs-configured branch. Both are RECORDED rather than re-derived, because both
@@ -430,6 +440,57 @@ func (s *hostApplySurvey) noteRenderFailure(pack string) {
 		return
 	}
 	s.failedPacks = append(s.failedPacks, pack)
+}
+
+// noteUnresolved records a configured pack that could not be resolved, and why.
+func (s *hostApplySurvey) noteUnresolved(u unresolvedPack) {
+	if s == nil {
+		return
+	}
+	s.unresolvedPacks = append(s.unresolvedPacks, u)
+}
+
+// noteDecision records a question an --assert would ask here (see the decisions field).
+func (s *hostApplySurvey) noteDecision(what string) {
+	if s == nil {
+		return
+	}
+	s.decisions = append(s.decisions, what)
+}
+
+// PendingDecisions is every question an --assert of this apply would put to a human, as one
+// phrase each: the ones noted where the writing posture prompts, plus the two the survey already
+// carries as facts — a missing declared dependency (the install offer, or its refusal) and a
+// first apply that would drop entries of the user's (confirmHostLosses).
+//
+// It exists for the LAUNCH HOOK, which must never run an apply that would prompt: its output is
+// not the user's to see, so a question there is a hang on a TTY, a silent "no" off one, and —
+// for a missing dependency of another pack — a refusal of a launch that pack has nothing to do
+// with. The hook asks this BEFORE writing, which is the only moment "render nothing" is
+// available.
+func (s *hostApplySurvey) PendingDecisions() []string {
+	if s == nil {
+		return nil
+	}
+	var out []string
+	if bins := s.MissingDeps(); len(bins) > 0 {
+		out = append(out, fmt.Sprintf("%d declared %s missing (%s) — an --assert offers to "+
+			"install or refuses", len(bins), plural(len(bins), "dependency is", "dependencies are"),
+			strings.Join(bins, ", ")))
+	}
+	if entries, surfaces := s.DroppedEntries(); s.FirstApply() && entries > 0 {
+		out = append(out, fmt.Sprintf("a first apply would drop %d of your entries from %d %s",
+			entries, surfaces, plural(surfaces, "surface", "surfaces")))
+	}
+	return append(out, s.decisions...)
+}
+
+// UnresolvedPacks names the configured packs this run could not resolve, in config order.
+func (s *hostApplySurvey) UnresolvedPacks() []unresolvedPack {
+	if s == nil {
+		return nil
+	}
+	return s.unresolvedPacks
 }
 
 func (s *hostApplySurvey) mark(set *map[string]bool, key string) {

@@ -9,7 +9,7 @@ package run
 // test were both real while `yolo run` still refused the launch. A test that pins the
 // callee while the call site is unpinned is not a test (AGENTS.md, Testing), and the
 // question to ask of one is whether it fails if the call site is deleted. Delete
-// `entry.Slug()` or the `o.Getenv` thread from packRoot and this goes red; the packsrc
+// `entry.Slug()` or the `o.Getenv` thread from PackRoot and this goes red; the packsrc
 // test alone would not.
 //
 // No container is involved: staging is host-side work, and a fake YOLO_PACK_ROOT is

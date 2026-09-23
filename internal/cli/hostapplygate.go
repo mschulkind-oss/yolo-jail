@@ -23,9 +23,14 @@ package cli
 //
 // # What it never does
 //
-//   - It does not add a second confirmation. `confirmHostLosses` and the skills/briefing
-//     adoption gates still own the one-way doors, reached through the ordinary applyHost when
-//     this gate applies (§7).
+//   - It does not add a second confirmation, and it answers none of the apply's. The one-way
+//     doors stay `confirmHostLosses` and the skills/briefing adoption, retire and dependency
+//     gates (§7). The one this hook reaches is the first-apply entry loss, shown on a TTY
+//     (hostApplyGateApplyInteractive). Every other question means the hook renders nothing
+//     and names `yolo host apply --assert`. Its unattended apply is buffered, so a question
+//     there is one nobody can see.
+//   - It never applies an incomplete pack set. A configured pack that does not resolve means
+//     nothing is rendered, the same no-half-states rule `yolo host apply --assert` refuses by.
 //   - It does not run in a jail, at all. `render.Host` targets the invoking user's real home
 //     and paths.Home() in a jail is /home/agent, so there is no host home in here to be stale.
 //   - It does not touch `yolo run` or `yolo host apply`. Both take
@@ -189,6 +194,19 @@ func hostApplyGate(errw io.Writer, stdin io.Reader, bin string) bool {
 	defer lock.Close()
 
 	survey, why := surveyHostApplyWithinBudget()
+	// AN INCOMPLETE PACK SET RENDERS NOTHING (no half states — the same rule `yolo host apply
+	// --assert` refuses by). Checked before cannot-determine, because the observe pass DID
+	// answer: it named the packs it could not resolve, and that is the loud line the user needs.
+	//
+	// THE PROGRAM STILL LAUNCHES, which is this hook's contract for a problem found by the
+	// observe pass (a pack-authoring or pack-set fault is `yolo check`'s to report and never a
+	// reason to stop a launch, §4.4). Launching is not a half state: nothing is written, so the
+	// home holds exactly what the last apply that ran left in it — a consistent render of an
+	// older pack set, not a partial render of this one.
+	if survey != nil && len(survey.UnresolvedPacks()) > 0 {
+		reportHostApplyGateIncompleteSet(errw, bin, survey.UnresolvedPacks())
+		return true
+	}
 	if survey == nil {
 		// CANNOT DETERMINE (§4.4): a malformed pack manifest, an unreadable home, an
 		// unresolvable file:// pack, a budget overrun. The predicate has no answer, so there is
@@ -201,6 +219,23 @@ func hostApplyGate(errw io.Writer, stdin io.Reader, bin string) bool {
 	if !survey.Changes() {
 		// The common case, and the one R3 is about: silence. A freshly-applied home must
 		// prompt not at all, ever, until something actually changes.
+		return true
+	}
+
+	// AN APPLY THAT WOULD ASK SOMETHING IS NOT RUN FROM HERE. The auto-apply below runs with its
+	// report buffered, so any question it asked would be one the user cannot see: measured, that
+	// was a launch hanging after the banner on a TTY (Enter meant no, a blind `y` moved a skill),
+	// a silent "no" off one followed by a "synchronized" line for work that did not happen, and a
+	// declined install of ANOTHER pack's missing binary refusing this program's launch. So the
+	// observe pass lists every question an --assert would ask (PendingDecisions), and if there is
+	// any, NOTHING is rendered, the questions are printed where the user can see them, and the
+	// program launches against the render already in the home.
+	//
+	// Ahead of the first-apply MCP branch below on purpose: that branch runs a VISIBLE apply,
+	// and a visible apply would still put these questions — including an install offer for a
+	// program this launch is not — between the user and the program they asked for.
+	if decisions := survey.PendingDecisions(); len(decisions) > 0 && !surveyOnlyNeedsLossPrompt(survey) {
+		reportHostApplyGateDecisions(errw, bin, decisions)
 		return true
 	}
 
@@ -222,8 +257,54 @@ func hostApplyGate(errw io.Writer, stdin io.Reader, bin string) bool {
 
 	// ZERO-PROMPT AUTO-APPLY (docs/reference/host-apply-staleness.md OQ-2).
 	// For all routine synchronizations under assert and own, apply changes automatically
-	// without prompting, emit a single stderr notice, and launch immediately.
-	return hostApplyGateApply(errw, stdin, bin, home, survey)
+	// without prompting, emit a single stderr notice, and launch immediately. The user's stdin
+	// is NOT handed down: nothing above left a question for this apply to ask.
+	return hostApplyGateApply(errw, bin, home)
+}
+
+// surveyOnlyNeedsLossPrompt reports whether the one pending decision is the first-apply MCP
+// loss — the question this hook already surfaces itself (surveyNeedsPrompt), visibly on a TTY
+// and as a refusal off one.
+func surveyOnlyNeedsLossPrompt(survey *hostApplySurvey) bool {
+	return surveyNeedsPrompt(survey) && len(survey.PendingDecisions()) == 1
+}
+
+// reportHostApplyGateIncompleteSet is the hook's refusal to render an incomplete pack set: every
+// unresolvable pack with the resolver's reason, and the remedy.
+func reportHostApplyGateIncompleteSet(errw io.Writer, bin string, unresolved []unresolvedPack) {
+	fmt.Fprintf(errw, "yolo host: did not render your host configuration — %d configured %s "+
+		"could not be resolved, and an incomplete pack set is never applied:\n",
+		len(unresolved), plural(len(unresolved), "pack", "packs"))
+	for _, u := range unresolved {
+		fmt.Fprintf(errw, "  ✗ %s: %s\n", u.Name, u.Reason)
+	}
+	for _, g := range unresolvedPackGroups(unresolved) {
+		fmt.Fprintf(errw, "  → %s\n", g.Remedy)
+	}
+	fmt.Fprintf(errw, "  Launching %s against the configuration your last apply left in place.\n", bin)
+}
+
+// reportHostApplyGateDecisions is the hook's refusal to run an apply that would ask something:
+// the questions, and the one command that asks them where the user can answer.
+func reportHostApplyGateDecisions(errw io.Writer, bin string, decisions []string) {
+	fmt.Fprintf(errw, "yolo host: did not render your host configuration — applying it needs "+
+		"a decision this launch cannot ask you:\n")
+	for _, d := range decisions {
+		fmt.Fprintf(errw, "  • %s\n", d)
+	}
+	fmt.Fprintf(errw, "  → yolo host apply --assert   (shows each question and asks it), then "+
+		"launch again.\n")
+	fmt.Fprintf(errw, "  Launching %s against the configuration your last apply left in place.\n", bin)
+}
+
+// noPromptStdin is the stdin the hook's buffered apply reads. The hook only runs an apply the
+// observe pass found no question in, so a read here means the two disagreed: it answers NO
+// (promptYesNo's EOF contract, so nothing is taken over) and records that it was asked.
+type noPromptStdin struct{ asked bool }
+
+func (r *noPromptStdin) Read([]byte) (int, error) {
+	r.asked = true
+	return 0, io.EOF
 }
 
 // surveyNeedsPrompt reports whether the apply would hit confirmHostLosses: a first-ever
@@ -247,9 +328,28 @@ func hostApplyGateApplyInteractive(errw io.Writer, stdin io.Reader, bin string) 
 	return true
 }
 
-func hostApplyGateApply(errw io.Writer, stdin io.Reader, bin, home string, survey *hostApplySurvey) bool {
+// hostApplyGateApply is the unattended auto-apply. Its report is buffered — shown only if it
+// fails — and it reads no terminal: noPromptStdin stands in, because a question asked into a
+// buffer is a question nobody can see.
+//
+// "synchronized" lists what THIS apply's own survey says it changed, never the observe pass's
+// prediction: the two differ exactly when something was declined, and a notice naming work
+// that did not happen — on every launch, since the home never converges — is the measured
+// defect.
+func hostApplyGateApply(errw io.Writer, bin, home string) bool {
 	var buf bytes.Buffer
-	if rc := applyHost(&buf, &buf, false, true, stdin); rc != 0 {
+	stdin := &noPromptStdin{}
+	wrote := &hostApplySurvey{}
+	rc := applyHostSurveyed(&buf, &buf, false, true, stdin, wrote)
+	if stdin.asked {
+		// The pre-check missed a question: a bug, and reported as one rather than hidden.
+		io.Copy(errw, &buf)
+		fmt.Fprintf(errw, "yolo host: the host apply asked a question this launch could not "+
+			"show you (answered no) — run `yolo host apply --assert` to answer it. Launching %s.\n",
+			bin)
+		return true
+	}
+	if rc != 0 {
 		io.Copy(errw, &buf)
 		fmt.Fprintf(errw, "yolo host: the host apply did not complete (rc=%d, see above) — %s "+
 			"was not launched.\n"+
@@ -257,7 +357,7 @@ func hostApplyGateApply(errw io.Writer, stdin io.Reader, bin, home string, surve
 			rc, bin)
 		return false
 	}
-	reportHostApplyGateSynchronized(errw, home, survey)
+	reportHostApplyGateSynchronized(errw, home, wrote)
 	return true
 }
 
@@ -294,7 +394,8 @@ func reportHostApplyGateSynchronized(errw io.Writer, home string, survey *hostAp
 // having shipped five times.
 //
 // A NON-ZERO rc IS CANNOT-DETERMINE, not a change: an observe pass exits non-zero for an inert
-// pack, an unresolvable config-overlay, a doubly-owned config surface. Every one of those is a
+// pack, an unresolvable config-overlay, a doubly-owned config surface. The one exception is a
+// survey naming an unresolvable PACK, which is returned whatever the rc so the hook can name it. Every one of those is a
 // pack-authoring problem `yolo check` owns, and none of them is something a launch may stop
 // over.
 //
@@ -315,10 +416,12 @@ func surveyHostApplyWithinBudget() (*hostApplySurvey, string) {
 	}()
 	select {
 	case got := <-done:
-		if got.rc != 0 {
+		if got.rc != 0 && len(got.survey.UnresolvedPacks()) == 0 {
 			return nil, fmt.Sprintf("`yolo host apply` reports a problem of its own (rc=%d); "+
 				"run `yolo check`", got.rc)
 		}
+		// An unresolvable pack is returned even under a non-zero rc: it is the one finding the
+		// caller reports by name rather than as cannot-determine.
 		return got.survey, ""
 	case <-time.After(hostApplyGateBudget):
 		return nil, fmt.Sprintf("the check did not finish within %s", hostApplyGateBudget)

@@ -233,7 +233,7 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 	// it is what a lockfile means everywhere else — but it is correctness-of-meaning, not a
 	// gate, and it is tracked as OQ-LP8 rather than smuggled back in here.
 	for _, entry := range configured {
-		root, err := packRoot(entry, o.Getenv)
+		root, err := PackRoot(entry, o.Getenv)
 		if err != nil {
 			return "", nil, nil, err
 		}
@@ -762,7 +762,7 @@ func packLoopholeModules(loaded []*packload.Pack) []loopholes.PackModule {
 // has to be pushed IN from a package that can. internal/cli/run is linked into `yolo`
 // (internal/cli imports it), which is what makes one registration cover every subcommand.
 //
-// It resolves from the STORE and is strictly OFFLINE, like packRoot: a `yolo check` must not
+// It resolves from the STORE and is strictly OFFLINE, like PackRoot: a `yolo check` must not
 // depend on a reachable git server, and an unresolvable pack contributes nothing rather than
 // failing the command. The staged record supersedes it the moment staging runs, because
 // staging is the authoritative view — it is what the jail actually mounts, `only`/`exclude`
@@ -817,7 +817,7 @@ func resolvePackLoopholeModules() []loopholes.PackModule {
 		// thread one from, so the store reads the real environment — which is exactly
 		// right, since the staged tree it looks for is the one this process is running
 		// against.
-		root, rootErr := packRoot(entry, nil)
+		root, rootErr := PackRoot(entry, nil)
 		if rootErr != nil {
 			continue // never fetched, moved remote, offline — not a deactivation signal
 		}
@@ -895,7 +895,7 @@ func resolvePackSupersessions() []loopholes.PackSupersession {
 				continue
 			}
 		} else {
-			root, rootErr := packRoot(entry, nil) // read-only surface; see above
+			root, rootErr := PackRoot(entry, nil) // read-only surface; see above
 			if rootErr != nil {
 				continue
 			}
@@ -941,7 +941,7 @@ func (o *Options) packSkillSourceDirs(p *packload.Pack) []jailcontent.PackSkillS
 // fetched pack whose mirror cannot be read this launch (offline, moved remote, never
 // installed) is still CONFIGURED, and pruning it would silently discard content the user
 // asked for — on every offline launch, no less. Resolution failure is reported later by
-// packRoot as a fatal error naming `yolo pack install`; it is emphatically not a
+// PackRoot as a fatal error naming `yolo pack install`; it is emphatically not a
 // deactivation signal.
 //
 // embedded names are excluded because an embedded pack does not live at <root>/<slug> at
@@ -1000,7 +1000,7 @@ func pruneDroppedPackStaging(stagingRoot string, live map[string]bool) ([]string
 	return pruned, nil
 }
 
-// packRoot resolves a pack entry to a directory on disk.
+// PackRoot resolves a pack entry to a directory on disk.
 //
 // LAUNCH IS STRICTLY OFFLINE (C5): it resolves from the store and never fetches. A
 // jail start must not depend on a reachable git server, and a missing pin must be a
@@ -1018,7 +1018,13 @@ func pruneDroppedPackStaging(stagingRoot string, live map[string]bool) ([]string
 //
 // getenv is threaded for testability and may be nil (the store then reads the real
 // environment, which is what a launch wants).
-func packRoot(entry config.PackEntry, getenv func(string) string) (string, error) {
+//
+// EXPORTED FOR THE HOST NOTCH, which must resolve a configured pack the way a launch does
+// rather than by a second rule: `yolo host apply`, `yolo check-deps` and the capture
+// target all read packs through internal/cli's resolveConfiguredPack, which calls this.
+// Before it did, that loader returned nothing for every git pack, so a pack the user had
+// installed was skipped at the host with advice to install it.
+func PackRoot(entry config.PackEntry, getenv func(string) string) (string, error) {
 	addr, err := packsrc.Parse(entry.Source)
 	if err != nil {
 		return "", fmt.Errorf("packs: %s: %w", entry.Name, err)

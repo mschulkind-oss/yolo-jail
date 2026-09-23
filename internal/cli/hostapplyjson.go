@@ -68,8 +68,11 @@ type hostApplyDoc struct {
 	InapplicableKinds []string `json:"inapplicable_kinds"`
 	// FailedPacks are the packs whose render errored. A blocker that decides the outcome, and
 	// the reason every count below may be missing a pack's worth of surfaces.
-	FailedPacks []string           `json:"failed_packs"`
-	Counts      hostApplyDocCounts `json:"counts"`
+	FailedPacks []string `json:"failed_packs"`
+	// UnresolvedPacks are the configured packs this run could not resolve, each with the
+	// resolver's reason. Non-empty means outcome `refused`: an --assert writes nothing.
+	UnresolvedPacks []unresolvedPack   `json:"unresolved_packs"`
+	Counts          hostApplyDocCounts `json:"counts"`
 	// Destinations are the ones an --assert WOULD CHANGE, with the tier each states. The
 	// settled ones are counted rather than listed, for the same reason the text report counts
 	// them: the survey holds a tally, not a list (70 of the measured home's 76 "changes" were
@@ -178,6 +181,7 @@ func buildHostApplyDoc(s *hostApplySurvey) hostApplyDoc {
 		// zero-packs run emit a document at all rather than nothing (machine consumers).
 		InapplicableKinds: emptyIfNil(s.InapplicableKinds()),
 		FailedPacks:       emptyIfNil(s.FailedPacks()),
+		UnresolvedPacks:   append([]unresolvedPack{}, s.UnresolvedPacks()...),
 		Destinations:      []hostApplyDocDestination{},
 		Groups:            []hostApplyDocGroup{},
 	}

@@ -122,8 +122,8 @@ func hostRevert(out, errw io.Writer, color bool, write bool) int {
 // surface its OWNER declares — so without the shipped set a revert after a `packs: []` edit
 // would find no surfaces and report a clean home while every key yolo wrote was still in it.
 //
-// An unresolvable pack (a fetched one with an offline remote) contributes nothing and is not
-// an error: its keys keep their record and the next revert takes them.
+// An unresolvable pack (a git pack the pack store does not have) contributes nothing and is not
+// an error: its keys keep their record and the next revert takes them. It is named on errw.
 func hostRevertCandidates(errw io.Writer) []*packload.Pack {
 	var loaded []*packload.Pack
 	entries, err := config.LoadPacks(nil)
@@ -133,9 +133,16 @@ func hostRevertCandidates(errw io.Writer) []*packload.Pack {
 		fmt.Fprintf(errw, "yolo host apply --revert: reading `packs`: %v\n", err)
 	}
 	for _, e := range entries {
-		if p := packForCheckDeps(e); p != nil {
-			loaded = append(loaded, p)
+		p, rerr := resolveConfiguredPack(e)
+		if rerr != nil {
+			// Named, not skipped: its keys keep their record (see above), and the user should
+			// know why this revert left them.
+			fmt.Fprintf(errw, "yolo host apply --revert: pack %s could not be resolved, so the "+
+				"keys only it declares stay recorded for the next revert: %s\n", e.Name,
+				newUnresolvedPack(e.Name, rerr).Reason)
+			continue
 		}
+		loaded = append(loaded, p)
 	}
 	return append(loaded, embeddedPacksForPrune()...)
 }

@@ -692,6 +692,16 @@
     unmanaged host keys:
 
       nothing would change      silent; the agent starts as usual.
+      a configured pack cannot  renders NOTHING, names each pack with why and the
+      be resolved               remedy (`yolo pack install` for a git pack), and the
+                                agent launches on the render already in place: an
+                                incomplete pack set is never applied.
+      an apply would ask        renders NOTHING, prints each question (a skills or
+      something                 briefing adoption, a dropped pack's retire, a missing
+                                declared dependency) and `yolo host apply --assert`
+                                to answer them, and the agent launches.  The launch
+                                never asks through a hidden prompt, and another
+                                pack's missing tool never stops this agent.
       safe managed changes      auto-applied silently; notice printed, agent launches.
       first apply overwriting
       unmanaged keys, terminal  shows what would change and prompts for confirmation.

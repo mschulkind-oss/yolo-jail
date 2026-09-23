@@ -1038,7 +1038,7 @@ func TestMoveLegacyLocalPackBriefingRefusesWhileAManifestNamesTheLegacyFile(t *t
 }
 
 // loadDiscardingProblems writes a pack tree and loads it the way `yolo host apply` loads a local
-// pack (packForCheckDeps): through LoadDir, with its problems DISCARDED. The host-notch guards
+// pack (internal/cli's resolveConfiguredPack): through LoadDir, with its problems DISCARDED. The host-notch guards
 // below exist for exactly that caller — the launch would have refused each of these manifests.
 func loadDiscardingProblems(t *testing.T, name, manifest string, files map[string]string) *packload.Pack {
 	t.Helper()

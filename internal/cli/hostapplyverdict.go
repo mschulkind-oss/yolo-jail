@@ -86,6 +86,10 @@ func hostApplyOutcome(s *hostApplySurvey, write bool) string {
 	switch {
 	case s.ZeroPacks():
 		return outcomeNoPacks
+	case len(s.UnresolvedPacks()) > 0:
+		// FIRST AMONG THE BLOCKERS: an --assert over an incomplete pack set writes nothing at all
+		// (no half states), so no count below describes anything it would do.
+		return outcomeRefused
 	case len(s.FailedPacks()) > 0:
 		return outcomeIncomplete
 	case !write && len(s.MissingDeps()) > 0:
@@ -112,6 +116,9 @@ const (
 	// difference is the next action: one is "your config names nothing", the other "your
 	// home already matches what it names".
 	outcomeNoPacks = "no_packs"
+	// outcomeRefused — a configured pack could not be resolved, so an --assert refuses the
+	// whole apply and writes nothing (dry run only: an --assert refuses before the verdict).
+	outcomeRefused = "refused"
 	// outcomeIncomplete — a pack failed to render, so the counts are missing its surfaces.
 	outcomeIncomplete = "incomplete"
 	// outcomeBlocked — a declared dependency is missing (dry run only: an --assert with one
@@ -145,6 +152,16 @@ func hostApplyVerdict(s *hostApplySurvey, write bool) string {
 		}
 		return fmt.Sprintf("No packs configured — nothing to apply; %d destination(s) "+
 			"would be retired.", n)
+	case outcomeRefused:
+		names := unresolvedNames(s.UnresolvedPacks())
+		if write {
+			return fmt.Sprintf("Refused — %d configured %s could not be resolved (%s); nothing "+
+				"was written.", len(names), plural(len(names), "pack", "packs"),
+				strings.Join(names, ", "))
+		}
+		return fmt.Sprintf("An --assert would REFUSE: %d configured %s could not be resolved "+
+			"(%s), and an incomplete pack set is never applied — nothing would be written.",
+			len(names), plural(len(names), "pack", "packs"), strings.Join(names, ", "))
 	case outcomeIncomplete:
 		failed := s.FailedPacks()
 		if write {

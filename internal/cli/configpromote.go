@@ -317,11 +317,11 @@ type promotePlan struct {
 	// overlay held nothing: "no captures here" is an answer, and §5.6 requires it be said
 	// rather than left as silence.
 	Surfaces []promoteSurface
-	// Unresolved names configured packs this run could not read (a git pack needing `yolo
-	// pack install`). A pack it could not read might be the one whose config-overlay
-	// outranks the destination, so a precedence answer computed without it is incomplete
-	// and says so.
-	Unresolved []string
+	// Unresolved names configured packs this run could not read (a git pack the pack store
+	// does not have), each with why. A pack it could not read might be the one whose
+	// config-overlay outranks the destination, so a precedence answer computed without it is
+	// incomplete and says so.
+	Unresolved []unresolvedPack
 }
 
 // promoteSurface is one surface's classified keys.
@@ -628,7 +628,7 @@ type promoteFold struct {
 // a pack pulled in through `needs`, which run/packs.go appends AFTER the closure runs. No
 // shipped pack in that position declares a config-overlay today, so this changes no answer
 // yet; leaving it out would make the check silently wrong on the day one does.
-func loadPromoteFold() (promoteFold, []string) {
+func loadPromoteFold() (promoteFold, []unresolvedPack) {
 	packs, unresolved := configuredPacksForInspection()
 	fold := promoteFold{order: map[string]int{}, afterConfigured: len(packs)}
 	byName := map[string]*packload.Pack{}
@@ -703,9 +703,8 @@ func (f promoteFold) outrankedBy(s manifest.Surface, key string, dest promoteDes
 // writePromoteReport prints the human view: one block per surface, one line per key.
 func writePromoteReport(pr richtext.Printer, plan promotePlan) {
 	if len(plan.Unresolved) > 0 {
-		pr.Printf("[yellow]⚠ not inspected (fetched packs need `yolo pack install`): %s — a "+
-			"config-overlay they declare could outrank this promotion.[/yellow]",
-			strings.Join(plan.Unresolved, ", "))
+		pr.Printf("[yellow]⚠ not inspected — could not be resolved: %s. A config-overlay "+
+			"they declare could outrank this promotion.[/yellow]", describeUnresolved(plan.Unresolved))
 	}
 	for _, ps := range plan.Surfaces {
 		pr.Printf("[bold]# %s/%s → %s[/bold]", ps.Surface.Agent, ps.Surface.Name,
@@ -808,7 +807,7 @@ func buildPromotePlanDoc(plan promotePlan) promotePlanDoc {
 		Agent:           plan.Agent,
 		Destination:     plan.Dest.label(),
 		DestinationPath: plan.Dest.path,
-		Unresolved:      plan.Unresolved,
+		Unresolved:      unresolvedNames(plan.Unresolved),
 		Surfaces:        []promotePlanDocSfc{},
 	}
 	for _, ps := range plan.Surfaces {

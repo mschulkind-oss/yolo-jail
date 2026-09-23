@@ -361,7 +361,7 @@ func TestLazyResolverIsSilentAndEmptyOnAnUnresolvablePack(t *testing.T) {
 	home := packHome(t)
 	loopholes.ResetPackModules()
 	t.Cleanup(loopholes.ResetPackModules)
-	// A git pack that was never fetched: packRoot fails, and `yolo check` must not.
+	// A git pack that was never fetched: PackRoot fails, and `yolo check` must not.
 	writeUserPacks(t, home, `["git+ssh://git@example.invalid/org/repo?ref=main"]`)
 
 	if got := resolvePackLoopholeModules(); len(got) != 0 {

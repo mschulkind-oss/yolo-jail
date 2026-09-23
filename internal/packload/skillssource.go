@@ -49,10 +49,11 @@ import (
 // The containment check is the same one hostBriefingProse makes, for the same reason and with
 // the same reach: `from` is manifest data, packdecl.Validate rejects ".." at the authoring
 // boundary, but a caller may hold a pack whose Decode problems it discarded — `yolo host apply`
-// reads a local pack through packForCheckDeps, which does exactly that. It is lexical, so it
-// bounds a declared path and not a symlink inside the tree; on the jail path packstage has
-// already refused escaping symlinks, and on the host path an unstaged tree is only ever a
-// pack the user pointed at themselves.
+// reads a pack through resolveConfiguredPack (internal/cli), which does exactly that. It is
+// lexical, so it bounds a declared path and not a symlink inside the tree; on the jail path
+// packstage has already refused escaping symlinks, and on the host path an unstaged tree is
+// either a local pack the user pointed at themselves or a fetched one that resolver has run
+// through packstage's own refusal before reading it in place.
 //
 // A DESTINATION (`agent` set) SOURCES NOTHING and returns "", "" (docs/reference/pack-system.md#briefing-p5):
 // an agent pack's `{agent, into}` names where content lands, and reading the pack's own skills/

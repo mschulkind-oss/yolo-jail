@@ -320,7 +320,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		}
 		if prc := pruneDroppedPackOutput(pr, out, stdin, packload.Embedded(), empty,
 			home, stamp, write,
-			planOverlayKeyRetirement(pr, packload.Embedded(), empty, nil, home)); prc != 0 {
+			planOverlayKeyRetirement(pr, packload.Embedded(), empty, nil, home), survey); prc != 0 {
 			rc = prc
 		}
 		// Wrappers too, and for this branch's own stated reason: with no pack configured
@@ -373,30 +373,61 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// active set is known — a pack dropped from config never appears in `entries` at all.
 	active := map[string]bool{}
 	// configured is every pack the config NAMES, resolvable or not. The retire pass below
-	// keys on this rather than on `active`, because a fetched pack with an unreachable remote
-	// resolves to nothing and would otherwise look dropped.
+	// keys on this rather than on `active`, because a pack that does not resolve this run
+	// would otherwise look dropped.
 	configured := map[string]bool{}
 	// resolvedAll is whether `active` and `configured` agree — i.e. whether the pack set is
 	// COMPLETE this run. The briefing retire needs it for the same reason the skills one keys on
 	// `configured`: since §6a a briefing destination is a whole yolo-owned file, so archiving it
 	// on a bad guess costs the user a trip to the state dir rather than self-healing on the next
 	// reachable launch (which is what a delimited block did).
+	//
+	// ONLY THE DRY RUN CAN REACH THE RETIRE PASSES WITH IT FALSE any more: an --assert over an
+	// incomplete set is refused below, before anything is written. The guards stay, because the
+	// dry run still walks those passes (and must not report as orphaned what an unresolved pack
+	// owns), and because a guard that is only unreachable by an ordering is one reorder from live.
 	resolvedAll := true
 	var loaded []*packload.Pack
+	var unresolved []unresolvedPack
 	// Resolve the packs FIRST, before rendering any of them, because config-overlay is
 	// cross-pack: an overlay in pack B targets a surface pack A owns, so the per-pack loop
 	// below cannot discover it. Two passes over `entries` is the price of the one thing the
 	// kind exists to do (docs/reference/pack-system.md §6).
+	//
+	// THE LAUNCH'S RESOLUTION (resolveConfiguredPack → run.PackRoot): embedded from the binary,
+	// local from its path, git OFFLINE from the pack store. No network — `yolo pack install` is
+	// the one verb that fetches.
 	for _, e := range entries {
 		configured[e.Name] = true
-		p := packForCheckDeps(e) // same loader: embedded or local; git needs `pack install`
-		if p == nil {
-			pr.Printf("[dim]%s: not resolvable offline (fetched packs need `yolo pack install`) — skipped[/dim]", e.Name)
+		p, rerr := resolveConfiguredPack(e)
+		if rerr != nil {
+			// LOUD, and not a skip. It used to be a dim "— skipped" line, and the rest of the set
+			// was applied without the pack: a half state in a real home, reported as a footnote.
+			u := newUnresolvedPack(e.Name, rerr)
+			pr.Printf("  [bold red]pack       cannot be resolved[/bold red] — %s: %s", u.Name, u.Reason)
+			unresolved = append(unresolved, u)
+			survey.noteUnresolved(u)
 			resolvedAll = false
 			continue
 		}
 		active[p.Name] = true
 		loaded = append(loaded, p)
+	}
+	// NO HALF STATES (maintainer ruling). An --assert renders the WHOLE configured set or
+	// nothing: one pack missing from the render means its skills, prose and config keys are
+	// absent from a home whose other packs were applied around the hole — and the retire passes
+	// cannot tell that hole from a pack the user dropped. So the refusal is here, after
+	// resolution and before the first write, like the collision refusals below.
+	//
+	// The dry run is NOT stopped. It is information (OQ-RO5): it walks the resolvable part, lists
+	// the unresolvable packs as a tier-3 blocker group, and ends in a verdict saying an --assert
+	// would refuse.
+	if write && len(unresolved) > 0 {
+		printRemedyGroups(pr, unresolvedPackGroups(unresolved))
+		pr.Printf("[bold red]host apply: refused — %d configured %s could not be resolved, and an "+
+			"incomplete pack set is never applied. Nothing was written.[/bold red]",
+			len(unresolved), plural(len(unresolved), "pack", "packs"))
+		return 1
 	}
 	// reloadPacks re-runs exactly the resolution above. The briefing migration CREATES the local
 	// pack (it moves the user's prose into ~/.config/yolo-jail/local/briefing/local.md), and the
@@ -414,9 +445,13 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		}
 		var out []*packload.Pack
 		for _, e := range fresh {
-			if p := packForCheckDeps(e); p != nil {
-				out = append(out, p)
+			p, rerr := resolveConfiguredPack(e)
+			if rerr != nil {
+				// ALL OR NOTHING here too: a set that resolved a moment ago and now does not is
+				// not one to compose a destination from, so keep the already-resolved set.
+				return nil
 			}
+			out = append(out, p)
 		}
 		out, _ = packload.ResolveDestinations(out)
 		return out
@@ -764,7 +799,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// not `active`, for the same offline-remote reason the path half uses it.
 	keys := planOverlayKeyRetirement(pr, candidates, configured, overlays, home)
 	if prc := pruneDroppedPackOutput(
-		pr, out, stdin, candidates, configured, home, stamp, write, keys); prc != 0 {
+		pr, out, stdin, candidates, configured, home, stamp, write, keys, survey); prc != 0 {
 		rc = prc
 	}
 

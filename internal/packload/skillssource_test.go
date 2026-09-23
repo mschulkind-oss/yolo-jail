@@ -94,7 +94,7 @@ func TestSkillsSourceDefaultsToConvention(t *testing.T) {
 // An EMPTY `from` resolves to the convention too. `from` stays REQUIRED by
 // packdecl.Validate (that is the documented schema and this fix does not widen it), so an
 // empty one is only reachable from a manifest whose Decode problems a caller discarded —
-// which `yolo host apply` does, via packForCheckDeps. Defaulting rather than resolving to the
+// which `yolo host apply` does, via resolveConfiguredPack. Defaulting rather than resolving to the
 // pack ROOT is what keeps that path from copying the whole pack tree in as skills.
 func TestSkillsSourceEmptyFromResolvesToConvention(t *testing.T) {
 	p := skillsPack(t, "", "skills")

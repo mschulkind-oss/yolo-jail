@@ -39,6 +39,7 @@ package cli
 //     which is composed last and therefore holds exactly the precedence that layer used to.
 
 import (
+	"fmt"
 	"io"
 	"path/filepath"
 	"strings"
@@ -201,6 +202,10 @@ func applyHostSkills(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	}
 	if len(adoptions) > 0 {
 		if !write {
+			// A QUESTION THE --assert WILL ASK, recorded for the launch hook: it must not run an
+			// apply that prompts (hostApplySurvey.PendingDecisions).
+			survey.noteDecision(fmt.Sprintf("%d skill %s in your agent dirs would move into "+
+				"your local pack", len(adoptions), plural(len(adoptions), "directory", "directories")))
 			// OBSERVE reports the adoption and the migration WITHOUT prompting — which is how the
 			// user learns what the write would take over before any prompt exists.
 			//

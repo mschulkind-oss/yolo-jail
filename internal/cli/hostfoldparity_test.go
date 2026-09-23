@@ -90,7 +90,7 @@ func TestHostFoldMatchesTheJailFoldWinner(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeFoldParityPacks(t, home)
 
-	packs, err := loadedHostPacks()
+	packs, _, err := loadedHostPacks()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestHostFoldParityWithoutAProfile(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeFoldParityPacks(t, home)
 
-	packs, err := loadedHostPacks()
+	packs, _, err := loadedHostPacks()
 	if err != nil {
 		t.Fatal(err)
 	}
