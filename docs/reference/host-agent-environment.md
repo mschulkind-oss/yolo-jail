@@ -39,9 +39,9 @@ and why "just use wrappers for everything" does not collapse the problem.
 | :--- | :--- |
 | The `yolo host` verb tree and the exec half | `internal/cli` (`hostMain`, `hostExec`, `hostEnv`, `hostWrappers`) |
 | Environment composition, and the resolution order | `internal/cli` (`host.go`: the pack env fold, `hostScopedEnvSources`) |
-| Wrapper generation, contents, and the plan | `internal/hostwrap` (`Body`, `Bins`, `Plan`, `OnPath`) |
+| Wrapper generation, contents, and the plan | `internal/hostwrap` (`Body`, `Bins`, `Plan`, `OnPath`, `Precedence`) |
 | The apply stage that writes them, and `--shell-init` | `internal/cli` (`applyHostWrappers`, `runShellInit`, `setHostWrappers`) |
-| The every-run `PATH` observation | `internal/cli/check` (`section_hostwrappers.go`) |
+| The every-run `PATH`, precedence and completeness observations | `internal/cli/check` (`section_hostwrappers.go`) |
 | Where the directory lives | `internal/paths` (`WrapDir`, `WrapDirUnder`, `GeneratedBinDir`) |
 
 **Reads with:** [`providers.md`](providers.md) (what a provider declares, and which agent reads
@@ -241,7 +241,21 @@ users. It emits POSIX `export` lines by default, with a JSON format for tooling.
 - **`yolo check` carries the `PATH` observation, every run**, because its job is "what is the
   state of my environment" and it is typically run from a fresh shell. A generated wrapper
   directory that nothing on `PATH` reaches is an inert-configuration warning, in the
-  summary-counted channel — and its remedy **prepends**.
+  summary-counted channel — and its remedy **prepends**. Three more observations share that
+  section and that channel, each a state `apply` cannot see:
+  - **Precedence — on `PATH` is not winning.** Each wrapper's name is resolved the way a shell
+    resolves it (first match wins, compared by file identity so a symlinked spelling of the
+    directory still counts), and a wrapper something earlier on `PATH` shadows is a warning
+    naming the binary that wins and the prepend line that fixes it. It is the
+    [Prepend, not append](#the-wrapper-directory) rule, observed.
+  - **Completeness.** A program a selected pack installs with no wrapper — a pack added since
+    the last apply — is a warning naming it. Such a program never passes the
+    [launch gate](host-apply-staleness.md#the-launch-gate) (the re-check `yolo host --` runs
+    before exec'ing), so it is the one launch that never brings the host up to date by itself.
+  - **The launch gate's reachability.** `host_apply_on_launch` being on is reported as working
+    only when at least one wrapper wins on `PATH`. With no wrapper, the directory off `PATH`, or
+    every wrapper shadowed, no launch can reach the re-check, and the row warns and says why
+    rather than promising an automatic sync that cannot happen.
 - **`apply` does not refuse.** It also writes the Channel 1 surfaces, which work regardless;
   refusing the half that works because the other half is unwired would be the wrong gate.
 

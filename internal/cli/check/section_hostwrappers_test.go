@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
 // hostWrappersFixture sets up a temp HOME with a user config and (optionally) generated
@@ -93,8 +95,10 @@ func TestHostWrappersWarnsWhenNotOnPath(t *testing.T) {
 	o, r, buf := hostWrappersFixture(t, true, []string{"claude", "pi"}, "/bin:/usr/bin")
 	o.sectionHostWrappers(r)
 	out := buf.String()
-	if r.warned != 1 {
-		t.Errorf("warned = %d, want 1 (it must be summary-counted)", r.warned)
+	// TWO: this row, and the host_apply_on_launch row saying the automatic sync cannot fire
+	// with the directory off PATH (TestHostApplyOnLaunchRowWarnsWhenNoWrapperCanReachTheGate).
+	if r.warned != 2 {
+		t.Errorf("warned = %d, want 2 (it must be summary-counted)", r.warned)
 	}
 	if !strings.Contains(out, "[WARN]") {
 		t.Errorf("no WARN badge:\n%s", out)
@@ -117,9 +121,12 @@ func TestHostWrappersWarnsWhenNotOnPath(t *testing.T) {
 func TestHostWrappersPassesWhenOnPath(t *testing.T) {
 	o, r, buf := hostWrappersFixture(t, true, []string{"claude"}, "")
 	dir := wrapDirIn(t)
+	// An EMPTY temp dir ahead of the wrap dir, not /bin: precedence is observed now, and a
+	// host with a real /bin/claude would make this fixture's outcome depend on the machine.
+	ahead := t.TempDir()
 	o.Getenv = func(k string) string {
 		if k == "PATH" {
-			return "/bin:" + dir
+			return ahead + string(os.PathListSeparator) + dir
 		}
 		return ""
 	}
@@ -186,7 +193,9 @@ func TestHostApplyOnLaunchRowSaysItIsOffAndHowToLearn(t *testing.T) {
 // TestHostApplyOnLaunchRowDefaultsToOnWhenWrappersEnabled verifies that host_wrappers: true
 // defaults host_apply_on_launch to on without needing an explicit key.
 func TestHostApplyOnLaunchRowDefaultsToOnWhenWrappersEnabled(t *testing.T) {
-	o, r, buf := hostWrappersFixture(t, true, []string{"claude"}, "/bin")
+	// The wrap dir is on PATH: "synchronizes automatically" is a claim the row may only make
+	// when a wrapper can actually reach the gate.
+	o, r, buf := hostManagementFixture(t, `{"host_wrappers": true}`, []string{"claude"}, "<WRAP>")
 	o.sectionHostWrappers(r)
 	out := buf.String()
 	if !strings.Contains(out, "host_apply_on_launch is on") {
@@ -233,8 +242,9 @@ func TestHostApplyOnLaunchRowSaysItIsOn(t *testing.T) {
 func TestHostWrappersWarnsWhenOptedInButNothingGenerated(t *testing.T) {
 	o, r, buf := hostWrappersFixture(t, true, nil, "/bin")
 	o.sectionHostWrappers(r)
-	if r.warned != 1 {
-		t.Errorf("warned = %d, want 1:\n%s", r.warned, buf.String())
+	// TWO: this row, and the host_apply_on_launch row saying no wrapper exists to reach it.
+	if r.warned != 2 {
+		t.Errorf("warned = %d, want 2:\n%s", r.warned, buf.String())
 	}
 	if !strings.Contains(buf.String(), "yolo host apply") {
 		t.Errorf("the remedy does not name the command:\n%s", buf.String())
@@ -244,8 +254,9 @@ func TestHostWrappersWarnsWhenOptedInButNothingGenerated(t *testing.T) {
 func TestHostWrappersWarnsOnEmptyDir(t *testing.T) {
 	o, r, buf := hostWrappersFixture(t, true, []string{}, "/bin")
 	o.sectionHostWrappers(r)
-	if r.warned != 1 {
-		t.Errorf("warned = %d, want 1:\n%s", r.warned, buf.String())
+	// TWO: this row, and the host_apply_on_launch row saying no wrapper exists to reach it.
+	if r.warned != 2 {
+		t.Errorf("warned = %d, want 2:\n%s", r.warned, buf.String())
 	}
 }
 
@@ -278,10 +289,11 @@ func TestHostManagementRowWarnsWhenTheApplyCannotRun(t *testing.T) {
 	if !strings.Contains(out, `host_management is "`+mode+`"`) {
 		t.Errorf("the section never names the declared ownership contract:\n%s", out)
 	}
-	// TWO warns: this row, and the pre-existing not-on-PATH one. The count is the
-	// assertion that the row is summary-COUNTED rather than prose nobody tallies.
-	if r.warned != 2 {
-		t.Errorf("warned = %d, want 2 (host_management + not-on-PATH):\n%s", r.warned, out)
+	// THREE warns: this row, the pre-existing not-on-PATH one, and the host_apply_on_launch
+	// row saying the sync cannot fire with the dir off PATH. The count is the assertion that
+	// the row is summary-COUNTED rather than prose nobody tallies.
+	if r.warned != 3 {
+		t.Errorf("warned = %d, want 3 (host_management + not-on-PATH + gate):\n%s", r.warned, out)
 	}
 	if !strings.Contains(out, "refuses") {
 		t.Errorf("the row must say the apply refuses, which is what makes the "+
@@ -310,9 +322,9 @@ func TestHostManagementRowPassesUnderOwn(t *testing.T) {
 	if !strings.Contains(out, `host_management is "own"`) {
 		t.Errorf("the section never names the declared ownership contract:\n%s", out)
 	}
-	// ONE warn: the pre-existing not-on-PATH row alone.
-	if r.warned != 1 {
-		t.Errorf("warned = %d, want 1 (the not-on-PATH row only) — `own` renders, so nothing "+
+	// TWO warns: the not-on-PATH row and the gate row it makes unreachable — neither about `own`.
+	if r.warned != 2 {
+		t.Errorf("warned = %d, want 2 (not-on-PATH + gate) — `own` renders, so nothing "+
 			"about it makes the wrappers inert:\n%s", r.warned, out)
 	}
 	if strings.Contains(out, "not built yet") {
@@ -330,8 +342,9 @@ func TestHostManagementRowSaysAssertWhenUnset(t *testing.T) {
 	if !strings.Contains(out, `host_management is "assert"`) {
 		t.Errorf("an unset key must still report the contract it means:\n%s", out)
 	}
-	if r.warned != 1 {
-		t.Errorf("warned = %d, want 1 (only the pre-existing not-on-PATH row):\n%s",
+	// TWO: the not-on-PATH row and the gate row it makes unreachable — neither about assert.
+	if r.warned != 2 {
+		t.Errorf("warned = %d, want 2 (not-on-PATH + gate):\n%s",
 			r.warned, out)
 	}
 }
@@ -443,5 +456,209 @@ func TestHostManagementAssertStaysSilent(t *testing.T) {
 	if buf.Len() != 0 || r.warned != 0 || r.passed != 0 {
 		t.Errorf("assert must not derive wrappers — it is the unset default, so this would nag "+
 			"everyone:\n%s", buf.String())
+	}
+}
+
+// setPath points o's PATH at pathEnv, keeping every other variable empty (a host, not a jail).
+func setPath(o *Options, pathEnv string) {
+	o.Getenv = func(k string) string {
+		if k == "PATH" {
+			return pathEnv
+		}
+		return ""
+	}
+}
+
+// fakeProgram writes an executable named bin into a fresh temp dir and returns the dir. It is
+// a stand-in for a real agent binary ahead of the wrappers on PATH; nothing ever runs it.
+func fakeProgram(t *testing.T, bin string) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, bin), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// runPacksThenWrappers drives the two sections the way Check() does — sectionPacks first, on
+// the SAME Options — and returns only the wrappers section's report. Going through the real
+// sectionPacks is the point: the completeness row depends on the pack set sectionPacks hands
+// forward, so a test that injected the set would pass with the hand-off deleted.
+func runPacksThenWrappers(t *testing.T, o *Options) (*reporter, string) {
+	t.Helper()
+	var packsOut bytes.Buffer
+	pr := newReporter(&packsOut, false)
+	o.sectionPacks(pr, jsonx.NewOrderedMap())
+	if pr.failed > 0 {
+		t.Fatalf("the Packs section failed, so Check() would never reach the wrappers:\n%s",
+			packsOut.String())
+	}
+	var buf bytes.Buffer
+	r := newReporter(&buf, false)
+	o.sectionHostWrappers(r)
+	return r, buf.String()
+}
+
+// TestHostWrappersWarnsWhenASelectedProgramHasNoWrapper is the incomplete-set defect: a pack
+// added since the last apply installs a program with no wrapper, and the section used to
+// report "wrapper directory is on PATH (claude)" as a PASS while a dry run said a wrapper
+// would be added. A program with no wrapper never passes the launch gate, so it never
+// self-syncs — the one launch that most needs the gate is the one that skips it.
+func TestHostWrappersWarnsWhenASelectedProgramHasNoWrapper(t *testing.T) {
+	o, _, _ := hostManagementFixture(t, `{"host_wrappers": true, "packs": ["claude", "pi"]}`,
+		[]string{"claude"}, "<WRAP>")
+	r, out := runPacksThenWrappers(t, o)
+
+	if !strings.Contains(out, "1 program(s) have no wrapper: pi") {
+		t.Errorf("the missing program must be named, counted:\n%s", out)
+	}
+	if !strings.Contains(out, "yolo host apply --assert") || !strings.Contains(out, "yolo host -- pi") {
+		t.Errorf("the row must name both remedies (apply, or one gated launch):\n%s", out)
+	}
+	if r.warned != 1 {
+		t.Errorf("warned = %d, want 1 (completeness only — claude's wrapper wins):\n%s", r.warned, out)
+	}
+}
+
+// TestHostWrappersCompleteSetPasses: every selected program has a wrapper and each wins, so
+// nothing warns and the section says so.
+func TestHostWrappersCompleteSetPasses(t *testing.T) {
+	o, _, _ := hostManagementFixture(t, `{"host_wrappers": true, "packs": ["claude"]}`,
+		[]string{"claude"}, "<WRAP>")
+	r, out := runPacksThenWrappers(t, o)
+	if r.warned != 0 {
+		t.Errorf("a complete, winning wrapper set must not warn:\n%s", out)
+	}
+	if !strings.Contains(out, "wins for every wrapper (claude)") {
+		t.Errorf("the PASS must say the wrappers WIN, not merely that the dir is on PATH:\n%s", out)
+	}
+}
+
+// TestHostWrappersNamesTheSelectedProgramsWhenNoneAreGenerated: with the pack set known, the
+// "no wrappers yet" row stops guessing between two causes and names the programs.
+func TestHostWrappersNamesTheSelectedProgramsWhenNoneAreGenerated(t *testing.T) {
+	o, _, _ := hostManagementFixture(t, `{"host_wrappers": true, "packs": ["claude"]}`,
+		nil, "/bin")
+	_, out := runPacksThenWrappers(t, o)
+	if !strings.Contains(out, "(claude)") {
+		t.Errorf("the no-directory row must name the program it would wrap:\n%s", out)
+	}
+}
+
+// TestHostWrappersWarnsWhenAWrapperIsShadowed is the precedence defect: the wrap dir is on
+// PATH, but APPENDED, and a real `claude` ahead of it wins — the section used to PASS because
+// OnPath asks only "is the dir on PATH", never "does it win". The ruled rule is "Prepend, not
+// append" (docs/reference/host-agent-environment.md).
+func TestHostWrappersWarnsWhenAWrapperIsShadowed(t *testing.T) {
+	o, _, _ := hostManagementFixture(t, `{"host_wrappers": true}`, []string{"claude"}, "")
+	dir := wrapDirIn(t)
+	ahead := fakeProgram(t, "claude")
+	setPath(o, ahead+string(os.PathListSeparator)+dir)
+	var buf bytes.Buffer
+	r := newReporter(&buf, false)
+	o.sectionHostWrappers(r)
+	out := buf.String()
+
+	if !strings.Contains(out, "1 wrapper(s) are shadowed by an earlier PATH entry: claude") {
+		t.Errorf("a shadowed wrapper must WARN, naming it:\n%s", out)
+	}
+	if !strings.Contains(out, "claude runs "+filepath.Join(ahead, "claude")) {
+		t.Errorf("the row must name the binary that WINS:\n%s", out)
+	}
+	if !strings.Contains(out, `export PATH="`+dir+`:$PATH"`) {
+		t.Errorf("the row must give the exact prepend fix:\n%s", out)
+	}
+	if strings.Contains(out, "[PASS] wrapper directory is on PATH") {
+		t.Errorf("a shadowed wrapper set must not also PASS the PATH row:\n%s", out)
+	}
+	// Two: the shadow row, and the gate row (the only wrapper loses, so no launch reaches it).
+	if r.warned != 2 {
+		t.Errorf("warned = %d, want 2 (shadow + gate):\n%s", r.warned, out)
+	}
+}
+
+// TestHostWrappersPartialShadowStillReachesTheGate: one wrapper shadowed, one winning — the
+// shadow warns, and the gate row PASSES naming the wrapper that does reach it, because a
+// wrapped launch of that program runs the apply that regenerates the set.
+func TestHostWrappersPartialShadowStillReachesTheGate(t *testing.T) {
+	o, _, _ := hostManagementFixture(t, `{"host_wrappers": true}`, []string{"claude", "pi"}, "")
+	dir := wrapDirIn(t)
+	ahead := fakeProgram(t, "claude")
+	setPath(o, ahead+string(os.PathListSeparator)+dir)
+	var buf bytes.Buffer
+	r := newReporter(&buf, false)
+	o.sectionHostWrappers(r)
+	out := buf.String()
+	if !strings.Contains(out, "shadowed by an earlier PATH entry: claude") {
+		t.Errorf("claude's shadow must be reported:\n%s", out)
+	}
+	if !strings.Contains(out, "synchronizes host configuration automatically (reached through pi)") {
+		t.Errorf("the gate row must PASS through the wrapper that wins:\n%s", out)
+	}
+	if r.warned != 1 {
+		t.Errorf("warned = %d, want 1 (the shadow row):\n%s", r.warned, out)
+	}
+}
+
+// TestHostWrappersSymlinkedPathSpellingWins is the darwin PATH-RESOLUTION class through the
+// section: PATH names the wrap dir through a symlinked parent (every macOS temp path, /var
+// being a symlink to /private/var). Comparing spellings called that "NOT on PATH", or a
+// wrapper shadowed by itself; comparing files is what the shell does.
+func TestHostWrappersSymlinkedPathSpellingWins(t *testing.T) {
+	o, _, _ := hostManagementFixture(t, `{"host_wrappers": true}`, []string{"claude"}, "")
+	home := os.Getenv("HOME")
+	alias := filepath.Join(t.TempDir(), "home-alias")
+	if err := os.Symlink(home, alias); err != nil {
+		t.Fatal(err)
+	}
+	setPath(o, filepath.Join(alias, ".local", "share", "yolo-jail", "bin", "wrap"))
+	var buf bytes.Buffer
+	r := newReporter(&buf, false)
+	o.sectionHostWrappers(r)
+	if r.warned != 0 {
+		t.Errorf("the wrap dir spelled through a symlink is still the wrap dir:\n%s", buf.String())
+	}
+}
+
+// TestHostApplyOnLaunchRowWarnsWhenNoWrapperCanReachTheGate is the reassurance defect: the row
+// PASSed "synchronizes host configuration automatically" whatever the wrappers' state, but the
+// re-check runs only inside `yolo host --`, which only a wrapper execs. Each state in which no
+// wrapper wins must WARN, name its reason, and never print the reassurance.
+func TestHostApplyOnLaunchRowWarnsWhenNoWrapperCanReachTheGate(t *testing.T) {
+	cases := []struct {
+		name     string
+		wrappers []string
+		shadow   bool
+		onPath   bool
+		reason   string
+	}{
+		{"no wrapper directory", nil, false, false, "no wrapper exists"},
+		{"empty wrapper directory", []string{}, false, true, "no wrapper exists"},
+		{"directory off PATH", []string{"claude"}, false, false, "the wrapper directory is not on PATH"},
+		{"every wrapper shadowed", []string{"claude"}, true, true,
+			"every wrapper is shadowed by an earlier PATH entry"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			o, _, _ := hostManagementFixture(t, `{"host_wrappers": true}`, tc.wrappers, "")
+			pathEnv := t.TempDir()
+			if tc.shadow {
+				pathEnv = fakeProgram(t, "claude")
+			}
+			if tc.onPath {
+				pathEnv += string(os.PathListSeparator) + wrapDirIn(t)
+			}
+			setPath(o, pathEnv)
+			var buf bytes.Buffer
+			o.sectionHostWrappers(newReporter(&buf, false))
+			out := buf.String()
+			if !strings.Contains(out, "[WARN] host_apply_on_launch is on, but the automatic sync "+
+				"cannot fire — "+tc.reason) {
+				t.Errorf("the gate row must WARN with reason %q:\n%s", tc.reason, out)
+			}
+			if strings.Contains(out, "synchronizes host configuration automatically") {
+				t.Errorf("the reassurance must not print when no wrapper reaches the gate:\n%s", out)
+			}
+		})
 	}
 }

@@ -407,3 +407,141 @@ func TestLookPathSkippingFallsThroughDeniedCandidates(t *testing.T) {
 		t.Errorf("resolved %q, want the executable candidate %q", got, good)
 	}
 }
+
+// symlinkedTemp returns (real, alias): one directory, spelled two ways. It is the macOS
+// t.TempDir() shape (/var/folders/… is a symlink to /private/var/folders/…) reproduced on
+// any OS, so the darwin PATH-RESOLUTION class fails here rather than only on check-macos.
+func symlinkedTemp(t *testing.T) (real, alias string) {
+	t.Helper()
+	base := t.TempDir()
+	real = filepath.Join(base, "real")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	alias = filepath.Join(base, "alias")
+	if err := os.Symlink(real, alias); err != nil {
+		t.Fatal(err)
+	}
+	return real, alias
+}
+
+// TestOnPathMatchesASymlinkedSpellingOfTheDir: a PATH entry that spells the wrap dir through
+// a symlinked parent reaches the wrappers, so it is on PATH. Spelling-only comparison said
+// "NOT on PATH" for every macOS home under a symlinked prefix.
+func TestOnPathMatchesASymlinkedSpellingOfTheDir(t *testing.T) {
+	real, alias := symlinkedTemp(t)
+	wrap := filepath.Join(real, "wrap")
+	if err := os.MkdirAll(wrap, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	aliasWrap := filepath.Join(alias, "wrap")
+	sep := string(os.PathListSeparator)
+	if !OnPath("/bin"+sep+aliasWrap, wrap) {
+		t.Errorf("PATH names the wrap dir through a symlink (%s) and OnPath said no", aliasWrap)
+	}
+	if !OnPath("/bin"+sep+wrap, aliasWrap) {
+		t.Errorf("the reverse spelling (dir given through the symlink) must match too")
+	}
+	if OnPath("/bin"+sep+real, wrap) {
+		t.Errorf("the wrap dir's PARENT is not the wrap dir")
+	}
+}
+
+func TestResolveIsFirstMatchWins(t *testing.T) {
+	root := t.TempDir()
+	first := mkexec(t, filepath.Join(root, "a"), "claude")
+	second := mkexec(t, filepath.Join(root, "b"), "claude")
+	sep := string(os.PathListSeparator)
+	got, ok := Resolve(first+sep+second, "claude")
+	if !ok || got != filepath.Join(first, "claude") {
+		t.Errorf("Resolve = %q, %v; want the FIRST entry's %s", got, ok, filepath.Join(first, "claude"))
+	}
+	got, ok = Resolve(second+sep+first, "claude")
+	if !ok || got != filepath.Join(second, "claude") {
+		t.Errorf("reversed PATH: Resolve = %q, %v; want %s", got, ok, filepath.Join(second, "claude"))
+	}
+	if _, ok := Resolve(first, "nope"); ok {
+		t.Errorf("a name nothing provides must not resolve")
+	}
+	if _, ok := Resolve(first, filepath.Join(first, "claude")); ok {
+		t.Errorf("Resolve is a PATH lookup of a bare name; a path must not resolve")
+	}
+}
+
+// TestResolveSkipsANonExecutableEarlierEntry is the shell's rule: a same-named file without
+// the execute bit does not stop the search.
+func TestResolveSkipsANonExecutableEarlierEntry(t *testing.T) {
+	root := t.TempDir()
+	plain := filepath.Join(root, "plain")
+	if err := os.MkdirAll(plain, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(plain, "claude"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	real := mkexec(t, filepath.Join(root, "real"), "claude")
+	got, ok := Resolve(plain+string(os.PathListSeparator)+real, "claude")
+	if !ok || got != filepath.Join(real, "claude") {
+		t.Errorf("Resolve = %q, %v; want %s", got, ok, filepath.Join(real, "claude"))
+	}
+}
+
+// TestPrecedenceNamesTheBinaryThatShadowsAWrapper is the "Prepend, not append" rule observed:
+// with the wrap dir APPENDED, a real claude earlier on PATH wins, and the Shadow must name it.
+// A wrapper with no competitor wins even from the back.
+func TestPrecedenceNamesTheBinaryThatShadowsAWrapper(t *testing.T) {
+	root := t.TempDir()
+	wrap := filepath.Join(root, "wrap")
+	mkexec(t, wrap, "claude")
+	mkexec(t, wrap, "pi")
+	local := mkexec(t, filepath.Join(root, "local", "bin"), "claude")
+	sep := string(os.PathListSeparator)
+
+	wins, shadowed := Precedence(local+sep+wrap, wrap, []string{"claude", "pi"})
+	if !reflect.DeepEqual(wins, []string{"pi"}) {
+		t.Errorf("wins = %v, want [pi]", wins)
+	}
+	want := []Shadow{{Bin: "claude", Winner: filepath.Join(local, "claude")}}
+	if !reflect.DeepEqual(shadowed, want) {
+		t.Errorf("shadowed = %+v, want %+v", shadowed, want)
+	}
+
+	// Prepended: both win.
+	wins, shadowed = Precedence(wrap+sep+local, wrap, []string{"claude", "pi"})
+	if len(shadowed) != 0 || len(wins) != 2 {
+		t.Errorf("prepended: wins=%v shadowed=%+v, want both winning", wins, shadowed)
+	}
+}
+
+// TestPrecedenceComparesFilesNotSpellings is the darwin PATH-RESOLUTION class: PATH names the
+// wrap dir through a symlinked parent while dir is the resolved spelling (or the reverse).
+// A string comparison calls the wrapper shadowed by ITSELF.
+func TestPrecedenceComparesFilesNotSpellings(t *testing.T) {
+	real, alias := symlinkedTemp(t)
+	wrap := filepath.Join(real, "wrap")
+	mkexec(t, wrap, "claude")
+	aliasWrap := filepath.Join(alias, "wrap")
+
+	for _, tc := range []struct{ pathDir, dir string }{
+		{aliasWrap, wrap},
+		{wrap, aliasWrap},
+	} {
+		wins, shadowed := Precedence(tc.pathDir, tc.dir, []string{"claude"})
+		if len(shadowed) != 0 || !reflect.DeepEqual(wins, []string{"claude"}) {
+			t.Errorf("PATH=%s dir=%s: wins=%v shadowed=%+v — the wrapper was reported "+
+				"shadowed by itself", tc.pathDir, tc.dir, wins, shadowed)
+		}
+	}
+}
+
+// TestPrecedenceReportsAWrapperNothingOnPathReaches: the wrap dir is not on PATH and nothing
+// else provides the name — a Shadow with an empty Winner, never a win.
+func TestPrecedenceReportsAWrapperNothingOnPathReaches(t *testing.T) {
+	root := t.TempDir()
+	wrap := filepath.Join(root, "wrap")
+	mkexec(t, wrap, "claude")
+	wins, shadowed := Precedence(filepath.Join(root, "empty"), wrap, []string{"claude"})
+	if len(wins) != 0 || !reflect.DeepEqual(shadowed, []Shadow{{Bin: "claude"}}) {
+		t.Errorf("wins=%v shadowed=%+v, want one Shadow with no winner", wins, shadowed)
+	}
+}

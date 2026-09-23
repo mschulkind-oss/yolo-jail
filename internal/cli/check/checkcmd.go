@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/banner"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
@@ -137,6 +138,18 @@ type Options struct {
 	NodeGID func(string) (gid int, groupName string, ok bool)
 	// InUserGroups reports whether gid is in the process's supplementary groups. nil => real.
 	InUserGroups func(gid int) bool
+
+	// selectedPacks is the SELECTED pack set sectionPacks resolved, handed forward to the
+	// host-wrappers section so it can ask "which programs do these packs install that have
+	// no wrapper?" without loading the packs a second time — and without a second loader
+	// free to disagree with the one that just validated them. Not a seam: sections write
+	// it, never a caller.
+	//
+	// selectedPacksKnown distinguishes "resolved, and empty" from "sectionPacks never ran"
+	// (a test driving one section directly), so the wrappers section only states a
+	// completeness fact when it has one.
+	selectedPacks      []*packload.Pack
+	selectedPacksKnown bool
 }
 
 func fillDefaults(o *Options) {

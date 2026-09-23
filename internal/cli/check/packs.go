@@ -74,6 +74,7 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	if !config.HasConfiguredPack(entries) {
 		r.warn(config.NoPacksMessage, config.NoPacksGuidance)
 		if len(entries) == 0 {
+			o.selectedPacks, o.selectedPacksKnown = nil, true
 			return
 		}
 	}
@@ -181,6 +182,15 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 			loaded = append(loaded, p)
 		}
 	}
+
+	// Handed forward to the host-wrappers section BEFORE the needs closure, because that
+	// section predicts what `yolo host apply --assert` would generate and the host apply
+	// wraps the programs of the packs it resolves from config — it runs no needs closure.
+	// Including a needs-added pack's program here would be a "run apply" remedy apply
+	// cannot satisfy, repeated every run. (No needs-reachable pack installs a program
+	// today; this states which set is meant, for the day one does.)
+	o.selectedPacks = append([]*packload.Pack(nil), loaded...)
+	o.selectedPacksKnown = true
 
 	// The NEEDS CLOSURE (docs/reference/wire-bridge.md §3.1, WB-D10), beside the pack
 	// list and before the exclusivity checks below, for the reason those checks

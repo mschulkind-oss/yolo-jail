@@ -202,17 +202,101 @@ func PathLine(dir string) string {
 // fresh shell and so gets a decidable answer; `apply` deliberately never asks, because
 // the PATH it can see is a fact about the shell that invoked it rather than about the
 // user's rc file (§5.5).
+//
+// An entry that SPELLS the directory differently but IS it — a symlinked parent, which is
+// what macOS's /var -> /private/var makes of every temp path — also counts: the question is
+// whether a lookup through that entry reaches the wrappers, and it does. Spelling-only
+// comparison reported such a PATH as "NOT on PATH" while the shell ran the wrappers fine.
 func OnPath(pathEnv, dir string) bool {
 	want := filepath.Clean(dir)
+	wantInfo, wantErr := os.Stat(want)
 	for _, entry := range filepath.SplitList(pathEnv) {
 		if entry == "" {
 			continue
 		}
-		if filepath.Clean(entry) == want {
+		clean := filepath.Clean(entry)
+		if clean == want {
+			return true
+		}
+		if wantErr != nil {
+			continue
+		}
+		if info, err := os.Stat(clean); err == nil && os.SameFile(info, wantInfo) {
 			return true
 		}
 	}
 	return false
+}
+
+// Resolve answers "what does a bare `bin` run?" against pathEnv the way a shell's command
+// lookup does: the FIRST PATH entry holding an executable of that name wins, and nothing
+// after it is consulted. It returns the path found through the PATH entry as spelled, and
+// false when nothing on PATH provides bin.
+//
+// It is LookPathSkipping with nothing skipped — deliberately the same lookup the wrapper's
+// exec half uses, so "which binary wins" and "which binary `yolo host` would exec" cannot
+// come to disagree about what counts as runnable. One divergence from a shell is inherited
+// and stated: an EMPTY PATH entry means "the current directory" to POSIX sh and is skipped
+// here, because the answer would depend on where `yolo check` happened to be run from.
+func Resolve(pathEnv, bin string) (string, bool) {
+	if bin == "" || strings.ContainsRune(bin, filepath.Separator) {
+		return "", false
+	}
+	p, err := LookPathSkipping(pathEnv, bin, nil)
+	if err != nil {
+		return "", false
+	}
+	return p, true
+}
+
+// Shadow is a wrapper that does NOT win PATH lookup for its own name.
+type Shadow struct {
+	// Bin is the wrapper's (and the program's) name.
+	Bin string
+	// Winner is what a bare Bin runs instead, as found on PATH. "" means nothing on PATH
+	// provides Bin at all — the wrapper itself is not runnable from there.
+	Winner string
+}
+
+// Precedence splits bins — wrappers generated in dir — into the ones a bare invocation
+// reaches (wins) and the ones something earlier on pathEnv shadows.
+//
+// ON PATH IS NOT THE SAME AS WINNING, which is the whole reason this exists beside OnPath:
+// a wrap dir APPENDED to PATH is on it, and every wrapper whose program is also installed
+// earlier on PATH (claude's own installer writes ~/.local/bin/claude) never runs. That is
+// the "Prepend, not append" rule (docs/reference/host-agent-environment.md), observed.
+//
+// Winning is decided by FILE IDENTITY (os.SameFile), not by comparing path strings: the
+// PATH entry and dir may spell one directory two ways (a symlinked parent — every macOS
+// temp path, /var being a symlink to /private/var), and a PATH-side symlink that points at
+// the wrapper runs the wrapper. Either way the question is what executes, and that is a
+// property of the file.
+func Precedence(pathEnv, dir string, bins []string) (wins []string, shadowed []Shadow) {
+	for _, bin := range bins {
+		winner, ok := Resolve(pathEnv, bin)
+		if !ok {
+			shadowed = append(shadowed, Shadow{Bin: bin})
+			continue
+		}
+		if sameFile(winner, filepath.Join(dir, bin)) {
+			wins = append(wins, bin)
+			continue
+		}
+		shadowed = append(shadowed, Shadow{Bin: bin, Winner: winner})
+	}
+	return wins, shadowed
+}
+
+// sameFile reports whether a and b name one file, following symlinks. A path that cannot be
+// stat'd is compared by its cleaned spelling, so a vanished file is never "the same" as a
+// different one.
+func sameFile(a, b string) bool {
+	ai, aerr := os.Stat(a)
+	bi, berr := os.Stat(b)
+	if aerr != nil || berr != nil {
+		return filepath.Clean(a) == filepath.Clean(b)
+	}
+	return os.SameFile(ai, bi)
 }
 
 // LookPathSkipping resolves bin against pathEnv, ignoring any directory under one of
