@@ -802,7 +802,7 @@ type PackBriefing struct {
 }
 
 // ComposePackBriefings appends each pack's prose to ONE DESTINATION's briefing, in config
-// order, under a provenance header naming the pack.
+// order.
 //
 // `agent` is the identity that destination declared for itself, or "" for a destination that
 // declared none. It is what makes this per-DESTINATION rather than per-jail, and moving that
@@ -814,15 +814,15 @@ type PackBriefing struct {
 // that declares no identity is simply never named by any selector (R4) — an addressed
 // contribution skips it, and a broadcast one still reaches it.
 //
-// The header is not decoration. Pack prose is INSTRUCTIONS an agent will follow, and
-// a jail may carry several packs plus yolo's own briefing plus the user's — so
-// without attribution an agent reading a surprising rule has no way to find out
-// where it came from, and neither does the human debugging it. Naming the source is
-// the same legibility argument as `yolo config diff` reporting which layer set a key.
+// `provenance` labels each pack's section with `<!-- from pack: NAME -->`, and it is OFF unless
+// the user's `briefing_provenance` asks for it (config.BriefingProvenance says why: the label
+// made agents treat the user's own every-repository rules as someone else's, and Claude strips
+// HTML comments before it reads the file anyway). Off, sections are separated by one blank
+// line and nothing else — the host notch's appendHostBriefingSection matches this byte for byte.
 //
 // Empty text is skipped rather than emitting an empty section: a pack with no
 // briefing should leave no trace.
-func ComposePackBriefings(base string, packs []PackBriefing, agent string) string {
+func ComposePackBriefings(base string, packs []PackBriefing, agent string, provenance bool) string {
 	out := base
 	for _, p := range packs {
 		if !addressesAgent(p.Agents, agent) {
@@ -832,8 +832,11 @@ func ComposePackBriefings(base string, packs []PackBriefing, agent string) strin
 		if text == "" {
 			continue
 		}
-		out = strings.TrimRight(out, "\n") + "\n\n" +
-			"<!-- from pack: " + p.Name + " -->\n" + text + "\n"
+		out = strings.TrimRight(out, "\n") + "\n\n"
+		if provenance {
+			out += "<!-- from pack: " + p.Name + " -->\n"
+		}
+		out += text + "\n"
 	}
 	return out
 }

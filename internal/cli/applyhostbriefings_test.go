@@ -117,7 +117,7 @@ func TestApplyHostBriefingConfirmsBeforeAdoptingUserProse(t *testing.T) {
 	}
 	// BEHAVIOR-PRESERVING, which is the whole difference between this and an archive: the
 	// destination is REGENERATED, and the user's instructions are still in it — now arriving
-	// through the local pack (`<!-- from pack: local -->`) rather than as loose prose.
+	// through the local pack rather than as loose prose.
 	dest := filepath.Join(home, ".claude", "CLAUDE.md")
 	got, err := os.ReadFile(dest)
 	if err != nil {
@@ -130,9 +130,14 @@ func TestApplyHostBriefingConfirmsBeforeAdoptingUserProse(t *testing.T) {
 		t.Errorf("the user's instructions no longer reach their agent — the migration is "+
 			"supposed to preserve behavior, not merely avoid deleting:\n%s", got)
 	}
-	if !strings.Contains(string(got), "<!-- from pack: local -->") {
-		t.Errorf("the user's prose arrived unattributed — it must come through the local "+
-			"pack:\n%s", got)
+	// The `migrated from` marker is written into the LOCAL PACK'S source file and nowhere else,
+	// so finding it here proves the prose was composed back through that pack. (The per-pack
+	// `from pack:` label used to be the evidence; it is off by default now.)
+	if !strings.Contains(string(got), "<!-- migrated from ") {
+		t.Errorf("the user's prose did not come through the local pack:\n%s", got)
+	}
+	if strings.Contains(string(got), "<!-- from pack:") {
+		t.Errorf("a default composition carries a per-pack label; briefing_provenance is off:\n%s", got)
 	}
 }
 
@@ -317,5 +322,28 @@ func TestApplyHostBriefingDroppingThePackLeavesNoOrphan(t *testing.T) {
 	}
 	if got := archivedBriefings(t, home); len(got) == 0 {
 		t.Errorf("the retired briefing must be archived, not deleted:\n%s", report)
+	}
+}
+
+// THE HOST CALL SITE, pinned: `briefing_provenance: true` in the USER config must reach the host
+// render (and the adoption comparison beside it). The default path is asserted by
+// TestApplyHostBriefingConfirmsBeforeAdoptingUserProse; this fails if applyHostBriefings stops
+// reading the key and hard-codes the default.
+func TestApplyHostBriefingLabelsPackProseWhenTheUserConfigAsks(t *testing.T) {
+	home, packDir := userProseFixture(t, "# My rules\n\nAlways run the tests.\n")
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
+		`{"briefing_provenance": true, "packs":["claude",{"source":"file://`+packDir+
+			`","name":"prosepack"}]}`)
+
+	rc, report := applyWith(t, true, strings.NewReader("y\n"))
+	if rc != 0 {
+		t.Fatalf("host apply --assert rc=%d\n%s", rc, report)
+	}
+	got, err := os.ReadFile(filepath.Join(home, ".claude", "CLAUDE.md"))
+	if err != nil {
+		t.Fatalf("the destination was not regenerated: %v", err)
+	}
+	if !strings.Contains(string(got), "<!-- from pack: prosepack -->\nPack rule: use rg.") {
+		t.Errorf("briefing_provenance: true did not label the pack's prose:\n%s", got)
 	}
 }

@@ -185,6 +185,19 @@
     Example:
       "agents_md_extra": "## Cerebras MCP\\n\\nUse cerebras-mcp for X."
 
+  [bold]briefing_provenance[/bold] (boolean, default false): Label each pack's prose in
+    a composed briefing with a `<!-- from pack: NAME -->` line.  Off by default:
+    your packs are your rules for every repository, and a per-pack label made
+    agents read them as someone else's.  Claude Code strips HTML comments from
+    CLAUDE.md before the model reads it, so for Claude the label is only ever
+    visible to a human opening the file.  Turn it on to debug which pack a rule
+    came from.  Read from the effective config for the jail's own briefing and
+    from the user config by `yolo host apply`; set it in the user config to
+    change both.
+
+    Example (~/.config/yolo-jail/config.jsonc):
+      "briefing_provenance": true
+
   [bold]loopholes[/bold] (object): Host-side services the jail can reach.
     ("host_services" is what this block is called in prose and in the code that
     validates it; the KEY is "loopholes" — config.go's known-key list has no
@@ -1349,8 +1362,8 @@
     Precedence: later entries win on same-named skills.  Within one agent, the order
     is built-in skills < pack skills < your own ~/.<agent>/skills, so a pack may
     override a yolo built-in but never a skill you wrote.
-    Pack prose is appended to each briefing under a "from pack: NAME" header, so a
-    rule an agent follows is always traceable to its source.  To EACH briefing unless
+    Pack prose is appended to each briefing as plain text, one blank line between
+    packs (`briefing_provenance: true` labels each with its pack).  To EACH briefing unless
     the contribution named an audience: prose carrying `agents` reaches only the
     destinations whose owner declared a matching `agent`, at both notches.
     Tooling: [bold]yolo pack init|lint|ls|explain|footprint[/bold].  `lint` runs the real

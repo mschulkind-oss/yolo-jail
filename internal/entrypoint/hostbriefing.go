@@ -16,8 +16,9 @@ package entrypoint
 // does not exist, and one mechanism (wholesale composition) replaces two.
 //
 // The decisions this encodes:
-//   - COMPOSED, in pack order, with the SAME provenance vocabulary the jail emits
-//     (`<!-- from pack: NAME -->`, jailcontent.ComposePackBriefings). One file per destination,
+//   - COMPOSED, in pack order, with the SAME section spacing the jail emits
+//     (jailcontent.ComposePackBriefings), and the same `<!-- from pack: NAME -->` label when the
+//     user's `briefing_provenance` turns it on — off by default. One file per destination,
 //     however many packs contribute to it, so the destination's content is a function of the
 //     pack SET rather than of which pack was rendered last.
 //   - THE USER'S PROSE MOVES, it is not archived away (§6a, amended). A hand-written
@@ -51,10 +52,10 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// hostBriefingProvenance is the per-section header, shared verbatim with the jail's
-// ComposePackBriefings. Prose has no name to disambiguate it, so attribution is the only thing
-// that lets a reader of a merged file tell which pack a surprising rule came from — the ruling
-// requires it for exactly the union case below.
+// hostBriefingProvenance is the per-section label, shared verbatim with the jail's
+// ComposePackBriefings and emitted only when `briefing_provenance` is on. It is a debugging aid
+// for a human reading a merged file, and off by default: labelled, the user's every-repository
+// rules read to an agent as someone else's (config.BriefingProvenance).
 func hostBriefingProvenance(pack string) string { return "<!-- from pack: " + pack + " -->" }
 
 // HostBriefingRequest carries what a host briefing render needs beyond the packs: the ownership
@@ -90,6 +91,10 @@ type HostBriefingRequest struct {
 	//
 	// FALSE IS THE FAIL-CLOSED ZERO VALUE: a caller that does not answer retires nothing.
 	PackSetComplete bool
+	// Provenance labels each pack's section with `<!-- from pack: NAME -->` — the user's
+	// `briefing_provenance` (config.BriefingProvenanceUser). FALSE IS THE DEFAULT, and a caller
+	// that does not answer composes unlabelled, which is what the jail notch does by default too.
+	Provenance bool
 }
 
 // HostBriefingDestination is one composed destination: where it goes and which packs contribute.
@@ -127,10 +132,10 @@ type HostBriefingAdoption struct {
 // disagree about `from` in the first place.
 //
 // The union caveat lives here: several packs naming ONE destination is the `briefing` kind's
-// CombineConcat footprint, so they are concatenated in pack order under one provenance header
-// each. No dedup-by-similarity is attempted — prose has no name, so "these two sections say the
+// CombineConcat footprint, so they are concatenated in pack order — each under a provenance
+// label when `provenance` is on. No dedup-by-similarity is attempted — prose has no name, so "these two sections say the
 // same thing" is a judgement yolo would get wrong.
-func ComposeHostBriefings(packs []*packload.Pack, homeDir string) []HostBriefingDestination {
+func ComposeHostBriefings(packs []*packload.Pack, homeDir string, provenance bool) []HostBriefingDestination {
 	var order []string
 	byPath := map[string]*HostBriefingDestination{}
 	for _, p := range packs {
@@ -163,7 +168,7 @@ func ComposeHostBriefings(packs []*packload.Pack, homeDir string) []HostBriefing
 			if prose == "" {
 				continue
 			}
-			d.Content = appendHostBriefingSection(d.Content, p.Name, prose)
+			d.Content = appendHostBriefingSection(d.Content, p.Name, prose, provenance)
 		}
 	}
 	out := make([]HostBriefingDestination, 0, len(order))
@@ -173,11 +178,14 @@ func ComposeHostBriefings(packs []*packload.Pack, homeDir string) []HostBriefing
 	return out
 }
 
-// appendHostBriefingSection adds one pack's attributed section, matching
-// jailcontent.ComposePackBriefings' spacing byte-for-byte so the same prose reads the same at both
-// notches.
-func appendHostBriefingSection(base, pack, prose string) string {
-	section := hostBriefingProvenance(pack) + "\n" + strings.TrimRight(prose, " \t\r\n") + "\n"
+// appendHostBriefingSection adds one pack's section, matching jailcontent.ComposePackBriefings'
+// spacing byte-for-byte so the same prose reads the same at both notches — labelled only when
+// `provenance` is on.
+func appendHostBriefingSection(base, pack, prose string, provenance bool) string {
+	section := strings.TrimRight(prose, " \t\r\n") + "\n"
+	if provenance {
+		section = hostBriefingProvenance(pack) + "\n" + section
+	}
 	if base == "" {
 		return section
 	}
@@ -195,10 +203,14 @@ func appendHostBriefingSection(base, pack, prose string) string {
 // An IDENTICAL file is not an adoption. A user who already moved their prose into a pack (or who
 // re-runs an apply after a state-dir prune) loses nothing, and prompting there would train them
 // to answer blind — the same property confirmHostLosses' docstring insists on.
+//
+// `provenance` must be the value the render will use: an identical file is recognised by comparing
+// it against the composition, and a label the render would add makes an identical file look
+// different.
 func HostBriefingAdoptions(packs []*packload.Pack, homeDir string,
-	man *hostskills.Manifest) []HostBriefingAdoption {
+	man *hostskills.Manifest, provenance bool) []HostBriefingAdoption {
 	var out []HostBriefingAdoption
-	for _, d := range ComposeHostBriefings(packs, homeDir) {
+	for _, d := range ComposeHostBriefings(packs, homeDir, provenance) {
 		if d.Content == "" {
 			continue // nothing would be written, so nothing would be adopted
 		}
@@ -394,7 +406,7 @@ func appendToLocalPackBriefing(dest string, a HostBriefingAdoption) error {
 func RenderHostBriefings(packs []*packload.Pack, homeDir string, req HostBriefingRequest,
 	observe bool) ([]HostRenderResult, error) {
 	var out []HostRenderResult
-	for _, d := range ComposeHostBriefings(packs, homeDir) {
+	for _, d := range ComposeHostBriefings(packs, homeDir, req.Provenance) {
 		id := hostBriefingSurfaceID(d)
 		if d.Content == "" {
 			out = append(out, HostRenderResult{Surface: id, Path: d.Path,
@@ -483,7 +495,9 @@ func PruneHostBriefings(candidates []*packload.Pack, active map[string]bool, hom
 			activePacks = append(activePacks, p)
 		}
 	}
-	for _, d := range ComposeHostBriefings(activePacks, homeDir) {
+	// Liveness is "does anything compose here", which the label cannot change — so the flag's
+	// value is irrelevant and false is passed rather than threaded.
+	for _, d := range ComposeHostBriefings(activePacks, homeDir, false) {
 		if d.Content != "" {
 			live[d.Path] = true
 		}

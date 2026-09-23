@@ -122,11 +122,20 @@ There is no tool inventory and no MCP listing: agents read their own generated c
 instructions into every generated briefing, legal at user or workspace scope.
 
 **4. Each selected pack's prose that this destination's audience admits**, appended last, in
-config order, under a `<!-- from pack: NAME -->` provenance header. **The header is not
-decoration**: pack prose is *instructions an agent will follow*, and a jail may carry several
-packs plus yolo's own briefing plus the user's — so without attribution an agent reading a
-surprising rule has no way to find out where it came from, and neither does the human
-debugging it. Empty prose is skipped rather than emitting an empty section.
+config order, **unlabelled** — one blank line between packs and nothing else. Empty prose is
+skipped rather than emitting an empty section.
+
+**`briefing_provenance: true` labels each pack's section** with `<!-- from pack: NAME -->`, as a
+debugging aid. It is off by default, for two measured reasons:
+
+- **The label worked against the prose.** A pack's briefing is the user's own rules for every
+  repository, and an agent that sees "from pack: X" reads it as someone else's, scoped to
+  something other than the repository in front of it — and discounts it.
+- **Claude never saw it.** Claude Code strips HTML comments from `CLAUDE.md` before the model
+  reads the file (2.1.280, 2026-09-22), so the agent the attribution was most wanted for never
+  received it. Only a human opening the file did.
+
+The jail reads the key from the effective config; `yolo host apply` reads it from the user config.
 
 ### What the body describes: applied, never configured
 
@@ -367,7 +376,7 @@ only place the values themselves are stated.
 | Skills staging subdirectory | `skills-<pack>` | `jailcontent.SkillStagingName` |
 | Host-briefing prepend selector | `after: "host:<home-relative path>"` on a `briefing` contribution | `packdecl` (`Contribution.After`), `run.briefingHostOverlay` |
 | Ownership record gating the prepend | the host-briefing manifest under the user's config dir | `entrypoint.HostBriefingManifestPath`, `HostBriefingOwner` |
-| Provenance header | `<!-- from pack: NAME -->` | `jailcontent.ComposePackBriefings` |
+| Per-pack label (off by default) | `<!-- from pack: NAME -->`, when `briefing_provenance: true` | `jailcontent.ComposePackBriefings`, `entrypoint.appendHostBriefingSection`; `config.BriefingProvenance` |
 | Host/jail separator | `---` between the prepended host prose and the rest | `jailcontent.PrependHostBriefing` |
 | Extra-prose config key | `agents_md_extra` (string; user or workspace scope) | `jailcontent.ComposeBriefing`; `yolo config-ref` |
 | Built-in skills | one embedded suite, plus a source-tree-only addition | `internal/jailcontent/builtinskills` (`FS`) |

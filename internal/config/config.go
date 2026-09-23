@@ -69,6 +69,7 @@ var knownTopLevelConfigKeys = set(
 	"mcp_servers", "mcp_presets", "devices", "gpu", "resources", "env_sources",
 	"loopholes", "host_processes", "journal",
 	"kvm", "prune", "programs", "ephemeral_storage", "macos_log", "include_if_found", "agents_md_extra",
+	"briefing_provenance",
 	"cache_relocations", "writable_home_dirs", "host_files", "host_wrappers",
 	"host_apply_on_launch", "host_management", "agent_updates", "packs", "perf_logging",
 	"promotion_target",

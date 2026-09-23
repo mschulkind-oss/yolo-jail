@@ -61,6 +61,13 @@ func jailDest(t *testing.T, name, into, agent string) *packload.Pack {
 func jailBriefings(t *testing.T, packs []*packload.Pack,
 	proses []jailcontent.PackBriefing) map[string]string {
 	t.Helper()
+	return jailBriefingsWith(t, jsonx.NewOrderedMap(), packs, proses)
+}
+
+// jailBriefingsWith is jailBriefings under a given effective config.
+func jailBriefingsWith(t *testing.T, cfg *jsonx.OrderedMap, packs []*packload.Pack,
+	proses []jailcontent.PackBriefing) map[string]string {
+	t.Helper()
 	ws, home := t.TempDir(), t.TempDir()
 	t.Setenv("HOME", home)
 	jailcontent.SetPackSkillDirs(nil)
@@ -69,7 +76,7 @@ func jailBriefings(t *testing.T, packs []*packload.Pack,
 
 	o := goldenOptions(ws, home)
 	o.Stdout = discardBuf()
-	staging, err := o.refreshJailBriefings("yolo-ws-abcd1234", jsonx.NewOrderedMap(), "podman",
+	staging, err := o.refreshJailBriefings("yolo-ws-abcd1234", cfg, "podman",
 		stagedPacks{packs: packs, briefings: proses})
 	if err != nil {
 		t.Fatalf("refreshJailBriefings: %v", err)
@@ -106,14 +113,16 @@ func TestJailBriefingDeliversAddressedProseOnlyToItsAudience(t *testing.T) {
 			"ONE body and wrote it everywhere, which is the defect this move closes:\n%s",
 			got[".codex/AGENTS.md"])
 	}
-	// The base briefing is still every destination's, and provenance is unchanged (§7).
+	// The base briefing is still every destination's.
 	for dest, body := range got {
 		if !strings.Contains(body, "Jail Environment") {
 			t.Errorf("%s lost yolo's own briefing — only the PACK prose is scoped:\n%s", dest, body)
 		}
 	}
-	if !strings.Contains(got[".claude/CLAUDE.md"], "<!-- from pack: house -->") {
-		t.Errorf("an addressed section arrived unattributed:\n%s", got[".claude/CLAUDE.md"])
+	// UNLABELLED BY DEFAULT: an addressed section is plain prose like any other, and the launch
+	// pipeline must not re-add the label briefing_provenance turned off.
+	if strings.Contains(got[".claude/CLAUDE.md"], "<!-- from pack:") {
+		t.Errorf("a default launch labelled pack prose:\n%s", got[".claude/CLAUDE.md"])
 	}
 }
 
@@ -316,5 +325,25 @@ func TestBriefingStagingNameIsInjective(t *testing.T) {
 			t.Errorf("staging name %q for %q contains a path separator, so it is not a "+
 				"filename at all", name, d)
 		}
+	}
+}
+
+// THE CALL SITE, pinned: `briefing_provenance: true` in the effective config must reach the
+// composer through refreshJailBriefings. The composer's own tests cover both values; this is the
+// test that fails if the launch stops reading the key and hard-codes the default.
+func TestJailBriefingLabelsPackProseWhenTheConfigAsks(t *testing.T) {
+	packs := []*packload.Pack{jailDest(t, "claude", ".claude/CLAUDE.md", "claude")}
+	proses := []jailcontent.PackBriefing{{Name: "house", Text: "House rule."}}
+
+	cfg := jsonx.NewOrderedMap()
+	cfg.Set("briefing_provenance", true)
+	on := jailBriefingsWith(t, cfg, packs, proses)[".claude/CLAUDE.md"]
+	if !strings.Contains(on, "<!-- from pack: house -->\nHouse rule.") {
+		t.Errorf("briefing_provenance: true did not label the pack's prose:\n%s", on)
+	}
+
+	off := jailBriefings(t, packs, proses)[".claude/CLAUDE.md"]
+	if strings.Contains(off, "<!-- from pack:") || !strings.Contains(off, "House rule.") {
+		t.Errorf("the default must deliver the prose unlabelled:\n%s", off)
 	}
 }

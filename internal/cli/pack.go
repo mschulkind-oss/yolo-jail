@@ -273,8 +273,7 @@ func packInit(args []string, out, errw io.Writer) int {
 	type packFile struct{ rel, content string }
 	files := []packFile{
 		{"AGENTS.md", "# " + name + "\n\n" +
-			"Prose here is appended to every selected agent's briefing, under a\n" +
-			"`<!-- from pack: " + name + " -->` header so its origin stays traceable.\n" +
+			"Prose here is appended to every selected agent's briefing, as plain text.\n" +
 			"Write instructions an agent should follow in every project using this pack.\n\n" +
 			"To address ONE agent instead, declare a briefing that names its audience and\n" +
 			"no path: {\"kind\": \"briefing\", \"from\": \"prose/claude.md\",\n" +

@@ -28,6 +28,7 @@ import (
 	"io"
 	"path/filepath"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostskills"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -103,10 +104,11 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		Stamp:           stamp,
 		LocalPackAGENTS: localPackBriefingPath(home),
 		PackSetComplete: complete,
+		Provenance:      config.BriefingProvenanceUser(),
 	}
 
 	rc := 0
-	adoptions := entrypoint.HostBriefingAdoptions(loaded, home, man)
+	adoptions := entrypoint.HostBriefingAdoptions(loaded, home, man, req.Provenance)
 	if len(adoptions) > 0 {
 		if !write {
 			// OBSERVE reports the adoption and the migration WITHOUT prompting — which is how

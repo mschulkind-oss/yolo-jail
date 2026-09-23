@@ -210,11 +210,13 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	generated := entrypoint.GeneratedHostBriefings(home)
 	briefingsWritten := 0
 	for _, d := range briefingDestinations(loadedPacks) {
-		// Pack prose last, each attributed to its pack (C3): it is instructions the agent
-		// will follow, so it must be traceable to a source. `d.Agent` is the identity this
-		// destination declared for itself, and prose that named an audience reaches it only
-		// if that audience names this identity.
-		content := jailcontent.ComposePackBriefings(briefingBody, packBriefings, d.Agent)
+		// Pack prose last. `d.Agent` is the identity this destination declared for itself,
+		// and prose that named an audience reaches it only if that audience names this
+		// identity. Each pack's section is labelled with its name only when the user's
+		// `briefing_provenance` asks for it — unlabelled by default, because the label made
+		// agents treat the user's every-repository rules as foreign (config.BriefingProvenance).
+		content := jailcontent.ComposePackBriefings(briefingBody, packBriefings, d.Agent,
+			config.BriefingProvenance(cfg))
 		if hostOverlay := briefingHostOverlay(d.After); hostOverlay != "" {
 			if src := filepath.Join(home, hostOverlay); !generated[src] {
 				content = jailcontent.PrependHostBriefing(src, content)

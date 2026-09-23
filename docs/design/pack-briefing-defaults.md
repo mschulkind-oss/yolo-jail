@@ -212,8 +212,9 @@ question is ruled for a single root file instead, every rule below holds with "e
   instructions, and yolo leaves them to the reader they were written for.
 - **The conventional prose source is a `briefing/` directory at the pack root.** Its contents
   are every regular `*.md` file directly inside it:
-  - **Order:** by filename, byte-wise. Files are joined with one blank line between them, under the
-    pack's single provenance header, as a pack's prose is today.
+  - **Order:** by filename, byte-wise. Files are joined with one blank line between them, exactly
+    as separate packs' prose is — unlabelled unless `briefing_provenance` is on, in which case the
+    pack's one label heads the joined section.
   - **Not recursive.** A subdirectory is not read, matching Agent Plugins' *"clients do not
     recursively search deeper"* for `skills/`. Lint names it ([§3.6](#36-every-delivery-and-every-refusal-to-deliver-is-shown-before-launch)).
   - **Only `*.md`.** Anything else is not read, and lint names it.
@@ -244,7 +245,7 @@ question is ruled for a single root file instead, every rule below holds with "e
   pack names no agent, so no configuration of `packs` is *wrong*, only unused. With one
   destination, that destination.
 - **Duplicates.** Two contributions from one pack that resolve to the same source reach a given
-  destination once, as `skills` already dedupes. The provenance header names the pack once.
+  destination once, as `skills` already dedupes.
 - **`into` + `agents` together** stays refused, unchanged.
 - **`files` is excluded** ([§5](#5-non-goals)). An `into`-less, `agents`-less `files` contribution
   keeps being refused. The refusal says why: `files` has no conventional source and its

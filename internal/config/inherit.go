@@ -180,6 +180,8 @@ var inheritCensus = map[string]keyDisposition{
 	// ---- Preflight only ---------------------------------------------------------
 	// `agents_md_extra` is briefing prose rendered into this jail's own AGENTS.md.
 	"agents_md_extra": {preflight: true, reason: "prose rendered into this jail's briefing"},
+	// `briefing_provenance` changes only the text of this jail's own composed briefing.
+	"briefing_provenance": {preflight: true, reason: "shapes the text of this jail's own briefing"},
 	// `writable_home_dirs` names paths under /home/agent — in-jail referents, and the
 	// config-ref explicitly calls the key safe at any scope.
 	"writable_home_dirs": {preflight: true, reason: "names /home/agent subpaths, which exist in here"},

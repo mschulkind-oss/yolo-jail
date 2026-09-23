@@ -63,7 +63,7 @@ func composeAudienced(t *testing.T, home string, packs ...*packload.Pack) map[st
 	t.Helper()
 	resolved, _ := packload.ResolveDestinations(packs)
 	out := map[string]string{}
-	for _, d := range ComposeHostBriefings(resolved, home) {
+	for _, d := range ComposeHostBriefings(resolved, home, false) {
 		rel, err := filepath.Rel(home, d.Path)
 		if err != nil {
 			t.Fatal(err)
@@ -90,9 +90,9 @@ func TestHostNotchDeliversAddressedProseOnlyToItsAudience(t *testing.T) {
 		t.Errorf("claude-addressed prose was broadcast to codex — the whole defect this "+
 			"design closes:\n%q", got[".codex/AGENTS.md"])
 	}
-	// PROVENANCE IS UNCHANGED (§7 non-goal): the section is still attributed to its pack.
-	if !strings.Contains(got[".claude/CLAUDE.md"], "<!-- from pack: house -->") {
-		t.Errorf("an addressed section arrived unattributed:\n%q", got[".claude/CLAUDE.md"])
+	// UNLABELLED BY DEFAULT: an addressed section is plain prose like any other.
+	if strings.Contains(got[".claude/CLAUDE.md"], "<!-- from pack:") {
+		t.Errorf("a default composition labelled pack prose:\n%q", got[".claude/CLAUDE.md"])
 	}
 }
 
@@ -191,7 +191,7 @@ func TestHostNotchAddressedPackDoesNotOwnTheDestinationsItSkips(t *testing.T) {
 	})
 	home := t.TempDir()
 	owners := map[string][]string{}
-	for _, d := range ComposeHostBriefings(resolved, home) {
+	for _, d := range ComposeHostBriefings(resolved, home, false) {
 		rel, _ := filepath.Rel(home, d.Path)
 		owners[filepath.ToSlash(rel)] = d.Packs
 	}

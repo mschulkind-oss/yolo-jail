@@ -76,24 +76,36 @@ func briefingReq(t *testing.T, home string) (HostBriefingRequest, *hostskills.Ma
 // against a briefing that already contains the pack's prose verbatim — the overwhelmingly likely
 // shape when migrating existing config — must not produce it twice. With wholesale composition
 // there is no append, so this is a property of the mechanism rather than a case it handles.
+//
+// UNLABELLED (the default), the user's file IS the composition, so there is nothing to adopt:
+// `HostBriefingAdoptions`' own rule that an identical file is not an adoption. This case used to
+// reach the adoption gate only because the provenance label made the two differ.
 func TestHostBriefingFirstApplyDoesNotDuplicateProse(t *testing.T) {
-	home := t.TempDir()
-	const prose = "Use rg, never grep -r.\n"
-	dest := filepath.Join(home, ".claude", "CLAUDE.md")
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		t.Fatal(err)
+	home, dest, packs := f3Home(t)
+	req, man := briefingReq(t, home)
+	if adoptions := HostBriefingAdoptions(packs, home, req.Manifest, false); len(adoptions) != 0 {
+		t.Fatalf("a file identical to the composition is not an adoption; got %+v", adoptions)
 	}
-	// The user's file ALREADY holds exactly the prose they just moved into the pack.
-	if err := os.WriteFile(dest, []byte(prose), 0o644); err != nil {
-		t.Fatal(err)
+	if _, err := RenderHostBriefings(packs, home, req, false); err != nil {
+		t.Fatalf("render: %v", err)
 	}
+	got := readFile(t, dest)
+	if got != f3Prose {
+		t.Errorf("the render must leave an identical file identical:\n got %q\nwant %q", got, f3Prose)
+	}
+	// Recorded as owned, so the NEXT apply regenerates it without a prompt.
+	if owner, ok := man.Owner(dest); !ok || owner != HostBriefingOwner {
+		t.Errorf("an identical file must still be recorded as yolo's after the render")
+	}
+}
 
-	p := briefingPack(t, "matt-core", ".claude/CLAUDE.md", prose)
+// The same home with briefing_provenance ON: the label makes the user's file differ from the
+// composition, so the adoption gate fires, the prose moves, and the render still writes it once.
+func TestHostBriefingFirstApplyDoesNotDuplicateProseWhenLabelled(t *testing.T) {
+	home, dest, packs := f3Home(t)
 	req, _ := briefingReq(t, home)
-	packs := []*packload.Pack{p}
-	// The adoption gate fires (the file differs from the composition — it has no provenance
-	// header), the prose moves, then the render composes.
-	adoptions := HostBriefingAdoptions(packs, home, req.Manifest)
+	req.Provenance = true
+	adoptions := HostBriefingAdoptions(packs, home, req.Manifest, true)
 	if len(adoptions) != 1 {
 		t.Fatalf("want one adoption for a hand-written destination; got %+v", adoptions)
 	}
@@ -103,15 +115,31 @@ func TestHostBriefingFirstApplyDoesNotDuplicateProse(t *testing.T) {
 	if _, err := RenderHostBriefings(packs, home, req, false); err != nil {
 		t.Fatalf("render: %v", err)
 	}
-
 	got := readFile(t, dest)
 	if n := strings.Count(got, "Use rg, never grep -r."); n != 1 {
 		t.Errorf("the pack's prose appears %d times — a wholesale composition cannot double "+
 			"anything (F3 is dissolved by the mechanism):\n%s", n, got)
 	}
 	if n := strings.Count(got, "<!-- from pack: matt-core -->"); n != 1 {
-		t.Errorf("want exactly 1 provenance header, got %d:\n%s", n, got)
+		t.Errorf("want exactly 1 provenance label, got %d:\n%s", n, got)
 	}
+}
+
+const f3Prose = "Use rg, never grep -r.\n"
+
+// f3Home is a home whose ~/.claude/CLAUDE.md already holds exactly the prose the user just moved
+// into a pack.
+func f3Home(t *testing.T) (home, dest string, packs []*packload.Pack) {
+	t.Helper()
+	home = t.TempDir()
+	dest = filepath.Join(home, ".claude", "CLAUDE.md")
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dest, []byte(f3Prose), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return home, dest, []*packload.Pack{briefingPack(t, "matt-core", ".claude/CLAUDE.md", f3Prose)}
 }
 
 // A second --assert is byte-identical, and reported as unchanged rather than as a fresh render.
@@ -155,7 +183,7 @@ func TestHostBriefingMigrationMovesProseIntoTheLocalPack(t *testing.T) {
 
 	packs := []*packload.Pack{briefingPack(t, "matt-core", ".claude/CLAUDE.md", "Pack rule one.\n")}
 	req, _ := briefingReq(t, home)
-	adoptions := HostBriefingAdoptions(packs, home, req.Manifest)
+	adoptions := HostBriefingAdoptions(packs, home, req.Manifest, false)
 	if len(adoptions) != 1 {
 		t.Fatalf("want one adoption; got %+v", adoptions)
 	}
@@ -211,7 +239,7 @@ func TestHostBriefingMigrationUnionsSeveralDestinations(t *testing.T) {
 		briefingPack(t, "codex", ".codex/AGENTS.md", "Codex pack prose.\n"),
 	}
 	req, _ := briefingReq(t, home)
-	adoptions := HostBriefingAdoptions(packs, home, req.Manifest)
+	adoptions := HostBriefingAdoptions(packs, home, req.Manifest, false)
 	if len(adoptions) != 2 {
 		t.Fatalf("want two adoptions; got %+v", adoptions)
 	}
@@ -253,7 +281,7 @@ func TestHostBriefingMigrationAppendsToAnExistingLocalPack(t *testing.T) {
 	}
 
 	packs := []*packload.Pack{briefingPack(t, "claude", ".claude/CLAUDE.md", "Pack prose.\n")}
-	adoptions := HostBriefingAdoptions(packs, home, req.Manifest)
+	adoptions := HostBriefingAdoptions(packs, home, req.Manifest, false)
 	if _, err := MigrateHostBriefings(adoptions, req, false); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -281,7 +309,7 @@ func TestHostBriefingMigrationArchivesWhenThereIsNoLocalPack(t *testing.T) {
 	req, _ := briefingReq(t, home)
 	req.LocalPackAGENTS = "" // no resolvable local pack
 
-	adoptions := HostBriefingAdoptions(packs, home, req.Manifest)
+	adoptions := HostBriefingAdoptions(packs, home, req.Manifest, false)
 	results, err := MigrateHostBriefings(adoptions, req, false)
 	if err != nil {
 		t.Fatalf("migrate: %v", err)
@@ -317,7 +345,7 @@ func TestHostBriefingAdoptionsOnlyWhenSomethingIsAtStake(t *testing.T) {
 	req, man := briefingReq(t, home)
 
 	// (1) Destination absent — nothing to adopt.
-	if got := HostBriefingAdoptions(packs, home, man); len(got) != 0 {
+	if got := HostBriefingAdoptions(packs, home, man, false); len(got) != 0 {
 		t.Errorf("an absent destination must not prompt; got %+v", got)
 	}
 
@@ -326,7 +354,7 @@ func TestHostBriefingAdoptionsOnlyWhenSomethingIsAtStake(t *testing.T) {
 		t.Fatalf("render: %v", err)
 	}
 	packs2 := []*packload.Pack{briefingPack(t, "claude", ".claude/CLAUDE.md", "Pack prose CHANGED.\n")}
-	if got := HostBriefingAdoptions(packs2, home, man); len(got) != 0 {
+	if got := HostBriefingAdoptions(packs2, home, man, false); len(got) != 0 {
 		t.Errorf("a destination yolo composed before must not prompt again; got %+v", got)
 	}
 
@@ -334,7 +362,7 @@ func TestHostBriefingAdoptionsOnlyWhenSomethingIsAtStake(t *testing.T) {
 	// moved their prose into a pack by hand, or the state dir was pruned. Nothing is lost.
 	fresh := t.TempDir()
 	freshReq, freshMan := briefingReq(t, fresh)
-	composed := ComposeHostBriefings(packs, fresh)
+	composed := ComposeHostBriefings(packs, fresh, false)
 	if len(composed) != 1 {
 		t.Fatalf("want one destination; got %+v", composed)
 	}
@@ -345,7 +373,7 @@ func TestHostBriefingAdoptionsOnlyWhenSomethingIsAtStake(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = freshReq
-	if got := HostBriefingAdoptions(packs, fresh, freshMan); len(got) != 0 {
+	if got := HostBriefingAdoptions(packs, fresh, freshMan, false); len(got) != 0 {
 		t.Errorf("an identical file must not prompt — nothing would be lost; got %+v", got)
 	}
 }
@@ -368,11 +396,10 @@ func TestHostBriefingTwoPacksComposeOneFile(t *testing.T) {
 		t.Fatalf("two packs at one destination is ONE file, not two renders; got %+v", results)
 	}
 	got := readFile(t, dest)
-	for _, want := range []string{"A prose.", "B prose.",
-		"<!-- from pack: pack-a -->", "<!-- from pack: pack-b -->"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("the composition lost %q:\n%s", want, got)
-		}
+	// Exact bytes: two sections, one blank line between, and no label — briefing_provenance is
+	// off by default, and the jail's ComposePackBriefings produces the same bytes.
+	if got != "A prose.\n\nB prose.\n" {
+		t.Errorf("two-pack composition:\n got %q\nwant %q", got, "A prose.\n\nB prose.\n")
 	}
 	if strings.Index(got, "A prose.") > strings.Index(got, "B prose.") {
 		t.Errorf("packs must compose in pack order (a then b):\n%s", got)
@@ -400,7 +427,7 @@ func TestHostBriefingNoProseLeavesTheFileAlone(t *testing.T) {
 	req, _ := briefingReq(t, home)
 
 	// No adoption either: there is nothing yolo would write, so nothing is at stake.
-	if got := HostBriefingAdoptions(packs, home, req.Manifest); len(got) != 0 {
+	if got := HostBriefingAdoptions(packs, home, req.Manifest, false); len(got) != 0 {
 		t.Errorf("a pack that ships no prose must not prompt; got %+v", got)
 	}
 	results, err := RenderHostBriefings(packs, home, req, false)
@@ -429,7 +456,7 @@ func TestHostBriefingObserveWritesNothing(t *testing.T) {
 	packs := []*packload.Pack{briefingPack(t, "claude", ".claude/CLAUDE.md", "Pack prose.\n")}
 	req, man := briefingReq(t, home)
 
-	adoptions := HostBriefingAdoptions(packs, home, man)
+	adoptions := HostBriefingAdoptions(packs, home, man, false)
 	mres, err := MigrateHostBriefings(adoptions, req, true)
 	if err != nil {
 		t.Fatalf("observe migrate: %v", err)
