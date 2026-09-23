@@ -2,37 +2,40 @@
 title: "A pack's AGENTS.md has two readers, and declaring anything takes one of them away"
 date: 2026-09-22
 status: in-review
-tags: [design, packs, briefing, skills, defaults, audiences, zero-ceremony]
-summary: "A pack's root AGENTS.md is read by two unrelated audiences — agents working IN the pack's repository, and every agent in every jail that selects the pack — and yolo's delivery defaults undo each other: declaring one narrow briefing silently stops the pack's AGENTS.md from shipping, while broadcasting from a manifest is refused outright. The fix gives shipped prose its own conventional file (BRIEFING.md) that no agent tool reads as repository instructions, makes broadcast declarable, and makes every declaration additive and per-file, so no line in a manifest can switch off a delivery it does not name."
+tags: [design, packs, briefing, skills, defaults, audiences, zero-ceremony, prior-art]
+summary: "A pack's root AGENTS.md is read by two unrelated audiences — agents working IN the pack's repository, and every agent in every jail that selects the pack — and yolo's delivery defaults undo each other: declaring one narrow briefing silently stops the pack's AGENTS.md from shipping, while broadcasting from a manifest is refused outright. AGENTS.md stays the repository's (ruled). Shipped prose moves to a location only yolo reads — leaning a `briefing/` component directory, the shape of Cursor's plugin rules and of every shipped component (`skills/`, `agents/`), rather than a root file like the two formats that collide — broadcast becomes declarable, and every declaration becomes additive and per-file."
 vantage:
   status-chip: true
 ---
 
 # A pack's AGENTS.md has two readers, and declaring anything takes one of them away
 
-**Status:** DESIGN, 2026-09-22. Nothing built. Evidence verified at `3ac4e8b1`.
+**Status:** DESIGN, 2026-09-22. Nothing built. [P1](#decision-ledger) ruled 2026-09-22; four
+questions open. Evidence verified at `3ac4e8b1`.
 
 > **In short.** yolo reads a pack's content through defaults that override each other, and it reads
 > prose from the one filename the rest of the agent ecosystem already reserves for a different
-> reader. A pack should ship prose from a file only yolo reads, and every line in its manifest
-> should add a delivery — none should be able to remove one it does not name.
+> reader. The repository keeps that file. A pack should ship prose from a place only yolo reads, and
+> every line in its manifest should add a delivery — none should be able to remove one it does not
+> name.
 
 **Why it matters.** Both failures are live in one config today. The `matt` pack's house rules
 (`matt/AGENTS.md`) reach **no agent**, because the pack also declares one pi-only briefing. The
 `matt-craft` repository's *contributor* guide reaches **every agent in every jail**, because it
 has no manifest. Neither pack is misconfigured by any rule its author could have found.
 
-**The shape.** Three defaults are replaced. `AGENTS.md` stops being a delivery source. Silence
-becomes broadcast in a manifest as well as without one. The implicit delivery becomes per file
-instead of per kind.
+**The shape.** Three defaults are replaced. `AGENTS.md` stops being a delivery source, and a
+yolo-only location takes its place. Silence becomes broadcast in a manifest as well as without one.
+The implicit delivery becomes per file instead of per kind.
 
-**Cost.** A pack whose `AGENTS.md` *was* meant to ship must rename it, and the pack is told so. On
-the day this lands, the prose in those packs stops reaching agents until the rename.
+**Cost.** A pack whose `AGENTS.md` *was* meant to ship must move it, and the pack is told so. On
+the day this lands, the prose in those packs stops reaching agents until the move.
 
 **Start at [§2.2](#22-declaring-anything-switches-the-default-off)**, where the trap is shown. The
-design is [§3](#3-the-design).
+design is [§3](#3-the-design). Nothing in any other format constrains the new name
+([Appendix A](#appendix-a-prior-art-how-other-agent-ecosystems-ship-instructions)).
 
-**Needs your ruling:** [OQ-PB1](#OQ-PB1), [OQ-PB2](#OQ-PB2), [OQ-PB3](#OQ-PB3).
+**Needs your ruling:** [OQ-PB1](#OQ-PB1), [OQ-PB2](#OQ-PB2), [OQ-PB3](#OQ-PB3), [OQ-PB4](#OQ-PB4).
 
 **Reads with:** [`briefing-audiences.md`](briefing-audiences.md) (its P2, "silence means
 broadcast", is ruled and was never true for a manifest — this doc makes it true);
@@ -50,12 +53,14 @@ These are the principles the rest of the doc spends its length earning. They are
 sibling docs and code comments can cite them.
 
 - **P1. One file, one reader.** yolo never ships a file as pack prose if an agent tool reads it as
-  a repository's own instructions. Today that means `AGENTS.md` and `CLAUDE.md`, at any depth.
+  a repository's own instructions. Today that means `AGENTS.md`, `CLAUDE.md` and `GEMINI.md` —
+  Copilot CLI alone reads all three ([Appendix A](#appendix-a-prior-art-how-other-agent-ecosystems-ship-instructions)).
+  **Ruled 2026-09-22:** those files stay where they are, as the repository's; shipped prose moves.
 - **P2. Silence means broadcast, and a manifest can say it.** A `briefing` or `skills`
   contribution that names neither `into` nor `agents` reaches every destination of its kind in the
   selected pack set. This is [`briefing-audiences.md`](briefing-audiences.md#1-verdict-and-the-principles-it-rests-on)'s
   P2, already ruled, finally reachable from a `pack.json`.
-- **P3. Declarations add; they never subtract.** A contribution governs the one file it names.
+- **P3. Declarations add; they never subtract.** A contribution governs the files it names.
   Nothing a pack declares about one file changes whether a different file is delivered.
 - **P4. A named source is the only source.** A declared `from` that cannot be read delivers
   nothing. It never quietly delivers a different file.
@@ -72,9 +77,9 @@ staged packs of a live jail.
 ### 2.1 One file, two readers
 
 `AGENTS.md` is the agent ecosystem's filename for *"instructions for an agent working in this
-repository"*. The same scan that turns up nothing for `BRIEFING.md` finds `AGENTS.md` referenced
-by the installed pi, copilot, codex and opencode packages and 13 times in the Claude Code 2.1.280
-binary (`CLAUDE.md`: 212). yolo reads the same filename with a second meaning — *"prose this pack
+repository"* — [agents.md](https://agents.md) calls it "a README for agents". The installed pi,
+copilot, codex and opencode packages all reference it, and the Claude Code 2.1.280 binary does 13
+times (`CLAUDE.md`: 212). yolo reads the same filename with a second meaning — *"prose this pack
 ships to every agent in every jail"* — and it is the **only** conventional briefing source
 ([`contributes.go:1286`](../../internal/packdecl/contributes.go#L1286)).
 
@@ -89,13 +94,20 @@ case:
 | `matt-craft/AGENTS.md` | Agents working **in** matt-craft (*"do not author new skills directly in this repository"*, *"`just done` runs `scripts/check-skills`"*) | Also every Claude, pi, codex, agy and opencode in every jail selecting the pack, where `just done` means something else entirely |
 | `matt-craft/CLAUDE.md` | `@AGENTS.md` — Claude's pointer to the same guide | Not read by yolo (the `CLAUDE.md` fallback is already gone) |
 
+matt-craft is a Claude plugin, and by Claude's own rule its root instruction file is **not**
+shipped content: *"A `CLAUDE.md` file at the plugin root is not loaded as project context"*
+([plugins reference](https://code.claude.com/docs/en/plugins-reference)). yolo recognises the
+plugin (`pluginpack.DiscoverIn` loads a plugin-shaped pack root) — but only at the host notch, and
+no briefing path consults plugin-ness at all. So yolo ships the one file the wrapped format says
+not to.
+
 The leak runs the other way as well. A pack author working in their own pack repository gets the
 pack's shipped prose loaded as that repository's instructions, whether or not it describes how to
 work there.
 
-`skills/` has **no** equivalent collision. The plugin convention reads `skills/` as shipped
-content, and an agent's own in-repository skills live under `.claude/skills/`. So P1 is a
-briefing-only change.
+`skills/` has **no** equivalent collision. Every plugin format reads `skills/` as shipped content,
+and an agent's own in-repository skills live under `.claude/skills/`. So P1 is a briefing-only
+change.
 
 ### 2.2 Declaring anything switches the default off
 
@@ -189,23 +201,35 @@ took the same rule.
 
 ## 3. The design
 
-### 3.1 `BRIEFING.md` is what a pack ships; `AGENTS.md` is never read
+The body below spells the new location **`briefing/`**, [OQ-PB1](#OQ-PB1)'s leaning. If that
+question is ruled for a single root file instead, every rule below holds with "each `*.md` in
+`briefing/`" read as "that one file".
 
-- **The conventional prose file is `BRIEFING.md`** at the pack root. The exact name and location
-  are [OQ-PB1](#OQ-PB1). It is matched case-sensitively, and it is the only conventional briefing
-  source at every notch.
-- **`AGENTS.md` and `CLAUDE.md` are never read as pack prose**, with or without a manifest, at any
-  notch. For a repository pack they are that repository's own instructions, and yolo leaves them
-  to the reader they were written for.
-- **An explicit `from` whose basename is `AGENTS.md` or `CLAUDE.md`** is [OQ-PB2](#OQ-PB2).
-- **The measured premise.** Nothing I could scan reads `BRIEFING.md` as instructions: zero mentions
-  in Claude Code 2.1.280, and none in the installed pi, codex, copilot and opencode packages, whose
-  `AGENTS.md` references the same scan found. So an agent working in a pack's repository does not
-  load the pack's shipped prose, and a consumer's agent does not load the repository's contributor
-  guide. **UNMEASURED:** agy and omp were not installed in this jail.
-- **A pack that wants one text for both readers** writes it once as `BRIEFING.md` and points the
-  in-repository file at it. `CLAUDE.md` can say `@BRIEFING.md`. This is the author choosing the
-  dual use, visibly, in a file yolo does not read.
+### 3.1 The `briefing/` directory is what a pack ships; `AGENTS.md` is never read
+
+- **`AGENTS.md`, `CLAUDE.md` and `GEMINI.md` are never read as pack prose**, with or without a
+  manifest, at any notch (P1, ruled). For a repository pack they are that repository's own
+  instructions, and yolo leaves them to the reader they were written for.
+- **The conventional prose source is a `briefing/` directory at the pack root.** Its contents
+  are every regular `*.md` file directly inside it:
+  - **Order:** by filename, byte-wise. Files are joined with one blank line between them, under the
+    pack's single provenance header, as a pack's prose is today.
+  - **Not recursive.** A subdirectory is not read, matching Agent Plugins' *"clients do not
+    recursively search deeper"* for `skills/`. Lint names it ([§3.6](#36-every-delivery-and-every-refusal-to-deliver-is-shown-before-launch)).
+  - **Only `*.md`.** Anything else is not read, and lint names it.
+  - **Empty or whitespace-only files contribute nothing**, silently, as an absent convention does
+    today.
+  - **Names match case-sensitively.** `Briefing/` is not the convention.
+- **A file inside `briefing/` named `AGENTS.md`, `CLAUDE.md` or `GEMINI.md`** is the same question
+  as an explicit `from` naming one — [OQ-PB2](#OQ-PB2). An agent working in that subtree would read
+  it as the subtree's instructions, so the dual use would come back one level down.
+- **The measured premise.** No agent tool I could scan reads `briefing/`, or a file called
+  `BRIEFING.md`, as instructions: zero mentions in Claude Code 2.1.280, and none in the installed
+  pi, codex, copilot and opencode packages. The same scan found `AGENTS.md` in every one of them.
+  **UNMEASURED:** agy and omp were not installed in this jail.
+- **A pack that wants one text for both readers** writes it once under `briefing/` and points the
+  in-repository file at it. `CLAUDE.md` can say `@briefing/house-rules.md`. This is the author
+  choosing the dual use, visibly, in a file yolo does not read.
 
 ### 3.2 Silence means broadcast, in a manifest too
 
@@ -230,21 +254,24 @@ took the same rule.
 
 The implicit delivery becomes **per file**, never per kind:
 
-- **The conventional source (`BRIEFING.md`; `skills/`) is broadcast implicitly unless some
-  contribution of that kind names it.** A content contribution that omits `from` names the
-  conventional source. So does one that spells it.
-- **Once a contribution names it, that contribution alone decides where it goes.** For example,
-  `{"kind": "briefing", "agents": ["pi"]}` sends `BRIEFING.md` to pi only.
-- **A contribution naming a different file has no effect on the conventional one.** Adding
-  `{"from": "files/pi-rules.md", "agents": ["pi"]}` beside a `BRIEFING.md` delivers both files.
+- **Every file in the conventional source (`briefing/*.md`, and `skills/` as one tree) is
+  broadcast implicitly unless some contribution of that kind names it.**
+- **A contribution names a file by `from`.** A `briefing` contribution that omits `from` names
+  every file of `briefing/` that no other contribution names — it is how a pack narrows its whole
+  convention in one line.
+- **Once a contribution names a file, that contribution alone decides where it goes.** For example,
+  `{"kind": "briefing", "from": "briefing/pi.md", "agents": ["pi"]}` sends that one file to pi
+  only, and every other file in `briefing/` keeps broadcasting.
+- **A contribution naming a file outside the convention has no effect on the convention.** Adding
+  `{"from": "files/pi-rules.md", "agents": ["pi"]}` beside a `briefing/` directory delivers both.
   That is the case [§2.2](#22-declaring-anything-switches-the-default-off) gets wrong.
 - **The host notch's no-widening promise still holds.** A pack declaring
-  `{"kind": "briefing", "into": ".claude/CLAUDE.md"}` names the conventional file by omission, so
-  `BRIEFING.md` goes to that one path and nowhere else. `ResolveDestinations`' contract
-  (*"a declaration must not be widened into every other agent's directory"*) is kept by the file
+  `{"kind": "briefing", "into": ".claude/CLAUDE.md"}` names its unclaimed convention by omission,
+  so `briefing/` goes to that one path and nowhere else. `ResolveDestinations`' contract
+  (*"a declaration must not be widened into every other agent's directory"*) is kept by the files
   being named, not by the kind being declared.
 - **Order-independent.** Governance is a property of the declaration set, so the order of the
-  `contributes` list never changes which files are delivered.
+  `contributes` list never changes which files are delivered, or where.
 
 ### 3.4 A declared source is the only source
 
@@ -256,7 +283,7 @@ The implicit delivery becomes **per file**, never per kind:
   instead is already an open question elsewhere
   ([`reference-mismatch-diagnostics.md`](reference-mismatch-diagnostics.md), roadmap row 9), so
   this doc removes the substitution and leaves the severity to that ruling.
-- **An absent conventional file is silent**, as now. Most packs carry no prose.
+- **An absent convention is silent**, as now. Most packs carry no prose.
 - **Escaping the pack tree** stays refused outright, unchanged.
 
 ### 3.5 A destination ships nothing
@@ -273,24 +300,28 @@ The implicit delivery becomes **per file**, never per kind:
 ### 3.6 Every delivery, and every refusal to deliver, is shown before launch
 
 - **`yolo pack lint` lists every delivery**, implicit ones included, and says which is which —
-  for example, `BRIEFING.md → every agent (implicit broadcast)` beside `files/pi-rules.md → pi`.
-- **It names every conventional-looking file it will not ship**, one info line each. A root
-  `AGENTS.md` or `CLAUDE.md` gets *"not shipped: this is the repository's own agent instructions —
-  ship prose as `BRIEFING.md`"*. Info, not a warning: for a repository pack, not shipping it is
-  correct.
+  for example, `briefing/house-rules.md → every agent (implicit broadcast)` beside
+  `files/pi-rules.md → pi`.
+- **It names every conventional-looking file it will not ship**, one info line each:
+  - A root `AGENTS.md`, `CLAUDE.md` or `GEMINI.md` gets *"not shipped: this is the repository's own
+    agent instructions — ship prose under `briefing/`"*. Info, not a warning: for a repository
+    pack, not shipping it is correct.
+  - A subdirectory or a non-`.md` file inside `briefing/` gets *"not read: `briefing/` is read one
+    level deep, `*.md` only"*.
 - **The advisory at [`pack.go:595`](../../internal/cli/pack.go#L595) states what dropping the line
   does**, which is widen, not nothing.
-- **The scaffold** writes `BRIEFING.md`. Its advice shows an addressed contribution *adding* to the
-  broadcast, and shows narrowing the broadcast as a contribution that names `BRIEFING.md`.
-- **The reference docs and the `Agents` field comment** state the rule in [§3.2](#32-silence-means-broadcast-in-a-manifest-too)–3.3 in the same
-  change that builds it.
+- **The scaffold** writes `briefing/<pack>.md`. Its advice shows an addressed contribution *adding*
+  to the broadcast, and shows narrowing as a contribution that names a `briefing/` file.
+- **The reference docs and the `Agents` field comment** state the rules in
+  [§3.2](#32-silence-means-broadcast-in-a-manifest-too)–[§3.3](#33-a-file-is-governed-by-the-contribution-that-names-it)
+  in the same change that builds them.
 - **What `lint` cannot see is unchanged.** It takes one pack and no config, so it cannot know the
   selected set. It reports *"every agent"*, and the resolved list is `yolo host apply`'s and the
   launch banner's to print, as today.
 
 ### 3.7 The two packs that started this, before and after
 
-| | Today | After, with one `git mv matt/AGENTS.md matt/BRIEFING.md` and no other edit |
+| | Today | After `mkdir matt/briefing && git mv matt/AGENTS.md matt/briefing/house-rules.md`, no other edit |
 |---|---|---|
 | Claude's briefing | matt-craft's contributor guide | matt's house rules |
 | pi's briefing | `pi-rules.md` and matt-craft's contributor guide | matt's house rules and `pi-rules.md` |
@@ -305,17 +336,21 @@ matt-craft needs **no** edit: its leak stops because yolo stops reading the file
 - **Packs whose root `AGENTS.md` was meant to ship.** This covers every `yolo pack init` scaffold
   ever written, the `matt` pack, and an unknown number of third-party packs. On the day this ships
   that prose stops being delivered. How loudly, and whether there is a window, is
-  [OQ-PB3](#OQ-PB3). There is no escape hatch either way: a pack's file name is authoring, and a
+  [OQ-PB3](#OQ-PB3). There is no escape hatch either way: a pack's file layout is authoring, and a
   hatch would keep the second reader alive behind a variable.
 - **The conventional local pack.** `yolo host apply` itself moves an adopted host briefing to
   `~/.config/yolo-jail/local/AGENTS.md`
   ([`applyhostbriefings.go:55-70`](../../internal/cli/applyhostbriefings.go#L55-L70)). yolo chose
-  that name, so yolo renames it. The migration writer targets `BRIEFING.md` from the day this
-  lands. The next `yolo host apply` renames an existing `local/AGENTS.md` to `BRIEFING.md` and
-  reports the move. It refuses if both files exist, naming both, rather than choosing one. Until
-  that apply runs, the local pack is covered by the same notice as any other pack under [OQ-PB3](#OQ-PB3).
+  that location, so yolo moves it:
+  - The migration writer targets a file under `local/briefing/` from the day this lands. Its name
+    is the implementer's; it affects only the join order.
+  - The next `yolo host apply` moves an existing `local/AGENTS.md` into `local/briefing/` and
+    reports the move. If the target name is already taken it refuses, naming both files, rather
+    than choosing one.
+  - Until that apply runs, the local pack is covered by the same notice as any other pack under
+    [OQ-PB3](#OQ-PB3).
 - **Fetched packs.** A fetched pack whose `AGENTS.md` is a contributor guide (matt-craft) is fixed
-  with no action. One whose `AGENTS.md` was consumer prose cannot be renamed by the user. The
+  with no action. One whose `AGENTS.md` was consumer prose cannot be moved by the user. The
   [OQ-PB3](#OQ-PB3) notice names the pack's source, so the report goes upstream.
 - **Host destinations yolo already composed.** They are composed wholesale under the ownership
   record, so the next `yolo host apply` recomposes them without the dropped prose. No separate
@@ -329,14 +364,17 @@ matt-craft needs **no** edit: its leak stops because yolo stops reading the file
 
 - **`files` broadcast.** `files` destinations are typed slots (pi extensions, themes), and "every
   agent" has no meaning for them yet. `files` stays `into` or `agents`, unchanged.
+- **Addressing by filename** (`briefing/claude.md` going to Claude alone because of its name).
+  Audience stays a manifest field; a filename that silently narrows delivery is the class of
+  implicit rule this doc removes.
 - **The severity of a mistyped `from`** belongs to
   [`reference-mismatch-diagnostics.md`](reference-mismatch-diagnostics.md)
   ([§3.4](#34-a-declared-source-is-the-only-source)).
 - **The `exposes` schema.** This doc changes behaviour on today's fields; the re-spelling is
   [`slots-and-contributions.md`](slots-and-contributions.md)'s.
-- **Other ecosystems' instruction files** (`GEMINI.md`, `.github/copilot-instructions.md`,
-  `.cursorrules`). yolo never read them as pack prose, so P1 has nothing to stop there. If yolo
-  ever adds a conventional source, P1 governs the choice.
+- **A per-file consumer toggle** in the style of Cursor's Always / Agent Decides / Manual. It is a
+  real option for later ([Appendix A](#appendix-a-prior-art-how-other-agent-ecosystems-ship-instructions)),
+  and [OQ-PB4](#OQ-PB4) asks the narrower question that would motivate it.
 - **What a composed briefing contains around the pack prose** — the jail body, the host prepend,
   the handoff. That is unchanged ([`agent-briefings.md`](../reference/agent-briefings.md)).
 
@@ -344,28 +382,32 @@ matt-craft needs **no** edit: its leak stops because yolo stops reading the file
 
 | Alternative | Verdict |
 |---|---|
+| **Move the repository's file instead** — ask pack authors to keep contributor instructions elsewhere | Rejected by ruling ([P1](#decision-ledger)). `AGENTS.md` is an ecosystem standard with its own readers; yolo does not get to move it. |
 | **A wildcard audience** (`"agents": ["*"]`) and keep `AGENTS.md` | Rejected. It fixes [§2.3](#23-broadcast-cannot-be-written-down) with a second spelling of what silence should already mean, and leaves the dual-reader file ([§2.1](#21-one-file-two-readers)) and the suppression ([§2.2](#22-declaring-anything-switches-the-default-off)) exactly as they are. |
 | **Keep today's suppression and have lint warn about it** | Rejected. It documents the trap instead of removing it, and a warning on every pack that declares one briefing stops being read in a week. |
-| **No convention at all** — prose only through an explicit `from` | Rejected. It deletes the zero-ceremony prose path that [`briefing-audiences.md`](briefing-audiences.md#1-verdict-and-the-principles-it-rests-on) P2 and the pack guide promise. What that path got wrong was its filename and its suppression rule, not its existence. |
+| **No convention at all** — prose only through an explicit `from` | Rejected. It deletes the zero-ceremony prose path that [`briefing-audiences.md`](briefing-audiences.md#1-verdict-and-the-principles-it-rests-on) P2 and the pack guide promise. What that path got wrong was its location and its suppression rule, not its existence. |
 | **Read `AGENTS.md` only when the pack is not a git repository** | Rejected. A file's meaning must not depend on whether `.git` is present: every fetched pack is a repository, and a local pack becomes one the moment someone runs `git init`. |
 | **Keep `AGENTS.md` and make yolo strip a marked section** | Rejected. It is two readers of one file with a parser in between, and it breaks the first time either reader's author forgets the marker. |
+| **Deliver pack prose as a skill** — the Claude and Agent Plugins answer | Rejected for this kind. A skill loads when its description matches the task; house rules must be in front of the agent before it has chosen one. `skills` already exists for the on-demand case. |
 
 ## 7. Risks
 
 | Risk | Mitigation |
 |---|---|
-| **R1.** A pack whose `AGENTS.md` was consumer prose goes quiet on ship day | The notice in [OQ-PB3](#OQ-PB3), at launch, lint and `host apply`, naming the pack and the rename |
-| **R2.** An agent tool later adopts `BRIEFING.md` as an instruction file, recreating the collision | Checked at design time ([§3.1](#31-briefingmd-is-what-a-pack-ships-agentsmd-is-never-read); agy and omp unmeasured). P1 is stated as a rule, so the name is re-chosen if that happens, rather than tolerated |
+| **R1.** A pack whose `AGENTS.md` was consumer prose goes quiet on ship day | The notice in [OQ-PB3](#OQ-PB3), at launch, lint and `host apply`, naming the pack and the move |
+| **R2.** An agent tool later adopts `briefing/` as an instruction location, recreating the collision | Checked at design time ([§3.1](#31-the-briefing-directory-is-what-a-pack-ships-agentsmd-is-never-read); agy and omp unmeasured). P1 is stated as a rule, so the location is re-chosen if that happens, rather than tolerated |
 | **R3.** Broadcast is now one missing field away, so an author meaning "Claude only" who writes nothing reaches everyone | That is already the zero-ceremony behaviour and what P2 ruled. Lint's delivery list ([§3.6](#36-every-delivery-and-every-refusal-to-deliver-is-shown-before-launch)) shows *"every agent"* before any launch |
-| **R4.** Per-file governance keys on the resolved source path, so two spellings of one file (`BRIEFING.md`, `./BRIEFING.md`) could be read as two files | Compare cleaned pack-relative paths; the escape check already cleans them |
+| **R4.** Per-file governance keys on the resolved source path, so two spellings of one file (`briefing/a.md`, `./briefing/a.md`) could be read as two files | Compare cleaned pack-relative paths; the escape check already cleans them |
 | **R5.** The two notches diverge again, because the gate lives at three sites today | One predicate, used by all three; see the sketch |
+| **R6.** A multi-file directory makes join order observable, so renaming a file reorders a briefing | Stated as the rule (byte-wise filename order); lint's delivery list shows the order |
 
 ## 8. How this sits with the sibling designs
 
 - **[`briefing-audiences.md`](briefing-audiences.md)** — P2 is **fulfilled, not overturned**. Its
-  [`briefing-audiences.md` §4.1](briefing-audiences.md#41-the-two-halves-and-why-neither-knows-the-others-business) sentence *"a contribution with neither is today's zero-ceremony broadcast, unchanged"*
-  becomes true. Its P3 (an unmatched audience is fatal) is untouched, and it is the reason
-  broadcast has to be spellable at all.
+  [§4.1](briefing-audiences.md#41-the-two-halves-and-why-neither-knows-the-others-business) sentence
+  *"a contribution with neither is today's zero-ceremony broadcast, unchanged"* becomes true. Its P3
+  (an unmatched audience is fatal) is untouched, and it is the reason broadcast has to be spellable
+  at all.
 - **[`slots-and-contributions.md`](slots-and-contributions.md)** — two open questions move:
   - [OQ-D9](slots-and-contributions.md#OQ-D9) rests on *"no manifest can declare [broadcast]"*.
     After this lands, one can, so `exposes`' `to` needs a broadcast spelling. Absent `to`, matching
@@ -383,57 +425,80 @@ matt-craft needs **no** edit: its leak stops because yolo stops reading the file
    with no behaviour change: lint lists implicit deliveries and names a root `AGENTS.md` that
    currently ships or currently does not. This is useful on its own and makes every later step
    observable.
-2. **Broadcast becomes declarable** ([§3.2](#32-silence-means-broadcast-in-a-manifest-too)). It is a validator relaxation that loosens nothing
-   else, and it unblocks the `matt` pack immediately with `{"kind": "briefing"}`.
-3. **Per-file governance, declared-source-only, destination-ships-nothing** ([§3.3](#33-a-file-is-governed-by-the-contribution-that-names-it)–3.5), as one
-   change, because each of them edits the same fallback sites.
-4. **The rename** ([§3.1](#31-briefingmd-is-what-a-pack-ships-agentsmd-is-never-read), [§4](#4-state-that-already-exists)), after [OQ-PB1](#OQ-PB1)–[OQ-PB3](#OQ-PB3) are ruled, along with the
-   scaffold, the local-pack migration writer, and the corrected reference docs.
+2. **Broadcast becomes declarable** ([§3.2](#32-silence-means-broadcast-in-a-manifest-too)). It is a
+   validator relaxation that loosens nothing else, and it unblocks the `matt` pack immediately with
+   `{"kind": "briefing"}`.
+3. **Per-file governance, declared-source-only, destination-ships-nothing**
+   ([§3.3](#33-a-file-is-governed-by-the-contribution-that-names-it)–[§3.5](#35-a-destination-ships-nothing)),
+   as one change, because each of them edits the same fallback sites.
+4. **The move** ([§3.1](#31-the-briefing-directory-is-what-a-pack-ships-agentsmd-is-never-read),
+   [§4](#4-state-that-already-exists)), after [OQ-PB1](#OQ-PB1)–[OQ-PB3](#OQ-PB3) are ruled, along
+   with the scaffold, the local-pack migration writer, and the corrected reference docs.
 
 ## 10. What done looks like
 
 - `{"kind": "briefing"}` in a manifest lints clean, and a jail selecting that pack plus claude and
-  pi delivers the pack's `BRIEFING.md` to both.
+  pi delivers the pack's `briefing/` files to both.
 - The [§3.7](#37-the-two-packs-that-started-this-before-and-after) table holds in a real jail:
   Claude's composed briefing carries matt's house rules and not matt-craft's contributor guide.
 - `yolo pack init`, followed by the scaffold's own advice, lints as **two** deliveries.
 - A declared `from` that does not exist delivers nothing and is reported. No other file arrives in
   its place.
 - `from` on a destination-declaring `briefing` is refused, naming the addressed spelling.
-- One `yolo host apply` on a home with `local/AGENTS.md` leaves `local/BRIEFING.md`, reports the
-  move, and the prose still reaches every agent.
+- One `yolo host apply` on a home with `local/AGENTS.md` leaves a file under `local/briefing/`,
+  reports the move, and the prose still reaches every agent.
 - `pack-system.md`, `agent-briefings.md` and the `Agents` field comment describe the behaviour the
   lint output shows.
 
 ## 11. Open Questions
 
-1. 💬 <a id="OQ-PB1"></a>**[OQ-PB1](#OQ-PB1): what is the conventional prose file called, and where
-   does it sit?** It decides the one name every pack author types, and the one that has to stay
-   free of every agent tool's instruction-file list.
+1. 💬 <a id="OQ-PB1"></a>**[OQ-PB1](#OQ-PB1): the repository keeps `AGENTS.md` — so where does
+   shipped prose live: one root file, or a component directory?** It decides the one location
+   every pack author learns, and whether a pack's prose is one unit or several.
 
-   <!-- vantage: oq id=OQ-PB1 leaning="BRIEFING.md at the pack root: yolo's own word for the thing, read by no agent tool, and one file beside skills/ keeps the zero-ceremony pack two entries." -->
+   <!-- vantage: oq id=OQ-PB1 leaning="A briefing/ directory of *.md files, beside skills/: every static-instructions mechanism outside Gemini's is a lowercase component directory, the only two that reuse a root instruction filename are the two with this bug, and files are the unit per-file governance needs." -->
 
-   _Leaning:_ **`BRIEFING.md` at the pack root.** "Briefing" is already yolo's word for exactly
-   this, and it is the `kind` name, so `{"kind": "briefing"}` and the file it reads by default say
-   the same thing. It is read by no agent tool scanned ([§3.1](#31-briefingmd-is-what-a-pack-ships-agentsmd-is-never-read)). Keeping it at the root keeps the
-   zero-ceremony pack at two entries (`BRIEFING.md`, `skills/`). A subdirectory
-   (`.yolo/BRIEFING.md`, `yolo/`) buys insulation against a future collision at the cost of
-   discoverability, and R2's mitigation already covers the collision.
+   _Leaning:_ **a `briefing/` directory of `*.md` files, beside `skills/`.** Nothing forces the
+   choice ([Appendix A](#appendix-a-prior-art-how-other-agent-ecosystems-ship-instructions)), so
+   it is the one with the best evidence behind it:
+
+   - **The ecosystem has a grammar, and yolo should speak it.** In every format, a lowercase
+     directory at the package root is *shipped content* (`skills/`, `agents/`, `commands/`,
+     `rules/`, `themes/`, `prompts/`). An uppercase root Markdown file is *about this repository*
+     (`README.md`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`). A root `BRIEFING.md` is a shipped
+     thing wearing the repository's grammar — exactly how `AGENTS.md` got its second reader.
+   - **The one package format that ships static always-on files without colliding uses a
+     directory**: Cursor's plugin `rules/`. The two that ship from a single root file — Gemini's
+     `GEMINI.md` and yolo's `AGENTS.md` — are the two that collide. Repository-side instructions
+     trend the same way (Copilot's `.github/instructions/`, Kiro's `.kiro/steering/`).
+   - **Files are the unit [§3.3](#33-a-file-is-governed-by-the-contribution-that-names-it) needs.**
+     A directory lets an author split house rules from per-agent notes and address one file
+     without touching the rest. One root file can only be all-or-nothing.
+   - **It sits beside `skills/`, which has the same shape and no collision.** The zero-ceremony
+     pack stays two entries: `briefing/` and `skills/`.
+
+   The cost is one more path segment than `BRIEFING.md`, and a join order to state (R6). The
+   runner-up is `BRIEFING.md` at the root: equally unread by agent tools, one file, but wrong on
+   the first two points above.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 <a id="OQ-PB2"></a>**[OQ-PB2](#OQ-PB2): may an explicit `from` name `AGENTS.md` or
-   `CLAUDE.md`?** P1 stops the *default* from reading them. This asks whether a manifest may still
-   opt into the dual use by name. It decides whether P1 is a default or a rule.
+2. 💬 <a id="OQ-PB2"></a>**[OQ-PB2](#OQ-PB2): may an explicit `from`, or a file inside
+   `briefing/`, be named `AGENTS.md`, `CLAUDE.md` or `GEMINI.md`?** P1 stops the *default* from
+   reading them. This asks whether a manifest may still opt into the dual use by name. It decides
+   whether P1 is a default or a rule.
 
-   <!-- vantage: oq id=OQ-PB2 leaning="Refuse, at any depth, naming the rename: an allowed exception is how the dual use returns one pack at a time, and the dual-use author already has a clean spelling (CLAUDE.md saying @BRIEFING.md)." -->
+   <!-- vantage: oq id=OQ-PB2 leaning="Refuse, at any depth, naming the move: an allowed exception is how the dual use returns one pack at a time, and the dual-use author already has a clean spelling (CLAUDE.md saying @briefing/x.md)." -->
 
-   _Leaning:_ **refuse, for that basename at any depth**, with a message naming the rename. Agent
+   _Leaning:_ **refuse, for those basenames at any depth**, with a message naming the move. Agent
    tools read those names in subdirectories too, so depth does not make one safe. An allowed
    exception is how the dual use comes back one pack at a time. The one legitimate reason to want
-   it — one text for both readers — already has a clean spelling ([§3.1](#31-briefingmd-is-what-a-pack-ships-agentsmd-is-never-read)). The cost is one refusal
-   for anyone who wrote `from: "AGENTS.md"` deliberately, who gets the fix in the message.
+   it — one text for both readers — already has a clean spelling
+   ([§3.1](#31-the-briefing-directory-is-what-a-pack-ships-agentsmd-is-never-read)). The ruling on
+   [P1](#decision-ledger) — the repository's file stays the repository's — points the same way. The
+   cost is one refusal for anyone who wrote `from: "AGENTS.md"` deliberately, who gets the fix in the
+   message.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -442,21 +507,42 @@ matt-craft needs **no** edit: its leak stops because yolo stops reading the file
    happens to a pack that relied on it?** It decides whether a pack's prose can go silent, and
    for how long anything warns about it.
 
-   <!-- vantage: oq id=OQ-PB3 leaning="Hard cut, never a refusal, with a notice at launch, lint and host apply naming the pack and the git mv, shown while the pack has a root AGENTS.md and no BRIEFING.md." -->
+   <!-- vantage: oq id=OQ-PB3 leaning="Hard cut, never a refusal, with a notice at launch, lint and host apply naming the pack and the move, shown while the pack has a root AGENTS.md and no briefing/ directory." -->
 
    _Leaning:_ **a hard cut, never a refusal, with a notice.** The notice goes out at launch, at
-   `yolo pack lint` and at `yolo host apply`. It names the pack, its source, and the `git mv`, and
-   it shows whenever a selected pack has a root `AGENTS.md` and no `BRIEFING.md`. It is silenced
-   by adding `BRIEFING.md`, or by an explicit contribution naming another source.
+   `yolo pack lint` and at `yolo host apply`. It names the pack, its source, and the move, and it
+   shows whenever a selected pack has a root `AGENTS.md` and no `briefing/` directory. It is
+   silenced by adding `briefing/`, or by an explicit contribution naming another source.
 
-   The alternative — a window in which `AGENTS.md` is still read when `BRIEFING.md` is absent —
-   keeps the leak open for exactly the packs that cause it, since matt-craft has no `BRIEFING.md`.
-   Refusing the launch is ruled out because the pack may be someone else's repository. The cost is
-   that a pack author who ignores the notice has silent prose. The notice is a disclosure, and
-   under [`report-tiers.md`](../reference/report-tiers.md) a disclosure is never suppressible.
+   The alternative — a window in which `AGENTS.md` is still read when `briefing/` is absent — keeps
+   the leak open for exactly the packs that cause it, since matt-craft has no `briefing/`. Refusing
+   the launch is ruled out because the pack may be someone else's repository. The cost is that a
+   pack author who ignores the notice has silent prose. The notice is a disclosure, and under
+   [`report-tiers.md`](../reference/report-tiers.md) a disclosure is never suppressible.
    ⚠ It fires on matt-craft too, whose `AGENTS.md` is *correctly* unshipped. Wording it as *"not
-   shipped — if this was meant for consumers, rename it"*, rather than as an error, is what keeps
-   it true for both kinds of pack.
+   shipped — if this was meant for consumers, move it under `briefing/`"*, rather than as an error,
+   is what keeps it true for both kinds of pack.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+4. 💬 <a id="OQ-PB4"></a>**[OQ-PB4](#OQ-PB4): should a FETCHED pack's prose need a declaration
+   before it is always-on?** Most ecosystems keep third-party packages out of always-on context
+   ([Appendix A](#appendix-a-prior-art-how-other-agent-ecosystems-ship-instructions)), and the one
+   delivery that went wrong here came from a fetched pack. It decides whether selecting a
+   third-party pack is, by itself, consent to its text in front of every agent on every turn.
+
+   <!-- vantage: oq id=OQ-PB4 leaning="No separate rule: selecting a pack is the consent, as for every other kind; the accident was the filename, which P1 removes, and P6's delivery list is the disclosure. Revisit with a per-file consumer toggle only if a real third-party pack abuses it." -->
+
+   _Leaning:_ **no separate rule — selecting the pack is the consent**, as it already is for its
+   programs, loopholes and config. The accident here was the *filename*: a `briefing/` directory is
+   yolo-specific, so a fetched pack that has one put it there on purpose for yolo's consumers. What
+   the ecosystems' caution protects — context budget, and text with no trigger from someone you did
+   not write — is served by P6's delivery list, which names every always-on file before the first
+   launch. A declaration requirement for fetched packs only would make one pack behave differently
+   depending on how it was fetched, which is the file-meaning-depends-on-circumstance shape rejected
+   in [§6](#6-alternatives-considered). If a third-party pack abuses it, the remedy is Cursor's —
+   a per-file consumer toggle ([§5](#5-non-goals)) — not an author-side gate.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -465,4 +551,65 @@ matt-craft needs **no** edit: its leak stops because yolo stops reading the file
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| — | *(no rulings yet)* | — | — | — |
+| P1 | The repository's instruction files (`AGENTS.md`, `CLAUDE.md`) stay where they are, as the repository's; shipped prose moves to a different location. *(Maintainer: "the repo briefing one has to stay in place. Can't change that one. Gonna have to pick something else for the other one.")* | 2026-09-22 | [§3.1](#31-the-briefing-directory-is-what-a-pack-ships-agentsmd-is-never-read) | — |
+
+## Appendix A. Prior art: how other agent ecosystems ship instructions
+
+Read 2026-09-22 from each vendor's own documentation unless marked; the installed-binary rows were
+measured in this jail. **The question asked of each:** can a package put text in front of the
+agent on every turn, by what mechanism, and does that mechanism reuse the repository's own
+instruction filename?
+
+### A.1 What a package can put in front of the agent
+
+| Ecosystem | Always-on text from a package | Mechanism | Reuses the repo's instruction file? |
+|---|---|---|---|
+| **Claude Code plugins** | Only through code | A `SessionStart` hook returning `additionalContext` ([hooks](https://code.claude.com/docs/en/hooks)). For static text the docs say *"put them in a skill"* | **No** — *"A `CLAUDE.md` file at the plugin root is not loaded as project context"* ([plugins reference](https://code.claude.com/docs/en/plugins-reference)) |
+| **Agent Plugins 1.0** (Codex, Copilot, Cursor, VS Code, Kiro) | Not in the portable core | Closed manifest; *"Add instructions as Agent Skills"*; client extras live in a reverse-domain directory ([agentplugins.codes](https://agentplugins.codes)) | No |
+| **Copilot** (Agent Plugins namespace) | Possibly | `com.github.copilot/rules/` ([CLI plugin reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-plugin-reference)). **Unconfirmed:** the pages read list the directory and not its semantics. The legacy format has no instruction component | No |
+| **Codex plugins** | Not found | `.codex-plugin/plugin.json`, skills, apps, `mcp.json` — *secondary sources only* | No |
+| **Cursor plugins** | **Yes, as files** | `rules/` in the plugin; **the consumer toggles each rule** between Always, Agent Decides and Manual ([plugins](https://cursor.com/docs/plugins)) | No — plugin `rules/` is not the repository's `.cursor/rules/` |
+| **Kiro powers** | Bundled, but on demand | A power carries steering files and *"activates dynamically based on context"* ([powers](https://kiro.dev/docs/powers)) | No — the repository's is `.kiro/steering/` |
+| **pi packages** | Only through code | An extension's `before_agent_start` can *"modify the system prompt"*; package resources are extensions, skills, prompts and themes (installed `docs/extensions.md`, `docs/packages.md`) | No |
+| **opencode plugins** | Through code, apparently | The hook name `experimental.chat.system.transform` is present in the installed binary. **Inferred from the name**; its documentation was not read | No |
+| **Gemini CLI extensions** | **Yes, as a file** | `contextFileName` in `gemini-extension.json`, **defaulting to `GEMINI.md`** ([extension reference](https://geminicli.com/docs/extensions/reference/)) | **Yes** — `GEMINI.md` is also Gemini's in-repository instruction file |
+| **yolo today** | **Yes, as a file** | Root `AGENTS.md`, broadcast by default | **Yes** |
+
+### A.2 What the pattern says, and why most keep it out
+
+**Three observations**, each checkable against the table:
+
+1. **Nobody forbids it outright.** The mainstream routes always-on package text through *code*
+   (Claude, pi, opencode) or through a component the *consumer* controls (Cursor's per-rule
+   toggle). The portable standard leaves it out entirely.
+2. **The static mechanisms that do not collide are component directories** — Cursor's plugin
+   `rules/`, the same shape as `skills/`, `agents/` and `commands/`. Kiro's powers bundle steering
+   files too, loaded on demand; their layout inside a power was not read.
+3. **The only two that reuse the repository's own filename — Gemini and yolo — are the two with
+   the dual-reader defect.** Gemini mitigates it by making the name a manifest field; yolo has no
+   such field for the default.
+
+**Why most keep it out.** What the vendors *state*:
+
+- Claude: ship instructions as a skill.
+- Agent Plugins: *"declare identity, not runtime behavior"*, and put instructions in skills.
+- Kiro: powers are designed to load on demand, not up front.
+- Cursor: the consumer decides each rule's mode.
+
+None of the pages read says *why*. My inference, not a quote:
+
+- **Context budget.** Always-on text is paid for on every turn, for every installed package.
+  Skills exist to be progressive disclosure.
+- **Trust.** Always-on text from a third party is an instruction with no trigger, from someone the
+  user did not write.
+- **Precedence.** Two packages' always-on rules can conflict, and the only arbiter is the user's own
+  instruction file — which a package would be competing with.
+
+**Why yolo can still have it, and why the name is ours to choose.** A yolo pack is not a
+marketplace plugin. The user selects it into their own environment, and yolo composes it into the
+user's own instruction file, per launch — closer to dotfiles than to an app store. None of the
+formats yolo wraps defines "shipped prose", so no external convention names it. The one hard
+constraint the table does impose is **negative**: stay off every other tool's instruction names —
+`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.github/copilot-instructions.md`, `.cursor/rules/`,
+`.kiro/steering/`. That is P1, and it is why [OQ-PB1](#OQ-PB1) is a free choice among names that
+avoid them.
