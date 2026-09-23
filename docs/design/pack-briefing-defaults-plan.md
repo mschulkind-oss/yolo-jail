@@ -10,8 +10,8 @@ vantage:
 
 # Pack briefing defaults — companion sketch
 
-**Status:** SKETCH, 2026-09-22 — incomplete, and unstable while
-[OQ-PB1](pack-briefing-defaults.md#OQ-PB1)–[OQ-PB4](pack-briefing-defaults.md#OQ-PB4) are open.
+**Status:** SKETCH, 2026-09-22 — incomplete, but stable: every question in the design is ruled
+([ledger](pack-briefing-defaults.md#decision-ledger)), so this is ready to be completed against the tree.
 
 > [!IMPORTANT]
 > **Not a hand-off artifact.** An agent must not build from this while it is stamped SKETCH. It
@@ -57,7 +57,7 @@ Measured at `3ac4e8b1`. Re-read before relying on any line number.
 - The rename touches `pack --help`, the scaffold, the reference docs, the migration writer, and the
   `yolo pack lint` "conventionally-read location (skills/, AGENTS.md)" message — grep
   `AGENTS\.md` under `internal/cli` before calling it done.
-- **`DefaultBriefingFiles` stops being a file list.** Under [OQ-PB1](pack-briefing-defaults.md#OQ-PB1)'s leaning the
+- **`DefaultBriefingFiles` stops being a file list.** Under [OQ-PB1](pack-briefing-defaults.md#decision-ledger)'s ruling the
   convention is a directory read one level deep, so its return type and every `BriefingCandidates` caller change shape.
 
-Blocked on [OQ-PB1](pack-briefing-defaults.md#OQ-PB1) — every spelling of the new location above.
+Every spelling of the new location above is `briefing/`, per [OQ-PB1](pack-briefing-defaults.md#decision-ledger).
