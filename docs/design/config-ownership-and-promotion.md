@@ -78,15 +78,16 @@ settled by [`OQ-CO11`](#13-decision-ledger) on 2026-09-11. See
 
 **Start at [§4](#4-declaring-ownership--the-host_management-key)** — the key is what makes every other question answerable.
 
-**Two things here need a ruling, and both were opened by rulings.** Every question this design
+**One thing here needs a ruling, and a ruling opened it.** Every question this design
 or its build opened was settled ([§13](#13-decision-ledger)), the last of those
-([`OQ-CO12`](#13-decision-ledger)) on 2026-09-12 — then [`CO13`](#13-decision-ledger) was filed
-2026-09-20 by a ruling that narrowed the adoption drop and could only narrow it halfway
-([the drop-narrowing ruling](#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule)),
-and [`OQ-CO14`](#oq-co14) the same
-day by the ruling that retired `assert`
-([§4.5](#45-retiring-assert--the-two-value-key)). **A settled design reopens exactly this
-way**, and twice in one day is a fact about the sprint rather than about the design.
+([`OQ-CO12`](#13-decision-ledger)) on 2026-09-12. Then two follow-ons were filed on 2026-09-20.
+[`CO13`](#13-decision-ledger) came from a ruling that narrowed the adoption drop and could only
+narrow it halfway
+([the drop-narrowing ruling](#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule)).
+It was **decided the same day** as an implementation shape, and it is unbuilt.
+[`OQ-CO14`](#oq-co14) came the same day from the ruling that retired `assert`
+([§4.5](#45-retiring-assert--the-two-value-key)), and it is **open**. **A settled design reopens
+exactly this way**, and twice in one day is a fact about the sprint rather than about the design.
 ⚠ **Settled is not the same as clean, and the difference is recorded rather than rounded off.**
 Two sections carry **live residue** — measured behavior that no ruling covers and no commit closed:
 [§6.3.3](#633-what-survives-as-a-guard)'s one unnetted adoption loss, and
@@ -101,8 +102,9 @@ the reference would have to state as current, so graduating this file before
 [`OQ-CO14`](#oq-co14) is ruled
 would mint a `CURRENT` doc with a known expiry. That rewrite is scoped in
 [`doc-triage.md`](../plans/doc-triage.md#2-config-ownership-and-promotionmd--both-named-blockers-are-closed-and-the-rewrite-is-larger-than-they-were),
-which no longer holds a live question against this file; [`OQ-DT1`](../plans/doc-triage.md#open-question)
-decides when the move happens, and it is the maintainer's.
+which no longer holds a live question against this file. [`OQ-DT1`](../plans/doc-triage.md#decision-ledger)
+was ruled on 2026-09-13: graduate one doc at a time. So what holds this file back is
+[`OQ-CO14`](#oq-co14) alone.
 ⚠ **One thing to carry out of this doc rather than into it:** four rulings in
 [`environment-manager-plan.md`](../plans/environment-manager-plan.md)'s 2026-08-01 ledger are
 reversed here; that ledger carries the dated reversal rows as of 2026-09-12.
@@ -180,6 +182,12 @@ defaults → host → workspace → config-overlay:<pack>… → overlay (captur
 (A Lua `transform` layer sat between `computed` and `managed` until 2026-09-11,
 when it was removed — [`OQ-LT1`](../reference/pack-system.md#oq-lt1).
 Every layer above is still in [`compose.go`](../../internal/agentcfg/compose.go).)
+
+**Since 2026-09-24 one fold step sits between `config-overlay` and capture.** It is not a layer
+of its own. A `config-list` contribution appends entries to an array another pack owns
+(`applyListContributions`, [`listcontrib.go`](../../internal/agentcfg/listcontrib.go)). The
+additions apply after every ordinary overlay, and only capture, `computed` and `managed` can
+replace the final array ([`OQ-AL2`](additive-config-lists.md#decision-ledger)).
 
 `managed` is a floor: a pack's own asserted keys win everything. `overlay` is the
 capture-diff sidecar — in-jail edits, carried across regeneration. Note that
@@ -349,7 +357,12 @@ making composition "non-destructive". Being precise matters, because
 **Capture is not a fixed set of keys.** It is `mergeDiff(previous render, current
 on-disk)` ([`engine.go`](../../internal/agentcfg/engine.go)) — the minimal RFC-7386
 patch that turns the render yolo last produced into the file as it now stands,
-accumulated into the overlay sidecar. Open-ended by construction: a key the jail
+accumulated into the overlay sidecar. ⚠ **One exception, since 2026-09-24.** At an array
+path that a `config-list` contribution targets, capture records per-entry additions and
+removals in a separate `<agent>-<name>.list-capture.json` sidecar, never the whole array
+([`OQ-AL1`](additive-config-lists.md#decision-ledger),
+[the reference](../reference/config-migration-to-prism.md#list-paths-capture-per-entry)).
+Everything below is about the overlay, and the list sidecar is outside it. Open-ended by construction: a key the jail
 adds is recorded as its new subtree, a leaf that changed as its new value, and **a
 key the jail deleted as an explicit null tombstone** so the next render does not
 resurrect it.
@@ -601,9 +614,13 @@ It does **not** grant approval for any individual write. That distinction is
 DOES NOT GRANT THE APPROVAL"
 ([`hostapplyonlaunch.go`](../../internal/config/hostapplyonlaunch.go)) —
 and it holds here identically: `host_management: own` selects the mode, it does
-not pre-authorize the writes that mode performs. The two keys are orthogonal and
-both are read: `host_management` says *how* the host renders,
-`host_apply_on_launch` says *when* a re-render is checked.
+not pre-authorize the writes that mode performs. Both keys are read: `host_management` says
+*how* the host renders, and `host_apply_on_launch` says *when* a re-render is checked. ⚠ **They
+are no longer independent in their defaults.** Since 2026-09-22 an unset `host_wrappers` is
+derived from `own`, and an unset `host_apply_on_launch` follows `host_wrappers`. So declaring
+`own` alone also turns on the launch-time re-render. An explicit `false` at either key still
+wins ([`host-apply-staleness.md`](../reference/host-apply-staleness.md#the-opt-in-key)). The
+derivation turns on the mechanism and grants no approval, so the sentence above stands.
 
 > [!IMPORTANT]
 > **"Does not grant approval" is not "prompts because it is owned".** That is the
@@ -910,7 +927,7 @@ of an agent that has one"* — a pattern, not a chosen subset. This is
 
 **The grant is pack-declared, and it should stay declared.** `reads-host` carries
 a real file out of the user's home into a container, and it is `ReviewWorthy` in
-the footprint (`internal/packload/footprint_test.go:74-98`), which is what puts it
+the footprint (`internal/packload/footprint_test.go`), which is what puts it
 on the startup disclosure banner. A generic rule — *"every surface imports its own
 host file"* — would make every jail read host state with nothing declaring it and
 nothing to disclose, which is the shape
@@ -923,9 +940,9 @@ refuse.
 > approval, no origin check, no per-pack decision.
 >
 > ```go
-> // internal/packload/packload.go:440
+> // internal/packload/packload.go — since OQ-CO10 it also returns the surfaces' own grants
 > func (p *Pack) HonoredHostFiles() (granted []packdecl.HostFile, refused []string) {
->     return p.Decl.HostFileContributions(), nil
+>     return append(p.Decl.HostFileContributions(), p.SurfaceHostFiles()...), nil
 > }
 > ```
 >
@@ -967,7 +984,7 @@ eleven pack surfaces plus core's `mise/config`, zero exceptions, measured
 2026-09-10), and `~` is the only thing that differs between the two homes.
 `HostSource`'s own docstring already calls itself *"Derived, not declared"* — it is
 the `/ctx` mount path the host CLI chose, not a path anyone wrote down
-(`internal/agentcfg/manifest/manifest.go:131-142`).
+(`manifest.Surface.HostSource`, [`manifest.go`](../../internal/agentcfg/manifest/manifest.go)).
 
 ##### The binding is a basename match, and the read that depends on it is fail-open
 
@@ -994,7 +1011,7 @@ verbs both consult. The `reads-host` contribution does not express that; it
 *populates* it, across a seam:
 
 ```go
-// internal/packload/packload.go:316 — verified 2026-09-10
+// internal/packload/packload.go, as of 2026-09-10 — replaced by surfaceHostSource
 func (p *Pack) hostSourceFor(surfacePath string, granted []packdecl.HostFile) string {
     want := path.Base(surfacePath)
     for _, hf := range granted {
@@ -1016,7 +1033,7 @@ consequences, none of them chosen:
    silently yields `HostSource == ""`, and `HasHostLayer()` then reports **false**
    for a surface whose author declared a host layer.
 3. **The read is fail-open**: `data, _ := os.ReadFile(remapCtx(surface.HostSource))`
-   (`internal/entrypoint/packsurfaces.go:467`) discards the error and composes the
+   (`internal/entrypoint/packsurfaces.go`, as of 2026-09-10) discards the error and composes the
    surface **without** its host layer. **This has already shipped a real bug** —
    `StagedSlug`'s docstring records it, measured 2026-09-05: a pack named `my_pack`
    had its file mounted at `/ctx/host-my_pack/` while the entrypoint read
@@ -1049,7 +1066,7 @@ is that yolo declines to read it.
 > [!IMPORTANT]
 > **One thing a fix must not take with it: `reads-host` also serves the user's
 > `host_files` key**, which maps to review-worthy `reads-host` claims in the
-> footprint (`internal/packload/footprint_test.go:74-76`). Those carry *arbitrary*
+> footprint (`internal/packload/footprint_test.go`). Those carry *arbitrary*
 > host files into a jail — not a config surface's mirrored twin — so they are
 > genuinely not derivable and genuinely need a declared path. A naive "delete the
 > kind, put a boolean on the surface" would break them. **The kind stays; what
@@ -1057,14 +1074,20 @@ is that yolo declines to read it.
 >
 > And `CombineShared` is not the obstacle it looks like. `reads-host` is
 > `Combine: CombineShared` (*"Many packs may read one file; no combine"*,
-> `internal/packdecl/kinds.go:87`), which sounds like a reason it must stand apart
+> [`kinds.go`](../../internal/packdecl/kinds.go)), which sounds like a reason it must stand apart
 > from a `CombineExclusive` surface. It is not: sharing describes how the **mount**
 > de-duplicates when two packs want one file, and says nothing about where the
 > **declaration** lives.
 
 ### 5.2 What it does, in order
 
-1. Read the capture overlay for the surface from `<workspace>/.yolo/prism/`.
+1. Read the capture overlay for the surface from `<workspace>/.yolo/prism/`. Per-entry list
+   captures ([§3.1](#31-what-actually-differs-between-rmw-and-capture)) are not read as keys.
+   Promote reports how many it found, and says they cannot be promoted yet and that
+   `yolo config diff` lists them (`promoteListNote`,
+   [`configpromote.go`](../../internal/cli/configpromote.go)). Lifting them is a separate
+   roadmap item
+   ([the plan's "Don't"](additive-config-lists-plan.md#dont)).
 2. Drop keys `yolo config diff` already reports as **redundant** — identical to
    what the layers produce anyway — and keys that are **dead**: overridden where
    they already sit, so the move cannot help them. The overlay cannot hold a
@@ -1713,7 +1736,7 @@ gets instead of a prompt.
 **Row 3 — the keyless case — is the honest gap, and three facts bound it.**
 
 1. **There is no `rmw` for a keyless surface to stay in.** `rmwCodecRefusal`
-   (`internal/entrypoint/surfacecodec.go:78-95`) refuses keyless codecs **by
+   ([`surfacecodec.go`](../../internal/entrypoint/surfacecodec.go)) refuses keyless codecs **by
    kind**: *"RMW asserts and fills individual keys, so it needs an object […] Those
    surfaces belong in `stateful`/`computed`."* So `assert` is the mode a keyless
    surface cannot have, and the rule is already uniform across notches — a keyless
@@ -1722,7 +1745,7 @@ gets instead of a prompt.
 2. **Adopting one is strictly worse than overwriting it.** Adoption makes **the
    whole file** the overlay, and the overlay outranks every declared layer beneath
    it — so the file would freeze at its adopted content and yolo's declarations
-   would never take effect again (`staterender.go:213` says exactly this about the
+   would never take effect again ([`staterender.go`](../../internal/agentcfg/staterender.go) says exactly this about the
    jail, and relocating it to the host does not repair it).
 3. **The class is empty today and only a pack can populate it.** `host_management`
    governs the **host notch**, and `RenderHostPack` walks a pack's *own* surfaces
@@ -1978,10 +2001,12 @@ load-bearing rather than optional.
 safe against `yolo config reset` *only* because reset also truncates the surface
 to its pure render — without that, reset → no baseline → adopt would resurrect
 the very edits the user asked to discard, making reset a no-op. The engine
-comment says the two halves are one change. Host-side `reset` currently refuses
-([§2.4](#24-the-verbs-that-exist-and-the-ones-that-do-not)), so **`own` must
+comment says the two halves are one change. Host-side `reset` refused when this was written
+([§2.4](#24-the-verbs-that-exist-and-the-ones-that-do-not)), so **`own` had to
 make host-side `reset` work, not merely permit it** — [§6.1](#61-mode-parity)
-lists it as parity, and it is a correctness requirement.
+lists it as parity, and it is a correctness requirement. Built 2026-09-12:
+`refuseHostSideWrite` exempts `reset` when the target is host-owned
+([`configdiff.go`](../../internal/cli/configdiff.go)).
 
 After adoption, a removal is ordinary and reported, exactly as it is in a jail.
 
@@ -2421,9 +2446,9 @@ both readers share, so:
   clears the key from the capture overlay, leaving the user's null existing only as a deletion.
   The user asked to ADD a null-valued key.
 
-⚠ It also falsifies a claim shipped in [`literalnull.go`](../../internal/agentcfg/literalnull.go) —
+⚠ It also falsified a claim shipped in [`literalnull.go`](../../internal/agentcfg/literalnull.go) —
 *"`yolo config promote` refuses it as not in the capture, and that refusal is correct rather than a
-gap"*. True on the ADOPTION branch, where `dropNullLeaves` strips the residue's nulls before
+gap"*. The comment was corrected the same day and now points here. The claim is true on the ADOPTION branch, where `dropNullLeaves` strips the residue's nulls before
 anything can see them; false on the steady-state branch, which is the branch that escaped to a real
 boot once already. **The fix is provable and its two sets are disjoint by construction:** a keypath
 marked in `Inputs.LiteralNulls` means the DECODED FILE holds that key, so it can never be a genuine
@@ -2674,11 +2699,11 @@ their dated reversals.
 
 Rulings on [§12](#12-follow-ons-and-the-one-this-design-settled-itself)'s questions are folded into the normative
 body text and compacted here, keeping the exact `OQ-CO` ids so citations from
-sibling docs and code comments continue to resolve. **Every row but the last is
-settled** — the ones the design opened, the last three of those on 2026-09-11, and
-[`OQ-CO12`](#13-decision-ledger), which its build opened, on 2026-09-12.
-[`CO13`](#13-decision-ledger) and [`OQ-CO14`](#13-decision-ledger) are OPEN: a RULING opened
-each, which is the one way a settled design reopens.
+sibling docs and code comments continue to resolve. **Every row but
+[`OQ-CO14`](#13-decision-ledger) is settled** — the ones the design opened, the last three of
+those on 2026-09-11, [`OQ-CO12`](#13-decision-ledger), which its build opened, on 2026-09-12, and
+[`CO13`](#13-decision-ledger), decided 2026-09-20 and unbuilt. A RULING opened both of the last
+two, which is the one way a settled design reopens.
 
 > [!WARNING]
 > **One row here is REVERSED, and it is the first one.** [`OQ-CO1`](#13-decision-ledger) is the
@@ -2715,8 +2740,8 @@ and its residue is the larger of the two.
 | :--- | :--- | :--- | :--- | :--- |
 | [`OQ-CO1`](#13-decision-ledger) | ⛔ **REVERSED 2026-09-20 — two values (`none`/`own`), and `none` is the default** ([§4.5](#45-retiring-assert--the-two-value-key)). *The 2026-09-10 ruling, kept verbatim:* **Three values** (`none`/`assert`/`own`). `assert` is shipped behavior with real users, so collapsing it is either a regression or a forced escalation to `own`. The cost — one more thing to explain — is paid down by [`OQ-CO2`](#13-decision-ledger) removing the prompt that would have explained it. Alternative C in [§8](#8-alternatives-considered) resolves as rejected. *Why it could be reversed without having been wrong:* the escalation it feared was forced only because `yolo config promote` did not exist yet (it shipped two days later), and its balance weighs migration cost while naming no engine mechanism — [§4.5](#45-retiring-assert--the-two-value-key) has the dating and [§4.5.2](#452-what-the-ruling-does-not-delete--the-mechanism-tally-corrected) corrects the mechanism tally the reversal is tempted to overstate. Alternative C's conditional rejection resolves as **substantially adopted** | 2026-09-10, reversed 2026-09-20 | [§4.1](#41-the-key), [§4.5](#45-retiring-assert--the-two-value-key) | ✅ **for the reversed ruling** — `config.KnownHostManagements` holds the three and the validator's message enumerates that same list. ⬜ **the reversal is unbuilt**, and its steps are in [§4.5](#45-retiring-assert--the-two-value-key) |
 | [`OQ-CO2`](#13-decision-ledger) | **Neither prompt nor notice** — the unset state is `assert`, silently. Each value explains itself at the point of the act; `apply --sealed` is the one place an unset key bites. *Against the leaning:* the ambiguity this design fixes was **inference**, not silence, so a documented default that equals today's behavior is declared in the only sense that matters. ⚠ **Its stated ground expires with [`OQ-CO1`](#13-decision-ledger)'s reversal** — `none` is not today's behaviour, so the silence has to be re-argued rather than inherited. The conclusion is not withdrawn here; it is [`OQ-CO14`](#13-decision-ledger)'s to re-rule | 2026-09-10 | [§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running) | ✅ `config.HostManagementDeclared` gives the two absences different answers — absent ⇒ `assert`, silently; unreadable ⇒ `none` — and `TestApplySealedRefusesAnUnsetHostManagement` pins the one place an unset key bites |
-| [`OQ-CO3`](#13-decision-ledger) | **Yes, host-side capture under `own` only** — and it is a precondition of adoption, not an added capability: capture-then-regenerate is what makes the first owned render reproduce the file. The refusal stays for `none` and `assert`. Reverses env-manager plan [`OQ-4`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)/[`OQ-5`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase) — see [§3](#3-the-diagnosis--one-asymmetry-three-unrelated-justifications). | 2026-09-10 | [§6.2](#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to), [§6.3.1](#631-adoption-is-capture-then-regenerate) | ✅ the owned render's capture store (the one `render.Target.SidecarDir` resolves for the host notch) and host-side `reset`, both keyed off `hostOwnsSurfaces` — ⚠ **with one deliberate narrowing**: the `config capture` VERB stays refused host-side even under `own`, because `refuseHostSideWrite` rests that half on privacy rather than on ownership |
-| [`OQ-CO4`](#13-decision-ledger) | **Keep `local` as the default; the guard is the confirmation, not the flag.** Promote lists the selected keys and asks; `--accept-promotion` is the only way past it. **Not `--yes`** — this repo has already declined the generic form: `config.AcceptConfigChangesFlag` (`internal/config/snapshot.go:81`) is `--accept-config-changes`, and its docstring rules that an approval must be a flag naming what is approved, never an env var a child process inherits. `--force` stays free for overriding a *refusal*. | 2026-09-10 | [§5.1](#51-surface), [§5.7](#57-forbidden-behavior) | ✅ `--accept-promotion` in `parsePromoteArgs`; `local` is `resolvePromoteDest`'s default |
+| [`OQ-CO3`](#13-decision-ledger) | **Yes, host-side capture under `own` only** — and it is a precondition of adoption, not an added capability: capture-then-regenerate is what makes the first owned render reproduce the file. The refusal stays for `none` and `assert`. Reverses env-manager plan [`OQ-4`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)/[`OQ-5`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase) — see [§3](#3-the-diagnosis--one-asymmetry-three-unrelated-justifications). | 2026-09-10 | [§6.2](#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to), [§6.3.1](#631-adoption-is-capture-then-regenerate) | ✅ the owned render's capture store (the one `render.Target.SidecarDir` resolves for the host notch) and host-side `reset`, both keyed off `configTarget.hostOwned` (named `hostOwnsSurfaces` until 2026-09-18) — ⚠ **with one deliberate narrowing**: the `config capture` VERB stays refused host-side even under `own`, because `refuseHostSideWrite` rests that half on privacy rather than on ownership |
+| [`OQ-CO4`](#13-decision-ledger) | **Keep `local` as the default; the guard is the confirmation, not the flag.** Promote lists the selected keys and asks; `--accept-promotion` is the only way past it. **Not `--yes`** — this repo has already declined the generic form: `config.AcceptConfigChangesFlag` ([`snapshot.go`](../../internal/config/snapshot.go)) is `--accept-config-changes`, and its docstring rules that an approval must be a flag naming what is approved, never an env var a child process inherits. `--force` stays free for overriding a *refusal*. | 2026-09-10 | [§5.1](#51-surface), [§5.7](#57-forbidden-behavior) | ✅ `--accept-promotion` in `parsePromoteArgs`; `local` is `resolvePromoteDest`'s default |
 | [`OQ-CO5`](#13-decision-ledger) | **Refuse-with-instructions in v1.** Design the jail→host request channel but do not build it until promote has been used enough to know which keys people actually promote — the transport is free, the consent prompt is what needs the evidence. | 2026-09-11 | [§5.5](#55-where-promote-may-run) | ✅ `refuseInJailPromote` names the host command. The jail→host request channel is designed and unbuilt, which is the ruling |
 | [`OQ-CO6`](#13-decision-ledger) | **Refuse only, everywhere** — promote never offers the pack's `managed` block to a key that would lose precedence. For shipped surfaces nothing else is expressible (`managed` is owner-only and every owner is an embedded pack). For a user's own surface the friction is the point: a one-keystroke path to outranking `computed` would be used for exactly the reason that layer exists, so the managed block stays a hand edit. | 2026-09-11 | [§5.4](#54-promotion-moves-a-key-down-the-stack) | ✅ `classifyPromoteKey`'s `promotionOutranked` disposition; no path writes a `managed` block |
 | [`OQ-CO7`](#13-decision-ledger) | **One archive at adoption**, as a `config` bucket in the archive subsystem that already ships — and, by [P5](#1-the-verdict-and-the-principles-it-rests-on), at a jail's `firstMigration` too. It covers a KNOWN loss path (the deep-merged-leaf drop) the prompt cannot see; the later-regression case is what git on the pack is for. Not per-apply snapshots. | 2026-09-11 | [§6.3.3](#633-what-survives-as-a-guard) | ✅ `entrypoint.archiveAdoption`, called from `persistStatefulSurface` — the ONE writer both notches share, so the host's `own` adoption and a jail's `firstMigration` get the copy from the same line rather than from two implementations. `render.Target.ArchivePath` resolves where it lands at each notch; `HostRenderResult.Archived` reports it. ⚠ Built is not complete: [§6.3.3](#633-what-survives-as-a-guard) records four gaps measured after it shipped — three are closed (an unreadable file, yolo's own output, and a verdict that closed an adopting run as a run with nothing to do); the one the net does not reach is left for a ruling |
@@ -2725,7 +2750,7 @@ and its residue is the larger of the two.
 | [`OQ-CO10`](#13-decision-ledger) | **The declaration moves ONTO the surface** so the binding is structural instead of a `path.Base` match, and **the read fails CLOSED** — which turns the `macos-user` silent drop into a refusal that names the backend. The disclosure survives (it comes from the declaration being present and enumerable, not from a separate kind), and the `reads-host` kind stays for `host_files`, whose entries have no mirrored twin. Coverage becomes a visible per-surface yes/no, making `mise/config` a deliberate **no**. Promote refuses `--to host` on a surface with no host layer. | 2026-09-11 | [§5.1.1](#511-why-only-two-surfaces-have-a-host-layer) | ✅ `manifest.Surface.ReadsHost` is the predicate, `packload.SurfaceHostFile` derives the `/ctx` path both halves evaluate, and `packload.HostLayerReport` makes the read fail closed; a launch that delivered nothing reports `unsupported` and is not refused. ⚠ The status cell read *"`macos-user` reports `unsupported` and is not refused"* until 2026-09-13: DP-L1 gave that backend a delivery mechanism, so it now reports `supported` and REFUSES an unreadable delivered file like every other backend, and `unsupported` became a fact about a launch rather than about a backend |
 | [`OQ-CO12`](#13-decision-ledger) | **Keys-and-values, not bytes** — and the two silent deletions are BUGS, fixed on their own rather than absorbed. A composing renderer that sorts keys is the contract `own` states, and matching `rmw`'s byte layout would make the capture path carry formatting it has no reason to know about. So JSON key order and a TOML surface's comments and generated header are CONFORMANT; a key valued `null` or `{}` disappearing is not, at any depth. The comparator is the surface codec's own decode, defined in [§11](#11-success-criteria). | 2026-09-12 | [§11](#11-success-criteria), [§6.3.1](#631-adoption-is-capture-then-regenerate) | ✅ `TestSwitchingToOwnPreservesKeysAndValues` states the criterion over deliberately non-canonical fixtures — asserting both that the bytes differ and that the values do not — and `TestSwitchingToOwnKeepsACanonicalFileByteIdentical` keeps the stricter byte comparison where it is still the sharper instrument. Both deletions are FIXED (2026-09-12): `dropNullLeaves` keeps an object the user wrote empty, and `agentcfg.Inputs.LiteralNulls` carries a literal `null` beside the layer stack because no merge patch can hold one. ⚠ `hostStatefulWouldChange` stays a BYTE comparison deliberately, so a conformant reformat is still disclosed as a pending change. ⚠ **Built is not complete**: a second verification pass the same day measured [six live items](#what-the-criterion-does-not-see--live-residue-measured-after-the-ruling) the relaxed criterion cannot see or the fixes did not reach — a JSON integer past 2^53 rounded, the stale tombstone making `config diff` and `promote` misreport a null the user ADDED, a host-file null on a `readsHost` surface, a latent `reinstateAt` panic, an undeclared provenance divergence, and an `assert`-side non-finite float. None is fixed |
 | [`OQ-CO11`](#13-decision-ledger) | **The read-in `host` layer stays — decided by [`OQ-CO10`](#13-decision-ledger), not separately.** Ruling a mechanism's binding, failure direction and coverage decides that it exists; asking in the same breath whether to delete it is incoherent. Supersedes env-manager plan [`OQ-3`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase). | 2026-09-11 | [§5.1.1](#511-why-only-two-surfaces-have-a-host-layer), [§3](#3-the-diagnosis--one-asymmetry-three-unrelated-justifications) | n/a — a ruling to KEEP. The layer stands, restructured by [`OQ-CO10`](#13-decision-ledger) rather than removed |
-| [`CO13`](#13-decision-ledger) | **DECIDED — how does a derive say it fills a computed table IN FULL?** ⚠ This cell said OPEN until 2026-09-21, contradicting [its own section](#co13--how-a-derive-says-it-fills-a-computed-table-in-full--decided), which records that filing it as a question was the mistake: the four shapes differ in what the CODE carries and not in what the USER gets, so it is a decision the design makes. The ⬜ in the last column is the BUILD, which is a different axis. The 2026-09-20 ruling narrowed the adoption drop to the leaves yolo regenerated, which settles the EMPTY table and leaves the non-empty one guessing. The leaf half of the signal already exists (a computed table's key set IS the asserted set, tombstones included); the fill-in-full half exists nowhere, and four candidate discriminators were measured to flip on configuration rather than intent. It has to be declared by the derive; WHERE is the question. | — | [the decision](#co13--how-a-derive-says-it-fills-a-computed-table-in-full--decided), [the drop-narrowing ruling](#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule) | ⬜ open. What DID land: `dropComputedTables` skips an EMPTY computed table (`TestComposeStatefulFirstMigrationKeepsResidueUnderAnEmptyComputedTable`), the non-empty cost is pinned by `TestComposeStatefulFirstMigrationStillTakesAPartlyAssertedTable`, and the `mise` [§4.1](#41-the-key) goldens moved to the opposite verdict under names that say so. ⚠ The same over-claim at the HOST notch (`hostTableKeys`' sentinel probe) is untouched and belongs to whoever closes this. ⚠ **Unaffected by [`OQ-CO1`](#13-decision-ledger)'s reversal**, checked rather than assumed: the drop is a `stateful` mechanism and the host probe feeds both `own` arms, so retiring `assert` moves the population and not the scope ([the check](#does-retiring-assert-change-co13s-scope)) |
+| [`CO13`](#13-decision-ledger) | **DECIDED — how does a derive say it fills a computed table IN FULL?** ⚠ This cell said OPEN until 2026-09-21, contradicting [its own section](#co13--how-a-derive-says-it-fills-a-computed-table-in-full--decided), which records that filing it as a question was the mistake: the four shapes differ in what the CODE carries and not in what the USER gets, so it is a decision the design makes. The ⬜ in the last column is the BUILD, which is a different axis. The 2026-09-20 ruling narrowed the adoption drop to the leaves yolo regenerated, which settles the EMPTY table and leaves the non-empty one guessing. The leaf half of the signal already exists (a computed table's key set IS the asserted set, tombstones included); the fill-in-full half exists nowhere, and four candidate discriminators were measured to flip on configuration rather than intent. It has to be declared by the derive, and the decision is WHERE: a third derive sentinel beside `ctx.tombstone` and `ctx.empty_array`. | 2026-09-20 | [the decision](#co13--how-a-derive-says-it-fills-a-computed-table-in-full--decided), [the drop-narrowing ruling](#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule) | ⬜ unbuilt: `luahook/derive.go` still declares only the two sentinels. What DID land: `dropComputedTables` skips an EMPTY computed table (`TestComposeStatefulFirstMigrationKeepsResidueUnderAnEmptyComputedTable`), the non-empty cost is pinned by `TestComposeStatefulFirstMigrationStillTakesAPartlyAssertedTable`, and the `mise` [§4.1](#41-the-key) goldens moved to the opposite verdict under names that say so. ⚠ The same over-claim at the HOST notch (`hostTableKeys`' sentinel probe) is untouched and belongs to whoever closes this. ⚠ **Unaffected by [`OQ-CO1`](#13-decision-ledger)'s reversal**, checked rather than assumed: the drop is a `stateful` mechanism and the host probe feeds both `own` arms, so retiring `assert` moves the population and not the scope ([the check](#does-retiring-assert-change-co13s-scope)) |
 | [`OQ-CO14`](#13-decision-ledger) | **OPEN — what does retiring `assert` do to a config, and a home, already on it?** Two faces, one migration: a user config that *says* `"assert"` becomes unspellable, and an absent key on a home yolo has already asserted into flips from "keep maintaining this file" to "stop, and leave what was written". The second **re-opens [`OQ-CO2`](#13-decision-ledger)**, whose "neither prompt nor notice" rests entirely on the unset state equalling today's behaviour. It is a question rather than an implementation shape by [§12](#12-follow-ons-and-the-one-this-design-settled-itself)'s own test: refusing, silently ceasing to manage, and silently composing the whole file are three different outcomes for the same user. | — | [the question](#oq-co14), [§4.5](#45-retiring-assert--the-two-value-key) | ⬜ open, and it blocks the value being dropped rather than following it |
 | — | **The adoption archive's layout and failure policy, decided at build time** because [`OQ-CO7`](#13-decision-ledger) left them open and one of them contradicts what that ruling assumed. Keyed by SURFACE, not by the `<stamp>/` generation the other buckets use — under the stamped layout `yolo prune`'s keep-newest-3 would sweep the originals of every surface but the newest few, which is the loss this bucket exists to prevent performed by yolo's own reaper. Idempotent on the archive's own existence, so a second adoption cannot overwrite the user's original with yolo's output. A copy that cannot be written REFUSES the adoption rather than warning past it. Not an OQ; recorded because the first of them departs from [§6.3.3](#633-what-survives-as-a-guard)'s original text. | 2026-09-12 | [§6.3.3](#633-what-survives-as-a-guard) | ✅ `render.Target.ArchivePath` (layout), `entrypoint.archiveAdoption` (idempotency, refusal); `TestPruneLeavesTheAdoptionArchiveAlone` pins the reaper half across the two packages that each know only their own half |
 | — | **Terminology: the absent key is the *unset* state, never the "undeclared" one** — *undeclared* is reserved for the input-closure tier ([§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running)'s note). Not an OQ; recorded because renaming it later costs four anchors. | 2026-09-10 | [§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running) | n/a — terminology |

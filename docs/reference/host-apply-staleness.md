@@ -1,7 +1,7 @@
 ---
 status: current
-verified: 2026-09-18
-verified_commit: e7dc1d4d
+verified: 2026-09-24
+verified_commit: f491d192
 covers:
   - internal/cli/hostapplygate.go
   - internal/cli/hostapplysurvey.go
@@ -10,6 +10,7 @@ covers:
   - internal/cli/apply.go
   - internal/cli/packupdate.go
   - internal/config/hostapplyonlaunch.go
+  - internal/config/hostwrappers.go
   - internal/entrypoint/hostrender.go
   - internal/hostskills/delivered.go
   - internal/hostskills/deliver.go
@@ -20,7 +21,7 @@ tags: [host, apply, render, staleness, approvals, wrappers]
 
 # The host launch gate — how a real `$HOME` render is kept from going stale
 
-**Status:** CURRENT as of 2026-09-18, verified against `e7dc1d4d`.
+**Status:** CURRENT as of 2026-09-24, verified against `f491d192`.
 
 > [!IMPORTANT]
 > **A ruling dated 2026-09-20 narrows "active host management" to `own` alone — and it is NOT
@@ -46,8 +47,8 @@ re-examines them afterwards, so what is in an agent's config files and what the 
 drift apart in silence. Every generated launch wrapper already execs `yolo host -- <bin>`, and
 that is the only moment the content matters — agents read their config at startup and do not
 reload it. So the **host launch gate** *(coined here)* keeps that launch synchronized:
-under an opt-in key (`host_apply_on_launch`, which defaults to true when `host_wrappers` is on)
-it compares the render against the home, execs straight through when nothing would change,
+under an opt-in key (`host_apply_on_launch`, which defaults to true when `host_wrappers` is on,
+and `host_wrappers` itself defaults to on under `host_management: "own"`) it compares the render against the home, execs straight through when nothing would change,
 automatically synchronizes host configuration without prompting when drift is detected under
 active host management (`assert` or `own` — `own` alone once the ruling above is built), and
 pauses to prompt on a TTY (or refuses off a TTY) only when first-time adoption would overwrite
@@ -156,7 +157,9 @@ re-asserts an identical value and when it only adds keys — so a byte-for-byte 
 one needing a whole new key were indistinguishable. The predicate lives on
 `entrypoint.HostRenderResult.WouldChange` for the config, briefing and files kinds and on
 `hostskills.Result.WouldChange` for skills; `hostApplySurvey` rolls both up into *"N in sync, M
-would change"*, which is what `yolo host apply --dry-run` ends with and what the gate branches on.
+would change"*, which is what the gate branches on. A `yolo host apply --dry-run` prints that line
+only under `--verbose`, above the
+[verdict block](report-tiers.md#the-verdict-block) the run ends with.
 
 The comparison **normalizes both sides through the same codec** rather than comparing against the
 file's raw bytes. A literal byte comparison reports a change forever for canonical-TOML key
@@ -275,6 +278,14 @@ wrappers are enabled; off when disabled). An explicit `"host_apply_on_launch": f
 the opt-out escape hatch. `yolo check` prints a line either way — the feature is on, or it exists
 and is off — so the mechanism is never invisible to someone wondering whether it ran.
 
+**Since 2026-09-22 the chain starts one key earlier.** `host_wrappers`, when unset, is **derived
+from `host_management: "own"`**, and `yolo host wrappers enable|disable` refuses, naming the key
+that decides (`config.hostWrappersValue`). So declaring `own` alone turns on the wrappers and,
+through them, this gate: `own` → wrappers → apply-on-launch, each link a default nobody has to
+spell. An explicit `false` at either key still wins. `assert` does not start the chain, because
+it is `host_management`'s unset answer, and deriving from it would put executables on the PATH of
+every user who declared nothing.
+
 > [!IMPORTANT]
 > **Consent for safe updates is tied to active host management.** Under `assert` or `own` (`own`
 > alone once the 2026-09-20 ruling at the top of this page is built), opting
@@ -350,8 +361,7 @@ Four properties, each with its reason:
 
 > [!WARNING]
 > **Do not teach `yolo host apply` an `--accept-config-changes` flag** so the refusal can name a
-> one-liner. Its parser accepts `--assert`, `--dry-run` and `--shell-init` and exits 2 on anything
-> else, and adding the flag would make it stand in for the explicit apply's own fail-closed
+> one-liner. Its parser exits 2 on any argument it does not know, and adding the flag would make it stand in for the explicit apply's own fail-closed
 > one-way-door confirmations — which the gate is specifically not licensed to touch, and which
 > `TestApplyHostFirstApplyFailsClosedWithoutStdin` exists to hold. It is also unnecessary: the
 > flag grants the *jail's* config approval, and an explicit host apply has none. The refusal names
@@ -452,8 +462,11 @@ The gate sees a launch **only if it goes through a generated wrapper.** An agent
 real binary (wrapper dir not on `PATH`), by an IDE extension, or by a desktop app is not observed
 and runs against whatever the last explicit apply left.
 
-That is the same boundary `host_wrappers` already has, and `sectionHostWrappers` already warns when
-the feature is on but the dir is not on `PATH`, so the gap is announced by an existing channel. It
+That is the same boundary `host_wrappers` already has, and `yolo check` announces it through an
+existing channel. Since 2026-09-23 `sectionHostWrappers` warns in each state where the launch sync
+cannot fire: the wrapper dir is off `PATH`, a wrapper on `PATH` loses to an earlier entry
+(`hostwrap.Precedence`), or a program a selected pack installs has no wrapper yet. The gate row
+passes only when at least one wrapper wins. It
 is the price of the approach: a per-command notice would have caught drift *sometime*, just never
 at a moment tied to a launch (P1).
 
@@ -469,9 +482,8 @@ jail, host apply is skipped. This couples pack updates with host configuration s
 users do not need to run `yolo host apply --assert` manually after fetching pack updates.
 
 > **⚠ Two spellings of "assert" meet in this paragraph, and only one of them is being retired.**
-> The `--assert` **flag** on `yolo host apply` is the write-for-real posture and the
-> [2026-09-20 ruling](#the-host-launch-gate--how-a-real-home-render-is-kept-from-going-stale)
-> does not touch it. What the ruling retires is the `host_management` **value** `"assert"`, so
+> The `--assert` **flag** on `yolo host apply` is the write-for-real posture, and the 2026-09-20
+> ruling described at the top of this page does not touch it. What the ruling retires is the `host_management` **value** `"assert"`, so
 > the coupling condition above narrows from `assert`-or-`own` to `own`; the command it runs
 > keeps its flag. Unbuilt — both terms are live today.
 
@@ -515,12 +527,13 @@ from code comments, and this appendix is where they resolve.
 
 ## Current values
 
-Verified at `e7dc1d4d`. The prose above explains what each of these is for; this table is the only
+Verified at `f491d192`. The prose above explains what each of these is for; this table is the only
 place the values themselves are stated.
 
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |
 | Opt-in key | `host_apply_on_launch`, boolean, default matches `host_wrappers` (true when enabled), **user scope only** | `config.HostApplyOnLaunchEnabled`; `yolo config-ref` is the user-facing authority |
+| `host_wrappers` default | unset ⇒ on exactly when `host_management` is declared `"own"` | `config.hostWrappersValue` |
 | Pack update coupling | `yolo pack update` runs `host apply --assert` under `assert`/`own` on host — the 2026-09-20 ruling narrows the condition to `own` and leaves the flag alone (unbuilt) | `cli.packUpdate`, `cli.hostApplyFromPackUpdate` |
 | Non-TTY approval | `YOLO_ACCEPT_CONFIG_CHANGES` (any non-empty value) | `cli.acceptConfigChangesEnv` |
 | Observe budget | 1s, then cannot-determine | `cli.hostApplyGateBudget` |

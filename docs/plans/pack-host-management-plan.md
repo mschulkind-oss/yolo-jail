@@ -1,9 +1,53 @@
 # Implementation plan — pack-managed host briefings, skills, and files
 
-**Status:** DESIGN, 2026-08-02 — **all phases shipped** that day, and **one question is still
-live** ([OQ-B](#open-questions), on the host `files` mode). Sequences
-[`handoff-pack-host-management-gaps.md`](handoff-pack-host-management-gaps.md) (the gap
-report — five gaps, each verified by running the binary) into buildable phases.
+**Status:** SHIPPED, 2026-08-02 — **Phases 0–10 shipped** that day and
+[Phase 11](#phase-11--three-programstaging-defects-found-by-building-the-real-pack--shipped)'s
+three defects by 2026-08-03. **One question is still live** ([OQ-B](#open-questions), on the
+host `files` mode). Three phases were **redesigned after they shipped**, so read
+[what changed since](#what-changed-after-this-plan-shipped) before building on any of them.
+Sequences [`handoff-pack-host-management-gaps.md`](handoff-pack-host-management-gaps.md) (the
+gap report — five gaps, each verified by running the binary) into buildable phases.
+
+## What changed after this plan shipped
+
+The phases below record what was built on 2026-08-02, and their `file:line` citations are as
+of that day (`internal/agents` has since become `internal/jailcontent`). Later rulings replaced
+part of that design. The current behavior is in [`pack-system.md`](../reference/pack-system.md),
+not here:
+
+- **Phases 4 and 9: host skills are composed as a whole, not delivered entry by entry.** Ruled
+  2026-08-04
+  ([6a-2](shipped-2026-08-pack-batch.md#6a-2-ruled--skills-wholesale-owned-migrated-into-a-conventional-local-pack)).
+  yolo owns the agent's skills directory at the host, as it does in a jail. A user's own
+  skills move into the local pack at `~/.config/yolo-jail/local/`, and yolo composes them back
+  into every destination. The tier is now a per-pack `skills_tier` (unnamespaced by default,
+  `namespaced` on request), not a per-agent A/B table
+  ([6a-7](shipped-2026-08-pack-batch.md#6a-7-found-shipping-q6-four-defects-and-the-tier-question-answered)).
+  A skill name declared by two packs is a fatal error. A pack may also mark a child of its
+  destination as `reserved`: `packs/claude` reserves `synced`
+  ([`skills`](../reference/pack-system.md#skills)).
+- **Phase 5: the delimited briefing block is gone.** Ruled 2026-08-04
+  ([6a](shipped-2026-08-pack-batch.md#6a-ruled--briefings-are-fully-generated-and-controlled)).
+  A briefing destination is generated as a whole at every notch. Hand-written prose moves into
+  the local pack's `briefing/local.md`, and has done since 2026-09-23. Before that it moved to
+  the local pack's root `AGENTS.md`, which is no longer read as pack prose. Since 2026-09-22 the
+  per-pack `<!-- from pack: NAME -->` label is off by default and the `briefing_provenance` key
+  turns it on ([`briefing`](../reference/pack-system.md#briefing)).
+- **Phase 8.2: installs are no longer deferred.** Since 2026-09-11 a `yolo host apply --assert`
+  that finds a declared `program` missing offers that pack's own install command once, before
+  anything is written. A decline stops the run
+  ([the dependency rule](../reference/report-tiers.md#the-dependency-rule)). The batching by
+  elevation class is still owed to env-manager Phase 4.3.
+- **Phase 9's paths.** The records and the archive live under the state dir
+  `~/.local/share/yolo-jail/` (`host-skills-manifest.json`, `archive/<bucket>/<stamp>/`), not
+  under `~/.local/state/`.
+- **Phase 10.4: there is no install approval to route through.**
+  [`OQ-TP9`](../design/trust-paths.md#decision-ledger) deleted the fetched-pack approval gate on
+  2026-09-04. A pack's host claims are disclosed at every launch, not approved
+  ([the credential boundary](../reference/pack-system.md#the-credential-boundary-disclosure-not-consent)).
+- **Git packs now render at the host.** Until 2026-09-23 `yolo host apply` skipped every
+  fetched pack. It now reads the pack store, and it refuses the whole apply if any configured
+  pack cannot be resolved ([`host-apply-staleness.md`](../reference/host-apply-staleness.md#the-dispositions)).
 
 > **Build status (2026-08-02).** Every phase below is implemented, tested, and committed.
 > **The acceptance test passes at both notches**: one pack delivers the fzf
@@ -719,7 +763,17 @@ exact install line, without running anything.
 
 ---
 
-## Phase 11 — three `program`/staging defects found by building the real pack  *(OPEN)*
+## Phase 11 — three `program`/staging defects found by building the real pack  *(SHIPPED)*
+
+> **All three are fixed.** The proposals and rulings are in
+> [`proposed-fixes-open-findings.md`](proposed-fixes-open-findings.md). **11.3** shipped
+> 2026-08-02: a pack dropped from `packs` has its staged tree pruned, contents only. **11.2**
+> shipped 2026-08-03: `InstallContributions` returns every `program`, so each one gets a
+> launcher. **11.1** was first fixed on 2026-08-02 by moving installers after `/bin`. It is now
+> held by a check at generation time instead: no launcher is written for a name the image
+> already provides (`launchercollision.go`,
+> [`OQ-PD12a`](../design/program-delivery.md#decision-ledger)). The text below is the defect
+> report as filed.
 
 Found by authoring the fzf pack (`docs/examples/claude-fzf-pack/`) rather than by any test.
 All three are why that pack ships **no `program` contribution** — declaring one made the jail
@@ -935,6 +989,11 @@ Checks:
   (never delete, never overwrite) remains the only safe rule, and it is what Phase 4's
   fallback path must do. A provenance manifest under `~/.local/state/yolo-jail/` is the
   eventual answer if that fallback proves too weak; not needed to ship this plan.
+  **The Copilot half was answered by reference on 2026-08-04**: skills are composed as a whole
+  at the host for every agent, so "did yolo write this?" no longer decides what may be
+  overwritten
+  ([6a-2](shipped-2026-08-pack-batch.md#6a-2-ruled--skills-wholesale-owned-migrated-into-a-conventional-local-pack),
+  [6a-7](shipped-2026-08-pack-batch.md#6a-7-found-shipping-q6-four-defects-and-the-tier-question-answered)).
 - **OQ-D — per-agent skills delivery strategy. SUPERSEDED by N6 + Phase 9/10.** The answer is
   a declared **capability tier** per destination, not inference: tier A (plugin-namespaced)
   for claude + copilot, tier B (flat, manifest-tracked) for the rest. See N6 and Phase 9.
