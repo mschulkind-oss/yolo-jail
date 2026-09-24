@@ -5,7 +5,11 @@
 Written against `839d0745`, 2026-09-03.
 
 **Status:** BUILT, 2026-09-04 — MEASURED that day. Every slice is built; the sequencing below was
-reversed by [OQ-CP1](../reference/agent-cli-copies.md#oq-cp1).
+reversed by [OQ-CP1](../reference/agent-cli-copies.md#oq-cp1). Re-checked against the tree
+2026-09-24. **One thing is owed, on `macos-user` only:** slice 6's hand-off H1 (wiring
+`yolo capture` to that backend) landed 2026-09-04 and its recording half was measured on hardware
+2026-09-11, but **H2, the relocation rewrite, is not built**, so nothing on that backend
+materializes a capture. H3 is a stated non-default, not a gap.
 
 **Precedence:** the design wins on behavior; the tree wins on fact; this file is advice and is
 the first thing to be wrong. Never twist code to match it — correct it in the commit.
@@ -88,8 +92,11 @@ wrong one to sequence on.
   ⚠ *Corrected while building slice 2 — see build-order 2(a).* Those are the HOST spellings and the
   jail-side names differ; the constant was also unexported, and slice 5 makes `prune` import
   `capture`, so importing it the other way would have been a cycle. The pair list now lives in
-  `paths.HomeSurfaces()` (`internal/paths/paths.go:383`) and `prune.dedupeSubtrees`
-  (`prune.go:31`) derives from it; import THAT.
+  `paths.HomeSurfaces()` (`internal/paths/paths.go`) and `prune.dedupeSubtrees` derives from it;
+  import THAT. ⚠ *Since 2026-09-14 capture walks `paths.InstalledProgramSurfaces()`, which is
+  `HomeSurfaces()` plus codex's nested `.codex/packages/standalone` payload — the one vendor whose
+  installer symlinks `~/.local/bin` into a pack state dir
+  ([`native-installer-migration.md`](native-installer-migration.md)).*
 - **Locking:** `tryHostApplyLock` (`internal/cli/hostapplylock.go:80`) — non-blocking, never refuses,
   into `<gs>/locks/`. Two concurrent captures of one bin must not race the admit.
 
@@ -130,9 +137,10 @@ wrong one to sequence on.
 - **The boot writes into the capture surfaces before the installer does** (bootstrap npm packages,
   LSP servers, `yolo-bin`). A host-side before/after diff is therefore impossible from outside — the
   baseline walk has to happen inside, after boot, before install.
-- **A fetched pack's `installerUrl` is refused** (`packload.HonoredInstalls`, `packload.go:491-502`).
-  `yolo capture` must call `HonoredInstalls`, not read the manifest — or it executes what the origin
-  gate exists to refuse.
+- ~~**A fetched pack's `installerUrl` is refused**~~ ⚠ *No longer: [OQ-TP9](../design/trust-paths.md#decision-ledger)
+  deleted that origin gate on 2026-09-04, and `packload.HonoredInstalls` now grants every install
+  declaration.* `yolo capture` still resolves through `HonoredInstalls` rather than the manifest,
+  so any future refusal source binds it automatically.
 - The design's pipeline line says *"delta → tar+hash"*. **There is no tar code in this repo**
   (`archive/tar` is imported nowhere; the one tar op is a shell-out at `image/autoload.go:994`) and a
   tar cannot be hardlinked from. Store the entry **unpacked** and hash the canonical manifest — the
@@ -568,8 +576,11 @@ wrong one to sequence on.
 
    ### Hand-offs — what is NOT wired, and the exact line that wires it
 
-   **H1. `yolo capture` still refuses on macos-user.** `runCaptureJail`'s `opts.MacosUserRun`
-   closure (`internal/cli/capturehost.go`) prints slice 3's "cannot capture yet" message.
+   **H1. `yolo capture` still refuses on macos-user. — ✅ LANDED 2026-09-04** (`95353ee1`), in
+   essentially the shape below; `capturehost.go`'s macos-user closure now calls
+   `macosuser.RunCaptureAct`. Kept as written for the record. As it stood when slice 6 landed:
+   `runCaptureJail`'s `opts.MacosUserRun` closure (`internal/cli/capturehost.go`) printed slice 3's
+   "cannot capture yet" message.
    `internal/cli/capturehost.go` was being edited by the concurrent materialize slice while this
    one landed, so the closure was left alone rather than risking a shared-worktree collision.
    Replacing it is the whole wiring:
@@ -603,10 +614,18 @@ wrong one to sequence on.
    rather than finding it. Stated, not hidden: paying a native nix build to run one CDN shell
    script is the wrong default, and the seam is there when a real installer needs it.
 
-   ### What a human with a Mac must run — nothing below is measured
+   ### What a human with a Mac must run
 
-   Unit tests pin the profile's BYTES, the argvs, the plan invariants and the relocation record.
-   **No kernel has loaded this profile.** After landing H1, on a Mac with `yolo macos-setup` done:
+   ✅ **Items 1 and 2 RAN on 2026-09-11** as the provisioner runbook's
+   [M4](runbooks/mac-provisioner-measurements.md#m4--does-the-capture-recording-half-work-on-hardware):
+   `yolo capture claude` loaded this profile, drove the vendor installer through the generated
+   launcher, and admitted an entry into the machine store, rc 0. Items 3–5 have no recorded run —
+   in particular the denial probe in item 3, the one check that tells a confined capture from one
+   that silently wrote to the shared home.
+
+   As first written — unit tests pin the profile's BYTES, the argvs, the plan invariants and the
+   relocation record, and no kernel had loaded this profile. After landing H1, on a Mac with
+   `yolo macos-setup` done:
 
    1. `yolo capture claude --dry-run`-equivalent (H1's closure forwards `dryRun`) — read the
       printed profile and both argvs before letting anything run.
@@ -759,9 +778,11 @@ wrong one to sequence on.
   not host-loopback forwarding, and podman-in-podman's forced `--net=host` supplies egress. The one
   thing a nested jail cannot represent is uid mapping: it runs `--userns=host`, so mode bits, `nlink`
   and the `os.Rename` admit want one confirmation on a real rootless host.
-- **Slice 6 is design-against-read-code and cannot be tested from here.** macos-user's installer
-  pipeline is itself unverified on hardware (`macos-user-nix-and-features.md`); unit tests pin the
-  generated profile string and the relocation RECORD, and nothing pins that Seatbelt honors it.
+- **Slice 6 is design-against-read-code and cannot be tested from here.** Unit tests pin the
+  generated profile string and the relocation RECORD. On hardware, the backend's installer
+  launchers and capture's recording half both ran on 2026-09-11 (M1 and
+  [M4](runbooks/mac-provisioner-measurements.md#m4--does-the-capture-recording-half-work-on-hardware));
+  whether Seatbelt *denies* the shared home during a capture is still unrecorded (slice 6's item 3).
   ⚠ *This line said "the relocation rewrite". There is no rewrite: slice 6 built the record and
   handed the rewrite on (slice 6 hand-off H2). Nothing in the tree substitutes a prefix.* The
   hardware checklist that would close the gap is in slice 6's own section.

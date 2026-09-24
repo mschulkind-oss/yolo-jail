@@ -85,7 +85,10 @@ diagnosis in [§1](#1-the-failure-measured) is only there to justify it.
 [Decision Ledger](#decision-ledger).
 
 **Reads with:** [`agent-program-runtimes-plan.md`](agent-program-runtimes-plan.md) (the companion
-sketch — incomplete, and not to be built from),
+sketch — BUILT with this design, and kept only for its measured anchors),
+[`jail-notch-readiness.md`](jail-notch-readiness.md) (the same install-eagerly, refresh-lazily split
+proposed for the program itself rather than its interpreter — open, and it cites
+[`OQ-AR2`](#decision-ledger) and [`OQ-AR3`](#decision-ledger) as precedent),
 [`tool-provisioning.md`](../research/tool-provisioning.md) (owns the Node-resolution model this
 amends), [`program-delivery.md`](../design/program-delivery.md) (owns the launcher and its decision
 ledger), [`mise-node-dynamic-linking.md`](../reference/mise-node-dynamic-linking.md) (why there is
@@ -170,20 +173,21 @@ The launcher generator resolves one absolute interpreter path and bakes it. Pref
 |---|---|---|
 | 1 | The **image's** node, when it satisfies the floor | Self-contained, always present, no install, and it is the node the MCP wrappers and Go tooling already target |
 | 2 | The newest satisfying node in the **mise store** (`$MISE_DATA_DIR/installs/node/*`) | Already-resolved toolchains; the store keeps alias symlinks beside real version dirs (`24 -> ./24.19.0`, measured), so a selector resolves **offline by path** |
-| 3 | An interpreter **installed for this program**, eagerly, at the jail's readiness act | An interpreter is *environment*, and the environment is provisioned before the agent runs — never on first use |
+| 3 | An interpreter **installed for this program**, eagerly, by the bootstrap script in the provisioning stage | An interpreter is *environment*, and the environment is provisioned before the agent runs — never on first use. ⚠ The ruling ([`OQ-AR2`](#decision-ledger)) spells this "the jail's readiness act"; the jail has no general one yet ([`jail-notch-readiness.md`](jail-notch-readiness.md)), so this install is the only eager program-scoped step the stage carries |
 | 4 | Nothing satisfies it | **The launch refuses**, naming the pack, the program, the floor and what is available |
 
 **Resolution splits from installation, and the split is forced by two constraints rather than chosen.**
 The generator may resolve — read versions, compare, bake an absolute path — and may not install:
 
-- **`GenerateAgentLaunchers` also runs on the HOST, as a dry run, under `yolo check`**
-  ([`check/entrypoint.go:81-96`](../../internal/cli/check/entrypoint.go)). A generator that installed
-  would install on `yolo check`, which is an observe verb.
-- **It runs before `GenerateCABundle`** ([`boot.go:601-608`](../../internal/entrypoint/boot.go)), so a
-  generator that fetched could not verify TLS.
+- **`GenerateAgentLaunchers` also runs on the HOST, as a dry run, under `yolo check`** (the
+  generator list in [`check/entrypoint.go`](../../internal/cli/check/entrypoint.go)). A generator that
+  installed would install on `yolo check`, which is an observe verb.
+- **It runs before `GenerateCABundle`** (both are boot steps in
+  [`boot.go`](../../internal/entrypoint/boot.go), launchers first), so a generator that fetched could
+  not verify TLS.
 
 So the install belongs to the **provisioning stage**, which already runs `mise install` before the
-target command ([`provision.go:72-73`](../../internal/provision/provision.go)) — the same discipline
+target command (`StepMiseInstall` in [`provision.go`](../../internal/provision/provision.go)) — the same discipline
 `launchercollision.go`'s *"DECLARED, NOT INSTALLED"* check already states.
 
 > [!WARNING]
@@ -191,19 +195,20 @@ target command ([`provision.go:72-73`](../../internal/provision/provision.go)) �
 > Measured 2026-09-22: `mise install --dry-run node@22.19` reports *"22.19.0 would install"* with
 > 22.20.0 and 22.23.2 already present, and `node@24` reports *"24.21.0 would install"* with 24.19.0
 > present. A selector therefore fetches a new version rather than accepting a satisfying one — which
-> is why the floor is compared against candidates yolo enumerates itself. Separately,
-> [`mise.go:13-28`](../../internal/entrypoint/mise.go) forbids yolo declaring a runtime in mise config
+> is why the floor is compared against candidates yolo enumerates itself. Separately, the
+> `loadInjectedTools` comment in [`mise.go`](../../internal/entrypoint/mise.go) forbids yolo declaring a runtime in mise config
 > at all, and a global pin loses to the workspace layer anyway, so "just pin node in mise" could not
 > have fixed the bug either.
 
 > [!IMPORTANT]
-> **Candidate 1 is not currently knowable without executing it.** `/etc/yolo-jail-image-identity`
-> holds a content sha only, and no node version is baked into the image env or into
-> `internal/entrypoint`. So "does the image node satisfy the floor?" needs either a bounded
-> `node --version` at boot — precedent exists, the entrypoint already execs `ldconfig`, `iptables`,
-> `socat`, `supervise` and `mise uninstall` — or the image learning to publish its node version.
-> That choice is [`OQ-AR2`](#decision-ledger)'s neighbour: the ruling installs eagerly during
-> provisioning, so the generator must still learn the image node's version without installing it.
+> **Candidate 1 is not knowable without executing it, and the build executes it.**
+> `/etc/yolo-jail-image-identity` holds a content sha only, and no node version is baked into the
+> image env. The choice this section left open — a bounded `node --version` at boot, or the image
+> learning to publish its node version — was made in the build: **a bounded exec**, two seconds,
+> against the image's `/bin/node` rather than PATH so the mise shims are bypassed
+> (`imageNodeVersion` in [`nodefloor.go`](../../internal/entrypoint/nodefloor.go), a seam so the
+> host-side dry run can stub it). Precedent for the exec already existed: the entrypoint execs
+> `ldconfig`, `iptables`, `socat`, `supervise` and `mise uninstall`.
 
 **What must not happen:** anything that changes `node` for anyone else. Prepending to PATH, exporting
 `MISE_NODE_VERSION`, and `mise exec node@X --` all leak into every child the agent spawns, so the
@@ -227,8 +232,8 @@ generated body must be **byte-identical to today's** — that is a test, not an 
 **If a selected pack declares a program whose floor nothing satisfies — after provisioning has had its
 chance to install one — the launch refuses.** A jail that cannot run what was selected is not a ready
 environment, and reporting success while leaving it unready states a result that was not achieved. That
-is the same rule the host notch already applies at
-[`applyhostdepgate.go:9-11`](../../internal/cli/applyhostdepgate.go): *"an `--assert`'s promise is a
+is the same rule the host notch already applies, in the header of
+[`applyhostdepgate.go`](../../internal/cli/applyhostdepgate.go): *"an `--assert`'s promise is a
 ready environment, so a posture that returns 0 having left it unready has stated a result it did not
 achieve."*
 
@@ -243,14 +248,15 @@ The refusal names four things, because the failure it replaces names none of the
 > [!WARNING]
 > **This is the first fatal in the provisioning class, and that cost is real.** Every neighbouring
 > failure there degrades: `mise install` failing prints `PROVISIONING FAILED` and continues unless a
-> human at a TTY says no ([`provision.go:117-143`](../../internal/provision/provision.go)); the
-> bootstrap records that *"an offline boot fails here routinely and simply retries next launch"*
-> ([`shell.go:448-449`](../../internal/entrypoint/shell.go)); the launcher's install is `|| true`;
+> human at a TTY says no (`provision.FailedMarker` and `provision.Script` in
+> [`provision.go`](../../internal/provision/provision.go)); the bootstrap records that *"an offline
+> boot fails here routinely and simply retries next launch"* (in the script `GenerateBootstrapScript`
+> emits, [`shell.go`](../../internal/entrypoint/shell.go)); the launcher's install is `|| true`;
 > auto-capture warns and retries; an absent `requires` entry is a warning. So an offline boot that
 > cannot fetch a satisfying interpreter now refuses where it used to continue.
 >
 > **What makes that affordable is that the path is rare, not that the cost is small.** The image bakes
-> `nodejs_24` ([`flake.nix:1169`](../../flake.nix)), which satisfies pi's `>=22.19` today, so the
+> `nodejs_24` (in `coreFloorNames`, [`flake.nix`](../../flake.nix)), which satisfies pi's `>=22.19` today, so the
 > immediate case resolves at candidate 1 with no install and no refusal. An interpreter is also shared
 > across programs, so N declaring packs need at most a couple of interpreters rather than N.
 >
@@ -284,12 +290,14 @@ later it is a separate ruling, not an implementation detail.
 - **It does not settle macos-user.** See the UNVERIFIED note below.
 
 > [!NOTE]
-> **UNVERIFIED — the macos-user node.** `flake.nix:1169` puts `nodejs_24` in `coreFloorNames`, the
-> list the comment above it says a second backend takes "without a second list", so macos-user should
-> have a node. But [`macos-user-provisioning.md:224`](macos-user-provisioning.md) records a measured
-> `npm: command not found` for `via: npm` on that backend, dated 2026-09-11 — the day before that
-> floor shipped. Which is true today decides whether this design needs a backend carve-out. The
-> implementer measures it first; nothing here should be built against the assumption that it works.
+> **UNVERIFIED — the macos-user node.** `flake.nix` puts `nodejs_24` in `coreFloorNames`, the image
+> core list that `macos-user`'s floor is derived from, so that backend should have a node. The
+> measured `npm: command not found` for `via: npm` there is dated 2026-09-11, the day before the
+> floor shipped, and the reference now says only that *"the floor supplies node and npm, so the
+> launcher can run — **not measured on hardware**"*
+> ([`../reference/macos-user-provisioning.md`](../reference/macos-user-provisioning.md#what-each-imperative-config-key-delivers-here)). So the carve-out
+> question stays open until a Mac runs a floor-declaring program: the build did not add a
+> backend carve-out, and nothing has shown whether one is needed.
 
 ## 5. Alternatives, with verdicts
 
@@ -343,6 +351,6 @@ deliberation that produced them is in git.
 | AR-L2 | The pin is **opt-in per `program`**, never a blanket rule for `via: npm` | 2026-09-21 | [§3.1](#31-the-declaration) | ✅ `54d7d73f` |
 | AR-L3 | The workspace pin stays authoritative for **everything except the agent's own process** | 2026-09-21 | [§4](#4-what-this-does-not-do) | ✅ `54d7d73f` |
 | OQ-AR1 | The declared value is a **minimum (floor)**, compared against the candidate's version — because the vendor's own constraint is a range floor, and a floor survives the image moving to a newer Node without a manifest edit. ⚠ A mise SELECTOR cannot express it: selectors are prefixes that fetch rather than accept, measured | 2026-09-22 | [§3.2](#32-resolution) | ✅ `54d7d73f` |
-| OQ-AR2 | **Eager, at the jail's readiness act — there is no lazy path.** An interpreter is *environment*, and the environment is provisioned before the agent runs. Resolution splits from installation because `GenerateAgentLaunchers` also runs host-side under `yolo check` and runs before `GenerateCABundle`, so the generator resolves and the **provisioning stage** installs. ⚠ This does NOT reverse [`OQ-PD12a`](program-delivery.md#decision-ledger), which governs *currency* (is the agent's own binary current?) rather than *readiness*; `shell.go:420-423` already draws that line | 2026-09-22 | [§3.2](#32-resolution) | ✅ `54d7d73f` |
+| OQ-AR2 | **Eager, at the jail's readiness act — there is no lazy path.** An interpreter is *environment*, and the environment is provisioned before the agent runs. Resolution splits from installation because `GenerateAgentLaunchers` also runs host-side under `yolo check` and runs before `GenerateCABundle`, so the generator resolves and the **provisioning stage** installs. ⚠ This does NOT reverse [`OQ-PD12a`](program-delivery.md#decision-ledger), which governs *currency* (is the agent's own binary current?) rather than *readiness*; the bootstrap script's comment in `shell.go` already draws that line | 2026-09-22 | [§3.2](#32-resolution) | ✅ `54d7d73f` |
 | OQ-AR3 | **An unsatisfiable floor REFUSES the launch**, naming the pack, the program, the floor and what is available. If a pack is selected, the jail must be able to run what it declares. No escape hatch. ⚠ First fatal in the provisioning class, whose five neighbours all degrade — the cost and the residual objection are stated rather than engineered away | 2026-09-22 | [§3.4](#34-an-unsatisfiable-floor-refuses) | ✅ `54d7d73f` |
 | OQ-AR4 | The floor is **declared** in the manifest, not read from the installed package — core does not guess, and the package does not exist at `yolo check` time | 2026-09-22 | [§3.1](#31-the-declaration) | ✅ `54d7d73f` |

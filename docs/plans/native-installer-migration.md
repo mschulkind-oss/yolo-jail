@@ -12,7 +12,12 @@ summary: "Implementation plan for OQ-PD13. Shipped 2026-09-04: codex flipped and
 ruling **[OQ-PD13](../design/program-delivery.md#decision-ledger)** · Written against `a25e718b`, 2026-09-03.
 
 **Status:** DECIDED, 2026-09-04 — shipped in part: codex flipped and claude's dead
-`autoUpdaterStatus` is gone; **copilot did not flip**, and that is the work left.
+`autoUpdaterStatus` is gone; **copilot did not flip**, and that is the work left. Re-checked
+against the tree 2026-09-24: both sibling rulings this plan waited on
+([OQ-PD12a](../design/program-delivery.md#decision-ledger) and
+[OQ-PD14](../design/program-delivery.md#decision-ledger)) shipped 2026-09-04, and codex's
+installer prompt and payload capture were fixed 2026-09-14. `omp`, an npm pack added 2026-09-15,
+postdates this plan and was not assessed by it.
 
 > [!IMPORTANT]
 > **OUTCOME, 2026-09-04. Steps 1 and 2 shipped; step 3 does not exist as written.**
@@ -53,12 +58,16 @@ ruling **[OQ-PD13](../design/program-delivery.md#decision-ledger)** · Written a
 > option A names is not yet paid (the `isSea()` gate makes copilot's updater a notifier under npm),
 > and the flip, whenever it comes, inherits a dropped flag rather than a decision.
 >
-> **What is inert until the sibling plan lands** (both stated in the flip's commit body):
-> [OQ-PD14](../design/program-delivery.md#decision-ledger)'s declared update verb means codex's
-> native launcher still calls the hardcoded `"$REAL_BIN" install` hourly — an unknown subcommand
-> for codex, `|| true`, so a no-op; and without **[OQ-PD12a](../design/program-delivery.md#decision-ledger)** the launch dir stays last on
-> `BootPath`, so an existing workspace keeps resolving `$NPM_CONFIG_PREFIX/bin/codex` and never
-> reaches the new launcher. The flip is correct for a new workspace and inert for an old one.
+> **What was inert until the sibling plan landed — and it landed the same day** (both stated in
+> the flip's commit body): without [OQ-PD14](../design/program-delivery.md#decision-ledger)'s
+> declared update verb, codex's native launcher called the hardcoded `"$REAL_BIN" install` hourly
+> — an unknown subcommand for codex, `|| true`, so a no-op; and without
+> **[OQ-PD12a](../design/program-delivery.md#decision-ledger)** the launch dir stayed last on
+> `BootPath`, so an existing workspace kept resolving `$NPM_CONFIG_PREFIX/bin/codex` and never
+> reached the new launcher. ✅ **Both shipped 2026-09-04** in
+> [`evergreen-agent-updates.md`](evergreen-agent-updates.md)'s merge: `packs/codex` declares
+> `update: ["update"]`, and the launch dir now sits ahead of the install prefixes. The flip now
+> reaches old workspaces too.
 
 **Precedence:** the design wins on behavior, the tree wins on fact, this file is advice and is the
 first thing to be wrong. Never twist the code to match it.
@@ -111,15 +120,20 @@ interactive launch**, where the prompt is answerable and a wrong keystroke start
 what the caller asked to be a `--version` probe. `codex` honors
 `CODEX_NON_INTERACTIVE=1`, and **`packdecl.Install` has no field that can carry it** — filed as
 [`OQ-PS8`](../design/provisioner-sets.md#OQ-PS8), with the alternative of giving installers no tty
-at all in core. Worth settling before the pack matrix runs this installer unattended on two arches.
+at all in core. ✅ **Closed for codex on 2026-09-14 by neither of those**: the pack sets the
+variable through its `env` contribution (above), which reaches the installer because it is set
+for the whole jail. That route fits a vendor-prefixed name and not a generic one such as copilot's
+`PREFIX`, so [`OQ-PS8`](../design/provisioner-sets.md#OQ-PS8) stays open for the general case.
 
-**MEASURED 2026-09-14 — codex's standalone payload is not captured.**
-The installer unpacks the standalone runtime under `${CODEX_HOME:-$HOME/.codex}/packages/standalone`
-and symlinks `~/.local/bin/codex` to it. [`paths.HomeSurfaces()`](../../internal/paths/paths.go#L504)
-walks only `.npm-global`, `.local`, and `go`, so `~/.codex` is omitted entirely. Capture
-`2a8d85fe399399fa` recorded only the symlink and a stray `wire-bridge.log` (1 file, 2880 bytes).
-Materializing in a fresh jail yields a dangling symlink, `[ -x "$REAL_BIN" ]` fails, and the launcher
-falls back to downloading and reinstalling live.
+**MEASURED 2026-09-14 — codex's standalone payload was not captured; FIXED the same day** (the
+*FIXED 2026-09-14* paragraph above). The installer unpacks the standalone runtime under
+`${CODEX_HOME:-$HOME/.codex}/packages/standalone` and symlinks `~/.local/bin/codex` to it. Capture
+then walked only `paths.HomeSurfaces()` — `.npm-global`, `.local` and `go` — so `~/.codex` was
+omitted entirely: capture `2a8d85fe399399fa` recorded only the symlink and a stray
+`wire-bridge.log`, and materializing it in a fresh jail yielded a dangling symlink, so the launcher
+fell back to a live download. Capture now walks
+[`paths.InstalledProgramSurfaces()`](../../internal/paths/paths.go), which adds exactly
+`.codex/packages/standalone` and nothing else under `~/.codex`.
 
 ## Map
 
@@ -150,33 +164,36 @@ falls back to downloading and reinstalling live.
 ## Traps
 
 - **`nativeLauncherTemplate` hardcodes `REAL_BIN="$HOME/.local/bin/$BIN"`**
-  (`internal/entrypoint/shims.go:868`). **Constraint:** a native flip works only where the
+  (`internal/entrypoint/shims.go`). **Constraint:** a native flip works only where the
   installer's *default* lands the binary at exactly that path. Miss it and the launcher reinstalls
   on every invocation, then exits 1 with `⚠ <bin> not available` — installed, and not found.
-- **The manifest cannot pass env or argv to an installer.** `packdecl.Install` is
-  `{Kind, Bin, Package, Flags, InstallerURL}` and `Flags` is npm-only (`nativeAgentLauncher` splices
-  BIN, URL, STAMP_DIR, RECEIPTS and nothing else). So `PREFIX=`, `VERSION=`, `CODEX_INSTALL_DIR=`
-  and `CODEX_NON_INTERACTIVE=` are **not expressible today** — the flip rides vendor defaults.
-- **PATH order silently defeats the flip on every existing workspace.** `BootPath`
-  (`internal/entrypoint/boot.go:356-361`) puts `$NPM_CONFIG_PREFIX/bin` **second** and
-  `$HOME/.local/bin` **fifth**. A workspace that already npm-installed copilot keeps resolving the
-  stale npm binary forever; the launcher is last on PATH and never runs. `catalogNpmOrphans`
-  (`internal/entrypoint/catalog.go:80`) *reports* the leftover at boot and, per [OQ-PD4](../design/program-delivery.md#decision-ledger), does not
-  remove it. **This is the migration's real cost** and it is what [OQ-PD12a](../design/program-delivery.md#decision-ledger) (B2) fixes. Symptom: a
-  green CI cell (fresh workspace) beside a user whose `copilot --version` never moves.
-- **The native launcher's update branch is a hardcoded `"$REAL_BIN" install`** (shims.go:936, 941),
-  `|| true`. Right for claude; already wrong for agy (`agy update`). After a flip, copilot and codex
-  get an hourly unknown-subcommand call that changes nothing. **The flip buys the cold-install
-  mechanism; [OQ-PD14](../design/program-delivery.md#decision-ledger)'s declared verb is what buys evergreen.**
-- **The origin gate.** Verified against `packload.HonoredInstalls` (`internal/packload/packload.go:491`):
-  it refuses only `InstallerURL != "" && !MayAccessHost`, and `MayAccessHost` is `true` by
-  construction for embedded and local packs (`internal/config/packs.go:182`). **So the shipped packs
-  are unaffected.** What changes is the *claim surface*: `HostAccessClaims`
-  (`internal/packdecl/contributes.go:1156`) now emits `installer <URL>` and
-  `NeedsHostAccessContributions` emits "program via installer (runs a fetched script)" for each
-  flipped pack. For a **fetched** pack shipping an agent this is approvable and refusable — and per
-  [`trust-paths.md` §3.1](../design/trust-paths.md) ([OQ-TP6](../design/trust-paths.md#decision-ledger)) a refusal **refuses the launch**, not
-  the contribution. npm stays deliberately ungated. Say this in the commit body.
+- **The `program` contribution cannot pass env or argv to an installer.** `packdecl.Install` has
+  grown since this was written (`UpdateVerb`, `NodeFloor`), but no installer env, and `Flags` is
+  still npm-only. So `PREFIX=`, `VERSION=` and `CODEX_INSTALL_DIR=` are **not expressible per
+  installer** — the flip rides vendor defaults. ⚠ *Corrected 2026-09-24:* a pack's `env`
+  contribution sets a variable for the whole jail, and that is how `CODEX_NON_INTERACTIVE=1`
+  reaches codex's installer since 2026-09-14. It is not a fix for `PREFIX=`, which every other tool
+  in the jail would read too.
+- ~~**PATH order silently defeats the flip on every existing workspace.**~~ ✅ **Resolved
+  2026-09-04 by [OQ-PD12a](../design/program-delivery.md#decision-ledger) (B2).** As written:
+  `BootPath` put `$NPM_CONFIG_PREFIX/bin` ahead of `$HOME/.local/bin` and the launch dir last, so a
+  workspace that had already npm-installed a program kept resolving the stale npm binary and never
+  reached the launcher. The launch dir now sits ahead of every install prefix. The leftover npm
+  copy is still only *reported* at boot (`catalogNpmOrphans`, `internal/entrypoint/catalog.go`)
+  and, per [OQ-PD4](../design/program-delivery.md#decision-ledger), removed only by
+  `yolo programs remove --apply`.
+- ~~**The native launcher's update branch is a hardcoded `"$REAL_BIN" install`**~~ ✅ **Resolved
+  2026-09-04 by [OQ-PD14](../design/program-delivery.md#decision-ledger).** As written, every native
+  launcher ran `"$REAL_BIN" install` hourly, `|| true` — right for claude, wrong for agy and codex.
+  The verb is now declared per pack (`Install.UpdateVerb`). The point stands as a rule: **the flip
+  buys the cold-install mechanism; the declared verb is what buys evergreen.**
+- ~~**The origin gate.**~~ ⚠ **Gone since 2026-09-04, the day this plan shipped.** As written,
+  `packload.HonoredInstalls` refused a `via: installer` from a **fetched** pack while npm stayed
+  ungated, so a flip changed the fetched-pack claim surface. [OQ-TP9](../design/trust-paths.md#decision-ledger)
+  deleted that refusal — `npm install -g` from the same fetched tree runs `postinstall` ungated, so
+  the gate refused one path to arbitrary in-jail execution while permitting another — and
+  `HonoredInstalls` now grants every install declaration (its `refused` return is always nil). A
+  flip therefore changes no trust outcome; the pack read/exec banners are what disclose it.
 - **Installer scripts call shimmed tools.** codex's uses `find` (line 745), pi's uses `grep -Fxq`.
   The launcher already runs them under `YOLO_BYPASS_SHIMS=1`; do not remove it.
 - **`packs/claude/pack.json:60` is dead — but not for the reason the ticket gives.** Measured
@@ -214,9 +231,10 @@ edit, so each step's proof is its own CI cell on both arches.
   nothing to `~/.local/bin` must produce the `⚠ <bin> not available` message and rc 1, and must
   write **no** receipt (the existing `_do_install` guard). That is the regression test for the
   landing-path trap, and it fails if the `[ -x "$REAL_BIN" ]` guard is deleted.
-- **Unit, `internal/packload/packload_test.go`:** a *fetched* pack declaring `via: installer` is
-  refused while an npm sibling on the same pack is granted. `HonoredInstalls` has this shape at
-  `:114-129` already — extend rather than duplicate.
+- ~~**Unit, `internal/packload/packload_test.go`:** a *fetched* pack declaring `via: installer` is
+  refused while an npm sibling on the same pack is granted.~~ Void since
+  [OQ-TP9](../design/trust-paths.md#decision-ledger) deleted the refusal (see Traps); there is no
+  longer a per-origin split to pin.
 - **Integration:** none new. Steps 2 and 3 are proven by the existing per-pack cells.
 - **No test may start an agent.** `--version` only; that is what `packMatrix` already does.
 - **Docs, by path:** `README.md:290-293`; `docs/design/program-delivery.md` [§3.5](../design/program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)'s per-agent table
@@ -243,20 +261,22 @@ edit, so each step's proof is its own CI cell on both arches.
   `mkdir -p "$HOME/.opencode/bin"` fails EROFS before anything downloads. It needs a writable-dir
   contribution *and* an answer for a binary that is neither on `BootPath` nor at the launcher's
   `REAL_BIN`. Both are design work, not this plan's.
-- **Don't add an `env` field to `packdecl.Install`** to pass `PREFIX=`/`VERSION=`. It is the obvious
-  move and it is a schema change that [OQ-PD14](../design/program-delivery.md#decision-ledger) is already opening the same struct for — land one
-  contribution field, not two, and let that plan own it.
+- **Don't add an `env` field to `packdecl.Install`** to pass `PREFIX=`/`VERSION=` from this plan.
+  The reason as first written — [OQ-PD14](../design/program-delivery.md#decision-ledger) was opening
+  the same struct — is spent: that verb shipped 2026-09-04 with no env field. What still holds is
+  that per-recipe installer env is an open question, not a plan's to settle:
+  [`OQ-PS8`](../design/provisioner-sets.md#OQ-PS8) owns it.
 - **Don't `npm uninstall -g` from the entrypoint** to clear the stale copies. [OQ-PD4](../design/program-delivery.md#decision-ledger) rules that
   dropping a program is an explicit act; the boot catalog reports and does not remove.
 
 ## Blockers
 
-- **[OQ-PD14](../design/program-delivery.md#decision-ledger) (the pack-declared update verb) is a hard dependency for the *benefit*, not for the
-  flip.** Planned in [`evergreen-agent-updates.md`](evergreen-agent-updates.md); do not design it here. Until it lands, a flipped pack self-updates
-  only insofar as its own binary does.
-- **[OQ-PD12a](../design/program-delivery.md#decision-ledger) / B2 (launch dir ahead of the install prefixes)**, same sibling plan, is what makes
-  the flip reach an existing workspace. Without it, steps 2 and 3 are correct for new workspaces and inert for old
-  ones. Not a reason to hold the flip — a reason to say so in the commit body.
+- ✅ **[OQ-PD14](../design/program-delivery.md#decision-ledger) (the pack-declared update verb)** —
+  a hard dependency for the *benefit*, not for the flip — **shipped 2026-09-04** in
+  [`evergreen-agent-updates.md`](evergreen-agent-updates.md).
+- ✅ **[OQ-PD12a](../design/program-delivery.md#decision-ledger) / B2 (launch dir ahead of the
+  install prefixes)**, what makes a flip reach an existing workspace, **shipped 2026-09-04** in the
+  same plan. Neither blocks copilot's flip; the `PREFIX` problem does.
 - **copilot's `--no-auto-update`: ASKED, AND ANSWERED — option A, 2026-09-12. The flag is
   DROPPED.** The maintainer's words: *"drop the no auto update too, we decided to just let agents be
   agents. and of course fix the autonomy."* It shipped on its own, with copilot still on npm and the

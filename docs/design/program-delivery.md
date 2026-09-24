@@ -10,8 +10,8 @@ summary: "Four delivery classes, one of which kept no record and was never re-de
 
 **Status:** DESIGN, 2026-08-24 — decided then, amended 2026-09-03, **largely implemented by
 2026-09-04**, and one question is still live;
-compacted 2026-09-06. Nineteen rulings sit in the [Decision Ledger](#decision-ledger) and **one
-question is open** — [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split), which asks whether two ruled-but-unbuilt steps of
+compacted 2026-09-06; cross-checked against its sibling designs 2026-09-24. Every other question
+is ruled and sits in the [Decision Ledger](#decision-ledger), and **one question is open** — [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split), which asks whether two ruled-but-unbuilt steps of
 [§10](#10-what-i-would-build-in-order) still have a subject. **In the tree:** the receipts and the boot orphan catalog
 (`af46c9b4`), the mise half (`a16403e2`), the [§6.2](#62-pay-the-enum-tolerance-before-the-next-mechanism-arrives) tolerance (`0a4d241c`), the offline
 reconcile (`43f28ce8`), the removal act and `yolo programs` (`3a4f1bbf`, `c127f4ad`, `3ac165e4`),
@@ -74,7 +74,11 @@ records *what you got* is not an attestation that it is *what someone published*
 supersedes.
 
 **Reads with:** [`trust-paths.md`](trust-paths.md) (the trust half, and the two questions this doc
-supersedes), [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md) (the measured cost of
+supersedes), [`jail-notch-readiness.md`](jail-notch-readiness.md) (an open design that would install
+declared programs eagerly at launch while leaving [OQ-PD12a](#decision-ledger)'s lazy *refresh*
+untouched), [`agent-program-runtimes.md`](agent-program-runtimes.md) (a declared Node floor per
+`program`, built 2026-09-22, whose interpreter install is eager at boot for the same
+readiness-not-currency reason), [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md) (the measured cost of
 baking — every "why don't we just bake it" answer is priced there),
 [`pack-system.md`](../reference/pack-system.md) (the `program` contribution kind),
 [`program-kind-defects.md`](../reference/pack-system.md#program) (the earlier pass at this mechanism, whose
@@ -198,8 +202,8 @@ answers want opposite things.
 
 **Two terms, coined here:**
 
-- An **agent dependency** is a program yolo installs so that a coding *agent* can run: the six agent
-  CLIs, and the MCP and LSP servers those agents drive. It serves the agent, never the work in
+- An **agent dependency** is a program yolo installs so that a coding *agent* can run: the agent
+  CLIs the shipped packs declare, and the MCP and LSP servers those agents drive. It serves the agent, never the work in
   `/workspace`. Nobody's build reproduces against it, and a version six weeks old is a defect rather
   than a guarantee. **It wants to be current.**
 - A **project dependency** is a program the work in `/workspace` needs: the language toolchains
@@ -223,9 +227,16 @@ sibling docs can cite it, as P1–P5 are.)*
 | :--- | :--- | :--- |
 | Wants | latest | reproducible |
 | Pin | **none** — there is nothing to be reproducible against | required, at the declaration's home ([OQ-PD1](#decision-ledger)) |
-| Resolution | at every launch | on an explicit act only |
+| Resolution | at the agent's own invocation, throttled ([OQ-PD12](#decision-ledger)) | on an explicit act only |
 | Record | a receipt, for *what did I run* | a lockfile, for *what must I run* |
-| Members today | the six agent CLIs, MCP servers, LSP servers | `mise_tools`, `packages`, nixpkgs, `flake.lock` |
+| Members today | the agent CLIs, MCP servers, LSP servers | `mise_tools`, `packages`, nixpkgs, `flake.lock` |
+
+> [!WARNING]
+> **One shipped agent pack pins anyway.** `packs/omp` (added 2026-09-15) declares
+> `@oh-labs/oh-omp@0.15.3` — a version selector — so its npm launcher takes the pinned branch and
+> never refreshes, which is the *Pin: none* cell above not holding. Nothing in the tree or the
+> commit records why. Read against P6 it is either a project-style pin on an agent dependency or a
+> vendor-compatibility hold; this doc does not rule which, and the roadmap should.
 
 **This narrows [OQ-PD3](#decision-ledger) rather than reversing it.** That ruling said *"no-evergreen
 extends to mise — it is a principle, not an npm fix."* The mise half stands and is untouched: mise
@@ -250,14 +261,18 @@ to guess"* on 2026-09-09. One exception remains, stated where it arises — `cop
   `UPDATE_INTERVAL` (3600s today) per program, exactly as the npm template already does. A second
   `claude` a minute later does no work.
 - **Cold start is the same act.** A program that is absent is installed; a present one past its
-  stamp is updated. One path, so a fresh workspace and a six-week-old one converge.
+  stamp is updated. One path, so a fresh workspace and a six-week-old one converge. ⚠ **Whether the
+  cold half should also run at launch is open elsewhere** —
+  [`jail-notch-readiness.md`](jail-notch-readiness.md) ([OQ-JR1](jail-notch-readiness.md#OQ-JR1)–[OQ-JR3](jail-notch-readiness.md#OQ-JR3))
+  proposes installing every declared program in the provisioning stage and leaving this launcher's
+  cold branch as the fallback. It changes readiness only; the refresh stays here either way.
 - **The update verb is the pack's to declare** ([OQ-PD14](#decision-ledger)). Vendors disagree
   (`claude install`, `pi update --self`, `codex update`), so core cannot hardcode one. A `program`
   declaring no verb is refreshed by re-running its installer or `npm install -g`, per its `via`.
   **Built as `packdecl.Contribution.Update` → `Install.UpdateVerb`, projected for EVERY `via`**
-  (the verb describes what the program does to itself, not how it arrived). Declared by the three
-  installer-delivered packs — `claude install`, `agy update`, `codex update`. The three
-  npm-delivered ones declare NONE on purpose: `npm install -g <pkg>` reaches the same registry a
+  (the verb describes what the program does to itself, not how it arrived). Declared by the
+  installer-delivered packs — `claude install`, `agy update`, `codex update`. The npm-delivered
+  ones declare NONE on purpose: `npm install -g <pkg>` reaches the same registry a
   vendor verb would and is the path measured to work, so a second unmeasured path buys nothing
   (and `pi`'s "native" installer, pi.dev/install.sh, is npm underneath).
 - **Failure is scoped to the invocation, and is not a jail-level fatal.** Offline with the agent
@@ -532,6 +547,13 @@ everywhere else.
 > and needed no environment for the installer, so no `env` field was added and copilot's flip
 > still waits on one. Adding a field to that struct is routine now; what is undecided is the
 > flip itself, which is a separate call with the measurement above under it.
+>
+> ⚠ **A pack's `env` contribution is a second route, and it does not fit `PREFIX`.** Since
+> 2026-09-14 `packs/codex` sets `CODEX_NON_INTERACTIVE=1` through its `env` contribution, which is
+> how its installer stopped prompting. But that kind sets the variable for the whole jail, not for
+> one installer run — fine for a vendor-prefixed name, wrong for a generic `PREFIX` every other
+> tool in the jail would also read. Whether installers get per-recipe env is
+> [`provisioner-sets.md`](provisioner-sets.md)'s [`OQ-PS8`](provisioner-sets.md#OQ-PS8).
 >
 > **The general rule the copilot case yields, worth applying to any future flip:** *self-updates
 > once native* is a necessary condition and never a sufficient one. The sufficient one is **does
@@ -1449,10 +1471,15 @@ let it materialize the previous entry and record it as a fresh capture, which wo
 **`macos-user` has the RECORDING half only** (slice six): `SeatbeltCaptureProfile`
 (`internal/macosuser/seatbeltcapture.go`), the neutral-ground staging home with the shared
 `/Users/_yolojail` denied for the duration, and the manifest's relocation record (`refScan`,
-`relocatable`, `absoluteRefs` in `internal/capture/manifest.go`, scanned by `relocate.go`). The
-rewrite that record exists for is NOT built, and no kernel has loaded the profile, so a capture on
-that backend is a recorded artefact nobody materializes — which is also why the auto-capture trigger
-sits below the `macos-user` return.
+`relocatable`, `absoluteRefs` in `internal/capture/manifest.go`, scanned by `relocate.go`).
+`yolo capture <bin>` is wired to that backend (hand-off H1 of
+[`install-capture.md`](../plans/install-capture.md), landed 2026-09-04), and the recording half was
+**MEASURED on hardware 2026-09-11** — the capture profile loaded, the vendor installer ran, and an
+entry landed in the machine store
+([M4](../plans/runbooks/mac-provisioner-measurements.md#m4--does-the-capture-recording-half-work-on-hardware)).
+The rewrite that record exists for (H2) is NOT built, so a capture on that backend is a recorded
+artefact nobody materializes — which is also why the auto-capture trigger sits below the
+`macos-user` return.
 
 Distributing captures between machines is deliberately out of scope ([§7](#7-what-this-does-not-cover)): a capture made
 here is used here, and publishing one is a provenance question for
@@ -1741,9 +1768,9 @@ needed it, which was the point.
 | **OQ-PD12** | **Agent dependencies are EVERGREEN, updated LAZILY at the agent's own invocation** (revised the same day — see the row below). The launcher checks at most once per `UPDATE_INTERVAL` per program, then `exec`s; `agent_updates` (user-scope, per-pack or global) opts out; failure is scoped to the command, never to the jail. ✅ **SHIPPED 2026-09-04** for the agent CLIs, in both launcher templates; the MCP/LSP half of the same ruling followed 2026-09-09 as `internal/entrypoint/serverrefresh.go`, reached from both templates as `yolo internal refresh-servers` before their `exec`. | 2026-09-03 · shipped 2026-09-04 and 2026-09-09 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03), [§5.4](#54-a4--regenerate-or-reconcile-every-launch) |
 | **[`OQ-PD12a`](#decision-ledger)** | **B2 — the launch dir moves AHEAD of the install prefixes, and a launcher is generated only for a name the image does not provide.** The two halves are one decision: the position makes the launcher reachable past the cold start, the generation-time check keeps the position safe. ⚠ Converts "a pack cannot shadow `/bin/fzf`" from a structural impossibility into a handled case — it needs a test that fails when the check is deleted. Blockers stay first. **Supersedes the eager-at-boot shape ruled earlier the same day**, which cost a jail-level fatal, an escape hatch, three ordering constraints and an update of every agent on every launch — all deleted. **MCP/LSP servers inherit the trigger of the agent that connects to them** (transitive dependencies need no trigger of their own), so the design has **no boot step at all**; only yolo-INSTALLED servers are in scope, since an `npx -y pkg@latest` argv is already current every spawn. ✅ **SHIPPED 2026-09-04**: three PATH strings moved (`BootPath`, the `.bashrc` export, `macosuser.SandboxPath`) and the check is `internal/entrypoint/launchercollision.go`, scoped to the image dirs plus the DECLARED mise tools and never to the install prefixes; it also gates the `pnpm` package-manager launcher, so a `mise_tools` pnpm keeps its name. **The transitive half followed 2026-09-09**: `internal/entrypoint/serverrefresh.go`, called by both launcher templates as `yolo internal refresh-servers` before their `exec` — the set BAKED into each launcher (macos-user's `env -i` makes reading it from the environment a silent no-op on that backend), stamps per PACKAGE, and `agent_updates` gating the stale half only. | 2026-09-03 · shipped 2026-09-04 and 2026-09-09 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
 | **OQ-PD13** | **Prefer the native installer over npm for an agent CLI wherever the vendor ships one.** An npm-installed CLI structurally cannot self-update — measured: copilot's updater refuses with *"Update not supported when running js directly"* — while the vendors' own installers both self-update and accept a version. **All four npm packs have one, verified 2026-09-03** ([§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)'s table). ✅ **Outcome 2026-09-04: only `codex` flipped** (`dc640752`). `copilot` did NOT — its installer's prefix is `/usr/local` under uid 0, which the `--read-only` rootfs cannot create, so the flip would make it uninstallable; it waits on an installer environment field the manifest does not have. `pi` stays npm because its installer is npm underneath; `opencode` was not flipped (its installer's prefix and self-update behaviour are the table's `not checked` cells). The general rule: *self-updates once native* is necessary, and *the installer's default prefix under the jail's uid and filesystem equals the launcher's `REAL_BIN`* is the sufficient condition. | 2026-09-03 · applied 2026-09-04 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
-| **OQ-PD14** | **The update verb is declared by the pack**, on the `program` contribution. Vendors disagree (`claude install`, `pi update --self`, `codex update`); core hardcoding one is how `yolo pack update` came to skip the installer class entirely. Absent a verb, re-run the declared installer or `npm install -g`. ✅ **SHIPPED 2026-09-04** as `Contribution.Update` → `Install.UpdateVerb`, projected for every `via`; the npm-only skip in `yolo pack update` is gone (`9f10b4ec`). Declared by claude/agy/codex; the three npm packs use the `via` fallback deliberately. | 2026-09-03 · shipped 2026-09-04 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
+| **OQ-PD14** | **The update verb is declared by the pack**, on the `program` contribution. Vendors disagree (`claude install`, `pi update --self`, `codex update`); core hardcoding one is how `yolo pack update` came to skip the installer class entirely. Absent a verb, re-run the declared installer or `npm install -g`. ✅ **SHIPPED 2026-09-04** as `Contribution.Update` → `Install.UpdateVerb`, projected for every `via`; the npm-only skip in `yolo pack update` is gone (`9f10b4ec`). Declared by claude/agy/codex; the npm packs use the `via` fallback deliberately. | 2026-09-03 · shipped 2026-09-04 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
 | **OQ-PD15** | ~~**Capture FIRST — build the complete version and sequence toward it.**~~ ⚠ **REVERSED 2026-09-04 by [OQ-CP1](../reference/agent-cli-copies.md#oq-cp1): EVERGREEN FIRST, with A7's V-axis prune inside it; capture trails and continues in parallel.** Both premises measured false: capture collapses **N** while evergreen multiplies **V**, and *"under capture there is nothing to prune"* is wrong because the self-updater keeps writing full-size version dirs into the workspace. **The disk justification is RETRACTED** — on ext4 capture ADDS a machine-wide copy and saves no disk at all. *"Sooner was never the goal"* still stands: this reverses which ruled subsystem goes first, not the scope of either. Both shipped the same day anyway. | 2026-09-03 · reversed 2026-09-04 | [§10](#10-what-i-would-build-in-order), [§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package), [`agent-cli-copies.md`](../reference/agent-cli-copies.md) |
-| **OQ-PD16** | **Jail-only here; the host notch is owned by [`provisioner-sets.md`](provisioner-sets.md)** — ⚠ **AMENDED 2026-09-11**: this row named [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md), which was **merged into [`provisioner-sets.md`](provisioner-sets.md) and retired that day**; the host notch moved with it, and the six live questions it kept are now four under an `NX` prefix plus two folded into that doc's own ([its id map](provisioner-sets.md#question-id-map-old-spelling--new)). The original ruling is unchanged in substance: the host notch is not this doc's. The mechanism is already built and already named for the axis: `flake.nix`'s `yoloNoncontainerPackages` buildEnv, whose only caller today is `macos-user`; the host notch is a third consumer of an existing attribute, not a new mechanism. ⚠ **Not a `devShell`** — `print-dev-env` puts the whole stdenv ahead of the host userland ([the four nix mechanisms compared](./provisioner-evidence.md#32-the-four-nix-mechanisms-compared-and-why-never-a-devshell), measured at 22 PATH entries and 121 variables; it moved to the evidence doc in the 2026-09-20 split), so the shape is a profile and "shell" names the user-facing verb at most. Until that work lands the host stays **enumerated as unmanaged** per [§5.5](#55-a5--do-nothing-and-say-so). | 2026-09-03 · amended 2026-09-11 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03), [`provisioner-sets.md`](provisioner-sets.md) |
+| **OQ-PD16** | **Jail-only here; the host notch is owned by [`provisioner-sets.md`](provisioner-sets.md)** — ⚠ **AMENDED 2026-09-11**: this row named [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md), which was **merged into [`provisioner-sets.md`](provisioner-sets.md) and retired that day**; the host notch moved with it, and the six live questions it kept are now four under an `NX` prefix plus two folded into that doc's own ([its id map](provisioner-sets.md#question-id-map-old-spelling--new)). The original ruling is unchanged in substance: the host notch is not this doc's. The mechanism is already built and already named for the axis: `flake.nix`'s `yoloNoncontainerPackages` buildEnv, whose callers today are `macos-user` and the Linux store-delivered package farm (`YOLO_STORE_PACKAGES=1`); the host notch would be a third consumer of an existing attribute, not a new mechanism. ⚠ **Not a `devShell`** — `print-dev-env` puts the whole stdenv ahead of the host userland ([the four nix mechanisms compared](./provisioner-evidence.md#32-the-four-nix-mechanisms-compared-and-why-never-a-devshell), measured at 22 PATH entries and 121 variables; it moved to the evidence doc in the 2026-09-20 split), so the shape is a profile and "shell" names the user-facing verb at most. Until that work lands the host stays **enumerated as unmanaged** per [§5.5](#55-a5--do-nothing-and-say-so). | 2026-09-03 · amended 2026-09-11 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03), [`provisioner-sets.md`](provisioner-sets.md) |
 | **OQ-PD17** | **No unreferenced oracle — the reap rule is the COMPLEMENT OF THE RESOLVER.** Reclaiming a capture entry is never a correctness event (measured: a reflinked destination survives its source's unlink byte-identical), and the resolver already picks *newest-by-receipt-time per (bin, platform)* — so every other entry is already unreachable by the only reader. Delete what the resolver would not select; `K = 1`. Retires all three candidates (materialize receipts, a store-side reference list, `FIEMAP`), **and** `K = 2` and the age floor, which this doc had proposed. ✅ **SHIPPED** `46874f2d` as `capture.PruneSupersededCaptures`, reached through `yolo prune`. ⚠ Surfaced [OQ-PD18](#decision-ledger): nothing populated the store automatically, so materialize had never hit on any machine. | 2026-09-04 · shipped 2026-09-04 | [§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package) *As built*, [`agent-cli-copies.md` §4.2](../reference/agent-cli-copies.md#reclaiming-a-capture-entry-is-never-unsafe) |
 | **OQ-PD18** | **(d), DEFAULT ON — auto-capture on first launch, host-side, in the throwaway jail, no knob to turn it on.** Nothing populated the store before this: `yolo capture` was its only writer, no launch path called it, and it had never been run. ⚠ **Default-on makes a stale entry actively harmful** — the workspace pays a copy AND a download, and is left holding a dead version the vendor updater will not remove — so **A7's V-axis prune is a prerequisite, not a companion** (landed first, `5fe5ba5c`), and [OQ-CP4](../reference/agent-cli-copies.md#oq-cp4) became load-bearing (ruled the same day). On ext4 capture costs `+S` at every N and buys `N−1` avoided downloads; the ext4 share of real installs is the unmeasured number that would revisit the default. ✅ **SHIPPED 2026-09-04** (merge `18524ff9`): the trigger in `internal/cli/run/autocapture.go`, the miss decision in `internal/cli/autocapture.go`, `YOLO_NO_AUTO_CAPTURE=1` the opt-out; verified in a real nested jail. | 2026-09-04 · shipped 2026-09-04 | [§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package) *As built*, [`agent-cli-copies.md` §4.1](../reference/agent-cli-copies.md#the-ext4-inversion) |
 
@@ -1751,10 +1778,10 @@ needed it, which was the point.
 
 ## Open Questions
 
-**One open — [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split).** Nineteen rulings are in the [Decision Ledger](#decision-ledger):
-ten from 2026-08-24, seven from 2026-09-03 (the amendment's four, its B2 revision, and the two
-questions it opened), and two from 2026-09-04 (the capture build opened [OQ-PD17](#decision-ledger), and ruling it
-surfaced [OQ-PD18](#decision-ledger)). Their deliberation scaffolding was compacted 2026-09-06; the reasoning that
+**One open — [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split).** Every other question is ruled and in the [Decision Ledger](#decision-ledger):
+the 2026-08-24 set, the 2026-09-03 amendment's rulings with its B2 revision and the two questions
+it opened, and the two from 2026-09-04 (the capture build opened [OQ-PD17](#decision-ledger), and
+ruling it surfaced [OQ-PD18](#decision-ledger)). Their deliberation scaffolding was compacted 2026-09-06; the reasoning that
 survives is in the body sections each ledger row names, and the headings of the three questions
 sibling docs link to are kept at the end of this section as anchors.
 
