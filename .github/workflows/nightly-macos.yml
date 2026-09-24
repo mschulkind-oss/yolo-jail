@@ -128,6 +128,16 @@ jobs:
           YOLO_EXTRA_PACKAGES='["libsodium.dev"]' \
             nix build --impure --accept-flake-config --no-link .#ociImage
 
+          # IMAGE B OF THE ARCHIVE-DELIVERY CHECK (`archive-delivery-macos` below): the stock
+          # image plus `hello`, which that job delivers as a delta over the stock image
+          # through a real launch. Realized and pushed here for the reason the two variants
+          # above are — a Mac can substitute an x86_64-linux derivation and cannot build
+          # one — and, like them, never uploaded. The list is the Go test's
+          # (macArchivePackagesJSON in integration/macarchivedelivery_test.go), and
+          # integration/archivedeliveryworkflow_test.go fails if the two disagree.
+          YOLO_EXTRA_PACKAGES='["hello"]' \
+            nix build --impure --accept-flake-config --no-link .#ociImage
+
       - name: Upload jail image
         uses: actions/upload-artifact@v7
         with:
@@ -241,11 +251,17 @@ jobs:
         # nothing downloads would be pure cost, and an artifact name that collides with
         # `jail-image` would be worse than that.
         #
-        # `build-image`'s two `YOLO_EXTRA_PACKAGES` variants are deliberately NOT
-        # repeated. They serve the three `packages:` tests in
-        # integration/packages_test.go, which run on the x86_64 shards. The only
-        # aarch64 consumer today is apple-container.yml's `^TestAppleContainer` subset,
-        # and none of those five tests declares `packages:`. Add them here when one does.
+        # `build-image`'s `zbar` and `libsodium.dev` variants are deliberately NOT
+        # repeated. They serve the `packages:` tests in integration/packages_test.go,
+        # which run on the x86_64 shards; apple-container.yml's `^TestAppleContainer`
+        # subset declares no `packages:`.
+        #
+        # ONE VARIANT IS REPEATED, because one aarch64 consumer now declares `packages:`:
+        # apple-container.yml's archive-delivery steps launch image B (`["hello"]`) to
+        # watch it arrive as a delta. Without it here that Mac builds the aarch64-linux
+        # derivations B adds through its Apple Container builder every run — which
+        # works, and is the fallback rather than the plan, exactly as for the stock image.
+        # Pinned to the Go test's list by integration/archivedeliveryworkflow_test.go.
         #
         # --accept-flake-config: honor the flake's own yolo-jail.cachix.org substituter,
         # which nix otherwise DISCARDS with a warning — so this job would build from
@@ -253,6 +269,8 @@ jobs:
         run: |
           nix build --impure --accept-flake-config --print-out-paths \
             .#ociImage .#imageCopier
+          YOLO_EXTRA_PACKAGES='["hello"]' \
+            nix build --impure --accept-flake-config --no-link .#ociImage
 
   integration-macos:
     # macOS Intel runners support nested virtualization via Podman Machine;
@@ -629,8 +647,8 @@ jobs:
         #
         # The variant half is asserted here and is true by construction, though it
         # needs saying more carefully since 2026-09-13: the `build-image` job realizes
-        # THREE images — the stock one and two `packages:` variants whose only purpose
-        # is to populate Cachix — but the tar it UPLOADS is the first, built with no
+        # the stock image AND several `packages:` variants whose only purpose is to
+        # populate Cachix — but the tar it UPLOADS is the stock one, built with no
         # YOLO_EXTRA_PACKAGES set. The variant builds pass `--no-link` and are never
         # uploaded, so the image these shards `podman load` is stock whatever else that
         # job realized.
@@ -758,3 +776,135 @@ jobs:
       - name: nix-daemon log (the builder offload's ssh errors land here, not in the test output)
         if: always()
         run: sudo tail -n 200 /var/log/nix-daemon.log || true
+
+  # THE DELTA ARCHIVE, DELIVERED FOR REAL ON A PODMAN MACHINE — one job, not a thirteenth shard.
+  #
+  # Since 52b29e87 a podman-on-macOS launch hands the VM an oci-archive that leaves out the
+  # layers the machine already holds (internal/image deliverViaArchive, deltaarchive.go). The
+  # shards above cannot see it: their `Load jail image` step PRELOADS the stock image and tags
+  # it `stock-<identity>`, and the launch's first question (stockimage.go) finds that tag and
+  # skips the build and the delivery entirely. That preload is right for the shards and stays —
+  # this job is the one place that does NOT take it.
+  #
+  # So nothing here downloads or preloads `jail-image`. The machine starts EMPTY, and
+  # integration/macarchivedelivery_test.go substitutes images A (stock) and B (`packages:
+  # ["hello"]`, realized by `build-image` for this purpose) from Cachix, then launches each in a
+  # throwaway workspace through the real `yolo run`: A is a genuine first delivery, B must go out
+  # as a delta (the copy report line names exactly B's layers A lacks, the archive is small,
+  # nothing retries, `hello` runs). The test also evicts A's content ref and its stock tag
+  # before launching, so the check holds on a machine that is not empty either.
+  #
+  # WHY A SEPARATE JOB. The first delivery is a full 3.45 GB `podman load` — 10–33 min on this
+  # runner (docs/research/macos-layer-reusing-image-delivery.md) — and OQ-LR2's measurement adds
+  # two more cold loads. On a shard that would sit on top of the 15–22 min preload inside a
+  # 75-minute budget that was raised once already; here it is the whole job, capped per step.
+  #
+  # THE MACHINE comes from scripts/ci-macos-podman-machine.sh rather than a second inline copy of
+  # the shards' `Install Podman` step: integration/macosmachineshares_test.go reads the FIRST
+  # `podman machine init` in this file and nothing else, so an inline copy here would be a share
+  # list nothing checks. integration/archivedeliveryworkflow_test.go pins the script to the
+  # shards' step instead (same shares, same probes, same release, bounded retried start).
+  #
+  # NO CACHIX, NO RUN. This runner cannot build x86_64-linux, so without `build-image`'s push
+  # every step would fail on a missing derivation rather than say anything about delivery. A
+  # fork without CACHIX_AUTH_TOKEN skips every step after the check, and says so.
+  archive-delivery-macos:
+    runs-on: macos-26-intel
+    needs: build-image
+    # The outer bound only; each expensive step carries its own. 25 (machine) + 90 (the two
+    # deliveries) + 80 (the two OQ-LR2 loads) plus checkout, Nix and Go.
+    timeout-minutes: 210
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # The same gate as `build-image`: the token alone, the name through the `vars` context.
+      - name: Check Cachix is configured
+        id: cachix
+        run: |
+          if [ -n "${{ secrets.CACHIX_AUTH_TOKEN }}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "cache=${{ vars.CACHIX_CACHE || 'yolo-jail' }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            msg="Cachix not configured (no CACHIX_AUTH_TOKEN). Skipping the archive-delivery check: this runner cannot build the Linux image closure, and without build-image's push there is nothing to substitute it from."
+            echo "$msg"
+            echo "$msg" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Install Nix
+        if: steps.cachix.outputs.enabled == 'true'
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      # SUBSTITUTE ONLY. `skipPush`, because this job realizes darwin paths (the copier, the
+      # per-commit install prefix) that nothing else here pushes and that would only grow the
+      # cache. It still configures the (possibly overridden) cache as a substituter.
+      - name: Use the Cachix cache (substitute only)
+        if: steps.cachix.outputs.enabled == 'true'
+        uses: cachix/cachix-action@v17
+        with:
+          name: ${{ steps.cachix.outputs.cache }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: true
+
+      - name: Set up Go
+        if: steps.cachix.outputs.enabled == 'true'
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # Capped for the reason the shards' step is: a VM that never boots must fail here, named.
+      - name: Install Podman and start the machine
+        if: steps.cachix.outputs.enabled == 'true'
+        timeout-minutes: 25
+        run: scripts/ci-macos-podman-machine.sh
+
+      # COMPUTED, WITH THE ZERO-SELECTION REFUSAL, like the shards' partition: a `-run` pattern
+      # that matches nothing exits 0 having tested nothing.
+      - name: Select the archive-delivery checks
+        id: select
+        if: steps.cachix.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          pick() {
+            go test -list "^$1" ./integration | grep -E "^$1" | sort > "/tmp/$2-tests"
+            n=$(wc -l < "/tmp/$2-tests" | tr -d ' ')
+            echo "selected $n test(s) named $1…:"
+            cat "/tmp/$2-tests"
+            if [ "$n" -eq 0 ]; then
+              echo "::error::the listing selected 0 tests named $1… — refusing to pass vacuously. The suite was renamed, or ./integration does not compile."
+              exit 1
+            fi
+            echo "$2=^($(paste -sd'|' "/tmp/$2-tests"))$" >> "$GITHUB_OUTPUT"
+          }
+          pick TestMacArchiveDelivery delivery
+          pick TestMacArchiveFirstLoad firstload
+
+      # YOLO_TEST_MAC_ARCHIVE_DELIVERY is the DECLARATION: set, a test that cannot reach the
+      # backend fails instead of skipping. YOLO_NIX_HOST_DAEMON is the shards' spelling of "this
+      # machine shares /nix", without which the launcher refuses a store-path install prefix.
+      - name: Deliver image A, then image B as a delta, through real launches (podman)
+        if: steps.cachix.outputs.enabled == 'true'
+        timeout-minutes: 90
+        run: go test -count=1 -timeout 0 -v -run '${{ steps.select.outputs.delivery }}' ./integration
+        env:
+          YOLO_RUNTIME: podman
+          YOLO_NIX_HOST_DAEMON: "1"
+          YOLO_TEST_MAC_ARCHIVE_DELIVERY: podman
+
+      # OQ-LR2, MEASUREMENT ONLY: a cold `podman load` of image A from the uncompressed archive
+      # yolo writes against a gzip oci-archive of it. Runs even when the step above failed — it
+      # evicts A itself and depends on nothing that step leaves.
+      - name: OQ-LR2 — time a cold first load, uncompressed vs gzip (measurement only)
+        if: ${{ !cancelled() && steps.cachix.outputs.enabled == 'true' && steps.select.outcome == 'success' }}
+        timeout-minutes: 80
+        run: go test -count=1 -timeout 0 -v -run '${{ steps.select.outputs.firstload }}' ./integration
+        env:
+          YOLO_RUNTIME: podman
+          YOLO_NIX_HOST_DAEMON: "1"
+          YOLO_TEST_MAC_ARCHIVE_DELIVERY: podman

@@ -154,7 +154,10 @@ jobs:
     # A CEILING ON WASTE rather than an estimate — the subset below is four tests and
     # nobody has timed them on this backend. The first green run is the measurement.
     # Sized so one wedged launch still leaves room for the others to report.
-    timeout-minutes: 60
+    #
+    # 90, up from 60, to fit the archive-delivery steps after the parity tests, which carry a
+    # 30-minute cap of their own.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
         with:
@@ -411,6 +414,69 @@ jobs:
           # LAUNCH (appleContainerEnv), which is the spelling a job-level variable cannot
           # shadow and which keeps a hand-run of one test on this Mac behaving identically.
 
+      # ─── THE DELTA ARCHIVE THROUGH A REAL LAUNCH (after the parity tests, which it leaves alone) ───
+      #
+      # Since 52b29e87 an Apple Container launch hands `container image load` an oci-archive that
+      # leaves out the layers yolo's own delivery records say the store holds (OQ-LR3,
+      # internal/image/deltaarchive.go). The parity steps above never exercise that: the image is
+      # realized and PRELOADED (`just load`), and whatever the parity launches deliver, they
+      # deliver once. integration/macarchivedelivery_test.go is the check instead:
+      #
+      #   * TestMacArchiveDeliveryReusesLayers — two throwaway workspaces, two real `yolo run`s:
+      #     image A (stock) is EVICTED under its content ref first, so it is really delivered
+      #     (Apple Container writes no stock tag, and `yolo-jail:latest` is a name no launch
+      #     resolves); then image B (`packages: ["hello"]`) must arrive as a delta over A — the
+      #     copy report names exactly B's layers A lacks, the archive is small, nothing retries,
+      #     `hello` runs, and a delivery record exists for each under image-delivery/.
+      #   * TestMacArchiveFailClosedOnAppleContainer — the research doc's fail-closed step, and a
+      #     MEASUREMENT: whether `container image load` exits nonzero, leaving no image, on a
+      #     manifest naming a blob nobody holds. Both answers pass; the step summary says which.
+      #
+      # Each test runs its launches against a PRIVATE ~/.local/share/yolo-jail (only cache/ is
+      # shared), so this Mac's real delivery records cannot decide the present sets, and the
+      # records the test writes vanish with it. Images it created are removed; A's content ref is
+      # left loaded if it was loaded before. Both deliveries are timed in the step summary.
+      #
+      # `!cancelled()` rather than the default: a red parity test says nothing about delivery, and
+      # this measurement should still be taken. It needs only the bundle.
+      - name: Select the archive-delivery checks
+        id: delivery
+        if: ${{ !cancelled() && steps.bundle.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          go test -list '^TestMacArchive' ./integration | grep -E '^TestMacArchive' | sort > /tmp/ac-archive-tests
+          count=$(wc -l < /tmp/ac-archive-tests | tr -d ' ')
+          echo "selected $count archive-delivery tests (a podman-only one skips on this job):"
+          cat /tmp/ac-archive-tests
+          if [ "$count" -eq 0 ]; then
+            echo "::error::the listing selected 0 tests named TestMacArchive… — refusing to pass vacuously. Either the suite was renamed out from under this filter, or ./integration does not compile."
+            exit 1
+          fi
+          echo "pattern=^($(paste -sd'|' /tmp/ac-archive-tests))$" >> "$GITHUB_OUTPUT"
+
+      # IMAGE B MAY HAVE TO BE BUILT, which is why the builder is asked for again: its aarch64
+      # closure is pushed by nightly-macos.yml's `push-arm-image-cache`, and when that has not run
+      # for this flake the derivations B adds are built through the Apple Container builder —
+      # whose address CHANGES between starts, so the spec exported by the realize step may be
+      # stale. A builder that will not start is a warning here, not a failure: a substituted B
+      # needs none, and a B that does need one fails in the test naming the cause.
+      - name: Delta-archive delivery through a real launch (Apple Container)
+        if: ${{ !cancelled() && steps.delivery.outcome == 'success' }}
+        timeout-minutes: 30
+        run: |
+          set -euo pipefail
+          if SPEC="$(scripts/mac-ac-linux-builder.sh)"; then
+            export NIX_CONFIG="builders = $SPEC"
+          else
+            echo "::warning::the Apple Container Linux builder did not start; image B must then substitute from Cachix."
+          fi
+          go test -count=1 -timeout 0 -v -run '${{ steps.delivery.outputs.pattern }}' ./integration
+        env:
+          YOLO_REPO_ROOT: ${{ steps.bundle.outputs.path }}
+          # THE DECLARATION, as YOLO_TEST_APPLE_CONTAINER is for the parity step: set, a test that
+          # cannot reach this backend fails instead of skipping.
+          YOLO_TEST_MAC_ARCHIVE_DELIVERY: container
+
       # THE RUNNER IS NOT EPHEMERAL, which is the one way this job differs from every other
       # macOS job in this repo — those run on a fresh VM that is thrown away. Here a leaked
       # container, or a workspace the harness could not unlink, persists on somebody's
@@ -426,3 +492,7 @@ jobs:
         run: |
           echo "--- containers still present ---"
           container ls --all || true
+          # The archive-delivery tests remove the images they create; a `failclosed-` tag or
+          # image B's content ref still listed here is one that did not.
+          echo "--- images still present ---"
+          container image ls || true
