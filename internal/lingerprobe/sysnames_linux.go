@@ -3,6 +3,7 @@
 package lingerprobe
 
 import (
+	"runtime"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -32,6 +33,15 @@ var sysNames = func() map[int]string {
 		// The zero-copy family: coreutils `cat` blocks in splice(0, …), not read.
 		unix.SYS_SPLICE: "splice", unix.SYS_TEE: "tee", unix.SYS_VMSPLICE: "vmsplice",
 		unix.SYS_COPY_FILE_RANGE: "copy_file_range", unix.SYS_SENDFILE: "sendfile",
+	}
+	// The calls amd64 has and arm64 never had (arm64's table starts from the generic one,
+	// which dropped the non-p/non-at variants), as literal amd64 numbers: x/sys defines
+	// these constants only for amd64, and a `_linux_amd64.go` file would be invisible to
+	// every lint pass on an arm64 host (TestEveryGoFileIsAnalyzedBySomeLintPass).
+	if runtime.GOARCH == "amd64" {
+		for nr, name := range map[int]string{7: "poll", 23: "select", 34: "pause", 232: "epoll_wait"} {
+			m[nr] = name
+		}
 	}
 	return m
 }()

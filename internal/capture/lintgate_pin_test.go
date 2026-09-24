@@ -31,6 +31,11 @@ import (
 // Justfile; TestLintRecipeRunsStaticcheckForEveryLintedGOOS is what keeps the copy honest.
 var lintedGOOS = []string{"linux", "darwin"}
 
+// gateGOARCH is every architecture a host running the gate can have. The `lint` recipe
+// passes no GOARCH, so each host lints at its own, and a file an amd64 host analyzes can be
+// invisible to an arm64 one (CI's check-macos runner, an Apple Silicon Mac, arm64 Linux).
+var gateGOARCH = []string{"amd64", "arm64"}
+
 // unanalyzedFiles names every file no pass in lintedGOOS selects, with the reason. An entry
 // here is a DECISION to leave a file unlinted — the list exists so that "outside the gate"
 // cannot be an oversight, the same way shipSetExemptCmds does it for the ship set.
@@ -153,17 +158,25 @@ func TestTheHookAndCIReachTheSameLintPasses(t *testing.T) {
 // gate green. Add `//go:build freebsd` tomorrow and this fails until someone decides
 // whether to widen the gate or to declare the file unanalyzed.
 //
-// GOARCH is left at the host's, because that is what the `lint` recipe does.
+// GOARCH: the `lint` recipe leaves it at the HOST's, and the gate runs on hosts of both
+// architectures in gateGOARCH (CI's Linux amd64 and macOS arm64 runners, and developers'
+// machines of either kind). So a file must be selected at EVERY one of them, not just at
+// the architecture this test happens to run on: a `_linux_amd64.go` file passed an amd64
+// gate and then failed check-macos on arm64 (2026-09-24), because on arm64 no lint pass
+// ever reads it.
 func TestEveryGoFileIsAnalyzedBySomeLintPass(t *testing.T) {
 	root := repoRootDir(t)
 
-	contexts := make([]build.Context, 0, len(lintedGOOS))
-	for _, goos := range lintedGOOS {
-		ctx := build.Default
-		ctx.GOOS = goos
-		// Cross-compilation disables cgo, and so does every pass but the host's.
-		ctx.CgoEnabled = false
-		contexts = append(contexts, ctx)
+	contexts := map[string][]build.Context{}
+	for _, goarch := range gateGOARCH {
+		for _, goos := range lintedGOOS {
+			ctx := build.Default
+			ctx.GOOS = goos
+			ctx.GOARCH = goarch
+			// Cross-compilation disables cgo, and so does every pass but the host's.
+			ctx.CgoEnabled = false
+			contexts[goarch] = append(contexts[goarch], ctx)
+		}
 	}
 
 	seen := map[string]bool{}
@@ -182,27 +195,33 @@ func TestEveryGoFileIsAnalyzedBySomeLintPass(t *testing.T) {
 			rel = filepath.ToSlash(rel)
 			seen[rel] = true
 
-			for _, ctx := range contexts {
-				ok, merr := ctx.MatchFile(filepath.Dir(path), d.Name())
-				if merr != nil {
-					t.Errorf("%s: cannot evaluate its build constraint for GOOS=%s: %v",
-						rel, ctx.GOOS, merr)
-					return nil
-				}
-				if ok {
-					if why, exempt := unanalyzedFiles[rel]; exempt {
-						t.Errorf("%s is declared unanalyzed (%q) but GOOS=%s DOES select "+
-							"it — drop the unanalyzedFiles entry.", rel, why, ctx.GOOS)
+			why, exempt := unanalyzedFiles[rel]
+			for _, goarch := range gateGOARCH {
+				selected := false
+				for _, ctx := range contexts[goarch] {
+					ok, merr := ctx.MatchFile(filepath.Dir(path), d.Name())
+					if merr != nil {
+						t.Errorf("%s: cannot evaluate its build constraint for %s/%s: %v",
+							rel, ctx.GOOS, goarch, merr)
+						return nil
 					}
-					return nil
+					if ok {
+						selected = true
+						if exempt {
+							t.Errorf("%s is declared unanalyzed (%q) but %s/%s DOES select "+
+								"it — drop the unanalyzedFiles entry.", rel, why, ctx.GOOS, goarch)
+						}
+						break
+					}
 				}
-			}
-			if _, exempt := unanalyzedFiles[rel]; !exempt {
-				t.Errorf("%s is selected by no GOOS in %v, so `just lint` never reads it: "+
-					"go vet, staticcheck and the type-checker all stop at the build "+
-					"constraint. Widen lintedGOOS (and the Justfile's `lint` recipe with "+
-					"it), or add the file to unanalyzedFiles with the reason.",
-					rel, lintedGOOS)
+				if !selected && !exempt {
+					t.Errorf("%s is selected by no GOOS in %v at GOARCH=%s, so `just lint` on "+
+						"an %s host never reads it: go vet, staticcheck and the type-checker all "+
+						"stop at the build constraint. Widen lintedGOOS (and the Justfile's "+
+						"`lint` recipe with it), drop the architecture constraint, or add the "+
+						"file to unanalyzedFiles with the reason.",
+						rel, lintedGOOS, goarch, goarch)
+				}
 			}
 			return nil
 		})
