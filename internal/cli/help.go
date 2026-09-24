@@ -54,7 +54,9 @@ var commandHelp = []struct{ name, blurb string }{
 	{"init-user-config", "Write user-level defaults at ~/.config/yolo-jail/config.jsonc"},
 	{"config", "Inspect generated config: 'config ls' (every composed file), 'render', 'diff', 'reset'"},
 	{"describe", "Print the resolved environment description (--json, --hash)"},
-	{"apply", "Provision the environment without launching (--at jail|guest|host)"},
+	// Not "provision": at the jail notch the verb provisions nothing itself — it points at
+	// the launch, which still leaves declared programs to install on first use (apply.go).
+	{"apply", "Make the environment match its description (--at jail|guest|host; at jail it points at the launch)"},
 	{"check-deps", "Probe the host for binaries the packs need; write an install manifest"},
 	// Leads with what a pack delivers rather than the authoring verbs: with the `agents`
 	// config key gone, `pack` is the only channel content reaches a jail through, so this

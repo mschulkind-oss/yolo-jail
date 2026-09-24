@@ -615,8 +615,8 @@ A few things the design calls for are **not built**:
   shown through), so today it is one prompt for everything. `yolo check-deps` still installs
   nothing, by design.
 - **A provision-without-launch at the jail notch.** `yolo apply` at jail currently directs
-  you to `yolo -- <cmd>` (or `yolo -- true` to provision and exit); a dedicated no-exec
-  provision is a follow-up.
+  you to `yolo -- <cmd>`, and the programs your packs declare still install the first time
+  you run each one in the jail, not at launch; a dedicated no-exec provision is a follow-up.
 - **The retirement of `host_management: "assert"`.** Ruled 2026-09-20, built nowhere. Until it
   lands, `assert` exists, it is what an absent `host_management` resolves to, and
   `yolo host apply --revert` still requires it — see the banner at the top of this guide and

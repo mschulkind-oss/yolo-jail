@@ -168,10 +168,23 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 	default: // jail
 		_ = dryRun
 		pr.Printf("[bold]apply[/bold] at confinement [cyan]jail[/cyan].")
-		pr.Printf("[dim]At the jail notch, provisioning happens as part of launch. Run " +
-			"`yolo -- <cmd>` to provision and enter, or `yolo -- true` to provision and exit. " +
-			"A dedicated provision-without-launch path is a follow-up (env-manager plan Phase 3 " +
-			"leaves the no-exec jail provision to a later increment).[/dim]")
+		// ⚠ THE LAUNCH DOES NOT INSTALL DECLARED PROGRAMS, so this must not say it does: each
+		// `program` a selected pack declares installs from its lazy launcher on first
+		// invocation (entrypoint.GenerateAgentLaunchers). This line once told the reader
+		// `yolo -- true` would "provision and exit", which exits 0 with no agent CLI
+		// installed. Whether a launch should install them is
+		// docs/design/jail-notch-readiness.md's OQ-JR1..3; until it rules, say what happens.
+		pr.Printf("[dim]At the jail notch, `yolo apply` provisions nothing itself: that work " +
+			"happens when a jail launches. `yolo -- <cmd>` builds the image (on a container " +
+			"runtime; macos-user has none), stages the selected packs and renders their " +
+			"config, then runs <cmd>. The programs those " +
+			"packs declare (agent CLIs included) are NOT installed by the launch — each " +
+			"installs from its launcher in ~/.yolo/bin/launch the first time its name is run " +
+			"in the jail, so `yolo -- true` leaves them uninstalled and " +
+			"`yolo -- <program> --version` installs one. A dedicated provision-without-launch " +
+			"path is a follow-up " +
+			"(env-manager plan Phase 3 leaves the no-exec jail provision to a later " +
+			"increment).[/dim]")
 		pr.Printf("")
 		return describeMain(nil, out, errw, color)
 	}
@@ -1256,6 +1269,8 @@ func hasPrefix(s, p string) bool { return len(s) >= len(p) && s[:len(p)] == p }
 const applyUsage = `yolo apply — make this environment match its description, without running anything
 
   yolo apply                provision the environment at its configured confinement
+                            (at jail: a pointer to the launch, plus what it would stage —
+                            declared programs still install on first use, not at launch)
   yolo apply --at <level>   … at a different notch (jail|guest|host) for this run
   yolo apply --at host      render your config into your real home
                             (yolo host apply is the same thing, more typeable)
@@ -1280,7 +1295,7 @@ apply splits "make it so" from "run something in it": ` + "`yolo -- <cmd>`" + ` 
 "apply, then exec." Every notch has both halves — the host's exec half is
 ` + "`yolo host -- <cmd>`" + `, which composes the environment a config file cannot carry.
 Examples:
-  yolo apply                          # provision the jail, launch nothing
+  yolo apply                          # at jail: where provisioning happens, and the description
   yolo apply --at host                # what would change in your real home?
   yolo apply --at host --assert       # write it
   yolo apply --at host --revert       # what would withdrawing yolo remove?
