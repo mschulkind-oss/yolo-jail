@@ -178,7 +178,8 @@ byte-identity with the Linux jail. These are darwin builds.
 ### nix inside the sandbox
 
 > [!IMPORTANT]
-> **Added 2026-09-24; UNMEASURED on a Mac.** The mechanism below is pinned on Linux by
+> **Added 2026-09-24; MEASURED on a Mac the same day** — all five subtests of the test below passed on
+> GitHub's `macos-latest` runner ([run 36050645052](https://github.com/mschulkind-oss/yolo-jail/actions/runs/36050645052)), whose nix is a multi-user daemon install. The mechanism below is pinned on Linux by
 > `internal/macosuser/hostnix_test.go`: the probe's arms, the real symlink resolution and
 > socket check against a temp store, the plan's three PATH copies, the session env file, and
 > the orchestrator call site. Two things only a Mac can catch: the probe's two production
@@ -188,7 +189,8 @@ byte-identity with the Linux jail. These are darwin builds.
 > **as the sandbox account** (`nix eval` of a constant opens no store connection, so it alone
 > would prove nothing about the daemon) — is `TestMacosUserNixIsTheHostDaemonClientWithNoFlags`
 > ([`integration/macosusernix_test.go`](../../integration/macosusernix_test.go)), which runs
-> only on the `macos-user` CI job and had not run when this was written.
+> only on the `macos-user` CI job. Still INFERRED: the Determinate and nix-darwin symlink layouts,
+> which that runner does not have.
 
 The agent runs natively and sees the host's real `/nix` — no mount, and no opt-in toggle. What
 it lacked until 2026-09-24 was a `nix` **on its PATH**: the sandbox answered
