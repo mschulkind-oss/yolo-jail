@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/hostcas"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 )
 
@@ -369,5 +370,31 @@ func TestInJailTheStoreOutputReclaimerIsNotClaimed(t *testing.T) {
 	}
 	if !strings.Contains(s.Note, "HOST") {
 		t.Errorf("the in-jail row does not say a host yolo is what reclaims these: %q", s.Note)
+	}
+}
+
+// The built-in pack copies are YOLO'S OWN store: listed with the reclaimer that sweeps
+// them, under the name packload actually writes (a table key that drifted from
+// paths.EmbeddedPacksDir's leaf would quietly report the real directory as "none").
+func TestEmbeddedPacksRowIsYolosOwn(t *testing.T) {
+	leaf := filepath.Base(paths.EmbeddedPacksDirUnder("/h"))
+	if _, ok := stateReclaimers[leaf]; !ok {
+		t.Fatalf("stateReclaimers has no %q row — the directory paths.EmbeddedPacksDir names", leaf)
+	}
+	o, state := testOptions(t)
+	writeFile(t, filepath.Join(state, leaf, "0123456789abcdef0123456789abcdef", "pack", "pack.json"), 10)
+	rows := stateStores(o, nil)
+	var row *Store
+	for i := range rows {
+		if rows[i].Key == "state."+leaf {
+			row = &rows[i]
+		}
+	}
+	if row == nil {
+		t.Fatalf("no state.%s row in %v", leaf, rows)
+	}
+	if row.Verdict != VerdictYolo || row.Reclaimer.Func != "PruneEmbeddedPackTrees" || row.Bytes != 10 {
+		t.Errorf("embedded-packs row = verdict %q, reclaimer %q, %d bytes; want yolo's own, "+
+			"PruneEmbeddedPackTrees, 10", row.Verdict, row.Reclaimer.Func, row.Bytes)
 	}
 }

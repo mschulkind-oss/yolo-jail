@@ -52,6 +52,12 @@ func baseOpts(t *testing.T) (Options, string) {
 	o.ContainerDir = func() string { return filepath.Join(gs, "containers") }
 	o.RelayBase = relayBase
 	o.RelayKill = func(string) {}
+	// The embedded-tree sweep's TMPDIR scan and process table, isolated too: the real
+	// defaults are the machine's /tmp and /proc. The cache base needs no line here — it
+	// is derived from GlobalStorage, so it is already under gs.
+	tmpScan := t.TempDir()
+	o.TempDirs = func() []string { return []string{tmpScan} }
+	o.ProcStarts = func() ([]ProcStart, bool) { return nil, true }
 	return o, gs
 }
 
@@ -108,6 +114,8 @@ func TestDryRunEmptyEnv(t *testing.T) {
 		"Dangling build out-links",
 		"Orphaned agent staging",
 		"Superseded install captures",
+		"Embedded pack trees  (state dir: embedded-packs/, one per build)",
+		"Leaked embedded-pack temp dirs  (TMPDIR and /tmp: earlier builds' per-process copies, and leased fallbacks)",
 		"Shadowed seed subtrees",
 		"  targets: .cache, .npm, .npm-global, .local, go (each overlay-masked at runtime)",
 		// `nce` joined the list under OQ-BF2 (1.86 GiB already dead here, covered
@@ -394,12 +402,15 @@ func TestFlagGating(t *testing.T) {
 	o.NoImageCache = true
 	o.NoBuildRoots = true
 	o.NoShadowedHome = true
+	o.NoEmbeddedPacks = true
 	o.NoHardlink = true
 	o.CacheAge = 0
 	var buf bytes.Buffer
 	o.Out = &buf
 	Run(o)
 	for _, gone := range []string{
+		"Embedded pack trees",
+		"Leaked embedded-pack temp dirs",
 		"Stopped yolo-* containers",
 		"Old yolo-jail images",
 		"Cached image tarballs",

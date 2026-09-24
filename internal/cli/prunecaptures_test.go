@@ -107,6 +107,11 @@ func TestPruneWiresTheCaptureReceiptReaderAndReapsThroughIt(t *testing.T) {
 // so an --apply in a unit test cannot reach the developer's own storage. Cache purging is
 // switched off outright: its subdirs can be RELOCATED by the user's real config, which
 // pruneOptions loads, and a purge follows the relocation off the temp root.
+//
+// The embedded-tree sweep's TMPDIR scan and process table are confined too. Their defaults
+// are the machine's own os.TempDir() and /tmp and the live process table, so without these
+// two lines every `go test ./internal/cli` — the pre-commit hook — ran a real --apply sweep
+// of the developer's /tmp, deleting any legacy tree the fixture clock made look old.
 func pruneRunOnTemp(t *testing.T, opts prune.Options, gs string, out *bytes.Buffer) prune.Options {
 	t.Helper()
 	for _, sub := range []string{"cache", "home", "build", "agents", "containers"} {
@@ -131,7 +136,36 @@ func pruneRunOnTemp(t *testing.T, opts prune.Options, gs string, out *bytes.Buff
 	opts.ContainerDir = func() string { return filepath.Join(gs, "containers") }
 	opts.RelayBase = t.TempDir()
 	opts.RelayKill = func(string) {}
+	tempScan := t.TempDir()
+	opts.TempDirs = func() []string { return []string{tempScan} }
+	opts.ProcStarts = func() ([]prune.ProcStart, bool) { return nil, true }
 	return opts
+}
+
+// pruneRunOnTemp must confine the embedded-tree sweep's TMPDIR scan: its default is the real
+// os.TempDir() and /tmp, and the test above runs with --apply. Checked on the options rather
+// than by running an --apply, because the failure this guards against IS a real sweep of
+// /tmp — a pin that caught it by running one would do the damage it exists to prevent.
+func TestPruneRunOnTempConfinesTheTempDirSweep(t *testing.T) {
+	root := t.TempDir()
+	opts := pruneRunOnTemp(t, pruneOptions([]string{"prune"}), t.TempDir(), &bytes.Buffer{})
+	if opts.TempDirs == nil || opts.ProcStarts == nil {
+		t.Fatal("pruneRunOnTemp leaves TempDirs/ProcStarts nil: prune defaults them to the " +
+			"machine's real /tmp and process table, and a test --apply then sweeps them")
+	}
+	dirs := opts.TempDirs()
+	if len(dirs) == 0 {
+		t.Fatal("pruneRunOnTemp's TempDirs is empty; want one confined temp dir")
+	}
+	parent := filepath.Dir(root)
+	for _, d := range dirs {
+		if filepath.Dir(d) != parent || d == os.TempDir() || d == "/tmp" {
+			t.Errorf("pruneRunOnTemp scans %s, which is not one of this test's own temp dirs", d)
+		}
+	}
+	if procs, known := opts.ProcStarts(); !known || len(procs) != 0 {
+		t.Errorf("ProcStarts = (%v, %v), want a stubbed empty table", procs, known)
+	}
 }
 
 // The adapter takes `record` lines and nothing else. A `materialize` receipt is written per

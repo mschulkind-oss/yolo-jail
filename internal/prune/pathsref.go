@@ -1,6 +1,7 @@
 package prune
 
 import (
+	"path/filepath"
 	"syscall"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -15,6 +16,12 @@ func pathsGlobalCache() string   { return paths.GlobalCache() }
 func pathsBuildDir() string      { return paths.BuildDir() }
 func pathsAgentsDir() string     { return paths.AgentsDir() }
 func pathsContainerDir() string  { return paths.ContainerDir() }
+
+// embeddedPacksLeaf is the state-dir child holding the embedded-pack cache trees — read off
+// paths.EmbeddedPacksDirUnder rather than retyped, so the sweep cannot drift from the
+// directory packload writes (TestEmbeddedPacksDirDefaultIsThePathsLocation pins the whole
+// path).
+var embeddedPacksLeaf = filepath.Base(paths.EmbeddedPacksDirUnder(string(filepath.Separator)))
 
 // killPID sends SIGTERM (or SIGKILL when force) to pid. A missing/dead target
 // yields an error the caller ignores (best-effort reap).

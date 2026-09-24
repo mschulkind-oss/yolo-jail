@@ -263,6 +263,10 @@ var stateReclaimers = map[string]Reclaimer{
 	"archive":    {Func: "PruneHostArchiveBuckets", Detail: "keep 3 generations (adoption archive exempt)", Trigger: "yolo prune --apply"},
 	"state":      {Func: "PruneRetiredLoopholeState", Detail: "keep 3 generations", Trigger: "yolo prune --apply"},
 	"containers": {Func: "PruneStoppedContainers", Detail: "tracking files", Trigger: "yolo prune --apply"},
+	// One immutable copy of the built-in packs per build (paths.EmbeddedPacksDir). Every
+	// process reading a tree holds its lease, so the sweep reaps only trees nothing holds —
+	// and never this build's own, which the next command would only write again.
+	"embedded-packs": {Func: "PruneEmbeddedPackTrees", Detail: "other builds' trees, lease-gated; current build kept", Trigger: "yolo prune --apply"},
 }
 
 // stateStores inventories the direct children of the state dir, one row each.

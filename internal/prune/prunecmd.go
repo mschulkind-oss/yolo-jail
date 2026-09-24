@@ -2,8 +2,10 @@
 // yolo-jail storage:
 // hardlink-dedup across workspaces, drop stopped containers, sweep old images
 // and the image-tar cache, reap orphaned broker relays, reclaim legacy
-// build-root staging dirs, purge overlay-shadowed seed subtrees, and age-purge
-// re-downloadable cache subdirs. Defaults to DRY-RUN; --apply actually reclaims.
+// build-root staging dirs, purge overlay-shadowed seed subtrees, reap other builds'
+// embedded-pack trees and the per-process copies older builds leaked into TMPDIR
+// (embeddedtrees.go), and age-purge re-downloadable cache subdirs. Defaults to
+// DRY-RUN; --apply actually reclaims.
 //
 // The byte/behavior-critical pieces — the reclaim decisions, FmtBytes numbers,
 // and removed-name lists — live in the parity-tested internal/prune engine
@@ -31,6 +33,11 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/execx"
 	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	// Registers the embedded pack FS, so packload.EmbeddedHash names THIS build's tree and
+	// the embedded-tree sweep can tell it from another build's. Without it the hash is
+	// unknown and the sweep keeps every tree — safe, but it never reclaims one.
+	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
@@ -52,6 +59,7 @@ type Options struct {
 	NoBuildRoots     bool // --no-build-roots
 	NoImageRoots     bool // --no-image-roots
 	NoShadowedHome   bool // --no-shadowed-home
+	NoEmbeddedPacks  bool // --no-embedded-packs
 	ImageCacheKeep   int  // --image-cache-keep (default: per-runtime, see ResolveImageCacheKeep)
 	CacheAge         int  // --cache-age        (default 30; 0 skips the pass)
 	PurgeHeavyCaches bool // --purge-heavy-caches
@@ -145,6 +153,23 @@ type Options struct {
 	// RunNixStoreGC over the process's own exec. Injected so tests exercise the
 	// section without a real daemon.
 	NixStoreGC func(maxBytes int64, apply bool) StoreGCOutcome
+	// EmbeddedPacksDir is the cache base holding one embedded-pack tree per build. nil =>
+	// the embedded-packs child of GlobalStorage() — DERIVED from that seam rather than read
+	// from paths on its own, so a caller that points prune at a temp storage root cannot
+	// have this one sweep reach the real home. "" skips the section.
+	EmbeddedPacksDir func() string
+	// EmbeddedHash names this build's tree: the one tree the sweep never deletes. nil =>
+	// packload.EmbeddedHash. false keeps every tree.
+	EmbeddedHash func() (string, bool)
+	// TempDirs are the directories scanned for leaked per-process embedded-pack trees.
+	// nil => os.TempDir() and /tmp (deduplicated by resolved path): earlier builds wrote
+	// under TMPDIR, and a TMPDIR that changed since would otherwise hide /tmp's backlog.
+	TempDirs func() []string
+	// ProcStarts lists this euid's live processes with their start times, the only
+	// evidence the unleased legacy trees have. false means "could not ask": every legacy
+	// tree is kept. nil => the platform reader (/proc on Linux, kern.proc on darwin,
+	// "could not ask" elsewhere).
+	ProcStarts func() ([]ProcStart, bool)
 }
 
 // ImageCacheKeepUnset marks "--image-cache-keep was not given", so Run can
@@ -245,6 +270,19 @@ func fillDefaults(o *Options) {
 	}
 	if o.InJail == nil {
 		o.InJail = func() bool { return os.Getenv("YOLO_VERSION") != "" }
+	}
+	if o.EmbeddedPacksDir == nil {
+		storage := o.GlobalStorage
+		o.EmbeddedPacksDir = func() string { return joinPath(storage(), embeddedPacksLeaf) }
+	}
+	if o.EmbeddedHash == nil {
+		o.EmbeddedHash = packload.EmbeddedHash
+	}
+	if o.TempDirs == nil {
+		o.TempDirs = func() []string { return []string{os.TempDir(), "/tmp"} }
+	}
+	if o.ProcStarts == nil {
+		o.ProcStarts = readProcStarts
 	}
 	if o.NixStoreGC == nil {
 		// realProbeExec inherits the process env (cmd.Env nil => os.Environ), so
@@ -657,6 +695,44 @@ func Run(opts Options) int {
 		}
 	}
 
+	// --- Embedded pack trees (the cache base, and TMPDIR's leaked copies) ---
+	// The on-disk copies of the packs compiled into a yolo binary. Since the cache
+	// rework each build keeps ONE immutable tree under the state dir, leased by every
+	// process reading it; before it, every invocation of every command left its own tree
+	// in TMPDIR — on a tmpfs /tmp, RAM. See embeddedtrees.go for both evidence rules.
+	var embeddedTreeBytes, legacyTempBytes int64
+	var embeddedTreeCount, legacyTempCount int
+	if !opts.NoEmbeddedPacks {
+		p.line("")
+		base := opts.EmbeddedPacksDir()
+		// The header names the location by its place in the state dir rather than by
+		// absolute path, like every other section: the report is byte-compared across
+		// roots (TestRunColorGateHonorsTTY), and `yolo stores` is where paths are listed.
+		p.line("[bold]Embedded pack trees[/bold]  [dim](state dir: " + embeddedPacksLeaf + "/, one per build)[/dim]")
+		current, hashKnown := opts.EmbeddedHash()
+		if hashKnown {
+			p.line("  [dim]this build's tree: " + current + " (never removed)[/dim]")
+		} else {
+			p.line("  [dim]this build's tree is unknown, so every tree is kept[/dim]")
+		}
+		trees := PruneEmbeddedPackTrees(base, current, hashKnown, apply, opts.Now())
+		declinedSweep = renderEmbeddedReap(p, apply, trees, "tree(s)") || declinedSweep
+		embeddedTreeBytes, embeddedTreeCount = trees.Bytes, trees.RemovedCount()
+		totalSaved += embeddedTreeBytes
+
+		p.line("")
+		dirs := opts.TempDirs()
+		p.line("[bold]Leaked embedded-pack temp dirs[/bold]  [dim](TMPDIR and /tmp: earlier builds' per-process copies, and leased fallbacks)[/dim]")
+		procs, procsKnown := opts.ProcStarts()
+		if !procsKnown {
+			p.line("  [dim]the process table could not be read, so no legacy (unleased) dir is removed[/dim]")
+		}
+		leaked := PruneLegacyEmbeddedTemp(dirs, procs, procsKnown, apply, opts.Now())
+		declinedSweep = renderEmbeddedReap(p, apply, leaked, "dir(s)") || declinedSweep
+		legacyTempBytes, legacyTempCount = leaked.Bytes, leaked.RemovedCount()
+		totalSaved += legacyTempBytes
+	}
+
 	// --- Orphaned image GC roots ---
 	// The durable per-image roots (build/roots/<sha16>, storage-lifecycle §1) that
 	// keep a `nix-collect-garbage` from deleting a running jail's closure. Reap the
@@ -977,6 +1053,8 @@ func Run(opts Options) int {
 				{Name: "host_render_archive", Bytes: hostArchiveBytes, Count: hostArchiveGens, Unit: "generations"},
 				{Name: "retired_loophole_state", Bytes: loopholeStateBytes, Count: loopholeStateGens, Unit: "generations"},
 				{Name: "superseded_captures", Bytes: captureBytes, Count: captureEntries, Unit: "entries"},
+				{Name: "embedded_pack_trees", Bytes: embeddedTreeBytes, Count: embeddedTreeCount, Unit: "trees"},
+				{Name: "leaked_embedded_temp", Bytes: legacyTempBytes, Count: legacyTempCount, Unit: "dirs"},
 				{Name: "agent_staging", Bytes: agentStagingBytes, Count: agentStagingDirs, Unit: "dirs"},
 				{Name: "shadowed_home", Bytes: shadowedBytes, Count: shadowedItems, Unit: "paths"},
 				{Name: "caches", Bytes: cacheBytes, Count: cacheFiles, Unit: "files"},
@@ -994,6 +1072,32 @@ func Run(opts Options) int {
 		return 1
 	}
 	return 0
+}
+
+// renderEmbeddedReap prints one embedded-tree sweep and reports whether it DECLINED.
+// Removed entries are named one per line (NO SILENT CAPS); kept ones are counted by
+// reason, since each is still on disk and the set can be hundreds of legacy dirs.
+func renderEmbeddedReap(p *printer, apply bool, r EmbeddedReap, unit string) bool {
+	if r.Declined != "" {
+		p.line(fmt.Sprintf("  [bold red]FAILED — %s, so nothing there was swept.[/bold red]", r.Declined))
+	}
+	if len(r.Removed) > 0 {
+		p.line(fmt.Sprintf("  %s: %s across %s %s", verb(apply, "would remove", "removed"),
+			FmtBytes(r.Bytes), fmtComma(r.RemovedCount()), unit))
+		for _, e := range r.Removed {
+			line := fmt.Sprintf("    • %s  %s  [dim]%s[/dim]", e.Name, FmtBytes(e.Bytes), e.Why)
+			if e.Err != nil {
+				line += fmt.Sprintf("  [yellow](NOT removed: %v)[/yellow]", e.Err)
+			}
+			p.line(line)
+		}
+	} else if r.Declined == "" {
+		p.line("  [dim]none[/dim]")
+	}
+	if len(r.Kept) > 0 || len(r.Skipped) > 0 {
+		p.line("  [dim]kept: " + keptSummary(r.Kept, r.Skipped) + "[/dim]")
+	}
+	return r.Declined != ""
 }
 
 // --- small helpers ---

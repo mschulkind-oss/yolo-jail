@@ -136,8 +136,13 @@ const pruneUsage = `Usage: yolo prune [flags]
 
 Reclaim disk that yolo is holding: stale containers, old jail images, the image
 tarball cache, nix build/image GC roots, shadowed jail homes, heavy tool caches,
-and superseded install captures (every store entry but the newest per program —
-what a materialize would never choose again).
+superseded install captures (every store entry but the newest per program —
+what a materialize would never choose again), and the on-disk copies of yolo's
+built-in packs: other builds' trees under the state dir's embedded-packs/, and
+the per-process copies earlier builds left in TMPDIR. This build's own tree is
+never removed, and a copy is removed only when nothing can still be using it —
+no running yolo holds its lease or, for an old unleased copy, no live yolo
+process could have created it.
 
 DRY-RUN BY DEFAULT. With no flags it reports what it WOULD reclaim and deletes
 nothing; --apply is the only thing that removes anything.
@@ -161,6 +166,8 @@ Flags:
   --no-build-roots         Skip the nix build GC roots.
   --no-image-roots         Skip the nix image GC roots.
   --no-shadowed-home       Skip the shadowed jail-home sweep.
+  --no-embedded-packs      Skip the built-in pack copy sweep (embedded-packs/
+                           and TMPDIR).
   --cache-age <days>       Only consider caches older than <days> (default 30;
                            0 skips the pass entirely).
   --purge-heavy-caches     Also purge the heavy tool caches (npm, go, cargo, …).
@@ -249,7 +256,7 @@ func refuseRemovedPruneFlags(args []string, out io.Writer) int {
 var pruneKnownFlags = []string{
 	"--apply", "--cache-age", "--dedup-global", "--image-cache-keep", "--no-build-roots",
 	"--no-containers", "--no-hardlink", "--no-image-cache", "--no-image-roots", "--no-images",
-	"--no-shadowed-home", "--purge-heavy-caches",
+	"--no-shadowed-home", "--no-embedded-packs", "--purge-heavy-caches",
 	"--format", "--json", "--help", "-h", "prune",
 }
 
@@ -311,6 +318,8 @@ func pruneOptions(args []string) prune.Options {
 			opts.NoImageRoots = true
 		case a == "--no-shadowed-home":
 			opts.NoShadowedHome = true
+		case a == "--no-embedded-packs":
+			opts.NoEmbeddedPacks = true
 		case a == "--image-cache-keep":
 			// The fallback is the CURRENT value, which is prune.ImageCacheKeepUnset
 			// unless the flag already appeared — so a malformed value leaves the
