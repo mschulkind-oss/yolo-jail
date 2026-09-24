@@ -10,13 +10,15 @@ vantage:
 
 # yolo has an editor, and it should not — neovim is baked into every jail on every backend
 
-**Status:** DESIGN, 2026-09-22. Nothing built. Evidence verified against `b99ca9b4`.
+**Status:** DESIGN, 2026-09-22. Nothing built — re-verified 2026-09-24: `"neovim"` is still in
+`coreFloorNames` and both `VISUAL=nvim` copies are still constants. Code is cited by symbol, not by
+line.
 
 > **In short.** The core floor should carry what yolo's own machinery cannot run without. An editor
 > is a human's preference, and it belongs in that human's config.
 
 **Why it matters.** The justification is circular, and it is written down as one:
-[`flake.nix:1172`](../../flake.nix) says neovim is baked *"because the run env sets `VISUAL=nvim`
+the `coreFloorNames` entry in [`flake.nix`](../../flake.nix) says neovim is baked *"because the run env sets `VISUAL=nvim`
 unconditionally … nvim must exist without any `mise_tools` entry."* yolo set that variable, so yolo
 created the requirement it is now satisfying. Meanwhile a user who wants a different editor cannot
 remove this one — `packages:` adds and never subtracts.
@@ -44,13 +46,13 @@ use instead).
 
 | # | Site | What it does |
 | :--- | :--- | :--- |
-| 1 | [`flake.nix:1172`](../../flake.nix) | `"neovim"` in `coreFloorNames` — the image core, unconditional |
-| 2 | [`flake.nix:668-675`](../../flake.nix) | the **non-container** floor derives from the same list, so `macos-user` installs it into the darwin nix profile too |
-| 3 | [`assemble.go:998`](../../internal/cli/run/assemble.go) | `-e VISUAL=nvim` on the container argv |
-| 4 | [`shell.go:221`](../../internal/entrypoint/shell.go) | `export VISUAL=nvim` in the generated `.bashrc` — a second, independent copy |
-| 5 | [`shell.go:295-296`](../../internal/entrypoint/shell.go) | `alias vi='nvim'` and `alias vim='nvim'` — yolo redirects two commands to a third program |
-| 6 | [`boot.go:286-310`](../../internal/entrypoint/boot.go), `:622-624` | a whole `nvim_config` boot step copying `/ctx/host-nvim-config` into `$HOME/.config/nvim` |
-| 7 | [`flake.nix:1477`](../../flake.nix) | `$out/ctx/host-nvim-config` — an editor-specific mountpoint baked into the image |
+| 1 | `coreFloorNames` in [`flake.nix`](../../flake.nix) | `"neovim"` in the image core, unconditional |
+| 2 | `noncontainerFloorNames` in [`flake.nix`](../../flake.nix) | the **non-container** floor derives from the same list, so `macos-user` installs it into the darwin nix profile too |
+| 3 | [`assemble.go`](../../internal/cli/run/assemble.go) | `-e VISUAL=nvim` on the container argv |
+| 4 | [`shell.go`](../../internal/entrypoint/shell.go) | `export VISUAL=nvim` in the generated `.bashrc` — a second, independent copy |
+| 5 | [`shell.go`](../../internal/entrypoint/shell.go) | `alias vi='nvim'` and `alias vim='nvim'` — yolo redirects two commands to a third program |
+| 6 | `copyHostNvimConfig` in [`boot.go`](../../internal/entrypoint/boot.go), marked as the `nvim_config` boot step; the host half is the `--- host nvim config ---` bind in [`assemble.go`](../../internal/cli/run/assemble.go) | a whole boot step copying `/ctx/host-nvim-config` into `$HOME/.config/nvim` |
+| 7 | the `/ctx` mountpoint `mkdir` in [`flake.nix`](../../flake.nix) | `$out/ctx/host-nvim-config` — an editor-specific mountpoint baked into the image |
 
 The comment at site 1 also records that this was **promoted** rather than designed:
 *"Was `mise_tools: {neovim: stable}` by default; a tool yolo wants in EVERY jail belongs in the
@@ -58,10 +60,12 @@ image, not a per-workspace mise store."* So the preference existed as a default 
 and the fix for a delivery problem moved it somewhere harder to remove.
 
 > [!NOTE]
-> **The briefing is already stale about this.**
-> [`briefing.txt:48`](../../internal/cli/briefing.txt) tells every agent
-> *"Editors: nvim (stable by default, configurable via `mise_tools`)"*. It is not a `mise_tools`
-> default any more; it is baked. Whatever this doc rules, that line is wrong today.
+> **The briefing line was stale and has been corrected; it now has to move with this doc.**
+> [`briefing.txt`](../../internal/cli/briefing.txt) used to tell every agent *"Editors: nvim
+> (stable by default, configurable via `mise_tools`)"*. Since `ead07715` (2026-09-22) it reads
+> *"Editors: nvim, baked into the image; override it with mise_tools"*, which is true today — and
+> becomes false the moment [§3](#3-the-proposal) item 1 lands, so the briefing line is part of this
+> change, not a follow-up.
 
 ## 2. Dependency or preference — the test the floor does not apply
 
@@ -85,8 +89,8 @@ assumed the image bakes `rg` and `fd` was false on `macos-user`. Same shape: a h
 baked on an assumption, relocated to something a user opts into.
 
 **And `flake.nix` already states the principle, one backend short.** The non-container floor drops
-its own copy of anything the user declared themselves, and says why
-([`flake.nix:666-675`](../../flake.nix)):
+its own copy of anything the user declared themselves, and says why (the comment on
+`noncontainerFloorNames`, [`flake.nix`](../../flake.nix)):
 
 > *"Dropping the floor's copy lets the user's spec win, which is the only answer that is not a
 > surprise."*
@@ -98,7 +102,7 @@ version collision made it urgent.
 
 1. **`neovim` leaves `coreFloorNames`.** The fatal floor gate needs no change — dropping an entry is
    one of the two fixes its own error message offers
-   ([`flake.nix:709`](../../flake.nix)). A user who wants it writes one `mise_tools` or `packages`
+   (`noncontainerFloorPackages`, [`flake.nix`](../../flake.nix)). A user who wants it writes one `mise_tools` or `packages`
    entry in their own config, which is where a preference belongs.
 2. **`VISUAL` stops being a constant.** It becomes derived from what the user asked for, with no
    yolo-chosen default — [OQ-ED1](#OQ-ED1) is which form that takes. `EDITOR=cat` **stays**: it is
@@ -107,8 +111,12 @@ version collision made it urgent.
    Aliasing `vi` and `vim` to a third program is the strongest form of the opinion, because it
    overrides a command the user may have installed deliberately.
 4. **The `nvim_config` boot step and its mount become conditional** on the user having asked for an
-   editor at all — [OQ-ED2](#OQ-ED2). Today the step is *already* conditional on the mount existing,
-   and the mount is unconditional, so the condition never does any work.
+   editor at all — [OQ-ED2](#OQ-ED2). Today the step's only condition is that `/ctx/host-nvim-config`
+   exists as a directory, and the image bakes that directory unconditionally (site 7), so the
+   condition never does any work: the step runs on every boot, copying an empty directory when
+   nothing is bound there. The host-side bind is gated only on the host having `~/.config/nvim` (and
+   skipped on an Apple Container below the read-only floor), never on anyone having asked for an
+   editor.
 
 ### What must not change
 

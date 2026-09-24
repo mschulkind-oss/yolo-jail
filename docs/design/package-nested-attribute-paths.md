@@ -8,49 +8,49 @@ summary: "A `packages` entry like `rocmPackages.clr` fails because yolo reads an
 
 # Nested nixpkgs attribute paths in `packages` — and why output selection is the same operation
 
-**Status:** DESIGN, 2026-09-23 — sketched 2026-08-22, and it owes one ruling,
-[OQ-1](#OQ-1), which decides the resolver's central rule. Nothing built: re-checked 2026-09-23,
+**Status:** DESIGN, 2026-09-24 — sketched 2026-08-22, and it owes one ruling,
+[OQ-1](#OQ-1), which decides the resolver's central rule. Nothing built: re-checked 2026-09-24,
 `packageNameRe` is still the single-optional-dot pattern and `flake.nix` still has no
 `attrByPath`, `hasAttrByPath` or `resolvePackagePath`. `60376fed` does not invalidate any premise
-below — see the postscript, whose line anchors have drifted since it was written; follow the
-symbol names.
+below — see the postscript. Code is cited by symbol throughout, never by line: the line anchors
+this doc used to carry had drifted by hundreds of lines.
 
 **Needs your ruling:** [OQ-1](#OQ-1).
 
 > [!NOTE]
 > **Postscript, 2026-08-23 — audit against the tree, and against `60376fed`.**
 >
-> **"Nothing built" holds — re-verified 2026-09-02.** Every mechanism this doc proposes to change
+> **"Nothing built" holds — re-verified 2026-09-24.** Every mechanism this doc proposes to change
 > is untouched:
 > `packageNameRe` is still the single-optional-dot pattern `^[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+)?$`
-> (declared at [`internal/config/config.go#L165`](../../internal/config/config.go#L165), enforced at
-> [`validate.go#L224`](../../internal/config/validate.go#L224) — both anchors drifted ~30 lines
-> under the unrelated `use_profiles` key-census work and are repinned here);
-> `parseDottedSpec` still splits on
-> one dot at [`flake.nix#L173`](../../flake.nix#L173) under the comment *"Validator (yolo check)
-> rejects multi-dot strings, so we only handle one dot here"*; and `flake.nix` contains no
+> (declared in [`internal/config/config.go`](../../internal/config/config.go), enforced in the
+> `packages` branch of [`validate.go`](../../internal/config/validate.go));
+> `parseDottedSpec` in [`flake.nix`](../../flake.nix) still splits on one dot under the comment
+> *"Validator (yolo check) rejects multi-dot strings, so we only handle one dot here"*; and
+> `flake.nix` contains no
 > `attrByPath`, no `hasAttrByPath`, and no `resolvePackagePath`. [§5.1](#51-resolution-algorithm-flakenix)'s resolver does not exist in
 > any form.
 >
-> **One worked example has died in the pin (found 2026-09-02):** `llvmPackages_16` was removed
-> from nixpkgs (*"unmaintained and obsolete"*), so this doc's `llvmPackages_16.libclang.dev`
-> example no longer evaluates against the pinned rev (`f13ff45a`). The *shape* it illustrates is
-> unchanged — substitute a maintained set (e.g. `llvmPackages_19.libclang.dev`) when implementing
-> the test list in [§7](#7-test-plan). The other examples still hold against the pin: `rocmPackages` has exactly
-> 114 attributes, `rocmPackages.clr` and `xorg.libX11` are derivations, `gtk4.outputs` is
-> `[out dev devdoc debug]`.
+> **One worked example has died in the pin (found 2026-09-02, still true 2026-09-24):**
+> `llvmPackages_16` was removed from nixpkgs (*"unmaintained and obsolete"*), so this doc's
+> `llvmPackages_16.libclang.dev` example no longer evaluates against the nixpkgs `flake.lock` pins.
+> The *shape* it illustrates is unchanged — substitute a maintained set (e.g.
+> `llvmPackages_19.libclang.dev`) when implementing the test list in [§7](#7-test-plan). The other
+> examples still hold, re-measured 2026-09-24 against the current pin (`flake.lock` has moved since
+> the first check): `rocmPackages` has exactly 114 attributes, `rocmPackages.clr` and `xorg.libX11`
+> are derivations, `gtk4.outputs` is `[out dev devdoc debug]`.
 >
 > **`60376fed` (2026-08-20) does not change this doc's premises — it *is* one of them.** This doc
 > was written on 2026-08-22, two days after that commit, and [§2.1](#21-the-current-failure) already cites it by hash and
-> quotes the error it introduced. `requireDerivation` is at
-> [`flake.nix#L255`](../../flake.nix#L255), exactly as [§2.1](#21-the-current-failure) says, and
+> quotes the error it introduced. `requireDerivation` is in
+> [`flake.nix`](../../flake.nix), exactly as [§2.1](#21-the-current-failure) says, and
 > [`integration/packagecollection_test.go`](../../integration/packagecollection_test.go) exists
 > already — so [§7](#7-test-plan)'s first bullet list is *extending* a suite, not creating one. Nothing here is
 > stale.
 >
 > **One consequence of `60376fed` the body does not yet record.** [§2.1](#21-the-current-failure) quotes the refusal
 > accurately but *truncated*. The full `nonPackageError` message ends with two more lines
-> ([`flake.nix#L248-L254`](../../flake.nix#L248)):
+> (`nonPackageError`, [`flake.nix`](../../flake.nix)):
 >
 > ```text
 >   Members include: <sample>, ...
@@ -90,13 +90,13 @@ Allow `packages` in `yolo-jail.jsonc` to resolve nested nixpkgs package collecti
 ## 2. Problem Statement & Why Runtime Workarounds Fall Short
 
 ### 2.1 The Current Failure
-Currently, string entries in `packages` support at most one dot (`packageNameRe = ^[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+)?$`), which [`flake.nix`](../../flake.nix#L173-L179) parses exclusively as `<base-package>.<output>`.
+Currently, string entries in `packages` support at most one dot (`packageNameRe = ^[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+)?$`), which `parseDottedSpec` in [`flake.nix`](../../flake.nix) parses exclusively as `<base-package>.<output>`.
 
 When a user specifies a collection member:
 ```jsonc
 "packages": ["rocmPackages.clr"]
 ```
-yolo attempts to resolve base attribute `imagePkgs.rocmPackages` and output `clr`. Because `rocmPackages` is an attribute set of 114 derivations (not a derivation itself), the `requireDerivation` guard ([`flake.nix:255`](../../flake.nix#L255), added in `60376fed`) refuses the build:
+yolo attempts to resolve base attribute `imagePkgs.rocmPackages` and output `clr`. Because `rocmPackages` is an attribute set of 114 derivations (not a derivation itself), the `requireDerivation` guard ([`flake.nix`](../../flake.nix), added in `60376fed`) refuses the build:
 
 ```
 error: yolo: `packages` entry "rocmPackages.clr" resolves to nixpkgs.rocmPackages,
@@ -138,7 +138,7 @@ In Nix, a derivation's outputs are exposed as attributes on the derivation attrs
 Both `gtk4.dev` and `rocmPackages.clr` are reached by walking the same dotted attribute path.
 
 ### 4.2 The Base Derivation vs. Output Trap in `/lib` Farm Extraction
-In [`flake.nix:489-508`](../../flake.nix#L489-L508), `extraLibPackages` builds the runtime `/lib` symlink farm by running `imagePkgs.lib.getLib` on the **base derivation**:
+In [`flake.nix`](../../flake.nix), `extraLibPackages` builds the runtime `/lib` symlink farm by running `imagePkgs.lib.getLib` on the **base derivation**:
 ```nix
 # Runtime-library derivations for the /lib farm. getLib is applied
 # to the BASE derivation of each spec, never the selected outputs:
@@ -212,15 +212,15 @@ resolvePackagePath = rootPkgs: entryStr:
 
 ### 5.2 Host-Side Validation
 
-The pattern and its enforcement live in two files, and both move (verified 2026-08-23):
+The pattern and its enforcement live in two files, and both move (verified 2026-09-24):
 
-1. Update `packageNameRe` — declared at [`internal/config/config.go#L165`](../../internal/config/config.go#L165), not in `validate.go` — to allow multi-segment dotted identifiers:
+1. Update `packageNameRe` — declared in [`internal/config/config.go`](../../internal/config/config.go), not in `validate.go` — to allow multi-segment dotted identifiers:
    ```go
    packageNameRe = regexp.MustCompile(`^[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+)*$`)
    ```
-2. Update the error message on regex mismatch, raised at [`internal/config/validate.go#L224`](../../internal/config/validate.go#L224), which today reads *"expected '\<name>' or '\<name>.\<output>' (letters, digits, '_' and '-' only; at most one dot)"*:
+2. Update the error message on regex mismatch, raised in the `packages` branch of [`internal/config/validate.go`](../../internal/config/validate.go), which today reads *"expected '\<name>' or '\<name>.\<output>' (letters, digits, '_' and '-' only; at most one dot)"*:
    `"expected '<name>', '<collection>.<name>', or '<name>.<output>' (letters, digits, '_' and '-' separated by dots)"`.
-3. Rewrite the collection-refusal advice in `nonPackageError` ([`flake.nix#L248`](../../flake.nix#L248)) — see the postscript at the top. It currently tells the user a collection member is not selectable from `packages`, which is the sentence this design falsifies.
+3. Rewrite the collection-refusal advice in `nonPackageError` ([`flake.nix`](../../flake.nix)) — see the postscript at the top. It currently tells the user a collection member is not selectable from `packages`, which is the sentence this design falsifies.
 
 ### 5.3 Non-Container Backend Resolution (`yoloNoncontainerPackages`)
 Update `noncontainerResolved` in `flake.nix` to use `pkgs.lib.hasAttrByPath` and `pkgs.lib.attrByPath` instead of flat `src ? ${attr}` checks, evaluating `lib.meta.availableOn` and `meta.available` on the resolved base derivation.
@@ -264,7 +264,8 @@ Update `noncontainerResolved` in `flake.nix` to use `pkgs.lib.hasAttrByPath` and
    the ambiguous case: an output resolution keeps `foo` as the base and feeds `getLib foo` to the
    `/lib` farm, while a member resolution makes `foo.bar` the base and feeds `getLib foo.bar`. Those
    produce **different image contents**, silently, from the same config string. This is the rule the
-   roadmap's 💬 10 row names as gating the item as a whole rather than one corner of it.
+   [roadmap](../plans/roadmap.md)'s row for this doc names as gating the item as a whole rather than
+   one corner of it.
 
    <!-- vantage: oq id=OQ-1 leaning="Output wins on the leaf; a deeper path wins over both — if the remaining path is exactly one component and it is in `curr.outputs`, resolve it as an output, otherwise keep walking. Held loosely: refusing the ambiguity with a throw that names both candidate resolutions is the alternative worth ruling for instead." -->
 

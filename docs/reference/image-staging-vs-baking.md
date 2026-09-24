@@ -1,7 +1,7 @@
 ---
 status: current
-verified: 2026-09-23
-verified_commit: 7ad8358c
+verified: 2026-09-24
+verified_commit: f491d192
 covers:
   - flake.nix
   - internal/image/
@@ -22,7 +22,7 @@ summary: "How a jail gets its image and its own binaries: the image bakes nixpkg
 
 # Image delivery — what the image bakes, and what a launch mounts in
 
-**Status:** CURRENT as of 2026-09-23, verified against `7ad8358c`. ⚠ The two macOS delivery
+**Status:** CURRENT as of 2026-09-24, verified against `f491d192`. ⚠ The two macOS delivery
 arms are built and **UNMEASURED at their launch call site** — see
 [Archive destinations](#archive-destinations).
 
@@ -298,6 +298,13 @@ around it. An installed bundle is unaffected, which is every Homebrew and `just 
 > the same store — it refuses macOS because "the jail's packages are Linux builds" — and that
 > argument simply had not reached the mount.
 
+**In-jail nix on the two container Macs is possible but not planned for now** (ruled 2026-09-24).
+Apple Container never gets the delegation mounts, whatever is set, and podman on macOS gets them
+only with both claims above; the route that would make it work is recorded as a gap rather than
+built. What to use instead, and the `macos-user` path that runs the Mac's own nix client, are in
+[`nix-across-backends.md`](nix-across-backends.md) and
+[`macos-user-nix-and-features.md`](macos-user-nix-and-features.md#nix-inside-the-sandbox).
+
 The refusal is keyed on darwin, not on the runtime, so Apple Container gets it too. That
 backend's prefix mount has **not** been exercised on hardware; podman on Linux (including the
 nested jail this repo develops in) and macOS podman with `/nix` shared are the two measured
@@ -352,6 +359,7 @@ supplies the content.**
 | `bash`, `sh`, `env`, coreutils under `/bin` and `/usr/bin` | Generated scripts and the runtime's exec path need a shell in the rootfs |
 | nix-ld at `/lib/ld-*` and `/lib64/ld-*`, and its fallback library dir | A `PT_INTERP` is an absolute path in every FHS binary, not a PATH entry; the fallback dir is the only library search path a scrubbed environment gets |
 | `/etc/passwd`, `/etc/group`, `/etc/containers/*`, `/etc/subuid`, `/etc/subgid` | Read by podman before and independently of yolo; nested-podman config on a read-only root |
+| `/etc/nix/nix.conf`, enabling `nix-command` and `flakes` | Read by the nix *client* before any yolo code runs, and `/etc` is read-only, so a plain `nix shell` or `nix build` typed in the jail needs it baked — yolo's own nix calls pass the flags themselves and never noticed its absence. Client config only: where the host store is mounted, the host daemon keeps its own `nix.conf` for trust, sandbox and substituters. Unconditional across the three variants, inert in the minimal one, which has no nix; pinned by `integration/nixconf_test.go` |
 | `config.Env` — `SSL_CERT_FILE`, `LD_LIBRARY_PATH`, `TZDIR`, `PATH` | Literal store paths in the image config; moving `cacert` or `tzdata` means moving these |
 | The `/etc` **symlinks** into `/run` for `localtime`, `timezone` and `ld.so.cache` | The link is baked because `/etc` is read-only; the boot writes the target — the pattern in production |
 | The nixpkgs package sets (`corePackagesFromNixpkgs`, and `fullPackages` unless the launch opted out) | Nearly all of the closure by bytes, invalidated only by `flake.lock` |
@@ -448,8 +456,8 @@ matches), then the refusal, which names the escape hatch. With `YOLO_ALLOW_STALE
 any non-empty value the same report is printed and the launch continues, saying loudly that it
 is running on a stale image; only then does the degraded branch ask whether *an* image is present
 under the legacy `:latest` name, and failing that, load the newest tar `newestTars` finds in the
-image cache — a reader that still works on whatever files exist, though nothing on podman writes
-them any more.
+image cache — a reader that still works on whatever files exist, though no backend writes them
+any more.
 
 The defect this replaces: the fallback used to fire silently, print "Using existing image", and
 launch a working-looking jail on the *previous* image, so a failed `packages:` build surfaced as a
@@ -928,7 +936,10 @@ is read the same way. **Eligibility** (`storePackagesEligible`) is podman, a Lin
 host whose nix daemon socket and store the launch will bind-mount — the *same* predicate the
 assembler uses to decide whether to emit those mounts, passed in rather than recomputed, so a
 launch cannot promise store delivery and then omit the store. Apple Container cannot bind-mount
-the host store at all, and a macOS podman's VM shares no store, so both keep baking. A launch
+the host store at all, and a macOS podman's VM shares no store, so both keep baking — the baked
+path is the only one on the Macs, by the same [OQ-1](#why-its-this-way) ruling. A `macos-user`
+launch that sets the dial is told it is ignored, since that backend has no image and already takes
+`packages:` from the nix store. A launch
 that asks and is not eligible **falls back to baking and says so** — baking still yields a jail
 with every declared tool, so refusing would cost a working launch over a preference about where
 bytes live; what is not acceptable is doing it silently. A declared package that has no build for
@@ -1082,8 +1093,10 @@ back, and the tars were **retained**: on one machine, a hundred and twenty-five 
 firing and nothing acting on it. That was ruled a bug, not a configuration: the target is
 *minimal* disk, not bounded, yolo may delete cached tars without `--apply`, and the shipped GC
 work at the time had made a collection *safe* without making one *happen*. Streaming stopped the
-creation on podman and swept nothing; the backlog, Apple Container's one-tar-per-store-path, and
-every other store this pipeline fills are
+creation on podman and swept nothing, and layer-aware delivery then gave the two backends that
+cannot be copied into directly a [temporary archive](#archive-destinations) the launch removes,
+so Apple Container stopped retaining one per store path; the backlog,
+and every other store this pipeline fills, are
 [`../design/minimal-disk-footprint.md`](../design/minimal-disk-footprint.md)'s and
 [`../design/disk-levers-and-backfill.md`](../design/disk-levers-and-backfill.md)'s.
 
@@ -1172,7 +1185,7 @@ ones cited from sibling docs and code comments and are never renumbered.
 
 ## Current values
 
-Verified at `7ad8358c`. The prose above says what each is for; this table is the only place the
+Verified at `f491d192`. The prose above says what each is for; this table is the only place the
 values themselves are stated.
 
 | Value | Setting | Defined in |
@@ -1207,7 +1220,7 @@ values themselves are stated.
 | Image GC roots | `build/roots/<sha16>` | `image.ImageRootsDir` |
 | Prefix out-link and GC roots | `build/jail-prefix-<sha16 of repo root>`; `build/prefix-roots/<sha16>` | `image.JailPrefixOutLink`, `image.PrefixRootsDir` |
 | Package-profile GC roots | `build/package-roots/` (`extras-<sha16>` for the image extras) | `paths.PackageRootsDir`; `rootExtrasProfile` (`internal/cli/run/storepackages.go`) |
-| Legacy tar cache (read-only on podman now) | `~/.local/share/yolo-jail/cache/images/<sha16>.tar` | `image.ImageCachePath`, `paths.GlobalCache` |
+| Legacy tar cache (read, never written, on every backend) | `~/.local/share/yolo-jail/cache/images/<sha16>.tar` | `image.ImageCachePath`, `paths.GlobalCache` |
 | Host nix mounts | `/nix/var/nix/daemon-socket` (rw), `/nix/store` (`:ro`), `NIX_REMOTE=daemon` | `hostNixSocket`, `hostNixStore` (`internal/cli/run/hostprobes.go`) |
 | macOS "the VM shares `/nix`" (reachability; gates the prefix mount) | `YOLO_NIX_HOST_DAEMON` truthy (`1`, `true`, `yes`) | `prefixUnreachableFromVM`, `envTruthy` |
 | macOS "my store holds the jail's Linux closure" (gates delegation, additionally) | `YOLO_NIX_HOST_STORE_LINUX` truthy | `shouldMountHostNix`, `nixHostStoreLinuxEnv` |

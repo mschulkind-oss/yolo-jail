@@ -1,7 +1,7 @@
 ---
 status: current
-verified: 2026-09-18
-verified_commit: 7da7b153
+verified: 2026-09-24
+verified_commit: f491d192
 covers:
   - internal/prune/imageroots.go
   - internal/prune/imageroots_probe.go
@@ -17,7 +17,7 @@ summary: "What a reap may delete, and on what evidence. Two reapers ask two diff
 
 # Image and GC-root retention — two reapers, two questions
 
-**Status:** CURRENT as of 2026-09-18, verified against `46175153`.
+**Status:** CURRENT as of 2026-09-24, verified against `f491d192`.
 
 yolo reclaims two different kinds of bytes, and confusing them once destroyed four running
 jails. A **container image** in the runtime's own storage backs running containers: removing one
@@ -82,7 +82,7 @@ Three properties decide what it can be evidence for, and all three point the sam
 > to diagnosis when the image ref became content-addressed, on exactly the reasoning above: ask the
 > runtime, do not infer from a history file. That demotion was half-finished for a while, and the
 > gap is what killed four jails that had been up for days — ten distinct store paths were loaded
-> after they last launched, the images' sort key is when the archive was *streamed* so the
+> after they last launched, the images' sort key was when the archive was *streamed* so the
 > longest-running jail sorted oldest, and a forcing removal took the running containers with the
 > images.
 
@@ -101,8 +101,10 @@ rather than retuned**, and passing its flag is an error rather than being silent
 > **A global "keep the newest N" window is not a smaller version of this rule; it is a different
 > and wrong one.** It sorted every image row by creation time with no notion of a workspace or a
 > configuration, so on a machine with several workspaces it evicted N images per pass however
-> recently each had been used — and because the sort key is when the archive was streamed, the
-> longest-running jail sorted first. Reintroducing any global count reintroduces both defects.
+> recently each had been used — and because the sort key was when the archive was streamed, the
+> longest-running jail sorted first. (Every image now carries the same constant creation time, so
+> that sort would not even be an order any more.) Reintroducing any global count reintroduces the
+> first defect whatever it sorts by.
 
 **The pointer is not a configuration identity, and confusing the two is the trap.** Grouping images
 *by* configuration looks like it needs a value equal across every image of one config, and nothing
@@ -186,8 +188,10 @@ To make "declined" mean *prevented work* rather than *fresh machine*, the candid
 
 ## What this does not license
 
-- **Deleting the sentinel.** It is the right instrument for GC-root cache retention and for the
-  load diagnosis.
+- **Deleting the sentinel.** It is the right instrument for the store-GC refusal's protected set
+  (`UnrootedProtectedPaths` over `ProtectedImagePaths`: a recently loaded closure without a root
+  refuses `yolo prune --nix-gc`) and for the load diagnosis. The GC-root reaper itself reads
+  neither it nor liveness.
 - **Restoring a global image count** in any spelling — see the warning above.
 - **Giving the GC-root reaper a liveness veto**, which is [OQ-LS1](#why-its-this-way) run backwards.
 - **A heartbeat that re-appends to the sentinel while a jail runs.** It invents a liveness signal
@@ -198,9 +202,13 @@ To make "declined" mean *prevented work* rather than *fresh machine*, the candid
   its own model.
 
 > [!NOTE]
-> **Sorting images by last-used rather than by creation time is deferred, not rejected.** It would
-> stop long-running jails sorting oldest, but it needs a last-used signal that does not exist, and
-> liveness makes it unnecessary for *safety*. It remains a plausible retention improvement.
+> **Sorting images by last-used rather than by creation time is deferred, not rejected — and it no
+> longer decides anything about retention.** With the count gone, the sort orders only the
+> report; and since layer-aware delivery every image reports the same constant creation time, so
+> today's sort is a stable no-op
+> ([`image-staging-vs-baking.md`](image-staging-vs-baking.md#what-a-copy-reports), [`OQ-LI4`](image-staging-vs-baking.md#why-its-this-way)). A
+> last-used order would need a signal that does not exist, and liveness already makes it
+> unnecessary for *safety*; it would be a report improvement, not a retention one.
 
 ## Why it's this way
 
@@ -215,7 +223,7 @@ Rulings a maintainer reading only the normative text would otherwise undo. The i
 
 ## Current values
 
-Verified at `46175153`. The prose above says what each of these is for; this table is the only place
+Verified at `f491d192`. The prose above says what each of these is for; this table is the only place
 the values themselves are stated.
 
 | Value | Setting | Defined in |
