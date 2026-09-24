@@ -9,7 +9,8 @@ summary: "How a host-side `aws sso login` becomes Bedrock access inside a jail w
 # Bedrock from an SSO login, without handing over the account
 
 **Status:** DECIDED, 2026-09-17 — all six questions ruled that day
-([§13](#13-decision-ledger)). Nothing built. Repo claims verified against `d4c0e7e3`; every
+([§13](#13-decision-ledger)), and a seventh ruling recorded 2026-09-24: which Bedrock
+credentials yolo supports ([`OQ-SSO7`](#13-decision-ledger)). Nothing built. Repo claims verified against `d4c0e7e3`; every
 agent-artifact and vendor claim carries its version and date in
 [§11](#11-evidence-and-how-to-re-check-it).
 
@@ -48,7 +49,7 @@ change is which narrowing v1 ships against, which
 axes. Every option below is a point on that grid and nothing else in this doc makes sense
 first.
 
-**Needs your ruling:** **None** — all six are settled in the
+**Needs your ruling:** **None** — every question is settled in the
 [Decision Ledger](#13-decision-ledger).
 
 **Reads with:** [`bedrock-plumbing.md`](bedrock-plumbing.md) (its
@@ -963,3 +964,4 @@ delays nothing. It only sharpens step 2.
 | OQ-SSO4 | **User config scope only** for the profile, role and session policy. The allowlist-plus-workspace-choice variant is strictly additive later; shipping it first invents a second scope grammar for one feature | 2026-09-17 | [§8](#8-behaviour-this-design-specifies) | — |
 | OQ-SSO5 | **Ship the N1 bearer arm, and make the two arms mutually exclusive at load** — a config enabling both refuses the launch, naming which to drop. It earns its place as the no-IAM-change narrowing and as the fallback for a chain-less client; what it must never be is a quiet winner over the arm that refreshes | 2026-09-17 | [§8](#8-behaviour-this-design-specifies) | — |
 | OQ-SSO6 | **A lapsed session is a MESSAGE, not a request.** The 4xx names the command and a human runs it; the jail never triggers a host login. The pack README says the request shape is [`boundary-broker.md`](boundary-broker.md)'s to build — this design is a good first consumer for that queue and a bad place to invent it, since half an approval mechanism living in a credential pack is exactly the second front door that doc exists to prevent | 2026-09-17 | [§7](#7-refresh--what-happens-when-you-log-in-again) | — |
+| OQ-SSO7 | **Three Bedrock credentials are supported**, ruled by the maintainer: *"We will support bearer tokens, we will support secret and key, and we also need to support sessions through single sign-on. That's the big one."* (1) a Bedrock API key as `AWS_BEARER_TOKEN_BEDROCK` — option B's push channel; (2) a static access key and secret as `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`, for example through `env_sources` — the maintainer's current setup, and not one of [§4](#4-five-options)'s five options, which all start from an SSO login; (3) an SSO session through an assumed role, served by `packs/aws-auth` over the container-credentials endpoint — option C, **the primary one**. Supporting (1) and (2) changes nothing in this design: both are existing channels, frozen at launch. [`bedrock-plumbing.md` §6.5](bedrock-plumbing.md#65-the-credential-three-are-supported) records what the ruling means for the endpoint side, including that (2) beside (3) is the same silent wrong answer as (1) beside (3) and is not refused today | 2026-09-24 | [§4](#4-five-options) | (1) and (2): existing channels; (3): `packs/aws-auth` |
