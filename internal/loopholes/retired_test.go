@@ -30,7 +30,10 @@ func TestMain(m *testing.M) {
 	// Created and immediately removed, so the path is known-unique AND known-absent.
 	_ = os.RemoveAll(dir)
 	RetiredUserLoopholesDir = func() string { return dir }
-	os.Exit(m.Run())
+	code := m.Run()
+	// Absent by contract, but a test that populated it anyway must not leak it into TMPDIR.
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
 }
 
 // withRetiredDir points the retired dir at root and re-arms the once-per-process

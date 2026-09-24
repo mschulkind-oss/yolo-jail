@@ -77,7 +77,11 @@ func TestSetEnabledRefusesAndNamesTheConfigKey(t *testing.T) {
 func TestSetEnabledNeverWritesAManifest(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	retired := RetiredUserLoopholesDir()
+	// Its own temp dir, never TestMain's known-absent path: populating that one left a
+	// /tmp/yolo-retired-absent* dir behind on every `go test` run, since TestMain exits
+	// without cleanup.
+	retired := t.TempDir()
+	t.Cleanup(withRetiredDir(retired))
 	mod := filepath.Join(retired, "myhole")
 	must(t, os.MkdirAll(mod, 0o755))
 	manifestPath := filepath.Join(mod, loopholedecl.ManifestName)
