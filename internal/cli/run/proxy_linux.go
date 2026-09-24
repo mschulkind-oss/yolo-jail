@@ -26,9 +26,19 @@ import (
 // to delete) leaked on every Ctrl-C / window close / SIGTERM. The release runs AFTER the
 // caller's onTerminate because that teardown can still read an embedded Pack.Root (the
 // loophole resolver's fallback reads one).
+//
+// THE OBSERVER'S OTHER TWO HALVES feed the Window A probe (lingerprobe.go): every
+// forwarded stdin chunk's SIZE (never its content) so the log can say whether a
+// lingering client exits right after a keystroke, and the pty's line-discipline
+// mode, read through the master, so it can say whether a forwarded ^C reached
+// podman as data or as a signal.
 func runWithProxy(cmd []string, onStarted func(*os.Process), onTerminate func(), o *Options) (int, error) {
-	hook := ttyproxy.StageHook(func(stage string) { o.Perf.Mark("child." + stage) })
-	return ttyproxy.RunWithProxyHooked(cmd, onStarted, withEmbeddedRelease(onTerminate), hook)
+	obs := ttyproxy.Observer{
+		Stage: func(stage string) { o.Perf.Mark("child." + stage) },
+		Input: o.noteForwardedInput,
+		Pty:   o.linger.setPtyMode,
+	}
+	return ttyproxy.RunWithProxyObserved(cmd, onStarted, withEmbeddedRelease(onTerminate), obs)
 }
 
 // terminateRelease is what the signal arm calls last. A variable only so the control half of

@@ -107,7 +107,11 @@ func findSuspendKey(data []byte) (start, end int, ok bool) {
 
 // matchEscapedSuspend reports whether b BEGINS with an escape-encoded Ctrl-Z,
 // and how many bytes it occupies. b[0] is known to be ESC.
-func matchEscapedSuspend(b []byte) (int, bool) {
+func matchEscapedSuspend(b []byte) (int, bool) { return matchEscapedCtrlKey(b, keyZ) }
+
+// matchEscapedCtrlKey is matchEscapedSuspend for any key: whether b BEGINS with
+// an escape-encoded Ctrl+<key> press (key is the unicode code point), and its length.
+func matchEscapedCtrlKey(b []byte, key int) (int, bool) {
 	params, final, n, ok := parseCSI(b)
 	if !ok {
 		return 0, false
@@ -117,7 +121,7 @@ func matchEscapedSuspend(b []byte) (int, bool) {
 		// The kitty keyboard protocol: CSI <code> ; <mods>[:<event>] u.
 		// A bare `CSI 122 u` is an unmodified 'z' reported as an escape code —
 		// no modifier field, so not our key.
-		if len(params) < 2 || atoiField(params[0]) != keyZ {
+		if len(params) < 2 || atoiField(params[0]) != key {
 			return 0, false
 		}
 		mods, event := parseModsAndEvent(params[1])
@@ -128,7 +132,7 @@ func matchEscapedSuspend(b []byte) (int, bool) {
 	case '~':
 		// xterm modifyOtherKeys: CSI 27 ; <mods> ; <code> ~.
 		if len(params) < 3 || atoiField(params[0]) != xtermOtherKeysPrefix ||
-			atoiField(params[2]) != keyZ {
+			atoiField(params[2]) != key {
 			return 0, false
 		}
 		if !isCtrlOnly(atoiField(params[1])) {
@@ -208,4 +212,23 @@ func atoiField(s string) int {
 		}
 	}
 	return v
+}
+
+// keyC is 'c', for the escape-encoded Ctrl-C a kitty-protocol terminal sends.
+const keyC = 99
+
+// classifyInput names a stdin chunk that is EXACTLY one ^C — the raw 0x03 or an
+// escape-encoded Ctrl-C — and returns "" for anything else. It exists so the
+// Window A log can say "^C forwarded at T, client still alive at T+n" without
+// ever recording what a user typed: the answer is a key's name or nothing.
+func classifyInput(data []byte) string {
+	if len(data) == 1 && data[0] == interruptByte {
+		return KeyCtrlC
+	}
+	if len(data) > 0 && data[0] == esc {
+		if n, ok := matchEscapedCtrlKey(data, keyC); ok && n == len(data) {
+			return KeyCtrlC
+		}
+	}
+	return ""
 }

@@ -152,7 +152,7 @@ func assertProxySuspends(t *testing.T, input string, want bool) {
 	}
 	setRaw(hostSlave, cooked) // what RunWithProxyHooked does before pumping
 
-	go proxyLoop(hostSlave, childMaster, c, cooked, nil)
+	go proxyLoop(hostSlave, childMaster, c, cooked, Observer{})
 
 	if _, err := unix.Write(hostMaster, []byte(input)); err != nil {
 		t.Fatalf("write to host pty: %v", err)

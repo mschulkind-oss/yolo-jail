@@ -174,6 +174,10 @@ type Options struct {
 	// perfWindowAOnce.Do and read only after a Do returns, which is what makes
 	// it safe across the two arms' goroutines.
 	windowA windowAResult
+	// linger is the Window A probe's slot (lingerprobe.go): created by initPerf
+	// with the collector, so a launch that records nothing arms nothing. A
+	// pointer for perfWindowAOnce's reason — Options crosses seams by value.
+	linger *lingerSlot
 	// Now is the clock seam. nil => time.Now.
 	Now func() time.Time
 	// ServiceReadyTimeout bounds each spawned host service's readiness wait
@@ -449,6 +453,7 @@ func (o *Options) initPerf(cname string) {
 	if o.Perf != nil {
 		o.perfReportOnce = &sync.Once{}
 		o.perfWindowAOnce = &sync.Once{}
+		o.linger = newLingerSlot()
 	}
 	// Publish it to the CALLER, which cannot otherwise see it: Options is passed
 	// BY VALUE (launchRunPipeline's seam), so a collector constructed here is
@@ -529,6 +534,11 @@ func slowSpanNoticeSink(notice func(string)) perf.Sink {
 			return
 		}
 		if e.Kind != perf.KindEnd || e.Dur < perf.SlowSpanThreshold {
+			return
+		}
+		if e.Name == "shutdown.window_a.client_exit" {
+			// noteLingeringClient's line says the same number AND what the client
+			// was blocked in; a bare "took" line above it is noise.
 			return
 		}
 		if childHoldsTerminal.Load() {

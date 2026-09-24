@@ -73,6 +73,20 @@ func (o *Options) findRunningContainer(cname, rt string) string {
 	return strings.TrimSpace(res.Stdout)
 }
 
+// awaitRunningContainer polls findRunningContainer until the container is
+// visible (or the bounded attempts run out) and returns what it printed — the
+// container's short id for podman, "" when it never appeared. onStarted's wait:
+// the lock is released after it, and the Window A probe is armed with its id.
+func (o *Options) awaitRunningContainer(cname, rt string) string {
+	for i := 0; i < lockReleasePollAttempts; i++ {
+		if id := o.findRunningContainer(cname, rt); id != "" {
+			return id
+		}
+		time.Sleep(time.Duration(lockReleasePollIntervalSeconds * float64(time.Second)))
+	}
+	return ""
+}
+
 // findExistingContainer returns the container ID/name if it exists, running OR
 // stopped.
 func (o *Options) findExistingContainer(cname, rt string) string {

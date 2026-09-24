@@ -169,6 +169,8 @@ package run
 
 import (
 	"encoding/json"
+	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -788,7 +790,13 @@ func versionSuffix(f hostLoopbackFacts) string {
 type podmanInfo struct {
 	Host struct {
 		RootlessNetworkCmd string `json:"rootlessNetworkCmd"`
-		Security           struct {
+		// The three below are read for the timing log only (podmanFactsNote):
+		// they decide podman's exit path — which database it locks, where it
+		// writes events, who owns its cgroups — and nothing here branches on them.
+		DatabaseBackend string `json:"databaseBackend"`
+		EventLogger     string `json:"eventLogger"`
+		CgroupManager   string `json:"cgroupManager"`
+		Security        struct {
 			// Rootless is a POINTER, and it is the one field here that has to be:
 			// "podman said false" and "podman's answer carried no security block at
 			// all" are the same `false` to a plain bool, and the second is `{}`,
@@ -827,6 +835,24 @@ func parsePodmanInfo(stdout string) (podmanInfo, bool) {
 		return podmanInfo{}, false
 	}
 	return info, true
+}
+
+// podmanFactsNote renders the podman facts a slow Window A is read against
+// (docs/reference/perf-logging.md). An unset field renders "?", never a guess.
+func podmanFactsNote(info podmanInfo) string {
+	q := func(v string) string {
+		if v == "" {
+			return "?"
+		}
+		return v
+	}
+	rootless := "?"
+	if r := info.Host.Security.Rootless; r != nil {
+		rootless = strconv.FormatBool(*r)
+	}
+	return fmt.Sprintf("version=%s database=%s events=%s rootless=%s network=%s cgroups=%s",
+		q(firstLine(info.Version.Version)), q(info.Host.DatabaseBackend), q(info.Host.EventLogger),
+		rootless, q(info.Host.RootlessNetworkCmd), q(info.Host.CgroupManager))
 }
 
 // firstLine trims a multi-line version blob down to something printable —
@@ -868,6 +894,9 @@ func (o *Options) hostLoopbackFactsFor(rt, netMode string) hostLoopbackFacts {
 	if !ok {
 		return f
 	}
+	// Recorded from THIS answer, never a second `podman info`: the facts that
+	// decide how a jail's podman client exits, once per launch, in the timing log.
+	o.Perf.Note("podman.facts", podmanFactsNote(info))
 	f.backend = info.Host.RootlessNetworkCmd
 	rootless := info.Host.Security.Rootless
 	f.rootless = rootless != nil && *rootless

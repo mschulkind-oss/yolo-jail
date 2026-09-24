@@ -49,9 +49,9 @@ import (
 
 const (
 	readChunk = 65536
-	// interruptByte is no longer consulted: ^C forwards to the jail like any other
-	// byte (proxyLoop states the ruling). Kept as the name for the value the
-	// forwarding test writes, so a test asserting "the jail saw a ^C" says so.
+	// interruptByte is no longer INTERCEPTED: ^C forwards to the jail like any
+	// other byte (proxyLoop states the ruling). It is still RECOGNIZED, by
+	// classifyInput, so the Window A log can name a forwarded ^C.
 	interruptByte = 0x03 // ^C
 	suspByte      = 0x1a // ^Z
 )
@@ -133,6 +133,12 @@ const (
 	StageExited          = "exited"
 	StageDrainDone       = "drain_done"
 	StageTermiosRestored = "termios_restored"
+	// StageSuspended and StageResumed bracket a ^Z self-suspend. The suspend is
+	// the one way out of a lingering client that a user has found (^Z, then
+	// `kill -9 %1`), and a SIGKILL records nothing after it — so the log has to
+	// hold the suspend itself, written as it happens.
+	StageSuspended = "suspended"
+	StageResumed   = "resumed"
 )
 
 // StageHook observes the proxy's own transitions as they happen. It must not
@@ -153,6 +159,85 @@ func callStage(hook StageHook, stage string) {
 // seam the timing collector hangs `child.*` marks on; a nil hook is the
 // everyday no-observer case and costs nothing.
 func RunWithProxyHooked(cmd []string, onStarted func(*os.Process), onTerminate func(), hook StageHook) (int, error) {
+	return RunWithProxyObserved(cmd, onStarted, onTerminate, Observer{Stage: hook})
+}
+
+// KeyCtrlC is the one control key Observer.Input names.
+const KeyCtrlC = "ctrl-c"
+
+// Observer is everything a caller may watch the proxy do. Every field is
+// optional, and none may block or panic its way into the pump (each call is
+// recover-wrapped).
+type Observer struct {
+	Stage StageHook
+	// Input sees every chunk read from the host stdin and forwarded to the child:
+	// its LENGTH, and — for a chunk that is exactly one ^C, as a raw 0x03 or a
+	// kitty/modifyOtherKeys escape — KeyCtrlC. NEVER the content: what a user
+	// types can be a password. The Window A sampler uses it to tell whether a
+	// lingering podman exits right after a keystroke (it was blocked reading
+	// stdin) or regardless of one.
+	Input func(n int, key string)
+	// Pty is handed, once and before the pump starts, a function that reports the
+	// proxy pty's line discipline as the child last set it — "icanon=on isig=on
+	// echo=off" — read with TCGETS through the MASTER, which on Linux answers
+	// with the slave's termios. Safe from any goroutine; "" once the master is
+	// closed. Whether podman put the pty back in cooked mode on its way out
+	// decides whether a forwarded ^C is data it reads or a SIGINT it may ignore.
+	Pty func(mode func() string)
+}
+
+func (obs Observer) input(n int, key string) {
+	if obs.Input == nil {
+		return
+	}
+	defer func() { _ = recover() }()
+	obs.Input(n, key)
+}
+
+// ptyMode reads the slave's termios through the master, guarded so a call after
+// the master is closed can never read whatever fd reused its number.
+type ptyMode struct {
+	mu     sync.Mutex
+	master int
+	closed bool
+}
+
+func (m *ptyMode) read() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return ""
+	}
+	t, err := unix.IoctlGetTermios(m.master, unix.TCGETS)
+	if err != nil {
+		return ""
+	}
+	return termiosMode(t)
+}
+
+func (m *ptyMode) close() {
+	m.mu.Lock()
+	m.closed = true
+	m.mu.Unlock()
+}
+
+func onOff(b bool) string {
+	if b {
+		return "on"
+	}
+	return "off"
+}
+
+// termiosMode renders the three bits that decide what a forwarded byte means to
+// the child: ICANON (line-buffered), ISIG (^C becomes SIGINT), ECHO.
+func termiosMode(t *unix.Termios) string {
+	return "icanon=" + onOff(t.Lflag&unix.ICANON != 0) + " isig=" + onOff(t.Lflag&unix.ISIG != 0) +
+		" echo=" + onOff(t.Lflag&unix.ECHO != 0)
+}
+
+// RunWithProxyObserved is RunWithProxy plus an Observer.
+func RunWithProxyObserved(cmd []string, onStarted func(*os.Process), onTerminate func(), obs Observer) (int, error) {
+	hook := obs.Stage
 	inFd := int(os.Stdin.Fd())
 	if !isatty(inFd) {
 		return runPlain(cmd, onStarted, hook)
@@ -183,6 +268,13 @@ func RunWithProxyHooked(cmd []string, onStarted func(*os.Process), onTerminate f
 		return 0, err
 	}
 	unix.Close(slave) // parent uses only the master end
+	mode := &ptyMode{master: master}
+	if obs.Pty != nil {
+		func() {
+			defer func() { _ = recover() }()
+			obs.Pty(mode.read)
+		}()
+	}
 	callStage(hook, StageSpawned)
 	if onStarted != nil {
 		go safeCallback(onStarted, c.Process)
@@ -229,10 +321,11 @@ func RunWithProxyHooked(cmd []string, onStarted func(*os.Process), onTerminate f
 		}
 	}()
 
-	rc := proxyLoop(inFd, master, c, cooked, hook)
+	rc := proxyLoop(inFd, master, c, cooked, obs)
 
 	restoreCooked()
 	callStage(hook, StageTermiosRestored)
+	mode.close()
 	unix.Close(master)
 	return rc, nil
 }
@@ -255,7 +348,8 @@ func runPlain(cmd []string, onStarted func(*os.Process), hook StageHook) (int, e
 // proxyLoop pumps bytes between the host TTY and the master pty until the child
 // exits.
 // the stdin-EOF semantics (stop reading stdin, keep pumping master).
-func proxyLoop(inFd, master int, c *exec.Cmd, cooked *unix.Termios, hook StageHook) int {
+func proxyLoop(inFd, master int, c *exec.Cmd, cooked *unix.Termios, obs Observer) int {
+	hook := obs.Stage
 	outFd := int(os.Stdout.Fd())
 	var pending []byte
 	stdinClosed := false
@@ -324,6 +418,9 @@ func proxyLoop(inFd, master int, c *exec.Cmd, cooked *unix.Termios, hook StageHo
 				continue
 			}
 			data := append([]byte(nil), buf[:n]...)
+			// The observer gets the chunk's SIZE and at most the name of the one
+			// control key it is — never a byte of it.
+			obs.input(n, classifyInput(data))
 			// ^C IS FORWARDED LIKE ANY OTHER BYTE, and that is a 2026-09-19 ruling
 			// reversing what this loop used to do.
 			//
@@ -363,7 +460,9 @@ func proxyLoop(inFd, master int, c *exec.Cmd, cooked *unix.Termios, hook StageHo
 				_, _ = unix.Write(master, data[:start])
 			}
 			pending = append([]byte(nil), data[stop:]...)
+			callStage(hook, StageSuspended)
 			selfSuspend(inFd, cooked)
+			callStage(hook, StageResumed)
 			if len(pending) > 0 {
 				_, _ = unix.Write(master, pending)
 				pending = nil

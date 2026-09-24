@@ -1355,14 +1355,14 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 
 	// Launch under the TTY proxy. on_started releases the lock once the
 	// container is visible; on_terminate is the Ctrl-C/window-close/SIGTERM teardown.
-	onStarted := func(_ *os.Process) {
-		for i := 0; i < lockReleasePollAttempts; i++ {
-			if o.findRunningContainer(cname, rt) != "" {
-				break
-			}
-			time.Sleep(time.Duration(lockReleasePollIntervalSeconds * float64(time.Second)))
-		}
+	onStarted := func(proc *os.Process) {
+		ctrID := o.awaitRunningContainer(cname, rt)
 		lock.Close()
+		// The Window A probe, armed with the id that wait learned and BEFORE the
+		// housekeeping slot, which can run for a minute: a jail that quits during
+		// it must still be watched. Arming costs one inotify watch; nothing is
+		// sampled unless the container dies (lingerprobe.go).
+		o.startLingerProbe(rt, cname, ctrID, proc)
 		// THE HOUSEKEEPING SLOT (OQ-BF5). After the workspace lock is released
 		// and the container is visible — so a reap can never be looking at this
 		// launch's image before its container exists — and on the proxy's
@@ -1370,6 +1370,12 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		o.runHousekeeping(rt, reclaimConsent, cname)
 	}
 	onTerminate := func() {
+		// FIRST, while the podman client may still be alive: the moment the
+		// signal arrived (Window A's end when the client never exited — a user
+		// who gave up on a lingering quit) and one last sample of it, written
+		// before anything here can be the thing that hangs.
+		o.Perf.Mark("terminate.signal")
+		o.lingerFinalSample("final (terminate arm)")
 		sp := o.Perf.Span("terminate.stop_jail")
 		o.stopJail(cname, rt)
 		sp.End()

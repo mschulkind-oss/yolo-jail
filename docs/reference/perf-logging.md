@@ -7,6 +7,9 @@ covers:
   - internal/cli/run/runcmd.go
   - internal/cli/run/run.go
   - internal/cli/run/perfevents.go
+  - internal/cli/run/lingerprobe.go
+  - internal/cli/run/hostloopback.go
+  - internal/lingerprobe/
   - internal/cli/run/proxy_linux.go
   - internal/cli/run/proxy_other.go
   - internal/cli/run/loopholesruntime.go
@@ -19,6 +22,7 @@ covers:
   - internal/paths/paths.go
   - internal/config/perflogging.go
   - internal/ttyproxy/ttyproxy.go
+  - internal/ttyproxy/suspendkey.go
   - internal/image/autoload.go
 tags: [observability, timing, run, shutdown, perf]
 summary: "The host-side timing-span system behind `--timing`, `--verbose`, `perf_logging` and `YOLO_TIMING`: a nil-safe collector in `internal/perf` that spans the launch, the child window and both shutdown arms, writes every event to `<workspace>/.yolo/host-perf.log` the moment it happens, prices the stretch inside podman's own `--rm` cleanup from its event log and records that too, and prints a table only when a flag typed on that invocation asks for one."
@@ -42,8 +46,10 @@ which this system reads and prints but does not own.
 | The collector: spans, marks, sinks, the report renderer | `internal/perf` (`Log`, `Span`, `Event`, `Sink`, `SlowSpanThreshold`) |
 | The incremental file sink and its retention | `internal/perf` (`FileSink`, `MaxRuns`) |
 | The two gates, collector construction, the report | `internal/cli/run` (`Options.timingRecording`, `Options.timingReporting`, `initPerf`, `emitTimingReport`) |
-| Window A attribution from `podman events` | `internal/cli/run` (`attributeWindowA`, `parseDieAndCleanup`) |
-| The `child.*` marks: the tty proxy's stage hook | `internal/ttyproxy` (`StageHook`, `RunWithProxyHooked`), `internal/cli/run` (`runWithProxy`) |
+| Window A attribution from `podman events`, and its split | `internal/cli/run` (`attributeWindowA`, `recordWindowA`, `parsePodmanEvents`, `parseDieAndCleanup`) |
+| The Window A probe: death detection and /proc sampling | `internal/lingerprobe` (`Start`, `Probe`, `Sampler`, `DetectExitDir`) |
+| The probe's launch wiring, forwarded-input timing, the stderr line | `internal/cli/run` (`startLingerProbe`, `stopLingerProbe`, `noteForwardedInput`, `noteLingeringClient`) |
+| The `child.*` marks and the input/pty observer | `internal/ttyproxy` (`Observer`, `StageHook`, `RunWithProxyObserved`), `internal/cli/run` (`runWithProxy`) |
 | The `image.*` spans inside the image load | `internal/image` (`Options.Perf`) |
 | The jail half's switch: the argv pair and the bash timers | `internal/cli/run` (`assembleRunCmd`, `buildFinalInternalCmd`) |
 | The global `--verbose` / `-v` flag | `internal/cli` (`applyVerboseFlag`, `explicitVerbose`) |
@@ -111,14 +117,28 @@ intended.
   `end` with no `start`, deliberately: a synthetic start would carry a past
   timestamp out of the file's time order and would claim yolo was there when the
   interval began, and a lone `start` has to keep meaning "this is where it hung".
-  Window A is the only one.
+  Window A and its two halves are the only ones.
+- **Note** — a point event carrying a line of detail (`perf.Log.Note`). Ours. A
+  note is written to the file as `note   <name>  <detail>` and never appears in the
+  printed table: notes are the probe's samples and podman's per-event offsets,
+  dozens of lines that would bury the spans.
 - **Window A** — the stretch of a shutdown that happens entirely inside the
   `podman run --rm` child, after the container's PID 1 dies and before the podman
-  process exits: conmon writes the exit file, podman removes the container,
-  tears down the network and unmounts the overlay root and every bind. No yolo
-  code runs there, so no span can cover it; it can only be *attributed* after the
-  fact, and is entered as a Record. Coined in the design this reference replaces
-  (2026-09-06).
+  process exits. No yolo code runs there, so no span can cover it; it can only be
+  *attributed* after the fact, and is entered as a Record. Coined in the design
+  this reference replaces (2026-09-06). It has two halves, recorded separately
+  since 2026-09-24:
+  - **podman's teardown** — from the `died` event to podman's last teardown event
+    (`remove` for a `--rm` container): conmon's exit file, the cleanup process,
+    the network teardown and unmounts;
+  - **the client's exit** — from that last teardown event to the moment yolo reaps
+    the `podman run` process. The container is already gone by then; whatever
+    remains is the client's own.
+- **The lingering client** — a `podman run` process still alive after its
+  container has died. Coined here, 2026-09-24.
+- **The probe** — the watcher that samples a lingering client from `/proc`
+  (`internal/lingerprobe`). Coined here, 2026-09-24. See
+  [The lingering-client probe](#the-lingering-client-probe).
 - **The host half / the jail half** — the two timing records one launch produces.
   The host half is this system's file and table. The jail half is the
   entrypoint's own boot checkpoints, always on, appended to a file in the jail
@@ -277,8 +297,10 @@ returns", and which line in the record covers each step.
 
 ```mermaid
 flowchart TD
-    pid1["container PID 1 exits"] --> wa["Window A — inside the podman child<br/>(conmon exit file, network teardown, unmounts)<br/>no span; attributed afterwards"]
-    wa --> exited["child.exited (mark)"]
+    pid1["container PID 1 exits"] --> exitfile["conmon writes the exit file<br/>the probe's trigger: shutdown.window_a.exit_file_seen (mark)"]
+    exitfile --> wa["Window A, half 1: podman's teardown<br/>(died → remove: cleanup, network, unmounts)<br/>no span; attributed afterwards"]
+    wa --> linger["Window A, half 2: the client's exit<br/>(remove → the podman run process is reaped)<br/>sampled from /proc every 500 ms after the first second"]
+    linger --> exited["child.exited (mark)"]
     exited --> drain["proxy drains the pty master<br/>child.drain_done (mark)"]
     drain --> termios["cooked termios restored<br/>child.termios_restored (mark)"]
     termios --> ports["shutdown.cleanup_port_forwarding<br/>(per socat: SIGTERM, short wait, SIGKILL; serial)"]
@@ -286,8 +308,8 @@ flowchart TD
     fronts --> check["shutdown.container_check (mark)<br/>then the UNBOUNDED podman ps"]
     check --> capture["shutdown.capture_config"]
     capture --> oom["shutdown.oom_check"]
-    oom --> wa["shutdown.window_a<br/>recorded from podman events<br/>(bounded by --stream=false, never --until)"]
-    wa --> report["the report, or the quiet line"]
+    oom --> rec["probe stopped, then shutdown.window_a<br/>+ .podman_teardown + .client_exit<br/>recorded from podman events<br/>(bounded by --stream=false, never --until)"]
+    rec --> report["the report, or the quiet line"]
     report --> title["deferred terminal-title restore<br/>process.title_restore"]
 ```
 
@@ -302,7 +324,9 @@ where the prompt went to die.
 
 **The signal arm.** On SIGHUP (window close) or SIGTERM, the tty proxy's signal
 goroutine restores cooked termios, runs `onTerminate`, and exits the process with
-`128 + signal`.
+`128 + signal`. `onTerminate` begins with the `terminate.signal` mark and the
+probe's final sample, while a lingering client may still be alive
+([The terminate arm](#the-terminate-arm-and-a-killed-launcher)).
 
 > [!IMPORTANT]
 > **Ctrl-C no longer reaches this arm, as of 2026-09-19.** The host TTY is raw, so ^C arrives
@@ -432,7 +456,196 @@ teardown event's own offset, or why there is no row.
 An arm with no `child.exited` mark records nothing and asks nothing. That is the
 attach arm — `podman exec` into a jail that keeps running has no container death
 to attribute — which used to query anyway and get back "no `died` event", a blank
-explaining a question nobody had asked.
+explaining a question nobody had asked. The one exception is the terminate arm of
+a lingering client (see [The terminate arm](#the-terminate-arm-and-a-killed-launcher)).
+
+### The split, and what it was built on
+
+**Measured on the maintainer's host, 2026-09-24.** `host-perf.log` recorded
+`shutdown.window_a dur=12.647s` at a quit. podman's own events for that container
+were `died` at 15:40:43.450 and `remove` at 15:40:43.492, and `child.exited` was
+15:40:56.097. So podman's teardown took **42 ms**, and the `podman run` client
+stayed alive **12.6 s after its container was removed**. The child's stdio is the
+pty slave itself, so Go's `exec.Cmd.Wait` was not waiting on a copy goroutine: the
+process itself lingered. The same log holds Window A values of 0.99 s, 15.4 s,
+29.2 s, 9.0 s and 12.6 s on recent quits, and the maintainer reports the wait
+always ends on its own. That makes it a bounded wait, not a deadlock.
+
+The flowchart's old caption for this stretch named conmon's exit file, network
+teardown and unmounts. On that host those were the 42 ms. The seconds were in the
+client, after all of them.
+
+So the total is now recorded in two halves beside it. `shutdown.window_a` keeps
+its name and meaning, so old logs still compare:
+
+- `shutdown.window_a.podman_teardown`: `died` → the last teardown event.
+- `shutdown.window_a.client_exit`: the last teardown event → `child.exited`.
+
+With no teardown event in the log, or one stamped after the client was reaped
+(it cannot bound the client's wait), only the total is recorded, beside a
+`shutdown.window_a_unsplit.<token>` mark (`no_teardown`, `teardown_after_exit`),
+in the same token scheme as the unattributed marks.
+
+The same single query now also writes **every** event of the window as a
+`shutdown.window_a.event` note with its offset from the death: `exec_died`,
+`stop`, `kill`, `cleanup`, `remove`, and whatever else podman emitted. A `kill`
+about 10 s after a `stop` would be a stop timeout. `exec_died` events are
+attached sessions being torn down.
+
+One datum already in that log counts against **lock or database contention at
+the tail**, and no more than that. `shutdown.stop_loopholes`, which includes the
+unbounded `podman ps` liveness check, took 0.031 s immediately after
+`child.exited`, so podman answered a query quickly at that instant. That `ps` ran
+after the linger had ended, so it says nothing about what the client was waiting
+on during it.
+
+### The lingering-client probe
+
+The probe watches the `podman run` client from the moment its container dies and
+writes down what the client is blocked on, into `host-perf.log`, **as each sample
+is taken**. That is P3 again, and here it is decisive: the one exit a user has
+found from a lingering client is ^Z and then `kill -9 %1`, which kills the
+launcher too, and a SIGKILL records nothing after itself.
+
+**How yolo learns the container died.** This had to cost nothing for a jail's
+whole life and poll nothing during a normal session. conmon writes
+`<exit dir>/<container id>` the moment the container's process is reaped, where
+the exit dir is `<engine tmp_dir>/exits`: `/run/libpod/exits` for a rootful podman
+and `$XDG_RUNTIME_DIR/libpod/tmp/exits` for a rootless one, unless
+`containers.conf` moves `tmp_dir`. The probe holds an **inotify watch on that
+directory**. That is one goroutine parked in the Go netpoller, with no thread, no
+process and no timer. It fires on the rename into place (`IN_MOVED_TO`, since
+conmon writes a temp file first) or a direct close-after-write. The watch is
+armed from `onStarted`, with the short id the lock-release wait already read from
+`podman ps -q`, so arming costs no extra podman call. The directory is found
+defensively (`lingerprobe.DetectExitDir`): the `containers.conf` override first,
+then the rootful or rootless defaults, then podman's own fallbacks, and the first
+that exists wins. None existing is recorded as a token, never a guess. Two
+alternatives were rejected:
+
+- **The pty going quiet is not a signal.** The client holds the slave open for as
+  long as it lingers, and an idle agent is quiet too.
+- **A pidfd on the container's init** would be exact, but it needs the init's
+  host pid, which takes a `podman inspect`, and podman's own lock is one of the
+  suspects.
+
+**What a sample holds.** Sampling starts 1 s after the death and repeats every
+500 ms until the client is gone. For the client and each of its live descendants
+(a rootless podman is a wrapper process waiting on the real one), every thread
+gets:
+
+- its state, from `/proc/<pid>/task/<tid>/stat`;
+- its blocked syscall, from `…/syscall`, named from this build's own per-arch
+  table;
+- its kernel wait channel, from `…/wchan`;
+- for a syscall whose first argument is a descriptor, what that descriptor is,
+  via `readlink /proc/<pid>/fd/<n>`;
+- the syscall's **timeout argument** where there is one: `futex`, `epoll_pwait`,
+  `ppoll`, `select`, `nanosleep`, `clock_nanosleep` and the rest. A
+  pointer-valued timeout is read from `/proc/<pid>/mem`, and an absolute deadline
+  is shown as time remaining. This is what tells a poll-with-backoff loop (short
+  timeouts, repeating) from one long wait.
+
+Threads are grouped by identical state. An illustrative line, not a measured one:
+
+```text
++1.003s pid 4243 podman: 1× S read(0 → /dev/pts/5) [wait_woken], 14× S futex(timeout=none) [futex_wait_queue], 1× S epoll_pwait(4 → anon_inode:[eventpoll], timeout=0.100s) [do_epoll_wait]; pty icanon=off isig=off echo=off
+```
+
+A state that holds is written once, then as `unchanged ×N` every tenth sample, so
+the file still shows when the client was last seen alive. Everything is readable
+for our own uid without root. A file that cannot be read (EACCES under a strict
+Yama `ptrace_scope`, a thread gone mid-read) renders `?`, quietly.
+
+**Also written at the death:**
+
+- `shutdown.window_a.host`: how busy the machine's podman was, from `/proc` alone.
+  It counts podman and conmon processes owned by our uid (a nix podman's process
+  name is `.podman-wrapped`, measured, and is counted as podman), `podman exec`
+  clients naming this jail (other attached terminals), other yolo jails'
+  conmons, and `/proc/loadavg`. This tests "busier machine, slower quit".
+- `shutdown.window_a.pty_mode`: the proxy pty's line discipline as podman last set
+  it (ICANON, ISIG, ECHO), read with `TCGETS` through the master. If podman puts
+  the pty back in cooked mode on its way out, a forwarded ^C becomes a SIGINT it
+  may ignore rather than a byte it reads. The mode is repeated on every sample.
+
+**Bounds.** At most 120 samples and 80 lines per launch. The probe holds nothing
+podman needs: it reads `/proc` and watches a directory. The one read that can
+wait on podman is the `/proc/<pid>/mem` pread, which takes the target's mmap lock,
+so it runs on the probe's goroutine and `Stop` never waits for a sample in flight.
+Once `Stop` returns, nothing more is written. `recordWindowA` stops the probe
+first, so every sample is in the file before the numbers it explains, and before
+the report. Off Linux, on Apple Container, on the attach arm and on a launch that
+records nothing, no probe is armed. A probe that should have run and could not
+leaves a `shutdown.window_a_unsampled.<token>` mark: `no_ctr_id`, `no_exit_dir`,
+`no_pid`, `start_failed`, or `death_unseen` (armed, but no exit file appeared).
+
+**The stderr line.** When `client_exit` exceeds
+[`SlowSpanThreshold`](#current-values), one dim line names the dominant state.
+The duration below is the 2026-09-24 quit's; the blocked state is illustrative,
+because that quit predates the probe:
+
+```text
+yolo: podman stayed 12.6s after its container was removed, blocked in read(0 → /dev/pts/5)
+```
+
+It prints on every recording launch, quiet ones included, under the
+`shutdown.window_a took …` notice, and the bare `client_exit took …` notice is
+suppressed in its favor. "Dominant" is a ranking, not a vote. An uninterruptible
+(D-state) wait ranks first, then any named blocked call (a lock, a socket, a
+C-level sleep), then a `read` of fd 0, then a thread running on CPU, then a wait
+on a non-podman child. The Go runtime's own parking (`futex`, `epoll`,
+`nanosleep`) and the rootless wrapper's wait on its podman child explain nothing
+by themselves. When they are all there is, the line says so and lists the timed
+waits seen. **A `read(0)` is ranked below the other blocked calls on purpose:** an
+attached `podman run -it` has a thread in `read(stdin)` for its whole life, so its
+presence proves nothing. The keystroke timing below is what convicts it or clears
+it.
+
+### Keystroke timing: the test of the stdin hypothesis
+
+Once the death is seen, the tty proxy's observer records each forwarded stdin
+chunk as a `child.input` note carrying its **byte count only**, never its content,
+which can be a password. A chunk that is exactly one ^C (the raw `0x03`, or its
+kitty or modifyOtherKeys escape) is tagged `key=ctrl-c`, the name of a control key
+and not content. At the end, `shutdown.window_a.input_to_exit` records the gap
+from the last forwarded chunk to `child.exited`. If exits consistently follow a
+keystroke within milliseconds, podman was blocked reading stdin; the stderr line
+then adds `it exited 4ms after forwarded input`. A ^C forwarded after the death
+that did not end the wait is named too (`a forwarded ^C did not end it (8.1s
+before exit)`). That is the maintainer's observation: since 2026-09-19 ^C reaches
+podman's stdin as a byte, so if podman were blocked in `read(stdin)` that byte
+should free it. Before the death nothing is written, only a clock updated, so a
+session's typing never reaches the file.
+
+### The terminate arm and a killed launcher
+
+^Z works during a linger because the proxy's own loop is still running, and it is
+marked now: `child.suspended`, then `child.resumed` on `fg`. What happens next:
+
+- **`kill -9 %1`** kills the launcher and, since the proxy does no `setsid`,
+  podman with it. Nothing is recorded at the end. Every sample up to that moment
+  is already in the file.
+- **A plain `kill %1`** on the stopped job sends SIGTERM, and bash follows it
+  with SIGCONT. This was checked against bash with job control, not assumed: a
+  stopped Go process with a SIGTERM handler received the SIGTERM at the moment of
+  the `kill`, with no `SIGCONT` sent by hand, while a SIGTERM sent to the stopped
+  pid (not the job spec) stayed pending until a SIGCONT arrived. The resumed
+  proxy's signal goroutine then takes the SIGTERM arm. `onTerminate` first marks
+  `terminate.signal` and takes one bounded, synchronous final sample (tagged
+  `final (terminate arm)`) before `stopJail`, the step that can itself hang. With
+  no `child.exited`, Window A is still recorded when the probe saw the death, cut
+  at the signal, beside a `shutdown.window_a_cut.signal` mark that says the end is
+  a signal and not an exit.
+
+### The podman facts
+
+Once per launch, `podman.facts` notes the facts that decide podman's exit path:
+version, database backend (sqlite or boltdb), events logger, rootless, network
+command and cgroup manager. They come from the `podman info --format json` that
+the host-loopback decision already runs (`hostLoopbackFactsFor`), and no second
+call is made. That call does not run on macOS or in a nested jail, so neither
+records the facts.
 
 > [!WARNING]
 > **The bound is `--stream=false`, and `--until` must not be on the argv at all.**
@@ -526,6 +739,11 @@ stderr report still work, and a jail is never refused over its timing log.
 | A persistent opt-in with no flag | the file is written — Window A included; one dim line names it; no table and no in-container block |
 | The events query fails on a launch that prints nothing | the failure class reaches the file as a `shutdown.window_a_unattributed.<token>` mark; the prose reason has no reader and is dropped |
 | An arm with no `child.exited` mark (attach) | no query, no event, no line |
+| No teardown event, or one after the client's exit | the total alone, and a `shutdown.window_a_unsplit.<token>` mark |
+| The probe could not be armed, or never saw the exit file | a `shutdown.window_a_unsampled.<token>` mark; the stderr line says `not sampled: <why>` |
+| The client is SIGKILLed with the launcher (^Z, `kill -9 %1`) | every sample up to that moment is in the file; nothing after |
+| SIGTERM/SIGHUP while the client lingers (including `kill %1` on a stopped job) | a tagged final sample, then Window A cut at `terminate.signal`, marked `shutdown.window_a_cut.signal` |
+| A `/proc` file the probe cannot read | that field renders `?`; the sample is still written |
 | Non-tty stdin or a non-Linux host | `child.spawned` / `child.exited` only; no drain or termios marks; no signal arm |
 | `macos-user` backend | the collector records the host-side spans up to the backend dispatch and nothing after; no report and no quiet line — see [Known gaps](#known-gaps) |
 | A refused launch (the live-overlay guard) | no collector, no file, no directory |
@@ -628,9 +846,23 @@ Window A lives, and rules out every step the 58 ms already covered.
 Why it was unpriced on that shutdown, and what changed: attribution was on the
 reporting gate, so the one launch that hit the symptom never ran the query. It
 is on the recording gate now ([Window A attribution](#window-a-attribution)), and
-a slow one names itself on stderr. The measurement that finishes this is the next
-real-host quit that is slow — no flag to remember, and the number will be in
-`host-perf.log` as `shutdown.window_a` whether or not anyone was watching.
+a slow one names itself on stderr.
+
+**Priced, then split, 2026-09-24.** The quit recorded in
+[The split](#the-split-and-what-it-was-built-on) put 42 ms in podman's teardown
+and 12.6 s in the client after its container was removed. So the wait is the
+lingering client's. The probe exists so the next slow quit records *what the
+client was blocked in*, with no flag and no user action. The candidate causes,
+none established yet:
+
+- podman's client blocking on stdin (its attach copy) until a keystroke. The
+  keystroke timing tests this directly.
+- lock or database contention with other podman processes (several jails run at
+  once, and podman 5 uses sqlite). A lock wait shows as `fcntl(… F_SETLKW)`,
+  `flock`, or a `clock_nanosleep` busy loop, and the host note gives the count of
+  other clients.
+- something in libpod's runtime or storage shutdown, which would show as a named
+  blocked call or a D-state wait.
 
 The standing caveat is unchanged: a **nested jail** cannot produce this number.
 Podman-in-podman forces `--net=host`, and the nested store, image and mount set
@@ -669,6 +901,16 @@ the numbers the nested set could not speak for.
 The seconds live in the image load and the installer capture, which are launch
 costs; on that host, in that mode, teardown was not the delay. The instrument now
 distinguishes the two, which nothing could before.
+
+What the probe shows on a nested jail's rootful podman, 2026-09-24. It is the
+mechanism working and **not** the maintainer's host. A `podman run --rm -i`
+client on a pty, exiting normally, was reaped 26 ms after its exit file appeared.
+The one sample taken inside that window showed a D-state `fsync` on
+`/var/lib/containers/storage`, and the `read(0 → /dev/pts/1)` thread every
+attached client has. With `storage.lock` held by another process through
+`fcntl(F_SETLKW)`, the same client lingered 2.6 s after its death, and the probe
+named the cause as dominant: `blocked in fcntl(7 →
+/var/lib/containers/storage/storage.lock, F_SETLKW)`.
 
 And the set that closed the loop, 2026-09-19 — the maintainer reported "10+ s
 between the agent's last line and yolo's", quitting a jail that had been up 54
@@ -712,6 +954,21 @@ is the only place the exact values and spellings are stated.
 | Window A query timeout | 3 s | `run.windowAEventsTimeout` |
 | Window A recorded event | `shutdown.window_a` (an `end` with no `start`) | `run.recordWindowA`, `perf.Log.Record` |
 | Window A unattributed marks | `shutdown.window_a_unattributed.{timeout,not_run,rc,no_die}` | `run.recordWindowA`, `run.windowAResult.token` |
+| Window A halves | `shutdown.window_a.podman_teardown`, `shutdown.window_a.client_exit` (Records) | `run.recordWindowA` |
+| Window A unsplit marks | `shutdown.window_a_unsplit.{no_teardown,teardown_after_exit}` | `run.attributeWindowA`, `run.windowAResult.splitToken` |
+| Window A per-event note | `shutdown.window_a.event  <status> <±offset from died>`, at most 64 | `run.noteWindowAEvents`, `run.maxEventNotes` |
+| Window A cut mark (terminate arm, client alive) | `shutdown.window_a_cut.signal`, ending at `terminate.signal` | `run.windowAEnd` |
+| Probe trigger | inotify `IN_MOVED_TO` / `IN_CLOSE_WRITE` on conmon's exit dir; marks `shutdown.window_a.exit_file_seen` | `lingerprobe.watchExitFile`, `run.startLingerProbe` |
+| Probe exit-dir candidates, in order | `containers.conf` `[engine] tmp_dir` + `/exits`; rootful `/run/libpod/exits`; rootless `$XDG_RUNTIME_DIR/libpod/tmp/exits`, `/run/user/<uid>/libpod/tmp/exits`, `$TMPDIR/podman-run-<uid>/libpod/tmp/exits` | `lingerprobe.ExitDirCandidates` |
+| Probe timing | first sample 1 s after the death, then every 500 ms; at most 120 samples, 80 lines; `unchanged ×N` every 10th identical sample | `lingerprobe.Config` defaults, `lingerprobe.heartbeatEvery` |
+| Probe notes | `shutdown.window_a.sample`, `shutdown.window_a.host`, `shutdown.window_a.pty_mode` | `lingerprobe.NoteSample`, `NoteHost`, `NotePty` |
+| Probe unsampled marks | `shutdown.window_a_unsampled.{no_ctr_id,no_exit_dir,no_pid,start_failed,death_unseen}` | `run.startLingerProbe`, `run.stopLingerProbe` |
+| Terminate-arm final sample budget | 200 ms | `run.finalSampleBudget` |
+| Forwarded-input notes (after the death only) | `child.input  bytes=<n>[ key=ctrl-c]`, at most 40; then `shutdown.window_a.input_to_exit` | `run.noteForwardedInput`, `run.maxInputNotes`, `run.recordInputGap` |
+| Suspend marks | `child.suspended`, `child.resumed` | `ttyproxy.StageSuspended`, `StageResumed` |
+| Lingering-client line | `yolo: podman stayed N.Ns after its container was removed, <dominant state>` (dim), when `client_exit` > the slow-span threshold | `run.noteLingeringClient` |
+| "Exited right after input" window | 250 ms | `run.quickExitAfterInput` |
+| podman facts note | `podman.facts  version=… database=… events=… rootless=… network=… cgroups=…` | `run.podmanFactsNote`, `run.hostLoopbackFactsFor` |
 | Signal-arm jail stop | runtime `stop -t 5`, exec bounded at 10 s | `run.teardownStopTimeoutSeconds` |
 | Signal-arm exit code | `128 + signal` | `internal/ttyproxy` |
 | Loophole front close grace | 2 s | `run.frontStopGrace` |
@@ -741,4 +998,6 @@ defence.
 | D12 — recording and reporting are separate gates | Folding the config key into `Options.Timing` is the one-line "fix" that reunites them and brings back a table at every jail quit. The classification rule is P1 |
 | D13 — the jail-half variable is `YOLO_JAIL_TIMING` | "Match the flag" argues for `YOLO_TIMING`, which D5 forbids; `YOLO_TIMING_INNER` recreates the prefix collision the rename fixed. The rename itself was long blocked by a false premise — that the variable was a host↔jail wire contract — when both halves are host-side |
 | D14 — `--verbose` gets no vocabulary until something needs one | Giving it meaning ahead of a consumer is a vocabulary nobody has lived with; the first non-timing diagnostic decides. **Spent 2026-09-12** by `yolo host apply`'s detail view ([`report-tiers.md`](report-tiers.md#why-its-this-way)) |
+| D16 — the probe learns of the death from an inotify watch on conmon's exit directory | Polling `podman ps` or `/proc` during the session is simpler and costs every session to diagnose a few; a pidfd on the container's init needs a `podman inspect`, and podman's lock is a suspect; "the pty went quiet" is not a death at all |
+| D17 — forwarded input is logged as a byte count and at most the name `ctrl-c`, and only after the death | Logging the bytes would make the keystroke test easier to read, and would put whatever the user typed (a password) in a file; logging from the start of the session would record a whole session's typing rhythm to answer a question about its last few seconds |
 | D15 — Window A attribution RECORDS (every opt-in) while the table PRINTS (the typed flags) | D12 reads as "attribution is part of the report", and it shipped that way. But D12 governs what prints, and Window A is the one measurement a user cannot ask for in advance — they learn it was slow by waiting through it, after the launch that could have measured it is over. The cost is one bounded exec per quiet quit; the alternative was a number yolo could go and get, and chose not to write down |

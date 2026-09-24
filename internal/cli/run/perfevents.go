@@ -19,6 +19,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/lingerprobe"
 )
 
 // windowAEventsTimeout bounds the podman events query. Generous against a
@@ -40,7 +42,26 @@ type windowAResult struct {
 	reason string        // why there is no line; "" when attributed
 	token  string        // short failure class for the log; "" = not applicable
 	ok     bool
+
+	// THE SPLIT, meaningful only when split. Window A is two different waits,
+	// and the one measurement that separated them (maintainer's host,
+	// 2026-09-24) found them 42 ms and 12.6 s: podman's own teardown (died →
+	// its last teardown event, `remove` for a --rm container) and the client's
+	// exit AFTER that teardown. A number that sums them hides which one moved.
+	teardown       time.Duration
+	clientExit     time.Duration
+	teardownStatus string // "remove" or "cleanup"
+	split          bool
+	// splitToken says why there is a total and no split — the
+	// shutdown.window_a_unsplit.<token> mark.
+	splitToken string
+
+	dieAt  time.Time
+	events []podmanEvent // every event of the query window, for the per-event notes
 }
+
+// maxEventNotes caps the per-event notes one launch writes.
+const maxEventNotes = 64
 
 // attributeWindowA queries podman's event log for the container's die (and,
 // if it exists, cleanup) timestamps and measures the die → podman-exit gap.
@@ -118,7 +139,8 @@ func (o *Options) attributeWindowA(cname, rt string, since, podmanExited time.Ti
 		return windowAResult{token: "rc", reason: fmt.Sprintf(
 			"Window A unattributed: `podman events` exited %d", res.RC)}
 	}
-	dieAt, cleanupAt, ok := parseDieAndCleanup(res.Stdout)
+	events := parsePodmanEvents(res.Stdout)
+	dieAt, cleanupAt, ok := dieAndCleanup(events)
 	if !ok {
 		// A host whose events backend keeps nothing (the rootless file backend
 		// expires them), so it is stated plainly rather than as a fault.
@@ -132,12 +154,26 @@ func (o *Options) attributeWindowA(cname, rt string, since, podmanExited time.Ti
 			reason: "Window A unattributed: no container `died` event in podman's log for this jail"}
 	}
 	dur := podmanExited.Sub(dieAt)
+	out := windowAResult{dur: dur, ok: true, dieAt: dieAt, events: events}
 	line := fmt.Sprintf("Window A (container died → podman exit): %.3fs", dur.Seconds())
-	if cleanupAt != nil {
-		line += fmt.Sprintf(" — podman's own last teardown event landed %s after the death",
-			cleanupAt.Sub(dieAt).Round(time.Millisecond))
+	switch {
+	case cleanupAt == nil:
+		out.splitToken = "no_teardown"
+	case cleanupAt.at.After(podmanExited):
+		// A teardown event stamped after the client was reaped cannot bound the
+		// client's own wait; a split from it would be a negative number.
+		out.splitToken = "teardown_after_exit"
+	default:
+		out.split = true
+		out.teardown = cleanupAt.at.Sub(dieAt)
+		out.clientExit = podmanExited.Sub(cleanupAt.at)
+		out.teardownStatus = cleanupAt.status
+		line += fmt.Sprintf(" — podman's own last teardown event (%s) landed %s after the death, "+
+			"and the client exited %s after that", cleanupAt.status,
+			out.teardown.Round(time.Millisecond), out.clientExit.Round(time.Millisecond))
 	}
-	return windowAResult{dur: dur, line: line, ok: true}
+	out.line = line
+	return out
 }
 
 // recordWindowA runs the attribution ONCE per launch and puts the answer in the
@@ -159,25 +195,82 @@ func (o *Options) attributeWindowA(cname, rt string, since, podmanExited time.Ti
 //
 // A launch on a non-podman runtime, or an arm with no child.exited mark (the
 // attach arm: `podman exec` has no container death to attribute), records
-// nothing at all — there was no window, so there is no blank to explain.
+// nothing at all — there was no window, so there is no blank to explain. The
+// one exception is windowAEnd's: a terminate arm whose probe saw the death.
+//
+// What it records beyond the total: the split (podman_teardown + client_exit),
+// every podman event as a note, the probe's unsampled token, the gap from the
+// last forwarded input to the end, and — past perf.SlowSpanThreshold — the
+// stderr line naming what the lingering client was blocked in.
 func (o *Options) recordWindowA(cname, rt string) {
 	if o.perfWindowAOnce == nil {
 		return // no collector: this launch recorded nothing (see initPerf)
 	}
 	o.perfWindowAOnce.Do(func() {
-		child, ok := o.Perf.LastEvent("child.exited")
+		// THE PROBE COMES DOWN FIRST, so no sample lands after the numbers it
+		// explains — or after the report that prints them.
+		probe, unsampled := o.stopLingerProbe()
+		end, ok := o.windowAEnd(probe)
 		if !ok {
 			return
 		}
-		res := o.attributeWindowA(cname, rt, o.Perf.StartTime(), child.At)
+		res := o.attributeWindowA(cname, rt, o.Perf.StartTime(), end)
 		o.windowA = res
 		switch {
 		case res.ok:
 			o.Perf.Record("shutdown.window_a", res.dur)
+			if res.split {
+				o.Perf.Record("shutdown.window_a.podman_teardown", res.teardown)
+				o.Perf.Record("shutdown.window_a.client_exit", res.clientExit)
+			} else if res.splitToken != "" {
+				o.Perf.Mark("shutdown.window_a_unsplit." + res.splitToken)
+			}
+			o.noteWindowAEvents(res)
 		case res.token != "":
 			o.Perf.Mark("shutdown.window_a_unattributed." + res.token)
 		}
+		if unsampled != "" {
+			o.Perf.Mark("shutdown.window_a_unsampled." + unsampled)
+		}
+		o.recordInputGap(end)
+		o.noteLingeringClient(res, probe, unsampled, end)
 	})
+}
+
+// windowAEnd is the moment Window A ends: the proxy's child.exited mark — or,
+// on the TERMINATE arm, the signal's arrival, when the client was still alive
+// then and the probe had seen its container die. That second case is the
+// lingering client a user killed (Ctrl-Z, then `kill %1`), which is the one
+// most worth recording and the one the proxy never marks an exit for; the
+// shutdown.window_a_cut.signal mark says the end is the signal, not an exit.
+func (o *Options) windowAEnd(probe lingerprobe.Result) (time.Time, bool) {
+	if child, ok := o.Perf.LastEvent("child.exited"); ok {
+		return child.At, true
+	}
+	if !probe.DeathSeen {
+		return time.Time{}, false // the attach arm: no container death to attribute
+	}
+	term, ok := o.Perf.LastEvent("terminate.signal")
+	if !ok {
+		return time.Time{}, false
+	}
+	o.Perf.Mark("shutdown.window_a_cut.signal")
+	return term.At, true
+}
+
+// noteWindowAEvents writes every podman event of the query window as a note,
+// with its offset from the death: a `kill` ~10 s after a `stop` is a stop
+// timeout, and `exec_died` events are attached sessions being torn down. From
+// the same single query — there is never a second one.
+func (o *Options) noteWindowAEvents(res windowAResult) {
+	for i, ev := range res.events {
+		if i == maxEventNotes {
+			o.Perf.Note("shutdown.window_a.event", fmt.Sprintf("… %d more not recorded", len(res.events)-i))
+			return
+		}
+		o.Perf.Note("shutdown.window_a.event",
+			fmt.Sprintf("%s %+.3fs", ev.status, ev.at.Sub(res.dieAt).Seconds()))
+	}
 }
 
 // parseDieAndCleanup reads `podman events --format '{{.TimeNano}} {{.Status}}'`
@@ -200,6 +293,24 @@ func (o *Options) recordWindowA(cname, rt string) {
 // would report the offset on approximately no launches, `--rm` being how every
 // jail runs.
 func parseDieAndCleanup(out string) (dieAt time.Time, cleanupAt *time.Time, ok bool) {
+	d, c, ok := dieAndCleanup(parsePodmanEvents(out))
+	if c != nil {
+		t := c.at
+		cleanupAt = &t
+	}
+	return d, cleanupAt, ok
+}
+
+// podmanEvent is one `{{.TimeNano}} {{.Status}}` line.
+type podmanEvent struct {
+	at     time.Time
+	status string
+}
+
+// parsePodmanEvents reads every well-formed line, in order; the rest are
+// skipped (see parseDieAndCleanup).
+func parsePodmanEvents(out string) []podmanEvent {
+	var evs []podmanEvent
 	for _, line := range strings.Split(out, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) != 2 {
@@ -209,16 +320,24 @@ func parseDieAndCleanup(out string) (dieAt time.Time, cleanupAt *time.Time, ok b
 		if err != nil {
 			continue
 		}
-		at := time.Unix(0, nanos).UTC()
-		switch fields[1] {
+		evs = append(evs, podmanEvent{at: time.Unix(0, nanos).UTC(), status: fields[1]})
+	}
+	return evs
+}
+
+// dieAndCleanup applies parseDieAndCleanup's rules to parsed events: the FIRST
+// `died`, the LAST `cleanup`/`remove`.
+func dieAndCleanup(evs []podmanEvent) (dieAt time.Time, teardown *podmanEvent, ok bool) {
+	for i := range evs {
+		switch evs[i].status {
 		case "died":
 			if !ok {
-				dieAt, ok = at, true
+				dieAt, ok = evs[i].at, true
 			}
 		case "cleanup", "remove":
-			t := at
-			cleanupAt = &t
+			ev := evs[i]
+			teardown = &ev
 		}
 	}
-	return dieAt, cleanupAt, ok
+	return dieAt, teardown, ok
 }
