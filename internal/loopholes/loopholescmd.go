@@ -155,7 +155,7 @@ func loopholesWithConfig(deps Deps, includeDisabled bool) Set {
 		}
 	}
 	// NewHostSet, not a hand-built DiscoverOptions: it is the one constructor that
-	// composes bundled + pack + user + config, so this command cannot come to disagree
+	// composes pack + config (the only two sources left), so this command cannot come to disagree
 	// with the launch path about what this machine has. It always builds the
 	// include-disabled superset; includeDisabled selects the VIEW below.
 	set := NewHostSet(merged)

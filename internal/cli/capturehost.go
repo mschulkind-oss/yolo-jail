@@ -223,13 +223,11 @@ type captureTarget struct {
 
 // resolveCaptureTarget finds the pack-declared native installer for bin.
 //
-// THROUGH HonoredInstalls, NEVER THE MANIFEST. A fetched pack's installerUrl is refused by
-// the origin gate (packload.go:491) precisely so that a git ref cannot make yolo execute a
-// shell script; a capture that read InstallContributions directly would run exactly what
-// that gate exists to refuse, one layer below where anyone would look for it. Refused
-// declarations therefore never reach this function's result at all — a bin that is only
-// declared by a refused install reads as "not declared", and the error says so with the
-// refusals attached.
+// THROUGH HonoredInstalls, NEVER THE MANIFEST, so a capture and the launch's auto-capture
+// trigger (installerBins) read one accessor. A fetched pack's installerUrl used to be refused
+// by an origin gate there; OQ-TP9 (docs/design/trust-paths.md, 2026-09-04) deleted it, so
+// HonoredInstalls refuses nothing today and the refusals this function would attach to its
+// error are always empty. The plumbing that would attach them is still here.
 func resolveCaptureTarget(bin string) (*captureTarget, error) {
 	entries, err := config.LoadPacks(nil)
 	if err != nil {

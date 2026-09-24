@@ -65,17 +65,16 @@ func (o *Options) autoCaptureInstallerPrograms(packs []*packload.Pack) {
 // installerBins is every program the SELECTED packs install with `via: "installer"`,
 // deduplicated, in declaration order.
 //
-// THROUGH HonoredInstalls, never the manifest, for the reason resolveCaptureTarget gives:
-// a fetched pack's installerUrl is refused by the origin gate precisely so a git ref
-// cannot make yolo execute a shell script, and a trigger that read InstallContributions
-// directly would run exactly what that gate exists to refuse — automatically, on every
-// launch, which is strictly worse than the manual command the gate was written against.
-// Refusals are not reported here: `yolo capture` already names them when a human asks
-// about a specific bin, and a launch that printed them would blame the user for a config
-// that is behaving as designed.
+// THROUGH HonoredInstalls, never the manifest, so this trigger and `yolo capture`
+// (resolveCaptureTarget) read one accessor. It refuses nothing now: a fetched pack's
+// installerUrl used to be refused by an origin gate, and OQ-TP9
+// (docs/design/trust-paths.md, 2026-09-04) deleted that gate, because `npm install -g`
+// from the same fetched tree runs `postinstall` ungated. Its `refused` return is always
+// nil, so there is nothing to report here; the launch banner is what discloses a
+// `via: installer` program.
 //
 // The predicate is a non-empty InstallerURL rather than Kind == "native", because that is
-// the very field HonoredInstalls gates on — "granted, and it has an installer URL" cannot
+// the field naming what would run — "granted, and it has an installer URL" cannot
 // mean anything else. (Three names for one mechanism: manifest `via:"installer"` →
 // packdecl.Install.Kind == "native" → receipt `kind:"installer"`.)
 func installerBins(packs []*packload.Pack) []string {

@@ -229,10 +229,13 @@ build-image-minimal:
 # instruction did nothing and said nothing.
 #
 # The Apple Container arm is the archive hop yolo's own launch path takes
-# (internal/image/autoload.go, deliverViaArchive): that backend's VM owns its
-# store, so there is no containers-storage to negotiate blobs with and the whole
-# image crosses as one file. The file is removed afterwards — a leftover is what
-# makes the NEXT copy fail, since skopeo will not write over an existing archive.
+# (internal/image/autoload.go, deliverViaArchive): that backend has no
+# containers-storage. Its images service runs on the Mac and keeps blobs in a
+# content store there, whose only ways in are `container image load` and `pull`,
+# so there is nothing to negotiate blobs with and the whole image crosses as one
+# file (docs/research/macos-layer-reusing-image-delivery.md). The file is removed
+# afterwards — a leftover is what makes the NEXT copy fail, since skopeo will not
+# write over an existing archive.
 load: build-image
     #!/usr/bin/env bash
     set -euo pipefail

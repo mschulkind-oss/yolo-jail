@@ -8,9 +8,8 @@ import "github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 // The platform declaration and the inert-backend report are the same situation on two
 // axes, and the design is explicit that they share ONE message and ONE mechanism
 // (docs/reference/loophole-system.md#where-a-loophole-does-nothing): platform (darwin
-// vs linux) and backend (`container` and `macos-user` skip loopholes entirely)
-// both answer that one
-// sentence. Two mechanisms would give two half-messages for one user-visible
+// vs linux) and backend (Apple Container, the `container` backend, from which a jail
+// cannot dial a host loophole) both answer that one sentence. Two mechanisms would give two half-messages for one user-visible
 // situation, which is the B-0 shape — "a backend that looked provisioned and
 // configured nothing" — that the run pipeline was restructured to end.
 //
@@ -27,11 +26,12 @@ const (
 	// AxisPlatform: the manifest's `platforms` declaration excludes this
 	// GOOS/GOARCH. Nothing can be installed to fix it.
 	AxisPlatform = "platform"
-	// AxisBackend: the container backend skips loopholes wholesale
-	// (docs/reference/loophole-system.md#where-a-loophole-does-nothing — Apple
-	// Container returns before any external service starts; macos-user returns
-	// before startLoopholes is reached at all). The loophole is fine; the backend
-	// does not carry it.
+	// AxisBackend: the `container` backend (Apple Container) carries no
+	// container-to-host connection, so every pack loophole is inert there
+	// (docs/reference/loophole-system.md#where-a-loophole-does-nothing). macos-user is
+	// NOT on this axis: since 2026-09-17 it starts the whole host-service set through
+	// the same spawn boundary a container launch uses. The loophole is fine; the
+	// backend does not carry it.
 	AxisBackend = "backend"
 )
 

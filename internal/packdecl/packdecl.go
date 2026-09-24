@@ -220,9 +220,12 @@ type Install struct {
 	// InstallerURL is a curl-piped installer (kind == "native").
 	//
 	// This is the sharpest thing a manifest can name: a URL whose contents run as a
-	// shell script. Honored only under the same origin rule as HostFiles — a fetched
-	// pack cannot introduce one, because that would let a git ref execute arbitrary
-	// code in the jail.
+	// shell script in the jail. It is NOT gated on the pack's origin. A fetched pack's
+	// installer used to be refused, and OQ-TP9 (docs/design/trust-paths.md, 2026-09-04)
+	// deleted that rule with the approval gate: `npm install -g` from the same fetched
+	// tree runs `postinstall` ungated, so refusing only this path contained nothing.
+	// What is left is disclosure — the footprint marks a `via: installer` program
+	// review-worthy and the launch banner names it.
 	InstallerURL string `json:"installerUrl,omitempty"`
 	// UpdateVerb is the argv the PROGRAM ITSELF is run with to update itself, with the
 	// bin omitted: `["install"]` for claude, `["update", "--self"]` for pi.
