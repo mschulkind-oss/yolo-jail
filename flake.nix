@@ -815,6 +815,31 @@
           # silently fall back to UTC and disagree with the host clock.
           ln -s /run/localtime $out/etc/localtime
           ln -s /run/timezone $out/etc/timezone
+
+          # /etc/nix/nix.conf enabling the new CLI, so a plain `nix shell`,
+          # `nix build` or `nix eval` typed in the jail works.  Without it
+          # every one is refused ("experimental Nix feature 'nix-command' is
+          # disabled"); yolo's own nix calls never noticed, since each passes
+          # --extra-experimental-features itself.  This is the CLIENT's config
+          # only.  Where the launcher mounts the host store (Linux with a nix
+          # daemon; macOS only with both opt-in dials; never Apple Container),
+          # in-jail nix talks to the host daemon (NIX_REMOTE=daemon), and the
+          # daemon keeps its own nix.conf for everything it decides (trust,
+          # sandbox, substituters), so nothing else belongs here.  Everywhere
+          # else there is no daemon and, the jail root being --read-only, no
+          # usable local store either: store-free commands (`nix config show`)
+          # work and store-needing ones still fail -- that gap is G21 in
+          # docs/plans/setup-support-gaps.md, not this file's.  A user's
+          # ~/.config/nix/nix.conf still layers on top.
+          # Unconditional: nix is in fullPackages, which the lean
+          # variant delivers from the mounted store (yoloImageExtras) rather
+          # than dropping, so it needs the same config; in the minimal variant,
+          # which has no nix, the file is inert.  Pinned by
+          # integration/nixconf_test.go.
+          mkdir -p $out/etc/nix
+          cat > $out/etc/nix/nix.conf <<NIXCONF
+          experimental-features = nix-command flakes
+          NIXCONF
         '' + imagePkgs.lib.optionalString withChromium ''
           ln -s ${imagePkgs.chromium}/bin/chromium $out/usr/bin/chromium
           ln -s ${imagePkgs.chromium}/bin/chromium $out/usr/bin/google-chrome
