@@ -482,6 +482,16 @@ func Run(opts Options) (rc int) {
 		// backend shares, so the printer is this backend's.
 		o.noteMacosUserPlatformGaps(cfg)
 		o.noteMacosUserPortKeys(cfg)
+		// YOLO_STORE_PACKAGES's only consumer (planStorePackages) is below this arm's
+		// return, so on this backend the dial vanished without a line. A NOTICE, not a
+		// refusal — planStorePackages' own ruling for an ineligible launch — and here the
+		// dial's outcome is already this backend's only mode: no image, `packages:` from
+		// the nix store.
+		if envTruthy(o.Getenv(StorePackagesOptInEnv)) {
+			o.pr(o.Stderr).printf("[bold yellow]%s=1 ignored:[/bold yellow] the macos-user "+
+				"backend has no image, and its `packages:` already come from the nix store.",
+				StorePackagesOptInEnv)
+		}
 		// WHERE THE PROFILE SELECTIONS LANDED, on this arm too. Until the channel hoist
 		// this line had no honest form here — the launch line prints what a launch
 		// DELIVERS (providers.md#pv-oq-10: never a verb that overclaims), and this backend delivered
