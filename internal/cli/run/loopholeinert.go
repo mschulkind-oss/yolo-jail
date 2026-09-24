@@ -178,7 +178,7 @@ func (o *Options) notePackLoopholesInert(rt string, packs []*packload.Pack, cfg 
 		o.printInertLines(append(backendInertLines(packs, backend), configInertLines(cfg, backend)...))
 		return
 	}
-	o.printInertLines(platformInertLines(packs))
+	o.printInertLines(platformInertLines(packs, cfg))
 }
 
 // configInertLines is one line per `loopholes.<name>` entry in the user's own config on a
@@ -238,7 +238,12 @@ func backendInertLines(packs []*packload.Pack, reason string) []string {
 // all. The note→pack mapping is built from the resolved records, so a note the producer DROPS
 // (a duplicate, a disabled loophole) contributes no line by construction rather than by this
 // function also remembering to drop it.
-func platformInertLines(packs []*packload.Pack) []string {
+//
+// THE USER'S SWITCH, NOT THE AUTHOR'S: resolveInertLoophole reads the manifest alone, so its
+// Enabled is `default_enabled`. ApplyConfigEnabled lays the merged config's
+// `loopholes.<name>.enabled` over it before the producer's disabled-skip reads it — without
+// that, a Linux-only loophole the user switched ON on a Mac drew no line (G15).
+func platformInertLines(packs []*packload.Pack, cfg *jsonx.OrderedMap) []string {
 	var resolved []*loopholes.Loophole
 	packOf := map[string]string{}
 	for _, p := range packs {
@@ -254,6 +259,7 @@ func platformInertLines(packs []*packload.Pack) []string {
 		}
 	}
 	var lines []string
+	loopholes.ApplyConfigEnabled(resolved, cfgMap(cfg, "loopholes"))
 	for _, note := range loopholes.PlatformInertNotes(resolved) {
 		lines = append(lines, inertLineFor(packOf[note.Name], note))
 	}
@@ -420,7 +426,8 @@ func (o *Options) noteMacosUserHostByteGaps(delivery macosCtxDelivery) {
 		"backend has no bind mounts, so host bytes arrive by COPY, and a copy does not " +
 		"scale to an arbitrary tree. Single FILE entries are delivered normally; split the " +
 		"directory into the files you need, or use the Apple Container runtime " +
-		"(runtime: \"container\"), which binds it.")
+		"(runtime: \"container\"), which binds it read-only from Apple Container " +
+		acROBindsFloor + " (older versions skip it with a warning).")
 }
 
 // noteMacosUserPlatformGaps names the three PLATFORM keys this backend reads nowhere:

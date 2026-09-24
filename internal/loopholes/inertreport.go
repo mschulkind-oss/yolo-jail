@@ -1,5 +1,7 @@
 package loopholes
 
+import "github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+
 // inertreport.go is THE INERT REPORT: "this loophole does nothing here, and here is
 // why."
 //
@@ -70,6 +72,11 @@ func (n InertNote) Line() string {
 // the whole point of the axis split is that an unmet requirement and an unsupported
 // platform are different answers with different fixes, so a loophole that is both
 // gets the categorical one.
+//
+// "Disabled" is the record's own Enabled, so it is the USER's switch only when the
+// records already carry the config: Discover's do, a manifest-only LoadLoophole's do
+// not. A caller holding manifest-only records runs ApplyConfigEnabled over them first,
+// or the author's default stands in for the user's choice (setup-support-gaps.md G15).
 func PlatformInertNotes(lps []*Loophole) []InertNote {
 	var out []InertNote
 	seen := map[string]bool{}
@@ -85,4 +92,29 @@ func PlatformInertNotes(lps []*Loophole) []InertNote {
 		out = append(out, InertNote{Name: lp.Name, Axis: AxisPlatform, Reason: reason})
 	}
 	return out
+}
+
+// ApplyConfigEnabled sets each record's Enabled to the merged config's
+// `loopholes.<name>.enabled` wherever the config sets it, and leaves the author's
+// default standing wherever it does not. It returns the same slice, modified in place.
+//
+// The rule is ConfigEnabledOverride's — the one applyWorkspaceOverrides applies when a
+// launch resolves what to START — so an inert report built on manifest-only records
+// agrees with the lifecycle about whether the user turned a loophole on. Without it the
+// launch's platform-inert report read `default_enabled` alone: a user who switched ON a
+// Linux-only loophole on a Mac got a clean launch and no line, and one who switched OFF
+// a default-on loophole still heard it was unsupported (G15).
+//
+// For records the caller owns — freshly loaded, not shared with a lifecycle. A nil
+// config changes nothing.
+func ApplyConfigEnabled(lps []*Loophole, loopholesConfig *jsonx.OrderedMap) []*Loophole {
+	for _, lp := range lps {
+		if lp == nil {
+			continue
+		}
+		if v, set := ConfigEnabledOverride(loopholesConfig, lp.Name); set {
+			lp.Enabled = v
+		}
+	}
+	return lps
 }
