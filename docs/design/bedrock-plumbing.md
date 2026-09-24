@@ -99,7 +99,7 @@ knob, **and [§6.6](#66-every-bedrock-model-in-every-agent--the-direction)**, on
 agent and every picker. **[§7](#7-traps--read-before-writing-code) is the one to read before writing code**: six
 traps. Three of them are live in shipped code or docs today, and a fourth was fixed on 2026-09-15.
 
-**Needs your ruling:** [OQ-BR9](#OQ-BR9), [OQ-BR10](#OQ-BR10), [OQ-BR12](#OQ-BR12), [OQ-BR13](#OQ-BR13), [OQ-BR14](#OQ-BR14), [OQ-BR15](#OQ-BR15), [OQ-BR1](#OQ-BR1), [OQ-BR2](#OQ-BR2), [OQ-BR3](#OQ-BR3), [OQ-BR4](#OQ-BR4), [OQ-BR8](#OQ-BR8), [OQ-BR5](#OQ-BR5), [OQ-BR6](#OQ-BR6), [OQ-BR7](#OQ-BR7).
+**Needs your ruling:** [OQ-BR9](#OQ-BR9), [OQ-BR12](#OQ-BR12), [OQ-BR13](#OQ-BR13), [OQ-BR14](#OQ-BR14), [OQ-BR15](#OQ-BR15), [OQ-BR1](#OQ-BR1), [OQ-BR2](#OQ-BR2), [OQ-BR3](#OQ-BR3), [OQ-BR4](#OQ-BR4), [OQ-BR8](#OQ-BR8), [OQ-BR5](#OQ-BR5), [OQ-BR6](#OQ-BR6), [OQ-BR7](#OQ-BR7).
 The seven new questions come first because they carry the maintainer's direction, and
 [OQ-BR9](#OQ-BR9) (the provider shape) decides the premise of [OQ-BR1](#OQ-BR1),
 [OQ-BR3](#OQ-BR3) and [OQ-BR7](#OQ-BR7). Rule [OQ-BR4](#OQ-BR4) and [OQ-BR8](#OQ-BR8) together;
@@ -996,6 +996,47 @@ The `aws-auth` README's example session policy grants the first row alone
 
 ---
 
+### 6.7 The whole matrix — every agent, every model, every credential
+
+**The requirement** (the maintainer, 2026-09-24, recorded as [DIR-BR2](#decision-ledger)):
+*"We need to support single sign on through all of the methods so I can use any model. I want to
+use Kimi in Claude through Bedrock by just choosing it in the menu, or I want to use OpenAI and
+then I want to switch to Claude. So we got to support everything everywhere, the whole matrix."*
+So a cell of this matrix is one agent, one Bedrock model family and one of the three supported
+credentials ([§6.5](#65-the-credential-three-are-supported)): a Bedrock API key, a static key
+pair, or an SSO session through `aws-auth`. **Every cell must work**, and a model must be one
+pick in the agent's own model menu, not a config edit.
+
+| Agent | Anthropic models | Every other model | API key | Static keys | SSO session | State |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **claude** | native profile, or the everything profile's pass-through ([OQ-BR11](#OQ-BR11)) | everything profile, through the bridge | native: yes · bridge: yes | native: yes · bridge: needs the signer | native: yes · bridge: needs the signer | native built; everything profile, signer and picker unbuilt |
+| **codex** | native | native (its Responses catalog) | yes | yes | yes, through the chain | native provider binding unbuilt ([§6.3](#63-what-each-derive-emits)) |
+| **opencode** | native | native | yes | yes | yes, through the chain | binding unbuilt |
+| **pi** | native (Converse) | native (Converse) | yes | yes | yes, through the chain | binding unbuilt |
+| **copilot** | through the bridge | through the bridge | yes | needs the signer | needs the signer | unbuilt |
+| **oh-omp** | its `bedrock-mantle` provider (SOURCED, not installed here) | same | yes | needs the bridge's signing pass-through | needs the bridge's signing pass-through | unverified |
+| **agy** | no Bedrock transport at all | — | — | — | — | **the one hole**: agy's closed transport enum admits no Bedrock ([§4](#4-what-each-agent-can-actually-do)) |
+
+**What the matrix adds to [§6.6](#66-every-bedrock-model-in-every-agent--the-direction):**
+
+1. **The bridge signs — [OQ-BR10](#OQ-BR10) is answered by the requirement.** SSO on the bridge
+   route can only be a signer or a minted key, and a key minted from `aws-auth`'s role-chained
+   session lives at most an hour ([§6.5](#65-the-credential-three-are-supported)), so it cannot
+   serve a working day. The signer it is.
+2. **The bridge also signs for an OpenAI-wire client, without translating.** oh-omp's Bedrock
+   provider takes a bearer only, and any agent a user points at the gateway route speaks OpenAI
+   already. So the bridge offers a second route beside the Anthropic one: an OpenAI
+   chat-completions endpoint on the jail's loopback that forwards unchanged and adds only the
+   signature. INFERRED; it is the same signer at the same seam, with no translation step.
+3. **The model must be in the menu.** "Kimi in Claude by choosing it in the menu" needs three
+   pieces at once: the everything profile ([OQ-BR11](#OQ-BR11)); a list that contains Kimi
+   ([OQ-BR12](#OQ-BR12), [OQ-BR14](#OQ-BR14)); and the claude derive rendering that list into
+   `modelPicker` ([OQ-BR13](#OQ-BR13)). Switching from an OpenAI model to Claude mid-session is
+   the everything profile's whole purpose.
+4. **Done means the matrix, measured.** A cell counts as built only when one request has gone
+   through it on a real host. That is a manual runbook, not a test: automated tests never make
+   API calls. [§8](#8-behaviour-this-design-fixes) carries it as a done-condition.
+
 ## 7. Traps — read before writing code
 
 **D1 (FIXED 2026-09-15, `f7b14308`). The codex derive wrote a key codex does not read.** It
@@ -1153,7 +1194,7 @@ provider the catalog dropped. Never carry a region allowlist or a model catalog 
 For the direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction)), once
 [OQ-BR9](#OQ-BR9) through [OQ-BR13](#OQ-BR13) rule:
 
-6. claude's bridge profile completes one turn against a non-Anthropic model on runtime (a
+6. claude's everything profile completes one turn against a non-Anthropic model on runtime (a
    DeepSeek or Qwen id, say), once under each of the three credentials. copilot does the same.
    Under the SSO credential the turn still succeeds after the first credential set expires,
    with no relaunch.
@@ -1166,6 +1207,10 @@ For the direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction
    data.
 10. `yolo check` warns about an id no installed catalog knows. With no agent installed, it says
     it could not check.
+11. **The matrix** ([§6.7](#67-the-whole-matrix--every-agent-every-model-every-credential)): on a real host, one request per
+    cell — each agent, an Anthropic and a non-Anthropic model where its transport carries both, and
+    each of the three credentials — completes, and each model was chosen from the agent's own menu.
+    Run by hand from a runbook; automated tests never make API calls.
 
 ---
 
@@ -1627,44 +1672,16 @@ direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction)), and
    **Answer:**
    > _(empty — fill in when decided)_
 
-10. 💬 **OQ-BR10: Should the wire bridge sign its own upstream requests with SigV4?**
-    [§6.6](#66-every-bedrock-model-in-every-agent--the-direction) part 3. Today the bridge sends
-    one bearer read at boot ([WB-D4](../reference/wire-bridge.md#wb-d4)), so claude's
-    non-Anthropic models and all of copilot's reach Bedrock only with a Bedrock API key. Stakes:
-    whether the SSO credential, the primary one, works for the bridge arm at all. It also
-    decides whether [`sso-backed-bedrock.md`](sso-backed-bedrock.md#4-five-options)'s option D
-    is still needed by any shipped agent. INFERRED throughout: no request has been made.
-
-    | Option | Verdict |
-    | :--- | :--- |
-    | **A.** The bridge signs, with a standard-library signer pinned by AWS's test vectors; credentials resolved in the SDK's order; runtime first, mantle once its service name and path are measured | **Leaning** |
-    | **B.** Bearer only, as today, with option D minting one from the SSO session | Lives at most an hour over the narrowed session, frozen for the launch, and dead on an account whose SCP denies `CallWithBearerToken` ([§6.5](#65-the-credential-three-are-supported)) |
-    | **C.** Option A, but vendor the AWS SDK's signer instead of writing one | Honest alternative: correctness by reuse, at the cost of a vendored AWS module in a hermetic build that has none |
-    | **D.** A host-side signing proxy (that doc's option E) | Rejected there for v1, since the host would see every prompt; nothing here needs it |
-
-    **The credential order is part of the question.** The SDK order puts static keys first and
-    the bearer last. Every native client puts the bearer first
-    ([§4](#4-what-each-agent-can-actually-do)). The difference cannot bite on the pair
-    `internal/awschain` already refuses (a bearer beside the pointer). It can bite on static
-    keys beside the pointer, which nothing refuses, and there the bridge's env-first order
-    matches every native client. That pair is the question owed to
-    [`sso-backed-bedrock.md`](sso-backed-bedrock.md), not a new one.
-    **Touches** [OQ-BR2](#OQ-BR2): the marker is what the bridge signs for. It touches
-    [OQ-BR5](#OQ-BR5): the gateway would no longer need a bearer, though pi does not use the
-    bridge. It touches [OQ-BR8](#OQ-BR8): the bridge must learn `aws-auth`'s adapter address,
-    and under [OQ-BR8](#OQ-BR8)'s leaning it reads that from the composed provider row, not from a pointer
-    variable a name gate can drop (D5). It **amends** WB-D4. Retiring option D stays
-    [`sso-backed-bedrock.md`](sso-backed-bedrock.md)'s call.
-
-    _Leaning:_ A. Sign in the bridge, for a provider carrying the Bedrock marker only, with a
-    standard-library signer that AWS's test vectors pin. Resolve static keys, then the
-    container endpoint (cached until five minutes before expiry), then a bearer. Runtime ships
-    first; mantle waits on a measured service name and base path.
-
-    <!-- vantage: oq id=OQ-BR10 leaning="A: the bridge SigV4-signs its own upstream requests for a Bedrock-marked provider, with a standard-library signer pinned by AWS's published test vectors, resolving static keys, then the aws-auth container endpoint cached until Expiration minus 5 minutes, then AWS_BEARER_TOKEN_BEDROCK unsigned. Runtime first; mantle only once its SigV4 service name and base path are measured. Amends WB-D4; leaves retiring option D to sso-backed-bedrock.md." -->
-
-    **Answer:**
-    > _(empty — fill in when decided)_
+10. <a id="OQ-BR10"></a>[**OQ-BR10**](#OQ-BR10) (answered 2026-09-24 by [DIR-BR2](#decision-ledger)):
+    **Should the wire bridge sign its own upstream requests with SigV4?** Yes. The whole-matrix
+    requirement puts SSO on the bridge route, and the alternative, a key minted from the SSO
+    session, lives at most an hour. A standard-library signer pinned by AWS's published test
+    vectors, credentials resolved as static keys, then the `aws-auth` container endpoint (cached
+    until five minutes before expiry), then a bearer; runtime first, mantle once its service name
+    and base path are measured ([§6.7](#67-the-whole-matrix--every-agent-every-model-every-credential)).
+    **Still touches** [OQ-BR2](#OQ-BR2) (the marker is what the bridge signs for) and
+    [OQ-BR8](#OQ-BR8) (the bridge reads the adapter address from the composed provider row).
+    Amends WB-D4. Retiring [`sso-backed-bedrock.md`](sso-backed-bedrock.md)'s option D stays that doc's call.
 
 11. <a id="OQ-BR11"></a>[**OQ-BR11**](#OQ-BR11) (ruled 2026-09-24): **How does claude use
     native Bedrock for Anthropic ids and the bridge for the rest?** Both: a native profile and an
@@ -1806,6 +1823,8 @@ direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction)), and
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
 | DIR-BR1 | **Every agent reaches every Bedrock model its transport can carry, and every picker shows a current list an org can shape with one pack.** The maintainer's direction in review, given as a direction rather than a question: *"Claude should be able to use all of those models with basically no change."* How it is built is [OQ-BR9](#OQ-BR9)–[OQ-BR15](#OQ-BR15). The id is not a question id, because nothing was asked | 2026-09-24 | [§6.6](#66-every-bedrock-model-in-every-agent--the-direction) | — |
+| DIR-BR2 | **The whole matrix: every agent, every Bedrock model its transport can carry, every supported credential, SSO included, and every model one pick in the agent's own menu.** *"We need to support single sign on through all of the methods so I can use any model… So we got to support everything everywhere, the whole matrix."* agy is the one agent with no Bedrock transport ([§6.7](#67-the-whole-matrix--every-agent-every-model-every-credential)) | 2026-09-24 | [§6.7](#67-the-whole-matrix--every-agent-every-model-every-credential) | — |
+| OQ-BR10 | **The bridge signs its own requests (option A: a standard-library signer pinned by AWS's test vectors).** Answered by DIR-BR2: SSO on the bridge route rules out option B, whose minted key lives at most an hour. A over C (vendoring the AWS SDK's signer) is the implementer's call, taken to keep the hermetic build free of an AWS module | 2026-09-24 | [§6.7](#67-the-whole-matrix--every-agent-every-model-every-credential) | — |
 | OQ-BR11 | **Both claude profiles: native, and an everything profile.** *"if you only do native or the rest, then you'll never be able to switch between Claude and, say, OpenAI in one Claude session, which I think we'll want. So I guess just both options."* The everything profile routes by model id at the bridge: Anthropic ids pass through untranslated to Bedrock's Anthropic Messages route, everything else is translated. Amends the bridge's one-upstream rule. The leaning (two profiles, no routing) was overruled | 2026-09-24 | [§6.6](#66-every-bedrock-model-in-every-agent--the-direction) part 4 | — |
 
 ---
