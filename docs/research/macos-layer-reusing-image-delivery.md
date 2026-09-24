@@ -11,7 +11,7 @@ vantage:
 
 # Layer-reusing image delivery on the two Mac backends
 
-**Status:** RESEARCH, 2026-09-24; all three questions ruled the same day ([Decisions](#decisions)) — build the delta archive, and improve the first load where it measurably can be. Everything on Linux here is **MEASURED** in this jail. Everything
+**Status:** RESEARCH, 2026-09-24; all three questions ruled the same day ([Decisions](#decisions)) — build the delta archive, and improve the first load where it measurably can be. **Built the same day** in `deliverViaArchive` (placeholder seeding, the Apple Container delivery record, the single empty-set retry); how it works and what it measured through the real launch path are in [The delta archive](../reference/image-staging-vs-baking.md#the-delta-archive). Everything on Linux here is **MEASURED** in this jail. Everything
 about the Mac is **SOURCED** (read in upstream source at a named commit) or **INFERRED**. No Mac
 was used. [What only a Mac can confirm](#what-only-a-mac-can-confirm) lists the commands that
 settle each Mac claim.
@@ -382,16 +382,24 @@ measure on the Mac ([commands](#apple-container)).
   closes that gap. yolo computes the manifest digest locally when it writes the layout (it is in
   `index.json`), so the whole tree is then checked back to a value yolo produced itself.
   Measured working above (`…/yolo-jail@sha256:c7382a44…`).
-- **The delta archive opens no listener.** It adds no exposure beyond today's archive: a
-  temporary file in the image cache directory, handed to the same loader.
+- **The delta archive opens no listener.** It hands a temporary file to the same loader.
   - **An over-claimed present set fails closed.** That happens when a layer is pruned between
     the probe and the load. The loader then reports a missing blob and **writes no image**
     (MEASURED).
   - **An under-claimed present set costs only bytes.**
   - A zero-byte placeholder can never reach a store. Even if one were left in, it could not
     pass a digest check (MEASURED: `got sha256:e3b0c442…`).
-- **The layout directory is user-writable**, like today's archive. A same-user process could
-  swap a blob, and the digest check turns that into a failed load, not a substituted image.
+- **Where the layout sits is the security boundary** (corrected 2026-09-24, after the build). This
+  note first said a swapped blob only becomes a failed load. That holds for a blob alone, and it
+  is wrong for a writer who can also edit `index.json`: that writer can add a self-consistent
+  manifest and layers of its own, and the loader names the result with this launch's content ref.
+  Such a writer could also swap a blob for a symlink to any host file while the host tars the
+  layout. The image cache directory is such a place: every jail mounts it read-write at
+  `~/.cache`, so a running jail is that writer. The built delta archive therefore works in a
+  private per-attempt directory under the state dir's `image-delivery/`, which no jail mounts, and
+  the tar refuses any entry that is not the regular file it listed
+  ([the files are temporary](../reference/image-staging-vs-baking.md#archive-destinations)). A
+  same-user process on the host can still edit it, as it can edit anything the user owns.
 
 ---
 
@@ -519,6 +527,10 @@ python3 -c "import json,sys;[print(l['digest']) for l in json.load(open(sys.argv
 time delta "$B" "$W/present.txt" yolo-jail:lr-b "$W/d.tar"
 time container image load -i "$W/d.tar"      # does it import? how long is "Unpacking image"?
 container run --rm yolo-jail:lr-b hello; container image rm yolo-jail:lr-b
+# 2b. fail-closed: the same delta into a store WITHOUT A. It must exit nonzero and leave no image.
+container image rm yolo-jail:lr-a
+container image load -i "$W/d.tar"; echo "load rc=$? (want nonzero)"
+container image inspect yolo-jail:lr-b >/dev/null 2>&1 && echo "BAD: an image was left" || echo "ok: no image"
 # 3. what a present-set probe could read
 container image inspect yolo-jail:lr-a | head -60
 ```
@@ -527,6 +539,9 @@ What each step settles:
 
 - **Step 2 answers the open import question**: whether a layout with missing blobs imports at
   all.
+- **Step 2b answers whether an over-claim fails closed** on Apple Container. yolo's single retry
+  with the full archive fires only on a nonzero exit, so an exit 0 there would leave an image that
+  inspects as present and cannot run.
 - Its load time is roughly the unpack floor, because the ingest is only 28 MB. That splits the
   22 s.
 - If step 2 is refused, run step 3 of the podman list with `container image pull --scheme http

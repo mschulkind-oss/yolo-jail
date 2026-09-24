@@ -43,7 +43,8 @@ it builds contains none of them.
 | Image derivations, the install prefix, the name-only links, the image identity | `flake.nix` (`mkOciImage`, `installPrefix`, `jailPrefixLinks`, `imageIdentity`, `goSrc`, `shippedBinaries`) |
 | Build, failure report, content ref, GC roots | `internal/image` (`AutoLoadImage`, `buildFailureReport`, `JailImageRef`, `BuildJailPrefix`, `RegisterImageRoot`, `RegisterPrefixRoot`) |
 | Layer-aware delivery: the copier, the copy, its retry and report | `internal/image` (`BuildImageCopier`, `copyArgv`, `copyImageWithRetry`, `retryWouldHelp`, `ReadLayerInventory`, `ReportFor`, `PresentLayerDigests`) |
-| Destinations, and the namespace a store write runs in | `internal/image` (`ContainersStorageDest`, `OCIArchiveDest`, `DockerArchiveDest`, `deliverViaArchive`, `StoreWritePrefix`, `PodmanRootlessness`, `StoreWriteNote`) |
+| Destinations, and the namespace a store write runs in | `internal/image` (`ContainersStorageDest`, `OCILayoutDest`, `deliverViaArchive`, `StoreWritePrefix`, `PodmanRootlessness`, `StoreWriteNote`) |
+| The delta archive and Apple Container's delivery record | `internal/image` (`newDeliveryWorkDir`, `seedPlaceholders`, `removePlaceholders`, `tarLayoutConsuming`, `presentInImage`, `writeDeliveryRecord`, `recordedPresentDigests` in `deltaarchive.go`); `internal/paths` (`ImageDeliveryDir`); `internal/prune` (`PruneImageDelivery`) |
 | The machine-wide image-copy lock | `internal/image` (`lockImageCopy`, `ImageCopyLockPath`, the `LockImageCopy` seam) |
 | `yolo check`'s delivery preflight | `internal/image` (`UnsharePreflight`, `DeliveryPreflight`); `internal/cli/check` (`reportImageDelivery`) |
 | Which flake is built, and from where | `internal/reporoot` (`Resolve`, `BundledSourceDirFrom`) |
@@ -408,8 +409,8 @@ flowchart TD
     copier -->|"path"| lock["take the machine-wide image-copy lock,<br/>then image inspect again"]
     lock -->|"a peer delivered it meanwhile"| alias
     lock -->|"podman on Linux"| copy["podman info → Store write note;<br/>[podman unshare --] skopeo copy nix:image.json containers-storage:ref"]
-    lock -->|"Apple Container"| copyoci["skopeo copy nix:image.json oci-archive:tmp:ref,<br/>container image load -i, rm"]
-    lock -->|"podman on macOS"| copydock["skopeo copy nix:image.json docker-archive:tmp:ref,<br/>podman load -i, rm"]
+    lock -->|"Apple Container"| copyoci["present set from the delivery record; seed placeholders,<br/>skopeo copy nix:image.json oci:layout:ref, tar,<br/>container image load -i (a failed delta: once more, full), rm"]
+    lock -->|"podman on macOS"| copydock["present set from podman images; seed placeholders,<br/>skopeo copy nix:image.json oci:layout:ref, tar,<br/>podman load -i (a failed delta: once more, full), rm"]
     copy -->|"failed twice, or once for a named permanent cause"| abandon["refuse — no image written"]
     copy --> alias["point :latest at the new image, best-effort;<br/>tag stock-hex too when the launch was a stock one"] --> record
     copydock --> alias
@@ -500,8 +501,8 @@ no reverse lookup, and they can never drift apart.
 The image is **named on the way in**, and since layer-aware delivery that is STRUCTURAL rather
 than won. nix2container's `image.json` carries no repo:tag at all, so the copy's destination argv
 is the only name an image can get: `containers-storage:<content ref>` on podman/Linux, and the
-`<ref>` half of an `oci-archive:`/`docker-archive:` destination on the backends whose loader takes
-a file. There is no baked `:latest` left for a post-load retag to read. (`StreamRepoTag`, which
+`<ref>` half of the `oci:<layout>:<ref>` destination on the backends whose loader takes a file
+(the loader names the image from the layout's ref annotation). There is no baked `:latest` left for a post-load retag to read. (`StreamRepoTag`, which
 bought the same property by overriding the stream archive's `RepoTags`, is deleted with the
 stream.) Naming it *after* the load — `podman tag :latest <ref>` — read a shared mutable name a
 second time with nothing serialising loads across workspaces, and a concurrent launch of a
@@ -802,38 +803,152 @@ runtime section's subject.
 #### Archive destinations
 
 Two backends cannot be copied into from the host, for unrelated reasons, and `deliverViaArchive`
-serves both: the copy writes an archive in the runtime loader's own format, the loader reads it,
-and the file is removed on the way out.
+serves both. The copy writes an OCI image layout, yolo tars it into an uncompressed `oci-archive`,
+the runtime's loader reads that, and both files are removed on the way out.
 
-| Backend | Why no direct copy | Destination, then loader |
+| Backend | Why no direct copy | Destination, then loader | Present set |
+| :--- | :--- | :--- | :--- |
+| **Apple Container** | it has no `containers-storage` at all; `container image load` takes a file | `oci:<tmp layout>:<ref>`, tarred, then `container image load -i` | yolo's own delivery record ([below](#the-delta-archive)) |
+| **podman on macOS** | its store is inside the Podman Machine VM, which shares the user's home and `/private` and not `/nix`; a local `containers-storage:` copy would write a store the VM never reads — an image that exists on the Mac and cannot be run | `oci:<tmp layout>:<ref>`, tarred, then `podman load -i`, which uploads the file over podman's own connection into the VM | `PresentLayerDigests`, the same two argvs the Linux report uses, answered by the remote podman |
+
+In the destination string the directory comes first and the ref last, because skopeo splits the
+reference at the first colon and the ref contains one. The layout copy always carries
+`--dest-oci-accept-uncompressed-layers` (`copyArgv` adds it for an `oci:` destination). This is
+what makes reuse possible, not a size choice. nix2container's layers are uncompressed, so each
+blob's digest is its diffID, the value a present set holds. A gzipped layout would rename every
+blob to a digest nothing on the other side can match.
+
+**The files are temporary, and they live where no jail can reach them.** Each attempt gets a new
+directory, mode 0700, at `~/.local/share/yolo-jail/image-delivery/<key>-<random>.delivery.tmp/`,
+holding `layout/` (what the copier writes) and `image.oci-archive` (what the loader reads). The
+launch removes it on the way out.
+
+- **Not in `cache/`.** Every jail mounts the cache read-write at `~/.cache`. A running jail could
+  then edit the layout while a delivery is in flight. It could repoint `index.json` at a manifest
+  of its own, which the loader would name with this launch's content ref and every later launch
+  of that ref would run. It could also swap a blob for a symlink to any host file while the host
+  tars it. From C9 until the delta archive, the archive itself sat in `cache/images` and had the
+  first exposure. `paths.ImageDeliveryDir` states the rule. As defense in depth, the tar opens each
+  file `O_NOFOLLOW` and refuses one that is not the regular file the directory walk listed.
+- **A new directory per attempt.** A killed launch's leftover, placeholders included, is never the
+  directory the next copy writes into. Otherwise a stale zero-byte placeholder could be taken for a
+  written blob and shipped as a zero-byte layer. `PruneImageDelivery` reclaims a leftover once the
+  newest entry in it is an hour old, in `yolo prune` and in the automatic housekeeping slot.
+- **Invisible to the degraded fallback.** `newestTars` scans `cache/images/*.tar`, so it never sees
+  these files. A kept archive there would let it load one on the stale-image path and then claim
+  `:latest` for an image named by its content ref.
+
+The tar **consumes** the layout, deleting each blob once it is archived, so a full archive peaks at
+about one image of transient disk, not two. The cost is that a storage reset re-copies rather than
+re-loading a kept file, the trade the streamed load already made.
+
+##### The delta archive
+
+Both loaders read an `oci-archive` by extracting it and copying from the resulting layout, and
+that copy asks the destination for each blob **before** opening its file. So a blob the destination
+already holds does not need to be in the archive at all, as long as the manifest still names it.
+That is the **delta archive**: its manifest names every layer, and its `blobs/` holds only the
+layers outside the **present set** (the layer digests the destination already holds). Both terms
+were coined in
+[the research that ruled it](../research/macos-layer-reusing-image-delivery.md#terms)
+([`OQ-LR1`](../research/macos-layer-reusing-image-delivery.md#OQ-LR1)). A docker-archive cannot carry one, because its reader refuses a tarball with a layer
+file missing, which is why podman on macOS moved off it.
+
+The existing copier writes one through **placeholder seeding** (`deltaarchive.go`):
+
+1. Create a zero-byte file at `blobs/sha256/<hex>` for each present digest this image has.
+2. Run `skopeo copy nix:<image.json> oci:<layout>:<ref>`. The OCI layout destination treats an
+   existing file as an already-written blob, so it writes only the others.
+3. Delete every placeholder still empty, then tar the layout.
+
+skopeo records the source's layer sizes, not the placeholders' zero, so the manifest is
+byte-identical to the full image's.
+
+**An empty present set is the full archive**, through the same argv and the same loader. That is
+what makes the failure rule one mechanism and not two:
+
+- **Fail closed, retry once.** A delivery whose **loader** fails with a non-empty set is repeated
+  exactly once with an empty set, and the launch says so in one line (`The delta image archive (N layer(s) left
+  out …) did not load; retrying once with the full archive.`). An over-claimed set, such as a layer
+  removed between the probe and the load, makes `podman load` refuse with no image written, so the
+  retry starts clean. A failure with an empty set fails the launch as it always has. A copier or
+  tar failure is **not** retried here: the present set cannot cause one, so the full archive would
+  fail the same way, and the copy already has its own single retry for a transient cause.
+- **An under-claim costs bytes.** Every approximation `PresentLayerDigests` makes is one: it
+  enumerates only yolo's images, and it answers empty when it cannot run.
+- **A copier that stops honoring placeholders is benign.** It writes the real blob over the
+  placeholder. `removePlaceholders` keeps any seeded file that is no longer empty, the archive is
+  simply full-size, and the launch prints a `Note:` saying so.
+
+The placeholder behavior is pinned against the real `.#imageCopier` by
+`TestPlaceholderSeedingIsHonoredByTheRealCopier`, and the retry against a real remote podman by
+`TestArchiveDeltaRetryRecoversAnOverClaim` (both in `integration/archivedelta_test.go`). The
+research's alternative, the "robust variant", writes the full layout and deletes the present blobs
+before tarring. It relies on nothing in the copier, but it pays a full local write on every
+delivery, which is most of what the delta removes. It is the fallback if that pin ever goes red.
+
+**Apple Container's present set is yolo's own delivery record** ([`OQ-LR3`](../research/macos-layer-reusing-image-delivery.md#OQ-LR3)). After a successful load,
+`image-delivery/<key>.delivered.json` records the ref and the layer digests just delivered. Only
+yolo writes these records: they sit in the state directory beside the attempt directories, outside
+every jail mount. A record
+counts only while `container image inspect <ref>` exits 0, the same exit-status question the
+launch already asks to decide whether a ref is loaded, so no Apple Container output format is
+parsed. A record whose ref is gone is deleted when it is next read: Apple Container has no yolo
+image reaper to do it ([`OQ-BF6`](../design/disk-levers-and-backfill.md#OQ-BF6)), so this is how a record is reaped with its image. A record whose
+inspect could not run at all is kept and not counted, because "gone" and "could not ask" are
+different answers.
+
+The "one retry" rule rests, on this backend, on an **UNMEASURED** premise: that
+`container image load` exits nonzero when a manifest names a blob neither the archive nor its
+content store holds. The research reads that in Apple Container's import code (SOURCED). If it
+exited 0 instead, an over-claim would leave an image that inspects as present and fails at
+`container run`, and no retry would fire. An over-claim is narrow here, because a record is written
+only after a load of exactly those layers under exactly that content ref, and `just load` loads
+`yolo-jail:latest`, never a content ref. The Mac commands include the check.
+
+**The launch reports what was sent.** The archive arm prints the exact split and the archive's
+real size, for example
+`Copied image: 2 layer(s), 26 MB sent; 90 layer(s), 3.2 GB reused from podman's store (a 27 MB
+archive)`. After a retry it describes the archive that landed, not the one planned.
+
+**MEASURED 2026-09-24, Linux only.** The run used nested rootful podman 5.8.6 as a **remote**
+client (`CONTAINER_HOST` at a private `podman system service`), skopeo 1.24.0 from `.#imageCopier`,
+and the real `AutoLoadImage` macOS-podman arm. The image pair was `.#ociImage` with
+`YOLO_EXTRA_PACKAGES` empty (A, 91 layers) and `["hello"]` (B, 92 layers). The research ran the
+same shape.
+
+| Delivery | The previous arm: `docker-archive` + `podman load -i` | The delta arm |
 | :--- | :--- | :--- |
-| **Apple Container** | it has no `containers-storage` at all; `container image load` takes a file | `oci-archive:<tmp>:<ref>`, then `container image load -i` |
-| **podman on macOS** | its store is inside the Podman Machine VM, which shares the user's home and `/private` and not `/nix`; a local `containers-storage:` copy would write a store the VM never reads — an image that exists on the Mac and cannot be run | `docker-archive:<tmp>:<ref>`, then `podman load -i`, which streams the file over podman's own connection into the VM |
+| A into an empty store | 24.2 s (write 6.8 s, load 17.3 s), 3,447,001,600 B | 27.7 / 27.9 s, a 3.2 GB archive (layout write 5.8 s, tar 1.2 s, the rest the load) |
+| B into a store holding A | 10.1 s (write 6.7 s, load 3.3 s), 3,447,376,384 B | **1.9 / 1.8 s**, a 27 MB archive: 2 layers sent, 90 reused |
 
-In the destination string the file comes first and the ref last, because skopeo splits an archive
-reference at the first colon and the ref contains one. Neither backend gets the layer **reuse** — an
-archive is a sequential tar again — but both get the layer plan and lose the intermediate write:
-Apple Container used to write two full-size files per load and needed a skopeo or a podman on
-`PATH` to convert between them.
-
-**The archive is temporary, and its name is chosen so the degraded fallback cannot see it.** It
-sits in the image cache directory (sized for a multi-gigabyte file), keyed by store path,
-with a suffix that does not end in `.tar`. A kept archive would let `newestTars` load it on the
-stale-image path and then claim `:latest` for an image named by its content ref; a leftover from a
-killed launch is removed before the copy, because skopeo will not write over an existing archive.
-The cost is that a storage reset re-copies rather than re-loading a kept file — the trade the
-streamed load already made.
+B loaded under `localhost/yolo-jail:<key>` from the layout's ref annotation. It has the same image
+ID as the docker-archive path (`41685f1d…`) and the research's manifest digest (`c7382a44…`), and
+`podman run … hello` printed `Hello, world!`. The first load is about 3.5 s slower here, the
+layout-plus-tar pass. On a Mac the first load is dominated by the 3.45 GB upload, which is
+unchanged.
 
 > [!WARNING]
-> **Both arms are built and UNMEASURED at this call site.** What *is* measured: on 2026-09-19 a
-> self-hosted arm64 Mac ran `container image load -i` against a skopeo-written `oci-archive` and the
-> resulting jail passed all six Apple Container parity tests — through `just load`'s archive hop,
-> which writes the same destination and calls the same loader from a *different caller*. And the
-> macOS nightly's shards load a skopeo-written `docker-archive` into podman on `macos-26-intel` (by
-> `podman load <` on stdin, not `-i`), so that format and that loader agree. Neither run exercised
-> `deliverViaArchive` itself, and no CI job builds `.#imageCopier` on x86_64-darwin, where it is a
-> **different skopeo** (the darwin nixpkgs input resolves an older minor, under the same `nix:`
-> patch). Those three are roadmap items; until they are done, treat a macOS delivery failure as the
+> **Neither Mac backend has run this.** What *is* measured on a Mac is older and indirect. On
+> 2026-09-19 a self-hosted arm64 Mac ran `container image load -i` against a skopeo-written
+> **gzip** `oci-archive`, through `just load`'s archive hop (a different caller), and the resulting
+> jail passed all six Apple Container parity tests. Apple Container now receives an
+> **uncompressed** archive, and a delta. The research reads its import code as accepting both
+> (SOURCED), so **the Apple Container half is UNMEASURED**. Three questions are open until the
+> [Mac commands](../research/macos-layer-reusing-image-delivery.md#what-only-a-mac-can-confirm)
+> run:
+>
+> 1. Does `container image load` import a layout whose missing blobs its content store holds? If
+>    it refuses, every Apple Container delta costs one retry and the launch still succeeds on the
+>    full archive.
+> 2. Does it exit nonzero when a missing blob is in neither place? The retry depends on that
+>    ([above](#the-delta-archive)).
+> 3. How long does its per-image ext4 unpack take?
+>
+> The podman half is measured on Linux against a remote client, not through a Podman Machine VM.
+> No CI job builds `.#imageCopier` on
+> x86_64-darwin, where it is a **different skopeo** (the darwin nixpkgs input resolves an older
+> minor, under the same `nix:` patch). Until those run, treat a macOS delivery failure as the
 > mechanism's, not the host's.
 
 #### The image-copy lock
@@ -885,6 +1000,7 @@ The rule throughout: **the launch refuses and names the remedy; it does not degr
 | A blob does not match its digest | skopeo and containers/storage both verify, so the copy fails naming the digest. It is **not** on the denylist (never measured here), so it is retried once and then abandons — the honest diagnosis is a corrupt nix store, with `nix store verify` as the remedy. |
 | The copy is killed, or the disk fills mid-copy | skopeo commits the image record **last**, so orphan blobs remain and no image exists under the ref. The next launch asks the same inspect, gets the same answer, and re-copies over the blobs already written. Nothing is left half-named or runnable. |
 | Another launch is copying | The image-copy lock serialises yolo's own launches; containers/storage's own locking covers anything else. **No timeout of ours** anywhere on the copy — a timeout would turn a slow neighbour into a failed launch. |
+| An archive delivery's loader fails with a non-empty present set | Retried **once** with an empty present set — the full archive, same argv and loader — announced in one line. An over-claimed set makes `podman load` refuse with no image written (measured), so the retry starts clean. A failure of the full archive fails the launch, and so does a copier or tar failure, which the present set cannot cause. |
 | An image record present with its layers missing | `image inspect` succeeds, the launch runs, and the container start fails. Out of scope for delivery. |
 
 Every abandoned copy prints skopeo's own stderr tail under a line saying that **no image was
@@ -1130,8 +1246,8 @@ no image and nothing to substitute.
 | Backend | Image | yolo's binaries | `packages:` |
 | :--- | :--- | :--- | :--- |
 | podman on Linux | `skopeo copy nix:… containers-storage:…`, layer-negotiated, no archive; inside `podman unshare` on a rootless store | two `:ro` mounts; prebuilt or `nix build .#installPrefix` | baked, or store-delivered on opt-in |
-| podman on macOS | `skopeo copy nix:… docker-archive:…`, then `podman load -i`, then the archive is removed — the store is inside the Podman Machine VM, which does not share `/nix`, so there is no local store to negotiate with; ⚠ [unmeasured at the launch call site](#archive-destinations). The nix build may offload to a builder container | same mounts; a built (store-path) prefix is refused unless the VM shares `/nix` and `YOLO_NIX_HOST_DAEMON` says so | baked (no shared store) |
-| Apple Container | `skopeo copy nix:… oci-archive:…`, then `container image load -i`, then the archive is removed — one write instead of two, and nothing retained; the format and loader measured on hardware, ⚠ [the launch call site not](#archive-destinations) | same mounts, `:ro` ignored; not exercised on hardware | baked (cannot bind-mount the store) |
+| podman on macOS | a [delta archive](#the-delta-archive) — `skopeo copy nix:… oci:…`, tarred, then `podman load -i`, then both are removed; the archive leaves out the layers podman already holds, because the store is inside the Podman Machine VM, which does not share `/nix`, so there is no local store to negotiate with; ⚠ [measured on Linux only](#archive-destinations). The nix build may offload to a builder container | same mounts; a built (store-path) prefix is refused unless the VM shares `/nix` and `YOLO_NIX_HOST_DAEMON` says so | baked (no shared store) |
+| Apple Container | a [delta archive](#the-delta-archive) — `skopeo copy nix:… oci:…`, tarred, then `container image load -i`, then both are removed; the present set is yolo's own delivery record; ⚠ [not run on a Mac](#archive-destinations) | same mounts, `:ro` ignored; not exercised on hardware | baked (cannot bind-mount the store) |
 | `macos-user` | none | the host's own binary | a `buildEnv` profile on PATH — [`nix-across-backends.md`](nix-across-backends.md) |
 
 ## Non-goals
@@ -1171,7 +1287,7 @@ ones cited from sibling docs and code comments and are never renumbered.
 | OQ-7 | **Do not strip the `git describe` stamp from the bundle's binaries.** The stamp no longer moves the image (stamped bytes are prefix content), so removing it would buy a cheaper `runCommand` at the price of the fallback the in-jail version banner keeps. | 2026-09-06 |
 | C9 | **Layer-aware delivery** is the candidate id for [the layer plan plus the negotiating copy](#delivering-into-the-runtime), cited by that id from `internal/image`, `internal/prune`, `internal/cli/check` and the integration harness. It is a name, not a ruling; the rulings are the `OQ-LI` rows. | 2026-09-09 |
 | OQ-LI1 | The patched copier's **binary cache is an optimisation and may never become load-bearing** — a miss builds it, and nothing is wired to the miss. Losing the cache costs time only, and no path may require `--accept-flake-config` to function. | 2026-09-08 |
-| OQ-LI2 | **Apple Container shipped in the same pass as podman/Linux**, not deferred: the objection was that nobody could measure it, a fact about the project rather than the backend, so a backend's measurement is a **precondition** of trusting its delivery rather than a follow-up. For both macOS arms that precondition is still [outstanding at the call site](#archive-destinations). | 2026-09-08 |
+| OQ-LI2 | **Apple Container shipped in the same pass as podman/Linux**, not deferred: the objection was that nobody could measure it, a fact about the project rather than the backend, so a backend's measurement is a **precondition** of trusting its delivery rather than a follow-up. For both macOS arms that precondition is still [outstanding at the call site](#archive-destinations): the delta archive both now take is measured on Linux against a remote podman, and Apple Container's half of it is UNMEASURED. | 2026-09-08 |
 | OQ-LI3 | **Keep the extras tier — three tiers, not two.** It is not transition scaffolding: store delivery is opt-in and podman-on-Linux only, so every macOS, Apple Container and un-opted Linux launch still bakes `packages:`. An opted-in launch simply has no extras tier. | 2026-09-08 |
 | OQ-LI4 | **Refuse a per-build `created` timestamp**, and never pick a date to feed a sort: it would trade content addressing away for an ordering. The **load sentinel** is the recency instrument if an order is ever wanted. Its other half — ordering prune's keep-window by sentinel recency — is superseded: [`OQ-LS3`](image-retention.md#why-its-this-way) deleted the window, and the `CreatedAt` sort now orders only the report. | 2026-09-08 |
 | OQ-LI5 | **One delivery mechanism, no way back**: the legacy streamer is deleted rather than kept behind a flag, and a failed copy abandons the launch. A second path no launch exercises is broken by the time anyone reaches for it. This retired R3 — two delivery mechanisms indefinitely — by removing it rather than accepting it, and R8 is what replaced it. | 2026-09-08 |
@@ -1208,10 +1324,12 @@ values themselves are stated.
 | Image creation time | absent, so nix2container's constant `0001-01-01T00:00:00Z` | `mkOciImage` (`flake.nix`) |
 | The copier | `.#imageCopier` = nix2container's `skopeo-nix2container`, built against this flake's own nixpkgs | `packages.imageCopier` (`flake.nix`); `image.ImageCopierAttr` |
 | Copier out-link (its GC root) | `build/image-copier-<sha16 of repo root>` | `image.ImageCopierOutLink` |
-| Copy argv | `[<runtime> unshare --] <copier> --insecure-policy copy nix:<image.json> <dest>` | `copyArgv`, `StoreWritePrefix` |
+| Copy argv | `[<runtime> unshare --] <copier> --insecure-policy copy [--dest-oci-accept-uncompressed-layers] nix:<image.json> <dest>`, the flag on an `oci:` layout destination only | `copyArgv`, `StoreWritePrefix` |
 | Copy retries | at most 1, immediate; none for a denylisted cause; no timeout | `copyImageWithRetry`, `retryWouldHelp` |
 | Copier stderr kept for a failure report | last 12 lines | `copyTailLines` |
-| Transient archives | `cache/images/<sha16>.oci-archive.tmp` (Apple Container), `.docker-archive.tmp` (podman on macOS) | `archiveTempPath`, `ociArchiveSuffix`, `dockerArchiveSuffix` |
+| Transient archives and layouts | `~/.local/share/yolo-jail/image-delivery/<sha16>-<random>.delivery.tmp/`, mode 0700, one per attempt, holding `layout/` and `image.oci-archive`; both archive backends | `paths.ImageDeliveryDir`, `newDeliveryWorkDir`, `DeliveryWorkSuffix` |
+| Their leftover sweep | a directory whose newest entry is an hour old, by `yolo prune` and the housekeeping slot | `prune.PruneImageDelivery`, `imageCacheTmpGraceFloor` |
+| Apple Container delivery records | `~/.local/share/yolo-jail/image-delivery/<sha16>.delivered.json` (`{"ref":…,"layers":[…]}`), deleted when read after its ref is gone | `writeDeliveryRecord`, `recordedPresentDigests`, `deliveryRecordSuffix` |
 | Image-copy lock | `~/.local/share/yolo-jail/locks/image-copy.lock` | `image.ImageCopyLockPath` |
 | Delivery spans | `image.copier_build`, `image.copy_lock`, `image.layer_copy` | `AutoLoadImage` |
 | `yolo check` namespace probe | `podman unshare -- /bin/sh -c :`, 10 s timeout per subprocess | `unshareProbeArgv`; `deliveryProbeTimeout` (`internal/cli/check`) |
