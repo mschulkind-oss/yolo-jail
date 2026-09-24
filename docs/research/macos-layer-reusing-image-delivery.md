@@ -2,7 +2,7 @@
 title: "Layer-reusing image delivery on the two Mac backends"
 author: "Agent"
 date: 2026-09-24
-status: in-review
+status: accepted
 tags: [research, macos, image-delivery, podman, apple-container]
 summary: "Can podman-on-macOS and Apple Container get the per-layer reuse skopeo gives podman on Linux? Measured on Linux, sourced for the Mac side. A delta archive gets it with no new listener, but Apple Container still rebuilds its ext4 snapshot for every new image."
 vantage:
@@ -11,7 +11,7 @@ vantage:
 
 # Layer-reusing image delivery on the two Mac backends
 
-**Status:** RESEARCH, 2026-09-24. Everything on Linux here is **MEASURED** in this jail. Everything
+**Status:** RESEARCH, 2026-09-24; all three questions ruled the same day ([Decisions](#decisions)) — build the delta archive, and improve the first load where it measurably can be. Everything on Linux here is **MEASURED** in this jail. Everything
 about the Mac is **SOURCED** (read in upstream source at a named commit) or **INFERRED**. No Mac
 was used. [What only a Mac can confirm](#what-only-a-mac-can-confirm) lists the commands that
 settle each Mac claim.
@@ -535,13 +535,12 @@ What each step settles:
 
 ---
 
-## Open questions
+## Decisions
 
-1. 💬 **OQ-LR1: Build the delta archive for the two Mac backends?** It is the only option that
+1. <a id="OQ-LR1"></a>[**OQ-LR1**](#OQ-LR1) (ruled): Build the delta archive for the two Mac backends?** It is the only option that
    reuses layers with no listener and no new binary. It helps the maintainer's day-to-day Mac and
    does nothing for CI's ephemeral runners.
 
-   <!-- vantage: oq id=OQ-LR1 leaning="Yes, after the Mac run: build it in deliverViaArchive as a present-set parameter (empty set = today's archive, retry once with it), if the podman step-1 vs step-2 run shows the upload dominates and Apple Container imports a layout with missing blobs." -->
 
    _Leaning:_ Yes, once the Mac commands above confirm two things. First, that on Podman Machine
    the upload is most of today's incremental cost. Second, that `container image load` imports a
@@ -549,36 +548,34 @@ What each step settles:
    registry route for Apple Container.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-24 (maintainer): build it.** "yes build" — for both Mac backends, in `deliverViaArchive`, with the empty present set as today's full archive and the single retry. Built after this ruling, not after the Mac run; the Mac run now verifies it rather than gating it.
 
-2. 💬 **OQ-LR2: Is the first load worth its own work?** On CI's ephemeral Intel runners, reuse
+2. <a id="OQ-LR2"></a>[**OQ-LR2**](#OQ-LR2) (ruled): Is the first load worth its own work?** On CI's ephemeral Intel runners, reuse
    cannot help. The candidates are:
    - a gzip archive (2.8× fewer bytes, CPU paid);
    - `podman machine ssh` reading over virtiofs;
    - on machines with `/nix` shared, a Linux copier running inside the VM, which is exactly the
      Linux path.
 
-   <!-- vantage: oq id=OQ-LR2 leaning="Measure first: time the gzip archive and the machine-ssh virtiofs pull on the Intel CI runner; only the /nix-shared in-VM copier is worth building, and only if it is several times faster." -->
 
    _Leaning:_ Measure before building. The in-VM copier is the only candidate that removes the
    archive entirely, and CI already shares `/nix`. Every other candidate is a constant-factor
    change to a cost CI pays once per job.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-24 (maintainer): yes, where it can be improved.** "if we can improve it, yes" — measure the candidates (the gzip archive, and the in-VM copier where `/nix` is shared) on the Mac runners, then build what measurably wins.
 
-3. 💬 **OQ-LR3: What is Apple Container's present-set probe?** Podman has one:
+3. <a id="OQ-LR3"></a>[**OQ-LR3**](#OQ-LR3) (decided): What is Apple Container's present-set probe?** Podman has one:
    `PresentLayerDigests`. For Apple Container the choice is `container image inspect`, if it
    lists layer digests, or yolo's own record of which image.json it last delivered, confirmed by
    `container image list`.
 
-   <!-- vantage: oq id=OQ-LR3 leaning="Use yolo's own record of delivered image.json files, gated on the ref still being listed, because it needs no AC output format and an over-claim fails closed anyway." -->
 
    _Leaning:_ yolo's own record. It depends on no Apple Container output format, and a wrong
    answer only costs one retry with an empty set.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Delegated 2026-09-24 (maintainer: "isn't this an implementation question for you?"), decided as the leaning:** yolo's own record of the image it last delivered, valid only while `container image list` still shows that ref. It depends on no Apple Container output format, and a wrong answer costs one retry with an empty present set.
 
 ---
 
