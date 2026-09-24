@@ -52,6 +52,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // captureOnTerminate folds this session's in-jail edits into the overlay sidecars
@@ -87,6 +88,10 @@ func captureOnTerminate(workspace, runtime string, warn func(string)) {
 			surface:    path,
 			lastRender: filepath.Join(sidecarDir, s.Agent+"-"+s.Name+".last_render"),
 			overlay:    filepath.Join(sidecarDir, s.Agent+"-"+s.Name+".overlay.json"),
+			// The per-entry capture at config-list paths, read AND written — without it this
+			// teardown capture cannot know a path is a list path and would freeze the whole
+			// array into the overlay on every jail exit.
+			listCapture: filepath.Join(sidecarDir, s.Agent+"-"+s.Name+render.ListCaptureSuffix),
 		}); err != nil {
 			warn(fmt.Sprintf("could not capture %s/%s: %v (the next launch will capture it)",
 				s.Agent, s.Name, err))

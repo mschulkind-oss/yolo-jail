@@ -541,15 +541,17 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	overlays := packoverlay.Collect(loaded, render.Host(home, nil, hostOwnership()).Profile().AgentAutonomy,
 		overlayGateProfiles(render.KindHost))
 	for _, prob := range overlays.Problems {
-		pr.Printf("  [red]config-overlay refused[/red] — %s", prob)
+		pr.Printf("  [red]%s refused[/red] — %s", collectProblemKind(prob), prob)
 		rc = 1
 	}
 	for _, orphan := range overlays.Orphans {
 		// R2: inert, and named. Not an error — a pack the user did not select is not a
 		// mistake — but never silent either, which is the whole no-silent-skip invariant
-		// this command's census test enforces.
-		pr.Printf("  [yellow]config-overlay  %s[/yellow] [dim](pack %s)[/dim]",
-			orphan.Reason(), orphan.Pack)
+		// this command's census test enforces. Led by the kind the author WROTE: an
+		// ownerless config-list is inert by the same rule, and a line calling it a
+		// config-overlay would send its author looking for a declaration they never made.
+		pr.Printf("  [yellow]%s  %s[/yellow] [dim](pack %s)[/dim]",
+			orphan.KindName(), orphan.Reason(), orphan.Pack)
 	}
 
 	// THE DEPENDENCY PRE-FLIGHT (report-tiers.md's dependency rule, point 1). Every configured
@@ -671,6 +673,15 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 				detail(pr, "    [magenta]config-overlay keys from: %s[/magenta] [dim](below this "+
 					"surface's own managed layer, which still wins a conflict)[/dim]",
 					strings.Join(r.Overlays, ", "))
+			}
+			// Which packs appended ENTRIES to one of this surface's arrays (config-list, rule 5).
+			// An assembled array reads in the file exactly like one the owner declared, so this
+			// line is the only place the run says whose entries they are. Detail, beside its
+			// overlay twin: the per-entry account is `yolo config ls`'s.
+			if len(r.Lists) > 0 {
+				detail(pr, "    [magenta]config-list entries from: %s[/magenta] [dim](appended "+
+					"to the owner's array; a managed or computed value there still replaces "+
+					"it)[/dim]", strings.Join(r.Lists, ", "))
 			}
 			// The overlay keys the owner OUTRANKED, by name and by cause (finding F4). The line
 			// above says a conflict would go the owner's way; this one says one DID, and which
@@ -1277,3 +1288,16 @@ Examples:
 
 See ` + "`yolo describe`" + ` for what the current description resolves to, and
 ` + "`yolo host`" + ` for the host notch's own verbs.`
+
+// collectProblemKind is the kind a packoverlay.Collect problem is about, for the line that
+// refuses it: "config-list" for a malformed list contribution, "config-overlay" for every
+// other problem Collect reports. Read off the problem's own text, whose shape Collect fixes —
+// `pack <name>: config-list…` for a list — because the set carries its problems as strings,
+// and a list problem printed under a config-overlay label names a declaration the author
+// never wrote.
+func collectProblemKind(prob string) string {
+	if _, rest, ok := strings.Cut(prob, ": "); ok && strings.HasPrefix(rest, string(packdecl.KindConfigList)) {
+		return string(packdecl.KindConfigList)
+	}
+	return string(packdecl.KindConfigOverlay)
+}

@@ -442,6 +442,37 @@ func (t Target) SelectionPath(agent, name string) string {
 	return t.sidecarPath(agent, name, ".selection.json")
 }
 
+// ListCaptureSuffix and ListRecordSuffix are the file-name suffixes of the two config-list
+// records, exported for the one reader that joins a sidecar name onto a directory it
+// resolved itself (internal/cli's capture-on-terminate, which runs host-side over a
+// workspace's store) so the name has one spelling.
+const (
+	ListCaptureSuffix = ".list-capture.json"
+	ListRecordSuffix  = ".list-record.json"
+)
+
+// ListCapturePath is the `stateful` per-entry capture at the surface's list paths
+// (agentcfg.ListRecord), beside the overlay in the capture store — or "" when the target
+// keeps none. Its own file rather than a reserved key inside the overlay, because every
+// overlay reader (diff, promote, the entry count, the host prune) would read a marker as a
+// user key, and promote would copy it into a pack. Written only for a surface that HAS a
+// list path, so a surface without one keeps exactly the three sidecars it had.
+func (t Target) ListCapturePath(agent, name string) string {
+	return t.sidecarPath(agent, name, ListCaptureSuffix)
+}
+
+// ListRecordPath is the `rmw` record of the list entries yolo INSERTED into an agent-owned
+// file (agentcfg.ListInsertRecord), or "" when the target has nowhere to keep one. Under
+// ProvenanceDir rather than SidecarDir, for the same reason the provenance record is: the
+// host under `assert` keeps no capture store at all, and rmw is its only mechanism.
+func (t Target) ListRecordPath(agent, name string) string {
+	dir := t.ProvenanceDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, agent+"-"+name+ListRecordSuffix)
+}
+
 // sidecarPath joins one capture-sidecar leaf onto this target's store, or returns "" when
 // there is no store — so a caller that forgets to check gets a path it cannot write rather
 // than a relative one it can.

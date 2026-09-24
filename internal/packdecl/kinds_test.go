@@ -14,7 +14,7 @@ func TestKnownKindsCoverEveryConstant(t *testing.T) {
 		KindProgram, KindRequires, KindSkills, KindBriefing, KindFiles, KindConfig,
 		KindConfigOverlay, KindState, KindReadsHost, KindMount, KindEnv,
 		KindHook, KindAutonomy, KindProfile, KindProvider, KindLoophole,
-		KindService, KindAdapter,
+		KindService, KindAdapter, KindConfigList,
 	} {
 		fp, ok := FootprintOf(k)
 		if !ok {
@@ -28,8 +28,8 @@ func TestKnownKindsCoverEveryConstant(t *testing.T) {
 			t.Errorf("kind %q has an empty Claims description", k)
 		}
 	}
-	if got := len(KnownKinds()); got != 19 {
-		t.Errorf("KnownKinds() has %d entries, want 19 — a kind was added/removed without updating the test", got)
+	if got := len(KnownKinds()); got != 20 {
+		t.Errorf("KnownKinds() has %d entries, want 20 — a kind was added/removed without updating the test", got)
 	}
 }
 
@@ -76,8 +76,12 @@ func TestCombineRulesMatchDesign(t *testing.T) {
 		KindSkills:        CombineMerge,
 		KindBriefing:      CombineConcat,
 		KindConfigOverlay: CombineOverlay,
-		KindReadsHost:     CombineShared,
-		KindMount:         CombineShared,
+		// config-list is config-overlay's rule: ordered after the target's owner and never a
+		// collision — several packs appending to one array is the feature, and the first
+		// occurrence of an equal entry wins rather than conflicting.
+		KindConfigList: CombineOverlay,
+		KindReadsHost:  CombineShared,
+		KindMount:      CombineShared,
 		// requires is SHARED, not exclusive: many packs may require one binary, and none
 		// owns a path for it. That is the difference from program, which is exclusive
 		// precisely because it owns a launcher filename.

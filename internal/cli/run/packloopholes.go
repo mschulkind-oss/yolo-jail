@@ -200,6 +200,9 @@ var disclosureClasses = map[packdecl.Kind]disclosureClass{
 	packdecl.KindConfig:        disclosureSkip,
 	packdecl.KindConfigOverlay: disclosureSkip,
 	packdecl.KindHook:          disclosureSkip,
+	// config-list is config-overlay's call: it appends entries inside a surface a selected
+	// pack already renders, reads nothing on the host and runs nothing.
+	packdecl.KindConfigList: disclosureSkip,
 	// autonomy declares LAUNCH FLAGS, and the tempting reading — "a permission bypass must
 	// be disclosed" — picks the wrong instrument. This classifier prints per DECLARATION, so
 	// a read row here would announce `--yolo` on every launch of a jail that selected the

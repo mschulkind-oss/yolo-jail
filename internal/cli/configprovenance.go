@@ -29,6 +29,7 @@ package cli
 // only a surface another pack contributes to, or one carrying a retired key, reaches it.
 
 import (
+	"fmt"
 	"os"
 	"sort"
 	"strings"
@@ -37,6 +38,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
@@ -81,6 +83,34 @@ type overlayContribution struct {
 	// pack they dropped, and the only place that says so is a state-dir file they have never
 	// heard of.
 	Retired map[string]string
+	// Lists is the surface's config-list account (docs/design/additive-config-lists.md rule
+	// 5): one row per array the packs append entries to, sorted by path. Its own field rather
+	// than more Keys, because a list is attributed per ENTRY and to several packs at once,
+	// which a key → last-pack map cannot say.
+	Lists []listContributionRow
+}
+
+// listContributionRow is one array a config-list appends to: the contributing packs in fold
+// order with how many entries each declares there, and what — if anything — replaces the
+// assembled result.
+type listContributionRow struct {
+	Path  string // the RFC 6901 pointer
+	Packs []listPackEntries
+	// ReplacedBy names a layer that replaces the assembled array wholesale: "managed" (the
+	// owner DECLARES the path, or an ancestor as a non-object — always true, so it is read off
+	// the declaration) or "overlay" (this target's capture store holds a captured deletion or
+	// non-array edit there — MEASURED from the store). "" when neither. `computed` is not
+	// judged: it is built per boot from jail paths, which is why `render` omits it too.
+	ReplacedBy string
+	// CapturedAdd / CapturedRemove count the per-entry in-jail edits recorded at this path in
+	// the list-capture sidecar — what `yolo config diff` itemizes.
+	CapturedAdd, CapturedRemove int
+}
+
+// listPackEntries is one contributing pack's share of a list row.
+type listPackEntries struct {
+	Pack    string
+	Entries int
 }
 
 // overlayContributionRows resolves the config-overlay contributions landing on the given
@@ -135,12 +165,13 @@ func overlayContributionRows(t configTarget, agent, surface string) ([]overlayCo
 		}
 		row.Winners, row.Notch, row.NoRecordReason = surfaceProvenance(t, s)
 		row.Retired = retiredKeys(row.Winners)
+		row.Lists = listContributionRows(t, s, set.ListsFor(s.Agent, s.Name))
 		// A surface with NEITHER a live overlay NOR a retired key has nothing to report here.
 		// The retired half is why this is not the old `len(overlays) == 0` skip: an orphaned
 		// key's whole defining property is that no pack declares it any more, so a surface
 		// filtered on live contributions is exactly the one where the report is needed and
 		// exactly the one it would never reach.
-		if len(overlays) == 0 && len(row.Retired) == 0 {
+		if len(overlays) == 0 && len(row.Retired) == 0 && len(row.Lists) == 0 {
 			continue
 		}
 		for _, ov := range overlays {
@@ -155,6 +186,51 @@ func overlayContributionRows(t configTarget, agent, surface string) ([]overlayCo
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Surface < out[j].Surface })
 	return out, unresolved
+}
+
+// listContributionRows builds one surface's config-list rows: its contributions grouped by
+// path (sorted), each pack named once in fold order with the entries it declares there, plus
+// the replacement and the in-jail edits this target's stores record at the path. nil for a
+// surface no list targets — the overwhelmingly common answer.
+func listContributionRows(t configTarget, s manifest.Surface, lists []agentcfg.ListContribution) []listContributionRow {
+	if len(lists) == 0 {
+		return nil
+	}
+	overlay := jsonx.Plain(readOverlayValue(t.overlayPath(s.Agent, s.Name)))
+	var records map[string]agentcfg.ListRecord
+	if path := t.listCapturePath(s.Agent, s.Name); path != "" {
+		if data, err := os.ReadFile(path); err == nil {
+			_, records = agentcfg.ListCaptureRecords(data)
+		}
+	}
+	var out []listContributionRow
+	for _, path := range agentcfg.ListPaths(lists) {
+		row := listContributionRow{Path: path}
+		at := map[string]int{}
+		for _, l := range lists {
+			if l.Path != path {
+				continue
+			}
+			i, seen := at[l.Pack]
+			if !seen {
+				i = len(row.Packs)
+				at[l.Pack] = i
+				row.Packs = append(row.Packs, listPackEntries{Pack: l.Pack})
+			}
+			row.Packs[i].Entries += len(l.Add)
+		}
+		switch {
+		case agentcfg.ListPathReplacedBy(s.ManagedMap(), path):
+			row.ReplacedBy = "managed"
+		case agentcfg.ListPathReplacedBy(overlay, path):
+			row.ReplacedBy = "overlay"
+		}
+		if rec, ok := records[path]; ok {
+			row.CapturedAdd, row.CapturedRemove = len(rec.Add), len(rec.Remove)
+		}
+		out = append(out, row)
+	}
+	return out
 }
 
 // surfaceProvenance reads the recorded per-key winners for one surface at the notch this
@@ -254,9 +330,16 @@ func writeOverlayContributions(pr richtext.Printer, rows []overlayContribution) 
 		return
 	}
 	for _, row := range rows {
-		if len(row.Packs) > 0 {
-			pr.Printf("[bold]# %s → %s[/bold]  [dim]config-overlay from %s[/dim]",
-				row.Surface, row.Path, strings.Join(row.Packs, ", "))
+		if len(row.Packs) > 0 || len(row.Lists) > 0 {
+			var from []string
+			if len(row.Packs) > 0 {
+				from = append(from, "config-overlay from "+strings.Join(row.Packs, ", "))
+			}
+			if len(row.Lists) > 0 {
+				from = append(from, "config-list from "+strings.Join(listRowPacks(row.Lists), ", "))
+			}
+			pr.Printf("[bold]# %s → %s[/bold]  [dim]%s[/dim]",
+				row.Surface, row.Path, strings.Join(from, "; "))
 		} else {
 			// RETIRED-ONLY surface: no pack contributes to it any more, so naming contributors
 			// would print an empty list. The heading still has to appear, because the retired
@@ -308,6 +391,9 @@ func writeOverlayContributions(pr richtext.Printer, rows []overlayContribution) 
 					"[dim](measured at the %s notch)[/dim]", k, pack, winner, row.Notch)
 			}
 		}
+		for _, l := range row.Lists {
+			writeListContribution(pr, row.Surface, l)
+		}
 		pr.Printf("")
 	}
 	// The precedence footer only applies to LIVE contributions. Printing it for a
@@ -317,6 +403,15 @@ func writeOverlayContributions(pr richtext.Printer, rows []overlayContribution) 
 		pr.Printf("[dim]config-overlay keys fold in BELOW the owning pack's managed layer, so the " +
 			"owner still wins a genuine conflict. Drop the contributing pack from `packs` to " +
 			"remove them.[/dim]")
+	}
+	if anyLiveList(rows) {
+		// The list twin of the precedence footer, and its remedy differs in the half that
+		// matters: dropping the pack removes ITS entries, never the array or an entry the user
+		// added themselves (per-entry capture, OQ-AL1).
+		pr.Printf("[dim]config-list entries append after every config-overlay, in `packs` order, " +
+			"first occurrence winning; a captured edit, a computed value or the owner's managed " +
+			"layer can still replace the whole array. Drop the contributing pack from `packs` to " +
+			"remove its entries — an entry you added yourself stays.[/dim]")
 	}
 	if anyRetired(rows) {
 		// Said separately, because the remedy is the OPPOSITE of the live-overlay footer's:
@@ -334,6 +429,59 @@ func writeOverlayContributions(pr richtext.Printer, rows []overlayContribution) 
 func anyRetired(rows []overlayContribution) bool {
 	for _, row := range rows {
 		if len(row.Retired) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// writeListContribution prints one array's config-list line: the contributing packs in the
+// order their entries append, and either what the assembled array is or which layer replaces
+// it — the distinction rule 5 exists for — plus the in-jail edits recorded there.
+func writeListContribution(pr richtext.Printer, surface string, l listContributionRow) {
+	parts := make([]string, 0, len(l.Packs))
+	for _, p := range l.Packs {
+		parts = append(parts, fmt.Sprintf("%s (%d %s)", p.Pack, p.Entries, plural(p.Entries, "entry", "entries")))
+	}
+	who := strings.Join(parts, ", ")
+	switch l.ReplacedBy {
+	case "managed":
+		pr.Printf("  [magenta]%s[/magenta]  [yellow]entries from %s, but the owner's managed layer "+
+			"replaces this array — they do not reach the file[/yellow]", l.Path, who)
+	case "overlay":
+		pr.Printf("  [magenta]%s[/magenta]  [yellow]entries from %s, but a captured in-jail edit "+
+			"replaces this array — they do not reach the file[/yellow] [dim](yolo config reset %s "+
+			"restores the assembled list)[/dim]", l.Path, who, surface)
+	default:
+		pr.Printf("  [magenta]%s[/magenta]  [green]assembled: the lower layers' entries, then "+
+			"entries from %s[/green]", l.Path, who)
+	}
+	if l.CapturedAdd+l.CapturedRemove > 0 {
+		pr.Printf("    [dim]%d added and %d removed in-jail, per entry (yolo config diff %s)[/dim]",
+			l.CapturedAdd, l.CapturedRemove, surface)
+	}
+}
+
+// listRowPacks is every pack contributing to any of a surface's arrays, in first-seen order.
+func listRowPacks(rows []listContributionRow) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, r := range rows {
+		for _, p := range r.Packs {
+			if !seen[p.Pack] {
+				seen[p.Pack] = true
+				out = append(out, p.Pack)
+			}
+		}
+	}
+	return out
+}
+
+// anyLiveList reports whether any row carries a config-list contribution, so the list
+// precedence footer prints only when a list line precedes it.
+func anyLiveList(rows []overlayContribution) bool {
+	for _, row := range rows {
+		if len(row.Lists) > 0 {
 			return true
 		}
 	}

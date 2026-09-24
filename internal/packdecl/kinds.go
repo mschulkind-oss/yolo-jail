@@ -86,6 +86,30 @@ const (
 	// Ordered after the owner (later-wins), with per-key provenance recorded so an
 	// override of the owner's key is legible rather than silent.
 	KindConfigOverlay Kind = "config-overlay"
+	// KindConfigList: ENTRIES APPENDED TO ONE ARRAY of a config surface a pack owns,
+	// without replacing it (docs/design/additive-config-lists.md). A config-overlay is a
+	// JSON Merge Patch, and a merge patch replaces an array whole, so a pack wanting to add
+	// one package to pi's `packages` had to copy — and then silently drift from — every
+	// package another pack selected. This kind is the separate, deliberately narrow
+	// operation that design rules in, leaving config-overlay a pure merge patch:
+	//
+	//   {"kind": "config-list", "surface": "pi/settings", "path": "/packages",
+	//    "add": ["git:github.com/mschulkind/kilo-pi-provider"]}
+	//
+	// `path` is an RFC 6901 JSON Pointer (internal/jsonptr) and not a dotted path, because
+	// real keys contain dots; `add` is the JSON values to append. Entries fold AFTER every
+	// ordinary overlay (OQ-AL2): existing entries keep their order, then the FIRST
+	// occurrence of each contributed entry not already present, compared as whole JSON
+	// values. Only the higher layers — captured edits, computed, managed — can replace the
+	// final array. An ownerless target is inert and reported, as an ownerless overlay is.
+	//
+	// Surfaces whose mode reads the agent's own edits back (stateful, rmw) capture a list
+	// path PER ENTRY, or the first in-jail edit would freeze the contributed entries into a
+	// whole-array capture forever (OQ-AL1). All three composing mechanisms do today; what is
+	// still refused at launch is a KEYLESS (lines/raw) target, and any mechanism the engine's
+	// refusal table does not name (agentcfg.ListCaptureRefusal). That refusal and the fold
+	// are the engine's (internal/agentcfg); this package owns only the declaration.
+	KindConfigList Kind = "config-list"
 	// KindState: a home-relative subtree the pack writes at runtime, at a scope
 	// (workspace | machine). Machine scope leaks across workspaces by design and
 	// is review-worthy. Overlapping subtrees at DIFFERENT scopes conflict.
@@ -377,6 +401,16 @@ var footprints = map[Kind]Footprint{
 	KindConfigOverlay: {
 		Kind: KindConfigOverlay, Combine: CombineOverlay,
 		Claims: "a contribution to a config surface owned by another pack",
+	},
+	KindConfigList: {
+		// CombineOverlay, config-overlay's rule: ordered after the target's owner (pack
+		// order, then declaration order) and never a collision — several packs appending to
+		// one array is the whole feature, and an equal entry contributed twice is written
+		// once rather than refused. Not review-worthy: it writes inside a surface some
+		// selected pack already renders, and reads nothing on the host.
+		Kind: KindConfigList, Combine: CombineOverlay,
+		Claims: "entries appended to one array of a pack-owned config surface " +
+			"(after its overlays; never a replacement)",
 	},
 	KindState: {
 		Kind: KindState, Combine: CombineScoped, MayBeReviewWorthy: true,

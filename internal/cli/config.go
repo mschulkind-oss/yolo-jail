@@ -16,8 +16,11 @@ import (
 	"os"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonptr"
+	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -35,7 +38,9 @@ Subcommands:
                            contributing layers, and whether captured in-jail
                            edits are outranking every layer but computed
                            and managed. Then, per key, which pack contributed it
-                           via config-overlay and whether that contribution won.
+                           via config-overlay and whether that contribution won,
+                           and per array which packs appended entries to it via
+                           config-list and whether a higher layer replaces it.
   render <agent[/surface]> [flags]
                            Run the composition pipeline and print what it would
                            write, for every surface of <agent> (no writes). The
@@ -91,8 +96,11 @@ Surface selection:
 
 render flags:
   --explain          Print, per config key, which layer set it
-                     (defaults<host<workspace<overlay<managed),
-                     instead of the rendered file.
+                     (defaults<host<workspace<config-overlay<config-list
+                     <overlay<managed), instead of the rendered file — and,
+                     per array a config-list appends to, its entries in
+                     order with the pack each came from, or the layer that
+                     replaced the assembled array.
   --help, -h         Show this help.
 
 ls flags:
@@ -344,6 +352,13 @@ func configRender(t configTarget, args []string, out, errw io.Writer, color bool
 		}
 	}
 
+	// THE PACK CONTRIBUTIONS, collected once for every surface below: the config-overlay
+	// and config-list contributions the configured packs make, resolved the way `config ls`
+	// resolves them (same packs, same notch). Anything that could not be folded is SAID, on
+	// stderr beside the refusals, because a preview missing a contributor reads exactly like
+	// a complete one.
+	contribs := renderContributions(t, errw)
+
 	rc = 0
 	for _, s := range surfaces {
 		if surface != "" && s.Name != surface {
@@ -370,7 +385,7 @@ func configRender(t configTarget, args []string, out, errw io.Writer, color bool
 			}
 			continue
 		}
-		if err := renderSurface(t, s, explain, out, color); err != nil {
+		if err := renderSurface(t, s, contribs, explain, out, color); err != nil {
 			fmt.Fprintf(errw, "yolo config render: %s/%s: %v\n", s.Agent, s.Name, err)
 			rc = 1
 		}
@@ -388,7 +403,11 @@ const containerWorkspace = "/workspace"
 // --explain provenance to out.
 //
 // SCOPE, stated because A7 half-closed and half-documented this: render composes
-// defaults < host < managed. It does NOT supply the `computed` layer,
+// defaults < host < config-overlay < config-list < managed — the packs' contributions
+// included, because rule 5 of docs/design/additive-config-lists.md asks this command to
+// show an array ASSEMBLED from its inputs plus named contributions, and a preview that
+// folded neither could only ever show the owner's own list. It does NOT supply the
+// `computed` layer,
 // and that is a real limitation rather than an oversight — the computed builders
 // bake JAIL-ABSOLUTE, $HOME-derived paths (Env.McpWrappersBin() =
 // $HOME/.local/bin/mcp-wrappers, Env.GoBin() = $GOPATH/bin), so composing them
@@ -398,7 +417,8 @@ const containerWorkspace = "/workspace"
 // registrations), so the gap is visible rather than silent. Nor does it supply the
 // captured `overlay`: that is per-workspace state
 // under <workspace>/.yolo/prism/, and `yolo config diff` is the command for it.
-func renderSurface(t configTarget, s manifest.Surface, explain bool, out io.Writer, color bool) error {
+func renderSurface(t configTarget, s manifest.Surface, contribs *packoverlay.OverlaySet,
+	explain bool, out io.Writer, color bool) error {
 	// A11 (${workspace}) and "~" are both the TARGET's now, resolved by the same
 	// render.Target.Compose the boot path calls (host-render-target.md §8 step 3). This
 	// command previews the JAIL's file, so the compose target carries the container
@@ -409,7 +429,11 @@ func renderSurface(t configTarget, s manifest.Surface, explain bool, out io.Writ
 	// since [OQ-CR6], out of the bytes the boot render actually composes. See hostLayerFor.
 	hostBytes, note := hostLayerFor(t, s)
 
-	s, res, err := ct.Compose(s, render.Layers{HostBytes: hostBytes})
+	s, res, err := ct.Compose(s, render.Layers{
+		HostBytes: hostBytes,
+		Overlays:  contribs.For(s.Agent, s.Name),
+		Lists:     contribs.ListsFor(s.Agent, s.Name),
+	})
 	if err != nil {
 		return err
 	}
@@ -430,10 +454,21 @@ func renderSurface(t configTarget, s manifest.Surface, explain bool, out io.Writ
 		}
 		// ProvenanceLines is sorted "key\tlayer"; color the key cyan and the
 		// layer by its distinct hue.
+		//
+		// A key a config-list assembled an array under is MARKED here, because its layer
+		// alone would misreport it (rule 5): `packages  config-overlay:personal` reads as that
+		// overlay's array while several packs' entries survive in it. The mark points at the
+		// per-entry account printed below.
+		underList := listTopKeys(res.Lists)
 		for _, line := range res.ProvenanceLines() {
 			key, layer, _ := strings.Cut(line, "\t")
-			pr.Printf("  [cyan]%s[/cyan]\t%s", key, colorLayer(layer))
+			mark := ""
+			if underList[key] && layer != agentcfg.LayerConfigList {
+				mark = "  [dim](+ config-list entries, below)[/dim]"
+			}
+			pr.Printf("  [cyan]%s[/cyan]\t%s%s", key, colorLayer(layer), mark)
 		}
+		writeListExplain(pr, res.Lists)
 		return nil
 	}
 	pr.Print(header)
@@ -446,6 +481,104 @@ func renderSurface(t configTarget, s manifest.Surface, explain bool, out io.Writ
 	}
 	fmt.Fprintf(out, "%s\n", res.Encoded)
 	return nil
+}
+
+// renderContributions collects the configured packs' config-overlay and config-list
+// contributions for a preview, reporting on errw whatever could not be folded: a pack that
+// could not be resolved, and a malformed contribution (fatal at boot, where A12 applies; a
+// preview shows what it can and says what it left out). Never nil — an empty set answers
+// "no contribution" for every surface, which composes exactly as before the fold existed.
+//
+// The SAME packs and notch as `config ls`'s provenance report (overlayContributionRows), so
+// the preview and the per-key account cannot disagree about who contributes.
+func renderContributions(t configTarget, errw io.Writer) *packoverlay.OverlaySet {
+	packs, unresolved := configuredPacksForInspection()
+	if len(unresolved) > 0 {
+		fmt.Fprintf(errw, "yolo config render: not folded — could not be resolved: %s. Any "+
+			"config-overlay or config-list they declare is missing from this preview.\n",
+			describeUnresolved(unresolved))
+	}
+	set := packoverlay.Collect(packs, render.ProfileFor(t.notch).AgentAutonomy,
+		overlayGateProfiles(t.notch))
+	for _, prob := range set.Problems {
+		fmt.Fprintf(errw, "yolo config render: not folded — %s (a launch refuses this)\n", prob)
+	}
+	return set
+}
+
+// listTopKeys is the set of top-level keys the config-list paths of one render live under:
+// the keys whose one-word provenance label cannot tell the whole story.
+func listTopKeys(lists []agentcfg.ListProvenance) map[string]bool {
+	out := map[string]bool{}
+	for _, l := range lists {
+		if tokens, err := jsonptr.Parse(l.Path); err == nil && len(tokens) > 0 {
+			out[tokens[0]] = true
+		}
+	}
+	return out
+}
+
+// writeListExplain prints rule 5's per-entry account for every array a config-list touched:
+// the entries in final order with the source of each, headed by WHICH of the two things the
+// array is — assembled from the lower layers' entries plus named pack contributions, or
+// replaced wholesale by a higher layer, in which case the entries below it are what the
+// contributions assembled and not what the file holds.
+//
+// Sources are agentcfg's: `base` (the array the ordinary layers — defaults, host, workspace,
+// config-overlay — already held), `config-list:<pack>`, and `captured` (an in-jail edit).
+func writeListExplain(pr richtext.Printer, lists []agentcfg.ListProvenance) {
+	for _, l := range lists {
+		base, captured := 0, 0
+		var packs []string
+		seen := map[string]bool{}
+		for _, e := range l.Entries {
+			switch {
+			case e.Source == agentcfg.ListSourceBase:
+				base++
+			case e.Source == agentcfg.ListSourceCaptured:
+				captured++
+			case !seen[e.Source]:
+				seen[e.Source] = true
+				packs = append(packs, e.Source)
+			}
+		}
+		var how string
+		switch {
+		case len(packs) == 0:
+			how = fmt.Sprintf("assembled — the lower layers' %d %s; every contributed entry was "+
+				"already there", base, plural(base, "entry", "entries"))
+		default:
+			how = fmt.Sprintf("assembled — the lower layers' %d %s, then entries from %s",
+				base, plural(base, "entry", "entries"), strings.Join(packs, ", "))
+		}
+		if captured > 0 {
+			how += fmt.Sprintf(", then %d captured in-jail", captured)
+		}
+		if l.ReplacedBy != "" {
+			pr.Printf("  [bold]list %s[/bold]  [yellow]replaced by %s[/yellow] — the file holds "+
+				"that layer's value here, not the list assembled below [dim](%s)[/dim]",
+				l.Path, listReplacer(l.ReplacedBy), how)
+		} else {
+			pr.Printf("  [bold]list %s[/bold]  %s", l.Path, how)
+		}
+		for _, e := range l.Entries {
+			pr.Printf("    %s\t%s", oneLineJSON(e.Value), colorLayer(e.Source))
+		}
+	}
+}
+
+// listReplacer names the layer that replaced an assembled array, in a reader's words.
+func listReplacer(layer string) string {
+	switch layer {
+	case "managed":
+		return "the owner's managed layer"
+	case "computed":
+		return "the computed layer"
+	case "overlay":
+		return "a captured in-jail edit (yolo config reset discards it)"
+	default:
+		return layer
+	}
 }
 
 // hostLayerFor is the `host` layer a PREVIEW composes: the bytes, and the one-line note
@@ -527,9 +660,12 @@ func colorLayer(layer string) string {
 		"workspace": "cyan",    // workspace layer
 		"overlay":   "magenta", // capture-diff overlay (in-jail edits)
 		"managed":   "green",   // yolo-enforced, wins
+		// Other packs' contributions, keyed on the word before `:<pack>`.
+		"config-overlay": "yellow",
+		"config-list":    "yellow",
 	}
 	word := layer
-	if i := strings.IndexByte(word, ' '); i >= 0 {
+	if i := strings.IndexAny(word, " :"); i >= 0 {
 		word = word[:i]
 	}
 	if t, ok := tag[word]; ok {

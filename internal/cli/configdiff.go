@@ -22,6 +22,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -267,13 +268,24 @@ func configDiff(t configTarget, args []string, out, errw io.Writer, color bool) 
 	found := false
 	for _, s := range surfaces {
 		overlay := readOverlayValue(t.overlayPath(s.Agent, s.Name))
-		if overlayIsEmpty(overlay) {
+		// The per-entry capture at the surface's config-list paths is captured divergence
+		// too — the same kind of state, kept in its own file only so no overlay reader
+		// mistakes it for a key — so it is reported here and nothing else about the lists
+		// is: which PACKS contributed entries is a property of the render, and belongs to
+		// `config ls` and `config render --explain` (OQ-CR7).
+		listLines := listCaptureDiffLines(t.listCapturePath(s.Agent, s.Name))
+		if overlayIsEmpty(overlay) && len(listLines) == 0 {
 			continue
 		}
 		found = true
 		pr.Printf("[bold]# %s/%s → %s[/bold]", s.Agent, s.Name, surfacePathOrSidecar(s))
-		baseline := readLastRenderKeys(t.lastRenderPath(s.Agent, s.Name), s)
-		for _, line := range overlayDiffLines(overlay, baseline) {
+		if !overlayIsEmpty(overlay) {
+			baseline := readLastRenderKeys(t.lastRenderPath(s.Agent, s.Name), s)
+			for _, line := range overlayDiffLines(overlay, baseline) {
+				pr.Print(line)
+			}
+		}
+		for _, line := range listLines {
 			pr.Print(line)
 		}
 		pr.Printf("")
@@ -291,6 +303,32 @@ func configDiff(t configTarget, args []string, out, errw io.Writer, color bool) 
 	pr.Printf("[dim]These values were captured from in-jail edits and outrank every layer but `computed` and `managed`.[/dim]")
 	pr.Printf("[dim]Discard them with: yolo config reset %s[/dim]", surfaceIdentity(agent, surface))
 	return 0
+}
+
+// listCaptureDiffLines renders one line per captured list entry: the list path, `+` for an
+// entry an in-jail edit added and `-` for one it removed. Empty for a surface with no list
+// path, or one whose records are all empty (a list nobody edited in-jail).
+func listCaptureDiffLines(path string) []string {
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	paths, recs := agentcfg.ListCaptureRecords(data)
+	var lines []string
+	for _, p := range paths {
+		for _, e := range recs[p].Add {
+			lines = append(lines, fmt.Sprintf("  [magenta]%s[/magenta]  [green]+ %s[/green] [dim](added in-jail)[/dim]",
+				p, oneLineJSON(e)))
+		}
+		for _, e := range recs[p].Remove {
+			lines = append(lines, fmt.Sprintf("  [magenta]%s[/magenta]  [red]- %s[/red] [dim](removed in-jail)[/dim]",
+				p, oneLineJSON(e)))
+		}
+	}
+	return lines
 }
 
 func surfaceIdentity(agent, surface string) string {
@@ -470,9 +508,13 @@ func configReset(t configTarget, args []string, out, errw io.Writer, color bool)
 			// os.Remove("") would report a confusing ENOENT for a path nobody named.
 			continue
 		}
-		had := overlayKeyCountAt(overlayPath)
+		listCapturePath := t.listCapturePath(s.Agent, s.Name)
+		had, hadList := overlayKeyCountAt(overlayPath), listCaptureCountAt(listCapturePath)
 		removedAny := false
-		for _, p := range []string{overlayPath, lastRenderPath} {
+		// The list capture goes with the overlay: it IS captured edits (per entry, at the
+		// surface's config-list paths), and a reset that kept it would re-apply the discarded
+		// additions and removals on the next render.
+		for _, p := range []string{overlayPath, lastRenderPath, listCapturePath} {
 			if err := os.Remove(p); err == nil {
 				removedAny = true
 			} else if !os.IsNotExist(err) {
@@ -513,10 +555,17 @@ func configReset(t configTarget, args []string, out, errw io.Writer, color bool)
 			return 1
 		}
 		cleared++
-		if had > 0 {
+		switch {
+		case had > 0 && hadList > 0:
+			pr.Printf("Cleared [cyan]%s/%s[/cyan] — discarded %d captured %s and %d captured list %s.",
+				s.Agent, s.Name, had, plural(had, "key", "keys"), hadList, plural(hadList, "entry", "entries"))
+		case had > 0:
 			pr.Printf("Cleared [cyan]%s/%s[/cyan] — discarded %d captured %s.",
 				s.Agent, s.Name, had, plural(had, "key", "keys"))
-		} else {
+		case hadList > 0:
+			pr.Printf("Cleared [cyan]%s/%s[/cyan] — discarded %d captured list %s.",
+				s.Agent, s.Name, hadList, plural(hadList, "entry", "entries"))
+		default:
 			pr.Printf("Cleared [cyan]%s/%s[/cyan] — no captured edits (baseline re-seeded).", s.Agent, s.Name)
 		}
 	}
@@ -913,6 +962,11 @@ type captureLocation struct {
 	surface    string // the composed file the agent reads and may have edited
 	lastRender string // yolo's own last output, the baseline an edit is measured against
 	overlay    string // the accumulated captured edits (written)
+	// listCapture is the per-entry capture at the surface's config-list paths (read AND
+	// written). It is also where this capture learns WHICH paths are list paths — it passes
+	// no layers, so no contribution can tell it — and without it a capture would freeze the
+	// whole array into the overlay, the defect per-entry capture exists to end.
+	listCapture string
 }
 
 // captureSurface folds one surface's on-disk state into its overlay, returning the
@@ -925,9 +979,10 @@ func captureSurface(t configTarget, s manifest.Surface) (int, error) {
 		return -1, nil // not resolvable at this notch: the same answer as "no baseline"
 	}
 	return captureSurfaceAt(s, captureLocation{
-		surface:    path,
-		lastRender: t.lastRenderPath(s.Agent, s.Name),
-		overlay:    t.overlayPath(s.Agent, s.Name),
+		surface:     path,
+		lastRender:  t.lastRenderPath(s.Agent, s.Name),
+		overlay:     t.overlayPath(s.Agent, s.Name),
+		listCapture: t.listCapturePath(s.Agent, s.Name),
 	})
 }
 
@@ -946,6 +1001,10 @@ func captureSurfaceAt(s manifest.Surface, at captureLocation) (int, error) {
 		return -1, nil // no baseline: cannot tell an edit from yolo's own output
 	}
 	overlayJSON, _ := os.ReadFile(at.overlay)
+	var listCaptureJSON []byte
+	if at.listCapture != "" {
+		listCaptureJSON, _ = os.ReadFile(at.listCapture)
+	}
 
 	// Reuse the RENDERER's capture path rather than reimplementing the diff: a second
 	// implementation would be free to disagree with the boot render, which is the one
@@ -956,6 +1015,7 @@ func captureSurfaceAt(s manifest.Surface, at captureLocation) (int, error) {
 		LastRenderPresent: true,
 		LastRenderBytes:   lastRender,
 		OverlayJSON:       overlayJSON,
+		ListCaptureJSON:   listCaptureJSON,
 	})
 	if err != nil {
 		return 0, err
@@ -963,7 +1023,28 @@ func captureSurfaceAt(s manifest.Surface, at captureLocation) (int, error) {
 	if err := os.WriteFile(at.overlay, append(out.OverlayJSON, '\n'), 0o644); err != nil {
 		return 0, err
 	}
-	return overlayKeyCountAt(at.overlay), nil
+	// The per-entry half, written only when the surface HAS a list path (the sidecar named
+	// one) — nil otherwise, and then no file is created.
+	if out.ListCaptureJSON != nil && at.listCapture != "" {
+		if err := os.WriteFile(at.listCapture, append(out.ListCaptureJSON, '\n'), 0o644); err != nil {
+			return 0, err
+		}
+	}
+	return overlayKeyCountAt(at.overlay) + listCaptureCountAt(at.listCapture), nil
+}
+
+// listCaptureCountAt is how many captured list entries the list-capture sidecar at path
+// holds (adds plus removes), 0 when absent — the per-entry half of a surface's captured
+// edits, counted beside the overlay's keys.
+func listCaptureCountAt(path string) int {
+	if path == "" {
+		return 0
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	return agentcfg.ListCaptureEntryCount(data)
 }
 
 // userHostFileEntry is the `host_files` entry a `user` surface slug came from, or ok=false

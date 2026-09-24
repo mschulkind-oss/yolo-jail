@@ -77,6 +77,11 @@ type HostRenderResult struct {
 	// below the owner's managed layer, so it is invisible in the resulting file, and
 	// provenance nobody can read does not make it legible. Empty for the common case.
 	Overlays []string
+	// Lists names the packs contributing config-list ENTRIES to this surface, in fold order
+	// (docs/design/additive-config-lists.md rule 5) — Overlays' twin for the additive kind:
+	// an assembled array reads in the file exactly like one the owner declared, so which
+	// packs appended to it is said here. Empty for the common case.
+	Lists []string
 	// Outranked names the overlay keys this render ACCEPTS and then BEATS: a key a
 	// config-overlay declares that the owner's own managed layer — or its guarded autonomy
 	// posture, which folds into that layer at this notch — asserts too, so the overlay's
@@ -264,17 +269,26 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 		id := s.Agent + "/" + s.Name
 		path := expandHomePath(e, s.Path)
 
+		contribs := contribsFor(overlays, s.Agent, s.Name)
 		if s.ResolvedMode() == manifest.ModeUnrendered {
-			continue // declared but never written, at any target
+			// Declared but never written, at any target. A config-list aimed at it is inert —
+			// nothing is written, so there is nothing to refuse — and gets its own line, because
+			// an author reads a silent no-op exactly like entries that landed.
+			if packs := contribs.listPacks(); len(packs) > 0 {
+				out = append(out, HostRenderResult{Surface: id, Path: path, Lists: packs,
+					Action: "skipped: config-list has no effect — this surface is declared " +
+						"`unrendered`, so yolo writes no file to append to"})
+			}
+			continue
 		}
 		// PRUNE the ${workspace}-keyed branches rather than refusing the surface (see
 		// PruneWorkspaceKeyed). What remains is target-independent and renders; what was
 		// dropped is named, either in the surface's own result line or — when nothing
 		// survives — in the skip reason.
 		s, pruned := PruneWorkspaceKeyed(s)
-		surfaceOverlays := overlays.For(s.Agent, s.Name)
+		surfaceOverlays := contribs.overlayLayers()
 		if len(pruned) > 0 && layerIsEmpty(s.Managed) && layerIsEmpty(s.Defaults) &&
-			len(surfaceOverlays) == 0 {
+			len(surfaceOverlays) == 0 && len(contribs.listContribs()) == 0 {
 			out = append(out, HostRenderResult{Surface: id, Path: path, Pruned: pruned,
 				Action: "skipped: only ${workspace}-keyed keys, which have no host referent"})
 			continue
@@ -314,6 +328,17 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 					"does not implement"})
 			continue
 		}
+		// OQ-AL1's REFUSAL, keyed on the mechanism the census just resolved rather than on the
+		// declaration: a `stateful` surface under `assert` renders through `rmw`, and it is
+		// rmw's capture that decides whether a list path is kept per entry. A `refused:` row
+		// in both postures, so a dry run shows it before an --assert would reach the file.
+		if len(contribs.listContribs()) > 0 {
+			if refusal := agentcfg.ListCaptureRefusal(mechanism, s); refusal != "" {
+				out = append(out, HostRenderResult{Surface: id, Path: path, Pruned: pruned,
+					Lists: contribs.listPacks(), Action: "refused: " + refusal})
+				continue
+			}
+		}
 		// DYNAMIC MANAGED TABLES at the host notch. yolo owns each of these keys wholesale, so
 		// they are written by replacement (regenerateManagedTables) rather than deep-merged —
 		// and stripped from the managed layer so nothing merges them back. Without this an
@@ -346,6 +371,14 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 				Action: "refused: " + refusal.Reason()})
 			continue
 		}
+		// A CONFIG-LIST TYPE CONFLICT (rule 3) is a refusal too, and it is only discoverable
+		// by running the fold — so the probe runs the writer's own fold over a scratch copy,
+		// in both postures, for the reason the probe above runs at all.
+		if reason := hostListConflict(e, mechanism, s, path, tableLayer, contribs); reason != "" {
+			out = append(out, HostRenderResult{Surface: id, Path: path, Pruned: pruned,
+				Lists: contribs.listPacks(), Action: "refused: " + reason})
+			continue
+		}
 		// FIRST-APPLY detection, read BEFORE the write: the provenance record is the only
 		// per-home mark yolo leaves at this notch, so its absence is what "yolo has never
 		// asserted this surface here" means. Computed for both postures, because observe's
@@ -369,12 +402,12 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 		// Non-value losses from the canonical re-emit (a TOML file's comments). Computed in
 		// both postures for the same reason the overwrites are: the point is to see it before
 		// the write.
-		formatting := hostFormattingLosses(e, mechanism, s, path, tableLayer, surfaceOverlays)
+		formatting := hostFormattingLosses(e, mechanism, s, path, tableLayer, contribs)
 		// THE CHANGE PREDICATE, computed before the write for both postures — see
 		// HostRenderResult.WouldChange for what it means, and the two functions below it for
 		// how each mechanism answers. Both run the WRITER'S OWN fold over a scratch copy, so
 		// neither is a second model of the write.
-		wouldChange := hostMechanismWouldChange(e, mechanism, s, path, tableLayer, surfaceOverlays)
+		wouldChange := hostMechanismWouldChange(e, mechanism, s, path, tableLayer, contribs)
 		// The one-shot repairs this render will make to yolo's own unloadable values, read
 		// from the file BEFORE the write like every probe above it, and in both postures for
 		// the same reason: the point of a dry run is to see it coming.
@@ -392,6 +425,7 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 			}
 			out = append(out, HostRenderResult{Surface: id, Path: path, Action: action,
 				Overwrites: overwrites, Overlays: overlayPackNames(surfaceOverlays),
+				Lists:     contribs.listPacks(),
 				Outranked: outranked, Pruned: pruned, EntryLosses: losses,
 				FirstApply: firstApply, Formatting: formatting, WouldChange: wouldChange,
 				Repaired: repaired})
@@ -456,12 +490,12 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 			// the declared layers, so a key the user owns and a pack also declares would flip to
 			// the pack's value while adoption says it should not.
 			var sr *statefulRender
-			sr, werr = renderSurfaceStatefulDetail(e, s, nil, tableLayer, surfaceOverlays)
+			sr, werr = renderSurfaceStatefulDetail(e, s, nil, tableLayer, contribs)
 			if sr != nil {
 				archived = sr.archived
 			}
 		default:
-			werr = renderSurfaceRMWSurface(e, s, tableLayer, surfaceOverlays)
+			werr = renderSurfaceRMWSurface(e, s, tableLayer, contribs)
 		}
 		if werr != nil {
 			if refusal, isRefusal := asRMWRefusal(werr); isRefusal {
@@ -473,6 +507,7 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 		}
 		out = append(out, HostRenderResult{Surface: id, Path: path, Action: "rendered",
 			Overwrites: overwrites, Overlays: overlayPackNames(surfaceOverlays),
+			Lists:     contribs.listPacks(),
 			Outranked: outranked, Pruned: pruned, EntryLosses: losses,
 			FirstApply: firstApply, Formatting: formatting, WouldChange: wouldChange,
 			Archived: archived, Repaired: repaired})
@@ -532,11 +567,44 @@ func hostStatefulRefusal(s manifest.Surface, path string) *rmwRefusedError {
 // hostMechanismWouldChange is the change predicate, per mechanism. See
 // HostRenderResult.WouldChange for what the answer is used for.
 func hostMechanismWouldChange(e *Env, mechanism string, s manifest.Surface, path string,
-	computed map[string]any, overlays []agentcfg.Overlay) bool {
+	computed map[string]any, contribs *surfaceContribs) bool {
 	if mechanism == manifest.ModeStateful {
-		return hostStatefulWouldChange(e, s, computed, overlays)
+		return hostStatefulWouldChange(e, s, computed, contribs)
 	}
-	return hostSurfaceWouldChange(e, s, path, computed, overlays)
+	return hostSurfaceWouldChange(e, s, path, computed, contribs)
+}
+
+// hostListConflict reports a config-list type conflict this surface's render would refuse
+// on (rule 3), or "" when there is none — by running the WRITER'S OWN fold over a scratch
+// copy and writing nothing, per mechanism, so the dry run and the --assert cannot disagree.
+// Quiet for a surface no list targets: nothing about it can conflict.
+func hostListConflict(e *Env, mechanism string, s manifest.Surface, path string,
+	computed map[string]any, contribs *surfaceContribs) string {
+	if len(contribs.listContribs()) == 0 {
+		return ""
+	}
+	if mechanism == manifest.ModeStateful {
+		if _, err := composeStatefulSurface(e, s, nil, computed, contribs); err != nil {
+			if refusal, isRefusal := asRMWRefusal(err); isRefusal {
+				return refusal.Reason()
+			}
+			return err.Error()
+		}
+		return ""
+	}
+	s = agentcfg.SubstituteWorkspace(s, e.WorkspaceDir())
+	_, obj, _, err := readRMWSource(s, path)
+	if err != nil {
+		return "" // the codec/decode probe above already refuses what this cannot read
+	}
+	agentcfg.RepairRejected(s, obj)
+	if _, err := applyRMWLayers(e, s, obj, computed, contribs); err != nil {
+		if refusal, isRefusal := asRMWRefusal(err); isRefusal {
+			return refusal.Reason()
+		}
+		return err.Error()
+	}
+	return ""
 }
 
 // hostStatefulWouldChange is the `own` half of the change predicate: would an --assert alter
@@ -566,8 +634,8 @@ func hostMechanismWouldChange(e *Env, mechanism string, s manifest.Surface, path
 // It writes nothing — not the sidecars, not the selection record — which is what makes it safe
 // to run in the observe posture and, for confirmHostLosses, twice.
 func hostStatefulWouldChange(e *Env, s manifest.Surface, computed map[string]any,
-	overlays []agentcfg.Overlay) bool {
-	r, err := composeStatefulSurface(e, s, nil, computed, overlays)
+	contribs *surfaceContribs) bool {
+	r, err := composeStatefulSurface(e, s, nil, computed, contribs)
 	if err != nil {
 		return false
 	}
@@ -639,7 +707,7 @@ func hostRMWRefusal(s manifest.Surface, path string) *rmwRefusedError {
 // apply into a home whose files already hold exactly what the packs declare correctly reports
 // nothing to change (§4.1's "zero stored state on the render side").
 func hostSurfaceWouldChange(e *Env, s manifest.Surface, path string, computed map[string]any,
-	overlays []agentcfg.Overlay) bool {
+	contribs *surfaceContribs) bool {
 	s = agentcfg.SubstituteWorkspace(s, e.WorkspaceDir())
 	orig, obj, before, err := readRMWSource(s, path)
 	if err != nil {
@@ -660,7 +728,9 @@ func hostSurfaceWouldChange(e *Env, s manifest.Surface, path string, computed ma
 	// announce. In the same order as the writer, for the same reason the fold is borrowed
 	// rather than re-derived.
 	agentcfg.RepairRejected(s, obj)
-	applyRMWLayers(e, s, obj, computed, overlays)
+	if _, err := applyRMWLayers(e, s, obj, computed, contribs); err != nil {
+		return false // a list conflict the render refuses (hostListConflict reports it)
+	}
 	rendered, _, err := encodeSurfaceObjectReporting(s, obj, orig, before)
 	if err != nil {
 		return false
@@ -686,7 +756,7 @@ func hostSurfaceWouldChange(e *Env, s manifest.Surface, path string, computed ma
 // so does a TOML file whose comments all survive — the line only appears when there is a
 // real loss.
 func hostFormattingLosses(e *Env, mechanism string, s manifest.Surface, path string,
-	computed map[string]any, overlays []agentcfg.Overlay) []string {
+	computed map[string]any, contribs *surfaceContribs) []string {
 	if s.Codec != "toml" {
 		return nil
 	}
@@ -731,7 +801,9 @@ func hostFormattingLosses(e *Env, mechanism string, s manifest.Surface, path str
 			"header is added (every value survives; the comments do not). The file as it " +
 			"stands is archived once, before the first owned render"}
 	}
-	applyRMWLayers(e, s, obj, computed, overlays)
+	if _, err := applyRMWLayers(e, s, obj, computed, contribs); err != nil {
+		return nil // the render itself will refuse and report; one problem, one message
+	}
 	_, losses, err := encodeSurfaceObjectReporting(s, obj, orig, before)
 	if err != nil {
 		return nil // the render itself will refuse and report; one problem, one message

@@ -107,8 +107,10 @@ func JailModes() ModeSet {
 			// is one mode's documented silence rather than the notch's.
 			manifest.ModeRMW: "in a jail `rmw` is one mechanism among four and `stateful` — the " +
 				"mode that captures edits to a file yolo regenerates every boot — is the one that " +
-				"records, so an absent record here means \"this surface's mode keeps no sidecar\", " +
-				"not \"this notch records nothing\" (pack-config-collaboration.md §8)",
+				"records, so an absent record here means \"this surface's mode keeps no provenance " +
+				"sidecar\", not \"this notch records nothing\" (pack-config-collaboration.md §8). " +
+				"The one rmw record a jail does keep is the config-list insert record, and only " +
+				"for a surface a config-list targets",
 			manifest.ModeComputed: "`computed` is the stateless render: it writes the surface file " +
 				"and no sidecars at all, discarding in-jail edits by declaration, so there is no " +
 				"captured divergence for a record to attribute",

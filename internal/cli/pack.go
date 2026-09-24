@@ -89,6 +89,9 @@ one file's audience never stops another file from shipping:
   config           a composed config surface ("readsHost" composes the user's own
                    copy of that same file, from their real home, :ro)
   config-overlay   keys on a config surface another pack owns
+  config-list      entries appended to one array of a config surface
+                   ({surface, path: "/<json-pointer>", add: [...]}) without
+                   replacing it; overlays replace arrays, this adds to them
   state            a persistent home dir
   reads-host       read one host-home file :ro (for a file that is NOT a config
                    surface's own twin — that is the surface's "readsHost")

@@ -1224,6 +1224,22 @@
                     TARGET SURFACE's agent: inactive means a clean skip (selection is
                     the optionality), and a gated overlay naming a surface nobody owns
                     is reported only while its profile is selected.
+      config-list   {surface:"agent/name", path:"/json/pointer", add:[entry...]} —
+                    ENTRIES appended to one array of a surface a pack owns, without
+                    copying or replacing the list (a config-overlay array REPLACES).
+                    `path` is an RFC 6901 JSON Pointer ("/packages"; "~1" is a "/"
+                    inside a key, "~0" a "~"), never the root and never an empty step.
+                    `add` is required, may be [] (a no-op), and may hold no null.
+                    Entries fold AFTER every config-overlay: existing entries keep their
+                    order, then each contributed entry not already present, compared as
+                    whole JSON values, so the same entry from two packs is written once.
+                    A missing array starts empty; a non-array there, or a non-object
+                    parent, refuses that surface's render.  Captured edits, computed and
+                    managed values still replace the final array.  No owning pack
+                    selected: no effect, reported by name.  Every object surface
+                    captures a list path per entry (stateful, rmw, computed), so an
+                    in-jail edit never freezes the list; a keyless (lines/raw) target
+                    is REFUSED at launch, naming the surface and its mode.
       state         {at (~ dir), scope:"workspace"|"machine", because} — persists
       reads-host    {host (~-relative file), into (/ctx dest)} — one file, :ro [gated]
       mount         {host (~-relative DIR or file), into (/ctx dest)} — :ro    [gated]

@@ -246,6 +246,12 @@ func HostFields() FieldSet {
 		packdecl.KindEnv:           true,
 		packdecl.KindHook:          true,
 		packdecl.KindProgram:       true, // honored but confirm-gated by the caller (OQ-6/7)
+		// config-list tracks config for config-overlay's reason — its entries land in a
+		// composed surface — and it is honored in the final sense, with no hostUnimplemented
+		// entry: a surface whose mode cannot capture a list path per entry yet refuses the
+		// CONTRIBUTION by name at render time (the engine's ListCaptureRefusal), which is a
+		// fact about one surface's mechanism and not about the notch.
+		packdecl.KindConfigList: true,
 		// requires is honored, and REPORTED with its hints — that is the kind's entire
 		// host-side purpose. It asserts a binary must exist, which is exactly the question a
 		// host target answers (below jail, yolo bakes no image, so every dep is the host's);

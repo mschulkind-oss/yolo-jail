@@ -31,7 +31,9 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonptr"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
@@ -206,6 +208,60 @@ func prismOverlayPath(e *Env, agent, name string) string {
 	return e.renderTarget().OverlayPath(agent, name)
 }
 
+// prismListCapturePath is the list-capture sidecar for one surface: the per-entry capture at
+// its config-list paths (agentcfg.ListRecord), written only for a surface that has one.
+func prismListCapturePath(e *Env, agent, name string) string {
+	return e.renderTarget().ListCapturePath(agent, name)
+}
+
+// surfaceContribs is what OTHER packs contribute to one surface, resolved cross-pack by the
+// caller (packoverlay.Collect): config-overlay layers and config-list entries. One value
+// rather than two parameters, so the render helpers that carried overlays carry lists too
+// without every signature growing — and a POINTER, so a caller with none passes nil, which
+// every accessor reads as "nothing contributed".
+type surfaceContribs struct {
+	overlays []agentcfg.Overlay
+	lists    []agentcfg.ListContribution
+}
+
+// contribsFor is one surface's contributions out of the collected set.
+func contribsFor(set *packoverlay.OverlaySet, agent, name string) *surfaceContribs {
+	ov, ls := set.For(agent, name), set.ListsFor(agent, name)
+	if len(ov) == 0 && len(ls) == 0 {
+		return nil
+	}
+	return &surfaceContribs{overlays: ov, lists: ls}
+}
+
+// overlayLayers is the config-overlay half, nil for none.
+func (c *surfaceContribs) overlayLayers() []agentcfg.Overlay {
+	if c == nil {
+		return nil
+	}
+	return c.overlays
+}
+
+// listContribs is the config-list half, nil for none.
+func (c *surfaceContribs) listContribs() []agentcfg.ListContribution {
+	if c == nil {
+		return nil
+	}
+	return c.lists
+}
+
+// listPacks names the packs contributing list entries, first-seen order, each once.
+func (c *surfaceContribs) listPacks() []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, l := range c.listContribs() {
+		if !seen[l.Pack] {
+			seen[l.Pack] = true
+			out = append(out, l.Pack)
+		}
+	}
+	return out
+}
+
 // renderSurfaceStateful runs the §5/§3.2 stateful render for one builtin surface
 // and persists the three artifacts (surface file, last_render, overlay). It
 // resolves the host source via hostBytes (caller supplies, since the mount and
@@ -251,11 +307,11 @@ func renderSurfaceStateful(e *Env, agent, name string, hostBytes []byte, compute
 // surface's sidecars are user-<slug>.{last_render,overlay.json} — collision-free
 // with any builtin (no builtin agent is "user", and the slug is injective on the
 // destination path).
-// overlays are the config-overlay layers other packs contribute to this surface (nil for
-// none, the universal case today). They fold BELOW the capture overlay, so a user's
-// in-jail edit still wins over another pack's contribution.
-func renderSurfaceStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any, overlays []agentcfg.Overlay) (*agentcfg.StatefulOutput, error) {
-	r, err := renderSurfaceStatefulDetail(e, surface, hostBytes, computed, overlays)
+// contribs are the config-overlay layers and config-list entries other packs contribute to
+// this surface (nil for none, the common case). Both fold BELOW the capture overlay, so a
+// user's in-jail edit still wins over another pack's contribution.
+func renderSurfaceStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any, contribs *surfaceContribs) (*agentcfg.StatefulOutput, error) {
+	r, err := renderSurfaceStatefulDetail(e, surface, hostBytes, computed, contribs)
 	if err != nil {
 		return nil, err
 	}
@@ -273,8 +329,8 @@ func renderSurfaceStatefulSurface(e *Env, surface manifest.Surface, hostBytes []
 // above. A refusal at the COMPOSE — a surface file that exists and cannot be read — has no
 // render to hand back and returns nil, which is why the host arm reads sr for the archive path
 // under a nil check rather than unconditionally.
-func renderSurfaceStatefulDetail(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any, overlays []agentcfg.Overlay) (*statefulRender, error) {
-	r, err := composeStatefulSurface(e, surface, hostBytes, computed, overlays)
+func renderSurfaceStatefulDetail(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any, contribs *surfaceContribs) (*statefulRender, error) {
+	r, err := composeStatefulSurface(e, surface, hostBytes, computed, contribs)
 	if err != nil {
 		return nil, err
 	}
@@ -336,7 +392,7 @@ func (r *statefulRender) pureText() string {
 
 // composeStatefulSurface is the PURE half of the stateful render: read the sidecars and the
 // current file, decide the selection, compose. It writes nothing.
-func composeStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any, overlays []agentcfg.Overlay) (*statefulRender, error) {
+func composeStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any, contribs *surfaceContribs) (*statefulRender, error) {
 	// A11: resolve ${workspace} in the surface's layer DATA before composing. The
 	// workspace root is not always "/workspace" (YOLO_WORKSPACE; macos-user has no
 	// /workspace), so a literal in the manifest would assert keys under a path the
@@ -389,6 +445,17 @@ func composeStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, 
 	lastRenderPath := prismLastRenderPath(e, surface.Agent, surface.Name)
 	lastRenderBytes, lastErr := os.ReadFile(lastRenderPath)
 	overlayJSON, _ := os.ReadFile(prismOverlayPath(e, surface.Agent, surface.Name))
+	// The list-capture sidecar: absent for every surface without a config-list, and then nil
+	// is exactly the no-list render. Its KEYS are input as well as its records — see
+	// agentcfg.StatefulInputs.ListCaptureJSON for why the path set is sticky.
+	listCaptureJSON, _ := os.ReadFile(prismListCapturePath(e, surface.Agent, surface.Name))
+	// The config-list insert record, read for ADOPTION only (agentcfg.StatefulInputs
+	// .InsertRecordJSON): at the host it names the entries yolo inserted under either
+	// contract, so a switch to `own` never adopts a pack's entries as the user's.
+	var insertRecordJSON []byte
+	if p := t.ListRecordPath(surface.Agent, surface.Name); p != "" {
+		insertRecordJSON, _ = os.ReadFile(p)
+	}
 
 	// The reserved selection namespace, taken out of the computed layer and decided
 	// BEFORE the compose, so its keys enter the fold as ordinary computed keys at the
@@ -419,12 +486,15 @@ func composeStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, 
 	}
 
 	surface, out, err := t.ComposeStateful(surface,
-		render.Layers{HostBytes: hostBytes, Overlays: overlays, Computed: computed},
+		render.Layers{HostBytes: hostBytes, Overlays: contribs.overlayLayers(), Computed: computed,
+			Lists: contribs.listContribs()},
 		render.State{
 			CurrentBytes:      current,
 			LastRenderPresent: lastErr == nil,
 			LastRenderBytes:   lastRenderBytes,
 			OverlayJSON:       overlayJSON,
+			ListCaptureJSON:   listCaptureJSON,
+			InsertRecordJSON:  insertRecordJSON,
 		})
 	if err != nil {
 		return nil, err
@@ -490,14 +560,29 @@ func persistStatefulSurface(e *Env, r *statefulRender) error {
 		string(out.OverlayJSON)+"\n"); err != nil {
 		return err
 	}
+	// The FOURTH sidecar, and only for a surface with a config-list path: the per-entry
+	// capture (agentcfg.ListRecord). nil for every other surface, which then keeps exactly
+	// the three files it had. Same store, same mode, same failure contract as the overlay —
+	// it is the same kind of thing (durable captured edits), split out only so no overlay
+	// reader mistakes it for a user key.
+	if out.ListCaptureJSON != nil {
+		if err := writeSidecar(target, prismListCapturePath(e, surface.Agent, surface.Name),
+			string(out.ListCaptureJSON)+"\n"); err != nil {
+			return err
+		}
+	}
 	// Provenance record: the per-key winning layer Compose already computed. Additive,
 	// best-effort, and empty-is-written — see writeProvenanceRecord for why each of the
 	// three matters.
 	if out.Result != nil {
 		writeProvenanceRecord(e, surface.Agent, surface.Name, out.Result.Provenance)
 	}
+	writeStatefulInsertRecord(e, surface, out)
 	noteCapturedOverlay(e, surface, out)
 	noteRepairedValues(e, out)
+	for _, n := range out.ListNotes {
+		e.warn(n)
+	}
 	return nil
 }
 
@@ -513,16 +598,25 @@ func noteCapturedOverlay(e *Env, surface manifest.Surface, out *agentcfg.Statefu
 	if out == nil || e.Stderr == nil {
 		return
 	}
-	n := overlayEntryCount(out.OverlayJSON)
-	if n == 0 {
-		return
+	if n := overlayEntryCount(out.OverlayJSON); n > 0 {
+		unit := "keys"
+		if n == 1 {
+			unit = "key"
+		}
+		e.warn(fmt.Sprintf("%s: %d %s from captured in-jail edits (yolo config diff %s)",
+			surface.Path, n, unit, surface.Agent))
 	}
-	unit := "keys"
-	if n == 1 {
-		unit = "key"
+	// The per-entry half: list entries an in-jail edit added or removed at a config-list
+	// path. Counted separately because they are entries, not keys, and a user reading "1
+	// key" for a list they appended three packages to would be misled.
+	if n := agentcfg.ListCaptureEntryCount(out.ListCaptureJSON); n > 0 {
+		unit := "entries"
+		if n == 1 {
+			unit = "entry"
+		}
+		e.warn(fmt.Sprintf("%s: %d list %s from captured in-jail edits (yolo config diff %s)",
+			surface.Path, n, unit, surface.Agent))
 	}
-	e.warn(fmt.Sprintf("%s: %d %s from captured in-jail edits (yolo config diff %s)",
-		surface.Path, n, unit, surface.Agent))
 }
 
 // noteRepairedValues announces every rejected value THIS stateful render removed from the
@@ -617,10 +711,11 @@ func generatedHeader(surface manifest.Surface) string {
 // content), and dropping that layer would compose only defaults<computed<managed
 // — silently losing the file's actual content. It writes ONLY the surface file
 // (no sidecars) and returns the Result so a caller can chmod or inspect it.
-func renderSurfaceStatelessSurface(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any, overlays []agentcfg.Overlay) (*agentcfg.Result, error) {
+func renderSurfaceStatelessSurface(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any, contribs *surfaceContribs) (*agentcfg.Result, error) {
 	t := e.renderTarget()
 	surface, res, err := t.Compose(surface, // A11 (${workspace}) is the target's, see the stateful core
-		render.Layers{HostBytes: hostBytes, Overlays: overlays, Computed: computed})
+		render.Layers{HostBytes: hostBytes, Overlays: contribs.overlayLayers(), Computed: computed,
+			Lists: contribs.listContribs()})
 	if err != nil {
 		return nil, err
 	}
@@ -684,7 +779,7 @@ func expandHomePath(e *Env, p string) string {
 // owned disappeared. Now the surface's declared codec decides the decode AND the encode, and
 // a file yolo cannot parse is REFUSED (returned as *rmwRefusedError, file untouched) rather
 // than replaced from an empty object.
-func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[string]any, overlays []agentcfg.Overlay) error {
+func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[string]any, contribs *surfaceContribs) error {
 	surface = agentcfg.SubstituteWorkspace(surface, e.WorkspaceDir())
 
 	// Codec gate FIRST, before any mkdir: a surface whose codec cannot round-trip through
@@ -726,7 +821,10 @@ func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[stri
 	// See intactDefaults for what the answer is used for.
 	intact := intactDefaults(surface, obj)
 
-	applyRMWLayers(e, surface, obj, computed, overlays)
+	lists, err := applyRMWLayers(e, surface, obj, computed, contribs)
+	if err != nil {
+		return err // a config-list type conflict: refused, and nothing has been written
+	}
 
 	text, err := encodeSurfaceObject(surface, obj, orig, before)
 	if err != nil {
@@ -735,6 +833,9 @@ func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[stri
 	if err := writeInPlaceString(path, text); err != nil {
 		return err
 	}
+	// The config-list insert record, AFTER the file write it describes: a record naming
+	// entries the file never received would have the next render remove or decline them.
+	writeListRecord(e, surface, lists)
 	// The repair decided above has now landed in the file. Announce it — see
 	// noteRepairedValues for why this is never suppressible.
 	noteRepairs(e, repairs, "the file")
@@ -769,7 +870,7 @@ func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[stri
 		// that ignored it would launder yolo's own output into "the user set this" on the
 		// very next apply. See rmwProvenance's `previous` parameter.
 		writeProvenanceRecord(e, surface.Agent, surface.Name,
-			rmwProvenance(surface, present, intact, computed, overlays,
+			rmwProvenance(surface, present, intact, computed, contribs.overlayLayers(), lists,
 				readProvenanceRecord(e, surface.Agent, surface.Name)))
 	}
 	return nil
@@ -863,7 +964,7 @@ func readProvenanceRecord(e *Env, agent, name string) map[string]string {
 // the same reason: it answers a question about a file yolo wrote EARLIER, which a replay of
 // this render cannot see.
 func rmwProvenance(surface manifest.Surface, present []string, intact map[string]bool,
-	computed map[string]any, overlays []agentcfg.Overlay,
+	computed map[string]any, overlays []agentcfg.Overlay, lists rmwListOutcome,
 	previous map[string]string) map[string]string {
 	prov := map[string]string{}
 	// defaults: the floor, and only where the key was absent — the `host` pass below
@@ -888,6 +989,14 @@ func rmwProvenance(surface manifest.Surface, present []string, intact map[string
 			prov[k] = agentcfg.OverlayLayer(ov.Pack)
 		}
 	}
+	// config-list: a top-level key ONLY the list step created — Compose's label for the same
+	// case, after the same layers (a key a lower layer held keeps that layer's label). Never
+	// asserted, so no retirement or revert removes the whole array on its strength.
+	for _, k := range lists.created {
+		if _, set := prov[k]; !set {
+			prov[k] = agentcfg.LayerConfigList
+		}
+	}
 	// Only OBJECT-valued computed keys are dynamic managed tables, matching
 	// regenerateManagedTables — a non-object computed value is skipped there, so claiming
 	// it here would attribute a write that never happened.
@@ -904,7 +1013,24 @@ func rmwProvenance(surface manifest.Surface, present []string, intact map[string
 			prov[k] = agentcfg.LayerManaged
 		}
 	}
-	return retireUnclaimed(keepFilledDefaults(prov, previous, intact), previous)
+	return retireUnclaimed(keepListCreated(keepFilledDefaults(prov, previous, intact), previous,
+		lists.topKeys()), previous)
+}
+
+// keepListCreated keeps a key the list step CREATED on an earlier render labelled
+// `config-list` on the renders after it, where the file already holds it and the `host`
+// pass would otherwise claim it for the user. The same blind spot keepFilledDefaults closes,
+// with the same evidence (the previous record) and the same restriction to a key that is
+// still a list path this render — so a list the user took over by hand after its pack left
+// reads as theirs. On a first render `previous` is nil and this is a no-op, which keeps the
+// parity corpus a pure write-order replay.
+func keepListCreated(prov, previous map[string]string, listKeys map[string]bool) map[string]string {
+	for k, layer := range prov {
+		if layer == agentcfg.LayerHost && listKeys[k] && previous[k] == agentcfg.LayerConfigList {
+			prov[k] = agentcfg.LayerConfigList
+		}
+	}
+	return prov
 }
 
 // keepFilledDefaults undoes the `host` guess for a key that is only IN the file because yolo's
@@ -1166,11 +1292,15 @@ func mergeSurfaceRoot(base, over map[string]any) map[string]any {
 // this render would drop). Duplicating the order in a second function is exactly how a
 // dry-run starts previewing something the assert does not do.
 func applyRMWLayers(e *Env, surface manifest.Surface, obj *jsonx.OrderedMap,
-	computed map[string]any, overlays []agentcfg.Overlay) {
+	computed map[string]any, contribs *surfaceContribs) (rmwListOutcome, error) {
 	deleteNulls := surface.Codec == "toml"
+	// The file's arrays at every config-list path, snapshotted BEFORE any layer writes:
+	// the record's "the user removed this entry" is a statement about the file as the user
+	// left it, and the overlays below may force-write the same array.
+	lists := beginRMWLists(e, surface, obj, contribs.listContribs())
 	// config-overlay contributions: below everything yolo and the owner assert, above
 	// the file's existing content (see renderSurfaceRMWSurface's doc comment).
-	for _, ov := range overlays {
+	for _, ov := range contribs.overlayLayers() {
 		if layer, isMap := ov.Data.(map[string]any); isMap {
 			applyRMWLayer(obj, layer, true, deleteNulls)
 		}
@@ -1186,6 +1316,14 @@ func applyRMWLayers(e *Env, surface manifest.Surface, obj *jsonx.OrderedMap,
 	if defaults, isMap := surface.Defaults.(map[string]any); isMap {
 		applyRMWLayer(obj, defaults, false, deleteNulls)
 	}
+	// config-list entries LAST — after the defaults fill, or a default array whose key the
+	// file lacked would be filled over the appended entries' array and lost (Compose folds
+	// defaults first, so that would be a parity break) — and skipping every path managed or
+	// a dynamic table asserts, which win the array whatever the list says.
+	if err := lists.apply(surface, obj, computed); err != nil {
+		return rmwListOutcome{}, err
+	}
+	return lists, nil
 }
 
 // applyRMWLayer writes layer into obj. force=true overwrites (managed semantics);
@@ -1209,5 +1347,308 @@ func applyRMWLayer(obj *jsonx.OrderedMap, layer map[string]any, force, deleteNul
 		} else {
 			setDefault(obj, k, v)
 		}
+	}
+}
+
+// ── config-list at an rmw surface ──────────────────────────────────────────────────────
+
+// rmwListOutcome is the rmw list step for one render (docs/design/additive-config-lists.md,
+// OQ-AL1's "rmw surfaces do the same against their rendered baseline"). An rmw surface has
+// no last render and no capture, so the baseline is yolo's own RECORD of which entries it
+// inserted (agentcfg.ListInsertRecord) — read from the previous render, updated here, and
+// persisted by the writer only (writeListRecord), so an observe pass never advances it.
+//
+// The zero value is a render with no list path, and every method is a no-op on it.
+type rmwListOutcome struct {
+	lists  []agentcfg.ListContribution
+	paths  []string            // live contribution paths ∪ recorded paths, sorted
+	tokens map[string][]string // path → parsed tokens
+	prev   map[string]agentcfg.ListInsertRecord
+	before map[string]rmwListBefore
+	// record is the updated record to persist, one entry per path.
+	record map[string]agentcfg.ListInsertRecord
+	// created are the top-level keys the list step created (the `config-list` label).
+	created []string
+}
+
+// rmwListBefore is the file's array at a list path before this render wrote anything.
+type rmwListBefore struct {
+	arr     []any
+	present bool // the file held an ARRAY there
+}
+
+// beginRMWLists resolves the list paths — the live contributions' plus every path the
+// previous record names, so a dropped pack's inserted entries are still found and removed —
+// and snapshots the file's arrays at them before any layer is written.
+func beginRMWLists(e *Env, surface manifest.Surface, obj *jsonx.OrderedMap,
+	lists []agentcfg.ListContribution) rmwListOutcome {
+	prev := readListRecord(e, surface.Agent, surface.Name)
+	o := rmwListOutcome{lists: lists, tokens: map[string][]string{}, prev: prev,
+		before: map[string]rmwListBefore{}, record: map[string]agentcfg.ListInsertRecord{}}
+	add := func(p string) {
+		if _, seen := o.tokens[p]; seen {
+			return
+		}
+		t, err := jsonptr.Parse(p)
+		if err != nil || len(t) == 0 {
+			return
+		}
+		o.tokens[p] = t
+		o.paths = append(o.paths, p)
+	}
+	for _, p := range agentcfg.ListPaths(lists) {
+		add(p)
+	}
+	for p := range prev {
+		add(p)
+	}
+	sort.Strings(o.paths)
+	for _, p := range o.paths {
+		if v, st, _ := rmwLookup(obj, o.tokens[p]); st == pathFoundRMW {
+			arr, isArr := v.([]any)
+			o.before[p] = rmwListBefore{arr: arr, present: isArr}
+		}
+	}
+	return o
+}
+
+// topKeys is the set of top-level keys the list paths live under.
+func (o rmwListOutcome) topKeys() map[string]bool {
+	out := map[string]bool{}
+	for _, p := range o.paths {
+		out[o.tokens[p][0]] = true
+	}
+	return out
+}
+
+// apply runs agentcfg.ReconcileInsertedList at every list path of the post-layer object. A
+// path managed or a dynamic table holds (or holds an ancestor of) is skipped with its record
+// kept: those layers win the array whatever the list says. A non-object parent or non-array
+// value at a path a LIVE contribution targets refuses the render (rule 3) as an rmw refusal —
+// a warning, the file untouched — because the conflicting value is in an agent-owned file;
+// at a path only a stale record names, the conflict just leaves the record as it was.
+func (o *rmwListOutcome) apply(surface manifest.Surface, obj *jsonx.OrderedMap, computed map[string]any) error {
+	if len(o.paths) == 0 {
+		return nil
+	}
+	tables := map[string]any{}
+	for k, v := range computed {
+		if _, isObj := v.(map[string]any); isObj {
+			tables[k] = v // only object-valued computed keys are written (regenerateManagedTables)
+		}
+	}
+	// A path this render does not reconcile keeps its record, SUSPENDED: whatever the file
+	// holds there afterwards is managed's or a table's write (or a conflict nobody resolved),
+	// not the user's edit, so the next reconciling render must not read yolo's inserted
+	// entries missing from it as declined.
+	suspend := func(p string) {
+		rec := o.prev[p]
+		rec.Suspended = true
+		o.record[p] = rec
+	}
+	for _, p := range o.paths {
+		t := o.tokens[p]
+		if agentcfg.ListPathReplacedBy(surface.ManagedMap(), p) || agentcfg.ListPathReplacedBy(tables, p) {
+			suspend(p)
+			continue
+		}
+		contributed := agentcfg.ContributedEntries(o.lists, p)
+		v, st, depth := rmwLookup(obj, t)
+		var cur []any
+		conflict := ""
+		switch st {
+		case pathBlockedRMW:
+			conflict = fmt.Sprintf("%s holds %s, not an object", jsonptr.Format(t[:depth+1]), rmwTypeName(v))
+		case pathFoundRMW:
+			arr, isArr := v.([]any)
+			if !isArr {
+				conflict = fmt.Sprintf("the value there is %s, not an array", rmwTypeName(v))
+			}
+			cur = arr
+		}
+		if conflict != "" {
+			if len(contributed) > 0 {
+				return refuseRMW(surface, "config-list from %s at %s: %s — refusing rather than "+
+					"overwriting or skipping the conflicting value; the file is left untouched",
+					strings.Join(listPacksAt(o.lists, p), ", "), p, conflict)
+			}
+			suspend(p)
+			continue
+		}
+		b := o.before[p]
+		next, rec, changed := agentcfg.ReconcileInsertedList(b.arr, b.present && !o.prev[p].Suspended,
+			cur, contributed, o.prev[p])
+		o.record[p] = rec
+		if st == pathAbsentRMW && len(next) == 0 {
+			continue
+		}
+		if changed || st == pathAbsentRMW {
+			rmwSetPath(obj, t, next)
+			if st == pathAbsentRMW && depth == 0 {
+				o.created = append(o.created, t[0])
+			}
+		}
+	}
+	return nil
+}
+
+// listPacksAt names the packs contributing at one path.
+func listPacksAt(lists []agentcfg.ListContribution, path string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, l := range lists {
+		if l.Path == path && !seen[l.Pack] {
+			seen[l.Pack] = true
+			out = append(out, l.Pack)
+		}
+	}
+	return out
+}
+
+const (
+	pathAbsentRMW = iota
+	pathFoundRMW
+	pathBlockedRMW
+)
+
+// rmwLookup resolves object-key tokens in a decoded rmw document.
+func rmwLookup(obj *jsonx.OrderedMap, tokens []string) (any, int, int) {
+	var node any = obj
+	for i, tok := range tokens {
+		var val any
+		var ok bool
+		switch n := node.(type) {
+		case *jsonx.OrderedMap:
+			val, ok = n.Get(tok)
+		case map[string]any:
+			val, ok = n[tok]
+		}
+		if !ok {
+			return nil, pathAbsentRMW, i
+		}
+		if i == len(tokens)-1 {
+			return val, pathFoundRMW, i
+		}
+		switch val.(type) {
+		case *jsonx.OrderedMap, map[string]any:
+			node = val
+		default:
+			return val, pathBlockedRMW, i
+		}
+	}
+	return nil, pathAbsentRMW, 0
+}
+
+// rmwSetPath writes value at tokens, creating missing parents. The caller has ruled out a
+// non-object ancestor; a plain-map ancestor (a value an earlier layer set whole) is lifted
+// into an ordered map so the write lands in the document rather than in a copy.
+func rmwSetPath(obj *jsonx.OrderedMap, tokens []string, value any) {
+	node := obj
+	for _, tok := range tokens[:len(tokens)-1] {
+		if v, ok := node.Get(tok); ok {
+			if m, isPlain := v.(map[string]any); isPlain {
+				om := jsonx.NewOrderedMap()
+				for _, k := range sortedKeys(m) {
+					om.Set(k, m[k])
+				}
+				node.Set(tok, om)
+			}
+		}
+		node = setDefaultMap(node, tok)
+	}
+	node.Set(tokens[len(tokens)-1], value)
+}
+
+func rmwTypeName(v any) string {
+	switch v.(type) {
+	case nil:
+		return "null"
+	case *jsonx.OrderedMap, map[string]any:
+		return "an object"
+	case []any:
+		return "an array"
+	case string:
+		return "a string"
+	case bool:
+		return "a boolean"
+	}
+	return "a number"
+}
+
+// readListRecord loads the insert record a previous rmw render left, FAIL-SAFE like
+// readProvenanceRecord: an absent, unreadable or corrupt record claims nothing, so every
+// entry in the file reads as the user's and none is removed.
+func readListRecord(e *Env, agent, name string) map[string]agentcfg.ListInsertRecord {
+	path := e.renderTarget().ListRecordPath(agent, name)
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	return agentcfg.ParseListInsertRecords(data)
+}
+
+// writeListRecord persists the insert record after the file write it describes. Only for a
+// surface with a list path; best-effort and warned like the provenance record, because the
+// file is already written — a lost record degrades to "every entry is the user's", which
+// removes nothing.
+func writeListRecord(e *Env, surface manifest.Surface, o rmwListOutcome) {
+	if len(o.paths) == 0 {
+		return
+	}
+	t := e.renderTarget()
+	path := t.ListRecordPath(surface.Agent, surface.Name)
+	if path == "" {
+		return
+	}
+	data, err := agentcfg.MarshalListInsertRecords(o.paths, o.record)
+	if err == nil {
+		err = os.MkdirAll(filepath.Dir(path), 0o755)
+	}
+	if err == nil {
+		err = WriteStringInPlace(path, string(data)+"\n", t.SidecarFileMode())
+	}
+	if err == nil {
+		err = os.Chmod(path, t.SidecarFileMode())
+	}
+	if err != nil {
+		e.warn("warning: could not write the config-list record for " + surface.Agent + "/" +
+			surface.Name + ": " + err.Error())
+	}
+}
+
+// writeStatefulInsertRecord keeps the `rmw` insert record current beside a STATEFUL surface
+// at the HOST, where `host_management` can switch the same file between the two mechanisms:
+// `assert` renders it through rmw, which reads this record to know which entries yolo put
+// there, and `own` adopts through it (agentcfg.StatefulInputs.InsertRecordJSON). Without it a
+// switch in either direction turns every contributed entry into the user's, and a later pack
+// drop removes nothing. It is also what lets `yolo host apply --revert` withdraw exactly the
+// inserted entries under `own`. A jail never switches contracts, so it writes none.
+// Best-effort and warned, like writeListRecord: a lost record only claims less.
+func writeStatefulInsertRecord(e *Env, surface manifest.Surface, out *agentcfg.StatefulOutput) {
+	t := e.renderTarget()
+	if t.KindOf() != render.KindHost || out == nil || out.ListCaptureJSON == nil {
+		return
+	}
+	path := t.ListRecordPath(surface.Agent, surface.Name)
+	if path == "" {
+		return
+	}
+	data, err := agentcfg.InsertRecordFromRender(out.Result, out.ListCaptureJSON)
+	if err != nil || data == nil {
+		return
+	}
+	err = os.MkdirAll(filepath.Dir(path), 0o755)
+	if err == nil {
+		err = WriteStringInPlace(path, string(data)+"\n", t.SidecarFileMode())
+	}
+	if err == nil {
+		err = os.Chmod(path, t.SidecarFileMode())
+	}
+	if err != nil {
+		e.warn("warning: could not write the config-list record for " + surface.Agent + "/" +
+			surface.Name + ": " + err.Error())
 	}
 }

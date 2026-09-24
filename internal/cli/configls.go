@@ -54,6 +54,11 @@ type surfaceRow struct {
 	// print as one: an absence sends the reader looking for a render, and this says the
 	// render was never going to land in the home they are asking about.
 	Unreachable bool
+	// ListEntries counts the per-entry captures at the surface's config-list paths (adds plus
+	// removes in the list-capture sidecar). Captured edits exactly as the overlay's keys are —
+	// kept in their own file only so no overlay reader mistakes them for a key — so a surface
+	// holding only these is as diverged as one holding keys, and must not print "–".
+	ListEntries int
 }
 
 // The MODE strings `config ls` prints. They are the user-facing vocabulary, kept
@@ -142,9 +147,9 @@ func configLs(t configTarget, args []string, out, errw io.Writer, color bool) in
 	// `config diff`, whose subject is the capture store alone — see configprovenance.go.
 	//
 	// No agent filter: `ls` lists the whole manifest, so it asks about every one. It normally
-	// prints nothing — only a surface another pack contributes to through `config-overlay`, or
-	// one carrying a key yolo wrote for a layer that has since stopped claiming it, reaches the
-	// report at all.
+	// prints nothing — only a surface another pack contributes to through `config-overlay` or
+	// `config-list`, or one carrying a key yolo wrote for a layer that has since stopped
+	// claiming it, reaches the report at all.
 	pr := richtext.Printer{W: out, Color: color}
 	overlaid, unresolved := overlayContributionRows(t, "", "")
 	if len(unresolved) > 0 {
@@ -152,7 +157,7 @@ func configLs(t configTarget, args []string, out, errw io.Writer, color bool) in
 		// asking about, so an incomplete answer says so rather than reading as complete.
 		pr.Printf("")
 		pr.Printf("[yellow]⚠ not inspected — could not be resolved: %s. Any config-overlay "+
-			"they declare is not listed below.[/yellow]", describeUnresolved(unresolved))
+			"or config-list they declare is not listed below.[/yellow]", describeUnresolved(unresolved))
 	}
 	if len(overlaid) > 0 {
 		pr.Printf("")
@@ -182,6 +187,7 @@ func collectSurfaceRows(t configTarget, all bool) []surfaceRow {
 		}
 		if mode == "capture" {
 			row.Overlay = overlayKeyCountAt(t.overlayPath(s.Agent, s.Name))
+			row.ListEntries = listCaptureCountAt(t.listCapturePath(s.Agent, s.Name))
 		}
 		if all || row.HasFile {
 			rows = append(rows, row)
@@ -354,9 +360,9 @@ func writeSurfaceTable(out io.Writer, t configTarget, rows []surfaceRow, color b
 		switch {
 		case r.Reserved:
 			overlay = "[dim](not rendered at boot)[/dim]"
-		case r.Overlay > 0:
+		case r.Overlay > 0 || r.ListEntries > 0:
 			diverged++
-			overlay = fmt.Sprintf("[yellow]%d %s ⚠[/yellow]", r.Overlay, plural(r.Overlay, "key", "keys"))
+			overlay = fmt.Sprintf("[yellow]%s ⚠[/yellow]", capturedCount(r.Overlay, r.ListEntries))
 		}
 		missing := ""
 		switch {
@@ -377,6 +383,20 @@ func writeSurfaceTable(out io.Writer, t configTarget, rows []surfaceRow, color b
 		pr.Printf("  Inspect: [cyan]yolo config diff <agent>/<surface>[/cyan]")
 		pr.Printf("  Discard: [cyan]yolo config reset <agent>/<surface>[/cyan]")
 	}
+}
+
+// capturedCount spells a surface's captured edits for the OVERLAY column: keys, per-entry
+// list captures, or both — the column's one number would otherwise count list entries as
+// keys, and `yolo config diff` itemizes them as entries.
+func capturedCount(keys, entries int) string {
+	var parts []string
+	if keys > 0 {
+		parts = append(parts, fmt.Sprintf("%d %s", keys, plural(keys, "key", "keys")))
+	}
+	if entries > 0 {
+		parts = append(parts, fmt.Sprintf("%d list %s", entries, plural(entries, "entry", "entries")))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func plural(n int, one, many string) string {

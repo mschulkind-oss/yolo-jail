@@ -45,11 +45,14 @@ package entrypoint
 // is written.
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonptr"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
@@ -137,8 +140,25 @@ func RevertHostRender(candidates []*packload.Pack, homeDir string, observe bool)
 		if observe {
 			action = "would remove"
 		}
+		record := agentcfg.ParseProvenanceRecord(data)
+		// THE CONFIG-LIST ENTRIES YOLO INSERTED, first and per entry: a list path is never a
+		// whole key yolo owns (its `config-list` label is not asserted), so the key pass
+		// below cannot reach it, and removing the whole array would take the user's own
+		// entries with it. The insert record is the authority, exactly as the provenance
+		// record is for keys — only an entry yolo recorded inserting is removed.
+		listRec := e.renderTarget().ListRecordPath(s.Agent, s.Name)
+		listKeys, listChanged := revertListEntries(obj, readListRecord(e, s.Agent, s.Name), record)
+		for _, k := range listKeys {
+			out.Keys = append(out.Keys, HostRevertedKey{Surface: id, Path: path, Key: k,
+				Layer: agentcfg.LayerConfigList, Action: action})
+		}
+		if listRec != "" {
+			if _, err := os.Stat(listRec); err == nil {
+				out.Records = append(out.Records, listRec)
+			}
+		}
 		var removed []string
-		for _, k := range revertableKeys(agentcfg.ParseProvenanceRecord(data)) {
+		for _, k := range revertableKeys(record) {
 			if _, present := obj.Get(k.key); !present {
 				continue
 			}
@@ -150,7 +170,7 @@ func RevertHostRender(candidates []*packload.Pack, homeDir string, observe bool)
 		if observe {
 			continue
 		}
-		if len(removed) > 0 {
+		if len(removed) > 0 || listChanged {
 			for _, k := range removed {
 				obj.Delete(k)
 			}
@@ -170,6 +190,11 @@ func RevertHostRender(candidates []*packload.Pack, homeDir string, observe bool)
 		// surface leaves `{}` rather than guessing that yolo created the file.
 		if rerr := os.Remove(recPath); rerr != nil && !os.IsNotExist(rerr) {
 			return out, fmt.Errorf("%s: removing the provenance record %s: %w", id, recPath, rerr)
+		}
+		if listRec != "" {
+			if rerr := os.Remove(listRec); rerr != nil && !os.IsNotExist(rerr) {
+				return out, fmt.Errorf("%s: removing the config-list record %s: %w", id, listRec, rerr)
+			}
 		}
 	}
 	return out, nil
@@ -233,4 +258,70 @@ func revertableLayer(layer string) bool {
 		layer = last
 	}
 	return agentcfg.LayerAsserted(layer) || layer == agentcfg.LayerDefaults
+}
+
+// revertListEntries removes from obj every config-list entry the insert record says yolo
+// INSERTED, returning one report line per removed entry ("<pointer> <entry>") and whether
+// the document changed. A key whose provenance reads `config-list` — one ONLY the list step
+// created — is deleted outright once it holds nothing, since yolo created it; any other key
+// is left, emptied or not, because an empty array the user's file already had is theirs.
+//
+// Conservative in the same ways as the key walk: an unreadable record claims nothing, a path
+// the file no longer holds as an array is skipped, and an entry the file no longer holds is
+// not reported.
+func revertListEntries(obj *jsonx.OrderedMap, recs map[string]agentcfg.ListInsertRecord,
+	provenance map[string]string) ([]string, bool) {
+	paths := make([]string, 0, len(recs))
+	for p := range recs {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	var lines []string
+	changed := false
+	for _, p := range paths {
+		tokens, err := jsonptr.Parse(p)
+		if err != nil || len(tokens) == 0 {
+			continue
+		}
+		v, st, _ := rmwLookup(obj, tokens)
+		arr, isArr := v.([]any)
+		if st != pathFoundRMW || !isArr {
+			continue
+		}
+		next := arr
+		for _, e := range recs[p].Inserted {
+			kept := next[:0:0]
+			hit := false
+			for _, x := range next {
+				if agentcfg.EntriesEqual(x, e) {
+					hit = true
+					continue
+				}
+				kept = append(kept, x)
+			}
+			if hit {
+				lines = append(lines, p+" "+oneLineEntry(e))
+				next = kept
+			}
+		}
+		if len(next) == len(arr) {
+			continue
+		}
+		changed = true
+		if len(next) == 0 && len(tokens) == 1 && provenance[tokens[0]] == agentcfg.LayerConfigList {
+			obj.Delete(tokens[0])
+			continue
+		}
+		rmwSetPath(obj, tokens, next)
+	}
+	return lines, changed
+}
+
+// oneLineEntry renders a list entry for a report line.
+func oneLineEntry(v any) string {
+	b, err := json.Marshal(jsonx.Plain(v))
+	if err != nil {
+		return fmt.Sprintf("%v", v)
+	}
+	return string(b)
 }

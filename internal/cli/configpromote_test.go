@@ -521,3 +521,27 @@ func TestPromoteKeysNarrowsTheReportToTheSelection(t *testing.T) {
 		t.Errorf("the plan lists a key --keys did not select:\n%s", out)
 	}
 }
+
+// A surface whose only captured edits are PER-ENTRY LIST EDITS (a config-list path; `pi
+// install` appending a package) has something captured, and promote must say what — and that
+// it cannot promote those — rather than report "no captured keys here" while `config diff`
+// lists the same edits.
+func TestPromoteNamesCapturedListEntriesItCannotPromote(t *testing.T) {
+	w := newPromoteWorld(t, `["claude"]`)
+	w.capture("claude", "settings", `{}`, `{}`)
+	writeFile(t, w.sidecar("claude", "settings", ".list-capture.json"),
+		`{"/permissions/allow":{"add":["Bash(ls)"],"remove":[]}}`)
+
+	out, errw, rc := w.run("claude")
+	if rc != 0 {
+		t.Fatalf("rc=%d: %s", rc, errw)
+	}
+	if strings.Contains(out, "no captured keys here") {
+		t.Errorf("a list-only capture was reported as nothing captured:\n%s", out)
+	}
+	for _, want := range []string{"1 captured list entry", "/permissions/allow", "not promotable"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the report does not name %q:\n%s", want, out)
+		}
+	}
+}

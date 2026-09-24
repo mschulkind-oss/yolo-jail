@@ -54,6 +54,13 @@ type Layers struct {
 	// target-absolute paths, so a caller without the environment that produced them
 	// supplies nothing rather than something wrong.
 	Computed any
+
+	// Lists are other packs' config-list contributions onto this surface
+	// (agentcfg.ListContribution): entries appended to one array each, after every overlay
+	// and below the capture. Empty = none. A capture that passes no layers passes none, and
+	// learns the surface's list paths from the list-capture sidecar instead
+	// (State.ListCaptureJSON).
+	Lists []agentcfg.ListContribution
 }
 
 // State is the §5 capture state one stateful render reads: the file as it stands and the
@@ -72,6 +79,14 @@ type State struct {
 	LastRenderBytes []byte
 	// OverlayJSON is the capture overlay sidecar's content, or nil when absent.
 	OverlayJSON []byte
+	// ListCaptureJSON is the list-capture sidecar's content (Target.ListCapturePath), or nil
+	// when absent — the per-entry capture at the surface's list paths.
+	ListCaptureJSON []byte
+	// InsertRecordJSON is the config-list insert record's content (Target.ListRecordPath), or
+	// nil when absent: which entries yolo itself put at each list path. Read only by a first
+	// migration's adoption, so an entry yolo inserted under the host's other contract is never
+	// adopted as the user's (agentcfg.StatefulInputs.InsertRecordJSON).
+	InsertRecordJSON []byte
 }
 
 // Prepare resolves the ${workspace} placeholder in a surface's declared layers against
@@ -114,6 +129,7 @@ func (t Target) Compose(s manifest.Surface, l Layers) (manifest.Surface, *agentc
 		HostBytes: l.HostBytes,
 		Overlays:  l.Overlays,
 		Computed:  l.Computed,
+		Lists:     l.Lists,
 	})
 	if err != nil {
 		return s, nil, err
@@ -137,11 +153,14 @@ func (t Target) ComposeStateful(s manifest.Surface, l Layers, st State) (manifes
 			HostBytes: l.HostBytes,
 			Overlays:  l.Overlays,
 			Computed:  l.Computed,
+			Lists:     l.Lists,
 		},
 		CurrentBytes:      st.CurrentBytes,
 		LastRenderPresent: st.LastRenderPresent,
 		LastRenderBytes:   st.LastRenderBytes,
 		OverlayJSON:       st.OverlayJSON,
+		ListCaptureJSON:   st.ListCaptureJSON,
+		InsertRecordJSON:  st.InsertRecordJSON,
 	})
 	if err != nil {
 		return s, nil, err

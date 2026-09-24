@@ -1,6 +1,8 @@
 // Package packoverlay collects `config-overlay` contributions ACROSS packs and resolves
 // each onto the surface identity it targets — the piece that was missing while the kind
-// sat inert (docs/reference/pack-system.md §6 Option 2).
+// sat inert (docs/reference/pack-system.md §6 Option 2). `config-list` contributions
+// (docs/design/additive-config-lists.md) are the same cross-pack join and are collected in
+// the same pass against the same owner set (OverlaySet.ListsFor).
 //
 // CROSS-PACK BY CONSTRUCTION, and that is the one structural fact worth stating: an
 // overlay in pack B targets a surface pack A owns, so collection cannot be per-pack.
@@ -29,6 +31,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
@@ -39,6 +42,12 @@ type OverlaySet struct {
 	// pack-then-declaration order (later wins — the same "later pack wins" rule skills
 	// and launch flags already use).
 	byTarget map[manifest.SurfaceKey][]agentcfg.Overlay
+
+	// listsByTarget maps a surface identity to the config-list contributions appending to
+	// it, in the same pack-then-declaration order (docs/design/additive-config-lists.md).
+	// Collected in the same two passes and against the same owner set, because a list is
+	// the same cross-pack join an overlay is: pack B appending to a list pack A owns.
+	listsByTarget map[manifest.SurfaceKey][]agentcfg.ListContribution
 
 	// Orphans are the overlays whose target surface has no owner in this pack set —
 	// ruling R2's "no effect, reported by name". Ordered deterministically.
@@ -53,6 +62,10 @@ type OverlaySet struct {
 // OrphanOverlay is one overlay with no owner: enough to report it by name, including
 // which pack would have had to be selected for it to work.
 type OrphanOverlay struct {
+	// Kind is the contribution kind that went nowhere — packdecl.KindConfigOverlay or
+	// packdecl.KindConfigList — so a report names the kind the author wrote. Both are inert
+	// and reported by the same rule (R2).
+	Kind packdecl.Kind
 	// Pack is the pack that declared the overlay.
 	Pack string
 	// Target is the surface identity it names, "agent/name".
@@ -77,11 +90,33 @@ func (o OrphanOverlay) Reason() string {
 			o.Target, o.Owner)
 	case o.CoreOwned:
 		return fmt.Sprintf("no effect — %s is one of yolo's OWN surfaces, not a pack's; "+
-			"config-overlay contributes to a surface a pack owns", o.Target)
+			"%s contributes to a surface a pack owns", o.Target, o.kindName())
 	default:
 		return fmt.Sprintf("no effect — %s has no owner among the selected packs "+
 			"(no pack declares that surface — check the identity)", o.Target)
 	}
+}
+
+// kindName is the orphan's kind as written, defaulting to config-overlay for a value built
+// before Kind existed.
+func (o OrphanOverlay) kindName() string {
+	if o.Kind == "" {
+		return string(packdecl.KindConfigOverlay)
+	}
+	return string(o.Kind)
+}
+
+// KindName is the kind the report line leads with ("config-overlay" or "config-list").
+func (o OrphanOverlay) KindName() string { return o.kindName() }
+
+// ListsFor returns the config-list contributions appending to one surface, or nil for none
+// — the universal answer for a pack set that declares no config-list, which composes
+// byte-identically to before the kind existed.
+func (s *OverlaySet) ListsFor(agent, name string) []agentcfg.ListContribution {
+	if s == nil {
+		return nil
+	}
+	return s.listsByTarget[manifest.SurfaceKey{Agent: agent, Name: name}]
 }
 
 // For returns the overlay layers folding onto one surface, or nil for none. nil is the
@@ -152,7 +187,10 @@ func (s *OverlaySet) For(agent, name string) []agentcfg.Overlay {
 // active is still an orphan — R2's report fires for the reason that actually stopped the
 // contribution.
 func Collect(packs []*packload.Pack, autonomy bool, profiles map[string]string) *OverlaySet {
-	set := &OverlaySet{byTarget: map[manifest.SurfaceKey][]agentcfg.Overlay{}}
+	set := &OverlaySet{
+		byTarget:      map[manifest.SurfaceKey][]agentcfg.Overlay{},
+		listsByTarget: map[manifest.SurfaceKey][]agentcfg.ListContribution{},
+	}
 
 	// Pass 1: who owns what. A surface's owner is the pack whose `config` contribution
 	// declares it. Surface problems are NOT collected here — the render path reports
@@ -199,7 +237,7 @@ func Collect(packs []*packload.Pack, autonomy bool, profiles map[string]string) 
 				// there is one, so the fix ("select that pack") is in the message.
 				_, coreOwned := agentcfg.BuiltinManifest().Lookup(key.Agent, key.Name)
 				set.Orphans = append(set.Orphans, OrphanOverlay{
-					Pack: p.Name, Target: ov.Surface,
+					Kind: packdecl.KindConfigOverlay, Pack: p.Name, Target: ov.Surface,
 					Owner: shippedOwnerOf(key, autonomy), CoreOwned: coreOwned,
 				})
 				continue
@@ -208,11 +246,45 @@ func Collect(packs []*packload.Pack, autonomy bool, profiles map[string]string) 
 		}
 	}
 
+	// Pass 3: place each config-list the same way — pack order, then declaration order,
+	// which is the order the entries append in (rule 1). No profile gate: the kind takes
+	// none (packdecl refuses `profile` on it). A malformed one is a Problem, loud like a
+	// malformed overlay; an ownerless one is inert and reported (R2). A list on a KEYLESS
+	// surface is NOT refused here — the owner's codec is the render's to judge, and the
+	// render refuses it naming the surface and its mode (agentcfg.ListCaptureRefusal).
+	for _, p := range packs {
+		for _, cl := range p.Decl.ConfigListContributions() {
+			key, err := manifest.ParseSurfaceID(cl.Surface)
+			if err != nil {
+				set.Problems = append(set.Problems, "pack "+p.Name+": config-list: "+err.Error())
+				continue
+			}
+			list, err := agentcfg.NewListContribution(p.Name, cl.Path, cl.Add)
+			if err != nil {
+				set.Problems = append(set.Problems, "pack "+p.Name+": config-list on "+
+					cl.Surface+": "+err.Error())
+				continue
+			}
+			if _, owned := owners[key]; !owned {
+				_, coreOwned := agentcfg.BuiltinManifest().Lookup(key.Agent, key.Name)
+				set.Orphans = append(set.Orphans, OrphanOverlay{
+					Kind: packdecl.KindConfigList, Pack: p.Name, Target: cl.Surface,
+					Owner: shippedOwnerOf(key, autonomy), CoreOwned: coreOwned,
+				})
+				continue
+			}
+			set.listsByTarget[key] = append(set.listsByTarget[key], list)
+		}
+	}
+
 	sort.SliceStable(set.Orphans, func(i, j int) bool {
 		if set.Orphans[i].Target != set.Orphans[j].Target {
 			return set.Orphans[i].Target < set.Orphans[j].Target
 		}
-		return set.Orphans[i].Pack < set.Orphans[j].Pack
+		if set.Orphans[i].Pack != set.Orphans[j].Pack {
+			return set.Orphans[i].Pack < set.Orphans[j].Pack
+		}
+		return set.Orphans[i].kindName() < set.Orphans[j].kindName()
 	})
 	return set
 }
@@ -276,6 +348,30 @@ func (s *OverlaySet) Applied() []AppliedOverlay {
 		packs := make([]string, 0, len(overlays))
 		for _, ov := range overlays {
 			packs = append(packs, ov.Pack)
+		}
+		out = append(out, AppliedOverlay{Target: key.String(), Agent: key.Agent, Packs: packs})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Target < out[j].Target })
+	return out
+}
+
+// AppliedLists lists the surfaces carrying config-list contributions, with the contributing
+// packs in fold order (a pack contributing twice is named once), sorted by identity — the
+// list twin of Applied, so an assembled array is legible at the moment it applies (R3,
+// rule 5) rather than only in a sidecar.
+func (s *OverlaySet) AppliedLists() []AppliedOverlay {
+	if s == nil {
+		return nil
+	}
+	out := make([]AppliedOverlay, 0, len(s.listsByTarget))
+	for key, lists := range s.listsByTarget {
+		var packs []string
+		seen := map[string]bool{}
+		for _, l := range lists {
+			if !seen[l.Pack] {
+				seen[l.Pack] = true
+				packs = append(packs, l.Pack)
+			}
 		}
 		out = append(out, AppliedOverlay{Target: key.String(), Agent: key.Agent, Packs: packs})
 	}

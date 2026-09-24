@@ -369,6 +369,12 @@ func (t configTarget) lastRenderPath(agent, name string) string {
 	return t.store.LastRenderPath(agent, name)
 }
 
+// listCapturePath is the per-entry capture at one surface's config-list paths, off the same
+// resolved store as the overlay beside it (render.Target.ListCapturePath).
+func (t configTarget) listCapturePath(agent, name string) string {
+	return t.store.ListCapturePath(agent, name)
+}
+
 func (t configTarget) provenancePath(agent, name string) string {
 	return t.store.ProvenancePath(agent, name)
 }

@@ -193,7 +193,7 @@ func ConfigurePackSurfaces(e *Env, packs []*packload.Pack) {
 			genStep(e, "configure_"+surface.Agent+"_"+surface.Name, func() error {
 				return renderDeclaredSurface(e, surface, tables, deriveScript,
 					surfaceSelectionFor(packs, resolved, profiles, surface),
-					overlays.For(surface.Agent, surface.Name))
+					contribsFor(overlays, surface.Agent, surface.Name))
 			})
 		}
 	}
@@ -216,10 +216,16 @@ func reportOverlayResolution(e *Env, overlays *packoverlay.OverlaySet) {
 		genStep(e, "pack_config_overlays", func() error { return fmt.Errorf("%s", problem) })
 	}
 	for _, orphan := range overlays.Orphans {
-		e.warn(fmt.Sprintf("config-overlay  %s (pack %s)", orphan.Reason(), orphan.Pack))
+		e.warn(fmt.Sprintf("%s  %s (pack %s)", orphan.KindName(), orphan.Reason(), orphan.Pack))
 	}
 	for _, applied := range overlays.Applied() {
 		e.warn(fmt.Sprintf("%s: config-overlay keys from %s (yolo config diff %s)",
+			applied.Target, strings.Join(applied.Packs, ", "), applied.Agent))
+	}
+	// The list twin (rule 5): an assembled array reads, in the file, exactly like one the
+	// owner declared, so which packs appended to it is said at the moment it applies.
+	for _, applied := range overlays.AppliedLists() {
+		e.warn(fmt.Sprintf("%s: config-list entries from %s (yolo config ls %s)",
 			applied.Target, strings.Join(applied.Packs, ", "), applied.Agent))
 	}
 }
@@ -398,16 +404,37 @@ func dropReservedSelection(e *Env, surface manifest.Surface, computed map[string
 // sel is the resolved selection this surface's derive reads (surfaceSelection), computed
 // by the caller from the same profile table it folded the variants with.
 //
-// overlays are the config-overlay layers other packs contribute to THIS surface,
-// resolved cross-pack by the caller. Empty for every surface nobody overlays, which is
-// all of them today — Compose folds an empty slice as a no-op, so the boot output of a
-// pack set with no overlays is byte-identical (pinned by TestRenderFingerprintStable).
-func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]map[string]any, deriveScript string, sel surfaceSelection, overlays []agentcfg.Overlay) error {
+// contribs are the config-overlay layers and config-list entries other packs contribute to
+// THIS surface, resolved cross-pack by the caller. nil for every surface nobody contributes
+// to — Compose folds nothing as a no-op, so the boot output of a pack set with no
+// contributions is byte-identical (pinned by TestRenderFingerprintStable).
+func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]map[string]any, deriveScript string, sel surfaceSelection, contribs *surfaceContribs) error {
 	if surface.ResolvedMode() == manifest.ModeUnrendered {
 		// Declared so `yolo config ls` can describe the file and so host_files cannot
 		// claim its path, but yolo does not write it. Skipping silently is correct here
-		// — "unrendered" is the declaration's whole meaning.
+		// — "unrendered" is the declaration's whole meaning. A config-list aimed at it is
+		// inert (nothing is written, so there is nothing to refuse), and said so: its
+		// author reads a silent no-op exactly like an entry that landed.
+		if packs := contribs.listPacks(); len(packs) > 0 {
+			e.warnOnce(fmt.Sprintf("config-list  no effect — %s/%s is declared `unrendered`, so "+
+				"yolo writes no file to append to (pack %s)", surface.Agent, surface.Name,
+				strings.Join(packs, ", ")))
+		}
 		return nil
+	}
+
+	// OQ-AL1's LAUNCH REFUSAL: a list contribution on a path whose mechanism does not capture
+	// per entry is refused, naming the surface and its mode — never composed into a capture
+	// that would freeze the list. Returned as an ordinary error, so it is A12-fatal to the
+	// in-jail boot. (Not `yolo check`: it renders each embedded pack alone, so a user pack's
+	// cross-pack contribution never reaches this line there.) Deliberately NOT an
+	// rmwRefusedError, which the rmw arm below downgrades to a warning — that downgrade is for
+	// a file the AGENT wrote badly, and this is a declaration the pack author can fix.
+	if len(contribs.listContribs()) > 0 {
+		mechanism, _ := e.renderTarget().Modes().Mechanism(surface.ResolvedMode())
+		if refusal := agentcfg.ListCaptureRefusal(mechanism, surface); refusal != "" {
+			return fmt.Errorf("%s", refusal)
+		}
 	}
 
 	// The config dir. Was an os.MkdirAll per agent in the six Go functions; the surface
@@ -438,11 +465,11 @@ func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]m
 		if err != nil {
 			return err
 		}
-		_, err = renderSurfaceStatelessSurface(e, surface, hostBytes, computed, overlays)
+		_, err = renderSurfaceStatelessSurface(e, surface, hostBytes, computed, contribs)
 		return err
 	case manifest.ModeRMW:
 		computed = dropReservedSelection(e, surface, computed)
-		err := renderSurfaceRMWSurface(e, surface, computed, overlays)
+		err := renderSurfaceRMWSurface(e, surface, computed, contribs)
 		// A REFUSAL IS A WARNING HERE, NOT AN A12 BOOT FAILURE, and the distinction is the
 		// difference between the two things that can go wrong with an rmw surface.
 		//
@@ -468,7 +495,7 @@ func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]m
 		if err != nil {
 			return err
 		}
-		out, err := renderSurfaceStatefulSurface(e, surface, hostBytes, computed, overlays)
+		out, err := renderSurfaceStatefulSurface(e, surface, hostBytes, computed, contribs)
 		if err != nil {
 			return err
 		}

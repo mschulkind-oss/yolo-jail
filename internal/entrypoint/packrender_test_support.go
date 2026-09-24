@@ -76,7 +76,7 @@ func ConfigurePackByName(e *Env, name string) error {
 		// pack" is what the entry means; the boot loop is what sees the whole set.
 		if err := renderDeclaredSurface(e, s, tables, deriveScript,
 			surfaceSelectionFor([]*packload.Pack{p}, resolved, profiles, s),
-			overlays.For(s.Agent, s.Name)); err != nil {
+			contribsFor(overlays, s.Agent, s.Name)); err != nil {
 			return err
 		}
 	}

@@ -53,6 +53,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
@@ -76,6 +77,13 @@ type parityCase struct {
 	computed map[string]any
 	// overlays are other packs' config-overlay contributions, in fold order.
 	overlays []agentcfg.Overlay
+	// lists are other packs' config-list contributions, in fold order.
+	lists []agentcfg.ListContribution
+	// wantFile, when set, is the value both notches' FILES must hold at these top-level
+	// keys — for the list rows, where the label alone cannot see an array the two renders
+	// assembled differently (rmw applying lists before its defaults fill loses a default
+	// array while both records still say `defaults`).
+	wantFile map[string]any
 	// want is the record both derivations must produce.
 	want map[string]string
 	// wantHost overrides `want` for the HOST derivation when the two renders genuinely
@@ -275,6 +283,59 @@ func parityCorpus() []parityCase {
 				"put it there. Both records match their own file; the mechanisms differ.",
 		},
 
+		// ── config-list: the additive kind (docs/design/additive-config-lists.md) ──────
+		{
+			// A key ONLY the contributions created reads `config-list` at both notches — a
+			// label no retirement or revert treats as yolo's whole array.
+			name:     "config-list creates a key no layer holds",
+			lists:    []agentcfg.ListContribution{parityList("kilo", "/packages", "k")},
+			want:     map[string]string{"packages": "config-list"},
+			wantFile: map[string]any{"packages": []any{"k"}},
+		},
+		{
+			// THE rmw TRAP: defaults fill LAST and only where absent, so a list applied before
+			// the fill would create the key and the default array would never land. Both notches
+			// must hold the owner's default THEN the contributed entry.
+			name:     "config-list extends a default array",
+			defaults: map[string]any{"packages": []any{"a"}},
+			lists:    []agentcfg.ListContribution{parityList("kilo", "/packages", "k")},
+			want:     map[string]string{"packages": "defaults"},
+			wantFile: map[string]any{"packages": []any{"a", "k"}},
+		},
+		{
+			name:     "config-list extends the file's own array",
+			host:     map[string]any{"packages": []any{"u"}},
+			lists:    []agentcfg.ListContribution{parityList("kilo", "/packages", "k", "u")},
+			want:     map[string]string{"packages": "host"},
+			wantFile: map[string]any{"packages": []any{"u", "k"}},
+		},
+		{
+			name:     "managed replaces the assembled list",
+			managed:  map[string]any{"packages": []any{"pinned"}},
+			lists:    []agentcfg.ListContribution{parityList("kilo", "/packages", "k")},
+			want:     map[string]string{"packages": "managed"},
+			wantFile: map[string]any{"packages": []any{"pinned"}},
+		},
+		{
+			// RULE 4, computed half: a dynamic table holding the list path replaces the
+			// assembled array at both notches — Compose folds computed above the list, and
+			// rmw skips the path rather than appending into yolo's regenerated table.
+			name:     "a computed table replaces the list path",
+			computed: map[string]any{"mcpServers": map[string]any{"srv": map[string]any{"command": "x"}}},
+			lists:    []agentcfg.ListContribution{parityList("kilo", "/mcpServers/srv", "k")},
+			want:     map[string]string{"mcpServers": "computed"},
+			wantFile: map[string]any{"mcpServers": map[string]any{"srv": map[string]any{"command": "x"}}},
+		},
+		{
+			// OQ-AL2 at both notches: the overlay replaces, the later list re-adds.
+			name:     "config-list re-adds after an overlay replaced the array",
+			defaults: map[string]any{"packages": []any{"a"}},
+			overlays: []agentcfg.Overlay{{Pack: "ov", Data: map[string]any{"packages": []any{"o"}}}},
+			lists:    []agentcfg.ListContribution{parityList("kilo", "/packages", "a", "k")},
+			want:     map[string]string{"packages": "config-overlay:ov"},
+			wantFile: map[string]any{"packages": []any{"o", "a", "k"}},
+		},
+
 		// ── The empty case: a measurement, not an absence ───────────────────────────
 		{
 			// A surface with no layers whatever attributes nothing at BOTH notches, and
@@ -321,7 +382,8 @@ func parityRecords(t *testing.T, tc parityCase) (jail, host map[string]string) {
 	// ── The JAIL derivation: the layer fold.
 	var jailErr bytes.Buffer
 	ej := &Env{Home: t.TempDir(), Workspace: t.TempDir(), Vars: map[string]string{}, Stderr: &jailErr}
-	if _, err := renderSurfaceStatefulSurface(ej, surface, hostBytes, tc.computed, tc.overlays); err != nil {
+	contribs := &surfaceContribs{overlays: tc.overlays, lists: tc.lists}
+	if _, err := renderSurfaceStatefulSurface(ej, surface, hostBytes, tc.computed, contribs); err != nil {
 		t.Fatalf("jail render: %v", err)
 	}
 	jail = readProvenanceFile(t, prismProvenancePath(ej, "parity", "settings"))
@@ -338,8 +400,16 @@ func parityRecords(t *testing.T, tc parityCase) (jail, host map[string]string) {
 			t.Fatal(err)
 		}
 	}
-	if err := renderSurfaceRMWSurface(eh, surface, tc.computed, tc.overlays); err != nil {
+	if err := renderSurfaceRMWSurface(eh, surface, tc.computed, contribs); err != nil {
 		t.Fatalf("host render: %v", err)
+	}
+	for k, want := range tc.wantFile {
+		for side, home := range map[string]string{"jail": ej.Home, "host": eh.Home} {
+			got := readParityFile(t, filepath.Join(home, ".parity", "settings.json"))[k]
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("%s file: %s = %#v, want %#v", side, k, got, want)
+			}
+		}
 	}
 	// hostProvenance (hostprovenance_test.go) reads through render.Host's own path, which is
 	// what makes "the record is where a reader looks for it" part of the measurement.
@@ -361,6 +431,25 @@ func parityRecords(t *testing.T, tc parityCase) (jail, host map[string]string) {
 		}
 	}
 	return jail, rec
+}
+
+// parityList is one config-list contribution for the corpus.
+func parityList(pack, path string, add ...any) agentcfg.ListContribution {
+	return agentcfg.ListContribution{Pack: pack, Path: path, Add: add}
+}
+
+// readParityFile decodes a rendered parity surface.
+func readParityFile(t *testing.T, path string) map[string]any {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	return m
 }
 
 // readProvenanceFile parses a "key\tlayer" record. An absent file is a failure, not an empty

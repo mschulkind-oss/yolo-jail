@@ -16,10 +16,12 @@ package agentcfg
 // of StatefulOutput its job needs:
 //
 //   - internal/entrypoint's boot path (prism.go) is the full one — surface file,
-//     last_render and overlay, three writes every boot.
+//     last_render and overlay, three writes every boot, plus a fourth (the list-capture
+//     sidecar) for a surface with a config-list path.
 //   - internal/cli's CAPTURE path (captureSurfaceAt, configdiff.go — behind
 //     `yolo config capture` and the capture-on-terminate fold in
-//     configcapture.go) writes ONLY the overlay sidecar. It is here to reuse the
+//     configcapture.go) writes ONLY the overlay sidecar (and the list-capture sidecar
+//     beside it, for a surface that has one). It is here to reuse the
 //     engine's capture diff rather than grow a second one that could disagree
 //     with the boot render; the surface file and last_render stay the boot's to
 //     write.
@@ -80,8 +82,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"sort"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonptr"
 )
 
 // StatefulInputs is everything the boot harness needs to render one surface
@@ -119,13 +123,34 @@ type StatefulInputs struct {
 	// sidecar cannot leak into it. (Before B1 the rebuilt value was always {},
 	// which is why this said "reset to {}".)
 	OverlayJSON []byte
+
+	// ListCaptureJSON is the list-capture sidecar content (JSON), or nil when absent: the
+	// per-entry capture at each list path (ListRecord, listcontrib.go). Its KEYS are part
+	// of the input as well as its records — the set of list paths is STICKY, the live
+	// contributions' paths plus every path the sidecar already names — because the capture
+	// callers that pass no layers (internal/cli's captureSurfaceAt, behind `yolo config
+	// capture` and capture-on-terminate) can learn a surface's list paths from nowhere else,
+	// and a capture that did not know a path was a list path would freeze the whole array
+	// into the overlay again. Ignored on a first migration, like OverlayJSON.
+	ListCaptureJSON []byte
+
+	// InsertRecordJSON is the config-list INSERT record (ListInsertRecord, keyed like the
+	// list capture), or nil when absent: the entries yolo itself put at each list path — the
+	// `rmw` mechanism's record, which the host also keeps under `own` (InsertRecordFromRender).
+	// Read by ADOPTION alone, which otherwise has no way to tell a pack's entry from the
+	// user's once the baseline is gone: an entry the record says yolo inserted is never
+	// adopted as a user add, and an entry it says the user declined is adopted as a removal.
+	// That is what keeps a host ownership switch (`assert` to `own`) from turning a pack's
+	// entries into the user's. FAIL-SAFE: an unreadable record claims nothing.
+	InsertRecordJSON []byte
 }
 
-// StatefulOutput is the render plus the two sidecar values the caller must
+// StatefulOutput is the render plus the sidecar values the caller must
 // persist. The BOOT caller writes Result.Encoded to the surface path,
 // LastRenderBytes to the last_render sidecar, and OverlayJSON to the overlay
-// sidecar — three writes, unconditionally, every boot. The capture path writes
-// OverlayJSON alone (see the file header).
+// sidecar — three writes, unconditionally, every boot — and ListCaptureJSON to the
+// list-capture sidecar when it is non-nil. The capture path writes OverlayJSON and
+// ListCaptureJSON alone (see the file header).
 type StatefulOutput struct {
 	// Result is the composed surface (compose.go Result): Config, Encoded bytes,
 	// Provenance.
@@ -150,6 +175,17 @@ type StatefulOutput struct {
 	// "bytes yolo wrote" (OQ-CO7, docs/design/config-ownership-and-promotion.md
 	// §6.3.3); it is a report, never an input to anything here.
 	PureBytes []byte
+
+	// ListCaptureJSON is what to write to the list-capture sidecar, or nil when this
+	// surface has no list path — in which case NOTHING is written, so a surface without
+	// lists keeps exactly the sidecars it had (TestRenderFingerprintStable).
+	ListCaptureJSON []byte
+
+	// ListNotes are one-line boot notes about list paths this render could not treat per
+	// entry (a captured deletion or non-array edit at a list path, which stays a whole-value
+	// capture and masks every contribution) or converted (a whole-array capture an older
+	// yolo left). A REPORT, printed by the caller; never an input.
+	ListNotes []string
 
 	// OverlayJSON is what to write to the overlay sidecar (JSON): on a first
 	// migration the ADOPTED residue of the on-disk file — {} when there is no file,
@@ -196,6 +232,13 @@ type StatefulOutput struct {
 //	    overlay = retireConvergedOverlay(overlay, layers)           # no-op entries
 //	    render  = Compose(overlay)
 //	    write surface_path, last_render := render, overlay := overlay
+//
+// AT A LIST PATH (listcontrib.go, OQ-AL1) both branches capture PER ENTRY instead of
+// through the merge patch, into the list-capture sidecar (ListCaptureJSON): adoption keeps
+// only the entries the file holds beyond the fold below the contributions; steady state
+// first converts a legacy whole-array capture (listCapture.migrate), then records this
+// boot's per-entry delta and neutralizes the path before mergeDiff. See listCapture for each
+// rule. A surface with no list path runs exactly the steps above and writes no fourth file.
 func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 	c, ok := codec.LookupCodec(in.Base.Surface.Codec)
 	if !ok {
@@ -221,6 +264,14 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 	// decoded separately inside each branch until the third reader arrived and
 	// needed it on both.
 	current, curOK := decodeKind(c, kind, in.CurrentBytes)
+
+	// THE LIST PATHS (listcontrib.go): the live contributions' paths plus every path the
+	// list-capture sidecar already names. Empty for every surface without a list — and then
+	// every list step below is a no-op and ListCaptureJSON stays nil.
+	var lc *listCapture
+	if kind == codec.KindObject {
+		lc = newListCapture(in, firstMigration)
+	}
 
 	// The layers-alone render, kept for StatefulOutput.PureBytes when the adoption branch
 	// below computes one. Declared here rather than returned from that branch because only
@@ -278,6 +329,13 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 				pureMap, _ := decodeKind(c, kind, pure.Encoded)
 				pm, _ := pureMap.(map[string]any)
 				curMap, _ := current.(map[string]any)
+				// A LIST PATH IS ADOPTED PER ENTRY, never as a whole array: only what the file
+				// holds beyond the fold below the contributions, so a pack's entries never
+				// enter the capture and an entry already in the user's file stays theirs.
+				curMap, err := lc.adopt(curMap, pm)
+				if err != nil {
+					return nil, err
+				}
 				residue := dropNullLeaves(mergeDiff(pm, curMap))
 				// Narrowing the residue takes TWO passes at DIFFERENT GRANULARITIES,
 				// and neither subsumes the other.
@@ -325,6 +383,15 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 		// Steady state. Start from the persisted overlay ({} if absent — §3.3
 		// case 3), then accumulate this boot's captured delta.
 		overlay = parseOverlayKind(kind, in.OverlayJSON)
+		// A WHOLE ARRAY an older yolo captured at what is now a list path is converted to
+		// a per-entry record first, before this boot's delta (the migration).
+		if overlayMap, isMap := overlay.(map[string]any); isMap && lc.active() {
+			converted, err := lc.migrate(overlayMap)
+			if err != nil {
+				return nil, err
+			}
+			overlay = converted
+		}
 		if curOK {
 			// §5: diff the on-disk file against the trusted baseline and fold the
 			// delta into the durable overlay.
@@ -343,6 +410,13 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 				lastMap, _ := lastRender.(map[string]any)
 				curMap, _ := current.(map[string]any)
 				overlayMap, _ := overlay.(map[string]any)
+				// Per entry at every list path, and the path neutralized so the merge patch
+				// never records it (OQ-AL1).
+				var cerr error
+				curMap, overlayMap, cerr = lc.capture(lastMap, curMap, overlayMap)
+				if cerr != nil {
+					return nil, cerr
+				}
 				delta := mergeDiff(lastMap, curMap)
 				overlay = mergeAccumulate(overlayMap, delta)
 			} else if !reflect.DeepEqual(lastRender, current) {
@@ -390,6 +464,9 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 	// forever. Narrowing after the accumulate makes the store SELF-HEALING — a
 	// sidecar an older yolo wrote is canonicalized on the next boot.
 	overlay = narrowOverlay(kind, overlay, in.Base.Computed, in.Base.Surface.Managed)
+	// The same rule for the list records: one under a computed or managed layer that
+	// replaces its path is provably dead.
+	lc.narrow(in.Base.Computed, in.Base.Surface.ManagedMap())
 	// A capture preserves a divergence, not a historical choice. When a declared
 	// layer converges with a captured value, retaining that value makes a no-op
 	// sidecar silently become a future override if the declaration moves again.
@@ -399,6 +476,7 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 	// both comparisons below so a self-sustaining literal null is not mistaken
 	// for a redundant sidecar tombstone.
 	base := in.Base
+	base.ListCapture = lc.records()
 	if kind == codec.KindObject && curOK {
 		if curMap, ok := current.(map[string]any); ok {
 			base.LiteralNulls = literalNullSkeleton(curMap)
@@ -440,10 +518,18 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 			in.Base.Surface.Agent, in.Base.Surface.Name, err)
 	}
 
+	listJSON, err := lc.marshal()
+	if err != nil {
+		return nil, fmt.Errorf("agentcfg: surface %s/%s: marshal list capture: %w",
+			in.Base.Surface.Agent, in.Base.Surface.Name, err)
+	}
+
 	return &StatefulOutput{
 		Result:          res,
 		LastRenderBytes: res.Encoded,
 		OverlayJSON:     overlayJSON,
+		ListCaptureJSON: listJSON,
+		ListNotes:       lc.notesFor(in.Base, overlay),
 		FirstMigration:  firstMigration,
 		PureBytes:       pureBytes,
 		Repairs:         repairs,
@@ -795,4 +881,336 @@ func marshalOverlay(overlay any) ([]byte, error) {
 		overlay = map[string]any{}
 	}
 	return json.MarshalIndent(overlay, "", "  ")
+}
+
+// ── per-entry capture at list paths ────────────────────────────────────────────────────
+
+// listCapture is ComposeStateful's per-entry capture state for one render of one object
+// surface (listcontrib.go for the rule, OQ-AL1 for the ruling). A nil *listCapture — a
+// keyless surface — is a valid receiver for every method and does nothing, which is what
+// keeps a surface without lists byte-identical to before the kind existed.
+type listCapture struct {
+	in     StatefulInputs
+	paths  []string            // sorted: live contribution paths ∪ sidecar keys
+	tokens map[string][]string // path → its parsed tokens
+	recs   map[string]ListRecord
+	// inserted is the insert record (StatefulInputs.InsertRecordJSON), read on a first
+	// migration only: the entries adoption must not take for the user's.
+	inserted map[string]ListInsertRecord
+
+	below   map[string]any // B, the fold below the capture WITHOUT contributions (lazy)
+	belowOK bool
+
+	converted []string // paths whose legacy whole-array capture this render converted
+	notes     []string // edits this render could not keep per entry (reorderNote)
+}
+
+// newListCapture resolves the sticky list-path set and seeds the records from the sidecar.
+// A first migration ignores the sidecar's RECORDS, exactly as it ignores the overlay
+// sidecar (a dangling capture cannot be trusted without its baseline), but keeps its KEYS:
+// a path the sidecar names stays a list path either way.
+func newListCapture(in StatefulInputs, firstMigration bool) *listCapture {
+	sidecar := ParseListCapture(in.ListCaptureJSON)
+	lc := &listCapture{in: in, tokens: map[string][]string{}, recs: map[string]ListRecord{}}
+	add := func(p string) {
+		if _, seen := lc.tokens[p]; seen {
+			return
+		}
+		t, err := jsonptr.Parse(p)
+		if err != nil || len(t) == 0 {
+			return
+		}
+		lc.tokens[p] = t
+		lc.paths = append(lc.paths, p)
+	}
+	for _, p := range ListPaths(in.Base.Lists) {
+		add(p)
+	}
+	for p := range sidecar {
+		add(p)
+	}
+	sort.Strings(lc.paths)
+	if !firstMigration {
+		for p, r := range sidecar {
+			lc.recs[p] = r
+		}
+	} else {
+		lc.inserted = ParseListInsertRecords(in.InsertRecordJSON)
+	}
+	return lc
+}
+
+func (lc *listCapture) active() bool { return lc != nil && len(lc.paths) > 0 }
+
+// fold returns B: defaults < host < workspace < config-overlay, with no list contribution,
+// no capture, no computed and no managed. It is the baseline adoption and migration measure
+// against, because it is what the file would hold at a list path if no pack contributed
+// and no edit had been captured — so an entry the user's file holds beyond it is theirs.
+func (lc *listCapture) fold() (map[string]any, error) {
+	if lc.belowOK {
+		return lc.below, nil
+	}
+	b := lc.in.Base
+	b.Lists, b.Overlay, b.ListCapture, b.Computed, b.LiteralNulls = nil, nil, nil, nil, nil
+	b.Surface.Managed = nil
+	res, err := Compose(b)
+	if err != nil {
+		return nil, err
+	}
+	lc.below, lc.belowOK = res.ConfigMap(), true
+	return lc.below, nil
+}
+
+// arrayAt is the array at tokens, or nil when the path is absent, blocked or not an array.
+func arrayAt(m map[string]any, tokens []string) []any {
+	v, st, _ := walkPath(m, tokens)
+	if st != pathFound {
+		return nil
+	}
+	a, _ := v.([]any)
+	return a
+}
+
+// neutralize returns cur with the value at tokens replaced by ref's (or removed when ref
+// has none, pruning every ancestor the removal empties that ref does not hold either), so
+// a merge diff of ref against the result records nothing at the path. The caller only
+// neutralizes a path cur holds as an array, so every ancestor in cur is an object.
+func neutralize(cur, ref map[string]any, tokens []string) map[string]any {
+	if v, st, _ := walkPath(ref, tokens); st == pathFound {
+		return setPath(cur, tokens, v)
+	}
+	return deletePath(cur, tokens, func(prefix []string) bool {
+		_, st, _ := walkPath(ref, prefix)
+		return st != pathFound
+	})
+}
+
+// adopt is the first-migration branch at the list paths: a list path the current file holds
+// as an array adopts ONLY ADDS, measured against B — so a pack's entries never enter the
+// capture, and an entry the user's own file already held that a pack also contributes is
+// adopted as theirs (it survives the pack being dropped: the design's "host apply never
+// removes a user's independently declared matching package"). The path is neutralized
+// against the pure render so the residue never adopts the whole array.
+//
+// An INSERT RECORD beside the surface (StatefulInputs.InsertRecordJSON) narrows that: an entry
+// it says yolo inserted is not adopted, and one it says the user declined is adopted as a
+// removal. The host keeps one under both contracts, so an ownership switch loses nothing.
+//
+// The cost, stated: with no insert record (every jail), after a lost last_render, entries a
+// pack contributed on an earlier render read as the user's too — nothing distinguishes them
+// from the user's own once the baseline is gone.
+func (lc *listCapture) adopt(cur, pure map[string]any) (map[string]any, error) {
+	if !lc.active() {
+		return cur, nil
+	}
+	for _, p := range lc.paths {
+		t := lc.tokens[p]
+		v, st, _ := walkPath(cur, t)
+		arr, isArr := v.([]any)
+		if st != pathFound || !isArr {
+			continue // absent, or a non-array the residue adopts whole (rule 4)
+		}
+		b, err := lc.fold()
+		if err != nil {
+			return nil, err
+		}
+		ins := lc.inserted[p]
+		lc.recs[p] = ListRecord{
+			Add:    subtractEntries(subtractEntries(arr, arrayAt(b, t)), ins.Inserted),
+			Remove: subtractEntries(ins.Declined, arr),
+		}
+		cur = neutralize(cur, pure, t)
+	}
+	return cur, nil
+}
+
+// migrate converts a WHOLE ARRAY the capture overlay holds at a list path — left by the old
+// whole-array capture, which mergeAccumulate stores as a replacement — into a per-entry
+// record: add = O − B and remove = B − O, O deleted from the overlay with any {} parent it
+// leaves. B rather than the last render, because the last render at the path IS O: the
+// capture won.
+//
+// What the conversion loses, stated because it is lossy by construction: O's ORDER relative
+// to B (B's order wins; adds append in O's order), DUPLICATES within O, and O's ABSOLUTE PIN
+// — from here on a lower-layer change at the path shows through, where the whole array
+// masked it. A captured TOMBSTONE or non-array is not converted: it stays a whole-value
+// capture (rule 4) and notesFor names it.
+func (lc *listCapture) migrate(overlay map[string]any) (map[string]any, error) {
+	for _, p := range lc.paths {
+		t := lc.tokens[p]
+		v, st, _ := walkPath(overlay, t)
+		o, isArr := v.([]any)
+		if st != pathFound || !isArr {
+			continue
+		}
+		b, err := lc.fold()
+		if err != nil {
+			return nil, err
+		}
+		base := arrayAt(b, t)
+		lc.recs[p] = lc.recs[p].accumulate(subtractEntries(o, base), subtractEntries(base, o))
+		overlay = deletePath(overlay, t, pruneAlways)
+		lc.converted = append(lc.converted, p)
+	}
+	return overlay, nil
+}
+
+// capture is the steady-state branch at the list paths: compare last_render@P with
+// current@P.
+//
+//   - A FILE ARRAY at P over an ARRAY: record per-entry adds and removes by whole-value
+//     presence, accumulated symmetrically, and neutralize P so the merge patch never records
+//     it. What presence cannot express — a REORDER of the surviving entries, or a
+//     de-duplication — is not kept, and the boot says so (reorderNote) rather than silently
+//     putting the old order back.
+//   - A FILE ARRAY REAPPEARING at P over a WHOLE-VALUE CAPTURE — a captured deletion or
+//     non-array edit at P, or at an ANCESTOR of P (a deleted or replaced parent object): the
+//     capture is cleared from the overlay, and the array is measured against the list that
+//     capture was HIDING (hidden) — the assembled list with the path's record applied — not
+//     against []. So what the user wrote is what renders: a contributed entry they had
+//     removed stays removed, the owner's entries they left out are removals, and a pack's
+//     entries never become the user's adds.
+//   - A FILE ARRAY over nothing (no capture hides anything): the baseline is [], so every
+//     entry in the file is recorded as added.
+//   - The array DELETED, or REPLACED by a non-array: rule 4's whole-value edit. The merge
+//     patch records it (a tombstone, or the value) and it outranks every contribution. P's
+//     record is KEPT: applyListRecords skips a path the overlay replaces, so it is inert while
+//     the capture stands, and it is what hidden applies if the array comes back — a per-entry
+//     removal the user made before the deletion is still theirs.
+//   - A path the FILE blocks with a non-object ancestor is left to the merge patch.
+//
+// So an array EMPTIED in-jail is per entry, and the consequence is deliberate: every entry
+// present then stays removed, while an entry first contributed LATER still appears.
+func (lc *listCapture) capture(last, cur, overlay map[string]any) (map[string]any, map[string]any, error) {
+	if !lc.active() {
+		return cur, overlay, nil
+	}
+	for _, p := range lc.paths {
+		t := lc.tokens[p]
+		old, oldSt, _ := walkPath(last, t)
+		nw, newSt, _ := walkPath(cur, t)
+		if newSt == pathBlocked {
+			continue
+		}
+		oldArr, oldIsArr := old.([]any)
+		newArr, newIsArr := nw.([]any)
+		if newSt != pathFound || !newIsArr {
+			continue // absent or a non-array: the merge patch's whole-value edit, record kept
+		}
+		var base []any
+		switch {
+		case oldSt == pathFound && oldIsArr:
+			base = oldArr
+			if note := reorderNote(lc.id(), p, oldArr, newArr); note != "" {
+				lc.notes = append(lc.notes, note)
+			}
+		default:
+			if depth := replacesPathDepth(overlay, t); depth >= 0 {
+				overlay = deletePath(overlay, t[:depth+1], pruneAlways)
+				hidden, err := lc.hidden(overlay)
+				if err != nil {
+					return nil, nil, err
+				}
+				base = arrayAt(hidden, t)
+			}
+		}
+		lc.recs[p] = lc.recs[p].accumulate(subtractEntries(newArr, base), subtractEntries(base, newArr))
+		cur = neutralize(cur, last, t)
+	}
+	return cur, overlay, nil
+}
+
+// hidden is the render with the given overlay and the current records: at a path whose
+// whole-value capture the caller just removed from overlay, it is the list that capture was
+// hiding from the file.
+func (lc *listCapture) hidden(overlay map[string]any) (map[string]any, error) {
+	b := lc.in.Base
+	b.Overlay, b.ListCapture, b.LiteralNulls = overlay, lc.recs, nil
+	res, err := Compose(b)
+	if err != nil {
+		return nil, err
+	}
+	return res.ConfigMap(), nil
+}
+
+func (lc *listCapture) id() string { return lc.in.Base.Surface.Agent + "/" + lc.in.Base.Surface.Name }
+
+// reorderNote reports an in-jail edit per-entry capture cannot keep: the entries both
+// versions hold, in a different relative order or with a different number of repeats. ""
+// when the surviving entries read the same in both — an append or a removal keeps order.
+func reorderNote(id, path string, old, cur []any) string {
+	kept := func(a, in []any) []string {
+		var out []string
+		for _, e := range a {
+			if containsEntry(in, e) {
+				out = append(out, entryKey(e))
+			}
+		}
+		return out
+	}
+	if reflect.DeepEqual(kept(old, cur), kept(cur, old)) {
+		return ""
+	}
+	return fmt.Sprintf("%s: an in-jail reorder or de-duplication of the list at %s is not kept — a "+
+		"config-list path captures which entries it holds, not their order or repeats, so the "+
+		"rendered order is restored", id, path)
+}
+
+// narrow drops every record a computed or managed layer makes dead by holding its path, or
+// an ancestor, as a non-object — the dropOverriddenKeys rule for list records. The path
+// stays a list path (the set is sticky); only the record empties.
+func (lc *listCapture) narrow(computed any, managed map[string]any) {
+	if !lc.active() {
+		return
+	}
+	for _, p := range lc.paths {
+		t := lc.tokens[p]
+		if replacesPath(computed, t) || replacesPath(managed, t) {
+			lc.recs[p] = ListRecord{}
+		}
+	}
+}
+
+// records is what Compose applies (Inputs.ListCapture); nil for a surface with no list path.
+func (lc *listCapture) records() map[string]ListRecord {
+	if !lc.active() {
+		return nil
+	}
+	return lc.recs
+}
+
+// marshal is the sidecar to persist: an entry for EVERY list path, empty or not, so the next
+// layer-less capture still knows each one; nil — write nothing — when there is none.
+func (lc *listCapture) marshal() ([]byte, error) {
+	if !lc.active() {
+		return nil, nil
+	}
+	return marshalListCapture(lc.paths, lc.recs)
+}
+
+// notesFor reports what this render could not treat per entry, and what it converted.
+func (lc *listCapture) notesFor(base Inputs, overlay any) []string {
+	if !lc.active() {
+		return nil
+	}
+	id := base.Surface.Agent + "/" + base.Surface.Name
+	notes := append([]string(nil), lc.notes...)
+	for _, p := range lc.converted {
+		notes = append(notes, fmt.Sprintf("%s: converted the whole-array capture at %s into "+
+			"per-entry capture; its order relative to the layers below, duplicate entries and "+
+			"its pin against lower-layer changes are not kept", id, p))
+	}
+	overlayMap, _ := overlay.(map[string]any)
+	for _, p := range ListPaths(base.Lists) {
+		if len(ContributedEntries(base.Lists, p)) == 0 {
+			continue
+		}
+		if _, st, _ := walkPath(overlayMap, lc.tokens[p]); st == pathAbsent {
+			continue
+		}
+		notes = append(notes, fmt.Sprintf("%s: a captured in-jail deletion or non-array edit at %s "+
+			"replaces the whole list, so the config-list entries for it are masked — "+
+			"`yolo config reset %s` discards the capture", id, p, id))
+	}
+	return notes
 }

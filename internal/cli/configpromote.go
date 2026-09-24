@@ -340,6 +340,11 @@ type promoteSurface struct {
 	Keys        []promoteKey
 	// Note is a caveat about what this classification could not see, or "".
 	Note string
+	// ListNote names the per-entry list edits captured at this surface's config-list paths
+	// (the list-capture sidecar), which promote does not lift — or "" when there are none.
+	// Its own field so the report can say something WAS captured instead of "no captured
+	// keys here", which `yolo config diff` would contradict.
+	ListNote string
 }
 
 // promoteKey is one captured key and what promote decided about it.
@@ -452,11 +457,45 @@ func promoteNonCaptureHint(agent, surface string) string {
 		"whole-file `capture` surface has an overlay to promote out of)", agent, surface, surfaceMode(s))
 }
 
+// promoteListNote is the report line for the per-entry list edits a surface's list-capture
+// sidecar holds, or "" for none (absent or corrupt reads as none, agentcfg.ParseListCapture).
+// Promote does not lift them — a list record is not a key, and promoting one is a separate
+// roadmap item (docs/design/additive-config-lists-plan.md, "Don't") — so the line says so and
+// points at the verb that shows them.
+func promoteListNote(path string) string {
+	if path == "" {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	paths, recs := agentcfg.ListCaptureRecords(data)
+	var named []string
+	n := 0
+	for _, p := range paths {
+		if c := len(recs[p].Add) + len(recs[p].Remove); c > 0 {
+			n += c
+			named = append(named, p)
+		}
+	}
+	if n == 0 {
+		return ""
+	}
+	unit := "entries"
+	if n == 1 {
+		unit = "entry"
+	}
+	return fmt.Sprintf("%d captured list %s at %s: not promotable yet — per-entry edits at a "+
+		"config-list path are not keys; `yolo config diff` lists them", n, unit, strings.Join(named, ", "))
+}
+
 // classifyPromoteSurface is §5.2 steps 1-4 for ONE surface.
 func classifyPromoteSurface(t configTarget, s manifest.Surface, o promoteOptions, dest promoteDest, fold promoteFold) promoteSurface {
 	ps := promoteSurface{Surface: s}
 	ps.OverlayPath = t.wsOverlayPath(s.Agent, s.Name)
 	ps.OverlayJSON, _ = os.ReadFile(ps.OverlayPath)
+	ps.ListNote = promoteListNote(t.wsStore.ListCapturePath(s.Agent, s.Name))
 
 	// The DISPLAY reader (jsonx, key order and integer literals preserved) is the one the
 	// captured values are taken from, because those values are written back into a
@@ -709,7 +748,7 @@ func writePromoteReport(pr richtext.Printer, plan promotePlan) {
 	for _, ps := range plan.Surfaces {
 		pr.Printf("[bold]# %s/%s → %s[/bold]", ps.Surface.Agent, ps.Surface.Name,
 			surfacePathOrSidecar(ps.Surface))
-		if len(ps.Keys) == 0 {
+		if len(ps.Keys) == 0 && ps.ListNote == "" {
 			pr.Printf("  [dim]no captured keys here[/dim]")
 		}
 		width := 0
@@ -726,6 +765,9 @@ func writePromoteReport(pr richtext.Printer, plan promotePlan) {
 			}
 			pr.Printf("  [magenta]%s[/magenta]%s  %s  [dim]%s[/dim]%s",
 				k.Key, pad, promoteDispositionTag(k.Disposition), k.Reason, forced)
+		}
+		if ps.ListNote != "" {
+			pr.Printf("  [yellow]%s[/yellow]", ps.ListNote)
 		}
 		if ps.Note != "" {
 			pr.Printf("  [dim]note: %s[/dim]", ps.Note)
@@ -783,10 +825,12 @@ type promotePlanCounts struct {
 
 // promotePlanDocSfc is one surface in the document.
 type promotePlanDocSfc struct {
-	Surface string              `json:"surface"`
-	Path    string              `json:"path"`
-	Note    string              `json:"note,omitempty"`
-	Keys    []promotePlanDocKey `json:"keys"`
+	Surface string `json:"surface"`
+	Path    string `json:"path"`
+	Note    string `json:"note,omitempty"`
+	// ListNote is promoteSurface.ListNote: captured config-list entries promote does not lift.
+	ListNote string              `json:"list_note,omitempty"`
+	Keys     []promotePlanDocKey `json:"keys"`
 }
 
 // promotePlanDocKey is one classified key.
@@ -812,10 +856,11 @@ func buildPromotePlanDoc(plan promotePlan) promotePlanDoc {
 	}
 	for _, ps := range plan.Surfaces {
 		sfc := promotePlanDocSfc{
-			Surface: ps.Surface.Agent + "/" + ps.Surface.Name,
-			Path:    surfacePathOrSidecar(ps.Surface),
-			Note:    ps.Note,
-			Keys:    []promotePlanDocKey{},
+			Surface:  ps.Surface.Agent + "/" + ps.Surface.Name,
+			Path:     surfacePathOrSidecar(ps.Surface),
+			Note:     ps.Note,
+			ListNote: ps.ListNote,
+			Keys:     []promotePlanDocKey{},
 		}
 		for _, k := range ps.Keys {
 			if k.promotable() {

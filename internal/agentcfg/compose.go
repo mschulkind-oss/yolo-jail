@@ -62,10 +62,24 @@ type Inputs struct {
 	// prevents by only ever attaching overlays to object config kinds.
 	Overlays []Overlay
 
+	// Lists are config-list contributions onto this surface (listcontrib.go,
+	// docs/design/additive-config-lists.md): entries appended to one array each, applied
+	// AFTER every ordinary layer and config-overlay and BELOW the capture Overlay (OQ-AL2),
+	// in pack order then declaration order. Empty = none, and a surface with none composes
+	// byte-identically to before the kind existed. Object surfaces only: a keyless surface
+	// with a list is refused (a caller error the render entries prevent through
+	// ListCaptureRefusal).
+	Lists []ListContribution
+
 	// Overlay is the capture-diff overlay layer (§5) that carries in-jail edits
 	// across regeneration, already decoded. Merged above workspace + config
 	// overlays, below managed. nil = absent.
 	Overlay any
+
+	// ListCapture is the per-entry capture at the surface's list paths (ListRecord),
+	// applied directly above Overlay and below Computed. Like Overlay it is
+	// ComposeStateful's to fill from the sidecar; nil = none.
+	ListCapture map[string]ListRecord
 
 	// Computed is the runtime-computed layer: yolo's per-boot DYNAMIC content that
 	// is derived from live config rather than declared statically in the manifest
@@ -135,8 +149,14 @@ type Result struct {
 	// would write to Surface.Path.
 	Encoded []byte
 	// Provenance records, per top-level config key, which layer last set it —
-	// the data behind `yolo config render --explain` (§6).
+	// the data behind `yolo config render --explain` (§6). A key only list contributions
+	// created reads `config-list`; one a list extended keeps the label of the layer that
+	// held it, and Lists carries the per-entry account.
 	Provenance map[string]string
+	// Lists is the per-entry account of every list path this render assembled (rule 5):
+	// the entries in final order with their sources, and the layer that replaced the
+	// assembled array when one did. Sorted by path; nil when the surface has no list path.
+	Lists []ListProvenance
 }
 
 // ConfigMap returns Config as an object, or nil for a keyless surface. A
@@ -454,38 +474,84 @@ func Compose(in Inputs) (*Result, error) {
 			overlayIdx = i
 		}
 	}
-	var orderedLayers []map[string]any
 	var nullEvidence []map[string]any
+	var lists []ListProvenance
 
 	var merged any
 	if kind == codec.KindObject {
 		// Object surfaces: the §3.1 deep-merge fold, with per-key provenance.
-		orderedLayers = make([]map[string]any, 0, len(preLayers))
+		//
+		// THE FOLD IS SPLIT AROUND THE CAPTURE OVERLAY, because the list operations sit
+		// there (listcontrib.go): contributions after every layer below the overlay, the
+		// per-entry capture directly above it. render(a, b, c) is a left fold of deepMerge
+		// from {}, so folding the same layers in the same order one at a time is the same
+		// value — a surface with no list path composes byte-identically
+		// (TestRenderFingerprintStable).
+		folded := map[string]any{}
+		traces := map[string]*listTrace{}
+		var overlayMap map[string]any
 		for i, l := range preLayers {
-			if layerAbsent(l.data) {
-				continue
+			if i == overlayIdx {
+				var created []string
+				var lerr error
+				folded, created, lerr = applyListContributions(in.Surface, folded, in.Lists, traces)
+				if lerr != nil {
+					return nil, lerr
+				}
+				for _, k := range created {
+					prov[k] = layerConfigList
+				}
 			}
-			m, ok := l.data.(map[string]any)
-			if !ok {
-				return nil, fmt.Errorf("agentcfg: surface %s/%s: %s layer is not an object (got %T)",
-					in.Surface.Agent, in.Surface.Name, l.name, l.data)
+			if !layerAbsent(l.data) {
+				m, ok := l.data.(map[string]any)
+				if !ok {
+					return nil, fmt.Errorf("agentcfg: surface %s/%s: %s layer is not an object (got %T)",
+						in.Surface.Agent, in.Surface.Name, l.name, l.data)
+				}
+				if i > overlayIdx {
+					nullEvidence = append(nullEvidence, m)
+				}
+				for k := range m {
+					// A null tombstone in a layer deletes the key; reflect that in
+					// provenance so --explain doesn't claim a deleted key is present.
+					if m[k] == nil {
+						delete(prov, k)
+					} else {
+						prov[k] = l.name
+					}
+				}
+				folded = deepMerge(folded, m)
+				if i == overlayIdx {
+					overlayMap = m
+				}
 			}
-			orderedLayers = append(orderedLayers, m)
-			if i > overlayIdx {
-				nullEvidence = append(nullEvidence, m)
-			}
-			for k := range m {
-				// A null tombstone in a layer deletes the key; reflect that in
-				// provenance so --explain doesn't claim a deleted key is present.
-				if m[k] == nil {
-					delete(prov, k)
-				} else {
-					prov[k] = l.name
+			if i == overlayIdx && len(in.ListCapture) > 0 {
+				var applied []string
+				folded, applied = applyListRecords(folded, in.ListCapture, overlayMap, traces)
+				// A key a captured record applied under is the user's edit, labelled as the
+				// capture overlay labels one — created or merely changed (applyListRecords).
+				for _, k := range applied {
+					prov[k] = layerOverlay
 				}
 			}
 		}
-		merged = render(orderedLayers...)
+		for _, t := range traces {
+			switch {
+			case replacesPath(in.Surface.ManagedMap(), t.tokens):
+				t.replacedBy = layerManaged
+			case replacesPath(in.Computed, t.tokens):
+				t.replacedBy = layerComputed
+			case replacesPath(overlayMap, t.tokens):
+				t.replacedBy = layerOverlay
+			}
+		}
+		lists = listProvenance(traces)
+		merged = folded
 	} else {
+		if len(in.Lists) > 0 {
+			return nil, fmt.Errorf("agentcfg: surface %s/%s: config-list needs an object surface; "+
+				"a %s surface has no keys for a list path to address", in.Surface.Agent, in.Surface.Name, kind)
+		}
 		// KEYLESS surfaces (raw -> string, lines -> []any): whole-value
 		// replacement in the same ascending order. There is no deep-merge to do
 		// and no per-key attribution to make — a file with no keys has exactly
@@ -567,6 +633,7 @@ func Compose(in Inputs) (*Result, error) {
 		Config:     config,
 		Encoded:    encoded,
 		Provenance: prov,
+		Lists:      lists,
 	}, nil
 }
 

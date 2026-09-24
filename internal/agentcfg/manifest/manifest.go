@@ -110,7 +110,9 @@ type Surface struct {
 	//	stateful   compose from layers, capturing in-jail edits into the §5 sidecars
 	//	computed   compose from layers, overwrite every boot, discard in-jail edits
 	//	rmw        read-modify-write an AGENT-OWNED file: assert managed keys, fill
-	//	           defaults where absent, preserve everything else, write no sidecars
+	//	           defaults where absent, preserve everything else, write no capture
+	//	           sidecars (a surface a config-list targets keeps one record of the
+	//	           list entries yolo inserted, so it can remove them on a pack drop)
 	//
 	// Declaring it HERE rather than in a lookup table beside the CLI is the point.
 	// The mode was previously hand-maintained in internal/cli.prismSurfaceMode — a

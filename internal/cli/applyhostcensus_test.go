@@ -119,6 +119,13 @@ func writeCensusPack(t *testing.T, dir string) {
 			`"managed":{"censusKey":"censusValue"}}]}`,
 		packdecl.KindConfigOverlay: `{"kind":"config-overlay","surface":"census/settings",` +
 			`"config":{"managed":{"overlaidKey":true}}}`,
+		// config-list targets the census pack's OWN surface (a pack may append to a surface
+		// it owns, as it may overlay one), so the owner is always selected and the kind is
+		// never merely an orphan line. The surface is rmw, which does not capture a list path
+		// per entry until the engine's rmw step lands — so the line this kind produces may be
+		// the `refused: config-list …` row, and the census counts a refusal as accounted for.
+		packdecl.KindConfigList: `{"kind":"config-list","surface":"census/settings",` +
+			`"path":"/censusList","add":["censusEntry"]}`,
 		packdecl.KindState:     `{"kind":"state","at":".census/state","scope":"workspace"}`,
 		packdecl.KindReadsHost: `{"kind":"reads-host","host":".census/hostfile","into":"hostfile"}`,
 		packdecl.KindMount:     `{"kind":"mount","host":".census/hostdir","into":"census-hostdir"}`,

@@ -12,6 +12,7 @@ package packload
 // (docs/reference/pack-system.md §3), rather than silently merging it.
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"path/filepath"
@@ -30,7 +31,8 @@ type Claim struct {
 	Kind packdecl.Kind
 	// Target is the thing claimed, normalized for collision comparison: a bin
 	// name (program/launch), a home-relative path (files/skills/briefing/state),
-	// a surface identity "agent/name" (config), a host path (reads-host), or a
+	// a surface identity "agent/name" (config), a surface identity plus the array's
+	// RFC 6901 pointer "agent/name#/path" (config-list), a host path (reads-host), or a
 	// hook name (hook).
 	Target string
 	// Pack is the name of the pack making the claim.
@@ -614,6 +616,22 @@ func FootprintOf(p *Pack) Footprint {
 		add(packdecl.KindConfigOverlay, ov.Surface, detail, false)
 	}
 
+	// config-list → one claim per contribution, keyed by the surface identity AND the array
+	// it appends to (docs/design/additive-config-lists.md). Reported for config-overlay's
+	// reason: "adds entries to a list in someone else's config file" is squarely a statement
+	// of what the pack does to its environment, and `pack lint` prints exactly this line, so
+	// it is also where an author sees the delivery before any launch.
+	//
+	// The TARGET is `agent/name#<pointer>` — the RFC 6901 §6 fragment form, `#` followed by the
+	// pointer as declared — because two packs appending to one surface at different paths make
+	// two claims a reader has to tell apart, and a bare `agent/name` would print them as one.
+	// No collision is possible (CombineOverlay: several packs appending to one array is the
+	// feature), so it is a claim line only and never review-worthy — it reads nothing and
+	// runs nothing. The Detail carries the entry count and, when short, the entries.
+	for _, cl := range p.Decl.ConfigListContributions() {
+		add(packdecl.KindConfigList, cl.Surface+"#"+cl.Path, configListClaimDetail(cl.Add), false)
+	}
+
 	// Same rule for a `profile`-gated env contribution: it CLAIMS UNCONDITIONALLY and the
 	// Detail names the gate. It could not be seen here while it lived in a kind:profile
 	// body — the shrink is what surfaced it, and a bedrock key a pack ships under a
@@ -635,6 +653,42 @@ func FootprintOf(p *Pack) Footprint {
 		return fp.Claims[i].Target < fp.Claims[j].Target
 	})
 	return fp
+}
+
+// configListClaimShown is how many entries a config-list claim spells out before it says
+// only how many more there are: enough for the motivating one-package case to be read
+// entire, few enough that a long list cannot push the pack's other claims off the screen.
+const configListClaimShown = 3
+
+// configListClaimDetail describes one config-list contribution for its footprint line: how
+// many entries it appends and, up to configListClaimShown of them, which — in declaration
+// order, as compact JSON, since an entry may be any JSON value. The precedence clause is the
+// half an author needs before relying on it: the owner's own entries are kept, and a
+// captured, computed or managed value can still replace the whole array.
+func configListClaimDetail(add json.RawMessage) string {
+	var entries []json.RawMessage
+	if err := json.Unmarshal(add, &entries); err != nil {
+		// packdecl already refused an `add` that is not an array; say what little is known
+		// rather than invent a count.
+		return "appends entries (owner's entries kept; captured, computed and managed still win)"
+	}
+	if len(entries) == 0 {
+		return "appends nothing (empty `add`, a no-op)"
+	}
+	noun := "entries"
+	if len(entries) == 1 {
+		noun = "entry"
+	}
+	shown := make([]string, 0, configListClaimShown)
+	for i, e := range entries {
+		if i == configListClaimShown {
+			shown = append(shown, fmt.Sprintf("… %d more", len(entries)-configListClaimShown))
+			break
+		}
+		shown = append(shown, string(e))
+	}
+	return fmt.Sprintf("appends %d %s: %s (owner's entries kept; captured, computed and "+
+		"managed still win)", len(entries), noun, strings.Join(shown, ", "))
 }
 
 // pluginClaimDetail describes a wrapped plugin in one footprint line: the components it

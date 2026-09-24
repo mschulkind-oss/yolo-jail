@@ -19,6 +19,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonptr"
 )
 
 // Contribution is one typed effect a pack declares. Exactly one kind per entry;
@@ -203,8 +205,8 @@ type Contribution struct {
 	// which is the one thing a pack author cannot act on. Nothing reads the value.
 	Tier string `json:"tier,omitempty"`
 
-	// --- config / config-overlay ---
-	Surface string `json:"surface,omitempty"` // config-overlay: the target surface "agent/name"
+	// --- config / config-overlay / config-list ---
+	Surface string `json:"surface,omitempty"` // config-overlay, config-list: the target surface "agent/name"
 	// Profile gates a whole contribution on a profile being ACTIVE. Absent means
 	// UNCONDITIONAL, the pre-field behavior every existing contribution keeps; an
 	// explicitly empty string decodes to the same fact, so there is no emptiness to
@@ -227,6 +229,29 @@ type Contribution struct {
 	// the kinds it does not gate is the accepted-and-ignored defect this schema refuses
 	// everywhere else.
 	Profile string `json:"profile,omitempty"`
+
+	// --- config-list (docs/design/additive-config-lists.md) ---
+	// Path is the ARRAY the entries are appended to, inside the target `surface`, as an
+	// RFC 6901 JSON Pointer: "/packages", or "/models/glm-5.3/tags" for a nested one. A
+	// pointer and not a dotted path because real keys contain dots (model ids, server
+	// names), so "a.b" cannot say whether it names one key or two; "~1" spells a "/" inside
+	// a key and "~0" a "~". Every step is an OBJECT KEY — a numeric step is the key "0",
+	// never an array index, since the fold creates missing parents as objects and refuses a
+	// non-object one. The root ("") and an EMPTY step ("/", "/packages/") are refused: the
+	// root is the whole surface, which is not an array, and an empty key is the trailing- or
+	// doubled-slash typo far more often than it is a real key.
+	//
+	// Add is the entries, a JSON array of any JSON values. REQUIRED, and `[]` is legal — a
+	// declared no-op — so omitempty on a RawMessage is what keeps "absent" (refused, an
+	// authoring error) apart from "empty" (accepted) all the way to the engine. A null is
+	// refused anywhere inside it: TOML cannot encode one, and in the merge patches beside
+	// this kind null means DELETE, which an append can never ask for.
+	//
+	// `config-list` only; both are refused on every other kind (validateContribution), and a
+	// `config` body is refused on this one — the entries ARE the body, and a config body is
+	// a config-overlay, which replaces arrays rather than appending to them.
+	Path string          `json:"path,omitempty"`
+	Add  json.RawMessage `json:"add,omitempty"`
 
 	// --- state ---
 	At    string `json:"at,omitempty"`    // state: the home-relative subtree
@@ -1582,6 +1607,37 @@ func (m *Manifest) ConfigOverlayContributions() []ConfigOverlay {
 	return out
 }
 
+// ConfigList is one config-list contribution: the surface it targets, the array inside it,
+// and the entries appended there.
+//
+// Like ConfigOverlay, its target travels with its body: it NAMES someone's surface, so the
+// two are only meaningful together.
+type ConfigList struct {
+	// Surface is the target surface identity, "agent/name".
+	Surface string
+	// Path is the RFC 6901 JSON Pointer to the array, validated: non-empty, starting with
+	// "/", every step a non-empty object key. internal/jsonptr.Parse splits it.
+	Path string
+	// Add is the raw `add` array, validated as a JSON array with no null anywhere in it,
+	// and possibly empty (a no-op). Canonical JSON rather than the author's bytes, since
+	// cleanJSON5 re-marshals every manifest; the engine decodes it, for the same reason
+	// ConfigOverlay.Config is raw — packdecl stays free of the engine.
+	Add json.RawMessage
+}
+
+// ConfigListContributions returns every config-list the pack declares, in declaration
+// order — which is the FOLD order the engine appends in (after pack order), so it must not
+// be normalized here.
+func (m *Manifest) ConfigListContributions() []ConfigList {
+	var out []ConfigList
+	for _, c := range m.Contributions() {
+		if c.Kind == KindConfigList {
+			out = append(out, ConfigList{Surface: c.Surface, Path: c.Path, Add: c.Add})
+		}
+	}
+	return out
+}
+
 // SurfaceContributions returns the raw JSON of every config contribution's
 // surface definition, concatenated into one array — the shape Manifest.Surfaces
 // held. Empty when the pack declares no config surface.
@@ -2241,6 +2297,28 @@ func validateContribution(label string, c Contribution) []string {
 				label, c.Kind, f.name))
 		}
 	}
+	// `path` and `add` are the config-list kind's whole body, refused elsewhere in
+	// `profile`'s position and for its reason: on any other kind they are read by no
+	// consumer. PRESENCE is the test, so an empty `add: []` is refused too — it is still a
+	// declared field. config-overlay is named in the message's migration because it is the
+	// kind an author reaching for "append to this array" writes first, and there `add`
+	// would be silently ignored while the merge patch replaced the array.
+	if c.Kind != KindConfigList {
+		for _, f := range []struct {
+			name string
+			set  bool
+		}{{"path", c.Path != ""}, {"add", len(c.Add) > 0}} {
+			if !f.set {
+				continue
+			}
+			problems = append(problems, fmt.Sprintf(
+				"%s: kind %q does not take %q — a JSON Pointer to an array and the entries "+
+					"appended there are the \"config-list\" kind's whole body; no consumer reads "+
+					"either on this kind. To add entries to an array without replacing it, write "+
+					"{\"kind\": \"config-list\", \"surface\": \"<agent>/<name>\", "+
+					"\"path\": \"/<key>\", \"add\": [...]}", label, c.Kind, f.name))
+		}
+	}
 	// `agent`/`agents` are the AUDIENCE pair, and they are refused everywhere else for
 	// `profile`'s reason and in `profile`'s position — ahead of the kind switch, so a kind
 	// added tomorrow inherits the refusal instead of accepting a field nothing reads on it.
@@ -2429,6 +2507,10 @@ func validateContribution(label string, c Contribution) []string {
 		if len(c.Raw) == 0 {
 			problems = append(problems, label+": config-overlay needs a \"config\" body")
 		}
+	case KindConfigList:
+		req("surface", c.Surface)
+		req("path", c.Path)
+		problems = append(problems, configListProblems(label, c)...)
 	case KindState:
 		req("at", c.At)
 		problems = appendPathProblems(problems, label+".at", c.At)
@@ -2643,6 +2725,110 @@ func validateContribution(label string, c Contribution) []string {
 		}
 	}
 	return problems
+}
+
+// configListProblems checks a config-list's pointer, its entries and the one field it must
+// not carry. The target surface's identity is NOT parsed here — that is the engine's
+// manifest.ParseSurfaceID, reported by the collector exactly as it is for a config-overlay,
+// so the two kinds cannot come to disagree about what an identity is.
+func configListProblems(label string, c Contribution) []string {
+	var problems []string
+	if len(c.Raw) > 0 {
+		problems = append(problems, label+": kind \"config-list\" does not take \"config\" — "+
+			"its entries ARE its body, in \"add\"; a config body is a config-overlay, which "+
+			"REPLACES an array rather than appending to it")
+	}
+	if c.Path != "" {
+		problems = append(problems, configListPathProblems(label+".path", c.Path)...)
+	}
+	if len(c.Add) == 0 {
+		problems = append(problems, label+": kind \"config-list\" needs \"add\" — a JSON "+
+			"array of the entries to append ([] is a declared no-op)")
+		return problems
+	}
+	var v any
+	if err := json.Unmarshal(c.Add, &v); err != nil {
+		return append(problems, fmt.Sprintf("%s.add: %v", label, err))
+	}
+	entries, ok := v.([]any)
+	if !ok {
+		return append(problems, fmt.Sprintf(
+			"%s.add: must be a JSON array of the entries to append, not %s — even one entry "+
+				"is written [entry]", label, jsonTypeName(v)))
+	}
+	for i, e := range entries {
+		if at, found := firstNull(e, nil); found {
+			problems = append(problems, fmt.Sprintf(
+				"%s.add[%d]%s: null is not an entry — TOML cannot encode it, and in the merge "+
+					"patches beside this kind null means DELETE, which appending can never ask for",
+				label, i, jsonptr.Format(at)))
+		}
+	}
+	return problems
+}
+
+// configListPathProblems validates a config-list pointer: RFC 6901 syntax (jsonptr.Parse,
+// the ONE grammar the engine also walks it with), not the root, and no empty step.
+func configListPathProblems(field, p string) []string {
+	tokens, err := jsonptr.Parse(p)
+	if err != nil {
+		hint := ""
+		if !strings.HasPrefix(p, "/") {
+			// Only the missing slash is corrected. A dot is NOT rewritten to a step: it is a
+			// key byte in a pointer, and guessing "a.b" means two keys is the ambiguity the
+			// pointer spelling exists to remove.
+			hint = fmt.Sprintf(" — a pointer, not a dotted path: %q, with \"/\" between "+
+				"nested keys", "/"+p)
+		}
+		return []string{fmt.Sprintf("%s: %v%s", field, err, hint)}
+	}
+	for i, t := range tokens {
+		if t == "" {
+			return []string{fmt.Sprintf(
+				"%s %q: step %d is an empty key — a trailing or doubled \"/\" is almost always a "+
+					"typo, and an empty key is not one a config-list may target", field, p, i+1)}
+		}
+	}
+	return nil
+}
+
+// firstNull reports the location (as pointer tokens under the entry) of the first null in
+// v, walking object keys in sorted order so the message is deterministic.
+func firstNull(v any, at []string) ([]string, bool) {
+	switch t := v.(type) {
+	case nil:
+		return at, true
+	case []any:
+		for i, e := range t {
+			if loc, ok := firstNull(e, append(at[:len(at):len(at)], strconv.Itoa(i))); ok {
+				return loc, true
+			}
+		}
+	case map[string]any:
+		for _, k := range sortedKeys(t) {
+			if loc, ok := firstNull(t[k], append(at[:len(at):len(at)], k)); ok {
+				return loc, true
+			}
+		}
+	}
+	return nil, false
+}
+
+// jsonTypeName names a decoded JSON value's type the way an author reads it.
+func jsonTypeName(v any) string {
+	switch v.(type) {
+	case nil:
+		return "null"
+	case map[string]any:
+		return "an object"
+	case string:
+		return "a string"
+	case float64:
+		return "a number"
+	case bool:
+		return "a boolean"
+	}
+	return fmt.Sprintf("%T", v)
 }
 
 // validateAutonomyPosture checks one posture's shape: each launch entry needs a bin.
