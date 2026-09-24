@@ -1,7 +1,7 @@
 ---
 title: "Let packs contribute list entries without replacing the owner's list"
 date: 2026-09-23
-status: in-review
+status: accepted
 tags: [packs, config, design]
 summary: "A narrow additive contribution for configuration arrays, without changing JSON Merge Patch."
 vantage:
@@ -10,7 +10,7 @@ vantage:
 
 # Let packs contribute list entries without replacing the owner's list
 
-**Status:** DESIGN, 2026-09-23. Nothing built.
+**Status:** DECIDED, 2026-09-23. Nothing built; every question is ruled ([Decision Ledger](#decision-ledger)).
 
 > **In short.** An explicitly additive contribution can let a pack add a Pi package without copying every package another pack selected. Ordinary configuration overlays must keep their existing array-replacement semantics.
 
@@ -22,7 +22,7 @@ vantage:
 
 **Start at [The proposed contract](#the-proposed-contract)** — it distinguishes appending entries from replacing an array.
 
-**Needs your ruling:** [OQ-AL1](#OQ-AL1).
+**Needs your ruling:** None.
 
 **Reads with:** [`pack-system.md`](../reference/pack-system.md) (current pack/overlay semantics), [`config-ownership-and-promotion.md`](./config-ownership-and-promotion.md) (configuration layer ownership), [`manifest.go`](../../internal/agentcfg/manifest/manifest.go) (the three surface modes: `computed`, `stateful`, `rmw`).
 
@@ -61,7 +61,8 @@ The spelling is illustrative; the behavior below is the contract. A single entry
    - **`stateful`** (the default — composed, then the agent's and user's own edits to the file are READ BACK and captured as a layer: pi's `settings`, which is the kilo case's target, claude's `settings`, codex's and opencode's config, agy's settings): hard. Captured edits are stored as a durable merge patch whose arrays REPLACE whole ([`engine.go` `mergeAccumulate`](../../internal/agentcfg/engine.go)). So the first time the agent or user touches the array — `pi install` appending to `packages` — the capture holds the ENTIRE array, pack-added entries included, and it outranks every contribution: later additions are masked, and a dropped pack's entries can never be removed.
    - **`rmw`** (yolo edits an agent-owned file in place — `~/.claude.json`, copilot's config): the same problem, with yolo's rendered baseline as the only record of what it added.
 
-   [OQ-AL1](#OQ-AL1) is how list contributions survive that read-back.
+   **Ruled ([OQ-AL1](#decision-ledger)): capture per entry at every list path.** At any array path a list contribution targets, capture records per-entry additions and removals relative to the last render, never the whole array. Contributed entries therefore never enter the capture; a dropped pack's entries vanish on the next compose; the agent's own edits (`pi install`) are kept as the user's; and a user deleting a contributed entry is a per-entry removal the capture holds. `rmw` surfaces do the same against their rendered baseline. **Until a surface's path captures per entry, a list contribution targeting it is refused at launch**, naming the surface and its mode — never composed into a whole-array capture that would freeze it.
+   - Rejected: `computed` surfaces only (does not reach pi's `settings`, so the kilo case stays unsolved); making the path `computed` (wipes every `pi install`); an owner opt-in per path (any pack's `config-overlay` can already replace any key, so it would protect nothing).
 
 > [!WARNING]
 > A merge patch with `"packages": null` removes the whole key; it is not a request to remove one package. This proposal must not redefine null or make all JSON arrays additive.
@@ -83,20 +84,11 @@ With Matt's Pi package list and the personal contribution selected, Pi receives 
 
 ## Open Questions
 
-1. 💬 <a id="OQ-AL1"></a>**[OQ-AL1](#OQ-AL1): how do list contributions survive the read-back of `stateful` and `rmw` surfaces?** On a `computed` surface they are trivial. On the other two, a captured edit replaces the whole array, freezing pack-added entries into the capture ([rule 6](#the-proposed-contract)) — and the kilo case's target, pi's `settings`, is `stateful`, with pi itself writing `packages`. This decides whether the feature reaches the case it exists for.
-   - **(a) `computed` surfaces only.** Safe and nearly free, but it does not reach pi's `settings`, so the kilo case is unsolved.
-   - **(b) Element-level capture at list paths.** At a path any list contribution targets, capture records per-entry additions and removals relative to the last render instead of the whole array. Contributed entries never enter the capture (the last render already held them), a dropped pack's entries vanish on recompose, `pi install`'s own additions are kept as the user's, and a user deleting a contributed entry is a per-entry removal the capture holds. `rmw` surfaces do the same against their rendered baseline.
-   - **(c) Make the path `computed`.** yolo owns the whole array; simple, but every `pi install` is wiped on the next boot.
-
-   <!-- vantage: oq id=OQ-AL1 leaning="(b): capture per entry at any path a list contribution targets, against the last render, so contributed entries never enter the capture and the agent's own edits survive; refuse a list contribution on a stateful or rmw surface until its path captures per entry." -->
-
-   _Leaning:_ **(b).** It is the only option that both reaches pi's `settings` and keeps `pi install` working, and the element identity it needs already exists (whole-JSON-value equality, [rule 2](#the-proposed-contract)). Until a surface's path captures per entry, a list contribution targeting it is refused at launch, naming the surface and mode — never composed into a capture that would freeze it. No owner opt-in: any pack's ordinary `config-overlay` can already replace any key, including a security-relevant array, so declaring paths "open" would protect nothing an overlay leaves exposed.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+None. Both are ruled; see the [Decision Ledger](#decision-ledger).
 
 ## Decision Ledger
 
 | ID | Ruling | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
+| OQ-AL1 | List contributions survive the read-back of `stateful` and `rmw` surfaces by per-entry capture at every list path, relative to the last render; a list contribution on a path that does not yet capture per entry is refused at launch | 2026-09-23 | [Rule 6](#the-proposed-contract) | — |
 | OQ-AL2 | A later list contribution may re-add an entry an earlier overlay's replacement dropped: additions follow ordinary overlays, and only the higher capture, computed and managed layers replace the final array | 2026-09-23 | [Rule 1, Ordering](#the-proposed-contract) | — |
