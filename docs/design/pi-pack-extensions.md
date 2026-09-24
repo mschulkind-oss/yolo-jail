@@ -22,6 +22,8 @@ stands; only its field-level encoding is under revision.
 > singular/plural flag is exactly what [`slots-and-contributions.md`](./slots-and-contributions.md) retires: a destination is a
 > **second axis** (`exposes`), addressed by the **agent `bin` name**. Slices 1–3 landed the
 > superseded shape and are pending rework ([§5](#5-how-d-ran--the-superseded-implementation)).
+> That rework has not started: nothing of `exposes` is built, and its build is blocked on
+> [`OQ-D6`](./slots-and-contributions.md#OQ-D6), the migration window.
 
 > **In short.** A pack contributes a **tree of files to an agent by name** — the mechanism
 > `briefing` and `skills` already use — and YOLO mounts it read-only into a directory the
@@ -78,9 +80,11 @@ found. Measured statically against Claude Code 2.1.278
   declared, or a derive stops being a pure function of the manifests.
 
 **Needs your ruling:** **None *here*** — all six questions are ruled ([decision ledger](#10-decision-ledger)).
-The live questions have moved to the role model —
-[`OQ-D1`–`OQ-D4`](./slots-and-contributions.md#OQ-D1) — and the surface —
-[`OQ-M1`–`OQ-M4`](./manifest-language.md#OQ-M1).
+The live questions have moved to the role model and the surface. In the role model,
+[`OQ-D1`–`OQ-D5`](./slots-and-contributions.md#OQ-D1) were ruled 2026-09-20; what is open there
+is [`OQ-D6`–`OQ-D12`](./slots-and-contributions.md#OQ-D6), filed 2026-09-21 when a build attempt
+stopped, with [`OQ-D6`](./slots-and-contributions.md#OQ-D6) the blocker. The surface questions,
+[`OQ-M1`–`OQ-M4`](./manifest-language.md#OQ-M1), are all open.
 
 **Reads with:** [`slots-and-contributions.md`](./slots-and-contributions.md) (**supersedes this
 doc's encoding**), [`manifest-language.md`](./manifest-language.md) (the surface),
@@ -94,9 +98,9 @@ formats), [`pi-extension-lifecycle.md`](./pi-extension-lifecycle.md) (the fetch 
 
 ## 1. The problem, and the shape of the answer
 
-A content pack that wants to ship Pi extensions must today write per-file `kind: "files"`
-stanzas at literal paths like `~/.pi/agent/extensions/x.ts`, because `files` refuses the
-audience selector that `skills` and `briefing` have. That couples the pack to one agent's
+Before slice 1, a content pack that wanted to ship Pi extensions had to write per-file
+`kind: "files"` stanzas at literal paths like `~/.pi/agent/extensions/x.ts`, because `files`
+refused the audience selector that `skills` and `briefing` have. That couples the pack to one agent's
 private layout, and it collides with what the agent pack already claims at the same path.
 
 The answer is not a new mechanism. It is to let `files` name its recipient the way the other
@@ -335,7 +339,8 @@ and is measured, but it reproduces the vendor cache layout, which is the thing
 
 **None *here*** — but the six below are now **moot**, not settled: they were ruled against the
 field shape [`slots-and-contributions.md`](./slots-and-contributions.md) supersedes. The live questions are the role model's
-[`OQ-D1`–`OQ-D4`](./slots-and-contributions.md#OQ-D1).
+[`OQ-D6`–`OQ-D12`](./slots-and-contributions.md#OQ-D6) (its [`OQ-D1`–`OQ-D5`](./slots-and-contributions.md#7-decision-ledger) are ruled) and the
+surface's [`OQ-M1`–`OQ-M4`](./manifest-language.md#OQ-M1).
 
 The five earlier questions were ruled in review on 2026-09-19, and this review resolved
 the sixth — the alias-root layout — by **removing the overload that created it**. A `files`

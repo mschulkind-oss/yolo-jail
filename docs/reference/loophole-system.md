@@ -1,7 +1,7 @@
 ---
 status: current
-verified: 2026-09-09
-verified_commit: a3922298
+verified: 2026-09-24
+verified_commit: f491d192
 covers:
   - internal/loopholes/
   - internal/loopholedecl/
@@ -23,7 +23,7 @@ summary: "How a loophole gets onto a machine and how it turns on: the `loophole`
 
 # The loophole system — packaging, activation and disclosure
 
-**Status:** CURRENT as of 2026-09-09, verified against `a3922298`.
+**Status:** CURRENT as of 2026-09-24, verified against `f491d192`.
 
 A **loophole** is a single controlled permeability point between a jail and the host: a
 declared, narrow passage through the wall, and the only extension point that can put a
@@ -43,7 +43,7 @@ loophole is on only because something said so, and a manifest that says nothing 
 | Resolved records, the predicates, discovery, the converged set, supersession | `internal/loopholes` (`Loophole`, `Set`, `Discover`, `NewHostSet`, `Active`, `Honored`, `MayRunHostCode`, `Superseded`) |
 | Container argv, daemon specs, `doctor_cmd` execution, the inert report | `internal/loopholes` (`RuntimeArgsFor`, `ManifestHostDaemonSpecs`, `RunDoctorChecks`, `InertNote`, `PlatformInertNotes`) |
 | The placement rule, both faces | `internal/config` (`loopholeplacement.go`), `internal/loopholes` (`placement.go`) |
-| Crossing enumeration for a pack's loophole | `internal/packload` (`loopholesource.go`, `LoopholeHostAccessClaims`), merged by `Pack.HostAccessClaims` |
+| Crossing enumeration for a pack's loophole | `internal/packload` (`loopholesource.go`'s `loopholeClaims`), merged into the pack's footprint by `FootprintOf` |
 | The launch disclosure, the spawn boundary, the inert lines, name exclusivity | `internal/cli/run` (`disclosureClasses`, `startLoopholesDisclosed`, `loopholeinert.go`, `PackLoopholeNameConflicts`) |
 | State retirement on deselect, and its sweeper | `internal/packstage` (`RetireLoopholeState`), `internal/cli/run` (`loopholeretire.go`), `internal/prune` (`PruneRetiredLoopholeState`) |
 | Config validation, scope refusals, workspace-switch disclosure, settings | `internal/config` (`validate_loopholes.go`, `validate_loopholesettings.go`, `WorkspaceLoopholeSwitches`) |
@@ -106,10 +106,12 @@ pack.** The dependency is structural, so selecting the pack *is* the dependency 
 selection step this deletes.
 
 The OpenAI credential service was the complementary multi-agent case: one service owns one
-rotating grant for Codex and Pi, so `openai-auth-broker` belongs to the separate `openai-auth`
-pack and both agent packs declare it through `needs`. Selecting either agent therefore joins the
-same dependency automatically; users still do not select an authentication implementation by
-hand, and selecting both does not declare two daemon owners.
+rotating grant that several agent packs use (`codex`, and the `codex` profiles `claude` and `pi`
+ship), so `openai-auth-broker` belongs to the separate `openai-auth` pack and every agent pack
+that uses it declares it through `needs` (`rg -l '"pack": "openai-auth"' packs/*/pack.json` is
+the list). Selecting any of those agents therefore joins the same dependency automatically;
+users still do not select an authentication implementation by hand, and selecting several does
+not declare several daemon owners.
 
 **There are two such cases now** (2026-09-18). `aws-auth` is the second, and it reaches the
 same answer from a different direction: its consumers are not all agents yet — claude's
@@ -351,7 +353,10 @@ will honor, so the claim set and the effect cannot disagree. The strict read bel
 
 > [!WARNING]
 > **An unknown contribution KIND must stay tolerated at the jail boundary.** The in-jail
-> entrypoint is baked into the image and can be a release behind the host CLI; when an
+> entrypoint is no longer baked into the image — a launch mounts it from the flake bundle it
+> resolved — but that bundle and the host CLI still deploy on different cadences, and the
+> launch's skew refusal (`version.SourceSkew`) fires only for a skew it can prove, so the
+> entrypoint can still be a release behind the host CLI. When an
 > unknown kind failed structural validation, the first pack to declare a new kind **bricked
 > the jail** — the boot refused, three times in this repo's history for three different
 > new kinds. The tolerant decoder skips it and reports it by name, and the boot warns each
@@ -582,16 +587,19 @@ the text and in the marker: the footprint's review tail counts executions separa
 > discriminator is coarse; the precise fix is a **declared socket bit** in the schema.
 
 > [!WARNING]
-> **Producers are merged by ONE helper, called by every consumer, and a source-level test fails
-> if a consumer reaches for a producer directly.** The union is **deduplicated**, because a
-> crossing reached by two producers is one thing to disclose, and it returns nil rather than an
-> empty slice, because "nothing to disclose" is a length test and both spellings must read the
-> same there.
+> **The producers meet in ONE place: the pack's footprint.** A loophole's claims come from
+> manifests that live *outside* `pack.json`, so a walk over the contributions alone misses the
+> producer whose crossing is host execution. The loophole producer (`loopholeClaims`) is
+> unexported and has one caller, `FootprintOf`, which folds it in beside the contribution kinds
+> — so every consumer (`yolo pack footprint`, the launch disclosure) reads the same union. The
+> merged-claims helper that used to sit between them, deduplicating a string set for the
+> approval prompt and the lockfile, was deleted with those two consumers by
+> [`OQ-TP9`](../design/trust-paths.md#decision-ledger).
 
-A source-level test that only pins *"the consumer calls the merged helper"* cannot see a
-post-hoc filter dropping claims after the call, so the invariant's other half is
-**behavioural** and per producer: a pack whose only claim comes from one producer must
-behave differently with and without it.
+A test that only pinned *"the consumer calls the merged helper"* could not see a post-hoc
+filter dropping claims after the call, so the invariant is **behavioural** and per producer:
+`TestTheFootprintCarriesEveryProducersCrossings` asserts that a pack with a `pack.json` claim
+and a loophole claim shows both in its footprint.
 
 ### The per-launch disclosure
 
@@ -722,9 +730,12 @@ loophole is not detected, because that evidence is indistinguishable from a mome
 unreadable pack tree — and the cost of being wrong is a moved private key. Retirement keys only
 on the signal the user typed: the pack leaving the selection list.
 
-The **materialized embed cache** is deliberately unswept: it is content-addressed, derived from
-the binary's embedded tree, and identical on every machine running that build, so it is
-regenerable cache rather than state anyone owns.
+The **embedded pack tree** — the on-disk copy of the packs compiled into the binary — is not
+this sweeper's business: it is
+one immutable tree per build, named by a content hash, owned by no pack and regenerable from the
+binary. `yolo prune` reaps other builds' trees by **lease** (whether a live process still holds
+one), never by pack selection; see
+[`storage-and-config.md`](storage-and-config.md#machine-wide-storage).
 
 ## Where a loophole does nothing
 
@@ -734,8 +745,17 @@ why*, and two half-messages for one user-visible situation is how a whole backen
 provisioned while configuring nothing.
 
 - **Platform** — the `platforms` declaration, evaluated as a pure function of the target pair.
-- **Backend** — a container backend that starts no host services at all, and a no-VM
-  user-level backend that never reaches loophole startup.
+  The report applies the **user's** `loopholes.<name>.enabled` before it asks, so a Linux-only
+  loophole a user switched on on a Mac is named at launch with the platforms it supports, and
+  one the user switched off is not reported at all (`loopholes.ApplyConfigEnabled`).
+- **Backend** — Apple Container (`container`), which carries no container-to-host connection:
+  a loopback-bound listener is never reached from the jail, and a wider bind completes a
+  handshake that carries nothing (measured on `container` 1.1.0). The launch there skips every
+  pack-shipped host daemon but one, and reports every pack loophole inert — the admitted one
+  included, because what fails for it is the jail's dial, not the spawn. `macos-user` is **not**
+  inert on this axis: its launch goes through the same spawn boundary as a container launch and
+  starts the whole host-service set, so only the platform axis has anything to say there. The
+  reason text is `backendInertReason` in `internal/cli/run/loopholeinert.go`.
 
 **Backend beats platform when both apply**: an inert backend starts no host service whatever the
 platform says, so the platform answer would be a second reason for one outcome — and the
@@ -749,9 +769,12 @@ in one place.
 
 ### At the host target, there is no jail
 
-`yolo host apply` refuses a loophole contribution, and the **naive reason is backwards**: a
-loophole's effect *is* on the host, so "not applicable off-container" reads as obviously wrong.
-The honest reason is the inverse, and it is spelled out rather than left to a generic line:
+`yolo host apply` does not apply a loophole contribution — its report names `loophole` among
+the kinds that do not apply at the host notch and points at `yolo config-ref`, which carries the
+reason — and the **naive reason is backwards**: a loophole's effect *is* on the host, so "not
+applicable off-container" reads as obviously wrong. The honest reason is the inverse, and it is
+spelled out (in `config-ref`, and as the kind's entry in `render`'s refusal reasons) rather than
+left to a generic line:
 
 > A loophole is a host daemon whose only client is a container. With no jail there is no client,
 > nothing to add a host entry for, no jail daemon payload, and nothing for the endpoint file to be
@@ -789,7 +812,7 @@ launching a jail rather than about applying a config.
 
 ## Current values
 
-Verified at `a3922298`. The prose above explains what each of these is for; this table is the
+Verified at `f491d192`. The prose above explains what each of these is for; this table is the
 only place the values themselves are stated.
 
 | Value | Setting | Defined in |
@@ -800,12 +823,12 @@ only place the values themselves are stated.
 | Retired manifest key (recognized, refused) | `enabled` | `loopholedecl.RetiredKeyEnabled` |
 | User's switch | `loopholes.<name>.enabled`, either scope | `loopholes.ConfigEnabledOverride` |
 | Setting scopes, and the default | `user` (default), `workspace` | `loopholedecl.SettingScopeUser`, `SettingScopeWorkspace`, `DefaultSettingScope` |
-| Module-dir tokens | `{loophole_dir}` (host), `{jail_loophole_dir}` (container) | `internal/loopholes/load.go` |
+| Module-dir tokens | `{loophole_dir}` (host), `{jail_loophole_dir}` (container) | `loopholedecl.TokenLoopholeDir`, `TokenJailLoopholeDir`; substituted in `internal/loopholes/load.go` |
 | Sources, in precedence order | `pack` < `config` | `loopholes.SourcePack`, `SourceConfig` |
 | Retired discovery directory (named only by the migration notice) | `~/.local/share/yolo-jail/loopholes/` | `loopholes.RetiredUserLoopholesDir` |
-| Module-dir mount point in the jail | `/etc/yolo-jail/loopholes/<name>` | `internal/loopholes/runtime.go` |
+| Module-dir mount point in the jail | `/etc/yolo-jail/loopholes/<name>` | `loopholedecl.JailLoopholeDir` |
 | Per-loophole state dir | `<global storage>/state/<name>` | `loopholes.StateDirFor` |
-| Retired-state generations kept | 3 | `internal/prune/loopholestate.go` |
+| Retired-state generations kept | 3 | `hostArchiveKeep` in `internal/prune/prunecmd.go`, mirrored by the post-launch slot's `hostArchiveKeepInSlot`; the sweeper is `prune.PruneRetiredLoopholeState` |
 | Retired top-level config keys (now refusals naming their replacements) | `host_processes`, `journal`, `agents` | `internal/config/validate.go` |
 | Shipped loopholes | one manifest per `packs/*/loopholes/*/` | `packs/` |
 

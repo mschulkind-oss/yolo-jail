@@ -32,7 +32,7 @@ triggering Pi's interactive TUI update warning box on startup in every other wor
 
 **The shape.** Decouple `~/.pi/agent/npm` from the workspace-scoped `~/.pi` state directory
 via a machine-scoped storage contribution (`scope: "machine"`) and symlink hook. Two ways to
-refresh it, and the leaning has moved: **YOLO resolves and pins** the package set through
+refresh it, and [OQ-2](#OQ-2) ruled between them on 2026-09-20: **YOLO resolves and pins** the package set through
 `internal/packsrc` + `packs.lock.json` ([Alternative D](#alternative-d-resolve-and-pin-through-yolos-existing-pack-source-store)),
 and the launcher only *materializes* it — Pi's own `pi update --extensions` is the fallback, not
 the mechanism. [§3.2](#32-execution-tier-pre-launch-auto-refresh) still describes the pre-reframe
@@ -98,7 +98,8 @@ When Pi runs:
 
 ### 1.2 The multi-jail friction
 
-In YOLO, `packs/pi/pack.json` currently declares:
+Before the storage tier shipped, `packs/pi/pack.json` declared only this for Pi's state (it
+still declares it, beside the machine-scoped store [§3.1](#31-storage-tier-decoupling-packages-from-session-state) adds):
 
 ```json
 {
@@ -118,6 +119,9 @@ Because `.pi` is workspace-scoped, each workspace jail receives an isolated dire
   identical copies of the packages and their transitive node dependencies.
 * **Notification nag**: Every other workspace continues to display the startup warning banner
   prompting the user to run `pi update --extensions`.
+
+The storage tier (shipped 2026-09-21) ends the first two for `~/.pi/agent/npm`: every jail on the
+machine now reads one store. The nag is the refresh tier's to end, and that tier is not built.
 
 ---
 
@@ -146,7 +150,7 @@ Because `.pi` is workspace-scoped, each workspace jail receives an isolated dire
 
 > ⚠ **[§3.2](#32-execution-tier-pre-launch-auto-refresh) is pre-reframe.** It describes refresh as a launcher-run `pi update --extensions`.
 > [Alternative D](#alternative-d-resolve-and-pin-through-yolos-existing-pack-source-store) and
-> [OQ-2](#OQ-2)'s current leaning move the *resolution and the pin* to YOLO and leave the launcher
+> [OQ-2](#OQ-2)'s ruling move the *resolution and the pin* to YOLO and leave the launcher
 > to materialize. Read [§3.2](#32-execution-tier-pre-launch-auto-refresh) as the materializer, not the resolver.
 
 The architecture consists of three coordinated tiers: storage decoupling, pre-launch auto-refresh,
@@ -172,7 +176,8 @@ At container initialization, YOLO links `~/.pi/agent/npm` to `~/.pi-shared-npm`:
   `paths.GlobalHome()`.
 * On the `macos-user` backend, `~/.pi-shared-npm` lives directly in the sandbox user home, and
   is mirrored into the workspace sidecar so relative symlinks resolve cleanly
-  (following the pattern established in [`darwinhomelayout.go`](../../internal/entrypoint/darwinhomelayout.go#L13-L100)).
+  (following the pattern established in [`darwinhomelayout.go`](../../internal/entrypoint/darwinhomelayout.go):
+  `DeriveDarwinHomeLayout`, whose `Mirrors` are the machine tier as the sidecar sees it).
 * An initialization hook ensures that if an existing workspace already has
   a populated `~/.pi/agent/npm` directory while `.pi-shared-npm` is empty, the contents are migrated
   to the shared store rather than lost (following the "the shared side always wins, but initial local
@@ -195,7 +200,8 @@ At container initialization, YOLO links `~/.pi/agent/npm` to `~/.pi-shared-npm`:
 
 Relying on human users to manually run `pi update --extensions` across N jails guarantees drift.
 Instead, we adopt YOLO's proven transitive update model used for agent binaries and MCP/LSP servers
-([`shims.go:1306-1315`](../../internal/entrypoint/shims.go#L1306-L1315)):
+(the agent launcher templates in [`shims.go`](../../internal/entrypoint/shims.go), whose
+transitive MCP/LSP step runs `yolo internal refresh-servers` before the agent's `exec`):
 
 1. **The Trigger**: The refresh executes inside `/home/agent/.yolo/bin/launch/pi` strictly **before**
    `exec "$REAL_BIN"`.
@@ -282,7 +288,8 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
   a host-side fetch into `mirrors/<repo>` + `trees/<sha>`, a commit-pinned `packs.lock.json`,
   and a strictly offline launch. The launcher then only REPORTS, which is the posture
   `program via npm` already takes (`yolo pack update` is the one act that resolves).
-* **Verdict**: **Not yet ruled — newly surfaced 2026-09-19.** Alternative C's objection
+* **Verdict**: **Chosen — [OQ-2](#OQ-2) ruled option (c), which is this alternative, on
+  2026-09-20.** Surfaced 2026-09-19. Alternative C's objection
   ("don't reimplement npm") is about the PACKAGE MANAGER; this alternative keeps npm as the
   installer and moves only the RESOLVER, so the objection does not apply. The reason to
   prefer it is the precedent survey's finding that none of the plugin/package ecosystems
@@ -291,10 +298,15 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
   [OQ-2](#OQ-2): the launcher may still call `pi update`, but only after YOLO has resolved and
   pinned, and it should be able to say what it resolved instead of asking a registry.
 
-> **A third path, already available:** a pack can *declare* its Pi packages as a `config-overlay`
-> on surface `pi/settings` with `managed.packages` (e.g. `npm:@quintinshaw/pi-dynamic-workflows`).
-> That is the declaration half — it says what should be present without fetching anything — and it
-> composes with D, which owns the fetch and the pin.
+> **A third path, already available:** a pack can *declare* its Pi packages with a `config-list`
+> contribution on surface `pi/settings` at path `/packages`, which appends its entries to Pi's
+> `packages` array without replacing the entries other packs or the user put there (built
+> 2026-09-24 — [`pack-system.md`](../reference/pack-system.md#adding-entries-to-an-array-config-list),
+> designed in [`additive-config-lists.md`](./additive-config-lists.md)). This note used to name a
+> `config-overlay` with `managed.packages`; that still works, but a merge patch replaces the array
+> whole, so each overlay copies — and drifts from — every package another pack selected, which is
+> the case the list kind exists for. Either is the declaration half — it says what should be
+> present without fetching anything — and composes with D, which owns the fetch and the pin.
 
 ---
 

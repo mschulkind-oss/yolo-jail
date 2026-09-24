@@ -8,8 +8,9 @@ summary: "A pack can declare a program from npm or from a vendor installer, and 
 
 # A fork is a package with no registry — distributing source-built programs through a pack
 
-**Status:** DECIDED, 2026-09-22. **Every ruling is in; nothing is built.** Evidence verified
-against `5a2535e4`.
+**Status:** DESIGN, 2026-09-22 — three rulings are owed ([OQ-FP7](#OQ-FP7)–[OQ-FP9](#OQ-FP9)).
+The original six questions are ruled; nothing is built. Evidence re-verified 2026-09-24 at
+`f491d192`.
 
 > **In short.** A fork is not a new kind of thing — it is the `installer` route with the
 > registry removed and a build step added, and capture already exists for exactly that
@@ -68,9 +69,9 @@ run the program.
 | Capture store | `<CapturesDir>/entries/<key>/tree/`, unpacked, with `.yolo-capture-complete` written last | [`capture/store.go`](../../internal/capture/store.go) |
 | Materialize | reflink → hardlink → copy | [`capture/materialize.go`](../../internal/capture/materialize.go) |
 | Relocation | records every absolute reference to the capture-time home, and decides whether the entry may move at all | [`capture/relocate.go`](../../internal/capture/relocate.go) |
-| Capture jail | a throwaway jail in a temp workspace, deliberately **without** the capture store mounted | [`capturehost.go:313`](../../internal/cli/capturehost.go) |
+| Capture jail | a throwaway jail in a temp workspace, deliberately **without** the capture store mounted | `runCaptureJail`, [`capturehost.go`](../../internal/cli/capturehost.go) |
 | Source addressing | `Addr`, `Lock`, `store` — how a *pack* is already fetched and pinned | [`internal/packsrc`](../../internal/packsrc) |
-| Notches | `host`, `jail`, `guest` — and `guest` refuses every verb | [`render/fieldset.go`](../../internal/render/fieldset.go) |
+| Notches | `host`, `jail`, `guest` — and `guest` refuses every verb | `render.NotchUnbuilt`, [`render/fieldset.go`](../../internal/render/fieldset.go) |
 
 Two of these settle most of the design before it starts.
 
@@ -147,16 +148,16 @@ declares that it *is a fork of* a base pack, and supplies the artifact that pack
 to. Selecting it is a **configuration** act — "use this fork for this thing" — not a shadowing one.
 
 **The reason is not taste: shadowing is already refused.** A pack claims an agent's name by
-declaring `program` with that `bin`
-([`footprint.go:976-986`](../../internal/packload/footprint.go) — *"A pack claims a name by OWNING
-part of that agent's plumbing: `program` by `bin` — it installs the launcher"*). Two selected packs
-claiming one name **refuses the launch** before anything is staged, via `AgentNameCollisions`
-([`packs.go:439-446`](../../internal/cli/run/packs.go)). So a fork that declared `bin: "pi"` beside
+declaring `program` with that `bin` (`packload.AgentNameCollisions`' doc comment, in
+[`footprint.go`](../../internal/packload/footprint.go) — *"A pack claims a name by OWNING part of
+that agent's plumbing: `program` by `bin` — it installs the launcher"*). Two selected packs
+claiming one name **refuses the launch** before anything is staged: the launch pre-flight in
+[`packs.go`](../../internal/cli/run/packs.go) calls `AgentNameCollisions`. So a fork that declared `bin: "pi"` beside
 `packs/pi` would not shadow it — the launch would simply fail, and there is already a test using a
 `claude-matt-fork` fixture for exactly that shape.
 
 **The vocabulary already exists**, and reusing it is the difference between one override mechanism
-and two. `config-overlay` ([`kinds.go:85-88`](../../internal/packdecl/kinds.go)) is *"a contribution
+and two. `config-overlay` (`packdecl.KindConfigOverlay`, [`kinds.go`](../../internal/packdecl/kinds.go)) is *"a contribution
 to a config surface OWNED by another pack. Ordered after the owner (later-wins), with per-key
 provenance recorded so an override of the owner's key is legible."* A fork is that relation applied
 to a `program`'s delivery rather than to a config surface: the base owns the name, the fork
@@ -184,7 +185,7 @@ Capture is cheap on the container backends for one stated reason:
 > *"On the container backends the capture home and the materialize home are the same string —
 > `/home/agent`, both times — so an absolute self-reference an installer embeds is still
 > correct after materialization and there is nothing to rewrite."*
-> — [`relocate.go:6-10`](../../internal/capture/relocate.go)
+> — [`relocate.go`](../../internal/capture/relocate.go)'s file header
 
 **A cross-notch artifact breaks that precondition by definition.** The jail's home is
 `/home/agent`; the host's is the real user's; the guest's is whatever Phase 7 decides. One
@@ -196,8 +197,11 @@ rather than an implementation detail:
 
 - **Relocation's recording half exists and its necessity is unmeasured.** The scan, the
   text/binary classification and the relocatable decision are unit-tested against real files.
-  What has never run is the backend that needs them — no Seatbelt profile has been loaded by a
-  kernel ([`relocate.go:22-29`](../../internal/capture/relocate.go)).
+  What has never run is a capture on the backend that needs them. The `macos-user` CI job now
+  loads the *session* Seatbelt profile under `sandbox-exec` and asserts the kernel's refusals,
+  but no capture has run under the capture profile (`macosuser.SeatbeltCaptureProfile`) and no
+  relocating materialize has run anywhere. ([`relocate.go`](../../internal/capture/relocate.go)'s
+  header still says no Seatbelt profile has been loaded by a kernel, which predates that job.)
 - **A source build embeds more than an installer does.** An installer writes scripts and
   symlinks. A compiler writes `RUNPATH`s, interpreter lines, embedded prefixes and debug paths
   — some in binaries, where a textual rewrite is not available.
@@ -240,14 +244,14 @@ reader has to be able to find out which compiler produced what is on their PATH.
 > **The store does not key on inputs at all today, so this section is not expressible without new
 > receipt fields.** A capture entry is keyed by the **digest of the output tree**, and selection is
 > `(bin, platform)` → newest receipt wins
-> ([`select.go:20-47`](../../internal/capture/select.go)). There is no input-side key anywhere in the
+> (`capture.Select`, [`select.go`](../../internal/capture/select.go)). There is no input-side key anywhere in the
 > store, which makes "the key includes the revision, the recipe and the platform" a **change to the
 > receipt schema** rather than a use of what exists. `install-capture.md`'s own blockers say to stop
 > and ask before adding per-entry metadata a later yolo must parse, so this is a gate on the build,
 > not a detail of it.
 >
-> ⚠ **The toolchain record must not go in the capture MANIFEST.** `manifest.go:67-71` states the
-> invariant it would break: *"Nothing about the run that produced it is in here, so two
+> ⚠ **The toolchain record must not go in the capture MANIFEST.** `capture.Manifest`'s doc comment
+> ([`manifest.go`](../../internal/capture/manifest.go)) states the invariant it would break: *"Nothing about the run that produced it is in here, so two
 > byte-identical captures produce two byte-identical manifests."* The record belongs on the `record`
 > receipt beside the entry, where run-specific facts already live.
 
@@ -266,7 +270,7 @@ Two properties follow, and both are stated because a reasonable implementation m
 either:
 
 - **The build must get no credentials** — and ⚠ **the mechanism as built does not honour that
-  today.** `runCaptureJail` ([`capturehost.go:308-395`](../../internal/cli/capturehost.go))
+  today.** `runCaptureJail` ([`capturehost.go`](../../internal/cli/capturehost.go))
   suppresses exactly four things (the captures dir, never-attach, accept-config-changes, the TTY)
   and otherwise runs the ordinary pipeline against the USER's config — so `env_sources` is
   hydrated, `YOLO_HOST_FILES` is emitted, and host loopholes start. A fork build is arbitrary code
@@ -287,7 +291,7 @@ deserves its own disclosure.
 
 | Notch | Can it run a forked program? | Why |
 | :--- | :--- | :--- |
-| **jail** | yes | the capture store is already bound `:ro` into every launch |
+| **jail** | yes | the capture store is already bound `:ro` into every container launch where `:ro` is enforced — not on Apple Container below its read-only-bind floor (`capturesArgs`, [`captures.go`](../../internal/cli/run/captures.go)) |
 | **host** | yes, subject to [§5](#5-relocation-is-the-design-not-the-build) | the host materializes into the real user's home |
 | **guest** | **not yet, and not because of this design** | every verb at that notch refuses today |
 
@@ -311,7 +315,7 @@ the existing hard case, not a new one — which makes it the best place to find 
 | Build fails | the program is unavailable and the reason is printed; **the launch is not refused** — a broken fork is one missing tool, not a broken jail |
 | Build succeeds, produces no expected output | treated as a failed build, named as such rather than admitted as an empty capture |
 | Entry is not relocatable into the asking notch | that notch does not get the program, and says which notch it was built for |
-| Two builds of the same key race | the existing per-program lock decides, and ⚠ **it REFUSES rather than waits**: a non-blocking flock whose loser prints and exits non-zero ([`capturehost.go:136-152`](../../internal/cli/capturehost.go)). It does not adopt the winner's entry. Whether a fork build should instead WAIT for the winner is [`OQ-FP7`](#OQ-FP7) |
+| Two builds of the same key race | the existing per-program lock decides, and ⚠ **it REFUSES rather than waits**: a non-blocking flock whose loser prints and exits non-zero (`captureHost`'s per-program lock, [`capturehost.go`](../../internal/cli/capturehost.go)). It does not adopt the winner's entry. Whether a fork build should instead WAIT for the winner is [`OQ-FP7`](#OQ-FP7) |
 | Store entry half-written (crash mid-build) | the missing `.yolo-capture-complete` makes it detectable and it is rebuilt |
 | Toolchain absent in the capture jail | a build-time failure like any other; the pack is responsible for declaring what it needs to build |
 
@@ -373,7 +377,7 @@ Three questions are open, and all three were raised by ruling the original six.
 
 1. 💬 <a id="OQ-FP7"></a>**[OQ-FP7](#OQ-FP7): should the loser of a build race WAIT for the winner?**
    The per-program lock is a non-blocking flock whose loser prints and exits non-zero
-   ([`capturehost.go:136-152`](../../internal/cli/capturehost.go)) — correct for `yolo capture`, which
+   (`captureHost`'s per-program lock, [`capturehost.go`](../../internal/cli/capturehost.go)) — correct for `yolo capture`, which
    a human invoked and can re-run. It is wrong for an eager build inside a launch: the second launch
    would refuse over a build the first is already doing, and the artifact it needs appears seconds
    later. Stakes: whether an eager fork build can share the existing lock at all.

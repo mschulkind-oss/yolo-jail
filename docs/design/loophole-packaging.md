@@ -68,16 +68,19 @@ collision pass.
 that selects the pack, including on a machine where no socket ever crossed.
 
 One tempting justification does **not** hold and should not be re-offered: the kinds'
-namespaces are not disjoint by luck. `program` and `launch` already share the bin-name target
-namespace by design, so nothing is being *preserved* — what is being avoided is the collision
-pass itself, which is purely additive.
+namespaces are not disjoint by luck. `program` and `blocked-tool` already share the bin-name
+target namespace by design (a tool can be both blocked and pack-declared, and gets a blocker and
+a launcher), so nothing is being *preserved* — what is being avoided is the collision pass
+itself, which is purely additive. (This sentence used to name `launch` as `program`'s partner;
+that kind was retired on 2026-09-12, its flags moving into the `autonomy` kind's postures, and
+the argument is unchanged by the substitution.)
 
 **What the answer decides:** whether a pack can ever set an environment variable
 *conditionally on a loophole actually activating*, or whether "the pack is selected" stays the
 only granularity yolo offers. Every future pack whose loophole is predicate-gated inherits
 this.
 
-**Verified 2026-09-09.** The refusal is `packJailEnvProblems` in `internal/loopholedecl`
+**Verified 2026-09-09, re-checked 2026-09-24.** The refusal is `packJailEnvProblems` in `internal/loopholedecl`
 (`packshipped.go`), whose own doc comment names this question and this resolution path;
 `packs/audio/pack.json` does declare both variables through the `env` kind, so the cost is
 paid in the shipped tree rather than in prospect.
@@ -96,7 +99,7 @@ container, so with no jail there is no client and nothing for the endpoint file 
 into — and it is **coherent at `guest`**, which is a real process on the real machine under an
 LSM or Seatbelt profile. `Target.Fields()` nonetheless funnels both into the host field set.
 
-**Verified 2026-09-09, and the shape has improved without the question closing.**
+**Verified 2026-09-09, re-checked 2026-09-24, and the shape has improved without the question closing.**
 `Target.Fields()` in `internal/render` (`fieldset.go`) is no longer an if-jail-else-host: it
 is a switch that **names** `KindGuest` in its `default` branch, deliberately, so the
 over-permission is on the record rather than a fallthrough. Its own comment states the half

@@ -1,6 +1,14 @@
+---
+title: "Emptying bundled_loopholes/ — the broker, the identity rule, and the proving ground"
+date: 2026-08-15
+status: in-review
+tags: [loopholes, packs, broker, claude, identity, binaries]
+summary: "How the Claude OAuth broker became a contribution of packs/claude and the bundled loophole channel was deleted (built 2026-08-19), the connection-preamble identity rule that replaced the per-jail relay, and the pack-shipped binary capability that was committed to the same sprint and is not built — two rulings on it are still open."
+---
+
 # Emptying `bundled_loopholes/` — the broker, the identity rule, and the proving ground
 
-**Status:** DECIDED, 2026-09-23 — **the broker move is built** (2026-08-19; measured that day, and [§13](#13-what-empty-the-channel-actually-required--measured-2026-08-19) records what emptying the channel actually required), and **the pack-shipped-binary capability is not**: [OQ-BP1](#decision-ledger) committed it to the same sprint, its release matrix is still owed (re-checked 2026-09-23: no `packs/*/pack.json` or loophole manifest declares a digest-pinned binary), and two rulings on it are open.
+**Status:** DESIGN, 2026-09-24 — two rulings are owed, both on the pack-shipped-binary capability. **The broker move is built** (2026-08-19; measured that day, and [§13](#13-what-empty-the-channel-actually-required--measured-2026-08-19) records what emptying the channel actually required), and **the pack-shipped-binary capability is not**: [OQ-BP1](#decision-ledger) committed it to the same sprint, its release matrix is still owed (re-checked 2026-09-24: no `packs/*/pack.json` or loophole manifest declares a digest-pinned binary), and both open questions are about it. ⚠ **Both open questions were written against a trust model that has since changed**: the fetched-pack approval prompt and every origin refusal were deleted on 2026-09-04 ([`OQ-TP9`](trust-paths.md#decision-ledger)), so [§3.1](#31-what-is-actually-unresolved-here)'s "two gates" and the `InstallerURL` precedent both questions lean on no longer exist in the tree — see the note under each.
 
 **Needs your ruling:** [OQ-BP5](#OQ-BP5), [OQ-BP6](#OQ-BP6) — both on the binary capability, and neither blocks anything shipped.
 
@@ -22,7 +30,7 @@ All five sequencing steps are in the tree and `bundled_loopholes/` is DELETED �
 
 **The most important section is [§5.5](#55-ruled--every-connection-is-raw-yolo-prepends-a-connection-preamble)** — everything else is inventory and consequence.
 
-**Reads with:** [`pack-code-separation.md`](../reference/pack-system.md#what-a-pack-is-on-disk) (why this is being done at all; its [§4](../reference/pack-system.md#what-a-pack-is-on-disk) is what this doc corrects), [`loophole-system.md`](../reference/loophole-system.md) (the implementation authority: the `loophole` kind, the front, and [the pack-shipped subset](../reference/loophole-system.md#the-pack-shipped-subset) is the contract this leans on, with [OQ-LP11](../reference/loophole-system.md#why-its-this-way)/[OQ-LP14](../reference/loophole-system.md#why-its-this-way)), [`agent-credentials.md`](../reference/agent-credentials.md) ([§2.5](../reference/agent-credentials.md#the-claude-oauth-broker), why a broker exists at all), [`loophole-transport.md`](../reference/loophole-transport.md) (why loopback-TLS is the only hop).
+**Reads with:** [`trust-paths.md`](trust-paths.md#decision-ledger) ([`OQ-TP9`](trust-paths.md#decision-ledger), which deleted the approval and origin gates [§3.1](#31-what-is-actually-unresolved-here) designs around), [`pack-code-separation.md`](../reference/pack-system.md#what-a-pack-is-on-disk) (why this is being done at all; its [§4](../reference/pack-system.md#what-a-pack-is-on-disk) is what this doc corrects), [`loophole-system.md`](../reference/loophole-system.md) (the implementation authority: the `loophole` kind, the front, and [the pack-shipped subset](../reference/loophole-system.md#the-pack-shipped-subset) is the contract this leans on, with [OQ-LP11](../reference/loophole-system.md#why-its-this-way)/[OQ-LP14](../reference/loophole-system.md#why-its-this-way)), [`agent-credentials.md`](../reference/agent-credentials.md) ([§2.5](../reference/agent-credentials.md#the-claude-oauth-broker), why a broker exists at all), [`loophole-transport.md`](../reference/loophole-transport.md) (why loopback-TLS is the only hop).
 
 ---
 
@@ -40,7 +48,17 @@ Three claims, each argued below:
 
 ---
 
-## 2. What the broker is today
+## 2. What the broker was before the move
+
+> [!NOTE]
+> **This section is the pre-move inventory, verified 2026-08-15, and it is kept as the argument's
+> starting point rather than as a description of the tree.** The per-jail relay
+> (`internal/brokerrelay`, `yolo internal daemon broker-relay`) was deleted on 2026-08-19
+> ([§7](#7-what-this-deletes-what-it-costs-what-it-forecloses)); the manifest moved from
+> `bundled_loopholes/` to `packs/claude/loopholes/claude-oauth-broker/`; and `yolo broker` is now
+> an alias for `yolo host-daemon <verb> claude-oauth-broker`, the management verb over every
+> host-wide daemon (2026-09-20). The line citations below are gone with the files they pointed
+> into, so they are dropped rather than repointed.
 
 Five hops, four processes, two of which are baked subcommands rather than binaries:
 
@@ -71,9 +89,9 @@ Five hops, four processes, two of which are baked subcommands rather than binari
 | in-jail TLS terminator | `internal/oauthterminator` | `yolo-jaild oauth-terminator` | jail |
 | per-jail relay (front + stamp + dial) | `internal/brokerrelay` | `yolo internal daemon broker-relay` | jail |
 | host singleton | `internal/oauthbroker` | `yolo internal daemon claude-oauth-broker` | host |
-| lifecycle + `yolo broker` CLI | `internal/broker` | in-process | host |
+| lifecycle + `yolo broker` CLI (now `yolo host-daemon`) | `internal/broker` | in-process | host |
 
-**What the manifest already declares** (`bundled_loopholes/claude-oauth-broker/manifest.jsonc`, verified 2026-08-15): `serves`, `transport: loopback-tls`, `intercepts`, `broker_ip`, `ca_cert: {state}/ca.crt`, `state_files`, `requires.command_on_path`, `host_daemon.cmd`, `jail_daemon.cmd`, `doctor_cmd`. That is nearly the whole surface. **What it does not declare is the relay** — `relayEnsure` is called from the run pipeline (`internal/cli/run/loopholesruntime.go:790-797`), keyed per jail by a hash of the container name, with its own pid file, lock and socket. Nothing in any manifest describes it.
+**What the manifest already declares** (`bundled_loopholes/claude-oauth-broker/manifest.jsonc`, verified 2026-08-15): `serves`, `transport: loopback-tls`, `intercepts`, `broker_ip`, `ca_cert: {state}/ca.crt`, `state_files`, `requires.command_on_path`, `host_daemon.cmd`, `jail_daemon.cmd`, `doctor_cmd`. That is nearly the whole surface. **What it does not declare is the relay** — `relayEnsure` was called from the run pipeline (`internal/cli/run/loopholesruntime.go`), keyed per jail by a hash of the container name, with its own pid file, lock and socket. Nothing in any manifest describes it.
 
 **P1 of the existing design still holds and is not reopened:** the broker exists because Anthropic mints single-use refresh tokens, so concurrent consumers must be serialized by a host-wide flock ([`agent-credentials.md`](../reference/agent-credentials.md) [§2.5](../reference/agent-credentials.md#the-claude-oauth-broker)).
 
@@ -87,13 +105,13 @@ Every clause of that is already satisfied. Evidence, verified 2026-08-15:
 
 | What [§4](#4-blocker-2--the-relay-and-how-little-of-it-is-irreducible) says is needed | State in the tree |
 |---|---|
-| the module dir reachable from inside the container | **Built.** `-v <module>:/etc/yolo-jail/loopholes/<name>:ro` (`internal/loopholes/runtime.go:144-156`) |
-| a way to *name* that path in the manifest | **Built.** `{jail_loophole_dir}` is legal in `jail_daemon.cmd` and refused in host fields, with the mount point as one constant (`internal/loopholedecl/tokens.go:5-37`) |
+| the module dir reachable from inside the container | **Built.** `-v <module>:/etc/yolo-jail/loopholes/<name>:ro` (`internal/loopholes/runtime.go`; the mount point is `loopholedecl.JailLoopholeDir`) |
+| a way to *name* that path in the manifest | **Built.** `{jail_loophole_dir}` is legal in `jail_daemon.cmd` and refused in host fields, with the mount point as one constant (`loopholedecl.TokenJailLoopholeDir`, `refuseJailTokenInHostField`, in `internal/loopholedecl/tokens.go`) |
 | the mount to permit execution | **Satisfied by omission.** The `-v` is `:ro` with **no `noexec`** |
 | a runtime for a non-nix binary | **Shipped 2026-07-22.** `nix-ld` is the FHS interpreter; that is precisely its job ([`../plans/nix-ld-dynamic-linking.md`](../plans/nix-ld-dynamic-linking.md), IMPLEMENTED) |
 | the pack-shipped subset to permit a `jail_daemon` | **Never restricted it.** The subset constrains jail *env*, bind mounts, `ca_cert`, `requires` and `publishes` (`internal/loopholedecl/packshipped.go`) — there is no `jail_daemon` rule |
 | a way to say "Linux/amd64 only" | **Landed 2026-08-14** as `platforms`, closed-list `<goos>[/<goarch>]` |
-| the daemon to be spawned generically | **Built.** `jail_daemon` payloads become `YOLO_JAIL_DAEMONS` for `yolo-jaild supervise` with no per-loophole code (`internal/loopholes/runtime.go:248-251`) |
+| the daemon to be spawned generically | **Built.** `jail_daemon` payloads become `YOLO_JAIL_DAEMONS` for `yolo-jaild supervise` with no per-loophole code (`loopholes.JailDaemonPayload`, `internal/loopholes/runtime.go`) |
 
 So the honest statement is: **a pack can already ship a jail-side daemon binary; nothing has ever tried.** That is an unexercised path, not a missing one — the same shape of finding as agy's never-run credential hook in [`pack-code-separation.md`](../reference/pack-system.md#what-a-pack-is-on-disk) [§3.2](../reference/pack-system.md#what-a-pack-is-on-disk).
 
@@ -117,7 +135,7 @@ loophole/broker/bin/<goos>-<goarch>/terminator      # e.g. bin/linux-amd64/termi
 
 | | Option | Verdict |
 |---|---|---|
-| **A** | **Checked into the pack tree.** `bin/<goos>-<goarch>/…` committed alongside the manifest | ⚠️ **Half true — corrected 2026-09-17 by running it** ([§10](#10-sequencing) step two, `packs/hello-daemon`). It works for a pack **configured by path**: `packstage.copyFile` carries `0o111`. It cannot work for an **EMBEDDED** pack — the shape an official pack has, and the one the interim answer below leans on — because `embed.FS` cannot represent an exec bit at all: an embedded file reads back `0444` whatever its mode in the tree (measured), and `packload.copyEmbeddedTree` writes `0o644` besides. The pinning half is also narrower than stated: `packsrc.LockEntry.Commit` pins a FETCHED pack, and an embedded pack has no lockfile. Cost is repo weight: every platform in every clone, forever |
+| **A** | **Checked into the pack tree.** `bin/<goos>-<goarch>/…` committed alongside the manifest | ⚠️ **Half true — corrected 2026-09-17 by running it** ([§10](#10-sequencing) step two, `packs/hello-daemon`). It works for a pack **configured by path**: `packstage.copyFile` carries `0o111`. It cannot work for an **EMBEDDED** pack — the shape an official pack has, and the one the interim answer below leans on — because `embed.FS` cannot represent an exec bit at all: an embedded file reads back `0444` whatever its mode in the tree (measured), and yolo's own on-disk copies add none — `packload.copyEmbeddedTree` writes `0o644`, and the leased per-build embedded tree (2026-09-24) is made read-only `0o444`. The pinning half is also narrower than stated: `packsrc.LockEntry.Commit` pins a FETCHED pack, and an embedded pack has no lockfile. Cost is repo weight: every platform in every clone, forever |
 | **B** | **Declared download.** the manifest names a URL per platform — a GitHub release asset — plus a **mandatory `sha256`**; yolo fetches at `pack install`, verifies, and caches by digest | ✅ **The right general mechanism**, and the one the comment asks for — with the digest as a hard requirement, for the reason below |
 | **C** | **Declared build step.** the pack names a command that produces the binary at install time | ⚠️ **Not now, and possibly never on the host.** See below — it is a different risk class *and* it destroys the property B exists to preserve |
 
@@ -127,7 +145,7 @@ loophole/broker/bin/<goos>-<goarch>/terminator      # e.g. bin/linux-amd64/termi
 
 That also answers *when* the fetch happens: at **`pack install`**, never at launch. A launch-time fetch would mean no network is no jail, and would move the moment-of-trust from "when you approved this pack" to "every time you start one". Cache the verified artifact under yolo's state tree keyed by digest — not in the module dir, which is the git tree and is mounted `:ro`.
 
-**Why the build step is a different question.** A build is arbitrary code execution, so it lands in the sharpest existing category rather than a new one, and the precedent is already in the schema: `packdecl.Install.InstallerURL` is *"a curl-piped installer … the sharpest thing a manifest can name: a URL whose contents run as a shell script"*, honored only under the origin rule — **a fetched pack cannot introduce one** (`packdecl.go:111-122`). A build step is that, plus the loss of P4: builds are not bit-reproducible in general, so there is no digest to pin and no way to say what will run. My read is that B covers the real need and C should wait for a case B cannot serve. It is [OQ-BP5](#OQ-BP5) because the comment explicitly asks for it and because "both" is a coherent answer.
+**Why the build step is a different question.** A build is arbitrary code execution, so it lands in the sharpest existing category rather than a new one, and the precedent is already in the schema: `packdecl.Install.InstallerURL` is *"a curl-piped installer … the sharpest thing a manifest can name: a URL whose contents run as a shell script"*, honored — when this was written — only under the origin rule: **a fetched pack could not introduce one**. ⚠ **That rule is gone**: [`OQ-TP9`](trust-paths.md#decision-ledger) deleted every origin refusal on 2026-09-04, and `packload.Pack.HonoredInstalls` now refuses nothing (the `InstallerURL` field's own doc comment in `packdecl.go` still says otherwise). A build step is that, plus the loss of P4: builds are not bit-reproducible in general, so there is no digest to pin and no way to say what will run. My read is that B covers the real need and C should wait for a case B cannot serve. It is [OQ-BP5](#OQ-BP5) because the comment explicitly asks for it and because "both" is a coherent answer.
 
 #### Trust — the split that matters, and it is not jail-vs-fetched
 
@@ -140,6 +158,18 @@ The comment's framing treats "shipping a binary" as one thing. It is two, and th
 
 So the mechanism should be one schema and **two gates**: shipping a jail-side binary is roughly as sharp as what a pack can already do, while shipping a host-side one is a host-execution grant and must be disclosed as such. That asymmetry is worth building in from the start, because a single "packs may ship binaries" switch would quietly grant the second while the reader is thinking about the first.
 
+> [!WARNING]
+> **Neither gate this table names exists any more.** On 2026-09-04 [`OQ-TP9`](trust-paths.md#decision-ledger)
+> deleted the fetched-pack approval prompt — the enumerated claim, the y/N at install and the
+> lockfile record — and with it every origin refusal, `InstallerURL`'s included: selecting a pack
+> already requires writing user-scope config as the host user, which is more authority than the
+> gate withheld. What a user gets instead is disclosure: `yolo pack footprint` before selecting a
+> pack, and the launch's host-execution lines printed before any daemon spawns
+> ([`loophole-system.md`](../reference/loophole-system.md#trust-what-is-gated-and-what-is-not)). So
+> today a fetched pack's `host_daemon.cmd` runs on the host with no approval, disclosed. The
+> asymmetry above is still the right thing to design for; what it would be enforced BY is now
+> an open part of [OQ-BP6](#OQ-BP6), not an existing mechanism.
+
 #### And the interim answer for *this* broker
 
 None of the above blocks the broker move. `jail_daemon.cmd` may keep naming a baked subcommand for an **official** pack, because [`loophole-packaging-overview.md`](../reference/loophole-system.md) [§1.1](../reference/loophole-system.md) already rules that a baked client is fine for one. So the broker can become a pack **now**, on baked daemons, and adopt the binary mechanism when it exists — which is the sequencing [OQ-BP1](#decision-ledger) asks about, restated as "does the broker wait for the general capability?" rather than "does the capability exist?"
@@ -148,7 +178,7 @@ None of the above blocks the broker move. `jail_daemon.cmd` may keep naming a ba
 
 ## 4. Blocker 2 — the relay, and how little of it is irreducible
 
-The relay does four things (`internal/brokerrelay/brokerrelay.go:1-45`, `handle` at :159):
+The relay did four things (`internal/brokerrelay`, deleted 2026-08-19; its package comment and `handle`):
 
 1. **Terminate loopback-TLS and publish the endpoint file** the jail reads (0600, per jail, carrying that jail's bearer token).
 2. **Dial the broker's socket per connection**, so a restarted broker (new socket inode) is picked up on the next request rather than 502-ing the jail.
@@ -159,10 +189,10 @@ Three of those four are already the framework's, for every `publishes: "socket"`
 
 | Relay job | Front equivalent | Evidence |
 |---|---|---|
-| TLS + token + publish endpoint | `listenWith(publishPath, advertiseHost, CrossingViaFront)` | `svcendpoint/front.go:42-48` |
-| per-connection upstream dial | `splice` dials inside the accept-loop goroutine | `svcendpoint/front.go:56-85` |
-| layer-attributable failure | `CrossingUnreachable` + `CrossingReasonUpstreamDial` on the audit record | `svcendpoint/crossing.go:61-92`, `front.go:85-97` |
-| **stamp `jail_id`** | **none today** — but see [the retraction](#52a--retracted-the-front-never-parses-deliberately), this is a gap in the code, not a principle | `front.go:44-46`: *"splice does not parse the stream"*; `crossing.go:194`: parsing the request "is both unavailable at the front" |
+| TLS + token + publish endpoint | `listenWith(publishPath, advertiseHost, CrossingViaFront)` | `svcendpoint/front.go`, `listen.go` |
+| per-connection upstream dial | `splice` dials inside the accept-loop goroutine | `svcendpoint/front.go` (`splice`) |
+| layer-attributable failure | `CrossingUnreachable` + `CrossingReasonUpstreamDial` on the audit record | `svcendpoint/crossing.go`, `front.go` |
+| **stamp `jail_id`** | **none today** — but see [the retraction](#52a--retracted-the-front-never-parses-deliberately), this is a gap in the code, not a principle | `front.go`: *"splice does not parse the stream"*; `crossing.go`: parsing the request "is both unavailable at the front" |
 
 So the folding is not "reimplement the relay in the front". It is: **switch the broker's `host_daemon` to `publishes: "socket"`, let the existing front serve it, and delete `internal/brokerrelay` — except for job 3.**
 
@@ -172,7 +202,7 @@ So the folding is not "reimplement the relay in the front". It is: **switch the 
 
 ### 5.1 Why `jail_id` exists
 
-It is an **audit attribution field**, not a routing or authorization field. `internal/hostservice` reads `Request["jail_id"]` (defaulting to `"unknown"`) and emits it as `jail=<id>` in the per-request record (`hostservice.go:38,73`). The security property is stated at `svcendpoint/crossing.go:105`: the per-jail token is what *makes the relay's host-side stamp trustworthy*. Compare `hostservice`'s tier-2 behaviour, where a client-supplied `jail_id` is recorded verbatim and is explicitly untrusted (`tiers_test.go:88-90`).
+It is an **audit attribution field**, not a routing or authorization field. `internal/hostservice` reads `Request["jail_id"]` (defaulting to `"unknown"`) and emits it as `jail=<id>` in the per-request record (`internal/hostservice/hostservice.go`). The security property was stated in `svcendpoint/crossing.go`: the per-jail token is what *makes the relay's host-side stamp trustworthy*. Compare `hostservice`'s tier-2 behaviour, where a client-supplied `jail_id` is recorded verbatim and is explicitly untrusted (`tiers_test.go`).
 
 So the invariant to preserve is narrow and worth naming:
 
@@ -197,7 +227,7 @@ So the invariant to preserve is narrow and worth naming:
    4-byte BE length + JSON body       length recomputed — the body grew
 ```
 
-**That insertion is "the stamp".** One key, `jail_id`, whose value is the container name. It exists so the audit line the broker's request logging emits reads `jail=yolo-yolo-jail-7f3a` and that field can be *believed* — `internal/hostservice` records a client-supplied `jail_id` verbatim and treats it as untrusted (`tiers_test.go:88-90`), which is exactly what the host-side override upgrades.
+**That insertion is "the stamp".** One key, `jail_id`, whose value is the container name. It exists so the audit line the broker's request logging emits reads `jail=yolo-yolo-jail-7f3a` and that field can be *believed* — `internal/hostservice` records a client-supplied `jail_id` verbatim and treats it as untrusted (`tiers_test.go`), which is exactly what the host-side override upgrades.
 
 **Who the three processes are, and what each one can see:**
 
@@ -211,9 +241,9 @@ So "the front" is not a component with opinions; it is the framework's TLS front
 
 ### 5.2a ⚠ Retracted: "the front never parses, deliberately"
 
-**Raised in review round 1, and the objection is correct.** Both earlier versions of this doc leaned on the front being a component that decodes nothing — `front.go:44-46` ("splice does not parse the stream") and `crossing.go:194` were cited as if they stated a principle the design must protect. The reviewer's question — *"it never decodes anything, except when it decodes the jail's bearer token?"* — dissolves that, and checking the code confirms it.
+**Raised in review round 1, and the objection is correct.** Both earlier versions of this doc leaned on the front being a component that decodes nothing — `front.go` ("splice does not parse the stream") and `crossing.go` were cited as if they stated a principle the design must protect. The reviewer's question — *"it never decodes anything, except when it decodes the jail's bearer token?"* — dissolves that, and checking the code confirms it.
 
-**The front already reads a length-prefixed frame off the same stream, before any splicing.** `verifyTokenFrame` (`svcendpoint/token.go:97-125`) does:
+**The front already reads a length-prefixed frame off the same stream, before any splicing.** `verifyTokenFrame` (`svcendpoint/token.go`) does:
 
 ```
 read 4 bytes  →  BigEndian.Uint32  →  cap at tokenFrameMax (4096, "CAP BEFORE
@@ -288,19 +318,19 @@ The declaration is no longer about the payload's shape — yolo has no opinion o
 
 That last row is the one that decides it. The relay's protocol-aware trick does not get promoted into `svcendpoint` — it **stops existing**, and with it the only place in yolo that had to re-serialize someone else's JSON byte-identically to keep a frozen wire contract.
 
-**Where it goes (P5, revised).** On the accepted-connection wrapper, `listen.go:194`, where `newCountingConn(conn, l.service, l.jail, …)` already attaches the host-derived identity. The wrapper now **prefixes the read stream** instead of transforming it, which is a smaller change than either draft: no parser, no writer, no fallbacks. One implementation covers both server shapes — a fronted daemon reads it through the front's `io.Copy`, an endpoint-publishing daemon reads it directly — so the Go server library and a third-party daemon do exactly the same thing, which is the property that keeps them from drifting.
+**Where it goes (P5, revised).** On the accepted-connection wrapper in `svcendpoint`, where `newCountingConn(conn, l.service, l.jail, …)` already attaches the host-derived identity. The wrapper now **prefixes the read stream** instead of transforming it, which is a smaller change than either draft: no parser, no writer, no fallbacks. One implementation covers both server shapes — a fronted daemon reads it through the front's `io.Copy`, an endpoint-publishing daemon reads it directly — so the Go server library and a third-party daemon do exactly the same thing, which is the property that keeps them from drifting.
 
 **What it carries today** — `jail_id` (host-derived, the reason it exists), `service` (which loophole this listener is), and `v` (the envelope version). It is host→daemon only, exactly once, at connection open; it never appears in the response direction, and the jail-side client never sees it, so a client cannot forge, suppress, or even observe it.
 
 **On the name.** It is *not* called an identity frame, deliberately: identity is what it carries first, not what it is. The frame is the framework's channel for anything it needs to tell a daemon **about the connection** before the connection's own bytes start — and naming it for today's single field would make the second field look like a violation instead of an addition. `v` is what keeps that honest.
 
-**One disambiguation for whoever implements it:** `svcendpoint` now has two length-prefixed frames on one connection, and they are opposites. The **token frame** is client→server, pre-auth, consumed and discarded (`token.go:97-125`). The **preamble** is host→daemon, post-auth, and is the only thing yolo ever *adds* to a stream. Neither is part of the daemon's own protocol.
+**One disambiguation for whoever implements it:** `svcendpoint` now has two length-prefixed frames on one connection, and they are opposites. The **token frame** is client→server, pre-auth, consumed and discarded (`verifyTokenFrame`). The **preamble** is host→daemon, post-auth, and is the only thing yolo ever *adds* to a stream. Neither is part of the daemon's own protocol.
 
 **What it costs, stated plainly.** Every existing daemon's read path changes once — that is the breaking change, and it is in scope. All three affected daemons are yolo's own (`hostservice`, the journal bridge, the broker), and `hostservice` reading it once covers every Go daemon written since. A daemon that declares `preamble: false` gets a genuinely dumb pipe and, in exchange, nothing the preamble carries — no identity today, and none of whatever it carries later. That is the trade, and it should be the reason to think twice before setting it.
 
-**And the property that holds either way:** yolo's tier-1 connection record derives `jail=` from the published endpoint path (`crossingIdentity`, `crossing.go:196-201`) regardless of the declaration. Turning the frame off costs the daemon its identity, never yolo its audit trail — so `preamble: false` is not a privacy switch, and cannot be used as one.
+**And the property that holds either way:** yolo's tier-1 connection record derives `jail=` from the published endpoint path (`crossingIdentity`, `crossing.go`) regardless of the declaration. Turning the frame off costs the daemon its identity, never yolo its audit trail — so `preamble: false` is not a privacy switch, and cannot be used as one.
 
-**Downstream deletions this unlocks:** `frameproto`'s `jail_id` request field becomes vestigial (`hostservice.JailID` reads the frame instead of `Request["jail_id"]`), `yolo-ps` stops self-reporting one, and `hostservice`'s two-tier asymmetry loses its cause — tier 2's `jail=` becomes as host-asserted as tier 1's, which is what the comment at `hostservice.go:37-40` currently has to warn readers about.
+**Downstream deletions this unlocks:** `frameproto`'s `jail_id` request field becomes vestigial (`hostservice.JailID` reads the frame instead of `Request["jail_id"]`), `yolo-ps` stops self-reporting one, and `hostservice`'s two-tier asymmetry loses its cause — tier 2's `jail=` becomes as host-asserted as tier 1's, which is what `hostservice.go`'s package comment on the two tiers had to warn readers about.
 
 ---
 
@@ -329,7 +359,7 @@ packs/claude/                        # the EXISTING official pack, one more cont
 
 Everything else in the manifest — `serves`, `intercepts`, `broker_ip`, `ca_cert`, `state_files`,
 `doctor_cmd` — is already correct and moves unchanged. The `{state}` token is explicitly designed to
-survive a restage (`loopholedecl/tokens.go:20-28`), which is what makes a pack-shipped CA possible at
+survive a restage (`loopholedecl.TokenState`'s doc comment), which is what makes a pack-shipped CA possible at
 all.
 
 ### 6.1 ✅ RESOLVED 2026-08-19 — `host_daemon.scope` is the vocabulary the spawn path lacked
@@ -432,7 +462,7 @@ path"; what is added here is that step 5 cannot precede it either.
 
 **DELETED 2026-08-19, and the tally came out larger than this line predicted.** Also gone: the `broker-relay` entry in `yolo internal daemon`'s dispatch, `Options.RelayKillGrace`, the run pipeline's orphan-relay backstop reap and its piggyback on the live-container enumeration, the attach path's relay healing, the pre-loopback-TLS "spare a live legacy relay" upgrade decision, and `svcendpoint`'s only `NoPreamble` user. `internal/prune`'s `ReapRelayOrphans` is KEPT for one release and re-documented as a legacy sweep — a host upgrading has live relays in `/tmp` right now, and the run-path backstop that used to collect them went with the machinery.
 
-**Costs:** the front gains a declared, opt-in parse ([§5.4](#54-options)) · the broker's `--socket` becomes a *fronted* socket rather than a host-to-host one, so its threat model changes from "nothing in a jail can reach this" to "the front is what stands in front of this" — the same position every other fronted daemon is already in · one more official pack in the set the "six official packs" tests count.
+**Costs:** the front gains a declared, opt-in parse ([§5.4](#54-options)) · the broker's `--socket` becomes a *fronted* socket rather than a host-to-host one, so its threat model changes from "nothing in a jail can reach this" to "the front is what stands in front of this" — the same position every other fronted daemon is already in · one more official pack in the embedded set the pack-loading tests walk.
 
 **Forecloses:** nothing structural. If D proves wrong, the relay can come back as a `host_daemon` of a *different* loophole without touching the front.
 
@@ -479,7 +509,7 @@ What I would build, in order.
 **Three things this experiment establishes that reading could not:**
 
 1. **The embedded route is a dead end for executables**, for a reason no copier can fix (`embed.FS` has no exec bit). An official pack cannot ship a program this way.
-2. **The failure is SILENT, which is worse than the failure.** `supervisor.superviseOne` consults the restart policy only in `waitAndMaybeRestart`, reached after a *successful* start. A `permission denied` from `cmd.Start` takes the spawn-failure arm, which **discards the error**, sleeps, and retries on a 1s→30s backoff for the life of the jail — while `openLog` has already created an empty `<name>.log`. Empty log, no process, no diagnostic. **That is its own defect and it is not fixed**: it would swallow any spawn failure, not just this one.
+2. **The failure is SILENT, which is worse than the failure.** `supervisor.superviseOne` consults the restart policy only in `waitAndMaybeRestart`, reached after a *successful* start. A `permission denied` from `cmd.Start` took the spawn-failure arm, which **discarded the error**, slept, and retried on a 1s→30s backoff for the life of the jail — while `openLog` had already created an empty `<name>.log`. Empty log, no process, no diagnostic. **That was its own defect, and it is FIXED as of 2026-09-17**: `supervisor.superviseOne`'s spawn-failure arm now logs the error and obeys the restart policy (`"no"` gives up and says so; the others back off and say that).
 3. **A shipped program is a new way in for the exec bit, and the disclosure reasoning has an exception now.** `packload.ExecutablesClaimKind` already enumerates shipped executables but is deliberately not `ReviewWorthy`, on the argument that *"a pack shipping a script is not a crossing — `bash file.sh` never needed the bit"*. A `jail_daemon` is: yolo itself spawns the file **by absolute path at boot**, no PATH involved, and the bit is load-bearing. The blast-radius argument still holds (it is inside the jail, this section's own ruling), but that sentence now has an exception.
 
 What the experiment did NOT carry: a real ELF (the pack ships a `#!/bin/sh` program — byte-for-byte the same test for every property under test, since a shebang needs the exec bit exactly as an ELF does, but it does not exercise nix-ld), the live container (that the `:ro` bind permits exec and the supervisor spawns it — `packs/hello-daemon/README.md` carries the one-command recipe), and every non-podman backend.
@@ -514,7 +544,7 @@ Three things follow, and the first is the one to notice:
 - **The `publishes` subset rule is the common blocker, and it is load-bearing rather than accidental.** It exists so a pack-shipped daemon cannot get TLS, token handling or endpoint permissions wrong; converting all three onto the framework front is the same work as honoring it. Worth stating because "all three bundled loopholes violate the pack-shipped subset" sounds like a rule that is too strict, and it is not — it is a rule they predate.
 - **`host-processes` is the cheap one and should go first.** It exercises the whole conversion path — subset validation, official-pack staging, the front, `doctor_cmd` — with none of the broker's complexity. If something structural is wrong with converting a bundled loophole, it will show up there for a fraction of the cost.
 
-**And one finding worth carrying into [§12](#12-host-processes-as-the-proving-ground):** `yolo-ps` already sends its own `jail_id` from inside the jail (`cmd/yolo-ps/main.go:121-122`), which `hostservice` records verbatim as untrusted. So the loophole chosen as the proving ground is *exactly* the one whose attribution the [§5.5](#55-ruled--every-connection-is-raw-yolo-prepends-a-connection-preamble) ruling fixes — it stops being a client's claim and becomes yolo's assertion.
+**And one finding worth carrying into [§12](#12-host-processes-as-the-proving-ground):** `yolo-ps` sent its own `jail_id` from inside the jail, which `hostservice` recorded verbatim as untrusted. (It no longer does: `cmd/yolo-ps`'s header records that the client stopped naming its own jail once the preamble carried the host's assertion.) So the loophole chosen as the proving ground is *exactly* the one whose attribution the [§5.5](#55-ruled--every-connection-is-raw-yolo-prepends-a-connection-preamble) ruling fixes — it stops being a client's claim and becomes yolo's assertion.
 
 ---
 
@@ -522,7 +552,7 @@ Three things follow, and the first is the one to notice:
 
 **Why this one.** It exercises the entire conversion path — pack-shipped subset validation, official-pack staging, `publishes: "socket"`, the framework front, `doctor_cmd`, and the new identity rule — while having none of the broker's complexity: no relay, no CA, no intercept, no credential file, no single-use token to burn if it goes wrong. If something structural is wrong with converting a bundled loophole, it surfaces here for a fraction of the cost. **Nothing about it is blocked**: it needs no answer from [OQ-LP14](../reference/loophole-system.md#oq-lp14) (no runtime-dir sockets), [OQ-BP5](#OQ-BP5) or [OQ-BP6](#OQ-BP6) (no shipped binary — `yolo-ps` stays baked, which an official pack may do).
 
-**What it is today.** `bundled_loopholes/host-processes/manifest.jsonc` declares `requires.command_on_path: ps`, `transport: loopback-tls`, a `host_daemon` whose cmd is `["yolo","internal","daemon","host-processes","--endpoint","{endpoint}"]`, and a `doctor_cmd`. The daemon publishes its own endpoint via `hostservice.ServeEndpoint` → `svcendpoint.Listen` (`hostservice.go:288`). The jail-side client is the baked `cmd/yolo-ps`, which reads `YOLO_SERVICE_HOST_PROCESSES_ENDPOINT` and self-reports a `jail_id` nobody trusts.
+**What it is today.** `bundled_loopholes/host-processes/manifest.jsonc` declares `requires.command_on_path: ps`, `transport: loopback-tls`, a `host_daemon` whose cmd is `["yolo","internal","daemon","host-processes","--endpoint","{endpoint}"]`, and a `doctor_cmd`. The daemon publishes its own endpoint via `hostservice.ServeEndpoint` → `svcendpoint.Listen`. The jail-side client is the baked `cmd/yolo-ps`, which reads `YOLO_SERVICE_HOST_PROCESSES_ENDPOINT` and self-reports a `jail_id` nobody trusts.
 
 **The five changes, and what each one proves:**
 
@@ -537,18 +567,18 @@ Three things follow, and the first is the one to notice:
 **Settled decisions this rests on**, so implementation does not have to re-litigate them:
 
 - **The connection preamble's home is the accepted-connection wrapper**, not `ServeFront` ([§5.5](#55-ruled--every-connection-is-raw-yolo-prepends-a-connection-preamble), P5) — one implementation for both server shapes, and a prefix rather than a parse.
-- **`preamble` defaults to true**, so no manifest declares anything to keep working. ~~`false` exists for a dumb pipe, of which there are none today.~~ **Half wrong, corrected 2026-08-15:** true of *manifests*, false of the **config** surface. Every `loopholes:` entry in a `yolo-jail.jsonc` that carries a `command` is given `publishes: socket` + loopback-TLS unconditionally (`discover.go:60-73`), and that code's own comment calls such a daemon *"a THIRD-PARTY PROGRAM yolo did not write"*. Those are dumb pipes **by construction** and there are real ones in the tree's own tests. So the default is **off for `Source == SourceConfig`**, with a `preamble` key added to the config spec to opt in — yolo declines to prepend bytes to a program whose protocol it has never seen and whose author never declared anything.
-- **`publishes: "socket"` for every converted loophole**, because the pack-shipped subset requires it (`packshipped.go:371-405`) — the three bundled loopholes predate that rule rather than disproving it ([§11](#11-what-no-bundled-loopholes-additionally-requires)).
+- **`preamble` defaults to true**, so no manifest declares anything to keep working. ~~`false` exists for a dumb pipe, of which there are none today.~~ **Half wrong, corrected 2026-08-15:** true of *manifests*, false of the **config** surface. Every `loopholes:` entry in a `yolo-jail.jsonc` that carries a `command` is given `publishes: socket` + loopback-TLS unconditionally (`synthesizeConfigLoopholes`, `internal/loopholes/discover.go`), and that code's own comment calls such a daemon *"a THIRD-PARTY PROGRAM yolo did not write"*. Those are dumb pipes **by construction** and there are real ones in the tree's own tests. So the default is **off for `Source == SourceConfig`**, with a `preamble` key added to the config spec to opt in — yolo declines to prepend bytes to a program whose protocol it has never seen and whose author never declared anything.
+- **`publishes: "socket"` for every converted loophole**, because the pack-shipped subset requires it (`packPublishesProblems`, `packshipped.go`) — the three bundled loopholes predate that rule rather than disproving it ([§11](#11-what-no-bundled-loopholes-additionally-requires)).
 - **A baked client binary is fine for an official pack** — `yolo-ps` does not become a shipped artifact, so [§3.1](#31-what-is-actually-unresolved-here)'s binary work stays off this critical path.
-- ~~**`{endpoint}` survives** for yolo's own non-loophole services (the journal bridge still publishes its own, `journaldcmd.go:75`).~~ **FALSE as of 2026-08-18**: the journal bridge became a pack-shipped loophole, so it had to take `publishes: "socket"` like everything else — `journald.ServeEndpoint` and the `--endpoint` flag are DELETED (the flag refuses, naming `--socket`). `publishes: "endpoint"` now has exactly ONE user left, this document's own subject, which makes the follow-on below smaller than it was rather than moot. Whether the *manifest key* `publishes: "endpoint"` should be retired once its last loophole user is gone is a genuine follow-on — it is not needed to finish the sprint, and ~~[OQ-BP4](#decision-ledger)'s end state makes it a two-line deletion~~ — **that last clause is REFUTED, measured 2026-09-14; see [§13](#13-what-empty-the-channel-actually-required--measured-2026-08-19) item 3.**
+- ~~**`{endpoint}` survives** for yolo's own non-loophole services (the journal bridge still publishes its own, in `journaldcmd.go`).~~ **FALSE as of 2026-08-18**: the journal bridge became a pack-shipped loophole, so it had to take `publishes: "socket"` like everything else — `journald.ServeEndpoint` and the `--endpoint` flag are DELETED (the flag refuses, naming `--socket`). `publishes: "endpoint"` now has exactly ONE user left, this document's own subject, which makes the follow-on below smaller than it was rather than moot. Whether the *manifest key* `publishes: "endpoint"` should be retired once its last loophole user is gone is a genuine follow-on — it is not needed to finish the sprint, and ~~[OQ-BP4](#decision-ledger)'s end state makes it a two-line deletion~~ — **that last clause is REFUTED, measured 2026-09-14; see [§13](#13-what-empty-the-channel-actually-required--measured-2026-08-19) item 3.**
 
 ~~**The order to build it in:** change 2 first, while the relay still exists and still stamps. The two coexist without a flag-day because the connection preamble is **additive** — a daemon that has been taught to read it sees `[connection preamble][request]`, and the relay's redundant in-payload `jail_id` is simply ignored rather than conflicting.~~
 
-> **⚠ Retracted, 2026-08-15 — "additive" is FALSE, and this was the most dangerous sentence in the document.** Found by implementation scouting, not by review. The relay does not merely carry a redundant field: `brokerrelay.go:172-185` reads the **first length-prefixed frame** off its fronted connection and `stampJailID` (:136-155) rewrites it. Put a preamble in front of that and the relay stamps **the preamble**, writes it to the broker, and the terminator's real request sits unread behind it — **every Claude OAuth refresh in every jail fails.**
+> **⚠ Retracted, 2026-08-15 — "additive" is FALSE, and this was the most dangerous sentence in the document.** Found by implementation scouting, not by review. The relay did not merely carry a redundant field: `brokerrelay.readFirstMessage` read the **first length-prefixed frame** off its fronted connection and `stampJailID` rewrote it. Put a preamble in front of that and the relay stamps **the preamble**, writes it to the broker, and the terminator's real request sits unread behind it — **every Claude OAuth refresh in every jail fails.**
 >
-> The correction is one line of code and it must land in the *same* commit as the preamble: the relay's front sets `NoPreamble: true` (`brokerrelay.go:272`). The relay is the one deliberate opt-out in the tree, and it stays one until the broker conversion deletes it.
+> The correction is one line of code and it must land in the *same* commit as the preamble: the relay's front set `NoPreamble: true`. The relay is the one deliberate opt-out in the tree, and it stays one until the broker conversion deletes it.
 >
-> It is at least a loud failure rather than a silent one: `TestRelayFrontPreservesJailIDStamp` (`front_test.go:113-138`) fails under `just test-fast` if the opt-out is forgotten. That test was written for another reason and is now a tripwire on the credential path.
+> It was at least a loud failure rather than a silent one: `TestRelayFrontPreservesJailIDStamp` failed under `just test-fast` if the opt-out was forgotten (both it and the relay are gone since 2026-08-19). That test was written for another reason and is now a tripwire on the credential path.
 
 **The order to build it in:** change 2 first, with the relay opt-out in the same commit. Then 1 and 3 together, since 3 is only correct once 2 is in. Then 4, which is the part that either works immediately or teaches us something. Change 5 is a verification, not an edit.
 
@@ -639,8 +669,10 @@ there had to be updated by hand or it would have been the only trace left.
 
 ## Decision Ledger
 
-Four of the six are settled and built; their rulings live in the body sections named below. The two
-that remain live are in **Open Questions** underneath, and neither gates anything that shipped.
+Four of the six are settled; their rulings live in the body sections named below. Three of the four
+are built; [OQ-BP1](#decision-ledger) is built for the broker move only — its binary half is not
+(see the warning below the table). The two that remain live are in **Open Questions** underneath,
+and neither gates anything that shipped.
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
@@ -672,9 +704,11 @@ block the first pack that wants to ship a binary of its own.
 
 1. 💬 **[OQ-BP5](#OQ-BP5) — download-with-digest only, or also a declared build step?**
 
-   The review asks for both as candidates ([§3.1](#31-what-is-actually-unresolved-here)). They are not symmetric: a download can be pinned by `sha256` and therefore satisfies **P4** (a pinned pack pins everything that runs); a build step generally cannot, because builds are not bit-reproducible, so what runs is decided at install time by whatever toolchain the machine happens to have. A build step is also the same risk class as `packdecl.Install.InstallerURL`, which the schema already calls *"the sharpest thing a manifest can name"* and refuses to fetched packs outright.
+   The review asks for both as candidates ([§3.1](#31-what-is-actually-unresolved-here)). They are not symmetric: a download can be pinned by `sha256` and therefore satisfies **P4** (a pinned pack pins everything that runs); a build step generally cannot, because builds are not bit-reproducible, so what runs is decided at install time by whatever toolchain the machine happens to have. A build step is also the same risk class as `packdecl.Install.InstallerURL`, which the schema calls *"the sharpest thing a manifest can name"* and which a fetched pack could not introduce until [`OQ-TP9`](trust-paths.md#decision-ledger) deleted the origin rule on 2026-09-04.
 
    _Leaning:_ **Download-with-digest now; no build step until something needs one B cannot serve.** If a build step is added later, it should be jail-side only and origin-gated exactly as `InstallerURL` is — and it should be honest that a built artifact is unpinned, rather than inheriting the word "pinned" from the commit that produced its recipe.
+
+   ⚠ **The leaning's precedent no longer exists** (re-checked 2026-09-24): `InstallerURL` is not origin-gated any more — `packload.Pack.HonoredInstalls` refuses nothing since [`OQ-TP9`](trust-paths.md#decision-ledger) — so "origin-gated exactly as `InstallerURL` is" now means "not gated". A build step that should be origin-gated would need a refusal source of its own, and that code's own comment says any new one needs its own design ruling. The download half of the leaning is unaffected. Related: [`forked-programs-as-packs.md`](forked-programs-as-packs.md) designs source builds for `kind: "program"` — built in a throwaway capture jail, never on the host — which is the same "declared build step" question for a different artifact.
 
    <!-- vantage: oq id=OQ-BP5 leaning="Download-with-digest now; no build step until something needs one that a download cannot serve. A download can be pinned by sha256 and therefore satisfies P4; a build step generally cannot, because what runs is decided at install time by whatever toolchain the machine happens to have. If a build step is added later it should be jail-side only and origin-gated exactly as InstallerURL is, and honest that a built artifact is unpinned." -->
 
@@ -685,7 +719,9 @@ block the first pack that wants to ship a binary of its own.
 
    [§3.1](#31-what-is-actually-unresolved-here)'s two-gate split says a jail-side binary is roughly as sharp as what a pack can already do, while a host-side one is a host-execution grant. This asks whether the second is available to a fetched pack at all, or whether — like `InstallerURL` and `host_files` — it is refused by origin regardless of what the user would approve. Not needed for the broker, which is official; needed before anyone else ships one.
 
-   _Leaning:_ **Allow it, gated by the existing host-execution approval rather than refused by origin.** A fetched pack can already declare a `host_daemon.cmd` naming an arbitrary host argv — verified 2026-09-02: `internal/packload/loopholesource.go:258-310` enumerates `host_daemon.cmd + doctor_cmd` as an **approvable** claim (*"host EXECUTION"*, `:270`), distinct from the origin-refused fields (`reads-host`, `mount`, `InstallerURL`) — so refusing a *binary* while permitting an arbitrary *command* would repeat the halfway-measure shape [OQ-LP14](../reference/loophole-system.md#oq-lp14) already suffers from: blocking the declarative form of a capability while permitting the imperative one. But this genuinely is a widening and should be answered deliberately.
+   _Leaning:_ **Allow it, gated by the existing host-execution approval rather than refused by origin.** A fetched pack can already declare a `host_daemon.cmd` naming an arbitrary host argv — verified 2026-09-02: the loophole claim producer (`loopholeClaims`, `internal/packload/loopholesource.go`) enumerates `host_daemon.cmd + doctor_cmd` as an **approvable** claim (*"host EXECUTION"*), distinct from the origin-refused fields (`reads-host`, `mount`, `InstallerURL`) — so refusing a *binary* while permitting an arbitrary *command* would repeat the halfway-measure shape [OQ-LP14](../reference/loophole-system.md#oq-lp14) already suffers from: blocking the declarative form of a capability while permitting the imperative one. But this genuinely is a widening and should be answered deliberately.
+
+   ⚠ **Two facts under this leaning changed on 2026-09-04, two days after it was verified** ([`OQ-TP9`](trust-paths.md#decision-ledger)): there is no host-execution approval to gate on any more, and there are no origin-refused fields — `reads-host`, `mount` and `InstallerURL` are all honored for a fetched pack. What survives is disclosure: the claim is still enumerated, `yolo pack footprint` shows it, and the launch prints it before the daemon spawns. So a fetched pack's `host_daemon.cmd` runs on the host today with no approval, disclosed, and the halfway-measure argument is *stronger* — refusing the binary would be the only origin refusal in the tree. What is now open is whether that disclosure is enough for a shipped host binary, or whether it is the case that earns a new refusal source. **Not answered by [`OQ-TP9`](trust-paths.md#decision-ledger)**, which ruled on selection and approval rather than on shipped binaries, so this stays open.
 
    <!-- vantage: oq id=OQ-BP6 leaning="Allow a fetched pack to ship a host-side daemon binary, gated by the existing host-execution approval rather than refused by origin. A fetched pack can already declare a host_daemon.cmd naming an arbitrary host argv, so refusing the declarative binary while permitting the imperative command repeats the halfway-measure shape OQ-LP14 already suffers from. It is a real widening, so answer it deliberately." -->
 
