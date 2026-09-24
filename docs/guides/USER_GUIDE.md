@@ -1359,67 +1359,102 @@ things. Where a table below is silent about your case, that is a bug in this tab
 | `container` / macOS | `container` | macOS | [Apple Container](https://github.com/apple/container) — one lightweight VM per container. **The macOS default.** |
 | `macos-user` / macOS | `macos-user` | macOS | A real macOS process under an Apple Seatbelt sandbox. No container, no VM, and **no bind mounts of any kind** — which is where most of its differences come from. |
 
-Three conventions run through every table:
+How to read the tables:
 
-- **No bare ticks.** A cell reads `works`, `works — <mechanism>`, `works differently`, `absent, warns`,
-  `absent, silent`, `refuses`, or `n/a`. Several rows cannot be a tick without lying.
-- **A cell marked silent is the one to watch.** The key validates, the launch prints nothing, and the
-  behaviour is simply not there. Nothing will tell you. Those cells are bolded throughout.
-- **"Takes effect" is a real column.** Most keys are passed on the container command line and are
-  therefore frozen when the jail is created. Re-running `yolo` in a workspace whose jail is still
-  running *re-enters* it and does not apply an edited config — see
+- Each cell says what happens on that setup:
+
+  | Cell | Meaning |
+  |---|---|
+  | `works` | It works. Some cells add how: `works — <how>`. |
+  | `works differently` | It works, but not the way it does on Linux; the footnote explains. |
+  | `absent, warns` | Not available on this setup, and the launch tells you so. |
+  | `absent, silent` | Not available on this setup, and **nothing tells you**: the setting is accepted and has no effect. These cells are in bold, and they are the ones to check. |
+  | `refuses` | yolo stops with an error that says what to do instead. |
+  | `n/a` | Does not apply to this setup. |
+
+- The **Takes effect** column says when an edit to that setting is picked up. `fresh launch` means
+  when a new jail starts; `any entry` means every time you run `yolo`. Running `yolo` in a workspace
+  whose jail is already running joins that jail instead of starting a new one, so a `fresh launch`
+  setting you just edited waits until you stop the jail and launch again — see
   [I edited my config and re-ran `yolo`](#4-i-edited-my-config-and-re-ran-yolo-and-nothing-changed).
 
-### Before anything else: can you launch at all?
+### Before your first launch
 
-Four things are checked before a jail exists, and three of them can refuse the launch outright. All four apply to every setup — even `macos-user`, which starts no container.
+Every setup needs the same three things before a jail can start. yolo checks them before it builds or
+starts anything; if one is missing, it stops and says what to fix, and leaves nothing behind.
 
-**Terms used below.** A **flake bundle** is the copy of yolo's build inputs (`flake.nix`, its lockfile, and the prebuilt in-jail binaries) that a packaged install ships beside the `yolo` binary; yolo needs one on every launch and **never** consults your working directory to find it. **Re-entry** (or *attach*) is a second `yolo` in a workspace whose jail is already running: it joins the running jail instead of starting one.
+#### An install that includes the build files
 
-#### Does your install channel ship a flake bundle?
+yolo builds each jail from files it installs alongside the `yolo` binary: [`flake.nix`](../../flake.nix),
+its lockfile, and the programs that run inside the jail. It looks for them next to its own binary, never
+in your current directory, and every launch prints which copy it used on a `Flake source:` line.
 
-| Install channel | Ships a bundle? |
+| How you installed yolo | Works on its own? |
 |---|---|
-| Homebrew tap | `works` — staged beside the binary |
-| GitHub release archive | `works` — staged beside the binary |
-| From source, via `just install` | `works` — staged into yolo's own state dir |
-| `go install …/cmd/yolo@latest` | `absent, refuses` — no bundle exists to find[^1] |
-| `pipx install yolo-jail` / `uvx yolo-jail` | `absent, refuses` — no bundle exists to find[^1] |
+| Homebrew | Yes |
+| GitHub release archive | Yes |
+| From source, with `just install` | Yes |
+| `go install …/cmd/yolo@latest` | **No** — installs the binary only |
+| `pipx install yolo-jail` / `uvx yolo-jail` | **No** — installs the binary only |
 
-#### The four pre-flight gates, per setup
+With `go install` or pipx/uvx, the first launch stops with "Cannot find yolo-jail repo root". Either
+switch to a channel marked Yes, or clone the repo and point yolo at the clone with
+`export YOLO_REPO_ROOT=/path/to/yolo-jail` (in your shell profile, to keep it). Running `yolo` from
+inside the clone is not enough on its own.
 
-| Gate | `podman` / Linux | `podman` / macOS | `container` / macOS | `macos-user` / macOS | Takes effect |
-|---|---|---|---|---|---|
-| Flake bundle resolved | `refuses` if none[^1] | `refuses` if none[^1] | `refuses` if none[^1] | `refuses` if none[^1] | fresh launch |
-| Host `nix` on PATH | required — builds the jail image[^2] | required — builds the jail image[^2] | required — builds the jail image[^2] | required — realizes the native tool floor[^2] | fresh launch |
-| Runtime auto-detected | `works` — the only candidate | `works` — tried after Apple Container[^3] | `works` — the macOS default[^3] | `n/a` — never auto-selected; name it[^3] | any entry |
-| Runtime present but not started | `refuses` — `podman info` must answer | `refuses` — names `podman machine start` | `refuses` — names `container system start` | `n/a` — no daemon | any entry |
-| Changed config, stdin **is** a terminal | prompts y/N | prompts y/N | prompts y/N | prompts y/N | fresh launch |
-| Changed config, stdin is **not** a terminal | `refuses`[^4] | `refuses`[^4] | `refuses`[^4] | `refuses`[^4] | fresh launch |
-| Re-entering a running jail | gate skipped, **silent**[^5] | gate skipped, **silent**[^5] | gate skipped, **silent**[^5] | `n/a` — every entry is a fresh launch | — |
+#### Nix on the host
 
-[^1]: The failure is a host-side refusal naming the missing repo root — it happens before anything is built or started, so nothing is left behind. Two fixes: reinstall from a channel above that carries a bundle, or clone the repo and point at it with `YOLO_REPO_ROOT=/path/to/checkout` (exported in your shell profile if you always want it). Standing inside a checkout is *not* enough. Every launch prints which flake it resolved and what selected it, on a `Flake source:` line, before the build starts — read that line before believing anything about which code you are running.
+yolo uses [Nix](https://nixos.org/download) to build the jail image. On `macos-user`, which has no image,
+Nix is instead how `git`, `node` and `mise` get into the sandbox. Check with `command -v nix`;
+`yolo check` reports a missing Nix along with the install link. If a build fails, the launch stops and
+shows Nix's own error. It never falls back to an older image.
 
-[^2]: Learn your own value with `command -v nix`, and get the full report from `yolo check` (`yolo check --no-build` for the fast version), which fails with the install link when nix is missing. Without nix on a container setup the image build cannot run, and a failed build **stops the launch** and prints nix's own error — it does not quietly fall back to an older image. On `macos-user` the refusal names the same download page: the backend has no image, so nix is how `mise`, `node` and `git` get into the sandbox at all. Host-fact caveat: Determinate Nix's daemon has been seen to hang on store operations for non-root users; `yolo check` detects that timeout and names the remedy.
+Known issue: Determinate Nix's daemon can hang for non-root users. `yolo check` detects the hang and
+names the fix.
 
-[^3]: The runtime is named by the `runtime` config key or the `YOLO_RUNTIME` environment variable; the legal spellings are `podman`, `container` and `macos-user`, and `docker` is rejected by name. With no key set, Linux uses `podman` and macOS tries Apple Container first, then podman — so on a Mac, **installing Apple Container silently changes which backend you get**. Learn your own value with `command -v container podman`; `container --version` matters separately, because a version yolo cannot read makes it decline read-only bind mounts. `macos-user` is the one backend that is never auto-selected: you must name it. Gotcha on that path: naming `macos-user` on Linux passes validation and refuses only later, after packs have been staged, rather than at pre-flight.
+#### A container runtime, started
 
-[^4]: **This is the axis that breaks CI jobs, cron entries, editor tasks and wrapper scripts.** Any launch whose *stdin* is not a terminal exits non-zero the first time after any edit to `yolo-jail.jsonc`, `yolo-jail.local.jsonc`, or a file they include; the message prints the diff, names the files (including the local override, which wins), and names the one grant — the `--accept-config-changes` flag. It is deliberately a flag and not an environment variable, so an approval cannot be inherited by a later launch. Two surprises worth knowing: the gate reads **stdin** while the jail's terminal allocation reads **stdout**, so `yolo < /dev/null` at a real terminal refuses while `yolo | tee log` prompts; and a workspace's *first* launch with any non-empty config counts as a change.
+| Setup | When yolo uses it | If it is not running |
+|---|---|---|
+| `podman` / Linux | Always, on Linux | yolo stops until `podman info` answers |
+| `podman` / macOS | When Apple Container is not installed | yolo stops and names `podman machine start` |
+| `container` / macOS | Whenever Apple Container is installed | yolo stops and names `container system start` |
+| `macos-user` / macOS | Only when you choose it | Nothing to start |
 
-[^5]: Re-entry returns before this gate, so an edited config is neither approved nor refused — and it does not take effect either. Everything passed on the container command line (resources, mounts, network) is frozen at the fresh launch. To apply a config edit on a container setup, stop the jail and launch again.
-
-One more thing about non-interactive launches, and it is a gap we have not built yet rather than a limitation to design around: when stdin is not a terminal, yolo installs no signal handlers, so a scripted launch that is interrupted or killed leaves residue behind — port forwarders, service endpoint files, no timing report — and says nothing. A later launch recovers the container half; the rest is not yet cleaned up.
+To choose yourself, set the `runtime` config key or the `YOLO_RUNTIME` environment variable to `podman`,
+`container` or `macos-user`. On a Mac with neither set, **installing Apple Container changes which
+runtime you get**; `command -v container podman` shows what is installed. Choosing `macos-user` on Linux
+fails, but partway through the launch rather than up front.
 
 #### The checklist
 
 ```sh
 command -v nix                 # empty => install nix first (nixos.org/download)
-command -v container podman    # on macOS, decides which backend you get by default
-yolo check --no-build          # fast pre-flight: flake source, nix, runtime, config
-yolo check                     # same, plus an actual image build
+command -v container podman    # on macOS, decides which runtime you get by default
+yolo check --no-build          # fast check: build files, nix, runtime, config
+yolo check                     # the same, plus an actual image build
 ```
 
-Then launch once **interactively** after any config edit, so the y/N prompt is available; scripted launches afterwards will not need `--accept-config-changes`.
+### After you edit your config
+
+When your config has changed since the last launch — `yolo-jail.jsonc`, `yolo-jail.local.jsonc`, or a
+file either one includes — the next launch shows the diff and asks y/N before using it. A workspace's
+first launch with a non-empty config counts as a change.
+
+**Scripts, CI, cron jobs and editor tasks cannot answer that question.** With no terminal to ask on,
+the launch stops instead, printing the diff and the files involved. Pass `--accept-config-changes` to
+approve it for that one launch; it is a flag rather than an environment variable, so an approval never
+carries over to a later launch. Launching once in a terminal after each edit avoids the problem. yolo
+decides whether it can ask by looking at stdin, not stdout: `yolo < /dev/null` stops even at a real
+terminal, while `yolo | tee log` still asks.
+
+**A running jail does not pick up your edits.** Running `yolo` in a workspace whose jail is already
+running joins that jail — the tables below call this a **re-entry** — and a re-entry does not ask, and does not apply your edit. Resources, mounts and
+network settings are fixed when a jail starts, so stop the jail and launch again. `macos-user` has no
+running jail to join — every launch starts a fresh sandbox and reads the config again.
+
+Known issue: a launch with no terminal that is interrupted or killed can leave port forwarders and
+service files behind without saying so. The next launch cleans up the container, but not the rest.
 
 ### Configuration keys, per setup
 
