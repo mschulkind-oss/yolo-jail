@@ -612,10 +612,15 @@ The sharper question than "what can a live session reach."
   workspace config widening it is exactly the hole the retired per-agent keys were.
 - **Not a deny-list.** Nothing is stripped, because nothing is added. Adding a filter would imply
   the host home is a mount source, which is the property being preserved.
-- **Not AWS, cloud-profile or SSO integration.** yolo contains no cloud-provider code: it does not
-  mount a cloud credentials dir and does not forward session tokens or profile names. A jail-local
-  key arriving through `env_sources` is the whole mechanism, and its blast radius is whatever that
-  key is scoped to.
+- **Not general cloud-credential forwarding.** yolo never mounts a cloud credentials directory
+  such as `~/.aws`, and never forwards an SSO session, refresh token or session token into the
+  jail. The one cloud integration it ships is the opt-in [`aws-auth`](../../packs/aws-auth/README.md)
+  pack, off until you enable it in your user config: a host-side service turns your host
+  `aws sso login` into a short-lived AWS credential, narrowed to a role or session policy you
+  configure, and serves it to the jail's AWS SDKs over a loopback URL. The SSO session and
+  `~/.aws` stay on the host. For anything else, such as another cloud or a static key, a
+  jail-local key arriving through `env_sources` is the whole mechanism, and its blast radius is
+  whatever that key is scoped to.
 - **Not a promise that a raw secret stays out of the agent's process.** A host-service loophole
   keeps the secret host-side; `env_sources` deliberately does the opposite. The channel chosen is
   the decision.

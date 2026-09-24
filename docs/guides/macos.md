@@ -391,13 +391,10 @@ just deploy          # builds + installs the yolo CLI
 yolo init-user-config
 ```
 
-> [!WARNING]
-> **There is no `yolo build` command** (verified 2026-08-23 against the command
-> registry, `internal/cli/dispatch.go:15-35`). This guide used to tell you to run
-> it here; it would exit "unknown command". The image is built **automatically**
-> by the first `yolo` run (`AutoLoadImage` nix-builds it and loads it into the
-> runtime). To build it by hand, call nix directly:
-> `nix build .#ociImage --no-link --print-out-paths`.
+> [!NOTE]
+> **There is no `yolo build` command.** The first `yolo` run builds the image with
+> nix and loads it into the runtime. To build it by hand from a checkout, call nix
+> directly: `nix build .#ociImage --no-link --print-out-paths`.
 
 ## Usage
 
@@ -421,15 +418,20 @@ Everything that works on Linux works on macOS **except** the items listed in
 [Limitations](#limitations) below. This includes:
 
 - ✅ Full jail isolation (read-only root, no host credentials)
-- ✅ Workspace mounting at `/workspace`
+- ✅ Your project mounted at `/workspace` on Podman and Apple Container. `macos-user` has
+  no mount: the agent works on the project in place, at its real path under
+  `/Users/Shared/yolo/`
 - ✅ Podman-in-Podman (nested containers via Podman Machine)
 - ✅ MCP server presets (Chrome DevTools, Sequential Thinking, etc.)
 - ✅ LSP servers (Pyright, TypeScript)
 - ✅ Port forwarding and publishing (via TCP gateway on Podman, native sockets on Apple Container)
 - ✅ `mise` tool management inside the jail
-- ✅ Agent launchers for all six shipped agent packs — `claude`, `copilot`,
-  `codex`, `opencode`, `pi`, `agy` (**not** Gemini CLI: the `gemini` agent was
-  removed; `~/.gemini/antigravity-cli/` is now agy's tree)
+- ✅ Agent launchers for the shipped agent packs (`claude`, `codex`, `copilot` and
+  the rest under [`packs/`](../../packs/)), with one exception: `omp` is published
+  for `darwin/arm64` and `linux/amd64` only, so on an Apple-silicon Mac it runs
+  under `macos-user` but not in a Podman or Apple Container jail, which are
+  `linux/arm64`. The jail warns and writes no `omp` launcher there. There is no
+  Gemini CLI pack: `~/.gemini/antigravity-cli/` belongs to `agy`
 - ✅ Container reuse across sessions
 - ✅ Custom Nix packages in the image
 - ✅ `yolo check` diagnostics (with macOS-aware checks)
@@ -443,16 +445,32 @@ Everything that works on Linux works on macOS **except** the items listed in
   — verified end-to-end on real Apple Silicon (see
   [The macos-user backend](#the-macos-user-backend))
 
-> [!WARNING]
-> **`yolo stop` and `yolo clean` do not exist** (verified 2026-08-23,
-> `internal/cli/dispatch.go:15-35`). This bullet used to name them. The reclaim
-> command is **`yolo prune`**; the full registry is `check`/`doctor`, `run`,
-> `ps`, `loopholes`, `config`, `describe`, `apply`, `check-deps`, `pack`,
-> `config-ref`, `init`, `init-user-config`, `broker`, `prune`, `macos-setup`,
-> `macos-teardown`, `macos-unshare`, `macos-fix-permissions`. Note the last of
-> those — `yolo macos-fix-permissions` (`dispatch.go:34`) — is a real macOS
-> command this guide never mentions; it re-applies the shared-root ACL inheritance
-> to a workspace.
+### Stopping a jail and reclaiming space
+
+A jail normally ends when you exit the terminal session that launched it. For one
+left running with no terminal (a launcher that died, a wedged session), run
+`yolo stop` from the project directory. There is no `yolo clean`; to reclaim disk
+space, use `yolo prune`.
+
+What `yolo stop` does depends on the backend:
+
+- **Podman:** it stops this project's jail.
+- **`macos-user`:** there is nothing to stop. Every invocation is a fresh sandbox,
+  and `yolo stop` says so.
+- **Apple Container:** `yolo stop` does not work yet. It reports "No jail running"
+  even while one is running, and stops nothing. Stop the jail with Apple's own CLI
+  instead. Jail names start with `yolo-`, followed by the project directory's name:
+
+  ```bash
+  container ls                 # find the yolo-<project>-<hash> container
+  container stop <name>
+  ```
+
+  `yolo prune` does not see stopped Apple Container jails either; list them with
+  `container ls --all` and remove one with `container rm <name>`.
+
+`yolo macos-fix-permissions` is the macOS-only repair command: it re-applies the
+shared-root access-control inheritance to a `macos-user` workspace.
 
 ## Limitations
 
