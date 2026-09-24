@@ -16,9 +16,11 @@ import (
 // destination anyway at the readonly default mode, so the user gets an EMPTY 0o444 file
 // where their .npmrc should be, unrepairable from inside the jail.
 //
-// A DIRECTORY entry is asserted unchanged in the same test, because that is the half
-// that was already correct and the fix must not "helpfully" convert it — AC nests
-// directory mounts fine.
+// A DIRECTORY entry is asserted still BOUND in the same test, on an Apple Container at
+// acROBindsFloor: the fix must not "helpfully" convert it to a copy, because AC nests
+// directory mounts fine and from that version honors their `:ro`. Below the floor (or with
+// an unreadable version) the directory is declined instead — that half is pinned in
+// achostfilesdir_test.go.
 func TestHostFileSourcesAreMaterializedOnAppleContainer(t *testing.T) {
 	home := t.TempDir()
 	src := filepath.Join(home, ".npmrc")
@@ -40,6 +42,7 @@ func TestHostFileSourcesAreMaterializedOnAppleContainer(t *testing.T) {
 	}
 
 	o := goldenOptions("/ws", home)
+	o.acVersion = &acVersionProbe{v: acROBindsFloor, ok: true}
 	args := strings.Join(o.hostUserFileArgs(in), " ")
 
 	// The FILE entry: bytes present in the home, entrypoint pointed at them, no bind.
@@ -65,8 +68,8 @@ func TestHostFileSourcesAreMaterializedOnAppleContainer(t *testing.T) {
 
 	// The DIRECTORY entry must still be a plain bind — it was never broken.
 	if !strings.Contains(args, dirSrc+":/ctx/host-user/") {
-		t.Errorf("the directory entry lost its bind; AC nests directory mounts fine and this "+
-			"half was already correct:\n%s", args)
+		t.Errorf("the directory entry lost its bind; from %s AC nests directory mounts "+
+			"fine and honors :ro:\n%s", acROBindsFloor, args)
 	}
 }
 

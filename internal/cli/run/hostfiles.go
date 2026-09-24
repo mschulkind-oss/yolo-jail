@@ -66,6 +66,16 @@ func (o *Options) hostFilesEnv(in *assembleInput) []string {
 // source) gets the copy-to-wsState dereference. A DIRECTORY source is bound
 // directly: the deref exists for single-file binds, and a directory mountpoint is
 // usable as a bind source.
+//
+// A DIRECTORY source asks roBindsUnsupported like the other `/ctx` read-only binds that
+// consult it (config `mounts`, pack `mount` grants, the host nvim config, captures) — not
+// every `:ro` bind in this package does — and below acROBindsFloor it is
+// REFUSED with the reason rather than bound: that Apple Container accepts `:ro` and
+// ignores it, so the bind would hand the jail write access to a host tree the user
+// declared read-only. Declining leaves the entrypoint nothing at /ctx/host-user/<slug>,
+// which its stageHostFile treats as fail-open (the same as a source not created yet), so
+// no masking destination is written. The FILE branch needs no such gate on that backend:
+// there it copies rather than binds.
 func (o *Options) hostUserFileArgs(in *assembleInput) []string {
 	var args []string
 	for _, entry := range sortedHostFiles(in.hostFiles) {
@@ -75,6 +85,11 @@ func (o *Options) hostUserFileArgs(in *assembleInput) []string {
 		target := hostUserCtxDir + "/" + entry.Slug()
 		if entry.IsDir {
 			if !isDir(entry.Source) {
+				continue
+			}
+			if reason := o.roBindsUnsupported(in.rt); reason != "" {
+				o.pr(o.Stdout).print("[yellow]Skipping host_files directory ~/" + entry.Path +
+					" (source " + entry.Source + " → " + target + "): " + reason + "[/yellow]")
 				continue
 			}
 			args = append(args, "-v", entry.Source+":"+target+":ro")
@@ -89,8 +104,9 @@ func (o *Options) hostUserFileArgs(in *assembleInput) []string {
 		// default mode, so the user ends up with an EMPTY 0o444 file where their
 		// .npmrc should be, which they then cannot fix from inside the jail.
 		//
-		// The dir branch above is deliberately untouched: AC nests directory mounts
-		// fine (paths.GlobalCache proves it), so a dir entry is already honored.
+		// The dir branch above is not converted to a copy: AC nests directory mounts
+		// fine (paths.GlobalCache proves it), so from acROBindsFloor a dir entry binds,
+		// and below it roBindsUnsupported refuses the entry instead.
 		if in.rt == "container" {
 			acMaterialize(entry.Source,
 				filepath.Join(acCtxDirRel, "host-user", entry.Slug()), in.wsState)
