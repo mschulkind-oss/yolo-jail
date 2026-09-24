@@ -64,6 +64,9 @@ type RunPlan struct {
 	DarwinEnv             *jsonx.OrderedMap
 	DarwinSkipped         []string
 	DarwinMaterialized    bool
+	// NixClientDir is the host nix client's store bin dir when this launch put one on the
+	// sandbox PATH (it is also the last entry of DarwinPathPrefix), "" when it did not.
+	NixClientDir string
 }
 
 // HostContext is what the HOST CLI composed for this launch's `/ctx` delivery: the tree
@@ -139,6 +142,10 @@ type Darwin struct {
 	// ProfilePath is the buildEnv store out path (PathPrefix is <it>/bin). The
 	// GC-rooted closure the agent's tools come from.
 	ProfilePath string
+	// Nix is the host's nix client as the sandbox can use it (hostnix.go). A set BinDir
+	// joins the sandbox PATH AFTER PathPrefix — so a `packages:` nix still outranks it —
+	// and brings NIX_REMOTE/NIX_CONFIG with it. The zero value delivers no nix.
+	Nix HostNix
 }
 
 // darwinSystemLabel is the system double for a skip message, falling back to the
@@ -256,6 +263,17 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 			merged.Set(k, v)
 		}
 		sandboxEnv = merged
+	}
+	// THE HOST'S nix CLIENT (hostnix.go), after the floor's bin dir so a declared `packages:`
+	// nix still wins, and appended to darwinPrefix rather than riding a channel of its own:
+	// that one list is what reaches the launch PATH, the provisioning stage's PATH and the
+	// bootstrap's $YOLO_DARWIN_LOGIN_PATH, and PlanInvariants already checks every entry of
+	// it reached the first and the last.
+	nixClientDir := ""
+	if darwin != nil && darwin.Nix.BinDir != "" {
+		nixClientDir = darwin.Nix.BinDir
+		darwinPrefix = append(darwinPrefix, nixClientDir)
+		sandboxEnv = withHostNixEnv(sandboxEnv)
 	}
 
 	// THE SAME TWO LSP INSTALL LISTS, into the launch env — which is how they reach the
@@ -403,6 +421,7 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 		DarwinEnv:          darwinEnv,
 		DarwinSkipped:      darwinSkipped,
 		DarwinMaterialized: darwin != nil,
+		NixClientDir:       nixClientDir,
 	}
 }
 

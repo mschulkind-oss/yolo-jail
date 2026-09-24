@@ -52,6 +52,9 @@ type Deps struct {
 	// a non-empty err aborts the run (DarwinPackagesError). A nil result with
 	// ok=true means "no packages" (materialize not called).
 	MaterializeDarwin func(repoRoot string, packages []any) (*Darwin, bool, error)
+	// HostNix resolves the host's nix client for the sandbox PATH (hostnix.go). Asked once
+	// per launch, after the floor build that proved that client works. nil delivers no nix.
+	HostNix func() HostNix
 	// LockWorkspace takes the per-workspace launch lock and returns the release
 	// (idempotent, never nil). nil means "no lock available", which degrades the launch
 	// rather than refusing it — the same choice the container's own acquire makes.
@@ -495,6 +498,20 @@ func RunMacosUser(deps Deps, opts Options) int {
 		return 1
 	}
 
+	// THE HOST'S nix CLIENT, for the sandbox (hostnix.go) — and SAID either way, because the
+	// one backend that requires a host nix for every launch is the last place a user would
+	// expect `nix: command not found`, and the reason it is absent is a fact about their host.
+	if deps.HostNix != nil {
+		darwin.Nix = deps.HostNix()
+		if darwin.Nix.BinDir != "" {
+			out.printf("[dim]nix: the host's client (%s) is on the sandbox PATH, as a daemon "+
+				"client.[/dim]", darwin.Nix.BinDir)
+		} else {
+			out.printf("[yellow]nix is not available inside the sandbox:[/yellow] %s.",
+				darwin.Nix.Absent)
+		}
+	}
+
 	plan := buildPlan(deps, opts, darwin)
 	problems := PlanInvariants(plan)
 	if len(problems) > 0 {
@@ -874,6 +891,7 @@ func RealDeps(runProxy func(argv []string) int, materialize func(repoRoot string
 		RunWithProxy:      runProxy,
 		InstallRootFile:   installRootFileReal,
 		MaterializeDarwin: materialize,
+		HostNix:           hostNixReal,
 		TakenIDs:          takenIDsReal,
 		SetRandomPassword: func() bool { return setRandomPasswordReal(SandboxUser) },
 		PathIsDir:         pathIsDirReal,
