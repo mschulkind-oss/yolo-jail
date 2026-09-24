@@ -103,10 +103,18 @@ so a Mac cannot build one natively. `AutoLoadImage` falls back to
 `internal/containerbuilder`, which runs the build in a Linux container — the
 zero-sudo offload that replaced an earlier VM builder.
 
-**Nix is reachable from inside a container jail.** The launch bind-mounts the host
-nix daemon socket and the store read-only and sets `NIX_REMOTE=daemon`, so nix
-inside the jail delegates to the host daemon. Without it, in-jail nix fails with
-"build users group has no members".
+**Nix is reachable from inside a podman jail on Linux.** When the host runs a nix
+daemon, the launch bind-mounts its socket and the store read-only and sets
+`NIX_REMOTE=daemon`, so nix inside the jail delegates to the host daemon. Without
+it, in-jail nix fails with "build users group has no members". On `podman`/macOS
+the same mounts happen only when both `YOLO_NIX_HOST_DAEMON` and
+`YOLO_NIX_HOST_STORE_LINUX` are set, and on Apple Container never
+(`shouldMountHostNix` in
+[`hostprobes.go`](../../internal/cli/run/hostprobes.go)). In-jail nix on the
+container Macs is possible but not planned for now (ruled 2026-09-24; the route is
+recorded under G21 in [setup-support-gaps.md](../plans/setup-support-gaps.md)).
+`macos-user` delivers the host's own client instead:
+[nix inside the sandbox](macos-user-nix-and-features.md#nix-inside-the-sandbox).
 
 ## How the macos-user path works
 

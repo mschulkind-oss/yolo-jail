@@ -144,7 +144,8 @@ The orchestrator's sequence is load-bearing in two places:
 2. **Cheap gates before the expensive build** — macOS, not-root, `sandbox-exec` present,
    sandbox user exists. A long build that then fails a precondition wastes the build.
 3. **Materialize.** A failure **aborts** with an actionable message rather than launching a
-   half-provisioned sandbox.
+   half-provisioned sandbox. Then resolve the host's nix client for the sandbox, and say
+   whether one was delivered ([nix inside the sandbox](#nix-inside-the-sandbox)).
 4. **Build the plan, then run the plan invariants** — including the acceptance-bar guard that
    every darwin store `bin` dir actually reached the launch PATH.
 5. Install the Seatbelt profile, stage the yolo binary, bootstrap, launch.
@@ -163,7 +164,7 @@ as a command that mysteriously does not exist.
 > already gone before the build, so what remains is by construction a package declared for
 > *this* platform and not delivered.
 
-### Requirements, and nested nix
+### Requirements
 
 `yolo check` verifies: **nix on PATH** (native darwin nix — without it the agent gets none of
 its declared tools); a **flake lock at the repo root**, which pins nixpkgs so darwin packages
@@ -174,9 +175,88 @@ flake's own substituter actually be consulted.
 Note what the lock buys: *declarative* reproducibility (the same nixpkgs attributes), **not**
 byte-identity with the Linux jail. These are darwin builds.
 
-**Nested nix needs no arrangement.** On the container backends yolo can mount the host nix
-daemon socket and the store. Here the agent runs natively and simply sees the host's real
-`/nix`, subject to the Seatbelt read policy — no mount, and no opt-in toggle.
+### nix inside the sandbox
+
+> [!IMPORTANT]
+> **Added 2026-09-24; UNMEASURED on a Mac.** The mechanism below is pinned on Linux by
+> `internal/macosuser/hostnix_test.go`: the probe's arms, the real symlink resolution and
+> socket check against a temp store, the plan's three PATH copies, the session env file, and
+> the orchestrator call site. Two things only a Mac can catch: the probe's two production
+> locations (`/nix/store`, the daemon socket path) and what `RealDeps`' probe answers there.
+> The claim that the sandbox really runs it — `command -v nix`, `nix --version`,
+> `nix eval --expr 1+1` → `2` with no flags, and `nix store info` completing a daemon handshake
+> **as the sandbox account** (`nix eval` of a constant opens no store connection, so it alone
+> would prove nothing about the daemon) — is `TestMacosUserNixIsTheHostDaemonClientWithNoFlags`
+> ([`integration/macosusernix_test.go`](../../integration/macosusernix_test.go)), which runs
+> only on the `macos-user` CI job and had not run when this was written.
+
+The agent runs natively and sees the host's real `/nix` — no mount, and no opt-in toggle. What
+it lacked until 2026-09-24 was a `nix` **on its PATH**: the sandbox answered
+`nix: command not found` on the one backend that needs a host nix for every launch. Nothing
+about confinement was in the way. A hardware probe on 2026-09-16
+([`setup-support-gaps.md`](../plans/setup-support-gaps.md#51-what-is-now-measured), rows 10-12)
+found that `connect(2)` to the daemon socket survives the profile's write-deny, that
+`nix build nixpkgs#hello` returns 0 inside `sandbox-exec`, and that an `--out-link`'s indirect
+GC root is created, because the daemon writes it as root.
+
+**What a launch delivers.** After the floor build, the launcher resolves the `nix` on the
+launching user's PATH — the same one the build just ran — through its symlinks, and puts that
+**store `bin` directory** on the sandbox PATH, after the floor's `bin` (so a `packages:` nix
+still outranks it) and ahead of the system directories. It rides the same list as the floor,
+so it reaches the agent's PATH, the provisioning stage's PATH and the bootstrap's
+`YOLO_DARWIN_LOGIN_PATH` together, and the plan invariants that check the floor reached the
+first and the last check it too. Two variables join the session env file with it:
+
+- `NIX_REMOTE=daemon` — the sandbox account is not root and cannot write the store, so nix's
+  own default would choose the daemon anyway; spelled so the answer never depends on that
+  guess.
+- `NIX_CONFIG=extra-experimental-features = nix-command flakes` — so `nix eval`/`nix build`
+  work with no flags whatever the host's `/etc/nix/nix.conf` enables. The `extra-` prefix
+  **adds** to the host file's list rather than replacing it; the sandbox reads that file,
+  because the Seatbelt read denials do not cover `/etc`.
+
+Both are **defaults**. A `NIX_REMOTE` the user set (`env_sources`, or the launch's own
+sandbox env) wins whole. A `NIX_CONFIG` the user set is **kept**, and yolo's line is appended
+after a newline, unless one of the user's lines already sets `experimental-features` or
+`extra-experimental-features` — a user who names the features, even to turn them off, is left
+exactly as written. The newline survives the trip: the session env file is **sourced** by
+`/bin/sh` with each value single-quoted, and the appended line does not start `export `, so
+the file still reads as setting `NIX_CONFIG` once.
+
+**Why the host's client, not a nix in the floor.** Every nix the sandbox runs is a client of
+the host's daemon. A floor nix would be whatever version yolo's flake pins, drifting from the
+daemon with every host upgrade and every flake bump. The resolved client is the one that talked
+to this daemon a moment earlier, to build the floor.
+
+**Why the resolved store directory, not the profile directory it was found through.** On a
+stock multi-user install `nix` is found as `/nix/var/nix/profiles/default/bin/nix`, under
+nix-darwin as `/run/current-system/sw/bin/nix`, and per-user as `~/.nix-profile/bin/nix`. Each
+is a symlink into `/nix/store/<hash>-nix-<version>/bin`. The profile directories carry whatever
+else was installed into the profile, and the per-user one sits under `/Users`, which the
+profile denies. The store directory holds only the nix package's own binaries, cannot be
+written, and needs **no new Seatbelt allowance** — the floor already runs from `/nix/store`.
+(INFERRED, from how the three installers lay out their profiles; the resolution is measured
+only on Linux, where `/bin/nix` resolved to its store directory.)
+
+**When the sandbox gets no nix — and the launch says which.** Nothing is delivered, and the
+launch prints `nix is not available inside the sandbox:` with the reason, when:
+
+- **there is no daemon socket** at `/nix/var/nix/daemon-socket/socket` — a **single-user**
+  install, whose store belongs to the launching user. The sandbox account can neither write it
+  nor reach a daemon, so a `nix` on its PATH would fail at its first store operation;
+- the client **resolves outside `/nix/store`**, the one nix location the sandbox is known to
+  read;
+- or there is **no `nix` on the launching user's PATH** at all — unreachable on a real launch,
+  which refuses earlier because the floor build needs that same `nix`.
+
+A delivered client is announced the same way (`nix: the host's client (<dir>) is on the
+sandbox PATH`). `--dry-run` resolves nothing and names no client: it builds no floor, and
+the plan it prints is pure.
+
+**The one residual, INFERRED and unmeasured:** the store directory is live only while
+something roots it — normally the host profile generation that installed it. Upgrading the
+host's nix and then collecting the old generation while a session runs deletes the client out
+from under it; the next launch resolves the new one.
 
 ### The build step is the unconfined step
 
@@ -518,6 +598,7 @@ only place the values themselves are stated.
 | Process visibility | allowed wholesale | `macosuser.SeatbeltProfile` |
 | The narrower capture profile | drops the workspace and the sandbox home from the write set | `macosuser.SeatbeltCaptureProfile` |
 | Host nix daemon opt-in (container backends only) | `YOLO_NIX_HOST_DAEMON` | `internal/cli/run/hostprobes.go` |
+| The sandbox's `nix` (added after the verified commit) | the host client's resolved store `bin` dir, after the floor's; delivered only with a daemon socket at `/nix/var/nix/daemon-socket/socket`; plus `NIX_REMOTE=daemon` (unless the user set it) and `NIX_CONFIG=extra-experimental-features = nix-command flakes` (appended to a user's `NIX_CONFIG` that names no features) | `macosuser.resolveHostNix`, `hostNixEnv`, `withHostNixEnv` (`hostnix.go`); `BuildRunPlan` |
 
 > [!NOTE]
 > **`macos_log` now validates, and the class it came from is worth keeping.** The key was READ,

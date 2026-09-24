@@ -285,8 +285,17 @@ typically does **not** share `/nix` from the host, so the bind mount would
 fail with a `statfs` error at startup. YOLO Jail therefore skips this mount
 on macOS by default.
 
-Opting back in takes **two** claims on macOS, because they are two different
-facts and only the first one is about the VM:
+**In-jail nix on the two container backends is possible, but not planned for
+now** (ruled 2026-09-24; the measured route is recorded in
+[the setup-support gaps plan](../plans/setup-support-gaps.md#2-ranked-gap-backlog)). Instead, add the tool to
+`packages:` and restart the jail, install a runtime with mise, or use the
+`macos-user` backend, whose sandbox runs your Mac's own `nix` through its
+daemon — not yet tried on a real Mac; see
+[nix inside the sandbox](../reference/macos-user-nix-and-features.md#nix-inside-the-sandbox).
+
+**Apple Container has no opt-in at all:** it never mounts the host's nix,
+whatever is set. On Podman Machine, opting back in takes **two** claims,
+because they are two different facts and only the first one is about the VM:
 
 ```bash
 export YOLO_NIX_HOST_DAEMON=1      # my runtime VM shares /nix
