@@ -614,7 +614,7 @@ Nothing is blocked on a decision any more. Context: [open-rulings.md](open-rulin
 2. **Pack state scope** → **two tiers, both by design**: per-workspace by default,
    **machine-global for identity/credential state** — claude auth is deliberately shared across
    all workspaces and jails via a symlink out to `GlobalHome/.claude-shared-credentials`
-   (`entrypoint/claude.go:106-108`, `assemble.go:174-175`). Pack selection stays user-level;
+   (the claude pack's `shared_credentials` hook, `HookSharedCredentials` in `internal/entrypoint/packhooks.go`; `assemble.go:174-175`). Pack selection stays user-level;
    the machine-global tier becomes a **pack-declared field** (new item B5); removal leaves
    abandoned per-workspace state in place, deliberately and with a report.
 3. **Where composition runs** → **split by dependency, not preference.** Image-build inputs and

@@ -10,7 +10,7 @@ vantage:
 
 # An agent's interpreter belongs to the pack, not the workspace
 
-**Status:** BUILT 2026-09-22 (`54d7d73f`). UNMEASURED: the failure in
+**Status:** BUILT, 2026-09-22 (`54d7d73f`). UNMEASURED: the failure in
 [§1](#1-the-failure-measured) and the tree's claims were measured in a jail (`753bcb88`, 2026-09-21;
 re-checked at `b99ca9b4`, 2026-09-22), but no run of the shipped fix is recorded — a Node-20
 workspace launching pi through the pinned launcher, or the bootstrap's floor install and refusal

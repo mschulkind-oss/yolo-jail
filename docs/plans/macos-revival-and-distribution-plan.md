@@ -494,7 +494,7 @@ Work items, commit-sized, in order:
 1. `refactor(entrypoint):` thread the container literals through `Env` so
    generators are correct for a native home — workspace path (literal
    `/workspace` in `shell.go` bashrcPart3, `mise.go`,
-   `agent_configs.go:292/328` gemini, `claude.go`), platform-correct shim
+   the gemini writer in `agent_configs.go` (since deleted with the gemini agent), `claude.go`), platform-correct shim
    realBin (`shims.go` hardcodes `/bin/`; macOS uses `/usr/bin`), BSD
    `stat -f` vs GNU `stat -c` in launcher templates (`shims.go`).
    No behavior change on Linux — existing goldens prove it.

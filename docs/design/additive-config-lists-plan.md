@@ -1,7 +1,10 @@
 # Plan: additive config lists (`config-list`)
 
-**Design:** [`additive-config-lists.md`](additive-config-lists.md) · **Status:** ready ·
-Written against `495d92a8`, 2026-09-24, with an in-flight working tree. `internal/entrypoint/packrender_test_support.go` is the only mapped file that already holds uncommitted edits.
+**Status:** BUILT, 2026-09-24 (`16feaf3a`) — nothing in this plan is owed. MEASURED: the design's
+integration test passed in a nested jail. UNMEASURED: a real `pi install` against a list path, and a
+rootless host. The design's [status line](additive-config-lists.md) is the authority on both.
+
+**Design:** [`additive-config-lists.md`](additive-config-lists.md) · Written against `495d92a8`, 2026-09-24, with an in-flight working tree. `internal/entrypoint/packrender_test_support.go` is the only mapped file that already holds uncommitted edits.
 Precedence: the design wins on behavior, the tree wins on fact, and this file is advice that is the first thing to be wrong.
 Anchors are `file:line` at that commit. **M** = measured in the tree, **I** = inferred.
 

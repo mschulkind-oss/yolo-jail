@@ -241,7 +241,7 @@ the store `:ro`" (fine on AC ≥ `acROBindsFloor`) — and gate it, because a **
 jail is a host-store injection channel, and mounting the host store *over* the image's own is what killed the
 2026-09-13 podman nightly. Additive per-path binds are the worse-but-workable fallback. The GC-root half wants a
 host-mediated build request over the writable workspace bind calling the existing `registerGCRoot`
-(`internal/image/gcroot.go:73-95`) — file-shaped, so it survives AC's measured container→host outage.
+(`internal/image/gcroot.go`) — file-shaped, so it survives AC's measured container→host outage.
 
 **G27 (AC captures).** Replace `internal/cli/run/captures.go:59`'s `if rt == "container"` with the shared
 predicate the other four sites already use: `if reason := o.roBindsUnsupported(rt); reason != "" { … }`. On

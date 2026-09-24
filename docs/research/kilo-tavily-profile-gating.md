@@ -10,7 +10,9 @@ vantage:
 
 # Capability-driven MCP delivery from authentication sources
 
-**Status:** BUILT — the rule below shipped 2026-09-17 (`8e324800`), with the
+**Status:** BUILT, 2026-09-17 — UNMEASURED: no launch with a `provides` server configured is
+recorded; the [acceptance boundary](#acceptance-boundary) is held by unit tests that drive the
+boot loop, not by an observed run. The rule below shipped that day (`8e324800`), with the
 `provides`-leak fix on 2026-09-18 (`67cf4c81`); re-verified against the tree
 2026-09-22. This page is the vocabulary's home — three Go sites cite it for the
 term *authentication source* — and it records the rule and where the tree

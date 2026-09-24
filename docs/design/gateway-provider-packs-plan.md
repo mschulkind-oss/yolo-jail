@@ -10,7 +10,7 @@ vantage:
 
 # Plan: OpenRouter and Kilo provider packs
 
-**Status:** BUILT 2026-09-15 (`f7b14308`). MEASURED: the two manifests, the codex credential-field
+**Status:** BUILT, 2026-09-15 (`f7b14308`). MEASURED: the two manifests, the codex credential-field
 fix and the per-agent projections are pinned by `internal/entrypoint/providerderive_test.go`; no run
 against a live OpenRouter or Kilo endpoint is recorded. Written against `a97ee688`, 2026-09-15.
 

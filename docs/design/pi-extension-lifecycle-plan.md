@@ -47,7 +47,7 @@ To implement machine-scoped storage for extensions:
 Blocked on [`OQ-1`](pi-extension-lifecycle.md#OQ-1).
 
 * Add `HookSharedExtensionStorage = "shared_extension_storage"` to `RunPackHooks`.
-* Adapt `linkThroughShared` (`internal/entrypoint/claude.go:59`):
+* Adapt `linkThroughShared` (`internal/entrypoint/sharedlink.go`):
   * Check if `~/.pi/agent/npm` is a real directory and `~/.pi-shared-npm` is empty.
   * If so, move existing directory contents into shared storage to migrate existing single-workspace installations.
   * Replace `~/.pi/agent/npm` with a symlink pointing to `../../.pi-shared-npm`.

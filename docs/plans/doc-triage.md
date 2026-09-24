@@ -1,6 +1,6 @@
 # Documentation triage — proposed reorganization (for review)
 
-**Status:** BUILT 2026-07-03 (`5eb1643`, `9721660`). MEASURED: the 2026-09-09 re-run re-bucketed
+**Status:** BUILT, 2026-07-03 (`5eb1643`, `9721660`). MEASURED: the 2026-09-09 re-run re-bucketed
 every doc in `docs/design/` against the code, not against its status line. Kept as the record of
 what was archived and why, not as a pending proposal; the 2026-09-12 graduation assessment's one
 question, [OQ-DT1](#decision-ledger), was answered 2026-09-13 by doing it.

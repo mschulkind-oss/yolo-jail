@@ -215,9 +215,9 @@ does. Each bullet, with what it became:
   --add-root`.** `internal/darwinpkg/gcroot.go` is the whole argument for *where* the root
   lives; `materialize.go:33` and `darwinpkg.go:122` record that this is the N1 fix.
 - ~~make `describe` / `check --at host` **report** the resolved profile path~~ — **done, on
-  both.** `internal/cli/describe.go:94` and `internal/cli/check/sections_macos.go:119` each
+  both.** `internal/cli/describe.go` and `checkPackageProfile` (`internal/cli/check/section_packageprofile.go`) each
   read `darwinpkg.ProfileRootLink(paths.Home())`. Note the deliberate design in the check
-  comment (`sections_macos.go:105-118`): it reads the **GC-root symlink, never nix**, because
+  comment (`checkPackageProfile`'s doc comment): it reads the **GC-root symlink, never nix**, because
   check owns exactly one place a real build is allowed; and it splits PASS/WARN/FAIL by what
   the user can act on — an *absent* root is a WARN (it is also the normal pre-first-run
   state), while a root pointing at a **collected** store path is a FAIL, because that is

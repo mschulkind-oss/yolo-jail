@@ -10,7 +10,7 @@ vantage:
 
 # Agent program runtimes — companion sketch
 
-**Status:** BUILT 2026-09-22 (`54d7d73f`). UNMEASURED: no run of the shipped fix is recorded.
+**Status:** BUILT, 2026-09-22 (`54d7d73f`). UNMEASURED: no run of the shipped fix is recorded.
 The feature this sketched shipped, so nothing is owed here; the design's status line says what was
 and was not observed. Kept for the measured anchors below, which are what a later reader actually comes
 for; the behaviour is [`agent-program-runtimes.md`](agent-program-runtimes.md)'s, and this file goes

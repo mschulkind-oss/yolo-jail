@@ -1,6 +1,8 @@
 # Implementation plan — pack-managed host briefings, skills, and files
 
-**Status:** SHIPPED, 2026-08-02 — **Phases 0–10 shipped** that day and
+**Status:** BUILT, 2026-08-02 — MEASURED: the acceptance test passed at both notches that day, one
+pack delivering the fzf file finder into a real home and into a jail (the build-status note
+below). **Phases 0–10 shipped** that day and
 [Phase 11](#phase-11--three-programstaging-defects-found-by-building-the-real-pack--shipped)'s
 three defects by 2026-08-03. **One question is still live** ([OQ-B](#open-questions), on the
 host `files` mode). Three phases were **redesigned after they shipped**, so read

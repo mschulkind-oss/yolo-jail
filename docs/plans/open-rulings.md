@@ -37,7 +37,7 @@ per-workspace dir:
 ~/.claude/.credentials.json -> ../.claude-shared-credentials/.credentials.json
 ```
 
-planted by `ensureCredentialsSymlink` (`entrypoint/claude.go:106-108`), with the target dir
+planted by `ensureCredentialsSymlink` (since replaced by the claude pack's `shared_credentials` hook, `HookSharedCredentials` in `internal/entrypoint/packhooks.go`), with the target dir
 bind-mounted from `GlobalHome` (`assemble.go:174-175`). `EnsureGlobalStorage`
 (`storage/ensure.go:54,72`) creates it, the OAuth broker reads that exact path
 (`oauthbroker/oauthbrokercmd.go:20`), and `yolo check` verifies it
@@ -141,7 +141,7 @@ mountpoint to bind onto (it cannot `mkdirat` inside a `:ro` bind).
 **And there is genuinely machine-global state: claude auth.**
 `.claude-shared-credentials` is mounted from GlobalHome (`assemble.go:174-175`) when claude is
 selected, and `~/.claude/.credentials.json` is a **symlink out** of the per-workspace dir into
-it (`entrypoint/claude.go:106-108`). That is a designed feature — *we maintain claude auth
+it (then `ensureCredentialsSymlink`; now the claude pack's `shared_credentials` hook). That is a designed feature — *we maintain claude auth
 across workspaces and jails* — with five supporting call sites (`storage/ensure.go:54,72`
 creates it, `oauthbroker/oauthbrokercmd.go:20` reads it, `check/sections_misc.go:20` verifies
 it). Do not read the per-workspace default as "everything is per-workspace."
@@ -203,7 +203,7 @@ summary.
 
 - Composition **never probes the running container**. Every `computed`-layer producer reads
   config, env and computed paths only — no `os.Stat`, `exec.Command` or `LookPath` in layer
-  construction (`prism.go:448`, `agent_configs.go:167`).
+  construction (`prism.go:448`).
 - `yolo config render` already composes **host-side**, today, with no container.
 - So where it runs is a **free choice**, not a constraint.
 

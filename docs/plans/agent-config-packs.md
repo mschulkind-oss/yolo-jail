@@ -524,7 +524,7 @@ drift check goes stale silently.
   would get a listing claiming a hook that never runs. A pack shipping Lua is
   phase-3 `allow_exec` territory anyway; the point is that the obvious slot is a
   no-op today.
-- **The Lua hook dispatches on `ctx.Agent` alone** (`luahook/vm.go:97-103`), and
+- **The Lua hook dispatches on `ctx.Agent` alone** (the `config.lua` transform, since removed), and
   `host_files` already owns the pseudo-agent `"user"` — whose sidecars are
   discovered by a `user-*.overlay.json` glob (`configdiff.go:88-113`). A
   pack-declared surface needs its own pseudo-agent or it collides with
@@ -1268,7 +1268,7 @@ consumer exists.
 bill: a module path and a public-API surface with a stability contract; black-box
 tests, because all ~3.5k existing test lines are *in-package* white-box (they touch
 `layerWorkspace` and friends directly); a decision about the Lua global, which is
-literally named `yolo` (`luahook/vm.go:176`, `sandbox.go:65`) — so extraction means
+literally named `yolo` (`newDeriveSession` in `luahook/derive.go` sets it) — so extraction means
 shipping a foreign tool branded `yolo` or a rename that breaks every existing
 `config.lua`; json tags plus a schema version on `manifest.Surface`, both
 prerequisites for a data-loaded registry; and `go mod vendor` committed, since an

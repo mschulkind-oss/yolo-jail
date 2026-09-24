@@ -1,9 +1,9 @@
 ---
 title: "Plan: start a jail daemon on macos-user"
 date: 2026-09-17
-status: in-review
+status: accepted
 tags: [macos-user, loopholes, jail-daemon, parity, plan]
-summary: "The in-jail half of the loophole lifecycle on the native macOS backend. The host half shipped 2026-09-17. Steps 1 and 2 shipped 2026-09-18 — one exported payload composer, hoisted above the backend dispatch, and a Declined: line per declared daemon — so the backend now names what it will not run; step 5 (retracting the stale prose) is buildable cold and partly landed. Still no jail daemon runs anywhere on this backend. Steps 3 and 4 are blocked on OQ-DP8 and OQ-DP9 in declaration-parity.md: how a declared argv resolves with no image, and whether the daemon runs confined."
+summary: "The in-jail half of the loophole lifecycle on the native macOS backend. The host half shipped 2026-09-17. Steps 1 and 2 shipped 2026-09-18 — one exported payload composer, hoisted above the backend dispatch, and a Declined: line per declared daemon — so the backend now names what it will not run; step 5 (retracting the stale prose) landed by 2026-09-24. Still no jail daemon runs anywhere on this backend. Steps 3 and 4 are blocked on OQ-DP8 and OQ-DP9 in declaration-parity.md: how a declared argv resolves with no image, and whether the daemon runs confined."
 vantage:
   status-chip: true
 ---
@@ -13,7 +13,7 @@ vantage:
 **Status:** DECIDED, 2026-09-22 — work is owed, and two of its steps wait on rulings filed in another
 doc. **Steps 1 and 2 shipped 2026-09-18** (`f6387968`): the
 payload is composed once above the backend dispatch and the native arm declines each entry by
-name. Step 5 is buildable cold and partly landed. Steps 3 and 4 — the ones that would make a jail
+name. Step 5 landed by 2026-09-24. Steps 3 and 4 — the ones that would make a jail
 daemon actually run — are blocked on [OQ-DP8](declaration-parity.md#OQ-DP8) and
 [OQ-DP9](declaration-parity.md#OQ-DP9).
 
@@ -253,7 +253,7 @@ against them.
   from `assemble.go`") is exactly what step 1 does. Re-point it at the hoisted site — do not relax
   it until green. Same for the `YOLO_JAIL_DAEMONS`-appears-exactly-once assertions there and in
   [`internal/cli/run/wirebridgepack_test.go`](../../internal/cli/run/wirebridgepack_test.go).
-- **Docs whose claims this makes false**, by path. This is step 5, and it is half done:
+- **Docs whose claims this makes false**, by path. This is step 5, and it is done:
   - **DONE** — [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md): the
     "Linux-only boot steps … **the daemon supervisor** … are deliberately **not** run" sentence now
     carries a warning retracting it in place, and the "loopholes: mostly moot" section names both of
@@ -262,11 +262,11 @@ against them.
   - **DONE** — [`loopholes.md`](../guides/loopholes.md): the backend table row no longer gives
     `macos-user` **nothing**. It gives "every host daemon, and no jail daemon", and points at the
     decline printer.
-  - **OUTSTANDING** — [`OQ-T4`](../reference/loophole-transport.md#oq-t4) still rests the
-    separate-user grant's "stays built and uncalled" on the backend starting "no host services at
-    all", which has been false since 2026-09-17. Amend, do not delete. Same for the backend clause
-    of [where a loophole does nothing](../reference/loophole-system.md#where-a-loophole-does-nothing),
-    which still reads "a no-VM user-level backend that never reaches loophole startup".
+  - **DONE** — [`OQ-T4`](../reference/loophole-transport.md#oq-t4) no longer rests the
+    separate-user grant on the backend starting "no host services at all"; it was amended in place
+    on 2026-09-24 to say the grant is called. The backend clause of
+    [where a loophole does nothing](../reference/loophole-system.md#where-a-loophole-does-nothing)
+    now says `macos-user` starts the whole host-service set.
   - **DONE** — [`declaration-parity.md`](declaration-parity.md): `DP-B7`'s silence half is marked
     closed both in its row and in [§11](declaration-parity.md#11-what-i-would-build-in-order)'s
     note, the authority that doc names for which rows a wave closed. `DP-L3` stays **approved and

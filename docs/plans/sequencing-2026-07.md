@@ -51,7 +51,7 @@ items 1, 3 and 4 are about to rewrite, so doing it after means doing that work t
 **The one real coupling, and it is already proven safe.** `agy` (Google Antigravity
 CLI) is a *separate* agent whose overlay dir is **nested inside gemini's**:
 `gemini` → `.gemini`, `agy` → `.gemini/antigravity-cli` (`agents.go:111,193`), and two
-of agy's three surfaces live under `~/.gemini/` (`builtin.go:313,412`). That looks like
+of agy's three surfaces live under `~/.gemini/` (Go in `internal/agentcfg/builtin.go` then; `packs/agy/pack.json` now). That looks like
 a blocker and is not: **this very jail runs `agy` with `gemini` unselected**
 (`YOLO_AGENTS=["claude","pi","codex","agy"]`), and a probe confirms
 `~/.gemini/antigravity-cli` is read-write while its parent `~/.gemini` is read-only.

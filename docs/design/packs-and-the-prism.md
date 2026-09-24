@@ -264,8 +264,8 @@ of it into its own dialect:
 | Agent | Projection of the same canonical entry |
 |---|---|
 | **codex** | `{command, args, env}` — near-passthrough (`codex.go:15`) |
-| **opencode** | `{type:"local", command:[cmd, ...args], enabled:true, environment:env}` — *renames* `env`, *folds* command+args into one array, *adds* two keys (`agent_configs.go:131`) |
-| **gemini** | passthrough, plus synthesized `<lsp>-lsp` entries wrapping each LSP server (`agent_configs.go:167`) |
+| **opencode** | `{type:"local", command:[cmd, ...args], enabled:true, environment:env}` — *renames* `env`, *folds* command+args into one array, *adds* two keys (Go in `agent_configs.go` then; `packs/opencode/derive.lua` now) |
+| **gemini** | passthrough, plus synthesized `<lsp>-lsp` entries wrapping each LSP server (`buildGeminiMCPServers`, deleted with the gemini agent) |
 | **claude** | `mcpServers` in `.claude.json`, with tombstone pruning of managed names |
 
 So "one definition, N agent-specific insertions" is not speculative — it is what the code
