@@ -16,6 +16,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -86,13 +87,61 @@ func WalkDedupTree(root string) []Entry {
 }
 
 // WalkDedupableWorkspaces yields entries under each workspace's
-// .yolo/home/{npm-global,local,go,codex/packages/standalone}.
+// .yolo/home/{npm-global,local,go,codex/packages/standalone}, minus dedupExcludedSubtrees.
 func WalkDedupableWorkspaces(workspaces []string) []Entry {
 	var out []Entry
 	for _, ws := range workspaces {
 		home := filepath.Join(ws, ".yolo", "home")
 		for _, sub := range dedupeSubtrees {
-			out = append(out, WalkDedupTree(filepath.Join(home, sub))...)
+			root := filepath.Join(home, sub)
+			var skip []string
+			for _, rel := range dedupExcludedSubtrees[sub] {
+				skip = append(skip, filepath.Join(root, rel))
+			}
+			out = append(out, walkDedupTreeExcept(root, skip)...)
+		}
+	}
+	return out
+}
+
+// dedupExcludedSubtrees maps a workspace surface subtree to the paths under it that dedup
+// must never link: today the jail's own embedded-pack cache
+// (~/.local/share/yolo-jail/embedded-packs, internal/packload's embeddedcache.go).
+//
+// Each tree there is IMMUTABLE and PER-WORKSPACE on purpose. Hardlinking it to a byte-identical
+// file in another workspace would share one inode across jails — and a jail is its home's
+// owner, so it could write another workspace's tree through that inode — while dedup's
+// link-to-temp-then-rename drops a name inside the tree, which a concurrent in-jail adopter
+// sees as an unexpected entry and quarantines. It is ~250 KB per tree; nothing is worth that.
+// capture excludes the whole state dir for its own reason (capture.DefaultExcludes).
+var dedupExcludedSubtrees = func() map[string][]string {
+	out := map[string][]string{}
+	// The in-jail location, home-relative: EmbeddedPacksDirUnder a root of "/".
+	rel := strings.TrimPrefix(filepath.ToSlash(paths.EmbeddedPacksDirUnder("/")), "/")
+	for _, s := range paths.InstalledProgramSurfaces() {
+		if under, ok := strings.CutPrefix(rel, strings.TrimSuffix(s.HomeRel, "/")+"/"); ok {
+			out[s.Subtree] = append(out[s.Subtree], filepath.FromSlash(under))
+		}
+	}
+	return out
+}()
+
+// walkDedupTreeExcept is WalkDedupTree minus every entry at or under a skip path.
+func walkDedupTreeExcept(root string, skip []string) []Entry {
+	if len(skip) == 0 {
+		return WalkDedupTree(root)
+	}
+	var out []Entry
+	for _, e := range WalkDedupTree(root) {
+		excluded := false
+		for _, s := range skip {
+			if e.Path == s || strings.HasPrefix(e.Path, s+string(filepath.Separator)) {
+				excluded = true
+				break
+			}
+		}
+		if !excluded {
+			out = append(out, e)
 		}
 	}
 	return out
