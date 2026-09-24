@@ -54,6 +54,11 @@ const (
 	KindStart Kind = iota
 	KindEnd
 	KindMark
+	// KindNote is a point event that carries a DETAIL line: an observation too
+	// long or too numerous for the report table (a /proc sample, one podman
+	// event), written to the file and nowhere else. Report skips notes and the
+	// slow-span notice never sees one (it reads ends only).
+	KindNote
 )
 
 // Event is one timing observation, handed to every Sink the moment it happens.
@@ -63,6 +68,8 @@ type Event struct {
 	At   time.Time
 	// Dur is the span's duration; set for KindEnd only.
 	Dur time.Duration
+	// Detail is a note's text; set for KindNote only.
+	Detail string
 }
 
 // Sink receives events as they occur. It cannot fail: a sink that hits an
@@ -130,6 +137,18 @@ func (l *Log) Mark(name string) {
 		return
 	}
 	l.emit(Event{Kind: KindMark, Name: name, At: l.now()})
+}
+
+// Note records a point event with a detail line — see KindNote. For the
+// observations that explain a number rather than being one: the Window A
+// sampler's /proc readings and each podman event it priced (run/lingerprobe.go,
+// run/perfevents.go). The file gets `note   <name>  <detail>`; the report
+// table gets nothing, so a thirty-line sample never buries the spans.
+func (l *Log) Note(name, detail string) {
+	if !l.enabled() {
+		return
+	}
+	l.emit(Event{Kind: KindNote, Name: name, At: l.now(), Detail: detail})
 }
 
 // Record enters a COMPLETED interval whose duration was measured somewhere
@@ -231,7 +250,7 @@ func (l *Log) Report(w io.Writer, now time.Time) {
 
 	var shown []Event
 	for _, e := range events {
-		if e.Kind != KindStart {
+		if e.Kind != KindStart && e.Kind != KindNote {
 			shown = append(shown, e)
 		}
 	}

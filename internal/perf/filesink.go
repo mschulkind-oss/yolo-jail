@@ -74,6 +74,10 @@ func formatLine(e Event) string {
 		return fmt.Sprintf("%s start  %s\n", ts, e.Name)
 	case KindMark:
 		return fmt.Sprintf("%s mark   %s\n", ts, e.Name)
+	case KindNote:
+		// One line per note, always: a detail that carried a newline would split
+		// into a line the reader cannot attribute.
+		return fmt.Sprintf("%s note   %s  %s\n", ts, e.Name, strings.ReplaceAll(e.Detail, "\n", " "))
 	default:
 		return fmt.Sprintf("%s end    %s  dur=%.3fs\n", ts, e.Name, e.Dur.Seconds())
 	}

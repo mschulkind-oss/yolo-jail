@@ -2,6 +2,7 @@ package perf
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -181,4 +182,41 @@ func TestConcurrentSpansAreAllRecorded(t *testing.T) {
 	if starts != n || ends != n {
 		t.Errorf("recorded %d starts / %d ends, want %d/%d", starts, ends, n, n)
 	}
+}
+
+// A note reaches the sinks with its detail and the file renders it as one line,
+// but the REPORT table never shows it: notes are the Window A sampler's /proc
+// readings and podman's per-event offsets, dozens of lines that would bury the
+// spans a --timing reader is scanning.
+func TestNoteReachesTheFileButNotTheTable(t *testing.T) {
+	c := newFakeClock()
+	path := t.TempDir() + "/host-perf.log"
+	l := New(c.Now, FileSink(path, "yolo-ws-test", nil, c.Now()))
+	l.Mark("child.exited")
+	l.Note("shutdown.window_a.sample", "+1.0s pid 7 podman: 1× S read(0 → /dev/pts/5)\nsecond line")
+
+	ev, ok := l.LastEvent("shutdown.window_a.sample")
+	if !ok || ev.Kind != KindNote || !strings.Contains(ev.Detail, "read(0") {
+		t.Fatalf("note not recorded as a KindNote with its detail: %+v", ev)
+	}
+	var buf bytes.Buffer
+	l.Report(&buf, c.Now())
+	if strings.Contains(buf.String(), "window_a.sample") {
+		t.Errorf("the report table rendered a note:\n%s", buf.String())
+	}
+	if !strings.Contains(buf.String(), "child.exited") {
+		t.Errorf("the report lost the mark beside the note:\n%s", buf.String())
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got),
+		"note   shutdown.window_a.sample  +1.0s pid 7 podman: 1× S read(0 → /dev/pts/5) second line\n") {
+		t.Errorf("file line wrong (a note must stay ONE line):\n%s", got)
+	}
+
+	var nilLog *Log
+	nilLog.Note("x", "y") // nil-safe like every other entry point
+	Disabled().Note("x", "y")
 }
