@@ -1,12 +1,22 @@
 # Plan: macOS revival + source-distribution fix (post-ejection)
 
-**Status:** DECIDED, 2026-07-21 — in progress, restamped **2026-09-11** (body
+**Status:** DECIDED, 2026-07-21 — in progress, restamped **2026-09-24** (body
 below is the original plan except where a dated annotation says otherwise).
 Tracks J and M are done. Track D's engineering is done, but **two of its four
 steps were later reverted or superseded** and the header this line replaces did
-not say so. **Track L part 1 is the one open engineering item**, so the original
-header's closing claim — *"nothing engineering-side fully open"* — was **false**;
+not say so. **Track L part 1's host half is done** (2026-09-17/18: this backend starts
+every admitted host daemon through the same `startLoopholesDisclosed` a container launch
+uses); **its jail half is the one open engineering item, and it is blocked on two rulings**
+— [`OQ-DP8`](../design/declaration-parity.md#OQ-DP8) and
+[`OQ-DP9`](../design/declaration-parity.md#OQ-DP9), tracked by
+[`jail-daemon-on-macos-user-plan.md`](../design/jail-daemon-on-macos-user-plan.md). The
+original header's closing claim — *"nothing engineering-side fully open"* — was **false**;
 it is retracted in §*Retracted claims* below.
+
+> [!NOTE]
+> **Code citations name a FILE, not a line** (since 2026-09-24). This plan cited by line from
+> July to mid-September and most of those lines had moved; the numbers were removed rather than
+> refreshed. Resolve a citation by the symbol or quoted text beside it.
 
 > [!NOTE]
 > **A2 shipped 2026-09-04 and this file went on calling it open in SIX places** — the
@@ -90,8 +100,10 @@ it is retracted in §*Retracted claims* below.
 **The short version.** The revival landed: macos-user is a real, real-HW-proven
 backend and the distribution regression is closed by a baked prebuilt bundle
 rather than by the source bundle this plan designed. What is left is not a track, it
-is **one loose end** — the loophole framework on the macos-user launch path (Track L
-part 1). *(This sentence said "two loose ends" and named A2's hard-error half as the
+is **one loose end** — the jail half of the loophole framework on the macos-user launch
+path (Track L part 1), whose host half shipped 2026-09-17/18 and whose jail half waits on
+[`OQ-DP8`](../design/declaration-parity.md#OQ-DP8) and
+[`OQ-DP9`](../design/declaration-parity.md#OQ-DP9). *(This sentence said "two loose ends" and named A2's hard-error half as the
 other until 2026-09-11; A2 shipped 2026-09-04. It was the fourth place in this file
 that outlived it.)* The pile of Mac-gated *proofs* that no Linux jail can perform is
 **no longer pending**: all four ran on 2026-09-10 and passed.
@@ -102,8 +114,8 @@ that outlived it.)* The pile of Mac-gated *proofs* that no Linux jail can perfor
 > again on the container backends. Do not read the D2 "DONE" record as current;
 > see §Track D / D2. And **D1's `repo_path` config key was RETIRED on
 > 2026-07-23** (`20a8ce9f`) — `just install` no longer writes it
-> (`Justfile:102`), `internal/config/inherit.go:198` marks it `RETIRED`, and
-> `internal/config/validate.go:138-152` tolerates it with a deprecation warning
+> (`Justfile`), `internal/config/inherit.go` marks it `RETIRED`, and
+> `internal/config/validate.go` tolerates it with a deprecation warning
 > only. Verified 2026-08-23.
 
 **Track status, verified against the tree 2026-08-23.** Every row was checked by
@@ -114,16 +126,16 @@ reading code or `git log`; nothing here is carried over on trust.
 | J1.1, J1.2, J1.4 | **landed** | see §J1 |
 | J1.3 (builder reaping) | **landed, then DELETED with its host** | `internal/builder` no longer exists — Open Decision #3, 2026-07-23 |
 | J2 (Go bootstrap) | **landed** | §J2 statuses; `internal/macosuser` is Python-free |
-| J3 (container builder) | **landed** | `8abb67ce` + `c2f0b941`; `internal/image/autoload.go:13,59,219` imports and calls `containerbuilder` through `BuildOffload` |
-| D1 (`repo_path`) | **landed, then RETIRED 2026-07-23** | `20a8ce9f`; `Justfile:102`; `internal/config/inherit.go:198` |
+| J3 (container builder) | **landed** | `8abb67ce` + `c2f0b941`; `internal/image/autoload.go` imports and calls `containerbuilder` through `BuildOffload` |
+| D1 (`repo_path`) | **landed, then RETIRED 2026-07-23** | `20a8ce9f`; `Justfile`; `internal/config/inherit.go` |
 | D2 (graceful degradation) | **landed 2026-07-21, REVERTED 2026-07-29** | `07975c88`/`07975c88` in, `5d34dece` out; regression `internal/cli/run/reporoot_fatal_test.go` |
 | D3 (source bundle) | **landed 2026-07-20, SUPERSEDED 2026-07-23** | prebuilt-bundle cutover; `internal/reporoot`, `flake.nix` `installPrefix` |
-| D4 (Cachix) | **substituter live; the human half is PART done** | `flake.nix:13-16` (`730c258`); `--accept-flake-config` on every nix call — `internal/image/nixflags.go:35`, `internal/darwinpkg/darwinpkg.go:91` |
-| Track M (M0/M1/M2) | **landed 2026-07-21 on real HW; M2's dogfood has since lapsed** | see the M-track note below |
-| A1 (config-diff on macos-user) | **DONE 2026-08-18, by the rejected alternative** | `bb825486`, `fb19e8ed`; `internal/cli/run/run.go:144` |
+| D4 (Cachix) | **substituter live and pushed; only the Mac download proof is left** | `flake.nix` `nixConfig` (`730c258`); `--accept-flake-config` on every nix call — `internal/image/nixflags.go`, `internal/darwinpkg/darwinpkg.go`; pushed by every release since `v0.8.0` ([`handoff-cachix-cache.md`](handoff-cachix-cache.md), settled 2026-09-02) |
+| Track M (M0/M1/M2) | **landed 2026-07-21 on real HW; the dogfood lapsed and was RESTORED 2026-09-10** | the first live `macos-user` session on the maintainer's Mac passed all four runbook items — see the 2026-09-10 note above; the M-track note below is the 2026-08-19 state |
+| A1 (config-diff on macos-user) | **DONE 2026-08-18, by the rejected alternative** | `bb825486`, `fb19e8ed`; `internal/cli/run/run.go` |
 | A2 (hard error + `linux-only`) | **DONE 2026-09-04** | both pieces shipped: `platforms: ["linux"]` on the package object form filters in `EffectivePackages(cfg, platform)` BEFORE materialize, and a declared package still missing from the build aborts the launch naming every one at once (`internal/macosuser/orchestrator.go`). The plan's `linux-only` spelling became `platforms`, a list — see A2 below |
-| A3 (drop `macos_shared_root`) | **DONE 2026-07-23** | `68026c61`; `rg macos_shared_root internal/` is empty; message at `internal/macosuser/runplan.go:286` |
-| Track L part 1 (framework plumbing) | **STARTED 2026-09-15, one loophole deep** | `6d118252` wired the **openai-auth broker** — and only it — into the macos-user arm: `run.Run` calls `startOpenAIAuth` (`internal/cli/run/openaiauthbackend.go`, a `startLoopholesMatching` whose allow-list is that one name) and refuses the launch if it does not come up, while `notePackLoopholesInert` still reports every OTHER pack loophole as inert on this backend. `macosuser.EndpointGrantCommands` now has a production caller — `BuildRunPlan` (`internal/macosuser/runplan.go`) stages its two ACEs for the broker's endpoint file, which is [`backend-parity.md`](../design/backend-parity.md)'s [OQ-BP-5](../design/backend-parity.md#OQ-BP-5) answered in code. What is still unbuilt is the FRAMEWORK: the generic lifecycle (`startLoopholesDisclosed`) remains reachable only from `runContainer`, above which this arm returns |
+| A3 (drop `macos_shared_root`) | **DONE 2026-07-23** | `68026c61`; `rg macos_shared_root internal/` is empty; message at `internal/macosuser/runplan.go` |
+| Track L part 1 (framework plumbing) | **HOST HALF DONE 2026-09-17; JAIL HALF BLOCKED on [`OQ-DP8`](../design/declaration-parity.md#OQ-DP8) + [`OQ-DP9`](../design/declaration-parity.md#OQ-DP9)** | `6d118252` (2026-09-15) started the openai-auth broker alone; `c28bfde7` (2026-09-17) replaced that one-name allow-list with the same `startLoopholesDisclosed` path a container launch takes, so the arm starts **every** admitted host daemon, discloses it, and `macosuser.BuildRunPlan` stages `macosuser.EndpointGrantCommands` for each published endpoint ([`OQ-BP-5`](../design/backend-parity.md#OQ-BP-5) answered in code). `f6387968` (2026-09-18) made the jail half SAY it does not run — one `Declined:` line per `jail_daemon`. What is unbuilt is running a jail daemon natively: [`jail-daemon-on-macos-user-plan.md`](../design/jail-daemon-on-macos-user-plan.md) steps 3 and 4 |
 | Track L part 2 (scoping proxy) | **BLOCKED on [OQ-L1](#open-questions-blocking)** | unchanged |
 | check's python3 probe | **DELETED 2026-09-03** | it hard-FAILed a python-less Mac for a requirement J2 dropped on 2026-07-21 (`544a8069`); `internal/cli/check/sections_macos.go` |
 | macos-user repo-root gate for `packages:` | **FIXED 2026-09-03** | an unresolved root reached `darwinpkg.Materialize("")` → empty `cmd.Dir` → nix evaluated the user's cwd; `internal/cli/run/run.go`, `internal/darwinpkg/materialize.go` |
@@ -134,11 +146,13 @@ honored on every nix invocation. [`handoff-cachix-cache.md`](handoff-cachix-cach
 the account and the `CACHIX_AUTH_TOKEN` secret as **all done (2026-07-20)** — so
 the old header's "Cachix account/token … human-gated" is stale. What remains is
 the **first push** and the **Mac download proof**. Two sibling docs disagree
-about the first of those: `docs/plans/README.md:31` says *"CI has already pushed
+about the first of those: `docs/plans/README.md` says *"CI has already pushed
 data"*, while [`handoff-cachix-cache.md`](handoff-cachix-cache.md) still lists the first push as remaining.
 **Neither is checkable from this Linux jail** — it needs a look at the Cachix
 cache or a release run — so both spellings are recorded rather than one being
-picked.
+picked. **SETTLED 2026-09-02:** a release run's log shows README was right — `v0.8.0` pushed on
+2026-08-13, and every release since has too
+([`handoff-cachix-cache.md`](handoff-cachix-cache.md)). Only the Mac download proof remains.
 
 **Track M, stated honestly.** M0/M1/M2 were genuinely verified on real Apple
 Silicon on 2026-07-21 and that proof stands *for what it tested*. It is no
@@ -158,7 +172,7 @@ the 07-21 build and not of today's. See [`roadmap.md`](roadmap.md)'s 🔒 macOS 
   which is the same drift one paragraph over.)* All three A-items are now done.
 - **⚠ Retracted (2026-08-23): the header's flat "D1, D2, D3 … landed."** All
   three landed and then moved: D1 retired, D2 reverted, D3 superseded. A "landed"
-  with no half-life is what let `docs/plans/README.md:30` still assert "D2
+  with no half-life is what let `docs/plans/README.md` still assert "D2
   landed" a month after the revert.
 
 **Inputs:** `docs/research/repo-root-and-distribution.md` (the source-access
@@ -188,25 +202,33 @@ macos-user backend, at which point SandVault retires.
   Container is the fallback cell for Linux-only packages or VM-grade isolation.
 - **Acceptance bar:** macos-user must honor `packages:` via native
   aarch64-darwin nix from day one, or it doesn't ship. The mechanism is now a
-  **buildEnv** (`flake.nix:848 packages.yoloDarwinPackages`, realized by
+  **buildEnv** (`flake.nix` `packages.yoloDarwinPackages` at the time, realized by
   `internal/darwinpkg`) — the direction docs' "devShell / print-dev-env"
   wording was superseded in the Python era (commit `4751f05`); a doc-hygiene
   pass should note that, the decision itself stands.
   **Names and lines moved (verified 2026-08-23), the bar did not.** The attr is
-  now `packages.yoloNoncontainerPackages` (`flake.nix:1204`, `darwinpkg.ProfileAttr`
-  at `internal/darwinpkg/darwinpkg.go:30`), and *"aarch64-darwin"* is no longer
+  now `packages.yoloNoncontainerPackages` (`flake.nix`, `darwinpkg.ProfileAttr`
+  at `internal/darwinpkg/darwinpkg.go`), and *"aarch64-darwin"* is no longer
   hardcoded anywhere in `internal/darwinpkg` — `NativeSystem()` derives the nix
-  double from `runtime.GOOS`/`GOARCH` (`darwinpkg.go:46-55`), which explicitly
+  double from `runtime.GOOS`/`GOARCH` (`darwinpkg.go`), which explicitly
   replaced a `DarwinSystem = "aarch64-darwin"` constant. So the bar should now
   be read as *"native nix for the system the Mac actually is"* — an Intel Mac is
   in scope, and that is exactly the assumption class BACKLOG E8 was made of.
+  **And it moved once more:** macos-user now realizes `packages.<system>.yoloNoncontainerProfile`
+  (`darwinpkg.FloorProfileAttr`, through `darwinpkg.BuildFloorProfileArgv`) — the declared
+  `packages:` **plus the backend's floor**, because a notch with no image has no other core
+  ([`macos-user-provisioning.md`](../reference/macos-user-provisioning.md)).
+  `yoloNoncontainerPackages` is now the floorless closure the container path's store delivery
+  uses. ⚠ **The floor is the image CORE only, not the image's extras** — a known gap against
+  [`OQ-P1`](../reference/macos-user-provisioning.md#oq-p1)'s *"everything the image bakes"*
+  text, open as of 2026-09-24.
 - Settled: mise stays as-is; Seatbelt is the accepted isolation level;
   sandbox-exec deprecation is an accepted long-term risk.
 - **One settled decision diverged in shipping** (Open Decision #5): the docs
   decided per-platform `packages` overrides + an aggregated "unavailable on
   macOS" **error** (never silently skip), but what shipped is **warn-and-skip**
-  (`flake.nix:846-847` filters via `darwinUnavailablePackages`;
-  `internal/macosuser/orchestrator.go:196-203` warns and continues), and
+  (`flake.nix` filters via `darwinUnavailablePackages`;
+  `internal/macosuser/orchestrator.go` warns and continues), and
   per-platform overrides don't exist in the config surface at all
   (`internal/config/derived.go` `EffectivePackages` has no platform conditional).
   **RESOLVED 2026-07-23:** implement the written design (hard error + `linux-only`
@@ -234,7 +256,7 @@ remaining fallback/roadmap work below.
 
 > **DONE 2026-08-18** (`bb825486` *the approval gate reaches the macos-user
 > backend too*, plus `fb19e8ed` *a call is not a gate*). Verified 2026-08-23 at
-> `internal/cli/run/run.go:144`.
+> `internal/cli/run/run.go`.
 
 > [!WARNING]
 > **It shipped by the alternative this plan REJECTED, and the rejection was
@@ -246,13 +268,13 @@ remaining fallback/roadmap work below.
 > skips the check (the container was already started with its config), and
 > macos-user **has no attach**. A hoist would therefore have made attach start
 > prompting. The reasoning is preserved in the code comment at
-> `internal/cli/run/run.go:130-144`; do not "fix" it back to a hoist.
+> `internal/cli/run/run.go`; do not "fix" it back to a hoist.
 > Two further details worth keeping: `--dry-run` is exempt (it launches
 > nothing, and refusing a plan render would hide the very diff a user asked to
 > inspect), and `fb19e8ed` exists because the first version of this gate was
 > pinned by a test that a bare `_ = o.checkConfigChanges(cfg)` mutation walked
 > straight through — *a call is not a gate*
-> (`internal/cli/run/configapproval_test.go:214-236`).
+> (`internal/cli/run/configapproval_test.go`).
 
 > **Decided 2026-07-23: fix it.** (Was J4.) The threat model relies on this prompt
 > as the Vector A mitigation; macos-user is the one backend where the poisoned
@@ -260,8 +282,8 @@ remaining fallback/roadmap work below.
 > worst case.
 
 `checkConfigChanges` (the startup y/N config-diff prompt) is called **only** in
-`runContainer` (`internal/cli/run/run.go:144`), but the macos-user branch returns
-at `run.go:56-68` — *before* that call. Poisoned `packages:` on macos-user is fed
+`runContainer` (`internal/cli/run/run.go`), but the macos-user branch returns
+at `run.go` — *before* that call. Poisoned `packages:` on macos-user is fed
 straight into a host-side `nix build --impure`
 (`docs/design/macos-user-build-step-threat-model.md` Vector A), with no prompt.
 
@@ -291,23 +313,23 @@ opportunistically if cheap. Closes Open item #2 in the design doc.
 > **The record below is the 2026-08-23 state, kept for the reasoning.**
 >
 > - **Piece 1 (aggregated hard error): NOT BUILT.** The shipped behaviour is
->   still **warn-and-skip**, at `internal/macosuser/orchestrator.go:258-268` —
+>   still **warn-and-skip**, at `internal/macosuser/orchestrator.go` —
 >   *"Skipped packages with no `<system>` build … an unknown attr is skipped, not
 >   errored, because a hard error would abort the whole eval."* That parenthetical
 >   is arguing the *original* in-code objection, which A2 already answered:
 >   raise the error **host-side, after the eval**, from the returned skip list.
 > - **Piece 2 (`platforms` / `linux-only` override): NOT BUILT.**
->   `internal/config/derived.go:15-28` `EffectivePackages` still takes no target
+>   `internal/config/derived.go` `EffectivePackages` still takes no target
 >   platform and has no platform conditional. `rg -n 'platforms' internal/config`
 >   is empty.
 > - **What DID land, and changes the target's spelling:** the flake side was
 >   rebuilt system-neutral. `darwinUnavailablePackages` is gone; the attr is now
->   `yoloUnavailablePackages` (`flake.nix:1210`, exposed as
->   `darwinpkg.UnavailableAttr`, `internal/darwinpkg/darwinpkg.go:31`) and the
->   profile is `yoloNoncontainerPackages` (`flake.nix:1204`,
->   `darwinpkg.ProfileAttr`). `internal/darwinpkg/flakeattr_test.go:55` pins both
+>   `yoloUnavailablePackages` (`flake.nix`, exposed as
+>   `darwinpkg.UnavailableAttr`, `internal/darwinpkg/darwinpkg.go`) and the
+>   profile is `yoloNoncontainerPackages` (`flake.nix`,
+>   `darwinpkg.ProfileAttr`). `internal/darwinpkg/flakeattr_test.go` pins both
 >   old names as **dead**. The paragraph below still says
->   `darwinUnavailablePackages` and `orchestrator.go:216-223`; read those as the
+>   `darwinUnavailablePackages` and `orchestrator.go`; read those as the
 >   2026-07-23 spelling — the *mechanism* it describes (flake filters, CLI
 >   decides) is unchanged, only the attr names and line numbers moved.
 >
@@ -325,7 +347,7 @@ Two coupled pieces:
 1. **Aggregated hard error.** When any `packages:` entry has no aarch64-darwin
    build **and is not marked Linux-only** (see #2), the macos-user run **aborts**
    with a message listing *every* such package at once (not one-at-a-time), rather
-   than warning and continuing (`internal/macosuser/orchestrator.go:216-223`
+   than warning and continuing (`internal/macosuser/orchestrator.go`
    today). **Keep the flake filtering as-is** — `flake.nix`'s
    `darwinUnavailablePackages` still computes the skip list, and the buildEnv still
    builds only the available set, so the nix eval does **not** abort (that was the
@@ -358,14 +380,14 @@ item #4 in the design doc.
 > **DONE 2026-07-23** (`68026c61` *drop dead macos_shared_root hint from
 > plan-invariant error*). Verified 2026-08-23: `rg -n macos_shared_root
 > internal/` returns nothing, and the surviving message at
-> `internal/macosuser/runplan.go:286` reads only *"Move it under
+> `internal/macosuser/runplan.go` reads only *"Move it under
 > `SharedRootDefault()`"*. The key was never wired, as decided.
 
 > **Decided 2026-07-23: drop the mention, do not implement the key.**
 > `/Users/Shared/yolo` is the OS-blessed neutral location and covers the real need;
 > the key is read nowhere, so the message advertises a knob that does nothing.
 
-Tiny doc-hygiene-in-code fix: in `internal/macosuser/runplan.go:235-236`, remove
+Tiny doc-hygiene-in-code fix: in `internal/macosuser/runplan.go`, remove
 the "(or set config `macos_shared_root` to another non-home path)" clause so the
 message only tells the user to move the workspace under `SharedRootDefault()`.
 Do **not** wire the key. (The dead `root` parameter on
@@ -391,23 +413,23 @@ finding 6 are jail-developable with Mac-side verification deferred to Track M.
 > RED-then-GREEN tests; J1.1 verified end-to-end in a nested jail.
 
 1. **Runtime resolution unification** (findings 4+5).
-   `internal/runtime/probe.go:29` `DetectRuntime` is env-or-`podman`,
-   darwin-blind; `probe.go:44` `PsRuntime` ignores the config `runtime` key.
-   `yolo ps` loads no config at all (`internal/cli/commands.go:228-236`) and
+   `internal/runtime/probe.go` `DetectRuntime` is env-or-`podman`,
+   darwin-blind; `probe.go` `PsRuntime` ignores the config `runtime` key.
+   `yolo ps` loads no config at all (`internal/cli/commands.go`) and
    its stale-tracking prune can delete live jails' tracking files when it
-   picks the wrong runtime; `yolo prune` (`internal/prune/prunecmd.go:100`,
-   `:141`) enumerates via podman on an Apple Container host. Fix: one resolver
+   picks the wrong runtime; `yolo prune` (`internal/prune/prunecmd.go`,
+  ) enumerates via podman on an Apple Container host. Fix: one resolver
    with run's precedence (env > config > platform probe, cf.
-   `internal/cli/run/preflight.go:89-95`), plumbed into ps and prune wiring.
+   `internal/cli/run/preflight.go`), plumbed into ps and prune wiring.
    Unit tests in the jail; no Mac needed.
 2. **darwinpkg stderr drain** (finding 3).
-   `internal/darwinpkg/materialize.go:83` calls `cmd.Wait()` before the
+   `internal/darwinpkg/materialize.go` calls `cmd.Wait()` before the
    stderr-pump goroutine finishes draining, truncating captured error tails,
    plus an unlocked `stderrTail` race after the 5s timeout. Fix: drain-then-Wait
    (or locked MultiWriter); add a `-race` test with a helper process.
 3. **Builder detached-VM reaping** (finding 2).
-   `internal/builder/real.go:168-189` never `Wait()`s the detached child, so
-   `realProc.Poll` (`real.go:22-34`) can never report `done=true` and the
+   `internal/builder/real.go` never `Wait()`s the detached child, so
+   `realProc.Poll` (`real.go`) can never report `done=true` and the
    "builder process exited early" fast-fail branch is dead code. A Signal(0)
    probe is not enough (unreaped zombie still signals) — fix with a
    Wait-goroutine recording exit state. Note: this landed, but the linux-builder
@@ -426,23 +448,23 @@ container-start regressions.
 > J2.3 `1e68e24`+`544a806`, J2.4/finding-6 `e65993a`.
 
 The dead piece: `internal/macosuser/bootstrap.go` emits a `#!/usr/bin/env
-python3` script (`:77`) that `import entrypoint`s (`:101-102`) a tree staged by
-`StageEntrypointCommands` (`macosuser.go:175-189`) from `RepoSrc =
-repoRoot/src` (`internal/cli/commands.go:345`) — and `src/` no longer exists
+python3` script that `import entrypoint`s a tree staged by
+`StageEntrypointCommands` (`macosuser.go`) from `RepoSrc =
+repoRoot/src` (`internal/cli/commands.go`) — and `src/` no longer exists
 anywhere.
 
 **Design (recommended):** replace the Python bootstrap with **self-exec of the
 `yolo` binary**: stage a copy of the running darwin `yolo`
 (`os.Executable()`) into root-owned, world-readable `/var/yolo-jail/`
 (direct analog of today's staging, same privilege rationale — the host
-checkout may be unreadable to the sandbox uid, `bootstrap.go:99-100`), then run
+checkout may be unreadable to the sandbox uid, `bootstrap.go`), then run
 `sudo --user=_yolojail /usr/bin/env K=V… /var/yolo-jail/yolo internal
 darwin-bootstrap`. Staging must always create a **fresh inode** (`rm -f` +
 `cp`, or copy-to-temp + `mv`) — macOS caches code signatures per vnode, and
 overwriting a previously staged Mach-O in place gets the next exec killed
 (SIGKILL, invalid signature); today's Python-text staging never hit this.
 Env-on-argv visibility matches the existing exposure (LaunchArgv already
-passes the full sandbox env via `/usr/bin/env -i K=V…`, `macosuser.go:317-335`,
+passes the full sandbox env via `/usr/bin/env -i K=V…`, `macosuser.go`,
 and today's bootstrap env is baked into a 0444 root-owned file); secrets
 normally ride `${VAR}` placeholders.
 Why `yolo` and not `yolo-entrypoint`: the host ship set is `{yolo}` only —
@@ -453,65 +475,65 @@ Alternative considered: a Go-generated stdlib-only script — rejected as a
 second implementation of a surface that already exists in Go.
 
 **The generation surface already exists in Go** and is pure in
-`*entrypoint.Env` (`internal/entrypoint/env.go:27-106` — JAIL_HOME-derived,
-exactly the rebinding the Python bootstrap did): GenerateShims (`shims.go:19`),
-GenerateAgentLaunchers (`shims.go:156`), GenerateBashrc (`shell.go:46`),
-GenerateMiseConfig (`mise.go:37`), GenerateMCPWrappers (`mcp_wrappers.go:7`),
-configureGit (`identity.go:12`, unexported), per-agent writers
-via configureAgent (`boot.go:505-522`, unexported). The env-var contract:
-`runplan.go:116-127` assembles six keys (HOST_DIR/BLOCK_CONFIG/MISE_TOOLS/
+`*entrypoint.Env` (`internal/entrypoint/env.go` — JAIL_HOME-derived,
+exactly the rebinding the Python bootstrap did): GenerateShims (`shims.go`),
+GenerateAgentLaunchers (`shims.go`), GenerateBashrc (`shell.go`),
+GenerateMiseConfig (`mise.go`), GenerateMCPWrappers (`mcp_wrappers.go`),
+configureGit (`identity.go`, unexported), per-agent writers
+via configureAgent (`boot.go`, unexported). The env-var contract:
+`runplan.go` assembles six keys (HOST_DIR/BLOCK_CONFIG/MISE_TOOLS/
 LSP_SERVERS/MCP_SERVERS/MCP_PRESETS, matching the container's `-e` contract,
-`internal/cli/run/assemble.go:386-401`) — the full contract additionally
+`internal/cli/run/assemble.go`) — the full contract additionally
 carries the git-identity vars and `YOLO_AGENTS`, and the darwin-bootstrap
 subcommand must **self-set** `JAIL_HOME`/`HOME` before invoking the generators
-(the rebinding today's script does at `bootstrap.go:92-96`; sudo without
+(the rebinding today's script does at `bootstrap.go`; sudo without
 `--set-home` is not a reliable HOME source).
 
 Work items, commit-sized, in order:
 
 1. `refactor(entrypoint):` thread the container literals through `Env` so
    generators are correct for a native home — workspace path (literal
-   `/workspace` in `shell.go:124` bashrcPart3, `mise.go:148`,
-   `agent_configs.go:292/328` gemini, `claude.go:108`), platform-correct shim
-   realBin (`shims.go:71-73` hardcodes `/bin/`; macOS uses `/usr/bin`), BSD
-   `stat -f` vs GNU `stat -c` in launcher templates (`shims.go:282,327,361`).
+   `/workspace` in `shell.go` bashrcPart3, `mise.go`,
+   `agent_configs.go:292/328` gemini, `claude.go`), platform-correct shim
+   realBin (`shims.go` hardcodes `/bin/`; macOS uses `/usr/bin`), BSD
+   `stat -f` vs GNU `stat -c` in launcher templates (`shims.go`).
    No behavior change on Linux — existing goldens prove it.
 2. `feat(entrypoint):` a darwin-native generation entry: export (or wrap) the
    generator set + configureGit/JJ/configureAgent; add Go writers for the two
    pieces that today exist only inside the generated Python text — the
-   `yolo-log` helper (`bootstrap.go:129-133`, content already in Go as
-   `MacosLogWrapperScript`, `macosuser.go:360-384`) and the
+   `yolo-log` helper (`bootstrap.go`, content already in Go as
+   `MacosLogWrapperScript`, `macosuser.go`) and the
    `.zprofile`/`.zshrc`/`.bash_profile` login-rc PATH re-prepend
-   (`bootstrap.go:141-144` — this carries the unverified [OQ-1](runbooks/mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown) path_helper fix).
+   (`bootstrap.go` — this carries the unverified [OQ-1](runbooks/mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown) path_helper fix).
    MCP wrappers: **skip the container presets natively** for now (bodies
    hardcode `/usr/bin/chromium`, `/bin/node`, `/etc/fonts` etc. —
    `mcp_wrappers.go`); document the gap rather than fake darwin variants.
    Decide mise parity here too (SandboxPath already includes mise shims,
-   `macosuser.go:275`; generating the config is cheap — keep parity).
+   `macosuser.go`; generating the config is cheap — keep parity).
 3. `feat(macosuser):` swap the launch path: stage-binary commands replace
    `StageEntrypointCommands`; `BootstrapArgv` becomes the self-exec form; drop
    the Python interpreter machinery (pythonCandidates/ResolvePython,
-   `macosuser.go:60-64,148-158`, interp fallback `runplan.go:107-112`);
-   replace plan invariants B2/B3 (`runplan.go:173-190`) with Go-shaped ones;
+   `macosuser.go`, interp fallback `runplan.go`);
+   replace plan invariants B2/B3 (`runplan.go`) with Go-shaped ones;
    extend the dry-run plan assertions (`orchestrator_test.go` — note there is
    no byte-golden for the macos-user plan today; creating one is a J2.3
    deliverable, with [§1](runbooks/mac-go-port-verification.md#1-macos-user-backend--dry-run-parity-no-privilege-do-this-first) of the verification runbook staying the manual
    anchor); update
    `internal/cli/check/sections_macos.go` interpreter probes and the
-   macos-setup python3 warning (`internal/macosuser/commands.go:53-63`);
-   remove `RepoSrc` plumbing (`commands.go:345` — keep the repoRoot handoff to
-   darwinpkg's `MaterializeDarwin(parentDir(...))`, `orchestrator.go:186-188`,
+   macos-setup python3 warning (`internal/macosuser/commands.go`);
+   remove `RepoSrc` plumbing (`commands.go` — keep the repoRoot handoff to
+   darwinpkg's `MaterializeDarwin(parentDir(...))`, `orchestrator.go`,
    which still needs the flake when `packages:` is non-empty).
-4. `fix(macosuser):` finding 6 — `setRandomPasswordReal` (`real.go:123-135`)
+4. `fix(macosuser):` finding 6 — `setRandomPasswordReal` (`real.go`)
    passes the password via parent env that sudo's `env_reset` strips, so the
    sandbox user gets an **empty** password. Fix direction: pass via stdin to
    the root shell (`sudo /bin/sh -c 'read -r pw; dscl . -passwd … "$pw"'` with
    a `strings.NewReader` stdin — the exact pattern `installRootFileReal`
-   already uses, `real.go:86-92`); never via argv (leaks in `ps`). No
+   already uses, `real.go`); never via argv (leaks in `ps`). No
    credential dance needed: SetRandomPassword runs right after ~18 consecutive
-   sudo commands in the create-user branch (`commands.go:29-36`), and sudo
+   sudo commands in the create-user branch (`commands.go`), and sudo
    prompts on `/dev/tty` anyway. Also wire the **discarded return value**
-   (`commands.go:36` drops SetRandomPassword's boolean) so failure is loud —
+   (`commands.go` drops SetRandomPassword's boolean) so failure is loud —
    without that, even the fixed mechanism fails silently. Argv-construction
    unit tests in the jail; behavioral verification (password actually applied;
    `dscl` empty-string semantics) is a Track M checklist item.
@@ -548,15 +570,15 @@ section above as A1 once the maintainer decided to fix it.)*
 Per `docs/research/repo-root-and-distribution.md`: the Python wheel bundled
 and rehydrated the source tree; the Go port kept the staging code but no Go
 channel ships a bundle, so resolution step 3 is structurally dead and
-installed-only binaries exit at `internal/cli/run/run.go:30-32` ("Cannot find
+installed-only binaries exit at `internal/cli/run/run.go` ("Cannot find
 yolo-jail repo root") before doing anything — including before the macos-user
-branch at `run.go:51-63`, which doesn't even need an OCI image. The doc's fix
+branch at `run.go`, which doesn't even need an OCI image. The doc's fix
 options are complementary; sequence them:
 
 1. **D1 (now, tiny): `just deploy` writes `repo_path`** into user config,
    idempotently and loudly (print what was written). Fixes every from-source
    install — which is all current installs. Also **align `yolo check`'s
-   repo-root resolver** (`internal/cli/check/probes.go:320-351`, steps 1–2
+   repo-root resolver** (`internal/cli/check/probes.go`, steps 1–2
    only) with run's five steps so check and run stop disagreeing for
    repo_path-only users.
    **Status (2026-07-20): DONE + committed** (`feat(install): just deploy
@@ -583,7 +605,7 @@ options are complementary; sequence them:
    no longer a hard gate: `run.go` resolves it, and on a miss the launch proceeds
    degraded. `image.AutoLoadOptions.SkipBuild` (set when `repoRoot==""`) skips the
    nix build and jumps straight to the existing-image / cached-tar fallback
-   (`autoload.go:133-167`, now reachable in this scenario); the assembler drops
+   (`autoload.go`, now reachable in this scenario); the assembler drops
    the `/opt/yolo-jail:ro` bind + `YOLO_REPO_ROOT` env behind one `repoBound`
    gate; `Run` prints a soft notice instead of exiting 1. Nested-jail verified
    both paths (normal binds + rebuild; degraded → cached image with neither).
@@ -597,7 +619,7 @@ options are complementary; sequence them:
    - `macos-user` with empty `packages:` needs no repo at all once J2 lands
      (self-exec bootstrap): defer the repo-root hard-exit until a consumer
      actually needs the tree (image build, darwinpkg materialize, `/opt`
-     bind), instead of unconditionally at `run.go:30`.
+     bind), instead of unconditionally at `run.go`.
      ⚠ **The premise expired on 2026-09-12.** An empty `packages:` no longer
      means no nix work: every macos-user launch materializes the non-container
      floor ([`../reference/macos-user-provisioning.md`](../reference/macos-user-provisioning.md)),
@@ -606,12 +628,12 @@ options are complementary; sequence them:
      of `Run` — it is only the exemption that is gone.
    - Container path: when resolution fails but `autoLoadImage`'s existing
      fallbacks would succeed (already-loaded runtime image, newest cached tar —
-     `internal/image/autoload.go:133-162`, currently unreachable in this
+     `internal/image/autoload.go`, currently unreachable in this
      scenario), warn and run on the cached image rather than exiting. The
      degraded launch must **skip the nix build entirely** (never run
      `nix build` with an empty `cmd.Dir`, i.e. in the user's cwd —
-     `autoload.go:227-241`), skip the `/opt/yolo-jail:ro` bind and its
-     `YOLO_REPO_ROOT` env (`assemble.go:180`, `:403` — an empty repoRoot
+     `autoload.go`), skip the `/opt/yolo-jail:ro` bind and its
+     `YOLO_REPO_ROOT` env (`assemble.go` — an empty repoRoot
      yields a malformed `-v` arg), and let the banner fall back to the
      ldflags-stamped buildVersion. Verify with a nested-jail run — this is a
      container-start behavior change.
@@ -633,7 +655,8 @@ options are complementary; sequence them:
    **⚠ Both halves of that last sentence are stale (checked 2026-08-23).** D2
    was reverted on 2026-07-29 (`5d34dece`, see D2 above), and D4's Cachix
    *account* is done — what remains there is the first push + the Mac download
-   proof.
+   proof. *(And the push happened too — settled 2026-09-02; only the Mac download proof is
+   left.)*
    **Superseded (2026-07-23) by the prebuilt-bundle cutover.** The source-tree /
    `git archive` bundle and `stageInstalledWheel` FLAT staging (and the
    `nix-build-root` staging dir) are **gone**. The shipped/baked bundle is now
@@ -646,7 +669,7 @@ options are complementary; sequence them:
    as the *source-bundle* era, not the current model
    (`docs/research/repo-root-and-distribution.md` is authoritative):
    - Define the bundled layout: `share/yolo-jail/` must contain the `goSrc`
-     fileset the flake needs (`flake.nix:65-80`: go.mod, go.sum, `vendor/`,
+     fileset the flake needs (`flake.nix`: go.mod, go.sum, `vendor/`,
      `cmd/`, `internal/`, `bundled_loopholes/` — *that last entry no longer
      exists; the directory and its embed were deleted 2026-08-19 when every
      loophole became a pack contribution, and `packs/` took its place in the
@@ -658,9 +681,9 @@ options are complementary; sequence them:
      export-ignore attrs, no self.rev usage — a non-git archive tree
      evaluates fine as a path flake.)
    - Rewrite `stageInstalledWheel`'s wheel-era pieces: the
-     `src/cli/__init__.py` idempotence marker (`probes.go:138-139`) can never
+     `src/cli/__init__.py` idempotence marker (`probes.go`) can never
      match a Go bundle (today staging re-runs every launch if a bundle ever
-     appears), and staging into `buildRoot/src` (`probes.go:161`) is a
+     appears), and staging into `buildRoot/src` (`probes.go`) is a
      Python-shaped layout. New marker: `flake.nix` + `go.mod` + a version
      stamp; re-stage on version change.
    - Ship the bundle in the goreleaser archive + brew formula; measure size
@@ -670,22 +693,25 @@ options are complementary; sequence them:
      (`internal/cli/run/probes_test.go`): a bundled `share/yolo-jail/`
      resolves via step 3; the no-bundle case still errors actionably.
 4. **D4 (gated on the Cachix account): the substituter is enabled**
-   (`flake.nix:13-16`, `730c258`). The `publish.yml` cache-push job
+   (`flake.nix`, `730c258`). The `publish.yml` cache-push job
    already exists and self-enables once `CACHIX_AUTH_TOKEN`/`CACHIX_CACHE`
-   are configured (`publish.yml:83-102`), so remaining D4 = human Cachix
+   are configured (`publish.yml`), so remaining D4 = human Cachix
    account + `CACHIX_AUTH_TOKEN` secret + first push + Mac download. Removes
    the compile; composes with D3 (flake evaluation still needs a local tree).
    **Rechecked 2026-08-23 — the gate has narrowed.** The substituter block is
-   still live at `flake.nix:13-16`, and yolo now passes `--accept-flake-config`
+   still live at `flake.nix`, and yolo now passes `--accept-flake-config`
    on every nix invocation so the flake's own cache is actually consulted
-   (`internal/image/nixflags.go:35`, `internal/darwinpkg/darwinpkg.go:91`).
+   (`internal/image/nixflags.go`, `internal/darwinpkg/darwinpkg.go`).
    [`handoff-cachix-cache.md`](handoff-cachix-cache.md) records the **cache, the account and the
    `CACHIX_AUTH_TOKEN` secret as all done (2026-07-20)** — so "gated on the
    Cachix account" is no longer true. Left: the **first push** and the **Mac
-   download proof**. Sources disagree on the first (`docs/plans/README.md:31`
+   download proof**. Sources disagree on the first (`docs/plans/README.md`
    says CI has already pushed; [`handoff-cachix-cache.md`](handoff-cachix-cache.md) still lists it as
    remaining) and **neither is verifiable from a Linux jail** — it needs eyes on
    the cache or on a release run.
+   **SETTLED 2026-09-02, from a release run's log:** the first push happened on `v0.8.0`
+   (2026-08-13) and every release since has pushed; only the **Mac download proof** is left
+   ([`handoff-cachix-cache.md`](handoff-cachix-cache.md)).
 
 D1 is a today-sized commit. D2 pairs naturally with J2 step 3 (both touch the
 run front door and the RepoSrc contract). D3 is independent and jail-testable
@@ -767,7 +793,7 @@ The bullets below are the original plan; see that runbook for what actually ran.
 
 ## Track L — loophole framework on macos-user (future; use-case-gated)
 
-> **Status: STARTED 2026-09-15, one loophole deep. Sequencing UNCHANGED** — recorded 2026-07-23 from the
+> **Status: HOST HALF DONE 2026-09-17, JAIL HALF BLOCKED on [`OQ-DP8`](../design/declaration-parity.md#OQ-DP8) and [`OQ-DP9`](../design/declaration-parity.md#OQ-DP9). Sequencing UNCHANGED** — recorded 2026-07-23 from the
 > `macos-user-nix-and-features.md` [§3.5](../reference/macos-user-nix-and-features.md#loopholes-mostly-moot-and-the-framework-ports-better) discussion, still a forward-looking
 > capability and not a revival blocker.
 >
@@ -795,13 +821,16 @@ The bullets below are the original plan; see that runbook for what actually ran.
 > endpoint file, so the primitive built ahead of the rest has a production caller
 > and the ACE grant it emits is [`backend-parity.md`](../design/backend-parity.md)'s
 > [OQ-BP-5](../design/backend-parity.md#OQ-BP-5) answered in code rather than by a
-> ruling. What has NOT changed is the part that makes this a *framework*: the
-> generic lifecycle (`startLoopholesDisclosed` → `startLoopholes`) is still
-> reachable only from `runContainer`, this arm still returns above it, and
-> `notePackLoopholesInert` still reports every other pack loophole as inert here.
-> So part 1's remaining work is widening a hardcoded allow-list of one name into
-> the disclosure-bound gate every other backend's loopholes go through — not
-> building the transport, which now exists and runs.
+> ruling. ⚠ **The rest of this paragraph was stale from 2026-09-17 to 2026-09-24**: it said the
+> generic lifecycle was still reachable only from `runContainer` and that part 1's remaining work
+> was widening a one-name allow-list. `c28bfde7` did that widening — the arm now calls
+> `startLoopholesDisclosed` itself (`run.Run`'s macos-user branch), and `notePackLoopholesInert`
+> takes the whole pack set, reporting only the PLATFORM-inert loopholes. What part 1 still owes
+> is the JAIL half: every shipped `jail_daemon` is declined by name
+> (`run.noteMacosUserJailDaemonDeclines`), and starting one natively is
+> [`jail-daemon-on-macos-user-plan.md`](../design/jail-daemon-on-macos-user-plan.md)'s steps 3
+> and 4, blocked on [`OQ-DP8`](../design/declaration-parity.md#OQ-DP8) (how the argv resolves with
+> no image) and [`OQ-DP9`](../design/declaration-parity.md#OQ-DP9) (whether it runs confined).
 
 > [!WARNING]
 > **The "three bundled loopholes" framing below is superseded, and the count is
@@ -812,6 +841,16 @@ The bullets below are the original plan; see that runbook for what actually ran.
 > intact (a native process makes `audio`/`host-processes` moot, and the shared
 > `/Users/_yolojail` home makes the OAuth broker redundant); only the noun
 > "bundled" and the number "three" are stale. See `AGENTS.md`.
+>
+> ⚠ **One clause of that argument did NOT survive**, and it is the broker one. *"The shared
+> home makes the OAuth broker redundant"* answers credential-file SHARING only — which is the
+> `shared_credentials` hook on every backend, not the home
+> ([`../reference/macos-user-home-tiers.md`'s retraction](../reference/macos-user-home-tiers.md#retraction)).
+> It says nothing about refresh SERIALIZATION, which [`OQ-BP-4`](../design/backend-parity.md#decision-ledger)
+> (2026-09-14) found live on macos-user too. The broker's host daemon now starts here; its TLS
+> terminator is a `jail_daemon` this backend declines, so refreshes are still not serialized —
+> and whether that terminator should exist anywhere is
+> [`OQ-CI1`](../reference/claude-oauth-interposition.md#oq-ci1)'s question.
 
 The three *bundled* loopholes don't need porting to macos-user (see
 [macos-user-nix-and-features.md §3.5](../reference/macos-user-nix-and-features.md#loopholes-mostly-moot-and-the-framework-ports-better):
@@ -1065,7 +1104,7 @@ DONE:  J1.1 J1.2 J1.3† J1.4  D1‡ ─►  J2.1 J2.2 J2.3 J2.4 + D2✗ ──�
 mac:                           └─ M0 (SandVault)     └─ M1 (e2e verify) ──► M2 (dogfood, docs)
 
 DONE (A-track):  A1 ✅ 2026-08-18   A2 ✅ 2026-09-04   A3 ✅ 2026-07-23
-NOW:             Track L part 1 (framework plumbing on the macos-user launch path) — STARTED, one loophole deep
+NOW:             Track L part 1 — host half DONE 2026-09-17; jail half blocked on OQ-DP8 + OQ-DP9 (declaration-parity.md)
 LATER:           Track L part 2 (the scoping proxy) — gated on OQ-L1
 
 † J1.3's fix landed and was then deleted with `internal/builder` (Open Decision #3).
@@ -1073,8 +1112,9 @@ LATER:           Track L part 2 (the scoping proxy) — gated on OQ-L1
 ✗ D2 was REVERTED 2026-07-29 — a missing repo root is fatal again.
 ```
 
-**The one live engineering item is Track L part 1** — the loophole framework on the
-macos-user launch path; see §Self-hosting. *(This line named A2's second half until
+**The one live engineering item is Track L part 1's jail half** — running a `jail_daemon` on
+the macos-user launch path, blocked on two rulings; see
+[`jail-daemon-on-macos-user-plan.md`](../design/jail-daemon-on-macos-user-plan.md). *(This line named A2's second half until
 2026-09-10, which A2 shipping on 2026-09-04 made wrong — see the note under the
 status header.)* A2 still carries a Track M checklist line: confirm the hard error
 fires live on a genuinely darwin-less package, never exercised on M1 and not covered
@@ -1128,10 +1168,10 @@ Verified 2026-09-10.
    **STILL OPEN, and the tree took neither branch (found 2026-08-23).** J2 step 2
    below says *"skip the container presets natively for now … document the gap
    rather than fake darwin variants."* That is not what ships:
-   `internal/entrypoint/darwin.go:59` runs `GenerateMCPWrappers` as an
+   `internal/entrypoint/darwin.go` runs `GenerateMCPWrappers` as an
    unconditional `genStep`, and the wrapper bodies are Linux-absolute —
-   `/usr/bin/chromium` (`mcp_wrappers.go:39`), `exec /bin/node`
-   (`mcp_wrappers.go:74`), `/etc/fonts/fonts.conf` (`:26-27`, `:72-73`) — with no
+   `/usr/bin/chromium` (`mcp_wrappers.go`), `exec /bin/node`
+   (`mcp_wrappers.go`), `/etc/fonts/fonts.conf` — with no
    `GOOS` guard anywhere in the file. So a macos-user home gets three executable
    wrappers pointing at paths that do not exist on macOS. **Harmless until
    something execs one**, which is why it has not surfaced; the decision is now
@@ -1152,9 +1192,13 @@ Verified 2026-09-10.
    aggregated hard error + a per-platform `linux-only` override. Now tracked as
    **A2** in the "Active work" section above.
    **⚠ Decided but NOT SHIPPED, rechecked 2026-08-23.** The code still
-   warn-and-skips (`internal/macosuser/orchestrator.go:258-268`) and the override
-   does not exist (`internal/config/derived.go:15-28`). This is the one decision
+   warn-and-skips (`internal/macosuser/orchestrator.go`) and the override
+   does not exist (`internal/config/derived.go`). This is the one decision
    in this list whose ruling the tree does not yet reflect.
+   **SHIPPED 2026-09-04 as A2** — the recheck above is the 2026-08-23 state: `platforms` on the
+   package object form filters in `EffectivePackages(cfg, platform)`, and a declared package
+   missing from the build aborts the launch naming every one (see the A2 row of the status
+   table).
 
 ## Open questions (blocking)
 
@@ -1191,15 +1235,17 @@ Verified 2026-09-10.
 - **sandbox-exec deprecation and AC's non-reclaiming memory balloon:** accepted,
   on record, no action. *(Unchanged.)*
 - **NEW — `x86_64-darwin` is on a clock.** nixpkgs 26.11 has **dropped** it, so
-  the flake pins `nixpkgs-26.05-darwin` for that one system (`flake.nix:22-42`,
+  the flake pins `nixpkgs-26.05-darwin` for that one system (`flake.nix`,
   `927fb9f`). 26.05 is the last supporting branch and is security-fixed only to
   **end of 2026**. The macOS nightly must run on `macos-26-intel`
-  (`.github/workflows/nightly-macos.yml:50`) because GitHub's Apple Silicon
+  (`.github/workflows/nightly-macos.yml`) because GitHub's Apple Silicon
   runners cannot nest a VM for Podman Machine — so when 26.05 lapses the choice
   is a self-hosted arm64 Mac runner or macos-user-only macOS tests. A deadline,
   not a bug.
 - ~~**NEW — the Mac that proved Track M has drifted off the product.**~~ —
-  **LARGELY CLOSED 2026-09-03.** The binary is current (HEAD) and the config is
+  **CLOSED 2026-09-10** (`c55b6571` expands `~` in a plain-path local pack source, and the
+  launch happened — see the 2026-09-10 note under the status header). The rest of this bullet
+  is the 2026-09-03 state. **LARGELY CLOSED 2026-09-03.** The binary is current (HEAD) and the config is
   on `packs`. What survives is narrower and different in kind: the config's
   `file://` pack sources are absolute **Linux** paths in a dotfiles tree shared
   with the Linux host, and yolo expands neither `~` nor env vars in a local pack

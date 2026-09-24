@@ -3,7 +3,7 @@ title: "One declaration, many mechanisms — and the four inputs that decide whi
 date: 2026-09-12
 status: in-review
 tags: [confinement, notches, backends, macos-user, guest, parity, silent-drop]
-summary: "The maintainer's principle already holds where it is built: `packages:` ships three mechanisms behind one key. But it quantifies over a composed primitive vector, not over a backend, and that vector has FOUR inputs — notch, mechanism, platform, and which verb is running — of which two are now named, one is a plain word, and one is deliberately nameless. This is the catalog of every declaration a site accepts and does not honor, sorted into four dispositions. Four of its questions were ruled in review on 2026-09-12, a fifth dissolved, and the last two ruled on 2026-09-13; none are live."
+summary: "The maintainer's principle already holds where it is built: `packages:` ships three mechanisms behind one key. But it quantifies over a composed primitive vector, not over a backend, and that vector has FOUR inputs — notch, mechanism, platform, and which verb is running — of which two are now named, one is a plain word, and one is deliberately nameless. This is the catalog of every declaration a site accepts and does not honor, sorted into four dispositions. Four of its questions were ruled in review on 2026-09-12, a fifth dissolved, and two more ruled on 2026-09-13. Two are live again since 2026-09-21 — OQ-DP8 and OQ-DP9, how a macos-user jail daemon's argv resolves with no image and whether it runs confined."
 vantage:
   status-chip: true
 ---
@@ -49,16 +49,18 @@ merely omit: they make the agent's own briefing assert the opposite of what ran.
 `(declaration × site)` rather than on a backend.
 
 **Cost.** Of the four rulings landed on 2026-09-12: one is free (vocabulary), one is a
-threading change, one is roughly ten lines, and one is a delivery mechanism that does not
-exist. The two live questions decide the disclosure shape for everything else and one
-host-exec call. Nothing here builds the `guest` notch.
+threading change, one is roughly ten lines, and one is a delivery mechanism that did not
+exist then and was built on 2026-09-13 ([§11](#11-what-i-would-build-in-order)). The two live
+questions, [OQ-DP8](#OQ-DP8) and [OQ-DP9](#OQ-DP9), decide how a `macos-user` jail daemon's
+argv resolves and whether it runs confined. Nothing here builds the `guest` notch.
 
 **Start at [§5](#5-silently-broken)** — the bucket that is a defect whichever way the
 principle is settled.
 
-**Every question is ruled.** Four on 2026-09-12, a fifth dissolved the same day, and the last
-two — [OQ-DP5](#OQ-DP5) and [OQ-DP7](#OQ-DP7) — on 2026-09-13. All live in the
-[Decision Ledger](#decision-ledger). What remains is build order, not design.
+**The original seven are ruled; two filed later are not.** Four on 2026-09-12, a fifth
+dissolved the same day, and [OQ-DP5](#OQ-DP5) and [OQ-DP7](#OQ-DP7) on 2026-09-13 — all in the
+[Decision Ledger](#decision-ledger). [OQ-DP8](#OQ-DP8) and [OQ-DP9](#OQ-DP9), filed 2026-09-21,
+are [open](#open-questions); everything else is build order, not design.
 
 **Reads with:** [`backend-parity.md`](backend-parity.md) (the same idea on ONE input; it owns
 the backend census and its own questions, which this doc does not re-open),
@@ -1262,16 +1264,22 @@ three. So the briefing fixes land together or not at all.
    and every macos-user row — waits for a Mac.
 
 > [!CAUTION]
-> **Nothing in this catalog is verifiable from in-jail, and the macOS instruments are down.**
-> Every macos-user row is ruled against reading, not against measurement: the nightly macOS
-> integration job has failed every run since 2026-09-04, `internal/darwinpkg/floor_test.go`'s
-> own header says *"nothing here claims the resulting closure behaves on hardware,"* and
-> [`macos-user-manual-checks.md`](../plans/runbooks/macos-user-manual-checks.md) items 5-10
-> have never been run. A nested jail is structurally blind to the host-loopback and
-> rootless-only classes (`AGENTS.md`, both CARVE-OUTs). Linux CI is green throughout, so
-> nothing announces the gap. **Two macos-user launch warnings were retired on 2026-09-12 on
-> the strength of code that has never executed** — if a Mac says the floor or the provisioning
-> stage does not work, a carve-out that is currently un-declared re-opens.
+> **Nothing in this catalog is verifiable from in-jail.** Every macos-user row was ruled
+> against reading, not against measurement, and when this was written (2026-09-12) the macOS
+> instruments were down: the nightly macOS integration job had failed every run since
+> 2026-09-04 and [`macos-user-manual-checks.md`](../plans/runbooks/macos-user-manual-checks.md)
+> items 5-10 had never been run. ⚠ **That has since changed, and a row is still not measured
+> because an instrument exists** — the dedicated `macos-user` CI job
+> ([`.github/workflows/macos-user.yml`](../../.github/workflows/macos-user.yml)) now runs on a
+> schedule, the runbook's own status line says which of its items it runs unattended, and it
+> measured in-sandbox `nix` on 2026-09-24
+> ([reference](../reference/macos-user-nix-and-features.md#nix-inside-the-sandbox)). But
+> `internal/macosuser/floor_test.go`'s header still says *"nothing here claims the resulting
+> closure behaves on hardware,"* and a nested jail is structurally blind to the host-loopback
+> and rootless-only classes (`AGENTS.md`, both CARVE-OUTs). **Two macos-user launch warnings
+> were retired on 2026-09-12 on the strength of code that had never executed** — if a Mac says
+> the floor or the provisioning stage does not work, a carve-out that is currently un-declared
+> re-opens.
 
 ---
 
@@ -1283,7 +1291,8 @@ three. So the briefing fixes land together or not at all.
 [`DP-L3`](#decision-ledger) approved the mechanism for starting a `jail_daemon` on `macos-user`
 and left two things unsettled that a builder cannot proceed without; the plan that hangs off it
 declined to decide them in a plan, which was right, and they are filed here. They are the reason
-[📦 rows 1 and 2](../plans/roadmap.md) cannot be built.
+steps 3 and 4 of that plan — the daemon actually running natively — cannot be built, and
+[`roadmap.md`](../plans/roadmap.md) routes both through one 💬 row.
 
 The original seven are all ruled. The review of 2026-09-12 ruled four and dissolved a fifth; the last two —
 [OQ-DP5](#OQ-DP5) from the original catalog and [OQ-DP7](#OQ-DP7) raised by
@@ -1298,7 +1307,8 @@ approval, not a decision — see [§3](#3-the-four-dispositions-and-how-to-walk-
    `yolo-jaild openai-auth-adapter --listen 127.0.0.1:1460`. `macos-user` has no image, so the
    argv as declared cannot be executed, and this decides what runs instead. It also decides
    whether `{jail_loophole_dir}` becomes backend-parameterised, which is what the `hello-daemon`
-   subject turns on. **It gates [📦 rows 1 and 2](../plans/roadmap.md) and nothing else does.**
+   subject turns on. **With [OQ-DP9](#OQ-DP9), it gates steps 3 and 4 of
+[`jail-daemon-on-macos-user-plan.md`](jail-daemon-on-macos-user-plan.md#build-order).**
 
    <!-- vantage: oq id=OQ-DP8 leaning="Give yolo the in-jail dispatch and rewrite argv[0]. The in-jail daemons already dispatch on plain args[0] rather than argv[0] or a symlink, so the dispatch is portable as written; it keeps the host ship set at {yolo}, which AGENTS.md states as a property rather than an accident; and it adds no generated in-jail client, which the transport unification exists to prevent. The visible cost is that a declared cmd is no longer literally executable on this backend, which has to be disclosed rather than hidden." -->
 

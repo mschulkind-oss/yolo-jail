@@ -170,24 +170,24 @@ names each of them:
 - **A symlink does not fix that.** Both binaries dispatch on plain `args[0]`, never `argv[0]` —
   stated in [`cmd/yolo-jaild/main.go`](../../cmd/yolo-jaild/main.go), so `yolo-jaild supervise`
   through a symlink reaches `yolo supervise`, which is not a command.
-- **`DP-L3`'s literal prescription starts the daemon unconfined.** `DarwinBootstrapArgv`
-  ([`runplan.go:166`](../../internal/macosuser/runplan.go#L166)) has no `sandbox-exec` in it, and
+- **`DP-L3`'s literal prescription starts the daemon unconfined.** `macosuser.DarwinBootstrapArgv`
+  ([`runplan.go`](../../internal/macosuser/runplan.go)) has no `sandbox-exec` in it, and
   the bootstrap is a one-shot process that exits — so setting the payload in `buildBootstrapEnv`
   would produce an orphan outside the Seatbelt profile. Advice: treat `DP-L3` as approving the
   hoist and the process model, not the placement.
 - **Two container mount paths have no native analogue.** `loopholedecl.JailLoopholeDir` returns
   `/etc/yolo-jail/loopholes/<name>` and [`load.go`](../../internal/loopholes/load.go) substitutes
-  `{jail_loophole_dir}` into `cmd` before any backend is known; `runtime.go:213-239` mounts that dir
-  `:ro` plus the declared `state_files` for any loophole with a jail daemon. The staged pack tree
+  `{jail_loophole_dir}` into `cmd` before any backend is known; the container runtime args in
+  [`runtime.go`](../../internal/loopholes/runtime.go) mount that dir `:ro` plus the declared `state_files` for any loophole with a jail daemon. The staged pack tree
   (`RunPlan.PackRoot`) is where those bytes actually are here — and the load-time refusal that
   `settings` plus `jail_daemon` must declare `state_files` guards a hazard with no mechanism
   natively.
-- **A spawn failure is invisible today.** `supervisor.superviseOne`
-  ([`supervisor.go:218`](../../internal/supervisor/supervisor.go#L218)) binds the error from
-  `c.start()` and never reads it, then backs off and retries for the life of the jail whatever
-  `restart` says — while `openLog` has already created an empty log. The symptom of a wrong
-  `argv[0]` is therefore **an empty log and no process**, and that is the first thing this work
-  will produce. See [Blockers](#blockers).
+- **A spawn failure is now readable — it was not when this plan was written.** Until
+  2026-09-18 (`eb02ad86`) `supervisor.superviseOne` threw `c.start()`'s error away and retried for
+  the life of the jail whatever `restart` said, so a wrong `argv[0]` presented as an empty log and
+  no process. It now writes a `spawn failed:` line into the daemon's own log and lets the restart
+  policy decide, which is what makes step 4's first run debuggable. See
+  [Blockers](#blockers).
 - **`1460` is the machine's real loopback here.** `sharesLauncherNetns` returns true for every
   entry in `paths.NativeRuntimes`, and `noteMacosUserPortKeys` already tells users that a port the
   sandbox binds "IS published on this machine's real interfaces". The port is a manifest literal,
@@ -239,7 +239,7 @@ against them.
 | 1 | **done** — the container argv is byte-identical either way, and the gate still drops an unapproved pack (`TestJailDaemonPayloadArgvIsByteIdentical`, `TestJailDaemonsHonorsTheOriginGate`). Mutation: delete the producer call from `runtimeArgsFor` and the container test fails | — | — |
 | 2 | **done** — that one decline line is emitted per declared daemon, asserted by driving `Run` rather than the printer, so deleting the call from the native arm fails the tests | that the line appears on a real launch | — |
 | 3 | `yolo <subcommand> --version`-class dispatch only; no daemon is started by a test | that the resolved path is executable as the sandbox account | — |
-| 4 | the argv shape: `sandbox-exec -f <profile>` present, wrapped by `ExecWithEnvFile`, no composed value on the argv, and `PlanInvariants` refusing a payload with no argv | `TestMacosUserJailDaemonStarts` in [`integration/macosuserjaildaemon_test.go`](../../integration): with `hello-daemon` enabled, `~/.local/state/yolo-jail-daemons/hello-daemon.log` exists **and is non-empty** (empty is the spawn-failure symptom), and no supervisor survives the session | two concurrent launches of one workspace, for the `1460` collision; and whether Codex actually refreshes through the adapter — no automated test may start an agent |
+| 4 | the argv shape: `sandbox-exec -f <profile>` present, wrapped by `ExecWithEnvFile`, no composed value on the argv, and `PlanInvariants` refusing a payload with no argv | `TestMacosUserJailDaemonStarts` in [`integration/macosuserjaildaemon_test.go`](../../integration): with `hello-daemon` enabled, `~/.local/state/yolo-jail-daemons/hello-daemon.log` exists **and carries no `spawn failed:` line** (the supervisor's own report of a bad `argv[0]`), and no supervisor survives the session | two concurrent launches of one workspace, for the `1460` collision; and whether Codex actually refreshes through the adapter — no automated test may start an agent |
 | 5 | `vantage-check` link and anchor resolution | — | — |
 
 ## Ships with
@@ -271,8 +271,8 @@ against them.
     closed both in its row and in [§11](declaration-parity.md#11-what-i-would-build-in-order)'s
     note, the authority that doc names for which rows a wave closed. `DP-L3` stays **approved and
     unbuilt**, which is correct — steps 3 and 4 are what would build it.
-- **Roadmap:** 📦 row 5 of [`roadmap.md`](../plans/roadmap.md) moves in the same commit as this
-  file's status.
+- **Roadmap:** the "Start `jail_daemon` on `macos-user`" row of
+  [`roadmap.md`](../plans/roadmap.md)'s 📦 table moves in the same commit as this file's status.
 - **Cheap and yours:** the producer's return type (`[]any` matching today's payload is fine — it is
   serialized immediately); the new file's name; one decline line per daemon or per pack.
 
@@ -313,17 +313,16 @@ against them.
 - **Don't reach for `SO_PEERCRED`** to replace the ACL grant: peer credentials verify, file
   permissions restrict, and restriction is the half a boundary needs
   ([threat model](../reference/loophole-transport.md#threat-model)).
-- **Don't fix the supervisor here.** It is its own roadmap item; conflating them means the first
-  native spawn debugs two things at once.
+- **Don't touch the supervisor here.** Its spawn-failure fix shipped separately on 2026-09-18
+  (`eb02ad86`); a native spawn that fails should be read from its log, not fixed in `supervisor`.
 
 ## Blockers
 
 **FILED 2026-09-21** as [OQ-DP8](declaration-parity.md#OQ-DP8) and
 [OQ-DP9](declaration-parity.md#OQ-DP9), against
 [`DP-L3`](declaration-parity.md#decision-ledger) — which is where they belong, because a plan is
-not where a decision hides. They had been stated only here for four days, which is why
-[💬 row 23](../plans/roadmap.md) carried no question id and looked like a row with nothing to
-rule.
+not where a decision hides. They had been stated only here for four days, which is why the roadmap's 💬 row for them
+carried no question id and looked like a row with nothing to rule.
 
 Steps 3 and 4 are not buildable until both are answered. The full stakes, the candidate table and
 the leanings live with the questions; in one line each:
@@ -334,10 +333,11 @@ the leanings live with the questions; in one line each:
 2. **[OQ-DP9](declaration-parity.md#OQ-DP9) — whether the daemon runs under the Seatbelt
    profile.**
 
-**Dependency, not a blocker:** 📦 row 2 of [`roadmap.md`](../plans/roadmap.md) — the supervisor
-swallowing a spawn failure. Land it first; otherwise step 4's first run reports an empty log and no
-process for any cause, which is unreadable.
+**Dependency — CLEARED 2026-09-18 (`eb02ad86`):** the supervisor swallowing a spawn failure. It
+now logs `spawn failed:` and obeys the restart policy, so step 4's first run is readable.
 
 **Adjacent:** whether an official pack can ship an executable at all — an embedded pack's files
 come back `0444` from `embed.FS`. That bounds the `hello-daemon` subject to a path-configured pack
-and is 💬 row 17 of [`roadmap.md`](../plans/roadmap.md).
+and is [`OQ-BP5`](broker-as-a-pack.md#OQ-BP5), routed through [`roadmap.md`](../plans/roadmap.md)'s 💬 table.
+It still holds after the embedded tree became one leased on-disk tree per build: that tree is
+sealed read-only (`packload.sealEmbeddedTree`), so its files are still `0444`.

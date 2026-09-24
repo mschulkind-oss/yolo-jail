@@ -1,20 +1,22 @@
 # Threat model: the macos-user host-side nix build step
 
-**Status:** DESIGN, 2026-07-22 — a threat model, re-verified 2026-08-23 — **and OVERTAKEN on its sharpest vector on
+**Status:** DESIGN, 2026-07-22 — a threat model, re-verified 2026-08-23 and 2026-09-24 — **and OVERTAKEN on its sharpest vector on
 2026-08-31.** `46655873` (*"stop letting the cwd choose which flake yolo builds"*) removed the
 cwd walk-up from `internal/reporoot` entirely, for source-skew hygiene rather than for this threat
 model — resolution is now `YOLO_REPO_ROOT` env → exe-relative bundle → staged install bundle, with
-**no cwd read anywhere** (`reporoot.go:95-117`; the package doc at `:7-29` records the removal).
-The same `Resolve` feeds the macos-user build (`run.go` → `MacosUserRun` →
-`darwinpkg/materialize.go:44,62`), so **Vector B is dead**: a workspace-planted
+**no cwd read anywhere** (`reporoot.Resolve`; the package doc's *"Resolution does not read the
+cwd"* section records the removal). The same `Resolve` feeds the macos-user build (`run.go` →
+`MacosUserRun` → `internal/darwinpkg/materialize.go`, which sets `cmd.Dir` to the resolved root),
+so **Vector B is dead**: a workspace-planted
 `flake.nix`+`go.mod` can no longer be *selected*, only explicitly pointed at by a human setting
 `YOLO_REPO_ROOT`. **H1 and Q1 are therefore moot** — the hardening they proposed is a subset of
 what shipped (see Q1's Answer). What survives of this doc: Vector A, and **Q2, which is no longer
 hypothetical:** `--accept-flake-config` is passed on every image `nix` invocation
 (`internal/image/nixflags.go`) *and* on the darwin materialization
-([`darwinpkg.go:91`](../../internal/darwinpkg/darwinpkg.go)), so the substituter surface Q2 asks
-about is live rather than proposed. Q3 (the build sandbox) also stands, now motivated by Vector A
-alone.
+([`darwinpkg.go`](../../internal/darwinpkg/darwinpkg.go)'s `nixFlags`), so the substituter
+surface Q2 asks about is live rather than proposed. Q3 (the build sandbox) also stands, motivated
+by Vector A — **and, since 2026-09-24, by a second route this doc did not have**
+([Vector C](#vector-c--the-agent-is-itself-a-daemon-client-since-2026-09-24)).
 
 **Scope:** the `macos-user` backend only (native macOS user + Seatbelt, **no VM**).
 **Reads with:** [macos-no-vm-direction.md](../reference/macos-no-vm-direction.md) (why macos-user
@@ -58,9 +60,12 @@ walk entirely — see Vector B), leaving Vector A as the live surface.
 ## Background: what the build step is
 
 `macos-user` has no OCI image. `packages:` is materialized as a **native
-aarch64-darwin `buildEnv`** and only the resulting `/nix/store/…/bin` is placed on
-the sandboxed agent's PATH (`flake.nix:845` `packages.yoloDarwinPackages`; see
-[macos-no-vm-direction.md](../reference/macos-no-vm-direction.md) axis 3).
+aarch64-darwin `buildEnv`**, together with the backend's floor, and the resulting
+`/nix/store/…/bin` is placed on the sandboxed agent's PATH (`flake.nix`'s
+`packages.<system>.yoloNoncontainerProfile`, named in Go as `darwinpkg.FloorProfileAttr`; see
+[macos-no-vm-direction.md](../reference/macos-no-vm-direction.md) axis 3). Since 2026-09-24 the
+store `bin` directory of the host's own `nix` client is on that PATH too
+([Vector C](#vector-c--the-agent-is-itself-a-daemon-client-since-2026-09-24)).
 
 The materialization runs **on the host, as the invoking user, before the sandbox
 is entered** (`internal/macosuser/orchestrator.go` materializes first, then puts
@@ -68,15 +73,15 @@ the out-path bin dirs on the `_yolojail` PATH). The backend refuses to run under
 `sudo` and does no user-switching itself; derivation realization is delegated to
 the standard macOS multi-user nix daemon (`_nixbld*` build users).
 
-Two `nix` invocations, both with `cmd.Dir = repoRoot` and
-`cmd.Env = os.Environ() + YOLO_EXTRA_PACKAGES` (`internal/darwinpkg/materialize.go:41-52`,
-argv from `internal/darwinpkg/darwinpkg.go:72-103`):
+Two `nix` invocations, both with `cmd.Dir = repoRoot` and the host environment plus
+`YOLO_EXTRA_PACKAGES` (`internal/darwinpkg/materialize.go`; argv from
+`darwinpkg.BuildFloorProfileArgv` and `darwinpkg.UnavailableEvalArgv`):
 
 ```
 nix --extra-experimental-features 'nix-command flakes' --accept-flake-config \
-    build --impure --no-link --print-out-paths --print-build-logs \
-    .#packages.aarch64-darwin.yoloDarwinPackages
-nix … eval --impure --json .#darwinUnavailablePackages.aarch64-darwin
+    build --impure --out-link <gc-root> --print-out-paths --print-build-logs \
+    .#packages.aarch64-darwin.yoloNoncontainerProfile
+nix … eval --impure --json .#yoloUnavailablePackages.aarch64-darwin
 ```
 
 `yolo` never execs the output; it only reads out-paths from stdout and prepends
@@ -110,7 +115,7 @@ write. That is the inversion.
 
 `packages:` from the workspace `yolo-jail.jsonc` is serialized into
 `YOLO_EXTRA_PACKAGES` and read by the flake via `builtins.getEnv`
-(`flake.nix:114-117`). The object form (`flake.nix:110-113`) accepts an
+(`flake.nix`, the `YOLO_EXTRA_PACKAGES` parser). The object form accepts an
 attacker-chosen `{"nixpkgs": "<commit>"}` and a `{"url": "mirror://…", "hash":
 "…"}` source override. The daemon fetches and builds that (as `_nixbld`, sandbox
 off) and the output lands on the agent PATH.
@@ -125,7 +130,7 @@ if the human reads the diff. Object-form version/url specs also bypass the
 > [!NOTE]
 > **This vector no longer exists.** `46655873` deleted the cwd walk-up this whole section is
 > about — `Resolve` reads `YOLO_REPO_ROOT`, then the exe-relative bundle, then the staged install
-> bundle, and never the working directory (`reporoot.go:95-117`). A planted pair in the workspace
+> bundle, and never the working directory (`reporoot.Resolve`). A planted pair in the workspace
 > is now unreachable unless a human exports `YOLO_REPO_ROOT` pointing at it, which is the explicit
 > act H1 wanted to require. The section is kept as written below because it documents *why* the
 > old shape was dangerous — read it as history.
@@ -140,11 +145,11 @@ becomes `repoRoot` — the host user then runs `nix build --impure
 --accept-flake-config` against an **attacker-authored flake**. There is **no
 config-diff prompt** here: a stray `flake.nix` is not the config file.
 
-The double-file requirement (comment at `reporoot.go:28-30`) exists to stop a
+The double-file requirement (as the old `reporoot.go` comment put it) existed to stop a
 bare `flake.nix` from hijacking a *user's own* flake project — it does **not**
 defend against a deliberately planted pair. Consequences of a poisoned flake:
 
-- **`--accept-flake-config`** (`internal/darwinpkg/darwinpkg.go:41-45`) makes nix
+- **`--accept-flake-config`** (`darwinpkg.nixFlags`) makes nix
   honor the flake's own `nixConfig` substituters + `extra-trusted-public-keys`.
   A poisoned flake can declare an attacker substituter with a matching trusted
   key and serve a signed malicious closure straight onto the agent PATH —
@@ -154,6 +159,27 @@ defend against a deliberately planted pair. Consequences of a poisoned flake:
 - **`--impure`** lets the flake `builtins.getEnv` any host env var and smuggle it
   into a fetch URL or fixed-output derivation → host-env exfiltration.
 - The flake defines the `builder` that runs (as `_nixbld`, sandbox off).
+
+### Vector C — the agent is itself a daemon client (since 2026-09-24)
+
+> [!IMPORTANT]
+> **New since this doc was written, and not yet analyzed.** Since `1e659e63` (2026-09-24) the
+> launch puts the host's own `nix` client on the sandbox PATH with `NIX_REMOTE=daemon`
+> ([reference](../reference/macos-user-nix-and-features.md#nix-inside-the-sandbox)), and the
+> `macos-user` CI job measured it working the same day. The agent can therefore submit an
+> arbitrary derivation to the host's nix daemon **during its own session** — no prior session,
+> no host-user build step, no config-diff prompt. Realization runs as `_nixbld*`, and on macOS
+> the build sandbox is **off by default**, so reachable outcome 1 above (`_nixbld`-level code
+> execution with broad filesystem read and network) is now reachable directly rather than only
+> through Vector A.
+>
+> What does not follow: the agent runs as `_yolojail`, which is not expected to be a nix
+> trusted-user, so its own `--option substituters` / trusted-key settings should be ignored by
+> the daemon (INFERRED — nothing measures `_yolojail`'s trust level). The same daemon delegation
+> already exists on podman/Linux, where the Linux build sandbox is **on** by default; the macOS
+> difference is that default. This sharpens [Q3](#-q3--do-we-want-the-macos-nix-build-sandbox-on-for-yolo-triggered-builds)
+> without answering it — Q3 as written covers only yolo-triggered builds, and an agent-triggered
+> build does not pass through any argv yolo composes.
 
 ## Existing mitigations
 
@@ -238,8 +264,11 @@ unsandboxed darwin build.
 
 _Leaning:_ Investigate feasibility; not blocking. *(The original "H1 removes the
 attacker-authored-flake path that makes this matter most" is now true via the resolver change, so
-what keeps this question alive is Vector A alone: a malicious `packages:` builder still runs as
-`_nixbld` unsandboxed.)*
+what kept this question alive until 2026-09-24 was Vector A alone: a malicious `packages:` builder
+still runs as `_nixbld` unsandboxed.)* ⚠ **Bears on this since 2026-09-24:**
+[Vector C](#vector-c--the-agent-is-itself-a-daemon-client-since-2026-09-24) makes the same
+unsandboxed `_nixbld` builder reachable from the agent directly, and a `--option sandbox true` on
+yolo's own argv would not reach an agent's `nix build`. Only the host daemon's `nix.conf` would.
 
 **Answer:**
 > _(empty — fill in when decided)_
@@ -249,5 +278,4 @@ what keeps this question alive is Vector A alone: a malicious `packages:` builde
 ~~No test currently exercises the `resolveRepoRoot` walk-up selection against a workspace-planted
 flake.~~ The walk-up itself is gone (`46655873`), so the test H1 wanted is unwritable — there is no
 selection to assert against. The property worth pinning instead, if any: `reporoot.Resolve` never
-consults the working directory (its own package doc at `reporoot.go:7-29` states this as the
-contract).
+consults the working directory (its own package doc states this as the contract).

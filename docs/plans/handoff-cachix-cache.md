@@ -1,7 +1,9 @@
 # Handoff — publish the prebuilt image to a Cachix cache
 
-**Status:** DECIDED, 2026-09-02 — **working**: the push has happened and the cache is being read,
-and only the Mac-side download proof is left.
+**Status:** DECIDED, 2026-09-02, re-verified 2026-09-24 — **working**: every release since
+`v0.8.0` has pushed (the latest, `v0.10.0` on 2026-09-18, logged `Pushed image closures to
+yolo-jail.cachix.org` on both arches), the cache is being read, and only the Mac-side download
+proof is left.
 **Settled 2026-09-02 from the Actions log**, which closes the disagreement this doc
 carried against [`README.md`](README.md): README's *"CI has already pushed data"* was
 the correct sentence. Remaining: only the Mac-side download proof ("Final test" below),
@@ -32,12 +34,18 @@ which needs the hardware.
 > see the cache under any circumstances and rebuilt the closure from source every run.
 >
 > **Scope caveat worth keeping:** the push is **release-gated only** (`on: push: tags:
-> v*`), so the cache holds `v0.8.0`'s closure and nothing newer. Between releases a
-> consumer gets a cache hit on the release-day paths and builds the delta.
+> v*`), so the cache holds release closures and nothing between them. Between releases a
+> consumer gets a cache hit on the release-day paths and builds the delta. That delta is
+> smaller than it was: the image no longer contains yolo's own binaries (they are mounted
+> from the launch's prefix — [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md)),
+> so a commit touching only `cmd/` or `internal/` does not move the image at all, and a
+> release's cached image stays current until `flake.nix`, `flake.lock` or a `packages:`
+> list changes it.
 
 **Why:** the OCI image contains a few `aarch64-linux` derivations built from
-*this repo's* source (`yolo-jail-conf`, the entrypoint pkg, the stream
-script) that are **never** on `cache.nixos.org`. So building the image on
+*this repo's* flake (`yolo-jail-conf`, the bin-path links, the stream script, the
+customisation layer) that are **never** on `cache.nixos.org`. (The entrypoint used to be one;
+since the image stopped containing yolo, it is mounted rather than baked.) So building the image on
 macOS needs a Linux builder — *unless* we publish the built image to a
 binary cache that macOS users can download from. Publishing = the "everybody,
 zero setup, at any point" happy path; the rare fallback (custom uncached
@@ -50,10 +58,11 @@ VM.
 - **flake.nix** — the `nixConfig` block is **enabled** with the substituter
   `https://yolo-jail.cachix.org` and the public key
   `yolo-jail.cachix.org-1:6SMCmaSd8DsVfj5EHAdpgIZi0RE14zyYrAWnV8WxFLM=`.
-- **Justfile** — `just cachix-push` builds both image variants on a Linux
+- **Justfile** — `just cachix-push` builds both image variants and the copier on a Linux
   host and pushes their closures.
 - **.github/workflows/publish.yml** — the `push-image-cache` job (release-gated)
-  builds + pushes on every published release. It gates on the
+  builds + pushes both image variants **and the image copier** (`.#imageCopier`, a source
+  build no public cache serves) on every published release. It gates on the
   `CACHIX_AUTH_TOKEN` **secret alone** (set ✅); the cache name defaults to
   `yolo-jail`, overridable by the optional `CACHIX_CACHE` variable.
 - **Proven end to end in CI** (run `31749547095`, `v0.8.0`, 2026-08-13, both arches):
@@ -67,7 +76,7 @@ VM.
    **`yolo-jail`**. If a fork needs a different name, see step 5.)
 
 2. **Enable the substituter in `flake.nix`.** ✅ Done — the `nixConfig` block is
-   live at `flake.nix:13-16` with the committed public key:
+   live in `flake.nix`'s `nixConfig` with the committed public key:
    ```nix
    nixConfig = {
      extra-substituters = [ "https://yolo-jail.cachix.org" ];
@@ -92,7 +101,7 @@ VM.
    ```sh
    nix profile install nixpkgs#cachix     # if cachix isn't installed
    cachix authtoken <write-token>          # or: export CACHIX_AUTH_TOKEN=…
-   just cachix-push                        # builds + pushes both variants
+   just cachix-push                        # builds + pushes both variants + the copier
    #   (override name: just cachix-push CACHE=my-cache)
    ```
 
@@ -122,11 +131,10 @@ cacheable by construction).
 
 ## Notes / decisions already made
 
-- **Cadence:** set by the `on:` triggers of `publish.yml` (`push.tags: v*` at
-  ~lines 22-25 + `release.types: [published]` at ~lines 26-27) — the
-  load-bearing trigger is the tag push. The `push-image-cache` job (~line 85)
-  has **no** job-level `if:`; it gates per-step on the `CACHIX_AUTH_TOKEN` secret
-  (a `gate` step at ~line 101). For per-merge freshness, add
+- **Cadence:** set by the `on:` triggers of `publish.yml` (`push.tags: v*` plus
+  `release.types: [published]`) — the load-bearing trigger is the tag push. The
+  `push-image-cache` job has **no** job-level `if:`; it gates per-step on the
+  `CACHIX_AUTH_TOKEN` secret (its `gate` step). For per-merge freshness, add
   `push: branches: [main]` to `on:`, not a job `if:`.
 - **Fallback builder** for users who add custom uncached packages: the
   **ephemeral container builder** — a tiny nix+sshd container a normal `yolo`

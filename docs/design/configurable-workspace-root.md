@@ -28,8 +28,8 @@ state lives, which is a different question — see [§7](#7-what-this-does-not-p
 
 ## 1. What this decides
 
-Today a `macos-user` workspace must live under `/Users/Shared/yolo`, and that path is a Go constant
-(`macosuser.SharedRootDefault`). Two changes are wanted, and they are independent:
+Today a `macos-user` workspace must live under `/Users/Shared/yolo`, and that path is hardcoded —
+`macosuser.SharedRootDefault` is a function that returns a literal and reads no config. Two changes are wanted, and they are independent:
 
 1. **Let the root be configured**, so a team or a person can keep projects somewhere else.
 2. **Make the check a closed whitelist**, so paths that are neither the root nor a home stop being
@@ -60,7 +60,8 @@ home as `HOME`:
                   <one (literal) per intermediate dir of WS>
                   (subpath WS) (subpath HOME))
 
-;; plus: /Volumes except the boot volume, raw disk and bpf devices, /Library/Keychains
+;; plus: /Volumes except the boot volume, raw disk and bpf devices,
+;;       /Library/Keychains and /System/Library/Keychains
 ```
 
 **Boundary 1 is anchored at `/` and is therefore root-agnostic.** Writes are denied everywhere and
@@ -71,9 +72,10 @@ re-allowed for the workspace, so wherever the workspace lives, the agent can onl
 
 ## 3. The finding: reads are `(allow default)`
 
-The profile does not deny reads and then allow a list. It **allows** reads and then denies four
-regions: `/Users`, `/Volumes` (minus the boot volume), the raw-disk and bpf devices, and
-`/Library/Keychains`. Everything else on the disk is readable — `/opt`, `/Library`,
+The profile does not deny reads and then allow a list. It **allows** reads and then denies a
+handful of regions: `/Users`, `/Volumes` (minus the boot volume), the raw-disk and bpf devices,
+`/Library/Keychains`, and — since 2026-09-18, one of the denies taken from
+[`agent-safehouse.md`](../research/agent-safehouse.md) — `/System/Library/Keychains`. Everything else on the disk is readable — `/opt`, `/Library`,
 `/Applications`, `/nix`, `/etc`, `/private/var`, all of it.
 
 So the reason the agent cannot read your *other projects* is not that the shared root does anything.
@@ -173,7 +175,7 @@ Collected so an implementer does not discover them one at a time.
 | Surface | What it needs |
 |---|---|
 | `macosuser.SharedRootDefault` | stays as the default; call sites stop treating it as the only value |
-| `SharedRootProvisionCommands` | **already takes a `root` parameter** and defaults to the constant — the one caller passes `""`. The provisioning half is built |
+| `SharedRootProvisionCommands` | **already takes a `root` parameter** and defaults to `SharedRootDefault()` — `macos-setup` passes `""`, and the capture store passes its own staging root, so a non-default root is already provisioned in production. The provisioning half is built |
 | `MacosSetup`, `MacosFixPermissions` | take no config today; they need the resolved root threaded in |
 | `ancestorLiterals` | its `const base = "/Users/Shared/"` becomes the root ([§4](#4-the-proposal-derive-a-second-deny-from-the-root)) |
 | The refusal message | names the *configured* root, not the constant |
@@ -194,11 +196,14 @@ Collected so an implementer does not discover them one at a time.
   reason still holds: the alternative threads traversal ACLs through `/Users/<you>`, which is
   *"exactly where a stray grant silently exposes `~/.ssh`"* (`29b00697`).
 - **Not a claim that the sandbox is otherwise tight.** It reads most of the disk by design, sees the
-  full host process table, and shares `/tmp` with the human. This document is about not making one
+  full host process table (though, since 2026-09-18, not another process's argv or environment),
+  and shares `/tmp` with the human. This document is about not making one
   of the few real read boundaries disappear by accident.
 - **Not the single-shared-home question.** That `~/.ssh` and `~/Library` are machine-wide on this
-  backend is a separate, already-withdrawn piece of SandVault parity
-  ([`OQ-WP12`](workspace-path-mirroring.md#OQ-WP12)).
+  backend is a separate question, and it is answered: `HOME` stays the machine tier and a
+  per-workspace tier of symlinks sits inside it
+  ([`OQ-HT4`](../reference/macos-user-home-tiers.md#oq-ht4), which answers
+  [`OQ-WP12`](workspace-path-mirroring.md#OQ-WP12)).
 
 ## 8. Open questions
 

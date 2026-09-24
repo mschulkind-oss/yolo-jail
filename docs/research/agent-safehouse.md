@@ -21,7 +21,8 @@ tree the same day. Perishable facts are fenced in
 [§8.2](#82-tighten-the-profile-toward-deny-default--highest-ceiling-highest-cost)'s three
 incremental denies, and [§8.4](#84-pin-the-agent-launch-argv--tiny-cost-real-bug-class), on
 2026-09-18. What each one left standing is stated at its own heading; the yolo-side columns in
-[§3.1](#31-the-base-posture-is-inverted) moved with them.
+[§3.1](#31-the-base-posture-is-inverted) moved with them. **Re-checked 2026-09-24:** the [§8.1](#81-a-policy-assertion-suite-for-macos-user--highest-value-moderate-cost)
+suite has since executed on a macOS runner, and all fifteen cases pass.
 
 **Reads with:** [`sandbox-comparison.md`](./sandbox-comparison.md), which does the same job for
 Claude Code's own built-in sandbox and states the default-deny argument this doc does not
@@ -42,7 +43,7 @@ repeat.
 | Axis | Who is ahead | Confidence |
 | :--- | :--- | :--- |
 | Precision of the Seatbelt policy | **Safehouse, decisively** | High — read both sources |
-| Evidence the Seatbelt policy works | **Safehouse, still ahead** | High — 389 policy assertions on macOS CI against our 15 runtime cases, which [§8.1](#81-a-policy-assertion-suite-for-macos-user--highest-value-moderate-cost) added on 2026-09-18 and no macOS runner has yet executed |
+| Evidence the Seatbelt policy works | **Safehouse, still ahead** | High — 389 policy assertions on macOS CI against our 15 runtime cases, which [§8.1](#81-a-policy-assertion-suite-for-macos-user--highest-value-moderate-cost) added on 2026-09-18 and which now run green on the `macos-user` CI job (checked on the 2026-09-24 run) |
 | Structural strength of the credential boundary | **yolo** | High — separate account and separate home vs. grants inside your own |
 | Predictable tooling inside the boundary | **yolo** | High — their own docs concede the category |
 | Human-readable per-agent knowledge | **Safehouse** | High — 10,020 lines of it, and yolo publishes none |
@@ -213,7 +214,9 @@ tests exit non-zero, which is a better guard than Safehouse has. But what it exe
 **provisioning, the tool floor, home tiers and layout refusals**. The Seatbelt tests in
 [`internal/macosuser/seatbelt_readonly_test.go`](../../internal/macosuser/seatbelt_readonly_test.go)
 and `seatbeltcapture_test.go` assert the **generated text and its ordering** — 16 tests, none
-of which runs a command under the profile and checks that the kernel refused it.
+of which runs a command under the profile and checks that the kernel refused it. *(That was the
+state on 2026-09-18; the runtime suite [§8.1](#81-a-policy-assertion-suite-for-macos-user--highest-value-moderate-cost)
+describes shipped the same day and has run green on the macOS job since.)*
 
 > [!WARNING]
 > **This is the exact "pins the callee while the call site is unpinned" class that
@@ -638,8 +641,12 @@ Ordered by value-to-cost. Each names the seam it lands on.
 > 11 rules under a real `sandbox-exec`, each paired with a bare control so a refusal is
 > attributed to the policy rather than to a missing file, and a registry pins every
 > `#seatbelt-test-id:` to its proving cases or to a written reason none can exist — enforced in
-> BOTH directions on Linux under `-short`. ⚠ **Nothing in the runtime half has executed**: it
-> was written blind from a Linux jail, and what the first macOS run settles is the controls.
+> BOTH directions on Linux under `-short`. It was written blind from a Linux jail. ⚠ **That
+> caveat is spent:** on the `macos-user` CI job's 2026-09-24 run
+> ([36050645052](https://github.com/mschulkind-oss/yolo-jail/actions/runs/36050645052)),
+> `TestMacosUserSeatbeltProfileEnforcesItsRules` passed with all fifteen subtests, so the
+> controls held on real `sandbox-exec`. What it still does not cover is anything outside those
+> eleven rules.
 
 **What.** Tests that run a command under the *generated* profile on a macOS runner and assert
 the kernel refused it: writing outside the workspace, reading another user's home, reading
@@ -860,6 +867,11 @@ Re-check these before quoting them; everything here moved within the last six mo
 
    _Leaning:_ Incremental denies now; the full inversion only after
    [§8.1](#81-a-policy-assertion-suite-for-macos-user--highest-value-moderate-cost) exists.
+
+   ⚠ **Both preconditions of the leaning are now met, and that does not rule it** (2026-09-24):
+   the incremental denies shipped (`474f68a0`), and [§8.1](#81-a-policy-assertion-suite-for-macos-user--highest-value-moderate-cost)'s suite exists and runs green on the
+   `macos-user` CI job. What is left is the question itself — how much this backend is meant to
+   promise.
 
    **Answer:**
    > _(empty — fill in when decided)_
