@@ -99,7 +99,7 @@ knob, **and [§6.6](#66-every-bedrock-model-in-every-agent--the-direction)**, on
 agent and every picker. **[§7](#7-traps--read-before-writing-code) is the one to read before writing code**: six
 traps. Three of them are live in shipped code or docs today, and a fourth was fixed on 2026-09-15.
 
-**Needs your ruling:** [OQ-BR9](#OQ-BR9), [OQ-BR10](#OQ-BR10), [OQ-BR11](#OQ-BR11), [OQ-BR12](#OQ-BR12), [OQ-BR13](#OQ-BR13), [OQ-BR14](#OQ-BR14), [OQ-BR15](#OQ-BR15), [OQ-BR1](#OQ-BR1), [OQ-BR2](#OQ-BR2), [OQ-BR3](#OQ-BR3), [OQ-BR4](#OQ-BR4), [OQ-BR8](#OQ-BR8), [OQ-BR5](#OQ-BR5), [OQ-BR6](#OQ-BR6), [OQ-BR7](#OQ-BR7).
+**Needs your ruling:** [OQ-BR9](#OQ-BR9), [OQ-BR10](#OQ-BR10), [OQ-BR12](#OQ-BR12), [OQ-BR13](#OQ-BR13), [OQ-BR14](#OQ-BR14), [OQ-BR15](#OQ-BR15), [OQ-BR1](#OQ-BR1), [OQ-BR2](#OQ-BR2), [OQ-BR3](#OQ-BR3), [OQ-BR4](#OQ-BR4), [OQ-BR8](#OQ-BR8), [OQ-BR5](#OQ-BR5), [OQ-BR6](#OQ-BR6), [OQ-BR7](#OQ-BR7).
 The seven new questions come first because they carry the maintainer's direction, and
 [OQ-BR9](#OQ-BR9) (the provider shape) decides the premise of [OQ-BR1](#OQ-BR1),
 [OQ-BR3](#OQ-BR3) and [OQ-BR7](#OQ-BR7). Rule [OQ-BR4](#OQ-BR4) and [OQ-BR8](#OQ-BR8) together;
@@ -825,15 +825,25 @@ direction needs three things that are missing:
    pointer, the signer runs inside the jail, and the host sees no prompt. It amends
    [WB-D4](../reference/wire-bridge.md#wb-d4), whose outbound credential is today one key file
    read at boot. INFERRED throughout: no request has been made to Bedrock. [OQ-BR10](#OQ-BR10).
-4. **claude uses native for Anthropic ids and the bridge for the rest, as two profiles.** One
-   claude process has one transport: either `CLAUDE_CODE_USE_BEDROCK` or an
-   `ANTHROPIC_BASE_URL`, never both. So the shipped `bedrock` profile stays native. A second
-   profile over the same runtime provider routes claude through the bridge, and its picker
-   lists the non-Anthropic entries. Mixing both kinds in one session would need the bridge to
-   route by model id. That contradicts the wire bridge's rule that it dials only the upstream
-   selected at boot
-   ([`wire-bridge.md`, Lifecycle and failure behavior](../reference/wire-bridge.md#lifecycle-and-failure-behavior)).
-   [OQ-BR11](#OQ-BR11).
+4. **claude gets both: a native profile and an everything profile** (ruled 2026-09-24,
+   [OQ-BR11](#OQ-BR11)). The **everything profile** *(coined here; its name is
+   [OQ-BR1](#OQ-BR1)'s)* is one claude session that can switch between Anthropic and every other
+   Bedrock model — claude to an OpenAI model and back without leaving the session, which
+   neither profile alone allows. One claude process has one transport, so the everything
+   profile points claude at the bridge (`ANTHROPIC_BASE_URL`, never `CLAUDE_CODE_USE_BEDROCK`)
+   and **the bridge routes by model id**: an Anthropic id (by the entry's declared `vendor`,
+   never by parsing the id) is forwarded **untranslated** to Bedrock's own Anthropic Messages
+   route, signed like every other request, so `cache_control`, `thinking` and `count_tokens`
+   survive; every other id is translated to chat-completions as today. The native profile is
+   the shipped `bedrock` one: claude's own Bedrock mode, Anthropic models only, for a user who
+   wants nothing between claude and AWS. This **amends** the wire bridge's rule that it dials
+   only the upstream selected at boot
+   ([`wire-bridge.md`, Lifecycle and failure behavior](../reference/wire-bridge.md#lifecycle-and-failure-behavior)):
+   the everything route has two upstreams under one provider, chosen per request. UNMEASURED,
+   and the first thing to measure: which Bedrock endpoint serves the Anthropic Messages API for
+   the pass-through (mantle's `/anthropic/v1/messages` is sourced; runtime's is not), and
+   whether it streams Anthropic SSE or AWS's binary event-stream, which the bridge would then
+   have to re-frame.
 5. **A `models` contribution kind, for the company pack.** It names a provider and carries an
    ordered list of object-form entries: `id`, `vendor`, and the existing optional `name`,
    `context_window`, `cost`, `reasoning`, `input` and `max_tokens`. Its verb is either `add`,
@@ -1186,10 +1196,12 @@ For the direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction
   no canonical `wire_api` name is coined for Converse (**[OQ-BR5](#OQ-BR5)** if that changes).
 - **No bridge for an agent that has a native arm.** codex, opencode and pi keep their own
   Bedrock clients. The bridge is for claude's non-Anthropic models and for copilot, and the
-  bridge arm is never a second route to a model an agent can already call natively.
+  bridge arm is never a second route to a model an agent can already call natively — with one
+  exception: claude's everything profile carries Anthropic ids through the bridge, untranslated,
+  so that one session can switch vendors ([OQ-BR11](#OQ-BR11)).
 - **Not a rewrite of claude's native mode.** packs/claude's four Bedrock contributions stay
   as they are, except as D2's fix may narrow the env gate. What the direction adds for claude
-  is a second, bridged profile and a picker rendered from the effective list
+  is the everything profile and a picker rendered from the effective list
   ([OQ-BR11](#OQ-BR11), [OQ-BR13](#OQ-BR13)).
 
 ---
@@ -1203,7 +1215,7 @@ For the direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction
 | **One provider, `endpoint_family` as a profile OPTION** | **Rejected — it cannot work.** Options are a flat name→value map; `models` is a provider field the option layer never reaches. The option would move the endpoint and leave the ids, which is P1's failure with a knob attached ([§5](#5-two-families-two-providers--because-the-family-and-the-ids-are-one-entry)). |
 | **One `bedrock` provider for all four agents** | **Reopened by [OQ-BR9](#OQ-BR9), now per endpoint family.** It was rejected because claude wants Anthropic ids and codex wants GPT ids through the same `default` alias. A per-model vendor fact answers that: each derive resolves the default among the entries its agent can call ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction)). |
 | **Move `bedrock` out of packs/claude into the new pack** | **Reopened by [OQ-BR9](#OQ-BR9).** It was rejected as churn while only claude read the provider. A runtime provider every agent reads needs an owner every agent's jail selects, and sole ownership means that cannot be packs/claude. |
-| **Bridge routes by model id**, so one claude session mixes native Anthropic and bridged models | **Leaning against ([OQ-BR11](#OQ-BR11)).** It breaks the bridge's one-upstream rule, and the bridge would have to forward Anthropic Messages untranslated, which is a second protocol path. Two profiles cost one `-p` word. |
+| **Bridge routes by model id**, so one claude session mixes native Anthropic and bridged models | **Adopted for the everything profile ([OQ-BR11](#OQ-BR11), ruled 2026-09-24).** It amends the bridge's one-upstream rule and adds a pass-through path for Anthropic Messages; the maintainer wants one claude session that switches between Anthropic and OpenAI models, which two profiles alone cannot give. The native profile stays beside it. |
 | **Mint a Bedrock API key for the bridge** ([`sso-backed-bedrock.md`](sso-backed-bedrock.md#4-five-options)'s option D) | **Superseded if [OQ-BR10](#OQ-BR10) rules to sign.** It lives at most an hour over the narrowed session ([§6.5](#65-the-credential-three-are-supported)), is frozen for the launch, and fails on an account that denies `CallWithBearerToken`. |
 | **A host-side signing proxy** (that doc's option E) | **Not needed.** An in-jail signer gets the refresh and the SCP resilience without the host seeing any prompt. |
 | **yolo fetches Bedrock's model list at launch** | **Leaning against ([OQ-BR14](#OQ-BR14)).** Runtime has no list endpoint. Mantle's needs an IAM action the example policy lacks. And a launch-time network call makes a jail's model list depend on the network at boot. |
@@ -1249,10 +1261,10 @@ For the direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction
 8. **The direction, after [OQ-BR9](#OQ-BR9) through [OQ-BR13](#OQ-BR13) rule** — in this order:
    1. the bridge's SigV4 signer with its test vectors, and the lazy credential resolution
       ([OQ-BR10](#OQ-BR10)). It is the piece with no dependency on the model-list work, and
-      it closes the SSO gap for copilot and bridged claude on its own;
+      it closes the SSO gap for copilot and claude's everything profile on its own;
    2. the shared runtime and mantle providers with per-model `vendor`, and the derive filters
       ([OQ-BR9](#OQ-BR9));
-   3. claude's bridged profile ([OQ-BR11](#OQ-BR11));
+   3. claude's everything profile ([OQ-BR11](#OQ-BR11));
    4. the `models` kind ([OQ-BR12](#OQ-BR12)), then picker rendering, moving the GPT-6 lists
       into data under a byte-identical test ([OQ-BR13](#OQ-BR13));
    5. the `yolo check` staleness warning ([OQ-BR14](#OQ-BR14)). A bridge `/v1/models`
@@ -1278,7 +1290,7 @@ direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction)), and
    for something typed often, and `bedrock` for claude vs `bedrock-gpt` for everything else
    is an asymmetry a reader will trip on. **Depends on [OQ-BR9](#OQ-BR9):** under one
    provider per endpoint family, `-p bedrock` serves every agent and these names shrink to at
-   most a `model` option, plus the bridged claude profile's name ([OQ-BR11](#OQ-BR11)).
+   most a `model` option, plus the everything profile's name ([OQ-BR11](#OQ-BR11)).
 
    _Leaning:_ Ship them as proposed. They read correctly at the point of use and leave
    claude's shipped name alone. A shorter `-p gpt` is tempting but would collide with a
@@ -1654,35 +1666,15 @@ direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction)), and
     **Answer:**
     > _(empty — fill in when decided)_
 
-11. 💬 **OQ-BR11: How does claude use native Bedrock for Anthropic ids and the bridge for the
-    rest?** One claude process has one transport, so native and bridged models cannot share a
-    session without the bridge routing by model id
-    ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction) part 4). Stakes: what a user
-    types to reach DeepSeek from claude, and whether the bridge keeps its one-upstream rule.
-
-    | Option | Verdict |
-    | :--- | :--- |
-    | **A.** Two profiles over the one runtime provider. The shipped `bedrock` stays native; a second profile carries a transport option the claude derive reads, and it routes at the bridge | **Leaning** |
-    | **B.** Two providers, a bridged twin of the runtime provider | Duplicates the model list a company pack targets, so every `models` contribution must name both |
-    | **C.** The bridge routes by model id: Anthropic ids go untranslated to runtime's Messages API, the rest are translated | One session mixes both, but it breaks the bridge's boot-selected-upstream rule and adds a pass-through protocol path |
-    | **D.** The bridge for everything, Anthropic included | Loses `cache_control`, `thinking`, `[1m]` and `count_tokens` on the models claude is best at |
-
-    **Touches** [OQ-BR8](#OQ-BR8). A second profile over one provider is exactly
-    [D5](#7-traps--read-before-writing-code)'s shape. Here, losing the name-gated
-    `CLAUDE_CODE_USE_BEDROCK` is the point: the bridged profile must not set it. But the
-    credential pointer must still reach the bridge. So option A is sound only under [OQ-BR8](#OQ-BR8)'s
-    leaning, where the claude derive keys Bedrock facts on the provider and reads the
-    transport from the profile. The profile's name is [OQ-BR1](#OQ-BR1)'s.
-    [`OQ-CS9`](../reference/providers.md#oq-cs9) is untouched: nothing extends anything.
-
-    _Leaning:_ A. Keep `bedrock` native and add one bridged profile over the same provider.
-    Its derive sets `ANTHROPIC_BASE_URL` and never `CLAUDE_CODE_USE_BEDROCK`, and its picker
-    lists the non-Anthropic entries. Revisit C only if two profiles prove to be real friction.
-
-    <!-- vantage: oq id=OQ-BR11 leaning="A: two profiles over the one runtime provider — the shipped bedrock profile stays native for Anthropic ids, and a second profile carries a transport option the claude derive reads to route through the bridge for every other vendor, never setting CLAUDE_CODE_USE_BEDROCK. Sound only under OQ-BR8's provider-keyed leaning. Not routing by model id, which breaks the bridge's boot-selected-upstream rule." -->
-
-    **Answer:**
-    > _(empty — fill in when decided)_
+11. <a id="OQ-BR11"></a>[**OQ-BR11**](#OQ-BR11) (ruled 2026-09-24): **How does claude use
+    native Bedrock for Anthropic ids and the bridge for the rest?** Both: a native profile and an
+    everything profile in which the bridge routes by model id
+    ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction) part 4;
+    [Decision Ledger](#decision-ledger)). The options were two profiles only (the leaning), two
+    providers, routing by model id, and the bridge for everything including Anthropic.
+    **Still touches** [OQ-BR8](#OQ-BR8): the everything profile must not set the name-gated
+    `CLAUDE_CODE_USE_BEDROCK`, yet the credential pointer must still reach the bridge, which holds
+    only under [OQ-BR8](#OQ-BR8)'s provider-keyed leaning.
 
 12. 💬 **OQ-BR12: Is there a `models` contribution kind, so a company pack can shape another
     pack's provider?** [§6.6](#66-every-bedrock-model-in-every-agent--the-direction) part 5 and
@@ -1718,7 +1710,7 @@ direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction)), and
     actually sees on launch, whether an org's `only` can lock a picker, and whether the
     hard-coded GPT-6 lists become data. Four sub-choices ride on it:
 
-    - **claude's built-ins.** `replaceBuiltInOptions` on the bridged profile, whose built-ins
+    - **claude's built-ins.** `replaceBuiltInOptions` on the everything profile, whose built-ins
       are Anthropic names that profile should not serve. Keep them on the native profile, where
       they are the current Anthropic models, and add the list's entries beside them.
     - **Enforcement.** `availableModels` with `enforceAvailableModels` only when an `only`
@@ -1741,7 +1733,7 @@ direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction)), and
     ([§14](#14-evidence-and-how-to-re-check-it)).
 
     _Leaning:_ A. Render from the one list into each agent's own surface. Replace built-ins
-    only on the bridged profile, enforce only under `only`, and map Fable only from a declared
+    only on the everything profile, enforce only under `only`, and map Fable only from a declared
     alias. Move the GPT-6 lists into the `openai-codex` provider's data under a byte-identical
     test.
 
@@ -1814,6 +1806,7 @@ direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction)), and
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
 | DIR-BR1 | **Every agent reaches every Bedrock model its transport can carry, and every picker shows a current list an org can shape with one pack.** The maintainer's direction in review, given as a direction rather than a question: *"Claude should be able to use all of those models with basically no change."* How it is built is [OQ-BR9](#OQ-BR9)–[OQ-BR15](#OQ-BR15). The id is not a question id, because nothing was asked | 2026-09-24 | [§6.6](#66-every-bedrock-model-in-every-agent--the-direction) | — |
+| OQ-BR11 | **Both claude profiles: native, and an everything profile.** *"if you only do native or the rest, then you'll never be able to switch between Claude and, say, OpenAI in one Claude session, which I think we'll want. So I guess just both options."* The everything profile routes by model id at the bridge: Anthropic ids pass through untranslated to Bedrock's Anthropic Messages route, everything else is translated. Amends the bridge's one-upstream rule. The leaning (two profiles, no routing) was overruled | 2026-09-24 | [§6.6](#66-every-bedrock-model-in-every-agent--the-direction) part 4 | — |
 
 ---
 
