@@ -12,7 +12,7 @@ vantage:
 
 **Status:** DESIGN, 2026-09-22 — one question open, [OQ-WM1](#OQ-WM1).
 The removal in [§3](#3-the-removal-2026-09-22) is BUILT and owes no ruling; the position it rests on is
-recorded in [`../plans/retired-decisions.md`](../plans/retired-decisions.md).
+recorded in [`../plans/retired-decisions.md`](../plans/retired-decisions.md#a-jail-does-not-shadow-workspace-mcp-config).
 
 **Needs your ruling:** [OQ-WM1](#OQ-WM1).
 
@@ -40,7 +40,7 @@ This is stated because the code used to say the opposite. `internal/cli/run/asse
 `/dev/null` over `<workspace>/.vscode/mcp.json` so an agent read an empty file, under a comment that
 began *"Each makes the agent read an EMPTY file where the host has a real one."* That shadow was
 removed on 2026-09-22 ([§3](#3-the-removal-2026-09-22)); the decision not to re-add it is in
-[`retired-decisions.md`](../plans/retired-decisions.md).
+[`retired-decisions.md`](../plans/retired-decisions.md#a-jail-does-not-shadow-workspace-mcp-config).
 
 The shadow was also never the boundary it looked like. Its only in-jail reader is Copilot CLI, and
 Copilot loads **three** repo-root MCP files, not one; the other two were never bound over. A single
@@ -145,7 +145,7 @@ a list that was never complete.
 - **MEASURED:** the removal and the surviving `.overmind.sock` shadow, at the argv level —
   `internal/cli/run/shadowbinds_test.go` asserts exactly one `/dev/null:` bind and that no
   `.vscode/mcp.json` bind is emitted, in both directions (re-adding it and deleting the survivor each
-  fail the test), and it does not run.
+  fail the test). It reads the assembled argv and starts no container.
 - **MEASURED:** the [§2](#2-what-each-agent-reads-at-project-scope--measured) project-scope file sets,
   read out of the installed agent bundles named there.
 - **UNMEASURED:** the in-jail end-to-end outcome. `integration/isolation_test.go` was updated to assert

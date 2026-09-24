@@ -22,9 +22,11 @@ what is owed is work, not a ruling.
 > boundary. **Its `jail_daemon` half is not built**, and the `boot.log` itemization it named has no
 > host-side sink. Everything else here is settled record. [Outstanding work](#outstanding-work) has
 > what a builder of the remaining half needs.
-Every code anchor below was re-checked against the tree on 2026-09-06: the ones that had drifted are
-repinned, and the ones that named code the 2026-09-04 rulings deleted are rewritten to say so (the
-compacting commit lists both). Beyond the rulings, **everything here is inventory** — traced in the
+
+Every code anchor below was re-checked against the tree on 2026-09-06, and the ones that named code
+the 2026-09-04 rulings deleted are rewritten to say so (the compacting commit lists both). On
+2026-09-24 every line-number anchor was replaced by the symbol it pointed at, because a dozen of
+them had drifted again. Beyond the rulings, **everything here is inventory** — traced in the
 code, with the anchors inline.
 
 **The short version.** Twenty-six paths deliver someone else's content into a jail — twenty-five
@@ -80,11 +82,12 @@ against exactly one threat, the silent update.
 > [`OQ-T1..T9`](../reference/loophole-transport.md#why-its-this-way) — and *those*
 > are the ones cited from code, by name:
 > [`OQ-T2`](../reference/loophole-transport.md#why-its-this-way)
-> (`internal/loopholes/loopholescmd.go:201`),
+> (`internal/loopholes/loopholescmd.go`),
 > [`OQ-T5`](../reference/loophole-transport.md#why-its-this-way)
-> (`internal/macosuser/macosuser.go:555`),
+> (`internal/macosuser/macosuser.go`),
 > [`OQ-T7`](../reference/loophole-transport.md#why-its-this-way)
-> (`internal/svcendpoint/doc.go:44`; all three re-checked 2026-09-06).
+> (`internal/svcendpoint/doc.go`; all three re-checked 2026-09-24 by grepping the ID, the line
+> numbers this note once carried having drifted).
 >
 > Two docs answering to one ID space is worse than a rename: a reader grepping an ID landed in
 > whichever file they opened first. This doc yielded because its IDs were cited only from
@@ -122,8 +125,8 @@ the footprint grow?"* well. It cannot answer *"is this the same code I looked at
 
 **And the sharpest form of your instinct, which I had not seen:** `pack install` syncs the mirror and
 writes the lockfile **in the same loop iteration**
-([`pack.go`](../../internal/cli/pack.go#L1128-L1199) — `store.Sync` at `:1151`, the `lock.Set`
-write at `:1186`; repinned 2026-09-06). The act that moves the content *is* the act that moves the
+(`packInstall` in [`pack.go`](../../internal/cli/pack.go) — `store.Sync`, then the `lock.Set`
+write a few lines later; re-checked 2026-09-24). The act that moves the content *is* the act that moves the
 pin. A pin advanced by the same command that changes the bytes is a receipt. It becomes a gate only
 if three things hold together — (i) enforced at use, (ii) advanced by a *different* act than the one
 that changes content, (iii) that act shows you what changed. Today **none** hold, and nobody is
@@ -131,7 +134,7 @@ proposing to fix (ii).
 
 ### The lockfile is a receipt, not a gate
 
-`LockEntry` ([`lock.go`](../../internal/packsrc/lock.go#L33-L44)) records `Name`, `Source`, `Commit`
+`LockEntry` ([`lock.go`](../../internal/packsrc/lock.go)) records `Name`, `Source`, `Commit`
 and `Ref` — and, since 2026-09-04, deliberately nothing else:
 
 | Field | Read at launch? | Evidence |
@@ -162,7 +165,7 @@ now retired — kept because they remain true of the lockfile and constrain anyt
   this kind of change is a bump rather than a silent misread.
 - **The file exists per FETCHED pack.** `Commit` is *"empty for a local pack — a directory has no
   commit, and pretending otherwise would invent a pin"*
-  ([`lock.go`](../../internal/packsrc/lock.go#L39-L40)), and an embedded pack has no row at all. The
+  (`LockEntry.Commit`'s doc comment, [`lock.go`](../../internal/packsrc/lock.go)), and an embedded pack has no row at all. The
   three packs that declare npm programs — **pi, copilot, opencode** (codex moved to its vendor's
   installer on 2026-09-04, `dadafbde`) — are all embedded.
 
@@ -220,7 +223,7 @@ now retired — kept because they remain true of the lockfile and constrain anyt
    > A pack may ship a **Claude Code plugin**: a `.claude-plugin/plugin.json` manifest that the agent
    > reads directly. yolo delivers it and reports what it declares, but never interprets it. A
    > manifest can declare six component kinds, and yolo marks three of them as running code
-   > ([`pluginpack.go`](../../internal/pluginpack/pluginpack.go#L131-L149)):
+   > (the `components` table in [`pluginpack.go`](../../internal/pluginpack/pluginpack.go)):
    >
    > | Component | What it does | Runs code |
    > | :--- | :--- | :--- |
@@ -245,7 +248,7 @@ now retired — kept because they remain true of the lockfile and constrain anyt
 
    > **What `?ref=` is.** A fetched pack is named by a URL-shaped *address* in your user config, and
    > `?ref=` is the query parameter on it that selects which git ref to use
-   > ([`addr.go`](../../internal/packsrc/addr.go#L41-L55)):
+   > (`packsrc.Addr` in [`addr.go`](../../internal/packsrc/addr.go)):
    >
    > ```text
    > git+https://github.com/acme/mono//tools/agent-pack?ref=main
@@ -264,7 +267,7 @@ now retired — kept because they remain true of the lockfile and constrain anyt
    > **This is a HUMAN path, not an agent-escalation path — and the reason is stronger than "not
    > without reapproval".** A pack address is **inexpressible from a workspace**, by construction
    > rather than by validation. `packs` is USER-SCOPE ONLY and is read from `paths.UserConfigPath()`
-   > **directly, not from the merged config** ([`packs.go`](../../internal/config/packs.go#L3-L18)) —
+   > **directly, not from the merged config** (the package comment of [`packs.go`](../../internal/config/packs.go)) —
    > so a workspace file cannot name a pack even to be refused. The package comment states the reason
    > in this document's own terms: *"a workspace config travels with the repo and is agent-editable,
    > so it must not be able to name content that enters the jail."*
@@ -325,7 +328,7 @@ authority. P1 is untouched by it.)
 - **Pinning anything while `~/.config/yolo-jail/local` exists.** The implicit local pack needs no
   config line, has no lockfile entry, no commit, no claim, gets **full trust**, and is appended
   **last** so it outranks everything — selected by one `os.Stat` that follows symlinks
-  ([`packs.go`](../../internal/config/packs.go#L297)).
+  (`localPackEntry` in [`packs.go`](../../internal/config/packs.go)).
 - **Pinning a refusal that is not enforced where it executes.** Retired twice over — first by
   [§3.1](#31-a-refused-contribution-refuses-the-launch-)'s ruling, then by the deletion of the
   refusal itself — and kept in this list because it is the shape to check any *new* gate against.
@@ -343,7 +346,7 @@ pre-spawn block for host execution, `yolo pack footprint` on demand.
 | # | Path | Grants | Trust extended | Can change silently? |
 | :-- | :--- | :--- | :--- | :--- |
 | 1 | the yolo binary — built-in skills + composed briefing | agent context | never | only via your own upgrade |
-| 2 | **embedded pack `program via installer`** (claude, agy, codex) | in-jail exec as UID 0 | **never** — embedded origin honors unconditionally | **yes, and that is the RULING** — agent CLIs are evergreen ([`program-delivery.md`](./program-delivery.md) [§3.5](./program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)). Two movers: the URL's bytes, and the launcher running the pack's **declared update verb** ([`OQ-PD14`](./program-delivery.md#decision-ledger)) at the user's invocation, on a 3600 s stamp, under `agent_updates`. *The launcher this replaced ran `"$REAL_BIN" install` hourly — a no-op for most vendors; measured 2026-09-03, claude in this workspace had not moved since 2026-07-24* |
+| 2 | **embedded pack `program via installer`** (claude, agy, codex) | in-jail exec as UID 0 | **never** — embedded origin honors unconditionally. The tree is read from one content-hashed copy per build under the state dir, never the jail-writable cache (`paths.EmbeddedPacksDir`), so its on-disk form adds no crossing | **yes, and that is the RULING** — agent CLIs are evergreen ([`program-delivery.md`](./program-delivery.md) [§3.5](./program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)). Two movers: the URL's bytes, and the launcher running the pack's **declared update verb** ([`OQ-PD14`](./program-delivery.md#decision-ledger)) at the user's invocation, on a 3600 s stamp, under `agent_updates`. *The launcher this replaced ran `"$REAL_BIN" install` hourly — a no-op for most vendors; measured 2026-09-03, claude in this workspace had not moved since 2026-07-24* |
 | 3 | **`program via npm`** (pi, copilot, opencode) | in-jail exec (postinstall + deps) | **never**, for any origin | **yes, and that is the ruling** — evergreen, resolved at the user's own invocation since 2026-09-04 ([§1 row 1](#1-the-verdict)); a PINNED selector resolves nothing. Silent in the launch banner by design: an npm install crosses nothing |
 | 4 | `flake.nix` / `flake.lock` | in-jail exec (everything on PATH) | implicit, at PR merge | no for inputs (locked revs, hermetic build) |
 | 5 | **the implicit local pack** `~/.config/yolo-jail/local` | everything, at maximum trust | **never**, and deliberately | **yes, continuously** — live dir, re-read every launch, no record |
@@ -358,14 +361,14 @@ pre-spawn block for host execution, `yolo pack footprint` on demand.
 | 14 | workspace `mise.toml` | in-jail exec | **never** — trust asserted *for* you on the podman argv | yes — `git pull`, and `latest` resolves at install |
 | 15 | `agents_md_extra`, blocked-tool messages, source-less `host_files` | agent context | at the diff, which does carry the prose | covered by the diff; the finding is scope asymmetry |
 | 16 | **`.yolo/handover.md`** | agent context, framed as an authoritative task list | **never** — no key, no prompt, no validation, no attribution | **yes, continuously** — an ordinary file any agent can write |
-| 17 | fetched pack — **content** (skills, briefing, files, config-overlay) | agent context | **never** — no claim, no disclosure | yes, on every mechanism at once |
+| 17 | fetched pack — **content** (skills, briefing, files, config-overlay, config-list) | agent context | **never** — no claim, no disclosure | yes, on every mechanism at once |
 | 18 | fetched pack — `env` | in-jail exec in practice (no key allowlist, so `LD_PRELOAD` etc.) | **never**, explicitly; disclosed on the banner every launch | yes; the banner shows the value, nothing compares it |
 | 19 | **fetched pack — loophole with only a `jail_daemon`** | in-jail exec, supervised, restart-policied, UID 0 | **never** — and it produces **no claim at all**, so no footprint line and no launch line ([§3.2](#32-jail_daemon-is-a-claim-free-crossing-to-supervised-in-jail-execution)) | yes trivially; nobody is told it exists |
 | 20 | **fetched pack — `program via installer`** | in-jail exec as UID 0 | **never, since 2026-09-04** ([`OQ-TP9`](#decision-ledger)) — honored like an embedded pack's, disclosed on the banner as a review-worthy host read | yes — unpinned URL, plus the declared update verb at the user's invocation |
 | 21 | fetched pack — wrapped agent plugin (hooks / MCP / LSP) | in-jail exec at lifecycle events | **never, since 2026-09-04** — but **disclosed since 2026-09-17**: one counted line per pack at the spawn boundary ([`OQ-TP10`](#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner)) | **yes — still the weakest claim string in the system**, a constant with no path or digest. It is now SHOWN, which is a different property from being CHECKED |
 | 22 | fetched pack — `reads-host` / `mount` / host-prepending `briefing` | host read | **never, since 2026-09-04**; disclosed on the banner every launch | yes — a moved ref changes the bytes under an unchanged banner line |
 | 23 | fetched pack — loophole with a `host_daemon` | **host execution** + a CA trusted in-jail | **never, since 2026-09-04**; disclosed at the spawn boundary, BEFORE the daemon starts (`startLoopholesDisclosed`) | yes — the line pins the argv, not the file ([`OQ-LP8`](../reference/loophole-system.md#oq-lp8)) |
-| 24 | `yolo host apply` | **host write** into your real home | explicit per invocation, `--assert` required | for a local pack, yes — source re-read each apply |
+| 24 | `yolo host apply` | **host write** into your real home | explicit per invocation, `--assert` required — or, under the user-scope `host_apply_on_launch`, at a wrapped `yolo host -- <bin>` launch, which applies a managed-key change without a prompt and **announces** it, and renders nothing when the apply would ask anything | a local pack, yes — source re-read each apply. A fetched pack is rendered from the local mirror (since 2026-09-23; before that it was skipped), so it moves only with rows 17–23. An unresolvable configured pack refuses the whole apply rather than rendering part of the set |
 | 25 | the mirror + ref resolution behind rows 17–23 | selects which bytes every row above delivers | — | **three verified mechanisms** ([§1](#1-the-verdict) row 3) |
 | 26 | **any pack's `derive.lua`** (`yolo.derive` + `yolo.env`) — row added 2026-09-02 from the providers defect report's D9 (distilled into [`providers.md`](../reference/providers.md); on the roadmap it was review thread 18, closed the same day), which found this census had no entry for pack-shipped Lua | **sandboxed Lua execution** — in-jail at every boot with live tables (`deriveComputedLayer`, [`packsurfaces.go`](../../internal/entrypoint/packsurfaces.go)); host-side as a sentinel-input key probe during `yolo host apply` (`hostTableKeys`, [`hostrender.go`](../../internal/entrypoint/hostrender.go)); and host-side at every `yolo host -- <cmd>` launch with REAL inputs, credential included (`packload.AgentEnv`, called from [`host.go`](../../internal/cli/host.go); the jail-launch twin is [`profilechannel.go`](../../internal/cli/run/profilechannel.go); since `3144fbed`). The VM is allowlist-built — `SkipOpenLibs`, no `os`/`io`/`require`/`load`, fresh state, instruction budget ([`vm.go`](../../internal/agentcfg/luahook/vm.go)) — so the grant is *unvalidated config-surface and env output* plus whatever `ctx` carries, **not** process exec | **never, any origin — and that is the ruling** ([`OQ-TP8`](#decision-ledger)): `packload.DeriveScript` reads `<pack root>/derive.lua` with no origin check and no claim ([`deriveenv.go`](../../internal/packload/deriveenv.go)) | yes — the mirror re-resolves, and a derive is content, not a claim |
 
@@ -449,7 +452,7 @@ one was about CONSENT and those are about pack mechanics.
 **Past tense since 2026-09-04.** [`OQ-TP9`](#decision-ledger) deleted the gate every one of those
 refusals came from, so `internal/cli/run/packrefusal.go` is deleted and `run/packs.go` says so where
 the fold used to be. The `Honored*` family still exists and its `refused` return is **always nil**
-(kept only because twelve call sites read the shape); the pre-flights that remain in `stagePacks` are
+(kept only because its call sites read the shape); the pre-flights that remain in `stagePacks` are
 all about pack mechanics — destination collisions, name exclusivity, profile and provider names.
 The ruling itself is untouched: it is about consent, not cadence, and it binds any future refusal
 source.
@@ -469,7 +472,7 @@ product. [`OQ-TP9`](#decision-ledger) deleted the predicate with the gates: ever
 `true`, and an always-true predicate is worse than none — *a reader sees a gate and stops looking*
 ([`gate-placement-principle.md`](../reference/gate-placement-principle.md)
 [the artifact form](../reference/gate-placement-principle.md#the-artifact-form-a-name-that-states-a-guarantee)).
-[`packs.go`](../../internal/config/packs.go#L151-L161) now says in capitals that origin **decides
+`PackEntry.Origin`'s doc comment in [`packs.go`](../../internal/config/packs.go) now says in capitals that origin **decides
 nothing about trust**. What it still names is the **delivery route**:
 
 | Origin | What it is | How its content arrives |
@@ -488,7 +491,7 @@ That is what `pack install`, `pack status` and the drift report key on — and n
 the gate is theatre — and worse than nothing, because it looks like protection while the real gap
 stays open."* Selecting a pack means writing `packs` in `~/.config/yolo-jail/config.jsonc`, as the
 host user; `packs` is **inexpressible at workspace scope by construction**
-([`packs.go`](../../internal/config/packs.go#L3-L18) calls that *"the whole security model of the
+([`packs.go`](../../internal/config/packs.go)'s package comment calls that *"the whole security model of the
 feature"*). The only other route is `--user-layer`, which requires the ability to run `yolo`, and
 [`userlayer.go`](../../internal/config/userlayer.go) already applies Test 1 to it, ruling the other
 way from the prompt: *"A gate here would refuse an actor who has already passed a stronger one —
@@ -533,12 +536,12 @@ per-contribution disclosure: each crossing is its own line.
 > deliberate, and collapsing them into any future refusal would break a jail's ability to boot.
 >
 > - **A declared bind mount whose host path is absent** is skipped with a warning
->   ([`runtime.go`](../../internal/loopholes/runtime.go#L235): *"skipping bind mount, host source
+>   ([`runtime.go`](../../internal/loopholes/runtime.go): *"skipping bind mount, host source
 >   missing"*). That is *adaptation inside a capability the user already selected* — nothing was
 >   refused, the thing simply is not there.
 > - **A contribution whose KIND this build does not recognise** is skipped, not fatal, because the
 >   host CLI and the baked entrypoint legitimately differ in age
->   ([`packdecl.go`](../../internal/packdecl/packdecl.go#L307-L319): a newer build's kind staged for
+>   (`DecodeTolerant`'s comment in [`packdecl.go`](../../internal/packdecl/packdecl.go): a newer build's kind staged for
 >   an older baked entrypoint *"is skew, not corruption"*; `DecodeTolerant` is the reader). That is
 >   **skew tolerance**, not a refusal.
 >
@@ -569,7 +572,7 @@ per-contribution disclosure: each crossing is its own line.
    of the user's. It gained a reporter (`RefusedBriefingOverlays`), which
    [`OQ-TP9`](#decision-ledger) then deleted with the gate; today the claim is honored for every pack
    and disclosed on the banner as a host read
-   ([`contributes.go`](../../internal/packdecl/contributes.go#L100-L103)).
+   (the `After` field's doc comment in [`contributes.go`](../../internal/packdecl/contributes.go)).
 2. **The launch never consulted `HonoredPlugins`** — its one production caller was `yolo host apply`'s
    skills compose, so [row 21](#2-the-inventory)'s hook bodies travelled into a jail inside the pack's
    skills tree with the refusal computed nowhere on that path. [`OQ-TP6`](#decision-ledger) put it in
@@ -596,7 +599,7 @@ containment — and it retired the whole prompt, consistently.
 ### 3.2 `jail_daemon` is a claim-free crossing to supervised in-jail execution
 
 A fetched pack declaring a loophole with only a `jail_daemon` produces **zero claims**: the module
-enumeration (`moduleClaims`, [`loopholesource.go`](../../internal/packload/loopholesource.go#L275))
+enumeration (`moduleClaims`, [`loopholesource.go`](../../internal/packload/loopholesource.go))
 emits a claim per host daemon, doctor command, intercept, bind mount and device, and none for a
 jail daemon. Verified end to end 2026-08-17; re-checked 2026-09-06. Under the old gate that meant
 the grant-on-empty branch fired and the daemon was emitted with no prompt. With the gate gone the
@@ -614,7 +617,7 @@ attention: TP10's hooks *have* a claim in the wrong class, where this crossing h
 [`config-safety.md`](../reference/config-safety.md) [`OQ-D2`](../reference/config-safety.md#why-its-this-way)). It read:
 *"`CheckConfigChanges` auto-accepts with no snapshot (i.e. a fresh clone), auto-accepts on any
 non-TTY, and is skipped on attach."* Verified against
-[`snapshot.go`](../../internal/config/snapshot.go#L177) on 2026-09-06, two of the three are false
+`CheckConfigChanges` in [`snapshot.go`](../../internal/config/snapshot.go) on 2026-09-06, two of the three are false
 now: a fresh workspace with declared config **prompts** (diffed against empty; only an empty config
 is accepted silently), and a changed config on a non-TTY **refuses** with the diff unless
 `--accept-config-changes` is passed for that launch. The third is still true and is deliberate:

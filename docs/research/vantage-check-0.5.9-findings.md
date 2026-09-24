@@ -9,6 +9,15 @@ tags: [tooling, vantage-check, documentation]
 **Status:** REPORT, 2026-09-06. Written for upstream. Every defect below has a minimal
 reproduction that was run; where a claim is inferred rather than measured it says so.
 
+**Re-checked against `vantage-check` 0.7.0 on 2026-09-24**, using the minimal reproductions
+below in a scratch repository. Still reproducing: D1 (the correct lettered-section link errors
+and the wrong one passes), D2, D3, D8 (a ledger cell carrying more than the bare id is still not
+exempt), D9 (a heading-form question gets no `vantage/oq-missing`, while the list form does) and
+D10. No longer reproducing: D4 (an absolute path draws no finding) and D11's deadlock (without the
+directive a hyphenated id draws nothing, so the two rules no longer conflict, although
+`vantage/oq-id-format` still rejects the id). D5, D6 and D7 were not re-run. D12 still holds for
+this file. The defect text below is unchanged and describes 0.5.9.
+
 > [!NOTE]
 > **This document reports errors under the rules it documents, and every one is D12 rather than an
 > oversight.** They are specimens — `§4.3b`, `OQ-PD12a` and friends quoted as examples of what the

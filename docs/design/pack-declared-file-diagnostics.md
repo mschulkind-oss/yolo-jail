@@ -35,7 +35,7 @@ In a recent incident in `mschulkind/dotfiles`, an agent attempted to customize P
 3. `APPEND_SYSTEM.md` is the canonical mechanism to configure Pi under YOLO.
 
 In reality:
-- YOLO isolates `/home/agent/.pi` as a per-workspace state overlay (`<workspace>/.yolo/state/pi`). Host `~/.pi` is completely unmapped into the jail.
+- YOLO isolates `/home/agent/.pi` as a per-workspace state overlay (`<workspace>/.yolo/home/pi`, from the pack's `kind: "state"`, `scope: "workspace"` contribution). Host `~/.pi` is completely unmapped into the jail.
 - YOLO's host briefing prepend strictly looks for `~/.pi/agent/AGENTS.md` (the declared `after: "host:.pi/agent/AGENTS.md"` path), ignoring `APPEND_SYSTEM.md`.
 - Deploying `APPEND_SYSTEM.md` on the host left the instructions completely invisible and inert in both environments.
 

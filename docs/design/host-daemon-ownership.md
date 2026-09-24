@@ -715,7 +715,9 @@ comment says not to restore one.
 > their token refresh is silently broken. The sibling warning had already been fixed
 > deliberately (`reportFailedSpawn` names the loophole from the record, "a warning that
 > hardcodes one loophole's name is the half of a generalization that gets left behind") and
-> this one was not. **When you generalize a mechanism, grep the strings it prints.**
+> this one was not. **When you generalize a mechanism, grep the strings it prints.** It is
+> fixed: since [`OQ-HD2`](#11-decision-ledger) was built (2026-09-20) the command is derived
+> from the name by `broker.CycleCommand`, the one place that spelling lives.
 
 ### Modes 3 and 4: alive but wrong, and two yolo versions
 
@@ -912,26 +914,26 @@ The derivation, so this table cannot be the authority:
 **What is not bounded.** Given a pack the user selected, `scope: "host"` is a free
 declaration: no second gate, no cap, and — the part that matters most — **no place where the
 set is enumerated, so nothing notices when it grows.** The evidence is that the last two
-additions already left three documents wrong, each in the direction of understating what
-runs on the machine. ⚠ **These are still wrong**, because they describe the built tree and
-the ruling has changed nothing in it:
+additions left three documents wrong, each in the direction of understating what runs on the
+machine. All three were **corrected to the built tree on 2026-09-20** (`5ce66cc1`), the day of
+the ruling, so this table is now a record of what the growth cost, not a list of open defects:
 
 | Doc | What it says | Why it is wrong now |
 | :--- | :--- | :--- |
-| [`../guides/loopholes.md`](../guides/loopholes.md) | the manifest schema census shows `host_daemon` with `cmd`, `env`, `publishes`, `request_end` | **`scope` is absent** — the author-facing schema does not document the key that creates a host singleton, and its comment says yolo "spawns this ON THE HOST at jail startup", which is the per-jail lifecycle, not this one |
-| [`../reference/agent-credentials.md`](../reference/agent-credentials.md) | a current-values table naming the `scope: "host"` daemons | lists two; `aws-auth` appears nowhere in the file |
-| [`../guides/USER_GUIDE.md`](../guides/USER_GUIDE.md) | the host-service Lifecycle list: "When the container exits, yolo sends `SIGTERM` to each service, waits 5 seconds, then `SIGKILL`" | no host-scope carve-out, so it states the opposite of the ruling in [§2](#2-the-picture) — it tells a reader a jail ending kills the daemon |
+| [`../guides/loopholes.md`](../guides/loopholes.md) | the manifest schema census showed `host_daemon` with `cmd`, `env`, `publishes`, `request_end` | **`scope` was absent** — the author-facing schema did not document the key that creates a host singleton. It now has a `host_daemon.scope` section and the `rg` that derives the set |
+| [`../reference/agent-credentials.md`](../reference/agent-credentials.md) | a current-values table naming the `scope: "host"` daemons | listed two; `aws-auth` now has its row |
+| [`../guides/USER_GUIDE.md`](../guides/USER_GUIDE.md) | the host-service Lifecycle list: "When the container exits, yolo sends `SIGTERM` to each service, waits 5 seconds, then `SIGKILL`" | had no host-scope carve-out; it now says a host-scoped daemon is exempt |
 
 ### Under the ruling (not built)
 
-**The population question dissolves, and one of those three docs becomes accidentally
-right.** A retired `scope` means there is no host-wide set to enumerate: a pack declaring a
+**The population question dissolves, and all three corrections have to be undone.** A retired `scope` means there is no host-wide set to enumerate: a pack declaring a
 host daemon declares an ordinary per-jail one, whose cost is the cost the tree already
 prices — a process for the life of a jail, a per-jail socket, a shared log, a front. That is
 what dissolves [OQ-HD7](#OQ-HD7): "may a pack declare `scope: "host"` freely?" has no
-subject once the key is gone. `USER_GUIDE.md`'s lifecycle sentence would become true again,
-for the first time since 2026-08-19 — ⚠ **which is not a reason to leave it, since it is
-wrong about the tree until this is built.**
+subject once the key is gone. The 2026-09-20 corrections describe the built tree and are
+right until this is built. ⚠ **Whoever builds it must revert them in the same change**: the
+USER_GUIDE's host-scope exemption, the loopholes guide's `host_daemon.scope` section and the
+credentials doc's host-scoped table all describe the singleton this ruling retires.
 
 **The lesson survives the key, and is the transferable part:** nothing enumerated the set,
 so nothing noticed when it grew, and the cost of a new member was whatever was still

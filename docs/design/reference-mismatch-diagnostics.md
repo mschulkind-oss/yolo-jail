@@ -267,6 +267,26 @@ The one genuinely new sentence, and the reason the refusals in [§4.1](#41-a-pro
 | **After** | `… no loophole serves 'foo'. Your image predates your working tree (image: <hash-a>, tree: <hash-b>) — run 'just load' on the host, then retry.` |
 | **Why it matters** | `/workspace` is live-mounted and the binaries are frozen until `just load`, so tree-newer-than-image is the normal state between loads. A refusal that cannot name that condition sends you looking for a typo you did not make. This is the `tier` incident's shape, and the repo already solved it once for the test suite (`ensureJailImage` aborts with the fix command). |
 
+> [!NOTE]
+> **The ground under this section moved after it was written (re-checked 2026-09-24).** Two
+> changes, neither of which rules [`OQ-RM3`](#OQ-RM3):
+>
+> - **The image no longer carries yolo's binaries.** The jail's `yolo-entrypoint` is built from
+>   the resolved flake on every launch and bind-mounted in
+>   ([`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md)), so "your image
+>   predates your working tree" is no longer the normal state between loads, and `just load` is no
+>   longer the remedy for a yolo-side skew.
+> - **The one skew that remains is already refused, and cheaply.** A host `yolo` older than the
+>   source it would build from is refused before the build by `run.refuseOnSourceSkew`
+>   (`version.SourceSkew`, shipped 2026-08-30), naming `just install`, with
+>   `YOLO_ALLOW_SOURCE_SKEW=1` as its hatch. It compares the binary's commit stamp with `HEAD`
+>   through git, not through a nix eval, so the 0.3 s cost [`OQ-RM3`](#OQ-RM3) weighs is not the
+>   cost of the check that shipped.
+>
+> What is still unbuilt is this section's actual deliverable: a *reference-mismatch* refusal that
+> names skew as a possible cause. Whether it still needs its own hashes, or can reuse the source-skew
+> gate's verdict, is what [`OQ-RM3`](#OQ-RM3) now asks.
+
 ---
 
 ## 5. Where each check lands, and why not somewhere else
@@ -371,7 +391,9 @@ order.)*
    old" is a worse refusal than the warning it replaces. **NOT SHIPPED**; needs [`OQ-RM3`](#OQ-RM3).
    Nothing on the launch path computes the two hashes — `imageIdentity` is still the test suite's
    (`ensureJailImage`), and the only in-tree prose about an image predating its yolo is a comment
-   in `internal/entrypoint/packsurfaces.go`.
+   in `internal/entrypoint/packsurfaces.go`. ⚠ Its premise has moved, though: the launch already
+   refuses the host-older-than-source skew by a git comparison (`run.refuseOnSourceSkew`), and the
+   image no longer carries yolo — see [§4.6](#46-skew-your-image-is-older-than-your-tree)'s note.
 6. **The active-profile credential preflight.** **SHIPPED — with a deliberate scope change this doc
    must record rather than paper over.** `c77cfd05` gates on the **selected pack**, not the active
    profile — its commit message says *"the earlier active-profile scoping is withdrawn"* — and the
@@ -431,7 +453,10 @@ reaches nobody.
    claim is fixed. **(b)** Refuse the *pack*: it does not load, its other contributions do not
    render, the launch proceeds without it — which is
    [`trust-paths.md`](trust-paths.md) [`OQ-TP6`](./trust-paths.md#decision-ledger)'s rule ("a refused contribution refuses the launch",
-   built 2026-08-18) read the other way.
+   built 2026-08-18) read the other way. *(TP6's own subject, the approval refusal, was deleted
+   with the approval prompt on 2026-09-04 by [`OQ-TP9`](./trust-paths.md#decision-ledger); the
+   rule stands and binds any future refusal source, which a refusing supersession would be. Its
+   "approve" option no longer exists.)*
 
    <!-- vantage: oq id=OQ-RM2 leaning="(a) refuse the launch, for consistency with the shipped OQ-TP6 rule — no partial packs: fix it, remove it, or approve it. A pack that half-loads is the state that rule exists to delete." -->
 
@@ -444,9 +469,13 @@ reaches nobody.
    > _(empty — fill in when decided)_
 
 3. 💬 **OQ-RM3: How does the skew message get its two hashes?** [§4.6](#46-skew-your-image-is-older-than-your-tree) wants to say *"image
-   `<hash-a>`, tree `<hash-b>`"*. `ensureJailImage` does this with `nix eval .#installPrefix.outPath`
-   against `readlink /bin/yolo-entrypoint` — an eval, ~0.3 s, never a build. On the launch path that
-   is 0.3 s added to **every** launch, to produce a sentence needed on almost none of them.
+   `<hash-a>`, tree `<hash-b>`"*. `ensureJailImage` does this with an eval, never a build — written
+   as `nix eval .#installPrefix.outPath` against `readlink /bin/yolo-entrypoint`; since 2026-09-12 it
+   is `nix eval --raw .#imageIdentity` against the loaded image's `/etc/yolo-jail-image-identity`.
+   Either way, ~0.3 s on the launch path is added to **every** launch, to produce a sentence needed
+   on almost none of them. *(Bears on this, and does not answer it: the launch already refuses a
+   host `yolo` older than its source through a git comparison, `run.refuseOnSourceSkew` — see
+   [§4.6](#46-skew-your-image-is-older-than-your-tree)'s note.)*
 
    <!-- vantage: oq id=OQ-RM3 leaning="Compute the two hashes lazily — only once a reference has already failed to match — so the 0.3 s eval never lands on the happy path." -->
 

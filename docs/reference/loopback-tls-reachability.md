@@ -1,7 +1,7 @@
 ---
 status: current
-verified: 2026-09-09
-verified_commit: 38873c0d
+verified: 2026-09-24
+verified_commit: f491d192
 covers:
   - internal/cli/run/hostloopback.go
   - internal/entrypoint/reachability.go
@@ -13,7 +13,8 @@ summary: "How a jail reaches a host daemon: yolo's daemons bind the host's loopb
 
 # Loopback-TLS reachability — how a jail reaches a host daemon
 
-**Status:** CURRENT as of 2026-09-09, verified against `38873c0d`.
+**Status:** CURRENT. The component table and [Current values](#current-values) were re-verified
+against `f491d192` on 2026-09-24; the prose was last verified in full against `38873c0d`, 2026-09-09.
 
 yolo's host daemons bind the **host's loopback** and advertise `host.containers.internal` — on
 the assumption that the container runtime forwards that name to the host's loopback. **It does
@@ -401,6 +402,13 @@ build, which is why the launcher probes for the flag rather than assuming it.
 measurement that settles it is a **real jail on a rootless host**, reported together with what
 podman says its rootless network command is.
 
+**What that real jail's output can tell you.** Since 2026-09-19 `internal/svcendpoint` reports
+what it did instead of staying silent. Each listener prints one line naming **both** halves of the
+bind/advertise pair and where the advertised host came from: the caller, `$YOLO_SVC_ADVERTISE_HOST`,
+or the runtime gateway default. Those are three different fixes. A bind failure names the address
+and the syscall error, and a probe that answers "no" says why. None of it changes a value in this
+document; it makes a wrong-but-plausible advertise value visible on the one run that can show it.
+
 `yolo check`'s output labels each green *"host-side, says nothing about in-jail reachability"*,
 with a footnote per run pointing at the boot-time witness as the only thing that can answer. The
 underlying asymmetry is not closed and cannot be: a host-side check still cannot fail on this.
@@ -435,7 +443,7 @@ underlying asymmetry is not closed and cannot be: a host-side check still cannot
 
 ## Current values
 
-Verified at `38873c0d`. The prose above explains what each of these is for; this table is the
+Verified at `f491d192`. The prose above explains what each of these is for; this table is the
 only place the values themselves are stated.
 
 | Value | Setting | Defined in |
@@ -453,5 +461,5 @@ only place the values themselves are stated.
 | Launcher opt-out | `YOLO_NO_HOST_LOOPBACK` | `internal/cli/run/hostloopback.go` |
 | Service endpoint variables | `YOLO_SERVICE_<NAME>_ENDPOINT` | `paths.ServiceEnvVarPrefix` / `ServiceEnvVarSuffix` |
 | Boot log | `<workspace>/.yolo/boot.log`, previous boot kept beside it | `internal/entrypoint` |
-| Launch log — the LAUNCHER's half, which is where the disposition was decided and printed | `<workspace>/.yolo/launch.log`, newest 50 launches | `internal/cli/run/launchlog.go` |
+| Launch log — the LAUNCHER's half, which is where the disposition was decided and printed | `<workspace>/.yolo/launch.log`, newest 50 launches | `internal/cli/run/launchlog.go`, bounded by `perf.MaxRuns` |
 | Fatal switch | one boolean, `true`; the false side is a test seam | `entrypoint.reachabilityFatal` |

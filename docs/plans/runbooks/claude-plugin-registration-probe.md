@@ -9,7 +9,12 @@ summary: "Three questions a jail structurally cannot answer about Claude Code's 
 # RUNBOOK — what a Claude plugin install actually writes, probed from the host
 
 **Status:** CURRENT — a procedure, and its three questions (Q1–Q3) are still unanswered: no real
-plugin install has been probed from a host yet.
+plugin install has been probed from a host yet (re-checked 2026-09-24). ⚠ **Q3 no longer decides a
+design.** On 2026-09-22 [`synced-skill-trees.md`](../../design/synced-skill-trees.md) ruled the
+transition a **notice, not a mechanism**: yolo copies, moves and tracks nothing, so there is no
+re-homing feature for the vendor's uninstall verb to serve. Q1 and Q2 still settle
+[§2.4](../../design/synced-skill-trees.md#24-two-sync-roots-one-bucket-name-and-only-one-is-exposed)'s
+one unverified note; Q3 is worth running only as a record of the vendor's behavior.
 
 **Audience:** an agent (or the maintainer) on the **host**, not in a jail.
 **Time:** ~15 minutes. **Needs:** a real Claude Code login on that host. **Writes:** nothing
@@ -96,10 +101,11 @@ that ships only commands or MCP servers, and if so **that difference is the find
 
 ## Q3 — what does `claude plugin uninstall` remove?
 
-The transition the maintainer wants is not a copy: it is *identify the plugin, find its
-config, remove it, and re-home it in yolo*. Whether that can lean on the vendor's own verb, or
-must edit those JSON files directly, is the difference between a small feature and a
-commitment to track someone else's file format.
+This question was written when the transition the maintainer wanted was not a copy but
+*identify the plugin, find its config, remove it, and re-home it in yolo*. Whether that could lean
+on the vendor's own verb, or must edit those JSON files directly, was the difference between a
+small feature and a commitment to track someone else's file format. That transition was ruled out
+on 2026-09-22 (see the status line), so the answer below is a record, not an input to a design.
 
 ```console
 $ claude plugin uninstall <the same plugin>
@@ -109,8 +115,8 @@ $ cat ~/.claude/plugins/installed_plugins.json
 ```
 
 **A useful answer** says which of the three it removed — the registration, the materialized
-content, the marketplace entry — and whether the bucket survived. Then the part that decides
-the design:
+content, the marketplace entry — and whether the bucket survived. Then the part that would have
+decided the design:
 
 - **Is it idempotent against already-gone content?** Re-run the uninstall, or delete the
   content directory by hand first and then uninstall. If it errors on absent content, a
@@ -132,8 +138,9 @@ the design:
 Append them to
 [`synced-skill-trees-plan.md`](../../design/synced-skill-trees-plan.md) under a dated
 **Host probe** heading, verbatim — commands and output, not a summary. The design doc's [two-sync-roots section](../../design/synced-skill-trees.md#24-two-sync-roots-one-bucket-name-and-only-one-is-exposed)
-then gets rewritten from measurement rather than from inference, and the three unverified
-notes it currently carries can be closed or corrected by name.
+then gets rewritten from measurement rather than from inference, and its unverified notes (when
+the skills-side root first appears; whether switching organizations accumulates buckets) can be
+closed or corrected by name.
 
 If the answers contradict anything in *What is already known* above, **the host wins** and
 this runbook is what was wrong.

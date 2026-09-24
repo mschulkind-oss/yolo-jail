@@ -35,16 +35,16 @@ the transport half already exists in this repo. [§10.6](#106-recommendation--bu
 **Scope note.** Claude auth switching was originally sketched here as a third use case. It is a
 different feature that wants the same front door, and it is now
 [`agent-auth-modes.md`](agent-auth-modes.md) — split out because it shares this doc's front door
-and none of its blockers (this waits on nix [OQ-1](agent-auth-modes.md#12-decision-ledger) — the ID that used to be called N3; that waits
-on nothing). [§6](#6-the-risks-worth-naming-before-any-code) keeps only the
+and none of its blockers (this one waited on nix [`OQ-NX1`](provisioner-sets.md#decision-ledger) — the ID that used to be called N3,
+closed 2026-09-02, [§8](#8-where-this-sits-against-the-rest-of-the-queue--my-priority-read); that one waited on nothing). [§6](#6-the-risks-worth-naming-before-any-code) keeps only the
 constraint the two share.
 
 **Reads with:** [`loophole-protocol.md`](../reference/loophole-protocol.md) (the wire format this extends),
 [`agent-credentials.md`](../reference/agent-credentials.md) (what crosses the boundary today and why),
 [`agent-auth-modes.md`](agent-auth-modes.md) (the split-out sibling),
-[`../guides/loopholes.md`](../guides/loopholes.md) (the seven shipped loopholes, all pack-shipped
-since 2026-08-19), [`../plans/roadmap.md`](../plans/roadmap.md) — **💬 5** for the live questions
-and 🧊 for B2.
+[`../guides/loopholes.md`](../guides/loopholes.md) (the shipped loopholes, all pack-shipped
+since 2026-08-19), [`../plans/roadmap.md`](../plans/roadmap.md) — the whole doc sits in its 🧊 Icebox,
+with what would thaw it.
 
 > [!NOTE]
 > **"B1 / B1b / B2 / B3" are THIS doc's numbering ([§7](#7-what-i-would-build-in-order)), not roadmap rows.** The roadmap carried a
@@ -62,7 +62,7 @@ pieces are shipped.
 | Piece | Where | State |
 |---|---|---|
 | A framed request/response protocol across the boundary | `internal/frameproto`, [`loophole-protocol.md`](../reference/loophole-protocol.md) | **shipped**, versioned, documented for external authors |
-| A host-side daemon framework with per-jail identity | `internal/hostservice`, `yolo internal daemon <name>` | **shipped** — 4 daemons ride it |
+| A host-side daemon framework with per-jail identity | `internal/hostservice`, `yolo internal daemon <name>` | **shipped** — every framed host daemon rides it |
 | A host daemon holding CROSS-JAIL state behind a lock | `internal/oauthbroker` — `RefreshLockPath`, an flock every broker instance agrees on | **shipped**, and it is the closest precedent |
 | Argv safety for host-side execution | `Session.ExecAllowlisted` (`internal/hostservice/hostservice.go` — the Python-era spelling `exec_allowlisted` survives only in its doc comment) — argv positions validated against a server-owned allowlist | **shipped**, enforced by construction |
 | A request that outlives its connection | — | **MISSING** |
@@ -249,7 +249,9 @@ TLS-interception proxy today — an `intercepts` list, an in-jail terminator on
 host-asserted from the connection preamble (`internal/svcendpoint/preamble.go`,
 `internal/hostservice`; the per-jail *relay* this sentence used to name was deleted 2026-08-19,
 `7df7c5aa`), a host singleton holding the
-credential. B1b is that pattern re-aimed from `platform.claude.com` at `github.com`, which is why
+credential. (The singleton is **ruled retired but not built**:
+[`host-daemon-ownership.md`](host-daemon-ownership.md), 2026-09-20, gives every host-side daemon the
+lifetime of the jail that asked for it. Nothing here depends on there being exactly one copy.) B1b is that pattern re-aimed from `platform.claude.com` at `github.com`, which is why
 [§10.6](#106-recommendation--build-b1b-vendor-the-policy-engine-do-not-adopt-gh-broker) concludes
 it is a build rather than an adoption.
 
@@ -348,8 +350,12 @@ Each step is independently useful, which is the property that makes this safe to
 
 The maintainer wants "a web app locally hosted, ideally one for all jails, or similarly control
 things with a tui/cli through the same protocol." That grain is already right: daemons are
-host-side and per-user, jails are clients, and the OAuth broker is already one singleton serving
-every jail. Multiple front-ends over one store is the natural shape.
+host-side and per-user, jails are clients, and the OAuth broker is today one singleton serving
+every jail. Multiple front-ends over one store is the natural shape. ⚠ The singleton half of that
+is ruled retired ([`host-daemon-ownership.md`](host-daemon-ownership.md), 2026-09-20, not built),
+so the "one" to lean on is the **store**, not the process. That is the ruling's own argument: the
+shipped brokers already serialize on a file lock whose path depends on the home, not on the
+process.
 
 The discipline that makes it work: **the state is the API and the front-ends are dumb.**
 `yolo approve`, a TUI, and a web app are all clients of the same daemon. That also dissolves OQ-E
@@ -401,7 +407,11 @@ possibly step 1.** The reasons:
 
 **What would move it up:** a concrete instance of wanting it that the current model blocks. The
 GitHub-comment case is close — this session has already wanted it — and if that recurs, step 2
-becomes cheap to justify.
+becomes cheap to justify. **A first consumer of the queue is now identified:**
+[`sso-backed-bedrock.md`](sso-backed-bedrock.md)'s [`OQ-SSO6`](sso-backed-bedrock.md#13-decision-ledger) (2026-09-17) ruled
+that a lapsed AWS SSO session is a message the jail reports, never a login request it files. It
+names this doc as where that request shape belongs, rather than half-building one inside a
+credential pack.
 
 ---
 
@@ -438,7 +448,7 @@ delegated; both are in [§9.1](#91-decision-ledger) so they stop being counted a
    says it may see, defaulting to success/failure. Anything else makes "no credential crosses" a
    property of each verb's implementation rather than of the protocol. *(Sharpened 2026-09-02:
    the shipped broker is already this shape — each of its four actions returns a distinct,
-   hand-built response (`internal/oauthbroker/handler.go:89-121`), not one generic envelope. The
+   hand-built response (the action switch in `oauthbroker.BuildHandler`), not one generic envelope. The
    caveat is the trust regime: the oauth broker returns the jail's OWN subscription credential,
    which the jail is entitled to, so the precedent proves the machinery is comfortable, not that a
    third-party-credential verb may return what it fetched.)*
@@ -481,7 +491,7 @@ delegated; both are in [§9.1](#91-decision-ledger) so they stop being counted a
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
 | OQ-B | Approvals are **per-action by default**; a reusable grant is bounded by duration **AND** use count, and the operator may only **narrow** — chain is policy ceiling ≥ request ≥ operator's grant | 2026-08-12 | [§10.1](#101-the-six-claims-from-the-website-pass-checked-against-code), [§10.6](#106-recommendation--build-b1b-vendor-the-policy-engine-do-not-adopt-gh-broker), [§10.8](#108-what-this-changes-in-the-plan) |
-| OQ-D | **Not open here — delegated** to [`agent-auth-modes.md`](agent-auth-modes.md) [§10](agent-auth-modes.md#10-order-of-work) [OQ-1](agent-auth-modes.md#12-decision-ledger). Kept as a pointer because it decides whether this daemon ever holds auth state | 2026-08-12 | [§6](#6-the-risks-worth-naming-before-any-code), [§10](#10-prior-art--unyolo-re-analyzed-from-source-2026-08-12) |
+| OQ-D | **Not open here — delegated** to [`agent-auth-modes.md`](agent-auth-modes.md) [§10](agent-auth-modes.md#10-order-of-work) [OQ-1](agent-auth-modes.md#12-decision-ledger). Kept as a pointer because it decides whether this daemon ever holds auth state. **The delegate is ruled** (2026-08-29): launch-time selection is sufficient for v1 and in-session failover is deferred, so v1 gives this daemon no auth-mode state to hold | 2026-08-12 · delegate ruled 2026-08-29 | [§6](#6-the-risks-worth-naming-before-any-code), [§10](#10-prior-art--unyolo-re-analyzed-from-source-2026-08-12) |
 
 > [!WARNING]
 > **OQ-B corrects a reading this document itself got backwards.** An earlier draft had the human
@@ -489,9 +499,11 @@ delegated; both are in [§9.1](#91-decision-ledger) so they stop being counted a
 > ([§10.1](#101-the-six-claims-from-the-website-pass-checked-against-code), correction 1). Narrowing-only is the whole reason a reusable approval does not decay into
 > an allowlist — do not "simplify" it back to a single bound or to operator-set limits.
 >
-> **OQ-D is a pointer, not an open question — do not count it as one.** Answering it means running
-> auth [§5](#5-three-tiers-not-two--and-git-wants-the-middle-one) for a while and reporting *there*; nothing in this doc waits on it except [§6](#6-the-risks-worth-naming-before-any-code)'s
-> "does the daemon hold auth state" branch, which is downstream of B2 anyway.
+> **OQ-D is a pointer, not an open question — do not count it as one.** Its delegate,
+> [`agent-auth-modes.md`](agent-auth-modes.md)'s [`OQ-1`](agent-auth-modes.md#12-decision-ledger), was ruled 2026-08-29
+> (launch-time selection; failover deferred). Nothing in this doc waits on it except
+> [§6](#6-the-risks-worth-naming-before-any-code)'s "does the daemon hold auth state" branch, which
+> is downstream of B2 anyway, and that branch reopens only if failover is un-deferred.
 
 ---
 
@@ -631,9 +643,9 @@ singleton that holds the credential. B1b is that pattern aimed at `github.com` i
 (#33). **The mechanism [§5](#5-three-tiers-not-two--and-git-wants-the-middle-one) called "not speculative" is not merely not speculative; it is shipped, in
 this repo, and debugged.**
 
-**b. The dependency asymmetry rules out wholesale adoption.** yolo has **3 direct dependencies**
-(`BurntSushi/toml`, `gopher-lua`, `x/sys` — this sentence said 2, and it was already 3 when
-written) and a 7.9 MB `vendor/` under a hermetic offline `-mod=vendor` nix build
+**b. The dependency asymmetry rules out wholesale adoption.** yolo has **a handful of direct
+dependencies** ([`go.mod`](../../go.mod) is the list; this sentence carried a count twice and it
+was wrong both times) and a single-digit-megabyte `vendor/` under a hermetic offline `-mod=vendor` nix build
 whose `goSrc` fileset sees only `go.mod`, `go.sum`, `vendor/`, `cmd/`, `internal/`,
 `packs/` (`bundled_loopholes/` when written; that directory was deleted 2026-08-19). unYOLO has
 **16 direct + 57 indirect**: embedded SQLite

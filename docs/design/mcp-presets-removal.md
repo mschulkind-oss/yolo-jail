@@ -10,7 +10,9 @@ vantage:
 
 # Two presets, seven hardcodings, and a backend that can have neither
 
-**Status:** DECIDED, 2026-09-20 — every question settled, nothing built. ⚠ One ruling
+**Status:** DECIDED, 2026-09-20 — every question settled. Only
+[§13](#13-what-i-would-build-in-order)'s step 0, the chromium-path fix against today's preset, is
+built; steps 1–3 are not. ⚠ One ruling
 ([`OQ-MP7`](#OQ-MP7)) rejected its own leaning and its consequence is NOT contained here: it
 redraws the `packs` workspace-scope boundary, so this doc cannot be built against without that
 being ruled too.
@@ -22,9 +24,11 @@ being ruled too.
 > enough that inventing one is cheaper than handing the config to users.
 
 **Why it matters.** The hardcoding already costs a whole backend the feature — macos-user refuses
-presets outright ([§7](#7-macos-user-the-backend-that-can-have-neither)) — and one delivery mode
-besides: the `chrome-devtools` server entry pins `/usr/bin/chromium`, a path a
-`YOLO_STORE_PACKAGES=1` launch does not have ([§3](#3-the-two-scripts-and-the-one-that-is-never-spawned)).
+presets outright ([§7](#7-macos-user-the-backend-that-can-have-neither)). It also cost one delivery
+mode until 2026-09-14: the `chrome-devtools` server entry pinned `/usr/bin/chromium`, a path a
+`YOLO_STORE_PACKAGES=1` launch does not have. That half is fixed in core, which is exactly the
+kind of browser-finding this change moves out of core
+([§3](#3-the-two-scripts-and-the-one-that-is-never-spawned)).
 
 **The shape.** `mcp_servers` stays core's domain table, unmoved. A pack contributes *entries* into
 it the way a `kind: "provider"` pack contributes entries into `providers` — pack facts under user
@@ -45,9 +49,6 @@ a larger question that lives elsewhere: the `packs` workspace-scope rule should 
 host-reach rather than on install, which bears on
 [`workspace-skills.md`](workspace-skills.md)'s [`OQ-WS1`](workspace-skills.md#OQ-WS1) and on
 [`loophole-system.md`](../reference/loophole-system.md#principles)'s `R5`.
-**reversed its leaning and opened a larger question**: the `packs` workspace-scope rule should be
-redrawn on host-reach rather than on install, which also bears on
-[`workspace-skills.md`](workspace-skills.md)'s [`OQ-WS1`](workspace-skills.md#OQ-WS1).
 
 **Reads with:** [`mcp-configuration.md`](../reference/mcp-configuration.md) (the pipeline as built,
 and the ruling this doc must not undo), [`pack-system.md`](../reference/pack-system.md) (the kind
@@ -74,8 +75,9 @@ argued below.
   as instances of one mechanism is what produced seven hardcodings across two packages
   ([§2](#2-what-mcp_presets-is-today--seven-places-two-packages)).
 - **P3. The hardcoding is not hypothetical debt — it is shipped breakage.** macos-user warns and
-  delivers nothing; a store-packages launch gets a server entry pointing at an absent path; and
-  the one generated script that resolves chromium correctly has no producer that spawns it.
+  delivers nothing; a store-packages launch got a server entry pointing at an absent path until
+  core learned to resolve it (2026-09-14); and the fat generated script that also resolves
+  chromium has no producer that spawns it.
 
 **What I would not do:** treat this as a chance to re-open where `mcp_servers` lives. That ruling
 is in [`sources.go`](../../internal/agentcfg/manifest/sources.go) — *"an MCP server and an LSP
@@ -156,17 +158,20 @@ generator, the boot catalog's declared-orphan entry that stops it being reported
 files.
 No `command` names it, and no user-facing doc mentions it.
 
-**The two differ in exactly the way that matters.** The orphan resolves chromium at run time —
-`/usr/bin/chromium` first, `command -v chromium` as a fallback — with a comment explaining that a
-store-packages launch has no `/usr/bin/chromium` and a `chromium` on PATH instead. The wired path
-pins the absolute path with no fallback.
+**The two used to differ in exactly the way that matters.** The orphan resolves chromium at run
+time — `/usr/bin/chromium` first, `command -v chromium` as a fallback — with a comment explaining
+that a store-packages launch has no `/usr/bin/chromium` and a `chromium` on PATH instead. The wired
+path pinned the absolute path with no fallback.
 
-> [!WARNING]
-> **So the `chrome-devtools` preset is already broken on a `YOLO_STORE_PACKAGES=1` launch**, and
-> the fix has been sitting in the same package, written and unreachable. The lean image is built
-> with `mkBinPathLinks { withChromium = false; }`, and the `/usr/bin/chromium` symlink is created
-> only inside that `withChromium` block (`flake.nix`). Whatever shape the pack takes, it must
-> **resolve** rather than pin — see [OQ-MP5](#OQ-MP5).
+> [!NOTE]
+> **That pin was a live defect on a `YOLO_STORE_PACKAGES=1` launch, and it is fixed (2026-09-14,
+> [§13](#13-what-i-would-build-in-order) step 0).** The lean image is built with
+> `mkBinPathLinks { withChromium = false; }`, and the `/usr/bin/chromium` symlink is created only
+> inside that `withChromium` block (`flake.nix`). The wired entry now asks
+> `entrypoint.chromiumExecutablePath`, which looks `chromium` up on the image probe path (the
+> store-packages farm included) and falls back to `/usr/bin/chromium` only when nothing resolves.
+> That fix lives in **core**, at boot — the very browser-finding [OQ-MP5](#OQ-MP5) rules out of
+> core — so the pack must still carry its own run-time resolution, and step 3 deletes this one.
 
 ---
 
@@ -223,7 +228,7 @@ This is the section the design exists for. Twelve dependencies, split by who mus
 | 5 | `--headless`, `--isolated` | `Env.chromeDevtoolsArgs` | **Yes** — inert data in the manifest |
 | 6 | three `--chrome-arg=` sandbox flags | `Env.chromeDevtoolsArgs` | **Yes** — same; see the callout below |
 | 7 | the chromium **binary** | image: `fullPackages`, or `yoloImageExtras` on a lean launch | **No** — image content, and it must stay so |
-| 8 | the path to that binary | pinned `/usr/bin/chromium` (wired) / resolved (orphan script) | **Must be resolved, not declared** — [OQ-MP5](#OQ-MP5) |
+| 8 | the path to that binary | resolved at boot by core (wired, `chromiumExecutablePath`) / resolved at run time (orphan script) | **Must be resolved, not declared** — [OQ-MP5](#OQ-MP5) |
 | 9 | fonts: `/etc/fonts`, `/usr/share/fonts`, `FONTCONFIG_*` | image `withChromium` block; `configureStoreFontconfig` on a lean launch | **No** — image and boot |
 | 10 | `/bin/node` (what the thin wrapper execs) | image core floor (`nodejs_24`) | Declarable as `kind: "requires"`, delivered by the image |
 | 11 | `curl` (the orphan script's readiness poll) | image core floor | Declarable as `kind: "requires"`, delivered by the image |
@@ -284,19 +289,20 @@ environments.
 
 ## 6. There is no MCP contribution kind
 
-The kind registry is **closed and has nineteen entries** (`footprints`,
-`internal/packdecl/kinds.go`, counted 2026-09-12): `program`, `requires`, `skills`, `briefing`,
-`files`, `config`, `config-overlay`, `state`, `reads-host`, `mount`, `env`, `launch`, `hook`,
-`autonomy`, `profile`, `provider`, `loophole`, `service`, `blocked-tool`. None of them can express
-*"here is an MCP server, put it in the canonical table."*
+The kind registry is **closed** (`footprints` in `internal/packdecl/kinds.go`; `packdecl.KnownKinds`
+lists it). None of its kinds can express *"here is an MCP server, put it in the canonical table."*
+The newest member does not change that: `config-list` (built 2026-09-24,
+[`additive-config-lists.md`](additive-config-lists.md)) appends entries to an array on a surface an
+agent pack owns. That is Shape B below in list form, and it cannot address yolo's own `mcp_servers`
+table, which is a map, not an agent surface.
 
-The closed hook set does not rescue this either: `KnownHooks` is
-`{shared_credentials, per_jail_history}` — there is no general "run this at boot" escape hatch, by
-design. That set has since got *smaller*, not larger: `claude_plugins` was a third member until it
-was retired ([`pi-pack-extensions.md`](./pi-pack-extensions.md)
+The closed hook set does not rescue this either: every member of `packdecl.KnownHooks` is a named
+link or history capability, and there is no general "run this at boot" escape hatch, by design.
+`claude_plugins` was a member until it was retired ([`pi-pack-extensions.md`](./pi-pack-extensions.md)
 [`OQ-2`](./pi-pack-extensions.md#10-decision-ledger), 2026-09-19 — retire it and add nothing like
-it, no agent-named hook). So an MCP kind cannot expect to arrive as a hook by precedent; the
-precedent runs the other way.
+it, no agent-named hook). The one member added since, `shared_directory` (2026-09-21), generalizes
+an existing link hook and names no agent. So an MCP kind cannot expect to arrive as a hook by
+precedent; the precedent runs the other way.
 
 ### 6.1 The three candidate shapes
 
@@ -471,17 +477,18 @@ for the browser, an `mcp_servers` snippet for the other.
 | **R1. A user's jail stops having a browser and they do not know why.** The key errors, the pack is not selected, and the failure is at launch rather than at use | The retirement message names `"packs": ["chrome-devtools"]` verbatim. This is the whole reason for the targeted-message treatment over a generic unknown-key error |
 | **R2. The new kind is built for one pack and fits nothing else.** A kind invented around chrome-devtools' needs is a kind shaped by an npm binary and a browser | [§6.2](#62-what-the-kind-must-be-able-to-carry-at-minimum) derives the field set from the **table it composes into**, not from chrome-devtools. If a field is in `knownMCPServerKeys` the kind carries it; if it is not, the kind does not invent it |
 | **R3. Composition-site skew.** Presets compose in-jail and providers compose host-side. Getting [OQ-MP4](#OQ-MP4) wrong means one launch composes twice, or the CLI reports a table the jail does not build | Whichever site wins, it is **one** composition, and the other side reads the result — the rule `composePackChannel` already states for the profile/provider channel |
-| **R4. The lean-launch fix is bundled with a migration and lands untested.** [§3](#3-the-two-scripts-and-the-one-that-is-never-spawned)'s pinned path is a live defect | Resolve it first, as its own change against the existing preset, so the fix is verifiable before the mechanism moves under it. See [§13](#13-what-i-would-build-in-order) step 0 |
+| **R4. The lean-launch fix is bundled with a migration and lands untested.** [§3](#3-the-two-scripts-and-the-one-that-is-never-spawned)'s pinned path was a live defect | **Retired.** It was fixed first, as its own change against the existing preset (2026-09-14, [§13](#13-what-i-would-build-in-order) step 0), so the migration inherits working behavior |
 | **R5. A stale `config_ref.txt`.** It documents both preset names and, separately, still claims `mcp_servers.env` expands `${VAR}` — which was removed 2026-08-03 | Both are text edits in one file, and the second is a pre-existing defect this work should not inherit silently |
 
 ---
 
 ## 13. What I would build, in order
 
-**Step 0 — fix the pin, before anything moves.** Make the wired `chrome-devtools` entry resolve
-chromium the way the orphan script does. This is a bug fix against today's mechanism, it is
-verifiable on a `YOLO_STORE_PACKAGES=1` launch, and it means the migration inherits working
-behaviour rather than carrying a defect across.
+**Step 0 — fix the pin, before anything moves. BUILT 2026-09-14.** The wired `chrome-devtools`
+entry resolves chromium (`entrypoint.chromiumExecutablePath`) instead of pinning
+`/usr/bin/chromium`. It was a bug fix against today's mechanism, and it means the migration
+inherits working behaviour rather than carrying a defect across. It resolves at boot, in core, so
+steps 1–3 still replace it with the pack wrapper's run-time resolution ([OQ-MP5](#OQ-MP5)).
 
 **Step 1 — the kind.** Register it, give it its footprint row and combine rule, teach the composer
 to fold pack entries under user entries, and wire the composed table into whichever loader
@@ -683,11 +690,17 @@ Observable outcomes a human can check, not test names:
 
 ## Decision Ledger
 
-Both rows were ruled by the maintainer **before this document was drafted**, and are recorded here
-so they can be cited and so nobody re-opens them. They are premises of the design, not conclusions
-of it.
+The first two rows were ruled by the maintainer **before this document was drafted**. They are
+premises of the design, not conclusions of it. The other six were settled on 2026-09-20; their full
+answers are in [§15](#15-open-questions).
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
 | OQ-MP1 | `sequential-thinking` is **dropped with no replacement** — not migrated, not re-homed | 2026-09-12 | [§4](#4-sequential-thinking-is-deleted--what-that-costs-and-what-a-user-does-instead) |
 | OQ-MP2 | `chrome-devtools` becomes a **builtin pack**, *"because that has hairy config to get right"* | 2026-09-12 | [§5](#5-the-chrome-devtools-inventory--what-the-pack-carries-what-the-image-keeps) |
+| OQ-MP3 | A new **`mcp` kind**, composed into `mcp_servers` the way `provider` composes into `providers`; exclusive by server name, never review-worthy | 2026-09-20 | [§15](#15-open-questions) |
+| OQ-MP4 | **Dissolved**, its premise false: compose host-side, through `paths.JailPathHomeDirs` | 2026-09-20 | [OQ-MP4](#OQ-MP4) |
+| OQ-MP5 | `requires` plus run-time resolution in the pack's own wrapper | 2026-09-20 | [§15](#15-open-questions) |
+| OQ-MP6 | Full retirement of both names, with a targeted message | 2026-09-20 | [§15](#15-open-questions) |
+| OQ-MP7 | **No** to the scope demotion: define a safe subset of packs a workspace may declare. The subset itself is not ruled | 2026-09-20 | [OQ-MP7](#OQ-MP7) |
+| OQ-MP8 | One plain wrapper script, not a service | 2026-09-20 | [§15](#15-open-questions) |

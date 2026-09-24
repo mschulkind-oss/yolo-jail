@@ -1,6 +1,9 @@
 # Plan: CLI visual polish — color to guide the eye
 
-**Status:** DECIDED, 2026-07-20 — in progress, **not touched since — re-checked 2026-08-23.** One item in
+**Status:** DECIDED, 2026-07-20 — in progress, **no checklist item has moved since 2026-07-21 —
+re-checked 2026-09-24**, when this doc's line-number anchors were replaced by symbol names because
+they had drifted. `broker status` below is now `yolo host-daemon status`; the `broker` spelling
+survives as an alias for the Claude broker (2026-09-20). One item in
 the "remaining" list below is now unbuildable as written: `builder` polish, because `yolo builder`
 and `internal/builder` were **deleted** on 2026-07-23 when the container builder became the sole
 builder. Audit complete (2026-07-20); top surfaces landed
@@ -24,7 +27,7 @@ Every human-facing `yolo` surface uses color to guide the eye — status
 vocabulary (ok/fail/warn) is colored, headers are bold, identifiers and paths
 are distinct from prose, and action hints stand out — following ONE consistent
 semantic convention across all commands. Today four surfaces already hit this
-bar (`check`, `broker status`, `prune`, `macos-*`); several others emit
+bar (`check`, `host-daemon status`, `prune`, `macos-*`); several others emit
 textbook color-mappable content as flat monochrome.
 
 ## The invariant — color is ADDITIVE
@@ -69,7 +72,7 @@ scan target (e.g. `--help` command names).
 ## Palette gaps (enabling dependency — do FIRST if needed)
 
 `internal/richtext` offers 8 tags: `bold`, `dim`, `red`, `green`, `yellow`,
-`blue`, `magenta`, `cyan` (`ansiForTag`, richtext.go:39-42) — 6 true hues plus 2
+`blue`, `magenta`, `cyan` (`ansiForTag`, `internal/richtext/richtext.go`) — 6 true hues plus 2
 modifiers, no background/inverse. One audited surface still wants more than that:
 
 1. **`config render --explain` — one hue per provenance layer. RESOLVED.**
@@ -82,7 +85,7 @@ modifiers, no background/inverse. One audited surface still wants more than that
    transform on 2026-09-11 — [`OQ-LT1`](../reference/pack-system.md#oq-lt1) — so the palette now has a
    hue to spare rather than a gap.)
 2. **`check` badges use background/inverse video. (still open.)**
-   `reporter.go:20-21` renders `[FAIL]` white-on-red and `[WARN]` black-on-yellow
+   `internal/cli/check/reporter.go` renders `[FAIL]` white-on-red and `[WARN]` black-on-yellow
    via its own ANSI constants — backgrounds richtext cannot express. This is only
    relevant *if* `check` is ever unified onto richtext; today check keeps its
    private, strictly-richer ANSI set (recommended). If unification is ever
@@ -98,14 +101,14 @@ fits the existing 8 tags.
 
 Unlike the other items (which just wrap existing tags around existing text),
 `yolo --help` needed a **mechanism** change, now landed in 59568e4. `usageText()`
-(help.go:32-52) emits rich tags (`[bold]` section headers, `[cyan]` command
+(`help.go`) emits rich tags (`[bold]` section headers, `[cyan]` command
 names) and is rendered at the print site via
 `richtext.Render(usageText(), isTTY(os.Stdout))` (cli.go, in the
 `wantsTopLevelHelp` branch) — the plain path strips the tags so `help_test.go`'s
 substring assertions keep passing.
 
 - **Still plain:** the same mechanism cost applies to `config --help` /
-  `configUsage` (config.go:27-45, a pure-plain string written via `io.WriteString`
+  `configUsage` (`config.go`, a pure-plain string written via `io.WriteString`
   with no color path). `config.go` otherwise has a color path now (`colorForWriter`
   + a `richtext.Printer` in `renderSurface`); only the usage string is uncolored.
 
@@ -119,20 +122,19 @@ Palette is sufficient for every item unless noted.
 These emit color-mappable status vocabulary but have no color path at all.
 Highest value, low risk (text stays byte-identical after strip).
 
-- [ ] **`yolo loopholes status`** (loopholescmd.go Status, L127-153) —
+- [ ] **`yolo loopholes status`** (`Status` in `internal/loopholes/loopholescmd.go`) —
   **Impact: high · Effort: med.** *The single biggest missed opportunity.* Wire a
   `richtext.Printer` + color gate into `Deps` (package currently writes to a raw
   `io.Writer`, no TTY probe). Then color the existing bracket prefixes:
   `[ok]`→green, `[fail]`→red, `[inactive]`→yellow, `[disabled]`/`[no-check]`→dim
   (direct reuse of check's proven pass/fail vocabulary). Bold the loophole Name;
-  dim `rc=%s` and the wrapped Output detail lines (L152); cyan the suggested
-  `yolo loopholes status` command in the in-jail short-circuit line (L127).
-- [ ] **`yolo loopholes list`** (loopholescmd.go List, L89-118) —
+  dim `rc=%s` and the wrapped Output detail lines; cyan the suggested
+  `yolo loopholes status` command in the in-jail short-circuit line.
+- [ ] **`yolo loopholes list`** (`List` in `internal/loopholes/loopholescmd.go`) —
   **Impact: high · Effort: med** (same Deps plumbing as status). Color the status
   label green `active` / yellow `inactive (reason)` / dim `disabled`; bold the
   loophole Name so each row anchors; dim the `(source/transport/lifecycle)` tags
-  and the `transport=`/`intercepts=` metadata; dim the description continuation
-  (L117); bold the `• bundled/user/workspace` empty-state bullet labels.
+  and the `transport=`/`intercepts=` metadata; dim the description continuation; bold the `• bundled/user/workspace` empty-state bullet labels.
 - [x] **`yolo ps`** (ps.go + runtime/display.go RenderPsTable) — **DONE
   (d71dba3), listed in the Status header.** A color gate + `richtext.Printer`
   are now wired into `psDeps` (ps.go: `richtext.Printer{W: deps.Out, Color:
@@ -145,20 +147,20 @@ Highest value, low risk (text stays byte-identical after strip).
 
 ### Group B — YELLOW: partial or plain, mostly additive
 
-- [x] **`config render --explain` layer column** (config.go renderSurface
-  L162-193, colorLayer L199-216 + agentcfg/compose.go ProvenanceLines L216) —
+- [x] **`config render --explain` layer column** (`renderSurface` and
+  `colorLayer` in `config.go`, plus `ProvenanceLines` in `agentcfg/compose.go`) —
   **DONE (59568e4).** `renderSurface` builds a `richtext.Printer{W: out, Color:
   color}`, cyans each key, and runs the LAYER token through `colorLayer`, which
   gives one hue per layer (palette gap #1 resolved via the extended palette). The
   output now scans like syntax highlighting — which keys `managed` clobbered vs
   came from `host`/`workspace`.
-- [x] **`yolo --help`** (help.go usageText L32-52, rendered at cli.go via
+- [x] **`yolo --help`** (`usageText` in `help.go`, rendered at cli.go via
   `richtext.Render(usageText(), isTTY(os.Stdout))`) — **DONE (59568e4).**
   `usageText` emits `[bold]` headers (`Usage:`/`Commands:`), `[cyan]` on each
-  command NAME (the scan target, L48), the literal `yolo --`/subcommand usage
-  tokens (L36-39), and the trailing `yolo <subcommand> --help` pointer (L50). The
+  command NAME (the scan target), the literal `yolo --`/subcommand usage
+  tokens, and the trailing `yolo <subcommand> --help` pointer. The
   print site is TTY-gated so stripped output stays byte-identical.
-- [ ] **`config --help` / `configUsage`** (config.go L26-44) —
+- [ ] **`config --help` / `configUsage`** (`config.go`) —
   **Impact: med · Effort: med** (same config.go color path). Headers
   `Usage:`/`Subcommands:`/`render flags:`→bold; `render <agent>` token and each
   canonical surface identity (`pi/settings`) and flags (`--explain`,
@@ -166,7 +168,7 @@ Highest value, low risk (text stays byte-identical after strip).
   (Written when `configUsage` named the two `config.lua` files; both are gone
   with the Lua transform — [`OQ-LT1`](../reference/pack-system.md#oq-lt1) — so the paths left to
   color are whatever the help text names today.)
-- [ ] **`yolo init` / `init-user-config`** (init.go L66/73/76/105/108) —
+- [ ] **`yolo init` / `init-user-config`** (the status lines in `init.go`) —
   **Impact: med · Effort: low-med.** Color the scaffolder's own status lines to
   match the richly-styled briefing that follows: `Created …`→green,
   `already exists`→yellow, the two error paths→`[bold red]`. **Blocker:** init.go
@@ -174,7 +176,7 @@ Highest value, low risk (text stays byte-identical after strip).
   red**). Either add `red`/`dim` to `markupANSI`+`markupStrip`, or route init's
   status lines through `internal/richtext.Printer` (which has red). Flag this
   missing-tag gap.
-- [ ] **`yolo run` progress sub-steps** (run/command.go setupScript L15-22) —
+- [ ] **`yolo run` progress sub-steps** (`setupScript` in `run/command.go`) —
   **Impact: med · Effort: med, FROZEN BYTES.** The `↳ mise install / mise
   upgrade / bootstrap` phase lines render as flat plain text against mise's own
   chatter; give them `[cyan]` or `[bold]` so each phase boundary reads as a
@@ -195,14 +197,14 @@ Highest value, low risk (text stays byte-identical after strip).
 
 - [ ] **`yolo check` / doctor** — add scannable glyphs before badges
   (`[PASS]`→green ✓, `[FAIL]`→red ✗, `[WARN]`→yellow `!`); dim the ` -> workspace`
-  tail of running-jail rows (check.go:536) so the jail name pops; cyan the
+  tail of the running-jail rows (`check.go`) so the jail name pops; cyan the
   config/storage paths in `ok()` lines. Keep check's private ANSI set (it's
   richer than richtext — see palette gap #2). **Low effort, additive.**
-- [ ] **`yolo broker status`** — dim/cyan the `pid file:`/`socket:` PATH values
-  (L92/98) so label/value split is visible; add ✓/✗ glyphs before
+- [ ] **`yolo host-daemon status`** (was `broker status`) — dim/cyan the `pid file:`/`socket:`
+  PATH values (`internal/broker/brokercmd.go`) so label/value split is visible; add ✓/✗ glyphs before
   live/present/ok; align trailing marks into a fixed status column for vertical
   scanning. **Low effort, additive.**
-- [ ] **`yolo prune` mode banner** (prunecmd.go:166) — color the header mode
+- [ ] **`yolo prune` mode banner** (`internal/prune/prunecmd.go`) — color the header mode
   token so DRY-RUN vs APPLY is obvious at the top, not only in the far summary:
   `[bold yellow]yolo prune (DRY-RUN)` vs `[bold red/green]yolo prune (APPLY)`.
   Goldens pin `Color=false` → stripped bytes unchanged. **Low effort, additive.**
@@ -212,10 +214,10 @@ Highest value, low risk (text stays byte-identical after strip).
 
 ## Cross-cutting
 
-- [ ] **Colorize resource PATHS consistently** across all six state commands —
+- [ ] **Colorize resource PATHS consistently** across the state commands —
   dim or cyan the path portion of `label: /some/path` lines so the label/value
-  boundary is visible (broker pid-file/socket, check storage/config paths,
-  builder conf paths, config-ref file paths).
+  boundary is visible (host-daemon pid-file/socket, check storage/config paths,
+  config-ref file paths; the builder conf paths went with `yolo builder`).
 - [ ] **Consolidate tag→ANSI renderers.** Three-plus parallel tables exist:
   richtext's `ansiForTag`, configref.go's `tagReplacer`, cli/markup.go's
   `markupANSI`. `richtext.ansiForTag` already covers the full palette. Route the

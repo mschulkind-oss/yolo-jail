@@ -8,9 +8,13 @@ summary: "yolo's observability facility is mature and entirely host-side. The on
 
 # The instrument stops at the boundary
 
-**Status:** DESIGN, 2026-09-19, evidence read at `16ef96cb`. Five rulings owed; pieces of
-[§4.3](#43-the-listener-inventory-in-go)/[§4.4](#44-a-give-up-reports-the-rule-and-its-narrow-shape)
-are in flight concurrently and nothing here waits on them ([§7](#7-risks) R3).
+**Status:** DESIGN, 2026-09-19, evidence read at `16ef96cb`. Five rulings owed. Two of
+[§8](#8-what-i-would-build-in-order)'s steps landed the same day, independently of any ruling:
+step 2, the [listener inventory](#43-the-listener-inventory-in-go) (`internal/listeners`,
+`cf91ab33`), and step 1, the port-forward loop naming what holds a skipped port (`68562ded`).
+Steps 3–5 — the boot snapshot, the supervisor tier lines and the dial — are not built. ⚠ Step 1
+reports on the **terminal**, not only to `boot.log`, which this design's cost line and
+[§9](#9-success-criteria)'s last criterion did not plan for ([§8](#8-what-i-would-build-in-order)).
 
 > **In short.** The problem is not log volume. yolo's observability facility is careful,
 > principled — and it stops at the container wall, so the measurements that settle a
@@ -73,7 +77,10 @@ behind, without a second launch and without a live container.
 
 `internal/perf` plus the run pipeline give the host process spans, marks, records, an
 incremental file sink, a slow-span notice, and a Window A attribution for the stretch no
-yolo code is present for. Two gates separate **recording** from **reporting**, and the rule
+yolo code is present for. Since 2026-09-24 Window A is split into podman's teardown and the
+`podman run` client's exit, and the client that outlives its container is sampled from `/proc`
+(`internal/lingerprobe`); free-form lines like those samples reach `host-perf.log` as a `Note`
+event that stays out of the `--timing` table. Two gates separate **recording** from **reporting**, and the rule
 for classifying the next opt-in is written down: an explicit per-invocation flag prints, a
 persistent setting records silently. Read
 [`perf-logging.md`](../reference/perf-logging.md); this doc changes none of it.
@@ -98,11 +105,12 @@ of it that matters.
   per-service-ready notice. Both are about **daemon lifecycle**, not about timing, and both
   are gated on `YOLO_JAIL_TIMING`.
 
-The uneven part is measurable. In `internal/entrypoint`, `e.warn` has **62** production
-call sites and `e.note` — the detail channel, the one with no volume budget because nobody
-is watching the file — has **four**: the boot catalog, one host-layer note, one reconcile
-note, and the reachability roll-up. The channel was built, argued for at length, and then
-used four times.
+The uneven part is measurable. In `internal/entrypoint`'s production code, `e.warn` call
+sites outnumber `e.note` — the detail channel, the one with no volume budget because nobody
+is watching the file — by roughly ten to one, and that held after the 2026-09-19 boot-path
+loudness pass (`504bd268`) added to both. When this was written, `e.note` had four callers:
+the boot catalog, one host-layer note, one reconcile note, and the reachability roll-up. The
+channel was built, argued for at length, and then barely used.
 
 ### 2.3 The one dial that crosses, and the one that does not
 
@@ -149,7 +157,7 @@ holds throughout, which is the good news in this table.
 | Sink | Sole writer | Gate | Bound | Survives a refused boot |
 | :--- | :--- | :--- | :--- | :---: |
 | `<ws>/.yolo/boot.log` | `entrypoint.attachBootLog` (tee on `e.Stderr`, + `e.LogOnly`) | always-on | **1 generation** (`boot.log.prev`) | **yes** |
-| `<ws>/.yolo/launch.log` | `run.teeLog` | always-on | newest 49 run blocks | yes (host-side) |
+| `<ws>/.yolo/launch.log` | `run.teeLog` | always-on | newest `perf.MaxRuns` launches (trimmed to one fewer at open, then appended) | yes (host-side) |
 | `<ws>/.yolo/host-perf.log` | `perf.FileSink` | recording gate | newest `perf.MaxRuns` = 50 runs | yes (host-side) |
 | `<ws>/.yolo/housekeeping.log` | `run.housekeepingNote` | when a slot fires | **none** | yes (host-side) |
 | `<ws>/.yolo/startup.log` | a shell `tee` in the generated final command (`provision.StartupLog`) | always-on | **none** | only if provisioning was reached |
@@ -200,8 +208,8 @@ formed.
 
 | Failure | The measurement that settles it | Where it belongs |
 | :--- | :--- | :--- |
-| **`127.0.0.1:8214` held before the bridge binds it.** Four hypotheses; the cause was a provider-table aliasing that let a pack's jail-loopback address into the user-provider table, so the in-jail `socat` took the port before the supervisor started | **the jail's own listener table, with owning PIDs and argv**, at the moment the bind failed. `ss -ltnp` on the host was empty because the host end is a UNIX socket | the boot snapshot, at readiness failure |
-| **A ~10 s silent gap at teardown**, between the agent's goodbye and yolo's last two lines | a span or mark covering the gap — the host half already has the shape (a dangling `start` is the answer to "who is doing it"); what is missing is a span over that stretch | host `host-perf.log`; owned elsewhere — see [§7](#7-risks) R3 |
+| **`127.0.0.1:8214` held before the bridge binds it.** Four hypotheses; the cause was a provider-table aliasing that let a pack's jail-loopback address into the user-provider table, so the in-jail `socat` took the port before the supervisor started | **the jail's own listener table, with owning PIDs and argv**, at the moment the bind failed. `ss -ltnp` on the host was empty because the host end is a UNIX socket | the boot snapshot, at readiness failure. **Half built 2026-09-19**: the skipped forward and the wire-bridge bind failure now name the holder from `internal/listeners`; the snapshot is not built |
+| **A ~10 s silent gap at teardown**, between the agent's goodbye and yolo's last two lines | a span or mark covering the gap — the host half already has the shape (a dangling `start` is the answer to "who is doing it"); what is missing is a span over that stretch | host `host-perf.log`; owned elsewhere — see [§7](#7-risks) R3. **Instrumented 2026-09-24** (`f491d192`): the gap is Window A, now split into podman's teardown and the `podman run` client lingering after its container is removed, with the lingering client sampled — see [`perf-logging.md`](../reference/perf-logging.md#window-a-attribution) |
 | **`dropComputedTables` blamed for the wrong remedy.** Dropping a user's `enabledPlugins` or `env` entry prints *"add under `mcp_servers` to keep it"* | the dropped key's own name in the remedy. The message is a `Fprintf` with the table name in the subject and `mcp_servers` hardcoded in the predicate | not a diagnostic-tier problem at all — a one-line defect, [§3.1](#31-one-of-the-six-is-not-this-designs-problem) |
 | **`supervisor.waitTimeout` abandons live goroutines** after 10 s and reports nothing, leaking a process that can hold a port — which is how the 8214 port came to be held | *that the deadline fired*, and which children had not settled. ⚠ **It was examined and deliberately left unfixed**, and the reason is this design's central constraint rather than an oversight: the only channel available is the per-daemon log that may itself be the wedged thing ([§4.1.1](#411-the-sink-may-not-be-the-resource-under-diagnosis-and-it-must-outlive-the-boot)) | a sink independent of any service — [OQ-DB5](#oq-db5) |
 | **The Apple Container stale-image loop** (three compounding faults) | which image identity the launch resolved, which it found loaded, and why it did not replace it — each as a recorded fact rather than an inference from a retry | host-side; `launch.log` already carries the disclosures, so this is a *coverage* gap in what the image path states, not a tier gap |
@@ -235,14 +243,17 @@ The ordering that makes it fatal is a fact, re-verified independently of
 calls `startContainerPortForwarding` and *then* `startJailDaemonSupervisor`, four lines
 apart. Two properties of the earlier call are what made the failure mute:
 
-1. **The collision branch is the one silent branch in a loud function.** An invalid entry
+1. **The collision branch was the one silent branch in a loud function.** An invalid entry
    warns, a missing socket warns, a missing `socat` warns, a failed `Start` warns — and
-   `if portInUse(localPort) { continue }` says nothing, in either direction. A forward that
+   `if portInUse(localPort) { continue }` said nothing, in either direction. A forward that
    silently did not happen and a forward that silently stole a port are the same
-   observation from outside.
-2. **`portInUse` is the repo's only listener probe, and it probes by binding.** It answers
+   observation from outside. *Fixed 2026-09-19 (`68562ded`): the branch now reports in two
+   registers, "already established" for a re-entered container and a warning naming the
+   holder otherwise.*
+2. **`portInUse` was the repo's only listener probe, and it probes by binding.** It answers
    *occupied* and can never answer *by whom* — which is the only answer that was wanted.
-   There is no `/proc/net/tcp` parsing anywhere in the tree at `16ef96cb`.
+   There was no `/proc/net/tcp` parsing anywhere in the tree at `16ef96cb`; `internal/listeners`
+   added it the same day, and the skipped-forward report asks it *by whom*.
 
 Note what this is not: [`OQ-PC2`](../reference/wire-bridge.md#oq-pc2) in the wire-bridge reference asks whether an implicit provider forward
 should be **disclosed** on the launch terminal. That is a question about the user's
@@ -352,6 +363,13 @@ incomplete; no retry, no lock.
 
 ### 4.3 The listener inventory, in Go
 
+**BUILT 2026-09-19** as `internal/listeners` (`cf91ab33`), a standalone unit tested against a
+fixture `/proc`, as [§8](#8-what-i-would-build-in-order) step 2 asked. Its two callers today are
+the port-forward skip and the wire-bridge's port-holder report (`wirebridged/portholder.go`);
+the boot snapshot that was to be its first caller is not built. Its snapshot carries its own
+gaps, so an owner-less socket from an exhaustive walk and one from a walk that could not look
+are never spelled alike. What follows is the design it was built to.
+
 Parsed from `/proc/net/tcp`, `/proc/net/tcp6` and their UDP siblings for the socket→inode
 mapping, joined to owners by walking `/proc/<pid>/fd` for `socket:[<inode>]` links. **No
 subprocess, and specifically not `ss` or `lsof`**: the jail may bake neither, `macos-user`
@@ -429,8 +447,8 @@ while the CALL SITE is unpinned*. `internal/cli/run/flock_test.go` names the def
 (`"no waiting notice while the lock was held (the silent-hang defect)"`) and pins
 `flock.go`'s notice. But the string `"Waiting for concurrent jail launch"` occurs in exactly
 three places in the tree — the format string, the notice, and that test's own assertion — and
-**nothing asserts the production wiring** at `run.go:924`, which supplies the `waiting`
-closure. Delete that one line and the silent hang returns with a green suite. `flock.go`
+**nothing asserts the production wiring** — the `lockNotices` literal in `run.go`'s
+workspace-flock block, which supplies the `waiting` closure. Delete that one line and the silent hang returns with a green suite. `flock.go`
 itself flags the adjacent hazard (a `warn, waiting` argument pair that "would be silent and
 exactly backwards" if transposed) and mitigates it with a struct rather than a test.
 
@@ -526,18 +544,25 @@ Two places it *would* come into tension, stated so the next author does not walk
 | :--- | :--- |
 | **R1. The snapshot becomes the thing that fails the boot** — a `/proc` walk on a huge process table, a blocked read on a daemon log | Non-fatal by construction, bounded in bytes, and it runs only on a path that is already refusing. No lock, no retry, no wait |
 | **R2. The tier becomes a dumping ground**, and `boot.log` stops being readable — the exact fate that made the terminal stream need [`OQ-RO3`](../reference/report-tiers.md#why-its-this-way) | The tier has an admission test, not a level: a fact is tier-worthy if a reader of a *failed* boot would want it. One generation of retention is also a self-limiting budget |
-| **R3. Parts of this are being built while it is being designed.** The teardown gap and the supervisor leak are under investigation, and work on the listener inventory and on several class-(b) sites in `svcendpoint`, `wirebridged`, `loopholesruntime` and the entrypoint boot path is in flight concurrently | **The doc is written not to depend on any of it**, and this is the deliberate choice rather than an accident of timing. Every specimen cited — `waitTimeout`, the `socat` branch, the four `time.After` sites — is cited as *evidence of a shape*, never as work to schedule. If each is fixed before this is built, [§4.4](#44-a-give-up-reports-the-rule-and-its-narrow-shape)'s rule is unchanged and loses examples; the 153-site population and the four rulings are what survive. The one thing to re-check at build time is [§9](#9-success-criteria)'s first criterion, which names a live defect that may by then be closed |
+| **R3. Parts of this are being built while it is being designed.** The teardown gap and the supervisor leak are under investigation, and work on the listener inventory and on several class-(b) sites in `svcendpoint`, `wirebridged`, `loopholesruntime` and the entrypoint boot path is in flight concurrently | **The doc is written not to depend on any of it**, and this is the deliberate choice rather than an accident of timing. Every specimen cited — `waitTimeout`, the `socat` branch, the four `time.After` sites — is cited as *evidence of a shape*, never as work to schedule. If each is fixed before this is built, [§4.4](#44-a-give-up-reports-the-rule-and-its-narrow-shape)'s rule is unchanged and loses examples; the 153-site population and the four rulings are what survive. The one thing to re-check at build time is [§9](#9-success-criteria)'s first criterion, which names a live defect that may by then be closed. *As of 2026-09-24: the listener inventory and the port-forward loop landed on 2026-09-19, the teardown gap was instrumented on 2026-09-24, and `waitTimeout` is still silent.* |
 | **R4. The listener inventory is the one component with no cross-backend answer** — `macos-user` has no `/proc` and no namespace | Degrades to one line naming the reason, like every other component. Worth stating rather than discovering: the backend that most needs a listener table is the one that cannot have this implementation of it |
 
 ## 8. What I would build, in order
 
-Steps 1 and 2 are in flight as this is written ([§7](#7-risks) R3); they are listed because the
-order is the argument, not because they are unclaimed.
+Steps 1 and 2 were in flight as this was written ([§7](#7-risks) R3) and are **BUILT** now;
+they stay listed because the order is the argument.
 
 1. **The give-up rule applied to the port-forward loop**, which is one branch and buys the
-   8214 case most of its answer. It needs no dial and no ruling.
+   8214 case most of its answer. It needs no dial and no ruling. **BUILT 2026-09-19
+   (`68562ded`)**, with one deviation from this design: both registers go through `e.warn`,
+   so they reach the **terminal** as well as `boot.log`. That includes the "already
+   established" line on a re-entered, healthy container, which [§9](#9-success-criteria)'s
+   last criterion (a healthy jail's terminal byte-identical to before) does not allow. Whether
+   that line belongs on the terminal or only in `boot.log` through `e.note` is not ruled here.
 2. **The listener inventory**, as a standalone readable unit with no caller. It is the
-   component with real content and it is testable against a fixture `/proc`.
+   component with real content and it is testable against a fixture `/proc`. **BUILT
+   2026-09-19 (`cf91ab33`)** as `internal/listeners`; it gained callers before the snapshot
+   existed ([§4.3](#43-the-listener-inventory-in-go)).
 3. **The boot snapshot**, wired to readiness failure and to the refusal path, capped.
 4. **The tier lines** in the daemon-supervisor lifecycle, with the dead `VerboseEnv`
    conjunct removed as part of it.
