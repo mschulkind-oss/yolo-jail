@@ -99,7 +99,7 @@ knob, **and [§6.6](#66-every-bedrock-model-in-every-agent--the-direction)**, on
 agent and every picker. **[§7](#7-traps--read-before-writing-code) is the one to read before writing code**: six
 traps. Three of them are live in shipped code or docs today, and a fourth was fixed on 2026-09-15.
 
-**Needs your ruling:** [OQ-BR18](#OQ-BR18), [OQ-BR16](#OQ-BR16), [OQ-BR17](#OQ-BR17), [OQ-BR9](#OQ-BR9), [OQ-BR12](#OQ-BR12), [OQ-BR13](#OQ-BR13), [OQ-BR14](#OQ-BR14), [OQ-BR15](#OQ-BR15), [OQ-BR1](#OQ-BR1), [OQ-BR2](#OQ-BR2), [OQ-BR3](#OQ-BR3), [OQ-BR4](#OQ-BR4), [OQ-BR8](#OQ-BR8), [OQ-BR5](#OQ-BR5), [OQ-BR6](#OQ-BR6), [OQ-BR7](#OQ-BR7).
+**Needs your ruling:** [OQ-BR9](#OQ-BR9), [OQ-BR12](#OQ-BR12), [OQ-BR13](#OQ-BR13), [OQ-BR14](#OQ-BR14), [OQ-BR15](#OQ-BR15), [OQ-BR1](#OQ-BR1), [OQ-BR2](#OQ-BR2), [OQ-BR3](#OQ-BR3), [OQ-BR4](#OQ-BR4), [OQ-BR8](#OQ-BR8), [OQ-BR5](#OQ-BR5), [OQ-BR6](#OQ-BR6), [OQ-BR7](#OQ-BR7).
 The seven new questions come first because they carry the maintainer's direction, and
 [OQ-BR9](#OQ-BR9) (the provider shape) decides the premise of [OQ-BR1](#OQ-BR1),
 [OQ-BR3](#OQ-BR3) and [OQ-BR7](#OQ-BR7). Rule [OQ-BR4](#OQ-BR4) and [OQ-BR8](#OQ-BR8) together;
@@ -1051,7 +1051,7 @@ own ids (`claude-opus-4-8`) or claude's tier aliases; Bedrock needs inference-pr
 session was on. And the transport is chosen at launch, so moving from Teams to Bedrock means a
 new claude process.
 
-**The everything profile can carry the subscription too, and that dissolves both problems.**
+**The everything profile carries the subscription too** (ruled 2026-09-24: [OQ-BR16](#OQ-BR16), with opt-in failover by [OQ-BR17](#OQ-BR17) and [OQ-BR18](#OQ-BR18) clearing the terms question)**, and that dissolves both problems.**
 The **subscription arm** *(coined here)* is claude's Teams login routed through the wire bridge
 like every other upstream: the bridge forwards claude's own request, untranslated and with the
 subscription's OAuth bearer it arrived with, to Anthropic. That claude sends that bearer to
@@ -1082,8 +1082,8 @@ Then:
 - **Billing and data move.** A failed-over request is billed to the AWS account and governed by
   its data terms, not the Teams plan's. That must be the user's opt-in, and each switch must be
   disclosed.
-- **Whether a proxy may carry a Claude subscription** is a terms question for the maintainer,
-  not a technical one.
+- **Whether a proxy may carry a Claude subscription** was a terms question; the maintainer
+  ruled yes ([OQ-BR18](#OQ-BR18)).
 - **The prompt cache does not follow a switch**: the first Bedrock request after failover pays
   full input cost.
 
@@ -1873,47 +1873,11 @@ direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction)), and
     **Answer:**
     > _(empty — fill in when decided)_
 
-16. 💬 **OQ-BR16: Does the everything profile carry the Claude subscription too?**
-    [§6.8](#68-the-subscription-through-the-same-bridge--aligned-names-and-failover-when-it-runs-out).
-    Stakes: whether one claude session spans Teams and Bedrock under one set of model names.
-    Options: (A) yes, the bridge forwards subscription requests untranslated with the bearer they
-    arrived with; (B) no, the subscription stays a separate, unbridged profile and switching stays
-    a relaunch. **Amends** [`claude-oauth-interposition.md`](../reference/claude-oauth-interposition.md)'s
-    "model traffic is never touched".
+16. <a id="OQ-BR16"></a>[**OQ-BR16**](#OQ-BR16) (ruled 2026-09-24): **Does the everything profile carry the Claude subscription too?** Yes — *"that would be amazing."* The bridge forwards subscription requests untranslated with the OAuth bearer they arrived with, so one model list spans Teams and Bedrock ([§6.8](#68-the-subscription-through-the-same-bridge--aligned-names-and-failover-when-it-runs-out)). Amends [`claude-oauth-interposition.md`](../reference/claude-oauth-interposition.md)'s "model traffic is never touched" once built.
 
-    _Leaning:_ A, if [OQ-BR18](#OQ-BR18) clears it.
+17. <a id="OQ-BR17"></a>[**OQ-BR17**](#OQ-BR17) (ruled 2026-09-24): **Does the bridge fail over from the subscription to Bedrock when the subscription runs out?** Yes, opt-in: automatic and per model on the subscription's usage-limit response, enabled per profile, every switch disclosed. Supersedes, for the bridged subscription, the in-session-failover deferral in [`agent-auth-modes.md` OQ-1](agent-auth-modes.md#12-decision-ledger).
 
-    <!-- vantage: oq id=OQ-BR16 leaning="A: route the subscription through the everything profile's bridge, forwarded untranslated with the OAuth bearer it arrived with, so one model list spans Teams and Bedrock — conditional on OQ-BR18." -->
-
-    **Answer:**
-    > _(empty — fill in when decided)_
-
-17. 💬 **OQ-BR17: Does the bridge fail over from the subscription to Bedrock when the
-    subscription runs out?** [§6.8](#68-the-subscription-through-the-same-bridge--aligned-names-and-failover-when-it-runs-out).
-    Stakes: whether running out of Teams usage costs a relaunch or nothing. Options: (A) automatic,
-    per model, opt-in per profile, every switch disclosed in the launch log and at session end;
-    (B) no failover, but the bridge's refusal names the profile to relaunch with; (C) automatic and
-    on by default. **Reopens** [`agent-auth-modes.md` OQ-1](agent-auth-modes.md#12-decision-ledger)
-    (in-session failover deferred), whose three reasons the bridge removes.
-
-    _Leaning:_ A. Automatic is the point; opt-in because it moves billing and data terms.
-
-    <!-- vantage: oq id=OQ-BR17 leaning="A: automatic per-model failover from the subscription to Bedrock on the subscription's usage-limit response, opt-in per profile, every switch disclosed; reopens agent-auth-modes OQ-1, whose three reasons the bridge removes." -->
-
-    **Answer:**
-    > _(empty — fill in when decided)_
-
-18. 💬 **OQ-BR18: May yolo's bridge carry a Claude subscription at all?** Anthropic's terms for
-    subscription use through a proxy, and the company's policy on a request moving from a Teams
-    plan to a company AWS account, decide this; neither is a technical question. Stakes: [OQ-BR16](#OQ-BR16)
-    and [OQ-BR17](#OQ-BR17) wait on it.
-
-    _Leaning:_ none — the maintainer's call.
-
-    <!-- vantage: oq id=OQ-BR18 leaning="No leaning: a terms and company-policy call — whether a local proxy may carry a Claude subscription, and whether failover may move a request from the Teams plan to the company AWS account." -->
-
-    **Answer:**
-    > _(empty — fill in when decided)_
+18. <a id="OQ-BR18"></a>[**OQ-BR18**](#OQ-BR18) (ruled 2026-09-24): **May yolo's bridge carry a Claude subscription at all?** Yes, the maintainer's call on terms and company policy.
 
 ### Decision Ledger
 
@@ -1922,6 +1886,9 @@ direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction)), and
 | DIR-BR1 | **Every agent reaches every Bedrock model its transport can carry, and every picker shows a current list an org can shape with one pack.** The maintainer's direction in review, given as a direction rather than a question: *"Claude should be able to use all of those models with basically no change."* How it is built is [OQ-BR9](#OQ-BR9)–[OQ-BR15](#OQ-BR15). The id is not a question id, because nothing was asked | 2026-09-24 | [§6.6](#66-every-bedrock-model-in-every-agent--the-direction) | — |
 | DIR-BR2 | **The whole matrix: every agent, every Bedrock model its transport can carry, every supported credential, SSO included, and every model one pick in the agent's own menu.** *"We need to support single sign on through all of the methods so I can use any model… So we got to support everything everywhere, the whole matrix."* agy is the one agent with no Bedrock transport ([§6.7](#67-the-whole-matrix--every-agent-every-model-every-credential)) | 2026-09-24 | [§6.7](#67-the-whole-matrix--every-agent-every-model-every-credential) | — |
 | OQ-BR10 | **The bridge signs its own requests (option A: a standard-library signer pinned by AWS's test vectors).** Answered by DIR-BR2: SSO on the bridge route rules out option B, whose minted key lives at most an hour. A over C (vendoring the AWS SDK's signer) is the implementer's call, taken to keep the hermetic build free of an AWS module | 2026-09-24 | [§6.7](#67-the-whole-matrix--every-agent-every-model-every-credential) | — |
+| OQ-BR18 | **Yes, the bridge may carry a Claude subscription.** The maintainer's call on Anthropic's terms and company policy | 2026-09-24 | [§6.8](#68-the-subscription-through-the-same-bridge--aligned-names-and-failover-when-it-runs-out) | — |
+| OQ-BR16 | **The everything profile carries the subscription too**, forwarded untranslated with its own bearer, so one model list spans Teams and Bedrock. *"yes that would be amazing"* | 2026-09-24 | [§6.8](#68-the-subscription-through-the-same-bridge--aligned-names-and-failover-when-it-runs-out) | — |
+| OQ-BR17 | **Opt-in automatic failover, per model, from the subscription to Bedrock** on the subscription's usage-limit response, every switch disclosed. *"yes, opt in"*. Supersedes [agent-auth-modes OQ-1](agent-auth-modes.md#12-decision-ledger)'s deferral for this path | 2026-09-24 | [§6.8](#68-the-subscription-through-the-same-bridge--aligned-names-and-failover-when-it-runs-out) | — |
 | OQ-BR11 | **Both claude profiles: native, and an everything profile.** *"if you only do native or the rest, then you'll never be able to switch between Claude and, say, OpenAI in one Claude session, which I think we'll want. So I guess just both options."* The everything profile routes by model id at the bridge: Anthropic ids pass through untranslated to Bedrock's Anthropic Messages route, everything else is translated. Amends the bridge's one-upstream rule. The leaning (two profiles, no routing) was overruled | 2026-09-24 | [§6.6](#66-every-bedrock-model-in-every-agent--the-direction) part 4 | — |
 
 ---

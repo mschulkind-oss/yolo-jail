@@ -367,6 +367,13 @@ The original ask proposed "subscription primary, with automatic overflow to Bedr
 was written — and the `-p`/`--profile` flag, the one spelling that survived) is deterministic, safe, and solves 95% of the
 requirement without fragile in-jail interceptors.
 
+> [!NOTE]
+> **Superseded in part, 2026-09-24.** For claude's subscription routed through the wire bridge,
+> automatic per-model failover to Bedrock is ruled in, opt-in
+> ([`bedrock-plumbing.md` OQ-BR17](bedrock-plumbing.md#OQ-BR17)): the bridge receives the
+> limit, switches per model, and claude never changes credentials, which removes all three
+> reasons above. Launch-time selection remains the rule everywhere else.
+
 ### 8.1 Measured 2026-09-02: the subscription bearer follows `ANTHROPIC_BASE_URL`
 
 The question the roadmap carried as *"auth [OQ-1](#12-decision-ledger)"* — does Claude Code send a subscription OAuth
