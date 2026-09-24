@@ -425,6 +425,7 @@ live, so edits are visible on the host instantly — there is no sync step.
 | Pack authoring + the `packs` key | `yolo pack --help`, [`pack-system.md`](./docs/reference/pack-system.md) |
 | CLI surface | `yolo --help` |
 | End-user usage, devices/GPU, mise tools, `yolo-cglimit` | [`USER_GUIDE.md`](./docs/guides/USER_GUIDE.md) |
+| Every config key and pack contribution kind, per setup (backend × host OS) | [`settings-per-setup.md`](./docs/reference/settings-per-setup.md) |
 | Mounts, overlays, home layout | [`jail-home.md`](./docs/reference/jail-home.md) |
 | Briefing generation, skills staging | [`agent-briefings.md`](./docs/reference/agent-briefings.md) |
 | MCP/LSP config, the node/npx wrappers | [`mcp-configuration.md`](./docs/reference/mcp-configuration.md) |

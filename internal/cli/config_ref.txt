@@ -615,7 +615,9 @@
     there normally.  A `source` naming a DIRECTORY is not — a copy does not
     scale to an arbitrary tree — so it is skipped and NAMED in a warning; split
     it into the files you need, or use the Apple Container runtime
-    (runtime: "container"), which binds it.  Source-LESS entries are unaffected
+    (runtime: "container"), which binds it read-only from version 1.1.0 (older
+    versions, or one yolo cannot read, skip it with a warning naming the
+    reason).  Source-LESS entries are unaffected
     on every backend: they copy nothing from the host to begin with.
     Example (~/.config/yolo-jail/config.jsonc):
       "host_files": [
@@ -905,8 +907,11 @@
     (both write branch.*); `git push origin HEAD` and branching from a local
     ref need no config write.  If you lock .git/hooks, give hooks somewhere
     tracked to live first: `git config core.hooksPath .githooks`.
-    BACKENDS: enforced on podman.  Apple Container IGNORES :ro (a loud warning
-    is printed and the paths stay writable).  On macos-user there are no mounts
+    BACKENDS: enforced on podman.  Enforced on Apple Container from version
+    1.1.0 (check with `container --version`); on an older version, or when
+    yolo cannot read the version, a loud warning names the paths, which stay
+    writable.  The implicit yolo-jail.jsonc lock is lost there too, and the
+    warning does not mention it.  On macos-user there are no mounts
     at all, so entries are rendered as `(deny file-write* (subpath ...))` lines
     in the Seatbelt profile instead -- same policy, different mechanism.
 

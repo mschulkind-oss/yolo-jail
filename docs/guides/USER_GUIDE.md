@@ -173,15 +173,19 @@ Subsequent runs skip steps 1–3 (everything is cached) and start in seconds on 
 
 ## Authentication
 
-Inside the jail, authenticate with your tools once:
+Inside the jail, log in to your tools:
 
 ```bash
 gh auth login          # GitHub CLI
-gemini login           # Google Gemini CLI
-claude                 # Runs /login on first launch
+claude                 # Claude Code: runs /login on first launch
+agy                    # Google Antigravity: sign in when it asks
 ```
 
-Tokens are stored in `~/.local/share/yolo-jail/home/` on the host (same path on Linux and macOS) and persist across jail restarts. You do **not** need to re-authenticate each time, and on podman a `/login` in any jail propagates to every other jail automatically.
+The jail does not reuse the logins on your host; you log in inside the jail. Every login is kept on the host and survives jail restarts, so you do **not** log in again each time you start a jail. How far one login reaches depends on the tool, not on whether you use podman:
+
+- `claude` and `agy` keep one login for the whole machine: log in once, and the jails in all your other projects use it too.
+- `codex` and `pi` share one OpenAI login through a login service yolo runs on your host. This does not work on every setup; see [Do I have to log in again in every workspace?](#5-do-i-have-to-log-in-again-in-every-workspace-and-in-a-second-jail-at-the-same-time).
+- `gh`, `copilot`, `opencode` and `omp` keep a separate login for each project, so you log in once per project.
 
 ### Claude OAuth broker (refresh serialization)
 
@@ -238,7 +242,7 @@ was built by; this is exactly why the line names the side.
 yolo                       # Interactive shell
 yolo -- claude             # Start Claude Code in YOLO mode
 yolo -- copilot            # Start Copilot (--yolo auto-injected)
-yolo -- gemini             # Start Gemini (--yolo auto-injected)
+yolo -- agy                # Start Google Antigravity (--dangerously-skip-permissions auto-injected)
 yolo -- bash -c "make"     # Run a specific command
 ```
 
@@ -1170,13 +1174,13 @@ If none of these resolve, the jail falls back to UTC. Override per-jail by expor
 
 | Data | Location (Host) | Shared? |
 |------|-----------------|---------|
-| Auth tokens (gh, gemini, claude) | `~/.local/share/yolo-jail/home/` | All jails |
+| Claude and Antigravity (`agy`) logins | `~/.local/share/yolo-jail/home/.claude-shared-credentials/`, `.gemini-shared-credentials/` | All jails on the machine |
+| `gh`, `copilot`, `opencode` and `omp` logins | `<workspace>/.yolo/home/` | Per workspace |
 | Installed tools (npm, go) | `~/.local/share/yolo-jail/home/` | All jails |
 | Mise tools & runtimes | `~/.local/share/yolo-jail/mise/` on Linux (bind-mounted at `/mise` inside the jail); podman named volume `yolo-mise-data-v2` on macOS and Apple Container, also mounted at `/mise` | All jails |
 | Bash history | `<workspace>/.yolo/home/bash_history` | Per workspace |
-| Claude sessions | `<workspace>/.yolo/home/claude-projects/` | Per workspace |
-| Copilot sessions | `<workspace>/.yolo/home/copilot-sessions/` | Per workspace |
-| Gemini history | `<workspace>/.yolo/home/gemini-history/` | Per workspace |
+| Claude sessions | `<workspace>/.yolo/home/claude/projects/` | Per workspace |
+| Copilot sessions | `<workspace>/.yolo/home/copilot/session-state/` | Per workspace |
 | SSH keys | `<workspace>/.yolo/home/ssh/` | Per workspace |
 
 **Mise storage is jail-land only:** the host's `~/.local/share/mise/` is never mounted — jails and the host maintain fully independent mise installations, so neither side can break the other's tool installs and host↔jail mise version skew doesn't matter. Every jail sees the same store at the same path, `/mise`; only the backing differs per platform (a yolo-owned host directory on Linux, the `yolo-mise-data-v2` named volume on macOS and Apple Container). In-jail behavior is identical everywhere, and the store persists across jail restarts.
@@ -1382,11 +1386,11 @@ yet* means they have not. The subsections below, and
 | **Use API keys and other providers** | Yes. Put keys in a dotenv file listed under `env_sources`; `yolo -p <profile>` picks the provider and model. A changed key reaches your next `yolo`. | Yes, the same. | Yes, but restart the jail after changing a key or `-p`: joining a running jail keeps the old ones. | Yes, read fresh at every launch.[^cap-mu-keys] |
 | **Use your host's SSH keys, git credentials or `gh` login** | No, by design. Your git name and email do arrive, so commits work. To push, give the jail its own key or token. | No, the same. | No, the same. | No, the same. |
 | **Work on your project** | Yes. It is at `/workspace`, live and read-write, and on rootless podman new files are yours. | Yes, the same, if the project is in a folder the VM shares. | Yes, the same. | Yes, in place at its real path; nothing is mounted. |
-| **See other host folders and files** | Yes: folders read-only with `mounts`, single files with `host_files`. | Yes, if they are in a folder the VM shares. | Yes. `mounts` needs Apple Container 1.1.0 or later. | Single files only, with `host_files`. No `mounts` and no folders; not planned yet. |
+| **See other host folders and files** | Yes: folders read-only with `mounts`, single files with `host_files`. | Yes, if they are in a folder the VM shares. | Yes. `mounts` and `host_files` folders need Apple Container 1.1.0 or later. | Single files only, with `host_files`. No `mounts` and no folders; not planned yet. |
 | **Add tools with `packages`** | Yes. Nix builds them into the jail image the next time the jail starts. With a nix daemon on the host, `YOLO_STORE_PACKAGES=1` skips the image rebuild. | Yes, but slower: each different list builds a whole Linux image.[^cap-pkg-mac] | Yes, but slower, the same as `podman` / macOS. | Yes, as native Mac builds. A package with no Mac build stops the launch.[^cap-pkg-mu] |
 | **Add language runtimes with mise** | Yes, with `mise_tools` or the project's `mise.toml`. One tool store serves every project. | Yes, the same. | Yes, the same. | Yes, the same. |
 | **Install things yourself** (`npm -g`, `uv tool`, `go install`) | Yes, and they are kept per project. The rest of the home is read-only unless you list a folder.[^cap-selfinstall] | Yes, the same. | Yes, kept per project. The whole home is writable. | Yes, kept per project. They are Mac programs, not Linux ones. |
-| **Use `nix` inside the jail** | Yes, through your host's nix daemon, with a flag on each command.[^cap-nix] | No, not by default; not planned yet.[^cap-nix-mac] | No; not planned yet. | No: `nix` is not on the sandbox's PATH. Not planned yet. |
+| **Use `nix` inside the jail** | Yes, through your host's nix daemon.[^cap-nix] | No, not by default; not planned yet.[^cap-nix-mac] | No; not planned yet. | No: `nix` is not on the sandbox's PATH. Not planned yet. |
 | **Use yolo's host services** (shared logins, AWS Bedrock credentials, a USB serial port…) | Yes. The login services run by themselves; you turn the others on. | Should work, apart from the Linux-only ones.[^lh-mac] | No: the jail cannot connect back to the Mac.[^lh-ac] | Mostly no. yolo starts them, but what each one needs inside the sandbox is missing, so only the OpenAI login service is usable, and only partly.[^login-mu] Bedrock (`aws-auth`) is not planned yet. |
 | **Reach a service running on your host** | Yes. List the port in `network.forward_host_ports` (for example `[5432]`) and it appears on the jail's `localhost`; this needs `socat` on the host. Or connect to `host.containers.internal`.[^lh-rootful] | Yes, at `host.containers.internal`. | No; not planned yet. Do not set `forward_host_ports` here: it stops the launch. | Yes. The sandbox is on the Mac's own network, so `localhost` is the Mac and `forward_host_ports` is not needed. A remapped port (`"8080:9090"`) is not supported. |
 | **Reach the internet** | Yes. | Yes. | Yes. On macOS 15, run `yolo check` first.[^cap-mac15] | Yes, and your local network too. |
@@ -1420,7 +1424,7 @@ yet* means they have not. The subsections below, and
 
 [^cap-selfinstall]: `npm -g`, `go install`, `uv tool` and `pip --user` land in home folders that are kept with the project. `cargo install` goes to a store that every project shares, and needs Rust from mise first. An installer that writes its own home folder (`~/.bun`, say) fails with `Read-only file system` until you add the folder to `writable_home_dirs`. The built-in `python3` has no `pip`: use `uv`, or install Python with mise.
 
-[^cap-nix]: Add `--extra-experimental-features 'nix-command flakes'` to each command, as in `nix --extra-experimental-features 'nix-command flakes' shell nixpkgs#hello`, or set `NIX_CONFIG='experimental-features = nix-command flakes'` once (an `env_sources` file can carry it). It needs a multi-user nix on the host, the kind that runs a nix daemon; with a single-user nix the jail gets no `nix` at all. The store is read-only and builds go through your host's daemon. `nix-shell -p` does not work, because the jail has no nixpkgs channel, and a garbage collection on the host can delete what you built.
+[^cap-nix]: `nix shell`, `nix build` and `nix eval` work with no extra flags: the jail image turns on `nix-command` and `flakes` in `/etc/nix/nix.conf`, and your own `~/.config/nix/nix.conf` in the jail layers on top. It needs a multi-user nix on the host, the kind that runs a nix daemon; with a single-user nix the jail gets no `nix` at all. The store is read-only and builds go through your host's daemon. `nix-shell -p` does not work, because the jail has no nixpkgs channel, and a garbage collection on the host can delete what you built.
 
 [^cap-nix-mac]: The Podman Machine VM does not share your Mac's `/nix`, and that store holds Mac builds while the jail is Linux. A machine created with `/nix` shared, whose store holds the jail's Linux builds, can opt in with `YOLO_NIX_HOST_DAEMON=1` plus `YOLO_NIX_HOST_STORE_LINUX=1`. Set the second one wrongly and the jail will not boot. See [Nested Nix builds inside the jail](macos.md#nested-nix-builds-inside-the-jail-advanced).
 
@@ -1636,7 +1640,7 @@ selects.
 [^lh-mac]: The jail reaches your Mac's services through the Podman Machine VM at `host.containers.internal`, and that connection is tested nightly. The services themselves have not yet been run end to end on a Mac. If a service cannot be reached, the launch warns but still starts.
 [^lh-ac]: Apple Container carries no traffic from a container back to the Mac (measured on Apple Container 1.1.0), so no host service can be used, and the launch lists each one it had to skip. This can change only with an Apple Container release.
 [^lh-aws]: Turn it on in your user config with the SSO profile and the role to narrow to, then use the `bedrock` profile: `yolo -p bedrock -- claude`. See [the `aws-auth` pack](../../packs/aws-auth/README.md). Not yet tested against a real AWS SSO login.
-[^lh-linux]: These need Linux on the host. On a Mac, turning one on does nothing, and yolo does not always warn you.
+[^lh-linux]: These need Linux on the host. On a Mac, turning one on does nothing, and the launch says so in one line naming the loophole. The `audio` pack still sets `PULSE_SERVER`, though (see [^audiomac]).
 [^cgv2]: Needs cgroup v2 on the host: `test -e /sys/fs/cgroup/cgroup.controllers && echo v2`.
 [^maclog]: `macos-user` offers Apple's unified log instead, behind its own `macos_log` key (`off` / `user` / `full`) and a `yolo-log` helper. It is a convenience, not a boundary: the sandbox can run `/usr/bin/log` directly, so `off` is advisory.
 [^muprocs]: The `macos-user` sandbox can already see which processes are running on your Mac, though not their command lines.
@@ -1702,7 +1706,7 @@ Set `YOLO_REPO_ROOT` in your shell profile if you always want a live checkout �
 **MCP server not working**
 
 - Verify the preset is enabled in `mcp_presets`
-- Check logs (same paths on Linux and macOS): `~/.copilot/logs/` (Copilot), `~/.cache/gemini-cli/logs/` (Gemini), `~/.claude/logs/` (Claude)
+- Check logs (same paths on Linux and macOS): `~/.copilot/logs/` (Copilot), `~/.claude/logs/` (Claude)
 - Inside jail, view logs: `tail -100 ~/.copilot/logs/$(ls -1t ~/.copilot/logs | head -1)`
 
 **LSP not responding**

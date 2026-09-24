@@ -49,7 +49,7 @@ This block is what the jail can see of your machine's filesystem, and what it ma
 | `host_files` modes `readonly` / `once` / `copy` | works | works | works | works[^dac] | fresh launch |
 | `host_files` mode `capture` — keep your local edits | works | works | works | works — needs a workspace ACL[^acl] | fresh launch |
 | `host_files` source is a **file** | works — read-only bind | works[^vm-share] | works — copied in, **agent-writable**[^achostlayer] | works — root-owned copy at launch[^snap] | fresh launch |
-| `host_files` source is a **directory** | works | works[^vm-share] | works, but `:ro` unchecked below 1.1.0, **silent**[^acdir] | `absent, warns` — not built yet[^mudir] | fresh launch |
+| `host_files` source is a **directory** | works | works[^vm-share] | works on 1.1.0+; older: `absent, warns`[^acdir] | `absent, warns` — not built yet[^mudir] | fresh launch |
 | `host_files` destination: writable, and private per workspace | works | works | works — whole home is per-workspace | works under `~/.config`; home-root files **shared, silent**[^mutier] | fresh launch |
 | `host_files` entries with a `source:` come from your user config only | works | works | works | works | n/a — a repo's config cannot name host bytes |
 | `host_management`, `host_wrappers`, `host_apply_on_launch`, `promotion_target` | works | works | works | works | any entry — host-side keys[^hostside][^wrappath] |
@@ -85,9 +85,9 @@ This block is what the jail can see of your machine's filesystem, and what it ma
 
 [^snap]: A root-owned copy taken at launch, not a live view. Every consumer reads its config at boot, so this is equivalent in practice. Symlinking the real file was measured and rejected: the sandbox runs as a different account, and a macOS home need not be readable by it.
 
-[^acdir]: Directory sources are the one read-only bind that does not consult the Apple Container version. Below 1.1.0 your host directory is mounted **writable** while the config says read-only, and nothing says so.
+[^acdir]: A directory source is bound read-only from Apple Container 1.1.0. Below that version, or when yolo cannot read `container --version`, the entry is skipped with one `Skipping host_files directory ~/<path> …` line naming the reason, rather than bound writable, and nothing appears at the destination. Like the `mounts` skip lines, it prints only while a fresh launch builds the container.
 
-[^mudir]: One yellow line names each undelivered destination and points at `runtime: "container"`. This is unbuilt work, not a limit of the backend: the same per-file copy that already delivers single-file sources needs to walk the tree, optionally bounded by size so the warning survives for genuinely huge trees.
+[^mudir]: One yellow line names each undelivered destination and points at `runtime: "container"`, which binds a directory source only from Apple Container 1.1.0[^acdir]. This is unbuilt work, not a limit of the backend: the same per-file copy that already delivers single-file sources needs to walk the tree, optionally bounded by size so the warning survives for genuinely huge trees.
 
 [^mutier]: Composed files under `~/.config/…` land in a per-workspace directory and are fine. A destination at the home root (`~/.npmrc`, `~/.netrc`) lands in the sandbox account home that *every* workspace on the machine shares, so one workspace's launch overwrites another's — or, under `once`, finds the other's file already there and never seeds its own. Nothing warns.
 
@@ -170,7 +170,7 @@ The `--network` CLI flag does **not** override the config: a `network.mode` in `
 | `packages` (nix packages on PATH) | works — baked into the image | works — yolo starts a Linux builder when needed[^builder] | works — yolo starts a Linux builder when needed[^builder] | works — native darwin build | fresh launch |
 | `packages` per-entry `platforms` | works | works — but `"darwin"` means *absent*[^plat] | works — same inversion[^plat] | works — this is what it is for | fresh launch |
 | `packages` entry that cannot build | refuses — nix error at launch | refuses — nix error at launch[^builder] | refuses — nix error at launch[^builder] | refuses — names your real target | fresh launch |
-| One image per machine (`YOLO_STORE_PACKAGES=1`) | works — packages from the host store | absent, warns — not built yet[^storedel] | absent, warns — not built yet[^storedel] | n/a — **silent** if you set it | fresh launch |
+| One image per machine (`YOLO_STORE_PACKAGES=1`) | works — packages from the host store | absent, warns — not built yet[^storedel] | absent, warns — not built yet[^storedel] | n/a — says it is ignored: `packages:` already come from the nix store | fresh launch |
 | `mise_tools` (runtime pins) | works — tool store on the host | works — store inside the VM[^vm-store] | works — store inside the VM[^vm-store] | works — one store for the whole machine | fresh launch |
 | `mcp_presets` | works | works | works | absent, warns — broken entry still written[^presetmac] | fresh launch |
 | `mcp_servers` | works | works | works | works — `command` must exist on your Mac | fresh launch |
@@ -183,7 +183,7 @@ The `--network` CLI flag does **not** override the config: a `network.mode` in `
 | `use_profiles` † / `-p <name>` | works — refuses a `-p` it cannot honor | works | **silently** ineffective on re-entry[^reentry] | selection arrives, body does not[^profmac] | any entry[^reentry] |
 | `agent_updates` † | works | works | works | works | fresh launch |
 | `env_sources` (dotenv files) | works | works | **silently** lost on re-entry[^reentry] | works — per-session, not editable in-jail | any entry[^reentry] |
-| `nix build` usable inside the jail | works — host daemon, store read-only, needs a flag[^gcroot] | **absent, silent** — not wired by default[^nixmac] | absent, **silent** — not wired yet | absent — no `nix` on the sandbox PATH | fresh launch |
+| `nix build` usable inside the jail | works — host daemon, store read-only[^gcroot] | **absent, silent** — not wired by default[^nixmac] | absent, **silent** — not wired yet | absent — no `nix` on the sandbox PATH | fresh launch |
 | GNU behaviour of `sed`/`find`/`grep`/`tar` | works — GNU userland baked | works | works | BSD tools — GNU flags fail[^bsd] | fresh launch |
 | Build toolchain (`cc`, `make`, `strace`) | works — baked | works | works | works only with Xcode CLT[^clt] | fresh launch |
 | Browser for the chrome-devtools MCP | works — chromium baked | works | works — measured | absent — no browser wired | fresh launch |
@@ -214,7 +214,7 @@ Two things cut across the whole table. First, **`macos-user` has no re-entry**: 
 
 [^reentry]: Apple Container receives the provider/profile/`env_sources` channel as a **copied** file, made only on a fresh launch. Re-entering a running jail prints the delivery line, exits 0, and runs the previous launch's providers, profiles and dotenv values. On podman the same channel is a live file, so it does reach the next entry.
 
-[^gcroot]: The image carries no `nix.conf`, so each command needs `--extra-experimental-features 'nix-command flakes'` (or the same in `NIX_CONFIG`); plain `nix build` refuses with an "experimental Nix feature" error. It also needs a multi-user nix on the host, the kind with a nix daemon. An in-jail `nix build`'s result gets no durable garbage-collection root, so a host `nix-collect-garbage` can delete a store path a running jail is executing from, with no warning in either place.
+[^gcroot]: The image turns on `nix-command` and `flakes` in `/etc/nix/nix.conf`, so plain `nix build` and `nix shell` work with no flags. It needs a multi-user nix on the host, the kind with a nix daemon. An in-jail `nix build`'s result gets no durable garbage-collection root, so a host `nix-collect-garbage` can delete a store path a running jail is executing from, with no warning in either place.
 
 [^nixmac]: Reaching the host nix daemon from a jail on a Mac needs a store the jail can see holding *Linux* paths, and (on podman) a machine initialised with `-v /nix:/nix` — which cannot be added to an existing machine. Check with `command -v nix` and `podman machine inspect | grep -i /nix`. Do not force the store-view dial on: it replaces the view the jail's own binaries live in and the jail will not boot. By default the launch says nothing; the one line you may see prints only when `YOLO_NIX_HOST_DAEMON` is set without `YOLO_NIX_HOST_STORE_LINUX`.
 
