@@ -944,3 +944,148 @@ func TestAssembleForwardsTermAndColorterm(t *testing.T) {
 		})
 	}
 }
+
+// argvMount is one bind the argv makes: its host source and whether it is read-only.
+type argvMount struct {
+	src string
+	ro  bool
+}
+
+// mountSources returns every bind the argv makes: `-v`/`--volume` specs and `--mount`
+// fields (source=/src=, readonly/ro).
+func mountSources(argv []string) []argvMount {
+	var out []argvMount
+	volume := func(spec string) {
+		parts := strings.Split(spec, ":")
+		m := argvMount{src: parts[0]}
+		if len(parts) > 2 {
+			for _, o := range strings.Split(parts[2], ",") {
+				m.ro = m.ro || o == "ro"
+			}
+		}
+		out = append(out, m)
+	}
+	for i := 0; i < len(argv); i++ {
+		switch a := argv[i]; {
+		case (a == "-v" || a == "--volume") && i+1 < len(argv):
+			i++
+			volume(argv[i])
+		case strings.HasPrefix(a, "--volume="):
+			volume(strings.TrimPrefix(a, "--volume="))
+		case a == "--mount" && i+1 < len(argv):
+			i++
+			var m argvMount
+			for _, kv := range strings.Split(argv[i], ",") {
+				if v, ok := strings.CutPrefix(kv, "source="); ok {
+					m.src = v
+				} else if v, ok := strings.CutPrefix(kv, "src="); ok {
+					m.src = v
+				} else if kv == "readonly" || kv == "ro" || kv == "readonly=true" || kv == "ro=true" {
+					m.ro = true
+				}
+			}
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// TestAssembleNeverMountsTheEmbeddedPackCache pins the SECURITY half of where the embedded
+// pack cache lives (paths.EmbeddedPacksDir). Host yolo loads that tree with a shipped pack's
+// authority — host_files grants, loophole host exec — so a jail that could WRITE it could
+// plant what the host then executes. It is safe because no launch mounts it writable: not
+// the dir, nothing under it, and not the state dir wholesale above it (the state dir's
+// cache/ child IS mounted rw, which is why the tree must never move there).
+//
+// Two pack sets. The launch's own (run.go hands assemble the STAGED set, whose roots live
+// in the launch's staging dir): no mount may come from the cache at all. And the EMBEDDED
+// set itself, adopted from the real location under this HOME — the shape a future caller
+// passing packload.Embedded() would produce: still nothing WRITABLE. It is not "nothing":
+// a pack `files` contribution binds its file out of Pack.Root read-only (packfiles.go), so
+// such a caller would bind a cache file into the jail, pinning an inode `yolo prune` may
+// later unlink. That is why launches stage.
+func TestAssembleNeverMountsTheEmbeddedPackCache(t *testing.T) {
+	check := func(t *testing.T, home string, argv []string, allowReadOnlyFiles bool) {
+		t.Helper()
+		state := paths.GlobalStorageUnder(home)
+		cache := paths.EmbeddedPacksDirUnder(home)
+		under := func(p, dir string) bool { return p == dir || strings.HasPrefix(p, dir+string(filepath.Separator)) }
+		sawState := false
+		for _, m := range mountSources(argv) {
+			if m.src == "" || !under(m.src, home) {
+				continue
+			}
+			if under(m.src, state) && m.src != state {
+				sawState = true
+			}
+			switch {
+			case m.src == state || under(cache, m.src):
+				t.Errorf("the launch bind-mounts %s (ro=%v), an ancestor of the embedded pack "+
+					"cache %s — the jail would see it wholesale", m.src, m.ro, cache)
+			case under(m.src, cache) && !(allowReadOnlyFiles && m.ro):
+				t.Errorf("the launch bind-mounts %s (ro=%v) out of the embedded pack cache %s",
+					m.src, m.ro, cache)
+			}
+		}
+		if !sawState {
+			t.Fatalf("no mount under the state dir %s was parsed out of the argv — the "+
+				"assertions above are vacuous", state)
+		}
+	}
+	adoptRealCache := func(t *testing.T, home string) []*packload.Pack {
+		t.Helper()
+		t.Cleanup(packload.OverrideEmbeddedCacheDir(paths.EmbeddedPacksDirUnder(home)))
+		packs := packload.Embedded()
+		if root, fb := packload.EmbeddedLocation(); fb || !strings.HasPrefix(root, paths.EmbeddedPacksDirUnder(home)) {
+			t.Fatalf("setup: embedded tree at %s (fallback=%v): %v", root, fb, packload.EmbeddedProblems())
+		}
+		return packs
+	}
+	// Homes resolved where minted: the loader resolves its base through symlinks, and on
+	// darwin t.TempDir() is under the /var -> /private/var symlink.
+	resolvedTemp := func(t *testing.T) string {
+		d, err := filepath.EvalSymlinks(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	podman := func(t *testing.T, embedded bool) {
+		home := resolvedTemp(t)
+		t.Setenv("HOME", home)
+		emptyLoopholeDirs(t)
+		packs := claudePackFixture(t)
+		adopted := adoptRealCache(t, home)
+		if embedded {
+			packs = adopted
+		}
+		o := goldenOptions("/ws", home)
+		sec := jsonx.NewOrderedMap()
+		sec.Set("blocked_tools", []any{})
+		check(t, home, o.assembleRunCmd(&assembleInput{
+			cfg:          newConfig("security", sec),
+			rt:           "podman",
+			cname:        "yolo-ws-abcd1234",
+			packs:        packs,
+			agentsPath:   "/agents/yolo-ws-abcd1234",
+			wsState:      "/ws/.yolo/home",
+			miseStore:    "/mise-store",
+			yoloVersion:  "unknown",
+			mountTargets: map[string]struct{}{},
+		}), embedded)
+	}
+	apple := func(t *testing.T, embedded bool) {
+		ws, home := t.TempDir(), resolvedTemp(t)
+		t.Setenv("HOME", home)
+		o, in, _ := acPackInput(t, ws, home)
+		adopted := adoptRealCache(t, home)
+		if embedded {
+			in.packs = adopted
+		}
+		check(t, home, o.assembleRunCmd(in), embedded)
+	}
+	t.Run("podman, staged packs", func(t *testing.T) { podman(t, false) })
+	t.Run("podman, embedded packs", func(t *testing.T) { podman(t, true) })
+	t.Run("apple container, staged packs", func(t *testing.T) { apple(t, false) })
+	t.Run("apple container, embedded packs", func(t *testing.T) { apple(t, true) })
+}

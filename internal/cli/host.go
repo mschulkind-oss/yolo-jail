@@ -255,12 +255,23 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 			return rc
 		}
 	}
-	if err := syscall.Exec(target, argv, environ); err != nil {
+	// Given back BEFORE the exec, because cli.Main's deferred release never runs once this
+	// process has been replaced — and every host wrapper launch comes through here. With the
+	// shared cache tree that closes a lease the exec would drop anyway (close-on-exec); with a
+	// per-process FALLBACK tree it is the only thing that deletes it. Nothing after the exec
+	// reads a Pack.Root: the host-apply sync above rendered copies out of it.
+	packload.ReleaseEmbedded()
+	if err := hostSyscallExec(target, argv, environ); err != nil {
 		fmt.Fprintf(errw, "yolo host: exec %s: %v\n", target, err)
 		return 126
 	}
 	return 0 // unreachable: a successful Exec never returns
 }
+
+// hostSyscallExec is the exec `yolo host` replaces itself with; a var so a test can pin
+// what has already happened by the time it runs (host_test.go) without replacing the test
+// process.
+var hostSyscallExec = syscall.Exec
 
 // resolveHostTarget finds the real binary for a host launch, skipping yolo's OWN
 // generated directories.

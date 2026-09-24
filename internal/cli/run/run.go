@@ -1390,6 +1390,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		// that terminal's life. After the report, so the launch's final words land
 		// in the tab that ran it rather than in one already handed back.
 		o.restoreTerminal()
+		// The embedded pack tree is released AFTER this closure, by runWithProxy itself
+		// (proxy_linux.go): the arm's other callers pass no onTerminate at all, so one
+		// release there covers every arm, still after everything above.
 	}
 
 	// Fresh-launch line (with resource parts) to stderr for log capture (audit

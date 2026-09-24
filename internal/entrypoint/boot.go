@@ -508,7 +508,9 @@ func Main(args []string) error {
 
 	// Covers the REFUSAL path (genFailuresError below returns before the exec). The
 	// successful path releases explicitly just above execBash, since a deferred call never
-	// runs once this process has been replaced. ReleaseEmbedded is idempotent, so both.
+	// runs once this process has been replaced. ReleaseEmbedded is idempotent, so both. What
+	// it gives back is this process's lease on the build's shared tree (in-jail, under the
+	// workspace's .local overlay), or a per-process fallback tree, which it deletes.
 	defer packload.ReleaseEmbedded()
 
 	e := EnvFromOS()
@@ -716,7 +718,7 @@ func Main(args []string) error {
 	// refusal path instead. Safe here rather than earlier because the boot renders from the
 	// MOUNTED tree (LoadJailPacks): the only thing this process took from the embedded copy
 	// is EmbeddedRetireMiseTools, a list of tool-name strings, so no path into it survives
-	// into the shell we are about to become.
+	// into the shell we are about to become. (The lease fd is close-on-exec besides.)
 	packload.ReleaseEmbedded()
 	return execBash(e, command)
 }

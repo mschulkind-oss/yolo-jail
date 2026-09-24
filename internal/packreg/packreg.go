@@ -11,10 +11,12 @@
 //
 //	import _ "github.com/mschulkind-oss/yolo-jail/internal/packreg"
 //
-// An init() rather than a call from main, because the reservation lists that consume this
-// (internal/config's hostFileWritableRoots, internal/storage's overlay subdirs) are
-// package-level values evaluated at init time. A main-time registration would arrive too
-// late and they would silently see no packs — reserving nothing, with no error.
+// An init() rather than a call from each main, because the consumers (internal/config's
+// reservation lists, internal/storage's overlay subdirs, the CLI's surface merge) are
+// reached from many binaries and test binaries, and a main-time registration that one of
+// them forgot would silently see no packs — reserving nothing, with no error. Registering
+// stores the FS and nothing else: no tree is written until a caller first asks for the
+// packs (internal/packload/embedded.go).
 package packreg
 
 import (

@@ -203,9 +203,11 @@ func TestAudioPackDisclosesRawHostPaths(t *testing.T) {
 	}
 }
 
-// packsRootHint is a fragment of the materialization temp-dir prefix, used only to catch a
-// leaked absolute path in a claim string.
-const packsRootHint = "yolo-embedded-"
+// packsRootHint is a fragment of the embedded-pack cache's directory name
+// (paths.EmbeddedPacksDir, and the go-test base beside the test binary), used only to catch a
+// leaked absolute path in a claim string. The fallback tree lives in TMPDIR, which the
+// "/tmp/" check beside it covers.
+const packsRootHint = "embedded-packs"
 
 // The pack ships NO absolute or $VAR bind host, NO writable bind, NO jail_env and NO
 // self-publishing daemon — i.e. it is inside the pack-shipped subset

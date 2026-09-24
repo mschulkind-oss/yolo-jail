@@ -60,8 +60,8 @@ func (p Program) String() string { return p.Bin + " (" + p.Platform + ")" }
 // entrypoint.CaptureReceipt lives at the CLI boundary where both callers reach it.
 //
 // The dependency direction is the reason for the seam. internal/entrypoint is the jail
-// provisioner and sits above this store; it pulls internal/config, whose package init
-// materializes the embedded pack tree. Importing it here would put that init behind every
+// provisioner and sits above this store; it pulls internal/config and the whole
+// config-validation graph behind it. Importing it here would put that graph behind every
 // consumer of a content-addressed directory — including internal/prune, which deliberately
 // does not import internal/config.
 type Record struct {

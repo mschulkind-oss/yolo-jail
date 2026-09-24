@@ -41,13 +41,14 @@ func Main(argv []string) int {
 	// internal/crossaudit.
 	crossaudit.Install()
 
-	// The embedded pack tree is already ON DISK by the time we get here — internal/config's
-	// hostFileWritableRoots is a package-level var whose initializer reaches
-	// packload.Embedded — so this releases it for EVERY subcommand, `--version` included.
-	// Nothing after Main can read a Pack.Root, and a later Embedded() re-materializes, so
-	// the process's exit is the earliest safe point and the only one that covers every
-	// command. Without it each `yolo` invocation left a permanent ~200 KB temp directory
-	// behind (measured live 2026-09-03: 625 of them, 109 MB).
+	// Gives back whatever hold this process took on the embedded pack tree — a lease on the
+	// shared cache tree, or the per-process fallback tree itself (packload.Embedded states
+	// both). Nothing is materialized until a command first reads a pack, so `--version` and
+	// most commands never have anything to give back; the defer is here because it is the
+	// only point that covers EVERY command, and nothing after Main can read a Pack.Root. The
+	// exits that skip a defer release for themselves: `yolo host`'s exec (host.go) and the
+	// launcher's signal arm (run.go's onTerminate). A later Embedded() loads again, so a
+	// second Main in one process is safe.
 	defer packload.ReleaseEmbedded()
 
 	if cwd := InvocationCWD(); cwd != "" {

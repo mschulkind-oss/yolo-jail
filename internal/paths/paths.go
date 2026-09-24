@@ -651,6 +651,34 @@ func GlobalMise() string { return filepath.Join(GlobalStorage(), "mise") }
 // GlobalCache returns the shared cache dir.
 func GlobalCache() string { return filepath.Join(GlobalStorage(), "cache") }
 
+// embeddedPacksLeaf is the state-dir child holding the content-addressed copies of the packs
+// compiled into the binary (internal/packload's embeddedcache.go).
+const embeddedPacksLeaf = "embedded-packs"
+
+// EmbeddedPacksDir returns $HOME/.local/share/yolo-jail/embedded-packs — the base under
+// which each build keeps ONE immutable, content-addressed copy of its embedded packs — or ""
+// when no real home resolves (home() fell back to "/"), so the caller takes its
+// per-process fallback instead of creating state under the filesystem root.
+//
+// ⚠ DELIBERATELY NOT UNDER GlobalCache(). The cache dir is bind-mounted READ-WRITE into
+// every jail at ~/.cache (internal/cli/run/assemble_parts.go), and host yolo loads this tree
+// with the authority of a pack yolo SHIPS — host_files grants, loophole host exec. A tree
+// there would be a jail-writable file the host executes BECAUSE OF WHERE IT SITS: the
+// injection class the hostcas rule in AGENTS.md exists to keep out. The location is the
+// boundary; the tree's read-only modes are not (root ignores them).
+func EmbeddedPacksDir() string {
+	h := home()
+	if h == "/" {
+		return ""
+	}
+	return EmbeddedPacksDirUnder(h)
+}
+
+// EmbeddedPacksDirUnder is EmbeddedPacksDir under an EXPLICIT home.
+func EmbeddedPacksDirUnder(home string) string {
+	return filepath.Join(GlobalStorageUnder(home), embeddedPacksLeaf)
+}
+
 // ContainerDir returns the tracking-files dir.
 func ContainerDir() string { return filepath.Join(GlobalStorage(), "containers") }
 

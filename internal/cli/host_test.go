@@ -2,7 +2,9 @@ package cli
 
 import (
 	"bytes"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -964,4 +966,134 @@ func TestHostExecRefusesAManufacturedAddressPair(t *testing.T) {
 			t.Errorf("the refusal must name %q:\n%s", want, got)
 		}
 	}
+}
+
+// fakeHostAgent puts an executable named yolo-fake-agent on PATH that writes "gone" or
+// "present" into report depending on whether the path stored in rootFile still exists —
+// i.e. what the EXEC'D process can observe of the launcher's embedded tree. A shell script,
+// never a real agent.
+func fakeHostAgent(t *testing.T, scratch, rootFile, report string) {
+	t.Helper()
+	bin := filepath.Join(scratch, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\nif [ -e \"$(cat '" + rootFile + "')\" ]; then echo present > '" + report +
+		"'; else echo gone > '" + report + "'; fi\n"
+	if err := os.WriteFile(filepath.Join(bin, "yolo-fake-agent"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// hostExecFallbackSetup gives `yolo host` a hermetic home and a FALLBACK embedded tree —
+// the one shape a missing release leaks — already materialized, standing in for the
+// host-apply sync that reads Pack.Roots before the exec. Returns the tree's root.
+//
+// Every directory is made under scratch rather than by t.TempDir: the helper process
+// exec's away, so its own t.TempDir cleanups never run and would leak into /tmp.
+func hostExecFallbackSetup(t *testing.T, scratch string) string {
+	t.Helper()
+	mk := func(name string) string {
+		d := filepath.Join(scratch, name)
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	home := mk("home")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("TMPDIR", mk("tmp"))
+	t.Setenv("YOLO_ACCEPT_CONFIG_CHANGES", "1")
+	t.Chdir(mk("cwd"))
+	orig := prepareOpenAIAuthHost
+	prepareOpenAIAuthHost = func(string, io.Writer) (managedOpenAIHostLaunch, error) { return nil, nil }
+	t.Cleanup(func() { prepareOpenAIAuthHost = orig })
+	t.Cleanup(packload.OverrideEmbeddedCacheDir(""))
+	if len(packload.Embedded()) == 0 {
+		t.Fatalf("Embedded() is empty: %v", packload.EmbeddedProblems())
+	}
+	root, fallback := packload.EmbeddedLocation()
+	if !fallback || root == "" {
+		t.Fatalf("setup: tree %q fallback=%v, want a per-process fallback tree", root, fallback)
+	}
+	return root
+}
+
+// TestHostExecReleasesTheEmbeddedTreeBeforeExec pins the CALL SITE: `yolo host -- <bin>`
+// replaces itself with syscall.Exec, so cli.Main's deferred release never runs, and a
+// per-process fallback tree leaked once per host-wrapper launch. The fake exec observes the
+// tree at the instant of the exec; delete the release line in hostExec and this fails.
+func TestHostExecReleasesTheEmbeddedTreeBeforeExec(t *testing.T) {
+	scratch := t.TempDir()
+	root := hostExecFallbackSetup(t, scratch)
+	fakeHostAgent(t, scratch, filepath.Join(scratch, "unused"), filepath.Join(scratch, "unused"))
+
+	var execed bool
+	var stillThere error
+	orig := hostSyscallExec
+	hostSyscallExec = func(argv0 string, argv, env []string) error {
+		execed = true
+		_, stillThere = os.Stat(root)
+		return nil
+	}
+	t.Cleanup(func() { hostSyscallExec = orig })
+
+	var errw bytes.Buffer
+	if rc := hostExec(nil, []string{"yolo-fake-agent"}, io.Discard, &errw, nil); rc != 0 || !execed {
+		t.Fatalf("hostExec rc=%d execed=%v, want the exec reached:\n%s", rc, execed, errw.String())
+	}
+	if stillThere == nil {
+		t.Errorf("the fallback embedded tree %s still existed when `yolo host` exec'd: the "+
+			"deferred release never runs after an exec, so every host-wrapper launch leaks it", root)
+	}
+}
+
+// TestHostExecLeavesNoTreeBehindAcrossARealExec is the same property at PROCESS level: a
+// child test process runs hostExec for real — syscall.Exec and all — into a fake agent that
+// reports whether the launcher's fallback tree still exists from the far side of the exec.
+func TestHostExecLeavesNoTreeBehindAcrossARealExec(t *testing.T) {
+	if os.Getenv(hostExecHelperEnv) != "" {
+		t.Skip("helper process")
+	}
+	dir := t.TempDir()
+	report := filepath.Join(dir, "report")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestHostExecHelperProcess$", "-test.count=1")
+	// TMPDIR too: the child re-runs this package's TestMain, whose isolateTheStagedTree makes
+	// a temp dir it removes after m.Run — which never returns here, the child exec'ing away.
+	// Inside this test's own temp dir, that one is cleaned up with it instead of leaking one
+	// /tmp/yolo-cli-staged-tree-* per `go test` run.
+	cmd.Env = append(os.Environ(), hostExecHelperEnv+"="+dir, "TMPDIR="+dir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("helper: %v\n%s", err, out)
+	}
+	got, rerr := os.ReadFile(report)
+	if rerr != nil {
+		t.Fatalf("the fake agent never ran (%v); helper output:\n%s", rerr, out)
+	}
+	if strings.TrimSpace(string(got)) != "gone" {
+		t.Errorf("after `yolo host`'s exec the fallback embedded tree is %s — leaked", strings.TrimSpace(string(got)))
+	}
+}
+
+const hostExecHelperEnv = "YOLO_TEST_HOST_EXEC_HELPER_DIR"
+
+// TestHostExecHelperProcess is TestHostExecLeavesNoTreeBehindAcrossARealExec's child. On
+// success it never returns: the exec replaces it with the fake agent.
+func TestHostExecHelperProcess(t *testing.T) {
+	dir := os.Getenv(hostExecHelperEnv)
+	if dir == "" {
+		t.Skip("only runs as a helper process")
+	}
+	root := hostExecFallbackSetup(t, dir)
+	rootFile := filepath.Join(dir, "root")
+	if err := os.WriteFile(rootFile, []byte(root), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fakeHostAgent(t, dir, rootFile, filepath.Join(dir, "report"))
+	var errw bytes.Buffer
+	rc := hostExec(nil, []string{"yolo-fake-agent"}, io.Discard, &errw, nil)
+	t.Fatalf("hostExec returned %d instead of exec'ing:\n%s", rc, errw.String())
 }

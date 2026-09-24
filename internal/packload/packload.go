@@ -833,12 +833,35 @@ func reservedBriefingFiles(root, name string) []string {
 // path for embedded and on-disk packs is the point; special-casing embedded reads would
 // reintroduce the "official packs are different" split this design removes.
 func MaterializeEmbedded(embedded fs.FS, dest string) ([]*Pack, []string) {
-	entries, err := fs.ReadDir(embedded, ".")
+	names, err := embeddedPackDirs(embedded)
 	if err != nil {
 		return nil, []string{"embedded packs: " + err.Error()}
 	}
 	var packs []*Pack
 	var problems []string
+	for _, name := range names {
+		root := filepath.Join(dest, name)
+		if err := copyEmbeddedTree(embedded, name, root); err != nil {
+			problems = append(problems, "embedded pack "+name+": "+err.Error())
+			continue
+		}
+		p, probs := loadEmbeddedPack(root, name)
+		problems = append(problems, probs...)
+		if p != nil {
+			packs = append(packs, p)
+		}
+	}
+	return packs, problems
+}
+
+// embeddedPackDirs lists the top-level directories of the embedded FS, sorted — the packs
+// MaterializeEmbedded writes, one directory each. A top-level FILE is not a pack and is
+// never written.
+func embeddedPackDirs(embedded fs.FS) ([]string, error) {
+	entries, err := fs.ReadDir(embedded, ".")
+	if err != nil {
+		return nil, err
+	}
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
 		if e.IsDir() {
@@ -846,15 +869,30 @@ func MaterializeEmbedded(embedded fs.FS, dest string) ([]*Pack, []string) {
 		}
 	}
 	sort.Strings(names)
+	return names, nil
+}
+
+// loadEmbeddedPack reads one already-written embedded pack. Split out of MaterializeEmbedded
+// for the content-addressed cache (embeddedcache.go), which writes the tree in one place and
+// loads it from another — the final name it was renamed to.
+//
+// Embedded packs ship with yolo, so their declarations carry yolo's own authority:
+// mayAccessHost is true. That is why WHERE such a tree lives is a security decision
+// (paths.EmbeddedPacksDir states it).
+func loadEmbeddedPack(root, name string) (*Pack, []string) {
+	return LoadDir(root, name)
+}
+
+// loadEmbeddedPacks loads every pack of embedded from an already-written tree at dest.
+func loadEmbeddedPacks(embedded fs.FS, dest string) ([]*Pack, []string) {
+	names, err := embeddedPackDirs(embedded)
+	if err != nil {
+		return nil, []string{"embedded packs: " + err.Error()}
+	}
+	var packs []*Pack
+	var problems []string
 	for _, name := range names {
-		root := filepath.Join(dest, name)
-		if err := copyEmbeddedTree(embedded, name, root); err != nil {
-			problems = append(problems, "embedded pack "+name+": "+err.Error())
-			continue
-		}
-		// Embedded packs ship with yolo, so their declarations carry yolo's own
-		// authority: mayAccessHost is true.
-		p, probs := LoadDir(root, name)
+		p, probs := loadEmbeddedPack(filepath.Join(dest, name), name)
 		problems = append(problems, probs...)
 		if p != nil {
 			packs = append(packs, p)

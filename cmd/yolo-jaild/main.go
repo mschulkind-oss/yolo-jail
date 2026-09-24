@@ -19,6 +19,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/awscredadapter"
 	"github.com/mschulkind-oss/yolo-jail/internal/oauthterminator"
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthadapter"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/supervisor"
 	"github.com/mschulkind-oss/yolo-jail/internal/wirebridged"
 )
@@ -28,6 +29,12 @@ func main() {
 }
 
 func run(args []string) int {
+	// yolo-jaild links internal/packload (wirebridged -> entrypoint -> config), and until
+	// 2026-09-23 that meant every jaild process wrote an embedded pack tree at init and,
+	// having no release anywhere, leaked it for the life of the jail. Nothing materializes
+	// at init now, but a daemon that does read a pack must still give its hold back; here,
+	// inside run, so main's os.Exit cannot skip it and embeddedtree_test.go can pin it.
+	defer packload.ReleaseEmbedded()
 	if len(args) == 0 {
 		return usage()
 	}

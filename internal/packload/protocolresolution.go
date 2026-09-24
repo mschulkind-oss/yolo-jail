@@ -184,9 +184,10 @@ func ResolveProtocol(agent string, spoken []string, providerName string,
 //
 // IT READS THE EMBEDDED SET, which is deliberately not selection-gated (embedded.go states
 // the rule for the reservation lists, and this is the same shape of question: what is true
-// of everything yolo ships, regardless of what a particular jail loaded). The tree is
-// materialized once per process and already exists before argv is parsed, so this is a walk
-// over manifests in memory rather than a filesystem cost on a launch.
+// of everything yolo ships, regardless of what a particular jail loaded). The packs are
+// loaded once per process — from the build's shared content-addressed tree, adopted on first
+// use — and a launch has already loaded them by the time this runs, so this is a walk over
+// manifests in memory rather than a filesystem cost of its own.
 //
 // WHAT IT BOUNDS, honestly: only a pack yolo ships can be named. A third-party pack the
 // user has not selected is invisible here, so its pairing gets outcome 4's message instead

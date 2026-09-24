@@ -800,8 +800,9 @@ func resolvePackLoopholeModules() []loopholes.PackModule {
 			// nobody had tried.
 			//
 			// The tree really does live only in the binary's embed.FS, which is what the
-			// old comment got right; the answer is that packload.Embedded() materializes it
-			// (once per process, cached), so there IS a path to read. Selection-gated here
+			// old comment got right; the answer is that packload.Embedded() puts it on disk
+			// (the build's shared content-addressed tree, adopted once per process), so there
+			// IS a path to read. Selection-gated here
 			// unlike the reservation lists, because this answers "what is active on this
 			// machine" rather than "what could any pack ever claim".
 			p, isEmbedded := embedded[entry.Name]
@@ -836,8 +837,9 @@ func resolvePackLoopholeModules() []loopholes.PackModule {
 
 // embeddedPacksByName indexes the EMBEDDED packs by name, materialized out of the binary.
 //
-// Through packload.Embedded() rather than a fresh MaterializeEmbedded call: it caches once
-// per process, so the read-only commands behind this resolver (`yolo loopholes list`,
+// Through packload.Embedded() rather than a fresh MaterializeEmbedded call: it loads once
+// per process from the build's shared tree, so the read-only commands behind this resolver
+// (`yolo loopholes list`,
 // `yolo check`, config validation — each of which may consult it more than once) do not each
 // pay a tree copy. Its failure mode is an empty set, which matches this resolver's
 // silent-and-empty contract: the honest answer to "I cannot materialize the packs" is "I

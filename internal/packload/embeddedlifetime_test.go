@@ -1,10 +1,12 @@
-// embeddedlifetime_test.go pins the LIFETIME of the process's materialized embedded pack
-// tree — one directory, reused, and given back on the way out.
+// embeddedlifetime_test.go pins the LIFETIME of the embedded pack tree with the REAL
+// embedded packs: one shared, content-addressed tree per build, adopted by every process
+// and never deleted by a release; a per-process fallback that is.
 //
 // It is here because the leak these assertions exist for was invisible to every other
 // test: Embedded() worked perfectly, and the only symptom was that /tmp grew by one
-// ~200 KB directory per `yolo` invocation, forever (measured in a live jail 2026-09-03:
-// 625 directories, 109 MB, one per invocation of every command since the feature shipped).
+// ~250 KB directory per `yolo` invocation, forever (measured in a live jail 2026-09-03:
+// 625 directories, 109 MB; and again 2026-09-23: 281, after the exit-path releases — the
+// paths that skip a defer kept leaking).
 //
 // EXTERNAL package so it can import internal/packreg, which registers the embedded packs.
 // Without it Embedded() is empty and every assertion below passes vacuously — see
@@ -12,121 +14,220 @@
 package packload_test
 
 import (
+	"bufio"
+	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs
 )
 
-// isolatedTempDir points os.MkdirTemp at a fresh directory nothing else in this test
-// binary writes to, and releases whatever tree an earlier test (or this package's
-// init-time consumers) already materialized, so the NEXT Embedded() call lands here.
-func isolatedTempDir(t *testing.T) string {
+// isolated points the cache base and TMPDIR at fresh dirs nothing else in this binary
+// writes to; the override releases whatever tree an earlier test held, so the NEXT
+// Embedded() lands here. Returns (base, tmp).
+func isolated(t *testing.T) (string, string) {
 	t.Helper()
-	dir := t.TempDir()
-	t.Setenv("TMPDIR", dir)
-	packload.ReleaseEmbedded()
-	// The next test in this binary gets a live tree, not Roots pointing into a t.TempDir
-	// the framework has already deleted.
-	t.Cleanup(packload.ReleaseEmbedded)
-	return dir
+	// Resolved where minted: the loader resolves the base through symlinks, and darwin's
+	// t.TempDir() is under the /var -> /private/var symlink.
+	resolve := func() string {
+		d, err := filepath.EvalSymlinks(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	base, tmp := resolve(), resolve()
+	t.Setenv("TMPDIR", tmp)
+	t.Cleanup(packload.OverrideEmbeddedCacheDir(base))
+	return base, tmp
 }
 
-func embeddedDirsIn(t *testing.T, dir string) []string {
+func entries(t *testing.T, dir string) []string {
 	t.Helper()
-	entries, err := os.ReadDir(dir)
+	es, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("reading %s: %v", dir, err)
 	}
 	var out []string
-	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), "yolo-embedded") {
-			out = append(out, e.Name())
-		}
+	for _, e := range es {
+		out = append(out, e.Name())
 	}
 	return out
 }
 
-// TestEmbeddedMaterializesOneTreePerProcess is the "speedup" half: the tree is ~30 files
-// and every extra copy is both wasted work and (before ReleaseEmbedded existed) a second
-// directory nobody removed. Three call sites made their own; now there is one.
-func TestEmbeddedMaterializesOneTreePerProcess(t *testing.T) {
-	tmp := isolatedTempDir(t)
-
-	first := packload.Embedded()
-	if len(first) == 0 {
-		t.Fatalf("Embedded() is empty: %v", packload.EmbeddedProblems())
-	}
-	second := packload.Embedded()
-
-	if got := embeddedDirsIn(t, tmp); len(got) != 1 {
-		t.Fatalf("Embedded() called twice made %d trees (%v), want exactly 1", len(got), got)
-	}
-	if filepath.Dir(first[0].Root) != filepath.Dir(second[0].Root) {
-		t.Errorf("two Embedded() calls returned packs from different trees: %s vs %s",
-			first[0].Root, second[0].Root)
-	}
-}
-
-// TestEmbeddedRootsAreReadableForTheProcessGuards the part a leak fix is most likely to
-// break: Pack.Root is a HANDLE, and callers read files out of it long after Embedded()
-// returned (skills trees, briefing sources, a contribution's `from` path). A cleanup that
-// ran any earlier than the process's exit path would leave those callers reading a deleted
-// directory — so the tree is asserted present and populated, not merely named.
-func TestEmbeddedRootsAreReadableForTheProcess(t *testing.T) {
-	isolatedTempDir(t)
-
+func mustEmbedded(t *testing.T) []*packload.Pack {
+	t.Helper()
 	packs := packload.Embedded()
 	if len(packs) == 0 {
 		t.Fatalf("Embedded() is empty: %v", packload.EmbeddedProblems())
 	}
-	for _, p := range packs {
+	return packs
+}
+
+// TestEmbeddedUsesOneTreePerBuild: the tree is under <base>/<hash>, two calls share it, and
+// nothing is written per process anywhere — not in TMPDIR, not beside it in the base.
+func TestEmbeddedUsesOneTreePerBuild(t *testing.T) {
+	base, tmp := isolated(t)
+	sum, ok := packload.EmbeddedHash()
+	if !ok {
+		t.Fatal("EmbeddedHash() unknown with the packs registered")
+	}
+
+	first := mustEmbedded(t)
+	second := mustEmbedded(t)
+	if first[0].Root != second[0].Root {
+		t.Errorf("two Embedded() calls returned different trees: %s vs %s", first[0].Root, second[0].Root)
+	}
+	if want := filepath.Join(base, sum, first[0].Name); first[0].Root != want {
+		t.Errorf("Pack.Root = %s, want %s", first[0].Root, want)
+	}
+	if got := entries(t, base); len(got) != 1 || got[0] != sum {
+		t.Errorf("base holds %v, want exactly [%s]", got, sum)
+	}
+	if got := entries(t, tmp); len(got) != 0 {
+		t.Errorf("TMPDIR holds %v, want nothing: a usable cache leaves nothing per process", got)
+	}
+}
+
+// TestEmbeddedRootsAreReadableForTheProcess guards the part a lifetime change is most likely
+// to break: Pack.Root is a HANDLE, and callers read files out of it long after Embedded()
+// returned (skills trees, briefing sources, a contribution's `from` path).
+func TestEmbeddedRootsAreReadableForTheProcess(t *testing.T) {
+	isolated(t)
+	for _, p := range mustEmbedded(t) {
 		if _, err := os.Stat(filepath.Join(p.Root, "pack.json")); err != nil {
-			t.Errorf("pack %s: %v — Pack.Root must stay readable for the whole process",
-				p.Name, err)
+			t.Errorf("pack %s: %v — Pack.Root must stay readable for the whole process", p.Name, err)
 		}
 	}
 }
 
-// TestReleaseEmbeddedRemovesTheTreeThenRematerializes pins both halves of the contract the
-// exit-path callers depend on: the directory is really gone (the leak), and a later call
-// gets a fresh live tree rather than dangling Roots (which is what makes calling this at an
-// exit path safe — a process that runs Main twice, as the unit tests do, must not be handed
-// paths that were deleted under it).
-func TestReleaseEmbeddedRemovesTheTreeThenRematerializes(t *testing.T) {
-	tmp := isolatedTempDir(t)
-
-	first := packload.Embedded()
-	if len(first) == 0 {
-		t.Fatalf("Embedded() is empty: %v", packload.EmbeddedProblems())
+// TestReleaseEmbeddedKeepsTheSharedTreeAndReadopts: a release gives back this process's
+// LEASE, never the tree other processes of the build are using, and a later call re-adopts
+// the very same tree — released, not poisoned; idempotent.
+func TestReleaseEmbeddedKeepsTheSharedTreeAndReadopts(t *testing.T) {
+	base, _ := isolated(t)
+	first := mustEmbedded(t)
+	root, _ := packload.EmbeddedLocation()
+	if st, _, _ := packload.ProbeLease(root); st != packload.LeaseHeld {
+		t.Errorf("an adopted tree's lease probed %v, want held", st)
 	}
-	root := filepath.Dir(first[0].Root)
 
 	packload.ReleaseEmbedded()
-
-	if _, err := os.Stat(root); !os.IsNotExist(err) {
-		t.Errorf("%s still exists after ReleaseEmbedded (stat err %v); the process's temp "+
-			"tree is what leaked", root, err)
+	if r, _ := packload.EmbeddedLocation(); r != "" || packload.EmbeddedLoaded() {
+		t.Errorf("after release: location %q loaded=%v, want forgotten", r, packload.EmbeddedLoaded())
 	}
-	if got := embeddedDirsIn(t, tmp); len(got) != 0 {
+	if _, err := os.Stat(filepath.Join(first[0].Root, "pack.json")); err != nil {
+		t.Fatalf("ReleaseEmbedded deleted the shared tree: %v", err)
+	}
+	if st, unlock, _ := packload.ProbeLease(root); st != packload.LeaseFree {
+		t.Errorf("after release the lease probed %v, want free", st)
+	} else {
+		unlock()
+	}
+
+	again := mustEmbedded(t)
+	if again[0].Root != first[0].Root || len(again) != len(first) {
+		t.Errorf("re-adopt: %d packs at %s, want %d at %s", len(again), again[0].Root, len(first), first[0].Root)
+	}
+	if got := entries(t, base); len(got) != 1 {
+		t.Errorf("re-adopt changed the base: %v", got)
+	}
+	packload.ReleaseEmbedded()
+	packload.ReleaseEmbedded()
+}
+
+// TestReleaseEmbeddedRemovesTheFallbackTree: with no usable cache location the tree is the
+// process's own, in TMPDIR, and ReleaseEmbedded removes it — the leak the exit-path releases
+// exist for.
+func TestReleaseEmbeddedRemovesTheFallbackTree(t *testing.T) {
+	_, tmp := isolated(t)
+	t.Cleanup(packload.OverrideEmbeddedCacheDir(""))
+
+	first := mustEmbedded(t)
+	root, fallback := packload.EmbeddedLocation()
+	if !fallback || filepath.Dir(root) != tmp {
+		t.Fatalf("tree at %s (fallback=%v), want a fallback in %s", root, fallback, tmp)
+	}
+	packload.ReleaseEmbedded()
+	if got := entries(t, tmp); len(got) != 0 {
 		t.Errorf("ReleaseEmbedded left %v behind in %s", got, tmp)
 	}
-
-	// Released, not poisoned.
-	again := packload.Embedded()
+	again := mustEmbedded(t)
 	if len(again) != len(first) {
-		t.Fatalf("Embedded() after ReleaseEmbedded returned %d packs, want %d — a released "+
-			"tree must re-materialize, or a second Main in one process gets nothing",
-			len(again), len(first))
+		t.Fatalf("Embedded() after release returned %d packs, want %d", len(again), len(first))
 	}
 	if _, err := os.Stat(filepath.Join(again[0].Root, "pack.json")); err != nil {
 		t.Errorf("re-materialized pack %s: %v", again[0].Name, err)
 	}
+	packload.ReleaseEmbedded()
+	packload.ReleaseEmbedded()
+}
 
-	// Idempotent: the exec-shaped exit paths both defer it and call it explicitly.
-	packload.ReleaseEmbedded()
-	packload.ReleaseEmbedded()
+// TestConcurrentFirstPopulatesLeaveOneTree races several PROCESSES at an empty base. Each
+// must end up reading the same tree, and the base must hold that one tree and no stray
+// .tmp- dir from a loser.
+func TestConcurrentFirstPopulatesLeaveOneTree(t *testing.T) {
+	if os.Getenv(helperEnv) != "" {
+		t.Skip("helper process")
+	}
+	base, tmp := isolated(t)
+	sum, _ := packload.EmbeddedHash()
+
+	const n = 6
+	roots := make([]string, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			cmd := exec.Command(os.Args[0], "-test.run=^TestEmbeddedHelperProcess$", "-test.count=1")
+			cmd.Env = append(os.Environ(), helperEnv+"="+base)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Errorf("helper %d: %v\n%s", i, err, out)
+				return
+			}
+			sc := bufio.NewScanner(bytes.NewReader(out))
+			for sc.Scan() {
+				if r, ok := strings.CutPrefix(sc.Text(), "ROOT="); ok {
+					roots[i] = r
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	for i, r := range roots {
+		if r != filepath.Join(base, sum) {
+			t.Errorf("helper %d read %q, want the one tree %s", i, r, filepath.Join(base, sum))
+		}
+	}
+	if got := entries(t, base); len(got) != 1 || got[0] != sum {
+		t.Errorf("after %d racing first-populates base holds %v, want exactly [%s]", n, got, sum)
+	}
+	if got := entries(t, tmp); len(got) != 0 {
+		t.Errorf("TMPDIR holds %v after the race", got)
+	}
+}
+
+const helperEnv = "YOLO_TEST_EMBEDDED_HELPER_BASE"
+
+// TestEmbeddedHelperProcess is the child of TestConcurrentFirstPopulatesLeaveOneTree.
+func TestEmbeddedHelperProcess(t *testing.T) {
+	base := os.Getenv(helperEnv)
+	if base == "" {
+		t.Skip("only runs as a helper process")
+	}
+	t.Cleanup(packload.OverrideEmbeddedCacheDir(base))
+	mustEmbedded(t)
+	root, fallback := packload.EmbeddedLocation()
+	if fallback {
+		t.Fatalf("helper fell back: %v", packload.EmbeddedProblems())
+	}
+	os.Stdout.WriteString("ROOT=" + root + "\n")
 }

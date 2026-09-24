@@ -1063,7 +1063,13 @@ const (
 //
 // `.ssh` is deliberately absent: it is a rw bind, but composing a file into the
 // jail's ssh dir from config is not a use case worth blessing implicitly.
-var hostFileWritableRoots = func() map[string]struct{} {
+//
+// A sync.OnceValue, NOT a package-level map: reading the embedded packs materializes their
+// tree, and a package-level initializer did that at INIT for every process linking this
+// package — every test binary, `yolo --version`, every in-jail daemon — whether or not it
+// ever looked at a host_files entry (internal/packload/embedded.go has the history).
+// embeddedlazy_test.go pins that loading this package reads no pack.
+var hostFileWritableRoots = sync.OnceValue(func() map[string]struct{} {
 	roots := map[string]struct{}{
 		".config": {}, ".cache": {}, ".local": {}, "go": {}, ".npm-global": {},
 	}
@@ -1071,7 +1077,7 @@ var hostFileWritableRoots = func() map[string]struct{} {
 		roots[firstHomeSegment(d)] = struct{}{}
 	}
 	return roots
-}()
+})
 
 // StagingFor reports what the host CLI must provision for this entry's
 // destination. It keys on the destination's FIRST SEGMENT, because that is what
@@ -1083,7 +1089,7 @@ var hostFileWritableRoots = func() map[string]struct{} {
 // need a writable parent, so the dir case falls through the same way.
 func (e HostFileEntry) StagingFor() HostFileStaging {
 	seg, rest := firstHomeSegment(e.Path), strings.Contains(e.Path, "/")
-	if _, ok := hostFileWritableRoots[seg]; ok {
+	if _, ok := hostFileWritableRoots()[seg]; ok {
 		return HostFileStagingNone
 	}
 	if !rest {

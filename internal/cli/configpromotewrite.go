@@ -183,9 +183,10 @@ func resolvePromotePack(name string, errw io.Writer) (promoteDest, int) {
 		}
 		switch {
 		case e.Embedded():
-			// An embedded pack lives inside the yolo binary; the materialized tree is a temp
-			// dir released on the way out (packload.Embedded's contract), so a write there
-			// would vanish and would be yolo's file besides.
+			// An embedded pack lives inside the yolo binary; its on-disk tree is a read-only,
+			// content-addressed copy shared by every process of the build (packload.Embedded's
+			// contract), so a write there would be refused, or would edit yolo's file for every
+			// other process — and would vanish with the next build's tree either way.
 			fmt.Fprintf(errw, "yolo config promote: `%s` is a pack yolo SHIPS — its manifest "+
 				"is inside the binary, not a file on disk. Promote to `--to local`, whose "+
 				"config-overlay folds after every shipped pack.\n", name)

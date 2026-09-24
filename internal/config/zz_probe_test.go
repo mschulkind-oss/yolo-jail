@@ -10,10 +10,10 @@ func TestZZProbeReserved(t *testing.T) {
 	}
 	t.Logf("reservedHomeSegments count=%d: %v", len(segs), keys)
 	roots := []string{}
-	for k := range hostFileWritableRoots {
+	for k := range hostFileWritableRoots() {
 		roots = append(roots, k)
 	}
-	t.Logf("hostFileWritableRoots count=%d: %v", len(hostFileWritableRoots), roots)
+	t.Logf("hostFileWritableRoots count=%d: %v", len(hostFileWritableRoots()), roots)
 	e := HostFileEntry{Path: ".claude/mytool.json"}
 	t.Logf("StagingFor(.claude/mytool.json) = %v", e.StagingFor())
 	dirs := reservedHomeDirs()

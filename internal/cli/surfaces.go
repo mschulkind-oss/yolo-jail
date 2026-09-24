@@ -41,7 +41,8 @@ var (
 //
 // Through packload.Embedded rather than a MaterializeEmbedded of its own: this file used
 // to copy the whole embedded tree into a second `yolo-cli-packs-` temp dir it never
-// removed, so `yolo config ls` left TWO directories behind instead of one. The packs are
+// removed, so `yolo config ls` left TWO directories behind instead of one; Embedded shares
+// the build's one content-addressed tree instead. The packs are
 // registered by internal/packreg's init (internal/config imports it, and this package
 // cannot avoid internal/config), and configdiff_test.go's copilot/claude lookups fail
 // outright if that registration ever stops reaching here.

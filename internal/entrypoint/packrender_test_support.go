@@ -106,8 +106,8 @@ func embeddedPack(name string) (*packload.Pack, error) {
 // caller that needs the SET rather than a member — the selection a surface derive sees
 // resolves across packs (ConfigurePackByName).
 //
-// packload.Embedded, which is the process's ONE materialized copy. These three entry
-// points each used to run their own MaterializeEmbedded — into a shared
+// packload.Embedded, which is the process's ONE loaded copy (the build's shared tree).
+// These three entry points each used to run their own MaterializeEmbedded — into a shared
 // `yolo-embedded-packs-` temp dir that nothing removed, so `yolo check` re-extracted the
 // ~30-file tree three times per run and left the directory behind. The set is not
 // selection-gated and must not become so (AGENTS.md): `yolo check`'s dry-run probe renders

@@ -19,11 +19,16 @@ import (
 )
 
 func TestEmbeddedPackProbesReuseTheProcessTree(t *testing.T) {
-	t.Cleanup(packload.ReleaseEmbedded)
-	// Materialized BEFORE TMPDIR is redirected, so the observed dir stays empty unless a
-	// probe below extracts a tree of its own.
+	cache := t.TempDir()
+	t.Cleanup(packload.OverrideEmbeddedCacheDir(cache))
+	// Loaded BEFORE TMPDIR is redirected, so the observed dir stays empty unless a probe
+	// below extracts a tree of its own — and the cache base must still hold only the one
+	// tree afterwards.
 	if len(packload.Embedded()) == 0 {
 		t.Fatalf("Embedded() is empty: %v", packload.EmbeddedProblems())
+	}
+	if base, _ := os.ReadDir(cache); len(base) != 1 {
+		t.Fatalf("setup: cache base holds %d entries, want the one tree", len(base))
 	}
 
 	tmp := t.TempDir()
@@ -47,6 +52,9 @@ func TestEmbeddedPackProbesReuseTheProcessTree(t *testing.T) {
 			"would check nothing")
 	}
 
+	if base, _ := os.ReadDir(cache); len(base) != 1 {
+		t.Errorf("the probes grew the cache base to %d entries; they must share the one tree", len(base))
+	}
 	entries, err := os.ReadDir(tmp)
 	if err != nil {
 		t.Fatalf("reading %s: %v", tmp, err)

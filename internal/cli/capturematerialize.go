@@ -196,9 +196,9 @@ func resolveCaptureFor(store *capture.Store, bin, platform string) (*capture.Ent
 //
 // It lives at the CLI boundary rather than in internal/capture because the store must not
 // import internal/entrypoint: that is the jail provisioner, it sits above a content-addressed
-// directory rather than below it, and it pulls internal/config, whose package init
-// materializes the embedded pack tree. internal/prune, the sweep's other consumer,
-// deliberately imports neither. See capture.Records.
+// directory rather than below it, and it pulls internal/config and with it the whole
+// config-validation graph. internal/prune, the sweep's other consumer, deliberately imports
+// neither. See capture.Records.
 //
 // FILTERING IS THE SELECTION'S PRECONDITION, NOT A SECOND RULE: only `act:"record"` lines
 // describe a capture that was made (the other act is `materialize`, written per workspace and
