@@ -10,7 +10,8 @@ summary: "How a host-side `aws sso login` becomes Bedrock access inside a jail w
 
 **Status:** DECIDED, 2026-09-17 — all six questions ruled that day
 ([§13](#13-decision-ledger)), and a seventh ruling recorded 2026-09-24: which Bedrock
-credentials yolo supports ([`OQ-SSO7`](#13-decision-ledger)). Nothing built. Repo claims verified against `d4c0e7e3`; every
+credentials yolo supports ([`OQ-SSO7`](#13-decision-ledger)). **Partly built** — what has landed and what has not is
+[the plan's status](sso-backed-bedrock-plan.md), the one place that tracks it. Repo claims verified against `d4c0e7e3`; every
 agent-artifact and vendor claim carries its version and date in
 [§11](#11-evidence-and-how-to-re-check-it).
 
