@@ -10,7 +10,9 @@ vantage:
 
 # Let packs contribute list entries without replacing the owner's list
 
-**Status:** DECIDED, 2026-09-23. Nothing built; every question is ruled ([Decision Ledger](#decision-ledger)).
+**Status:** BUILT 2026-09-24, both questions ruled 2026-09-23 ([Decision Ledger](#decision-ledger)). MEASURED: `TestConfigListSurvivesInJailEditsAndPackDrop` ([`integration/configlist_test.go`](../../integration/configlist_test.go)) passed in a nested jail's podman, which reports `rootless: false`. It ran three launches in one workspace with capture-on-terminate between them: pi with a `file://` pack's list contribution, an in-jail `jq` append, then the pack dropped. The unit suites cover the jail and host render boundaries. UNMEASURED: no real `pi install` has been observed against a list path, and no rootless host has run it.
+
+**Built:** the `config-list` kind, validated in [`internal/packdecl`](../../internal/packdecl/contributes.go); the fold and per-entry capture in [`listcontrib.go`](../../internal/agentcfg/listcontrib.go) and [`staterender.go`](../../internal/agentcfg/staterender.go); the `rmw` insert record and revert in [`internal/entrypoint`](../../internal/entrypoint/prism.go). The reference is [`pack-system.md`](../reference/pack-system.md#adding-entries-to-an-array-config-list), and the stateful state machine is in [`config-migration-to-prism.md`](../reference/config-migration-to-prism.md#list-paths-capture-per-entry). The build plan is [`additive-config-lists-plan.md`](additive-config-lists-plan.md).
 
 > **In short.** An explicitly additive contribution can let a pack add a Pi package without copying every package another pack selected. Ordinary configuration overlays must keep their existing array-replacement semantics.
 
@@ -44,12 +46,12 @@ For example, the declarative intent is:
 {
   "kind": "config-list",
   "surface": "pi/settings",
-  "path": "packages",
+  "path": "/packages",
   "add": ["git:github.com/mschulkind/kilo-pi-provider"]
 }
 ```
 
-The spelling is illustrative; the behavior below is the contract. A single entry does not have to reproduce the owner's list. The `pi` pack must be selected; otherwise the contribution is inert and reported just like an ownerless `config-overlay`. The operation is independent of Pi itself: core knows configuration paths and arrays, not Pi package syntax or installation rules.
+The spelling is the built one: `path` is an [RFC 6901](https://www.rfc-editor.org/rfc/rfc6901) JSON Pointer, because real keys contain dots. The behavior below is the contract. A single entry does not have to reproduce the owner's list. The `pi` pack must be selected; otherwise the contribution is inert and reported just like an ownerless `config-overlay`. The operation is independent of Pi itself: core knows configuration paths and arrays, not Pi package syntax or installation rules.
 
 1. **Ordering.** Fold ordinary defaults, host settings, workspace settings and pack overlays as today. Apply all list contributions in loaded-pack and declaration order before captured in-jail edits, computed settings and the managed floor. The final list retains existing entries in order, then first occurrences of contributed entries in contribution order. An empty `add` is a no-op. Additions apply AFTER every ordinary overlay, so a later list contribution may re-add an entry an earlier overlay's replacement dropped; an overlay cannot express a per-entry veto, and only the higher capture, computed and managed layers can replace the final array ([OQ-AL2](#decision-ledger)).
 2. **Duplicates.** Compare whole JSON values for equality; the first occurrence wins. Do not parse package specifications, normalize Git URLs, or sort the output. Equal entries contributed twice produce one entry, not an error.
@@ -90,5 +92,5 @@ None. Both are ruled; see the [Decision Ledger](#decision-ledger).
 
 | ID | Ruling | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| OQ-AL1 | List contributions survive the read-back of `stateful` and `rmw` surfaces by per-entry capture at every list path, relative to the last render; a list contribution on a path that does not yet capture per entry is refused at launch | 2026-09-23 | [Rule 6](#the-proposed-contract) | — |
-| OQ-AL2 | A later list contribution may re-add an entry an earlier overlay's replacement dropped: additions follow ordinary overlays, and only the higher capture, computed and managed layers replace the final array | 2026-09-23 | [Rule 1, Ordering](#the-proposed-contract) | — |
+| OQ-AL1 | List contributions survive the read-back of `stateful` and `rmw` surfaces by per-entry capture at every list path, relative to the last render; a list contribution on a path that does not yet capture per entry is refused at launch | 2026-09-23 | [Rule 6](#the-proposed-contract) | 2026-09-24: `stateful` through the list-capture sidecar (`listCapture`, `staterender.go`), `rmw` through the insert record (`ReconcileInsertedList`, `applyRMWLayers`), which the host also keeps under `own` so an ownership switch keeps a pack's entries yolo's, `computed` needing none; `ListCaptureRefusal` still refuses a keyless surface and any mechanism it does not name |
+| OQ-AL2 | A later list contribution may re-add an entry an earlier overlay's replacement dropped: additions follow ordinary overlays, and only the higher capture, computed and managed layers replace the final array | 2026-09-23 | [Rule 1, Ordering](#the-proposed-contract) | 2026-09-24: `applyListContributions` in `Compose` (`compose.go`, `listcontrib.go`), and last in `applyRMWLayers` for `rmw` |

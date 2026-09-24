@@ -8,6 +8,7 @@ covers:
   - internal/entrypoint/prism.go
   - internal/entrypoint/packsurfaces.go
   - internal/cli/configdiff.go
+  - internal/agentcfg/listcontrib.go
 tags: [config, prism, migration, sidecars, capture]
 summary: "The per-boot state machine that renders one composed surface: the first-migration seed that converges a pre-existing on-disk file onto the prism, the adoption rule that keeps agent-owned keys, the capture loop that preserves in-jail edits, and the two sidecars — one durable, one good for a single boot — that neither may be treated as a cache."
 ---
@@ -95,7 +96,9 @@ sentence.
   programmer error — an unknown codec, or a `Compose` failure such as a shape mismatch —
   propagates, and boot's step wrapper downgrades even that to a warning.
 - **Three writes, unconditionally, every boot:** the surface file, the `last_render` sidecar, and
-  the overlay sidecar. The state machine returns all three values and performs no I/O itself.
+  the overlay sidecar. A surface with a [list path](#list-paths-capture-per-entry) adds a fourth,
+  the list-capture sidecar, and a surface without one never gets it. The state machine returns
+  every value and performs no I/O itself.
 - **A pure-overwrite surface must not go through the stateful path.** It would begin capturing
   in-jail edits into an overlay, silently converting an intentional overwrite into an
   edit-preserving surface.
@@ -284,6 +287,72 @@ Three properties follow, and the first is what keeps the sidecars honest:
   no destination could hold one — `yolo config promote` refuses it as not in the capture, which
   is the right answer rather than a gap.
 
+### List paths capture per entry
+
+A **list path** *(this doc's term, from [`pack-system.md`](pack-system.md#adding-entries-to-an-array-config-list))*
+is an array path a `config-list` contribution targets. The merge patch replaces arrays whole, so
+capturing a list path through it would store every pack-contributed entry the first time an agent
+appended one of its own, and that capture would outrank every contribution from then on. So at a
+list path the state machine records entries instead of the array, in a **list-capture sidecar**
+beside the overlay: per path, the entries an in-jail edit added and the ones it removed. `Compose`
+applies that record right after the capture overlay: removes first, then adds not already present.
+The capture overlay never records a list path. Everything here is `listCapture` in
+[`staterender.go`](../../internal/agentcfg/staterender.go).
+
+- **The set of list paths is sticky.** It is the live contributions' paths plus every path the
+  sidecar already names, and every render writes an entry for every one of them. That is how a
+  capture with no layers learns them: `yolo config capture` and capture-on-terminate compose with
+  no pack contributions at all, so the sidecar is their only source.
+- **Steady state** compares `last_render` at each list path with the current file.
+  - An array there records adds and removes by whole-value presence. They accumulate
+    symmetrically, so an entry is never in both lists, and a record is never retired for
+    converging.
+  - What presence cannot express is not kept: a reorder of the surviving entries, or a
+    de-duplication, is put back to the rendered order, and the boot says so.
+  - Deleting the key, or replacing it with a non-array, is still a whole-value capture through
+    the merge patch. It masks every contribution at that path, and the boot names
+    `yolo config reset`. The path's record is kept, inert while the capture stands.
+  - An array that reappears later ends that capture, including one captured at an ancestor (a
+    deleted or replaced parent object). The new array is measured against the list the capture
+    was hiding (the assembled list with the record applied), not against an empty list. So the
+    next boot renders what the user wrote, and a pack's entries never become the user's adds.
+  - An array emptied in-jail is per entry: every entry present then stays removed, and an entry
+    first contributed later still appears.
+- **Adoption** (a first migration) keeps only the entries the file holds beyond **B**, the fold
+  below capture with no list contributions (`defaults < host < workspace < config-overlay`). So
+  an entry already in the user's file that a pack also contributes stays the user's. When an
+  `rmw` insert record sits beside the surface (the host keeps one under both contracts), an
+  entry it says yolo inserted is not adopted, and an entry it says the user declined is adopted
+  as a removal.
+- **A legacy whole-array capture is converted**, on the first steady-state boot in which the path
+  is a list path. With O the overlay's array: add = O − B, remove = B − O, and O is deleted from
+  the overlay. The boot says it converted. Three things are lost: O's order relative to B, any
+  duplicates within O, and O's pin against lower layers. From then on a lower-layer change at the
+  path, such as a host-file edit, shows through. The cost of remove = B − O: every entry B holds
+  that O lacks becomes a permanent user removal, including an entry a lower layer gained while
+  the whole array pinned the list. Those stay hidden until `yolo config reset`, even if a host
+  file adds them again; only changes after the conversion show through. A legacy tombstone or
+  non-array at the path is not converted and stays a whole-value capture.
+- **A record goes dead** when `computed` or `managed` holds its path, or an ancestor, as a
+  non-object. It is emptied, and the path stays a list path.
+- **A corrupt or unreadable sidecar reads as absent.** That costs per-entry history, never a
+  file. A path no live contribution still names then drops out of the set and is captured
+  whole again.
+
+> [!WARNING]
+> **Two orders put contributed entries into the user's record, and both are accepted.** First,
+> adoption after a lost `last_render` measures against B, which excludes contributions, so an
+> entry a pack contributed before becomes a user add and survives that pack being dropped. An
+> `rmw` insert record beside the surface prevents this; the host keeps one, a jail does not.
+> Second, an array frozen by an older yolo's capture-on-terminate is converted the same way on
+> the next boot. The alternative, trusting the file's entries as yolo's, would delete the user's
+> own matching entries on a drop.
+
+`rmw` has no `last_render`, so its equivalent is yolo's record of the entries it inserted, and
+[`pack-system.md`](pack-system.md#adding-entries-to-an-array-config-list) is the authority for
+it. An `rmw` surface has no earlier list state to migrate. Its record starts empty, and entries
+already in the file are never recorded, so a pack drop never removes them.
+
 ## What the boot caller owns
 
 The state machine is pure. Everything environment-dependent stays in the boot path:
@@ -314,7 +383,9 @@ The seed is automatic, per-surface and clean, and it is the default. A whole-con
 clear-and-rebuild is the manual escape hatch for a home so mangled that per-surface convergence
 is not enough — explicit, operator-triggered, never reachable from an ordinary boot, and printing
 what it will delete before it acts. `yolo config reset` is the narrow, shipped form of it: two
-sidecars plus a truncation, per surface.
+sidecars (three, where there is a list capture) plus a truncation, per surface. The truncation
+renders with no pack contributions, so the adoption that follows records none of their entries as
+the user's.
 
 **The hard invariant is what such an operation may not touch:**
 
@@ -364,6 +435,7 @@ only place the values themselves are stated.
 | Sidecar directory (jail and preview targets) | `<workspace>/.yolo/prism/` | `render.Target.SidecarDir` |
 | Baseline sidecar | `<agent>-<name>.last_render`, in the surface's own codec | `entrypoint.prismLastRenderPath` |
 | Overlay sidecar | `<agent>-<name>.overlay.json`, always JSON | `entrypoint.prismOverlayPath` |
+| List-capture sidecar (only for a surface with a list path) | `<agent>-<name>.list-capture.json`, JSON: `{"<pointer>": {"add": [...], "remove": [...]}}` | `render.Target.ListCapturePath` |
 | Selection record (a separate mechanism) | `<agent>-<name>.selection.json` | `entrypoint.prismSelectionRecordPath` |
 | Layer fold order | see [`pack-system.md`](pack-system.md)'s Current values | `internal/agentcfg` |
 | Surface modes | `stateful` (default), `computed`, `rmw`, `unrendered` | `internal/agentcfg/manifest` |
