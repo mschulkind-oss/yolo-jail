@@ -157,14 +157,21 @@ new named hook in core.
 > writable dir is not reserved.
 
 > [!WARNING]
-> **`packload.Embedded()` is ONE temp tree for the whole process, released on the way out.**
-> The returned `Pack.Root` values are handles into it, nothing can know when the last read
-> happens, and the first caller is a package-level var in `internal/config` evaluated at
-> init — so the tree exists before any command has started, and process lifetime is the
-> shortest honest answer. Do not make a second process-lifetime copy: three call sites did,
-> and each leaked a never-removed directory on every invocation of every command. A caller
-> that wants its own lifetime calls `MaterializeEmbedded` and deletes the destination
-> itself.
+> **`packload.Embedded()` leases one immutable tree per build, shared by every process of
+> that build.** The returned `Pack.Root` values are handles into a tree on disk, and nothing
+> can know when the last read happens, so no process may delete a tree another might be
+> reading. The tree is named by a content hash of the embedded FS (never a version stamp:
+> two unstamped dev builds with different packs must not share one) and lives at
+> `~/.local/share/yolo-jail/embedded-packs/<hash>`. The first reader writes it under a
+> `.tmp-` name and renames it into place, so a reader sees either no tree or a whole one;
+> later readers verify it byte for byte and hold a shared `flock` on its `.lease` for as
+> long as they hold the packs. Nothing is materialized until the first real caller: package
+> init writes nothing. When that location is unusable, the process falls back to its own
+> tree in `$TMPDIR/yolo-embedded-lease-*`, which `ReleaseEmbedded` deletes. Do not make a
+> second process-lifetime copy: three call sites did, and each leaked a never-removed
+> directory on every invocation of every command. A caller that wants its own lifetime
+> calls `MaterializeEmbedded` and deletes the destination itself.
+> [`embeddedcache.go`](../../internal/packload/embeddedcache.go) is the authority.
 
 ---
 

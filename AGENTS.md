@@ -57,10 +57,21 @@ Three things to know before debugging it:
 - **`packload.Embedded*` is deliberately NOT selection-gated.** The reservation lists (`host_files` writable
   roots, `writable_home_dirs` segments, GlobalHome subdirs) cover every pack yolo SHIPS, or a `host_files`
   entry could claim a path a pack added tomorrow needs.
-- **`packload.Embedded()` is ONE temp tree for the WHOLE PROCESS**, materialized before argv is parsed and
-  released only by `cli.Main` (deferred) or `entrypoint.Main` (explicit, `execBash` replacing the process).
-  A second process-lifetime copy is the bug to watch for. Call `MaterializeEmbedded` directly only when you
-  delete the dest yourself ([`packs.go`](./internal/cli/run/packs.go) stages out of one).
+- **`packload.Embedded()` LEASES ONE IMMUTABLE TREE PER BUILD**, not one per process: a content hash of the
+  embedded FS names `~/.local/share/yolo-jail/embedded-packs/<hash>`, the first reader populates it
+  atomically, and every later process of that build adopts it under a shared `flock` on its `.lease`
+  ([`embeddedcache.go`](./internal/packload/embeddedcache.go)). Nothing is materialized until the first
+  real caller — package init writes nothing, so `yolo --version` creates nothing. ⚠ **Never move it under
+  `cache/`**, which every jail mounts read-write: host yolo loads this tree with a shipped pack's authority
+  (`paths.EmbeddedPacksDir` states why). When the base is unusable the process takes a per-process
+  **fallback** tree, `$TMPDIR/yolo-embedded-lease-*`, which `ReleaseEmbedded` deletes. The defer-skipping
+  exits yolo CONTROLS release it explicitly — `yolo host`'s exec, every ttyproxy signal arm (inside
+  `runWithProxy`, so arms passing no `onTerminate` are covered), `yolo-jaild`, `entrypoint.Main` before
+  `execBash`. ⚠ **Any other death leaves the fallback tree behind**: SIGKILL, OOM, or a signal arriving where
+  no handler is installed (Ctrl-C during a launch's nix build). Its lease dies with the process, so the next
+  fallback's sweep or `yolo prune` reaps it once past the sweep's age floor; nothing reaps it sooner. A
+  second process-lifetime copy is still the bug to watch for. Call `MaterializeEmbedded` directly only when
+  you delete the dest yourself ([`packs.go`](./internal/cli/run/packs.go) stages out of one).
 
 `agentcfg.BuiltinManifest()` is core's own surfaces only (`mise/config`); callers wanting the full set merge
 pack surfaces via `ManifestWith`. `internal/jailcontent` (was `internal/agents` until the name outlived the

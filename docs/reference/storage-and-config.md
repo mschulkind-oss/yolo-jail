@@ -170,6 +170,37 @@ mounted `:ro` at `/ctx/captures`), `packs/` (the content-addressed pack store),
 `flake-bundle/` (what `just install` stages), `locks/`, and `bin/wrap` (the one generated
 directory a *user* is asked to prepend to their own PATH).
 
+**`embedded-packs/`** holds the on-disk copy of the packs compiled into the binary: one
+read-only tree per build, named by a content hash of the embedded pack files, populated by
+the first process that reads a pack and reused by every later process of the same build.
+Each reader holds a shared `flock` on the tree's `.lease` file, which is the liveness
+evidence a reaper asks for. It sits here rather than under `cache/` on purpose: `cache/` is
+mounted read-write into every jail, and host yolo loads this tree with the authority of a
+pack yolo ships (`host_files` grants, loophole host exec), so a jail able to edit it could
+choose what the host runs. No launch mounts `embedded-packs/`.
+
+In-jail processes keep their own tree at the jail's `$HOME/.local/share/yolo-jail/embedded-packs`,
+written by the first in-jail process that reads a pack (an in-jail `yolo` command; the boot
+itself reads none). That directory is per-workspace on every backend, reached through a different
+mount on each ([`jail-home.md`](jail-home.md) has the full per-backend layout):
+
+- **podman:** `~/.local` is its own bind, so the host path is
+  `<workspace>/.yolo/home/local/share/yolo-jail/embedded-packs`.
+- **Apple Container:** the whole jail home is one bind, so the host path is
+  `<workspace>/.yolo/home/.local/share/yolo-jail/embedded-packs`.
+- **macos-user:** the tree is at `/Users/_yolojail/.local/share/yolo-jail/embedded-packs`, where
+  `~/.local` is the home layout's symlink to `<workspace>/.yolo/home/local`.
+
+Host `yolo prune` sweeps only the host's own `embedded-packs/`. A workspace's in-jail trees
+from older builds are reaped only by a `yolo prune` run inside that workspace's jail, and host
+dedup never links them, because sharing an inode across workspaces would let one jail write
+another's tree.
+
+When the directory cannot be used, a process falls back to a private tree in
+`$TMPDIR/yolo-embedded-lease-*` that it deletes on release; one left by a killed process
+is swept by the next fallback once its lease is free. The layout and trust rules are in
+[`embeddedcache.go`](../../internal/packload/embeddedcache.go).
+
 ### What is shared and writable, and what serializes it
 
 Three tiers are shared across jails **and writable**, so "jails do not share writable
