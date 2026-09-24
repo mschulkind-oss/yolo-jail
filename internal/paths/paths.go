@@ -679,6 +679,31 @@ func EmbeddedPacksDirUnder(home string) string {
 	return filepath.Join(GlobalStorageUnder(home), embeddedPacksLeaf)
 }
 
+// imageDeliveryLeaf is the state-dir child an archive delivery works in
+// (internal/image's deltaarchive.go).
+const imageDeliveryLeaf = "image-delivery"
+
+// ImageDeliveryDir returns $HOME/.local/share/yolo-jail/image-delivery — where the
+// two archive backends (podman on macOS, Apple Container) assemble the OCI layout
+// and the archive they hand the runtime's loader, and where Apple Container's
+// delivery records live.
+//
+// ⚠ DELIBERATELY NOT UNDER GlobalCache(), for the reason EmbeddedPacksDir gives.
+// The cache dir is bind-mounted READ-WRITE into every jail at ~/.cache, and what
+// sits here decides which image the NEXT launch runs under a content ref: the
+// archive's index.json names the image the loader creates, and a delivery record
+// decides which blobs the next archive leaves out. The host also reads every file
+// in the layout while it tars it. In cache/ a running jail could swap in its own
+// manifest, or a symlink to any host file, while a delivery is in flight. The
+// location is the boundary.
+func ImageDeliveryDir() string { return ImageDeliveryDirUnder(home()) }
+
+// ImageDeliveryDirUnder is ImageDeliveryDir under an EXPLICIT home — see
+// GlobalStorageUnder for why a caller with an injected root needs one.
+func ImageDeliveryDirUnder(home string) string {
+	return filepath.Join(GlobalStorageUnder(home), imageDeliveryLeaf)
+}
+
 // ContainerDir returns the tracking-files dir.
 func ContainerDir() string { return filepath.Join(GlobalStorage(), "containers") }
 

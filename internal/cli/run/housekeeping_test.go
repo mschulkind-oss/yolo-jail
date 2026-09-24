@@ -7,6 +7,9 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/image"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // TestHousekeepingLockSkipsWhenHeld pins the choice that makes the slot safe to
@@ -261,5 +264,33 @@ func TestStoreOutputReapAsksWhatIsRunning(t *testing.T) {
 				"live jail is executing from, whenever that jail launched before OQ-BF4 shipped. "+
 				"That is every already-running jail on the first pass after an upgrade.", want)
 		}
+	}
+}
+
+// TestTheImageTarSlotAlsoReapsInterruptedDeliveries pins the launch-path call
+// site of prune.PruneImageDelivery: an archive delivery killed mid-copy leaves a
+// whole image layout under the state dir's image-delivery/, out of the cache the
+// tar sweep reads, and the automatic slot is the only collector that runs without
+// a human typing `yolo prune`.
+func TestTheImageTarSlotAlsoReapsInterruptedDeliveries(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	o := &Options{}
+	fillDefaults(o)
+	o.Now = time.Now
+	o.Workspace = t.TempDir()
+	o.Getenv = func(string) string { return "" }
+	stale := filepath.Join(paths.ImageDeliveryDir(), "k-1"+image.DeliveryWorkSuffix)
+	if err := os.MkdirAll(filepath.Join(stale, "layout"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	past := time.Now().Add(-48 * time.Hour)
+	for _, p := range []string{filepath.Join(stale, "layout"), stale} {
+		if err := os.Chtimes(p, past, past); err != nil {
+			t.Fatal(err)
+		}
+	}
+	o.reapImageTars("podman")
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Error("the housekeeping slot left an interrupted image delivery in place")
 	}
 }

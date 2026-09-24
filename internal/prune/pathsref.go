@@ -23,6 +23,10 @@ func pathsContainerDir() string  { return paths.ContainerDir() }
 // path).
 var embeddedPacksLeaf = filepath.Base(paths.EmbeddedPacksDirUnder(string(filepath.Separator)))
 
+// imageDeliveryLeaf is the state-dir child an archive delivery works in, read off
+// paths.ImageDeliveryDirUnder for the same reason as embeddedPacksLeaf.
+var imageDeliveryLeaf = filepath.Base(paths.ImageDeliveryDirUnder(string(filepath.Separator)))
+
 // killPID sends SIGTERM (or SIGKILL when force) to pid. A missing/dead target
 // yields an error the caller ignores (best-effort reap).
 func killPID(pid int, force bool) error {

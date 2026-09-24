@@ -99,7 +99,8 @@ type AutoLoadOptions struct {
 	// one process, no pipe and no archive on either side. imageJSON is the store
 	// path the nix build resolved to (a nix2container manifest, not a stream
 	// script); dest is the transport-qualified destination the runtime needs —
-	// ContainersStorageDest for podman, OCIArchiveDest for Apple Container.
+	// ContainersStorageDest for podman on Linux, OCILayoutDest for the two archive
+	// backends (deliverViaArchive).
 	// Returns (report, ok); ok=false means the image is NOT delivered and the
 	// reason was already printed, by this seam, because only it holds skopeo's
 	// stderr. nil => the real copy.
@@ -144,12 +145,16 @@ type AutoLoadOptions struct {
 	// them would put a potential 2m27s skopeo compile in front of every warm
 	// start.
 	BuildCopier func(repoRoot string) (string, []string)
-	// PresentDigests reports the layer digests the runtime's store already holds,
-	// for the copied/skipped line the launch prints. nil => the real probe.
+	// PresentDigests reports the layer digests the runtime's store already holds.
+	// nil => the real probe: PresentLayerDigests for podman, the delivery record
+	// (recordedPresentDigests) for Apple Container.
 	//
-	// REPORTING ONLY. The copy negotiates per blob with containers-storage on its
-	// own and never consults this; a wrong answer changes a printed number and no
-	// behavior (PresentLayerDigests says why that licenses the approximation).
+	// TWO JOBS NOW, with different stakes. On the containers-storage copy arm it is
+	// REPORTING ONLY — the copy negotiates per blob on its own and a wrong answer
+	// changes a printed number. On the ARCHIVE arm it decides which blobs the
+	// archive leaves out (deliverViaArchive), and there the approximations
+	// PresentLayerDigests makes are all UNDER-claims, which cost bytes; an
+	// over-claim costs one retry with an empty set.
 	PresentDigests func() map[string]struct{}
 	// DiagnoseFailure maps a nix stderr tail to (title, remedy). nil => a plain
 	// join (the caller normally passes nixdiag.DiagnoseNixBuildFailure bound
@@ -164,9 +169,10 @@ type AutoLoadOptions struct {
 	// and run one of two converters over it — `skopeo copy docker-archive:…
 	// oci:…` plus a `tar cf`, or `podman load` + `podman tag` + `podman save
 	// --format oci-archive` — each of which wrote a SECOND full-size file and
-	// needed a skopeo or a podman on PATH. The copy writes the loader's own
-	// format directly now, so both converters and the PATH lookup are gone, and
-	// the name is still chosen going in because the copy names it.
+	// needed a skopeo or a podman on PATH. The copy writes an OCI layout and yolo
+	// tars it into the loader's own format (deltaarchive.go), so both converters
+	// and the PATH lookup are gone, and the name is still chosen going in because
+	// the copy names it.
 	LoadArchive func(path string) bool
 	// RegisterRoot registers a durable nix GC root for the loaded image's store
 	// path so a `nix-collect-garbage` at any moment cannot delete the running
@@ -271,6 +277,11 @@ func (o *AutoLoadOptions) fill() {
 	}
 	if o.PresentDigests == nil {
 		o.PresentDigests = func() map[string]struct{} {
+			// Apple Container is answered from yolo's own delivery record (OQ-LR3,
+			// deltaarchive.go); podman, on either OS, by its own image store.
+			if o.Runtime == "container" {
+				return o.recordedPresentDigests()
+			}
 			return PresentLayerDigests(o.Runtime, runCapture)
 		}
 	}
@@ -785,21 +796,28 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 		lcp := o.Perf.Span("image.layer_copy")
 		delivered := peerDelivered
 		var present map[string]struct{}
+		// archiveBytes is the size of the archive the loader was handed, -1 on the
+		// copy arm, where there is no archive.
+		archiveBytes := int64(-1)
 		switch {
 		case peerDelivered:
 			// Nothing to copy and nothing to undo. The image is in the store under
 			// the ref this launch is about to run, which is the only thing the copy
 			// was ever for.
 		case o.Runtime == "container" || o.IsMacOS:
-			// THE ARCHIVE ARM GAINS MORE FROM THE LOCK THAN THE COPY ARM DOES, and
-			// it is worth saying because it is not a waste-of-bytes argument. The
-			// transient archive's name is keyed by the STORE PATH ALONE
-			// (archiveTempPath) with no pid and no random suffix, so two launches
-			// delivering one image here were not duplicating work — they were
-			// writing the same file at the same time, and then each loading
-			// whatever the interleaving left.
-			present = o.PresentDigests()
-			delivered = o.deliverViaArchive(currentPath, contentRef)
+			// The lock serialises the archive arm too. Each attempt works in a fresh
+			// directory of its own (newDeliveryWorkDir), so two launches can no longer
+			// write one file at the same time. What the lock still buys here is the
+			// re-inspect above: a launch that waited finds the image its peer just
+			// delivered and sends nothing.
+			//
+			// AND THE PRESENT SET IS LOAD-BEARING HERE, where on the copy arm below it
+			// only feeds a printed number: it decides which blobs the archive leaves
+			// out (deliverViaArchive). Asked under the lock for the same reason as
+			// there — it must describe the store this delivery is about to load into.
+			seed := presentInImage(o.PresentDigests(), layers, invErr == nil)
+			ad := o.deliverViaArchive(currentPath, contentRef, seed)
+			delivered, present, archiveBytes = ad.ok, ad.present, ad.archiveBytes
 		default:
 			// The already-present probe runs BEFORE the copy or it measures nothing,
 			// and now AFTER the wait as well — asked here it describes the store
@@ -840,6 +858,12 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 			// launch that did the work was in another terminal.
 			fmt.Fprintln(out, "  Copied image: nothing — "+contentRef+" was delivered by a "+
 				"concurrent launch while this one waited for the image-copy lock")
+		case invErr == nil && archiveBytes >= 0:
+			// The archive arm's figures are EXACT where the copy arm's are a ceiling:
+			// the layers named "sent" are the ones the archive holds, and the archive
+			// size is printed beside them, so a copier that stopped honouring the
+			// placeholders shows as a size that disagrees with the layer count.
+			fmt.Fprintln(out, "  Copied image: "+ReportFor(layers, present).ArchiveString(archiveBytes, o.Runtime))
 		case invErr == nil:
 			// image-staging-vs-baking.md#what-a-copy-reports: the copied-vs-skipped ratio IS the claim, so it is printed
 			// rather than left to a timing span someone has to enable.
@@ -945,112 +969,143 @@ func (o *AutoLoadOptions) pointLatestAt(contentRef string) {
 //     -i` streams the archive over podman's own connection INTO the VM, which is
 //     what makes it the only correct destination there.
 //
-// ⚠ THE SECOND CASE IS THE ONE THE DESIGN LEFT UNSERVED. The retired design said podman/macOS
-// stays "unchanged (stream into `podman load`)" — but OQ-LI5 deleted the stream,
-// so "unchanged" named a mechanism that no longer exists. Without this arm that
-// backend writes into the wrong store and every macOS podman launch fails on an
-// image it just created. Note what it is NOT: a fallback. No failure switches
-// between these paths; the BACKEND decides, before anything runs, and the launch
-// says which it took.
+// Note what it is NOT: a fallback. No failure switches between this and the
+// containers-storage copy; the BACKEND decides, before anything runs.
 //
-// Neither backend gets the layer REUSE — an archive is a sequential tar again —
-// but both get the layer plan and the deleted intermediate write. Apple
-// Container wrote TWO full-size files per load before this (a docker-archive
-// from the stream script, then an OCI tar converted from it) and needed a skopeo
-// or a podman on `PATH` to convert between them; podman/macOS wrote none of ours
-// but paid the pipe.
+// IT NOW GETS THE LAYER REUSE, through the archive rather than despite it
+// (deltaarchive.go; docs/research/macos-layer-reusing-image-delivery.md, OQ-LR1).
+// present is the set of layer digests the destination already holds — podman's
+// own answer on macOS, yolo's delivery record on Apple Container — and the
+// archive leaves those blobs out while its manifest still names them. Both
+// loaders ask their store for each blob before opening it, so a 3.45 GB archive
+// becomes the 27.8 MB a `packages:` change actually moved. Both backends take an
+// uncompressed `oci-archive` now: podman's docker-archive reader refuses a
+// tarball with a layer missing, and Apple Container's old gzip archive named
+// every blob by a compressed digest no present set can match.
 //
-// THE FILE IS TEMPORARY, AND THAT IS A DELIBERATE NARROWING OF WHAT USED TO BE
+// FAIL CLOSED, RETRY ONCE. A delivery whose LOADER fails with a NON-EMPTY present
+// set is repeated exactly once with an EMPTY one — the full archive, the same argv
+// and the same loader — and says so in one line. An over-claimed set (a layer
+// removed between the probe and the load) makes the loader report a missing blob
+// and write NO image (measured), so the retry starts from a clean store. A failure
+// with an empty set is the full archive failing, and fails the launch as it
+// always has.
+//
+// ONLY A LOADER FAILURE IS RETRIED. The present set reaches nothing before the
+// load except which placeholders exist, so a copier failure, a full disk or a tar
+// error would fail the same way with an empty set — and the copy already has its
+// own single retry for a transient cause (copyImageWithRetry). Retrying those
+// here would repeat a full 3.45 GB write to reach the same error. Within a loader
+// failure the retry does not ask WHY: the loader's words are not in hand here
+// (LoadArchive reports an exit status), and the cost of retrying something the
+// full archive also cannot fix is one wasted load on a launch that is failing
+// anyway.
+//
+// THE FILES ARE TEMPORARY, AND THAT IS A DELIBERATE NARROWING OF WHAT USED TO BE
 // HERE. Before C9 the Apple Container arm materialized `cache/images/<key>.tar`
 // and KEPT it, so three things followed: `newestTars` could find it and the
 // degraded fallback could load it; a concurrent `yolo prune --apply` could evict
 // it mid-launch, which is the P4 race the two-pass recovery loop existed for;
 // and the bytes stayed on disk (OQ-DF1's 485 GiB, one machine).
 //
-// A temp file removes all three. The degraded branch is UNCHANGED by C9 because
-// nothing it can see changed: it scans `*.tar`, these names never match, and the
-// only tars left in that directory are legacy docker-archives whose baked
-// `tag = "latest"` is exactly what that branch assumes. Had this written its
-// archive into the cache instead, the degraded branch would have loaded it and
-// then claimed `:latest` for an image named by its content ref — a launch that
-// fails at `podman run`, on the path that exists to rescue a launch.
+// Temp files remove all three, and they are not in the cache at all any more:
+// each attempt works in a fresh directory under paths.ImageDeliveryDir(), which
+// no jail mounts (that function says why the cache would be a hole). The
+// degraded branch is UNCHANGED because nothing it can see changed: it scans
+// `cache/images/*.tar`, and the only tars left there are legacy docker-archives
+// whose baked `tag = "latest"` is exactly what that branch assumes. Had this
+// written its archive there as a `.tar`, the degraded branch would have loaded it
+// and then claimed `:latest` for an image named by its content ref — a launch
+// that fails at `podman run`, on the path that exists to rescue a launch.
 //
-// The cost is that a storage reset re-copies rather than re-loading a kept file,
-// which is the same trade C3 already made for podman-on-Linux: preferring an
-// unverified leftover file to a verified copy is how one truncated tar bricks a
-// workspace until a human deletes it by hand.
+// ⚠ WHAT IS MEASURED, AND WHERE. On 2026-09-19 the self-hosted arm64 Mac ran
+// `container image load -i` against a skopeo-written GZIP `oci-archive` through
+// `just load`'s archive hop (a different caller). The uncompressed and the delta
+// archives this function now writes are measured on LINUX only, against a remote
+// podman client, which is where the podman half lives; nothing here has run on a
+// Mac. Whether `container image load` imports a layout with missing blobs is the
+// research doc's open Mac question — if it refuses, every Apple Container delta
+// costs one retry and the launch still succeeds on the full archive.
+func (o *AutoLoadOptions) deliverViaArchive(imageJSON, contentRef string, present map[string]struct{}) archiveDelivery {
+	d := o.deliverArchiveOnce(imageJSON, contentRef, present)
+	if !d.ok && d.loadFailed && len(present) > 0 {
+		fmt.Fprintf(o.Out, "The delta image archive (%d layer(s) left out as already in %s) "+
+			"did not load; retrying once with the full archive.\n", len(present), o.Runtime)
+		d = o.deliverArchiveOnce(imageJSON, contentRef, nil)
+	}
+	if d.ok && o.Runtime == "container" {
+		// OQ-LR3's record: what the NEXT delivery may leave out, valid while this
+		// ref is loaded. Best effort — a missing record is an empty present set,
+		// which costs bytes and nothing else.
+		if layers, err := ReadLayerInventory(imageJSON); err == nil {
+			_ = writeDeliveryRecord(imageJSON, contentRef, layers)
+		}
+	}
+	return d
+}
+
+// archiveDelivery is what one archive delivery did: whether it landed, which
+// present set the archive that landed actually left out (nil after a full-archive
+// retry — the report must describe the attempt that succeeded, not the one that
+// was planned), the archive's size on disk, which is the byte count the loader
+// was handed, and whether a failure was the LOADER's (the only failure a present
+// set can cause, and so the only one deliverViaArchive retries).
+type archiveDelivery struct {
+	ok           bool
+	present      map[string]struct{}
+	archiveBytes int64
+	loadFailed   bool
+}
+
+// deliverArchiveOnce is one attempt: seed, copy into a layout, tar it, load it.
 //
-// ⚠ ONE ARM IS MEASURED NOW; THE OTHER IS NOT. On 2026-09-19 the self-hosted arm64
-// Mac ran `container image load -i` against a skopeo-written `oci-archive` and the
-// jail it produced started and passed all six Apple Container parity tests. So the
-// AC bytes-and-loader pair is no longer an argument.
-//
-// What that measurement did NOT cover is this function. It came from `just load`'s
-// archive hop (Justfile, the `container` arm), which writes the same destination and
-// calls the same loader through a DIFFERENT caller — so what is proven is that the
-// format and the loader agree, not that this call site assembles them correctly.
-//
-// STILL UNMEASURED ENTIRELY: `podman load -i` against a skopeo-written
-// `docker-archive`, the macOS-podman arm. Nobody has run it. OQ-LI2 makes the
-// measurement a precondition of trusting these backends rather than a follow-up, and
-// for that arm the precondition is still outstanding.
-func (o *AutoLoadOptions) deliverViaArchive(imageJSON, contentRef string) bool {
-	dest, archivePath, err := o.archiveDestination(imageJSON, contentRef)
+// The attempt's directory is NEW (newDeliveryWorkDir), never a fixed path it
+// empties first: a leftover from a killed launch — placeholders included — can
+// then never be taken for this attempt's blobs, and two attempts never share a
+// file.
+func (o *AutoLoadOptions) deliverArchiveOnce(imageJSON, contentRef string, present map[string]struct{}) archiveDelivery {
+	work, err := newDeliveryWorkDir(imageJSON)
 	if err != nil {
 		fmt.Fprintln(o.Out, "Error preparing the image archive: "+err.Error())
-		return false
+		return archiveDelivery{}
 	}
-	// skopeo's archive destinations will not write over an existing file, and a
-	// leftover from a killed launch is exactly the state that would otherwise make
-	// every later launch fail on a file nobody remembers writing.
-	_ = os.Remove(archivePath)
-	defer os.Remove(archivePath)
-	// NO NAMESPACE PREFIX, and it is not an omission. An archive is an ordinary
-	// file: the ownership recorded inside it is data, not something the filesystem
+	defer os.RemoveAll(work)
+	layoutDir := filepath.Join(work, deliveryLayoutName)
+	archivePath := filepath.Join(work, deliveryArchiveName)
+
+	seeded, err := seedPlaceholders(layoutDir, present)
+	if err != nil {
+		fmt.Fprintln(o.Out, "Error preparing the image archive: "+err.Error())
+		return archiveDelivery{}
+	}
+	// NO NAMESPACE PREFIX, and it is not an omission. A layout is ordinary files:
+	// the ownership recorded inside a layer is data, not something the filesystem
 	// has to be able to represent, so nothing needs a subuid mapping and there is
 	// nothing to unshare for. (It is also unavailable here — `podman unshare` is
 	// meaningless on Apple Container and refuses on a podman that is not rootless.)
-	if _, ok := o.LayerCopy(imageJSON, dest, nil); !ok {
-		return false
+	if _, ok := o.LayerCopy(imageJSON, OCILayoutDest(layoutDir, contentRef), nil); !ok {
+		return archiveDelivery{}
 	}
-	return o.LoadArchive(archivePath)
-}
-
-// archiveDestination returns the transport-qualified destination and the file
-// path behind it for the runtime this launch is delivering to.
-func (o *AutoLoadOptions) archiveDestination(imageJSON, contentRef string) (dest, path string, err error) {
-	if o.Runtime == "container" {
-		path, err = archiveTempPath(imageJSON, ociArchiveSuffix)
-		if err != nil {
-			return "", "", err
-		}
-		return OCIArchiveDest(path, contentRef), path, nil
-	}
-	path, err = archiveTempPath(imageJSON, dockerArchiveSuffix)
+	overwritten, err := removePlaceholders(seeded)
 	if err != nil {
-		return "", "", err
+		fmt.Fprintln(o.Out, "Error preparing the image archive: "+err.Error())
+		return archiveDelivery{}
 	}
-	return DockerArchiveDest(path, contentRef), path, nil
-}
-
-// The two transient-archive suffixes. ⚠ NEITHER MAY END IN `.tar`: `newestTars`
-// filters on that glob, so a crashed launch would leave the degraded fallback a
-// candidate it loads and then mis-names `:latest`.
-const (
-	ociArchiveSuffix    = ".oci-archive.tmp"
-	dockerArchiveSuffix = ".docker-archive.tmp"
-)
-
-// archiveTempPath is where an archive-delivering backend writes its transient
-// file: beside the image cache, because that directory is already sized for a
-// multi-GB image and lives on the same filesystem. Keyed by store path so two
-// concurrent launches of different configs cannot collide on one file.
-func archiveTempPath(storePath, suffix string) (string, error) {
-	dir := filepath.Join(paths.GlobalCache(), "images")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
+	if overwritten > 0 {
+		// The pinned behaviour has moved (deltaarchive.go). The archive is still
+		// correct, only larger; saying so is what keeps the report's number honest.
+		fmt.Fprintf(o.Out, "Note: the image copier wrote %d layer(s) the destination "+
+			"already holds; this archive is larger than it needed to be.\n", overwritten)
 	}
-	return filepath.Join(dir, keyFor(storePath)+suffix), nil
+	size, err := tarLayoutConsuming(layoutDir, archivePath)
+	if err != nil {
+		fmt.Fprintln(o.Out, "Error writing the image archive: "+err.Error())
+		return archiveDelivery{}
+	}
+	if !o.LoadArchive(archivePath) {
+		return archiveDelivery{loadFailed: true}
+	}
+	return archiveDelivery{ok: true, present: present, archiveBytes: size}
 }
 
 // resolveCopier realizes `.#imageCopier` once per AutoLoadImage call and caches

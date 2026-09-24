@@ -12,14 +12,16 @@ import (
 //
 // # The failure it prevents
 //
-// A *.tmp in that directory is no longer only a crash leftover. Since C9 an
-// archive-delivering backend writes its transient image archive THERE, under a
-// name this sweep cannot tell apart from a corpse: image.archiveTempPath joins
-// cache/images with the store key and one of `.oci-archive.tmp` /
-// `.docker-archive.tmp`, and filepath.Ext on either is exactly ".tmp". Without a
-// floor, one launch's housekeeping slot deletes the multi-GB archive another
-// launch is at that moment copying into or loading back out of, and the second
-// launch fails on a file it wrote itself.
+// A *.tmp in that directory was not only a crash leftover. From C9 until the
+// delta archive, an archive-delivering backend wrote its transient image archive
+// THERE, as `<key>.oci-archive.tmp` or `<key>.docker-archive.tmp`, and
+// filepath.Ext on either is exactly ".tmp". Without a floor, one launch's
+// housekeeping slot deletes the multi-GB archive another launch is at that moment
+// copying into or loading back out of, and the second launch fails on a file it
+// wrote itself. The delivery now works under paths.ImageDeliveryDir() instead,
+// out of every jail's reach, and PruneImageDelivery sweeps THAT directory against
+// this same floor for the same reason; this sweep still reclaims the old names a
+// yolo from before the move left behind.
 //
 // ⚠ NOT REPRODUCIBLE ON LINUX, which is why a reader there will not find it by
 // launching jails. image.deliverViaArchive is the arm Apple Container and

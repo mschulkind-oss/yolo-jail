@@ -536,11 +536,23 @@ func Run(opts Options) int {
 		keepTars := ResolveImageCacheKeep(opts.ImageCacheKeep, rt)
 		p.line(fmt.Sprintf("[bold]Cached image tarballs[/bold]  (keep=%d)", keepTars))
 		imageCacheBytes, imageCacheFiles = PruneImageCache(joinPath(opts.GlobalCache(), "images"), keepTars, apply)
+		// The archive a delivery hands the loader, and the layout it tars, moved out
+		// of cache/images to the state dir's image-delivery/ (out of every jail's
+		// reach). A launch killed mid-delivery leaves one there; same section, since
+		// it is the same kind of bytes.
+		deliveryBytes, deliveryDirs := PruneImageDelivery(joinPath(gs, imageDeliveryLeaf), apply)
 		if imageCacheFiles > 0 {
 			p.line(fmt.Sprintf("  %s: %s across %s file(s)", verb(apply, "would remove", "removed"), FmtBytes(imageCacheBytes), fmtComma(imageCacheFiles)))
-		} else {
+		}
+		if deliveryDirs > 0 {
+			p.line(fmt.Sprintf("  %s: %s across %s interrupted image delivery dir(s) in %s/",
+				verb(apply, "would remove", "removed"), FmtBytes(deliveryBytes), fmtComma(deliveryDirs), imageDeliveryLeaf))
+		}
+		if imageCacheFiles == 0 && deliveryDirs == 0 {
 			p.line("  [dim]none[/dim]")
 		}
+		imageCacheBytes += deliveryBytes
+		imageCacheFiles += deliveryDirs
 		totalSaved += imageCacheBytes
 	}
 

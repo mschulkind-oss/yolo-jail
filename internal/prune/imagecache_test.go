@@ -8,8 +8,9 @@ import (
 	"time"
 )
 
-// The two names image.archiveTempPath actually produces for an in-flight
-// delivery. Spelled out here rather than imported because internal/image imports
+// The two names an in-flight delivery used to have in cache/images (before the
+// delta archive moved deliveries to paths.ImageDeliveryDir), which a machine can
+// still hold. Spelled out here rather than imported because internal/image imports
 // nothing from this package and the point of the test is that THIS package
 // cannot tell them apart from a corpse: filepath.Ext on either is ".tmp".
 const (

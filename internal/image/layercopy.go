@@ -87,6 +87,17 @@ func (r CopyReport) String() string {
 		r.SkippedLayers(), FormatImageSize(r.Skipped()))
 }
 
+// ArchiveString renders the line an ARCHIVE delivery prints: the layers the
+// archive carried, the layers it left out because the runtime already had them,
+// and the archive's real size — the bytes the loader was handed, which for podman
+// on macOS is what crosses into the VM.
+func (r CopyReport) ArchiveString(archiveBytes int64, runtime string) string {
+	return fmt.Sprintf("%d layer(s), %s sent; %d layer(s), %s reused from %s's store (a %s archive)",
+		r.CopiedLayers, FormatImageSize(r.Copied),
+		r.SkippedLayers(), FormatImageSize(r.Skipped()), runtime,
+		FormatImageSize(archiveBytes))
+}
+
 // imageManifest is the part of nix2container's image.json this package reads.
 // Deliberately a narrow struct rather than the upstream type: the only fields
 // with a consumer here are the per-layer digest and size, and depending on the
@@ -165,12 +176,18 @@ func ImageLayerDigestsCmd(runtime string, ids []string) []string {
 // derived from the jail images it already has. capture runs an argv and returns
 // its stdout; ok=false for anything that did not run cleanly.
 //
-// IT IS A REPORTING INSTRUMENT AND NOTHING ELSE, which is why it is allowed to
-// be approximate. The COPY does its own per-blob negotiation with
-// containers-storage and neither consults nor needs this; a wrong answer here
-// changes a printed number and no behavior. That is the whole reason it may
-// enumerate only OUR images (a base layer shared with some unrelated image would
-// be reported as copied) and may return empty on any failure.
+// ON LINUX IT IS A REPORTING INSTRUMENT, and on podman-on-macOS it is
+// LOAD-BEARING: there it decides which blobs the delta archive leaves out
+// (deliverViaArchive). It is allowed to be approximate in both roles because
+// every approximation it makes is an UNDER-claim: it enumerates only OUR images
+// (a base layer shared with some unrelated image is reported, and sent, as
+// missing) and returns empty on any failure, which is the full archive. An
+// under-claim costs bytes. The one over-claim it can make — a layer removed
+// between this probe and the load — makes the loader fail with no image written,
+// and deliverViaArchive's single retry with an empty set recovers it.
+//
+// The argv works against a REMOTE podman, which podman on macOS always is
+// (MEASURED 2026-09-24 against `podman system service` over a unix socket).
 //
 // Two subprocesses, and only on a launch that is about to copy — i.e. one that
 // used to spend 81 s in this span.
@@ -284,28 +301,6 @@ func ImageCopierBinary(storePath string) string {
 // is now structural and the function is gone.
 func ContainersStorageDest(contentRef string) string {
 	return "containers-storage:" + contentRef
-}
-
-// OCIArchiveDest is the skopeo destination for the Apple Container path, and
-// DockerArchiveDest the one for podman on macOS: an archive at `file`, carrying
-// `ref` as the image's name.
-//
-// Two formats because two loaders: `container image load -i` wants an OCI
-// layout, `podman load -i` a docker-archive. Both are the shape a backend that
-// cannot be copied into directly needs — see `deliverViaArchive`
-// (internal/image/autoload.go) for which backends those are and why.
-//
-// THE FILE COMES FIRST AND THE REF LAST, and skopeo splits at the FIRST colon:
-// its archive transports cannot express a path containing one, while the
-// reference very much does (`yolo-jail:<key>`). Reversing them would make the
-// filename unparseable.
-func OCIArchiveDest(file, ref string) string {
-	return "oci-archive:" + file + ":" + ref
-}
-
-// DockerArchiveDest is OCIArchiveDest for `podman load -i`.
-func DockerArchiveDest(file, ref string) string {
-	return "docker-archive:" + file + ":" + ref
 }
 
 // copyImage runs ONE copy — argv as copyArgv built it, so a rootless

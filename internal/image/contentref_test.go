@@ -1,7 +1,9 @@
 package image
 
 import (
+	"archive/tar"
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,14 +53,26 @@ type fakeRuntime struct {
 	copiedPrefixes []string
 	// copyFails makes every copy fail, for the no-fallback path.
 	copyFails bool
-	// ociFiles records the OCI archives the Apple Container path asked for, in
-	// order — and whether each still existed when the loader ran, which is what
-	// "the copy writes the file the loader takes" means as an assertion.
+	// ociFiles records the archives the loader was handed, in order. loadArchive
+	// fails on a file that is not there, so a green load already proves "the
+	// delivery hands the loader the file it wrote".
 	ociFiles []string
+	// layouts records the `oci:` layout directories the copy was told to write.
+	layouts []string
+	// archiveBlobs records, per loaded archive, the blob digests it CONTAINED —
+	// which is how a test sees what a delta archive left out.
+	archiveBlobs [][]string
+	// blobs is the fake store's blob set: what a delta archive may leave out.
+	// A load whose archive lacks a layer that is not in here fails and writes no
+	// image, which is the real loaders' fail-closed behaviour.
+	blobs map[string]bool
 	// pendingRef is the name the NEXT `load` will create, set by layerCopy from
-	// the ref it wrote into the OCI archive — the fake's stand-in for the
-	// archive's manifest. Empty means the archive carries the flake's baked name.
+	// the ref it wrote into the layout — the fake's stand-in for the manifest's
+	// ref annotation. Empty means the archive carries the flake's baked name.
 	pendingRef string
+	// pendingLayers is every layer the pending manifest NAMES, whether or not
+	// its blob is in the archive.
+	pendingLayers []string
 }
 
 // storeManifest writes a minimal nix2container image.json under a temp dir and
@@ -84,7 +98,7 @@ func storeManifest(t *testing.T, name string) string {
 
 // newFakeRuntime seeds the store with refs, each naming an image of its own.
 func newFakeRuntime(loaded ...string) *fakeRuntime {
-	f := &fakeRuntime{runtime: "podman", present: map[string]string{}}
+	f := &fakeRuntime{runtime: "podman", present: map[string]string{}, blobs: map[string]bool{}}
 	for _, ref := range loaded {
 		f.present[ref] = "img-" + ref
 	}
@@ -137,10 +151,11 @@ func (f *fakeRuntime) run(argv []string) (int, bool) {
 //     ref in the argv, so no `load` argv is ever run and `f.loads` stays 0 —
 //     which is what makes "the podman path runs no loader" assertable rather
 //     than assumed.
-//   - `oci-archive:<file>:<ref>` and `docker-archive:<file>:<ref>` write a FILE
-//     and create nothing. The image appears only when the loader reads that
-//     file, so the fake writes it and arms pendingRef for the
-//     `<runtime> load -i` it expects next.
+//   - `oci:<dir>:<ref>` writes an OCI LAYOUT and creates nothing. It models the
+//     one copier behaviour the delta archive rests on: a blob whose file already
+//     exists in the layout is NOT written (oci_dest.go's os.Stat reuse check), so
+//     a placeholder stays a zero-byte file. The image appears only when the
+//     loader reads the archive yolo tars from this layout.
 func (f *fakeRuntime) layerCopy(imageJSON, dest string, prefix []string) (CopyReport, bool) {
 	f.copiedManifests = append(f.copiedManifests, imageJSON)
 	f.copiedDests = append(f.copiedDests, dest)
@@ -152,20 +167,41 @@ func (f *fakeRuntime) layerCopy(imageJSON, dest string, prefix []string) (CopyRe
 	case strings.HasPrefix(dest, "containers-storage:"):
 		ref := strings.TrimPrefix(dest, "containers-storage:")
 		f.present[ref] = "img-from-" + ref
-	case strings.HasPrefix(dest, "oci-archive:"), strings.HasPrefix(dest, "docker-archive:"):
-		// `<file>:<reference>`, split at the FIRST colon: skopeo's archive
-		// transports cannot express a path containing one, and the REFERENCE very
-		// much can (`yolo-jail:<key>`) — splitting at the last colon silently
-		// moves half the ref into the filename.
-		_, rest, _ := strings.Cut(dest, ":")
-		parts := strings.SplitN(rest, ":", 2)
-		if len(parts) != 2 {
+	case strings.HasPrefix(dest, "oci:"):
+		// `<dir>:<reference>`, split at the FIRST colon: skopeo cannot express a
+		// path containing one, and the REFERENCE very much can (`yolo-jail:<key>`)
+		// — splitting at the last colon silently moves half the ref into the path.
+		dir, ref, ok := strings.Cut(strings.TrimPrefix(dest, "oci:"), ":")
+		if !ok {
 			return CopyReport{}, false
 		}
-		file, ref := parts[0], parts[1]
-		f.ociFiles = append(f.ociFiles, file)
-		if err := os.WriteFile(file, []byte("oci-archive"), 0o644); err != nil {
+		f.layouts = append(f.layouts, dir)
+		layers, err := ReadLayerInventory(imageJSON)
+		if err != nil {
 			return CopyReport{}, false
+		}
+		blobDir := filepath.Join(dir, "blobs", "sha256")
+		if err := os.MkdirAll(blobDir, 0o755); err != nil {
+			return CopyReport{}, false
+		}
+		f.pendingLayers = nil
+		for _, l := range layers {
+			f.pendingLayers = append(f.pendingLayers, l.Digest)
+			p := filepath.Join(blobDir, strings.TrimPrefix(l.Digest, "sha256:"))
+			if _, err := os.Stat(p); err == nil {
+				continue // "already present" — the reuse the placeholders buy
+			}
+			if err := os.WriteFile(p, []byte("layer "+l.Digest), 0o644); err != nil {
+				return CopyReport{}, false
+			}
+		}
+		for name, body := range map[string]string{
+			"oci-layout": `{"imageLayoutVersion":"1.0.0"}`,
+			"index.json": `{"schemaVersion":2}`,
+		} {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+				return CopyReport{}, false
+			}
 		}
 		f.pendingRef = ref
 	default:
@@ -174,15 +210,62 @@ func (f *fakeRuntime) layerCopy(imageJSON, dest string, prefix []string) (CopyRe
 	return CopyReport{Layers: 3, Total: 3000, CopiedLayers: 1, Copied: 1000}, true
 }
 
+// archiveBlobDigests lists the blobs an archive yolo wrote contains, as digests.
+func archiveBlobDigests(path string) ([]string, error) {
+	fh, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer fh.Close()
+	tr := tar.NewReader(fh)
+	var out []string
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			return out, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		if h.Typeflag == tar.TypeReg && strings.HasPrefix(h.Name, "blobs/sha256/") {
+			out = append(out, "sha256:"+strings.TrimPrefix(h.Name, "blobs/sha256/"))
+		}
+	}
+}
+
 // loadArchive is the AutoLoadOptions.LoadArchive seam: read back the archive the
-// copy wrote. It ASSERTS THE FILE IS THERE rather than assuming it, because "the
-// copy wrote the file the loader takes" is the only property an archive backend
-// has instead of negotiation.
+// delivery wrote. It ASSERTS THE FILE IS THERE rather than assuming it, because
+// "the delivery wrote the file the loader takes" is the property an archive
+// backend has instead of negotiation — and it FAILS, writing no image, when the
+// manifest names a layer that is neither in the archive nor in the store, which
+// is what both real loaders do with an over-claimed delta.
 func (f *fakeRuntime) loadArchive(path string) bool {
 	if _, err := os.Stat(path); err != nil {
 		return false
 	}
+	f.ociFiles = append(f.ociFiles, path)
+	inArchive, err := archiveBlobDigests(path)
+	if err != nil {
+		return false
+	}
+	f.archiveBlobs = append(f.archiveBlobs, inArchive)
+	have := map[string]bool{}
+	for _, d := range inArchive {
+		have[d] = true
+	}
+	for _, d := range f.pendingLayers {
+		if !have[d] && !f.blobs[d] {
+			f.argv = append(f.argv, ImageLoadCmd(f.runtime, path))
+			f.loads++
+			return false // "reading blob sha256:…: no such file or directory"
+		}
+	}
 	rc, ran := f.run(ImageLoadCmd(f.runtime, path))
+	if ran && rc == 0 {
+		for _, d := range f.pendingLayers {
+			f.blobs[d] = true
+		}
+	}
 	f.pendingRef = ""
 	return ran && rc == 0
 }
@@ -219,7 +302,7 @@ func c2Opts(rt string, storePath string, f *fakeRuntime, out *bytes.Buffer) Auto
 }
 
 // acOpts is c2Opts for Apple Container: the same seams plus the archive loader.
-// The caller must have set a temp HOME (withBuildDir) so archiveTempPath
+// The caller must have set a temp HOME (withBuildDir) so paths.ImageDeliveryDir
 // resolves under it.
 func acOpts(storePath string, f *fakeRuntime, out *bytes.Buffer) AutoLoadOptions {
 	o := c2Opts("container", storePath, f, out)
@@ -255,19 +338,19 @@ func TestJailImageRefIsContentAddressedPerRuntime(t *testing.T) {
 	if got, want := JailImageRef("container", pathA), "yolo-jail:"+key; got != want {
 		t.Errorf("container ref = %q, want %q", got, want)
 	}
-	// The ref reuses the SAME key as the GC root and the Apple Container path's
-	// transient archive. A second hash function would let them drift, which is
+	// The ref reuses the SAME key as the GC root and the archive backends'
+	// delivery directory. A second hash function would let them drift, which is
 	// why gcroot.go says to reuse ImageStoreKey.
 	t.Setenv("HOME", t.TempDir())
 	if got, want := filepath.Base(ImageRootLink(pathA)), key; got != want {
 		t.Errorf("GC root %q does not share the ref's key %q", got, want)
 	}
-	arch, err := archiveTempPath(pathA, ociArchiveSuffix)
+	work, err := newDeliveryWorkDir(pathA)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(filepath.Base(arch), key) {
-		t.Errorf("OCI archive %q does not share the ref's key %q", filepath.Base(arch), key)
+	if !strings.HasPrefix(filepath.Base(work), key) {
+		t.Errorf("delivery directory %q does not share the ref's key %q", filepath.Base(work), key)
 	}
 	// Distinct store paths must be distinct refs, or C2 buys nothing.
 	if JailImageRef("podman", pathA) == JailImageRef("podman", "/nix/store/bbbb-image") {
@@ -571,8 +654,8 @@ func TestFallbackBranchUsesTheLegacyRef(t *testing.T) {
 //
 // Apple Container cannot be retagged after the fact here — `container image
 // load` takes a file and the name comes from inside it — so the ref has to
-// arrive WITH the archive. Under C9 that is the COPY's destination: `oci-archive
-// :<file>:<ref>`. Delete the `Runtime == "container"` arm and this fails either
+// arrive WITH the archive. Under C9 that is the COPY's destination: `oci:<layout>
+// :<ref>`, the layout yolo tars into the archive the loader reads. Delete the `Runtime == "container"` arm and this fails either
 // because the copy went to containers-storage or because the ref it carries is
 // the podman spelling.
 func TestAppleContainerIsNamedGoingIn(t *testing.T) {
@@ -595,10 +678,11 @@ func TestAppleContainerIsNamedGoingIn(t *testing.T) {
 	// The DESTINATION carries both halves: the file the loader will read and the
 	// name the image gets. Neither is derivable from the other, which is why the
 	// assertion is on the whole string.
-	if len(f.ociFiles) != 1 {
-		t.Fatalf("the copy did not write an OCI archive: dests=%v", f.copiedDests)
+	if len(f.ociFiles) != 1 || len(f.layouts) != 1 {
+		t.Fatalf("the delivery did not load one OCI archive from one layout: "+
+			"dests=%v archives=%v", f.copiedDests, f.ociFiles)
 	}
-	if want := OCIArchiveDest(f.ociFiles[0], wantRef); f.copiedDests[0] != want {
+	if want := OCILayoutDest(f.layouts[0], wantRef); f.copiedDests[0] != want {
 		t.Errorf("copy destination = %q, want %q", f.copiedDests[0], want)
 	}
 	// AND IT MUST NOT GO TO containers-storage. That destination is podman's; on

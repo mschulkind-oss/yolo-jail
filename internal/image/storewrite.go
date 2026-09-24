@@ -265,10 +265,20 @@ func retryWouldHelp(tail []string) (bool, string) {
 // can compare against StoreWritePrefix's output. The alternative — building the
 // argv inline at the exec — is the shape where a prefix can be computed,
 // printed, and then not passed.
+//
+// An `oci:` LAYOUT destination (the delta archive's, OCILayoutDest) also carries
+// ociAcceptUncompressedFlag. It is a property of that transport as this package
+// uses it, not a choice a caller makes: a gzipped layout renames every blob, and
+// then neither the placeholders nor any present set can match (the flag's doc
+// says why). No other destination takes it.
 func copyArgv(prefix []string, copier, imageJSON, dest string) []string {
-	argv := make([]string, 0, len(prefix)+5)
+	argv := make([]string, 0, len(prefix)+6)
 	argv = append(argv, prefix...)
-	return append(argv, copier, "--insecure-policy", "copy", "nix:"+imageJSON, dest)
+	argv = append(argv, copier, "--insecure-policy", "copy")
+	if strings.HasPrefix(dest, "oci:") {
+		argv = append(argv, ociAcceptUncompressedFlag)
+	}
+	return append(argv, "nix:"+imageJSON, dest)
 }
 
 // unshareProbeArgv is the command that establishes, without copying anything,

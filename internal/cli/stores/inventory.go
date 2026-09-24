@@ -266,6 +266,10 @@ var stateReclaimers = map[string]Reclaimer{
 	// One immutable copy of the built-in packs per build (paths.EmbeddedPacksDir). Every
 	// process reading a tree holds its lease, so the sweep reaps only trees nothing holds —
 	// and never this build's own, which the next command would only write again.
+	// An archive delivery's per-attempt directories (paths.ImageDeliveryDir). The
+	// Apple Container delivery records beside them are reaped with their image when
+	// next read, not by this sweep.
+	"image-delivery": {Func: "PruneImageDelivery", Detail: "interrupted deliveries past a 1h floor", Trigger: "yolo prune --apply"},
 	"embedded-packs": {Func: "PruneEmbeddedPackTrees", Detail: "other builds' trees, lease-gated; current build kept", Trigger: "yolo prune --apply"},
 }
 

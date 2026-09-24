@@ -48,16 +48,16 @@ func TestTheDestinationsCarryTheirTransportAndTheirName(t *testing.T) {
 		t.Errorf("podman dest names the legacy alias: %q", ContainersStorageDest(podRef))
 	}
 	acRef := JailImageRef("container", storePath)
-	if got, want := OCIArchiveDest("/tmp/x.oci", acRef), "oci-archive:/tmp/x.oci:"+acRef; got != want {
-		t.Errorf("apple container dest = %q, want %q", got, want)
+	if got, want := OCILayoutDest("/tmp/x.layout", acRef), "oci:/tmp/x.layout:"+acRef; got != want {
+		t.Errorf("layout dest = %q, want %q", got, want)
 	}
-	// The FILE comes first and skopeo splits at the FIRST colon — its archive
-	// transports cannot express a path containing one, while the reference very
-	// much does (`yolo-jail:<key>`). Reverse the order and the reference's own
-	// colon makes the filename unparseable.
-	if !strings.HasPrefix(OCIArchiveDest("/tmp/x.oci", acRef), "oci-archive:/tmp/x.oci:") {
-		t.Errorf("the OCI destination does not lead with its file: %q",
-			OCIArchiveDest("/tmp/x.oci", acRef))
+	// The DIRECTORY comes first and skopeo splits at the FIRST colon — it cannot
+	// express a path containing one, while the reference very much does
+	// (`yolo-jail:<key>`). Reverse the order and the reference's own colon makes
+	// the path unparseable.
+	if !strings.HasPrefix(OCILayoutDest("/tmp/x.layout", acRef), "oci:/tmp/x.layout:") {
+		t.Errorf("the layout destination does not lead with its directory: %q",
+			OCILayoutDest("/tmp/x.layout", acRef))
 	}
 	if strings.Count(acRef, ":") != 1 {
 		t.Fatalf("this test's premise is that the ref contains a colon: %q", acRef)
@@ -262,16 +262,17 @@ func TestPodmanOnMacOSTakesAnArchiveBecauseTheVMOwnsTheStore(t *testing.T) {
 			"the Podman Machine VM never reads — the image would exist and be "+
 			"unrunnable", f.copiedDests[0])
 	}
-	// podman's loader reads a docker-archive, not an OCI layout.
-	if !strings.HasPrefix(f.copiedDests[0], "docker-archive:") {
-		t.Errorf("copy destination = %q, want a docker-archive `podman load -i` can "+
-			"read", f.copiedDests[0])
+	// The copy writes an OCI LAYOUT that yolo tars into the oci-archive `podman
+	// load -i` reads — not a docker-archive, whose reader refuses a tarball with a
+	// layer missing and so can never carry a delta (deltaarchive.go).
+	if len(f.layouts) != 1 || len(f.ociFiles) != 1 {
+		t.Fatalf("layouts=%v archives=%v, want one of each", f.layouts, f.ociFiles)
 	}
-	if len(f.ociFiles) != 1 {
-		t.Fatalf("no archive was written: %v", f.copiedDests)
-	}
-	if want := DockerArchiveDest(f.ociFiles[0], res.Ref); f.copiedDests[0] != want {
+	if want := OCILayoutDest(f.layouts[0], res.Ref); f.copiedDests[0] != want {
 		t.Errorf("copy destination = %q, want %q", f.copiedDests[0], want)
+	}
+	if _, err := os.Stat(f.layouts[0]); err == nil {
+		t.Errorf("layout %q survived the launch", f.layouts[0])
 	}
 	// The image is still named by CONTENT, and podman's spelling of it.
 	if res.Ref != JailImageRef("podman", storePath) {

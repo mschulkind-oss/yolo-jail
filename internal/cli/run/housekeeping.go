@@ -474,6 +474,10 @@ func (o *Options) reapImageTars(rt string) {
 	}
 	keep := prune.ResolveImageCacheKeep(prune.ImageCacheKeepUnset, rt)
 	bytes, files := prune.PruneImageCache(filepath.Join(paths.GlobalStorage(), "cache", "images"), keep, true)
+	// An interrupted archive delivery's directory (image-delivery/) is the same
+	// kind of bytes, reclaimed on the same debounce.
+	db, dn := prune.PruneImageDelivery(paths.ImageDeliveryDir(), true)
+	bytes, files = bytes+db, files+dn
 	done()
 	if files > 0 {
 		o.housekeepingNote("image tars: reclaimed %s (this runtime streams, so it keeps %d)",
