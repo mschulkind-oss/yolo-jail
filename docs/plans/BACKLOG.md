@@ -2,7 +2,8 @@
 
 **Status:** CURRENT — the single entry point for *what to build next* on the composed-config /
 packs cluster, and **seven questions are live** in its stages. Created 2026-07-26; **restamped
-2026-08-23** (header + Stage E + Stage G).
+2026-08-23** (header + Stage E + Stage G); **re-checked 2026-09-24** against the tree and the
+designs it points at (E5's trigger fired, `file:line` anchors replaced by symbols).
 
 **Needs your ruling:** [E1](#-e1--collapse-host_files-modes-43-copy-merges-into-readonly), [E2](#-e2--readonly-as-a-real-ro-mount-instead-of-0o444), [E5](#-e5--manageddefaults-array-append-pinning), [S5](#-s5--a-jail-resolves-a-skill-name-collision-silently), [OQ-CO](#-oq-co--two-packs-writing-one-config-overlay-key-is-silent-last-one-wins), [OQ-S4](#-oq-s4--should-the-jail-narrow-its-skills-fan-out-to-match-the-host), [OQ-E4](#-oq-e4--do-stateful-surfaces-get-comment-preservation-too).
 
@@ -25,23 +26,23 @@ that produced today's `contributes[]` design is shipped (see
 here said *"Stage G — host-side composition — is the one substantive open pack-adjacent
 stage, and G1 within it is a live data-loss bug"*; both halves of that are now stale. Stage G
 moved into [environment-manager-plan.md](environment-manager-plan.md) on 2026-07-31, and that
-plan's own build status records **Phases 0, 1, 2, 3 and 9 as SHIPPED, and Phases 4, 5, 6 and 8 as
-PARTIAL** (re-verified against the tree 2026-08-23 — the flat "Phases 0–6, 8, 9 SHIPPED 2026-08-01"
-summary this used to restate has been retracted in the plan itself).
-Spot-checked against the tree, verified 2026-08-23:
+plan's build-status table is the authority for which phases are whole. This file does not restate
+its tally: the restated one went stale twice. Two of the plan's "partial" residues have since shipped,
+and the plan's table does not yet say so: 5.3's `yolo config promote` (2026-09-12) and 6.4's
+offer-to-run (the confirm-gated install in `yolo host apply --assert`, 2026-09-12).
+Spot-checked against the tree, re-checked 2026-09-24:
 
-- **G1/G2 (Phase 0) is FIXED** — `refuseHostSideWrite` (`internal/cli/configdiff.go:84-93`)
-  refuses host-side `config reset`/`capture` without `--force`, wired at `configdiff.go:645`
-  and `:848`.
+- **G1/G2 (Phase 0) is FIXED** — `refuseHostSideWrite` (`internal/cli/configdiff.go`)
+  refuses host-side `config reset`/`capture` without `--force`; `configReset` and
+  `configCapture` both call it.
 - **G4/G5/G3 (Phase 1) shipped** — `internal/render/` exists with `target.go`, `fieldset.go`,
   `modes.go`, `confinement.go`.
-- **Phase 2 shipped** — the `confinement` key at `internal/config/confinement.go:3-45`.
-- **G6 (Phase 4) shipped** — `apply --host` at `internal/cli/apply.go:63`; `--sealed`
-  (Phase 5) at `apply.go:69`.
+- **Phase 2 shipped** — the `confinement` key in `internal/config/confinement.go`.
+- **G6 (Phase 4) shipped** — as `yolo host apply` (the `apply --host` spelling was removed
+  2026-08-30); `--sealed` (Phase 5) is `applySealed` in `internal/cli/apply.go`.
 - **Phase 7 (the `guest` notch) is the one unbuilt phase**, and it is host/Mac-gated rather
-  than design-blocked: `internal/render/modes.go:185` still answers `KindGuest` with
-  `UndecidedModes(...)`, whose reason string reads *"the guest notch's mode policy is Phase
-  7's to state"*.
+  than design-blocked: the `KindGuest` row in `internal/render/modes.go` still answers
+  `UndecidedModes(...)`, whose reason string names Phase 7 as the one to state the mode policy.
 
 **So the one substantive open stage left in this file is Stage E**, which as of today holds
 **seven open questions** — the parked `host_files` follow-ups plus four questions
@@ -55,9 +56,9 @@ restated in [roadmap.md](roadmap.md) instead of linked from it.
 | Doc | Answers | Read it when |
 |---|---|---|
 | [../reference/composed-file-permissions.md](../reference/composed-file-permissions.md) | ro/rw postures, the Derived/Shared/State taxonomy, the defect audit, writer classes | touching any composed file's permissions or the capture overlay |
-| [../reference/pack-system.md](../reference/pack-system.md) | **the pack system, whole**: the `contributes[]` manifest, the **fifteen** kinds + footprints + conflict rules (ten when this row was written; the count is pinned by `packdecl/kinds_test.go`), the one-writer rule, the compose engine, `derive`, and selection/fetch/origin-gate | authoring, debugging, or changing a pack; changing the schema or a kind |
-| [../design/yolo-as-environment-manager.md](../design/yolo-as-environment-manager.md) | **what yolo is**: confinement as a `jail`/`sandbox`/`host` dial rather than a `runtime` backend choice, the description as the product, the verbs (`apply`/`describe`/`diff`/`check --at`), what a pack means per notch, and what the wider identity costs | deciding whether a feature is jail-shaped, adding a config key, or writing user-facing copy |
-| [../design/environment-manager-user-stories.md](../design/environment-manager-user-stories.md) | the same design **from the outside**: five worked stories (drift across two machines, a Mac fleet rollout that hits G3 then G1, the minimal-ladder user, the agent reading its own briefing at `host`, a security questionnaire) — plus **11** open questions the stories surfaced (Q1 · Q1a · Q1b · Q2–Q9; the row said 8) | pressure-testing a verb's output, or deciding what `apply`/`describe` must print |
+| [../reference/pack-system.md](../reference/pack-system.md) | **the pack system, whole**: the `contributes[]` manifest, every kind + footprints + conflict rules (the set is pinned by `packdecl/kinds_test.go`; this row stopped carrying a count after two went stale), the one-writer rule, the compose engine, `derive`, and selection/fetch/origin-gate | authoring, debugging, or changing a pack; changing the schema or a kind |
+| [../design/yolo-as-environment-manager.md](../design/yolo-as-environment-manager.md) | **what yolo is**: confinement as a `jail`/`guest`/`host` dial rather than a `runtime` backend choice, the description as the product, the verbs (`apply`/`apply --sealed`/`describe`/`check --at`, and deliberately no top-level `diff`), what a pack means per notch, and what the wider identity costs | deciding whether a feature is jail-shaped, adding a config key, or writing user-facing copy |
+| [../design/environment-manager-user-stories.md](../design/environment-manager-user-stories.md) | the same design **from the outside**: five worked stories (drift across two machines, a Mac fleet rollout that hits G3 then G1, the minimal-ladder user, the agent reading its own briefing at `host`, a security questionnaire) — plus the open questions the stories surfaced (Q1 · Q1a · Q1b · Q2–Q9) | pressure-testing a verb's output, or deciding what `apply`/`describe` must print |
 | [../design/host-render-target.md](../design/host-render-target.md) | **the host as a reduced render target**: the two duplicated render paths and the one `Target`-parameterized renderer that replaces them, which manifest fields even apply off-container, the confinement axis (jail / macos-user / host), `FieldSet` | adding a backend, touching host-side `config reset`/`capture`, or changing the boot render |
 | [../reference/what-yolo-is.md](../reference/what-yolo-is.md) | subsystem boundaries; where composition could run; how logic ships | deciding *where* something executes |
 | [../reference/third-party-pack-logic.md](../reference/third-party-pack-logic.md) | the projector protocol; build/source tiers; trust | implementing pack logic |
@@ -225,8 +226,8 @@ file's "an item lives once" rule — the item now lives in the plan):
 Phases 0–3 and 9 as shipped 2026-08-01, with 4, 5, 6 and 8 partial in ways that do not touch the
 G-items; the spot-checks are in this file's header. The
 sentence that used to sit here (*"G1 (Phase 0) is the one to do first, and it waits on
-nothing"*) was true when it was written and is now history — G1/G2 are fixed at
-`internal/cli/configdiff.go:84-93`. Original order G1 → G2 → G4 → G3 → G5 → G6 was preserved
+nothing"*) was true when it was written and is now history — G1/G2 are fixed by
+`refuseHostSideWrite` in `internal/cli/configdiff.go`. Original order G1 → G2 → G4 → G3 → G5 → G6 was preserved
 as Phase 0 → 1 → 4. **Extracting any of this into a separate util
 is settled: no** (`host-render-target.md` [§2.3](../design/host-render-target.md#23-extraction-settled-and-the-answer-is-no), decided 2026-07-27) — the field census puts the
 boundary through the middle of a single manifest, so the capability lives in yolo as
@@ -274,7 +275,7 @@ Also **E2** and **[`pack-host-management-plan.md`](pack-host-management-plan.md)
 the shared block below.
 
 `host_files` still accepts four modes — `readonly`, `once`, `copy`, `capture`
-(`internal/config/hostfiles.go:58-62`, verified 2026-08-23 — the earlier `:56-61` excluded `HostFileModeCapture`, one of the four it names). E1 asks whether `copy` earns its
+(the `HostFileMode*` constants in `internal/config/hostfiles.go`, re-checked 2026-09-24). E1 asks whether `copy` earns its
 slot: `copy` overwrites the file every boot at `0o644` and loses an in-jail edit silently,
 while `readonly` re-renders every boot at `0o444` so the edit fails loudly *at the moment of
 the edit*. If E2 makes `readonly` a real `:ro` mount, the two modes stop differing in what a
@@ -299,22 +300,22 @@ mode and the case for merging them collapses.
 ### 💬 **E2 — `readonly` as a real `:ro` mount instead of `0o444`**
 
 **This is the same underlying decision as E1 and as `OQ-B` in
-[pack-host-management-plan.md](pack-host-management-plan.md) (line ~940). Decide all three
+[pack-host-management-plan.md](pack-host-management-plan.md#open-questions) (still open 2026-09-24). Decide all three
 together or none of them** — OQ-B's own leaning already says so.
 
 The asymmetry, stated once: **`0o444` is a posture; `:ro` is enforcement.** `0o444` is DAC
-only, and yolo's own docs already admit it — `internal/cli/config_ref.txt:539`: *"Note 0444 is
+only, and yolo's own docs already admit it — `internal/cli/config_ref.txt`: *"Note 0444 is
 DAC, not kernel enforcement: an agent running as root (Claude YOLO runs UID 0) bypasses the
 mode bits"*, and anyone can `chmod +w`. Three places in the tree make the same trade today
 (all verified 2026-08-23):
 
 | Site | What it does | Which ID |
 |---|---|---|
-| `internal/entrypoint/hostfiles.go:116-134` | `host_files` `readonly` renders `0o444` (`0o555` if the source is executable) every boot | **E2** |
-| `internal/config/hostfiles.go:40-56` | the four-mode vocabulary that names it | **E1** |
-| `internal/entrypoint/hostfilestree.go:182-200` | pack-delivered `files` at the host notch: *"READ-ONLY (0o444/0o555) mirrors the jail's `:ro` mount, which is the closest a plain filesystem gets to the same statement"* | **OQ-B** |
+| `internal/entrypoint/hostfiles.go` | `host_files` `readonly` renders `0o444` (`0o555` if the source is executable) every boot | **E2** |
+| `internal/config/hostfiles.go` | the four-mode vocabulary that names it | **E1** |
+| `internal/entrypoint/hostfilestree.go` | pack-delivered `files` at the host notch: *"READ-ONLY (0o444/0o555) mirrors the jail's `:ro` mount, which is the closest a plain filesystem gets to the same statement"* | **OQ-B** |
 
-`hostfilestree.go:157` is the asymmetry in one line: the writer has to **chmod a `0o444` file
+`hostfilestree.go` carries the asymmetry in one line: the writer has to **chmod a `0o444` file
 back to writable to reopen it**, which is precisely the move a user who wants to hand-edit
 will make — and then lose on the next apply.
 
@@ -326,7 +327,7 @@ the product does not keep for the one agent that matters — Claude YOLO runs UI
 straight through it.
 
 _Leaning:_ **keep `0o444` everywhere and fix the WORDS instead.** Rename the posture from
-"read-only" to what it is (asymmetric / advisory), which `config_ref.txt:539` already says in
+"read-only" to what it is (asymmetric / advisory), which `config_ref.txt` already says in
 a note nobody reads at the point of decision. The enforcement upgrade is real work on a live
 boot path and buys nothing against the threat model that actually applies (a root agent), so
 it should wait for a threat it defeats. **What would change my read:** the `guest` notch
@@ -340,14 +341,14 @@ it should wait for a threat it defeats. **What would change my read:** the `gues
 **This row was stale and is now closed.** The old entry said *"open, not urgent — nothing is
 lost today, only observability lags"*. Verified against the tree 2026-08-23:
 
-- `yolo config capture` (the on-demand half) — `internal/cli/configdiff.go:843`.
+- `yolo config capture` (the on-demand half) — `configCapture`, `internal/cli/configdiff.go`.
 - **Capture on terminate** (the half the entry was actually about) —
   `internal/cli/configcapture.go`, whose opening line is literally *"configcapture.go is E3's
   second half: capture on TERMINATE"*. Shipped in commit `29ccf212`, 2026-08-15,
   *"feat(config): capture in-jail config edits when a jail terminates (E3)"*.
-- **It is wired, not orphaned** — `internal/cli/commands.go:580` injects it as
+- **It is wired, not orphaned** — `internal/cli/commands.go` injects it as
   `run.Options.CaptureOnTerminate`, with the comment naming E3.
-- It ships **unconditional, not opt-in**, and `configcapture.go:10-45` records the four-point
+- It ships **unconditional, not opt-in**, and `configcapture.go`'s header records the four-point
   argument for that (idempotent with the boot capture; only touches `mode: capture` surfaces;
   the gap is a default-correctness property of a *reporting* command; and BACKLOG's own
   "nothing is lost today" is the reason every failure warns and proceeds rather than a reason
@@ -364,7 +365,7 @@ four cases are now closed, and the fourth was promoted to its own question ID:
 
 | case | ruling | evidence (verified 2026-08-23) |
 |---|---|---|
-| `rmw` | **preserve** — shipped | `internal/entrypoint/tomltrivia.go`, whose header reads *"tomltrivia.go is E4's `rmw` half"*; drops are reported by key via `HostRenderResult.Formatting` (`internal/entrypoint/hostrender.go:104-113`) |
+| `rmw` | **preserve** — shipped | `internal/entrypoint/tomltrivia.go`, whose header reads *"tomltrivia.go is E4's `rmw` half"*; drops are reported by key via `HostRenderResult.Formatting` (`internal/entrypoint/hostrender.go`) |
 | `computed` | **do not preserve, and that is correct** | yolo is sole author, so any comment would be one *yolo wrote* — a different feature |
 | `json` (any mode) | **provably vacuous** | strict JSON has no comment syntax, so a commented file never decodes and the RMW path refuses it byte-untouched; now pinned by a test |
 | `stateful` | **still open** → **[`OQ-E4`](#-oq-e4--do-stateful-surfaces-get-comment-preservation-too)** | see below |
@@ -375,7 +376,7 @@ Full argument: [host-file-staging.md](host-file-staging.md) §*"What shipped: op
 ### 💬 **E5 — `managed`/`defaults` array-append pinning**
 
 `managed`/`defaults` merge is RFC-7386 object merge at every depth
-(`internal/agentcfg/engine.go:39-49`, verified 2026-08-23), which means **an array in a
+(`internal/agentcfg/engine.go`, re-checked 2026-09-24), which means **an array in a
 `managed` layer REPLACES the on-disk array wholesale**. So a pack that wants to *add one
 entry* to a list the user also maintains cannot: it either clobbers the user's whole list or
 leaves the key alone. Settled as deferred at implementation time —
@@ -391,6 +392,18 @@ merge-strategy annotation on the `managed` declaration (opt-in, one surface at a
 a change to the engine's default merge. Recording that shape now is the whole value of leaving
 this row open.
 
+_Re-checked 2026-09-24 — the trigger fired, and the need was met in a different shape._ The
+personal-overlay case (adding one Pi package without copying the `pi` pack's whole `packages`
+list) is exactly "a pack that wants to add one entry to a list the user also maintains", and it
+was built as the **`config-list` kind** on 2026-09-24
+([`additive-config-lists.md`](../design/additive-config-lists.md), both questions ruled
+2026-09-23). It kept this leaning's two constraints — opt-in per path, and no change to the
+engine's default merge — but it is a **new contribution kind folded below capture, `computed`
+and `managed`**, not an annotation on `managed`/`defaults`, and a `managed` array still replaces
+wholesale. That design does not mention E5 and rules nothing about the `managed` layer. So what is
+left of E5 is narrower: **does any surface need a `managed` or `defaults` array to append, now that
+`config-list` covers a pack adding entries?** If not, E5 closes.
+
 **Answer:**
 > _(empty — fill in when decided)_
 
@@ -403,14 +416,13 @@ from both). The two notches answer that differently, and only one of them says a
 - **Host (`yolo host apply`) — FATAL, before anything is written.**
   `hostskills.RenderHostSkills` calls `Collisions(dests)` first and returns `CollisionError`
   with every collision named, so one run tells the user every rename to make
-  (`internal/hostskills/compose.go:698-700`). This is the S1 ruling.
+  (`internal/hostskills/compose.go`). This is the S1 ruling.
 - **Jail — silent last-one-wins.** `jailcontent.PrepareSkills` loops `packSkillDirs` in config
-  order (`internal/jailcontent/skills.go:107-118`) and `copySkillSubdirs` does
-  `os.RemoveAll(target)` then copy (`skills.go:154-160`). There is no collision concept on any
-  jail path: every caller of `Collisions` is host-side — `RenderHostSkills`, and
-  `reportSkillCollisions` (`internal/cli/applyhostskills.go:384`, called from `:184` and `:245`).
-  `RenderHostSkills` is reached only from
-  `internal/cli/applyhostskills.go:253`. **Verified 2026-08-23.**
+  order and `copySkillSubdirs` does `os.RemoveAll(target)` then copy
+  (`internal/jailcontent/skills.go`). There is no collision concept on any jail path: every
+  caller of `hostskills.Collisions` is host-side — `RenderHostSkills`, and
+  `reportSkillCollisions` (`internal/cli/applyhostskills.go`). `RenderHostSkills` is reached only
+  from `internal/cli/applyhostskills.go`. **Verified 2026-08-23, re-checked 2026-09-24.**
 
 **Measured 2026-08-05**, on the same two-pack set `apply --host` refuses: the jail came up,
 `~/.codex/skills/mine` held the local pack's copy, the other pack's skill was absent, and
@@ -439,16 +451,16 @@ a session.
 
 **Context.** `config-overlay` is the kind that lets pack B contribute keys to a surface pack A
 owns (the `matt-fzf` → `claude/settings` `fileSuggestion` case). Overlays fold in after the
-workspace layer **in pack order, later wins** (`internal/agentcfg/compose.go:362-369`), and the
+workspace layer **in pack order, later wins** (`internal/agentcfg/compose.go`), and the
 kind's combine rule is `CombineOverlay`, which is **deliberately non-colliding** —
-`internal/packdecl/kinds.go:156-158`, and `internal/packload/footprint.go:247`: *"It does not
-collide (CombineOverlay), so it is a claim line only."* **Verified 2026-08-23.**
+`internal/packdecl/kinds.go`, and `internal/packload/footprint.go` renders it as *"a claim line
+only."* **Verified 2026-08-23, re-checked 2026-09-24.**
 
 So two packs claiming the same *surface* is the feature. Two packs claiming the same **key**
 with different values is undetected, and the loser is never told.
 
 **What is already mitigated, and what is not.** Per-key provenance IS recorded — the winning
-layer is labelled `config-overlay:<pack>` (`internal/agentcfg/compose.go:170-176`) and
+layer is labelled `config-overlay:<pack>` (`OverlayLayer`, `internal/agentcfg/compose.go`) and
 `yolo config diff` prints it. That is **after-the-fact reporting, not a refusal**, and at the
 HOST notch the annotation is *inferred rather than measured*:
 [pack-config-collaboration.md §8](../reference/pack-system.md#config-surfaces-and-the-compose-engine) *"Still open after
@@ -461,7 +473,11 @@ when the overlay's value is the one that actually landed and no `managed` value 
 `claude/settings`, gated on its profile), and it is that surface's sole contributor, so the
 no-collision fact still holds. `568d5a3a`'s `profile` gate changes *whether* an overlay
 participates, not what happens when two active overlays share a key — last-one-wins is unchanged,
-re-verified in `internal/packoverlay` which has no collision logic.)* It is worth deciding anyway
+re-verified in `internal/packoverlay` which has no collision logic.)* *(2026-09-24: the new
+`config-list` kind is the list-shaped half of this question answered the other way on purpose —
+two packs adding to one array both land, deduplicated, with no collision
+([`additive-config-lists.md`](../design/additive-config-lists.md)). It does not touch same-KEY
+scalar overlays, so this question stands.)* It is worth deciding anyway
 because the **neighbouring kind answers the same shaped question the opposite way**: since 2026-08-02 a same-identity `config`
 declaration is a LOUD collision, named in `yolo pack footprint` and refused at launch and by
 `yolo host apply` ([§9](../reference/pack-system.md#config-surfaces-and-the-compose-engine)). Two adjacent kinds with opposite silence policies is the drift.
@@ -491,10 +507,12 @@ gate holds. Do not re-audit this"** — this is a fan-out question, not a securi
 
 - **Jail:** *every* loaded pack's skills reach *every* declared destination.
   `PrepareSkills` copies every entry of `packSkillDirs` into every `packSkillTarget`
-  (`internal/jailcontent/skills.go:92-118`).
+  (`internal/jailcontent/skills.go`).
 - **Host:** a pack's skills reach only the destinations that pack declared —
-  `packload.ResolveDestinations` (`internal/cli/apply.go:256`). Verified 2026-08-23:
-  `ResolveDestinations` has **no caller** under `internal/cli/run` or `internal/entrypoint`.
+  `packload.ResolveDestinations`, called from `internal/cli/apply.go`. Re-checked 2026-09-24:
+  `ResolveDestinations` has **no caller** under `internal/cli/run` or `internal/entrypoint`; its
+  one other production caller, `basehome.DeclsFromPacks`, reads the result for credential files,
+  not skills.
 
 Pinned deliberately by `internal/cli/run/packskillsdelivery_test.go`, so answering this either
 way moves a test on purpose rather than rediscovering the behavior.
@@ -536,7 +554,7 @@ what a *borrowed* destination is.
 vacuous. `stateful` is the remaining mode and it is **a different problem wearing the same
 words**: the file is composed from layers, so a comment can only come from the `host` layer,
 and putting it in the render is a **projection out of one file into another** rather than an
-in-place edit. `tomltrivia.go:24` and `:60` name exactly this, and note that the emitter
+in-place edit. `tomltrivia.go`'s header names exactly this, and notes that the emitter
 `stateful` would have to change is also the one the A12-fatal boot path and the render
 fingerprint gate depend on.
 
@@ -545,13 +563,14 @@ fingerprint gate depend on.
 1. **Do it.** `Codec` grows an optional `TriviaCodec`; trivia rides the compose result; the
    staleness rule ① is keyed on `Result.Provenance` (emit a comment only where the winning
    layer is `host`), which is already computed — one map lookup per key. *Cost:* it lands on
-   the A12-fatal boot path, and it needs an answer for the **Lua transform boundary** — a hook
-   returns a table, so trivia must either survive that or be documented as dropped by any
-   transform.
+   the A12-fatal boot path. (The second cost this option carried, an answer for the **Lua
+   transform boundary**, went away when that transform was removed on 2026-09-11 —
+   [`OQ-LT1`](../reference/pack-system.md#oq-lt1). A `derive` script still returns a table, but
+   it fills the `computed` layer, which never carried user comments.)
 2. **Extend the yolo-authored header that is already there** to point at the `:ro` original.
    Measured 2026-08-12: the composed `~/.codex/config.toml` already opens with *"Generated by
    yolo-jail — composed at jail start; hand edits may be reverted or lost…"*
-   (`internal/entrypoint/prism.go:400`, verified 2026-08-23). What it does not carry is the
+   (`render.GeneratedHeader`, `internal/render/surface.go`, re-checked 2026-09-24). What it does not carry is the
    `/ctx/host-user/<slug>` path to the untouched source. *Cost:* near nothing — but strict
    JSON has nowhere to put a header line, so it serves `toml` only.
 3. **Leave it, and say so.** `raw` already round-trips a hand-written file byte-exact, and

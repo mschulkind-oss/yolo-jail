@@ -14,6 +14,19 @@ question, [OQ-DT1](#decision-ledger), was answered 2026-09-13 by doing it.
 > [`providers.md`](../reference/providers.md#the-profile-variant-rulings), and `pack-profiles.md`
 > was retired with it. Their names stay below as the record; links to them now point where the text went.
 
+> [!WARNING]
+> **Postscript, 2026-09-24 — the `config-ownership-and-promotion.md` verdict below is stale, and
+> it is stale in the direction of graduating too early.** The assessment says nothing about that
+> doc's content blocks it and nothing in it is unruled. On 2026-09-20 two rulings changed that.
+> One retired `host_management: "assert"`, recorded and unbuilt
+> ([§4.5 there](../design/config-ownership-and-promotion.md#45-retiring-assert--the-two-value-key)).
+> The other filed [`OQ-CO14`](../design/config-ownership-and-promotion.md#oq-co14), the migration
+> for a config and a home already on `assert`, and it is **open**. That doc now says itself that
+> graduating before [`OQ-CO14`](../design/config-ownership-and-promotion.md#oq-co14) is ruled would mint a current reference with a known expiry. So it is
+> **not** a graduation candidate until [`OQ-CO14`](../design/config-ownership-and-promotion.md#oq-co14) is ruled and the retirement is built. The seven
+> residue items and the unfixed tombstone reader still stand as well, re-checked 2026-09-24.
+> Nothing here is this file's question: [`OQ-DT1`](#decision-ledger) stays answered.
+
 > [!NOTE]
 > **RE-RUN 2026-09-09, and this file's taxonomy is what it ran on.** Every doc in `docs/design/` was
 > bucketed A/B/C again, in five slices, each verdict checked against the code rather than against
@@ -318,7 +331,7 @@ that route them keep resolving. That is the precedent, and it is what
 | Doc | Fully built? | Verifiable here? | Verdict |
 | :--- | :--- | :--- | :--- |
 | [`report-tiers.md`](../reference/report-tiers.md) | **Yes** — all eight steps | **Yes, and measured with a control** | ✅ **GRADUATED 2026-09-13** |
-| [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md) | **Yes** — the named hole closed 2026-09-12 | Yes | ⏸ **Graduate second, and both named blockers are spent.** What gates it now is [`OQ-DT1`](#open-question) and the size of the rewrite, not a fact about the doc |
+| [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md) | **Yes** — the named hole closed 2026-09-12 | Yes | ⏸ **Graduate second, and both named blockers are spent.** What gates it now is [`OQ-DT1`](#open-question) and the size of the rewrite, not a fact about the doc. ⛔ **Stale since 2026-09-20:** the doc reopened with [`OQ-CO14`](../design/config-ownership-and-promotion.md#oq-co14) and an unbuilt ruling (see the 2026-09-24 postscript at the top) |
 | [`lua-transform-removal.md`](../reference/pack-system.md#oq-lt1) | **Yes** | Yes | ↩ **Do not graduate — archive.** There is no system to describe |
 | [`macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md) | Code yes, behavior unrun | **No** | ⛔ Blocked on a Mac — **unblocked and ✅ GRADUATED 2026-09-21** to [`../reference/macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md), on the same hardware session and nightly job |
 | [`../design/macos-user-provisioning.md`](../design/macos-user-provisioning.md) | Code yes, behavior unrun | **No** | ⛔ Blocked on a Mac — **unblocked and ✅ GRADUATED 2026-09-21** to [`../reference/macos-user-provisioning.md`](../reference/macos-user-provisioning.md), once a hardware session and a nightly job had supplied the measurements |
@@ -431,6 +444,8 @@ ruled and both deletions it measured are fixed, the doc's last Open Question is 
 [§12](../design/config-ownership-and-promotion.md#12-follow-ons-and-the-one-this-design-settled-itself) reads **None**. It has
 completed the `design-doc` genre's settled phase and is a graduation CANDIDATE. The only thing
 holding it is [`OQ-DT1`](#decision-ledger) — sequencing, and the maintainer's.
+*(True on 2026-09-12. No longer true since 2026-09-20: [`OQ-CO14`](../design/config-ownership-and-promotion.md#oq-co14)
+is open and the `assert` retirement is unbuilt — see the 2026-09-24 postscript at the top.)*
 
 ⚠ **What is honestly still in the way is the SIZE of the rewrite, and it grew on 2026-09-12.**
 Neither half is a blocker in the sense the two named ones were — nothing is unruled and nothing is
@@ -606,7 +621,9 @@ not after it.
    five whose behavior was reproduced with a control, its principles are already cited as law from
    [`AGENTS.md`](../../AGENTS.md), and it carries no unbuilt step. Archive
    `report-tiers-plan.md` in the same commit.
-3. **Then [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md)**, and
+3. **Then [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md)** —
+   ⛔ *held since 2026-09-20 by [`OQ-CO14`](../design/config-ownership-and-promotion.md#oq-co14)
+   and the unbuilt `assert` retirement; what follows is the 2026-09-12 reasoning* — and
    **nothing about the doc gates it any more** — both named blockers closed on 2026-09-12, and its
    last Open Question was compacted the same day, so
    [`composed-file-permissions.md`](../design/composed-file-permissions.md)'s
@@ -711,7 +728,7 @@ Go half was the real work and it was **not** a path rewrite — see the finding 
 
 | Doc | Disposition | Reason |
 | :--- | :--- | :--- |
-| [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md) | **Not yet** | Unchanged from above: seven residue items to re-state in present tense, and **one tombstone defect with a data-loss path that should be fixed as code before the move**, not documented as behavior. 11 doc files and 46 Go files — the largest of the set. |
+| [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md) | **Not yet** | Unchanged from above: seven residue items to re-state in present tense, and **one tombstone defect with a data-loss path that should be fixed as code before the move**, not documented as behavior. 11 doc files and 46 Go files — the largest of the set. **Since 2026-09-20 also held by an open question**, [`OQ-CO14`](../design/config-ownership-and-promotion.md#oq-co14), and by the unbuilt retirement of `assert` it follows from. |
 | [`lua-transform-removal.md`](../reference/pack-system.md#oq-lt1) | **Fold, do not graduate** | Unchanged: a removal doc has no system to describe, and `pack-system.md` already owns the surviving derive sandbox. |
 | [`macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md) | **Not yet** — ✅ **graduated 2026-09-21** | Finding 1: hardware-measured, but its own *What shipped* still owed a Mac on the mirror ordering. Closed by stating the gap in the reference's [measurement table](../reference/macos-user-home-tiers.md#what-is-measured-and-by-what) rather than by waiting for it; the design path is a superseded stub. |
 | [`../design/macos-user-provisioning.md`](../design/macos-user-provisioning.md) | **Not assessable** | Held by another workflow throughout this pass. Assessed, not touched. ✅ **Graduated 2026-09-21** to [`../reference/macos-user-provisioning.md`](../reference/macos-user-provisioning.md); the design path is a superseded stub. |

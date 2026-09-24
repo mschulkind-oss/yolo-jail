@@ -1,7 +1,8 @@
 # User Stories: meeting yolo when it manages the environment, not just the box
 
 **Status:** DESIGN, 2026-07-27 — user stories, with their open questions; **re-verified against the tree
-2026-08-23, anchors repinned 2026-09-02.** Most of the verbs the stories exercise **have since
+2026-08-23, anchors repinned 2026-09-02, re-checked 2026-09-24** (the promote verb shipped, the
+macOS `guest` staging was measured on a Mac, and the `file:line` anchors were replaced by symbols). Most of the verbs the stories exercise **have since
 shipped** (`apply`, `yolo host apply` — the `apply --host` spelling this line used to name was
 REMOVED outright by `e23df4aa`, 2026-08-30 — `apply --sealed`, `describe`, `check-deps`, the
 `confinement` key — env-manager plan
@@ -11,6 +12,8 @@ a dated verdict; read those before hunting for a bug. **Eleven questions are sti
 document**, and Q7 decides whether Linux `guest` is a promise or a hypothesis. IDs are cited from
 [`../plans/roadmap.md`](../plans/roadmap.md) — do not renumber them.
 
+**Needs your ruling:** [Q1, Q1a, Q1b and Q2–Q9](#open-questions).
+
 > **Verification pass — 2026-08-23.** [§1](#1-maya--staff-engineer-rust-cli-wants-a-guarantee-not-a-diff)–[§5](#5-lisa--head-of-engineering-filling-in-a-security-questionnaire-doesnt-read-code) keep their original present tense: they describe the
 > product **as it was on 2026-07-27**, which is what makes them readable as stories. What changed
 > since is recorded as dated verdicts inline (each gap carries a `> [!NOTE]` or `> [!WARNING]`
@@ -19,17 +22,19 @@ document**, and Q7 decides whether Linux `guest` is a promise or a hypothesis. I
 >
 > | Story defect | Verdict, verified 2026-08-23 | Evidence |
 > |---|---|---|
-> | **Story 1 Gap 1** — the `host` layer reads an undeclared file | **STILL LIVE**, and *worse* than the story says | `HostSource` at `internal/agentcfg/manifest/manifest.go:142`; nothing in `describe` names it, and `config ls`'s `host` column comes from a hardcoded 2-entry map (`internal/cli/configls.go:196-202`) |
+> | **Story 1 Gap 1** — the `host` layer reads an undeclared file | **NARROWED since** (re-checked 2026-09-24). It was *worse* than the story said on 2026-08-23; the hardcoded map is gone (2026-09-09) and the declaration moved onto the surface with a fail-closed read ([`OQ-CO10`](config-ownership-and-promotion.md#13-decision-ledger), 2026-09-12). What is left: `describe` still names no host layer | `manifest.Surface.ReadsHost` is the predicate and `config ls` derives its `host` column from it (`internal/cli/configls.go`) |
 > | **Story 1 Gap 2** — capture outranks the definition | **PARTLY LIVE**; the story overstates it, and `--sealed` now catches it | Real order at [`compose.go`](../../internal/agentcfg/compose.go): capture loses to `computed`/`managed`. `applySealed` refuses on outstanding captures (`internal/cli/apply.go`) |
-> | **Story 1 Gap 3** — `yolo-jail.local.jsonc` | **STILL LIVE** as an input; now refused by `--sealed` | `internal/config/config.go:38`, auto-merge at `internal/config/load.go:205-221`; refusal at `internal/cli/apply.go:623-630` |
+> | **Story 1 Gap 3** — `yolo-jail.local.jsonc` | **STILL LIVE** as an input; now refused by `--sealed` | `config.WorkspaceLocalConfigName`, auto-merged in `internal/config/load.go`; refused in `applySealed` (`internal/cli/apply.go`) |
 > | **Story 2 step 3** — macos-user renders 0 surfaces (**G3**) | **FIXED 2026-08-12** (`a39628ad`) | packs staged *above* the backend dispatch (`stageRunPacks`, `internal/cli/run/run.go`); `YOLO_PACK_ROOT` set in `buildBootstrapEnv` (`internal/macosuser/runplan.go`); tests `internal/cli/run/packstagedispatch_test.go` |
-> | **Story 2 step 6** — host-side `config reset` data loss (**G1**) | **FIXED 2026-08-01** (`1220ac55`) | `refuseHostSideWrite` at `internal/cli/configdiff.go:84-93`, wired at `:645`; regression test `configdiff_test.go:172` |
-> | `config capture` leaks host config into the workspace (**G2**) | **FIXED 2026-08-01** (`1220ac55`) | same guard, wired at `internal/cli/configdiff.go:848` |
+> | **Story 2 step 6** — host-side `config reset` data loss (**G1**) | **FIXED 2026-08-01** (`1220ac55`) | `refuseHostSideWrite` in `internal/cli/configdiff.go`, called from `configReset`; regression test in `configdiff_test.go` |
+> | `config capture` leaks host config into the workspace (**G2**) | **FIXED 2026-08-01** (`1220ac55`) | same guard, called from `configCapture` |
 >
-> **The one thing that has NOT shipped and that the stories most depend on:** `yolo config
-> promote` (plan Phase 5.3) does not exist — `internal/cli/config.go:33-60` lists `ls, render,
-> diff, reset, capture, drift, dump` and no more. So `--sealed` can *refuse* on a capture but the
-> user's only remedy is still "discard it." Q1's leaning is half-built.
+> **The one thing that had NOT shipped on 2026-08-23, and that the stories most depend on, has
+> since shipped:** `yolo config promote` (plan Phase 5.3) landed 2026-09-12, designed in
+> [`config-ownership-and-promotion.md` §5](config-ownership-and-promotion.md#5-promotion--the-way-out-of-capture).
+> It declares a captured key into the conventional local pack and clears only that key, and
+> `--sealed`'s refusal now names both `yolo config promote` and `yolo config reset`. So the user's
+> remedy is no longer only "discard it". Q1 is still open (see there).
 
 Five worked stories of people (and one agent) encountering yolo as
 [an environment manager whose confinement is a dial](yolo-as-environment-manager.md) —
@@ -105,24 +110,23 @@ when the definition does not bind. If yolo's answer to "is this the environment 
    ```
 
    That `host` layer is her own `~/.claude/settings.json`, mounted in from the host and recorded
-   per-surface as `HostSource` (`internal/agentcfg/manifest/manifest.go:142` — the story said
-   `:132`, which has drifted by ten lines). Her two machines' copies differ. This is nix's *impure
+   per-surface as `HostSource` (`manifest.Surface`, `internal/agentcfg/manifest/manifest.go`). Her
+   two machines' copies differ. This is nix's *impure
    derivation* — an input from outside the closure — and nix's rule for it is not prohibition, it
    is **declaration**. The `claude` pack does declare the grant; nothing surfaces that the
    resulting environment therefore has a machine-shaped input.
 
    > [!WARNING]
-   > **Gap 1 is STILL LIVE, and the tree is worse than this story claims — verified 2026-08-23.**
-   > `HostSource` is intact (`internal/agentcfg/manifest/manifest.go:142`, written at
-   > `internal/packload/packload.go:89`, read by the boot render at
-   > `internal/entrypoint/packsurfaces.go`). The hand-maintained two-entry map this warning
+   > **Gap 1 was STILL LIVE, and worse than this story claimed, on 2026-08-23; it has NARROWED
+   > since (re-checked 2026-09-24).** The hand-maintained two-entry map the 2026-08-23 verdict
    > described — `surfaceHasHostLayer`, listing only `claude/settings` and `pi/settings` — is
    > **GONE since 2026-09-09**: the `LAYERS` column now derives from `Surface.HasHostLayer`, so a
-   > pack surface with a host layer is shown as having one. `yolo describe` — which shipped
-   > since (`internal/cli/describe.go`) — never mentions a host layer either; its only `host`
-   > strings (`:129,214`) are the confinement *notch*, an unrelated concept. So the story's
-   > "nothing surfaces that the environment has a machine-shaped input" is now literally true for
-   > every pack surface, not just under-emphasised.
+   > pack surface with a host layer is shown as having one. And since 2026-09-12 the declaration is
+   > on the surface itself (`manifest.Surface.ReadsHost`; `HostSource` is derived from it) and the
+   > read fails closed ([`OQ-CO10`](config-ownership-and-promotion.md#13-decision-ledger)).
+   > `yolo describe` (`internal/cli/describe.go`) still never mentions a host layer: its only
+   > `host` strings are the confinement *notch*, an unrelated concept. That is what is left of
+   > "nothing surfaces that the environment has a machine-shaped input".
    >
    > The standing decision this used to collide with is **gone the other way**:
    > [OQ-3](yolo-as-environment-manager.md#9-decision-ledger) — *retire the read-in `host` layer,
@@ -174,21 +178,21 @@ when the definition does not bind. If yolo's answer to "is this the environment 
    >
    > So capture beats `defaults`/`host`/`workspace`/pack overlays and **loses** to `computed`
    > and `managed` — deliberately, so a stale in-jail edit cannot defeat
-   > regenerate-don't-reconcile (`compose.go:65-77`; pinned by
-   > `internal/agentcfg/staterender_test.go:337`). Maya's actual example survives intact, because
+   > regenerate-don't-reconcile (`compose.go`; pinned in
+   > `internal/agentcfg/staterender_test.go`). Maya's actual example survives intact, because
    > `enabledPlugins` is a plain declared key rather than a `managed` one. The shipped user-facing
-   > copy still says the strong thing — `internal/cli/configls.go:444` ("outrank the host layer"),
-   > `internal/cli/apply.go:634` ("outranking the definition") — and is true only against the
-   > lower half of the stack.
+   > copy said the strong thing — "outrank the host layer" in `config ls`/`config diff`,
+   > "outranking the definition" in `apply --sealed` — until 2026-09-14, when all three were
+   > corrected to name the two layers capture loses to (`captureprecedence_test.go` pins it).
    >
    > **What HAS shipped:** `yolo apply --sealed` now refuses while any capture is outstanding
    > (`applySealed`, `internal/cli/apply.go`; tests `internal/cli/describe_test.go`).
-   > **What has NOT:** `yolo config promote` (plan Phase 5.3). The refusal message at `apply.go:648-652`
-   > tells the user to "promote them into a pack" — advice for a verb that does not exist. The only
-   > shipped remedy is `yolo config reset`. That is precisely the half of Q1's leaning still owed.
+   > **What had NOT, on 2026-08-23:** `yolo config promote` (plan Phase 5.3). **It shipped
+   > 2026-09-12** (`internal/cli/configpromote.go`), and the `--sealed` refusal now names
+   > `yolo config promote <surface>` beside `yolo config reset <surface>` instead of advising
+   > the verb in prose. What Q1 still decides is whether capture keeps its place in the stack.
    >
-   > The boot banner quoted above is unchanged and still prints
-   > (`internal/entrypoint/prism.go:322-330`).
+   > The boot banner quoted above is unchanged and still prints (`internal/entrypoint/prism.go`).
 
    **Gap 3 — `yolo-jail.local.jsonc`.** An untracked, gitignored sibling that merges over the
    workspace config *automatically*, with no `include_if_found` entry. Hers drops two packages,
@@ -197,13 +201,11 @@ when the definition does not bind. If yolo's answer to "is this the environment 
 
    > [!NOTE]
    > **Gap 3 is STILL LIVE as an input, and is now CATCHABLE — verified 2026-08-23.** The
-   > auto-merge is unchanged: `config.WorkspaceLocalConfigName`
-   > (`internal/config/config.go:38`) is loaded unconditionally and merged over the workspace
-   > config, local winning, at `internal/config/load.go:205-221` — no `include_if_found` needed.
-   > "Gitignored" remains a convention the guide asks for (`docs/guides/USER_GUIDE.md:276`), not
+   > auto-merge is unchanged: `config.WorkspaceLocalConfigName` is loaded unconditionally and
+   > merged over the workspace config, local winning, in `internal/config/load.go` — no
+   > `include_if_found` needed. "Gitignored" remains a convention the user guide asks for, not
    > something code enforces. What changed is the refusal Maya asks for in step 4: `apply
-   > --sealed` stats for the file and refuses when it is present
-   > (`internal/cli/apply.go:623-630`). So step 4's first two refusal lines are **shipped**;
+   > --sealed` stats for the file and refuses when it is present (`applySealed`). So step 4's first two refusal lines are **shipped**;
    > step 4's third line (the `✓ declared impurity` report of the `host` layer) is not — see
    > Gap 1's verdict.
 
@@ -235,7 +237,7 @@ when the definition does not bind. If yolo's answer to "is this the environment 
    > [!NOTE]
    > **Decided and shipped as a FLAG — verified 2026-08-23.** The design doc [§3.3](yolo-as-environment-manager.md#33-apply---sealed-the-definition-binds-or-the-apply-fails) rules
    > "`--sealed` is an opt-in flag, not the default, and the split is the point," and the code
-   > agrees: `internal/cli/apply.go:67-68,99-100`. Maya's complaint therefore stands as written —
+   > agrees (`internal/cli/apply.go`). Maya's complaint therefore stands as written —
    > the guarantee is off until she asks. **Q1a is not closed by this**, because its leaning was a
    > *third* option (default-on in CI/non-TTY, flag-on interactively) and nothing in `applySealed`
    > consults TTY-ness.
@@ -382,29 +384,29 @@ exactly what she needs and exactly why she's here: **a real home on the real fil
    > macos-user rendered none"*); the doc correction is `2bb792ff` the same day. Every element of
    > the paragraph above is now stale:
    >
-   > - Staging moved **above** the backend dispatch — `o.stageRunPacks(cname)` at
-   >   `internal/cli/run/run.go:103`; the macos-user branch begins at `:112` and returns at
-   >   `:155-156` **passing `staged.root` through**. The cited `run.go:73` is now inside a
+   > - Staging moved **above** the backend dispatch — `o.stageRunPacks(cname)` in
+   >   `internal/cli/run/run.go` runs before the macos-user branch, which returns **passing
+   >   `staged.root` through**. The early return the story cites is now inside a
    >   container-only repo-root gate that macos-user skips.
    > - `YOLO_PACK_ROOT` is set in `buildBootstrapEnv` (`internal/macosuser/runplan.go`), and deliberately left
    >   unset when nothing was staged, so "no packs" is stated by absence.
-   > - Three plan invariants at `internal/macosuser/runplan.go:302-320` refuse exactly the silent
+   > - Three checks in `macosuser.PlanInvariants` refuse exactly the silent
    >   shapes this defect had (a root outside the state dir, a root nothing stages, a root never
    >   baked into the bootstrap argv).
-   > - `internal/entrypoint/darwin.go:59-62` still holds the
+   > - `internal/entrypoint/darwin.go` still holds the
    >   `LoadJailPacks`/`ConfigurePackSurfaces`/`RunPackHooks` sequence — the machinery was always
-   >   real; it now receives a populated root (`internal/entrypoint/packsurfaces.go:87`).
-   > - Pinned by `internal/cli/run/packstagedispatch_test.go:87` (the handler receives a pack root
-   >   that **exists on disk** with `_official/claude/pack.json` in it) and `:131` (the empty-config
+   >   real; it now receives a populated root (`LoadJailPacks` in `internal/entrypoint/packsurfaces.go`).
+   > - Pinned by `internal/cli/run/packstagedispatch_test.go` (the handler receives a pack root
+   >   that **exists on disk** with `_official/claude/pack.json` in it, and the empty-config
    >   half), plus `internal/macosuser/packroot_test.go`.
-   > - `../reference/macos-user-nix-and-features.md:174` no longer claims selection works: it now
-   >   reads ⚠️ *"Wired 2026-08-12 (B-0); UNVERIFIED on a Mac"*, with a retained blockquote at
-   >   `:178-195` recording that the old ✅ row had never been true.
    >
-   > **The honest residue:** the row is ⚠️ rather than ✅ because no Mac has exercised the
-   > `sudo -u _yolojail` staging step or the sandbox-uid read. That is a *verification* gap, not
-   > this defect. Priya's story survives as the argument for the invariants at
-   > `runplan.go:302-320` — which is what a fixed bug's story is for.
+   > **The residue recorded on 2026-08-23 is closed too (re-checked 2026-09-24).** It was a
+   > *verification* gap — no Mac had exercised the `sudo -u _yolojail` staging step or the
+   > sandbox-uid read. A Mac did on 2026-09-10, and again on 2026-09-12: the built-in skills and the
+   > native-backend briefing reached the sandbox home
+   > ([runbook item 4](../plans/runbooks/macos-user-manual-checks.md#4-content-actually-reached-the-agent)),
+   > though that item still has no automated twin. Priya's story survives as the argument for the
+   > invariants in `PlanInvariants` — which is what a fixed bug's story is for.
 
 4. She only catches it because she compares the description to reality:
 
@@ -478,25 +480,26 @@ exactly what she needs and exactly why she's here: **a real home on the real fil
    > *"feat(config): Phase 0 — refuse destructive host-side reset/capture"*), hardened by
    > `2b317dba` (2026-08-02).
    >
-   > - The guard is `refuseHostSideWrite` (`internal/cli/configdiff.go:84-93`): it proceeds only
-   >   when `surfacesAreLocal() || force`, otherwise it prints *"refusing — these surfaces resolve
+   > - The guard is `refuseHostSideWrite` (`internal/cli/configdiff.go`): it proceeds only
+   >   when the resolved target is local or `--force` is given (and, since 2026-09-12, for a
+   >   `reset` under `host_management: own`), otherwise it prints *"refusing — these surfaces resolve
    >   against a real home, not a jail's"* and aborts.
    > - It is wired at **both** destructive verbs, before any surface enumeration:
    >   `internal/cli/configdiff.go`'s `configReset` and `configCapture` (that is
    >   **G2**, the privacy leak, closed by the same predicate the plan predicted).
    > - `truncateSurfaceToPureRender` still exists and still resolves `~` through `expandHome`
    >   (`internal/cli/configdiff.go`) — it has simply become **unreachable host-side**: its
-   >   only caller sits at `:684`, downstream of the `:645` guard. Reachable via explicit
+   >   only caller sits downstream of the guard in `configReset`. Reachable via explicit
    >   `--force` only, which is the escape hatch plan [§0.1](../plans/environment-manager-plan.md#phase-0--stop-the-destructive-host-side-write--was-backlog-g1--g2---shipped-2026-08-01) specified.
-   > - `surfacesAreLocal()` moved within `internal/cli/configls.go`,
-   >   and `2b317dba` tightened it to require `workspaceRoot() == "/workspace"` — so a *different*
+   > - `surfacesAreLocal()` now lives in `internal/cli/configtarget.go`, feeding the resolved
+   >   target's `local` field, and `2b317dba` tightened it to require `workspaceRoot() == "/workspace"` — so a *different*
    >   workspace's surfaces inside a nested jail also count as non-local.
    > - Plan item 0.3's regression test exists:
-   >   `internal/cli/configdiff_test.go:172` `TestResetCaptureRefuseHostSideWithoutForce`.
-   > - The capture-on-terminate path added later (`internal/cli/configcapture.go:63`) runs on the
+   >   `TestResetCaptureRefuseHostSideWithoutForce` in `internal/cli/configdiff_test.go`.
+   > - The capture-on-terminate path added later (`internal/cli/configcapture.go`) runs on the
    >   host **by design** and avoids the leak structurally — it resolves through
-   >   `jailHomeHostPath`, never `expandHome`, and the prohibition is documented at
-   >   `configcapture.go:36-45`.
+   >   `jailHomeHostPath`, never `expandHome`, and the prohibition is documented in that file's
+   >   header.
    >
    > The sentence in bold above is still the right lesson and is why the guard is a *predicate at
    > the verb*, not a fix to one function.
@@ -530,26 +533,31 @@ right, and this story is the argument for not announcing three notches until G3 
 > [!NOTE]
 > **Reality check, re-checked 2026-08-23.** The Stage-G order ran to completion: G1/G2 fixed
 > 2026-08-01, G4/G5 shipped as `internal/render/` (`target.go`, `fieldset.go`, `modes.go`,
-> `confinement.go`), G3 fixed 2026-08-12, G6 shipped as `apply --host`
-> (`internal/cli/apply.go:63`). The notch scoreboard today:
+> `confinement.go`), G3 fixed 2026-08-12, G6 shipped as `apply --host` (spelled
+> `yolo host apply` since 2026-08-30). The notch scoreboard today:
 >
 > - **`jail`** — production, unchanged.
 > - **`host`** — no longer "a design": `yolo host apply` renders the applicable kinds into the real
->   home under `observe`/`assert` postures, and an inapplicable kind is refused **by name**
->   (`internal/render/fieldset.go:36-63`). Its unbuilt half is the confirm-gated install (plan
->   4.3) — the shipped behaviour is a flat refusal plus a static note pointing at Phase 4.3
->   (`internal/cli/applyhostdeps.go:113-116`).
+>   home, and an inapplicable kind is refused **by name** (`render.HostFields`). *Re-checked
+>   2026-09-24:* the confirm-gated install this bullet called unbuilt **shipped 2026-09-12** —
+>   `yolo host apply --assert` offers a missing declared dependency's install behind one prompt
+>   (`internal/cli/applyhostdepgate.go`); only the elevation-class batching is left
+>   ([`OQ-EM1`](yolo-as-environment-manager.md#OQ-EM1)). And the posture the host renders under
+>   is now the user-scope `host_management` key (`none`/`assert`/`own`), whose `assert` value was
+>   retired by ruling on 2026-09-20 and is not yet out of the code
+>   ([§4.5 there](config-ownership-and-promotion.md#45-retiring-assert--the-two-value-key)).
 > - **`guest`** — no longer renders zero on macOS (G3), but Phase 7 is still unbuilt: its mode
->   policy is explicitly `UndecidedModes("the guest notch's mode policy is Phase 7's to state")`
->   at `internal/render/modes.go:185`, and Linux `guest` is a *profile constant*
->   (`render.GuestProfileLinux()`, `internal/render/confinement.go:132-136`) with **no bwrap or
+>   policy is explicitly `UndecidedModes(...)` in `internal/render/modes.go`, naming Phase 7, and
+>   Linux `guest` is a *profile constant*
+>   (`render.GuestProfileLinux()`, `internal/render/confinement.go`) with **no bwrap or
 >   Landlock execution code anywhere** — see Q7.
 >
 > Two of story 2's four verbs also shipped: `yolo apply --at host --dry-run` (step 5) is real
-> (`internal/cli/apply.go:54,662`), and step 1's probe-and-remedy half landed as its **own verb**,
+> (`internal/cli/apply.go`), and step 1's probe-and-remedy half landed as its **own verb**,
 > `yolo check-deps` (`internal/cli/checkdeps.go`, over pack-declared `install_hints` in
-> `internal/depcheck/`). What did **not** ship is `check --at <notch>` itself: `--at` is parsed
-> only by `apply` (`internal/cli/apply.go:54`), and `yolo check` has no notch flag. So Priya's
+> `internal/depcheck/`). What did **not** ship is `check --at <notch>` itself: `--at` parses on
+> `apply`, on a launch and on the `config` verbs, and `yolo check` still has no notch flag
+> (re-checked 2026-09-24). So Priya's
 > step 1 — the thing this story calls "genuinely the best thing in the design" — is still
 > unavailable in the shape she uses it.
 
@@ -719,16 +727,16 @@ agent that believes it is disposable when it is not will take a disposable agent
    > **Overtaken by two separate shipments — verified 2026-08-23.**
    >
    > 1. **The briefing now states the notch (plan Phase 8.1, shipped).** `confinementHeader`
-   >    (`internal/jailcontent/briefing.go:122-181`, called at `:307`) emits a per-notch opening
-   >    block with a dedicated `host` body at `:124` (*"this is the human's REAL…"*) and a `guest`
-   >    body at `:133`, plus a derived enforcement tail (`enforcementLines`, `:171`). Step 1's
+   >    (`internal/jailcontent/briefing.go`) emits a per-notch opening
+   >    block with a dedicated `host` body (*"this is the human's REAL…"*) and a `guest`
+   >    body, plus a derived enforcement tail (`enforcementLines`). Step 1's
    >    "different first 40 lines of context" is substantially real; the story's *"every
    >    load-bearing sentence is false"* describes 2026-07-27, not today.
    > 2. **There is no `jail-startup` skill to rename.** yolo's built-in suite is now exactly
-   >    `configuring-the-jail`, `developing-yolo-jail`, `diagnosing-the-jail`
-   >    (`internal/jailcontent/builtinskills/`). The startup-ritual skill (`n`) was **deleted**;
+   >    `configuring-the-jail` and `diagnosing-the-jail` (`internal/jailcontent/builtinskills/`;
+   >    the source-tree-only `developing-yolo-jail` was removed 2026-09-15). The startup-ritual skill (`n`) was **deleted**;
    >    the one-time handoff became a conditional **Handoff** section in the briefing consumed by
-   >    the run pipeline (`internal/jailcontent/briefing.go:69`; see
+   >    the run pipeline (`internal/jailcontent/briefing.go`; see
    >    [host-to-jail-handoff.md](../reference/host-to-jail-handoff.md)). The `jail-startup` a reader may have
    >    on their machine is a *user-level* skill, not a yolo built-in.
    >
@@ -901,12 +909,15 @@ before the response is due and she is not going to read `docs/design/`.
 
 **Shipped-status of that table, verified 2026-08-23.** `yolo -- <cmd>`, `apply`, `apply --at host`,
 `apply --sealed`, `describe`, `config diff` and `config reset`'s host refusal are all real
-(`internal/cli/apply.go`, `describe.go`, `configdiff.go:84-93`). The last row is **done**: the
+(`internal/cli/apply.go`, `describe.go`, `configdiff.go`). The last row is **done**: the
 "must refuse" is now `refuseHostSideWrite`. `check --at <n>` is **not** built — its probe half
-shipped as the separate verb `yolo check-deps`. `pack install`'s host refusal is expressed as a
-`FieldSet` refusal naming `program` (`internal/render/fieldset.go:38`), which is the flat
-"refused" of the original rule rather than the design doc [§4.1](yolo-as-environment-manager.md#41-the-escape-valve-which-is-the-actual-user-story) *confirm-gated* position — see
-plan Phase 4.3, unbuilt.
+shipped as the separate verb `yolo check-deps`. *Re-checked 2026-09-24:* the `pack install`
+row is **not** a refusal any more. `render.HostFields` honors `program`, and
+`yolo host apply --assert` offers the install behind one prompt, with a decline fatal
+(`internal/cli/applyhostdepgate.go`) — the design doc's
+[§4.1](yolo-as-environment-manager.md#41-the-escape-valve-which-is-the-actual-user-story)
+*confirm-gated* position, shipped 2026-09-12. `FieldSet.Refuse`'s "install is refused below jail"
+string is unreachable. What is left is [`OQ-EM1`](yolo-as-environment-manager.md#OQ-EM1).
 
 ### The closure: what is in the definition, and what escapes it
 
@@ -930,9 +941,9 @@ jail at all, and killing it would break the feature packs exist to provide.
 
 > [!NOTE]
 > **Half of this table is now enforced — verified 2026-08-23.** `applySealed`
-> (`internal/cli/apply.go:617-651`) implements the *refusal* half exactly: it refuses on
-> `yolo-jail.local.jsonc` (`:623-630`) and on any surface carrying outstanding overlay keys
-> (`:631-638`). The *report* half — printing the `host` row as a declared impurity — is **not**
+> (`internal/cli/apply.go`) implements the *refusal* half exactly: it refuses on
+> `yolo-jail.local.jsonc` and on any surface carrying outstanding overlay keys (and, since,
+> on an unset `host_management`). The *report* half — printing the `host` row as a declared impurity — is **not**
 > implemented; `applySealed` prints only refusals or a bare `sealed` line, and `describe` never
 > names a host layer at all (Gap 1's verdict). Two corrections to the table itself:
 >
@@ -940,9 +951,12 @@ jail at all, and killing it would break the feature packs exist to provide.
 >   stack — it loses to `computed`/`managed` ([`compose.go`](../../internal/agentcfg/compose.go)).
 >   It remains an **undeclared** input, which is what the row is actually for, so the tier is
 >   right and the parenthetical is not.
-> - The **`host` layer** row is under a standing decision to be *removed*, not reported: design
+> - The **`host` layer** row was under a standing decision to be *removed*, not reported: design
 >   doc [§3.3](yolo-as-environment-manager.md#33-apply---sealed-the-definition-binds-or-the-apply-fails) / plan [OQ-3](../plans/environment-manager-plan.md#blocks-phase-4-host-render) resolved 2026-08-01 to retire the read-in layer in favour of a local
->   pack. Unimplemented as of today.
+>   pack. **That decision was REVERSED 2026-09-12** by
+>   [`OQ-CO10`/`OQ-CO11`](config-ownership-and-promotion.md#13-decision-ledger): the layer stays,
+>   declared on the surface and read fail-closed ([`OQ-EM2`](yolo-as-environment-manager.md#OQ-EM2)).
+>   So the row stands as written — a declared impurity — and its *report* half is what is owed.
 
 ### What goes into the description hash
 
@@ -974,10 +988,10 @@ nothing stamps a rendering with the notch it was made for.**
 
 ## Open Questions
 
-**All eleven are still live as of 2026-08-23** — none has been answered by a ruling. Several have
+**All eleven are still live, re-checked 2026-09-24** — none has been answered by a ruling. Several have
 been *partly overtaken by shipped code*, and each of those now carries a `_Shipped since:_` line
-saying what moved and what the question still decides. **IDs are cited from
-[`../plans/roadmap.md`](../plans/roadmap.md) 💬 7 (Q1, Q7) — do not renumber, do not delete.**
+saying what moved and what the question still decides. **IDs are cited by id from
+[`../plans/roadmap.md`](../plans/roadmap.md) — do not renumber, do not delete.**
 
 1. 💬 **Q1 — whether the capture overlay may outrank the definition at all.**
    This is the closure question, and it is the biggest one in the document. Capture is a real
@@ -995,15 +1009,24 @@ saying what moved and what the question still decides. **IDs are cited from
 
    _Shipped since (2026-08-23):_ **the leaning is exactly half-built, and the built half is the
    easy half.** `apply --sealed` refuses while any capture is outstanding
-   (`internal/cli/apply.go:617-651`) — that is the "sealing refuses" clause. But **`yolo config
-   promote` does not exist** (`internal/cli/config.go:33-60`: `ls, render, diff, reset, capture,
-   drift, dump`), so capture is still a *winning layer* with no promotion path, and the refusal
-   message at `apply.go:648-652` advises a verb that is not there. Two corrections to the question's
+   (`applySealed`, `internal/cli/apply.go`) — that is the "sealing refuses" clause. But **`yolo config
+   promote` does not exist**, so capture is still a *winning layer* with no promotion path, and the
+   refusal message advises a verb that is not there. Two corrections to the question's
    premise, neither of which retires it: capture loses to `computed`/`managed`
    ([`compose.go`](../../internal/agentcfg/compose.go)), so "outranks every declared layer" is true only of
    the lower half of the stack; and the closure hole is now *detectable* even though it is not
    closed. **Q1 still decides the staging-area-vs-layer question**, which is the part nothing has
    built.
+
+   _Re-checked 2026-09-24:_ **the promotion path is built, and a sibling design adopted this
+   leaning — but as a principle, not as a ruling on this question.** `yolo config promote` shipped
+   2026-09-12 (`internal/cli/configpromote.go`), and `applySealed` now names it beside `reset`.
+   [`config-ownership-and-promotion.md`](config-ownership-and-promotion.md#1-the-verdict-and-the-principles-it-rests-on)'s
+   P3, *"Capture is a staging area, not a terminal layer"*, says it adopts this leaning. What it
+   did not do is move capture in the stack: [its §7](config-ownership-and-promotion.md#7-what-this-does-not-propose) keeps the precedence order as it is, so a
+   captured value still outranks every declared layer below `computed`/`managed` until someone
+   promotes or resets it. So the question is narrower rather than closed: **is "promotable, and
+   refused by `--sealed`" enough, or must capture stop winning at all?**
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -1018,12 +1041,14 @@ saying what moved and what the question still decides. **IDs are cited from
    two severities, chosen by whether a human is there to act on it. Pair with question 1's
    promote verb, or the interactive notice is just the boot banner again — visible and unbinding.
 
-   _Shipped since (2026-08-23):_ **it shipped as a plain flag, defaulting off** — parsed at
-   `internal/cli/apply.go:67-68`, dispatched at `:99-100`, and the design doc [§3.3](yolo-as-environment-manager.md#33-apply---sealed-the-definition-binds-or-the-apply-fails) argues for
+   _Shipped since (2026-08-23):_ **it shipped as a plain flag, defaulting off** — parsed and
+   dispatched in `internal/cli/apply.go`, and the design doc [§3.3](yolo-as-environment-manager.md#33-apply---sealed-the-definition-binds-or-the-apply-fails) argues for
    exactly that. The question is **not** thereby closed: its leaning proposed a third shape
    (default-on when non-TTY, flag-on interactively, with the interactive path *printing* the
    open-closure summary), and `applySealed` consults no TTY state at all. So today the flag is
    opt-in everywhere including CI, which is the one place the leaning wanted it mandatory.
+   (Still true 2026-09-24. `--sealed` has since gained a third refusal, an unset
+   `host_management`, which does not change the flag-or-default question.)
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -1041,15 +1066,22 @@ saying what moved and what the question still decides. **IDs are cited from
    and it goes stale on every distro release.
 
    _Shipped since (2026-08-23):_ **substantially built, and the leaning won** (plan Phase 6).
-   Packs declare per-manager `install_hints` (`internal/depcheck/depcheck.go:48`,
+   Packs declare per-manager `install_hints` (`internal/depcheck`,
    `internal/entrypoint/requires.go`), a shared probe reports present/missing/unprobeable
-   (`internal/cli/applyhostdeps.go:168-191` distinguishes "no hints for this host's manager" from
+   (`internal/cli/applyhostdeps.go` distinguishes "no hints for this host's manager" from
    "no hints at all"), and the manifest emits as a `~/.config/yolo/Brewfile` and kin
-   (`internal/cli/checkdeps.go:145-156`). What is left of the question is the **delivery shape**:
+   (`internal/cli/checkdeps.go`). What is left of the question is the **delivery shape**:
    the probe lives in `yolo check-deps` and in `yolo host apply`'s report, not in a `check --at
-   <notch>` that names every inert key — and the *offer-to-run* half is explicitly deferred
-   (`internal/cli/applyhostdeps.go:113-116`, `checkdeps.go:9-12`). The nixpkgs-attr-vs-binary
+   <notch>` that names every inert key. The nixpkgs-attr-vs-binary
    naming problem is answered by hints, not by a `provides` field.
+
+   _Re-checked 2026-09-24:_ **the leaning's "never runs it below `jail`" clause was overturned by a
+   ruling elsewhere.** Since 2026-09-12 `yolo host apply --assert` OFFERS to run a missing declared
+   dependency's install behind one prompt, and a decline is fatal (`internal/cli/applyhostdepgate.go`;
+   the rule is [`report-tiers.md`'s dependency rule](../reference/report-tiers.md#the-dependency-rule)).
+   `yolo check-deps` still only probes. So this question now decides only whether the inert-key
+   handoff also belongs in `check --at <notch>`; what is left of the elevation batching is
+   [`OQ-EM1`](yolo-as-environment-manager.md#OQ-EM1).
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -1067,11 +1099,12 @@ saying what moved and what the question still decides. **IDs are cited from
    distinction this question was raised to force, so it is *more* live now, not less. There is
    still **no declared-count-vs-rendered-count reconciliation** anywhere. What exists instead is
    three narrower guards: per-surface A12 fatality on a render *error*
-   (`internal/entrypoint/packsurfaces.go:153-171`), a per-*kind* three-outcome census
-   (refused / honored-but-unbuilt / rendered — `internal/cli/apply.go:311-350`), and a whole-pack
-   inertness refusal when a pack contributes nothing (`internal/cli/apply.go:580-596`). The
+   (`ConfigurePackSurfaces`, `internal/entrypoint/packsurfaces.go`), a per-*kind* three-outcome census
+   (refused / honored-but-unbuilt / rendered — `notchInapplicable`, `internal/cli/hostapplynotch.go`),
+   and a whole-pack inertness refusal when a pack's content reaches no destination
+   (`reportInferredDestinations`, `internal/cli/apply.go`). The
    macos-user instance is closed by backend-specific plan invariants
-   (`internal/macosuser/runplan.go:302-320`), not by a general rule. So "eleven declared, zero
+   (`macosuser.PlanInvariants`), not by a general rule. So "eleven declared, zero
    rendered, nothing errors" is still representable on any *future* target.
 
    **Answer:**
@@ -1091,7 +1124,7 @@ saying what moved and what the question still decides. **IDs are cited from
 
    _Shipped since (2026-08-23):_ **the leaning is the built state, by omission.** No top-level
    `diff` was added (`internal/cli/dispatch.go`); `yolo config diff` keeps its per-surface job and
-   `describe --json` exists (`internal/cli/describe.go`, help at `internal/cli/help.go:20`), which
+   `describe --json` exists (`internal/cli/describe.go`), which
    is the "diff(1) on each side" path. The question now decides only whether to *ratify* that or
    revisit it — the cheapest of the eleven to close.
 
@@ -1108,12 +1141,13 @@ saying what moved and what the question still decides. **IDs are cited from
    missing, halt. Cheap, and it fails in the safe direction. Rename `jail-startup` while doing it.
 
    _Shipped since (2026-08-23):_ **the generator states the notch; the artifact still does not
-   carry it.** `confinementHeader` (`internal/jailcontent/briefing.go:122-181`) emits a per-notch
-   header with distinct `host` (`:124`) and `guest` (`:133`) bodies — plan Phase 8.1. But nothing
+   carry it.** `confinementHeader` (`internal/jailcontent/briefing.go`) emits a per-notch
+   header with distinct `host` and `guest` bodies — plan Phase 8.1. But nothing
    stamps the rendered file with a hash or asserts it at startup, so a `host` briefing left on
    disk and read inside a jail is still unremarked. **The rename clause is moot:** there is no
-   `jail-startup` built-in any more — yolo's suite is `configuring-the-jail`,
-   `developing-yolo-jail`, `diagnosing-the-jail` (`internal/jailcontent/builtinskills/`), and the
+   `jail-startup` built-in any more — yolo's suite is `configuring-the-jail` and
+   `diagnosing-the-jail` (`internal/jailcontent/builtinskills/`; the source-tree-only
+   `developing-yolo-jail` was removed 2026-09-15), and the
    startup-ritual skill was deleted in favour of a Handoff section in the briefing
    ([host-to-jail-handoff.md](../reference/host-to-jail-handoff.md)). Which also removes the *place* the
    leaning proposed to put the assertion — so Q4 now has to name a new home for the check.
@@ -1133,8 +1167,8 @@ saying what moved and what the question still decides. **IDs are cited from
 
    _Shipped since (2026-08-23):_ **nothing — and the surface it would bound is now real.** There
    is no `maxConfinement` key anywhere in `internal/config/`, and no journalling of a lowering
-   `--at`. Meanwhile `--at` shipped on `apply` (`internal/cli/apply.go:54`) and the `confinement`
-   key is live (`internal/config/confinement.go`), so Lisa's *"any engineer can turn this off?"*
+   `--at`. Meanwhile `--at` shipped on `apply`, on a launch (`yolo --at <notch> -- <cmd>`) and on
+   the `config` verbs, and the `confinement` key is live (`internal/config/confinement.go`), so Lisa's *"any engineer can turn this off?"*
    is now answerable with a concrete command rather than a design sketch. The question is
    unchanged and its stakes went up.
 
@@ -1153,8 +1187,8 @@ saying what moved and what the question still decides. **IDs are cited from
    sentence in a customer document.
 
    _Shipped since (2026-08-23):_ **`describe` shipped without any of it — and, usefully, without
-   the dangerous string either.** The real output is five rows (`internal/cli/describe.go:91-105`
-   plus the confinement detail block at `:145-189`): `environment` + notch, `enforced by` (the
+   the dangerous string either.** The real output is five rows (`internal/cli/describe.go`,
+   plus the confinement detail block `printConfinementVector`): `environment` + notch, `enforced by` (the
    composed primitives), `autonomy` ON/OFF, `packs`, `packages`, `description sha256:… (unsealed)`.
    There is **no `grants` row, no `network` row, no `credentials` row, and no `--exposure` flag**
    — so *"no network holes"* does not exist in the product and story 5's specific misreading is
@@ -1178,18 +1212,18 @@ saying what moved and what the question still decides. **IDs are cited from
    this is the question the tree has drifted furthest from.** There is **no bwrap and no Landlock
    execution code**: a repo-wide search for `bwrap`/`Landlock` in Go hits only a profile constant
    (`render.GuestProfileLinux()` = `PrimNamespaces | PrimLandlock`,
-   `internal/render/confinement.go:132-136`), a primitive label (`:69`), a briefing test
-   (`internal/jailcontent/briefingprofile_test.go:109-115`) and doc comments. The `guest` notch's
-   render policy is explicitly unstated —
-   `KindGuest: UndecidedModes("the guest notch's mode policy is Phase 7's to state")`
-   (`internal/render/modes.go:185`). Meanwhile the three-notch vocabulary **is** user-facing:
-   `confinement: jail|guest|host` validates (`internal/config/confinement.go:65-79`), `apply --at
-   guest` parses, `describe` prints the notch, and the briefing has a `guest` body
-   (`internal/jailcontent/briefing.go:143`). The leaning's precondition — *"do not ship the
-   three-notch vocabulary until `guest` renders on at least one platform"* — was overtaken by G3
-   landing on macOS 2026-08-12, but that platform's staging remains **UNVERIFIED on real hardware**
-   (`../reference/macos-user-nix-and-features.md:174`). So Q7's real question today is narrower and
-   sharper: **does the Linux `guest` row stay in the table as a promise, given the vocabulary is
+   `internal/render/confinement.go`), a primitive label, a briefing test
+   (`internal/jailcontent/briefingprofile_test.go`) and doc comments. The `guest` notch's
+   render policy is explicitly unstated — its `internal/render/modes.go` row is
+   `UndecidedModes(...)`, naming Phase 7 as the one to state it. Meanwhile the three-notch
+   vocabulary **is** user-facing: `confinement: jail|guest|host` validates
+   (`internal/config/confinement.go`), `apply --at guest` parses, `describe` prints the notch, and
+   the briefing has a `guest` body (`confinementHeader`). The leaning's precondition — *"do not
+   ship the three-notch vocabulary until `guest` renders on at least one platform"* — was overtaken
+   by G3 landing on macOS 2026-08-12, and that platform's staging has since been **measured on a
+   Mac** (2026-09-10, re-run 2026-09-12:
+   [runbook item 4](../plans/runbooks/macos-user-manual-checks.md#4-content-actually-reached-the-agent)).
+   So Q7's real question today is narrower and sharper: **does the Linux `guest` row stay in the table as a promise, given the vocabulary is
    already out?**
 
    **Answer:**
@@ -1206,9 +1240,10 @@ saying what moved and what the question still decides. **IDs are cited from
    the fastest way to make the reframing look like marketing.
 
    _Shipped since (2026-08-23):_ **unchanged and now inconsistent with its sibling.**
-   `internal/cli/briefing.txt:5` still prints `YOLO JAIL — AGENT BRIEFING` and `:12` still prints
-   `WHAT YOU KEEP (shared with the host)`, with no notch parameter. The *generated* briefing did
-   get notch-awareness (Phase 8.1, `internal/jailcontent/briefing.go:110`), so the product now
+   `internal/cli/briefing.txt` still prints `YOLO JAIL — AGENT BRIEFING` and
+   `WHAT YOU KEEP (shared with the host)`, with no notch parameter (re-checked 2026-09-24). The
+   *generated* briefing did get notch-awareness (Phase 8.1, `confinementHeader` in
+   `internal/jailcontent/briefing.go`), so the product now
    says two different things about the same run: the launch banner asserts a jail, the briefing
    names the actual notch. That divergence is new since the question was written and is the
    strongest argument for its leaning.
@@ -1221,7 +1256,7 @@ saying what moved and what the question still decides. **IDs are cited from
    scrutiny (design doc [§4.0](yolo-as-environment-manager.md#40-why-the-middle-notch-is-not-called-sandbox)): "sandbox" is the industry's *generic* term for the whole column —
    Kubernetes' `PodSandbox`, gVisor, Firecracker, Chrome's seccomp/Seatbelt renderer — so it names
    containers and VMs too. This codebase already spends the word on the jail three times
-   (`internal/cli/help.go:39` "a sandboxed container jail", `internal/jailcontent/briefing.go`,
+   (`internal/cli/help.go` "a sandboxed container jail", `internal/jailcontent/briefing.go`,
    `internal/macosuser/seatbelt.go`'s profile header). `jail` is fine: FreeBSD jails and chroot
    jails are OS-level partitioning of one kernel, so a container *is* a jail in the term's own
    lineage — nothing about the word implies a VM. Renamed to `guest` here.
@@ -1239,10 +1274,10 @@ saying what moved and what the question still decides. **IDs are cited from
 
    _Shipped since (2026-08-23):_ **the leaning shipped as the config vocabulary, so this question
    is now a ratification rather than a choice.** `jail|guest|host` is what `confinement` validates
-   (`internal/config/confinement.go:65-79`; unknown values fall back to `jail`, never `host` —
-   `internal/config/validate_test.go:468-481`), and the mechanism *is* printed beside the notch as
-   the leaning required (`enforced by <primitives>`, `internal/cli/describe.go:145-149`, sourced
-   from `internal/render/confinement.go:53-69`). Renaming now costs a config migration it did not
+   (`internal/config/confinement.go`; unknown values fall back to `jail`, never `host` —
+   pinned in `internal/config/validate_test.go`), and the mechanism *is* printed beside the notch as
+   the leaning required (`enforced by <primitives>`, `printConfinementVector` in
+   `internal/cli/describe.go`, sourced from `render.PrimitiveOrder`/`render.PrimitiveDoes`). Renaming now costs a config migration it did not
    cost when the question was written.
 
    **Answer:**
