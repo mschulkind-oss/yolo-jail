@@ -8,11 +8,40 @@ yolo, …). The jail kept running but its tools were broken. Root cause: **the
 running image's store closure is not a registered nix GC root**, so a GC is not
 safe to run at an arbitrary moment. This plan sequenced the fix.
 
+> [!IMPORTANT]
+> **Re-checked against the tree 2026-09-24. Three things changed under this plan after it landed.**
+>
+> - **The image GC-root reaper no longer asks liveness.**
+>   [`OQ-LS1`](../reference/image-retention.md#why-its-this-way) (ruled 2026-09-08) replaced the
+>   tri-state live-jail check this plan built with a pure age cutoff: a root untouched for
+>   `prune.ImageRootRetention` (one week) is reaped whether or not a jail is running. The ruling's
+>   stated premise is that losing an image root "costs a rebuild, never a running jail"
+>   (`PruneOrphanImageRoots`' doc comment). ⚠ **That premise and this plan's incident disagree,
+>   and nothing records a ruling on the disagreement.** On podman/Linux with a host nix daemon,
+>   the host `/nix/store` is bind-mounted `:ro` over the jail's (`hostNixStore`,
+>   `internal/cli/run/assemble.go`), which is how a host GC broke a running jail's `/bin` on
+>   2026-07-22. A jail up for more than a week on an image no later launch rebuilt has an
+>   unrooted closure again. This plan is not where that is decided; it is reported for a ruling.
+> - **The image no longer contains yolo.** The `yolo`/`yolo-entrypoint` binaries are a separate,
+>   mounted prefix with their own durable roots under `build/prefix-roots/`
+>   (`image.RegisterPrefixRoot`), and those keep a liveness guarantee rather than an age cutoff
+>   ([`OQ-BF4`](../design/disk-levers-and-backfill.md#OQ-BF4)). The closure list under
+>   [The core invariant](#the-core-invariant) predates that split.
+> - **Delivery keeps no image tars.** The launch copies the image layer by layer into the
+>   runtime's store (`skopeo copy`), and Apple Container's archive is a temporary file, so the
+>   `cache/images` tars and `materializeImage` described below are gone; `PruneImageCache` now
+>   sweeps only legacy tars
+>   ([`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md)).
+>
+> The sections below are kept as the plan was executed. The baseline measurements and the
+> pipeline walk-through describe the tree of 2026-07-22.
+
 **Landed:**
 - **[§1](#1-root-the-running-images-closure--first-everything-depends-on-it)** — the run path registers a durable per-image GC root
-  (`build/roots/<sha16>`), retained across runs; `yolo prune` reaps roots no
-  live jail needs (tri-state fail-safe). Mechanism verified in-jail; the
-  security win for the maintainer's live jails is host-gated on `just load`.
+  (`build/roots/<sha16>`), retained across runs. `yolo prune` reaped roots no
+  live jail needed (tri-state fail-safe) until
+  [`OQ-LS1`](../reference/image-retention.md#why-its-this-way) replaced that with a one-week
+  age cutoff (see the note above). Mechanism verified in-jail.
 - **[§2](#2-auto-gc-safety-net-min-freemax-free--only-after-1)** — `yolo check` warns when the host nix daemon's auto-GC is off
   (`min-free == 0`), the safety net that [§1](#1-root-the-running-images-closure--first-everything-depends-on-it) makes safe to enable. Host-owns the
   actual nix.conf edit.
@@ -23,10 +52,12 @@ safe to run at an arbitrary moment. This plan sequenced the fix.
   agent-staging dirs, and age-purge of regenerable agent logs (Claude
   transcripts deliberately excluded).
 
-**Host-gated residuals (need the maintainer):** `just load` to ship [§1](#1-root-the-running-images-closure--first-everything-depends-on-it)'s run-path
-rooting to live jails; the `min-free`/`max-free` nix.conf edit ([§2](#2-auto-gc-safety-net-min-freemax-free--only-after-1)); and the [§3](#3-bounded-rooting-aware-store-gc-in-yolo-prune--after-1-and-2)
+**Host-gated residuals (need the maintainer):** the `min-free`/`max-free` nix.conf edit ([§2](#2-auto-gc-safety-net-min-freemax-free--only-after-1)); and the [§3](#3-bounded-rooting-aware-store-gc-in-yolo-prune--after-1-and-2)
 end-to-end store-GC acceptance run against a real host store. See "What needs the
-human / host" below.
+human / host" below. [§1](#1-root-the-running-images-closure--first-everything-depends-on-it)'s run-path rooting
+is no longer a residual: the rooting runs in the host `yolo`, which `just install` delivers,
+and a launch refuses when the host `yolo` is older than the checkout's source
+(`version.SourceSkew`), so every host able to launch today carries it.
 
 ---
 
@@ -59,21 +90,22 @@ rooting lands: they turn "a GC someday" into "a GC on a timer."
 
 ## How the image is built, loaded, and (not) rooted
 
+*As found on 2026-07-22; see the note under the status line for what has changed since.*
+
 The build+load pipeline is `internal/image/autoload.go` → `AutoLoadImage`:
 
 1. `buildImageStorePath` runs `nix build .#ociImage --impure --out-link <outLink>`
-   where `outLink = BuildDir()/run-result-<pid>` (`autoload.go:144`, built at
-   `:290-293`). The out-link is nix's **only** GC root for that build.
+   where `outLink = BuildDir()/run-result-<pid>`. The out-link is nix's **only** GC root for that build.
 2. It resolves the out-link to the `stream-yolo-jail` store path, streams the
    image tar to `cache/images/<sha16>.tar` (`materializeImage`), and
    `podman load`s it. `podman load` copies the layer blobs into podman's *own*
    image store — it does **not** create or hold any `/nix/store` reference.
-3. **Every exit path then calls `os.Remove(outLink)`** — success at
-   `autoload.go:266`, and each failure at `:236`, `:243`, `:259`. Removing the
+3. **Every exit path then calls `os.Remove(outLink)`** — on success and on
+   each failure. Removing the
    out-link destroys the sole GC root the instant the build finishes.
 
 `internal/image/build.go` (`BuildOCIImage`, the `yolo check` preflight) is worse:
-it builds to an `os.CreateTemp` out-link and `defer os.Remove`s it (`build.go:23-30`)
+it builds to an `os.CreateTemp` out-link and `defer os.Remove`s it (`build.go`)
 — rooted for the duration of `nix build`, unrooted forever after.
 
 Net effect: **every image build leaves a ~3.1 GiB unrooted closure.** A nested
@@ -87,14 +119,14 @@ territory the moment a GC runs.
 podman's image store lives under its own graphroot (in-jail: nested podman;
 host: rootless podman storage), entirely separate from `/nix/store`. The nix
 store paths the image's `/bin` symlinks point *into* are the host store, mounted
-`:ro` at `/nix/store` (`assemble.go:232-238`, gated by `shouldMountHostNix`). So
+`:ro` at `/nix/store` (`assemble.go`, gated by `shouldMountHostNix`). So
 the loaded, running container depends on live `/nix/store` paths that nix
 believes are garbage. That split is the whole bug.
 
 ### The HOME-divergence subtlety (rooting must be host-side)
 
 From inside a jail, nix delegates to the host daemon: `/nix/var/nix/daemon-socket`
-+ `/nix/store:ro` are mounted and `NIX_REMOTE=daemon` is set (`assemble.go:232-238`).
++ `/nix/store:ro` are mounted and `NIX_REMOTE=daemon` is set (`assemble.go`).
 **`/nix/var/nix/gcroots/` is NOT mounted into the jail** (confirmed: `ls
 /nix/var/nix/gcroots` → "No such file or directory" in-jail; only `daemon-socket`
 is present under `/nix/var/nix`). Two consequences:
@@ -123,7 +155,9 @@ but the security win for the maintainer's running jails is host-gated.
 
 ## Every storage consumer (the full map)
 
-Measured baseline below each. Root device: `/dev/mapper/root`, 3.7 TB, **45%
+Measured baseline below each, 2026-07-22 — the "Who cleans" column is the state before
+this plan's own [§3](#3-bounded-rooting-aware-store-gc-in-yolo-prune--after-1-and-2) and
+[§4](#4-log--overlay--cache-lifecycle--independent-lower-priority) sweeps landed. Root device: `/dev/mapper/root`, 3.7 TB, **45%
 used (1.6 TiB)** — shared by `/nix/store`, `/home/agent`, `/tmp`, `/workspace`,
 and the host.
 
@@ -162,8 +196,11 @@ and the host.
 
 ## The `yolo prune` surface (what exists, what it won't touch)
 
-`internal/prune/` + `internal/cli/commands.go:runPrune`. Default **dry-run**;
-`--apply` reclaims. Sections, in order (`prune.go:Run`):
+`internal/prune/` + `runPrune` in `internal/cli/commands.go`. Default **dry-run**;
+`--apply` reclaims. The sections as they stood when this plan was written, with later
+edits folded into item 4; this plan's own sections and later reapers (GC roots, prefix roots,
+the store-GC section, agent logs and staging, stale out-links, embedded-pack trees) are not
+listed, and `Run` in `internal/prune/prunecmd.go` is the current order:
 
 1. Hardlink dedup across workspace overlays (`prune.go`, atomic link-to-tmp-rename).
 2. Stopped `yolo-*` containers.
@@ -181,9 +218,9 @@ and the host.
    forbidden browser-profile subdirs hard-excluded; relocation-aware).
 
 **What prune deliberately does NOT touch — keep it that way:**
-- The host `/nix/store`. There is **no** `nix-collect-garbage` anywhere in the
-  codebase (confirmed: only match is `flake.nix:799`, the builder image's
-  `mkdir gcroots`). The user's hard rule stands: **never carelessly GC the host
+- The host `/nix/store`. There is **no** blanket `nix-collect-garbage` anywhere in the
+  codebase; the one store GC is [§3](#3-bounded-rooting-aware-store-gc-in-yolo-prune--after-1-and-2)'s
+  bounded, opt-in `yolo prune --nix-gc` (`internal/prune/nixgc.go`). The user's hard rule stands: **never carelessly GC the host
   store.** Any store GC this plan adds must be rooting-aware and jail-live-gated,
   never a blanket collect.
 - Host symlinks/mounts as an arbitrary rw primitive. The [`cache-relocation.md`](cache-relocation.md)
@@ -205,10 +242,10 @@ root, and (c) only then invokes a **bounded** `nix-collect-garbage` (or
 ### 1. Root the running image's closure — FIRST, everything depends on it
 
 - [x] **Stop destroying the out-link on success** — `internal/image/autoload.go`.
-  Remove the `os.Remove(outLink)` at `:266` (and reconsider `:236/:243/:259` —
+  Remove the success-path `os.Remove(outLink)` (and reconsider the failure-path ones —
   on failure there is no loaded image to protect, so removing is fine, but the
   success path must retain a root). The out-link name is per-PID
-  (`run-result-<pid>`, `:144`), which is wrong for a *durable* root: the PID is
+  (`run-result-<pid>`), which is wrong for a *durable* root: the PID is
   the build process, not the jail lifetime.
 - [x] **Introduce a per-loaded-image stable GC root** keyed by the store path,
   not the PID. Shape: after a successful load, `nix build --out-link
@@ -222,8 +259,10 @@ root, and (c) only then invokes a **bounded** `nix-collect-garbage` (or
   live-image enumeration (`FindReferencedBuildRoots` pattern in `sweep.go`, which
   is already tri-state-safe) so `yolo prune` removes `roots/<sha16>` entries whose
   store path no live jail depends on. Mirror the fail-safe: liveness unknown →
-  delete nothing.
-- [x] **Fix `BuildOCIImage`** (`internal/image/build.go:23-30`) — the check
+  delete nothing. **Superseded 2026-09-08 by
+  [`OQ-LS1`](../reference/image-retention.md#why-its-this-way):** the reaper
+  (`PruneOrphanImageRoots`) is now a one-week age cutoff with no liveness check.
+- [x] **Fix `BuildOCIImage`** (`internal/image/build.go`) — the check
   preflight's `defer os.Remove(outPath)` is acceptable *only* because check
   doesn't load an image to run; leave it, but add a code comment tying it to this
   invariant so a future refactor doesn't copy the pattern into a load path.
@@ -297,9 +336,9 @@ root, and (c) only then invokes a **bounded** `nix-collect-garbage` (or
 
 1. **Host nix.conf `min-free`/`max-free`** ([§2](#2-auto-gc-safety-net-min-freemax-free--only-after-1)) — a `/etc/nix/nix.conf` edit yolo
    must not make. yolo may detect + warn only.
-2. **Shipping the rooting fix to the maintainer's live jails** ([§1](#1-root-the-running-images-closure--first-everything-depends-on-it)) requires a
-   host `just load` (image + run-path change) — in-jail nested runs validate the
-   mechanism but do not re-root the host's already-running jails.
+2. ~~**Shipping the rooting fix to the maintainer's live jails**~~ — done by any host
+   `just install` since; the rooting is in the host `yolo`, and the source-skew gate refuses a
+   launch from an older one.
 3. **Any host-side gcroots registration** happens on the host `yolo run` path;
    the in-jail path cannot write `/nix/var/nix/gcroots` (read-only / unmounted).
 4. **Bounded store GC** ([§3](#3-bounded-rooting-aware-store-gc-in-yolo-prune--after-1-and-2)) can only be exercised end-to-end against a real host
@@ -327,13 +366,15 @@ root, and (c) only then invokes a **bounded** `nix-collect-garbage` (or
 
 ## Open questions
 
-- **Root granularity:** one root per distinct loaded image (sha16-keyed) vs. one
-  root per live jail (container-name-keyed). The former dedupes when many jails
-  share one image (the common case); the latter maps 1:1 to lifetime. Leaning:
-  sha16-keyed root + a reaper that checks *any* live jail references it.
 - **min-free/max-free values:** need the maintainer's real headroom numbers on
   the 3.7 TB shared device; 50/200 GiB is a placeholder.
 - **`restore-result`** in `build/` is a manual recovery root, not created by any
   yolo code (confirmed: no repo reference). Once [§1](#1-root-the-running-images-closure--first-everything-depends-on-it) gives durable auto-roots, the
   manual root can be retired — worth a note so it isn't mistaken for a yolo
   artifact.
+
+## Decision ledger
+
+| Question | Answer | Date | Settled in |
+| :--- | :--- | :--- | :--- |
+| **Root granularity:** one root per distinct loaded image (sha16-keyed) or one per live jail (container-name-keyed)? The leaning was a sha16-keyed root plus a reaper that checks whether *any* live jail references it | **Answered by reference.** The root is per image, `build/roots/<sha16>` (`image.ImageRootsDir`), as leaned. The reaper half went the other way: an age cutoff with no liveness check | 2026-09-08 | [`OQ-LS1`](../reference/image-retention.md#why-its-this-way) |

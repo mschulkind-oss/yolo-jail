@@ -8,7 +8,7 @@ deferred** — the maintainer flagged a worry that the whole `cache_relocations`
 mechanism may sit at the wrong level of abstraction. Do not build item 11 until
 that is resolved; see [Is `cache_relocations` the right
 level? — **OQ-CR1**](#-oq-cr1--is-cache_relocations-the-right-level-held) under Open Questions.
-**Filed:** 2026-07-21.
+**Filed:** 2026-07-21. Code citations re-checked 2026-09-24 and given by file or symbol, not line.
 
 **Needs your ruling:** [OQ-CR1](#-oq-cr1--is-cache_relocations-the-right-level-held), [OQ-CR2](#-oq-cr2--whether-the-relocation-should-also-be-reflected-host-side), [OQ-CR3](#-oq-cr3--whether-cache_relocations-should-accept-a-per-workspace-override-for-read-only-sharing) — all three HELD; CR1 and CR2 resolve together.
 
@@ -26,8 +26,8 @@ These are exactly the bytes you want on cheap storage: enormous, write-once,
 read-sequentially, and cold most of the time. Nothing about them wants to be on
 NVMe. But today there is no supported way to say so — `GlobalCache()` is
 `filepath.Join(GlobalStorage(), "cache")` with no override
-(`internal/paths/paths.go:73`), and `GlobalStorage()` is a hardcoded
-`$HOME/.local/share/yolo-jail` (`paths.go:64`).
+(`internal/paths/paths.go`), and `GlobalStorage()` is a hardcoded
+`$HOME/.local/share/yolo-jail` (`paths.go`).
 
 ## Why the two obvious workarounds don't work
 
@@ -39,7 +39,7 @@ The whole cache dir is bind-mounted into the container as one unit:
 "-v", paths.GlobalCache()+":/home/agent/.cache",
 ```
 
-— `internal/cli/run/assemble_parts.go:50` (podman) and `:23` (Apple Container).
+— `podmanBaseMounts` and `appleContainerBaseMounts`, both in `internal/cli/run/assemble_parts.go`.
 
 Podman resolves the *source* path of that `-v`, not the symlinks inside it. So
 if you replace `cache/huggingface` with a symlink to `/data/…`, the container
@@ -49,23 +49,23 @@ path, and the failure mode is confusing because the same symlink works fine
 when you `ls` it on the host.
 
 **This makes the current `yolo prune` hint actively misleading**
-(`internal/prune/prunecmd.go:194-197`):
+(`internal/prune/prunecmd.go`):
 
 > hint: cache/images holds 41.8 GiB of jail tarballs. They're streamed once at
 > podman load then unused — consider symlinking this subdir to HDD storage if
 > you have it.
 
 The advice happens to be *correct for `cache/images` specifically* — that subdir
-is only ever read host-side, by `internal/image/autoload.go:166` and
-`internal/image/image.go:141`, before any container exists — but it reads as a
+is only ever read host-side, by `internal/image/autoload.go` and
+`internal/image/image.go`, before any container exists — but it reads as a
 general technique. A user who follows it for `cache/huggingface` (the far bigger
 prize, and one of the two `CachePurgeHeavySubdirs` in
-`internal/prune/cachepurge.go:17`) breaks their jail. Work item 8 fixes the hint.
+`internal/prune/cachepurge.go`) breaks their jail. Work item 8 fixes the hint.
 
 ### `mounts` is read-only and project-scoped
 
 `config.mounts` looks close, but it is hardcoded read-only —
-`internal/cli/run/assemble.go:123` appends `":ro"` unconditionally — and the
+`internal/cli/run/assemble.go` appends `":ro"` unconditionally — and the
 README documents that as a security property ("Extra mounts are read-only by
 default"). A HuggingFace cache needs write access even on a pure cache *hit*:
 `huggingface_hub` takes lock files and writes `.no_exist` marker files.
@@ -151,6 +151,15 @@ that does not exist:
 > output:
 > [`../design/declaration-parity.md` §6.1](../design/declaration-parity.md#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured).
 
+> [!NOTE]
+> **A second nested writable bind now shares the `.cache` mount.** Since 2026-09-09 a
+> recognized content-addressed host cache (today pants' `lmdb_store` alone) is aliased at
+> `/home/agent/.cache/<rel>` inside the same parent bind (`internal/hostcas`,
+> `planHostCASAlias` in `internal/cli/run/hostcasalias.go`). It is handed this map and
+> **never aliases a segment the user relocated**, so a relocation always wins over the
+> alias. The rules for that alias are in
+> [`disk-levers-and-backfill.md`](../design/disk-levers-and-backfill.md#OQ-BF10).
+
 ### Why keys are subdir names, not paths
 
 The container destination is always `/home/agent/.cache/<key>` and is never
@@ -179,7 +188,7 @@ locations could carry the key; two are jail-writable:
 | Source | Jail-writable? | Verdict |
 |---|---|---|
 | Workspace `yolo-jail.jsonc` / `.local.jsonc` | **Yes** — `/workspace` is bind-mounted rw | Rejected as a validation error |
-| `<workspace>/.yolo/config-snapshot.json` | **Yes** — same mount; read verbatim in-jail (`config/load.go:225-236`, `snapshot.go:19`) | Never consulted for this key |
+| `<workspace>/.yolo/config-assembled.json` (was `config-snapshot.json` when this was written) | **Yes** — same mount; read verbatim in-jail (`config.WorkspaceAssembledConfigPath`, `LoadConfig`) | Never consulted for this key |
 | Host `~/.config/yolo-jail/config.jsonc` | **No** — mounted into the jail **read-only** (`userConfigMountArgs`, `assemble_parts.go`) | **The only source** |
 
 Hence: **`cache_relocations` is read directly from `paths.UserConfigPath()` at
@@ -204,7 +213,7 @@ exist" probe ran in-jail against host paths that are deliberately not in the
 jail's mount namespace, turning a valid host config into a fatal
 `Invalid jail config` on **every nested `yolo` run and every in-jail
 `yolo check`**. Two independent routes carried the key in (this mount, and the
-host-written `config-snapshot.json` that `LoadConfig` prefers in-jail).
+host-written `config-snapshot.json`, now `config-assembled.json`, that `LoadConfig` prefers in-jail).
 
 Resolution: relocation is a **host-side-only** feature. `LoadCacheRelocations`
 returns nothing in-jail (a nested container cannot mount a host path it cannot
@@ -239,29 +248,29 @@ Phase 1 is the feature. Phase 2 is what stops the feature from making
    the `GlobalCache()/<subdir>` mountpoint, both `0o755`, so a fresh host with
    the config set Just Works and podman never invents the stub itself. Separate
    function — `EnsureGlobalStorage(migrate func())` stays config-free. Call it
-   from the two existing `EnsureGlobalStorage` sites (`cli/run/run.go:82`,
-   `cli/check/check.go:35`) once config is available.
+   from the two existing `EnsureGlobalStorage` sites (`cli/run/run.go`,
+   `cli/check/check.go`) once config is available.
 4. **`internal/config/validate.go` — `validateCacheRelocations`.** Two jobs:
    shape-validate the entries visible in the merged map (rule set above), and
    **error if the key appears at workspace scope**. `ValidateConfig` only ever
-   receives the merged map (`cli/run/preflight.go:30`, `cli/check/check.go:344`,
-   merged at `config/load.go:249`) and carries no provenance, so the scope check
+   receives the merged map (`cli/run/preflight.go`, `cli/check/check.go`,
+   merged at `config/load.go`) and carries no provenance, so the scope check
    re-reads `LoadWorkspaceConfig(workspace, false, nil)` — one extra file read in
    a cold path, and no new provenance plumbing. Message must name the fix:
    *"cache_relocations is user-scope only; move it to
    ~/.config/yolo-jail/config.jsonc"*. Append the new checks at the **end** of
    `ValidateConfig`'s sequence — its append order is a frozen golden contract.
 5. **Assembly.** Add `cacheRelocations []config.CacheRelocation` to
-   `assembleInput` (`cli/run/assemble.go:24`), populated in the run pipeline so
+   `assembleInput` (`cli/run/assemble.go`), populated in the run pipeline so
    `assembleRunCmd` stays a pure function of `(o, in)`. Emit
    `-v <target>:/home/agent/.cache/<subdir>` from `podmanBaseMounts`
-   (`assemble_parts.go:39`), immediately after the `.cache` mount — adjacency is
+   (`assemble_parts.go`), immediately after the `.cache` mount — adjacency is
    for readability, **not correctness** (proven above).
-6. **Apple Container.** `appleContainerBaseMounts` (`assemble_parts.go:18`) is a
+6. **Apple Container.** `appleContainerBaseMounts` (`assemble_parts.go`) is a
    separate path built around a "single writable /home/agent (device-limit
    workaround)" constraint. Skip relocations there with one clear warning,
    mirroring the existing `mounts`-under-`container` skip
-   (`assemble.go:117-122`). Revisit if a Mac user asks; the motivating hardware
+   (`assemble.go`). Revisit if a Mac user asks; the motivating hardware
    is Linux.
 
 ### Phase 2 — keep the host tools honest
@@ -269,19 +278,19 @@ Phase 1 is the feature. Phase 2 is what stops the feature from making
 Relocation is **container-side only**: host-side `cache/<subdir>` stays an empty
 stub. So prune does not over-report freed bytes — it goes **blind**.
 
-7. **Prune accounting.** `DiskReport.CacheBreakdown` (`internal/prune/report.go:62-87`)
-   walks the direct children of `GlobalCache()` and *skips symlinks* (`:75`), so
+7. **Prune accounting.** `DiskReport.CacheBreakdown` (`internal/prune/report.go`)
+   walks the direct children of `GlobalCache()` and *skips symlinks*, so
    after relocation the 185 GiB entry simply disappears from the `cache/ top 5`
-   panel (`prunecmd.go:184-192`) — the largest consumer becomes invisible in the
+   panel (`prunecmd.go`) — the largest consumer becomes invisible in the
    tool whose job is finding it. Add a `CacheRelocated map[string]int64` sourced
    by stat'ing the real targets, print it as its own labelled section with the
    backing filesystem, and keep it out of the primary `GlobalStorage` total
    (those bytes are on another device).
-8. **Purge.** `PurgeCacheByAge` (`cachepurge.go:37`) joins `cacheRoot/sub` — and
-   `huggingface` is in `CachePurgeHeavySubdirs` (`:17`). Post-relocation, the
+8. **Purge.** `PurgeCacheByAge` (`cachepurge.go`) joins `cacheRoot/sub` — and
+   `huggingface` is in `CachePurgeHeavySubdirs`. Post-relocation, the
    heavy purge silently no-ops on it while reporting success. Resolve each
    subdir through the relocation map before walking.
-9. **Fix the hint** (`prunecmd.go:194-197`): point at `cache_relocations`, and
+9. **Fix the hint** (`prunecmd.go`): point at `cache_relocations`, and
    stop implying the symlink trick generalizes.
 
 ### Phase 3 — docs
@@ -341,6 +350,14 @@ stub. So prune does not over-report freed bytes — it goes **blind**.
   `internal/config` (loader + validator), `internal/prune` (accounting + purge),
   and the manual host acceptance step below. Revisit if a hermetic
   `HOME`-isolated harness ever lands.
+
+  ⚠ **That condition is now met, and the test is still not written.** Container
+  integration tests isolate `HOME` by default in `requireJail`, and `isolateHome(t,
+  userConfig)` (`integration/packs_test.go`) writes a user config into the temp home
+  and links the shared stores, so a test can place a `cache_relocations` key without
+  touching the developer's own config
+  ([`OQ-SC3`](../reference/storage-and-config.md#oq-sc3)). The argument above against
+  writing one no longer holds; nobody has written it.
 - **Manual host acceptance** (cannot be done in-jail): a real cross-filesystem
   relocation of `huggingface`, confirming `df` on the root filesystem drops and
   an in-jail HF download lands on the HDD. **Done 2026-07-22** — the maintainer

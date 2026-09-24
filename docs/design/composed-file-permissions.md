@@ -50,12 +50,22 @@ IDs (`CFP-*`) minted 2026-08-23.
    > _(empty — fill in when decided)_
 
 2. 💬 **CFP-2: Should `macos-user` and Apple Container get a documented degradation table?** Both
-   lose `:ro` silently — Apple Container ignores it outright and `macos-user` has no bind mounts
-   at all, so every `:ro` surface degrades to a writable materialized copy. This decides whether
-   "read-only" means anything on two of the three backends.
+   can lose `:ro`. Apple Container honors a read-only bind only from version 1.1.0
+   (`acROBindsFloor`, `internal/cli/run/backendcaps.go`); below that yolo skips a `mounts` entry
+   or a `host_files` directory rather than binding it writable, and `workspace_readonly` paths stay
+   writable behind a warning. A single-file composed surface there is copied into the writable
+   home either way. `macos-user` has no bind mounts at all, so a `:ro` surface becomes a
+   materialized copy whose only protection is file mode against the separate sandbox account.
+   This decides whether "read-only" means the same thing on all three backends.
+
+   *Updated 2026-09-24:* [`settings-per-setup.md`](../reference/settings-per-setup.md) now
+   tabulates this per config key and per setup (`host_files`, `mounts`, `workspace_readonly`),
+   which covers the host-file half of the question. It has no per-surface rows for composed
+   (Derived) surfaces, so the question stays open.
 
    _Leaning:_ yes, per-surface, but only when `macos-user` is next worked on — writing it earlier
-   means maintaining a table against a backend nobody is touching. Note it has grown a neighbour:
+   means maintaining a table against a backend nobody is touching. (As of 2026-09-24 `macos-user`
+   is being worked on, so that condition has arrived.) Note it has grown a neighbour:
    `render.FieldSet` / `HostUnimplemented` is now the mechanism for "this notch cannot honor that,
    and says so by name", so the table may want to be *code* rather than a doc.
 

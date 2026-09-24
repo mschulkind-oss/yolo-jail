@@ -10,10 +10,10 @@ vantage:
 
 # Workspace skills — the repo picks the content, never the agent
 
-**Status:** DESIGN, 2026-09-17 — nothing built; six questions open. Every current-behaviour
-claim below was checked against the tree at `3fceb366` on 2026-09-17, and every claim about an
-agent's discovery paths against the bundle installed in this jail, version named in the table
-that makes it.
+**Status:** DESIGN, 2026-09-17 — nothing built; six questions open. Every current-behavior
+claim below was checked against the tree on 2026-09-17 and re-checked on 2026-09-24, and every
+claim about an agent's discovery paths against the bundle installed in this jail, version named
+in the table that makes it (those were not re-read on 2026-09-24).
 
 > **In short.** A repo may hold an opinion about *what* its agents should know; it must not
 > get to hold one about *which* agent its readers use. The one place every agent's skills
@@ -133,8 +133,13 @@ design leans on:
 
 - **Layers, in order:** the built-in suite, then every selected pack's `skills/` in config
   order, the **conventional local pack** (`~/.config/yolo-jail/local`) appended last by
-  `config.LoadPacks`. A later layer overwrites an earlier same-named directory. There is no
-  workspace layer.
+  `config.LoadPacks`. A later layer overwrites an earlier same-named directory. Since
+  2026-09-22 one more entry is written after all of them, into every destination: yolo's own
+  generated LSP plugin (`writeLSPPlugin`, in `internal/jailcontent`), which Claude auto-loads
+  from its skills tree
+  ([`mcp-configuration.md`](../reference/mcp-configuration.md#oq-lsp1)). It is generated
+  output rather than a source, and a workspace layer at any [OQ-WS2](#OQ-WS2) position sits
+  below it. There is no workspace layer.
 - **A layer was deleted here, and its docstring is the closest prior art.** `SkillTarget`
   carried a `HostSource` — "the user's OWN skills tree to layer in last" — set to the
   *destination*, the host's `~/.<agent>/skills`. Once `yolo host apply` composed that
@@ -187,7 +192,7 @@ things under a workspace root:
 
 | What | Who writes, when | Kept out of git how |
 | :--- | :--- | :--- |
-| `<ws>/.yolo/` — the state dir (home overlays, logs, sidecars, archive) | every launch | its own `.gitignore` containing `*`, **written once and never again** — a user who edits or empties it is not fought ([`internal/paths/paths.go`](../../internal/paths/paths.go)) |
+| `<ws>/.yolo/` — the state dir (home overlays, logs, sidecars, archive) | every launch | its own `.gitignore` containing `*`, **written whenever it is absent and never overwritten** — a user who edits or empties it is not fought, and one who deletes it gets it back (`paths.EnsureWorkspaceStateDir`) |
 | `<ws>/yolo-jail.jsonc` | `yolo init`, once, never overwritten | committed on purpose |
 | a `.yolo/` line appended to `<ws>/.gitignore` | `yolo init`, only if the file lacks it ([`internal/cli/init.go`](../../internal/cli/init.go)) | it *is* the ignore |
 
@@ -640,6 +645,13 @@ is answered *by* two of them.
    invisible per-clone write to the file that defines invisibility. The write-once rule
    `.yolo/.gitignore` already follows — a user who removes the line is not fought — carries
    over unchanged.
+
+   ⚠ **Note, 2026-09-24, on that last sentence's premise.** `.yolo/.gitignore` is keyed on the
+   FILE: it is written whenever the file is absent, so emptying it is not fought and deleting it
+   is. (a)'s "write-once by content check" is keyed on the LINE, and run on every launch it
+   re-adds a line the user removed, as `yolo init`'s own "append if the file lacks it" would if it
+   ran more than once. So "not fought" does not carry over by itself; (a) needs its own record of
+   having written the line once. The leaning itself is unchanged.
 
    **Answer:**
    > _(empty — fill in when decided)_

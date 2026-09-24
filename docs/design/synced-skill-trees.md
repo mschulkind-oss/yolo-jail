@@ -84,8 +84,11 @@ applied somewhere specific.
   user's tree.
 
   ⚠ **That justification is MODE-DEPENDENT, and it fails at one of the three modes.**
-  `host_management` has three values (`none`, `assert`, `own` —
-  [`config.KnownHostManagements`](../../internal/config/hostmanagement.go)), and the circularity
+  `host_management` has three values in the code today (`none`, `assert`, `own` —
+  [`config.KnownHostManagements`](../../internal/config/hostmanagement.go)). A ruling dated
+  2026-09-20 retires `assert` and makes `none` the default
+  ([`config-ownership-and-promotion.md` §4.5](config-ownership-and-promotion.md#45-retiring-assert--the-two-value-key)),
+  and it is not built yet; the argument below holds at every one of the three. The circularity
   only exists where yolo composes into that tree. At **`none`** yolo does not write the real
   `$HOME` at all, so `~/.<agent>/skills` is the user's genuine hand-written tree and reading it
   would NOT be reading yolo's output. The principle as originally stated is therefore over-broad:
@@ -543,10 +546,10 @@ a yolo destination. The **switch that turns a plugin on** is, and it lives in a 
   `installClaudePlugins` diffed the registration against the configured LSP servers and shelled
   out to `claude plugins install|uninstall`, is **retired and removed**
   ([`pi-pack-extensions.md`](pi-pack-extensions.md) [`OQ-2`](pi-pack-extensions.md#10-decision-ledger),
-  ruled 2026-09-19 and built 2026-09-20). ⚠ **That sharpens this section rather than closing it.**
-  The hook was the only thing that ever made the tree match the switch, so an `enabledPlugins`
-  entry yolo writes can now name a plugin nothing installs — the paragraph below turned around,
-  with the switch present and the tree never arriving.
+  ruled 2026-09-19 and built 2026-09-20). Since 2026-09-22 yolo writes no `enabledPlugins`
+  entry either ([§8.2](#82-what-yolo-does-to-it-today--measured)), so the switch yolo once wrote
+  for a plugin nothing installs is gone too. What is left at stake is the user's own entries in a
+  table yolo regenerates.
 
 **The tree survives; the switch does not.** A user whose `enabledPlugins` entry is dropped still
 has every byte of the plugin on disk. What they lost is that it loads — and nothing about the
@@ -554,8 +557,17 @@ directory tells them so.
 
 ### 8.2 What yolo does to it today — MEASURED
 
-`packs/claude/derive.lua` returns `enabledPlugins` as an OBJECT while filling only the three LSP
-plugin ids, and `env` as an object while filling only `ENABLE_LSP_TOOL`. **An object-valued
+When this was measured, `packs/claude/derive.lua` returned `enabledPlugins` as an OBJECT while
+filling only the three LSP plugin ids, and `env` as an object while filling only `ENABLE_LSP_TOOL`.
+
+> [!NOTE]
+> **Since 2026-09-22 the derive returns no `enabledPlugins` at all.** yolo renders one LSP
+> plugin of its own from `lsp_servers` instead, and a plugin loaded that way is enabled by
+> default, so there is no plugin id left to assert
+> ([`OQ-LSP1`](../reference/mcp-configuration.md#oq-lsp1)). `env` is still an object filled with
+> `ENABLE_LSP_TOOL` alone. So the mechanism below still applies to `env`, and yolo no longer
+> regenerates `enabledPlugins`. The transcript below is from before that change and has not been
+> re-run; `enabledPlugins` stays in this section as the example it was when it was measured. **An object-valued
 derive key is a table yolo regenerates in full**, and that is the entire mechanism: the
 granularity is the key, and the knowledge is the leaf.
 
@@ -563,7 +575,7 @@ Two code paths, one per host posture, both arriving there:
 
 | `host_management` | What replaces the table | Archive |
 | :--- | :--- | :--- |
-| `assert` — the DEFAULT | `hostTableKeys` probes the derive for object-valued keys; `regenerateManagedTables` then clears the block and rewrites it from the declared layers alone | **None.** The archive nets ADOPTION, and an `assert` render is `rmw` |
+| `assert` — the shipped DEFAULT until the 2026-09-20 retirement is built | `hostTableKeys` probes the derive for object-valued keys; `regenerateManagedTables` then clears the block and rewrites it from the declared layers alone | **None.** The archive nets ADOPTION, and an `assert` render is `rmw` |
 | `own` | The first owned render adopts the file, and `dropComputedTables` strips from the residue every top-level key the computed layer holds as a NON-EMPTY object (an empty one asserts nothing and takes nothing — ruled 2026-09-20) | One, named on the surface's line |
 
 **`assert` is where the reader-trap is.** `config-ref` describes it as *"yolo owns the keys your
@@ -807,9 +819,9 @@ is what should happen to a leaf yolo has never asserted, which is [OQ-ST5](#OQ-S
   is correct as it stands.
 - **Not G32.** G32 asks whether the literal `~/.claude/skills` path should reach the *jail*.
   This doc **sits beside it and does not answer it**: everything here is host-notch, and its
-  ruling holds whichever way G32 goes. What this doc does change about G32 is its premise —
-  G32 says "two routes already reach the outcome" and treats the host tree as inert, and
-  [§3.2](#32-on-the-host-yolo-eats-it--measured) shows one part of it is not inert at all.
+  ruling holds whichever way G32 goes. What this doc did change about G32 is its premise —
+  G32 treated the host tree as inert, [§3.2](#32-on-the-host-yolo-eats-it--measured) shows one
+  part of it is not, and the row was amended on 2026-09-22 to say so.
 - **Not a general "import anything into a pack" facility.** The unit is a synced skill, from a
   declared sync root, and nothing else.
 - **Not roadmap row `0b`.** [§8](#8-a-worked-migration-state-already-in-a-file-yolo-is-about-to-own)
@@ -838,9 +850,10 @@ landed 2026-09-22, in this order**; what each one shipped as is in the
 
 Then the corpus: [`../../AGENTS.md`](../../AGENTS.md)'s skill-priority paragraph carries the fence
 and [`../reference/pack-system.md`](../reference/pack-system.md#skills) carries the reserved-child
-rule beside the tier rule — both 2026-09-22. **G32's row is the one that has not been re-read**: it
-still treats the host tree as inert, which [§3.2](#32-on-the-host-yolo-eats-it--measured)
-disproved ([§11](#11-what-this-does-not-propose) says why the ruling holds whichever way G32 goes).
+rule beside the tier rule — both 2026-09-22. G32's row in
+[`setup-support-gaps.md`](../plans/setup-support-gaps.md) was amended the same day to drop its
+"the host tree is inert" premise, which [§3.2](#32-on-the-host-yolo-eats-it--measured) disproved
+([§11](#11-what-this-does-not-propose) says why the ruling holds whichever way G32 goes).
 
 ## 13. What done looks like
 
@@ -895,8 +908,8 @@ once the signal exists.
    *Rewritten 2026-09-20 to stand alone. It had accreted three corrections and read as a diff
    against its own earlier self.*
 
-   **The situation, from scratch.** Some config yolo produces is a TABLE — `enabledPlugins`,
-   `mcpServers`, mise's `[tools]`. yolo writes some keys inside it. The user may have written
+   **The situation, from scratch.** Some config yolo produces is a TABLE — claude's `env`,
+   `mcpServers`, mise's `[tools]` (and `enabledPlugins` until 2026-09-22). yolo writes some keys inside it. The user may have written
    others. When yolo regenerates that table, it must decide what happens to the user's keys.
 
    **Two of the three parts are settled; only the third is open.**
@@ -943,8 +956,8 @@ once the signal exists.
 | :--- | :--- | :--- | :--- | :--- |
 | <a id="OQ-ST1"></a>**ST1** | ~~Which pack owns a snapshotted skill?~~ **DISSOLVED.** There is no snapshot, so nothing is copied into a pack and nothing owns a copy. This was the central ruling of the deleted design | 2026-09-20 | [§4.3](#43-what-was-deleted-with-the-snapshot-and-why) | n/a |
 | <a id="OQ-ST2"></a>**ST2** | ✅ **BUILT 2026-09-22. Pack-declared, per P2** — a `skills` contribution takes `reserved`, a list of bare child names, and `packs/claude` declares `["synced"]`. Core knows no vendor's directory name: hardcoding `synced` is how core learns what an agent is, one string at a time, which is the coupling `internal/hostskills`' tier comment already refuses. The fence precedes the manifest probe that let `synced` through, and adoption itself; it applies at every posture and reports a NON-EMPTY reserved child only. ⚠ It follows the two ownership skips, so an already-adopted home is [§7](#7-homes-that-are-already-wrong)'s `ReservedInLocalPack` case, not the fence's. ⚠ The sub-question — may a USER add reserved children in their own config? — is still **not ruled**, and gated nothing | 2026-09-20 · built 2026-09-22 | [§12](#12-what-i-would-build-in-order) step 1 | ✅ `Contribution.Reserved`, `Destination.IsReserved`, the fence in `hostskills.Adoptions`, and `packs/claude`'s declaration — each half pinned by a test proven to fail without it |
-| <a id="OQ-ST3"></a>**ST3** | **The sync root IS announced, at the host notch only** — the apply, which is where yolo is about to take the folder over. Not at launch: the launch stream discloses what yolo DID to a jail, "there is content elsewhere you did not ask for" is not that, and by [`OQ-RO3`](../reference/report-tiers.md#why-its-this-way) a line added there is permanent | 2026-09-20 | [§4.2](#42-the-notice--what-replaces-the-transition) | no |
+| <a id="OQ-ST3"></a>**ST3** | **The sync root IS announced, at the host notch only** — the apply, which is where yolo is about to take the folder over. Not at launch: the launch stream discloses what yolo DID to a jail, "there is content elsewhere you did not ask for" is not that, and by [`OQ-RO3`](../reference/report-tiers.md#why-its-this-way) a line added there is permanent | 2026-09-20 | [§4.2](#42-the-notice--what-replaces-the-transition) | ✅ 2026-09-22, as [the notice](#ST-N) |
 | <a id="OQ-ST4"></a>**ST4** | ~~Does drift ever do more than report?~~ **DISSOLVED.** There is no drift report — yolo holds no copy, so there is nothing to compare against | 2026-09-20 | [§4.3](#43-what-was-deleted-with-the-snapshot-and-why) | n/a |
 | <a id="ST-N"></a>**The notice** | ✅ **BUILT 2026-09-22.** Its own action (`ActionReserved`), printed in the DEFAULT view beside a refusal rather than as detail-on-demand — [§4.2](#42-the-notice--what-replaces-the-transition) asks for a line "emitted where a user is already looking", and a fence discovered only under `--verbose` reads later as yolo having lost the user's skills. Tiered as a run fact, not a loss: nothing left a directory. States all three things — the fact, `claude plugin list` to look, and `yolo pack --help` to use the content instead. ⚠ Keyed on CONTENT, not existence: a bucket is minted from the user's IDENTITY and is empty until something syncs, so an existence test would fire for every user with the feature on and nothing synced — dot-skipping applies BESIDE the buckets and never inside one, since a synced plugin is exactly a `.claude-plugin/` dir | 2026-09-20 · built 2026-09-22 | [§4.2](#42-the-notice--what-replaces-the-transition) | ✅ pinned through a real apply, not just its helper |
 | <a id="ST-R"></a>**The recovery** | ✅ **REPORT HALF BUILT 2026-09-22** (`hostskills.ReservedInLocalPack`), which is what R1 asked for. A local-pack skills entry whose NAME is a reserved child can only have got there by a previous apply adopting it, so finding the name finds the defect. It names the destination the tree was taken out of, says it came from a PREVIOUS apply, and claims to have fixed nothing. ⚠ **The offer to put it back is NOT built, deliberately** — by then the copies may have diverged, and a user who never re-authenticated or whose org turned Skills off holds the only copy there is; those users are indistinguishable from here | 2026-09-20 · report built 2026-09-22 | [§7](#7-homes-that-are-already-wrong) | ✅ report only; the offer is not |
-| **The transition itself** | **A NOTICE, not a mechanism.** yolo fences, says so on a non-empty reserved child, names the path, points at the pack documentation — and copies, moves and tracks nothing. The population needing a carried transition is probably nobody: `~/.claude/skills/` does not exist at all on the maintainer's own host | 2026-09-20 | [§4](#4-the-components--and-the-two-this-design-no-longer-has) | no |
+| **The transition itself** | **A NOTICE, not a mechanism.** yolo fences, says so on a non-empty reserved child, names the path, points at the pack documentation — and copies, moves and tracks nothing. The population needing a carried transition is probably nobody: `~/.claude/skills/` does not exist at all on the maintainer's own host | 2026-09-20 | [§4](#4-the-components--and-the-two-this-design-no-longer-has) | ✅ 2026-09-22 — the fence ([ST2](#OQ-ST2)) and [the notice](#ST-N) are the whole of it |

@@ -1,7 +1,7 @@
 ---
 status: current
-verified: 2026-09-09
-verified_commit: d8cf1cf8
+verified: 2026-09-24
+verified_commit: f491d192
 covers:
   - internal/paths/
   - internal/config/load.go
@@ -12,6 +12,7 @@ covers:
   - internal/storage/ensure.go
   - internal/packsrc/store.go
   - internal/cli/run/flock.go
+  - internal/provision/provision.go
   - internal/entrypoint/identity.go
   - internal/entrypoint/bootlog.go
   - integration/harness_test.go
@@ -21,7 +22,7 @@ summary: "Where yolo's bytes live and who owns them: the three config scopes and
 
 # Storage, config scopes and identity
 
-**Status:** CURRENT as of 2026-09-09, verified against `d8cf1cf8`.
+**Status:** CURRENT as of 2026-09-24; the commit it was checked against is the `verified_commit` field in this file's front matter.
 
 Every durable byte yolo writes lands in one of three places, and which one is a
 consequence of a single question: **is this state one truth per machine, one per
@@ -41,7 +42,7 @@ that decide who may write what. How those paths become `/home/agent` is
 | Machine base construction and layout migration | `internal/storage` (`EnsureGlobalStorage`, `MigrateStorageLayout`) |
 | The launch lock | `internal/cli/run` (`flock.go`) |
 | Git identity composition | `internal/cli/run` (`gitIdentityMountArgs`, `composeGitconfig`), `internal/entrypoint` (`configureGit`, darwin only) |
-| Boot and provisioning logs | `internal/entrypoint` (`bootlog.go`) |
+| Boot and provisioning logs | `internal/entrypoint` (`bootlog.go`), `internal/provision` (`StartupLog`) |
 
 **Reads with:** [`jail-home.md`](jail-home.md) (how these paths are mounted into a jail),
 [`pack-system.md`](pack-system.md) (a pack's own config surfaces, and `packs` selection),
@@ -158,6 +159,9 @@ every one. The four that carry meaning for how a jail behaves:
 
 - **`home/`** — the machine-wide base home, mounted `:ro` at `/home/agent`. Auth tokens and
   base configs; see [`jail-home.md`](jail-home.md#why-the-base-is-read-only-with-symlink-hatches).
+  A host launch refuses while it still holds per-workspace runtime bytes left by an older yolo
+  whose base home was writable, and prints the `mv` that clears them (`noteLegacyBaseHome`;
+  [`base-home-legacy-state.md`](../design/base-home-legacy-state.md)).
 - **`cache/`** — mounted read-write at `~/.cache` in every jail. A shared download cache.
 - **`mise/`** — the jail-land mise store, mounted at `/mise`. Shared by every jail. **The
   host's own mise installation is never a party to this** and is never mounted.
@@ -167,7 +171,8 @@ every one. The four that carry meaning for how a jail behaves:
 Also worth knowing by name, because each is a distinct on-disk contract rather than a
 cache: `approvals/` (never mounted), `captures/` (the machine-wide install-capture store,
 mounted `:ro` at `/ctx/captures`), `packs/` (the content-addressed pack store),
-`flake-bundle/` (what `just install` stages), `locks/`, and `bin/wrap` (the one generated
+`flake-bundle` (a symlink `just install` swaps at the newest staged generation under
+`flake-bundles/<stamp>/`, so a running jail keeps the generation it bound), `locks/`, and `bin/wrap` (the one generated
 directory a *user* is asked to prepend to their own PATH).
 
 **`embedded-packs/`** holds the on-disk copy of the packs compiled into the binary: one
@@ -216,6 +221,13 @@ machine-scope credential dirs are **not** caches: one of them is precisely what 
 broker's host-side lock exists to serialize, because two jails refreshing at once burn a
 single-use refresh token.
 
+One more writable bind is shared, and it is not yolo's storage at all: a recognized
+**content-addressed** host cache (today pants' `lmdb_store` alone, `hostcas.Stores`) is
+aliased into the jail at the path the jail's own copy of the tool uses. Content addressing
+is what makes a shared writer safe there — a blob whose digest does not match its key is
+rejected. The gates and the reasoning are in
+[`disk-levers-and-backfill.md`](../design/disk-levers-and-backfill.md#OQ-BF10).
+
 What the host CLI does guard:
 
 - **Image build** — the flake builds in place, and nix's own store handles concurrent
@@ -223,7 +235,10 @@ What the host CLI does guard:
   delete another's.
 - **Two launches of one workspace** — an exclusive `flock` under `locks/`, keyed on the
   container name, which derives from the workspace path. Taken before a fresh launch and
-  released once the container is visible, so the loser attaches instead of racing. **It is
+  released once the container is visible, so the loser attaches instead of racing. On
+  `macos-user`, which has no container to attach to, the same lock is held from the
+  bootstrap through the provisioning stage and released before the agent starts, so a
+  second terminal in that workspace waits for provisioning and never for the session. **It is
   per workspace and says nothing about two different workspaces writing the shared tier
   above.**
 
@@ -250,8 +265,11 @@ correct only once that is either serialized or ruled out.
 
 ## Per-workspace state
 
-Each workspace carries a `.yolo/` directory, and yolo makes it **un-committable as it creates
-it**: `paths.EnsureWorkspaceStateDir` writes a self-ignoring `.gitignore` — a bare `*`, which
+Each workspace carries a `.yolo/` directory. `paths.EnsureWorkspaceStateDir` is the one
+place it is created, and it **refuses** a workspace that is or contains `$HOME`,
+`~/.config/yolo-jail` or `~/.local/share/yolo-jail`, or sits inside either of the latter two
+(`paths.WorkspaceScopeBreach`): a `.yolo/` there would make the credential boundary part of
+the workspace. It also makes the directory **un-committable as it creates it**: it writes a self-ignoring `.gitignore` — a bare `*`, which
 ignores that file too — so the directory stays invisible to git in a repo that has never heard
 of yolo. It is written whenever the file is absent rather than only on a first creation, so a
 workspace launched before the feature existed gets one too; a `.gitignore` already there is
@@ -387,7 +405,7 @@ Two details the isolation needs and a naive version gets wrong:
 
 ## Current values
 
-Verified at `d8cf1cf8`. The prose above explains what each of these is for; this table is
+Verified at the front matter's `verified_commit`. The prose above explains what each of these is for; this table is
 the only place the values themselves are stated.
 
 | Value | Setting | Defined in |
@@ -403,8 +421,8 @@ the only place the values themselves are stated.
 | Launch lock | `<machine storage>/locks/<container-name>.lock` | `internal/cli/run/flock.go` |
 | Storage layout version | 2 | `storage.StorageLayoutVersion` |
 | Boot log, and its one rotation | `<workspace>/.yolo/boot.log`, `boot.log.prev` | `internal/entrypoint/bootlog.go` |
-| Launch log (the host half), trimmed to the newest 50 runs | `<workspace>/.yolo/launch.log` | `internal/cli/run/launchlog.go` |
-| Provisioning log (fresh containers only) | `<workspace>/.yolo/startup.log` | `internal/cli/run/command.go` |
+| Launch log (the host half), trimmed to the newest 50 runs | `<workspace>/.yolo/launch.log` | `internal/cli/run/launchlog.go`, `perf.MaxRuns` |
+| Provisioning log (fresh containers only) | `<workspace>/.yolo/startup.log` | `provision.StartupLog` |
 | Host launch-wrapper dir (the one a user prepends) | `<machine storage>/bin/wrap` | `paths.WrapDir` |
 | mise store, in-jail | `/mise`; `yolo-mise-data-v2` named volume on macOS | `internal/cli/run/assemble.go` |
 | Jail env: the mise block | `MISE_DATA_DIR=/mise`, `MISE_TRUSTED_CONFIG_PATHS=/workspace`, `MISE_ENV=jail`, `RUSTUP_HOME=/mise/rustup`, `CARGO_HOME=/mise/cargo` | `internal/cli/run/assemble.go` |
