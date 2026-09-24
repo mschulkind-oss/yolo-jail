@@ -11,12 +11,25 @@ vantage:
 # Pi model-selection UX and provider scoping
 
 **Status:** source-verified 2026-09-15 against Pi 0.85.1 and upstream commit
-`f9bcd351dc3cedf989bc5fc0f8aa012db5737df2`; third-party examples were checked
-only to establish prior art, not endorsed as dependencies.
+`f9bcd351dc3cedf989bc5fc0f8aa012db5737df2`; [§2](#2-subagent-defaults-do-not-follow-non-codex-profiles)
+source-verified 2026-09-23; checked against the tree 2026-09-24. Third-party examples were
+checked only to establish prior art, not endorsed as dependencies.
+
+**What shipped.** [§4](#4-recommendation)'s native-scope recommendation is **built**, with one
+deliberate divergence: pi's settings derive writes an explicit list of three Codex models for
+`openai-codex` rather than the `openai-codex/*` wildcard, because the wildcard would also make
+retired models selectable (the derive's own comment). Every other reachable provider gets its
+declared model ids, or `<provider>/*` when it declares none.
+[`provider-credential-scope.md`](../design/provider-credential-scope.md#241-what-pis-enabledmodels-actually-constrains)
+re-measured the scope at pi 0.87.1 and found it a soft shortlist, as [§1](#1-what-pi-0851-already-does) says: Tab and `--model`
+both escape it.
+
+**Needs your ruling:** [OQ-PM1](#OQ-PM1).
 
 > [!IMPORTANT]
 > For an active yolo provider profile, use Pi's native model scope. A Codex
-> profile should set `enabledModels` to `openai-codex/*`; Pi then opens `/model`
+> profile should set `enabledModels` to its Codex models (proposed here as
+> `openai-codex/*`; shipped as an explicit list); Pi then opens `/model`
 > on Codex models while retaining an explicit Tab escape to the full catalog.
 > A custom yolo model picker would duplicate a moving Pi interface and cannot
 > replace Pi's built-in `/model` or its existing shortcut through the public
@@ -83,13 +96,32 @@ hide the cause.
 
 ## 2. Subagent defaults do not follow non-Codex profiles
 
-**Source-verified 2026-09-23.** The shipped [`Pi settings derive`](../../packs/pi/derive.lua#L449-L544) returns `subagents` only when `selected_provider == "openai-codex"`. That branch emits a qualified `openai-codex/gpt-6-sol` default (or the selected profile model), plus an enforced, strict `openai-codex/gpt-6-*` scope. For another reachable provider the derive returns `enabledModels` and `selection`, but **no `subagents`**. With no provider selected or an unreachable provider it returns an empty result. The existing [`codex profile test`](../../internal/entrypoint/pi_codex_profile_test.go#L18-L71) checks the Codex branch; it does not check the non-Codex omission.
+**Source-verified 2026-09-23.** The shipped Pi settings derive (`yolo.derive("pi", "settings", …)` in [`packs/pi/derive.lua`](../../packs/pi/derive.lua)) returns `subagents` only when `selected_provider == "openai-codex"`. That branch emits a qualified `openai-codex/gpt-6-sol` default (or the selected profile model), plus an enforced, strict `openai-codex/gpt-6-*` scope. For another reachable provider the derive returns `enabledModels` and `selection`, but **no `subagents`**. With no provider selected or an unreachable provider it returns an empty result. The existing codex profile test (`TestPiCodexProfileSelectsBuiltInProviderAndExplicitModel`, [`pi_codex_profile_test.go`](../../internal/entrypoint/pi_codex_profile_test.go)) checks the Codex branch; it does not check the non-Codex omission.
 
 The installed `pi-subagents` documentation (`docs/models.md`, checked in this jail on 2026-09-23) says its precedence is per-run override → role override → agent frontmatter → `subagents.defaultModel` → **parent session model**. Therefore the absence of `subagents` is **not** an independent fixed package default: ordinary builtin agents inherit the parent model, while an agent declaring its own model can still use that. With no `modelScope`, no strict allow-list prevents a per-run or agent model outside the active provider. Scope is a rejection policy, not a model selector; it does not itself pin a default. The installed extension also says a project-level `modelScope` replaces the user-level one, so a generated user setting is not an absolute policy boundary.
 
 This is a reproducible code-path gap, but **the claimed OpenRouter launch was not independently inspected here**. The current jail's `~/.pi/agent/settings.json`, inspected on 2026-09-23, instead has `defaultProvider: zai`, `defaultModel: glm-5` and an explicit Codex `subagents` policy; those values can reflect the host settings layer or an earlier write. A missing computed key does not by itself prove the final rendered file lacks that key: host, capture, workspace and overlays can preserve it. Verify a specific launch with `yolo config render --explain pi/settings` or its rendered file and provenance, rather than inferring it solely from the derive branch.
 
-**Verdict:** fix the non-Codex policy gap only after deciding whether child agents should be pinned to the profile's exact model, to its provider's configured model set, or to a separate explicit budget/policy set. Reusing the Codex `gpt-6-*` allow-list on OpenRouter would either block valid models or allow the wrong provider. Cover both branches through the production rendering call site, including transition from Codex to a non-Codex profile and a provider without a resolvable model. Do not assert that simply moving the Codex block out of its branch is sufficient.
+**Verdict:** fix the non-Codex policy gap only after [OQ-PM1](#OQ-PM1) decides whether child agents should be pinned to the profile's exact model, to its provider's configured model set, or to a separate explicit budget/policy set. Reusing the Codex `gpt-6-*` allow-list on OpenRouter would either block valid models or allow the wrong provider. Cover both branches through the production rendering call site, including transition from Codex to a non-Codex profile and a provider without a resolvable model. Do not assert that simply moving the Codex block out of its branch is sufficient.
+
+### Open question
+
+1. 💬 <a id="OQ-PM1"></a>**[OQ-PM1](#OQ-PM1): under a non-Codex profile, which models may pi's child agents use?**
+   Three candidates: the profile's exact model, its provider's configured model set, or a
+   separate explicit budget/policy set. Today pi's settings derive emits no `subagents` for any
+   provider but `openai-codex`, so children inherit the parent model and nothing rejects an
+   out-of-provider per-run model. The stakes: reusing the Codex `gpt-6-*` allow-list would
+   block valid models on another provider or allow the wrong one, so the build waits on this.
+
+   <!-- vantage: oq id=OQ-PM1 leaning="The provider's configured model set, as a strict scope with the profile's model as the default. It is the set the user already curated for that provider, it matches what enabledModels already holds, and it needs no new config key; a separate budget set is a new surface nobody has asked for yet." -->
+
+   _Leaning:_ **The provider's configured model set**, strict, with the profile's model as the
+   default. It is the set the user already curated, it matches what `enabledModels` already
+   holds, and it needs no new config key; a separate budget set is a new surface nobody has
+   asked for yet.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
 
 ## 3. Existing extension solutions
 

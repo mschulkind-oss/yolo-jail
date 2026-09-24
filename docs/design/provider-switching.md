@@ -8,8 +8,10 @@ summary: "Why moving claude between Teams and Bedrock, or codex between two Bedr
 
 # The same model has a different name in every provider — and switching leaves the old one behind
 
-**Status:** SKETCH, 2026-09-04. Nothing built. Code claims verified against
-`f604c6b2`.
+**Status:** SKETCH, 2026-09-04; re-verified against the tree 2026-09-24. Nothing built:
+`agentcfg.ApplySelection`'s not-selected branch still lifts the current value and never
+clears, and packs/claude's `bedrock` provider still declares no `models`. Code claims cite a
+symbol, never a line.
 
 **The short version.** A model id is provider-local — `claude-opus-5` on the first-party
 API, `us.anthropic.claude-opus-5` on Bedrock, `openai.gpt-5.6-sol` on Bedrock Mantle,
@@ -73,8 +75,19 @@ user-typed, provider-relative model name the agent itself resolves to a provider
 Claude Code resolves the alias differently per provider — the documented consequence being
 that on Bedrock `--model sonnet` reaches an *older* Sonnet than the same word does on the
 first-party API. `ANTHROPIC_DEFAULT_OPUS_MODEL` / `_SONNET_MODEL` / `_HAIKU_MODEL` exist
-precisely to repoint an alias, and `packs/claude/derive.lua:64-79` already emits all three
-from the selected provider's `models` map.
+precisely to repoint an alias, and the claude env derive (`yolo.env("claude", …)` in
+`packs/claude/derive.lua`) already emits all three — plus `ANTHROPIC_MODEL` — from the
+selected provider's `models` map.
+
+> [!NOTE]
+> **Two behaviours landed after this was written (`f7b14308` and `caaaae1b`, 2026-09-15/16),
+> and both narrow the "claude resolves its own tier" half of the table below.** When the
+> provider declares no `sonnet` or `haiku` alias, the derive now sets SONNET and HAIKU to the
+> *selected* model rather than leaving Claude Code's per-provider alias in place. And a profile
+> `model` option that names no alias — in a map that has no `default` either — is used as a
+> **literal model id**, for every provider. So a Bedrock profile carrying
+> `model: "us.anthropic.…"` already pins every tier with no `models` map at all; what the map
+> adds is distinct ids per tier.
 
 **Codex, pi and opencode have none.** yolo resolves the alias itself and writes a literal
 id into their config — `model` in `config.toml`, `defaultModel` in pi's `settings.json`,
@@ -99,14 +112,15 @@ That difference decides where each half of the fix lands:
 
 ## 3. What happens today, precisely
 
-`packs/claude/pack.json:121-124` ships the `bedrock` provider with **no `models` map at
+`packs/claude/pack.json` ships the `bedrock` provider as a bare name — **no `models` map at
 all**. So the alias machinery that would make `opus` mean the right thing on both sides has
-nothing to read: `packs/claude/derive.lua:71-79` emits nothing, and the user is back to
-typing ids. That is the whole of the claude problem — a missing three-line table, not a
+nothing to read: with no profile `model` option the claude env derive emits no model variable,
+and the user is back to typing ids. That is the whole of the claude problem — a missing three-line table, not a
 missing mechanism.
 
 The other three share a state machine that is deliberate, documented, and one row short.
-`internal/agentcfg/selection.go:138-147` states the contract; `:152-204` implements it:
+`agentcfg.ApplySelection`'s doc comment states the contract (the per-key table), and its
+body implements it:
 
 | Situation | Today | Right? |
 | :--- | :--- | :--- |
@@ -116,7 +130,7 @@ The other three share a state machine that is deliberate, documented, and one ro
 | Selection stops naming the key | **keep the file's value, keep the record** | **no** |
 
 The fourth row is where the residue comes from, and the code comment says so in as many
-words: *"not selected → lift cur … never clear ([`OQ-CS2`](../reference/providers.md#why-its-this-way))"*. [`OQ-CS2`](../reference/providers.md#why-its-this-way) was right about the
+words: *"not selected → lift cur … never clear ([`OQ-CS2`](../reference/providers.md#oq-cs2))"*. [`OQ-CS2`](../reference/providers.md#oq-cs2) was right about the
 danger it named — an interactive `/model` choice must survive the next launch — but the
 rule it produced is broader than the danger. It protects two different values with one
 behaviour: **the user's** value, which must never be touched, and **yolo's own** stale
@@ -131,9 +145,17 @@ distinguish the two cases. The fourth row simply does not ask.
 > **Omitting the key is not clearing it.** The stateful render rewrites the file wholesale
 > from its layers, and the capture overlay may still hold the key's pre-yolo value — so a
 > key no layer asserts falls back to that stale value rather than disappearing
-> (`selection.go:116-123` explains this at length; it is why deactivation lifts the current
-> value rather than dropping it). A clear must lift an explicit RFC-7386 **null tombstone**,
-> which the fold already honours as a deletion (`internal/agentcfg/compose.go:396`).
+> (`ApplySelection`'s doc comment explains this at length; it is why deactivation lifts the
+> current value rather than dropping it). A clear must lift an explicit RFC-7386 **null
+> tombstone**, which the fold already honours as a deletion (`agentcfg.mergeValue`).
+>
+> ⚠ **A tombstone deletes through every layer BELOW it, the user's own host file included**
+> — measured 2026-09-20, when three tombstones in `packs/claude/derive.lua` deleted a user's
+> deliberate plugin enables on every boot (`5e15b964`). The selection lift lands on the
+> computed layer, so [§4.2](#42-the-fourth-row-clear-what-yolo-wrote-keep-what-the-user-wrote)'s
+> clear would also remove a `model` the user set in their **host** config, rather than
+> falling back to it. That bears on [`OQ-PS2`](#OQ-PS2): the clear as proposed restores the
+> agent's built-in default, never a host-layer value.
 
 ---
 
@@ -148,8 +170,8 @@ to declare, so one profile swap means one thing:
 
 | Alias | Means | Today |
 | :--- | :--- | :--- |
-| `default` | what you get when nothing is said | zai, and every derive's fallback |
-| `fast` | cheap and quick | zai only |
+| `default` | what you get when nothing is said | cerebras and llamacpp, and every derive's fallback |
+| `fast` | cheap and quick | nowhere — zai's aliases became its wire ids (`8e901423`) |
 | `balanced` | the middle tier, where one exists | nowhere |
 
 Three names, capability-shaped rather than vendor-shaped, because a vendor tier name
@@ -158,8 +180,8 @@ warning**, not an enum: a provider missing one gets a launch warning naming whic
 nothing is refused — the same tolerance the open `endpoints` key set has, for the same
 version-skew reason.
 
-The one place it bites is claude, whose derive reads the *vendor* aliases `sonnet` and
-`haiku` literally (`derive.lua:74-79`). The proposal is that it read `balanced` → SONNET and
+The one place it bites is claude, whose env derive reads the *vendor* aliases `sonnet` and
+`haiku` literally, falling back to the selected model when either is absent. The proposal is that it read `balanced` → SONNET and
 `fast` → HAIKU, keeping `sonnet`/`haiku` as accepted synonyms so no existing user config
 breaks. **[`OQ-PS1`](#OQ-PS1).**
 
@@ -238,8 +260,8 @@ stateDiagram-v2
 
 | Alternative | Verdict |
 | :--- | :--- |
-| **Clear on deselect by omitting the key** rather than tombstoning it | **Rejected — does not work.** The capture overlay re-supplies the stale value; `selection.go:116-123` documents exactly this. |
-| **Always re-assert the selection every boot**, making the file yolo's outright | **Rejected.** It reverts an interactive `/model` on the next launch — the hazard [`OQ-CS2`](../reference/providers.md#why-its-this-way) exists to prevent, and the reason the record mechanism was built. |
+| **Clear on deselect by omitting the key** rather than tombstoning it | **Rejected — does not work.** The capture overlay re-supplies the stale value; `ApplySelection`'s doc comment documents exactly this. |
+| **Always re-assert the selection every boot**, making the file yolo's outright | **Rejected.** It reverts an interactive `/model` on the next launch — the hazard [`OQ-CS2`](../reference/providers.md#oq-cs2) exists to prevent, and the reason the record mechanism was built. |
 | **Drop the record entirely on deselect, keep the file value** | **Rejected.** It makes the residue permanent *and* unattributable: the next selection would then read the stale id as the user's and refuse to move it. |
 | **A canonical model-name translation table in core** (one id per model, per provider) | **Rejected as the catalog [§5](#5-what-this-does-not-license) forbids.** It is the `wire_api` enum mistake at model granularity: yolo would own a mapping that changes weekly and is wrong silently. |
 | **Leave it, and document "always pass `-p`"** | **Rejected.** It is a rule enforced by memory, at the exact moment memory fails. `use_profiles` in user config is the legitimate version of this and is unaffected. |
@@ -343,11 +365,14 @@ selection key for a provider whose catalog row the same gate dropped.
    row currently keeps whatever the file holds. The proposal narrows "never clear" to "never
    clear the user's value", using the record already on disk. Stakes: this is the live
    defect. It is also a change to a ruled decision on a shipped mechanism, and the ruling it
-   revises was made for a real hazard.
+   revises was made for a real hazard. And the clear reaches further than this doc first said:
+   a computed-layer tombstone also deletes a host-layer value
+   ([§3](#3-what-happens-today-precisely)'s warning), so "clear" means "the agent's built-in
+   default", not "whatever the user's host config says".
 
    <!-- vantage: oq id=OQ-PS2 leaning="Revise it. OQ-CS2 answered 'must an interactive /model survive the next launch?' — yes, and the record already distinguishes that case. 'Never clear' was the implementation of that answer, not the answer, and it protects yolo's own stale value as a side effect nobody chose." -->
 
-   _Leaning:_ Revise it. [`OQ-CS2`](../reference/providers.md#why-its-this-way) answered "must an interactive `/model` survive the next
+   _Leaning:_ Revise it. [`OQ-CS2`](../reference/providers.md#oq-cs2) answered "must an interactive `/model` survive the next
    launch?" — yes, and the record already distinguishes that case. "Never clear" was the
    implementation of that answer, not the answer itself, and it protects yolo's own stale
    value as a side effect nobody chose.
@@ -361,6 +386,8 @@ selection key for a provider whose catalog row the same gate dropped.
    (`us.` / `eu.` / `global.`) whose availability I did **not** verify for Anthropic models
    in this pass. Stakes: shipped ids make `-p bedrock` work on first use; empty ones make it
    a two-step setup but keep yolo out of the catalog business [§5](#5-what-this-does-not-license) forbids.
+   It is the same decision as [`bedrock-plumbing.md`](bedrock-plumbing.md)'s
+   [`OQ-BR3`](bedrock-plumbing.md#OQ-BR3), so rule the two together.
 
    <!-- vantage: oq id=OQ-PS3 leaning="Ship them, dated, in the pack README — but verify the Anthropic-on-Bedrock geo prefixes first, because an unverified prefix is exactly the 404-on-unknown-model failure P1 describes. If that verification is inconvenient, ship the shape empty and document the two lines." -->
 
@@ -403,17 +430,19 @@ selection key for a provider whose catalog row the same gate dropped.
 
 ## 11. Evidence
 
-Code, verified 2026-09-04 against `f604c6b2`:
+Code, re-verified 2026-09-24. Each claim names the symbol or file that carries it, so it
+survives an edit elsewhere in the file:
 
 | Claim | Anchor |
 | :--- | :--- |
-| The four-row selection contract, stated | `internal/agentcfg/selection.go:138-147` |
-| The `!selected` branch keeps the file value and the record | `internal/agentcfg/selection.go:168-174` |
-| Why omission is not clearing (wholesale rewrite + capture overlay) | `internal/agentcfg/selection.go:116-123` |
-| Null tombstones delete a key in the fold | `internal/agentcfg/compose.go:396` |
-| claude emits the three `ANTHROPIC_DEFAULT_*_MODEL` vars from `models` | `packs/claude/derive.lua:64-79` |
-| packs/claude's `bedrock` provider declares no `models` | `packs/claude/pack.json:121-124` |
-| The three id-writing selection keys | `packs/codex/derive.lua:158-168`, `packs/pi/derive.lua:167-181`, `packs/opencode/derive.lua:118-140` |
+| The four-row selection contract, stated | `agentcfg.ApplySelection`'s doc comment (`internal/agentcfg/selection.go`) |
+| The not-selected branch keeps the file value and the record | the `case !selected:` arm of `agentcfg.ApplySelection` |
+| Why omission is not clearing (wholesale rewrite + capture overlay) | `agentcfg.ApplySelection`'s doc comment |
+| Null tombstones delete a key in the fold, through every lower layer | `agentcfg.mergeValue` (`internal/agentcfg/engine.go`); the `LiteralNulls` field comment in `internal/agentcfg/compose.go`; `5e15b964` |
+| The selection lift lands on the computed layer | `agentcfg.ApplySelection`'s call site in `internal/entrypoint/prism.go` |
+| claude emits `ANTHROPIC_MODEL` and the three `ANTHROPIC_DEFAULT_*_MODEL` vars from `models` | `yolo.env("claude", …)` in `packs/claude/derive.lua` |
+| packs/claude's `bedrock` provider declares no `models` | the `kind: "provider"` entry named `bedrock` in `packs/claude/pack.json` |
+| The three id-writing selection keys | the `selection` table each of `packs/codex/derive.lua`, `packs/pi/derive.lua` and `packs/opencode/derive.lua` returns |
 | Selection record path | `<workspace>/.yolo/prism/<agent>-<name>.selection.json` |
 
 Vendor, 2026-09-04: Claude Code's `opus`/`sonnet` aliases resolve per provider, and resolve

@@ -3,14 +3,15 @@ title: "Plan: shared OpenAI subscription authentication"
 date: 2026-09-17
 status: accepted
 tags: [authentication, codex, pi, oauth, implementation]
-summary: "What the machine-wide OpenAI credential service still needs: the macos-user refresh consumer, host-only import and logout, and the checks no unit test reaches."
+summary: "What the machine-wide OpenAI credential service still needs: the macos-user refresh consumer, the recorded Codex version floor, and the checks no unit test reaches. Host-only import and logout and the Apple Container disclosure shipped 2026-09-18."
 ---
 
 # Plan: shared OpenAI subscription authentication
 
-**Status:** DECIDED, 2026-09-23 — steps 1–8 are built or partial, steps 10 and 11 shipped
-2026-09-18 (`36c47baa`, `4de78ac0`), step 9 waits on
-[OQ-OA6](openai-auth-broker.md#OQ-OA6), and step 12 is the checks nothing automated reaches.
+**Status:** DECIDED, 2026-09-24 — steps 1–8 are built or partial, steps 10 and 11 shipped
+2026-09-18 (`36c47baa`, `4de78ac0`; step 10's endpoint-withholding half was declined there, with
+its reason), step 9 waits on [OQ-OA6](openai-auth-broker.md#OQ-OA6), step 4's last clause waits
+on [OQ-OA7](openai-auth-broker.md#OQ-OA7), and step 12 is the checks nothing automated reaches.
 
 **Design:** [`openai-auth-broker.md`](openai-auth-broker.md)
 
@@ -51,14 +52,16 @@ summary: "What the machine-wide OpenAI credential service still needs: the macos
 this file is advice — the first thing here to be wrong. Never twist the code to match it.
 
 **What is left:** the `macos-user` refresh consumer (9, waiting on
-[OQ-OA6](openai-auth-broker.md#OQ-OA6)) · the checks nothing automated reaches (12). Apple
-Container's disclosure (10, `36c47baa`) and host-only import and logout (11, `4de78ac0`)
-shipped 2026-09-18. The rest is built, two steps differently from how
-the original hand-off described them. **Read
+[OQ-OA6](openai-auth-broker.md#OQ-OA6)) · the measured Codex floor, recorded in
+[`../research/openai-subscription-auth.md`](../research/openai-subscription-auth.md) (still
+absent there) · the checks nothing automated reaches (12). Apple Container's disclosure (10,
+`36c47baa`) and host-only import and logout (11, `4de78ac0`, public as `yolo openai-auth` since
+`fafb7493`) shipped. The rest is built, two steps differently from how the original hand-off
+described them. **Read
 [`jail-daemon-on-macos-user-plan.md`](jail-daemon-on-macos-user-plan.md) before step 9:**
 it owns the generic in-jail-daemon half of this backend, already records this service's
-dead `127.0.0.1:1460` override as one of its four measured cases, and is blocked on two
-unfiled rulings.
+dead `127.0.0.1:1460` override as one of its four measured cases, and is blocked on
+[OQ-DP8](declaration-parity.md#OQ-DP8) and [OQ-DP9](declaration-parity.md#OQ-DP9).
 
 ## Where the original eight steps landed
 
@@ -66,27 +69,28 @@ unfiled rulings.
 | :--- | :--- | :--- | :--- |
 | 1 | Credential transaction | **done, differs** | `openaiauth.Broker`: `withLock` (`syscall.Flock`), reload under lock, `DecisionStale` on a caller-generation mismatch, `writeState`'s 0600-in-0700 atomic rename, `TokenFingerprint`, `context.WithoutCancel` around redemption. `TestConcurrentCallersRedeemExactlyOnce` is the race. **Differs:** a NEW package, not a generalization of `internal/oauthbroker`, whose `withRefreshLock` is still a second flock transaction — see Blockers. |
 | 2 | Host service transport | **done, differs** | **Differs:** the service ships from `packs/openai-auth`, not from the Codex pack. `packs/codex/pack.json` and `packs/pi/pack.json` each carry an unconditional `needs` on it. `TestStagePacksJoinsOpenAIAuthForCodex` and `TestStageRunPacksPreservesNeededOpenAIAuthState` exercise the real selection call site. |
-| 3 | Codex adapter | **partial** | `internal/openaiauthadapter` serves the native token-endpoint shape; the manifest's `jail_daemon` binds `127.0.0.1:1460`; `packs/codex/pack.json` sets `CODEX_REFRESH_TOKEN_URL_OVERRIDE` at that URL. **Missing:** the version floor is pinned nowhere — not in the pack, not in `internal/packdecl` (which has no such field), and [`../research/openai-subscription-auth.md`](../research/openai-subscription-auth.md) records only that it read Codex 0.154.0. |
-| 4 | Pi adapter | **partial** | `packs/pi/extensions/yolo-openai-auth.js` registers the `openai-codex` provider (`login`/`refreshToken`/`getApiKey`), shells to `yolo internal openai-auth-client`, and puts `yolo-broker:<generation>` in Pi's `refresh` field — never the canonical token. **Missing:** the design's ask-once-more-after-unauthorized ([§2](openai-auth-broker.md#2-one-writer-and-two-views)). The file has no status inspection and no retry; whether Pi's own 401 path calls `refreshToken` and covers it is unverified, and Pi is not in this tree. |
+| 3 | Codex adapter | **done** | `internal/openaiauthadapter` serves the native token-endpoint shape, JSON and form bodies both (`readTokenRequest`, fixed 2026-09-22); the manifest's `jail_daemon` binds `127.0.0.1:1460`; `packs/codex/pack.json` sets `CODEX_REFRESH_TOKEN_URL_OVERRIDE` at that URL. The version floor is **measured** (0.56.0, the warning above), so a launch-time refusal would be dead code. **Still owed:** recording that floor in [`../research/openai-subscription-auth.md`](../research/openai-subscription-auth.md), which records only that it read Codex 0.154.0. |
+| 4 | Pi adapter | **done, one clause owed a ruling** | `packs/pi/extensions/yolo-openai-auth.js` registers the `openai-codex` provider (`login`/`refreshToken`/`getApiKey`), shells to `yolo internal openai-auth-client`, and puts `yolo-broker:<generation>` in Pi's `refresh` field — never the canonical token. The design's ask-once-more-after-unauthorized ([§2](openai-auth-broker.md#2-one-writer-and-two-views)) is **measured unbuildable** (the warning above): pi has no 401 refresh path and the extension API exposes no status. Whether the design drops it is [OQ-OA7](openai-auth-broker.md#OQ-OA7). |
 | 5 | Callback relay and login | **partial, differs** | `openaiauthdaemon.StartLogin`: PKCE, exact-path `/auth/callback`, state compared before the code is taken, a second callback refused 409, `listenLoginPort` binding 1455 then 1457 with the redirect URI naming the port it got. **Differs:** no state registry and no routing to a jail — the host daemon owns the whole flow and the jail's `login` action only streams the URL back, which makes the design's relay unnecessary rather than unbuilt. **Missing:** a third concurrent login has no port. |
-| 6 | Backend transport | **partial** | Podman: `hostServicesMountArgs` emits the services-dir bind plus `YOLO_SERVICE_OPENAI_AUTH_BROKER_ENDPOINT`, and the adapter joins `YOLO_JAIL_DAEMONS` through `runtimeArgsFor`. `macos-user`: the arm calls `startLoopholesDisclosed` with the whole pack set, refuses the launch when this service did not start, sets the variable to the **host** path, and `macosuser.EndpointGrantCommands` ACL-grants it (`PlanInvariants` refuses a plan that carries an endpoint without a grant). **Missing:** steps 9 and 10. |
-| 7 | Managed host use | **partial** | `openaiauthhost.Prepare`, reached from `internal/cli/host.go` through `prepareOpenAIAuthHost` (`TestHostExecUsesManagedOpenAIAuthLaunch` pins that call site): a managed `CODEX_HOME`, the ordinary config copied with this workspace marked trusted, `AGENTS.md`/`skills` symlinked, a dynamic adapter on `127.0.0.1:0` closed when Codex exits. `hostwrap.Body("codex")` routes through it. **Missing:** the one-shot import (step 11). |
-| 8 | Operations | **partial** | `runProactive`; `status` returning fingerprints only (`statusView`); `selfCheck` wired as the manifest's `doctor_cmd`. **Missing:** logout is **unreachable** — `Broker.Logout` has no production caller at all, only `TestReplaceAndLogoutUseCanonicalGeneration`. The docs half is listed under Ships with. |
+| 6 | Backend transport | **partial** | Podman: `hostServicesMountArgs` emits the services-dir bind plus `YOLO_SERVICE_OPENAI_AUTH_BROKER_ENDPOINT`, and the adapter joins `YOLO_JAIL_DAEMONS` through `runtimeArgsFor`. `macos-user`: the arm calls `startLoopholesDisclosed` with the whole pack set, refuses the launch when this service did not start, sets the variable to the **host** path, and `macosuser.EndpointGrantCommands` ACL-grants it (`PlanInvariants` refuses a plan that carries an endpoint without a grant). Apple Container reports the loophole inert (step 10). **Missing:** step 9. |
+| 7 | Managed host use | **partial** | `openaiauthhost.Prepare`, reached from `internal/cli/host.go` through `prepareOpenAIAuthHost` (`TestHostExecUsesManagedOpenAIAuthLaunch` pins that call site): a managed `CODEX_HOME`, the ordinary config copied with this workspace marked trusted, `AGENTS.md`/`skills` symlinked, a dynamic adapter on `127.0.0.1:0` closed when Codex exits. `hostwrap.Body("codex")` routes through it. The one-shot import shipped as step 11. |
+| 8 | Operations | **done** | `runProactive`; `status` returning fingerprints only (`statusView`); `selfCheck` wired as the manifest's `doctor_cmd`; `logout` reachable from `yolo openai-auth logout` on the host socket only (step 11). The docs half is listed under Ships with. |
 
 ## Map — remaining work only
 
 | Path | Change |
 | :--- | :--- |
-| `internal/openaiauthdaemon/handler.go` | `import` and `logout` actions; `jailActionAllowed` keeps refusing both |
-| `internal/openaiauthdaemon/main.go` | `serveSockets` builds **two** handlers, one per socket — see Traps |
-| `internal/openaiauthdaemon/import.go` | new — decode Codex's `auth.json` into `openaiauth.Tokens` for `Broker.Replace` |
-| `internal/openauthclient/main.go` | `import` and `logout` become real verbs, host-socket only |
-| `internal/cli/openaiauth.go` | new — the user-facing verb; `internal/cli/internal.go` is a hidden path and logout is a thing users type |
 | `internal/macosuser/runplan.go` | step 9 route (b) — carry a launch-owned refresh-adapter URL into the sandbox env |
 | `internal/cli/run/run.go` (macos-user arm) | step 9 route (b) — start that adapter beside `startLoopholesDisclosed` and own its lifetime |
-| `internal/cli/run/assemble_parts.go` | stop emitting the endpoint variable for `rt == "container"` |
-| `internal/cli/run/packloopholes.go` | drop the `withoutOpenAIAuthPack` special case so AC reports this loophole inert |
 | `packs/codex/pack.json` | the refresh URL stops being a static pack `env` var if step 9 takes the dynamic-port route |
+| `docs/research/openai-subscription-auth.md` | the measured Codex floor, 0.56.0, beside its 0.154.0 provenance line |
+
+Steps 10 and 11's rows are spent: `import.go`, the second handler in `serveSockets`, the host-only
+client verbs and the public `yolo openai-auth` verb landed, and the `withoutOpenAIAuthPack`
+special case is deleted. Step 10's other row — withholding the endpoint variable on Apple
+Container — was **declined** in `36c47baa`: the measurement is per backend, so every
+loopback-TLS endpoint there is equally unreachable, and withholding the pointer while the adapter
+stays in `YOLO_JAIL_DAEMONS` turns an unreachable front into no front at all.
 
 ## Reuse
 
@@ -96,13 +100,13 @@ unfiled rulings.
   URL written from `listener.Addr()`, and `Launch.Run` closing it when the agent exits.
   That is route (b) below, already written once.
 - **The one-retry-after-401 exists in-tree**: `wirebridged.NewCodexResponsesHandler` sets
-  `retryUnauthorized` around `openauthclient.RequestAccessToken`. Step 4's gap is the same
-  behavior one layer out.
-- **The negative half of step 11 is already written and passing.** `jailActionAllowed`
-  excludes `import` and `logout` (`TestJailActionsExcludeMachineWideDestructiveOperations`),
-  and `openauthclient.Run` refuses both (`TestRunRefusesMachineWideMutations`). Both stay
-  green; step 11 adds the positive path on the private host socket only. The wire key is
-  already anticipated — that second test asserts the client never sends `path`.
+  `retryUnauthorized` around `openauthclient.RequestAccessToken`. It is **not** a template for
+  step 4: that handler sees the upstream status, and pi's extension never does
+  ([OQ-OA7](openai-auth-broker.md#OQ-OA7)).
+- **Step 11's negative half still guards it.** `jailActionAllowed` excludes `import` and
+  `logout` (`TestJailActionsExcludeMachineWideDestructiveOperations`), and `openauthclient.Run`
+  refuses both from a jail (`TestRunRefusesMachineWideMutations`); the positive path lives on
+  the private host socket only.
 - **`browserOpen` is an injectable package var** and
   `TestBrowserLoginFallsBackValidatesStateAndExchangesPKCE` is the pattern for any login
   test: fake opener, `httptest` token server, no network and no agent process.
@@ -114,13 +118,12 @@ unfiled rulings.
 
 ## Traps
 
-- **One handler serves both sockets, and it cannot tell them apart.** `serveSockets` hands
-  the same `hostservice.Handler` to `ServeFrontedUnix` (jail-facing, behind yolo's front)
-  and `ServeUnix` (the private 0600 `HostSocketPath`). `hostservice`'s own doc states the
-  handler never learns which socket carried its bytes, and `Session.JailID` falls back to
-  the client's *self-asserted* `jail_id` on `ServeUnix`. **Constraint:** gate host-only
-  actions by building a second handler for the host socket, never by inspecting the
-  session. A `JailID`-based check is a jail-supplied string.
+- **A handler cannot tell which socket carried its bytes.** `hostservice`'s own doc states
+  it, and `Session.JailID` falls back to the client's *self-asserted* `jail_id` on
+  `ServeUnix`. Step 11 therefore built a **second handler** for the private 0600
+  `HostSocketPath` rather than inspecting the session. **Constraint, still:** any later
+  host-only action goes on that handler, never behind a `JailID` check — that is a
+  jail-supplied string.
 - **`macos-user` Codex is handed a refresh URL nothing binds.** `CODEX_REFRESH_TOKEN_URL_OVERRIDE`
   is a static pack `env` var and pack env reaches this backend (`packload.EnvVarsFor` →
   `packChannel.launchEnv` → `macosuser.Options.PackEnv` → the sandbox env file), while
@@ -129,16 +132,15 @@ unfiled rulings.
   until expiry, then every refresh fails against a closed port. Step 9 fixes it. Note that
   1460 is the *machine's* real loopback on this backend, so a manifest-literal port is also
   a collision between two concurrent launches.
-- **Apple Container's measurement is negative, and the launch does not say so.**
+- **Apple Container's measurement is negative, and since step 10 the launch says so.**
   `backendInertReason("container")` records the result of
   `integration/applecontainer_test.go`'s `TestAppleContainerReachesHostLoopback` on
   `container` 1.1.0: a container→host connection completes its handshake and carries
-  nothing, no bind address helps, and `host.containers.internal` does not resolve. AC
-  nevertheless gets the endpoint variable and the mount (`brokerEndpointIsUnpublishable`
-  suppresses only the *Claude* broker's variable), `startLoopholesDisclosed` passes
-  `withoutOpenAIAuthPack` so the inert line is withheld, and the disposition is `unknown`
-  (`jailLoopbackEnvArgs`'s default), which never escalates — so the fatal witness does not
-  refuse it either. **Step 10 is a disclosure change, not a transport one.**
+  nothing, no bind address helps, and `host.containers.internal` does not resolve. AC still
+  gets the endpoint variable and the mount — `hostScopedEndpointIsUnpublishable` withholds
+  every host-scoped endpoint on AC **except** this one — and the disposition is `unknown`,
+  which never escalates, so the fatal witness does not refuse it. What changed is that
+  `notePackLoopholesInert` names the loophole and the measured reason at launch.
 - **Do not mount the state directory anywhere.** The nonempty `state_files` list is the
   fail-closed boundary that keeps `credentials.json` out of the jail; an empty or absent
   list mounts the whole directory. `prepareOpenAIAuthMountSentinel` exists to give that
@@ -166,18 +168,15 @@ prove it — read *Instruments* below before believing a green.
    `internal/macosuser/openaiauth_endpoint_test.go` already runs on Linux); the **hosted Mac
    nightly** for the launch (`.github/workflows/macos-user.yml`, `-run '^TestMacosUser'`). →
    `go test ./internal/macosuser ./internal/cli/run`
-10. **Tell the truth on Apple Container.** Withhold the endpoint variable for
-    `rt == "container"` and delete the `withoutOpenAIAuthPack` special case so the launch
-    reports the loophole inert with `backendInertReason`'s measured reason. **Class:**
-    Linux `go test` alone — this is argv and report content. Re-running
-    `TestAppleContainerReachesHostLoopback` on the Mac runner is how the skip *expires*
-    later, not how this step is proved. →
-    `go test ./internal/cli/run`
-11. **Host-only import and logout.** Two handlers in `serveSockets`; an `import` action
-    reading a named Codex `auth.json` into `Broker.Replace`; a `logout` action calling
-    `Broker.Logout`; both wired to a user-facing verb that states logout is machine-wide
-    before it deletes anything. **Class:** Linux `go test`. →
-    `go test ./internal/openaiauthdaemon ./internal/openauthclient ./internal/cli`
+10. **SHIPPED 2026-09-18 (`36c47baa`), disclosure half.** The `withoutOpenAIAuthPack`
+    special case is deleted, so the launch reports the loophole inert with
+    `backendInertReason`'s measured reason. Withholding the endpoint variable was declined in
+    the same commit (see the Map). Re-running `TestAppleContainerReachesHostLoopback` on the
+    Mac runner is how the inert line *expires* later.
+11. **SHIPPED 2026-09-18 (`4de78ac0`); public verb 2026-09-20 (`fafb7493`).** A second
+    handler on the host socket; `import --from <file>` into `Broker.Replace`; `logout` calling
+    `Broker.Logout`; `yolo openai-auth status|import|logout` states logout is machine-wide
+    before it deletes anything.
 12. **The checks nothing automated reaches.** A rootless jail completing a brokered
     refresh; a browser login end to end; two agents crossing one expiry boundary with one
     upstream redemption. **Class:** the podman `integration` job in `.github/workflows/ci.yml` (rootless on
@@ -205,15 +204,9 @@ prove it — read *Instruments* below before believing a green.
 - **Unit, step 9:** the run plan carries the launch-owned URL and it *overrides* the pack's
   static value (the override is the assertion — a test that only checks presence passes
   against today's dead port); the adapter is closed on exit.
-- **Unit, step 10:** an AC launch emits no `YOLO_SERVICE_OPENAI_AUTH_BROKER_ENDPOINT` and
-  *does* print the inert line for `openai-auth`. **Rewrite, do not repair** — all three of
-  `TestAppleContainerMountsOnlyActiveOpenAIAuthEndpoint`,
-  `TestAppleContainerWithholdsUnapprovedOpenAIAuthEndpoint` and
-  `internal/cli/run/acbrokerendpoint_test.go` assert the behavior step 10 removes.
-- **Unit, step 11:** `import` and `logout` succeed on the host socket and are refused on the
-  fronted one — the refusal must reach the daemon *through* `ServeFrontedUnix`, or it pins a
-  callee whose call site is unpinned. Import refuses a malformed or expired file, refuses a
-  symlink, and leaves `~/.codex/auth.json` untouched; logout is idempotent.
+- **Unit, steps 10 and 11: shipped with them** — `packhostdisclosure_test.go` for the AC
+  inert line, `internal/openaiauthdaemon/hostactions_test.go` and
+  `internal/openaiauthhost/operator_test.go` for import and logout.
 - **Integration: there is nothing today.** `integration/` contains no OpenAI-broker test at
   all. Step 12's first artifact is one: a jail whose `packs` selects `codex`, asserting a
   brokered `token` round-trip through the published endpoint. That is the test that would
@@ -252,15 +245,17 @@ prove it — read *Instruments* below before believing a green.
 ## Blockers
 
 - **Stop and ask: route (a) or (b) for step 9** — filed as [OQ-OA6](openai-auth-broker.md#OQ-OA6). Route (b) is the cheaper path and un-blocks
-  this service from the two unfiled rulings
-  [`jail-daemon-on-macos-user-plan.md`](jail-daemon-on-macos-user-plan.md) is waiting on —
+  this service from the two rulings
+  [`jail-daemon-on-macos-user-plan.md`](jail-daemon-on-macos-user-plan.md) is waiting on
+  ([OQ-DP8](declaration-parity.md#OQ-DP8), [OQ-DP9](declaration-parity.md#OQ-DP9)) —
   and it is consistent with what already ships, since the loopback-TLS front itself runs
   unconfined in the launcher process on this backend. But it is a second mechanism for one
   manifest key, and whether that is acceptable is exactly what that plan's confinement
   question decides. Do not pick it unilaterally.
 - **Stop and ask before refusing an old Codex.** Recording the floor is documentation; a
   launch-time refusal or a `min_version` schema field is new behavior and belongs in the
-  design doc first. `internal/packdecl` has no such field today.
+  design doc first. `internal/packdecl` has no such field today — and the measured floor
+  (0.56.0, about a year behind every installable Codex) makes such a refusal dead code.
 - **Two flock transactions, by accident rather than by ruling.** The design's
   [§2](openai-auth-broker.md#2-one-writer-and-two-views) says the engine "should be
   generalized once … rather than a second independent implementation"; what shipped is

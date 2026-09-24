@@ -10,14 +10,15 @@ vantage:
 
 # Every provider's credential reaches every agent, and a profile cannot narrow it
 
-**Status:** DESIGN, 2026-09-23. No gate built. Code evidence verified against `7ad8358c`; pi
-evidence measured statically against the installed pi 0.87.1.
+**Status:** DESIGN, 2026-09-23; code claims re-verified 2026-09-24. No gate built. Code claims
+cite a symbol, never a line; pi evidence was measured statically against the installed pi 0.87.1
+and carries that version's line anchors.
 
 > **In short.** A profile selects which provider an agent *uses*; it does not decide which
 > provider credentials an agent *can see* — so selecting one provider grants the agent every
 > provider the user has ever configured.
 
-**Why it matters.** Measured in this jail right now: `.yolo/home/yolo-user-env.sh` delivers
+**Why it matters.** Measured in this jail on 2026-09-22: `.yolo/home/yolo-user-env.sh` delivers
 `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, put there by `env_sources` for **claude's**
 bedrock profile, and pi's `amazon-bedrock` branch authenticates from exactly that pair
 ([`env-api-keys.js:120-153`](#5-evidence)). So pi offers Bedrock because claude has credentials.
@@ -70,32 +71,34 @@ others. `yolo -p zai -- pi` offers zai.
 ### 2.1 Delivery is profile-blind by construction
 
 Hydration takes no profile, agent or provider: `ResolveEnvSourcesFull(workspace, cfg, warn)` is the
-whole signature ([`envsources.go:130-195`](../../internal/config/envsources.go)). The writer then
-loops over every hydrated key with no gate of any kind
-([`userenv.go:96-102`](../../internal/cli/run/userenv.go)).
+whole signature ([`envsources.go`](../../internal/config/envsources.go)). The writer then
+loops over every hydrated key with no gate of any kind (`writeUserEnvFile`,
+[`userenv.go`](../../internal/cli/run/userenv.go)).
 
 Two things in that file *are* profile-scoped, and they are the reason the gap is easy to miss: a
-pack's `profile`-gated `env` contribution ([`packload.go:612-651`](../../internal/packload/packload.go)),
-and the per-agent provider shape variables
-([`profilechannel.go:142-151`](../../internal/cli/run/profilechannel.go)). A profile already decides
+pack's `profile`-gated `env` contribution (`packload.EnvFold`,
+[`packload.go`](../../internal/packload/packload.go)), and the per-agent provider shape variables
+(the `shapeVars` that `composePackChannel` fills,
+[`profilechannel.go`](../../internal/cli/run/profilechannel.go)). A profile already decides
 *what claude's `ANTHROPIC_AUTH_TOKEN` is*. It decides nothing about what pi can read.
 
 > [!WARNING]
 > **The per-agent shape variables are not per-agent at delivery.** Every agent's shape vars are
-> written into the one shared file ([`userenv.go:117-125`](../../internal/cli/run/userenv.go)), so
+> written into the one shared file (`writeUserEnvFile`'s channel section), so
 > claude's profile-scoped `ANTHROPIC_AUTH_TOKEN` lands in pi's environment too. A gate on
 > `env_sources` alone leaves this second channel open.
 
 ### 2.2 The frozen contract is the grammar, not the key set
 
 `writeUserEnvFile`'s doc comment freezes the file's *format*, because the entrypoint parses it back
-([`userenv.go:21-28`](../../internal/cli/run/userenv.go)). The two line forms carry the precedence:
+([`userenv.go`](../../internal/cli/run/userenv.go)). The two line forms carry the precedence:
 def-form `export K=${K:-'v'}` is a default the container environment beats, plain-form
 `export K='v'` beats even the container's frozen environment
-([`boot.go:166-176`](../../internal/entrypoint/boot.go)).
+(`hydrateEnvFromUserEnvFile`'s doc comment, [`boot.go`](../../internal/entrypoint/boot.go)).
 
 **Narrowing the key set does not touch that contract** — and the pinned-bytes test feeds the writer
-a map and checks the rendering ([`userenv_test.go:13-31`](../../internal/cli/run/userenv_test.go)),
+a map and checks the rendering (`TestWriteUserEnvFileBytes`,
+[`userenv_test.go`](../../internal/cli/run/userenv_test.go)),
 so it stays green. That is a hole, not a reassurance: the change needs a test that fails when the
 gate is deleted.
 
@@ -103,16 +106,16 @@ gate is deleted.
 
 | Vehicle | Where | Filters today |
 | :--- | :--- | :--- |
-| Container backends | [`userenv.go:83`](../../internal/cli/run/userenv.go) → single-file mount | no |
-| `macos-user` | its **own** `ResolveEnvSources` call, [`orchestrator.go:273-277`](../../internal/macosuser/orchestrator.go) | no |
-| The host notch | [`host.go:500-515`](../../internal/cli/host.go) | no |
+| Container backends | `writeUserEnvFile` ([`userenv.go`](../../internal/cli/run/userenv.go)) → single-file mount | no |
+| `macos-user` | its **own** `ResolveEnvSources` call, in `buildPlan` ([`orchestrator.go`](../../internal/macosuser/orchestrator.go)) | no |
+| The host notch | `composeHostVars` ([`host.go`](../../internal/cli/host.go)) | no |
 
 Three implementations of one channel is the shape this repo treats as a defect class, and it is why
 the gate cannot be a local edit to the container writer.
 
 ⚠ The notches also **read different config scopes**: the host reads user scope only
-([`host.go:358`](../../internal/cli/host.go)), the jail reads the merged config
-([`preflight.go:22`](../../internal/cli/run/preflight.go)). A declaration that says which key
+(`hostScopedEnvSources`, [`host.go`](../../internal/cli/host.go)), the jail reads the merged config
+(`loadAndValidateConfig`, [`preflight.go`](../../internal/cli/run/preflight.go)). A declaration that says which key
 belongs to which provider must therefore be legible in both.
 
 ### 2.4 The agents disagree about what a credential even decides
@@ -122,9 +125,9 @@ programs rather than their docs.
 
 | Agent | Does a credential decide the menu? | Its narrowing key, and how hard it holds | Does yolo set it? |
 | :--- | :--- | :--- | :--- |
-| **pi** 0.87.1 | yes — availability *is* credential presence ([`models.js:256-274`](#5-evidence)) | **`enabledModels` — a soft shortlist** ([§2.4.1](#241-what-pis-enabledmodels-actually-constrains)) | **yes**, for every pi-reachable selected provider ([`pi derive.lua:520-543`](../../packs/pi/derive.lua)) |
+| **pi** 0.87.1 | yes — availability *is* credential presence ([`models.js:256-274`](#5-evidence)) | **`enabledModels` — a soft shortlist** ([§2.4.1](#241-what-pis-enabledmodels-actually-constrains)) | **yes**, for every pi-reachable selected provider (`yolo.derive("pi", "settings", …)` in [`derive.lua`](../../packs/pi/derive.lua)) |
 | **opencode** | no — catalog rows register without an auth check | `enabled_providers` / `disabled_providers` — hard, per its schema | no |
-| **claude** | no | `enforceAvailableModels` + `replaceBuiltInOptions` — an enforced allowlist | `openai-codex` only ([`claude derive.lua:81-100`](../../packs/claude/derive.lua)) |
+| **claude** | no | `enforceAvailableModels` + `replaceBuiltInOptions` — an enforced allowlist | `openai-codex` only (the settings derive in [`packs/claude/derive.lua`](../../packs/claude/derive.lua)) |
 
 So every agent measured ships a narrowing key; what differs is **how hard it holds and whether
 yolo sets it.** opencode's own schema says `enabled_providers` means **"When set, ONLY these
@@ -157,8 +160,8 @@ running a session. Anchors are in the unbundled `dist/`; the `pi` bin runs
 through and completes. It forbids nothing: the escapes are one keystroke (Tab) and one flag
 (`--model`), and the shortlist grows as it is used. It also **fails open**: a scope whose patterns
 match no credentialed model is empty, and an empty scope means no scope at all
-(`main.js:642-644`). So `yolo -p zai -- pi` already starts on zai
-([`pi derive.lua:520-543`](../../packs/pi/derive.lua)), and Bedrock is still one Tab away in the
+(`main.js:642-644`). So `yolo -p zai -- pi` already starts on zai (pi's settings derive), and
+Bedrock is still one Tab away in the
 picker. The measured symptom is the all view, and no pi key reaches it.
 
 INFERRED, not measured: pi writes an appended pattern back to `~/.pi/agent/settings.json`, and
@@ -179,11 +182,13 @@ traced.
 [`OQ-PS5`](provider-switching.md#OQ-PS5) was filed saying yolo cannot tell which `env_sources` key belongs to which provider. That
 is **half** wrong, and the half that is right is the load-bearing half.
 
-A provider declaration carries `api_key_env_name`, and it has at least nine non-test consumers —
-four pack derives ([`pi:391`](../../packs/pi/derive.lua), [`opencode:86`](../../packs/opencode/derive.lua),
-[`codex:134`](../../packs/codex/derive.lua), [`omp:37`](../../packs/omp/derive.lua)),
-`providers.go:561` and `:617-618`, `deriveenv.go:245`, `footprint.go:464`, and
-`wirebridged/boot.go:668`. The mapping exists; **no consumer of it lives in the delivery path.**
+A provider declaration carries `api_key_env_name`, and it has consumers across the tree — four
+pack derives ([pi](../../packs/pi/derive.lua), [opencode](../../packs/opencode/derive.lua),
+[codex](../../packs/codex/derive.lua), [omp](../../packs/omp/derive.lua)), packload's provider
+composition and its pre-flight (`internal/packload/providers.go`), `hydrateProviders`, the
+footprint report (`internal/packload/footprint.go`) and the wire bridge's boot
+(`internal/wirebridged/boot.go`). The mapping exists; **no consumer of it lives in the delivery
+path.**
 
 Two gaps make it insufficient as it stands:
 
@@ -211,21 +216,22 @@ flowchart TD
 | Layer | What a gate there achieves | What it misses |
 | :--- | :--- | :--- |
 | Hydration | nothing — it has no profile to gate on | everything |
-| `composePackChannel` | the best-informed site: holds hydrated env, the profile table, the composed provider table and resolved profiles at once ([`profilechannel.go:85-153`](../../internal/cli/run/profilechannel.go)) | must still fan out to three vehicles |
+| `composePackChannel` | the best-informed site: holds hydrated env, the profile table, the composed provider table and resolved profiles at once ([`profilechannel.go`](../../internal/cli/run/profilechannel.go)) | must still fan out to three vehicles |
 | `writeUserEnvFile` | the exported environment | the rendered config, and two other backends |
 | `hydrateProviders` | the rendered config | the exported environment |
 
 **Both write paths must be gated or the leak survives.** `hydrateProviders` walks *every* entry of
 the composed table and sets `api_key` on each one whose `api_key_env_name` resolves
-([`deriveenv.go:232-254`](../../internal/packload/deriveenv.go)) — so a perfect filter on the
+([`deriveenv.go`](../../internal/packload/deriveenv.go)) — so a perfect filter on the
 exported environment still writes every provider's credential into the agent's own config file.
 
 ### 3.2 The pre-flight refuses what the gate withholds
 
 `requiredProviders` demands a credential for every composed entry that has an endpoint, scoped to
 the **selected packs** and explicitly **not** to the profile
-([`providers.go:461-481`](../../internal/packload/providers.go),
-[`providerpreflight.go:21-26`](../../internal/cli/run/providerpreflight.go)). So a gate that narrows
+([`providers.go`](../../internal/packload/providers.go),
+`checkProviderCredentials`'s doc comment in
+[`providerpreflight.go`](../../internal/cli/run/providerpreflight.go)). So a gate that narrows
 the channel makes `checkProviderCredentials` **refuse the launch over the key the gate just
 withheld**.
 
@@ -235,12 +241,13 @@ argv pairs) and the macos-user arm — so this is not a one-line consequence.
 ### 3.3 The withhold primitive half-exists
 
 A `yolo.env` producer can already emit a tombstone — `ctx.tombstone` becomes
-`agentenv.Var{Unset: true}` ([`deriveenv.go:176-178`](../../internal/packload/deriveenv.go)) — and
-the host notch honours it. The container path drops it, because
-*"Unset has no file spelling"* ([`userenv.go:117-123`](../../internal/cli/run/userenv.go)).
+`agentenv.Var{Unset: true}` (the env-derive runner, `packload.AgentEnv`, in
+[`deriveenv.go`](../../internal/packload/deriveenv.go)) — and the host notch honours it. The
+container path drops it, because *"Unset has no file spelling"* (`writeUserEnvFile`,
+[`userenv.go`](../../internal/cli/run/userenv.go)).
 
 ⚠ **Only claude and copilot register a `yolo.env` producer at all**
-([`claude:112`](../../packs/claude/derive.lua), [`copilot:63`](../../packs/copilot/derive.lua)), so
+([`claude`](../../packs/claude/derive.lua), [`copilot`](../../packs/copilot/derive.lua)), so
 for pi, codex, opencode, omp and agy a profile contributes no environment at either notch. A design
 built on the producer reaches two agents.
 
@@ -259,22 +266,22 @@ built on the producer reaches two agents.
 
 ## 5. Evidence
 
-Code, verified 2026-09-23 against `7ad8358c`:
+Code, re-verified 2026-09-24. Each claim names the symbol that carries it:
 
 | Claim | Anchor |
 | :--- | :--- |
-| The unfiltered loop over every hydrated key | `internal/cli/run/userenv.go:96-102` |
-| The frozen contract is the grammar; the pinned test checks rendering | `internal/cli/run/userenv.go:21-28`, `userenv_test.go:13-31` |
-| Hydration takes no profile/agent/provider | `internal/config/envsources.go:130-195` |
-| The best-informed gate site | `internal/cli/run/profilechannel.go:85-153` |
-| `hydrateProviders` sets `api_key` on every composed entry | `internal/packload/deriveenv.go:232-254` |
-| The pre-flight is scoped to packs, not the profile | `internal/packload/providers.go:461-481`, `internal/cli/run/providerpreflight.go:21-26` |
-| The second and third vehicles | `internal/macosuser/orchestrator.go:273-277`, `internal/cli/host.go:500-515` |
-| The container's fifth reader, on the agent launch path | `internal/cli/run/command.go:52` |
-| claude's already-gated enforced menu | `packs/claude/derive.lua:81-100` |
-| yolo already writes pi's `enabledModels` for every selected provider | `packs/pi/derive.lua:449`, `:470-474` (`openai-codex`), `:520-543` (the rest) |
-| The tombstone, and its container no-op | `internal/packload/deriveenv.go:176-178`, `internal/cli/run/userenv.go:117-123` |
-| `guest` refuses every verb | `internal/render/fieldset.go:24-27` |
+| The unfiltered loop over every hydrated key | `writeUserEnvFile` (`internal/cli/run/userenv.go`) |
+| The frozen contract is the grammar; the pinned test checks rendering | `writeUserEnvFile`'s doc comment; `TestWriteUserEnvFileBytes` |
+| Hydration takes no profile/agent/provider | `config.ResolveEnvSourcesFull` (`internal/config/envsources.go`) |
+| The best-informed gate site | `(*Options).composePackChannel` (`internal/cli/run/profilechannel.go`) |
+| `hydrateProviders` sets `api_key` on every composed entry | `hydrateProviders` (`internal/packload/deriveenv.go`) |
+| The pre-flight is scoped to packs, not the profile | `requiredProviders` (`internal/packload/providers.go`); `checkProviderCredentials`'s doc comment (`internal/cli/run/providerpreflight.go`) |
+| The second and third vehicles | `macosuser.buildPlan`'s `ResolveEnvSources` call; `composeHostVars` (`internal/cli/host.go`) |
+| The container's fifth reader, on the agent launch path | `miseActivate` (`internal/cli/run/command.go`), which sources the file before every agent command |
+| claude's already-gated enforced menu | the `openai-codex` branch of claude's settings derive (`packs/claude/derive.lua`) |
+| yolo already writes pi's `enabledModels` for every selected provider | `yolo.derive("pi", "settings", …)` (`packs/pi/derive.lua`): an explicit three-model list for `openai-codex`, the declared ids (or `<provider>/*`) for the rest |
+| The tombstone, and its container no-op | `packload.AgentEnv`'s `case nil` arm; `writeUserEnvFile`'s skip of `Unset` |
+| `guest` refuses every verb | `render.NotchUnbuilt` (`internal/render/fieldset.go`) |
 
 Vendor, measured in this jail against the **installed** packages — 2026-09-22 at pi 0.87.0, the
 `pi-ai` anchors re-read 2026-09-23 at 0.87.1:
@@ -298,10 +305,17 @@ read at, and [`agent-program-runtimes.md`](agent-program-runtimes.md) records an
 1. 💬 <a id="OQ-CN1"></a>**[OQ-CN1](#OQ-CN1): where does the key→provider association live?**
    `api_key_env_name` exists with nine consumers but is **single-valued**, and yolo's `bedrock`
    declaration sets it to nothing — so the provider causing the measured symptom is unmapped.
-   A second credential route to the same service does **not** make one provider multi-keyed in a
-   new way: Bedrock over SSO (`AWS_PROFILE`) and Bedrock over static keys are **two providers**
-   ([`OQ-BR8`](bedrock-plumbing.md#OQ-BR8)), so a gate keyed by provider stays sufficient — each
-   provider's list names its own route's variables, and selecting one withholds the other. The
+   A second credential route to the same service need not make one provider multi-keyed in a
+   new way — **if** [`OQ-BR8`](bedrock-plumbing.md#OQ-BR8) rules as it leans, modelling two
+   variants of one service as two providers. Then Bedrock over SSO and Bedrock over static keys
+   are two providers, a gate keyed by provider stays sufficient, and each provider's list names
+   its own route's variables. BR8 is **open**, so this question leans on it rather than resting
+   on it. And the route count is now ruled:
+   [`OQ-SSO7`](sso-backed-bedrock.md#13-decision-ledger) (2026-09-24) supports **three**
+   Bedrock credentials — a bearer, a static key pair and an SSO session — each read from
+   different variables, so whichever shape wins must express three routes to one service.
+   [`agent-auth-modes.md`](agent-auth-modes.md)'s [`OQ-9`](agent-auth-modes.md#OQ-9) is the
+   same question from the credential side. The
    stakes: whether the gate can be built on a field that already exists, or needs a multi-valued
    one, and whether a user must restate a fact about zai in their own config.
 

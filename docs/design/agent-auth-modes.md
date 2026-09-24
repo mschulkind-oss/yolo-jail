@@ -3,7 +3,7 @@ title: "Auth modes and cloud provider swapping — declarative profiles across a
 date: 2026-08-29
 status: in-review
 tags: [auth, providers, config, prism, agents, superseded]
-summary: "SUPERSEDED IN PART 2026-09-12. The provider/profile half (§4, §5) shipped and is described by reference/providers.md — cite that, not this. The body is kept, not stubbed, because four of its arguments were never absorbed by that successor: the measured evidence that a mode is a bundle (§2-§3), capability resolution and web-search suppression (§6, half of it still unbuilt), the deferred-failover ruling plus the measured subscription-bearer leak (§8), and the credential traps (§9). OQ-9 is still open."
+summary: "SUPERSEDED IN PART 2026-09-12. The provider/profile half (§4, §5) shipped and is described by reference/providers.md — cite that, not this. The body is kept, not stubbed, because four of its arguments were never absorbed by that successor: the measured evidence that a mode is a bundle (§2-§3), capability resolution and web-search suppression (§6, built except that the launch's capability gate cannot see a pack-declared capability), the deferred-failover ruling plus the measured subscription-bearer leak (§8), and the credential traps (§9). OQ-9 is still open."
 ---
 
 # Auth modes and cloud provider swapping — declarative profiles across agents
@@ -34,11 +34,11 @@ reference. Read the banner before the body.
 | :--- | :--- |
 | [§2](#2-measured-state--bedrock-teams-and-the-manual-switch), [§3](#3-core-principle-a-mode-is-a-bundle) — the measured Bedrock→Teams switch; *a mode is a bundle* | **Kept here, the only record.** The successor describes the mechanism; this is the evidence that forced it — a two-of-three manual switch that moved the credential and the env and left the model pin Bedrock-shaped. [§3](#3-core-principle-a-mode-is-a-bundle) is cited from `internal/oauthbroker`'s entitlement test. |
 | [§4](#4-declarative-provider-profiles-in-yolo-config), [§5](#5-projection-via-prism-derivelua-and-core) — schema, CLI, projection | **SUPERSEDED.** Read [`providers.md`](../reference/providers.md). What is below is the 2026-08-29 proposal, in spellings the tree now refuses; the vocabulary note under this table says which. [§4.3](#43-pre-existing-jails--re-entry-behavior) alone is still cited as the *intent* a shipped mechanism met (`internal/cli/run/userenv.go`, [`RELEASE-NOTES.md`](../RELEASE-NOTES.md)). |
-| [§6](#6-capability-resolution--selective-tool-augmentation-the-web-search-pattern) — capability resolution, web-search suppression | **Kept here: still the only design for it, and one half is UNBUILT.** [OQ-CAP1](#12-decision-ledger)'s collision refusal shipped (`internal/config`'s `mcp_servers` validation refuses two servers declaring one `provides`), and the suppression itself lives in `packs/claude/derive.lua` and `packs/agy/derive.lua`. [OQ-CAP2](#12-decision-ledger)'s fatal refusal for an unmet `required_capabilities` **shipped 2026-09-17** (`run.refuseUnmetCapabilities`, in `loadAndValidateConfig` so it sits above the backend dispatch — the placement DP-B30 predicted would otherwise let macos-user silently not refuse). Satisfaction is by declaration: `providers.<name>.capabilities`, an `mcp_servers.<name>.provides`, or the `code_editing`/`command_execution` baseline. `YOLO_REQUIRED_CAPABILITIES` is no longer exported — it had no reader, and the host now answers the question the jail was being handed. `internal/cli/config_ref.txt` cites this id, so it stays. |
-| [§7](#7-in-jail-vs-host-cli-parity-cleaning-up-auto-yolo-mode) — in-jail vs host-CLI auto-YOLO parity | **Fixed; kept as the diagnosis.** [§7.2](#72-the-fix) step 1 **shipped**, and has since been re-pointed: `packAliases` (`internal/entrypoint/shell.go`) calls `packload.InjectLaunchFlags` over the bare `<bin>` — the host's own call — rather than folding the flag table a second time, and states what it wrote. So the `.bashrc` alias and `yolo -- claude` agree, and both are disclosed. **Step 2 did not:** the generated lazy launcher still `exec`s the real binary bare, so a non-interactive spelling (an agent's `bash -c claude`) is the one that carries no flags. Whether it should is [OQ-DP7](declaration-parity.md#OQ-DP7). |
+| [§6](#6-capability-resolution--selective-tool-augmentation-the-web-search-pattern) — capability resolution, web-search suppression | **Kept here: still the only design for it, and BUILT except one gap.** [OQ-CAP1](#12-decision-ledger)'s collision refusal shipped (`internal/config`'s `mcp_servers` validation refuses two servers declaring one `provides`). The suppression is no longer per-agent: since 2026-09-17 (`8e324800`) a pack declares native `capabilities` on its `kind: "provider"` or `kind: "program"` contribution, and `luahook.buildDeriveCtxTable` omits an MCP server whose `provides` the SELECTED authentication source declares, for every derive — the hardcoded branches in `packs/claude/derive.lua` and `packs/agy/derive.lua` are deleted. [OQ-CAP2](#12-decision-ledger)'s fatal refusal for an unmet `required_capabilities` **shipped 2026-09-17** (`run.refuseUnmetCapabilities`, in `loadAndValidateConfig` so it sits above the backend dispatch — the placement DP-B30 predicted would otherwise let macos-user silently not refuse). Satisfaction is by declaration: `providers.<name>.capabilities`, an `mcp_servers.<name>.provides`, or the `code_editing`/`command_execution` baseline. `YOLO_REQUIRED_CAPABILITIES` is no longer exported — it had no reader, and the host now answers the question the jail was being handed. **The gap:** that gate reads the merged user config, and pack declarations compose below it, so a capability a pack declares natively does not satisfy a `required_capabilities` entry (`AllowUnmetCapabilitiesEnv`'s doc comment, `internal/cli/run/preflight.go`). `internal/cli/config_ref.txt` cites this id, so it stays. |
+| [§7](#7-in-jail-vs-host-cli-parity-cleaning-up-auto-yolo-mode) — in-jail vs host-CLI auto-YOLO parity | **Fixed; kept as the diagnosis.** [§7.2](#72-the-fix) step 1 **shipped**, and has since been re-pointed: `packAliases` (`internal/entrypoint/shell.go`) calls `packload.InjectLaunchFlags` over the bare `<bin>` — the host's own call — rather than folding the flag table a second time, and states what it wrote. So the `.bashrc` alias and `yolo -- claude` agree, and both are disclosed. **Step 2 shipped too**, 2026-09-13, once [OQ-DP7](declaration-parity.md#OQ-DP7) ruled to close the third spelling: the generated launcher now carries the flags, so a non-interactive `bash -c claude` gets them, and `YOLO_NO_LAUNCH_FLAGS=1` is the one-invocation escape ([`declaration-parity.md`](declaration-parity.md)'s `DP-B44`). |
 | [§8](#8-dynamic-overflow-what-is-reachable-and-what-is-not) — why dynamic failover is deferred; [§8.1](#81-measured-2026-09-02-the-subscription-bearer-follows-anthropic_base_url) — the measured subscription bearer | **Kept here, and cited from outside.** [§8.1](#81-measured-2026-09-02-the-subscription-bearer-follows-anthropic_base_url) is the measurement that a subscription OAuth bearer follows `ANTHROPIC_BASE_URL` unconditionally — cited by [`claude-oauth-refresh-mechanics.md`](../research/claude-oauth-refresh-mechanics.md) and [`roadmap.md`](../plans/roadmap.md), and the fact under [`boundary-broker.md`](boundary-broker.md)'s B2. [OQ-1](#12-decision-ledger) is [`boundary-broker.md`](boundary-broker.md)'s delegated `OQ-D`. |
-| [§9](#9-traps-and-failure-modes) — blank `ANTHROPIC_API_KEY`, single-use refresh tokens, scope isolation, wire-API mismatch | **Kept here.** [`providers.md`](../reference/providers.md) states the scope rule as a ruling ([OQ-CS5](../reference/providers.md#why-its-this-way)) and carries none of the other three. |
-| [§11](#11-open-questions) [OQ-9](#11-open-questions) — AWS's two-part credential has no declarative home | **STILL OPEN**, and carried by [`roadmap.md`](../plans/roadmap.md) under this id. |
+| [§9](#9-traps-and-failure-modes) — blank `ANTHROPIC_API_KEY`, single-use refresh tokens, scope isolation, wire-API mismatch | **Kept here.** [`providers.md`](../reference/providers.md) states the scope rule as a ruling ([OQ-CS5](../reference/providers.md#oq-cs5)) and carries none of the other three. |
+| [§11](#11-open-questions) [OQ-9](#11-open-questions) — AWS's two-part credential has no declarative home | **STILL OPEN**, carried by [`roadmap.md`](../plans/roadmap.md) under this id, and the same question as [`provider-credential-scope.md`](provider-credential-scope.md)'s live [`OQ-CN1`](provider-credential-scope.md#OQ-CN1). |
 
 > [!NOTE]
 > **Vocabulary drift (2026-09-02).** This doc's spellings are the 2026-08-29 design as accepted;
@@ -52,12 +52,12 @@ reference. Read the banner before the body.
 >   and `--pack-profile` followed on 2026-09-03 — it never shipped in a release. **One spelling
 >   survives**, `-p`/`--profile`, and it now carries both grammars: a bare declared profile name,
 >   or a comma-separated `<cli>=<name>` pair list. The value never keys on the command after `--`
->   ([OQ-PT5](../reference/providers.md#why-its-this-way), `886a9191`); the grammar dispatches on
+>   ([OQ-PT5](../reference/providers.md#oq-pt5), `886a9191`); the grammar dispatches on
 >   whether the token contains `=` (`internal/cli`'s `parseRunArgs`).
 > - `api_key_env` → **`api_key_env_name`** (`8b24a67a`).
 > - The `wire_api` values in [§4.1](#41-configuration-schema--examples) (`openai_completions`, `anthropic_bedrock`) were never members of
 >   the shipped enum, which is canonical and closed: `anthropic`, `openai-chat-completions`,
->   `openai-responses` (`knownWireAPIs`, `internal/packdecl/contributes.go:2795`, per [OQ-PT1](../reference/providers.md#why-its-this-way)).
+>   `openai-responses` (`knownWireAPIs`, `internal/packdecl/contributes.go`, per [OQ-PT1](../reference/providers.md#oq-pt1)).
 > - There is no Bedrock *bundle switching* ([§5.1](#51-per-agent-projection-mechanisms) item 1's shape): bedrock shipped as a
 >   `kind: "provider"` + `kind: "profile"` pair inside `packs/claude/pack.json` (`4f589610`), and
 >   model IDs are pinned in the **user's** `providers.bedrock.models`, never in a pack.
@@ -202,7 +202,7 @@ In `~/.config/yolo-jail/config.jsonc` (or workspace `yolo-jail.jsonc`):
 > **nobody's dialect** (defined: a name that names a protocol, never a value an agent's config
 > file reads), so a value cannot pass through and work by accident
 > ([the canonical `wire_api` vocabulary](../reference/providers.md#the-canonical-wire_api-vocabulary),
-> [OQ-PT1](../reference/providers.md#why-its-this-way)). Translation, not
+> [OQ-PT1](../reference/providers.md#oq-pt1)). Translation, not
 > pass-through, is the contract: each derive maps canonical → its own agent's spelling and emits
 > nothing for a protocol that agent cannot speak
 > ([*Derives: the delivery mechanism*](../reference/providers.md#derives-the-delivery-mechanism)) — which is also why the Codex row of [§5.1](#51-per-agent-projection-mechanisms)
@@ -341,7 +341,7 @@ There is currently a behavioral discrepancy between launching an agent from the 
 * **Host CLI (`yolo -- claude`)**:
   [`internal/cli/run/run.go`](../../internal/cli/run/run.go) calls `packload.InjectLaunchFlags()`, which checks `p.Decl.PostureFor(true).Launch` and injects `--dangerously-skip-permissions`.
 * **In-Jail Shell (`claude` inside `yolo -- bash`)**:
-  [`internal/entrypoint/shell.go:packAliases`](../../internal/entrypoint/shell.go#L27-L34) generates `.bashrc` shell aliases, but calls `p.Decl.LaunchFlagContributions()`. That helper **only inspects top-level `launch` contributions and skips the `autonomy` block**.
+  `packAliases` ([`internal/entrypoint/shell.go`](../../internal/entrypoint/shell.go)) generates `.bashrc` shell aliases, but calls `p.Decl.LaunchFlagContributions()`. That helper **only inspects top-level `launch` contributions and skips the `autonomy` block**.
   Because Claude's and agy's flags are declared under `autonomy.autonomous.launch`, no alias is emitted. Furthermore, the lazy launcher in `~/.yolo-launchers/claude` only runs `exec "$REAL_BIN" "$@"`.
 
 **Consequence:** `yolo -- claude` runs in autonomous YOLO mode, but running `claude` inside `yolo -- bash` prompts for permissions.
@@ -364,7 +364,7 @@ The original ask proposed "subscription primary, with automatic overflow to Bedr
 3. **Mid-session state**: Claude Code reads credentials at startup; changing credentials mid-flight without process restart leads to credential collisions and invalid sessions.
 
 **Verdict:** Launch-time selection (`use_profiles` in config — spelled `agent_profiles` when this
-was written — and the `-p`/`--pack-profile` flags) is deterministic, safe, and solves 95% of the
+was written — and the `-p`/`--profile` flag, the one spelling that survived) is deterministic, safe, and solves 95% of the
 requirement without fragile in-jail interceptors.
 
 ### 8.1 Measured 2026-09-02: the subscription bearer follows `ANTHROPIC_BASE_URL`
@@ -427,15 +427,24 @@ and **no** `x-api-key`, retrying through the 503s. Three consequences:
 One — carried over from the pre-rewrite doc under its original ID, because the 2026-08-29 rewrite
 dropped it without answering it (the roadmap and sibling docs cited it as [`auth OQ-9`](#OQ-9)):
 
-1. 💬 **OQ-9: AWS's two-part credential has no declarative home.** The provider vocabulary carries
+1. 💬 <a id="OQ-9"></a>**OQ-9: AWS's two-part credential has no declarative home.** The provider vocabulary carries
    a single credential pointer (`api_key_env_name`, hydrated as `{key}`), and `packs/claude`'s
-   `bedrock` provider declares only `AWS_REGION` — so `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY`
-   still flow through `env_sources` exactly as [§2.1](#21-before--bedrock-only) measured. That works today and is not blocking
-   anything; the question is whether a credential *pair* ever gets first-class declaration or
-   whether `env_sources` is the permanent answer.
+   `bedrock` provider declares nothing but its name — the user supplies `region` and `models` —
+   so `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` still flow through `env_sources` exactly as
+   [§2.1](#21-before--bedrock-only) measured. A second route now exists beside it: `packs/aws-auth`
+   serves SSO-minted credentials through one `AWS_CONTAINER_CREDENTIALS_FULL_URI` pointer
+   ([`sso-backed-bedrock.md`](sso-backed-bedrock.md)), which is a single variable and needs no
+   pair. That works today and is not blocking anything; the question is whether a credential
+   *pair* ever gets first-class declaration or whether `env_sources` is the permanent answer.
+   **The live form of this question is [`OQ-CN1`](provider-credential-scope.md#OQ-CN1)** —
+   where the key→provider association lives, and whether `api_key_env_name` grows into a list —
+   so rule the two together. [`OQ-SSO7`](sso-backed-bedrock.md#13-decision-ledger) (2026-09-24)
+   bears on it without answering it: it rules that the static pair is a **supported** Bedrock
+   credential, delivered through existing channels such as `env_sources`, and says nothing
+   about whether the pair ever gets a declaration.
 
    _Leaning:_ leave it on `env_sources` until a second multi-var credential shows up. The
-   provider-catalog work ([OQ-CS8](../reference/providers.md#why-its-this-way)) is moving env composition into per-agent env derives,
+   provider-catalog work ([OQ-CS8](../reference/providers.md#oq-cs8)) is moving env composition into per-agent env derives,
    which can read whatever the environment holds — that likely absorbs this question rather than
    answering it, and deciding it now would design against a moving surface.
 

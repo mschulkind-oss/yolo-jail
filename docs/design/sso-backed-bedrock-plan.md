@@ -8,12 +8,23 @@ summary: "Build hand-off for sso-backed-bedrock.md, written against the tree: th
 
 # Plan: Bedrock from a host SSO login
 
-**Status:** DECIDED, 2026-09-23 — steps **1–4 and 6 are built** (`internal/awsauth`,
+**Status:** DECIDED, 2026-09-24 — steps **1–4 and 6 are built** (`internal/awsauth`,
 `internal/awsauthdaemon`, `internal/awscredadapter`, `packs/aws-auth`; step 6's exclusivity
-refusal and `~/.aws` grant conflict landed 2026-09-18); steps 5, 7 and 8 are not. Ruled
-2026-09-17, when nothing was built; a sketch before that, and a **hand-off** promoted against the tree at
+refusal and `~/.aws` grant conflict landed 2026-09-18), and [Blockers](#blockers) 7 — the
+missing endpoint variable — was **fixed 2026-09-20** (`62e553a8`), so the chain is wired end to
+end in code (its census test is unit-level; no nested run is recorded since); steps 5, 7 and 8 are not built, and nothing has run on a real host. Ruled 2026-09-17, when
+nothing was built; a sketch before that, and a **hand-off** promoted against the tree at
 `6ded2789`. See [Progress](#progress) for what landed and what a real host still has to
 settle.
+
+**Scope, per [`OQ-SSO7`](sso-backed-bedrock.md#13-decision-ledger) (ruled 2026-09-24).** yolo
+supports three Bedrock credentials — a bearer (`AWS_BEARER_TOKEN_BEDROCK`), a static access key
+and secret, and an SSO session — and the SSO session is **the primary one**. This plan builds
+that one. The other two are existing `env_sources` channels and need nothing from it; the bearer
+also has an arm here (step 7). ⚠ Step 6's refusal covers the pointer beside a bearer only: a
+static key pair beside the pointer is the same silent wrong answer — the chain's environment
+provider wins — and is **not refused today**
+([`bedrock-plumbing.md` §6.5](bedrock-plumbing.md#65-the-credential-three-are-supported)).
 
 **Design:** [`sso-backed-bedrock.md`](sso-backed-bedrock.md) — behaviour in
 [§8](sso-backed-bedrock.md#8-behaviour-this-design-specifies), order in
@@ -38,7 +49,7 @@ followed, and the commit says so. This file is advice, and the first thing to be
 | `internal/awscredadapter/` | **BUILT** — container-credentials HTTP on jail loopback; mirrors `internal/openaiauthadapter` |
 | `internal/cli/internal.go` | **BUILT** (`700d7699`) — one `case "aws-auth":` in `runInternalDaemon` |
 | `cmd/yolo-jaild/main.go` | **BUILT** — one `case "aws-credential-adapter":` plus the usage line |
-| `internal/cli/run/assemble_parts.go` | **OWED, and step 3 does not work without it** — `hostServicesMountArgs` emits `YOLO_SERVICE_<NAME>_ENDPOINT` for exactly TWO host-scoped loopholes, by name ([Blockers](#blockers) 7) |
+| `internal/cli/run/assemble_parts.go` | **BUILT** (`62e553a8`, 2026-09-20) — `hostScopedEndpoints` emits `YOLO_SERVICE_<NAME>_ENDPOINT` for every active host-scoped loophole, keyed on the manifest's scope rather than on a name ([Blockers](#blockers) 7) |
 | `internal/awschain/` | **BUILT** — the rule and its wording, keyed on the VARIABLE the chain reads and the CAPABILITY a loophole declares, never on a pack or loophole name ([Blockers](#blockers) 6) |
 | `internal/cli/run/awschannels.go` | **BUILT** — the exclusivity pre-flight (step 6), beside `providerpreflight.go`, at all THREE of its call sites |
 | `internal/cli/check/awschannels.go` | **BUILT** — the same refusal PREDICTED, calling `awschain` rather than restating it (`protocols.go`'s precedent, not `capabilities.go`'s) |
@@ -107,10 +118,10 @@ untouched; `packs/` is already in the `goSrc` fileset.
   the adapter forwards that body verbatim so there is one spelling in the tree.
 - **Nothing gates a loophole on a setting.** `Setting` has no `required`, and the framework has
   no "declared but unconfigured → do not spawn" state ([Blockers](#blockers) 1).
-- **A jail-daemon spawn failure is silent.** `supervisor.superviseOne` drops `start()`'s error and
-  backs off forever ([`roadmap.md`](../plans/roadmap.md#-ready) row 2, unfixed); the symptom is an
-  empty `~/.local/state/yolo-jail-daemons/aws-auth.log` and no process — a stale `yolo-jaild` in
-  a nested image is the usual cause.
+- **A jail-daemon spawn failure is logged, not silent — since 2026-09-18** (`eb02ad86`).
+  `superviseOne` writes `spawn failed: …` to `~/.local/state/yolo-jail-daemons/aws-auth.log`
+  and then obeys the manifest's restart policy. A stale `yolo-jaild` in a nested image is still
+  the usual cause, so read that log before anything else.
 - **The census tests fail until the rows exist, and should.** `shippedManifestHome`,
   `wantDefaultEnabled` and the name list in `internal/loopholedecl/shipped_test.go`;
   `shippedLoopholes` in `internal/loopholes/shipped_test.go`; `TestEmbedMatchesTree`
@@ -140,7 +151,7 @@ Report a real-host result with `podman info --format '{{.Host.RootlessNetworkCmd
 | :--- | :--- | :--- | :--- |
 | 1 | **BUILT** ([Progress](#progress); the dispatch row landed in `700d7699`) — `internal/awsauth` + `internal/awsauthdaemon`: resolve via `aws`, cache by profile, flock, pre-mint ticker, `--self-check` minting once and printing the four keys with the secret elided. The `runInternalDaemon` row is pinned by `TestInternalDaemonDispatchRoutesAWSAuth` | `go test ./internal/awsauth/... ./internal/awsauthdaemon/...`; `yolo internal daemon aws-auth --self-check --settings <file>` | unit; the self-check wants a host with an `aws` login |
 | 2 | **BUILT** — the narrowing setting, inside step 1's settings file: absent → refuse at spawn naming the key; un-narrowed by name → serve, plus the disclosure line. Two of its three call sites exist (spawn log, `--self-check` `NOTE:`); the LAUNCH line is a call to `Narrowing.DisclosureLine` from `writeLoopholeSettings` | unit cases: absent, N2 role + policy, un-narrowed by name | unit |
-| 3 | **BUILT**, and NOT YET REACHABLE ([Blockers](#blockers) 7) — `internal/awscredadapter` + the `yolo-jaild` row; the manifest; `packs/embed.go`; the census rows | `yolo pack lint packs/aws-auth`; in a nested jail selecting the pack, `curl -s $AWS_CONTAINER_CREDENTIALS_FULL_URI` returns the four keys, or the 4xx `Code`/`Message` with no session | nested proves the transport is **wired**; that the jail reaches the front is **real rootless host** only |
+| 3 | **BUILT**, and reachable since [Blockers](#blockers) 7's fix (`62e553a8`) — `internal/awscredadapter` + the `yolo-jaild` row; the manifest; `packs/embed.go`; the census rows | `yolo pack lint packs/aws-auth`; in a nested jail selecting the pack, `curl -s $AWS_CONTAINER_CREDENTIALS_FULL_URI` returns the four keys, or the 4xx `Code`/`Message` with no session | nested proves the transport is **wired**; that the jail reaches the front is **real rootless host** only |
 | 4 | **BUILT** — `packs/aws-auth/pack.json` (the gated `env` pointer) and README | `yolo pack footprint packs/aws-auth`: one env key, one loophole, no host grant | unit |
 | 5 | `needs` on `packs/claude`; done-conditions 1 and 4 | a claude turn on Bedrock; lapse, `aws sso login`, next turn succeeds with no relaunch | **real rootless host** (an SSO login, a browser, the forwarding hop) |
 | 6 | **BUILT** ([Progress](#progress)) — exclusivity refusal (the pointer **and** `AWS_BEARER_TOKEN_BEDROCK` both delivered), at the launch's three arms and predicted by `yolo check`; the `~/.aws`-grant conflict in `internal/config`, so `yolo check` and launch both refuse | each of the three call sites deleted in turn, one named test red for each (measured, not assumed); `just check-ci` **and** `env -u YOLO_VERSION go test -short ./...` | unit |
@@ -459,6 +470,14 @@ there is no existing declaration that says "this settings key widens", which is 
 still wants `internal/loopholedecl/settings.go`. So step 6 is evidence that the constraint is
 livable, not that this blocker is smaller than it looked.
 
+✅ **RESOLVED 2026-09-20 (`62e553a8`), and kept as the record of why:** `hostScopedEndpoints`
+replaced both named branches with the predicate argued for below — active, may run host code,
+scope read from the manifest — and a census test globs the shipped manifests for
+`"scope": "host"`, so a fourth host-scoped loophole is wired without a code change. The
+nested-launch exception was deleted; the Apple Container one survives as
+`hostScopedEndpointIsUnpublishable`. What the fix did **not** do is run the chain on a real host
+([What a real host still has to settle](#what-a-real-host-still-has-to-settle) item 6).
+
 ⚠ **A seventh, MEASURED 2026-09-18 in a nested jail: no `YOLO_SERVICE_AWS_AUTH_ENDPOINT`
 reaches the jail, so the adapter cannot find its front.** Everything else works — the daemon
 spawns, the front publishes the endpoint file into the jail at `0600`, the supervisor starts
@@ -498,10 +517,10 @@ this is reported rather than taken.
 pre-flight sits beside `checkProviderCredentials`, three call sites down; `hostServicesMountArgs`
 is a different function answering a different question (*which host-scoped loopholes get an
 endpoint variable*), and generalising it still carries the two exception shapes named above,
-which is still a ruling. So 7 is unchanged, and the feature still does not work end-to-end.
+which is still a ruling. So 7 was unchanged by step 6; it was closed two days later, above.
 
 Stop and ask on each: the tree forces a choice the design does not make. None blocked steps
-1–4 or 6; 7 blocks the feature WORKING, not the code landing.
+1–4 or 6; 7 blocked the feature WORKING, not the code landing, until `62e553a8`.
 
 **Measured after steps 1 and 2: none of the five was hit.** They are all step-3-and-later
 facts, and the two packages reach none of them — 1 is a manifest spelling (`default_enabled`),
@@ -522,8 +541,9 @@ with no session token.
    [§12](sso-backed-bedrock.md#12-what-i-would-build-in-order) step 4 says selecting the pack
    changes nothing observable. Only a `profile`-gated contribution satisfies both, and the gate is
    a profile **name**: `bedrock` is `packs/claude`'s, while the other three agents' names are open
-   in [`bedrock-plumbing.md`](bedrock-plumbing.md) ([`roadmap.md`](../plans/roadmap.md#-needs-you)
-   row 8). The shipped alternative is consumer-side — `packs/codex` sets
+   in [`bedrock-plumbing.md`](bedrock-plumbing.md) — [`OQ-BR4`](bedrock-plumbing.md#OQ-BR4) and
+   [`OQ-BR8`](bedrock-plumbing.md#OQ-BR8), which ask whether a gate keys on the name or the
+   provider. The shipped alternative is consumer-side — `packs/codex` sets
    `CODEX_REFRESH_TOKEN_URL_OVERRIDE` itself.
 3. **The N1 bearer's channel and its switch.** Step 7's "the boot that writes the bearer" is one
    line. Two routes: a host-side mint at launch through the daemon's `.host` socket into

@@ -10,10 +10,11 @@ vantage:
 
 # Gateway packs expose stable endpoints while users curate selectable models
 
-**Status:** BUILT, 2026-09-15 — MEASURED: the two manifests, the codex credential-field fix and
-the per-agent projections are pinned by `internal/entrypoint/providerderive_test.go`. **NOT A
-GRADUATION CANDIDATE**: two of this doc's rulings were contradicted by a later change and it needs
-a ruling before its durable half can move to the reference tree (the warning below).
+**Status:** BUILT, 2026-09-15; re-checked against the tree 2026-09-24 — MEASURED: the two
+manifests, the codex credential-field fix and the per-agent projections are pinned by
+`internal/entrypoint/providerderive_test.go`. **NOT A GRADUATION CANDIDATE**: two of this doc's
+rulings were contradicted by a later change, and [OQ-GP4](#OQ-GP4) must be ruled before its
+durable half can move to the reference tree (the warning below).
 
 > [!WARNING]
 > **`caaaae1b` added hard-coded Kilo policy to two agent derives, against
@@ -22,7 +23,9 @@ a ruling before its durable half can move to the reference tree (the warning bel
 > URL, rewrite a bare `deepseek-`-prefixed model id into a slash-qualified one, and supply a
 > hard-coded context window for such ids when the provider declares none. `packs/pi/derive.lua`
 > additionally treats the selected profile's `model` option as a **literal model id** when the user
-> declared no aliases at all.
+> declared no aliases at all. `packs/claude/derive.lua` does the same **for every provider**, not
+> only Kilo: a profile `model` option naming no alias, in a map with no `default`, becomes the
+> model id.
 >
 > That last one is the direct contradiction: [§3](#3-failure-and-safety-rules) says *"an alias
 > missing from the map writes no selection, rather than substituting a sole model or a gateway
@@ -32,10 +35,16 @@ a ruling before its durable half can move to the reference tree (the warning bel
 > [`providers.md`](../reference/providers.md#derives-the-delivery-mechanism) requires of a derive's
 > gateway-specific vocabulary.
 >
-> **What is owed:** a ruling on whether the Kilo special-casing stays (in which case
+> **What is owed:** [OQ-GP4](#OQ-GP4) — whether the Kilo special-casing stays (in which case
 > [§3](#3-failure-and-safety-rules) and [OQ-GP2](#decision-ledger) are amended and the behaviour is
 > documented with its provenance) or goes. Until then this doc describes a system that is not
 > there, and graduating it would publish that description as evergreen.
+>
+> **One thing has changed under it since.** Per-model facts became declarable on 2026-09-20
+> (`b16fa0aa`): a `models.<alias>` value may be an object carrying `context_window`,
+> `max_tokens`, `cost` and more, and [`providers.md`](../reference/providers.md#per-agent-delivery)'s
+> worked example is a Kilo row. So the hard-coded context window no longer has to live in a
+> derive — a user's curated map can state it.
 
 > **In short.** OpenRouter and Kilo are provider packs, not special cases: each
 > contributes stable endpoint and credential facts, while a user's finite model
@@ -49,7 +58,7 @@ existing provider table, which every agent pack derives into its own dialect.
 
 **Cost.** A user must write model aliases before a profile can select a default.
 
-**Needs your ruling:** the Kilo special-casing above.
+**Needs your ruling:** [OQ-GP4](#OQ-GP4).
 
 **Reads with:** [`gateway-provider-packs-plan.md`](gateway-provider-packs-plan.md)
 (the implementation hand-off), [`gateway-providers.md`](../research/gateway-providers.md)
@@ -148,6 +157,29 @@ agent configurations, including Codex's credential binding. Selecting `kilo`
 produces Claude, Pi, OpenCode, and Copilot configurations; Claude and Copilot
 reach its Chat Completions API through the existing bridge. With neither pack in
 the config, the existing behavior is unchanged.
+
+## Open Questions
+
+1. 💬 <a id="OQ-GP4"></a>**[OQ-GP4](#OQ-GP4): does the Kilo special-casing in the pi and claude derives stay?**
+   `caaaae1b` (2026-09-16) made both derives detect Kilo by provider name or base-URL substring,
+   rewrite a bare `deepseek-` id to `deepseek/…`, supply a context window for such ids, and — in
+   pi for Kilo, in claude for every provider — use an unmapped profile `model` option as a
+   literal id. That contradicts [§3](#3-failure-and-safety-rules)'s "an alias missing from the
+   map writes no selection" and [OQ-GP2](#decision-ledger)'s "ship no models", and none of it
+   carries the provenance comment a derive's gateway vocabulary needs. The stakes: whether this
+   doc amends its rulings to describe what ships, or the derives lose behaviour a Kilo user may
+   now rely on.
+
+   <!-- vantage: oq id=OQ-GP4 leaning="Split it. Keep the literal-id fallback, since a profile naming an exact id is a user's explicit choice, and amend §3 to say so for every provider. Move the context window out of the derives and into the user's curated map, which per-model facts (b16fa0aa) now make possible. Keep the deepseek- rewrite only with a provenance comment naming Kilo's catalog and the date, or drop it." -->
+
+   _Leaning:_ **Split it.** Keep the literal-id fallback — a profile naming an exact id is the
+   user's explicit choice — and amend [§3](#3-failure-and-safety-rules) to say so for every
+   provider. Move the context window out of the derives into the curated map, which per-model
+   facts now allow. Keep the `deepseek-` rewrite only with a provenance comment naming Kilo's
+   catalog and a date, or drop it.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
 
 ## Decision Ledger
 

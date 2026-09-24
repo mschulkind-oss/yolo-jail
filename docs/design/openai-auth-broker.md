@@ -8,11 +8,14 @@ summary: "A machine-wide OpenAI credential service owns refresh-token rotation a
 
 # One OpenAI refresh owner for Codex, Pi, hosts, and jails
 
-**Status:** DESIGN, 2026-09-23 — built except one backend's refresh consumer, and
-that one owes a ruling. The canonical transaction, host service, container
+**Status:** DESIGN, 2026-09-24 — built except one backend's refresh consumer, and
+that one owes a ruling ([OQ-OA6](#OQ-OA6)); one sentence of
+[§2](#2-one-writer-and-two-views) turned out unbuildable and owes another
+([OQ-OA7](#OQ-OA7)). The canonical transaction, host service, container
 adapters, pack dependency, browser login, managed host launch, status and
 self-check are implemented, and so are host-only import and logout
-(`4de78ac0`, 2026-09-18) and Apple Container reporting the service inert
+(`4de78ac0`, 2026-09-18; the public `yolo openai-auth` verb since `fafb7493`,
+2026-09-20) and Apple Container reporting the service inert
 (`36c47baa`, 2026-09-18). **Not built:** a Codex refresh consumer on
 `macos-user`, which is [OQ-OA6](#OQ-OA6). **Unmeasured:** the
 [§7](#7-completion-criteria) criteria only real hardware reaches.
@@ -34,7 +37,7 @@ host Codex keeps its existing home and, if logged in there, an independent grant
 
 **Start at [§2](#2-one-writer-and-two-views)** — the ownership rule.
 
-**Needs your ruling:** [OQ-OA6](#OQ-OA6).
+**Needs your ruling:** [OQ-OA6](#OQ-OA6), [OQ-OA7](#OQ-OA7).
 
 **Reads with:** [`openai-auth-broker-plan.md`](openai-auth-broker-plan.md) (the
 implementation hand-off), [`../research/openai-subscription-auth.md`](../research/openai-subscription-auth.md)
@@ -60,7 +63,9 @@ configuration and skills into it, and routes refresh through the same service.
 Yolo never rewrites the user's ordinary `~/.codex/auth.json` or silently changes
 a directly launched host Codex. An explicit import can seed the broker from that
 file once; after import the files are independent and the broker owns rotation.
-That explicit import command is not implemented yet.
+Both are built as the public verb `yolo openai-auth` — `import --from <file>` and
+`logout`, host-socket only (`4de78ac0`, 2026-09-18; public since `fafb7493`,
+2026-09-20).
 
 ## 2. One writer and two views
 
@@ -90,6 +95,14 @@ workspaces can all take their own Pi file locks and ask; the broker returns a
 cached generation or performs exactly one upstream refresh under its machine
 lock. After an unauthorized response, the adapter asks once more before failing.
 Pi's other provider credentials remain in its workspace `auth.json`.
+
+> [!WARNING]
+> **The ask-once-more sentence above is unbuildable as written — MEASURED 2026-09-22 against
+> pi 0.87.0** ([the plan's warning](openai-auth-broker-plan.md)). Both of pi's call sites of the
+> composed `oauth.refresh(...)` are expiry-gated, 401 is in none of its retry classifiers, and
+> the extension API exposes no response status to hook. So
+> `packs/pi/extensions/yolo-openai-auth.js` refreshing on expiry only is the whole of what pi
+> allows. Whether the design drops the clause is [OQ-OA7](#OQ-OA7).
 
 The broker also refreshes proactively when the canonical access token enters
 the five-minute window. This is the same availability measure as the Claude
@@ -161,8 +174,8 @@ delegate to these same host launch paths.
 - A service restart reloads persisted state and pending callbacks disappear;
   the CLI prints a fresh login URL on retry.
 - A stale Codex view repairs itself on its next brokered refresh. Pi refreshes
-  its workspace view through the broker before expiry or once after an
-  unauthorized response.
+  its workspace view through the broker before expiry; the "once after an
+  unauthorized response" half is [OQ-OA7](#OQ-OA7)'s.
 
 ## 6. Security and observability
 
@@ -210,7 +223,7 @@ bodies, authorization codes, PKCE verifiers, or callback query strings.
    out are route (a), wait for
    [`jail-daemon-on-macos-user-plan.md`](jail-daemon-on-macos-user-plan.md)'s steps 3 and 4,
    which are blocked on [OQ-DP8](declaration-parity.md#OQ-DP8) and
-   [OQ-DP9](declaration-parity.md#OQ-DP9), and route (b), give this one service a
+   [OQ-DP9](declaration-parity.md#OQ-DP9) (both still open 2026-09-24), and route (b), give this one service a
    launch-owned adapter on `127.0.0.1:0` beside the host services, carry its URL into the
    sandbox environment over the pack's static value, and close it when the agent exits. Route
    (b) is the shape `internal/openaiauthhost` already ships for `yolo host -- codex`.
@@ -225,6 +238,26 @@ bodies, authorization codes, PKCE verifiers, or callback query strings.
    [§4](#4-backend-transport) says this backend does, and it is subject to neither blocker. The
    cost is real: two delivery mechanisms for one manifest key, which
    [OQ-DP9](declaration-parity.md#OQ-DP9)'s confinement ruling might later make unnecessary.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+2. 💬 <a id="OQ-OA7"></a>**[OQ-OA7](#OQ-OA7): does [§2](#2-one-writer-and-two-views) drop "after an unauthorized response, the adapter asks once more"?**
+   Measured against pi 0.87.0 (2026-09-22): pi never calls a provider's `refreshToken` on a
+   401 — both call sites are expiry-gated — and the extension API exposes no status, so the
+   Pi adapter cannot see an unauthorized response to react to. The other consumers are
+   unaffected: Codex refreshes through its native override, and the wire bridge's Codex route
+   (the one claude's `codex` profile uses) already retries once after a 401
+   (`wirebridged.NewCodexResponsesHandler` sets `retryUnauthorized`). **What it decides:** whether
+   the design states only what pi allows (refresh before expiry), or keeps a requirement that
+   waits on an upstream pi hook.
+
+   <!-- vantage: oq id=OQ-OA7 leaning="Drop the clause for Pi and say why. Pi's expiry-gated refresh plus the broker's proactive refresh inside the five-minute window already covers the case the clause was for, and a requirement no extension can meet reads as a missing feature forever. Re-open only if pi grows a status hook." -->
+
+   _Leaning:_ **Drop it for Pi, and say why.** The expiry-gated refresh plus the broker's
+   proactive refresh inside the five-minute window already covers what the clause was for; a
+   requirement no extension can meet reads as a missing feature forever. Re-open if pi grows a
+   status hook.
 
    **Answer:**
    > _(empty — fill in when decided)_
