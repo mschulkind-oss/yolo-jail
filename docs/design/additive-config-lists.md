@@ -24,7 +24,7 @@ vantage:
 
 **Needs your ruling:** [OQ-AL1](#OQ-AL1).
 
-**Reads with:** [`pack-system.md`](../reference/pack-system.md) (current pack/overlay semantics), [`config-ownership-and-promotion.md`](./config-ownership-and-promotion.md) (configuration layer ownership; its [§4.5](./config-ownership-and-promotion.md#45-retiring-assert--the-two-value-key) retires `assert`, the one read-modify-write host mode).
+**Reads with:** [`pack-system.md`](../reference/pack-system.md) (current pack/overlay semantics), [`config-ownership-and-promotion.md`](./config-ownership-and-promotion.md) (configuration layer ownership), [`manifest.go`](../../internal/agentcfg/manifest/manifest.go) (the three surface modes: `computed`, `stateful`, `rmw`).
 
 ---
 
@@ -56,7 +56,12 @@ The spelling is illustrative; the behavior below is the contract. A single entry
 3. **Type safety.** A missing path acts as an empty array. If the path or an intermediate parent exists with a non-array/non-object value, refuse that surface's render and name the surface, path and contributing pack; do not overwrite the conflicting value or silently skip it. A malformed declaration fails pack validation before launch.
 4. **Precedence.** Captured edits, computed output and managed values retain their existing ability to replace or delete the *whole* array. This addition is not a mandatory package policy or a way to defeat higher layers. Ordinary `config-overlay` arrays continue to replace; a pack wanting replacement uses that existing operation.
 5. **Visibility.** `config render --explain` and `config diff` must distinguish an array replaced by an overlay from an array assembled from existing values and named pack contributions. A top-level `packages: config-overlay:personal` label alone is misleading when several contributors survive. Show the ordered contributors, including an indication when a higher layer replaces their result.
-6. **Removal is recomposition, never inference.** A composed surface is a function of its declared inputs, so dropping a contributing pack removes its entries on the next render with no ownership bookkeeping, and a value the user independently holds (a captured edit, a host or workspace input, another pack's contribution) survives because it is still an input. **List contributions are refused on any surface rendered read-modify-write** — a file yolo edits without wholly composing it — because there the only way to remove an entry is to guess its owner from its value. Today that is `host_management: "assert"` alone, which is retired by ruling ([config-ownership §4.5](./config-ownership-and-promotion.md#45-retiring-assert--the-two-value-key)); until that retirement is built, an `assert` host apply refuses a surface that carries a list contribution, naming it.
+6. **Removal, and the read-back problem.** How hard removal is depends on the target surface's MODE ([`manifest.go`](../../internal/agentcfg/manifest/manifest.go)), not on host versus jail:
+   - **`computed`** (regenerated every boot, in-jail edits discarded — pi's `models`/`mcp`, copilot's `lsp`/`mcp`, omp's `models`, agy's `mcp`): trivial. The array is a pure function of its inputs; dropping a pack removes its entries on the next render.
+   - **`stateful`** (the default — composed, then the agent's and user's own edits to the file are READ BACK and captured as a layer: pi's `settings`, which is the kilo case's target, claude's `settings`, codex's and opencode's config, agy's settings): hard. Captured edits are stored as a durable merge patch whose arrays REPLACE whole ([`engine.go` `mergeAccumulate`](../../internal/agentcfg/engine.go)). So the first time the agent or user touches the array — `pi install` appending to `packages` — the capture holds the ENTIRE array, pack-added entries included, and it outranks every contribution: later additions are masked, and a dropped pack's entries can never be removed.
+   - **`rmw`** (yolo edits an agent-owned file in place — `~/.claude.json`, copilot's config): the same problem, with yolo's rendered baseline as the only record of what it added.
+
+   [OQ-AL1](#OQ-AL1) is how list contributions survive that read-back.
 
 > [!WARNING]
 > A merge patch with `"packages": null` removes the whole key; it is not a request to remove one package. This proposal must not redefine null or make all JSON arrays additive.
@@ -70,7 +75,7 @@ The spelling is illustrative; the behavior below is the contract. A single entry
 | Generate the personal overlay's full array from Matt's list | Useful interim workaround, but retains a copied/generated list and its update dependency. |
 | Add an explicit list contribution | Proposed: compositional and visible without changing merge-patch behavior elsewhere. |
 
-The main cost is that rendering currently tracks provenance by top-level key, so [explanation](#the-proposed-contract) needs an account of individual contributed entries. Removal needs none, because every surface a list contribution may touch is composed rather than edited in place. This is a behavior design, not an assumption that the existing provenance map already provides one.
+The main cost is that capture and provenance both work per top-level key, while this operation is per ENTRY: explanation needs an account of individual contributed entries, and on `stateful` and `rmw` surfaces capture does too ([rule 6](#the-proposed-contract)). This is a behavior design, not an assumption that the existing provenance map already provides one.
 
 ## What done looks like
 
@@ -78,11 +83,14 @@ With Matt's Pi package list and the personal contribution selected, Pi receives 
 
 ## Open Questions
 
-1. 💬 <a id="OQ-AL1"></a>**[OQ-AL1](#OQ-AL1): may a pack ADD entries to an array on a surface another pack owns — and only at paths that owner declares open?** The axis is not host versus jail; it is **clean composition versus read-modify-write**. In the jail, and at the host under `own`, yolo composes the whole surface from declared inputs every render, so an addition is just one more input and removing it is a recompose ([rule 6](#the-proposed-contract)). The only surface where an addition is genuinely "into something we don't own" is a read-modify-write file, and that is `assert` — retired by ruling. What remains is an **authority** question: should any selected pack be able to extend any array another pack's surface holds? Stakes: without a limit, a content pack could append to a security-relevant array (a permission allow-list, a trusted-folder list, an MCP server set) as easily as to pi's `packages`.
+1. 💬 <a id="OQ-AL1"></a>**[OQ-AL1](#OQ-AL1): how do list contributions survive the read-back of `stateful` and `rmw` surfaces?** On a `computed` surface they are trivial. On the other two, a captured edit replaces the whole array, freezing pack-added entries into the capture ([rule 6](#the-proposed-contract)) — and the kilo case's target, pi's `settings`, is `stateful`, with pi itself writing `packages`. This decides whether the feature reaches the case it exists for.
+   - **(a) `computed` surfaces only.** Safe and nearly free, but it does not reach pi's `settings`, so the kilo case is unsolved.
+   - **(b) Element-level capture at list paths.** At a path any list contribution targets, capture records per-entry additions and removals relative to the last render instead of the whole array. Contributed entries never enter the capture (the last render already held them), a dropped pack's entries vanish on recompose, `pi install`'s own additions are kept as the user's, and a user deleting a contributed entry is a per-entry removal the capture holds. `rmw` surfaces do the same against their rendered baseline.
+   - **(c) Make the path `computed`.** yolo owns the whole array; simple, but every `pi install` is wiped on the next boot.
 
-   <!-- vantage: oq id=OQ-AL1 leaning="Yes, with two limits: only at array paths the OWNING surface declares additive (opt-in, so a content pack cannot append to a permission allow-list), and only on composed surfaces (refused on read-modify-write, which retiring assert removes)." -->
+   <!-- vantage: oq id=OQ-AL1 leaning="(b): capture per entry at any path a list contribution targets, against the last render, so contributed entries never enter the capture and the agent's own edits survive; refuse a list contribution on a stateful or rmw surface until its path captures per entry." -->
 
-   _Leaning:_ **yes, with two limits.** (1) **Owner opt-in:** the pack that owns the surface declares which array paths accept additions (`packs/pi` would declare `packages`); a contribution to any undeclared path is refused at pack validation, naming the path and the owner. That is what makes "adding to something we don't own" acceptable: the owner granted it, and nothing security-relevant is open unless its owner says so. (2) **Composed surfaces only**, per rule 6. Refusing adds altogether leaves the kilo case where it is — a personal pack copying pi's whole list and drifting — which is the defect this doc exists for.
+   _Leaning:_ **(b).** It is the only option that both reaches pi's `settings` and keeps `pi install` working, and the element identity it needs already exists (whole-JSON-value equality, [rule 2](#the-proposed-contract)). Until a surface's path captures per entry, a list contribution targeting it is refused at launch, naming the surface and mode — never composed into a capture that would freeze it. No owner opt-in: any pack's ordinary `config-overlay` can already replace any key, including a security-relevant array, so declaring paths "open" would protect nothing an overlay leaves exposed.
 
    **Answer:**
    > _(empty — fill in when decided)_
