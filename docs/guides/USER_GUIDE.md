@@ -31,7 +31,7 @@ This guide covers everything you need to get started with YOLO Jail and make the
 - [Storage & Persistence](#storage--persistence)
 - [Container Reuse](#container-reuse)
 - [Config Safety](#config-safety)
-- [What works in each setup](#what-works-in-each-setup) — the canonical per-setup support reference
+- [What works in each setup](#what-works-in-each-setup) — what each way of running yolo supports
 - [Troubleshooting](#troubleshooting)
 
 ---
@@ -1347,36 +1347,108 @@ See [../reference/config-safety.md](../reference/config-safety.md) for the full 
 
 ## What works in each setup
 
-**This section is the canonical answer to "will this work for me".** yolo runs on four
-setups — the reachable pairings of a backend with a host OS — and they do not support the same
-things. Where a table below is silent about your case, that is a bug in this table; the
-[gap tracker](../plans/setup-support-gaps.md) carries the internal version, with citations.
+yolo can run a jail four ways, depending on your computer and what you have installed. They do not all
+support the same things; find your column below.
 
-| Column | Backend | Host OS | What it is |
+| Column | `runtime` value | Host OS | What it is |
 |---|---|---|---|
-| `podman` / Linux | `podman` | Linux | Containers on your own kernel. **The parity reference:** everything is wired here first. |
-| `podman` / macOS | `podman` | macOS | Containers inside one shared Podman Machine VM. |
-| `container` / macOS | `container` | macOS | [Apple Container](https://github.com/apple/container) — one lightweight VM per container. **The macOS default.** |
-| `macos-user` / macOS | `macos-user` | macOS | A real macOS process under an Apple Seatbelt sandbox. No container, no VM, and **no bind mounts of any kind** — which is where most of its differences come from. |
+| `podman` / Linux | `podman` | Linux | Containers on your own Linux machine. Everything in this guide works here. |
+| `podman` / macOS | `podman` | macOS | Containers inside a Linux virtual machine that Podman runs on your Mac (the Podman Machine). |
+| `container` / macOS | `container` | macOS | [Apple Container](https://github.com/apple/container): each jail runs in its own small Linux virtual machine. **The Mac default.** |
+| `macos-user` / macOS | `macos-user` | macOS | An ordinary Mac program running inside Apple's built-in sandbox. No container and no virtual machine, so your project stays at its real path and host folders cannot be added. |
 
-How to read the tables:
+**Words used below.** A **pack** is an add-on you list under `packs` in your user config; most install
+an agent, such as `claude`. Some packs bring a **host service**: a small program yolo runs on your real
+machine that the jail may talk to, such as the login services that let several jails share one login.
+yolo calls a host service a **loophole**, because it is a deliberate hole in the jail's wall. A
+**restart** means `yolo stop`, then `yolo`. Running `yolo` while the project's jail is already running
+**joins** that jail instead, and a joined jail keeps the settings it started with.
 
-- Each cell says what happens on that setup:
+### What you can do on each setup
 
-  | Cell | Meaning |
-  |---|---|
-  | `works` | It works. Some cells add how: `works — <how>`. |
-  | `works differently` | It works, but not the way it does on Linux; the footnote explains. |
-  | `absent, warns` | Not available on this setup, and the launch tells you so. |
-  | `absent, silent` | Not available on this setup, and **nothing tells you**: the setting is accepted and has no effect. These cells are in bold, and they are the ones to check. |
-  | `refuses` | yolo stops with an error that says what to do instead. |
-  | `n/a` | Does not apply to this setup. |
+The short answers, in the order you are likely to need them. **Yes** means it works. **Should work**
+means it is expected to work, but nobody has tried it on that setup yet. **No** means it does not, and
+the cell says whether a fix is coming: *planned* means the maintainers have scheduled it; *not planned
+yet* means they have not. The subsections below, and
+[Settings per setup](../reference/settings-per-setup.md), have the detail.
 
-- The **Takes effect** column says when an edit to that setting is picked up. `fresh launch` means
-  when a new jail starts; `any entry` means every time you run `yolo`. Running `yolo` in a workspace
-  whose jail is already running joins that jail instead of starting a new one, so a `fresh launch`
-  setting you just edited waits until you stop the jail and launch again — see
-  [I edited my config and re-ran `yolo`](#4-i-edited-my-config-and-re-ran-yolo-and-nothing-changed).
+| You want to… | `podman` / Linux | `podman` / macOS | `container` / macOS | `macos-user` / macOS |
+|---|---|---|---|---|
+| **Start a jail** | Yes. The first launch builds the jail image and takes a few minutes; later launches take seconds. | Yes, once the Podman Machine VM is running and your project is in a folder it shares. The first launch is slow.[^cap-first-mac] | Yes, and it is the Mac default. `yolo stop` cannot see these jails; use `container stop` (not planned yet).[^cap-ac-stop] | Yes, after a one-time `yolo macos-setup`. Projects must be outside every home folder; `/Users/Shared/yolo` is set up for you.[^cap-mu-start] |
+| **Open a second session** | Yes. `yolo` in the same project joins the running jail; another project gets its own jail. | Yes, the same. | Yes, the same, but jails for two different projects can log each other out of `claude`.[^refresh-ac] | Yes, but each `yolo` is its own sandbox, and two `claude` sessions at once can log each other out. |
+| **Install an agent** | Yes. Add its pack to your user config; it installs the first time you type its name and keeps itself up to date. | Yes. `omp` is not available on Apple silicon.[^cap-omp] | Yes, except `omp`, which is not available on Apple silicon, the only kind of Mac Apple Container runs on.[^cap-omp] | Yes for `claude` and `codex`. `agy`, `copilot`, `opencode`, `pi` and (on Apple silicon only) `omp` should work. |
+| **Run an agent without permission prompts** | Yes, automatically, for every agent except `omp`.[^cap-yolo-mode] | Yes, the same. | Yes, the same. | Yes, the same. |
+| **Log in to an agent** | Yes. Log in once inside a jail; `claude`, `agy`, `codex` and `pi` then work in every project, while `copilot`, `opencode` and `omp` ask once per project.[^cap-logins] | Yes for `claude`, `agy`, `copilot`, `opencode` and `omp`. The shared `codex` and `pi` login should work.[^lh-mac] | Yes for `claude`, `agy`, `copilot` and `opencode`. **No for `codex` and `pi` subscription logins**; not planned yet.[^cap-ac-openai] | Yes, except that `codex`'s shared login has not been tried on a real Mac and can be lost in a long session (fix planned), and `pi`'s OpenAI subscription login does not work.[^login-mu] |
+| **Use API keys and other providers** | Yes. Put keys in a dotenv file listed under `env_sources`; `yolo -p <profile>` picks the provider and model. A changed key reaches your next `yolo`. | Yes, the same. | Yes, but restart the jail after changing a key or `-p`: joining a running jail keeps the old ones. | Yes, read fresh at every launch.[^cap-mu-keys] |
+| **Use your host's SSH keys, git credentials or `gh` login** | No, by design. Your git name and email do arrive, so commits work. To push, give the jail its own key or token. | No, the same. | No, the same. | No, the same. |
+| **Work on your project** | Yes. It is at `/workspace`, live and read-write, and on rootless podman new files are yours. | Yes, the same, if the project is in a folder the VM shares. | Yes, the same. | Yes, in place at its real path; nothing is mounted. |
+| **See other host folders and files** | Yes: folders read-only with `mounts`, single files with `host_files`. | Yes, if they are in a folder the VM shares. | Yes. `mounts` needs Apple Container 1.1.0 or later. | Single files only, with `host_files`. No `mounts` and no folders; not planned yet. |
+| **Add tools with `packages`** | Yes. Nix builds them into the jail image the next time the jail starts. With a nix daemon on the host, `YOLO_STORE_PACKAGES=1` skips the image rebuild. | Yes, but slower: each different list builds a whole Linux image.[^cap-pkg-mac] | Yes, but slower, the same as `podman` / macOS. | Yes, as native Mac builds. A package with no Mac build stops the launch.[^cap-pkg-mu] |
+| **Add language runtimes with mise** | Yes, with `mise_tools` or the project's `mise.toml`. One tool store serves every project. | Yes, the same. | Yes, the same. | Yes, the same. |
+| **Install things yourself** (`npm -g`, `uv tool`, `go install`) | Yes, and they are kept per project. The rest of the home is read-only unless you list a folder.[^cap-selfinstall] | Yes, the same. | Yes, kept per project. The whole home is writable. | Yes, kept per project. They are Mac programs, not Linux ones. |
+| **Use `nix` inside the jail** | Yes, through your host's nix daemon, with a flag on each command.[^cap-nix] | No, not by default; not planned yet.[^cap-nix-mac] | No; not planned yet. | No: `nix` is not on the sandbox's PATH. Not planned yet. |
+| **Use yolo's host services** (shared logins, AWS Bedrock credentials, a USB serial port…) | Yes. The login services run by themselves; you turn the others on. | Should work, apart from the Linux-only ones.[^lh-mac] | No: the jail cannot connect back to the Mac.[^lh-ac] | Mostly no. yolo starts them, but what each one needs inside the sandbox is missing, so only the OpenAI login service is usable, and only partly.[^login-mu] Bedrock (`aws-auth`) is not planned yet. |
+| **Reach a service running on your host** | Yes. List the port in `network.forward_host_ports` (for example `[5432]`) and it appears on the jail's `localhost`; this needs `socat` on the host. Or connect to `host.containers.internal`.[^lh-rootful] | Yes, at `host.containers.internal`. | No; not planned yet. Do not set `forward_host_ports` here: it stops the launch. | Yes. The sandbox is on the Mac's own network, so `localhost` is the Mac and `forward_host_ports` is not needed. A remapped port (`"8080:9090"`) is not supported. |
+| **Reach the internet** | Yes. | Yes. | Yes. On macOS 15, run `yolo check` first.[^cap-mac15] | Yes, and your local network too. |
+| **Open a jail's dev server from your host** | Yes. Add the port to `network.ports` (for example `"ports": ["3000:3000"]`) and bind the server to `0.0.0.0`, then open `localhost:3000` on your host. | Yes, the same. | Not through `network.ports`, which carries no data here (not planned yet). Connect to the container's own address and port instead; `container ls` shows the address. | Yes. A port the agent opens is already open on the Mac. |
+| **Use a GPU** | Yes, with `gpu` (NVIDIA or AMD). | No. | No. | No setting, but Metal should work as it does for any Mac program. |
+| **Use a USB or serial device** | Yes, with `devices`, or a serial port through the `serial` host service. | Not with `devices`. A serial port through the `serial` host service should work.[^lh-mac] | No. | No. |
+| **Run containers inside the jail** | Yes. podman is built in. | Should work (same image). | No. | No. |
+| **Cap the jail's memory and CPU** | Yes, with `resources`. | Yes, within the VM's size. | Yes. With no setting the jail gets about half your RAM and cores. | No: nothing is enforced, and the launch says so. Not planned yet. |
+
+[^cap-first-mac]: yolo builds a Linux image and copies it into the VM. On the Intel Mac that yolo's CI uses, the copy alone takes 15 to 22 minutes. If Apple Container is also installed, yolo picks it instead; set `YOLO_RUNTIME=podman` to keep podman.
+
+[^cap-ac-stop]: On Apple Container, `yolo stop` prints `No jail running for this workspace` while the jail is running, and a jail left behind by a closed window is not cleaned up. Find the name with `container ls` and stop it with `container stop <name>`.
+
+[^cap-mu-start]: A project inside a home folder is refused. `yolo macos-setup` prepares `/Users/Shared/yolo`, so a project created under it, such as `/Users/Shared/yolo/<name>`, needs nothing more. Launch with `YOLO_RUNTIME=macos-user yolo`, and expect `sudo` to ask for your password. There is no image to build, but the first launch builds the sandbox's tools with nix, which can take many minutes. See [the macos-user backend](macos.md#the-macos-user-backend).
+
+[^cap-omp]: A jail on an Apple silicon Mac runs ARM Linux, and the `omp` vendor publishes no ARM Linux build, so the launch says `omp` is unavailable. The same is true on an ARM Linux machine. On `macos-user` it is the other way round: `omp` has a build for Apple silicon Macs but not for Intel ones. That depends on the vendor, not on yolo.
+
+[^cap-yolo-mode]: yolo adds each agent's own no-prompts flag or setting, for example `--dangerously-skip-permissions` for `claude` and `--yolo` for `copilot`, and the launch prints the command it ran. `omp` has no such setting. Inside a jail this is always on; there is no switch to turn it off.
+
+[^cap-logins]: Your host's own agent logins are not reused, and every login survives a restart. `claude` and `agy` keep one login for the whole machine. `codex` and `pi` share one OpenAI login through a login service yolo runs on your host. `copilot`, `opencode` and `omp` keep one per project; sharing them is not planned yet. Details: [Do I have to log in again in every workspace?](#5-do-i-have-to-log-in-again-in-every-workspace-and-in-a-second-jail-at-the-same-time)
+
+[^cap-ac-openai]: The jail cannot reach yolo's OpenAI login service on Apple Container, so `codex` and `pi` print `OpenAI login is required.` and the browser login fails too. The launch says so. This was measured on Apple Container 1.1.0; a later Apple release may change it, so check `container --version`.
+
+[^login-mu]: yolo's OpenAI login service must come up for a `macos-user` launch to go ahead; if it does not, the launch stops. `codex` then logs in, but refreshing its token needs a helper that does not run on `macos-user` yet, so a long session can lose its login; relaunch to get it back. A fix is planned. None of this has been tried on a real Mac yet. `pi`'s OpenAI subscription login does not work on `macos-user` because the file that connects `pi` to the login service is not delivered there; that is not planned yet.
+
+[^cap-mu-keys]: The keys are kept in a file that only the sandbox can read, and yolo deletes it when the session ends. If you end a session by closing its window or with `kill`, that file can be left behind in yolo's state folder. Two more gaps. Agent config files that depend on the `-p` profile are written as if no profile were chosen (not planned yet). And `claude` with `cerebras` or `kilo` does not work here, because the in-jail helper they need does not run on `macos-user` (planned).
+
+[^cap-pkg-mac]: The jail is Linux, so every package is built for Linux. When the nix binary cache does not have one, yolo starts a temporary Linux builder container for you; that needs the runtime running and your user trusted by the nix daemon (see [Building the image on macOS](#building-the-image-on-macos-no-builder-to-set-up)).
+
+[^cap-pkg-mu]: Packages are built on top of a built-in set of common tools (`git`, `node`, `python`, `go`, `mise`, `ripgrep`, `jq`, `uv`, `gh`, `neovim` and more), which does not include GNU `sed`, `grep`, `find` or `tar`. Mark a Linux-only package `{"name": "strace", "platforms": ["linux"]}` to skip it here.
+
+[^cap-selfinstall]: `npm -g`, `go install`, `uv tool` and `pip --user` land in home folders that are kept with the project. `cargo install` goes to a store that every project shares, and needs Rust from mise first. An installer that writes its own home folder (`~/.bun`, say) fails with `Read-only file system` until you add the folder to `writable_home_dirs`. The built-in `python3` has no `pip`: use `uv`, or install Python with mise.
+
+[^cap-nix]: Add `--extra-experimental-features 'nix-command flakes'` to each command, as in `nix --extra-experimental-features 'nix-command flakes' shell nixpkgs#hello`, or set `NIX_CONFIG='experimental-features = nix-command flakes'` once (an `env_sources` file can carry it). It needs a multi-user nix on the host, the kind that runs a nix daemon; with a single-user nix the jail gets no `nix` at all. The store is read-only and builds go through your host's daemon. `nix-shell -p` does not work, because the jail has no nixpkgs channel, and a garbage collection on the host can delete what you built.
+
+[^cap-nix-mac]: The Podman Machine VM does not share your Mac's `/nix`, and that store holds Mac builds while the jail is Linux. A machine created with `/nix` shared, whose store holds the jail's Linux builds, can opt in with `YOLO_NIX_HOST_DAEMON=1` plus `YOLO_NIX_HOST_STORE_LINUX=1`. Set the second one wrongly and the jail will not boot. See [Nested Nix builds inside the jail](macos.md#nested-nix-builds-inside-the-jail-advanced).
+
+[^cap-mac15]: Apple Container on macOS 15 has two network faults that show up only after the jail boots: `npm install` hangs, and the agent's first request times out. `yolo check` detects both and prints the fix. See [Does the jail have outbound internet?](#3-does-the-jail-have-outbound-internet)
+
+A few pointers for the rows above:
+
+- **Choose a backend on a Mac:** set `YOLO_RUNTIME` (or the `runtime` key) to `podman`, `container` or
+  `macos-user`. See [A container runtime, started](#a-container-runtime-started).
+- **Install an agent:** put `"packs": ["claude"]` in `~/.config/yolo-jail/config.jsonc`, then type
+  `claude` in the jail. A project's `yolo-jail.jsonc` cannot set `packs`. See
+  [Packs, and the host services they bring](#packs-and-the-host-services-they-bring).
+- **Use an API key or another provider:** list a dotenv file in `env_sources`, add the provider's pack,
+  and pick it with `yolo -p <profile> -- <agent>`. See
+  [Gateway providers and curated models](#gateway-providers-and-curated-models).
+- **Push from the jail:** create a key inside with `ssh-keygen` and add it to the repository as a deploy
+  key, or put a `GH_TOKEN` in an `env_sources` file.
+- **Share more of your machine:** `"mounts": ["~/notes"]` for a read-only folder, and `host_files` in
+  your user config for single files. See
+  [Settings per setup](../reference/settings-per-setup.md#workspace-mounts-and-host-files).
+- **Add a tool:** add it to `packages` in `yolo-jail.jsonc`, run `yolo check`, then restart the jail. See
+  [Nix Packages](#nix-packages-image-level).
+- **Turn on a host service:** add its pack and `"loopholes": {"<name>": {"enabled": true}}`. See
+  [The loopholes](#the-loopholes-host-services-a-jail-can-use).
+- **Use a GPU:** `"gpu": {"enabled": true, "vendor": "nvidia"}`. See
+  [GPU Passthrough](#gpu-passthrough-nvidia).
+- **Pick up a config edit:** `yolo stop`, then `yolo` again. See
+  [After you edit your config](#after-you-edit-your-config).
 
 ### Before your first launch
 
@@ -1385,9 +1457,10 @@ starts anything; if one is missing, it stops and says what to fix, and leaves no
 
 #### An install that includes the build files
 
-yolo builds each jail from files it installs alongside the `yolo` binary: [`flake.nix`](../../flake.nix),
-its lockfile, and the programs that run inside the jail. It looks for them next to its own binary, never
-in your current directory, and every launch prints which copy it used on a `Flake source:` line.
+yolo builds each jail from a Nix recipe (`flake.nix`, the "flake") and its lockfile, installed next to
+the `yolo` binary together with the programs that run inside the jail. It looks for them next to its own
+binary, never in your current directory, and every launch prints which copy it used on a `Flake source:`
+line.
 
 | How you installed yolo | Works on its own? |
 |---|---|
@@ -1445,445 +1518,138 @@ first launch with a non-empty config counts as a change.
 the launch stops instead, printing the diff and the files involved. Pass `--accept-config-changes` to
 approve it for that one launch; it is a flag rather than an environment variable, so an approval never
 carries over to a later launch. Launching once in a terminal after each edit avoids the problem. yolo
-decides whether it can ask by looking at stdin, not stdout: `yolo < /dev/null` stops even at a real
-terminal, while `yolo | tee log` still asks.
+asks only when its input is a terminal, so `yolo | tee log` still asks and `yolo < /dev/null` stops.
 
 **A running jail does not pick up your edits.** Running `yolo` in a workspace whose jail is already
-running joins that jail — the tables below call this a **re-entry** — and a re-entry does not ask, and does not apply your edit. Resources, mounts and
+running joins that jail, and joining does not ask, and does not apply your edit. Resources, mounts and
 network settings are fixed when a jail starts, so stop the jail and launch again. `macos-user` has no
 running jail to join — every launch starts a fresh sandbox and reads the config again.
 
-Known issue: a launch with no terminal that is interrupted or killed can leave port forwarders and
-service files behind without saying so. The next launch cleans up the container, but not the rest.
-
 ### Configuration keys, per setup
 
-Three blocks, grouped the way the config file is.
+What every config key does on each setup (mounts, `host_files`, resources, devices, networking,
+`packages`, MCP and LSP servers, profiles and the rest) is in
+[Settings per setup](../reference/settings-per-setup.md).
 
-#### Workspace, mounts, and host files
-
-This block is what the jail can see of your machine's filesystem, and what it may write. Read the table with two things in mind.
-
-- **Takes effect** is when an edit to the key reaches a jail. Almost everything here is passed on the container command line, so it is frozen at the **fresh** launch: re-entering a running jail returns before the config-change check, and an edited value does nothing until you stop the jail and launch again. `macos-user` has no re-entry at all — every invocation builds a new sandbox — so on that column every row behaves as `any entry`.
-- **Bolded cells are silent.** The key passes `yolo check`, the launch prints nothing, and the behaviour is simply not there.
-
-| Row | `podman`/Linux | `podman`/macOS | `container`/macOS | `macos-user`/macOS | Takes effect |
-|---|---|---|---|---|---|
-| `mounts` — host dirs read-only at `/ctx` | works | works — VM must share the source[^vm] | works on 1.1.0+; older: `absent, warns`[^acro] | **absent, silent**[^mumounts] | fresh launch |
-| `workspace_readonly` — lock workspace sub-paths | works — read-only overlay per path | works | works on 1.1.0+; older: **paths stay writable**, warns[^acro] | works — sandbox policy rule, not a mount | fresh launch |
-| … and the `yolo-jail.jsonc` lock it also performs | works | works | works on 1.1.0+; below, lost **silently**[^acro] | **absent, silent** — config stays agent-writable[^mujsonc] | fresh launch |
-| `per_side_paths` — `.venv`/`node_modules` not shared | works — private dir mounted over each path[^leftover] | works | works — unverified on Apple silicon[^achw] | `absent, warns` — host and sandbox share them[^mupsp] | fresh launch |
-| `writable_home_dirs` — extra writable `$HOME` paths | works — read-write bind per path | works | works — the whole home is writable already | works — sandbox home is writable; dir not pre-created | fresh launch |
-| `ephemeral_storage` — `volume` vs `tmpfs` scratch | works | works — volumes sit on the VM's disk | **always RAM-backed, silent**[^aceph] | `n/a` — the machine's real `/tmp`[^mueph] | fresh launch |
-| `cache_relocations` — move a jail cache to other storage | works — a provisioning failure refuses the launch | expected to work, never measured[^vm] | `absent, warns` — not built[^cachegap] | `absent, warns` — not built[^cachegap] | fresh launch |
-| `host_files` modes `readonly` / `once` / `copy` | works | works | works | works[^dac] | fresh launch |
-| `host_files` mode `capture` — keep your local edits | works | works | works | works — needs a workspace ACL[^acl] | fresh launch |
-| `host_files` source is a **file** | works — read-only bind | works[^vm] | works — copied in, **agent-writable**[^achostlayer] | works — root-owned copy at launch[^snap] | fresh launch |
-| `host_files` source is a **directory** | works | works[^vm] | works, but `:ro` unchecked below 1.1.0, **silent**[^acdir] | `absent, warns` — not built yet[^mudir] | fresh launch |
-| `host_files` destination: writable, and private per workspace | works | works | works — whole home is per-workspace | works under `~/.config`; home-root files **shared, silent**[^mutier] | fresh launch |
-| `host_files` entries with a `source:` come from your user config only | works | works | works | works | n/a — a repo's config cannot name host bytes |
-| `host_management`, `host_wrappers`, `host_apply_on_launch`, `promotion_target` | works | works | works | works | any entry — host-side keys[^hostside][^wrappath] |
-| Host-side verbs refuse when run **inside** the jail | works | works | works | **does not refuse, silent**[^muinjail] | any entry |
-| `programs: { autoprune: true }` | works[^prunetime] | works[^prunetime] | works[^prunetime] | **absent, silent** — never prunes, never reports | fresh launch (switch)[^prunetime] |
-| `yolo programs ls` / `remove` from inside the jail | works | works | works | **wrong answer, exits 0**[^muprograms] | any entry |
-
-[^acro]: Apple Container honours read-only binds from version 1.1.0 (measured on macOS 26.5, Apple silicon). Check yours: `container --version`. Below that floor yolo refuses to bind a `mounts` entry rather than binding it writable, and prints one skip line per entry. `workspace_readonly` is the exception: those paths sit inside the writable workspace and cannot be skipped, so they arrive writable behind a loud warning that names every declared entry — but never the `yolo-jail.jsonc` lock. All of these lines are printed while the launch builds the container, so re-entering a running jail never shows them.
-
-[^vm]: `podman` on macOS runs a Linux VM, and a bind source must be a path that VM shares — `$HOME` and `/private` by default. List yours: `podman machine inspect --format '{{range .Mounts}}{{.Source}} {{end}}'`; add one with `podman machine init -v <path>`. yolo does not probe this set, so a source outside it passes the host-side existence check and then fails inside the VM — an empty directory, or `statfs …: no such file or directory` at container start. For `cache_relocations` a target under `$HOME` is expected to work and one on `/Volumes` is expected to fail the launch outright; nobody has confirmed either on hardware.
-
-[^mumounts]: Nothing reads `mounts` on `macos-user`: no `/ctx` tree, no warning, no briefing line. Copying an arbitrary host tree in is not planned, but the refusal that would *tell* you is unbuilt work rather than a limitation of the backend.
-
-[^mujsonc]: On the container backends, setting `workspace_readonly` at all also locks the workspace's own `yolo-jail.jsonc` against the agent — worth knowing before you protect an unrelated path. `macos-user` emits no such rule, so the jail's config file stays agent-writable there; an agent's edit shows up as a y/N diff at the next launch instead of being blocked.
-
-[^leftover]: A "shadow" is a private directory mounted over `.venv`, `node_modules` and your declared paths so host and jail do not share build output. The mountpoint is created inside your live workspace, so an empty root-owned `.venv`/`node_modules` can be left behind after the jail exits.
-
-[^achw]: Expected to work by construction — the same nested-bind shape Apple Container already uses for the cache — but never run on Apple silicon. Each entry also consumes one directory-sharing slot against an undocumented per-container limit.
-
-[^mupsp]: There is no mount namespace here, so one path cannot show different contents inside and outside; the launch warns and the paths are shared. The warning names only *your* entries — the always-on `.venv` and `node_modules` are shared with no line at all. Pointing the sandbox at its own venv and module prefix would cover that default set, and is unbuilt.
-
-[^aceph]: Apple Container always gets RAM-backed scratch for `/tmp`, `/var/tmp` and the container directories, whatever the key says, and nothing is printed. A build that writes large temp files can hit the memory ceiling this key exists to avoid. `YOLO_RUNTIME=podman` if you need disk-backed scratch.
-
-[^mueph]: No container and no read-only root filesystem, so the sandbox writes the machine's real `/tmp` and `/var/folders` with no configuration. Only the RAM-backed (`tmpfs`) *choice* is unavailable, and asking for it is ignored without a word.
-
-[^cachegap]: One yellow line per launch names the cache subdirectories that stayed put and points at `YOLO_RUNTIME=podman`. Neither cell is a backend limitation: Apple Container already nests a writable bind at exactly the depth a relocation needs, and on `macos-user` the policy that denies the target is one yolo generates itself. Both are unbuilt work. On the container backends the line is printed at launch assembly, so a re-entry never shows it.
-
-[^dac]: These modes set file permission bits, not enforcement. In a container the agent is root, so `readonly`'s `0444` is a speed bump; on `macos-user` the sandbox runs as a separate account, so the bits actually bite.
-
-[^acl]: `capture` is the one mode that writes into your workspace (it stores your local edits beside the composed file), so on `macos-user` the workspace needs the inherited `group:_yolojail allow` entry. Check with `ls -lde <workspace>`; repair with `yolo macos-fix-permissions`. Without it the launch dies as `mkdir …/.yolo/prism: permission denied`, naming neither ACLs nor the fix.
-
-[^achostlayer]: Apple Container cannot bind a single file, so the host bytes are copied into the jail's home. That home is bound writable, so the agent can rewrite the host layer its own composed file is built from — where `podman` keeps that layer read-only. Nothing warns.
-
-[^snap]: A root-owned copy taken at launch, not a live view. Every consumer reads its config at boot, so this is equivalent in practice. Symlinking the real file was measured and rejected: the sandbox runs as a different account, and a macOS home need not be readable by it.
-
-[^acdir]: Directory sources are the one read-only bind that does not consult the Apple Container version. Below 1.1.0 your host directory is mounted **writable** while the config says read-only, and nothing says so.
-
-[^mudir]: One yellow line names each undelivered destination and points at `runtime: "container"`. This is unbuilt work, not a limit of the backend: the same per-file copy that already delivers single-file sources needs to walk the tree, optionally bounded by size so the warning survives for genuinely huge trees.
-
-[^mutier]: Composed files under `~/.config/…` land in a per-workspace directory and are fine. A destination at the home root (`~/.npmrc`, `~/.netrc`) lands in the sandbox account home that *every* workspace on the machine shares, so one workspace's launch overwrites another's — or, under `once`, finds the other's file already there and never seeds its own. Nothing warns.
-
-[^hostside]: These four are host-CLI keys with no reader in any jail, so the backend is not the axis. Two behaviours to know: an unreadable or unparseable user config resolves `host_management` to `none` (yolo writes nothing) rather than to the default `assert`, so a malformed config looks like yolo going quiet; and `promotion_target` accepts only `local` or `pack:<name>`, silently falling back to `local` for anything else. ⚠ **The first of those is ruled out of existence, and is not fixed yet.** A ruling dated 2026-09-20 retires `host_management: "assert"` — two values remain, `none` and `own` — and makes **`none` the default**, which is what the parse-failure fallback already picks. So the divergence this footnote warns about ends by disappearing rather than by being patched. Until it is built the shipped default is still `assert` and the trap above is live; the decision lives in [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md#4-declaring-ownership--the-host_management-key).
-
-[^wrappath]: `host_wrappers` puts small scripts ahead of the real agent binaries on your PATH, and `host_apply_on_launch` only ever fires through one of them. The macOS half of that placement is not handled: the shell-init line is appended to your shell rc, which runs *after* macOS's own `path_helper` for interactive shells — so a terminal session is fine while a GUI- or IDE-launched agent silently gets the real binary. Unmeasured on a Mac.
-
-[^muinjail]: Nothing marks a `macos-user` session as being inside a jail, so `yolo host apply` and `yolo config promote` do not refuse there: they act on the shared sandbox account home while every message says "your real home", and `yolo config ls`/`diff` describe the host rather than the session you are in. Unbuilt: one launch variable, plus a sweep of everything that reads it.
-
-[^prunetime]: A time-axis oddity worth knowing: the *switch* is frozen at the fresh launch, but the pruning itself re-runs on every re-entry — so turning autoprune off does not stop a running jail from pruning until you relaunch. Read from your user config only (a repo must not delete your binaries), and off unless explicitly on.
-
-[^muprograms]: `yolo programs ls` inside a `macos-user` session prints "No staged packs here — run `yolo programs` in the jail" and exits 0. You *are* in the jail; the session just does not carry the variable that says so. Unbuilt, and the same omission as the previous note.
-
-#### Resources, devices, and networking
-
-Two things to read before the table:
-
-> [!WARNING]
-> **"Unconfigured" is not "uncapped" on Apple Container.** With no `resources` block, the `container` backend still gets a memory and CPU cap — **yolo's own arithmetic**, roughly half your RAM and half your cores. The startup banner does not mention it (it prints only what you wrote); the agent's briefing does. On both podman backends, unset really does mean unlimited.
-
-> [!IMPORTANT]
-> **Every key in this table is frozen at the fresh launch.** All of them ride the container command line, so re-entering an already-running jail returns before the config-change prompt and before the command line is rebuilt. An edited value does nothing, silently — and worse, the agent's briefing *is* re-rendered from your edited file, so the agent is told a cap or a port that is not in force. `yolo config drift` is the detector; nothing points you at it. Exit the jail and relaunch.
-
-| Key | `podman` / Linux | `podman` / macOS | `container` / macOS | `macos-user` / macOS | Takes effect |
-|---|---|---|---|---|---|
-| `resources.memory` | works — kernel-enforced [^cgroups] | works — enforced in the VM, clipped to it [^vm] | works — **but a cap you never wrote** [^acdefault] | absent, warns — not built yet [^mures] | fresh launch [^muentry] |
-| `resources.cpus` | works — kernel-enforced [^cgroups] | works — clipped to the VM's vCPUs, silently [^vm] | works — half your cores unless set [^acdefault] | absent, warns — not built yet [^mures] | fresh launch [^muentry] |
-| `resources.pids_limit` | works — always capped, default applied | works — always capped | absent, **silent** — no surface mentions it [^acpids] | absent, warns — not built yet [^mures] | fresh launch [^muentry] |
-| `devices` (raw path, `usb:`, `cgroup_rule`) | works — all three forms [^lsusb] | absent, warns — refused by OS, never probed [^macdev] | absent, warns [^acdev] | absent, warns — devices already reachable [^mudev] | fresh launch [^muentry] |
-| `gpu` — `vendor: nvidia` | works — CDI device + driver env [^nvidia] | absent, warns [^gpumac] | absent, warns [^gpumac] | absent, warns — GPU already reachable [^mugpu] | fresh launch [^muentry] |
-| `gpu` — `vendor: amd` | works — `mode: devices`; `mode: cdi` can fail hard [^amdcdi] | absent, warns [^gpumac] | absent, warns [^gpumac] | absent, warns [^mugpu] | fresh launch [^muentry] |
-| `kvm` | works — needs host group membership [^kvmhost] | absent, warns — not built yet [^kvmmac] | absent, warns [^acdev] | absent, warns — no Linux kernel to ask | fresh launch [^muentry] |
-| `network.mode: "bridge"` (default) | works — own network namespace | works — namespace inside the VM [^vm] | works — own network per container | absent, **silent** — no isolation at all [^mubridge] | fresh launch |
-| `network.mode: "host"` | works — and drops both port keys [^hostdrop] | **applies to the VM, not the Mac — silent** [^hostmac] | absent, warns — runs bridged; port keys still work [^achost] | works — the only mode it has | fresh launch |
-| `network.ports` (HOST:JAIL) | works — passed to podman [^dnat] | works for a `0.0.0.0` listener — **measured** [^vm] [^dnat] | **accepted and inert — measured** [^acports] | absent, warns — every bound port is already open [^muports] | fresh launch |
-| `network.forward_host_ports` (JAIL:HOST) | works — needs `socat` on the host [^socat] | works — TCP to the VM gateway, unmeasured [^vm] | **breaks the launch — measured** [^acfwd] | same-port entries already true; a remap is not built [^mufwd] | fresh launch |
-
-Terms: **rootless podman** runs as your own user with no root daemon; **Podman Machine** is the Linux VM podman uses on macOS; **CDI** is the Container Device Interface, a host-side YAML/JSON file describing a GPU; a **remap** is a port entry whose two numbers differ (`5432:3306`).
-
-The accepted-everywhere-and-read-nowhere census is now EMPTY. `required_capabilities` was its last member until 2026-09-17, when it got the fatal refusal its design always specified — a launch declaring a capability nothing satisfies is refused on every backend, with `YOLO_ALLOW_UNMET_CAPABILITIES=1` as the loud way past. `prune` left the census on 2026-09-16, when it got the validator it never had (it now refuses a non-object, an unknown sub-key and a threshold the reader would ignore) and the `config-ref` section whose absence hid the gap; `prune.warn_threshold_gb` is still its one reader (`yolo check`'s disk warning), which is why the census is one key wide.
-
-The `--network` CLI flag does **not** override the config: a `network.mode` in `yolo-jail.jsonc` wins over `yolo --network …`, with no warning. And the validator's warning that the port keys are "ignored when `network.mode` is `'host'`" — the one network message that does fire on any entry — is **false on `container`** (which runs bridged and keeps the ports) and misleading on `macos-user` (both keys are ignored whatever the mode).
-
-**Can the jail reach a service on your host's own `127.0.0.1`, with no port key?** On `podman` / Linux, yes — but only on the default bridge mode and only on a **rootless** podman whose network stack yolo could identify; it asks for host-loopback forwarding explicitly. A rootful podman gets no forwarding and **no warning**. On `macos-user` the answer is trivially yes: the sandboxed process is on the Mac's own loopback. On `container` the answer is **no** — measured on Apple Container 1.1.0, a container→host connection completes its handshake and then carries nothing; the launch discloses this for yolo's own services but says nothing about yours. `forward_host_ports` is **not** the way around it: that key breaks the launch here [^acfwd]. On **`podman` / macOS the answer is yes, measured** (2026-09-16, podman 6.0.2 on `applehv`): a Mac service on `127.0.0.1` answered from inside a default-bridge jail with data crossing both ways, at `host.containers.internal` — which resolves to `192.168.127.254` there, not the `169.254.1.2` of a Linux pasta host. Podman Machine's gvproxy forwards it, so yolo does not have to ask, and no `--map-host-loopback` is involved. What is still wrong there is what yolo *says*: it excludes macOS from the decision by name and tells the jail `unknown`, so the reachability witness never escalates on the one macOS column where the hop works — a total loophole outage would still be silent.
-
-[^cgroups]: Needs cgroup v2 with delegation. On a **rootless** podman on a cgroup-v1 host, podman ignores memory/CPU/pids limits and yolo does not pre-flight it: the flag is emitted and does nothing. Check yours: `podman info --format '{{.Host.CgroupVersion}} rootless={{.Host.Security.Rootless}}'`.
-[^vm]: On macOS, podman runs inside a Linux VM, so a limit is enforced against the VM and a network namespace is created inside it. Asking for more memory or more CPUs than the machine has is accepted and silently clipped — for memory the only signal is a hint printed *after* an out-of-memory kill; for CPUs there is none. Check the machine's size with `podman machine inspect`, and resize with `podman machine set --memory … --cpus …`.
-[^acdefault]: When the key is unset, yolo probes host RAM and core count and emits half of each (memory floored at 4 GB, CPUs at 2). **A fractional `resources.cpus` breaks the launch here, measured 2026-09-16:** yolo's validator permits any positive number, and `container run --cpus 1.5` dies as `Error: The value '1.5' is invalid for '--cpus <cpus>'` followed by a usage block — a backend's argument parser shown to a user for a value yolo called valid. Integers are fine (`--cpus 2` runs). The same config works on podman.
-[^mures]: `macos-user` runs the agent as an ordinary sandboxed process, so there is no cgroup to write; the launch prints one yellow line naming every `resources` key you set, and the agent briefing deliberately claims nothing. A runaway build can take the whole Mac down. This is **not built rather than impossible**: a sampled host-side watchdog on the session's process tree could contain and report a breach for memory and process count, and `GOMAXPROCS`/`-j`-style concurrency limits would honor the `cpus` number cooperatively. None of that exists today.
-[^muentry]: `macos-user` is the one setup with no re-entry: every invocation starts a fresh sandbox, so it re-reads config every time. The frozen-at-launch rule applies to the three container setups.
-[^acpids]: No process cap is passed and no banner, briefing, or warning mentions it — a fork bomb in the jail is unbounded. Also **not built rather than impossible**, and the mechanism is now measured: the container's cgroup filesystem IS writable on `container` 1.1.0 (`cgroup.controllers` reads `cpuset cpu io memory hugetlb pids`, and `+pids` into `cgroup.subtree_control` succeeds), so the jail's own boot can write the cap the CLI cannot pass.
-[^lsusb]: `usb: "vendor:product"` needs `lsusb` on the host PATH or it degrades to a warning, and a replugged device changes its bus path — a stale raw path becomes a skipped line, never an error. Whether `cgroup_rule` is actually honored under cgroup v2 is unverified.
-[^macdev]: The refusal is by host OS, before any check of *where* the device lives — yet yolo itself passes a VM-internal device path on the same launch, so a path that exists inside the Linux VM (a tun device, a loop device) is refused for a reason that does not apply. USB additionally needs macOS 15 or later (`sw_vers -productVersion`) plus Podman Machine support.
-[^acdev]: Apple Container passes no devices at all — **verified against hardware** 2026-09-16: `container run --help` on 1.1.0 has no `--device`, no CDI flag, and no device selector of any kind.
-[^mudev]: The sandboxed process reaches devices under ordinary macOS file permissions, so there is nothing to pass through. What is missing is the opposite — *restricting* devices, which the sandbox profile could express per declared path and does not today.
-[^nvidia]: Needs the NVIDIA Container Toolkit, `runc` as the runtime (CDI fails under crun), and a CDI spec whose driver version matches the host driver. ⚠ The launch probe accepts only a `.yaml` spec: a host whose spec is `nvidia.json` is silently downgraded to no GPU. Check with `nvidia-smi -L` and `ls /etc/cdi /var/run/cdi`. A failed probe always warns and starts without the GPU, never refuses.
-[^gpumac]: Apple silicon has no NVIDIA or ROCm hardware and neither macOS VM does PCIe passthrough, so CUDA/ROCm in a Linux guest is out. But the cell is **narrower than "impossible"**: a podman machine on the libkrun provider exposes a virtual GPU to the container, which gives Vulkan *compute* translated to Metal — a worse mechanism for the same goal ("the jail gets GPU compute"). yolo cannot express it: config accepts only the `nvidia` and `amd` vendors, and device passthrough is refused by host OS before any path is examined.
-[^amdcdi]: With `mode: devices` the raw GPU device nodes are passed and the pre-flight probes for them. With `mode: cdi` the pre-flight does **not** check for an AMD CDI spec, so on a host with the driver but no spec the launch dies on a raw runtime error instead of yolo's usual warn-and-start-without-GPU. Check with `ls /etc/cdi/amd.json /var/run/cdi/amd.json`.
-[^kvmhost]: Needs CPU virtualization extensions, the `kvm` module, and (rootless) your user in the `kvm` group — `yolo check` covers all three.
-[^kvmmac]: The warning fires by host OS, and the device check it skips would have looked on the Mac rather than inside the Linux VM where the device would live. Reaching it needs Apple's nested virtualization (macOS 15+, M3 or later) plus Podman Machine support, and then a probe of the VM rather than the Mac.
-[^mubridge]: A written `"mode": "bridge"` is not read: the sandboxed process shares the launcher's network stack and every port it binds is on the Mac's real interfaces. The agent's briefing says so; the human who wrote the key is told nothing. A warning on an explicit key is the small missing piece — the isolation itself the sandbox cannot provide.
-[^hostdrop]: By design: under host networking yolo stops requesting host-loopback forwarding and drops **both** port keys, because there is nothing left to map. It also tells the jail that the namespace is shared, which makes an unreachable yolo service refuse the launch rather than warn.
-[^hostmac]: The flag is applied — to the VM's network namespace. Two silent consequences: the agent is told "localhost resolves directly to the host", which is false (it is the VM's loopback); and the jail is told the launcher's namespace is shared, which **escalates** — with a loopback service enabled, the launch can be refused for a boundary that was never crossed.
-[^achost]: Apple Container accepts no network selector, so the key cannot be honored as written; the warning names the key and the consequence. It was thought to withhold nothing because the port keys still worked here — **measured 2026-09-16, neither does** [^acports] [^acfwd]. The *goal* remains reachable and unbuilt, and the raw material is the one transport that does cross this boundary: a published UNIX socket, which carries data both ways in the host→container direction.
-[^dnat]: A jail service bound to `127.0.0.1` (rather than `0.0.0.0`) is *meant* to stay publishable: yolo installs an address translation at boot for each published port. **On podman/macOS it does not work, and that is now measured** — with the rule installed, `route_localnet=1` and the listener confirmed, the Mac's dial to the published port connects and receives nothing, while an identical `0.0.0.0` listener answers. So **bind `0.0.0.0` in the jail**, and the two documentation surfaces that say a `127.0.0.1` listener is not publishable (including the agent briefing) are RIGHT rather than stale. The mechanism is that rootless port forwarding hands the connection over inside the network namespace, which never traverses the `PREROUTING` chain the fixup writes — so expect the same on **rootless Linux**, where it remains unmeasured. Your deciding host fact: `podman info --format '{{.Host.Security.Rootless}} {{.Host.RootlessNetworkCmd}}'`. On `container` none of this machinery is emitted at all, and published ports do not work there for any bind address [^acports].
-[^socat]: `socat` must be installed **on the host**; absent, you get one warning and no forwarding. This is the one network key with an end-to-end test, and that test runs only on Linux.
-[^acver]: Apple Container's version is the whole axis for this backend — `container --version`. One documentation claim about the mechanism ("no socat") is wrong: `socat` runs on both sides. The port keys were untested here until 2026-09-16; both are now measured, and both are worse than the corpus believed [^acports] [^acfwd].
-[^acports]: **Measured on `container` 1.1.0 / macOS 25.5:** the mapping is recorded — `container inspect` shows `{"hostAddress": "0.0.0.0", "hostPort": …}` — and carries nothing. Dialling the Mac's `127.0.0.1:<hostPort>` connects and returns no data (the jail-side listener sees the connection arrive and reset), while dialling the container's own vmnet IP on the container port works normally. This is the same shape as the container→host outage: on this backend host↔container TCP establishes in both directions and carries data in neither. Nothing warns; `-p` is emitted as if it worked.
-[^acfwd]: **Measured on `container` 1.1.0 — this one fails the launch.** yolo starts host-side `socat` *before* creating the container, and Apple Container then refuses the flag naming that socket: `Error: host socket <path> already exists and may be in use`. Even with no `socat` installed, the direction is inverted — AC's `--publish-socket host_path:container_path` creates the host socket and forwards a *host* connection inward to a container-side listener, which is the opposite of what this key needs. A published unix socket is nonetheless the one transport measured to cross this boundary at all, so it is the raw material for a fix rather than a dead end.
-[^muports]: There is nothing to publish and nothing to confine: a port the sandboxed agent binds is on the Mac's real interfaces whether you list it or not. A launch prints one line per declared key saying so. A **remap** (differing numbers) is named as undeliverable — and that half is unbuilt rather than impossible: a small host-side relay would deliver it, at the cost of leaving the inner port exposed too.
-[^mufwd]: A same-port entry (`5432:5432`) is already satisfied — the sandbox is on the Mac's stack. A remap (`5432:3306`) is warned and not delivered; a loopback relay in the launcher would deliver it, which is why this is a gap rather than a limit.
-
-#### Packages, tools, and agent configuration
-
-**Nothing is active by default.** An empty config gives you a jail with *no coding agent* — a coding agent arrives only because a pack installs one, and the launch says so when `packs` is empty. Your effective pack set is also larger than what you typed: a pack may pull in others through its own dependencies, so the launch prints the resolved set rather than your list.
-
-**Config scope matters before anything else.** Keys marked † below are read from your **user** config only (`~/.config/yolo-jail/config.jsonc` and its includes). A workspace `yolo-jail.jsonc` cannot set them at all — spelling one there is a fatal pre-flight error that names the file to move it to. Every other key here is settable at either scope, workspace winning.
-
-| Key / capability | `podman` / Linux | `podman` / macOS | `container` / macOS | `macos-user` / macOS | Takes effect |
-|---|---|---|---|---|---|
-| `packages` (nix packages on PATH) | works — baked into the image | works — needs a Linux builder[^builder] | works — needs a Linux builder[^builder] | works — native darwin build | fresh launch |
-| `packages` per-entry `platforms` | works | works — but `"darwin"` means *absent*[^plat] | works — same inversion[^plat] | works — this is what it is for | fresh launch |
-| `packages` entry that cannot build | refuses — nix error at launch | refuses — blames the builder[^builder] | refuses — blames the builder[^builder] | refuses — names your real target | fresh launch |
-| One image per machine (`YOLO_STORE_PACKAGES=1`) | works — packages from the host store | absent, warns — not built yet[^storedel] | absent, warns — not built yet[^storedel] | n/a — **silent** if you set it | fresh launch |
-| `mise_tools` (runtime pins) | works — tool store on the host | works — store inside the VM[^vm] | works — store inside the VM[^vm] | works — store per workspace | fresh launch |
-| `mcp_presets` | works | works | works | absent, warns — broken entry still written[^presetmac] | fresh launch |
-| `mcp_servers` | works | works | works | works — `command` must exist on your Mac | fresh launch |
-| `mcp_servers.requires_env` | works | works | works | **silently** drops gated servers[^reqenv] | fresh launch |
-| `lsp_servers` | works — known names only[^lsp] | works — known names only[^lsp] | works — known names only[^lsp] | works — last removal leaves it installed | fresh launch |
-| `security.blocked_tools` | works — blocker shims on PATH | works | works | works — but blocks the Mac's BSD tool[^bsd] | fresh launch |
-| `packs` † | works | works — workspace must be VM-shared[^vm] | works — staged copy, never re-read | works — some surfaces inert, said aloud[^packsmac] | fresh launch[^packspartial] |
-| `providers` | works | works | works — lost on re-entry[^reentry] | works | any entry[^reentry] |
-| `profiles` † | works | works | works — lost on re-entry[^reentry] | half-arrives, **silent**[^profmac] | any entry[^reentry] |
-| `use_profiles` † / `-p <name>` | works — refuses a `-p` it cannot honor | works | **silently** ineffective on re-entry[^reentry] | selection arrives, body does not[^profmac] | any entry[^reentry] |
-| `agent_updates` † | works | works | works | works | fresh launch |
-| `env_sources` (dotenv files) | works | works | **silently** lost on re-entry[^reentry] | works — per-session, not editable in-jail | any entry[^reentry] |
-| `nix build` usable inside the jail | works — host daemon, store read-only[^gcroot] | absent, warns — not wired yet[^nixmac] | absent, **silent** — not wired yet | absent — no `nix` on the sandbox PATH | fresh launch |
-| GNU behaviour of `sed`/`find`/`grep`/`tar` | works — GNU userland baked | works | works | BSD tools — GNU flags fail[^bsd] | fresh launch |
-| Build toolchain (`cc`, `make`, `strace`) | works — baked | works | works | works only with Xcode CLT[^clt] | fresh launch |
-| Browser for the chrome-devtools MCP | works — chromium baked | works | unmeasured[^acbrowser] | absent — no browser wired | fresh launch |
-
-Two things cut across the whole table. First, **`macos-user` has no re-entry**: every `yolo` invocation is a fresh sandbox, so every row above takes effect on your next command there, with no restart — the "fresh launch" answers cost you nothing on that column. Second, the container backends freeze most of this on the container command line at the **fresh** launch; re-entering a running jail returns before the config-change gate, so an edit you just made is not in the session you just joined. `yolo check` before you restart; a restart is what delivers.
-
-**One gap to know about, not a limitation:** `providers` is *not* user-scope-contained the way `packs`, `profiles`, `use_profiles` and `agent_updates` are. A repo-committed, agent-editable workspace config can rewrite a provider's base URL or endpoints — including one your own user-scope profile selects — and nothing warns. Treat a workspace config you did not write as able to redirect the agent's API traffic. Closing this is unbuilt work, not a permanent property.
-
-[^builder]: A `packages:` entry forces a **Linux** image build, so a Mac needs a working Linux builder; without one the launch dies inside nix and the message reads like a builder problem rather than a package problem. Check yours with `nix config show | grep -E 'builders|extra-platforms'`.
-
-[^plat]: On a Mac running a *container* backend the jail is Linux, so `{"platforms": ["darwin"]}` means the package is **not** in your jail and `{"platforms": ["linux"]}` means it is. Nothing at launch names the entries it dropped.
-
-[^storedel]: Delivering `packages:` from the host nix store — one image per machine instead of one per distinct package list — is a Linux-podman-only fast path today. On macOS the dial prints an "ignored" line and the launch bakes as normal, which costs a rebuild per distinct list. Not a ruled-out design; simply not built for these setups yet.
-
-[^vm]: The podman machine has one fixed share set, chosen at `podman machine init`, and Apple Container has its own VM. Consequences: the mise tool store lives inside the VM (invisible from the Mac's filesystem, and lost to a `podman machine reset`), and a workspace or yolo state directory outside your home may fail to bind at all. See yours with `podman machine inspect --format '{{.Mounts}}'`.
-
-[^presetmac]: On `macos-user` a yellow launch line tells you presets are not delivered — but the preset's entry is still written into every agent's MCP config, so it fails at first use on a path yolo chose not to create.
-
-[^reqenv]: A server gated on `requires_env` is removed from every agent's config on `macos-user`, even when the variable *will* be in the agent's environment.
-
-[^lsp]: Only server names yolo has an install recipe for put anything on disk. A name outside that set appears in the agent's config and installs nothing, on every setup. `yolo config-ref` lists the recognized names.
-
-[^bsd]: `macos-user` runs against your Mac's own userland, so `sed -i` eats the next argument, `find -printf` and `tar --wildcards` are unknown, and `grep -P` and `ls --color` error out — scripts that pass on the container backends fail here. `security.blocked_tools` also measures the *sandbox* PATH, so a block replaces the BSD tool. Homebrew's GNU builds (`brew --prefix coreutils`) are not on the sandbox PATH under their plain names.
-
-[^packsmac]: On `macos-user` a pack's skills and briefing are writable by the agent and are overwritten on the next launch, and pack-shipped MCP presets are not delivered. A pack-shipped loophole is **half** delivered, which is the precise version of what this note used to call "inert": its HOST daemon starts and its endpoint is delivered (with a per-file ACL grant for the sandbox account), while its `jail_daemon` — the in-jail half — runs for nothing at all, because this backend has no in-jail supervisor. So an *intercepting* loophole does nothing useful even with its daemon up: `claude-oauth-broker`'s TLS terminator is its jail half. The launch says all of it rather than failing quietly: one disclosure line per host daemon it starts, and one `Declined:` line per jail daemon it will not.
-
-[^packspartial]: On podman, adding a pack and *re-entering* a running jail is the worst of both: the pack's config surfaces and hooks render, while its skills, briefing, files and host-file grants do not, and its loopholes never start. Half-arrived, with nothing said. Restart for a whole pack.
-
-[^reentry]: Apple Container receives the provider/profile/`env_sources` channel as a **copied** file, made only on a fresh launch. Re-entering a running jail prints the delivery line, exits 0, and runs the previous launch's providers, profiles and dotenv values. On podman the same channel is a live file, so it does reach the next entry.
-
-[^gcroot]: An in-jail `nix build`'s result gets no durable garbage-collection root, so a host `nix-collect-garbage` can delete a store path a running jail is executing from, with no warning in either place.
-
-[^nixmac]: Reaching the host nix daemon from a jail on a Mac needs a store the jail can see holding *Linux* paths, and (on podman) a machine initialised with `-v /nix:/nix` — which cannot be added to an existing machine. Check with `command -v nix` and `podman machine inspect | grep -i /nix`. Do not force the store-view dial on: it replaces the view the jail's own binaries live in and the jail will not boot.
-
-[^acbrowser]: Whether headless chromium starts and serves a debugging connection under Apple Container has not been measured. The likely failure is an MCP call that times out rather than a launch error. Report `container --version` and `sw_vers -productVersion` with any result.
-
-[^clt]: Without Xcode Command Line Tools there is no `cc` or `make` in the `macos-user` sandbox and yolo does not say so; with them installed, the Mac's own toolchain is what you get. Check with `xcode-select -p`. Linux-only tools such as `strace` are absent either way.
-
-### The questions users actually ask
-
-Five questions, answered per setup. Column names are the (backend, host OS) pair: `podman`/Linux, `podman`/macOS, `container`/macOS (Apple Container), `macos-user`/macOS (native Seatbelt sandbox, no VM).
+### Common questions
 
 #### 1. Who owns the files the agent writes in my repo?
 
-| Setup | Owner of new files |
+| Setup | Who owns new files |
 |---|---|
-| `podman`/Linux | `works — you`, on a rootless podman[^rootless] |
-| `podman`/Linux, rootful | **`root:root`, silent** — your editor cannot save |
-| `podman`/macOS | `unmeasured` — the Podman Machine VM's file share decides[^vmshare] |
-| `container`/macOS | `unmeasured` — yolo emits no id mapping; Apple Container decides |
-| `macos-user`/macOS | `works differently` — owned by `_yolojail`, readable/writable by you[^macuserown] |
+| `podman` / Linux, rootless (the usual setup) | You.[^own-rootless] |
+| `podman` / Linux, rootful | **`root`**, and nothing warns you. Your editor cannot save them. |
+| `podman` / macOS | You.[^vmshare] |
+| `container` / macOS | Not yet tested. yolo sets no owner mapping, so Apple Container decides. |
+| `macos-user` / macOS | The sandbox account `_yolojail`, but you can read and write them.[^macuserown] |
 
-[^rootless]: The jail runs as container-uid 0, which on a rootless podman maps to your own uid. Learn your value: `podman info --format '{{.Host.Security.Rootless}}'`. Rootful podman maps it to host uid 0 instead, and nothing in the launch says so. (Inside a nested jail there is no mapping at all — `--userns=host` is forced.)
-[^vmshare]: Nothing in yolo decides this, and no test covers it. Expect either your own uid or an unfamiliar numeric owner. Separately: a workspace outside your home directory may not be shared into the VM at all, which fails as an unresolvable mount rather than as odd ownership.
-[^macuserown]: There is no id mapping and there cannot be — the agent is a real macOS account. Your access comes from a shared group plus inheriting ACLs on the workspace root, so `ls -l` shows `_yolojail` and `git` may print ownership warnings. Two consequences: the workspace must sit outside every user's home directory (put it under `/Users/Shared`; a workspace under `/Users/<name>` is refused), and a file *moved* into the tree inherits nothing — the next launch refuses and names `yolo macos-fix-permissions`.
+[^own-rootless]: The agent runs as root inside the container, which on a rootless podman is your own user on the host. Check yours: `podman info --format '{{.Host.Security.Rootless}}'`. A rootful podman makes it the host's root instead, and the launch does not say so.
+[^vmshare]: Measured on a Mac: a file the agent writes is owned by your own user. The project must be in a folder the Podman Machine VM shares (your home folder by default); a project outside it fails at launch as a mount that cannot be found.
+[^macuserown]: The agent is a real macOS account, so there is no owner mapping. Your access comes from a shared group plus access-control entries inherited from the project folder, so `ls -l` shows `_yolojail` and `git` may print ownership warnings. Two consequences: the project must sit outside every user's home folder (`/Users/Shared/yolo` is set up for you; a project under `/Users/<name>` is refused), and a file *moved* into the folder inherits nothing, so the next launch stops and names `yolo macos-fix-permissions`.
 
 #### 2. Can the agent make a git commit?
 
-Yes on every setup — **provided your host has a git identity**. yolo reads `user.name` and `user.email` from the host at launch and delivers them into the jail.
+Yes, on every setup, if your host has a git identity. yolo copies your host's `user.name` and
+`user.email` into the jail at launch. If either is empty on your host, nothing warns you and the agent's
+first commit fails with `Please tell me who you are`; on `podman` / macOS the same happens if `git` is not
+on the PATH of the shell you launch from.
 
-| Setup | Host identity present | Host identity missing or empty |
-|---|---|---|
-| `podman`/Linux | `works` — whole config composed, read-only | **absent, silent** — first commit dies[^noident] |
-| `podman`/macOS | `works` — same, if `git` is on the launching shell's PATH | **absent, silent**, and indistinguishable from "no `git` on this Mac" |
-| `container`/macOS | `works differently` — delivered as a **writable** copy[^acwritable] | **absent, silent** |
-| `macos-user`/macOS | `works differently` — replayed as `git config --global`[^macuseradd] | **absent, silent**; visible only under `--dry-run`[^dryrun] |
-
-Check yours before launching: `git config --get user.name && git config --get user.email`. An empty answer from either is the failure above. Setting only a name is the worst case — the identity file is composed and delivered, so the launch looks fully provisioned and the commit still fails.
-
-[^noident]: With neither key set, yolo delivers no identity and prints nothing; `yolo check` has no git-identity section either. The agent hits git's own `Author identity unknown / *** Please tell me who you are.` mid-task. It can self-heal by setting the keys inside the jail (the config file is writable there), but only for that workspace, and only if it works out why. An unbuilt gap, not a design decision — the information is in hand at launch time.
-[^acwritable]: Apple Container cannot nest a single-file mount inside its one home mount, so the identity file is written into the jail's home instead of mounted read-only. It is therefore agent-writable here where every other backend gets read-only: an agent can silently rewrite its own commit author for the session, and nothing detects or discloses that.
-[^macuseradd]: This backend replays the two values as `git config --global` in the shared account home instead of composing a file. The replay only *sets* non-empty values, so an identity you later change is overwritten but one you *clear* is never removed — the stale email persists. Your global gitignore (`core.excludesFile`) does not cross here at all.
-[^dryrun]: The line that would tell you (`git identity: (none — commits use no identity)`) is only printed by `yolo run --dry-run`, never by a real launch.
+Check yours before launching: `git config --get user.name && git config --get user.email`. On Apple
+Container and `macos-user` the agent can change the copied identity for the session.
 
 #### 3. Does the jail have outbound internet?
 
-Yes on all four. There is no config option to take it away — `network.mode` admits only `bridge` (the default) and `host`.
+Yes, on every setup, and it cannot be turned off. On `macos-user` the agent also reaches your local
+network and your Mac's own services.
 
-| Setup | Egress | How |
-|---|---|---|
-| `podman`/Linux | `works` | podman's default bridge and its NAT |
-| `podman`/macOS | `works` — inferred, untested | the Podman Machine VM's network helper |
-| `container`/macOS | `works` — measured on macOS 26 | each container gets its own vmnet namespace |
-| `container`/macOS **15** | **broken, silent at launch** | two vmnet faults; see below |
-| `macos-user`/macOS | `works` — and wider | the Mac's own network stack, loopback and LAN included[^wider] |
-
-**The macOS 15 Apple Container case.** On macOS 15 (Darwin 24.x) Apple Container's networking has two distinct faults, and a jail hits them *after* booting perfectly: `npm install` hangs, the agent's first API request times out. The launch is completely silent. Both faults are already detected — by `yolo check`, which is the only thing that runs the probe, so **run `yolo check` on macOS 15 before believing a jail is healthy**. It distinguishes them and prints the remedy for yours:
-
-- *Subnet disagreement* — the gateway handed to containers is on no host interface, so the jail cannot even reach its own gateway (`ping` of the gateway fails). Remedy: `container system stop && container system start`, or pin `[network] subnet` in `~/.config/container/config.toml`.
-- *Missing NAT* — addressing is fine and the gateway answers, but nothing forwards past it. Remedy: `sudo sysctl -w net.inet.ip.forwarding=1` plus a pf NAT rule; `yolo check` prints the rule derived from your own default route.
-
-Learn your macOS major version with `sw_vers -productVersion`; macOS 26 fixed this, and the probe returns immediately on any other version. Wiring the same probe into the launch as a warning is an unbuilt gap — the detection exists, only the call site on the launch path is missing.
-
-[^wider]: Nothing in the sandbox profile denies any network operation, so the agent reaches your Mac's loopback and your LAN directly — which is also why a loophole's host daemon needs no forwarding hop here, and why its endpoint is a plain file path with an ACL rather than a mount. What is bypassed rather than emulated is the *jail* side: an interception that a container gets from `--add-host` plus a trusted CA has no analogue on a native process, and the daemon that would terminate it is declined by name at launch.
+**Apple Container on macOS 15:** a jail can start fine and then hang on `npm install` or on the agent's
+first request. Run `yolo check` once; it finds the problem and prints the command that fixes it. macOS 26
+does not have this problem (`sw_vers -productVersion` shows your version).
 
 #### 4. I edited my config and re-ran `yolo`, and nothing changed
 
-This is the **time axis**, and it is the single most confusing thing in the product. Re-running `yolo` in a workspace whose jail is still running does **not** start a new jail — it *re-enters* the one you have (the banner says `Attaching to existing jail`). Everything that was passed on the container command line is frozen at the launch that created the jail. Content is not: skills, briefings and pack surfaces are recomposed and the whole boot re-runs on every entry, which is exactly why the confusion is so strong — you *watch* the boot regenerate everything and still get the old value.
+Running `yolo` while the jail is already running joins it, and a joined jail keeps the settings it
+started with. **After any config edit, run `yolo stop`, then `yolo`.** On podman, a new login key or
+`-p` choice, and new skills and briefings, reach you without a restart; on Apple Container nothing does.
+On `macos-user` every `yolo` starts fresh, so there is nothing to restart. The full per-setting list is in
+[Settings per setup](../reference/settings-per-setup.md#what-a-running-jail-picks-up-when-you-run-yolo-again).
 
-| What you changed | `podman` re-entry (Linux, macOS) | `container` re-entry | `macos-user` |
-|---|---|---|---|
-| Skills (built-in, pack, your own) | `works` | `works` | `works differently`[^macuserre] |
-| Briefings (`AGENTS.md`, `CLAUDE.md`), `agents_md_extra`, a filed handoff | `works` | **absent, silent** | `works differently`[^macuserre] |
-| Adding or dropping a pack | `partly`[^packpartly] | **absent, silent**[^acpack] | `works` |
-| Pack launch flags (`--yolo`, `--dangerously-skip-permissions`) | `works` | `works` | `works` |
-| `-p <profile>` / a rotated key in `env_sources` | `works` — live env file | **absent, silent** — and prints as if delivered | `works differently` |
-| `mcp_servers`, `lsp_servers`, `mise_tools`, `blocked_tools` | **absent, silent**[^envhalf] | **absent, silent** | `works` |
-| `resources`, `network`, `ports`, `mounts`, `devices`, `gpu`, `packages`, `host_files` | **absent, silent** | **absent, silent** | `works`[^macuserkeys] |
-| The config-change diff prompt (your y/N review) | **absent, silent** | **absent, silent** | `works` — every invocation shows the diff |
-| The frozen config snapshot `yolo config drift` compares against | **absent, silent**[^drift] | **absent, silent** | `n/a` — never written, drift says "cannot determine" |
-| The jail's own `yolo` version | `absent, warns` — one dim line naming `yolo stop` | `absent, warns` | `n/a` — re-staged every launch |
-
-**`macos-user` has no time axis at all**: it has no attach, every invocation is a fresh sandbox rebuilt from your live config, so every key it reads takes effect on the next `yolo`. Its gaps are on a different axis — which keys it reads at all.
-
-**To get a fresh jail:** `yolo stop`, then `yolo -- <cmd>`. ⚠ On Apple Container `yolo stop` prints `No jail running for this workspace` and exits 0 **while the jail is running** — a wrong liveness probe. Until that is fixed, get the jail's name from `yolo ps` and stop it with the `container` CLI directly. Every message that prescribes `yolo stop` as the remedy is unactionable on that backend.
-
-None of the "frozen" rows above is a permanent limitation. The `-p` row proves a per-entry channel already works on podman — a live env file the jail re-reads on every entry — and the env-carried settings (MCP, LSP, mise tools, blocked tools) need nothing from container creation. They are unbuilt, not impossible.
-
-[^macuserre]: Recomposed on every invocation and copied over the sandbox home, so it works — but the copy is **writable**, meaning the agent can edit its own skills and briefing and the next launch silently overwrites them. The agent is told this in its own briefing.
-[^packpartly]: Two different clocks. A newly added pack's config surfaces, skills, briefing, hooks and launchers re-render on a re-entry; its *mounts* and its loophole do not. Because the jail home is read-only, a pack whose writer has no writable destination is likely to make the re-entry fail outright rather than degrade. Dropping a pack is the clean direction.
-[^acpack]: Apple Container receives the pack tree as a copy rather than a live mount (deliberately — so an agent cannot rewrite the manifests the host reads next launch), and nothing re-copies on re-entry. A live jail keeps the packs it booted with: not the surfaces, not the skills, not the hooks.
-[^envhalf]: These cross as environment variables on the container command line. An added MCP server does not appear in the agent's list until you stop and relaunch, even though the boot visibly regenerated the MCP config.
-[^drift]: After a re-entry, in-jail config readers still see the config the jail was *launched* with, and `yolo config drift` compares against a baseline that may be several edits old — so it reports drift for edits you thought you had applied.
-[^macuserkeys]: For the keys this backend reads. Resource limits are not enforced here and `/ctx` mounts bind nothing — those are capability gaps, not time-axis ones.
+On Apple Container, `yolo stop` cannot see the jail yet: it prints `No jail running for this workspace`
+while the jail is running. Find the jail's name with `container ls` and stop it with
+`container stop <name>`, including whenever yolo suggests `yolo stop` there.
 
 #### 5. Do I have to log in again in every workspace? And in a second jail at the same time?
 
-It depends on the agent, not mostly on the setup. Agents whose pack asks for the *machine* credential tier log in once per machine; the rest log in per workspace.
+It depends on the agent more than on the setup. Agents whose pack keeps its login machine-wide log in once per machine; the rest log in once per workspace.
 
 | Agent | A second workspace on the same machine |
 |---|---|
-| `claude`, `agy` | `works` — one login per machine, every setup[^shared] |
-| `codex`, `pi` | `works` — one login per machine, via a host-wide credential broker; **except Apple Container**[^acbroker] |
-| `copilot`, `omp` | **fresh login in every workspace, silent** — every setup[^perws] |
+| `claude`, `agy` | Yes: one login per machine, on every setup.[^shared] |
+| `codex`, `pi` | Yes: one login per machine, through yolo's OpenAI login service. Not on Apple Container[^login-ac], only partly on `macos-user`[^login-mu], and not yet tried end to end on `podman` / macOS. |
+| `copilot`, `opencode`, `omp` | No: a fresh login in every workspace, on every setup.[^perws] |
 
-Two jails at once is a different question, and the answer is about credential *refresh*:
+Two jails at once is a different question, and the answer is about refreshing a login that is about to
+expire:
 
-| Setup | Concurrent refresh |
+| Setup | Two jails refreshing the same login |
 |---|---|
-| `podman`/Linux | `works` — a host-wide broker serializes refreshes |
-| `podman`/macOS | `unmeasured` — the broker starts; whether the jail can reach it across the VM is untested, and a broken hop warns rather than refuses |
-| `container`/macOS | **not serialized, warns** — the loophole is inert here[^acrefresh] |
-| `macos-user`/macOS | **not serialized, says so** — one shared account home, one credential file, and the serializer's *jail* half cannot run here[^musrefresh] |
+| `podman` / Linux | Yes. A service on your host takes the refreshes one at a time. |
+| `podman` / macOS | Should work. |
+| `container` / macOS | No. The jail cannot reach that service, and the launch says so.[^refresh-ac] |
+| `macos-user` / macOS | No; not planned yet.[^musrefresh] |
 
-Where refreshes are not serialized, two jails running the same agent share one credential file and a simultaneous refresh can consume the single-use refresh token and log you out of both. The launch tells you the mechanism is inert; it does not tell you that this is what being inert costs.
+Without this, two jails running the same agent can log each other out; log in again when that happens.
 
-One more hazard worth knowing, on every setup: if the shared credential is **revoked or expired**, a fresh login inside a jail is written locally and then **discarded at your next entry**, relinking to the dead shared credential. Logging in again works until the next `yolo`. It is disclosed — on the entrypoint's stderr, which is usually discarded, and durably in `~/.yolo-shared-creds.log`, so read that file if a login keeps not sticking. A freshness rule here is unbuilt, not ruled out.
+One more hazard, on every setup: if the shared credential is **revoked or expired**, a fresh login inside a jail can be **thrown away at your next entry**, and the dead shared credential put back. Logging in again then works only until the next `yolo`. yolo records each time this happens in `~/.yolo-shared-creds.log`; read it if a login keeps not sticking.
 
-[^shared]: The credential lives in a machine-scoped directory, and a per-boot hook links the tool's credential file into it. On `macos-user` the same outcome arrives without any mount, because there is one shared account home — the agent is told to expect history that is not its own. First `macos-user` launch only: a real directory where a link belongs makes the launch refuse and name the path; removing `/Users/_yolojail` is the migration.
-[^musrefresh]: The broker's host daemon really does start on `macos-user` — measured 2026-09-18, a bare `["claude"]` publishes its endpoint file — but serializing a refresh needs the jail-side terminator that intercepts the agent's call, and that process is a `jail_daemon`: nothing runs one on this backend, and the launch declines it by name. A host daemon with no client is not a serializer.
-[^acbroker]: On Apple Container the broker process starts but the jail cannot reach it — container→host traffic is measured dead on this backend (the handshake completes and nothing crosses). `codex` prints `OpenAI login is required.` and the interactive login fails through the same dead hop. **The launch says so** as of 2026-09-18 — one line naming the pack, the loophole and that measured reason; before then this service was the one pack the inert report was withheld for, so nothing named Apple Container as the cause. This measurement is against Apple Container 1.1.0 and is expected to expire with an upstream release — check yours with `container --version` and re-test before assuming it still holds.
-[^perws]: These packs simply never asked for the machine tier. The mechanism that would fix it is fully built and shipping for other agents; nothing warns.
+[^shared]: The credential lives in a folder shared by every workspace, and each boot links the agent's credential file to it. On `macos-user` the credential is also shared by the whole machine, while history and config are kept per project. Every `macos-user` project uses the same sandbox account, though, so avoid running two of them at the same time. On the first `macos-user` launch only, a real folder where a link belongs makes the launch stop and name the path; removing `/Users/_yolojail` fixes it, but it also removes every login the `macos-user` sandbox keeps.
+[^login-ac]: On Apple Container the jail cannot reach yolo's OpenAI login service, because traffic from a container to the Mac does not get through. `codex` prints `OpenAI login is required.` and the browser login fails the same way. The launch says so. This was measured on Apple Container 1.1.0, and a later Apple release may change it; check `container --version`. Not planned yet on yolo's side.
+[^perws]: yolo can keep a login machine-wide, but the `copilot`, `opencode` and `omp` packs do not ask for it. Not planned yet.
+[^refresh-ac]: Apple Container carries no traffic from a container to the Mac (measured on Apple Container 1.1.0), so the Claude login service cannot be used. Claude still logs in and works; only the coordination between jails is missing.
+[^musrefresh]: On `macos-user`, the part of the Claude login service that has to run inside the jail cannot run there, so two sandboxes can still log each other out of Claude. Claude still logs in and works.
 
 ### Packs, and the host services they bring
 
-A **pack** is a bundle of contributions yolo installs into a jail — config files, skills, an agent's launcher, a briefing paragraph, sometimes a host service. Selecting one is a `packs` entry in your config. A **loophole** is the one contribution that is not content but a deliberate hole in the jail wall: a service running on your real machine that the jail is allowed to talk to.
+What each kind of pack contribution (`env`, `files`, `mount`, `profile`, services and the rest) does on each setup is in [Settings per setup](../reference/settings-per-setup.md#what-a-pack-can-contribute-per-setup).
 
-Two words used throughout: a **fresh launch** starts a new container (or a new sandboxed session); a **re-entry** attaches to the jail you already have running. Everything on the container command line is frozen at the fresh launch.
+#### The loopholes: host services a jail can use
 
-#### What a pack can contribute, per setup
+**Selecting the pack is not always enough.** Most loopholes stay off until you turn them on by name, next
+to their pack — `"packs": ["serial"]` plus `"loopholes": {"serial": {"enabled": true}}`. The two login
+services are the exception: they come on with their pack. A loophole you turn on starts the next time
+the jail starts, not when you join a running jail. `yolo loopholes list` shows the ones your config
+selects.
 
-Every contribution kind is delivered on all four setups — config files and their overlays, autonomy postures, hooks, blocked-tool shims, skills trees, workspace and machine-scope state dirs, read-only host-file grants, providers, `requires` assertions, briefings, and `program` launchers[^capture] — **except these**:
+| Loophole (its pack) | What it does | On by default | `podman` / Linux | `podman` / macOS | `container` / macOS | `macos-user` / macOS |
+|---|---|---|---|---|---|---|
+| `claude-oauth-broker` (`claude`) | Lets several jails share one Claude login without logging each other out | Yes | Yes[^lh-rootful] | Should work[^lh-mac] | No[^lh-ac] | No; not planned yet[^musrefresh] |
+| `openai-auth-broker` (`openai-auth`, brought in by `claude`, `codex` and `pi`) | One OpenAI subscription login for `codex` and `pi` in every jail | Yes | Yes | Should work[^lh-mac] | No[^lh-ac] | Partly[^login-mu] |
+| `aws-auth` (`aws-auth`) | Bedrock with credentials from your host's `aws sso login`, narrowed to a role before they reach the jail | No | Yes[^lh-aws] | Should work[^lh-mac] | No[^lh-ac] | No; not planned yet |
+| `serial` (`serial`) | A USB serial device on the host, through an allowlist (`yolo-serial`) | No | Yes | Should work[^lh-mac] | No[^lh-ac] | No: `yolo-serial` is not installed there. Not planned yet. |
+| `journal` (`journal`) | The host's systemd journal (`yolo-journalctl`) | No | Yes | No: needs a Linux host[^lh-linux] | No: needs a Linux host[^lh-linux] | No; `macos_log` instead[^maclog] |
+| `host-processes` (`host-processes`) | A filtered list of host processes (`yolo-ps`); nothing shows until you list names | No | Yes | No: needs a Linux host[^lh-linux] | No: needs a Linux host[^lh-linux] | No[^muprocs] |
+| `audio` (`audio`) | The host's microphone and speakers (PipeWire or PulseAudio) | No | Yes | No: needs a Linux host[^lh-linux][^audiomac] | No: needs a Linux host[^lh-linux][^audiomac] | No[^audiomac] |
+| `cgroup-delegate` (`cgroup-delegate`) | Lets the jail cap its own sub-jobs (`yolo-cglimit`) | No | Yes, with cgroup v2[^cgv2] | No: needs a Linux host[^lh-linux] | No: needs a Linux host[^lh-linux] | No |
+| Provider helper (`wire-bridge`) | Lets `claude` or `copilot` use the Cerebras and Kilo providers | Comes in automatically | Yes | Yes | Yes | No; planned |
 
-| Contribution | podman/Linux | podman/macOS | container/macOS | macos-user/macOS |
-|---|---|---|---|---|
-| `env` — static vars | works | works | works, **silent on re-entry**[^acfreeze] | works — carried in the launch env |
-| `files` — a tree in the agent's home | works | works | works — writable copy | **absent, silent**[^files] |
-| `mount` — host dir read-only at `/ctx/<into>` | works | works | works — needs Apple Container 1.1.0+[^acver] | **absent** — and the banner says otherwise[^mountmu] |
-| `service` — an in-jail daemon (the wire bridge) | works | works | works | **absent, silent** — breaks a shipped default[^svc] |
-| `profile` — a named `-p` selection | works | works | works, **silent on re-entry**[^acfreeze] | partly — the vars land, the config surfaces do not[^profmu] |
-| `loophole` — a host service | works | starts, reachability unmeasured[^machop] | one only[^theone] | one only, by a different route[^theone] |
-
-On **podman** and **macos-user**, content contributions are re-rendered on any entry, so a host-side edit reaches a jail you re-enter. On **Apple Container** they are a snapshot of the last fresh launch: an edited pack, a changed setting, or a fresh `.yolo/handover.md` is composed, announced as delivered, and does not arrive until you restart the jail.[^acfreeze]
-
-#### The loopholes, and the wire-bridge service
-
-**Selecting the pack is not enough.** Five of the seven shipped loopholes are off until you enable them by name — `"loopholes": { "serial": { "enabled": true } }` — and only the two credential brokers come on with their pack. Enabling one and re-entering a running jail starts nothing and says nothing: every row here is fresh-launch-only, on every setup.
-
-| Loophole (its pack) | Default | podman/Linux | podman/macOS | container/macOS | macos-user/macOS |
-|---|---|---|---|---|---|
-| `audio` (`audio`) | off | works[^rootless] | **absent, silent** | absent, warns | absent, warns — and the env still points at it[^audiomu] |
-| `cgroup-delegate` (`cgroup-delegate`) | off | works — needs cgroup v2[^cgv2] | **absent, silent** | absent, warns | n/a, warns — no cgroups to delegate |
-| `host-processes` (`host-processes`) | off | works[^rootless] | starts, **returns nothing**[^bsdps] | absent, warns | `ps` works natively — **unfiltered**[^posture] |
-| `journal` (`journal`) | off | works[^rootless] | **absent, silent** | absent, warns | absent, warns — `yolo-log` instead[^maclog] |
-| `serial` (`serial`) | off | works[^rootless] | starts on real hardware; hop unmeasured[^machop] | absent, warns | `/dev` open directly — **unfiltered**[^posture] |
-| `claude-oauth-broker` (`claude`) | **on** | works[^rootless] | starts; hop unmeasured[^machop] | absent, warns | absent, warns — refreshes unserialized[^unserialized] |
-| `openai-auth-broker` (`openai-auth`) | **on** | works[^rootless] | starts; hop unmeasured[^machop] | starts, **jail cannot reach it**[^acbroker] | works — different route, refuses the launch if it fails[^mubroker] |
-| wire bridge (`wire-bridge`, a `service`) | joined automatically | works | works | works | **absent, silent**[^svc] |
-
-Two corrections to a belief this table exists to kill. It is widely said that **no** loophole runs on Apple Container or macos-user; exactly one does, on both — the OpenAI credential broker. On macos-user it genuinely works, by a mechanism of its own. On Apple Container it starts, nothing warns, and the jail still cannot dial it, so an OpenAI login fails at first use.[^acbroker] And on macos-user, three loopholes look inert while the capability is *wider* than the loophole would allow: the sandbox reaches every process and every serial device on the machine, with the loophole's allowlists gating nothing.[^posture]
-
-[^capture]: `program` launchers (a name on PATH plus a lazy installer that keeps the tool current) are delivered on all four. What the macOS backends lack is the install-capture store that pre-seeds those installs, so a first use downloads the vendor installer instead — slower, same result.
-[^acfreeze]: Apple Container renders pack surfaces from a per-launch copy of the pack tree rather than a live read-only bind, and the copy is only refreshed by a fresh launch. Consequence for `env` and `profile`: `yolo -p <name> -- <agent>` against a running jail prints the selection it made, and the jail keeps the previous one. Restart the jail after any config or pack edit on this backend.
-[^files]: `packs: ["pi"]` on macos-user silently omits the extension file the pack ships into the agent's home, so the OpenAI broker runs and the code that dials it never arrives. A gap not yet built, not a limit of the backend.
-[^acver]: Read your own value with `container --version`. From 1.1.0 read-only binds are honored and this works; below it, or if the version cannot be read, the mount is skipped with a yellow line and `/ctx/<into>` does not exist. Closing the below-floor case is unbuilt work, not a permanent limit.
-[^mountmu]: On macos-user the tree is not delivered at all, and the launch's host-access banner still discloses the read as if it were — the one place here where the launch is actively misleading. Unbuilt, and known to be buildable.
-[^svc]: The wire bridge is an in-jail daemon that some providers route through; the `cerebras` pack pulls it in automatically when `claude` or `copilot` is selected. On macos-user nothing supervises it and nothing warns, so a default `["claude", "cerebras"]` composition points the agent at a local address with no listener. Also note on every setup: the daemon set is fixed at the fresh launch, so a newly selected service pack needs a restart.
-[^profmu]: On macos-user the provider and profile variables reach the sandbox environment, but the resolved profile table does not reach the config-rendering half, so surfaces that depend on the selected profile render without it.
-[^machop]: Whether a jail on macOS podman can reach a host service across the Podman Machine VM is **not measured anywhere**, and yolo cannot ask the VM to forward its loopback. So these services start, are disclosed as running, and a launch is *not* refused if they turn out to be unreachable — you meet it as `yolo-ps`, `yolo-journalctl` or a login failing at runtime. If you have a Mac with podman machine, the value worth reporting is `podman info --format '{{.Host.RootlessNetworkCmd}}'` plus whether a host loopback listener answers from inside the jail.
-[^theone]: See the second table: on Apple Container and macos-user only the OpenAI credential broker is started; every other loophole prints one yellow inert line per launch naming the backend and the reason.
-[^rootless]: On **rootless** podman with the default bridge network, reachability depends on yolo forwarding the host's loopback into the jail; when yolo asked for it and the service is still unreachable, the launch is **refused** rather than degraded. Read your own values with `podman info --format '{{.Host.Security.Rootless}}'` and `podman info --format '{{.Host.RootlessNetworkCmd}}'`.
+[^lh-rootful]: On rootless podman (the usual setup) yolo asks podman to forward your host's loopback into the jail, and if a service is still unreachable the launch stops with an error rather than continuing without it. On a rootful podman the jail cannot reach yolo's host services at all, and the launch warns; switch to rootless podman, or use `"network": {"mode": "host"}` at the cost of the jail's network isolation. Check yours: `podman info --format '{{.Host.Security.Rootless}}'`.
+[^lh-mac]: The jail reaches your Mac's services through the Podman Machine VM at `host.containers.internal`, and that connection is tested nightly. The services themselves have not yet been run end to end on a Mac. If a service cannot be reached, the launch warns but still starts.
+[^lh-ac]: Apple Container carries no traffic from a container back to the Mac (measured on Apple Container 1.1.0), so no host service can be used, and the launch lists each one it had to skip. This can change only with an Apple Container release.
+[^lh-aws]: Turn it on in your user config with the SSO profile and the role to narrow to, then use the `bedrock` profile: `yolo -p bedrock -- claude`. See [the `aws-auth` pack](../../packs/aws-auth/README.md). Not yet tested against a real AWS SSO login.
+[^lh-linux]: These need Linux on the host. On a Mac, turning one on does nothing, and yolo does not always warn you.
 [^cgv2]: Needs cgroup v2 on the host: `test -e /sys/fs/cgroup/cgroup.controllers && echo v2`.
-[^audiomu]: The loophole is reported inert, but the `audio` pack's environment variables still cross, naming sockets macOS does not have — so audio-aware tools fail or hang instead of falling through to CoreAudio. The environment here is worse than absent.
-[^bsdps]: The host daemon starts, the launch looks healthy, and every request fails: the daemon issues Linux `ps` arguments that macOS `ps` does not accept. `yolo-ps` returns empty output or a usage error, indistinguishable from an empty allowlist.
-[^posture]: This is a posture inversion, not a bonus. The loopholes exist to show *nothing* until you list what may be seen; on macos-user the sandbox runs the host's own tools under a permissive profile, so the agent sees every process on the machine (including other users' command lines) and can open every serial device, and no config key narrows either.
-[^maclog]: macos-user offers Apple's unified log instead, behind its own `macos_log` key (`off` / `user` / `full`) and a `yolo-log` helper. It is a convenience, not a boundary: the sandbox can run `/usr/bin/log` directly, so `off` is advisory.
-[^unserialized]: Claude auth still works on macos-user — the sandbox reaches the API directly — but refreshes are not serialized. Two concurrent sessions, or one macos-user session beside a container jail, can race the single-use refresh token; the symptom is a logged-out Claude with nothing pointing at concurrency.
-[^acbroker]: The daemon and its in-jail adapter both run, the reachability check warns without refusing, and the agent's briefing omits the one loophole this backend does start. Either the allowlist entry or the silence needs to go; until then, treat Codex/pi login on Apple Container as unverified.
-[^mubroker]: On macos-user the broker is started by hand and the launch is **refused** if it does not come up, so a broken broker takes the backend down rather than failing quietly. Credentials are handed over by a per-file macOS access-control grant to the sandbox account, which is built and unit-tested but has never been executed end to end outside a real Mac. One live defect rides along: the agent's briefing still tells it no host services are running here.
+[^maclog]: `macos-user` offers Apple's unified log instead, behind its own `macos_log` key (`off` / `user` / `full`) and a `yolo-log` helper. It is a convenience, not a boundary: the sandbox can run `/usr/bin/log` directly, so `off` is advisory.
+[^muprocs]: The `macos-user` sandbox can already see which processes are running on your Mac, though not their command lines.
+[^audiomac]: On any Mac the `audio` pack still sets `PULSE_SERVER`, naming a socket that does not exist, so audio tools may fail or hang instead of using the Mac's own audio. Leave the pack out on a Mac.
 
-### Permanent limits, and what to do instead
+### Things that will not work on a Mac
 
-Short list, and it is short on purpose: these are the only things in the audit that **cannot** be
-delivered on a setup, each because of a fact about the host rather than a decision yolo made. Everything
-else that looks like a limit is a gap nobody has built yet — see the end of this section.
-
-Two GPU/virtualization keys are absent on every macOS setup:
-
-| Want | `podman` / Linux | `podman` / macOS | `container` / macOS | `macos-user` |
-|---|---|---|---|---|
-| `gpu` (`vendor: nvidia` or `amd`) | works — device passthrough | absent, warns | absent, warns | absent, warns [^gpu] |
-| `kvm` (hardware virtualization in the jail) | works — `/dev/kvm` passed in | absent, warns | absent, warns | absent, warns |
-
-- **`gpu`** — no NVIDIA driver has existed for macOS since 10.14, Apple silicon carries neither an
-  NVIDIA nor an AMD discrete GPU, ROCm is Linux-only, and neither Mac VM passes a PCIe device through
-  to its Linux guest, so there is no bus on
-  which such a card could appear. **Instead:** run GPU work on a Linux host. On `macos-user` the key is not read at all, and the sandbox profile denies no
-  GPU access — the agent is a native process, so Metal (Apple's own GPU API) is reachable the way it is
-  for any program you run yourself. [^gpu]
-- **`kvm`** — `/dev/kvm` is a Linux kernel interface. A Mac has none, the Mac VMs do not nest
-  virtualization, and `macos-user` starts no Linux kernel at all. **Instead:** expect nested VMs to run
-  emulated (slow but correct), or use `podman` / Linux.
-
-Both keys are read when the jail is created, or on `macos-user` by nothing at all. Re-entering an
-existing jail cannot change them, so "restart and it works" is never the answer here.
-
-**`macos-user` runs Mach-O binaries, not ELF ones**, and that removes a whole family of jail plumbing
-rather than breaking it. macOS has no ELF loader, so the FHS interpreter shim (`nix-ld`), the
-shared-object symlink farm under `/lib`, and the boot-populated loader cache have no problem to solve —
-a Mach-O binary's loader is `dyld`, always present. Nothing warns, and nothing should: **n/a**, not
-missing. The same goes for anything image-shaped, because this setup builds no container image — the
-store-delivered package farm and its PATH slot, and the lean image's bulk extras, simply do not arise.
-Building a library to compile against still works: a `packages: ["foo.dev"]` entry yields a working
-`pkg-config --cflags foo`.
-
-**`iptables` is the one loss inside that family.** The rule that makes a published port reach a service
-bound to the jail's own loopback is Linux netfilter, and there is no container network here to rewrite.
-**Instead:** read the networking section — on `macos-user` a port the agent binds is already open on the
-Mac's real interfaces, so the fix-up has nothing to fix and nothing to confine.
-
-One standing decision, not an impossibility: **`macos-user` ships no GNU userland.** `sed -i` wants a
-suffix argument, `find -printf` and `tar --wildcards` are unknown, `grep -P` is unsupported — the
-proposition is *your Mac, confined*, so the agent gets the same tools the human has, and nothing at
-launch predicts the difference. **Instead:** write portable scripts, or use a container backend for a
-job that assumes GNU behavior.
-
-Anything else you expected in this list — a resource cap on `macos-user`, a port remap there, host
-directories delivered by `host_files`, store-delivered packages on a Mac, nested-jail port publishing —
-is a **gap, not a limit**: a mechanism exists, nobody has built it. Those are tracked in
-[the gap tracker](../plans/setup-support-gaps.md); the per-setup behaviour you get today is in the tables above this
-section.
-
-[^gpu]: Host facts worth checking before you believe any of this about your own machine. Which setup you
-are on: `yolo check` prints the backend and host OS. What GPU the Mac actually has:
-`system_profiler SPDisplaysDataType` — on Apple silicon this lists an Apple GPU and nothing else.
-Whether you are on Apple silicon: `uname -m` (`arm64`). Routes to GPU compute that are *not* NVIDIA —
-Vulkan compute translated to Metal by a `podman machine` provider that exposes a virtual GPU, or an
-external Thunderbolt card fed to a Linux guest — are neither built nor ruled out; they are backlog
-items, and no `gpu.vendor` value names them today.
+- **NVIDIA or AMD GPUs, and `/dev/kvm`.** Macs have no GPU or virtualization device a Linux jail can use;
+  the launch warns if you set `gpu` or `kvm`. Run that work on a Linux machine. On `macos-user`, Metal
+  should work as it does for any Mac program.
+- **Linux programs on `macos-user`.** It runs Mac programs and Mac tools: `sed -i` needs a suffix,
+  `find -printf`, `tar --wildcards` and `grep -P` are missing, and the launch does not warn. Write
+  portable scripts, or use a container setup.
 
 ---
 
@@ -1998,7 +1764,7 @@ Set `YOLO_REPO_ROOT` in your shell profile if you always want a live checkout �
 **Port forwarding not working**
 
 - Podman on macOS: YOLO Jail uses a TCP gateway (`host.containers.internal`) instead of Unix sockets because virtiofs rejects sockets. This is automatic.
-- Apple Container: uses native `--publish-socket` — no TCP gateway needed. ⚠ **Measured 2026-09-16: this path breaks the launch**, because the socket yolo hands it already exists and because AC's direction is host→container. See [^acfwd].
+- Apple Container: uses native `--publish-socket` — no TCP gateway needed. ⚠ **Measured 2026-09-16: this path breaks the launch**, because the socket yolo hands it already exists and because AC's direction is host→container. See the `network.forward_host_ports` row in [Settings per setup](../reference/settings-per-setup.md#resources-devices-and-networking).
 - Ensure `socat` is in the container (it's in the default image)
 
 **Apple Container: "virtual machine failed to start"**
