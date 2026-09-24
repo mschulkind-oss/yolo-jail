@@ -1,7 +1,7 @@
 ---
 status: current
-verified: 2026-09-23
-verified_commit: 7ad8358c
+verified: 2026-09-24
+verified_commit: f491d192
 covers:
   - internal/packdecl/
   - internal/packload/
@@ -26,7 +26,8 @@ tags: [packs, config, kinds, manifest, prism, trust, disclosure]
 
 # The pack system — how a jail gets everything in it
 
-**Status:** CURRENT as of 2026-09-23, verified against `7ad8358c`. MEASURED in CI at `7ad8358c`
+**Status:** CURRENT as of 2026-09-24. Verified in full against `7ad8358c` (2026-09-23); every
+commit since that touches a path this doc covers was re-checked against `f491d192`. MEASURED in CI at `7ad8358c`
 (run 35820702335): a pack's `briefing/` prose reaches a real container and its root `AGENTS.md`
 does not (`TestPackDeliversSkillAndBriefing`). UNMEASURED: no launched jail has been observed
 routing one pack's `briefing/` files to *different* agents. The container audience test routes a
@@ -548,7 +549,7 @@ formula is AWS's deprecated ECS CLI, not the CLI this pack means. `brew-cask` wi
 
 > [!WARNING]
 > **Do not add `nix` hints to a pack whose tool ships its own installer and updater.** The
-> six agent packs dropped theirs: routing a user through nixpkgs hands them whatever that
+> agent packs dropped theirs: routing a user through nixpkgs hands them whatever that
 > repo has, with nothing in the output to say so (measured once at 16 releases behind), and
 > `detectManager` reaches `nix` only by *elimination*, so a user cannot select it
 > deliberately anyway. `nix` hints belong on genuine third-party dependencies where the
@@ -1463,6 +1464,16 @@ revert under `own` withdraws exactly the inserted entries. A key whose array a c
 edit changed is labelled `overlay`, as the whole-array capture labelled it, so a revert never
 deletes it whole.
 
+> [!NOTE]
+> **The `host_management` value `"assert"` is retired by a 2026-09-20 ruling that is not built.**
+> This section describes the shipped tree, where `assert` is still the default for an absent key.
+> The ruling keeps `none` and `own`, with `none` as the new default
+> ([`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md#45-retiring-assert--the-two-value-key)).
+> When it lands, the `assert` cases above go with it. What it does to a config or a home already
+> on `assert` is still open there, as
+> [`OQ-CO14`](../design/config-ownership-and-promotion.md#oq-co14). The `--assert` flag on
+> `yolo host apply` is a different thing, and the ruling keeps it.
+
 **Where you see it.** A key's one-word provenance label cannot say that several packs'
 entries survive in one array, so the per-entry account is printed separately:
 
@@ -1823,6 +1834,12 @@ Everything else is offline.
 - Launch resolves pins from the local store and **never fetches**; a missing pin errors and
   points at `yolo pack install`. `yolo pack status` flags drift between the config address and
   the lock.
+- `yolo host apply` reads the same store, through the launch's own resolver (`run.PackRoot`,
+  called by `cli.resolveConfiguredPack`). It stages a fetched pack into a throwaway directory
+  first, under the launch's no-escaping-symlink rule, because at the host the content lands in
+  the real home. **An incomplete set is refused whole**: if any configured pack cannot be
+  resolved, `--assert` writes nothing and exits 1, naming each pack, its reason and
+  `yolo pack install` where that is the fix. The dry run says it would refuse.
 - The lockfile records the asked-for `source`, the resolved `commit`, and the `ref` — **and
   nothing else. There is no approval record in it, and the absence is a ruling rather than an
   omission**: a field asserting an approval nothing enforces is worse than no field, and
@@ -2057,7 +2074,7 @@ their original spelling and are QUALIFIED where the bare id already means someth
 
 ## Current values
 
-Verified at `7ad8358c`. The prose above explains what each of these is for; this table is the
+Verified at `7ad8358c`; the `config-list` rows at `f491d192`. The prose above explains what each of these is for; this table is the
 only place the values themselves are stated.
 
 | Value | Setting | Defined in |

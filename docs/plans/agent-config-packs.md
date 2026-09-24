@@ -1,14 +1,32 @@
 # Agent config packs — sharing agent environment configuration by git repo
 
-**Status:** DESIGN, 2026-07-25 — a proposal, **largely OVERTAKEN by what shipped**, and four
-questions are still live. Re-checked
-2026-08-23: the `packs` key, host-side fetch, the lockfile, the origin gate and `yolo pack
-{install,status,lint,footprint}` are all in the tree, so read this for its **landscape research and
-its scope verdict**, not as a plan. What is still live is four open questions, now named
-**[OQ-ACP1](#-oq-acp1--what-happens-when-two-people-attach-to-the-same-jail-with-different-pack-sets) … [OQ-ACP4](#-oq-acp4--whether-pruning-needs-usage-telemetry-to-be-anybodys-job)** at the end. *(The old header said "ROADMAP item: 5" — a numbering the
-2026-08-17 restructure retired; the roadmap holds states and OQ IDs now.)*
+**Status:** DESIGN, 2026-07-25 — a proposal, **largely OVERTAKEN by what shipped**. Re-checked
+2026-08-23 and again 2026-09-24: the `packs` key, host-side fetch, the lockfile, the origin gate and
+`yolo pack {install,status,lint,footprint}` are all in the tree, so read this for its **landscape
+research and its scope verdict**, not as a plan. The live questions are
+[OQ-ACP1](#-oq-acp1--what-happens-when-two-people-attach-to-the-same-jail-with-different-pack-sets), [OQ-ACP2](#-oq-acp2--whether-opencodes-skills-gap-should-be-closed-by-writing-into-workspace) and [OQ-ACP4](#-oq-acp4--whether-pruning-needs-usage-telemetry-to-be-anybodys-job) at the end;
+[OQ-ACP3](#-oq-acp3--whether-the-prism-should-become-a-standalone-tool-that-also-manages-host-configs) is answered by reference ([Decision ledger](#decision-ledger)). *(The old header said
+"ROADMAP item: 5" — a numbering the 2026-08-17 restructure retired; the roadmap holds states and OQ
+IDs now.)*
 
-**Needs your ruling:** [OQ-ACP1](#-oq-acp1--what-happens-when-two-people-attach-to-the-same-jail-with-different-pack-sets), [OQ-ACP2](#-oq-acp2--whether-opencodes-skills-gap-should-be-closed-by-writing-into-workspace), [OQ-ACP3](#-oq-acp3--whether-the-prism-should-become-a-standalone-tool-that-also-manages-host-configs), [OQ-ACP4](#-oq-acp4--whether-pruning-needs-usage-telemetry-to-be-anybodys-job).
+> [!NOTE]
+> **Where the body no longer describes the tree.** The system as built is
+> [`pack-system.md`](../reference/pack-system.md). The differences a reader of this proposal
+> trips on first:
+>
+> - **Prose.** A pack ships prose from a `briefing/` directory of `*.md` files, not from
+>   `agents.md` or `agents.d/`, and `AGENTS.md`, `CLAUDE.md` and `GEMINI.md` are refused as a
+>   source ([`OQ-PB1`](../reference/pack-system.md#oq-pb1),
+>   [`OQ-PB2`](../reference/pack-system.md#oq-pb2)). Addressed prose uses a contribution's
+>   `agents` list rather than an `include:` of fragment names.
+> - **Skills reach every agent pack.** Each agent pack declares its own skills destination.
+>   opencode's included: `packs/opencode` has delivered to `.config/opencode/skills` since
+>   2026-08-31, so the "DROPPED" cells in [§6](#6-projection-what-actually-reaches-which-agent)
+>   and the premise of [OQ-ACP2](#-oq-acp2--whether-opencodes-skills-gap-should-be-closed-by-writing-into-workspace) are gone.
+> - **Code paths.** `internal/agents` is now `internal/jailcontent`, and the file:line citations
+>   in the body are from 2026-07; treat them as history.
+
+**Needs your ruling:** [OQ-ACP1](#-oq-acp1--what-happens-when-two-people-attach-to-the-same-jail-with-different-pack-sets), [OQ-ACP2](#-oq-acp2--whether-opencodes-skills-gap-should-be-closed-by-writing-into-workspace), [OQ-ACP4](#-oq-acp4--whether-pruning-needs-usage-telemetry-to-be-anybodys-job).
 **Research base:** [`../research/agent-config-distribution.md`](../research/agent-config-distribution.md)
 (14 agents surveyed, 6 distribution mechanisms, measured git plumbing).
 
@@ -1087,6 +1105,10 @@ installable `agentpack`, the boundary was drawn wrong. Conversely, if
 
 ### Could the prism itself be extracted, and manage host configs too?
 
+> **Answered 2026-07-27, elsewhere:** no extraction, and host configs are managed inside yolo as
+> `yolo host apply`. See [OQ-ACP3](#-oq-acp3--whether-the-prism-should-become-a-standalone-tool-that-also-manages-host-configs).
+> This section is the argument as it stood before that ruling.
+
 Raised in review, alongside the surfaces question: extract the whole prism into a
 separate tool that packs plug into, and let one unix-like tool manage configs on
 the host **and** inside the jail. Three separable claims. The first is measurably
@@ -1529,9 +1551,11 @@ Recorded so scope creep is visible:
 ## Open Questions
 
 > [!IMPORTANT]
-> **Four of these are still live, and they are the only reason this doc is not purely historical**
-> (checked 2026-08-23). They are now named **[OQ-ACP1](#-oq-acp1--what-happens-when-two-people-attach-to-the-same-jail-with-different-pack-sets) … [OQ-ACP4](#-oq-acp4--whether-pruning-needs-usage-telemetry-to-be-anybodys-job)** so they can be cited from outside;
-> the prefix was verified free across `docs/`. The answered ones keep their rulings inline.
+> **[OQ-ACP1](#-oq-acp1--what-happens-when-two-people-attach-to-the-same-jail-with-different-pack-sets), [OQ-ACP2](#-oq-acp2--whether-opencodes-skills-gap-should-be-closed-by-writing-into-workspace) and [OQ-ACP4](#-oq-acp4--whether-pruning-needs-usage-telemetry-to-be-anybodys-job) are still live, and they are the only
+> reason this doc is not purely historical** (checked 2026-09-24). The `OQ-ACP` prefix was
+> verified free across `docs/` when the names were given. [OQ-ACP3](#-oq-acp3--whether-the-prism-should-become-a-standalone-tool-that-also-manages-host-configs) is answered by
+> reference and now sits under [Answered questions](#answered-questions); the older answered
+> ones keep their rulings inline.
 
 
 ### Whether `pack_requests` in workspace scope is worth its complexity in v1
@@ -1605,10 +1629,37 @@ _Leaning:_ never write into `/workspace`. Ship the `instructions` layer, and
 state the degradation in `pack add` output rather than burying it. If this
 becomes the dominant complaint, the right fix is upstream in opencode.
 
+> **Premise gone, question not ruled.** opencode does read a home-scope skills directory,
+> `~/.config/opencode/skills`, and `packs/opencode` has delivered pack skills there since
+> 2026-08-31. So there is no opencode gap left to close. What survives is the general half —
+> whether yolo ever writes into `/workspace` — and
+> [`workspace-skills.md`](../design/workspace-skills.md)'s
+> [`OQ-WS4`](../design/workspace-skills.md#OQ-WS4) (open) is filed to answer it and to record the
+> answer here.
+
 **Answer:**
 > _(empty — fill in when decided)_
 
-### 💬 [OQ-ACP3](#-oq-acp3--whether-the-prism-should-become-a-standalone-tool-that-also-manages-host-configs) — whether the prism should become a standalone tool that also manages host configs
+### 💬 [OQ-ACP4](#-oq-acp4--whether-pruning-needs-usage-telemetry-to-be-anybodys-job) — whether pruning needs usage telemetry to be anybody's job
+
+A shared corpus rots: it accumulates, quality drops, engineers stop trusting it
+and revert to their own config — the organizational death of this feature, and no
+surveyed design has a mechanism against it. Uber's answer is usage data plus a
+hard cap. Claude Code emits OpenTelemetry including skill names with
+`OTEL_LOG_TOOL_DETAILS`, so a `yolo pack usage` view is mechanically available
+for at least one agent.
+
+_Leaning:_ out of scope for all phases, but worth a paragraph in the user docs
+naming pruning as a human responsibility, plus `owner` in `pack ls` so there is
+someone to ask. Consuming agent telemetry is a much larger surface than this
+feature should open.
+
+**Answer:**
+> _(empty — fill in when decided)_
+
+## Answered questions
+
+### ✅ [OQ-ACP3](#-oq-acp3--whether-the-prism-should-become-a-standalone-tool-that-also-manages-host-configs) — whether the prism should become a standalone tool that also manages host configs
 
 Raised in review off the `surfaces/` line in [§1](#1-the-unit-of-sharing). Three claims, separated in [§9](#9-scope-in-yolo-jail-with-two-extractable-packages): the
 engine *is* extraction-shaped (measured — 6-package closure, zero app-layer edges,
@@ -1646,27 +1697,15 @@ host-side composer, and it is worth having either way — and if the host half e
 ships, it ships with home-manager's `checkLinkTargets` posture (refuse or back up),
 not with an overwrite.
 
-**Answer:**
-> _(empty — fill in when decided)_
-
-### 💬 [OQ-ACP4](#-oq-acp4--whether-pruning-needs-usage-telemetry-to-be-anybodys-job) — whether pruning needs usage telemetry to be anybody's job
-
-A shared corpus rots: it accumulates, quality drops, engineers stop trusting it
-and revert to their own config — the organizational death of this feature, and no
-surveyed design has a mechanism against it. Uber's answer is usage data plus a
-hard cap. Claude Code emits OpenTelemetry including skill names with
-`OTEL_LOG_TOOL_DETAILS`, so a `yolo pack usage` view is mechanically available
-for at least one agent.
-
-_Leaning:_ out of scope for all phases, but worth a paragraph in the user docs
-naming pruning as a human responsibility, plus `owner` in `pack ls` so there is
-someone to ask. Consuming agent telemetry is a much larger surface than this
-feature should open.
-
-**Answer:**
-> _(empty — fill in when decided)_
-
-## Answered questions
+**Answer (by reference, 2026-07-27):**
+> **Not a standalone tool; host configs yes, inside yolo.** Both halves were ruled in
+> [`host-render-target.md`](../design/host-render-target.md) two days after this question was
+> filed. Its [§2.3](../design/host-render-target.md#23-extraction-settled-and-the-answer-is-no)
+> decided against extraction ("this doc no longer proposes a separate util"), and its ruling
+> 9.1 ([Decision Ledger](../design/host-render-target.md#decision-ledger)) made the host one notch
+> of the `confinement` dial. That shipped as `yolo host apply`. What is left of the posture
+> question, whether host apply is a narrow convenience or the recommended way to configure
+> agents, is that doc's open 9.2 and not this one.
 
 ### Whether a pack should be required to also be a valid Claude plugin
 
@@ -1736,3 +1775,15 @@ you copy to a new machine must carry pins without also carrying "I already trust
 this," or trust becomes transitive by file copy. What remains deferred is only a
 *second*, repo-committed lock beside a *shared* spec, which has no reason to exist
 until `include_if_found` distributes a baseline `packs` list.
+
+## Decision ledger
+
+| Question | Ruling | Date | Settled in |
+| :--- | :--- | :--- | :--- |
+| `pack_requests` in workspace scope | **No.** Packs are user-level only; `pack_requests` and `approve --from-workspace` are dropped | 2026-07-26 | [Open Questions](#whether-pack_requests-in-workspace-scope-is-worth-its-complexity-in-v1) |
+| A pack must also be a valid Claude plugin | **No, but it may be one.** Their format, our resolution | 2026-07-25 | [Answered questions](#whether-a-pack-should-be-required-to-also-be-a-valid-claude-plugin) |
+| The committable lockfile ships in phase 1 | **Yes**, beside the spec in `~/.config/yolo-jail/` | 2026-07-25 | [Answered questions](#whether-the-committable-lockfile-should-just-ship-in-phase-1) |
+| [**OQ-ACP3**](#-oq-acp3--whether-the-prism-should-become-a-standalone-tool-that-also-manages-host-configs) | **By reference: not a standalone tool; host configs yes, inside yolo** | 2026-07-27 | [`host-render-target.md` §2.3](../design/host-render-target.md#23-extraction-settled-and-the-answer-is-no) and [ruling 9.1](../design/host-render-target.md#decision-ledger) |
+| [**OQ-ACP1**](#-oq-acp1--what-happens-when-two-people-attach-to-the-same-jail-with-different-pack-sets) | — open | — | — |
+| [**OQ-ACP2**](#-oq-acp2--whether-opencodes-skills-gap-should-be-closed-by-writing-into-workspace) | — open; its opencode premise is gone, and [`OQ-WS4`](../design/workspace-skills.md#OQ-WS4) is filed to answer the rest | — | — |
+| [**OQ-ACP4**](#-oq-acp4--whether-pruning-needs-usage-telemetry-to-be-anybodys-job) | — open | — | — |

@@ -31,6 +31,33 @@ the copied-in host-file set per agent (a credential boundary, not
 workspace-widenable) and both keys hard-error.
 
 > [!IMPORTANT]
+> **Postscript, 2026-09-24 — what the per-phase status above no longer describes.** The status
+> paragraph is kept as written; read this block for the tree. The authority for the system as
+> built is [`pack-system.md`](../reference/pack-system.md#config-surfaces-and-the-compose-engine).
+>
+> - **Surfaces are pack declarations.** Since 2026-07-27 every agent surface is declared in its
+>   pack's `pack.json` and rendered by one loop, `entrypoint.ConfigurePackSurfaces`. The per-agent
+>   `Configure*Prism` writers that the header and [§6](#6-yolo-config-render--run-the-pipeline-on-demand)
+>   name are gone, except `ConfigureMisePrism` for `mise/config`, which is the only surface left
+>   in core (`agentcfg.BuiltinManifest`). There is no `gemini` surface; the set is whatever the
+>   selected packs declare.
+> - **MCP, LSP and git identity did not become surfaces.** MCP and LSP servers reach an agent's
+>   own surface through its pack's `derive.lua` (`ctx.mcp_servers`, `ctx.lsp_servers`) as a
+>   `computed` layer, where that pack projects them; Claude's LSP servers arrive instead as one
+>   plugin yolo renders ([`mcp-configuration.md`](../reference/mcp-configuration.md)). Git
+>   identity is composed on the host and mounted `:ro` on the container backends
+>   ([`jail-home.md`](../reference/jail-home.md)).
+> - **Adding to an array is the `config-list` kind, not a per-keypath `append`.** The
+>   manifest-pinned `append` that [§4](#4-layers-and-scope) describes was never built. Since
+>   2026-09-24 a pack appends entries to one array of an owner's surface with a `config-list`
+>   contribution, and a surface that reads edits back captures those paths per entry rather than
+>   as a whole array ([`OQ-AL1`/`OQ-AL2`](../design/additive-config-lists.md#decision-ledger),
+>   ruled 2026-09-23). That refines [§5](#5-surviving-regeneration--the-capture-diff-overlay)'s
+>   capture at those paths only.
+> - **The `workspace` layer is still unwired**, as [§4](#4-layers-and-scope)'s table says. A pack's
+>   `config-overlay` and `config-list` fold above it, below the capture overlay.
+
+> [!IMPORTANT]
 > **Postscript, 2026-09-11 — the Lua transform in this doc's title is REMOVED.** [§1](#1-the-decision-in-one-paragraph)–[§10](#10-retiring-the-host__files-keys-decided---implemented-2026-07-23)
 > are kept in their original tense and describe the design as it was settled on 2026-07-20; this
 > note says what has since been taken out of the tree. The removal is ruled in

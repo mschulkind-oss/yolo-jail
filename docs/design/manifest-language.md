@@ -3,14 +3,17 @@ title: "The manifest language: declarations stay inert data, and the syntax shou
 date: 2026-09-20
 status: in-review
 tags: [packs, manifest, config, format, lua, starlark, design]
-summary: "A pack manifest compresses to a quarter of its bytes — more redundant than the repo's own prose — because it is a flat tagged union that repeats the pack's identity and the `kind` tag on every entry, and spells mechanism rather than intent. The syntax and the MODEL are two independent decisions, and the model change (group by kind, derive the agent name from its own `program`, keep distinct facts explicit) carries most of the gain under any syntax. This doc ARGUES both and rules neither yet: what a manifest may be written in (JSON restructured, data-only Lua, Starlark, or the heavier config languages), and the rule that compression may remove repetition but never a claim."
+summary: "A pack manifest compresses to a quarter of its bytes — more redundant than the repo's own prose — because it is a flat tagged union that repeats the pack's identity and the `kind` tag on every entry, and spells mechanism rather than intent. The syntax and the MODEL are two independent decisions, and the model change (group by kind, state the agent name once per pack, keep distinct facts explicit) carries most of the gain under any syntax. This doc ARGUES both and rules neither yet: what a manifest may be written in (JSON restructured, data-only Lua, Starlark, or the heavier config languages), and the rule that compression may remove repetition but never a claim."
 vantage:
   status-chip: true
 ---
 
 # The manifest language: declarations stay inert data, and the syntax should stop fighting us
 
-**Status:** DESIGN, 2026-09-20. Nothing built. Sibling to
+**Status:** DESIGN, 2026-09-20. Nothing built; four questions open. Re-checked against the tree
+and the sibling rulings 2026-09-24: the identity lever in [§3](#3-what-is-actually-free-to-change)
+now follows [`OQ-D5`](./slots-and-contributions.md#OQ-D5) (declared once per pack, never derived),
+which that doc ruled on 2026-09-20. Sibling to
 [`slots-and-contributions.md`](./slots-and-contributions.md) — that one fixes the manifest's
 **role** model, this one its **surface**.
 
@@ -21,7 +24,7 @@ vantage:
 > the rest, more redundant than English prose.
 >
 > **Two decisions, and they are independent.** *What the declaration model is* (group by kind,
-> derive the pack's own identity, keep every distinct fact explicit) is worth most of the gain
+> state the pack's own identity once, keep every distinct fact explicit) is worth most of the gain
 > and is **syntax-independent**. *What it is written in* (JSON, YAML, a data-only Lua, Starlark,
 > Jsonnet/CUE/Dhall) is the smaller, separable choice. This doc argues to do the model change
 > first, and to move off JSON only if the model change leaves a file a human still cannot read.
@@ -100,7 +103,7 @@ The syntax and the model are separable, and it is worth being exact about which 
 | Lever | Syntax-independent? | Share of the redundancy |
 | :--- | :--- | :--- |
 | Group by kind (the key IS the kind; delete `kind`) | **yes** — applies to JSON too | large (17 tags) |
-| Derive the agent name from the pack's own `program.bin` (no `agent` on a pack's own contributions) | **yes** | large (6 repeats) |
+| State the agent name once per pack (no `agent` on a pack's own contributions) | **yes** | large (6 repeats) |
 | Per-kind conventions for `into`/`path`/`codec` | **yes** | moderate |
 | Comments, trailing commas, unquoted keys, `local` reuse | no — needs the language | moderate |
 | Loops for repeated rows | no — needs computation | small, once grouped |
@@ -108,10 +111,14 @@ The syntax and the model are separable, and it is worth being exact about which 
 **So most of the win does not need a new language at all.** That is the first proposal: change
 the *shape*, and see how much of the problem is left.
 
-> ⚠ **Derive the agent name from `program.bin`, not from the pack's `name`.** They agree on six of
-the seven shipped agent packs, and `packs/omp` is the counterexample: `name: "omp"` but
-`bin: "oh-omp"`, which is also the agent its briefings and skills declare. The bin is the address
-(the address rule in [`slots-and-contributions.md`](./slots-and-contributions.md)), and it is already declared.
+> ⚠ **The agent name is declared once per pack, and never derived.** An earlier draft of this
+> row derived it from `program.bin`. [`OQ-D5`](./slots-and-contributions.md#OQ-D5) ruled
+> otherwise on 2026-09-20: a pack provides zero or one agents and must name the one it provides,
+> which is [`OQ-BA2`](../reference/agent-briefings.md#oq-ba2)'s refusal of a derived identity
+> restated at pack scope. Neither the pack's `name` nor its bin could be the source anyway:
+> `packs/omp` is `name: "omp"` with `bin: "oh-omp"`, and `oh-omp` is the agent its briefings and
+> skills declare. The saving in the table is the same either way, since it comes from deleting
+> the per-contribution repeats.
 
 ## 4. The options
 
@@ -122,9 +129,10 @@ Keep the syntax; change the model. Group by kind, derive the identity, keep conv
 ```jsonc
 {
   "name": "pi",
+  "agent": "pi",  // declared once per pack (OQ-D5)
   "program": { "bin": "pi", "via": "npm", "package": "@earendil-works/pi-coding-agent" },
   "exposes": [ { "name": "extensions", "into": ".pi/agent/extensions", "accepts": "tree" } ],
-  "briefing": { "into": ".pi/agent/AGENTS.md", "after": "host:.pi/agent/AGENTS.md" },  // pending OQ-D3
+  "briefing": { "into": ".pi/agent/AGENTS.md", "after": "host:.pi/agent/AGENTS.md" },  // a destination: an exposes entry under OQ-D3
   "config": [ /* surfaces */ ],
   "state": [ { "at": ".pi", "scope": "workspace" } ]
 }
@@ -136,8 +144,11 @@ Keep the syntax; change the model. Group by kind, derive the identity, keep conv
   reuse for genuinely repeated rows.
 
 *Illustrative only:* the `exposes` list form is
-[`slots-and-contributions.md`](./slots-and-contributions.md)'s, whose [`OQ-D4`](./slots-and-contributions.md#OQ-D4) may rename the fields,
-and `briefing`/`skills` follow once its [`OQ-D3`](./slots-and-contributions.md#OQ-D3) rules.
+[`slots-and-contributions.md`](./slots-and-contributions.md)'s, whose [`OQ-D4`](./slots-and-contributions.md#OQ-D4) ruled the field names
+provisional. Its [`OQ-D3`](./slots-and-contributions.md#OQ-D3) ruled on 2026-09-20 that `briefing` and
+`skills` destinations become `exposes` entries too, so the `briefing` line above is shown in
+today's shape only. What those slots are called is still open there, as
+[`OQ-D8`](./slots-and-contributions.md#OQ-D8).
 
 ### B. Data-only Lua (reuse the sandbox already in the tree)
 
@@ -223,10 +234,12 @@ Dhall (total, typed).
 
 1. 💬 **OQ-M1: Do the syntax-free model change first?**
 
-   <!-- vantage: oq id=OQ-M1 leaning="Yes. Grouping by kind and deriving the pack's identity are syntax-independent and are the two largest sources of redundancy." -->
+   <!-- vantage: oq id=OQ-M1 leaning="Yes. Grouping by kind and stating the pack's identity once are syntax-independent and are the two largest sources of redundancy." -->
 
    _Leaning:_ Yes — it is independent of the syntax decision, needs no dependency, and removes the
-   bulk of the measured redundancy. ⚠ **The re-measure this used to require was TAKEN 2026-09-22
+   bulk of the measured redundancy. The identity half of it has a recorded shape already:
+   [`OQ-D5`](./slots-and-contributions.md#OQ-D5) ruled that a pack declares its agent once, so
+   what this question still decides is whether to make the change, and when. ⚠ **The re-measure this used to require was TAKEN 2026-09-22
    without building anything, and it retired the gzip metric rather than answering with it** — see
    [OQ-M2](#OQ-M2). So M1 no longer gates on a measurement, and M2 no longer gates on M1.
 
