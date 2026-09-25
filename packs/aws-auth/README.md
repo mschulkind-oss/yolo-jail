@@ -27,7 +27,7 @@ workspace `yolo-jail.jsonc` — see [Why every key is user-scope](#why-every-key
 
 ```jsonc
 {
-  "packs": ["claude", "aws-auth"],
+  "packs": ["claude"],
   "loopholes": {
     "aws-auth": {
       "enabled": true,
@@ -41,9 +41,11 @@ workspace `yolo-jail.jsonc` — see [Why every key is user-scope](#why-every-key
 }
 ```
 
-Then `yolo -p bedrock -- claude`. Selecting the pack on its own changes nothing
-observable: the credential pointer is gated on the `bedrock` profile, and the loophole
-is off until you enable it.
+Then `yolo -p bedrock -- claude`. `claude` brings this pack with it (the claude pack
+`needs` `aws-auth`, and the launch prints `+ aws-auth (needed by claude)`), so you never
+list it yourself. Having it selected changes nothing observable on its own: the
+credential pointer is gated on the `bedrock` profile, and the loophole is off until you
+enable it.
 
 | Setting | What it does |
 |---|---|
@@ -57,7 +59,14 @@ nor `unnarrowed` set the daemon refuses at spawn and names both. That is deliber
 it is the whole security argument: a credential this service mints is readable by
 **every process in the jail**, so the narrowing is not defence in depth — it is the only
 defence. If you genuinely have nothing to narrow with, `"unnarrowed": true` is supported
-and is disclosed everywhere this service reports.
+and is disclosed everywhere this service reports, **every launch** included:
+
+```
+loophole aws-auth: serving UN-NARROWED credentials — the jail holds whatever the configured profile's permission set grants (settings.unnarrowed is true)
+```
+
+No flag hides that line. The daemon prints its own version at spawn, and the self-check
+grades it as a `NOTE:`.
 
 `yolo check` mints once and tells you what it resolved, including which SSO config form
 your profile uses and how much session lifetime is left.
@@ -184,6 +193,34 @@ is [`boundary-broker.md`](../../docs/design/boundary-broker.md)'s to build, and 
 design is a good first consumer of that queue and a bad place to invent it: half an
 approval mechanism living in a credential pack is exactly the second front door that
 doc exists to prevent.
+
+## Trying it on a real host
+
+About 20–30 minutes on a Linux host with rootless podman, AWS CLI v2, a working
+`aws sso login --profile <p>`, and a current host yolo (`just install`). Nothing below
+prints a secret; paste each step's output back. `<p>` is your profile and `<arn>` a
+Bedrock-only role your permission set can assume. Without one, use
+`"unnarrowed": true` and skip step 4.
+
+1. **The real `aws` calls and output shapes:**
+   ```console
+   $ printf '%s' '{"profile":"<p>","role_arn":"<arn>","session_policy":"","unnarrowed":false}' > /tmp/aws-auth-settings.json
+   $ yolo internal daemon aws-auth --self-check --settings /tmp/aws-auth-settings.json
+   ```
+2. **Your config's shape, no values:**
+   ```console
+   $ grep -oE '^\[[^]]+\]|^[a-z_]+ *=' ~/.aws/config | sed 's/=.*//' | sort | uniq -c
+   ```
+3. **End to end:** add [the block above](#enabling-it) to `~/.config/yolo-jail/config.jsonc`,
+   run `yolo -p bedrock -- claude`, and send one short prompt. Paste the launch lines naming
+   aws-auth, whether the turn worked, and
+   `podman info --format '{{.Host.RootlessNetworkCmd}}'`.
+4. **The narrowing, demonstrated:** with `"packages": ["awscli2"]` in that workspace's
+   `yolo-jail.jsonc`, run `aws s3 ls` inside the jail. It should be denied.
+5. **Lapse and recovery**, with the jail from step 3 still running: `aws sso logout` on the
+   host, then send a prompt and paste the error, which should name
+   `aws sso login --profile <p>`. Then run that login and send one more prompt; it should
+   work without relaunching.
 
 ## Why every key is user-scope
 

@@ -1134,8 +1134,9 @@ first.** Nothing here needs a new module or a decision about one.
 
 1. **Fix probes 1–3, now, ahead of any refactor.** Host-side `reset` (`configReset`,
    `configdiff.go`) and `capture` (`configCapture`) must refuse (or require
-   `--force`) when `surfacesAreLocal()` is false — the predicate already exists at
-   `configls.go:341` and is currently consulted only by `composedFileExists` (`:330`). This is a
+   `--force`) when `surfacesAreLocal()` is false — the predicate already exists
+   (`surfacesAreLocal()`, since folded into the notch field of the resolved `configTarget`,
+   `internal/cli/configtarget.go`). This is a
    live data-loss path on the maintainer's own machine and it should not wait for an
    architecture decision. It is also the cheapest possible down-payment on step 3: it makes the
    implicit target explicit at the one place it currently misfires.

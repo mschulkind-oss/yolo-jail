@@ -539,7 +539,7 @@ and no port is published today either way.
 > IS LEFT" block in `run.refreshJailBriefings`' own body (`internal/cli/run/prepare.go`):
 > *"macos-user reaches none of this … that backend gets no briefing at all (OQ-BP-2), which is a
 > delivery gap rather than a false sentence."* Both were true until the B-0 content fix put
-> `refreshJailBriefings` on the macos-user arm of `run.Run` (`internal/cli/run/run.go:413`). The
+> `refreshJailBriefings` on the macos-user arm of `run.Run` (`internal/cli/run/run.go`). The
 > second is now exactly inverted — it **is** a false sentence — and it contradicts
 > [DP-B6](#51-macos-user-read-by-nobody-warned-by-nobody), which is the correct one. This is the
 > inverse of `AGENTS.md`'s *"the test asserts the sentence a comment makes"* class: a comment

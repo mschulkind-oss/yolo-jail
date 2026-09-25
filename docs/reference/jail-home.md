@@ -539,12 +539,10 @@ Two lists are still read from every *shipped* pack:
   makes a bind source, which a jail mounts only when it selects the pack. The fresh launch
   then creates the selected packs' own, on both container backends, so a configured pack's
   shared dir has a source too (`ensureSharedDirSources`).
-- **The `host_files` surface reservation.** A destination some shipped pack composes as a
-  surface (`~/.codex/config.toml`) is refused whatever the selection. It is a list of files,
-  not directories, and [`OQ-BH14`](../design/base-home-legacy-state.md#OQ-BH14) did not rule on it
-  ([`OQ-BH15`](../design/base-home-legacy-state.md#OQ-BH15) asks whether it should narrow too); a
-  collision with a configured pack's surface is refused at launch instead
-  (`config.SurfaceCollisions`).
+- **The `host_files` surface reservation** covers only the SELECTED packs' surfaces, plus core's
+  own ([`OQ-BH15`](../design/base-home-legacy-state.md#OQ-BH15), built 2026-09-25): a destination
+  such as `~/.codex/config.toml` is refused only when a selected pack composes it. A collision
+  between two selected writers is still refused at launch (`config.SurfaceCollisions`).
 
 ### Shared credentials
 

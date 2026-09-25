@@ -1,7 +1,7 @@
 ---
 title: "Which provider is this session on? — yolo facts in every agent's footer"
 date: 2026-09-25
-status: accepted
+status: in-review
 tags: [footer, statusline, packs, providers, profiles, confinement, claude, pi, omp, agy, copilot, opencode, codex]
 summary: "Six of the seven agents yolo ships can show extra text in their footer, through one of three hooks: a status-line command (claude, copilot, agy), a keyed status call in an extension (pi, omp), or a TUI plugin (opencode). Codex has no hook. One core renderer, `yolo internal footer`, prints two facts: what the session is billed through, in plain words, and where the agent runs (jail, guest or host). Each agent pack wires it into its agent's hook, on by default at the lowest layer so a user's own footer replaces it, and always beside the agent's stock status line, never over it. Bedrock cost and bridge failover state are a separate, later design."
 ---
@@ -32,8 +32,9 @@ prompt row; codex gets nothing. Claude
 hides most keyboard hints whenever any status line is set, and no key keeps them
 ([§2](#2-one-renderer-one-adapter-per-agent)).
 
-**Nothing left to rule.** A macos-user session says `jail` ([OQ-FT13](#OQ-FT13)), and a Claude login reads
-`Claude subscription`, without naming the plan ([OQ-FT14](#OQ-FT14)).
+**Needs your ruling:** [OQ-FT15](#OQ-FT15), how a one-launch `yolo host -p` reaches the host footer. Already
+ruled: a macos-user session says `jail` ([OQ-FT13](#OQ-FT13)), and a Claude login reads `Claude subscription`,
+without naming the plan ([OQ-FT14](#OQ-FT14)).
 
 ---
 

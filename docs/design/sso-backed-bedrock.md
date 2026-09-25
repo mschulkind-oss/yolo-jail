@@ -12,9 +12,9 @@ summary: "How a host-side `aws sso login` becomes Bedrock access inside a jail w
 human's own access is an `aws sso login` on the host, and how does the jail end up holding no
 more than Bedrock out of it — and still keep working after the human logs in again?
 
-**Status:** DESIGN, 2026-09-25 — [OQ-SSO1–9](#13-decision-ledger) are DECIDED and
-[OQ-SSO10](#OQ-SSO10), the launch-side disclosure, is OPEN;
-the service is partly BUILT, and [OQ-SSO8](#OQ-SSO8)'s pack-declared refusal is BUILT
+**Status:** DECIDED, 2026-09-25 — [OQ-SSO1–10](#13-decision-ledger) are all ruled
+([OQ-SSO10](#OQ-SSO10), the launch-side disclosure, on 2026-09-25, and BUILT the same day);
+everything but the fold into the reference docs is BUILT, and [OQ-SSO8](#OQ-SSO8)'s pack-declared refusal is BUILT
 ([§12](#12-what-i-would-build-in-order) step 6). **MEASURED:** the refusal's code, and the AWS
 credential chain order in the shipped claude, codex, opencode and pi
 ([§11](#11-evidence-and-how-to-re-check-it)). **UNMEASURED:** nothing here has run against a live
@@ -34,8 +34,11 @@ working tree it landed from (2026-09-25); vendor claims carry their dates in
   [The plan's status](sso-backed-bedrock-plan.md) is the one place that tracks what landed.
 - **Ruled:** six questions on 2026-09-17 and [`OQ-SSO7`](#13-decision-ledger) (the three
   supported credentials) on 2026-09-24 — all in [§13](#13-decision-ledger).
-- **Not built:** the consumers' `needs`, and the fold into the reference docs
-  ([§12](#12-what-i-would-build-in-order) steps 5 and 8). The minted-bearer arm (option D)
+- **Built 2026-09-25:** the consumers' `needs` (`packs/claude` needs `aws-auth`) and the
+  launch-side disclosure of an un-narrowed session ([OQ-SSO10](#OQ-SSO10)); step 5's
+  done-conditions 1 and 4 still want a live login.
+- **Not built:** the fold into the reference docs ([§12](#12-what-i-would-build-in-order)
+  step 8), which waits on that live-login try-out. The minted-bearer arm (option D)
   is retired ([OQ-SSO9](#OQ-SSO9)).
 - **Ruled 2026-09-25:** the two questions the [`bedrock-plumbing.md`](bedrock-plumbing.md)
   review handed here. [OQ-SSO8](#OQ-SSO8): a bearer or a static key pair delivered beside
@@ -1300,7 +1303,7 @@ Bedrock credential comes from. Two terms both use:
    a generic client at the gateway route supplies an API key. The gateway route is documented
    as API-key-only. Ruled 2026-09-25.
 
-3. 💬 <a id="OQ-SSO10"></a>**OQ-SSO10: How does the launch disclose an un-narrowed
+3. ✅ <a id="OQ-SSO10"></a>**OQ-SSO10: How does the launch disclose an un-narrowed
    `aws-auth`, with no switch on the loophole's name?** Filed 2026-09-25 from the plan's
    [Blocker 6](sso-backed-bedrock-plan.md#blockers), which had no id. Stakes:
    [`OQ-SSO1`](#13-decision-ledger) ruled that an explicit `unnarrowed` setting "is disclosed at
@@ -1310,7 +1313,6 @@ Bedrock credential comes from. Two terms both use:
    `needs` `aws-auth`) would put that silence in front of every claude user who selects the
    `bedrock` profile.
 
-   <!-- vantage: oq id=OQ-SSO10 leaning="(a): an optional `disclose` sentence on a bool settings declaration, printed by writeLoopholeSettings whenever the resolved value is true, as a disclosure under OQ-RO3. It is the only option that keys on a declaration rather than a name, and the need is already ruled, so it does not wait for a second consumer." -->
 
    _Leaning:_ (a).
 
@@ -1326,7 +1328,11 @@ Bedrock credential comes from. Two terms both use:
    call site is deleted. It releases plan step 5.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **(a)**, ruled in review 2026-09-25: an optional `disclose` sentence on a bool settings
+   > declaration, printed by `writeLoopholeSettings` whenever the resolved value is true, as a
+   > disclosure under [`OQ-RO3`](../reference/report-tiers.md#why-its-this-way). It is the only
+   > option that keys on a declaration rather than a name, and the need is already ruled, so it
+   > does not wait for a second consumer. It releases plan step 5.
 
 ---
 
@@ -1343,3 +1349,4 @@ Bedrock credential comes from. Two terms both use:
 | OQ-SSO7 | **Three Bedrock credentials are supported**, ruled by the maintainer: *"We will support bearer tokens, we will support secret and key, and we also need to support sessions through single sign-on. That's the big one."* (1) a Bedrock API key as `AWS_BEARER_TOKEN_BEDROCK` — option B's push channel; (2) a static access key and secret as `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`, for example through `env_sources` — the maintainer's current setup, and not one of [§4](#4-five-options)'s five options, which all start from an SSO login; (3) an SSO session through an assumed role, served by `packs/aws-auth` over the container-credentials endpoint — option C, **the primary one**. Supporting (1) and (2) changes nothing in this design: both are existing channels, frozen at launch. [`bedrock-plumbing.md` §6.4](bedrock-plumbing.md#64-the-credential-three-are-supported) records what the ruling means for the endpoint side, including that (2) beside (3) is the same silent wrong answer as (1) beside (3) and was not refused then (it is since 2026-09-25, [OQ-SSO8](#OQ-SSO8)) | 2026-09-24 | [§4](#4-five-options) | (1) and (2): existing channels; (3): `packs/aws-auth` |
 | OQ-SSO8 | **Refuse, fatal, no hatch**, when a bearer or both halves of the static key pair are delivered beside `aws-auth`'s pointer. The maintainer's conditions: the rule is **declared by the pack**, and core hardcodes no AWS variable (the existing bearer refusal moves out of `internal/awschain`); fatal whenever the configured auth will certainly be overridden; **never a false positive**, false negatives accepted. A second ruling the same day, on the `~/.aws` grant: an override that only MAY happen is a **warning**, never a refusal | 2026-09-25 | [OQ-SSO8](#OQ-SSO8) | 2026-09-25: `overridden_by` in `packs/aws-auth/pack.json`, evaluated by `packload.EnvOverrideFindings`; `internal/awschain` deleted. Review fixes the same day: only what reaches the jail counts, and directory grants count per backend. Also 2026-09-25, on the last false positive: an entry may be `certain: false`, which warns instead of refusing, and the `~/.aws` entry is declared so |
 | OQ-SSO9 | **Retire option D**: yolo mints no Bedrock API key. The signing wire bridge covers every shipped agent; the gateway route is documented as API-key-only | 2026-09-25 | [OQ-SSO9](#OQ-SSO9) | — |
+| OQ-SSO10 | **The launch discloses an un-narrowed session through a `disclose` sentence on a bool settings declaration**, printed by `writeLoopholeSettings` whenever the resolved value is true; `packs/aws-auth` declares it on `unnarrowed`. No switch on the loophole's name | 2026-09-25 | [OQ-SSO10](#OQ-SSO10) | — |

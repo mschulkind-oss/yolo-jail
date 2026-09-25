@@ -217,9 +217,9 @@ independent paths.
 - **The OpenSSL family** gets a concatenated bundle. `GenerateCABundle`
   ([`system.go:16-62`](../../internal/entrypoint/system.go)) joins the image baseline `$SSL_CERT_FILE`
   ([`flake.nix:1542`](../../flake.nix), nixpkgs cacert) with every de-duplicated
-  `NODE_EXTRA_CA_CERTS` path into `$HOME/.yolo-ca-bundle.crt`; `boot.go:601-608` exports
+  `NODE_EXTRA_CA_CERTS` path into `$HOME/.yolo-ca-bundle.crt`; `boot.go:606-609` exports
   `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE` and `GIT_SSL_CAINFO` at it before any child
-  spawns, and `shell.go:231-236` re-exports the same four from `.bashrc`. The file is per-workspace
+  spawns, and `shell.go:234-238` re-exports the same four from `.bashrc`. The file is per-workspace
   state, bound from the workspace ([`assemble_parts.go:154`](../../internal/cli/run/assemble_parts.go)).
 
 > [!WARNING]

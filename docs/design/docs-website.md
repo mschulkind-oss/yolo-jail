@@ -1,14 +1,14 @@
 ---
 title: "The user guide becomes a website, deployed exactly the way Vantage deploys its own"
 date: 2026-09-25
-status: draft
+status: in-review
 tags: [docs, website, userguide, vantage, cloudflare, deploy]
 summary: "The user guide is split into a closed userguide/ tree, built with pinned Vantage, and configured for a Cloudflare static-assets Worker. Repository build steps are in place; the dashboard connection and custom-domain attachment remain human actions."
 ---
 
 # The user guide becomes a website, deployed exactly the way Vantage deploys its own
 
-**Status:** Repository build complete, 2026-09-25; Cloudflare dashboard connection and custom-domain attachment pending. [OQ-DW2](#OQ-DW2)'s leaning was implemented provisionally. Vantage claims were checked against `mschulkind-oss/vantage` at `4b2ccbc` and against the live sites on this date; the original yolo-jail measurement was at `7e529260`.
+**Status:** DESIGN, 2026-09-25 — one ruling owed, [OQ-DW2](#OQ-DW2), whose leaning the repository build implements provisionally. [OQ-DW1](#OQ-DW1) is ruled. The repository build is in place; connecting the Cloudflare dashboard and attaching the custom domain are human steps, still pending. Vantage claims were checked against `mschulkind-oss/vantage` at `4b2ccbc` and against the live sites on this date; the original yolo-jail measurement was at `7e529260`.
 
 > **In short.** The user guide becomes a published site by copying Vantage's setup whole: a
 > `userguide/` tree, one build script, one static-assets Worker and a dashboard-configured Cloudflare
@@ -32,7 +32,9 @@ are repointed, and about 50 distinct link targets that leave the guide tree are 
 **Start at [§2.2](#22-the-closed-tree-rule).** That rule is the only design decision that isn't a
 copy of Vantage's.
 
-**Address ruled:** [OQ-DW1](#OQ-DW1) names `docs.yolo-jail.mschulkind.dev`. [OQ-DW2](#OQ-DW2) remains open; its leaning was used for the repository build.
+**Needs your ruling:** [OQ-DW2](#OQ-DW2); its leaning was used for the repository build.
+
+**Address ruled:** [OQ-DW1](#OQ-DW1) names `docs.yolo-jail.mschulkind.dev`.
 
 **Reads with:** [`docs-website-plan.md`](docs-website-plan.md) (the implementation sketch: incomplete,
 and not to be built from), and Vantage's
@@ -86,7 +88,7 @@ below is the proposal. **Page boundaries are the implementer's call; the four pa
 | :--- | :--- | :--- |
 | `README.md` | Tagline, a four-line quick start, and the "What's in This Guide" tables (Start here / Guides / Reference / Links), shaped like Vantage's | new |
 | `getting-started.md` | Installation, First Run, Authentication | `USER_GUIDE.md` |
-| `features.md` | A capability tour: isolation, packs and agents, packages, network, MCP/LSP, loopholes, storage. Each gets a paragraph linking to its guide | new, from `USER_GUIDE.md`'s section intros |
+| `features.md` | A capability tour, environment first: packs and agents, config and skills, packages, MCP/LSP, loopholes, storage, network, and confinement as one setting among them. Each gets a paragraph linking to its guide | new, from `USER_GUIDE.md`'s section intros |
 | `guides/macos.md` | as is | `docs/guides/macos.md` |
 | `guides/loopholes.md` | as is | `docs/guides/loopholes.md` |
 | `guides/migrating-to-packs.md` | as is | `docs/guides/migrating-to-packs-and-host-management.md` |

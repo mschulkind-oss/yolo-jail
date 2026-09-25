@@ -480,9 +480,14 @@ matches the accept-then-reset. This part is **inferred from the pattern**: the u
 nothing from the helpers for the run's window, and no published-port container was dialed by
 hand.
 
-Two things remain open. First, the loopback and `[::1]` refusals are a separate fact that the
-privacy gate does not explain: nothing listens there, so on this backend a published port is
-reached at the vmnet gateway, not at `localhost`. Second, it is **unverified** that granting the
+Two things remain open. First, the loopback refusal is not evidence that nothing listens there.
+The fourth Mac run (run 36193230191 at `74d830f2`) shows `container inspect` publishing both
+ports with `hostAddress 0.0.0.0`, and `lsof` showing the `container` process listening on
+`*:<port>` (IPv4), which includes `127.0.0.1`. The probe keeps only each listener's last error,
+and its last loopback dials land after the jail has exited, so the recorded `refused` is the
+probe's own artifact. Whether loopback also resets while the jail runs is unmeasured; the probe
+should record each error kind with its time. `[::1]` is genuinely refused, because the listener
+is IPv4 only. Second, it is **unverified** that granting the
 permission makes #10 hold. A grant is keyed to a binary's code signature, so an ad-hoc-signed
 helper's grant may not survive a `brew upgrade`, and a background helper may never raise a prompt.
 Apple's Developer-ID-signed release package may behave differently. The next step is a grant in

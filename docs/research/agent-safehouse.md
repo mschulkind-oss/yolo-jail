@@ -903,7 +903,7 @@ Re-check these before quoting them; everything here moved within the last six mo
 
    *Paired 2026-09-25 with [`workspace-config-trust.md`](../design/workspace-config-trust.md), which
    adds a third answer — grants allowed in the local file only against a host-side trust record —
-   and argues that §9 item 1's scope rule holds against the repo author but not against the in-jail
+   and argues that [§9](#9-negative-space--what-not-to-adopt) item 1's scope rule holds against the repo author but not against the in-jail
    agent, who can write the local file.*
 
    Stakes: the comparison's sharpest finding about Safehouse is that they gate a repo-supplied

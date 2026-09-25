@@ -8,7 +8,7 @@ summary: "Parking lot for build-level detail behind docs-website.md: file list, 
 
 # Docs website — implementation sketch
 
-**Status:** The repository build described here is in place, 2026-09-25. The Cloudflare dashboard connection is still a human step. [OQ-DW1](docs-website.md#OQ-DW1) is ruled; [OQ-DW2](docs-website.md#OQ-DW2)'s leaning was implemented provisionally. The [design](docs-website.md) wins on behavior.
+**Status:** DECIDED, 2026-09-25 — the repository build described here is in place; the Cloudflare dashboard connection is still owed, as a human step. [OQ-DW1](docs-website.md#OQ-DW1) is ruled; [OQ-DW2](docs-website.md#OQ-DW2)'s leaning was implemented provisionally. The [design](docs-website.md) wins on behavior.
 
 **Precedence:** [`docs-website.md`](docs-website.md) wins on behavior. This file holds settled detail
 the design doesn't need.

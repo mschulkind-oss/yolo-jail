@@ -684,7 +684,7 @@ for every workspace and every nesting depth.**
 >    directory that does not exist. **INFERRED, not held-alive to confirm:** a jail launched before
 >    the repoint and still running therefore carries a **dangling** toolchain entry on its `PATH` —
 >    broken, not merely stale. (The launch path prunes dangling store *symlinks* under
->    `YOLO_STORE_PRUNE_OK`, [`command.go:16-20`](../../internal/cli/run/command.go); it does nothing
+>    `YOLO_STORE_PRUNE_OK`, [`provision.StepPruneStore`](../../internal/provision/provision.go); it does nothing
 >    for a `PATH` already exported into a live container.)
 >
 > So a jail's toolchain can change while it is running — and can also **disappear** while it is

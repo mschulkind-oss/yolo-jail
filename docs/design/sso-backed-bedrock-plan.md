@@ -161,7 +161,7 @@ Report a real-host result with `podman info --format '{{.Host.RootlessNetworkCmd
 | 2 | **BUILT** — the narrowing setting, inside step 1's settings file: absent → refuse at spawn naming the key; un-narrowed by name → serve, plus the disclosure line. Two of its three call sites exist (spawn log, `--self-check` `NOTE:`); the LAUNCH line is a call to `Narrowing.DisclosureLine` from `writeLoopholeSettings` | unit cases: absent, N2 role + policy, un-narrowed by name | unit |
 | 3 | **BUILT**, and reachable since [Blockers](#blockers) 7's fix (`62e553a8`) — `internal/awscredadapter` + the `yolo-jaild` row; the manifest; `packs/embed.go`; the census rows | `yolo pack lint packs/aws-auth`; in a nested jail selecting the pack, `curl -s $AWS_CONTAINER_CREDENTIALS_FULL_URI` returns the four keys, or the 4xx `Code`/`Message` with no session | nested proves the transport is **wired**; that the jail reaches the front is **real rootless host** only |
 | 4 | **BUILT** — `packs/aws-auth/pack.json` (the gated `env` pointer) and README | `yolo pack footprint packs/aws-auth`: one env key, one loophole, no host grant | unit |
-| 5 | `needs` on `packs/claude`; done-conditions 1 and 4 | a claude turn on Bedrock; lapse, `aws sso login`, next turn succeeds with no relaunch | **real rootless host** (an SSO login, a browser, the forwarding hop) |
+| 5 | **BUILT 2026-09-25** ([Progress](#progress)) — `needs` on `packs/claude`, with [`OQ-SSO10`](sso-backed-bedrock.md#OQ-SSO10)'s launch disclosure; done-conditions 1 and 4 remain | a claude turn on Bedrock; lapse, `aws sso login`, next turn succeeds with no relaunch ([the try-out](../../packs/aws-auth/README.md#trying-it-on-a-real-host)) | **real rootless host** (an SSO login, a browser, the forwarding hop) |
 | 6 | **BUILT** ([Progress](#progress)) — exclusivity refusal (the pointer **and** `AWS_BEARER_TOKEN_BEDROCK` both delivered), at the launch's three arms and predicted by `yolo check`; the `~/.aws`-grant conflict in `internal/config`, so `yolo check` and launch both refuse. Both moved into the pack by 6a | each of the three call sites deleted in turn, one named test red for each (measured, not assumed); `just check-ci` **and** `env -u YOLO_VERSION go test -short ./...` | unit |
 | 6a | **BUILT** 2026-09-25 ([Progress](#progress)) — step 6's two refusals moved out of core into `aws-auth`'s manifest, per [`OQ-SSO8`](sso-backed-bedrock.md#OQ-SSO8): the pack declares which delivered variables override its pointer (the bearer; both halves of the static pair, unless `AWS_PROFILE` is also delivered) and the `~/.aws` grant that may disable it, declared `certain: false` so it warns rather than refuses; core refuses (or warns) generically and names no AWS variable. The chain order of claude, codex and opencode was measured first — all environment-first ([design §11](sso-backed-bedrock.md#11-evidence-and-how-to-re-check-it)) — so the pair ships | a manifest declaring a made-up variable is refused beside its contribution with no core change (`TestEnvOverrideRefusesAMadeUpVariable`, `TestSectionPacksPredictsTheOverrideRefusal`); a lone `AWS_ACCESS_KEY_ID` and the pair plus `AWS_PROFILE` both launch (`TestEnvOverrideLetsTheNonOverridingShapesThrough`); a bearer or pair only in the invoking shell launches (`TestEnvOverrideIgnoresTheShellYoloWasLaunchedFrom`); a directory grant counts only where the backend binds it (`TestEnvOverrideCountsADirectoryGrantOnlyWhereItIsBound`); an uncertain entry warns and launches (`TestEnvOverrideCertaintyDecidesTheSeverity`, `TestEnvOverrideWarnsOnTheMacosUserLaunch`, `TestSectionPacksWarnsForAnUncertainOverride`); the package is gone | unit; the call-site deletions of step 6, repeated in a private copy — each named test red |
 | 7 | ~~N1 arm~~ — **deleted**: option D is retired ([`OQ-SSO9`](sso-backed-bedrock.md#OQ-SSO9), 2026-09-25). A user who wants the N1 narrowing mints the key on the host with AWS's generator and delivers it as a bearer | — | — |
@@ -171,6 +171,26 @@ Report a real-host result with `podman info --format '{{.Host.RootlessNetworkCmd
 setups — the design says so); the census rows in step 3 (every later `just test-fast` is red).
 
 ## Progress
+
+**Step 5 and [`OQ-SSO10`](sso-backed-bedrock.md#OQ-SSO10), 2026-09-25**, are built; step 5's
+done-conditions 1 and 4 still want the live login in the
+[README's try-out](../../packs/aws-auth/README.md#trying-it-on-a-real-host).
+- **The disclosure.** A bool settings declaration may carry a `disclose` sentence
+  (`loopholedecl.Setting.Disclose`, refused on any other type and when empty, in both
+  decoders). The launch prints `loophole <name>: <sentence>` on stderr whenever the resolved
+  value is true (`(*Options).discloseLoopholeSettings`, called from `writeLoopholeSettings`).
+  It keys on the declaration, never on a name, and it is a disclosure no flag hides.
+  `packs/aws-auth` declares it on `unnarrowed`, worded beside `Narrowing.DisclosureLine`,
+  which the daemon still prints at spawn and the self-check still grades as a `NOTE:`. So all
+  three call sites now exist. Tests: `TestSettingDiscloseDecodesOnABool`,
+  `TestSettingDiscloseRefusals`, `TestWriteLoopholeSettingsDisclosesATrueWideningKey` (red
+  when the print call is deleted), `TestShippedAWSAuthDisclosesUnnarrowed` (red when the
+  manifest's `disclose` is removed).
+- **The consumers' `needs`.** `packs/claude` needs `aws-auth` unconditionally, as it needs
+  `openai-auth`: the `bedrock` profile is claude's, and selecting the pack changes nothing
+  until that profile opens the pointer's gate and the loophole is enabled (it ships
+  `default_enabled: false`). `TestClaudeNeedsAWSAuth` runs the real closure over the shipped
+  set. Three staging tests that pinned claude's closure at three packs now pin four.
 
 **Step 6a's follow-ups, 2026-09-25**, closed the review's open false positive and three
 reporting defects, and wrote the integration test. Each fix was proved by mutation in a private
@@ -200,11 +220,15 @@ copy of the tree: eight mutations, each turning its named tests red.
   [`providers.md`](../reference/providers.md) and
   [`bedrock-plumbing.md` §6.4](bedrock-plumbing.md#64-the-credential-three-are-supported),
   which also said nothing refused the static pair, and from two code comments.
-- **`integration/awsauth_test.go` is written, and has not run yet.** It holds two tests over
-  the real loopback hop, each with a fake `aws` on the launcher's PATH and a private state dir.
-  One curls the pointer and gets the four keys; the other gets the lapsed-session 400 naming
-  `aws sso login --profile …`. From a jail that selects aws-auth both skip, the adapter's port
-  being shared with a nested jail. See [Ships with](#ships-with).
+- **`integration/awsauth_test.go` PASSED in CI on rootless podman, both arches, 2026-09-25**
+  (`ci.yml` run 36167524940 at `e56d871e`): the four keys over the real loopback hop
+  (`TestAWSAuthServesTheFourKeysOverTheLoopbackHop`), the lapsed-session 400 naming
+  `aws sso login --profile …` (`TestAWSAuthLapsedSessionIsA4xxNamingTheLogin`), and a mismatch
+  that never echoes the served value (`TestAWSAuthCredentialMismatchesNeverEchoTheServedValue`).
+  Each runs with a fake `aws` on the launcher's PATH and a private state dir, so this settles the
+  transport over a real host-loopback hop ([item 6](#what-a-real-host-still-has-to-settle)) but
+  none of the live-login items. From a jail that selects aws-auth the tests skip, the adapter's
+  port being shared with a nested jail. See [Ships with](#ships-with).
 
 **Step 6a's review, 2026-09-25**, found two false positives, one false negative, an ordering
 defect, and a source pin too weak to catch two weakenings. All are fixed with tests, and each
@@ -482,7 +506,9 @@ repo can stand in for:
    `sts:GetCallerIdentity`, for the reason
    [§8](sso-backed-bedrock.md#8-behaviour-this-design-specifies) states.
 5. Everything step 5 already owed a real rootless host.
-6. **The transport, end to end, over a REAL host-loopback hop.** A nested jail proved the
+6. **The transport, end to end, over a REAL host-loopback hop.** *Settled in CI 2026-09-25 with a
+   fake `aws`: rootless podman, both arches (`ci.yml` run 36167524940). A live login over the
+   same hop is still item 1's.* A nested jail proved the
    wiring — the manifest spawns, the daemon binds, the front publishes, the supervisor starts
    the adapter and a `curl` inside the jail gets a body — with a FAKE `aws` on the launcher's
    PATH, because no real SSO login exists in a jail. What it cannot prove is the hop itself:
@@ -559,7 +585,7 @@ repo can stand in for:
 
 ⚠ **A sixth, opened 2026-09-18 while wiring steps 1–2: the launch-side disclosure has no
 generic mechanism, and it must not get a bespoke one.** Filed 2026-09-25 as
-[`OQ-SSO10`](sso-backed-bedrock.md#OQ-SSO10), which is the ruling it waits on. `Narrowing.DisclosureLine` has two of
+[`OQ-SSO10`](sso-backed-bedrock.md#OQ-SSO10), **ruled (a) and BUILT on 2026-09-25**: a `disclose` sentence on a bool settings declaration, printed by `writeLoopholeSettings` ([Progress](#progress)). What follows is the argument that led there, kept as the record. `Narrowing.DisclosureLine` has two of
 its three call sites — the daemon's spawn log and the `--self-check` `NOTE:`. The third, a
 launch-side line, is what [`OQ-SSO1`](sso-backed-bedrock.md#13-decision-ledger)'s *"the
 explicit setting is disclosed at every launch"* actually requires, and neither existing caller
