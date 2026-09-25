@@ -433,7 +433,16 @@ cause:
 - only dual-stack answers: an in-jail server must bind `::` on this backend, which the user guide
   then says;
 - neither answers but the jail reaches itself: Apple's forwarder is at fault;
-- a listener is dead: the test is at fault. The macos-user checks #6, #7, #9 and #14 are still unrun: the last
+- a listener is dead: the test is at fault.
+
+**The second Mac run, 2026-09-25** (run 36186125172 at `bd240b73`), took the middle arm. Both
+listeners were alive, held LISTEN sockets, and answered the jail on its own vmnet address
+(`192.168.64.x`). Every Mac dial to `127.0.0.1:<host port>` was **refused** in both modes, where
+the first run had seen "connected, then EOF". So the family is not the cause and nothing listens
+on the Mac's loopback. The probe now also dials the container's vmnet address directly, the
+published port on the vmnet gateway and on `[::1]`, and records `container inspect`. That
+separates three causes: Apple never bound the port, Apple bound it on another address, or the
+vmnet path itself is down. #3 **HOLDS** on the same run, which confirms its isolation fix. The macos-user checks #6, #7, #9 and #14 are still unrun: the last
 `macos-user.yml` run, on 2026-09-25, did not select them.
 
 ---
