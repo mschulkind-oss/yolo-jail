@@ -3,6 +3,7 @@
 package lingerprobe
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,15 +20,23 @@ import (
 
 const testCtrID = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
+func requireWatch(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		if errors.Is(err, unix.ENOSPC) {
+			t.Skipf("inotify watch unavailable (ENOSPC): %v", err)
+		}
+		t.Fatal(err)
+	}
+}
+
 // The death trigger, against a real inotify watch: a temp file conmon renames
 // into place does not fire, the rename does, and another container's exit file
 // never does.
 func TestExitWatchFiresOnTheRenameIntoPlaceOnly(t *testing.T) {
 	dir := t.TempDir()
 	w, err := watchExitFile(dir, testCtrID[:12])
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireWatch(t, err)
 	defer w.Close()
 
 	other := "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
@@ -54,9 +63,7 @@ func TestExitWatchSeesADeathThatPrecededIt(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, testCtrID), "0")
 	w, err := watchExitFile(dir, testCtrID[:12])
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireWatch(t, err)
 	defer w.Close()
 	select {
 	case <-w.Death():
@@ -238,9 +245,7 @@ func TestProbeSamplesOnlyAfterTheDeathAndGoesSilentAtStop(t *testing.T) {
 		OnDeath: func(at time.Time) { deathAt = at },
 		PtyMode: func() string { return "icanon=off isig=off echo=off" },
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireWatch(t, err)
 	time.Sleep(200 * time.Millisecond)
 	if got := notes.snapshot(); len(got) != 0 {
 		t.Fatalf("the probe emitted before any death — a normal session must cost nothing:\n%v", got)
@@ -294,9 +299,7 @@ func TestFinalSampleIsTaggedAndNeedsADeath(t *testing.T) {
 	var notes noteLog
 	p, err := Start(Config{PID: c.Process.Pid, CtrID: testCtrID, ExitDir: exits,
 		Delay: time.Hour, Emit: notes.emit})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireWatch(t, err)
 	defer p.Stop()
 	p.FinalSample("final (SIGTERM)", time.Second)
 	if len(notes.snapshot()) != 0 {
@@ -332,9 +335,7 @@ func TestASampleInFlightAtStopIsDropped(t *testing.T) {
 	var notes noteLog
 	p, err := Start(Config{PID: c.Process.Pid, CtrID: testCtrID, ExitDir: exits,
 		Delay: time.Millisecond, Interval: time.Hour, Emit: notes.emit})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireWatch(t, err)
 	writeFile(t, filepath.Join(exits, testCtrID), "0")
 	select {
 	case <-inFlight:

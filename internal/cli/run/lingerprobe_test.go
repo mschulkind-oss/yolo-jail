@@ -214,6 +214,9 @@ func TestLingeringClientIsSampledAndNamedAtAQuietQuit(t *testing.T) {
 
 	client, ptsName := lingeringClient(t)
 	o.startLingerProbe("podman", "yolo-ws-test0000", lingerCtrID[:12], client.Process)
+	if o.linger.off == "start_failed" {
+		t.Skip("linger probe failed to start (inotify watches exhausted / ENOSPC)")
+	}
 	time.Sleep(100 * time.Millisecond)
 	if strings.Contains(perfFile(t, ws), "window_a.sample") {
 		t.Fatal("sampled before the container died — a normal session must cost nothing")
@@ -303,6 +306,9 @@ func TestTerminateArmRecordsAWindowACutAtTheSignal(t *testing.T) {
 
 	client, ptsName := lingeringClient(t)
 	o.startLingerProbe("podman", "yolo-ws-test0000", lingerCtrID[:12], client.Process)
+	if o.linger.off == "start_failed" {
+		t.Skip("linger probe failed to start (inotify watches exhausted / ENOSPC)")
+	}
 	if err := os.WriteFile(filepath.Join(exits, lingerCtrID), []byte("0"), 0o644); err != nil {
 		t.Fatal(err)
 	}
