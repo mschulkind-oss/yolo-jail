@@ -4,10 +4,20 @@ package run
 // (docs/reference/wire-bridge.md §2.1, §5). serviceJailDaemons' own shaping is
 // trivial; this file exists for the OTHER half of the rule — the argv. A test
 // that pins the helper while the call site is unpinned is not a test
-// (AGENTS.md, Testing): delete the serviceJailDaemons call from assemble.go's
-// loopholesRuntimeArgs line and this goes red, as does deleting the
-// extra-daemon merge inside internal/loopholes' runtimeArgsFor — the env var
-// is one contract and this test watches the whole path.
+// (AGENTS.md, Testing).
+//
+// The path is two hops: run.go's Run composes the payload above the backend
+// dispatch (jailDaemonsFor, in packservices.go — that is where serviceJailDaemons
+// is called, and internal/loopholes' jailDaemonSpecs appends its result to the
+// loopholes' own entries), and assemble.go serializes it onto the argv
+// (loopholesRuntimeArgs, handed in.jailDaemons). zaiLaunch composes the payload with
+// jailDaemonsFor exactly as Run does, so this goes red if the serviceJailDaemons
+// call inside jailDaemonsFor is deleted, if jailDaemonSpecs stops appending the
+// extra entries, or if assemble.go stops handing in.jailDaemons to
+// loopholesRuntimeArgs — each measured by mutation. ⚠ It stays GREEN if run.go's
+// own jailDaemonsFor call is deleted, because the harness does not enter through
+// Run; that call is pinned in macosuserjaildaemon_test.go
+// (TestTheJailDaemonPayloadIsComposedAboveTheBackendDispatch).
 
 import (
 	"encoding/json"

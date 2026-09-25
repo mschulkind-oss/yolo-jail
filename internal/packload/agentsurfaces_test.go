@@ -131,17 +131,23 @@ func TestEveryAgentPackDeclaresItsBriefingIdentity(t *testing.T) {
 
 // THE SHIPPED PACKS KEEP `into` FOREVER, and this is a VERSION-BOUNDARY constraint rather than
 // a style rule. DecodeTolerant ignores unknown FIELDS, so adding `agent`/`agents` is skew-safe —
-// but it still validates the entries it keeps, and an entrypoint baked before the audiences
+// but it still validates the entries it keeps, and an entrypoint built before the audiences
 // field — or before the briefing defaults (docs/reference/pack-system.md#briefing-p2) made `{"kind":"briefing"}` a valid broadcast (P2) —
-// refuses that entry with `kind "briefing" needs "into"`. Today's entrypoint accepts it; an OLD
-// one still in someone's image does not. That is a fatal boot, from a manifest the host staged,
-// unrecoverable without a `just load`. (An agent pack's `{agent, into}` DESTINATION also still
-// needs `into` today, at every version.)
+// refuses that entry with `kind "briefing" needs "into"`. Today's entrypoint accepts it; an
+// OLDER one does not. That is a fatal boot, from a manifest the host staged. (An agent pack's
+// `{agent, into}` DESTINATION also still needs `into` today, at every version.)
 //
-// The image rebuilds on every launch while the host `yolo` moves only on `just install`, so the
-// two halves are skewed by default. A shipped pack that dropped `into` for the new shape would
-// therefore brick the boot of anyone mid-upgrade. Only a USER's own pack — which no old
-// entrypoint has ever seen — may reach the addressed shape.
+// WHERE AN OLDER ENTRYPOINT STILL COMES FROM. The image no longer carries yolo: every launch
+// mounts an entrypoint built from the flake it resolved (AGENTS.md, "Build & deploy — the
+// traps"), so the staged bundle `just install` publishes pairs it with the host `yolo` that
+// same install put in place, and a release archive with the binary beside it. What remains is
+// a from-source launch (YOLO_REPO_ROOT) whose tree and host binary differ through the image's
+// sources: version.SourceSkew refuses that launch by default, but YOLO_ALLOW_SOURCE_SKEW=1 overrules
+// it, and the gate is silent for any skew it cannot prove (a binary whose stamp names no
+// commit in the tree). Those are the launches where a newer host stages a shipped pack for an
+// older entrypoint, and a shipped pack that dropped `into` would brick exactly those boots;
+// re-pairing the halves (`just install`) is the recovery. Only a USER's own pack — whose
+// author chose the version that reads the shape — may reach the addressed shape.
 func TestShippedAgentPacksKeepIntoForSkew(t *testing.T) {
 	for _, p := range agentPacks(t) {
 		for _, c := range p.Decl.Contributions() {
@@ -149,7 +155,7 @@ func TestShippedAgentPacksKeepIntoForSkew(t *testing.T) {
 				continue
 			}
 			if c.Into == "" {
-				t.Errorf("pack %q ships a %s contribution with no `into` — an entrypoint baked "+
+				t.Errorf("pack %q ships a %s contribution with no `into` — an entrypoint built "+
 					"before the audiences field refuses it outright, so the very next launch on a "+
 					"skewed machine dies at boot", p.Name, c.Kind)
 			}
