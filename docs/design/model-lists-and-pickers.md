@@ -13,10 +13,12 @@ vantage:
 **Status:** DESIGN, 2026-09-25. Nothing here is built. MEASURED at `ee8154f2` (2026-09-24): a
 pack's provider `models` is a flat alias → id map; the object form of a model is user config
 only; `packs/claude/derive.lua` and `packs/pi/derive.lua` hard-code three GPT-6 ids for the
-`openai-codex` provider; packs/claude's `bedrock` provider declares no `models`. UNMEASURED:
-which Anthropic-on-Bedrock geographic prefixes exist, whether Claude Code's gateway model
-discovery survives `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, and the format of codex's
-`model_catalog_json`. Code claims cite a symbol, never a line.
+`openai-codex` provider; packs/claude's `bedrock` provider declares no `models`. SOURCED
+2026-09-25 from AWS's model cards: the Anthropic-on-Bedrock geographic prefixes are `us.`, `eu.`,
+`au.`, `jp.` and `global.`, and the set differs per model
+([§5.3](#53-the-prerequisite-verify-before-an-id-ships)). UNMEASURED: whether Claude Code's
+gateway model discovery survives `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, and the format of
+codex's `model_catalog_json`. Code claims cite a symbol, never a line.
 
 **The question this doc answers.** When you pick a provider with `-p`, something has to decide
 which model the agent starts on and which models its menu offers. Usually the agent can decide
@@ -44,8 +46,9 @@ questions are about.
 - [OQ-ML2](#OQ-ML2): which provider × agent cases get a yolo pick. Leaning: exactly the cases
   where the agent would otherwise start on a wrong-family id or on none. Cost: claude's native
   `-p bedrock` gets no pick, so `-p anthropic` and `-p bedrock` may put `opus` on different
-  models; ruling the other way ships Anthropic-on-Bedrock ids whose geographic prefixes are
-  unverified ([§5.3](#53-the-prerequisite-verify-before-an-id-ships)).
+  models; ruling the other way ships Anthropic-on-Bedrock ids whose geographic prefixes differ per
+  model and must each be read off that model's AWS card
+  ([§5.3](#53-the-prerequisite-verify-before-an-id-ships)).
 - [OQ-BR12](#OQ-BR12): a `models` contribution kind so a company pack can shape a list. Leaning:
   yes, with `add` and `only`.
 - [OQ-BR13](#OQ-BR13): how each derive renders the list into its agent's picker. Leaning: each
@@ -194,7 +197,8 @@ planned a `models` map on claude's native `bedrock` provider, and a done-conditi
 anthropic` and `-p bedrock` put the same tier word on the same model. Under the leaning neither
 gets a pick, so `opus` on Bedrock means what Claude Code says it means there, which may be an
 older model. Ruling [OQ-ML2](#OQ-ML2) the other way restores both, at the price of shipping
-Anthropic-on-Bedrock ids whose geographic prefixes are unverified ([§5.3](#53-the-prerequisite-verify-before-an-id-ships)).
+Anthropic-on-Bedrock ids whose geographic prefixes differ per model and must each be read off
+that model's AWS card ([§5.3](#53-the-prerequisite-verify-before-an-id-ships)).
 
 ---
 
@@ -249,10 +253,53 @@ covers every pick.
 
 ### 5.3 The prerequisite: verify before an id ships
 
-The Anthropic-on-Bedrock geographic prefix set (`us.`, `eu.`, `global.`) is **not verified**.
 An unverified prefix is exactly the 404-on-unknown-model failure bedrock-plumbing's P1 describes.
 So no Anthropic id enters the picks pack until its prefixes are read from AWS's own pages and
 dated. This was [OQ-PS3](#OQ-PS3)'s blocker. It is now a build prerequisite, not a question.
+
+**SOURCED 2026-09-25 from AWS's model cards**, which are now where AWS lists inference
+profile ids. Its [inference-profile support page](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-support.html)
+says each model's ids are "now documented on the model's detail page". The set this doc
+assumed, `us.`, `eu.` and `global.`, was incomplete. Across the seven Anthropic cards read, the
+`bedrock-runtime` prefixes are `us.`, `eu.`, `au.`, `jp.` and `global.`:
+
+| Model (card) | Runtime model id | `us.` | `eu.` | `au.` | `jp.` | `global.` |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: |
+| [Claude Opus 5.5](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-5-5.html) | `anthropic.claude-opus-5-5` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| [Claude Fable 5.1](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-fable-5-1.html) | `anthropic.claude-fable-5-1` | ✓ | — | — | — | ✓ |
+| [Claude Mythos 5.1](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-mythos-5-1.html) (gated preview) | `anthropic.claude-mythos-5-1` | ✓ | — | — | — | ✓ |
+| [Claude Opus 5](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-5.html) | `anthropic.claude-opus-5` | ✓ | ✓ | ✓ | — | ✓ |
+| [Claude Sonnet 5](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-sonnet-5.html) | none: runtime needs a geo or global id | ✓ | ✓ | ✓ | — | ✓ |
+| [Claude Haiku 4.5](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-haiku-4-5.html) | none: runtime needs a geo or global id | ✓ | ✓ | ✓ | ✓ | ✓ |
+| [Claude Sonnet 4.5](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-sonnet-4-5.html) | `anthropic.claude-sonnet-4-5-20250929-v1:0` | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+Each id is the prefix plus the model's base id, for example `au.anthropic.claude-opus-5-5`.
+The 5.x base ids are undated. The 4.5 ones keep the dated `-YYYYMMDD-v1:0` form, for example
+`global.anthropic.claude-haiku-4-5-20251001-v1:0`. What the prefixes mean, per the cards'
+data-residency notes: `us.` "keeps data within US and Canada regions", `eu.` within EU
+Regions, `au.` within Australia, `jp.` within Japan, and `global.` "routes worldwide with no
+residency constraints".
+
+What this changes for the build (SOURCED facts, not a ruling):
+
+- **A pick cannot be composed as `<prefix>.<base id>`.** The prefix set differs per model.
+  Fable 5.1 has no `eu.`. Opus 5 and Sonnet 5 have no `jp.`. So every (model, prefix) pair has
+  to be read off that model's card and dated, which is the rule above applied per id rather
+  than once per set.
+- **`global.` is the only prefix on every card read.** It is also the one with no residency
+  guarantee.
+- **There is no `apac.` or `us-gov.` id on any card read.** The general pages still name APAC
+  as an example geography ([geographic cross-Region inference](https://docs.aws.amazon.com/bedrock/latest/userguide/geographic-cross-region-inference.html)),
+  but the cards split it into `au.` and `jp.`. GovCloud rows show Geo support, and Sonnet 4.5's
+  geo table lists `us-gov-east-1` and `us-gov-west-1` as source Regions of its `us.` profile.
+  So GovCloud callers use `us.`, at least for that model.
+- **One AWS page is stale.** The inference-profile support page says global profiles are
+  "currently only supported on Anthropic Claude Sonnet 4". Every card above lists a `global.`
+  id, so that sentence should not be cited.
+
+**Not covered:** Claude Opus 4.8, 4.7, 4.6 and 4.5, Sonnet 4.6, Sonnet 4, Opus 4.1, Mythos 5,
+Fable 5, and the 3.x models. Their cards were not read. Read one before any of them gets a
+pick.
 
 ### 5.4 First-party providers are a use of this
 
@@ -697,5 +744,8 @@ runtime, Converse included, with no in-Region id
 ([its model card](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-astra.html),
 2026-09-25).
 
-**Not verified:** the Anthropic-on-Bedrock geographic prefix set (`us.`, `eu.`, `global.`). It
-blocks every Anthropic pick ([§5.3](#53-the-prerequisite-verify-before-an-id-ships)).
+**AWS, Anthropic geographic prefixes**, SOURCED 2026-09-25 from seven model cards (linked in
+[§5.3](#53-the-prerequisite-verify-before-an-id-ships), which holds the table). The prefixes are
+`us.`, `eu.`, `au.`, `jp.` and `global.`. The set differs per model, and only `global.` appears
+on every card read. The earlier assumption, `us.`, `eu.` and `global.`, missed `au.` and `jp.`.
+Cards not read are listed there; they still block a pick for their models.
