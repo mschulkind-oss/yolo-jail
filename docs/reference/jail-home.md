@@ -12,8 +12,10 @@ covers:
   - internal/cli/run/hostfiles.go
   - internal/cli/run/jailprefix.go
   - internal/cli/run/storagehelpers.go
+  - internal/cli/run/wsstatebeneath.go
   - internal/storage/
   - internal/paths/homeskeleton.go
+  - internal/paths/statefile.go
   - internal/config/writablehome.go
   - internal/config/hostfiles.go
   - internal/config/selectedpacks.go
@@ -32,7 +34,10 @@ summary: "How /home/agent is composed: a per-jail read-only skeleton, per-worksp
 **Status:** CURRENT as of 2026-09-09, verified against `d8cf1cf8`. The home root was
 rewritten 2026-09-25 for the per-jail skeleton, the machine store, name reservation and the
 Apple Container seed ([`base-home-legacy-state.md`](../design/base-home-legacy-state.md)),
-against the working tree of that build; the rest was not re-verified then.
+against the working tree of that build; the rest was not re-verified then. The rule for host
+code in jail-writable state
+([Host code in jail-writable state](#host-code-in-jail-writable-state)) was added the same day,
+against the working tree of that build.
 
 `/home/agent` is not a directory that exists anywhere as a whole. It is composed at
 container create out of four ingredients: a **read-only home skeleton of this jail's own**
@@ -50,7 +55,8 @@ workspace, or one per boot?**
 | The per-jail home skeleton (podman): its mountpoints and redirect links | `internal/cli/run` (`buildHomeSkeleton`), `internal/paths` (`HomeSkeletonRoot`, `HomeSkeletonCoreDirs`, `HomeFileMountpoints`, `HomeFileRedirects`) |
 | The machine store (shared dirs, the Claude login seed), layout migration | `internal/storage` (`EnsureGlobalStorage`, `MigrateStorageLayout`, `StorageLayoutVersion`) |
 | Host storage paths | `internal/paths` (`GlobalHome`, `GlobalCache`, `GlobalMise`, `AgentsDir`, `WorkspaceHomeState`) |
-| Per-workspace overlay creation, per backend, and layout migrations | `internal/cli/run` (`prepareWsState`, `preparePodmanBindSources`, `claudeJSONInWsState`, `migrateOldOverlay`) |
+| Per-workspace overlay creation, per backend, and layout migrations | `internal/cli/run` (`prepareWsState`, `preparePodmanBindSources`, `claudeJSONInWsState`, `migrateOldOverlay`, `rescueSharedDir`) |
+| Host operations in jail-writable state, beneath an `os.Root` | `internal/cli/run/wsstatebeneath.go` (`openStateRoot`, `linkedWorkspaceState`, `bindSourceDirBeneath`, `bindSourceFileBeneath`, `copyFileBeneath`, `writeFileBeneath`, `copyFileIfMissing`, `readRegularFileIn`) |
 | The mount table, per backend | `internal/cli/run` (`podmanBaseMounts`, `appleContainerBaseMounts`, `ScratchMountArgs`, `ROFileMountArg`, `jailPrefixMountArgs`) |
 | Config-declared extra mounts | `internal/cli/run` (`sortedWritableHomeDirs`, `sortedCacheRelocations`, `hostUserFileArgs`, `hostFileWritableDirArgs`, `hostMountArgs`), `internal/config` (`WritableHomeDirs`, `WritableHomeBackingSubdir`) |
 | Name reservation for those keys, over the selected packs | `internal/config` (`reservedHomeSegments`, `HostFileEntry.StagingFor`, `resolveSelectedPacks`) |
@@ -107,6 +113,14 @@ lands in a writable overlay. Anything that does end up genuinely shared — `~/.
 `/mise`, a machine-scope credential dir — must be append-only,
 convergent, or single-writer, because two jails regenerate their configs concurrently and
 would otherwise fight.
+
+**Host code touches jail-writable state only beneath an `os.Root`.** A jail can write the
+workspace overlay and `<workspace>/.yolo` above it, so any path the host launcher reads,
+writes or copies there, or any directory above one, may be a link the last jail left. Open an
+`os.Root` on the narrowest jail-writable directory, refusing a link at the root itself, and
+name every path relative to it; a podman bind source that is a link is replaced, not merely
+refused. [Host code in jail-writable state](#host-code-in-jail-writable-state) has the rule,
+the helpers and the members of the class not yet converted.
 
 **A failed generator refuses the boot.** `genStep` collects failures rather than aborting
 at the first one, so a single boot reports every problem; `genFailuresError` then turns a
@@ -489,7 +503,11 @@ without claude) dangles and reads as absent, which is the right answer there.
   silently detaches the bind inside a running jail, so an attach builds nothing and a fresh
   launch builds a new directory rather than touching an old one. Old skeletons go with the
   jail's whole `agents/<container name>` entry, through `PruneOrphanAgentStaging`, which
-  declines when liveness is unknown.
+  declines when liveness is unknown and keeps a name while it is live or tracked. A launch
+  drops its jail's tracking file once the runtime says the container is gone
+  (`forgetGoneContainer`), which is what lets the reaper reach the entry at all. A launch that
+  starts no container (a refusal after the build, a runtime that never ran) removes the
+  skeleton it built, since nothing ever held it.
 
 ### Reserving a name is not creating a directory
 
@@ -518,7 +536,9 @@ Two lists are still read from every *shipped* pack:
 
 - **The machine store's directories.** `EnsureGlobalStorage` creates every shipped pack's
   shared dir in `<global storage>/home`, because it runs before the config is loaded. That
-  makes a bind source, which a jail mounts only when it selects the pack.
+  makes a bind source, which a jail mounts only when it selects the pack. The fresh launch
+  then creates the selected packs' own, on both container backends, so a configured pack's
+  shared dir has a source too (`ensureSharedDirSources`).
 - **The `host_files` surface reservation.** A destination some shipped pack composes as a
   surface (`~/.codex/config.toml`) is refused whatever the selection. It is a list of files,
   not directories, and [`OQ-BH14`](../design/base-home-legacy-state.md#OQ-BH14) did not rule on it
@@ -592,7 +612,11 @@ Forward (seed → workspace) fills only *missing* keys. Reverse (workspace → s
 when the workspace has a truthy login account the seed lacks. Parse and IO errors degrade to
 no-ops. A side that is a **symlink** (or anything but a regular file) is neither read nor
 written: the workspace file is one the jail can replace, and the sync runs on the host, so
-following a link let a jail aim a host write. The write is a temp file renamed over the path.
+following a link let a jail aim a host write. The workspace side is named **beneath an
+`os.Root` on the overlay**, so a link at a directory above the file is refused too: with only
+the file itself checked, a jail that replaced `wsState/claude` with a link to a host
+directory had the forward pass create `claude.json` there, holding the seed's login. The write
+is a temp file, created `O_EXCL`, renamed over the path.
 
 The workspace side is the file the jail reads as `~/.claude.json`, which differs per backend
 (`claudeJSONInWsState`): `<workspace>/.yolo/home/claude/claude.json` on podman, the target of
@@ -608,12 +632,158 @@ host workspace path, driven by a pack's `per_jail_history` hook. This is belt an
 even where a state dir is shared across workspaces — Apple Container's single writable home
 — history stays distinct per host workspace.
 
+## Host code in jail-writable state
+
+**Jail-writable state** (a term this page coins) is any host directory a jail can write into
+through any of its mounts. Three places qualify, and the host launcher reads, writes and
+copies in all three on the next launch, as the host user:
+
+* **The workspace overlay**, `<workspace>/.yolo/home` (`wsState` in the code). Apple Container
+  binds it whole at `/home/agent`; podman binds its entries one at a time.
+* **`<workspace>/.yolo` itself, overlay included.** Both backends bind the workspace at
+  `/workspace` and hide nothing under it, so a jail reaches `/workspace/.yolo/home` directly,
+  unless a `workspace_readonly` entry covers `.yolo`.
+* **A machine-scope shared dir** in the machine store, `<state>/home/<dir>`, bound read-write
+  into every jail whose packs declare it.
+
+So any path the launcher touches there, or any directory above one, or the overlay and `.yolo`
+themselves, may be a symbolic link the last jail left. A plain path operation follows it. A
+write truncates the host file the link names; a read copies a host file into the jail's own
+state; a `MkdirAll` creates directories outside the overlay. And podman resolves a **bind
+source**, the host path on the left of a `-v` flag, on the host, so a link left at one binds
+whatever it points to into the next jail: `wsState/claude` pointing at the host's `~/.claude`
+would hand the jail the host's own directory, read-write.
+
+**The rule: host code touches jail-writable state only beneath an `os.Root`.** `os.Root`
+resolves every component itself and refuses one that leaves the root, including a component
+swapped for a link between two calls; it follows a link only when the link is relative and
+stays inside. The helpers are in `internal/cli/run/wsstatebeneath.go`, and, for the files
+directly under `.yolo`, in `internal/paths/statefile.go`:
+
+| Operation | Helper | What a link does to it |
+| :--- | :--- | :--- |
+| Open the root | `openStateRoot` (the overlay: refuses a link at it or at `.yolo`), `openDirRefusingLink` (one directory) | refused, with an error naming the path; each open is checked against the directory that was `Lstat`ed |
+| A podman directory bind source | `bindSourceDirBeneath`, `ensureBindSourceDir` | a link at any component is **replaced** by a real directory, and the launch names it |
+| A podman single-file bind source | `bindSourceFileBeneath` | a link is replaced by an empty regular file; a regular file is left alone |
+| Write or copy a file | `writeFileBeneath`, `writeFileBeneathMode`, `copyFileBeneath` | a link at the file is replaced; one above it that leaves the root refuses the write; a regular file is rewritten in place, keeping its inode |
+| Copy only into a missing file (migrations) | `copyFileIfMissing`, `copyLinkIfMissing` | the source must `Lstat` as a regular file and is never followed; anything at the target, a dangling link included, is an existing target; a link is copied as a link |
+| Read a host-consumed file | `readRegularFileIn` | a link at the file or its directory is not read |
+| A file directly under `.yolo` | `paths.OpenWorkspaceStateFile`, `paths.WriteWorkspaceStateFile`, `paths.OpenStateDirRoot` | a link at `.yolo` is refused, naming it; a link at the file is replaced by a regular file |
+
+Replacing a bind source rather than refusing it is deliberate. Refusing only the host's own
+`mkdir` still hands the link to podman, and a link at a bind source is never the jail's
+ordinary use of its home: the jail sees the source as the mountpoint itself, which it cannot
+replace, and reaches the source only through `/workspace/.yolo/home`. On Apple Container the
+overlay IS the jail's home, a link in it is the jail user's own, and the guest resolves it, so
+there `prepareWsState` only creates directories beneath the root and leaves links alone.
+
+**A linked `.yolo` or `.yolo/home` refuses the launch.** `Run` checks both
+(`linkedWorkspaceState`) right after the workspace-scope guard and before the launch log,
+whose tee is the first write under `.yolo`, and names the link and the `rm` that clears it.
+There is no override: a link there is indistinguishable from one a jail planted, and it would
+carry every write below it, and every bind source under it, wherever it points
+([`OQ-JH1`](#OQ-JH1) is the open question about a user who relocated the directory on purpose).
+
+**Converted call sites.** `prepareWsState` opens one root on the overlay and does everything
+beneath it: the bind sources (`preparePodmanBindSources`), Apple Container's pack dirs, the
+legacy layout migrations (`migrateOldOverlay`, whose source was read through a link: a linked
+`claude-projects` copied a host tree into the jail's `~/.claude/projects`), the settings copy,
+the shared-dir rescue (`rescueSharedDir`, whose machine-wide target is opened as its own root,
+so a link in the shared dir cannot reach its sibling, the Claude login seed) and the seed sync.
+Beyond it: `ROFileMountArg`'s nested-bind copy, the composed gitconfig
+(`gitIdentityMountArgs`), `acMaterialize` and `acMaterializeTree` (whose `RemoveAll` deleted a
+host directory through a linked overlay), `writeUserEnvFile` (whose write and `chmod` put the
+hydrated secrets in a host file of the jail's choosing), `userConfigMountArgs`,
+`venvShadowMountArgs`'s backing dirs, `prepareHostFiles`, the pack `files` mountpoints
+(`mountpointBeneath`) and `readHandoff`, whose content becomes a section of the jail's own
+briefing, so a link at `.yolo/handover.md` copied any host file it named into the jail.
+`internal/cli/run/wsstatelinks_test.go` plants a link at each and above each, and each case
+failed on the code before it. Each of the three bind-source preparers (`prepareWsState`,
+`venvShadowMountArgs`, `prepareHostFiles`) prints a `Replaced a symbolic link at <path>` line
+for every link it replaced (`printReplacedLinks`).
+
+**The machine store's shared credential file.** `storage.EnsureGlobalStorage` runs as the host
+user before any config loads, on every launch and every `yolo check`, and makes
+`<state>/home/.claude-shared-credentials/.credentials.json` a regular file, migrating the
+legacy `<state>/home/.claude/.credentials.json` into it. It did so with a link-following
+`stat`, an `O_CREATE` touch and an `os.Create` copy, so a dangling link a claude jail left at
+that name created the link's target on the host, and a link to an empty host file received
+the legacy credential. It now works beneath a root on the shared dir (`paths.OpenStateDirRoot`,
+refusing the dir itself as a link), replaces a non-regular file at the name, and creates the
+file `O_EXCL`; `internal/storage/sharedcredlink_test.go` failed on the code before it.
+
+**Files directly under `.yolo`.** These sit beside the overlay rather than in it, and are
+opened by `internal/paths/statefile.go`: `OpenWorkspaceStateFile` and `WriteWorkspaceStateFile`
+create `.yolo` through `EnsureWorkspaceStateDir`, open a root on it with `OpenStateDirRoot`
+(which refuses a linked `.yolo` with a `LinkedStateDirError` naming it), remove anything at the
+file name that is not a regular file, and check that what they opened is one. The callers are
+`attachLaunchLog`'s `launch.log`, whose tee appended every launch line (they quote the
+jail-writable workspace config) to whatever host file a link named; the host perf log
+(`hostPerfFileSink`, through `perf.FileSinkTo`); `housekeeping.log`; and the config snapshots
+`config-assembled.json` and `config-boot.json` (`writeWorkspaceSnapshot`). The two logs' trim
+runs through the open descriptor (`perf.TrimRunsInOpenFile`), never a second open by path.
+`EnsureWorkspaceStateDir`'s own `.gitignore` is created `O_EXCL` beneath the same root and is
+skipped under a linked `.yolo`. The handoff rename (`consumeHandoff`), the pack `files` ownership
+manifest (read through `readRegularFileIn`, saved through a temp file written beneath a root and
+renamed) and its legacy archive (`archiveLegacyPackFileMountpoint`) run beneath a root on `.yolo`
+too. `internal/cli/run/wsstatefiles_test.go`, `internal/config/snapshotlink_test.go` and
+`internal/paths/statefile_test.go` plant a link at each, dangling and not, and a linked `.yolo`,
+and each case failed on the code before it. The manifest's read half guards what is parsed, not
+what the manifest says: the jail can write a regular manifest there as easily as a link.
+
+**Not converted yet.** Three host-side readers and writers of jail-writable state still use
+plain paths. They live outside the run pipeline, and each is a follow-up, not a ruling.
+
+**The capture at jail exit.** `captureOnTerminate`
+(`internal/cli/configcapture.go`, through `captureSurfaceAt` in `internal/cli/configdiff.go`)
+runs on the host when a jail exits. It reads each capture surface under the overlay and its
+sidecar files under `.yolo/prism` by plain path, and it writes the `.overlay.json` and
+list-capture sidecars there with `os.WriteFile`. So a link at a surface has it read a host file
+into the next launch's composed config, and a link at a sidecar has it truncate the host file the
+link names. The fix is the same: a root on the overlay and on `.yolo/prism`, and each file named
+beneath it.
+
+**`yolo prune --apply`.** `prune.PurgeAgentLogs` (`internal/prune/agentlogs.go`, through
+`purgeOldFilesUnder` in `cachepurge.go`) age-deletes regular files under each tracked
+workspace's `.yolo/home/copilot/logs` and `.yolo/home/gemini/tmp`, and `WalkDedupableWorkspaces`
+(`internal/prune/prune.go`) walks the overlay for dedup. The walk never follows a link it meets
+inside the tree, but it opens its starting directory by plain path, so a jail that replaces
+`.yolo/home/copilot` with a link to a host directory has prune delete that directory's old
+`logs/` files. The fix is a root on the overlay and each walk beneath it.
+
+**The Claude OAuth broker's credential file.** The host broker (`internal/oauthbroker`) reads
+`<state>/home/.claude-shared-credentials/.credentials.json` with `os.ReadFile` (`oauthFromCreds`)
+and writes it with a temp file beside it and a rename (`WriteTokens`). That file is in a
+jail-writable shared dir, so a link there to the host's own Claude credentials would have the
+broker spend the host login's refresh token upstream and hand the new tokens to the asking jail.
+This one crosses the credential boundary, so it is the first of the three to convert: a root on
+the shared dir and a regular-file-only read.
+
+**What this does not close.** podman resolves a bind source when the container is created, after
+the preparation has replaced any link, so a jail running CONCURRENTLY with a write path into this
+overlay can plant one in between. The launch lock rules out a second jail of this workspace; a jail
+whose own workspace contains this one is the remaining writer. Closing that needs bind sources
+podman opens by descriptor, which it does not offer.
+The same race reaches one removal: `preparePackFiles` deletes a pack `files` mountpoint the
+ownership manifest records by path, after `pathParentWithin` resolves its parent's links and checks
+it is still in the overlay. A concurrent writer that swaps that parent for a link between the check
+and the `os.Remove` has one host file of the same name removed; `os.Root.Remove` would close it.
+
+<a id="OQ-JH1"></a>**[`OQ-JH1`](#OQ-JH1) — may a user relocate `.yolo` or `.yolo/home` with a symbolic link?** The launch now
+refuses one, with no override, because it cannot tell a link the user made from one a jail made.
+A user who moved the overlay to another disk that way (the machine-store directories are
+routinely large) is refused on the next launch. Options: (a) keep the refusal and document a bind
+mount as the way to relocate, since a mountpoint `Lstat`s as a directory; (b) accept a link whose
+target is recorded host-side, outside every jail-writable directory, as the user's; (c) add a
+`YOLO_ALLOW_*` hatch. Leaning (a): a hatch would be for yolo's own safety check rather than a
+broken config, and (b) adds a host-side record for a layout nothing documents.
+
 ## Lifecycle
 
 **Fresh launch.** `EnsureGlobalStorage` runs first, before config load. Then: config-change
 approval, the per-workspace launch `flock`, removal of a stale stopped container, image
-autoload, `prepareWsState`, `prepareHostFiles` and a new home skeleton (podman), argv
-assembly, and the container run. The in-container command
+autoload, `prepareWsState`, `prepareHostFiles`, the selected packs' shared-dir sources and a
+new home skeleton (podman), argv assembly, and the container run. The in-container command
 is wrapped with provisioning — `mise install` (install only; resolution happens there, not
 on an upgrade), the bootstrap script, the venv precreate script, an optional store prune
 gated on an env var and on no other jail being live — and then the target command.
