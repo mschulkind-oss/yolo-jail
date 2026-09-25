@@ -159,9 +159,9 @@ func TestUserScopeProviderAddressIsAccepted(t *testing.T) {
 // there already owns ~/.pi/agent/models.json and mounts it :ro, so the failure mode is a
 // working config corrupted by a silent second render.
 //
-// Configured (non-embedded) packs remain outside this guarantee, deliberately and
-// visibly: builtinSurfacePaths reads the EMBEDDED packs only, because resolving a
-// configured pack needs the pack store and config validation does no filesystem reads.
+// The reservation follows the SELECTION (OQ-BH15), so each case selects its provider's pack.
+// A configured pack is covered the same way once validation can resolve it
+// (hostfilesselected_test.go).
 func TestProviderSurfacesAreReservedAgainstHostFiles(t *testing.T) {
 	for _, surface := range []struct{ agent, path string }{
 		{"pi", "~/.pi/agent/models.json"},
@@ -170,7 +170,9 @@ func TestProviderSurfacesAreReservedAgainstHostFiles(t *testing.T) {
 	} {
 		t.Run(surface.agent, func(t *testing.T) {
 			ws := t.TempDir()
-			t.Setenv("HOME", t.TempDir())
+			// The provider's pack selected: the reservation covers only the selected packs
+			// (OQ-BH15), and hostfilesselected_test.go pins the unselected half.
+			selectionHome(t, `["`+surface.agent+`"]`)
 			t.Setenv("YOLO_VERSION", "")
 			errs, _ := ValidateConfig(decode(t,
 				`{"host_files": [{"path": "`+surface.path+`", "content": "x"}]}`), ws, nil)

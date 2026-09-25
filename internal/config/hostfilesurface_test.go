@@ -4,8 +4,9 @@ package config
 // (docs/research/local-model-endpoints.md): a host_files entry at a path a selected pack also
 // composes is a FATAL config error, not a merge and not a precedence rule.
 //
-// The case that matters is a CONFIGURED pack, which checkHostFiles structurally cannot see —
-// resolving one needs the pack store, so builtinSurfacePaths covers embedded packs only.
+// The case that matters is a CONFIGURED pack whose tree validation could not resolve yet (a
+// launch fetches and checks it out after validating), so checkHostFiles' selected-pack
+// reservation reserved nothing for it; the launch's loaded set can.
 
 import (
 	"strings"

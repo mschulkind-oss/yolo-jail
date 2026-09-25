@@ -18,7 +18,7 @@ import "testing"
 // could collide with another host_files entry — the one writer the reservation exists to
 // exclude.
 func TestHostFileReservedDestsCoverStagingTargets(t *testing.T) {
-	reserved := hostFileReservedDests()
+	reserved := hostFileReservedDests(nil)
 	// The exact target a `~/.npmrc` entry stages: the alias/target pair for the SAME file.
 	alias := HostFileEntry{Path: ".npmrc"}
 	if alias.StagingFor(nil) != HostFileStagingSymlink {
@@ -71,7 +71,7 @@ func TestHostFileReservedDestsCoverStagingTargets(t *testing.T) {
 // safe: the verdict is a pure function of the string, identical whether or not the path
 // exists on the machine running the check.
 func TestHostFileDestGuardIsPurelyLexical(t *testing.T) {
-	reserved := hostFileReservedDests()
+	reserved := hostFileReservedDests(nil)
 	// Materialize the alias as a real symlink pointing somewhere unreserved, in a temp
 	// home. If the guard resolved, it would follow this and accept the destination.
 	home := t.TempDir()

@@ -8,7 +8,8 @@ package packload
 //
 //	internal/storage     which machine-store (GlobalHome) shared dirs to create — before
 //	                     any config is loaded, so the selection is not known yet
-//	internal/config      the host_files surface-path reservation (builtinSurfacePaths)
+//	internal/config      only to look the SELECTED embedded packs up by name (resolveSelectedPacks);
+//	                     no reservation reads the whole set since OQ-BH15
 //	internal/entrypoint  which mise tool tokens to retire (core's list today; reads no pack)
 //
 // NAME RESERVATION IS NOT ONE OF THEM ANY MORE. Which home roots a host_files entry needs no

@@ -20,7 +20,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -349,7 +348,10 @@ func checkHostFiles(v any, scope string, probeSource bool) (entries []HostFileEn
 		return nil, []string{prefix + ": expected a list of host-file entries " +
 			"(a path string, or an object with a 'path')"}
 	}
-	reserved := hostFileReservedDests()
+	// The selection, resolved as validateWritableHomeDirs resolves it: a partly unresolvable
+	// selection still reserves what it could read (resolveSelectedPacks says why).
+	selected, _ := resolveSelectedPacks()
+	reserved := hostFileReservedDests(selected)
 	byPath := make(map[string]int, len(list)) // dest -> first index claiming it
 	for idx, raw := range list {
 		itemPath := fmt.Sprintf("%s[%d]", prefix, idx)
@@ -672,53 +674,37 @@ func hostFileShapeName(v any) string {
 	}
 }
 
-// builtinSurfacePaths are the destination paths of every yolo-composed surface — core's
-// own plus every EMBEDDED PACK's. A host_files entry may not write one, because composing
-// over a surface yolo also renders means two writers racing for one file, and whichever
-// runs second wins silently. See hostFileReservedDests.
+// selectedSurfacePaths are the destination paths of every yolo-composed surface a jail with
+// these packs renders: core's own plus every SELECTED pack's. A host_files entry may not write
+// one, because composing over a surface yolo also renders means two writers racing for one
+// file, and whichever runs second wins silently. See hostFileReservedDests.
 //
-// READ FROM THE PACKS, not duplicated. It used to be a hand-maintained list, drift-checked
-// by a test, because reading agentcfg.BuiltinManifest() would have pulled the Lua VM
-// (agentcfg/luahook → gopher-lua) into internal/config and therefore into every binary
-// that reads config. That reason expired twice over: internal/packload imports luahook
-// itself for the derive path (deriveenv.go), so the edge exists either way, and
-// internal/agentcfg no longer links Lua at all now that the config transform is gone
-// (docs/reference/pack-system.md#oq-lt1). What keeps the packs as the source is the
-// original half of the argument that still holds — the real declarations are over there,
-// and a duplicate of them drifts.
+// THE SELECTED PACKS, not every shipped one (OQ-BH15, by DIR-BH1: "a non-selected pack can
+// never have an impact"). It used to read packload.Embedded(), every pack compiled into the
+// binary, so ~/.codex/config.toml was refused in a claude-only workspace where nothing composes
+// it. The selection is the one validation resolves for writable_home_dirs
+// (resolveSelectedPacks), so a configured pack's surface is now reserved too once it is
+// selected. A pack that selection cannot resolve reserves nothing here, as for
+// writable_home_dirs; the two-writers case stays refused at launch for every loaded pack,
+// embedded or configured, by SurfaceCollisions.
 //
-// Embedded packs only, which is a real and deliberate limit: a CONFIGURED pack's surface
-// path cannot be reserved HERE, because resolving one requires the pack store (a filesystem
-// read, at config-validation time, that could fail for reasons having nothing to do with
-// the config being validated).
-//
-// ⚠ That limit no longer means a configured pack's surface gets two writers. The collision is
-// refused where it is DETECTABLE instead — SurfaceCollisions, called once the packs are loaded
-// (docs/research/local-model-endpoints.md, OQ-LM6: "a FATAL ERROR, not a merge and not a
-// precedence rule").
-func builtinSurfacePaths() []string {
-	surfacePathsOnce.Do(func() {
-		paths := []string{}
-		for _, p := range packload.Embedded() {
-			surfaces, probs := p.Surfaces()
-			if len(probs) > 0 {
-				continue
-			}
-			for _, sf := range surfaces {
-				paths = append(paths, sf.Path)
-			}
+// READ FROM THE PACKS, not duplicated: the real declarations are over there, and a duplicate
+// of them drifts.
+func selectedSurfacePaths(packs []*packload.Pack) []string {
+	paths := []string{}
+	for _, p := range packs {
+		surfaces, probs := p.Surfaces()
+		if len(probs) > 0 {
+			continue
 		}
-		paths = append(paths, corePathsForReservation...)
-		sort.Strings(paths)
-		surfacePathsCache = paths
-	})
-	return surfacePathsCache
+		for _, sf := range surfaces {
+			paths = append(paths, sf.Path)
+		}
+	}
+	paths = append(paths, corePathsForReservation...)
+	sort.Strings(paths)
+	return paths
 }
-
-var (
-	surfacePathsOnce  sync.Once
-	surfacePathsCache []string
-)
 
 // corePathsForReservation are the surfaces CORE renders itself, which belong to no pack.
 // Kept as a literal because there is exactly one and reading it back through agentcfg
@@ -733,9 +719,9 @@ var corePathsForReservation = []string{
 //   - every path yolo mounts as a single file or materializes as a symlink
 //     (reservedHomeFiles) — composing over a bind mount silently writes into the
 //     host's own file, and replacing a symlink breaks the atomic-write path;
-//   - every builtin composed surface path — a user entry at
-//     ~/.claude/settings.json would render the same file the prism renders, and
-//     whichever ran last would win, quietly stripping yolo's managed block.
+//   - every composed surface path of core and the SELECTED packs (selectedSurfacePaths) —
+//     a user entry at ~/.claude/settings.json would render the same file the prism
+//     renders, and whichever ran last would win, quietly stripping yolo's managed block.
 //
 // Exact paths, not first segments: `~/.config/mytool/config.json` is the feature's
 // central use case, so banning the `.config` segment (as writable_home_dirs
@@ -747,12 +733,13 @@ var corePathsForReservation = []string{
 // The ONE subtree exception is reservedHomeSubtrees — see checkHostFileDest, which
 // applies it — because its members are generated from a slug rather than nameable
 // here.
-func hostFileReservedDests() map[string]string {
-	dests := make(map[string]string, len(reservedHomeFiles)+len(builtinSurfacePaths()))
+func hostFileReservedDests(packs []*packload.Pack) map[string]string {
+	surfaces := selectedSurfacePaths(packs)
+	dests := make(map[string]string, len(reservedHomeFiles)+len(surfaces))
 	for _, f := range reservedHomeFiles {
 		dests[f] = "yolo mounts or materializes it directly"
 	}
-	for _, p := range builtinSurfacePaths() {
+	for _, p := range surfaces {
 		dests[strings.TrimPrefix(p, "~/")] = "it is a yolo-composed agent surface"
 	}
 	return dests
@@ -1157,11 +1144,11 @@ func (e HostFileEntry) WritableParent() string {
 //
 // # Why this is not in checkHostFiles
 //
-// Config validation cannot resolve a configured pack's surfaces: doing so needs the pack store,
-// so a filesystem read that fails for reasons unrelated to the config would fail the config.
-// builtinSurfacePaths therefore covers EMBEDDED packs only, and says so. This function takes
-// already-resolved surface paths and is called by whoever has them — which is the point the
-// collision first becomes detectable.
+// checkHostFiles reserves the surfaces of the selected packs that validation could resolve
+// (selectedSurfacePaths), but a configured pack whose tree is not in the store yet resolves
+// there as nothing, and the launch fetches and checks it out afterwards. This function takes
+// the surface paths of the packs actually LOADED and is called by whoever has them, which is
+// the point the collision is certain to be detectable.
 //
 // # Why it refuses rather than picking a winner
 //

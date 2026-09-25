@@ -212,8 +212,11 @@ func TestHostFilesPathRejection(t *testing.T) {
 }
 
 func TestHostFilesReservedDestinations(t *testing.T) {
-	// Files yolo mounts/materializes directly, and builtin composed surfaces —
-	// writing any of them from config would clobber yolo's own file.
+	// Files yolo mounts/materializes directly, and the composed surfaces of core and the
+	// selected packs — writing any of them from config would clobber yolo's own file.
+	// claude selected: ~/.claude/settings.json is its surface, reserved only while it is
+	// selected (OQ-BH15).
+	selectionHome(t, `["claude"]`)
 	reserved := []string{
 		"~/.bashrc",
 		"~/.gitconfig",
@@ -902,6 +905,7 @@ func TestHostFilesPathRequiredForNonHomeSource(t *testing.T) {
 // TestHostFilesInferredPathStillReserved: inference must not become a bypass for
 // the reserved-destination guard.
 func TestHostFilesInferredPathStillReserved(t *testing.T) {
+	selectionHome(t, `["claude"]`) // ~/.claude/settings.json is claude's surface (OQ-BH15)
 	_, problems := checkHostFiles(
 		hostFilesValue(t, `[{"source": "~/.claude/settings.json"}]`), "user", false)
 	if len(problems) != 1 || !strings.Contains(problems[0], "managed by yolo") {
@@ -922,7 +926,7 @@ func TestHostFilesInferredPathStillReserved(t *testing.T) {
 // silently clobber what yolo's symlink resolves to — the reservation looked
 // complete while covering only one of the two names for each file.
 func TestHostFileReservedDestsCoverSymlinkTargets(t *testing.T) {
-	reserved := hostFileReservedDests()
+	reserved := hostFileReservedDests(nil)
 	for _, pair := range []struct{ link, target string }{
 		{".claude.json", ".claude/claude.json"},
 		{".gitconfig", ".config/git/config"},

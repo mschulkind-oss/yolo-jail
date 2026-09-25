@@ -239,8 +239,8 @@ func TestAFilteredOutManifestReservesNothing(t *testing.T) {
 // is an ordinary new top-level path, and becomes "already writable" once the pack is
 // selected.
 func TestStagingForKeysOnTheSelectedPacks(t *testing.T) {
-	// Not ~/.codex/config.toml: that is a shipped pack's composed SURFACE, which host_files
-	// refuses whatever the selection (builtinSurfacePaths; OQ-BH14 ruled on directories).
+	// Not ~/.codex/config.toml: that is codex's composed SURFACE, which host_files refuses
+	// once codex is selected (OQ-BH15; hostfilesselected_test.go), a separate rule from staging.
 	entry := HostFileEntry{Path: ".codex/prompts/review.md"}
 	if got := entry.StagingFor(embeddedPacksNamed(t, "claude")); got != HostFileStagingWritableDir {
 		t.Errorf("claude-only: StagingFor(~/.codex/prompts/review.md) = %v, want a writable subtree — "+

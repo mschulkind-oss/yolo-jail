@@ -62,11 +62,12 @@ func TestConfigCodeThatReadsNoPackCreatesNothing(t *testing.T) {
 	}
 
 	// Positive control: the first real reader loads, into the cache base and nowhere else.
-	// builtinSurfacePaths, the host_files surface reservation, rather than StagingFor, which
-	// read the packs here until OQ-BH14 made it take the selection as an argument.
-	_ = builtinSurfacePaths()
+	// resolveSelectedPacks, which the host_files and writable_home_dirs reservations share
+	// since OQ-BH15 (it was the shipped-set builtinSurfacePaths before).
+	selectionHome(t, `["claude"]`)
+	_, _ = resolveSelectedPacks()
 	if !packload.EmbeddedLoaded() {
-		t.Fatal("builtinSurfacePaths did not load the embedded packs; the negative assertions " +
+		t.Fatal("resolveSelectedPacks did not load the embedded packs; the negative assertions " +
 			"above cannot tell lazy from never")
 	}
 	root, fallback := packload.EmbeddedLocation()
