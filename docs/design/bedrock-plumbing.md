@@ -1447,8 +1447,11 @@ direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction)), and
    > **⚠ Premise changed (read 2026-09-24): the proposed aliases may be stale before they
    > ship.** pi-ai 0.87.1's bundled Bedrock catalog lists `openai.gpt-6-astra` — bare,
    > `us.` and `global.` — beside the GPT-5.6 ids, and yolo's own codex-subscription defaults
-   > moved to GPT-6 in September (`2f11de95`, `7ad8358c`). Whether Bedrock serves GPT-6 was not
-   > checked against AWS. It sharpens the stakes this question already names — a shipped model
+   > moved to GPT-6 in September (`2f11de95`, `7ad8358c`). **Bedrock does serve GPT-6 Astra**
+   > (SOURCED 2026-09-25, [its model card](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-astra.html)):
+   > on `bedrock-runtime` as `us.openai.gpt-6-astra` / `global.openai.gpt-6-astra` (no in-Region
+   > id), including through Converse; on `bedrock-mantle` as `openai.gpt-6-astra`, in `us-west-2`
+   > only. AWS's Web Search page lists only GPT-5.4, 5.5 and 5.6 as supported. It sharpens the stakes this question already names — a shipped model
    > list is one yolo has to keep from rotting — without choosing between them.
 
    _Leaning:_ Ship the three. They are a *default*, not a catalog: a wrong one is overridden
