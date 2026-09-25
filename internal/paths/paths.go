@@ -503,13 +503,20 @@ func EnsureWorkspaceStateDir(workspace string) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return dir, err
 	}
-	p := filepath.Join(dir, WorkspaceStateIgnoreName)
-	// Lstat, not Stat: a DANGLING symlink is still a file the user put here, and
-	// os.WriteFile follows one — it would create whatever the link points at.
-	if _, err := os.Lstat(p); err == nil {
+	// Beneath a root on the directory, created O_EXCL: `.yolo` is jail-writable, so a link the
+	// last jail left at `.yolo` itself, or at the ignore file (a DANGLING one included), would
+	// otherwise have this write create or truncate the file it names. A linked `.yolo` skips
+	// the write here, and the callers that write beneath it refuse it (OpenWorkspaceStateFile).
+	// Anything already at the name is left alone: it is a file the user put there.
+	r, err := OpenStateDirRoot(dir)
+	if err != nil {
 		return dir, nil
 	}
-	_ = os.WriteFile(p, []byte(WorkspaceStateIgnore), 0o644)
+	defer r.Close()
+	if f, err := r.OpenFile(WorkspaceStateIgnoreName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644); err == nil {
+		_, _ = f.WriteString(WorkspaceStateIgnore)
+		_ = f.Close()
+	}
 	return dir, nil
 }
 
