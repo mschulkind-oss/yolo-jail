@@ -332,7 +332,7 @@ archive missing blobs the store already holds should import. Two things are Mac-
 | **`podman machine ssh` running a Linux `skopeo copy nix: → containers-storage:` inside the VM** | **Only where `/nix` is shared with the VM**: `podman machine init -v /nix:/nix`, a fresh machine, which the macOS nightly already does ([macOS and the runtime VM](../reference/image-staging-vs-baking.md#macos-and-the-runtime-vm)). It is exactly the Linux path, reading the store over virtiofs with no archive at all. It needs a Linux copier binary visible to the VM, and default machines don't have one. A candidate for CI's first load; [OQ-LR2](#OQ-LR2). |
 | **A containers-storage store on a shared mount** (`additionalimagestores`) | **Rejected (INFERRED).** The host copy would have to write an overlay store from macOS, and c/storage's overlay driver and its ownership mapping are Linux-only. |
 | **Writing blobs directly into Apple Container's content store** | **Rejected.** It is an internal on-disk layout with no stability promise, and `load` and `pull` already skip what it holds. |
-| **Compressing the podman archive** (gzip `oci-archive` instead of `docker-archive`) | **A first-load lever, and orthogonal to reuse.** 2.8× fewer bytes to upload for about 7–13 s of gzip here (MEASURED above). Worth measuring on the Intel CI Mac, where first load is the only load. |
+| **Compressing the podman archive** (gzip `oci-archive` instead of `docker-archive`) | **A first-load lever, and orthogonal to reuse.** 2.8× fewer bytes to upload for about 7–13 s of gzip here (MEASURED above). Worth measuring on the Intel CI Mac, where first load is the only load. One sample there, on 2026-09-25, showed no measurable win ([Mac results](#mac-results-2026-09-25)). |
 
 ---
 
@@ -618,7 +618,10 @@ What each step settles:
    **Answer:**
    > **Ruled 2026-09-24 (maintainer): yes, where it can be improved.** "if we can improve it, yes" — measure the candidates (the gzip archive, and the in-VM copier where `/nix` is shared) on the Mac runners, then build what measurably wins.
 
-   **Both measurements exist, UNRUN (2026-09-25).** They run in `nightly-macos.yml`'s
+   **The gzip half has run; the in-VM copier half has not (2026-09-25).** Nightly run
+   `36128365198` timed the gzip candidate once: 13 min 49 s from gzip against 14 min 6 s
+   uncompressed, no measurable win at one sample ([Mac results](#mac-results-2026-09-25)).
+   The in-VM copier test landed after that run's commit, so it has no result yet. Both run in `nightly-macos.yml`'s
    `archive-delivery-macos` job, in the step named for this question (its name continues
    `— time a cold first load, uncompressed vs gzip vs the in-VM copier`), which selects every `TestMacArchiveFirstLoad…` test in
    [`macarchivedelivery_test.go`](../../integration/macarchivedelivery_test.go).
