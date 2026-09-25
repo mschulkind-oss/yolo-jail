@@ -119,7 +119,9 @@ func readSelectionRecord(e *Env, agent, name string) map[string]any {
 // different mechanisms, and a surface write that skipped one while writing the
 // other would leave the pair disagreeing about a boot that did not happen.
 func writeSelectionRecord(e *Env, agent, name string, record map[string]any) {
+	recPath := prismSelectionRecordPath(e, agent, name)
 	if len(record) == 0 {
+		_ = os.Remove(recPath)
 		return
 	}
 	data, err := json.MarshalIndent(record, "", "  ")
@@ -487,9 +489,12 @@ func composeStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, 
 			agentcfg.SelectionKey + " namespace, which needs an object surface; dropped")
 		selection = nil
 	}
-	if lift, next := agentcfg.ApplySelection(selection,
-		agentcfg.DecodeSurfaceObject(surface.Codec, current), selectionRecord); len(lift) > 0 {
+	lift, next := agentcfg.ApplySelection(selection,
+		agentcfg.DecodeSurfaceObject(surface.Codec, current), selectionRecord)
+	if len(lift) > 0 {
 		computed = mergeSurfaceRoot(computed, lift)
+	}
+	if next != nil {
 		selectionRecord = next
 	}
 

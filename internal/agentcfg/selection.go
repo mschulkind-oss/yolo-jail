@@ -164,11 +164,20 @@ func ApplySelection(selection, file, record map[string]any) (lift, next map[stri
 		cur, inFile := file[k]
 		switch {
 		case !selected:
-			// Deactivated. Keep whatever the file has, and keep the memory of what
-			// yolo wrote — a profile reactivated later still needs it to tell its
-			// own write from the user's.
-			if inFile && isScalar(cur) {
-				lift[k] = cur
+			// Deactivated. If yolo wrote this value (cur == record[k]), clear it:
+			// omit from lift so it falls back to native/host defaults, and drop
+			// from the record. Only an interactive user edit (cur != record[k])
+			// is preserved.
+			if inFile {
+				if isScalar(cur) {
+					if wrote, ok := record[k]; ok && sameScalar(cur, wrote) {
+						delete(next, k)
+					} else {
+						lift[k] = cur
+					}
+				}
+			} else {
+				delete(next, k)
 			}
 		case !inFile:
 			// Activation: the key is not in the file, so nothing of the user's is

@@ -63,25 +63,36 @@ func TestApplySelectionDecides(t *testing.T) {
 			wantNext:  map[string]any{"model_provider": "vllm"},
 		},
 		{
-			// Never on absence (OQ-CS2): the profile is gone, the key stays exactly as it
-			// is. Still lifted, so the file keeps it across the wholesale rewrite instead
-			// of falling back to whatever stale value the capture overlay holds.
-			name:      "deactivation keeps the value and the memory",
+			// Deactivation (OQ-PSW2): the profile is gone, and yolo wrote this value.
+			// The key is cleared (omitted from lift) and dropped from next so the file
+			// falls back to native/host defaults.
+			name:      "deactivation clears yolo write and drops record",
 			selection: nil,
 			file:      map[string]any{"model_provider": "vllm"},
 			record:    map[string]any{"model_provider": "vllm"},
-			wantLift:  map[string]any{"model_provider": "vllm"},
+			wantLift:  map[string]any{},
+			wantNext:  map[string]any{},
+		},
+		{
+			// Deactivation when the user edited the key interactively: user's edit
+			// is preserved, and the record keeps what yolo wrote so future selections
+			// know the user modified it.
+			name:      "deactivation preserves user edit",
+			selection: nil,
+			file:      map[string]any{"model_provider": "mine"},
+			record:    map[string]any{"model_provider": "vllm"},
+			wantLift:  map[string]any{"model_provider": "mine"},
 			wantNext:  map[string]any{"model_provider": "vllm"},
 		},
 		{
 			// A key only the record remembers, with nothing in the file: nothing to keep,
-			// and nothing to write — the selection is not naming it.
-			name:      "a deactivated key absent from the file is not resurrected",
+			// and dropped from the record.
+			name:      "a deactivated key absent from the file is dropped from record",
 			selection: nil,
 			file:      map[string]any{},
 			record:    map[string]any{"model_provider": "vllm"},
 			wantLift:  map[string]any{},
-			wantNext:  map[string]any{"model_provider": "vllm"},
+			wantNext:  map[string]any{},
 		},
 		{
 			// The key is not in the file, so the activation rule fires even though yolo
@@ -107,14 +118,15 @@ func TestApplySelectionDecides(t *testing.T) {
 			wantNext:  map[string]any{},
 		},
 		{
-			// A key the record remembers beside a key the selection names: both are
-			// decided, and only the selected one moves.
-			name:      "a remembered key and a newly selected key are decided together",
+			// OQ-PSW2: when a new selection names one key (model) and omits another key
+			// yolo previously wrote (model_provider), the omitted key is cleared because
+			// the file holds yolo's write.
+			name:      "an omitted key is cleared while a newly selected key is written",
 			selection: map[string]any{"model": "qwen"},
 			file:      map[string]any{"model_provider": "vllm"},
 			record:    map[string]any{"model_provider": "vllm"},
-			wantLift:  map[string]any{"model_provider": "vllm", "model": "qwen"},
-			wantNext:  map[string]any{"model_provider": "vllm", "model": "qwen"},
+			wantLift:  map[string]any{"model": "qwen"},
+			wantNext:  map[string]any{"model": "qwen"},
 		},
 		{
 			// 8080 arrives as int64 from the derive and from the TOML file, and as float64

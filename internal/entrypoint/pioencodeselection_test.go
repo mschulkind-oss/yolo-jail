@@ -516,12 +516,9 @@ func TestOpencodeDeriveWritesTheSelectionKey(t *testing.T) {
 	}
 }
 
-// TestPiAndOpencodeSelectionDeactivatesAcrossRenders is the end-to-end OQ-CS2 pair for
-// both agents. The fresh half is the "no active profile" case in each table above; this is
-// the OTHER half, on homes a selecting launch already wrote: a launch with no profile keeps
-// the keys the selection left. yolo can turn a selection on and cannot turn it off (§5.1) —
-// which is why the harness here is the multi-boot one and not the per-case fresh render,
-// which can only ever test the first boot.
+// TestPiAndOpencodeSelectionDeactivatesAcrossRenders pins OQ-PSW2: on deactivation, yolo
+// clears the keys it wrote (falling back to native defaults or host layer), and drops
+// the selection record.
 func TestPiAndOpencodeSelectionDeactivatesAcrossRenders(t *testing.T) {
 	r := newPioencodeRender(t, zaiReachableJSON)
 
@@ -531,8 +528,21 @@ func TestPiAndOpencodeSelectionDeactivatesAcrossRenders(t *testing.T) {
 	requireOpencodeSelection(t, r.ocConfig(t), "zai/glm-5.3")
 
 	r.render(t, ``)
-	requirePiSelection(t, r.piSettings(t), r.piModels(t), "zai", "glm-5.3")
-	requireOpencodeSelection(t, r.ocConfig(t), "zai/glm-5.3")
+	if got := r.piSettings(t)["defaultProvider"]; got != nil {
+		t.Errorf("after deactivation pi defaultProvider = %v, want nil (cleared)", got)
+	}
+	if got := r.piSettings(t)["defaultModel"]; got != nil {
+		t.Errorf("after deactivation pi defaultModel = %v, want nil (cleared)", got)
+	}
+	if got := r.ocConfig(t)["model"]; got != nil {
+		t.Errorf("after deactivation opencode model = %v, want nil (cleared)", got)
+	}
+	for _, surface := range [][2]string{{"pi", "settings"}, {"opencode", "config"}} {
+		path := prismSelectionRecordPath(r.e, surface[0], surface[1])
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("after clearing, %s.%s selection record still exists at %s", surface[0], surface[1], path)
+		}
+	}
 }
 
 // TestPiSelectionSurvivesAUserEdit is the hazard OQ-CS2 exists for, on pi's surface: pi

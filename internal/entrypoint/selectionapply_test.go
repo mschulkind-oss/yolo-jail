@@ -187,11 +187,19 @@ func TestSelectionAppliesThroughTheBootRender(t *testing.T) {
 		requireSelection(t, r.render(t, `{"codex":"vllm"}`), "vllm", "qwen")
 	})
 
-	// (d) Deactivation writes NOTHING — not a clear, not a default. The keys stay at
-	// the values the last active selection left, which is what makes yolo able to turn
-	// a selection on and unable to turn it off (§5.1).
-	t.Run("deactivation clears nothing", func(t *testing.T) {
-		requireSelection(t, r.render(t, ``), "vllm", "qwen")
+	// (d) Deactivation clears what yolo wrote (OQ-PSW2), so the file falls back
+	// to native defaults and the selection record is deleted.
+	t.Run("deactivation clears yolo selection", func(t *testing.T) {
+		got := r.render(t, ``)
+		if val, ok := got["model_provider"]; ok && val != nil {
+			t.Errorf("model_provider = %v, want absent after deactivation", val)
+		}
+		if val, ok := got["model"]; ok && val != nil {
+			t.Errorf("model = %v, want absent after deactivation", val)
+		}
+		if _, err := os.Stat(prismSelectionRecordPath(r.e, "codex", "config")); !os.IsNotExist(err) {
+			t.Errorf("expected selection record to be deleted after deactivation: %v", err)
+		}
 	})
 
 	// (e) Every NON-selection computed key still re-asserts. The selection mechanism
@@ -224,7 +232,7 @@ func TestSelectionAppliesThroughTheBootRender(t *testing.T) {
 			t.Errorf("model_providers.llamacpp.base_url = %v, want the declared value back — "+
 				"a non-selection computed key must still re-assert", llama["base_url"])
 		}
-		requireSelection(t, got, "vllm", "qwen")
+		requireSelection(t, got, "", "")
 	})
 }
 
