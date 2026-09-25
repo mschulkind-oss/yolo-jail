@@ -10,7 +10,7 @@ vantage:
 
 # Implementation Sketch: Pi Extension Lifecycle
 
-**Status:** SKETCH, 2026-09-17 — incomplete, and unstable while questions are open.
+**Status:** SKETCH, 2026-09-17, and **superseded by the build**. §1–§3 below shipped, none of them exactly as sketched. §1–§2 shipped 2026-09-21 as the `shared_directory` hook. §3 shipped 2026-09-25 as a pack-declared `refresh`, not a `pi`-named branch in the template. The design's as-built notes ([§3.1](pi-extension-lifecycle.md#31-storage-tier-decoupling-packages-from-session-state), [§3.2](pi-extension-lifecycle.md#32-execution-tier-pre-launch-auto-refresh), [§3.3](pi-extension-lifecycle.md#33-concurrency-tier-cross-jail-mutual-exclusion)) are the record. This note makes no claim about §4, the macOS parity check.
 
 > [!NOTE]
 > This is a companion sketch to [`pi-extension-lifecycle.md`](pi-extension-lifecycle.md).
@@ -54,7 +54,7 @@ Blocked on [`OQ-1`](pi-extension-lifecycle.md#OQ-1).
 
 ## 3. Launcher Template Extension (`internal/entrypoint/shims.go`)
 
-Blocked on [`OQ-2`](pi-extension-lifecycle.md#OQ-2).
+✅ **Built 2026-09-25, in a different shape.** The sketch below keys the refresh on binary `pi` inside the shared npm template, which would teach core what an agent is. As built, the pack declares `"refresh": {"argv": ["update", "--extensions"], "lock": ".pi-shared-npm/.yolo-update.lock"}` on its `program`, and `internal/entrypoint/prelaunchrefresh.go` renders any declared refresh into BOTH launcher templates. It also differs from the sketch in a three-way lock result, an owner token, a heartbeat that keeps a held lock from going stale, the resolved-Node prefix, and stdin from `/dev/null`. What the lock does not cover, Pi's own unlocked install of a package the refresh did not reach, is the design's open [OQ-4](pi-extension-lifecycle.md#OQ-4). The sketch is kept as written.
 
 In `npmAgentLauncher` / `npmLauncherTemplate` for binary `pi`:
 * Add shell helper function `_refresh_pi_extensions`:
