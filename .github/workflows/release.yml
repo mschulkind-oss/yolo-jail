@@ -101,7 +101,7 @@ jobs:
 
           cat > yolo-jail.rb <<FORMULA
           class YoloJail < Formula
-            desc "Secure container jail for AI agents — run Claude Code, Copilot, and Gemini in YOLO mode safely"
+            desc "Sandboxed container jail for running AI coding agents in YOLO mode"
             homepage "https://github.com/mschulkind-oss/yolo-jail"
             url "${TARBALL}"
             sha256 "${SHA256}"

@@ -72,7 +72,7 @@
   // Extra tools to install via mise (key: tool name, value: version string).
   // Default: {"neovim": "stable"} — override in user or workspace config.
   // "mise_tools": {"neovim": "nightly", "typst": "latest"}
-  // Additional language servers for Copilot and Gemini.
+  // Additional language servers.
   // Defaults (always present): python (pyright), typescript, go (gopls).
   // Add new servers or override defaults. Binary must be on PATH (e.g., via mise_tools).
   // "lsp_servers": {
@@ -86,7 +86,7 @@
   // Enable built-in MCP server presets by name.
   // Available presets: chrome-devtools, sequential-thinking
   // "mcp_presets": ["chrome-devtools", "sequential-thinking"]
-  // Additional custom MCP servers for Copilot and Gemini.
+  // Additional custom MCP servers.
   // Add custom servers or set a preset/inherited server to null to disable it.
   // Binary must be on PATH or absolute.
   // "mcp_servers": {
