@@ -442,7 +442,26 @@ the first run had seen "connected, then EOF". So the family is not the cause and
 on the Mac's loopback. The probe now also dials the container's vmnet address directly, the
 published port on the vmnet gateway and on `[::1]`, and records `container inspect`. That
 separates three causes: Apple never bound the port, Apple bound it on another address, or the
-vmnet path itself is down. #3 **HOLDS** on the same run, which confirms its isolation fix. The macos-user checks #6, #7, #9 and #14 are still unrun: the last
+vmnet path itself is down. #3 **HOLDS** on the same run, which confirms its isolation fix.
+
+**The third Mac run, 2026-09-25** (run 36190500657 at `5e462de4`), found faults on both sides.
+- The published port is bound on the vmnet gateway (`192.168.64.1`), not on `127.0.0.1`: a
+  connection there is accepted and then **reset**, while loopback and `[::1]` refuse.
+- The Mac cannot reach the container's own address at all: dials to `192.168.64.x` fail with
+  **"no route to host"**, although the jail reaches that address itself.
+
+A forwarder that cannot reach its container resets exactly like that. The leading hypothesis,
+**UNVERIFIED**, is macOS Local Network privacy. It returns EHOSTUNREACH to a process it has not
+granted, and the runner is a non-interactive service that no prompt can reach. That would block
+both the test and Apple's user-level forwarder. Meanwhile the runner's nix daemon, running as
+root, reaches the Linux builder on the same subnet. If the hypothesis holds, #10 is a property of
+the runner rather than of yolo, and an interactive user who grants the permission would see ports
+publish.
+
+The probe now records the Mac's route to the container, `container inspect`'s published ports
+and networks, and `lsof` for the listening process and address. The check that settles it is
+human: System Settings → Privacy & Security → Local Network on the runner's Mac, or the same
+test run from an interactive Terminal. The macos-user checks #6, #7, #9 and #14 are still unrun: the last
 `macos-user.yml` run, on 2026-09-25, did not select them.
 
 ---
