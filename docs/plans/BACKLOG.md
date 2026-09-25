@@ -119,7 +119,10 @@ nothing is left to adopt and first-migration can safely adopt the on-disk file.
 
 All built and verified against real containers and real git. C7 proved unnecessary
 (see C6). Launch is offline: verified by moving a source repo away and still
-launching a jail with its pack delivered.
+launching a jail with its pack delivered. *(Since 2026-09-25 a launch fetches a pack the store
+lacks and re-fetches a branch hourly, by
+[`OQ-PF1`](../reference/pack-system.md#oq-pf1). What this measured still holds: a failed fetch
+of a pack already in the store warns and launches from the stored copy.)*
 
 | # | Item | Notes |
 |---|---|---|

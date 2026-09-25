@@ -29,7 +29,9 @@ tags: [packs, config, kinds, manifest, prism, trust, disclosure]
 # The pack system — how a jail gets everything in it
 
 **Status:** CURRENT as of 2026-09-24. Verified in full against `7ad8358c` (2026-09-23); every
-commit since that touches a path this doc covers was re-checked against `f491d192`. MEASURED in CI at `7ad8358c`
+commit since that touches a path this doc covers was re-checked against `f491d192`. The
+[fetch section](#fetch-refresh-lock) was rewritten on 2026-09-25 for the launch-time fetch
+([`OQ-PF1`](#oq-pf1)), in the same change that builds it, so no commit has verified it yet. MEASURED in CI at `7ad8358c`
 (run 35820702335): a pack's `briefing/` prose reaches a real container and its root `AGENTS.md`
 does not (`TestPackDeliversSkillAndBriefing`). UNMEASURED: no launched jail has been observed
 routing one pack's `briefing/` files to *different* agents. The container audience test routes a
@@ -1968,34 +1970,108 @@ The object form adds `name` and `only`/`exclude` globs, for per-project narrowin
 corpus. A config still carrying the retired `allow_exec` is refused as an unknown key, because
 a key that does nothing must not be accepted quietly.
 
-### Fetch, lock, offline launch
+### Fetch, refresh, lock
 
-Fetching happens in exactly one place: `yolo pack install` (and its alias `update`).
-Everything else is offline.
+**A host launch fetches and refreshes git packs itself, and the ref decides what moves**
+([`OQ-PF1`](#oq-pf1)). `yolo pack install` and `update` still exist, but neither is required.
 
-- A git source is cloned host-side into a content-addressed store: a bare mirror per repo, a
-  checkout per commit. Fetches run with fsck-on-transfer so malformed third-party content is
-  rejected at the boundary, and with terminal prompts disabled so a missing credential errors
-  instead of hanging. **The jail has no git credentials by design**, so fetch is host-only.
-- Because trees are keyed by commit, a moving ref never corrupts an existing checkout.
-- Launch resolves pins from the local store and **never fetches**; a missing pin errors and
-  points at `yolo pack install`. `yolo pack status` flags drift between the config address and
-  the lock.
-- `yolo host apply` reads the same store, through the launch's own resolver (`run.PackRoot`,
-  called by `cli.resolveConfiguredPack`). It stages a fetched pack into a throwaway directory
-  first, under the launch's no-escaping-symlink rule, because at the host the content lands in
-  the real home. **An incomplete set is refused whole**: if any configured pack cannot be
-  resolved, `--assert` writes nothing and exits 1, naming each pack, its reason and
-  `yolo pack install` where that is the fix. The dry run says it would refuse.
-- The lockfile records the asked-for `source`, the resolved `commit`, and the `ref` — **and
-  nothing else. There is no approval record in it, and the absence is a ruling rather than an
-  omission**: a field asserting an approval nothing enforces is worse than no field, and
-  `packsrc.LockEntry`'s own doc comment refuses to have one back without a design ruling. A
-  launch resolves a fetched pack from the local mirror at the config's ref
-  (`packsrc.Store.resolveFromStore`) and consults no lock entry, so the lockfile is
-  **write-only at launch**. The mirror moves only when `install`/`update` runs — the one
-  network step — so content is frozen between installs, and **choosing to follow a branch IS
-  the trust decision**. A tag pin is the shape for a pack carrying host execution.
+- **Where it runs.** Once per launch, on the host, before any pack is resolved or staged. The
+  jail launch runs it (except `--dry-run`, which materializes nothing), and so do the host
+  commands that resolve packs for the real home: `yolo host -- <bin>`, before it composes or
+  applies anything and whether or not host management is enabled, and `yolo host apply` and
+  `yolo apply --at host`, before they render. It reaches every configured git pack and nothing
+  else. An embedded pack ships in the binary, and a `file://` pack is a directory on disk, so
+  neither ever touches the network. **In a jail it does nothing**: there is no pack store and no
+  git credentials in there, and a nested launch resolves from the tree the outer launch staged.
+- **What the ref decides.** The launch looks the ref up in the pack's local mirror, the bare
+  repository the store keeps per remote, and acts on what it finds:
+
+  | The ref is | The launch |
+  | :--- | :--- |
+  | not in the store (no mirror, or the mirror does not hold the ref) | fetches the remote and checks the commit out, the same code path `install` runs |
+  | a full 40-hex commit SHA the mirror holds | never fetches. A commit is frozen |
+  | a tag the mirror holds (`refs/tags/<ref>`) | never fetches. A tag is treated as immutable, so following a re-pointed tag takes an explicit `yolo pack install` or `yolo pack update` |
+  | a branch (`refs/heads/<ref>`) | fetches when the last successful refresh of that mirror and ref is more than an hour old, and otherwise uses the mirror as it is |
+
+  The hour is the same interval the in-jail agent launchers use for their evergreen update
+  check. A refresh time is recorded in the pack store only when a fetch succeeds. **A
+  launch's fetch never moves a tag**, even one no pack in this launch is pinned to: the fetch
+  updates every ref, so the launch puts back every tag it moved or pruned, and a tag pack of
+  another workspace sharing the mirror stays where it was. "Refresh"
+  here means re-fetching a pack's mirror; it is unrelated to a `program` contribution's
+  `refresh` field, which is a program's own pre-launch step ([`program`](#program)).
+- **A failed fetch** (offline, refused credentials, timeout) **is not fatal when the ref
+  already resolves locally**: the launch prints one warning naming the pack and the error, and
+  uses the commit it has. When there is no usable local copy, resolution fails as it always
+  has, fatally and by name, and the message carries the fetch error. A ref that a fetch
+  **succeeded** without finding (a typo in `?ref=`, a deleted branch) is fatal too, and says
+  so: no later launch repairs it. Each launch-time fetch of a repository runs under one
+  timeout, shorter than `install`'s, covering its clone, its fetch and the checkouts after
+  them, so a hung remote costs a bounded wait and then counts as a failed fetch.
+- **Every move is disclosed.** A pack delivered for the first time prints
+  `Fetched pack <name>: <ref> → <short sha>`: one fetched now, or one whose repository and
+  subdirectory the lockfile has no entry for (a monorepo's second subpath, which arrives
+  without a fetch). A pack that moved off the commit its lockfile entry recorded prints
+  `Updated pack <name>: <ref> <old short> → <new short>`. Nothing prints when nothing moved.
+  Like every launch disclosure, these have no flag to hide them
+  ([`OQ-RO3`](report-tiers.md#why-its-this-way)).
+- **Concurrency.** Fetch plus checkout runs under an exclusive lock per mirror, and the
+  lockfile's read-modify-write under an exclusive lock of its own; `install` and `update` take
+  the same two. A launch that waited on another's fetch re-reads the refresh time, so two
+  launches started together fetch a branch once.
+- **Git hygiene is the install path's, and then some.** Every git run that receives objects
+  (the clone, the fetch, and a checkout of the partial mirror, which fetches blobs) runs with
+  fsck-on-transfer, so malformed third-party content is rejected at the boundary, and with
+  terminal prompts disabled, so a missing credential errors instead of hanging. A launch also
+  runs git with no controlling terminal: ssh reads its host-key and passphrase prompts from
+  the terminal rather than through git, so without that a first contact with an ssh host would
+  stop the launch at a prompt. On a timeout it kills git's whole process group, transport
+  helper included. `install` and `update` keep the terminal, so you can answer an ssh prompt
+  there. A git pack is cloned into a content-addressed
+  store: a bare mirror per repository and a checkout per commit. Because trees are keyed by
+  commit, a moving ref never corrupts an existing checkout.
+
+**What never fetches.** Every read-only surface resolves from what the store already holds and
+stays offline: `yolo check`, `yolo check-deps`, config validation, and the agent footer's profile
+read. `yolo check` also checks nothing out, since a checkout of the partial mirror can fetch.
+It reports a git pack the store does not hold yet as a `[SKIP]`, a check that did not look,
+saying the next launch fetches it, and a commit the store holds but has not checked out as a
+`[SKIP]` saying the next launch checks it out. A `[SKIP]` never fails `check`. A ref a fetch
+already came back without stays a `[FAIL]`, because every launch fails on it.
+
+**The lockfile.** It records the asked-for `source`, the resolved `commit`, and the `ref`, and
+nothing else. **There is no approval record in it, and the absence is a ruling rather than an
+omission**: a field asserting an approval nothing enforces is worse than no field, and
+`packsrc.LockEntry`'s own doc comment refuses to have one back without a design ruling. The
+launch writes an entry for every git pack it resolved, the way `install` does, and saves the
+file. It never prunes: dropping the entries of packs that left the config is `install`'s job,
+and entries of packs the launch did not process are left alone. A launch never records a
+`file://` pack, so only `install` writes a local pack's entry. The launch reads the lockfile
+only to tell whether a pack moved. Resolution then stages the commit the refresh decided,
+not whatever the shared mirror's ref names by then, so a concurrent fetch by another launch
+or an `install` cannot slip in content this launch did not disclose. `yolo pack status` flags
+drift between the config address and the lock.
+
+**What `install` and `update` are for now.** Both force a refresh of every configured git
+pack, a tag or a branch still inside its hour included, so either one follows a re-pointed
+tag; a launch never does. `install` also prunes the lockfile and records local packs.
+`update` is `install` plus the refresh of npm-declared programs ([`program`](#program)).
+
+**Choosing a ref IS the trust decision.** A pack can run host code: a loophole's daemon, a
+`reads-host` read, a render into the real home by `yolo host apply`. So host-side content must
+never move silently, and two things keep it from doing so. The ref rule decides whether it
+moves at all: pin a tag or a commit and it does not move until you change the pin or run
+`install` or `update`. The disclosure lines
+say when it did. Following a branch is consent to its author's next push, picked up within the
+hour and announced when it lands. **A tag or commit pin is the shape for a pack carrying host
+execution.**
+
+`yolo host apply` resolves through the launch's own resolver (`run.PackRoot`, called by
+`cli.resolveConfiguredPack`) after the refresh has run. It stages a fetched pack into a
+throwaway directory first, under the launch's no-escaping-symlink rule, because at the host
+the content lands in the real home. **An incomplete set is refused whole**: if any configured
+pack cannot be resolved, `--assert` writes nothing and exits 1, naming each pack and its
+reason. The dry run says it would refuse.
 
 ### Host-side staging, then jail-side render
 
@@ -2029,8 +2105,8 @@ literally.
 
 A pack has an **origin**: embedded (ships with yolo), local (a `file://` directory the user
 controls), or fetched (cloned from a git ref). **Origin does not decide host access.** It names
-the delivery route — a fetched pack must be `yolo pack install`ed to reach the store, and gets
-a lockfile entry with a commit — and nothing more. `packload.HonoredHostFiles`,
+the delivery route — a fetched pack reaches the store by a fetch, at a host launch or at
+`yolo pack install`, and gets a lockfile entry with a commit — and nothing more. `packload.HonoredHostFiles`,
 `HonoredMounts`, `HonoredInstalls`, `HonoredLoopholes` and `HonoredPlugins` refuse nothing;
 their `refused` return is retained and always nil, and a future refusal source must not quietly
 refill them.
@@ -2147,15 +2223,16 @@ other two ([`OQ-RO3`](report-tiers.md#why-its-this-way): a launch has no quiet m
 | `yolo pack ls` | list configured packs and what each stages |
 | `yolo pack explain <name>` | stage one pack and show what it stages and what it dropped (`file://` local only) |
 | `yolo pack footprint [ref]` | claims + cross-pack collisions + review summary; `[ref]` may be an embedded pack name or a local path, so you can inspect a pack you are authoring |
-| `yolo pack install` / `update` | fetch configured packs, materialize each commit into the store, write the lockfile, report whether each pin **moved**, prune the entries of packs that left the config — the only network step |
+| `yolo pack install` | force a refresh of every configured git pack, a tag or a branch still inside its hour included (so it follows a re-pointed tag, which a launch never does), materialize each commit into the store, write the lockfile, report whether each pin **moved**, prune the entries of packs that left the config. Optional: a host launch fetches a missing pack itself |
+| `yolo pack update` | everything `install` does, plus the refresh of npm-declared programs |
 | `yolo pack status` | show locked commits and flag config/lock drift |
 
 **No `yolo pack` verb asks a question, and `packMain` takes no stdin at all.** `install` and
 `update` fetch and report; every other verb inspects. That is a property of the whole surface
 rather than an omission from one row: the only reader ever threaded through here was the
-fetched-pack approval prompt. `install` and `update` share one body and differ only in name and
-intent — the distinction a user cares about is *did my pins move*, which the output reports
-directly.
+fetched-pack approval prompt. `install` and `update` share the fetch body, a forced refresh
+of every git pack. `update` adds the refresh of npm-declared programs ([`program`](#program)). The distinction a user cares about is *did my pins move*, which the
+output reports directly, as a launch's `Fetched pack` and `Updated pack` lines do.
 
 ## What this does not license
 
@@ -2199,13 +2276,14 @@ here, so they carry no qualifier. The unqualified **R1–R5** below are the conf
 | **R5** (corrected) — a user-scope list is a ceiling a workspace can only WIDEN | Lists union-merge at every depth and the replace-wholesale exception was deleted deliberately, so "the weak scope is bounded by the strong one" is false for any list-shaped setting. |
 | <a id="oq-al1"></a>[**OQ-AL1**](#oq-al1) — a `config-list` path captures PER ENTRY — relative to the last render on `stateful`, to yolo's insert record on `rmw` — and a mechanism that cannot is refused at launch ([capture per entry](#config-list-capture)) | A whole-array capture of one `pi install` would hold every pack's entries, outrank every contribution and freeze the list: later additions masked, a dropped pack's entries never removed. The obvious shortcuts each fail: limiting the kind to `computed` surfaces does not reach pi's `settings`, making the path `computed` wipes every `pi install`, and an owner opt-in per path protects nothing, since any pack's `config-overlay` can already replace the key. |
 | <a id="oq-al2"></a>[**OQ-AL2**](#oq-al2) — list contributions apply after every ordinary overlay; only capture, `computed` and `managed` replace the final array ([order](#config-list-order)) | An overlay has no per-entry veto to express, so folding lists below overlays would let any overlay silently erase them. |
-| **[OQ-K1](#why-its-this-way)** — settings declarations are AUTHORITATIVE, never advisory | Launch is strictly offline and an unresolvable pack is already fatal, so there is no launch where a configured pack's declaration is missing and the jail starts anyway. |
+| **[OQ-K1](#why-its-this-way)** — settings declarations are AUTHORITATIVE, never advisory | A launch fetches a git pack it does not have before it resolves anything ([`OQ-PF1`](#oq-pf1)), and a pack still unresolvable after that is fatal, so there is no launch where a configured pack's declaration is missing and the jail starts anyway. (Ruled when launches never fetched; the fetch changes how a pack arrives, not what happens when one cannot.) |
 | **[OQ-K2](#why-its-this-way)** — a workspace may supply values reaching a host daemon, gated by the config-change flow | The conditional IS the ruling: it would have been unsafe before the approval snapshot moved out of the workspace and non-interactive auto-accept was removed. |
 | **[OQ-K3](#why-its-this-way)** — freeze the host-processes visibility list | Live re-read of the workspace file is indistinguishable from the hole: the same property that lets you widen without restarting lets an agent widen its own, mid-session, with no approval gate. |
 | **[OQ-K4](#why-its-this-way)** — a loophole with a top-level core config key becomes an ordinary pack | The scope rule arrives for free by making it ordinary; leaving the key in core is separation in appearance only. |
 | **[OQ-CAP](#why-its-this-way)** — `supersedes` is a top-level manifest key, not a kind | A contribution that contributes nothing is a category error; the thing that IS a contribution is the loophole. Pinned rejected by `TestSupersedesIsNotAContributionKind`. |
 | **[OQ-TP6](../design/trust-paths.md#decision-ledger)** — a refused pack contribution refuses the launch | Withheld-with-a-notice let a jail come up missing what it was told to load. |
 | **[OQ-TP9](../design/trust-paths.md#decision-ledger)** — no fetched-pack host-access approval gate; disclosure replaces it | The gate refused an actor who had already passed a stronger one, and its containment rationale was refuted by `npm install -g` running `postinstall` ungated. |
+| <a id="oq-pf1"></a>[**OQ-PF1**](#oq-pf1) — a launch fetches and refreshes git packs itself, and the ref decides what moves: a pack not in the store is fetched, a commit or tag is never re-fetched, a branch is re-fetched at most hourly, and every move is disclosed ([fetch, refresh, lock](#fetch-refresh-lock)). Maintainer ruling, 2026-09-25: *"yes, I want this"* | Both reasons for keeping the fetch in `yolo pack install` were gone. The approval prompt that had to run there was deleted by [`OQ-TP9`](../design/trust-paths.md#decision-ledger). The claim that a launch is offline was false: every launch already reaches the network for the nix build, the bootstrap npm installs and the agent launchers' evergreen updates. What the old rule really protected is that host-side content (loophole daemons, `reads-host` reads, `yolo host apply` renders into the real home) never moves silently. The ref rule keeps that: a tag or commit pin still does not move until an explicit `yolo pack install` or `yolo pack update`. The `Fetched pack` and `Updated pack` lines say when anything did. |
 | **[OQ-1](providers.md#pv-oq-1)** (profiles) — `autonomy` and `profile` stay two kinds | The confinement-conditional keys live in `autonomy` "and nowhere else", and the selectors are asymmetric: autonomy keys off the constructor-only fail-closed notch, profile names arrive through a merge an agent can edit. |
 | **[OQ-16](providers.md#pv-oq-16)/[OQ-17](providers.md#pv-oq-17)** (profiles) — the `profile` gate on `config-overlay` reads user-scope config at the HOST notch | A gated overlay rewrites real-home keys and a workspace config is agent-editable; inside a jail the blast radius is the disposable home, so the jail notch uses the full effective table. |
 | **Q1.3** — `requires` is its own kind, CombineShared | Install and presence are different claims; conflating them made a pack either lie about a baked binary or lose its `install_hints` entirely. `requires` owns no path, so many packs requiring one binary is not a collision. |
@@ -2223,11 +2301,13 @@ here, so they carry no qualifier. The unqualified **R1–R5** below are the conf
 
 ## Current values
 
-Verified at `7ad8358c`; the `config-list` rows at `5a44129d`. The prose above explains what each of these is for; this table is the
+Verified at `7ad8358c`; the `config-list` rows at `5a44129d`; the two fetch rows were read from the working tree of the 2026-09-25 change that adds them, before it was committed. The prose above explains what each of these is for; this table is the
 only place the values themselves are stated.
 
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |
+| Branch refresh interval | one hour: a branch-pinned git pack is re-fetched at launch when its last successful fetch is older ([`OQ-PF1`](#oq-pf1)) | `packsrc.BranchRefreshInterval` |
+| Launch-time fetch timeout | 60 seconds per repository fetch, shared by its clone, fetch and checkouts, against the store's 2-minute default for `install` and `update` | `packsrc.LaunchFetchTimeout`, `packsrc.Store.Timeout` |
 | Kind set | the `footprints` map key, from which `KnownKinds()` derives (sorted alphabetically) | `packdecl.footprints`, count-pinned by `packdecl.TestKnownKindsCoverEveryConstant` |
 | Hook set | `shared_credentials`, `shared_directory`, `per_jail_history`. `claude_plugins` was a member until it was retired ([`OQ-2`](../design/pi-pack-extensions.md#10-decision-ledger), 2026-09-19 — retire it and add nothing like it, no agent-named hook); the name is not unknown but REFUSED, with a migration message | `packdecl.KnownHooks`, drift-pinned by `entrypoint.TestHookSetsAgree`; the refusal is `packdecl.RetiredHook` |
 | Manifest top-level keys | `name`, `description`, `contributes`, `skills_tier`, `supersedes`, `needs` | `packdecl.Manifest` |

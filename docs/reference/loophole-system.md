@@ -543,10 +543,12 @@ an agent-writable target — including the ones no rule can see, like a Python d
 > **Following a mutable ref IS the trust decision.** A pack pinned to a branch re-fetches
 > content nobody has seen, from an author who can change it at will; that is trust extended
 > continuously rather than a permission anyone exercised. The answer is documentation, not
-> re-prompting: a **tag pin** is the documented shape for a pack carrying host execution, and
-> the two facts that size the risk are that a launch resolves from the **local mirror** and
-> never touches the network, and that the mirror moves only at an explicit pack install or
-> update.
+> re-prompting: a **tag pin** is the documented shape for a pack carrying host execution. The
+> facts that size the risk are the ref rule a host launch fetches by
+> ([`OQ-PF1`](pack-system.md#oq-pf1)): a tag or commit pin is never re-fetched by a launch, so it
+> moves only at an explicit `yolo pack install` or `yolo pack update`, while a branch is
+> re-fetched at most hourly. Every move
+> prints `Updated pack <name>: <ref> <old> → <new>` on the launch that made it.
 
 ## The crossing enumeration
 
