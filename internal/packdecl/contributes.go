@@ -239,7 +239,7 @@ type Contribution struct {
 	// everywhere else.
 	Profile string `json:"profile,omitempty"`
 
-	// --- config-list (docs/design/additive-config-lists.md) ---
+	// --- config-list (docs/reference/pack-system.md#adding-entries-to-an-array-config-list) ---
 	// Path is the ARRAY the entries are appended to, inside the target `surface`, as an
 	// RFC 6901 JSON Pointer: "/packages", or "/models/glm-5.3/tags" for a nested one. A
 	// pointer and not a dotted path because real keys contain dots (model ids, server

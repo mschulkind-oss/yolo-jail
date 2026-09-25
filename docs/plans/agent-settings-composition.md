@@ -51,7 +51,7 @@ workspace-widenable) and both keys hard-error.
 >   manifest-pinned `append` that [§4](#4-layers-and-scope) describes was never built. Since
 >   2026-09-24 a pack appends entries to one array of an owner's surface with a `config-list`
 >   contribution, and a surface that reads edits back captures those paths per entry rather than
->   as a whole array ([`OQ-AL1`/`OQ-AL2`](../design/additive-config-lists.md#decision-ledger),
+>   as a whole array ([`OQ-AL1`](../reference/pack-system.md#oq-al1)/[`OQ-AL2`](../reference/pack-system.md#oq-al2),
 >   ruled 2026-09-23). That refines [§5](#5-surviving-regeneration--the-capture-diff-overlay)'s
 >   capture at those paths only.
 > - **The `workspace` layer is still unwired**, as [§4](#4-layers-and-scope)'s table says. A pack's

@@ -396,8 +396,8 @@ _Re-checked 2026-09-24 — the trigger fired, and the need was met in a differen
 personal-overlay case (adding one Pi package without copying the `pi` pack's whole `packages`
 list) is exactly "a pack that wants to add one entry to a list the user also maintains", and it
 was built as the **`config-list` kind** on 2026-09-24
-([`additive-config-lists.md`](../design/additive-config-lists.md), both questions ruled
-2026-09-23). It kept this leaning's two constraints — opt-in per path, and no change to the
+([`pack-system.md`](../reference/pack-system.md#adding-entries-to-an-array-config-list), both
+questions ruled 2026-09-23). It kept this leaning's two constraints — opt-in per path, and no change to the
 engine's default merge — but it is a **new contribution kind folded below capture, `computed`
 and `managed`**, not an annotation on `managed`/`defaults`, and a `managed` array still replaces
 wholesale. That design does not mention E5 and rules nothing about the `managed` layer. So what is
@@ -476,7 +476,7 @@ participates, not what happens when two active overlays share a key — last-one
 re-verified in `internal/packoverlay` which has no collision logic.)* *(2026-09-24: the new
 `config-list` kind is the list-shaped half of this question answered the other way on purpose —
 two packs adding to one array both land, deduplicated, with no collision
-([`additive-config-lists.md`](../design/additive-config-lists.md)). It does not touch same-KEY
+([`pack-system.md`](../reference/pack-system.md#config-list-equality)). It does not touch same-KEY
 scalar overlays, so this question stands.)* It is worth deciding anyway
 because the **neighbouring kind answers the same shaped question the opposite way**: since 2026-08-02 a same-identity `config`
 declaration is a LOUD collision, named in `yolo pack footprint` and refused at launch and by

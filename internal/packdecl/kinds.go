@@ -87,11 +87,11 @@ const (
 	// override of the owner's key is legible rather than silent.
 	KindConfigOverlay Kind = "config-overlay"
 	// KindConfigList: ENTRIES APPENDED TO ONE ARRAY of a config surface a pack owns,
-	// without replacing it (docs/design/additive-config-lists.md). A config-overlay is a
-	// JSON Merge Patch, and a merge patch replaces an array whole, so a pack wanting to add
-	// one package to pi's `packages` had to copy — and then silently drift from — every
-	// package another pack selected. This kind is the separate, deliberately narrow
-	// operation that design rules in, leaving config-overlay a pure merge patch:
+	// without replacing it (docs/reference/pack-system.md#adding-entries-to-an-array-config-list).
+	// A config-overlay is a JSON Merge Patch, and a merge patch replaces an array whole, so a
+	// pack wanting to add one package to pi's `packages` had to copy — and then silently
+	// drift from — every package another pack selected. This kind is the separate,
+	// deliberately narrow operation for that case, leaving config-overlay a pure merge patch:
 	//
 	//   {"kind": "config-list", "surface": "pi/settings", "path": "/packages",
 	//    "add": ["git:github.com/mschulkind/kilo-pi-provider"]}

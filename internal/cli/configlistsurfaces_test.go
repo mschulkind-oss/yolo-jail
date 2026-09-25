@@ -1,7 +1,7 @@
 package cli
 
 // configlistsurfaces_test.go pins the REPORTING half of `config-list`
-// (docs/design/additive-config-lists.md rule 5): `config render` folds the packs'
+// (docs/reference/pack-system.md#config-list-visibility): `config render` folds the packs'
 // contributions into its preview, `--explain` tells an array ASSEMBLED from its inputs plus
 // named pack contributions apart from one a higher layer REPLACED, `config ls` names the
 // contributors per array and the replacement, and its capture count includes per-entry list
@@ -91,8 +91,9 @@ func renderedJSON(t *testing.T, out string) map[string]any {
 }
 
 // The preview FOLDS the contributions: the overlay's list, then each pack's entries in
-// `packs` order, a repeat written once. Before rule 5's scope change `render` composed
-// defaults < host < managed only, so it could only ever show the owner's own list.
+// `packs` order, a repeat written once. Before the preview's scope grew to fold
+// `config-overlay` and `config-list` (pack-system.md#config-list-visibility), `render`
+// composed defaults < host < managed only, so it could only ever show the owner's own list.
 func TestConfigRenderFoldsOverlaysAndLists(t *testing.T) {
 	listWorld(t, func(home string) string {
 		return `"pi",` + overlayAB(t, home) + `,` + appendKilo(t, home) + `,` + appendOther(t, home)
@@ -183,8 +184,9 @@ func TestConfigRenderExplainSaysWhenManagedReplacesTheList(t *testing.T) {
 	}
 }
 
-// A TYPE CONFLICT (rule 3) refuses the preview exactly as it refuses the boot: pi's
-// `theme` default is a string, so a list there is an error naming the pack.
+// A TYPE CONFLICT (pack-system.md#config-list-type-conflict) refuses the preview exactly as
+// it refuses the boot: pi's `theme` default is a string, so a list there is an error naming
+// the pack.
 func TestConfigRenderRefusesAListTypeConflict(t *testing.T) {
 	listWorld(t, func(home string) string {
 		return `"pi",` + listPack(t, home, "clash", `{"kind":"config-list","surface":"pi/settings",`+

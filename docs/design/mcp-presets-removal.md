@@ -292,7 +292,7 @@ environments.
 The kind registry is **closed** (`footprints` in `internal/packdecl/kinds.go`; `packdecl.KnownKinds`
 lists it). None of its kinds can express *"here is an MCP server, put it in the canonical table."*
 The newest member does not change that: `config-list` (built 2026-09-24,
-[`additive-config-lists.md`](additive-config-lists.md)) appends entries to an array on a surface an
+[`pack-system.md`](../reference/pack-system.md#adding-entries-to-an-array-config-list)) appends entries to an array on a surface an
 agent pack owns. That is Shape B below in list form, and it cannot address yolo's own `mcp_servers`
 table, which is a map, not an agent surface.
 

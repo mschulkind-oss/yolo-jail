@@ -460,8 +460,8 @@ func promoteNonCaptureHint(agent, surface string) string {
 // promoteListNote is the report line for the per-entry list edits a surface's list-capture
 // sidecar holds, or "" for none (absent or corrupt reads as none, agentcfg.ParseListCapture).
 // Promote does not lift them — a list record is not a key, and promoting one is a separate
-// roadmap item (docs/design/additive-config-lists-plan.md, "Don't") — so the line says so and
-// points at the verb that shows them.
+// roadmap item (docs/reference/pack-system.md#list-records-stay-outside-the-overlay) — so the
+// line says so and points at the verb that shows them.
 func promoteListNote(path string) string {
 	if path == "" {
 		return ""

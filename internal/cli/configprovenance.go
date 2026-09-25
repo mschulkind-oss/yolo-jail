@@ -83,10 +83,11 @@ type overlayContribution struct {
 	// pack they dropped, and the only place that says so is a state-dir file they have never
 	// heard of.
 	Retired map[string]string
-	// Lists is the surface's config-list account (docs/design/additive-config-lists.md rule
-	// 5): one row per array the packs append entries to, sorted by path. Its own field rather
-	// than more Keys, because a list is attributed per ENTRY and to several packs at once,
-	// which a key → last-pack map cannot say.
+	// Lists is the surface's config-list account
+	// (docs/reference/pack-system.md#config-list-visibility): one row per array the packs
+	// append entries to, sorted by path. Its own field rather than more Keys, because a
+	// list is attributed per ENTRY and to several packs at once, which a key → last-pack
+	// map cannot say.
 	Lists []listContributionRow
 }
 
@@ -437,7 +438,8 @@ func anyRetired(rows []overlayContribution) bool {
 
 // writeListContribution prints one array's config-list line: the contributing packs in the
 // order their entries append, and either what the assembled array is or which layer replaces
-// it — the distinction rule 5 exists for — plus the in-jail edits recorded there.
+// it — the distinction pack-system.md#config-list-visibility exists for — plus the in-jail
+// edits recorded there.
 func writeListContribution(pr richtext.Printer, surface string, l listContributionRow) {
 	parts := make([]string, 0, len(l.Packs))
 	for _, p := range l.Packs {

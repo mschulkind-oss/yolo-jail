@@ -1,9 +1,10 @@
 package entrypoint
 
 // configlistrender_test.go is the BEHAVIORAL proof that `config-list` is wired at both render
-// boundaries (docs/design/additive-config-lists.md, OQ-AL1 and OQ-AL2): the jail boot
-// (ConfigurePackSurfaces, the loop the entrypoint runs) and the host apply (RenderHostPack,
-// driven the way `yolo host apply` drives it — collect across the set, render each pack).
+// boundaries (docs/reference/pack-system.md#adding-entries-to-an-array-config-list, OQ-AL1
+// and OQ-AL2): the jail boot (ConfigurePackSurfaces, the loop the entrypoint runs) and the
+// host apply (RenderHostPack, driven the way `yolo host apply` drives it — collect across
+// the set, render each pack).
 // Every test renders and then reads the FILE the agent would read; an in-jail edit is
 // simulated by editing that file between renders. Every home is a t.TempDir().
 
@@ -132,7 +133,7 @@ func readSidecar(t *testing.T, path string) string {
 // ── the jail boundary ───────────────────────────────────────────────────────────────────
 
 // The pack list selected: pi receives the owner's entries, then the added ones, once each,
-// in stable order — and the boot names who appended (rule 5).
+// in stable order — and the boot names who appended (pack-system.md#config-list-visibility).
 func TestJailConfigListAppendsAfterTheOwnersEntries(t *testing.T) {
 	e, errw := overlayRenderEnv(t)
 	bootJail(t, e, listOwnerPack(t, "", nil), personalPack(t))
@@ -282,7 +283,8 @@ func TestJailConfigListOnAPathThatCannotCapturePerEntryRefusesTheBoot(t *testing
 	}
 }
 
-// RULE 3 at the boot: a non-array at the path refuses the surface's render, fatally.
+// A TYPE CONFLICT at the boot (pack-system.md#config-list-type-conflict): a non-array at the
+// path refuses the surface's render, fatally.
 func TestJailConfigListTypeConflictIsFatal(t *testing.T) {
 	e, _ := overlayRenderEnv(t)
 	ConfigurePackSurfaces(e, []*packload.Pack{
@@ -463,8 +465,9 @@ func TestHostConfigListRefusalRow(t *testing.T) {
 	}
 }
 
-// Rule 3 at the host: an agent-owned file holding a non-array at the path is refused as a
-// row (the file untouched), not rewritten and not aborting the apply.
+// A type conflict at the host (pack-system.md#config-list-type-conflict): an agent-owned file
+// holding a non-array at the path is refused as a row (the file untouched), not rewritten and
+// not aborting the apply.
 func TestHostConfigListTypeConflictIsARefusedRow(t *testing.T) {
 	home := t.TempDir()
 	path := filepath.Join(home, listSettings)
@@ -621,9 +624,10 @@ func TestConfigListRMWDeletedFileOrKeyDeclinesNothing(t *testing.T) {
 	}
 }
 
-// RULE 3, the intermediate-parent half, at an rmw surface: a non-object ANCESTOR of the list
-// path in the agent-owned file is refused as a row (observe and write), naming the ancestor,
-// and the file is left byte-identical — never overwritten to make room for the array.
+// A TYPE CONFLICT, the non-object-parent half (pack-system.md#config-list-type-conflict), at
+// an rmw surface: a non-object ANCESTOR of the list path in the agent-owned file is refused
+// as a row (observe and write), naming the ancestor, and the file is left byte-identical —
+// never overwritten to make room for the array.
 func TestConfigListRMWBlockedParentIsRefusedAndTheFileUntouched(t *testing.T) {
 	const content = `{"models":"keep-me"}`
 	models := listContributorPack(t, "personal", "pi/settings", "/models/tags", "t1")
@@ -666,9 +670,9 @@ func TestConfigListRMWBlockedParentIsRefusedAndTheFileUntouched(t *testing.T) {
 	})
 }
 
-// RULE 3 at the host under `own` (stateful): a lower layer holding a non-array at the path is
-// a `refused:` row in the observe dry run AND the write — never "unchanged", and never an
-// error that aborts the whole apply.
+// A TYPE CONFLICT at the host under `own` (stateful; pack-system.md#config-list-type-conflict):
+// a lower layer holding a non-array at the path is a `refused:` row in the observe dry run
+// AND the write — never "unchanged", and never an error that aborts the whole apply.
 func TestHostConfigListTypeConflictUnderOwnIsARefusedRow(t *testing.T) {
 	home := t.TempDir()
 	owner := listOwnerPack(t, "", map[string]any{"defaults": map[string]any{"packages": "npm:a"}})

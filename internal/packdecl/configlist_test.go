@@ -1,8 +1,8 @@
 package packdecl
 
 // configlist_test.go pins the `config-list` kind's DECLARATION
-// (docs/design/additive-config-lists.md, docs/design/additive-config-lists-plan.md): the
-// shape it decodes into, every refusal its validation makes, and the projection the engine
+// (docs/reference/pack-system.md#adding-entries-to-an-array-config-list): the shape it
+// decodes into, every refusal its validation makes, and the projection the engine
 // reads. What the engine then DOES with an entry — the fold, the capture, the refusal of a
 // surface that cannot capture per entry yet — is internal/agentcfg's and is tested there.
 

@@ -1,8 +1,9 @@
 // Package packoverlay collects `config-overlay` contributions ACROSS packs and resolves
 // each onto the surface identity it targets — the piece that was missing while the kind
 // sat inert (docs/reference/pack-system.md §6 Option 2). `config-list` contributions
-// (docs/design/additive-config-lists.md) are the same cross-pack join and are collected in
-// the same pass against the same owner set (OverlaySet.ListsFor).
+// (docs/reference/pack-system.md#adding-entries-to-an-array-config-list) are the same
+// cross-pack join and are collected in the same pass against the same owner set
+// (OverlaySet.ListsFor).
 //
 // CROSS-PACK BY CONSTRUCTION, and that is the one structural fact worth stating: an
 // overlay in pack B targets a surface pack A owns, so collection cannot be per-pack.
@@ -44,9 +45,10 @@ type OverlaySet struct {
 	byTarget map[manifest.SurfaceKey][]agentcfg.Overlay
 
 	// listsByTarget maps a surface identity to the config-list contributions appending to
-	// it, in the same pack-then-declaration order (docs/design/additive-config-lists.md).
-	// Collected in the same two passes and against the same owner set, because a list is
-	// the same cross-pack join an overlay is: pack B appending to a list pack A owns.
+	// it, in the same pack-then-declaration order
+	// (docs/reference/pack-system.md#config-list-order). Collected in the same two passes
+	// and against the same owner set, because a list is the same cross-pack join an
+	// overlay is: pack B appending to a list pack A owns.
 	listsByTarget map[manifest.SurfaceKey][]agentcfg.ListContribution
 
 	// Orphans are the overlays whose target surface has no owner in this pack set —
@@ -247,8 +249,9 @@ func Collect(packs []*packload.Pack, autonomy bool, profiles map[string]string) 
 	}
 
 	// Pass 3: place each config-list the same way — pack order, then declaration order,
-	// which is the order the entries append in (rule 1). No profile gate: the kind takes
-	// none (packdecl refuses `profile` on it). A malformed one is a Problem, loud like a
+	// which is the order the entries append in (pack-system.md#config-list-order). No
+	// profile gate: the kind takes none (packdecl refuses `profile` on it). A malformed one
+	// is a Problem, loud like a
 	// malformed overlay; an ownerless one is inert and reported (R2). A list on a KEYLESS
 	// surface is NOT refused here — the owner's codec is the render's to judge, and the
 	// render refuses it naming the surface and its mode (agentcfg.ListCaptureRefusal).
@@ -357,8 +360,9 @@ func (s *OverlaySet) Applied() []AppliedOverlay {
 
 // AppliedLists lists the surfaces carrying config-list contributions, with the contributing
 // packs in fold order (a pack contributing twice is named once), sorted by identity — the
-// list twin of Applied, so an assembled array is legible at the moment it applies (R3,
-// rule 5) rather than only in a sidecar.
+// list twin of Applied, so an assembled array is legible at the moment it applies (R3, and
+// "Each boot, and each `yolo host apply`, names the packs that appended entries",
+// pack-system.md#config-list-visibility) rather than only in a sidecar.
 func (s *OverlaySet) AppliedLists() []AppliedOverlay {
 	if s == nil {
 		return nil

@@ -139,7 +139,8 @@ func TestStatefulListUserRemovalPersistsAcrossDropAndReAdd(t *testing.T) {
 }
 
 // Removing an OWNER entry is per entry too, and an entry first contributed later still
-// appears — the consequence the plan's reading of rule 4 states.
+// appears — "an array emptied in-jail is a per-entry capture instead"
+// (docs/reference/pack-system.md#config-list-capture).
 func TestStatefulListEmptiedArrayStillShowsLaterContributions(t *testing.T) {
 	h := &listHome{}
 	h.boot(t, Inputs{Surface: listSurface(), Lists: kiloList(t)})

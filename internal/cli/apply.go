@@ -687,7 +687,8 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 					"surface's own managed layer, which still wins a conflict)[/dim]",
 					strings.Join(r.Overlays, ", "))
 			}
-			// Which packs appended ENTRIES to one of this surface's arrays (config-list, rule 5).
+			// Which packs appended ENTRIES to one of this surface's arrays (config-list,
+			// pack-system.md#config-list-visibility).
 			// An assembled array reads in the file exactly like one the owner declared, so this
 			// line is the only place the run says whose entries they are. Detail, beside its
 			// overlay twin: the per-entry account is `yolo config ls`'s.

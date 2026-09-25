@@ -283,7 +283,7 @@ func parityCorpus() []parityCase {
 				"put it there. Both records match their own file; the mechanisms differ.",
 		},
 
-		// ── config-list: the additive kind (docs/design/additive-config-lists.md) ──────
+		// ── config-list: the additive kind (docs/reference/pack-system.md#config-list-fold) ──
 		{
 			// A key ONLY the contributions created reads `config-list` at both notches — a
 			// label no retirement or revert treats as yolo's whole array.
@@ -317,9 +317,10 @@ func parityCorpus() []parityCase {
 			wantFile: map[string]any{"packages": []any{"pinned"}},
 		},
 		{
-			// RULE 4, computed half: a dynamic table holding the list path replaces the
-			// assembled array at both notches — Compose folds computed above the list, and
-			// rmw skips the path rather than appending into yolo's regenerated table.
+			// PRECEDENCE (pack-system.md#config-list-precedence), computed half: a dynamic
+			// table holding the list path replaces the assembled array at both notches —
+			// Compose folds computed above the list, and rmw skips the path rather than
+			// appending into yolo's regenerated table.
 			name:     "a computed table replaces the list path",
 			computed: map[string]any{"mcpServers": map[string]any{"srv": map[string]any{"command": "x"}}},
 			lists:    []agentcfg.ListContribution{parityList("kilo", "/mcpServers/srv", "k")},

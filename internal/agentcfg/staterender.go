@@ -977,9 +977,10 @@ func neutralize(cur, ref map[string]any, tokens []string) map[string]any {
 // adopt is the first-migration branch at the list paths: a list path the current file holds
 // as an array adopts ONLY ADDS, measured against B — so a pack's entries never enter the
 // capture, and an entry the user's own file already held that a pack also contributes is
-// adopted as theirs (it survives the pack being dropped: the design's "host apply never
-// removes a user's independently declared matching package"). The path is neutralized
-// against the pure render so the residue never adopts the whole array.
+// adopted as theirs (it survives the pack being dropped: "an entry already in the user's
+// file that a pack also contributes stays the user's",
+// docs/reference/config-migration-to-prism.md#list-paths-capture-per-entry). The path is
+// neutralized against the pure render so the residue never adopts the whole array.
 //
 // An INSERT RECORD beside the surface (StatefulInputs.InsertRecordJSON) narrows that: an entry
 // it says yolo inserted is not adopted, and one it says the user declined is adopted as a
@@ -997,7 +998,7 @@ func (lc *listCapture) adopt(cur, pure map[string]any) (map[string]any, error) {
 		v, st, _ := walkPath(cur, t)
 		arr, isArr := v.([]any)
 		if st != pathFound || !isArr {
-			continue // absent, or a non-array the residue adopts whole (rule 4)
+			continue // absent, or a non-array the residue adopts whole (a whole-value capture)
 		}
 		b, err := lc.fold()
 		if err != nil {
@@ -1023,7 +1024,7 @@ func (lc *listCapture) adopt(cur, pure map[string]any) (map[string]any, error) {
 // to B (B's order wins; adds append in O's order), DUPLICATES within O, and O's ABSOLUTE PIN
 // — from here on a lower-layer change at the path shows through, where the whole array
 // masked it. A captured TOMBSTONE or non-array is not converted: it stays a whole-value
-// capture (rule 4) and notesFor names it.
+// capture (pack-system.md#config-list-precedence) and notesFor names it.
 func (lc *listCapture) migrate(overlay map[string]any) (map[string]any, error) {
 	for _, p := range lc.paths {
 		t := lc.tokens[p]
@@ -1061,8 +1062,9 @@ func (lc *listCapture) migrate(overlay map[string]any) (map[string]any, error) {
 //     entries never become the user's adds.
 //   - A FILE ARRAY over nothing (no capture hides anything): the baseline is [], so every
 //     entry in the file is recorded as added.
-//   - The array DELETED, or REPLACED by a non-array: rule 4's whole-value edit. The merge
-//     patch records it (a tombstone, or the value) and it outranks every contribution. P's
+//   - The array DELETED, or REPLACED by a non-array: a whole-value edit, which capture keeps
+//     the power to make (pack-system.md#config-list-precedence). The merge patch records it
+//     (a tombstone, or the value) and it outranks every contribution. P's
 //     record is KEPT: applyListRecords skips a path the overlay replaces, so it is inert while
 //     the capture stands, and it is what hidden applies if the array comes back — a per-entry
 //     removal the user made before the deletion is still theirs.

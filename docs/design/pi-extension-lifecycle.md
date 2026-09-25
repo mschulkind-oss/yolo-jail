@@ -364,7 +364,7 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
 > It does not run first when it is throttled (the stamp is machine-global, while the package list
 > is per-workspace). It does not run first on a contended launch, which execs Pi at once, so a
 > package the holder is still installing is installed a second time, concurrently, by the second
-> jail's Pi. And it never reaches an exact pin, which `pi update --extensions` skips. So §4.1's
+> jail's Pi. And it never reaches an exact pin, which `pi update --extensions` skips. So [§4.1](#41-invariants)'s
 > invariant 1 is not met for any package the refresh has not already installed. That question is
 > [OQ-4](#OQ-4).
 
@@ -435,7 +435,8 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
 > contribution on surface `pi/settings` at path `/packages`, which appends its entries to Pi's
 > `packages` array without replacing the entries other packs or the user put there (built
 > 2026-09-24 — [`pack-system.md`](../reference/pack-system.md#adding-entries-to-an-array-config-list),
-> designed in [`additive-config-lists.md`](./additive-config-lists.md)). This note used to name a
+> which also holds its rulings, [`OQ-AL1`](../reference/pack-system.md#oq-al1) and
+> [`OQ-AL2`](../reference/pack-system.md#oq-al2)). This note used to name a
 > `config-overlay` with `managed.packages`; that still works, but a merge patch replaces the array
 > whole, so each overlay copies — and drifts from — every package another pack selected, which is
 > the case the list kind exists for. Either is the declaration half — it says what should be
@@ -566,7 +567,7 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
      `resolve()`.
 
    So two jails that start Pi while a configured package is missing from the store can both write
-   it, which is the writer §3.3 exists to serialize: §4.1's invariant 1 is not met for any package
+   it, which is the writer [§3.3](#33-concurrency-tier-cross-jail-mutual-exclusion) exists to serialize: [§4.1](#41-invariants)'s invariant 1 is not met for any package
    the refresh has not already installed. And the case that ruling (c) is *about*, a version YOLO
    chose, is one the refresh never reaches.
 
@@ -585,7 +586,7 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
      objection in a smaller form. It covers the exact-pin case only, not the throttled or
      contended cases.
    - **(d) Have a contended launch wait, bounded, for the holder before it execs Pi.** This closes
-     the contended case. It costs §3.3's rule that a jail never waits on the lock, and it does
+     the contended case. It costs [§3.3](#33-concurrency-tier-cross-jail-mutual-exclusion)'s rule that a jail never waits on the lock, and it does
      nothing for the throttled case or for exact pins.
 
    <!-- vantage: oq id=OQ-4 leaning="(a) Accept and document: the unlocked install happens only while a configured package is missing from the store or outside its range, and it closes once one install lands. No shipped pack declares a Pi package today." -->

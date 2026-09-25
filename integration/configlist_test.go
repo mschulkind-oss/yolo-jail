@@ -1,10 +1,11 @@
 package integration
 
 // configlist_test.go is the end-to-end check of `config-list` on pi's `stateful` settings
-// surface (docs/design/additive-config-lists.md, OQ-AL1) — three launches of ONE workspace,
-// with capture-on-terminate's host-side captureSurfaceAt running between them. It is the only
-// test that exercises that teardown capture over a real jail: the unit suites call it
-// directly, and none of them can show that the sidecar it reads is the one a real boot wrote.
+// surface (docs/reference/pack-system.md#config-list-capture, OQ-AL1) — three launches of ONE
+// workspace, with capture-on-terminate's host-side captureSurfaceAt running between them. It
+// is the only test that exercises that teardown capture over a real jail: the unit suites
+// call it directly, and none of them can show that the sidecar it reads is the one a real
+// boot wrote.
 //
 // No agent runs. `jq` stands in for `pi install` appending to `packages`, which is the whole
 // of what the motivating case needs from the agent.

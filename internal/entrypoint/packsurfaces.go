@@ -222,8 +222,9 @@ func reportOverlayResolution(e *Env, overlays *packoverlay.OverlaySet) {
 		e.warn(fmt.Sprintf("%s: config-overlay keys from %s (yolo config diff %s)",
 			applied.Target, strings.Join(applied.Packs, ", "), applied.Agent))
 	}
-	// The list twin (rule 5): an assembled array reads, in the file, exactly like one the
-	// owner declared, so which packs appended to it is said at the moment it applies.
+	// The list twin (pack-system.md#config-list-visibility): an assembled array reads, in the
+	// file, exactly like one the owner declared, so which packs appended to it is said at the
+	// moment it applies.
 	for _, applied := range overlays.AppliedLists() {
 		e.warn(fmt.Sprintf("%s: config-list entries from %s (yolo config ls %s)",
 			applied.Target, strings.Join(applied.Packs, ", "), applied.Agent))

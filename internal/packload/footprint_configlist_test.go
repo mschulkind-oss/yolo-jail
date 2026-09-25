@@ -8,11 +8,12 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
-// A config-list CLAIMS the array it appends to (docs/design/additive-config-lists.md): one
-// claim per contribution, targeting `agent/name#<pointer>` so two paths on one surface are
-// two lines, with the entry count and the short list in the Detail. Never review-worthy (it
-// reads nothing and runs nothing), and two packs appending to one array never COLLIDE —
-// CombineOverlay, several contributors being the feature.
+// A config-list CLAIMS the array it appends to
+// (docs/reference/pack-system.md#config-list-visibility): one claim per contribution,
+// targeting `agent/name#<pointer>` so two paths on one surface are two lines, with the entry
+// count and the short list in the Detail. Never review-worthy (it reads nothing and runs
+// nothing), and two packs appending to one array never COLLIDE — CombineOverlay, several
+// contributors being the feature.
 func TestFootprintClaimsConfigList(t *testing.T) {
 	kilo := &packdecl.Manifest{Contributes: []packdecl.Contribution{
 		{Kind: packdecl.KindConfigList, Surface: "pi/settings", Path: "/packages",

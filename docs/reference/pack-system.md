@@ -17,6 +17,8 @@ covers:
   - internal/cli/pack.go
   - internal/cli/applyhostbriefings.go
   - internal/entrypoint/hostbriefing.go
+  - internal/entrypoint/hostoverlayprune.go
+  - internal/entrypoint/hostrevert.go
   - internal/agentcfg/
   - internal/loopholedecl/settings.go
   - internal/loopholedecl/capabilities.go
@@ -32,7 +34,13 @@ commit since that touches a path this doc covers was re-checked against `f491d19
 does not (`TestPackDeliversSkillAndBriefing`). UNMEASURED: no launched jail has been observed
 routing one pack's `briefing/` files to *different* agents. The container audience test routes a
 file outside `briefing/`, and `yolo pack lint`'s [delivery listing](#briefing-lint-listing) is
-where that routing is visible today.
+where that routing is visible today. The [`config-list` section](#adding-entries-to-an-array-config-list)
+was re-checked against `5a44129d` (2026-09-25) when its design folded in. MEASURED in CI at
+`85401c4e` (run 36093253387, on rootless podman — `rootless: True` — in both `integration` jobs,
+`ubuntu-latest` and `ubuntu-24.04-arm`): `TestConfigListSurvivesInJailEditsAndPackDrop` passed. It
+runs three launches of one workspace: pi with a `file://` pack's list contribution, an in-jail `jq`
+append standing in for `pi install`, then the contributing pack dropped. UNMEASURED: no real
+`pi install` has been observed against a list path.
 
 A **pack** is a directory of jail configuration — skills, briefing prose, composed config
 files, environment variables, and optionally a tool to install — that yolo delivers into
@@ -559,14 +567,9 @@ alone, because it is a fact about a binary; absent means unconstrained, and an e
 refused. [`protocol-resolution.md`](protocol-resolution.md) is what reads it.
 
 `node_floor` is the **minimum Node version the program's own entrypoint needs**, again on
-`program` alone. Without it, the workspace's `mise` pin chooses the interpreter an npm-delivered
-agent runs under, because the launcher execs a `#!/usr/bin/env node` script and mise's shims
-precede `/bin`. With it, resolution enumerates the installed Node candidates, picks one satisfying
-the floor, and the launcher execs that interpreter; the workspace pin still governs everything
-else. The floor is declared, never read from the package's `engines`, because the package is not
-installed when `yolo check` runs. It is opt-in per program since a `via: npm` package can ship a
-native binary that must never be wrapped in an interpreter. `packdecl` (`nodefloor.go`) holds the
-comparison.
+`program` alone. When it is set, the generated launcher execs an interpreter that meets it rather
+than the workspace pin's, and a floor nothing satisfies refuses the launch.
+[`agent-program-runtimes.md`](agent-program-runtimes.md) is what reads it.
 
 `install_hints` maps a host package manager to the package that provides `bin` there. Used
 below the `jail` notch, where yolo bakes no image, by `yolo check-deps` / `apply` to probe
@@ -976,9 +979,12 @@ An `env` contribution may also declare **`overridden_by`**: what, delivered into
 makes a consumer ignore its variables — other variables (all of them delivered, unless one of an
 `unless` list is too), or a `host_files` grant under a home path — each with a `because` the
 refusal quotes. A launch delivering the contribution beside one of those is **refused**, fatally
-and with no escape hatch, and `yolo check` predicts it. The pack owns the knowledge and core names
-no variable: `packs/aws-auth` declares that a Bedrock bearer, a static AWS key pair or a `~/.aws`
-grant beats its credentials pointer
+and with no escape hatch, and `yolo check` predicts it as a FAIL. An entry marked
+**`certain: false`** says the thing only MAY override the contribution. Beside one of those the
+launch prints a warning and continues, and `yolo check` reports a WARN. No flag or variable
+silences that warning. The pack owns the knowledge and core names no variable: `packs/aws-auth`
+declares that a Bedrock bearer or a static AWS key pair beats its credentials pointer, and that
+a `~/.aws` grant may
 ([`sso-backed-bedrock.md` OQ-SSO8](../design/sso-backed-bedrock.md#OQ-SSO8)). The schema and its
 rules are `packdecl.EnvOverride`'s doc comment.
 
@@ -1420,9 +1426,12 @@ alongside a `config` on one identity is the supported shape, not a clash.
 
 A `config-overlay` is a merge patch, so an array in it replaces the owner's array whole. A pack
 that wants to add one package to pi's `packages` would have to copy every package the owner
-lists, and that copy drifts. A **list contribution** *(a term coined by
-[the design](../design/additive-config-lists.md))* is the separate operation for that case. It
-appends JSON values to one array of a surface some selected pack owns:
+lists, and that copy drifts. A **list contribution** *(a term coined for this kind)* is a pack's
+request to append JSON values to one array inside a config surface some selected pack owns. It is
+a separate operation, not a merge patch, and it cannot create a surface: it names its target by
+the surface's identity and a path inside it, never by a file path of its own choosing. Core
+knows paths and arrays, not any agent's entry syntax: to it, a pi package spec is an opaque
+JSON value. The motivating case, one package added to pi's list without copying it:
 
 ```json
 {
@@ -1440,38 +1449,46 @@ appends JSON values to one array of a surface some selected pack owns:
 - **`add` is required and must be an array.** `[]` is a no-op. A `null` is refused anywhere
   inside an entry, because a TOML surface cannot encode one.
 - **Refused fields.** `config` and `profile` are refused on this kind, and `path` and `add` are
-  refused on every other kind (`internal/packdecl`, `configListProblems`).
+  refused on every other kind (`internal/packdecl`, `configListProblems`). A malformed
+  declaration fails the manifest's validation, so it never reaches a launch.
 
-**How it folds** (`internal/agentcfg/listcontrib.go`):
+<a id="config-list-fold"></a>**How it folds** (`internal/agentcfg/listcontrib.go`):
 
-1. After every ordinary layer and every `config-overlay`, contributions apply in pack order, then
-   declaration order. Existing entries keep their order, and the first occurrence of each
-   contributed entry not already present is appended. So a later list contribution can re-add an
-   entry an earlier overlay's replacement dropped
-   ([OQ-AL2](../design/additive-config-lists.md#decision-ledger)).
-2. Entries are compared as whole JSON values after normalizing number types, so a pack.json `1`
-   (a float) equals a TOML file's `1` (an integer). Nothing is parsed, normalized or sorted. The
-   same entry from two packs is written once.
-3. A missing array starts empty and missing parents are created. A non-array at the path, or a
-   non-object parent, refuses the surface's render and names the surface, the path and the pack.
-   For `stateful` and `computed` that is a failed boot. For `rmw` it is a refusal that warns and
-   leaves the agent's file untouched.
-4. The capture overlay, `computed` and `managed` can still replace the assembled array.
-5. A top-level key that only list contributions created carries the provenance label
-   `config-list`. That label is never treated as asserted, since the key may hold the user's
-   entries too, so no retirement or revert removes the whole array on its strength.
+1. <a id="config-list-order"></a>**Order.** After every ordinary layer and every
+   `config-overlay`, contributions apply in pack order, then declaration order. Existing entries
+   keep their order, including any duplicates the lower layers already hold, and the first
+   occurrence of each contributed entry not already present is appended. So a later list
+   contribution can re-add an entry an earlier overlay's replacement dropped
+   ([OQ-AL2](#oq-al2)).
+2. <a id="config-list-equality"></a>**Equality.** Entries are compared as whole JSON values after
+   normalizing number types, so a pack.json `1` (a float) equals a TOML file's `1` (an integer).
+   Nothing is parsed, normalized or sorted. The same entry from two packs is written once, and
+   is not an error.
+3. <a id="config-list-type-conflict"></a>**Type conflicts.** A missing array starts empty and
+   missing parents are created. A non-array at the path, or a non-object parent, refuses the
+   surface's render and names the surface, the path and the pack; the conflicting value is never
+   overwritten and never skipped. For `stateful` and `computed` that is a failed boot. For `rmw`
+   it is a refusal that warns and leaves the agent's file untouched.
+4. <a id="config-list-precedence"></a>**Precedence.** The capture overlay, `computed` and
+   `managed` can still replace or delete the assembled array. A list contribution is not a
+   mandatory-entry policy and cannot defeat those layers. A pack that wants the array replaced
+   uses `config-overlay`, whose arrays still replace.
+5. <a id="config-list-label"></a>**Provenance label.** A top-level key that only list
+   contributions created carries the provenance label `config-list`. That label is never treated
+   as asserted, since the key may hold the user's entries too, so no retirement or revert removes
+   the whole array on its strength.
 
 **No owner, or no file.** A list contribution whose target has no owner is inert and reported the
 way an ownerless overlay is, led by `config-list` instead of `config-overlay`. One aimed at an
 `unrendered` surface is inert and warned. A keyless surface (`raw`, `lines`) has no keys to point
 into, so a contribution there is refused (`agentcfg.ListCaptureRefusal`).
 
-**Capture per entry.** A surface that reads the agent's own edits back must not freeze the
-contributed entries into a whole-array capture. If it did, the first `pi install` would capture
-every pack's entries too, mask later additions and keep a dropped pack's entries forever. So at
-every **list path** — a path some live contribution targets, or one the surface's list record
-already names — each mechanism records entries instead
-([OQ-AL1](../design/additive-config-lists.md#decision-ledger)):
+<a id="config-list-capture"></a>**Capture per entry.** A surface that reads the agent's own
+edits back must not freeze the contributed entries into a whole-array capture. If it did, the
+first `pi install` would capture every pack's entries too, mask later additions and keep a
+dropped pack's entries forever. So at every **list path** — a path some live contribution
+targets, or one the surface's list record already names — each mechanism records entries instead
+([OQ-AL1](#oq-al1)):
 
 | Mechanism | What it records | Where |
 | :--- | :--- | :--- |
@@ -1494,6 +1511,23 @@ de-duplication of the entries: the rendered order is restored, and the boot says
 machine is in
 [`config-migration-to-prism.md`](config-migration-to-prism.md#list-paths-capture-per-entry).
 
+> [!WARNING]
+> **Every capture must read and write the list capture, including the ones that compose with no
+> layers.** `yolo config capture` and the host-side capture-on-terminate (`captureSurfaceAt` in
+> `internal/cli`) compose with no pack contributions at all, so the list-capture file is the
+> only place they learn a surface's list paths. A capture that skipped it would record the whole
+> array into the overlay, and the freeze [OQ-AL1](#oq-al1) rules out would be back.
+
+<a id="list-records-stay-outside-the-overlay"></a>
+
+> [!WARNING]
+> **Never store list records inside the overlay JSON.** The list capture is a file of its own
+> beside the overlay (`render.Target.ListCapturePath`), not a reserved key inside it, because
+> every overlay reader — `config diff`, `config promote`, the overlay entry count, the host drop
+> prune — would read the marker as a user key, and `promote` would copy it into a pack.
+> `yolo config promote` does not lift list captures into a pack yet; that is a separate roadmap
+> item, and it is not a reason to move the records into the overlay.
+
 **At the host, the insert record is kept under both contracts.** `yolo host apply` under `own`
 renders through `stateful`, but it also writes the `rmw` insert record (the entries a contribution
 put in the file, and the user's recorded removals as declined). So switching `host_management`
@@ -1513,8 +1547,9 @@ deletes it whole.
 > [`OQ-CO14`](../design/config-ownership-and-promotion.md#oq-co14). The `--assert` flag on
 > `yolo host apply` is a different thing, and the ruling keeps it.
 
-**Where you see it.** A key's one-word provenance label cannot say that several packs'
-entries survive in one array, so the per-entry account is printed separately:
+<a id="config-list-visibility"></a>**Where you see it.** A key's one-word provenance label
+cannot say that several packs' entries survive in one array — `packages  config-overlay:personal`
+would read as that one pack's list — so the per-entry account is printed separately:
 
 - `yolo config render --explain` prints, per list path, its entries in order with the source of
   each (the lower layers, a pack, or a captured edit), or the layer that replaced the assembled
@@ -1527,10 +1562,30 @@ entries survive in one array, so the per-entry account is printed separately:
 - `yolo pack footprint` and `yolo pack lint` show one claim per contribution, targeting
   `agent/name#<pointer>`.
 - `yolo config diff` prints one `+` or `-` line per captured list entry. Which packs contributed
-  is not a captured edit, so diff does not say.
+  is not a captured edit, so diff does not say: `diff` reports captured divergence and nothing
+  else ([`OQ-CR7`](config-target-resolution.md#oq-cr7)), and the contributor account belongs to
+  `ls` and `render --explain`.
 - `yolo config reset` discards the list capture with the overlay.
 - `yolo config promote` does not promote list captures yet. It names how many captured list
   entries a surface holds, and at which paths, instead of reporting nothing captured.
+
+<a id="config-list-limits"></a>**What it does not do.**
+
+- **It does not withdraw its entries once the owner is gone too.** When the owning pack and the
+  contributing packs have all left `packs`, the entries yolo inserted stay in the host file. The
+  drop prune in `yolo host apply` (`entrypoint.PruneHostOverlayKeys`) retires `config-overlay`
+  keys only and has no list handling, and no render reaches a surface whose owner is not loaded.
+  `yolo host apply --revert`, which withdraws everything yolo wrote to the home, does remove them
+  for an owner yolo ships: it walks the shipped packs' surfaces as well as the configured ones,
+  and removes exactly the entries the insert record names. A contributor dropped while its owner
+  stays is handled by the owner's next render, as above.
+- **It does not promote.** `yolo config promote` leaves list captures in the workspace (see
+  [the list above](#config-list-visibility)).
+- **It removes and rewrites nothing.** A list contribution only appends. There is no per-entry
+  removal or veto for a pack, and [OQ-LT2](#oq-lt2) records that gap as accepted.
+- **It is not a user-level channel.** A contribution is a pack's, so an entry only one person
+  wants still needs a pack of theirs to declare it (the conventional local pack, for example).
+  What the kind removes is the need for that pack to copy anyone else's list.
 
 > [!WARNING]
 > **Do not make arrays additive in the merge patch to get this.** A `"packages": null` in a patch
@@ -1683,6 +1738,34 @@ config-composition pipeline has no user-supplied script slot.
 > (`table: 0xc000…`, gopher-lua's `LTable.String`), so a script that keys on or emits that
 > string still varies between runs. Nothing yolo ships does. The package doc and
 > `sandbox.go` record the remaining gap.
+
+<a id="oq-dr1"></a>
+
+**💬 [`OQ-DR1`](#oq-dr1) — should the sandbox enforce reference identity too?** Opened 2026-09-25,
+when `5c1bfa5d` closed the randomness half and recorded this one as open. *DR* stands for "derive";
+the prefix is new with this question.
+
+- **(a) Leave it a requirement on the script.** Documented here and in the package doc; nothing
+  yolo ships prints a reference. Cost: a third-party `derive.lua` that emits `tostring(t)`
+  produces a different computed layer every boot, and nothing names the cause.
+- **(b) Close it in the sandbox, as the randomness half was closed.** Replace the base
+  `tostring` with one that renders a table, function, userdata or thread as its type name
+  alone (`"table"`), so no Go pointer reaches the script. Cost: it must reach every path that
+  renders a reference, not only the global `tostring`, or it becomes a partial fix that reads
+  as complete.
+- **(c) Detect it at the output instead.** Run each derive twice and refuse a layer that
+  differs between the runs. This catches every source of variation, not only this one. Cost:
+  it doubles derive time on every boot, or covers only the shipped packs if it runs only in
+  `TestEveryShippedPackDeriveStillRuns`.
+
+<!-- vantage: oq id=OQ-DR1 leaning="(b), with a test that renders a table through every path gopher-lua offers and asserts no 0x appears. It matches how the randomness half was closed: take the nondeterministic source out of the sandbox, so the script cannot reach it at all." -->
+
+_Leaning:_ **(b)**, pinned by a test that renders a table and a function through every path
+gopher-lua offers and asserts that no pointer appears. That is how the randomness half was
+closed: the nondeterministic source is taken out of the sandbox, so no script can reach it.
+
+**Answer:**
+> _(empty — fill in when decided)_
 
 The **canonical MCP-server type** lives in core: `name → {command, args, env}`, open and
 additively versioned, so a new transport is a new optional field that never breaks an
@@ -2098,12 +2181,14 @@ Rulings a future change would otherwise undo, kept with their original IDs — t
 cited from code comments and sibling docs, and this appendix is where they resolve. The two
 rows marked *(profiles)* are the retired profile-variant design's, and resolve in full in
 [`providers.md`](providers.md#the-profile-variant-rulings), which is the index for that arc's
-other rulings. Ids from the two folded-in designs keep
+other rulings. Ids from the folded-in designs keep
 their original spelling and are QUALIFIED where the bare id already means something here:
 *briefing defaults* (the `briefing/` convention — its P1–P6, R4 and R5 are
 [in the `briefing` section](#briefing)) and *transform removal* (its P1, P3, R1 and R3 are
-[in the derive slot](#lt-p1) and [the managed floor](#the-managed-floor)). The unqualified
-**R1–R5** below are the config-overlay rulings.
+[in the derive slot](#lt-p1) and [the managed floor](#the-managed-floor)). [`OQ-AL1`](#oq-al1)
+and [`OQ-AL2`](#oq-al2) come from the additive config-lists design, folded into
+[the `config-list` section](#adding-entries-to-an-array-config-list); their ids are unambiguous
+here, so they carry no qualifier. The unqualified **R1–R5** below are the config-overlay rulings.
 
 | Ruling | Why it holds |
 | :--- | :--- |
@@ -2112,8 +2197,8 @@ their original spelling and are QUALIFIED where the bare id already means someth
 | **R3** — provenance must be USER-VISIBLE, in `yolo config diff` | Provenance nobody can read does not make an override legible, which was the whole justification for the kind. |
 | **R4** — the double `rendered` line is fixed by REFUSING, not deduping | Deduping hides the clash; refusing removes the state that produced the second line. |
 | **R5** (corrected) — a user-scope list is a ceiling a workspace can only WIDEN | Lists union-merge at every depth and the replace-wholesale exception was deleted deliberately, so "the weak scope is bounded by the strong one" is false for any list-shaped setting. |
-| **[OQ-AL1](../design/additive-config-lists.md#decision-ledger)** — a `config-list` path captures PER ENTRY, relative to the last render, and a mechanism that cannot is refused at launch | A whole-array capture of one `pi install` would hold every pack's entries, outrank every contribution and freeze the list: later additions masked, a dropped pack's entries never removed. |
-| **[OQ-AL2](../design/additive-config-lists.md#decision-ledger)** — list contributions apply after every ordinary overlay; only capture, `computed` and `managed` replace the final array | An overlay has no per-entry veto to express, so folding lists below overlays would let any overlay silently erase them. |
+| <a id="oq-al1"></a>[**OQ-AL1**](#oq-al1) — a `config-list` path captures PER ENTRY — relative to the last render on `stateful`, to yolo's insert record on `rmw` — and a mechanism that cannot is refused at launch ([capture per entry](#config-list-capture)) | A whole-array capture of one `pi install` would hold every pack's entries, outrank every contribution and freeze the list: later additions masked, a dropped pack's entries never removed. The obvious shortcuts each fail: limiting the kind to `computed` surfaces does not reach pi's `settings`, making the path `computed` wipes every `pi install`, and an owner opt-in per path protects nothing, since any pack's `config-overlay` can already replace the key. |
+| <a id="oq-al2"></a>[**OQ-AL2**](#oq-al2) — list contributions apply after every ordinary overlay; only capture, `computed` and `managed` replace the final array ([order](#config-list-order)) | An overlay has no per-entry veto to express, so folding lists below overlays would let any overlay silently erase them. |
 | **[OQ-K1](#why-its-this-way)** — settings declarations are AUTHORITATIVE, never advisory | Launch is strictly offline and an unresolvable pack is already fatal, so there is no launch where a configured pack's declaration is missing and the jail starts anyway. |
 | **[OQ-K2](#why-its-this-way)** — a workspace may supply values reaching a host daemon, gated by the config-change flow | The conditional IS the ruling: it would have been unsafe before the approval snapshot moved out of the workspace and non-interactive auto-accept was removed. |
 | **[OQ-K3](#why-its-this-way)** — freeze the host-processes visibility list | Live re-read of the workspace file is indistinguishable from the hole: the same property that lets you widen without restarting lets an agent widen its own, mid-session, with no approval gate. |
@@ -2138,7 +2223,7 @@ their original spelling and are QUALIFIED where the bare id already means someth
 
 ## Current values
 
-Verified at `7ad8358c`; the `config-list` rows at `f491d192`. The prose above explains what each of these is for; this table is the
+Verified at `7ad8358c`; the `config-list` rows at `5a44129d`. The prose above explains what each of these is for; this table is the
 only place the values themselves are stated.
 
 | Value | Setting | Defined in |
@@ -2167,7 +2252,7 @@ only place the values themselves are stated.
 | `config-list` records | `stateful`: `<agent>-<name>.list-capture.json` beside the overlay; `rmw`: `<agent>-<name>.list-record.json` under the provenance directory. Each is written only for a surface with a list path | `render.Target` (`ListCapturePath`, `ListRecordPath`) |
 | Managed null | JSON: assigned (renders `null`); TOML: deletes the key | `agentcfg.enforceManaged`, `agentcfg.enforceManagedTOML` |
 | Derive VM run budget | 5s wall clock | `luahook.DefaultTimeout` |
-| Derive sandbox libraries | base, string, table, math (whole — `math.random` included) | `luahook.openSandboxLibs`, `ForbiddenGlobals`, `extraStrippedGlobals` |
+| Derive sandbox libraries | base, string, table, math (minus `math.random` and `math.randomseed`) | `luahook.openSandboxLibs`, `ForbiddenGlobals`, `extraStrippedGlobals` |
 | Packs shipping a `derive.lua` | `agy`, `claude`, `codex`, `copilot`, `omp`, `opencode`, `pi` | `packs/*/derive.lua`, all run by `TestEveryShippedPackDeriveStillRuns` |
 | Surface modes | `stateful` (default), `computed`, `rmw`, `unrendered` | `internal/agentcfg/manifest` |
 | `state` scopes | `workspace` (default), `machine` (requires `because`) | `packdecl` |

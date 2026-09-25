@@ -1368,11 +1368,11 @@ func applyRMWLayer(obj *jsonx.OrderedMap, layer map[string]any, force, deleteNul
 
 // ── config-list at an rmw surface ──────────────────────────────────────────────────────
 
-// rmwListOutcome is the rmw list step for one render (docs/design/additive-config-lists.md,
-// OQ-AL1's "rmw surfaces do the same against their rendered baseline"). An rmw surface has
-// no last render and no capture, so the baseline is yolo's own RECORD of which entries it
-// inserted (agentcfg.ListInsertRecord) — read from the previous render, updated here, and
-// persisted by the writer only (writeListRecord), so an observe pass never advances it.
+// rmwListOutcome is the rmw list step for one render (OQ-AL1's per-entry capture on `rmw`,
+// docs/reference/pack-system.md#config-list-capture). An rmw surface has no last render and
+// no capture, so the baseline is yolo's own RECORD of which entries it inserted
+// (agentcfg.ListInsertRecord) — read from the previous render, updated here, and persisted
+// by the writer only (writeListRecord), so an observe pass never advances it.
 //
 // The zero value is a render with no list path, and every method is a no-op on it.
 type rmwListOutcome struct {
@@ -1440,9 +1440,10 @@ func (o rmwListOutcome) topKeys() map[string]bool {
 // apply runs agentcfg.ReconcileInsertedList at every list path of the post-layer object. A
 // path managed or a dynamic table holds (or holds an ancestor of) is skipped with its record
 // kept: those layers win the array whatever the list says. A non-object parent or non-array
-// value at a path a LIVE contribution targets refuses the render (rule 3) as an rmw refusal —
-// a warning, the file untouched — because the conflicting value is in an agent-owned file;
-// at a path only a stale record names, the conflict just leaves the record as it was.
+// value at a path a LIVE contribution targets refuses the render
+// (pack-system.md#config-list-type-conflict) as an rmw refusal — a warning, the file
+// untouched — because the conflicting value is in an agent-owned file; at a path only a
+// stale record names, the conflict just leaves the record as it was.
 func (o *rmwListOutcome) apply(surface manifest.Surface, obj *jsonx.OrderedMap, computed map[string]any) error {
 	if len(o.paths) == 0 {
 		return nil

@@ -2,11 +2,12 @@ package agentcfg
 
 // listcontrib.go is the `config-list` half of the composer: a pack adding ENTRIES to one
 // array inside a surface another pack (or it itself) owns, without replacing the array
-// (docs/design/additive-config-lists.md, both questions ruled 2026-09-23).
+// (docs/reference/pack-system.md#adding-entries-to-an-array-config-list, both questions
+// ruled 2026-09-23).
 //
 // It is a SECOND, deliberately narrow operation beside the merge patch rather than a change
 // to it. RFC 7386 keeps its meaning everywhere — an array in a layer still replaces, and a
-// null still deletes — and the design's warning is the reason: making arrays additive would
+// null still deletes — and the reference's warning is the reason: making arrays additive would
 // break every deliberate empty array and every overlay that exists to replace one.
 //
 // WHERE IT FOLDS (OQ-AL2, and this file's placement of it):
@@ -39,7 +40,7 @@ package agentcfg
 // (entryKey). A pack.json decodes `1` as float64 while a TOML file decodes it as int64 and
 // jsonx keeps it as an integer literal; comparing the raw values would call `1` and `1`
 // different and write the entry twice. Nothing about the entries is interpreted: no package
-// syntax is parsed, no URL normalized, nothing sorted (rule 2).
+// syntax is parsed, no URL normalized, nothing sorted (pack-system.md#config-list-equality).
 
 import (
 	"encoding/json"
@@ -117,8 +118,9 @@ func NewListContribution(pack, pointer string, add json.RawMessage) (ListContrib
 }
 
 // ListProvenance is the per-entry account of one list path in one render — the data behind
-// rule 5's "show the ordered contributors, including an indication when a higher layer
-// replaces their result". Nothing new is persisted for it; it is derived per render.
+// `config render --explain`'s "entries in order with the source of each, or the layer that
+// replaced the assembled array" (pack-system.md#config-list-visibility). Nothing new is
+// persisted for it; it is derived per render.
 type ListProvenance struct {
 	// Path is the RFC 6901 pointer.
 	Path string
@@ -554,10 +556,11 @@ func newTrace(tokens []string, base []any) *listTrace {
 }
 
 // applyListContributions folds the contributions into the value the ordinary layers
-// produced (rule 1): each contribution in order appends the first occurrence of every entry
-// the array does not already hold. A missing path acts as [] with missing parents created;
-// a non-object parent or a non-array value REFUSES the render, naming the surface, the path
-// and the pack (rule 3) — never overwritten, never skipped. An empty `add` is a no-op and
+// produced (pack-system.md#config-list-order): each contribution in order appends the first
+// occurrence of every entry the array does not already hold. A missing path acts as [] with
+// missing parents created; a non-object parent or a non-array value REFUSES the render,
+// naming the surface, the path and the pack (pack-system.md#config-list-type-conflict) —
+// never overwritten, never skipped. An empty `add` is a no-op and
 // creates nothing.
 //
 // Returns the new value, the top-level keys the contributions CREATED (for the

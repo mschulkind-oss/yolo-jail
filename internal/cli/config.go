@@ -404,7 +404,7 @@ const containerWorkspace = "/workspace"
 //
 // SCOPE, stated because A7 half-closed and half-documented this: render composes
 // defaults < host < config-overlay < config-list < managed — the packs' contributions
-// included, because rule 5 of docs/design/additive-config-lists.md asks this command to
+// included, because docs/reference/pack-system.md#config-list-visibility has this command
 // show an array ASSEMBLED from its inputs plus named contributions, and a preview that
 // folded neither could only ever show the owner's own list. It does NOT supply the
 // `computed` layer,
@@ -456,9 +456,10 @@ func renderSurface(t configTarget, s manifest.Surface, contribs *packoverlay.Ove
 		// layer by its distinct hue.
 		//
 		// A key a config-list assembled an array under is MARKED here, because its layer
-		// alone would misreport it (rule 5): `packages  config-overlay:personal` reads as that
-		// overlay's array while several packs' entries survive in it. The mark points at the
-		// per-entry account printed below.
+		// alone would misreport it (pack-system.md#config-list-visibility):
+		// `packages  config-overlay:personal` reads as that overlay's array while several
+		// packs' entries survive in it. The mark points at the per-entry account printed
+		// below.
 		underList := listTopKeys(res.Lists)
 		for _, line := range res.ProvenanceLines() {
 			key, layer, _ := strings.Cut(line, "\t")
@@ -518,11 +519,12 @@ func listTopKeys(lists []agentcfg.ListProvenance) map[string]bool {
 	return out
 }
 
-// writeListExplain prints rule 5's per-entry account for every array a config-list touched:
-// the entries in final order with the source of each, headed by WHICH of the two things the
-// array is — assembled from the lower layers' entries plus named pack contributions, or
-// replaced wholesale by a higher layer, in which case the entries below it are what the
-// contributions assembled and not what the file holds.
+// writeListExplain prints the per-entry account pack-system.md#config-list-visibility
+// describes, for every array a config-list touched: the entries in final order with the
+// source of each, headed by WHICH of the two things the array is — assembled from the lower
+// layers' entries plus named pack contributions, or replaced wholesale by a higher layer, in
+// which case the entries below it are what the contributions assembled and not what the file
+// holds.
 //
 // Sources are agentcfg's: `base` (the array the ordinary layers — defaults, host, workspace,
 // config-overlay — already held), `config-list:<pack>`, and `captured` (an in-jail edit).

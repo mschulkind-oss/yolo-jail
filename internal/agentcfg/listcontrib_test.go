@@ -1,7 +1,8 @@
 package agentcfg
 
 // listcontrib_test.go pins the config-list fold (Compose) and the rmw per-entry step
-// (ReconcileInsertedList) — docs/design/additive-config-lists.md rules 1-4 and OQ-AL2.
+// (ReconcileInsertedList) — the order, equality, type-conflict and precedence steps of
+// docs/reference/pack-system.md#config-list-fold, and OQ-AL2.
 // The stateful capture half is staterender_list_test.go.
 
 import (
@@ -39,9 +40,10 @@ func composeMap(t *testing.T, in Inputs) (*Result, map[string]any) {
 	return res, res.ConfigMap()
 }
 
-// RULES 1 AND 2: the owner's entries in order, then the first occurrence of every
-// contributed entry in contribution order; an entry already present (from the base or an
-// earlier contribution) is not written twice, and an empty add is a no-op.
+// ORDER AND EQUALITY (pack-system.md#config-list-order, #config-list-equality): the owner's
+// entries in order, then the first occurrence of every contributed entry in contribution
+// order; an entry already present (from the base or an earlier contribution) is not written
+// twice, and an empty add is a no-op.
 func TestComposeListAppendsDedupesInOrder(t *testing.T) {
 	_, got := composeMap(t, Inputs{
 		Surface: listSurface(),
@@ -113,8 +115,8 @@ func TestComposeListProvenanceNamesEachContributor(t *testing.T) {
 	}
 }
 
-// RULE 3: a non-array at the path, or a non-object parent, refuses the render and names
-// the surface, the path and the pack.
+// A TYPE CONFLICT (pack-system.md#config-list-type-conflict): a non-array at the path, or a
+// non-object parent, refuses the render and names the surface, the path and the pack.
 func TestComposeListTypeConflictRefuses(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
@@ -156,8 +158,8 @@ func TestComposeListReAddsAfterOverlayReplacement(t *testing.T) {
 	}
 }
 
-// RULE 4: the capture overlay, computed and managed still replace the assembled array, and
-// the provenance says which one did.
+// PRECEDENCE (pack-system.md#config-list-precedence): the capture overlay, computed and
+// managed still replace the assembled array, and the provenance says which one did.
 func TestComposeListHigherLayersReplaceTheAssembledArray(t *testing.T) {
 	lists := []ListContribution{mustList(t, "kilo", "/packages", `["kilo"]`)}
 	for _, tc := range []struct {

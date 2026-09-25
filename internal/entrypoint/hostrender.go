@@ -78,9 +78,9 @@ type HostRenderResult struct {
 	// provenance nobody can read does not make it legible. Empty for the common case.
 	Overlays []string
 	// Lists names the packs contributing config-list ENTRIES to this surface, in fold order
-	// (docs/design/additive-config-lists.md rule 5) — Overlays' twin for the additive kind:
-	// an assembled array reads in the file exactly like one the owner declared, so which
-	// packs appended to it is said here. Empty for the common case.
+	// (docs/reference/pack-system.md#config-list-visibility) — Overlays' twin for the
+	// additive kind: an assembled array reads in the file exactly like one the owner
+	// declared, so which packs appended to it is said here. Empty for the common case.
 	Lists []string
 	// Outranked names the overlay keys this render ACCEPTS and then BEATS: a key a
 	// config-overlay declares that the owner's own managed layer — or its guarded autonomy
@@ -371,9 +371,10 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 				Action: "refused: " + refusal.Reason()})
 			continue
 		}
-		// A CONFIG-LIST TYPE CONFLICT (rule 3) is a refusal too, and it is only discoverable
-		// by running the fold — so the probe runs the writer's own fold over a scratch copy,
-		// in both postures, for the reason the probe above runs at all.
+		// A CONFIG-LIST TYPE CONFLICT (pack-system.md#config-list-type-conflict) is a refusal
+		// too, and it is only discoverable by running the fold — so the probe runs the
+		// writer's own fold over a scratch copy, in both postures, for the reason the probe
+		// above runs at all.
 		if reason := hostListConflict(e, mechanism, s, path, tableLayer, contribs); reason != "" {
 			out = append(out, HostRenderResult{Surface: id, Path: path, Pruned: pruned,
 				Lists: contribs.listPacks(), Action: "refused: " + reason})
@@ -575,9 +576,10 @@ func hostMechanismWouldChange(e *Env, mechanism string, s manifest.Surface, path
 }
 
 // hostListConflict reports a config-list type conflict this surface's render would refuse
-// on (rule 3), or "" when there is none — by running the WRITER'S OWN fold over a scratch
-// copy and writing nothing, per mechanism, so the dry run and the --assert cannot disagree.
-// Quiet for a surface no list targets: nothing about it can conflict.
+// on (pack-system.md#config-list-type-conflict), or "" when there is none — by running the
+// WRITER'S OWN fold over a scratch copy and writing nothing, per mechanism, so the dry run
+// and the --assert cannot disagree. Quiet for a surface no list targets: nothing about it
+// can conflict.
 func hostListConflict(e *Env, mechanism string, s manifest.Surface, path string,
 	computed map[string]any, contribs *surfaceContribs) string {
 	if len(contribs.listContribs()) == 0 {

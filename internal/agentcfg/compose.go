@@ -63,7 +63,7 @@ type Inputs struct {
 	Overlays []Overlay
 
 	// Lists are config-list contributions onto this surface (listcontrib.go,
-	// docs/design/additive-config-lists.md): entries appended to one array each, applied
+	// docs/reference/pack-system.md#config-list-fold): entries appended to one array each, applied
 	// AFTER every ordinary layer and config-overlay and BELOW the capture Overlay (OQ-AL2),
 	// in pack order then declaration order. Empty = none, and a surface with none composes
 	// byte-identically to before the kind existed. Object surfaces only: a keyless surface
@@ -161,7 +161,8 @@ type Result struct {
 	// created reads `config-list`; one a list extended keeps the label of the layer that
 	// held it, and Lists carries the per-entry account.
 	Provenance map[string]string
-	// Lists is the per-entry account of every list path this render assembled (rule 5):
+	// Lists is the per-entry account of every list path this render assembled (what
+	// pack-system.md#config-list-visibility prints, since one provenance label cannot):
 	// the entries in final order with their sources, and the layer that replaced the
 	// assembled array when one did. Sorted by path; nil when the surface has no list path.
 	Lists []ListProvenance

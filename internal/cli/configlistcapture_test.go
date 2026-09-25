@@ -1,7 +1,7 @@
 package cli
 
 // configlistcapture_test.go pins the CLI half of per-entry capture at config-list paths
-// (docs/design/additive-config-lists.md, OQ-AL1): the two layer-less captures
+// (docs/reference/pack-system.md#config-list-capture, OQ-AL1): the two layer-less captures
 // (captureSurfaceAt, behind `yolo config capture` and capture-on-terminate) read and write the
 // list-capture sidecar — the ONLY place they can learn which paths are list paths — `yolo
 // config reset` discards it with the overlay, and `yolo config diff` reports its entries.
