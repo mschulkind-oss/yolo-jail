@@ -94,7 +94,7 @@ var platforms = map[string]platform{
 
 // metadataFields is ordered to match the METADATA_FIELDS dict insertion order.
 var metadataFields = []struct{ k, v string }{
-	{"Summary", "Secure container jail for AI coding agents — run Claude Code, Copilot, opencode, pi, or Codex in YOLO mode safely"},
+	{"Summary", "Describe your agentic development environment once — agents, config, skills, tools and credentials — and run it anywhere from a sealed jail to your own shell."},
 	{"Author", "Matt Schulkind"},
 	{"License", "Apache-2.0"},
 	{"Home-page", "https://github.com/mschulkind-oss/yolo-jail"},

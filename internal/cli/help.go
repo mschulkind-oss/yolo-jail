@@ -116,7 +116,7 @@ var hiddenFromCommandHelp = map[string]string{
 // literal command names + blurbs are unchanged text, so stripping is byte-stable.
 func usageText() string {
 	var b strings.Builder
-	b.WriteString("[bold]yolo[/bold] — a sandboxed container jail for AI coding agents\n\n")
+	b.WriteString("[bold]yolo[/bold] — describe your agentic development environment once — agents, config, skills, tools and credentials — and run it anywhere from a sealed jail to your own shell.\n\n")
 	b.WriteString("[bold]Usage:[/bold]\n")
 	b.WriteString("  [cyan]yolo -- <command>[/cyan] [args...]     Run <command> inside the jail\n")
 	b.WriteString("  [cyan]yolo <subcommand>[/cyan] [args...]     Run a management subcommand\n")

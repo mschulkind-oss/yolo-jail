@@ -1,5 +1,5 @@
 {
-  description = "YOLO Jail: A restricted container environment for AI agents";
+  description = "YOLO Jail: declarative agentic development environments, from a sealed jail to your host";
 
   # ── Prebuilt-image binary cache (Cachix) ────────────────────────────────
   # The OCI image contains a few Linux (aarch64-linux) derivations built
