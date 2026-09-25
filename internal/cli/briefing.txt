@@ -19,7 +19,8 @@ need to know.
     You can curl, pip install, npm install, go get, etc.
 
   • [bold]Git identity[/bold] is injected from the host (name + email).
-    GitHub CLI (gh) is pre-authenticated.
+    GitHub CLI (gh) is not signed in: the host's gh token does not cross
+    into the jail, so gh needs a login or token of its own if the work uses it.
 
   • [bold]Mise tool data[/bold] is shared with the host. Python, Node, Go, and
     other runtimes installed via mise are available at the same paths.
@@ -39,8 +40,10 @@ need to know.
   • [bold]Workspace path[/bold] is /workspace (not the host's absolute path).
     Venv scripts with absolute host path shebangs may need fixing.
 
-  • [bold]Some tools are blocked[/bold] (e.g., grep → rg, find → fd).
-    Set YOLO_BYPASS_SHIMS=1 in scripts that need the originals.
+  • [bold]Nothing is blocked by default.[/bold] Blocking is opt-in: the
+    "guardrails" pack blocks grep -r and find in favor of rg and fd, and
+    security.blocked_tools adds your own. Set YOLO_BYPASS_SHIMS=1 in scripts
+    that need the originals.
 
 [bold cyan]TOOLS AVAILABLE INSIDE[/bold cyan]
 

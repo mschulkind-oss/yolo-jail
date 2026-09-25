@@ -238,9 +238,12 @@ version collision made it urgent.
    >   says "exercised by overmind isolation tests"; the test only echoes `$OVERMIND_SOCKET` and
    >   `cat`s the socket path. The binary is never run.
    >
-   > And one adjacent doc defect the audit found: `briefing.txt` tells every agent "GitHub CLI (gh)
+   > And one adjacent doc defect the audit found: `briefing.txt` told every agent "GitHub CLI (gh)
    > is pre-authenticated", but nothing grants a token and `~/.config/gh` does not exist in a jail —
-   > so that line is false regardless of what this question rules.
+   > so that line was false regardless of what this question rules. **Fixed 2026-09-25**: the
+   > briefing now says gh is not signed in, and `TestBriefingDoesNotClaimGhIsAuthenticated`
+   > (`internal/cli/briefingclaims_test.go`) holds it there. ⚠ `config_ref.txt`'s *Identity &
+   > Auth* block still says "pre-authenticated via the shared home" and is not yet fixed.
 
    _Leaning:_ **Rule on `neovim` alone here; the table above is what a follow-up sprint would take.**
    That was the leaning before the measurement and it survives it — the audit's value is that the
