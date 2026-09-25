@@ -1,5 +1,8 @@
 # Packages and Tools
 
+Choose the tools your agent finds on its `PATH`: system packages from nix, per-project
+versions through mise, and any tools you block along with what to use instead.
+
 ## Package Management
 
 ### Nix Packages (Image-Level)

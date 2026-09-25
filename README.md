@@ -3,27 +3,33 @@
 [![CI](https://github.com/mschulkind-oss/yolo-jail/actions/workflows/ci.yml/badge.svg)](https://github.com/mschulkind-oss/yolo-jail/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-A secure, isolated container environment for AI coding agents (Claude Code, Copilot, opencode, pi, Codex, Antigravity) to safely modify codebases without compromising host security or identity. Agents are selected with the `packs` config key — see [Agents](#agents). Runs on **Linux and macOS** (Apple Silicon and Intel) with Podman or Apple Container.
+**Describe your agentic development environment once — agents, config, skills, tools and credentials — and run it anywhere from a sealed jail to your own shell.**
+
+yolo composes everything an AI coding agent works with: which agents are installed (Claude Code, Copilot, opencode, pi, Codex, Antigravity), their settings and house rules, skills, MCP and LSP servers, packages, and the credentials and host services they may reach. You describe it once, declaratively and per workspace, and yolo renders that description wherever the agent runs. Agents and their add-ons are selected with the `packs` config key — see [Agents](#agents). Runs on **Linux and macOS** (Apple Silicon and Intel).
 
 ## Why?
 
-AI coding agents like Claude Code, GitHub Copilot, and OpenAI Codex have a `--yolo` mode that lets them run shell commands without confirmation. This is powerful but dangerous — agents can access your SSH keys, cloud credentials, git identity, and anything else on your machine.
+Setting up an AI coding agent well means installing it, configuring it, writing its house rules, wiring its MCP and LSP servers, giving it skills and tools, and handing it the logins it needs — then doing it all again for the next agent, the next project and the next machine. yolo turns that into one declaration you can version, share as a pack, and apply anywhere.
 
-**YOLO Jail** lets you run agents in YOLO mode safely by isolating them in a container with:
-- ❌ No access to `~/.ssh/`, `~/.gitconfig`, or cloud credentials
-- ✅ Separate auth (`gh auth login`, `codex login`, etc. inside the jail)
-- ✅ Your codebase mounted read-write at `/workspace`
-- ✅ Persistent tool state across restarts
-- ✅ Pre-configured MCP servers, LSP servers, and modern CLI tools
+How much the agent is confined is one setting of that declaration:
+
+- **A container jail** (the default, with Podman or Apple Container). Agents can run in `--yolo` mode — shell commands without confirmation — because the jail has:
+  - ❌ No access to `~/.ssh/`, `~/.gitconfig`, or cloud credentials
+  - ✅ Separate auth (`gh auth login`, `codex login`, etc. inside the jail)
+  - ✅ Your codebase mounted read-write at `/workspace`
+  - ✅ Persistent tool state across restarts
+- **A dedicated macOS user** (`macos-user`), a hidden service account confined by Apple Seatbelt, with no VM — see [userguide/guides/macos.md](userguide/guides/macos.md).
+- **No confinement, on your own machine**: `yolo host apply` renders the same config, skills and briefing into your real home, and `yolo host -- <agent>` runs an agent there with its composed environment.
 
 ## Features
 
-- **Isolated:** Runs in a podman or Apple Container container with no access to host credentials
+- **Declarative:** Agents, config, skills, house rules, MCP/LSP and packages come from packs and one config file, rendered the same way wherever the agent runs
+- **Configurable:** Per-project config via [`yolo-jail.jsonc`](yolo-jail.jsonc), user defaults via `~/.config/yolo-jail/config.jsonc`
+- **Agent-Ready:** MCP presets (Chrome DevTools, Sequential Thinking) and LSP servers (Pyright, TypeScript) — enable by name
+- **Confinement you choose:** A container jail by default, with no access to host credentials; a sandboxed macOS account; or your own machine
 - **Optimized:** Pre-installed with modern, fast tools (`rg`, `fd`, `bat`, `eza`, `jq`, `delta`, `fzf`)
 - **Restricted:** Blocked tools return clear errors with suggestions (e.g., `rg` instead of `grep`)
 - **Reproducible:** Defined entirely via Nix Flakes
-- **Agent-Ready:** MCP presets (Chrome DevTools, Sequential Thinking) and LSP servers (Pyright, TypeScript) — enable by name
-- **Configurable:** Per-project config via [`yolo-jail.jsonc`](yolo-jail.jsonc), user defaults via `~/.config/yolo-jail/config.jsonc`
 - **Container Reuse:** Same workspace reuses the same container via `exec`
 - **Runtime Flexible:** Works with podman (Linux/macOS) and Apple Container (macOS native)
 - **Cross-Platform:** Full support for Linux and macOS (Apple Silicon and Intel)
@@ -239,11 +245,15 @@ appears in [`yolo-jail.jsonc`](yolo-jail.jsonc).
 ```
 
 A pack delivers a coding agent (its CLI, config files, skills and briefing), or
-your own shared skills and house rules, or both. An EMBEDDED pack — one shipped
-with yolo — may read a host file, which is how `claude` and `pi` compose your own
-`settings.json` into the jail. A FETCHED pack never can: installing a
-third-party pack approves distributing content, not handing that repository your
-host config. Run `yolo pack --help` for authoring and `yolo pack install` to fetch.
+your own shared skills and house rules, or both. A pack may read a host file it
+declares, which is how `claude` and `pi` compose your own `settings.json` into the
+jail, and where a pack came from does not change that: a pack from a git address
+is honored the same as one yolo ships. Selecting it in your user config is the
+consent, and every launch lists what each pack read. The launch also fetches a git
+pack itself: a pinned tag or commit stays put until you run `yolo pack install` or `yolo pack update`, and a
+branch is re-fetched at most hourly. Run `yolo pack --help` for authoring, and
+`yolo pack footprint <dir>` on a local clone to see what a pack reads and runs before
+you add it.
 
 **On `cache_relocations` specifically:** it moves a subdir of the jail cache onto other storage, bind-mounted **read-write** — which is the read-write host mount an agent must not be able to grant itself. Podman only.
 
@@ -279,9 +289,9 @@ Run `yolo config-ref` for the full configuration reference.
 > **Nothing is on by default**, so a jail with no `packs` really has no coding
 > agent, and says so at launch and in `yolo check`.
 
-YOLO Jail is a **library of coding agents**. Which ones a jail gets follows from
-the packs you configure, and nothing in the core knows what an agent is — the six
-below are pack files (`packs/*/pack.json`), not Go code.
+Which coding agents you get follows from the packs you configure, and nothing in
+the core knows what an agent is — the agents below are pack files
+(`packs/*/pack.json`), not Go code.
 
 - **No rebuild:** agents install lazily on first use, so changing `packs` never
   rebuilds the image — just restart the jail.

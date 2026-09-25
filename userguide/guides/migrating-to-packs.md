@@ -182,8 +182,9 @@ from a closed set of fifteen:
 
 `loophole` is the sharpest of the fifteen and the only one whose claim is host code
 **execution** rather than a host read: its module may declare a daemon that runs on your
-machine, TLS intercepts, host bind mounts and host devices, each approved separately at
-`yolo pack install`. See [Loopholes](loopholes.md).
+machine, TLS intercepts, host bind mounts and host devices. Nothing asks you to approve them:
+selecting the pack is the consent, `yolo pack footprint` lists them before you do, and each
+launch prints what it starts. See [Loopholes](loopholes.md).
 
 Example — a pack that carries your Claude settings as a **composed config surface** and a
 static env var:
@@ -256,7 +257,9 @@ your pack alongside the agent you want:
 }
 ```
 
-Then install (this is the **only** step that ever fetches; launch never does):
+Neither of these needs fetching: `claude` ships with yolo and a `file://` pack is read in
+place. A git pack would be fetched by your next launch; `yolo pack install` does it ahead of
+time, and `yolo pack status` shows what is locked:
 
 ```console
 $ yolo pack install
@@ -304,18 +307,33 @@ week):
 > same guarantee spelled out; what a branch name buys you is convenience, and what it costs is
 > this.
 >
-> Nothing refuses a branch ref, and you are not exposed between installs either way: a launch
-> resolves the pack from the **local mirror** and never touches the network, and that mirror
-> only moves when you run `yolo pack install` or `yolo pack update`. The pin is what decides
-> whether *that* command hands you code you have looked at.
+> Nothing refuses a branch ref, and the ref decides what a launch does with it. Your first
+> launch fetches the pack. After that, a **tag or commit pin never moves** until you run
+> `yolo pack install` or `yolo pack update`, and a **branch** is re-fetched at most once an
+> hour. Whenever a pack moves, the launch says so:
+>
+> ```text
+> Updated pack agent: main 1a2b3c4d → 5d6e7f80
+> ```
 
-`yolo pack install` clones it (host-side; the jail has no git credentials by design) and
-pins the commit in a lockfile:
+Your next launch clones it on the host (the jail has no git credentials by design) and pins
+the commit in a lockfile, printing what it fetched:
+
+```text
+Fetched pack agent: v1 → a1b2c3d4
+```
+
+`yolo pack install` does the same ahead of time, which is useful when you want the fetch to
+happen before you are waiting on a launch:
 
 ```console
 $ yolo pack install
-me/dotpacks  v1 → a1b2c3d
+agent  v1 → a1b2c3d4
 ```
+
+If a later fetch fails (you are offline, say), the launch warns and uses the copy it already
+has. A launch stops when a pack has no usable copy: it was never fetched and cannot be
+fetched now, or its ref or subdirectory is gone.
 
 **It asks nothing, and there is nothing to approve.** A fetched pack's `reads-host`, `mount`,
 installer, host-prepending briefing, wrapped-plugin hooks and shipped loopholes are all
@@ -636,7 +654,8 @@ Tracking for all of it: [../plans/environment-manager-plan.md](https://github.co
 |---|---|
 | Start a pack | `yolo pack init <dir>` |
 | Check a pack before using it | `yolo pack lint <dir>` · `yolo pack footprint <dir>` |
-| Turn packs on | edit `~/.config/yolo-jail/config.jsonc` `packs`, then `yolo pack install` |
+| Turn packs on | edit `~/.config/yolo-jail/config.jsonc` `packs`; the next launch fetches any git pack (`yolo pack install` fetches ahead) |
+| Follow a tag that was moved upstream, or refresh a branch now | `yolo pack install` (or `yolo pack update`, which also refreshes npm-declared programs) |
 | See what packs stage / drifted | `yolo pack ls` · `yolo pack status` |
 | See the resolved environment | `yolo describe` (`--json`, `--hash`) |
 | Preview host config render | `yolo host apply` (⚠ names the keys it would overwrite, never the payload — read the pack first) |

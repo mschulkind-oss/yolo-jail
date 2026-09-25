@@ -1,5 +1,8 @@
 # Storage
 
+See what yolo keeps on disk for your agents, such as logins, caches and per-project homes;
+what survives a restart; and how to move a cache to other storage.
+
 ## Storage & Persistence
 
 ### Seeing what is on disk — `yolo stores`

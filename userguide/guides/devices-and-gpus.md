@@ -1,5 +1,7 @@
 # Devices and GPUs
 
+Give the agent hardware: USB and serial devices, and NVIDIA or AMD GPUs.
+
 ## Device Passthrough
 
 **Platform support:** Device passthrough (USB, serial, cgroup rules) is a **Linux-only** feature. It relies on the host kernel exposing `/dev/bus/usb/`, `/dev/tty*`, and `--device-cgroup-rule` — none of which exist on macOS where containers run inside a VM. On macOS, device entries in `yolo-jail.jsonc` are parsed, logged as skipped with a warning, and do not prevent the jail from starting.

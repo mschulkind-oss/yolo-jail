@@ -1,7 +1,13 @@
 # YOLO Jail: Agent Developer Guide
 
-yolo-jail runs coding agents in an isolated container against a live-mounted
-workspace, without exposing host credentials or identity.
+yolo-jail manages the environment a coding agent works in — the agents, their config, skills and
+house rules, tools and credentials — declaratively and per workspace, and renders it wherever the
+agent runs. Confinement is one setting of that description: a jail (a container, or a dedicated
+macOS account) is the strongest and the default, and `yolo host` is none.
+
+**Describe yolo environment-first and confinement second** in every tagline, summary and guide.
+The charter is [`what-yolo-is.md`](docs/reference/what-yolo-is.md), ruled in
+[`yolo-as-environment-manager.md` §1](docs/design/yolo-as-environment-manager.md#1-the-one-sentence-answer-to-how-is-this-different-from-sandvault).
 
 **This file is the guide for developing yolo-jail itself**, and it is deliberately terse: each rule keeps
 its imperative, the file that enforces it, and its escape hatch — the linked authority carries the
@@ -62,12 +68,12 @@ Three things to know before debugging it:
   shared dir needs no staging. Under any other pack's dir it is an ordinary path. The launch hands its staged set to
   `config.WritableHomeDirs` and `HostFileEntry.StagingFor`, and validation resolves the same selection
   itself (`resolveSelectedPacks`, [`selectedpacks.go`](internal/config/selectedpacks.go)). **Do not read
-  `packload.Embedded*` to reserve a name.** Two shipped-set readers remain beside them.
-  `storage.EnsureGlobalStorage` makes every shipped pack's shared dir in the machine store, because it runs
-  before config loads; that is a bind source a jail mounts only when it selects the pack (the launch makes the
-  selected packs' own, a configured pack's included: `ensureSharedDirSources`). And `host_files`
-  still refuses any SHIPPED pack's composed surface path (`builtinSurfacePaths`), a list of files the ruling
-  did not reach ([`OQ-BH15`](docs/design/base-home-legacy-state.md#OQ-BH15), open).
+  `packload.Embedded*` to reserve a name.** `host_files`' surface-path reservation follows the same
+  selection (`selectedSurfacePaths`, [`OQ-BH15`](docs/design/base-home-legacy-state.md#OQ-BH15)). One
+  shipped-set reader remains: `storage.EnsureGlobalStorage` makes every shipped pack's shared dir in the
+  machine store, because it runs before config loads; that is a bind source a jail mounts only when it
+  selects the pack (the launch makes the selected packs' own, a configured pack's included:
+  `ensureSharedDirSources`).
 - **`packload.Embedded()` LEASES ONE IMMUTABLE TREE PER BUILD**, not one per process: a content hash of the
   embedded FS names `~/.local/share/yolo-jail/embedded-packs/<hash>`, the first reader populates it
   atomically, and every later process of that build adopts it under a shared `flock` on its `.lease`

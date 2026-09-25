@@ -1,5 +1,7 @@
 # Getting Started
 
+Getting started takes three steps: install yolo, choose your agents by listing their packs in your user config, and launch. The first launch runs the agent in a container jail, the default confinement. The same config also renders onto your own machine with `yolo host apply`; [Migrating to Packs](guides/migrating-to-packs.md#part-2--manage-your-host) covers that once you have a setup worth keeping.
+
 ## Installation
 
 ### Prerequisites (both platforms)

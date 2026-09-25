@@ -2,7 +2,7 @@
 
 ## Configuration
 
-YOLO Jail is configured via JSONC (JSON with comments) files:
+You describe your agent's environment (its packs and agents, packages, MCP and LSP servers, network, and which runtime confines it) in JSONC (JSON with comments) files:
 
 | File | Scope | Purpose |
 |------|-------|---------|

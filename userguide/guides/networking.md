@@ -1,5 +1,8 @@
 # Networking
 
+Set up the agent's network: which of its ports reach your machine, and which services on
+your machine it can reach.
+
 ## Network & Ports
 
 ### Bridge Mode (Default)
