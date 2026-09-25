@@ -47,7 +47,7 @@ set.** Rule them in this order, because each later doc leans on the earlier ones
 | 5 | [`model-lists-and-pickers.md`](model-lists-and-pickers.md) | which models each picker shows, and which yolo picks ([OQ-ML2](model-lists-and-pickers.md#OQ-ML2) first) | 7 |
 | 6 | [`wire-bridge-gateway.md`](wire-bridge-gateway.md) | how the bridge signs, and sending all traffic through it ([OQ-WG1](wire-bridge-gateway.md#OQ-WG1) first) | 5 |
 | 7 | [`bedrock-web-search.md`](bedrock-web-search.md) | web search on Bedrock profiles | 5 |
-| 8 | [`sso-backed-bedrock.md`](sso-backed-bedrock.md) | the SSO credential's last two edges ([OQ-SSO8](sso-backed-bedrock.md#OQ-SSO8), [OQ-SSO9](sso-backed-bedrock.md#OQ-SSO9)) | 2 |
+| 8 | [`sso-backed-bedrock.md`](sso-backed-bedrock.md) | the SSO credential's last two edges ([OQ-SSO8](sso-backed-bedrock.md#OQ-SSO8), [OQ-SSO9](sso-backed-bedrock.md#OQ-SSO9)), both ruled 2026-09-25 | 0 |
 
 ## Where the split ended up
 
@@ -437,12 +437,13 @@ and this design writes no credential anywhere.
 > 3 silently uses the frozen bearer. yolo refuses that launch, with no hatch (`internal/awschain`;
 > [`sso-backed-bedrock.md` §8](sso-backed-bedrock.md#8-behaviour-this-design-specifies)).
 > ⚠ Static keys beside the pointer fail the same way, because the chain's environment provider
-> comes first, and nothing refuses that yet ([OQ-SSO8](sso-backed-bedrock.md#OQ-SSO8)).
+> comes first. Nothing refuses that yet; [OQ-SSO8](sso-backed-bedrock.md#OQ-SSO8) ruled that it
+> will, declared by `aws-auth` rather than hardcoded in core, and never with a false positive.
 
 A bearer minted from `aws-auth`'s narrowed, role-chained session lives at most an hour (INFERRED
 from STS's caps). That is why the bridge signs rather than carrying a minted key. AWS's guidance on
-each credential, and whether option D retires ([OQ-SSO9](sso-backed-bedrock.md#OQ-SSO9)), are
-[`sso-backed-bedrock.md`](sso-backed-bedrock.md)'s.
+each credential, and option D's retirement ([OQ-SSO9](sso-backed-bedrock.md#OQ-SSO9), ruled
+2026-09-25: yolo mints no bearer), are [`sso-backed-bedrock.md`](sso-backed-bedrock.md)'s.
 
 ### 6.5 Every Bedrock model, in every agent — the direction
 
@@ -805,7 +806,7 @@ links.
 | <a id="OQ-BR3"></a>[OQ-BR3](model-lists-and-pickers.md#OQ-BR3), <a id="OQ-BR12"></a>[OQ-BR12](model-lists-and-pickers.md#OQ-BR12), <a id="OQ-BR13"></a>[OQ-BR13](model-lists-and-pickers.md#OQ-BR13), <a id="OQ-BR14"></a>[OQ-BR14](model-lists-and-pickers.md#OQ-BR14), <a id="OQ-BR15"></a>[OQ-BR15](model-lists-and-pickers.md#OQ-BR15); parts 5 to 8 of the former section 6.6; done-conditions 8 to 10; R8 and R9; the "no model catalog" non-goal | [`model-lists-and-pickers.md`](model-lists-and-pickers.md) | [OQ-BR3](model-lists-and-pickers.md#OQ-BR3) ruled 2026-09-25: a built-in pack picks the models |
 | <a id="OQ-BR10"></a>[OQ-BR10](wire-bridge-gateway.md#OQ-BR10), <a id="OQ-BR16"></a>[OQ-BR16](wire-bridge-gateway.md#OQ-BR16), <a id="OQ-BR17"></a>[OQ-BR17](wire-bridge-gateway.md#OQ-BR17), <a id="OQ-BR18"></a>[OQ-BR18](wire-bridge-gateway.md#OQ-BR18); the signer and everything-profile routing (parts 3 and 4 of the former section 6.6); the Claude-subscription route (former section 6.8); done-condition 6; R6 and R7 | [`wire-bridge-gateway.md`](wire-bridge-gateway.md) | all ruled 2026-09-24 |
 | <a id="OQ-BR19"></a>[OQ-BR19](bedrock-web-search.md#OQ-BR19), <a id="OQ-BR20"></a>[OQ-BR20](bedrock-web-search.md#OQ-BR20), <a id="OQ-BR21"></a>[OQ-BR21](bedrock-web-search.md#OQ-BR21), <a id="OQ-BR22"></a>[OQ-BR22](bedrock-web-search.md#OQ-BR22), <a id="OQ-BR23"></a>[OQ-BR23](bedrock-web-search.md#OQ-BR23), <a id="DIR-BR4"></a>[DIR-BR4](bedrock-web-search.md#DIR-BR4); the former section 6.9; D6 and D7; done-condition 12; R10 and R11; the AgentCore evidence | [`bedrock-web-search.md`](bedrock-web-search.md) | DIR-BR4 ruled 2026-09-25 |
-| static keys beside `aws-auth`'s pointer ([OQ-SSO8](sso-backed-bedrock.md#OQ-SSO8)), option D's retirement ([OQ-SSO9](sso-backed-bedrock.md#OQ-SSO9)), AWS's guidance on the three credentials | [`sso-backed-bedrock.md`](sso-backed-bedrock.md) | filed there |
+| static keys beside `aws-auth`'s pointer ([OQ-SSO8](sso-backed-bedrock.md#OQ-SSO8)), option D's retirement ([OQ-SSO9](sso-backed-bedrock.md#OQ-SSO9)), AWS's guidance on the three credentials | [`sso-backed-bedrock.md`](sso-backed-bedrock.md) | ruled there |
 | deselection and the id a dropped profile leaves (P1's general form, done-condition 4) | [`provider-switching.md`](provider-switching.md) | — |
 
 ---

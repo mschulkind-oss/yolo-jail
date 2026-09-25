@@ -21,10 +21,10 @@ settle.
 supports three Bedrock credentials — a bearer (`AWS_BEARER_TOKEN_BEDROCK`), a static access key
 and secret, and an SSO session — and the SSO session is **the primary one**. This plan builds
 that one. The other two are existing `env_sources` channels and need nothing from it; the bearer
-also has an arm here (step 7). ⚠ Step 6's refusal covers the pointer beside a bearer only: a
-static key pair beside the pointer is the same silent wrong answer — the chain's environment
-provider wins — and is **not refused today**; whether it should be is
-[`OQ-SSO8`](sso-backed-bedrock.md#OQ-SSO8).
+had an arm here (step 7), retired by
+[`OQ-SSO9`](sso-backed-bedrock.md#OQ-SSO9). ⚠ Step 6's refusal covers the pointer beside a bearer
+only, and lives in core; [`OQ-SSO8`](sso-backed-bedrock.md#OQ-SSO8) ruled that it moves into
+`aws-auth`'s manifest and also covers a static key pair, never with a false positive.
 
 **Design:** [`sso-backed-bedrock.md`](sso-backed-bedrock.md) — behaviour in
 [§8](sso-backed-bedrock.md#8-behaviour-this-design-specifies), order in
@@ -155,7 +155,8 @@ Report a real-host result with `podman info --format '{{.Host.RootlessNetworkCmd
 | 4 | **BUILT** — `packs/aws-auth/pack.json` (the gated `env` pointer) and README | `yolo pack footprint packs/aws-auth`: one env key, one loophole, no host grant | unit |
 | 5 | `needs` on `packs/claude`; done-conditions 1 and 4 | a claude turn on Bedrock; lapse, `aws sso login`, next turn succeeds with no relaunch | **real rootless host** (an SSO login, a browser, the forwarding hop) |
 | 6 | **BUILT** ([Progress](#progress)) — exclusivity refusal (the pointer **and** `AWS_BEARER_TOKEN_BEDROCK` both delivered), at the launch's three arms and predicted by `yolo check`; the `~/.aws`-grant conflict in `internal/config`, so `yolo check` and launch both refuse | each of the three call sites deleted in turn, one named test red for each (measured, not assumed); `just check-ci` **and** `env -u YOLO_VERSION go test -short ./...` | unit |
-| 7 | N1 arm: the presign in `internal/awsauth` (`crypto/hmac`, `X-Amz-Expires=43200`) and its delivery ([Blockers](#blockers) 3) | byte-equal to the official `aws-bedrock-token-generator` output for one fixed key and time — the design refuses a teardown as the spec | unit; then one live `InvokeModel` on a real host |
+| 6a | Move step 6's two refusals out of core into `aws-auth`'s manifest, per [`OQ-SSO8`](sso-backed-bedrock.md#OQ-SSO8): the pack declares which delivered variables override its pointer (the bearer; both halves of the static pair, unless `AWS_PROFILE` is also delivered) and the `~/.aws` grant that disables it; core refuses generically and names no AWS variable. First measure claude's, codex's and opencode's chain order, since a consumer that does not read the environment first would make the pair refusal a false positive | a manifest declaring a made-up variable is refused beside the pointer with no core change; a lone `AWS_ACCESS_KEY_ID` and the pair plus `AWS_PROFILE` both launch; `rg -n AWS_ internal/awschain` finds nothing, or the package is gone | unit; the call-site deletions of step 6, repeated |
+| 7 | ~~N1 arm~~ — **deleted**: option D is retired ([`OQ-SSO9`](sso-backed-bedrock.md#OQ-SSO9), 2026-09-25). A user who wants the N1 narrowing mints the key on the host with AWS's generator and delivers it as a bearer | — | — |
 | 8 | Fold into [`agent-credentials.md`](../reference/agent-credentials.md); retire the design via `system-doc`; delete this file | `uvx vantage-check docs/` clean | — |
 
 **Expensive if late:** step 2 inside step 1 (a widening default retrofitted breaks working
@@ -547,7 +548,7 @@ with no session token.
    gate keys on the name or the provider, open in
    [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md)) decide its gate. The shipped alternative is consumer-side — `packs/codex` sets
    `CODEX_REFRESH_TOKEN_URL_OVERRIDE` itself.
-3. **The N1 bearer's channel and its switch.** Step 7's "the boot that writes the bearer" is one
+3. **The N1 bearer's channel and its switch. MOOT: step 7 is deleted** ([`OQ-SSO9`](sso-backed-bedrock.md#OQ-SSO9)). Step 7's "the boot that writes the bearer" is one
    line. Two routes: a host-side mint at launch through the daemon's `.host` socket into
    `writeUserEnvFile`'s pack channel (`internal/cli/run/userenv.go`, mode `0600`), or an in-jail
    boot fetch through the front. And [`OQ-SSO5`](sso-backed-bedrock.md#13-decision-ledger)
