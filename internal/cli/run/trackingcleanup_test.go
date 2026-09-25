@@ -77,7 +77,7 @@ func TestANormalExitForgetsAGoneContainersTracking(t *testing.T) {
 		t.Fatalf("control: the reaper would remove %v while the jail is still tracked", names)
 	}
 
-	o.teardownAfterExit(nil, "", nil, "", cname, "podman", 0)
+	o.teardownAfterExit(nil, "", nil, "", cname, "podman", "", 0)
 
 	if *probes == 0 {
 		t.Fatal("the teardown never asked the runtime whether the container is gone")
@@ -114,7 +114,7 @@ func TestANormalExitReleasesTheLaunchsOwnLockFirst(t *testing.T) {
 		t.Fatalf("taking the launch's lock: %v", err)
 	}
 
-	o.teardownAfterExit(nil, "", nil, "", cname, "podman", 0)
+	o.teardownAfterExit(nil, "", nil, "", cname, "podman", "", 0)
 	if *probes != 0 {
 		t.Errorf("the runtime was asked while the launch's own lock was held")
 	}
@@ -126,7 +126,7 @@ func TestANormalExitReleasesTheLaunchsOwnLockFirst(t *testing.T) {
 	go func() { lock.Close(); close(done) }() // onStarted's release
 	lock.Close()                              // the normal-exit arm's
 	<-done
-	o.teardownAfterExit(nil, "", nil, "", cname, "podman", 0)
+	o.teardownAfterExit(nil, "", nil, "", cname, "podman", "", 0)
 	if _, err := os.Lstat(tracking); !os.IsNotExist(err) {
 		t.Errorf("the tracking file stayed after the launch released its lock (err %v)", err)
 	}
@@ -149,7 +149,7 @@ func TestTrackingStaysUnlessTheContainerIsKnownGone(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			o, tracking, probes := trackingFixture(t, cname, c.answer)
-			o.forgetGoneContainer(cname, "podman")
+			o.forgetGoneContainer(cname, "podman", "")
 			if *probes != 1 {
 				t.Errorf("the runtime was asked %d times, want once", *probes)
 			}
@@ -175,7 +175,7 @@ func TestTrackingStaysUnlessTheContainerIsKnownGone(t *testing.T) {
 		if err := syscall.Flock(int(held.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 			t.Fatal(err)
 		}
-		o.forgetGoneContainer(cname, "podman")
+		o.forgetGoneContainer(cname, "podman", "")
 		if *probes != 0 {
 			t.Errorf("the runtime was asked while another launch held the lock")
 		}
@@ -200,7 +200,7 @@ func TestTrackingStaysUnlessTheContainerIsKnownGone(t *testing.T) {
 				}
 				return ExecResult{Ran: false}
 			}
-			o.forgetGoneContainer(cname, "container")
+			o.forgetGoneContainer(cname, "container", "")
 			_, err := os.Stat(tracking)
 			if c.gone && !os.IsNotExist(err) {
 				t.Errorf("listing %q: the tracking file stayed (err %v)", c.stdout, err)
@@ -325,5 +325,96 @@ func TestEveryEndOfTheLaunchForgetsTheContainer(t *testing.T) {
 	})
 	if stopPos == token.NoPos || forgetPos < stopPos {
 		t.Error("the signal arm asks whether the container is gone before stopping it")
+	}
+}
+
+// TestAGoneContainersSkeletonGoesWithItsTracking pins OQ-BH16 (docs/design/base-home-legacy-state.md):
+// on the same known-gone evidence that drops the tracking file, the launch also removes the
+// skeleton IT built, so a workspace used alone no longer keeps one skeleton per launch until
+// `yolo prune --apply`. Driven through the real normal-exit teardown. It removes only the
+// named skeleton: an older launch's, beside it, is the reaper's, and another jail's is never
+// reachable (the path guard takes only a direct child of this cname's skeleton root).
+func TestAGoneContainersSkeletonGoesWithItsTracking(t *testing.T) {
+	const cname = "yolo-skeleton-gone"
+	o, _, _ := trackingFixture(t, cname, ExecResult{Ran: true, RC: 0})
+	older := buildSkeletonForTest(t, cname, nil, nil, nil)
+	mine := buildSkeletonForTest(t, cname, nil, nil, nil)
+	otherJail := buildSkeletonForTest(t, "yolo-skeleton-other", nil, nil, nil)
+
+	o.teardownAfterExit(nil, "", nil, "", cname, "podman", mine, 0)
+
+	if _, err := os.Lstat(mine); !os.IsNotExist(err) {
+		t.Errorf("the launch's own skeleton %s survived a known-gone exit (err %v)", mine, err)
+	}
+	for _, keep := range []string{older, otherJail} {
+		if _, err := os.Stat(keep); err != nil {
+			t.Errorf("a skeleton this launch did not build was removed: %s (%v)", keep, err)
+		}
+	}
+
+	// A path outside this cname's skeleton root is refused by the guard, whatever it names.
+	o2, _, _ := trackingFixture(t, cname, ExecResult{Ran: true, RC: 0})
+	o2.forgetGoneContainer(cname, "podman", otherJail)
+	if _, err := os.Stat(otherJail); err != nil {
+		t.Errorf("forgetGoneContainer removed another jail's skeleton %s (%v)", otherJail, err)
+	}
+}
+
+// TestASkeletonStaysUnlessTheContainerIsKnownGone: "could not ask", "still there" and another
+// launch holding the lock all leave the skeleton, as they leave the tracking file. Removing it
+// under a live jail would detach that jail's /home/agent (the design's rule 2).
+func TestASkeletonStaysUnlessTheContainerIsKnownGone(t *testing.T) {
+	const cname = "yolo-skeleton-kept"
+	for _, c := range []struct {
+		name   string
+		answer ExecResult
+	}{
+		{"the probe did not run", ExecResult{Ran: false}},
+		{"the probe failed", ExecResult{Ran: true, RC: 125, Stderr: "cannot connect"}},
+		{"the probe timed out", ExecResult{Ran: true, Timeout: true}},
+		{"the container is still there", ExecResult{Ran: true, RC: 0, Stdout: "abcd1234\n"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			o, _, _ := trackingFixture(t, cname, c.answer)
+			sk := buildSkeletonForTest(t, cname, nil, nil, nil)
+			o.forgetGoneContainer(cname, "podman", sk)
+			if _, err := os.Stat(sk); err != nil {
+				t.Errorf("the skeleton went on %q: %v", c.name, err)
+			}
+		})
+	}
+}
+
+// TestEveryEndHandsTheSkeletonOn pins that each of runContainer's three ends passes the
+// skeleton it built (in.homeSkeleton) to the known-gone cleanup: the signal arm and the
+// runtime-never-started branch to forgetGoneContainer, the normal exit to teardownAfterExit.
+// A call that passed "" would still drop the tracking file and leave the skeleton to pile up.
+func TestEveryEndHandsTheSkeletonOn(t *testing.T) {
+	fd := funcDecl(t, "run.go", "runContainer")
+	passesSkeleton := func(call *ast.CallExpr) bool {
+		for _, a := range call.Args {
+			if sel, ok := a.(*ast.SelectorExpr); ok && skelIdent(sel.X) == "in" && sel.Sel.Name == "homeSkeleton" {
+				return true
+			}
+		}
+		return false
+	}
+	found := map[string]int{}
+	ast.Inspect(fd, func(n ast.Node) bool {
+		if call, ok := n.(*ast.CallExpr); ok {
+			switch name := skelCallee(call); name {
+			case "forgetGoneContainer", "teardownAfterExit":
+				if passesSkeleton(call) {
+					found[name]++
+				} else {
+					t.Errorf("runContainer calls %s without in.homeSkeleton at %v", name, call.Pos())
+				}
+			}
+		}
+		return true
+	})
+	if found["forgetGoneContainer"] != 2 || found["teardownAfterExit"] != 1 {
+		t.Errorf("want two forgetGoneContainer calls and one teardownAfterExit call handing on "+
+			"in.homeSkeleton, got %v", found)
 	}
 }

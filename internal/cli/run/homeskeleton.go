@@ -30,9 +30,10 @@ package run
 //     can reach an entry only because the launch now drops the jail's tracking file once it
 //     observes the container gone (forgetGoneContainer, trackingcleanup.go); before that, a
 //     --rm jail's tracking file outlived every normal exit and its skeletons piled up.
-//     The one removal a launch makes is of a skeleton NO container ever held: its own
-//     partial directory when building fails, or the one it built before a refusal or a
-//     runtime that never started (discardUnheldSkeleton).
+//     A launch removes only its OWN skeleton, and only when no container holds it: its
+//     partial directory when building fails, the one it built before a refusal or a runtime
+//     that never started, and the one its container booted from once the runtime answers
+//     that container is gone (discardUnheldSkeleton; OQ-BH16).
 //  3. <state>/home STAYS as the machine store (above).
 //
 // FATAL AND BEST-EFFORT, split the way the writers this replaces split it
@@ -190,6 +191,9 @@ func buildHomeSkeleton(root string, packs []*packload.Pack, cfg *jsonx.OrderedMa
 // container's argv. It removes only a direct child of paths.HomeSkeletonRoot(cname), so a
 // wrong argument cannot reach anything else, and a failure only leaves the directory to the
 // reaper, so it is not reported.
+//
+// forgetGoneContainer calls it too, for the skeleton of a container the runtime has answered
+// is gone (OQ-BH16): no container holds it any more, which is what the guard needs.
 func discardUnheldSkeleton(cname, dir string) {
 	if dir == "" || filepath.Dir(dir) != paths.HomeSkeletonRoot(cname) {
 		return

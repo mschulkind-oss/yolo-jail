@@ -48,7 +48,14 @@ const trackingProbeTimeout = 10 * time.Second
 // (teardownAfterExit), the signal arm (runContainer's onTerminate) and a runtime that never
 // started (runContainer's runErr branch). Each calls it AFTER the launch's own workspace lock
 // is released, or the non-blocking take below would find this process holding it.
-func (o *Options) forgetGoneContainer(cname, rt string) {
+//
+// skeleton is the per-jail home skeleton THIS launch built, or "" (an attach, Apple Container,
+// or a launch that built none). On the same known-gone evidence it goes too (OQ-BH16,
+// docs/design/base-home-legacy-state.md): this launch is the only one that knows its name, and
+// the one container that could hold it is gone. That is not the edit of a live skeleton the
+// design's rule 2 forbids. A skeleton this declines to remove stays for the reaper, which then
+// holds only launches that died with no teardown at all (SIGKILL, OOM).
+func (o *Options) forgetGoneContainer(cname, rt, skeleton string) {
 	if cname == "" {
 		return
 	}
@@ -61,6 +68,9 @@ func (o *Options) forgetGoneContainer(cname, rt string) {
 		return
 	}
 	runtime.CleanupContainerTracking(cname)
+	// The same path guard as a skeleton no container ever held: a direct child of this
+	// cname's skeleton root, never anything else.
+	discardUnheldSkeleton(cname, skeleton)
 }
 
 // tryWorkspaceLock takes cname's workspace lock (the file acquireWorkspaceLock blocks on)

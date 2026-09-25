@@ -245,7 +245,7 @@ func TestTeardownChainEmitsShutdownSpans(t *testing.T) {
 	o.initPerf("yolo-ws-test0000")
 
 	socketsDir := t.TempDir() // non-empty so stopLoopholes runs its full body
-	o.teardownAfterExit(nil, "", nil, socketsDir, "yolo-ws-test0000", "podman", 0)
+	o.teardownAfterExit(nil, "", nil, socketsDir, "yolo-ws-test0000", "podman", "", 0)
 
 	var report bytes.Buffer
 	o.Perf.Report(&report, time.Now())
@@ -281,7 +281,7 @@ func TestTeardownChainSilentWhenOff(t *testing.T) {
 	t.Setenv("HOME", home)
 	emptyLoopholeDirs(t)
 	o := goldenOptions(ws, home)
-	o.teardownAfterExit(nil, "", nil, "", "yolo-ws-test0000", "podman", 0)
+	o.teardownAfterExit(nil, "", nil, "", "yolo-ws-test0000", "podman", "", 0)
 	if _, err := os.Stat(filepath.Join(ws, ".yolo", HostPerfLogName)); !os.IsNotExist(err) {
 		t.Fatal("timing-off teardown created host-perf.log")
 	}
@@ -698,7 +698,7 @@ func TestQuietTeardownRecordsWindowA(t *testing.T) {
 		return ExecResult{Ran: true, RC: 0, Stdout: windowAFixture(1500 * time.Millisecond)}
 	}
 
-	o.teardownAfterExit(nil, "", nil, t.TempDir(), "yolo-ws-test0000", "podman", 0)
+	o.teardownAfterExit(nil, "", nil, t.TempDir(), "yolo-ws-test0000", "podman", "", 0)
 
 	ev, ok := o.Perf.LastEvent("shutdown.window_a")
 	if !ok {
@@ -732,7 +732,7 @@ func TestQuietTeardownRecordsWindowAFailureClass(t *testing.T) {
 		return ExecResult{Ran: true, RC: 0, Stdout: "1757152800500000000 start\n"}
 	}
 
-	o.teardownAfterExit(nil, "", nil, t.TempDir(), "yolo-ws-test0000", "podman", 0)
+	o.teardownAfterExit(nil, "", nil, t.TempDir(), "yolo-ws-test0000", "podman", "", 0)
 
 	fileBytes, err := os.ReadFile(filepath.Join(ws, ".yolo", HostPerfLogName))
 	if err != nil {
@@ -770,7 +770,7 @@ func TestWindowAQueriedOncePerLaunch(t *testing.T) {
 	var errbuf bytes.Buffer
 	o.Stderr = &errbuf
 
-	o.teardownAfterExit(nil, "", nil, t.TempDir(), "yolo-ws-test0000", "podman", 0)
+	o.teardownAfterExit(nil, "", nil, t.TempDir(), "yolo-ws-test0000", "podman", "", 0)
 	o.emitTimingReport(0, "yolo-ws-test0000", "podman")
 	o.emitTimingReport(0, "yolo-ws-test0000", "podman") // the interleaving arm
 

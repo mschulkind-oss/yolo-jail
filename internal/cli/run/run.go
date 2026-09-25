@@ -1275,7 +1275,8 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// (the selected packs, the config and the resolved host_files entries), the attach
 	// decision has been made twice, and the workspace flock is held. An attach never
 	// reaches this line: the running jail keeps the skeleton it booted with, and nothing
-	// ever edits or removes one (the design's OQ-BH10 ruling).
+	// ever edits one (the design's OQ-BH10 ruling). It goes once its container is known gone
+	// (forgetGoneContainer, OQ-BH16), or with the reaper for a launch that died untorn.
 	//
 	// Built from the assembly input and written straight back into it, so the skeleton and
 	// the argv binding it come from one value; TestRunContainerBuildsTheSkeletonOnTheFreshPath
@@ -1449,7 +1450,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		// After stopJail and after this launch's lock is released: the tracking file goes
 		// only once the runtime says no container of this name is left (trackingcleanup.go).
 		sp = o.Perf.Span("terminate.clear_tracking")
-		o.forgetGoneContainer(cname, rt)
+		o.forgetGoneContainer(cname, rt, in.homeSkeleton)
 		sp.End()
 		// E3, after stopJail so the jail is not still writing the surfaces we read.
 		sp = o.Perf.Span("terminate.capture_config")
@@ -1527,7 +1528,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		// takes it the same way.
 		lock.Close()
 		o.stopLoopholes(hostServices, socketsDir, cname, rt)
-		o.forgetGoneContainer(cname, rt)
+		o.forgetGoneContainer(cname, rt, in.homeSkeleton)
 		clearOwnerPID(cname)
 		return 1
 	}
@@ -1539,7 +1540,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// poll) would otherwise reach the tracking cleanup with this launch's own lock still held,
 	// and its non-blocking take would decline, leaving the file and the skeleton behind.
 	lock.Close()
-	o.teardownAfterExit(socatProcs, portSocketDir, hostServices, socketsDir, cname, rt, rc)
+	o.teardownAfterExit(socatProcs, portSocketDir, hostServices, socketsDir, cname, rt, in.homeSkeleton, rc)
 	o.emitTimingReport(rc, cname, rt)
 	return rc
 }
@@ -1551,7 +1552,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 // test is a chain whose spans can silently stop being emitted. Deleting any
 // span below fails TestTeardownChainEmitsShutdownSpans.
 func (o *Options) teardownAfterExit(socatProcs []*exec.Cmd, portSocketDir string,
-	hostServices []loopholeDaemon, socketsDir, cname, rt string, rc int) {
+	hostServices []loopholeDaemon, socketsDir, cname, rt, skeleton string, rc int) {
 	sp := o.Perf.Span("shutdown.cleanup_port_forwarding")
 	cleanupPortForwarding(socatProcs, portSocketDir)
 	sp.End()
@@ -1562,7 +1563,7 @@ func (o *Options) teardownAfterExit(socatProcs []*exec.Cmd, portSocketDir string
 	// normal exit left it, so prune.PruneOrphanAgentStaging kept the jail's AGENTS_DIR entry,
 	// and every skeleton in it, for as long as the file lasted (trackingcleanup.go).
 	sp = o.Perf.Span("shutdown.clear_tracking")
-	o.forgetGoneContainer(cname, rt)
+	o.forgetGoneContainer(cname, rt, skeleton)
 	sp.End()
 	// E3: the container is `--rm` and now gone, so fold this session's in-jail config
 	// edits into their overlay sidecars from the host side, before anyone can ask

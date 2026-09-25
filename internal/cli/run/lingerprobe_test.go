@@ -63,7 +63,7 @@ func TestWindowASplitsPodmanTeardownFromTheClientsExit(t *testing.T) {
 		return ExecResult{Ran: true}
 	}
 
-	o.teardownAfterExit(nil, "", nil, t.TempDir(), "yolo-ws-test0000", "podman", 0)
+	o.teardownAfterExit(nil, "", nil, t.TempDir(), "yolo-ws-test0000", "podman", "", 0)
 
 	total, ok := o.Perf.LastEvent("shutdown.window_a")
 	if !ok || total.Dur < 1900*time.Millisecond || total.Dur > 2300*time.Millisecond {
@@ -132,7 +132,7 @@ func TestWindowAUnsplitSaysWhy(t *testing.T) {
 				}
 				return ExecResult{Ran: true}
 			}
-			o.teardownAfterExit(nil, "", nil, t.TempDir(), "yolo-ws-test0000", "podman", 0)
+			o.teardownAfterExit(nil, "", nil, t.TempDir(), "yolo-ws-test0000", "podman", "", 0)
 			if _, ok := o.Perf.LastEvent("shutdown.window_a"); !ok {
 				t.Fatal("the total must still be recorded")
 			}
@@ -241,7 +241,7 @@ func TestLingeringClientIsSampledAndNamedAtAQuietQuit(t *testing.T) {
 		}
 		return ExecResult{Ran: true}
 	}
-	o.teardownAfterExit(nil, "", nil, t.TempDir(), "yolo-ws-test0000", "podman", 0)
+	o.teardownAfterExit(nil, "", nil, t.TempDir(), "yolo-ws-test0000", "podman", "", 0)
 	o.emitTimingReport(0, "yolo-ws-test0000", "podman")
 
 	if !strings.Contains(perfFile(t, ws), "note   shutdown.window_a.input_to_exit  no input forwarded this session") {
@@ -276,7 +276,7 @@ func TestUnarmedProbeRecordsWhy(t *testing.T) {
 		}
 		return ExecResult{Ran: true}
 	}
-	o.teardownAfterExit(nil, "", nil, t.TempDir(), "yolo-ws-test0000", "podman", 0)
+	o.teardownAfterExit(nil, "", nil, t.TempDir(), "yolo-ws-test0000", "podman", "", 0)
 	if !strings.Contains(perfFile(t, ws), "mark   shutdown.window_a_unsampled.no_ctr_id") {
 		t.Errorf("no unsampled token:\n%s", perfFile(t, ws))
 	}
@@ -519,7 +519,7 @@ func TestNoLingerLineUnderTheThreshold(t *testing.T) {
 		}
 		return ExecResult{Ran: true}
 	}
-	o.teardownAfterExit(nil, "", nil, t.TempDir(), "yolo-ws-test0000", "podman", 0)
+	o.teardownAfterExit(nil, "", nil, t.TempDir(), "yolo-ws-test0000", "podman", "", 0)
 	if strings.Contains(errb.String(), "podman stayed") {
 		t.Errorf("a prompt client got a lingering line:\n%s", errb.String())
 	}
