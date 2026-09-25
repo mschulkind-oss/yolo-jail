@@ -3,7 +3,7 @@ title: "Plan: shared OpenAI subscription authentication"
 date: 2026-09-17
 status: accepted
 tags: [authentication, codex, pi, oauth, implementation]
-summary: "What the machine-wide OpenAI credential service still needs: the macos-user refresh consumer, the recorded Codex version floor, and the checks no unit test reaches. Host-only import and logout and the Apple Container disclosure shipped 2026-09-18."
+summary: "What the machine-wide OpenAI credential service still needs: the macos-user refresh consumer and the checks no unit test reaches. Host-only import and logout and the Apple Container disclosure shipped 2026-09-18; the Codex version floor was recorded 2026-09-25."
 ---
 
 # Plan: shared OpenAI subscription authentication
@@ -52,9 +52,10 @@ on [OQ-OA7](openai-auth-broker.md#OQ-OA7), and step 12 is the checks nothing aut
 this file is advice — the first thing here to be wrong. Never twist the code to match it.
 
 **What is left:** the `macos-user` refresh consumer (9, waiting on
-[OQ-OA6](openai-auth-broker.md#OQ-OA6)) · the measured Codex floor, recorded in
-[`../research/openai-subscription-auth.md`](../research/openai-subscription-auth.md) (still
-absent there) · the checks nothing automated reaches (12). Apple Container's disclosure (10,
+[OQ-OA6](openai-auth-broker.md#OQ-OA6)) · the checks nothing automated reaches (12). The
+measured Codex floor is recorded in
+[`../research/openai-subscription-auth.md`](../research/openai-subscription-auth.md) (2026-09-25).
+Apple Container's disclosure (10,
 `36c47baa`) and host-only import and logout (11, `4de78ac0`, public as `yolo openai-auth` since
 `fafb7493`) shipped. The rest is built, two steps differently from how the original hand-off
 described them. **Read
@@ -69,7 +70,7 @@ dead `127.0.0.1:1460` override as one of its four measured cases, and is blocked
 | :--- | :--- | :--- | :--- |
 | 1 | Credential transaction | **done, differs** | `openaiauth.Broker`: `withLock` (`syscall.Flock`), reload under lock, `DecisionStale` on a caller-generation mismatch, `writeState`'s 0600-in-0700 atomic rename, `TokenFingerprint`, `context.WithoutCancel` around redemption. `TestConcurrentCallersRedeemExactlyOnce` is the race. **Differs:** a NEW package, not a generalization of `internal/oauthbroker`, whose `withRefreshLock` is still a second flock transaction — see Blockers. |
 | 2 | Host service transport | **done, differs** | **Differs:** the service ships from `packs/openai-auth`, not from the Codex pack. `packs/codex/pack.json` and `packs/pi/pack.json` each carry an unconditional `needs` on it. `TestStagePacksJoinsOpenAIAuthForCodex` and `TestStageRunPacksPreservesNeededOpenAIAuthState` exercise the real selection call site. |
-| 3 | Codex adapter | **done** | `internal/openaiauthadapter` serves the native token-endpoint shape, JSON and form bodies both (`readTokenRequest`, fixed 2026-09-22); the manifest's `jail_daemon` binds `127.0.0.1:1460`; `packs/codex/pack.json` sets `CODEX_REFRESH_TOKEN_URL_OVERRIDE` at that URL. The version floor is **measured** (0.56.0, the warning above), so a launch-time refusal would be dead code. **Still owed:** recording that floor in [`../research/openai-subscription-auth.md`](../research/openai-subscription-auth.md), which records only that it read Codex 0.154.0. |
+| 3 | Codex adapter | **done** | `internal/openaiauthadapter` serves the native token-endpoint shape, JSON and form bodies both (`readTokenRequest`, fixed 2026-09-22); the manifest's `jail_daemon` binds `127.0.0.1:1460`; `packs/codex/pack.json` sets `CODEX_REFRESH_TOKEN_URL_OVERRIDE` at that URL. The version floor is **measured** (0.56.0, the warning above), so a launch-time refusal would be dead code. The floor is **recorded** (2026-09-25) in [`../research/openai-subscription-auth.md`](../research/openai-subscription-auth.md) §1.2, beside its 0.154.0 provenance line. |
 | 4 | Pi adapter | **done, one clause owed a ruling** | `packs/pi/extensions/yolo-openai-auth.js` registers the `openai-codex` provider (`login`/`refreshToken`/`getApiKey`), shells to `yolo internal openai-auth-client`, and puts `yolo-broker:<generation>` in Pi's `refresh` field — never the canonical token. The design's ask-once-more-after-unauthorized ([§2](openai-auth-broker.md#2-one-writer-and-two-views)) is **measured unbuildable** (the warning above): pi has no 401 refresh path and the extension API exposes no status. Whether the design drops it is [OQ-OA7](openai-auth-broker.md#OQ-OA7). |
 | 5 | Callback relay and login | **partial, differs** | `openaiauthdaemon.StartLogin`: PKCE, exact-path `/auth/callback`, state compared before the code is taken, a second callback refused 409, `listenLoginPort` binding 1455 then 1457 with the redirect URI naming the port it got. **Differs:** no state registry and no routing to a jail — the host daemon owns the whole flow and the jail's `login` action only streams the URL back, which makes the design's relay unnecessary rather than unbuilt. **Missing:** a third concurrent login has no port. |
 | 6 | Backend transport | **partial** | Podman: `hostServicesMountArgs` emits the services-dir bind plus `YOLO_SERVICE_OPENAI_AUTH_BROKER_ENDPOINT`, and the adapter joins `YOLO_JAIL_DAEMONS` through `runtimeArgsFor`. `macos-user`: the arm calls `startLoopholesDisclosed` with the whole pack set, refuses the launch when this service did not start, sets the variable to the **host** path, and `macosuser.EndpointGrantCommands` ACL-grants it (`PlanInvariants` refuses a plan that carries an endpoint without a grant). Apple Container reports the loophole inert (step 10). **Missing:** step 9. |
@@ -83,7 +84,6 @@ dead `127.0.0.1:1460` override as one of its four measured cases, and is blocked
 | `internal/macosuser/runplan.go` | step 9 route (b) — carry a launch-owned refresh-adapter URL into the sandbox env |
 | `internal/cli/run/run.go` (macos-user arm) | step 9 route (b) — start that adapter beside `startLoopholesDisclosed` and own its lifetime |
 | `packs/codex/pack.json` | the refresh URL stops being a static pack `env` var if step 9 takes the dynamic-port route |
-| `docs/research/openai-subscription-auth.md` | the measured Codex floor, 0.56.0, beside its 0.154.0 provenance line |
 
 Steps 10 and 11's rows are spent: `import.go`, the second handler in `serveSockets`, the host-only
 client verbs and the public `yolo openai-auth` verb landed, and the `withoutOpenAIAuthPack`
@@ -223,10 +223,10 @@ prove it — read *Instruments* below before believing a green.
   does not mention this loophole, and `internal/cli/config_ref.txt` names no key or variable
   of it — correctly, since AGENTS.md documents a `YOLO_*` dial where it is enforced. Treat
   step 8's docs line as satisfied by [`../guides/loopholes.md`](../guides/loopholes.md) plus
-  [`../reference/agent-credentials.md`](../reference/agent-credentials.md), and record the
-  measured Codex version floor in
+  [`../reference/agent-credentials.md`](../reference/agent-credentials.md). The measured Codex
+  version floor is recorded in
   [`../research/openai-subscription-auth.md`](../research/openai-subscription-auth.md) beside
-  its 0.154.0 provenance line.
+  its 0.154.0 provenance line (2026-09-25).
 
 ## Don't
 

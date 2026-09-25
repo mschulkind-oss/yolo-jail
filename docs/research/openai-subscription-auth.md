@@ -9,7 +9,8 @@ summary: "Source-level research into browser login, refresh-token rotation, shar
 # OpenAI subscription authentication across Codex, Pi, the host, and jails
 
 **Status:** findings gathered 2026-09-14 from Codex 0.154.0, Pi 0.85.1, current
-upstream source, and public issue reports.
+upstream source, and public issue reports. Codex's version floor for the broker seam is
+**0.56.0**, measured 2026-09-22 and re-checked 2026-09-25 ([§1.2](#12-codex-refresh-is-careful-inside-one-process-not-across-processes)).
 
 > **In short.** Copying either agent's credential file is unsafe because OpenAI
 > rotates refresh tokens. Sharing becomes reliable only when one machine-wide
@@ -59,6 +60,22 @@ better than copies, but it still does not serialize the authority request.
 Current upstream exposes `CODEX_REFRESH_TOKEN_URL_OVERRIDE`, which is the clean
 seam for a broker. Codex can retain its native file and recovery behavior while
 the broker serializes the only operation that consumes a refresh token.
+
+**The version floor is 0.56.0.** "Version floor" here means the oldest Codex release
+that honors the override: one older than that posts its refresh straight to OpenAI and
+never reaches the broker. The override arrived in 0.56.0, released 2025-11-07. The
+`rust-v0.55.0` tree's `codex-rs/core/src/auth.rs` posts to the hardcoded
+`https://auth.openai.com/oauth/token`. The `rust-v0.56.0` tree's copy reads
+`CODEX_REFRESH_TOKEN_URL_OVERRIDE` (`REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR`, through
+`refresh_token_endpoint`) and sends the refresh as a JSON body (`Content-Type:
+application/json`). That JSON shape is what yolo's Codex adapter decodes
+(`readTokenRequest` in `internal/openaiauthadapter`).
+The floor was first measured on 2026-09-22 across 13 release tags, which found the override
+absent at 0.55.0 and earlier and present at every release since. That measurement is recorded in
+the plan's [2026-09-22 warning](../design/openai-auth-broker-plan.md) (commit `a0527c48`).
+The two boundary trees were re-read from GitHub's tag archives on 2026-09-25. Every Codex
+installable today is about a year newer than the floor, so the plan judges a launch-time
+refusal of older releases dead code and builds none.
 
 ### 1.3 Pi has good locking, within Pi's file format
 
