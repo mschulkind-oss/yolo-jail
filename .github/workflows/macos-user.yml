@@ -66,11 +66,13 @@ jobs:
     runs-on: macos-latest
     name: macos-user (native darwin, no image)
     # A CEILING ON WASTE, not an estimate — the same stance as the suite's per-launch
-    # deadline, for the same reason: the cost is unmeasured. Sized so that ONE launch
-    # hitting its 30-minute deadline still leaves room for the remaining tests to
-    # report their own diagnoses, because a cap that fires first replaces six results
-    # with none. Revise it against the duration a green run reports, never against a
-    # guess. The inner dial is YOLO_TEST_MACOS_USER_TIMEOUT (seconds, per launch).
+    # deadline. Sized so that ONE launch hitting its 30-minute deadline still leaves room
+    # for the remaining tests to report their own diagnoses, because a cap that fires
+    # first replaces every result with none. The green-path cost is measured now, and is
+    # far below this: in scheduled run 36134719833 (2026-09-25) the integration step took
+    # under 2.5 minutes and the job under 4. So this is the wedge budget, not the normal
+    # one. Revise it against the duration green runs report, never against a guess. The
+    # inner dial is YOLO_TEST_MACOS_USER_TIMEOUT (seconds, per launch).
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7

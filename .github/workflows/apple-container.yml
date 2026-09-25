@@ -151,12 +151,18 @@ jobs:
     # correlation handle belongs rather than in a selector that can hang.
     runs-on: [self-hosted, apple-container]
     name: Apple Container (self-hosted arm64 Mac)
-    # A CEILING ON WASTE rather than an estimate — the subset below is four tests and
-    # nobody has timed them on this backend. The first green run is the measurement.
-    # Sized so one wedged launch still leaves room for the others to report.
+    # A CEILING ON WASTE rather than an estimate, sized so one wedged launch still leaves room
+    # for the others to report. 90, up from 60, to fit the archive-delivery steps after the
+    # parity tests, which carry a 30-minute cap of their own.
     #
-    # 90, up from 60, to fit the archive-delivery steps after the parity tests, which carry a
-    # 30-minute cap of their own.
+    # PART OF THE SELECTION IS MEASURED AND PART IS NOT. The parity step runs every test the
+    # `go test -list '^TestAppleContainer'` listing below selects, and that set has grown since
+    # 60 was chosen. Run 36137130186 (2026-09-25, at 5a44129d) is the measurement for the
+    # tests that existed then: the parity step took 38 s, the archive-delivery step 102 s,
+    # the whole job under 8 minutes. The TestAppleContainer… tests added after that commit
+    # have not run on this backend, so their cost is unmeasured. The ceiling is left at 90
+    # because the measured part uses a small fraction of it. Re-size it from the first run
+    # that includes the new tests, never from a guess.
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
@@ -392,10 +398,12 @@ jobs:
       # produce dozens of red tests describing known absences, and a job that is red for
       # known reasons teaches nobody anything about the unknown ones.
       #
-      # So the subset is four facts that MUST hold, each one a question a Linux test cannot
-      # answer, two of them the two shipped issues asked on the hardware that had them.
-      # applecontainer_test.go's header states the rule for growing it: one test at a time,
-      # each added only after it has passed here.
+      # So the subset is every test named TestAppleContainer…, each one a question a Linux
+      # test cannot answer. The step above lists them by name in its log, and the naming is
+      # the gate, so nothing here keeps a list. Most are facts that MUST hold. Some are
+      # experiments that pass on either answer and fail only when the experiment could not
+      # be run; they landed before running here. integration/applecontainer_test.go's header
+      # states the growing rule and that exception.
       - name: Apple Container parity tests
         run: go test -count=1 -timeout 0 -v -run '${{ steps.subset.outputs.pattern }}' ./integration
         env:
