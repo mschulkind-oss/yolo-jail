@@ -22,7 +22,7 @@ summary: "Where yolo's bytes live and who owns them: the three config scopes and
 
 # Storage, config scopes and identity
 
-**Status:** CURRENT as of 2026-09-24; the commit it was checked against is the `verified_commit` field in this file's front matter.
+**Status:** CURRENT as of 2026-09-24; the commit it was checked against is the `verified_commit` field in this file's front matter. The `home/` and `agents/` entries and the `.yolo/home/` description were updated 2026-09-25 for the per-jail home skeleton ([`base-home-legacy-state.md`](../design/base-home-legacy-state.md)).
 
 Every durable byte yolo writes lands in one of three places, and which one is a
 consequence of a single question: **is this state one truth per machine, one per
@@ -39,7 +39,8 @@ that decide who may write what. How those paths become `/home/agent` is
 | Approval snapshots | `internal/config` (`snapshot.go`), `paths.ApprovalsDir` |
 | Pack selection's scope rule | `internal/config` (`LoadPacks`) |
 | Pack address resolution, and the staged-tree fallback | `internal/packsrc` (`Store.Resolve`, `Resolved.StagedFrom`, `Store.Getenv`) |
-| Machine base construction and layout migration | `internal/storage` (`EnsureGlobalStorage`, `MigrateStorageLayout`) |
+| Machine store construction and layout migration | `internal/storage` (`EnsureGlobalStorage`, `MigrateStorageLayout`) |
+| The per-jail home skeleton (podman) | `internal/cli/run` (`buildHomeSkeleton`), `internal/paths` (`HomeSkeletonRoot`) |
 | The launch lock | `internal/cli/run` (`flock.go`) |
 | Git identity composition | `internal/cli/run` (`gitIdentityMountArgs`, `composeGitconfig`), `internal/entrypoint` (`configureGit`, darwin only) |
 | Boot and provisioning logs | `internal/entrypoint` (`bootlog.go`), `internal/provision` (`StartupLog`) |
@@ -157,16 +158,22 @@ is not listed here** — it has grown steadily and any list in prose is stale wi
 sprint. `internal/paths` is the enumeration; `rg -n 'GlobalStorage\(\)' internal/` finds
 every one. The four that carry meaning for how a jail behaves:
 
-- **`home/`** — the machine-wide base home, mounted `:ro` at `/home/agent`. Auth tokens and
-  base configs; see [`jail-home.md`](jail-home.md#why-the-base-is-read-only-with-symlink-hatches).
-  A host launch refuses while it still holds per-workspace runtime bytes left by an older yolo
-  whose base home was writable, and prints the `mv` that clears them (`noteLegacyBaseHome`;
-  [`base-home-legacy-state.md`](../design/base-home-legacy-state.md)).
+- **`home/`** — the **machine store**: the machine-scope shared dirs (each bound read-write
+  at `/home/agent/<dir>` into every jail that selects its pack) and the Claude login seed
+  (`.claude/claude.json`, read and written by the host only). It is mounted at `/home/agent`
+  by nothing: until 2026-09-25 every podman jail bound it there `:ro` as one shared base, and
+  each now gets its own skeleton under `agents/` instead
+  ([`jail-home.md`](jail-home.md#why-the-home-root-is-a-read-only-skeleton-with-symlink-hatches)).
+  Per-workspace bytes an older yolo left here, from when this was the shared *writable* home,
+  are unmounted and unread; `yolo check` reports them and prints an optional `mv`
+  (the maintainer's [`OQ-BH13`](../design/base-home-legacy-state.md#OQ-BH13) ruling).
 - **`cache/`** — mounted read-write at `~/.cache` in every jail. A shared download cache.
 - **`mise/`** — the jail-land mise store, mounted at `/mise`. Shared by every jail. **The
   host's own mise installation is never a party to this** and is never mounted.
 - **`agents/<container-name>/`** — the per-jail staging tree for composed briefings and
-  merged skills, rebuilt on every invocation and mounted `:ro`.
+  merged skills, rebuilt on every invocation and mounted `:ro`, and, under `home/`, the
+  podman jail's home skeletons: a new one per fresh launch, bound `:ro` at `/home/agent`,
+  never edited, and reaped with the whole entry.
 
 Also worth knowing by name, because each is a distinct on-disk contract rather than a
 cache: `approvals/` (never mounted), `captures/` (the machine-wide install-capture store,
@@ -252,7 +259,7 @@ different directories and cannot collide.
 > lock.** It is created, mounted and reserved against `writable_home_dirs`, and **nothing
 > in Go ever `flock`s it.** It is residue from a real guard in an earlier CLI, which worked
 > because `/home/agent` was then shared and writable, so a lock in `$HOME` was
-> machine-wide. Both premises are gone: the base is `:ro`, generation targets the
+> machine-wide. Both premises are gone: the home root is `:ro`, generation targets the
 > per-workspace overlays, and this file is itself one of those overlays — so even `flock`ed
 > it could not serialize two workspaces. It is **not** the launch lock, which is host-side
 > and under `locks/`. Do not read the filename as a guarantee.
@@ -280,12 +287,14 @@ launcher printed, `archive/config/` holds verbatim copies of your own pre-yolo a
 files, and `home/` is the jail's whole home overlay — credentials in all three. Its two
 documented halves:
 
-- **`.yolo/home/`** — the writable overlays bind-mounted over the `:ro` base. One
-  subdirectory per rw home path, one file per single-file bind, one backing dir per
-  `writable_home_dirs` entry, and `venv-shadows/` holding the per-side backing for
-  `/workspace/.venv` and any other `per_side_paths` entry (a `/` in an entry becomes `__`
-  in the directory name). **The contents are pack data**, not a fixed list: which state
-  dirs exist follows from which packs are selected.
+- **`.yolo/home/`** — the writable overlays. On podman they are bind-mounted over the `:ro`
+  home skeleton: one subdirectory per rw home path (named with its leading dot stripped), one
+  file per single-file bind, one backing dir per `writable_home_dirs` entry, and
+  `venv-shadows/` holding the per-side backing for `/workspace/.venv` and any other
+  `per_side_paths` entry (a `/` in an entry becomes `__` in the directory name). On Apple
+  Container the whole directory is the home, so its entries carry their dotted home names
+  and none of podman's bind sources exist. **The contents are pack data**, not a fixed
+  list: which state dirs exist follows from which packs are selected.
 - **Logs and per-launch config** — `config-assembled.json` and `config-boot.json` as
   above, `startup.log` from the last new-container provisioning run, `boot.log` (plus one
   rotation) which carries everything the entrypoint said, and `launch.log` which carries

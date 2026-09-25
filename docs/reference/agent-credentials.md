@@ -530,11 +530,13 @@ its config surfaces; `packs/*/pack.json` is the enumeration, and
 
 Two asymmetries are the load-bearing part, and neither is visible from a per-agent table:
 
-- **Overlay dirs are per-workspace and seeded once.** For each selected agent,
-  `<workspace>/.yolo/home/<subdir>` is bound over the corresponding dir in the jail home, and the
-  prepare step seeds it by copying **top-level regular files only** — the auth tokens — from the
-  global home, never overwriting (`seedAgentDir`). An agent pack that declares no `state` dir
-  rides the per-workspace `.config` overlay instead.
+- **Overlay dirs are per-workspace, and nothing seeds them but the Claude login.** For each
+  selected agent, `<workspace>/.yolo/home/<subdir>` is bound over the corresponding dir in the
+  jail home. The one channel from the machine store into a new workspace is the Claude login
+  seed, and it forwards only the login and onboarding keys; `seedAgentDir`, which copied every
+  top-level file of the machine store's copy of the dir, is deleted
+  ([`base-home-legacy-state.md`](../design/base-home-legacy-state.md#27-the-seed)). An agent
+  pack that declares no `state` dir rides the per-workspace `.config` overlay instead.
 - **Claude and OpenAI subscription authentication have different sharing paths.** Claude gets a separate read-write
   shared-credentials mount plus the relative symlink, so a single OAuth identity is shared across
   every jail on a host. Codex and Pi receive generated views from canonical service state and

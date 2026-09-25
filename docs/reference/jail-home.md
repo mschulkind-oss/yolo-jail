@@ -6,13 +6,17 @@ covers:
   - internal/cli/run/assemble.go
   - internal/cli/run/assemble_parts.go
   - internal/cli/run/prepare.go
+  - internal/cli/run/homeskeleton.go
   - internal/cli/run/mounts.go
   - internal/cli/run/runmount.go
   - internal/cli/run/hostfiles.go
   - internal/cli/run/jailprefix.go
   - internal/cli/run/storagehelpers.go
   - internal/storage/
+  - internal/paths/homeskeleton.go
   - internal/config/writablehome.go
+  - internal/config/hostfiles.go
+  - internal/config/selectedpacks.go
   - internal/entrypoint/boot.go
   - internal/entrypoint/env.go
   - internal/entrypoint/fsx.go
@@ -20,16 +24,19 @@ covers:
   - internal/entrypoint/scripts.go
   - internal/entrypoint/packhooks.go
 tags: [home, mounts, overlays, storage, entrypoint, path]
-summary: "How /home/agent is composed: a machine-wide read-only base, per-workspace writable overlays punched through it, staged :ro content on top, and files the entrypoint regenerates into the overlays on every boot. Covers the mount stack, the write rules that keep bind mounts alive, PATH, what is shared at which scope, and how the three backends differ."
+summary: "How /home/agent is composed: a per-jail read-only skeleton, per-workspace writable overlays punched through it, staged :ro content on top, and files the entrypoint regenerates into the overlays on every boot. Covers the mount stack, the write rules that keep bind mounts alive, PATH, what is shared at which scope, and how the three backends differ."
 ---
 
 # The jail home — how `/home/agent` is composed
 
-**Status:** CURRENT as of 2026-09-09, verified against `d8cf1cf8`.
+**Status:** CURRENT as of 2026-09-09, verified against `d8cf1cf8`. The home root was
+rewritten 2026-09-25 for the per-jail skeleton, the machine store, name reservation and the
+Apple Container seed ([`base-home-legacy-state.md`](../design/base-home-legacy-state.md)),
+against the working tree of that build; the rest was not re-verified then.
 
 `/home/agent` is not a directory that exists anywhere as a whole. It is composed at
-container create out of four ingredients: a **machine-wide read-only base**, **per-workspace
-writable overlays** bind-mounted *over* specific paths inside it, **staged read-only
+container create out of four ingredients: a **read-only home skeleton of this jail's own**
+(podman), **per-workspace writable overlays** bind-mounted *over* specific paths inside it, **staged read-only
 content** (skills, briefings, composed files) layered on top of those, and **files the
 entrypoint regenerates into the overlays at every boot**. Nothing persists through the
 container itself — it runs `--rm` on a `--read-only` rootfs, so every durable byte is on a
@@ -40,11 +47,13 @@ workspace, or one per boot?**
 
 | Component | Lives in |
 | :--- | :--- |
-| The machine-wide base, its mountpoints and symlink hatches, layout migration | `internal/storage` (`EnsureGlobalStorage`, `EnsureSymlink`, `MigrateStorageLayout`, `StorageLayoutVersion`) |
+| The per-jail home skeleton (podman): its mountpoints and redirect links | `internal/cli/run` (`buildHomeSkeleton`), `internal/paths` (`HomeSkeletonRoot`, `HomeSkeletonCoreDirs`, `HomeFileMountpoints`, `HomeFileRedirects`) |
+| The machine store (shared dirs, the Claude login seed), layout migration | `internal/storage` (`EnsureGlobalStorage`, `MigrateStorageLayout`, `StorageLayoutVersion`) |
 | Host storage paths | `internal/paths` (`GlobalHome`, `GlobalCache`, `GlobalMise`, `AgentsDir`, `WorkspaceHomeState`) |
-| Per-workspace overlay creation, seeding, layout migrations | `internal/cli/run` (`prepareWsState`, `seedAgentDir`, `migrateOldOverlay`) |
+| Per-workspace overlay creation, per backend, and layout migrations | `internal/cli/run` (`prepareWsState`, `preparePodmanBindSources`, `claudeJSONInWsState`, `migrateOldOverlay`) |
 | The mount table, per backend | `internal/cli/run` (`podmanBaseMounts`, `appleContainerBaseMounts`, `ScratchMountArgs`, `ROFileMountArg`, `jailPrefixMountArgs`) |
 | Config-declared extra mounts | `internal/cli/run` (`sortedWritableHomeDirs`, `sortedCacheRelocations`, `hostUserFileArgs`, `hostFileWritableDirArgs`, `hostMountArgs`), `internal/config` (`WritableHomeDirs`, `WritableHomeBackingSubdir`) |
+| Name reservation for those keys, over the selected packs | `internal/config` (`reservedHomeSegments`, `HostFileEntry.StagingFor`, `resolveSelectedPacks`) |
 | Boot-time generation, and its failure policy | `internal/entrypoint` (`Main`, `genStep`, `genFailuresError`) |
 | The write rules that keep bind mounts alive | `internal/entrypoint` (`WriteInPlace`, `ClearContents`, `EnsureRelativeSymlink`, `resetAnchorDir`) |
 | PATH | `internal/entrypoint` (`BootPath`, `Env.BlockDir`, `Env.LaunchDir`), `internal/macosuser` (`SandboxPath`) |
@@ -90,12 +99,12 @@ the per-jail history file, which is created and resolved entirely inside the jai
 **Every mount source is created host-side before create.** podman fails the *whole
 container* on a missing bind source with a bare `statfs …: no such file or directory`,
 which reads as a yolo bug. Single-file mountpoints are touched, directories are
-`MkdirAll`ed, and for anything nested inside the `:ro` base the *mountpoint* is created
-too.
+`MkdirAll`ed, and for anything nested inside the `:ro` home root the *mountpoint* is created
+too, in the skeleton.
 
-**The read-only base is never written from inside the jail.** Every boot-time write lands
-in a writable overlay. Anything that does end up genuinely shared — the base's symlink
-targets, `~/.cache`, `/mise`, a machine-scope credential dir — must be append-only,
+**The read-only home root is never written from inside the jail.** Every boot-time write
+lands in a writable overlay. Anything that does end up genuinely shared — `~/.cache`,
+`/mise`, a machine-scope credential dir — must be append-only,
 convergent, or single-writer, because two jails regenerate their configs concurrently and
 would otherwise fight.
 
@@ -121,10 +130,10 @@ On the podman backend, in tiers:
 │
 │  image layer: empty dir, mountpoint only
 │
-├─[1] BASE  :ro   <global storage>/home                    shared by ALL jails
-│        the union of every SHIPPED pack's declared writable and shared dirs,
-│        plus the single-file mountpoints, plus three relative symlinks that
-│        point INTO writable overlays:
+├─[1] ROOT  :ro   <global storage>/agents/<cname>/home/<stamp>   THIS jail's own
+│        a SKELETON: mountpoints for core's dirs, the SELECTED packs' writable
+│        and shared dirs, the single-file binds and this launch's config-driven
+│        binds, plus three relative symlinks that point INTO writable overlays:
 │          .bashrc      -> .config/bashrc
 │          .claude.json -> .claude/claude.json
 │          .gitconfig   -> .config/git/config
@@ -150,10 +159,11 @@ On the podman backend, in tiers:
      /run/yolo-services   host-service sockets
 ```
 
-Tier order is what makes the design work: the base is read-only and machine-wide, and every
-writable path is a **punch** through it at a known destination. Adding a writable path
-therefore means adding a mount *and* a mountpoint inside the base — see
-[Extra mounts a config declares](#extra-mounts-a-config-declares).
+Tier order is what makes the design work: the root is read-only and holds no content, and
+every writable path is a **punch** through it at a known destination. Adding a writable path
+therefore means adding a mount *and* a mountpoint in the skeleton — see
+[Extra mounts a config declares](#extra-mounts-a-config-declares) and
+[Why the home root is a read-only skeleton](#why-the-home-root-is-a-read-only-skeleton-with-symlink-hatches).
 
 **One anchor serves both generated-script dirs.** `~/.yolo/bin` is a single writable bind,
 and the entrypoint writes `block/` and `launch/` inside it. They stay separate
@@ -175,7 +185,9 @@ config reach — which is the whole of their scope story.
   that hardcodes a home path yolo does not manage. Each entry is backed by a directory
   under the workspace's own state dir and bound over `/home/agent/<path>`. Guarded by
   `checkWritableHomeDir`, which rejects absolute paths, `..` escapes, a `:` (a podman
-  mount-option footgun) and any first segment yolo already manages. **Safe at any scope**:
+  mount-option footgun) and any first segment yolo already manages: core's own, or a dir a
+  **selected** pack declares ([Reserving a name is not creating a
+  directory](#reserving-a-name-is-not-creating-a-directory)). **Safe at any scope**:
   the destination is confined under `/home/agent` and the backing store is the workspace's
   own, so a jail editing its workspace config gains nothing it could not get by writing to
   `/workspace`.
@@ -220,9 +232,12 @@ all:
 
 | Destination | Staging | Mechanism |
 | :--- | :--- | :--- |
-| inside an existing rw overlay (`.config/`, `.cache/`, `.local/`, `go/`, `.npm-global/`, a selected pack's state dir) | none | already writable; staging would shadow a yolo mount |
-| a home-root file | symlink | a **relative, dangling** symlink in the base pointing into the rw `.config` overlay — the same hatch `.bashrc` and `.claude.json` use |
-| a new top-level dir | writable subtree | the `writable_home_dirs` recipe: backing dir, base mountpoint, nested rw bind |
+| inside an existing rw bind (`.config/`, `.cache/`, `.local/`, `go/`, `.npm-global/`, a selected pack's workspace or machine-scope state dir, a `writable_home_dirs` entry) | none | already writable; staging would shadow a yolo mount, or bind a second time at the same destination, which podman refuses |
+| a home-root file | symlink | a **relative, dangling** symlink in the skeleton pointing into the rw `.config` overlay — the same hatch `.bashrc` and `.claude.json` use |
+| a new top-level dir, including one only an **unselected** pack declares | writable subtree | the `writable_home_dirs` recipe: backing dir, skeleton mountpoint, nested rw bind |
+
+That table is podman's. Apple Container stages nothing: its whole home is the read-write
+workspace state dir, so every destination is writable as it stands.
 
 > [!WARNING]
 > **The dangling symlink is load-bearing and not interchangeable.** A directory bind makes
@@ -380,7 +395,7 @@ on the same inode, which is what makes an exec into a running jail safe:
 
 - The two generated-script dirs, cleared contents-only: blockers from the blocked-tool
   config, then a lazy installer per pack `program`, then the package-manager launchers.
-- `~/.bashrc` (through the base's symlink), the bootstrap and venv-precreate scripts, and
+- `~/.bashrc` (through the skeleton's redirect link), the bootstrap and venv-precreate scripts, and
   the combined CA bundle — the last always written, even empty, before the bashrc and
   before any child spawn, so the trust-store env vars propagate to every child the
   entrypoint starts.
@@ -396,10 +411,12 @@ on the same inode, which is what makes an exec into a running jail safe:
   the reconcile convergent, so a user's own additions survive.
 - The host nvim config, copy-merged into the `.config` overlay.
 
-**Seeded once, then owned by the jail.** A pack's workspace-scope state dir is seeded from
-the machine base by `seedAgentDir`, which copies **top-level regular files only** — auth
-tokens — never overwrites, and never recurses. Surface keys declared as seed-if-absent fill
-only when missing.
+**Seeded once, then owned by the jail.** Nothing is copied from the machine store into a
+workspace but the Claude login ([The claude.json seed](#the-claudejson-seed)). `seedAgentDir`,
+which copied every top-level regular file of a pack's machine-store dir into each new
+workspace, legacy bytes included, is deleted
+([`base-home-legacy-state.md`](../design/base-home-legacy-state.md#27-the-seed)). Surface
+keys declared as seed-if-absent fill only when missing.
 
 **Runtime state, written by use rather than by boot.** Launcher stamps and install
 receipts under `~/.cache`, the perf log (appended, trimmed to a bounded number of runs), the
@@ -434,29 +451,80 @@ The pre-rename generated-script dirs are emptied for the same reason.
 
 | Scope | What lives there |
 | :--- | :--- |
-| **Per machine, all workspaces** | the `:ro` base home; the machine-scope shared dirs (rw); the mise store at `/mise`; the cache at `~/.cache`; the image-load cache; the layout-version marker; the user config |
-| **Per workspace** | everything under `<workspace>/.yolo/home` — the rw overlays, the single-file mountpoints, each pack's workspace-scope state dir, the writable-home backing dirs, the venv shadows |
-| **Per jail (container name)** | container tracking files, the briefing and skills staging tree, the socat log, the broker relay log |
+| **Per machine, all workspaces** | the machine store `<global storage>/home` (the machine-scope shared dirs, rw, and the Claude login seed); the mise store at `/mise`; the cache at `~/.cache`; the image-load cache; the layout-version marker; the user config |
+| **Per workspace** | everything under `<workspace>/.yolo/home` — the rw overlays, the single-file bind sources, each pack's workspace-scope state dir, the writable-home backing dirs, the venv shadows |
+| **Per jail (container name)** | the podman home skeletons; container tracking files, the briefing and skills staging tree, the socat log, the broker relay log |
 | **Per host workspace, inside one home** | the agent history file, keyed on a hash of the host workspace path |
 | **Per boot** | `/tmp`, `/run`, `/dev/shm`, anonymous volumes, PID files |
 | **Host-only, never mounted** | the host's own mise data, and host credentials generally |
 
-### Why the base is read-only, with symlink hatches
+### Why the home root is a read-only skeleton, with symlink hatches
 
-`EnsureGlobalStorage` builds the base as the **union** of every *shipped* pack's writable
-and shared dirs. That union is deliberately **not** selection-gated: a `host_files` entry
-must never be able to claim a path a pack added tomorrow needs.
+A **skeleton** (a term [`base-home-legacy-state.md`](../design/base-home-legacy-state.md#1-the-question-and-the-answer)
+coined) is a directory holding only the mountpoints and redirect links a launch's binds
+need, and no file content. Each fresh podman launch builds a NEW one (`buildHomeSkeleton`)
+from THIS launch's selected packs, config and `host_files` entries, under
+`<global storage>/agents/<container name>/home/`, and binds it `:ro` at `/home/agent`. So a
+pack the jail did not select has no effect inside it.
 
-On top of that it creates the single-file mountpoints and three **relative** symlinks. The
-trick is that the base is read-only but these links resolve *through the container's mount
+It replaced ONE machine-wide base, `<global storage>/home`, that every podman jail shared.
+That base was provisioned before the config was loaded, so it held the union of every
+*shipped* pack's dirs, plus every mountpoint any launch had ever made there: one
+workspace's `writable_home_dirs` and `host_files` links, every unselected pack's dirs, and
+the machine's shared credential dirs showed up in every jail.
+
+It holds core's dirs, the selected packs' writable and shared dirs, the single-file
+mountpoints, the config- and pack-driven mountpoints, and three **relative** symlinks. The
+trick is that the root is read-only but these links resolve *through the container's mount
 table* into per-workspace writable overlays — so a tool that atomic-renames one of those
 files (an agent rewriting its own `~/.claude.json` constantly) lands its write in a
-writable mount. `EnsureSymlink` migrates a pre-existing regular file's data into the target
-before re-linking, so an upgrade does not lose the file.
+writable mount. A link whose target dir is not bound in this jail (`.claude.json` in a jail
+without claude) dangles and reads as absent, which is the right answer there.
 
-Existing single-file mountpoints are created **only if missing**: one that already exists
-may carry restrictive permissions from a prior container's UID mapping, and is deliberately
-left alone.
+- **Fatal, then best-effort.** Core's dirs, the selected packs' dirs, the single-file
+  mountpoints and the redirects fail the launch, naming the path; every config- and
+  pack-driven entry after them only warns. A pack entry that lands on a redirect name is
+  therefore the one that fails, as a warning.
+- **Never edited, never removed under a live jail.** A host-side `rmdir` of a mountpoint
+  silently detaches the bind inside a running jail, so an attach builds nothing and a fresh
+  launch builds a new directory rather than touching an old one. Old skeletons go with the
+  jail's whole `agents/<container name>` entry, through `PruneOrphanAgentStaging`, which
+  declines when liveness is unknown.
+
+### Reserving a name is not creating a directory
+
+Two different things have been spelled with the same list, and they are separate:
+
+- **Creating** a directory is what the skeleton builder and the machine store do.
+- **Reserving** a name is a config-validation rule that creates nothing: a
+  `writable_home_dirs` entry may not claim a first segment yolo already manages, and a
+  `host_files` destination under a dir that is already bound read-write gets no staging.
+
+Reservation covers the **selected** packs only, by the maintainer's ruling
+([`OQ-BH14`](../design/base-home-legacy-state.md#OQ-BH14)), and so does the skeleton: an
+unselected pack is treated as if it does not exist. (The machine store is the exception on the
+creating side, below.) So `writable_home_dirs: [".codex"]` passes in a workspace that does not
+select codex and is refused once it does, naming the pack; one user-scope entry can be legal
+in one workspace and refused in another, and that is accepted. A `host_files` entry under
+`~/.codex/` in a claude-only jail is staged as an ordinary new top-level dir. The launch
+hands its staged set to the reservation; validation resolves the same selection from the
+user config and the pack store.
+
+Two things are not pack names and stay reserved in every workspace: core's own dirs and
+files, and `.claude` as a `writable_home_dirs` segment, because core's `~/.claude.json`
+redirect targets `.claude/claude.json`.
+
+Two lists are still read from every *shipped* pack:
+
+- **The machine store's directories.** `EnsureGlobalStorage` creates every shipped pack's
+  shared dir in `<global storage>/home`, because it runs before the config is loaded. That
+  makes a bind source, which a jail mounts only when it selects the pack.
+- **The `host_files` surface reservation.** A destination some shipped pack composes as a
+  surface (`~/.codex/config.toml`) is refused whatever the selection. It is a list of files,
+  not directories, and [`OQ-BH14`](../design/base-home-legacy-state.md#OQ-BH14) did not rule on it
+  ([`OQ-BH15`](../design/base-home-legacy-state.md#OQ-BH15) asks whether it should narrow too); a
+  collision with a configured pack's surface is refused at launch instead
+  (`config.SurfaceCollisions`).
 
 ### Shared credentials
 
@@ -513,15 +581,25 @@ what a data-loss bug once got wrong. What the directory shape changes:
 > [!NOTE]
 > The one-time migration runs IN THE JAIL rather than on the host, because `rename(2)` cannot
 > cross a mount point: the local path is a bind of the workspace overlay and the store is a bind
-> of the machine-wide base, so a move is `EXDEV` even on one device (measured). It copies.
+> of the machine store, so a move is `EXDEV` even on one device (measured). It copies.
 
 ### The claude.json seed
 
 `SyncClaudeJSONSeed` runs in `prepareWsState` when the pack owning that state dir is
-loaded. Forward (seed → workspace) fills only *missing* keys. Reverse (workspace → seed)
-fires only when the workspace has a truthy login account the seed lacks, and copies **only**
-the login and onboarding keys — MCP server lists and per-project state never leak into the
-shared seed. Parse and IO errors degrade to no-ops.
+loaded. Both directions copy **only** the login and onboarding keys (`claudeJSONSeedKeys`),
+so MCP server lists and per-project state never travel through the shared seed either way.
+Forward (seed → workspace) fills only *missing* keys. Reverse (workspace → seed) fires only
+when the workspace has a truthy login account the seed lacks. Parse and IO errors degrade to
+no-ops. A side that is a **symlink** (or anything but a regular file) is neither read nor
+written: the workspace file is one the jail can replace, and the sync runs on the host, so
+following a link let a jail aim a host write. The write is a temp file renamed over the path.
+
+The workspace side is the file the jail reads as `~/.claude.json`, which differs per backend
+(`claudeJSONInWsState`): `<workspace>/.yolo/home/claude/claude.json` on podman, the target of
+the skeleton's redirect, and `<workspace>/.yolo/home/.claude.json` on Apple Container, whose
+whole home is that directory. Apple Container synced the podman path until the design's
+[`OQ-BH12`](../design/base-home-legacy-state.md#OQ-BH12) fix, so the seed never reached one
+of its jails. The fix is unmeasured on hardware.
 
 ### History isolation
 
@@ -534,13 +612,14 @@ even where a state dir is shared across workspaces — Apple Container's single 
 
 **Fresh launch.** `EnsureGlobalStorage` runs first, before config load. Then: config-change
 approval, the per-workspace launch `flock`, removal of a stale stopped container, image
-autoload, `prepareWsState`, argv assembly, and the container run. The in-container command
+autoload, `prepareWsState`, `prepareHostFiles` and a new home skeleton (podman), argv
+assembly, and the container run. The in-container command
 is wrapped with provisioning — `mise install` (install only; resolution happens there, not
 on an upgrade), the bootstrap script, the venv precreate script, an optional store prune
 gated on an env var and on no other jail being live — and then the target command.
 
-**Reuse and attach.** An `exec` into the running container: no `prepareWsState`, no
-provisioning wrapper, no mount changes. The entrypoint still re-runs its whole generator
+**Reuse and attach.** An `exec` into the running container: no `prepareWsState`, no new
+skeleton, no provisioning wrapper, no mount changes. The entrypoint still re-runs its whole generator
 sequence inside the exec, which is safe because every generator is convergent. The
 jail-daemon supervisor is guarded by a tmpfs PID-file liveness probe, and port forwarding
 skips already-bound ports.
@@ -583,15 +662,22 @@ itself.
 **Apple Container** is structurally different and its mount assembly must be tested
 separately.
 
-- **No `:ro` base.** The whole workspace state dir is mounted read-write at `/home/agent`
-  in one bind — a device-limit workaround. So every *workspace-scope* declared home dir is
-  already writable and its writes already land in the right place, with no explicit mount.
+- **No `:ro` home root, and no skeleton.** The whole workspace state dir is mounted
+  read-write at `/home/agent` in one bind — a device-limit workaround. So every
+  *workspace-scope* declared home dir is already writable and its writes already land in the
+  right place, with no explicit mount.
+- **The state dir is laid out as the home itself.** `prepareWsState` creates the selected
+  packs' dirs at their dotted names (`.claude`, not podman's `claude`) and syncs the login
+  seed with `.claude.json`, and creates none of podman's dot-stripped bind sources, which on
+  this backend were stray entries in the jail's home (`~/claude`, `~/npm-global`)
+  ([`OQ-BH12`](../design/base-home-legacy-state.md#OQ-BH12), unmeasured on hardware). The
+  one-time legacy migrations write to the dotted paths too.
 - **Machine-scope shared dirs still need their own mounts**, nested inside that bind exactly
   as the cache is. Leaving them to the single bind is a **silent degradation**, not a
   failure: a shared credential keeps working but becomes per-workspace forever, so every new
   workspace demands a fresh login. The tell that separates the two tiers is which *side* of
   the mount the argv reads from — the workspace state dir means the bind already covers it,
-  the machine base means it does not.
+  the machine store means it does not.
 - **Single-file binds are unsupported**, so those cases are *materialized* into the
   workspace state dir instead. Anything added as a single-file mount needs an AC arm.
 - **`cache_relocations` are skipped** with one warning for the whole set — not because the
@@ -600,7 +686,7 @@ separately.
   moved back onto the filesystem they moved them off.
 - **Mountpoints are not pre-created** under the workspace state dir, and do not need to be:
   the mountpoint is auto-created inside a read-write parent bind. podman needs the
-  pre-create only because *its* base is `:ro`, where the OCI runtime's `mkdirat` fails
+  pre-create only because *its* home root is `:ro`, where the OCI runtime's `mkdirat` fails
   `EROFS`. The two backends differ here for a reason about the parent mount's mode, not
   about the nested directory.
 
@@ -625,8 +711,8 @@ credential link above still resolves. See
 
 ## What this does not license
 
-- **Not** a writable base. Every new writable path is a punch through the `:ro` base at a
-  named destination, with its mountpoint created host-side.
+- **Not** a writable home root. Every new writable path is a punch through the `:ro`
+  skeleton at a named destination, with its mountpoint created in the skeleton host-side.
 - **Not** a fourth PATH. There are three independently-written copies of one order and that
   is already one too many; `BootPath` is the authority and a second spelling in the boot
   path is refused by test.
@@ -639,15 +725,17 @@ credential link above still resolves. See
 
 ## Current values
 
-Verified at `d8cf1cf8`. The prose above explains what each of these is for; this table is
-the only place the values themselves are stated.
+Verified at `d8cf1cf8`; the home-root rows were updated 2026-09-25 with the skeleton. The
+prose above explains what each of these is for; this table is the only place the values
+themselves are stated.
 
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |
-| Machine base home | `<global storage>/home`, mounted `/home/agent:ro` | `paths.GlobalHome`, `podmanBaseMounts` |
+| Podman home root | a new `<global storage>/agents/<container name>/home/<UTC stamp>-<random>` per fresh launch, mounted `/home/agent:ro` | `paths.HomeSkeletonRoot`, `buildHomeSkeleton`, `podmanBaseMounts` |
+| Machine store | `<global storage>/home`: the shared dirs' bind sources and the Claude login seed; mounted at `/home/agent` by nothing | `paths.GlobalHome`, `storage.EnsureGlobalStorage` |
 | Per-workspace state | `<workspace>/.yolo/home` | `paths.WorkspaceHomeState` |
 | Storage layout version | 2 | `storage.StorageLayoutVersion` |
-| Base symlink hatches | `.bashrc` → `.config/bashrc`, `.claude.json` → `.claude/claude.json`, `.gitconfig` → `.config/git/config` | `storage.EnsureGlobalStorage` |
+| Skeleton redirect links | `.bashrc` → `.config/bashrc`, `.claude.json` → `.claude/claude.json`, `.gitconfig` → `.config/git/config` | `paths.HomeFileRedirects`, `buildHomeSkeleton` |
 | Generated-script dirs, and their bind anchor | `~/.yolo/bin/{block,launch}`, anchored at `~/.yolo/bin` | `Env.BlockDir`, `Env.LaunchDir`, `Env.GeneratedBinDir` |
 | Retired generated-script dirs (emptied, not removed) | `~/.yolo-shims`, `~/.yolo-launchers` | `entrypoint.retiredGeneratedDirs` |
 | PATH | `BlockDir:LaunchDir:NpmBin:MiseShims:GoBin:LocalBin:StorePackagesBin:/bin:/usr/bin` | `entrypoint.BootPath` |
@@ -661,7 +749,7 @@ the only place the values themselves are stated.
 | Host-service socket dir, in-jail | `/run/yolo-services` | `paths.JailHostServicesDir` |
 | Staged content root, per jail | `<global storage>/agents/<container name>/` | `paths.AgentsDir` |
 | Pack manifest mount | `/ctx/packs`, `:ro`, with `YOLO_PACK_ROOT` | `internal/cli/run/assemble.go` (`packCtxDir`) |
-| Vestigial mount | `~/.yolo-entrypoint.lock` — mounted, touched and reserved; nothing `flock`s it | `assemble_parts.go`, `storage/ensure.go`, `config/writablehome.go` |
+| Vestigial mount | `~/.yolo-entrypoint.lock` — mounted, touched and reserved; nothing `flock`s it | `assemble_parts.go`, `paths.HomeFileMountpoints`, `config/writablehome.go` |
 | The real launch lock | one host-side `flock` per workspace, under the state dir's `locks/` | `internal/cli/run/flock.go` |
 
 ## Why it's this way
@@ -675,4 +763,6 @@ Forward-facing rulings a maintainer would otherwise undo, with their original id
 | `OQ-6` | Both generated-script dirs live under **one** bind anchor at `~/.yolo/bin` | They need one writable bind, not two, and gathering them in the filesystem is not gathering them on PATH. It also retires the word "shim", which had come to name one of these dirs while colloquially naming the host's launch wrappers — three mechanisms, two of them sharing a word. |
 | `OQ-C` | Skills and briefings are deduplicated **by destination** before the argv | Several packs contributing to one destination is the feature for both kinds, and the old advice — "do not declare an `into` another pack uses" — was unfollowable in the configuration it most matters for: an agent pack naming a skills dir plus a house-rules pack sharing a corpus. podman kills the boot on a duplicate destination, so the rule has to be enforced, not documented. |
 | `#39` | Apple Container mounts machine-scope shared dirs explicitly, and a stranded per-workspace copy is **copied** into place, never moved | The single writable home made a machine-scope credential silently per-workspace. Repairing it by moving would re-run the experiment that destroyed a token on every boot. |
+| `DIR-BH2` / [`OQ-BH10`](../design/base-home-legacy-state.md#10-decision-ledger) | Each podman jail gets its **own** read-only skeleton, a new one per fresh launch, never edited | A shared base leaked one workspace's config and every unselected pack's dirs, and a claude-less jail could read the machine's Claude credential file through it. Editing a skeleton in place would need a liveness answer the launch path cannot give. |
+| [`OQ-BH14`](../design/base-home-legacy-state.md#10-decision-ledger) | Name reservation covers only the **selected** packs | Packs come from anywhere and are added and removed at will, so the shipped set never covered what a jail could select; reserving it was an unselected pack's effect. |
 | `C8` | The in-jail binaries and flake bundle are **mounted**, not baked | It takes the Go sources out of the image derivation, so a Go-only commit costs no image rebuild. The security delta — what executes in the jail is host-mutable with no rebuild — is the trade being made deliberately; see [`image-staging-vs-baking.md`](image-staging-vs-baking.md#the-security-delta). |
