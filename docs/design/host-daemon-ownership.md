@@ -1053,6 +1053,55 @@ each, because a deleted question is one the next reader re-derives.
    workspace lock already exists": the ruling's argument is about a *refresh* lock, this is
    a *spawn* lock, and the lock that does exist warns and continues.
 
+   **The measurement exists, UNRUN (2026-09-25).** It is
+   `TestMacosUserTwoConcurrentLaunchesOfOneWorkspace` in
+   [`macosuserspawnlock_test.go`](../../integration/macosuserspawnlock_test.go), and it runs in
+   `macos-user.yml`'s `^TestMacosUser` step. It is an experiment: every answer passes. It is red
+   only when neither launch ran its probe, or when the two sessions were never up at the same
+   time, because then nothing about concurrency was observed. It selects the `claude` pack, whose
+   `claude-oauth-broker` is the host-scoped singleton in question. The pair must race to spawn,
+   so no broker may be alive when it starts. In the declared macos-user job
+   (`YOLO_TEST_MACOS_USER` set) the test stops a live one with `yolo host-daemon stop`. Anywhere
+   else a live broker is a developer's real one, because the broker is machine-wide, so the test
+   refuses and names that command instead of killing it. At cleanup it always stops the broker
+   the pair spawned: that broker runs under the test's temporary `HOME` but answers on the
+   machine-wide socket, so a leftover one would serve later launches from a deleted credentials
+   path. That refusal, and a broker still alive after the cleanup's stop, are the two other
+   ways the test goes red; neither is an answer. Then it starts two launches of one workspace at
+   the same moment. The two sessions coordinate through marker files
+   so that their lifetimes really overlap. It logs one `HD10 …` line per finding:
+
+   - `HD10 SPAWN`: how many broker processes existed during the pair and how many at once,
+     sampled with `pgrep` every 100 ms, so one is a lower bound on spawns and two is proof of a
+     second one. `NOT EXERCISED` means a broker survived the stop, and the flock was never
+     reached.
+   - `HD10 WORKSPACE-LOCK`: whether either launch printed the courtesy lock's `Waiting for
+     concurrent jail launch` notice.
+   - `HD10 ENDPOINT DURING` and `HD10 ENDPOINT AFTER B EXITED`: each session's broker endpoint
+     variable, whether the file is readable, and whether its host:port answers. The longer
+     session probes a second time once the shorter one's `yolo` process has exited.
+   - `HD10 VERDICT`: the spawn answer, plus what the surviving session's endpoint looked like
+     after the other session ended.
+
+   **What the code predicts, READ FROM CODE 2026-09-25**, recorded so that the run can confirm or
+   refute it:
+
+   - **The courtesy lock is not in the spawn path at all.** `run.go`'s macos-user arm starts the
+     host daemons through `startLoopholesDisclosed` *before* it calls the orchestrator. The
+     orchestrator is what takes the per-workspace lock (`macosuser` `deps.LockWorkspace`, wired
+     to `workspaceLockSeam` → `run.AcquireWorkspaceLockFor`). So today the spawn flock
+     (`paths.HostSingletonLock`, taken in `broker.BrokerSpawn`, which re-checks liveness inside
+     it) is the only thing between the two spawns. The prediction is `ONE BROKER`, and removing
+     the flock would leave nothing in its place.
+   - **The pair collides over per-workspace state that the flock does not guard.** Both launches
+     publish into one host-services dir, because the cname is the same. `startHostSingleton`
+     unlinks the endpoint file before publishing its own. The macos-user arm's deferred
+     `stopLoopholes(handles, socketsDir, "", "")` passes no cname, so it skips both the relaunch
+     lock and the "still running" check, and it removes the whole dir. So the prediction for the
+     survivor after the other session exits is `GONE`. That is a defect in the macos-user
+     teardown whatever this question's answer turns out to be. It would bear on the leaning's
+     "if they already collide" branch, but it is a collision over the endpoint, not over spawn.
+
    **Answer:**
    > _(empty — fill in when decided)_
 
@@ -1231,6 +1280,14 @@ where the ruling went past them — that record is the point.
    > two users launching the **same workspace path**, which is the same per-workspace identity
    > question as [OQ-HD10](#OQ-HD10) and belongs there. ⚠ The leaning's message fix is still
    > worth doing while the singleton ships, since it is a one-line refusal today.
+
+   **Built 2026-09-25 — the message fix, and only that.** `BrokerSpawn` used to return silently
+   when it could not open its lock file; it now says which file, the OS's reason and whose
+   daemon was not started, and under a permission error names the collision above
+   (`lockFailureLine` in [`brokerlifecycle.go`](../../internal/broker/brokerlifecycle.go),
+   pinned through `BrokerSpawn` by `TestSpawnSaysWhyItCouldNotTakeTheLock`). The paths still
+   carry no user component, and the reachability witness's later refusal is unchanged;
+   retiring the singleton is [`HD-R1`](#HD-R1)'s, and not built.
 
 ---
 
