@@ -195,14 +195,26 @@ func TestPackInstallsVersionsAndConfigures(t *testing.T) {
 			}
 			dir := writeProjectWithPacks(t, `{}`, tc.pack)
 			stamp := "$HOME/.cache/yolo-agent-stamps/" + tc.binary + ".stamp"
+			// A program declaring a PRE-LAUNCH REFRESH (packdecl.Refresh; pi's is
+			// `update --extensions`) has its launcher run the REAL vendor binary with that
+			// argv before the exec whenever the refresh's stamp is due — which on a fresh
+			// machine it is. AGENTS.md allows `--version` probes only, so the refresh's stamp
+			// is touched first, and the output is checked for the refresh's own line so a
+			// drifted stamp path fails here rather than quietly running the vendor's update.
+			refreshStamp := "$HOME/.cache/yolo-agent-stamps/refresh/" + tc.binary + ".stamp"
 			cmd := fmt.Sprintf(
-				"%s %s && test -f %s && grep -q '%s' \"$HOME/%s\"",
-				tc.binary, tc.versionArg, stamp, tc.marker, tc.configRel,
+				"mkdir -p \"$(dirname %s)\" && touch %s && %s %s && test -f %s && grep -q '%s' \"$HOME/%s\"",
+				refreshStamp, refreshStamp, tc.binary, tc.versionArg, stamp, tc.marker, tc.configRel,
 			)
 			r := runYolo(t, dir, cmd)
 			if r.rc != 0 {
 				t.Fatalf("%s: install/version/config check failed: rc %d\nstdout: %s\nstderr: %s",
 					tc.pack, r.rc, r.stdout, r.stderr)
+			}
+			if strings.Contains(r.stdout+r.stderr, "Refreshing "+tc.binary+" (") {
+				t.Errorf("%s: the launcher ran the pack's pre-launch refresh before the "+
+					"--version probe; the pre-touched stamp at %s no longer throttles it:\n%s",
+					tc.pack, refreshStamp, r.stderr)
 			}
 		})
 	}

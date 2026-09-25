@@ -40,8 +40,6 @@ func programsJail(t *testing.T) string {
 	t.Setenv("NPM_CONFIG_PREFIX", filepath.Join(home, ".npm-global"))
 	t.Setenv("GOPATH", filepath.Join(home, "go"))
 	t.Setenv("YOLO_PACK_ROOT", packRoot)
-	t.Setenv("YOLO_LSP_NPM_INSTALL", "")
-	t.Setenv("YOLO_LSP_GO_INSTALL", "")
 	t.Setenv("YOLO_MCP_PRESETS", "[]")
 	return home
 }

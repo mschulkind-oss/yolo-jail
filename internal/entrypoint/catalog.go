@@ -22,11 +22,19 @@ package entrypoint
 // re-installed, which answers nothing.
 //
 // IT IS NOT WIRED INTO RunDarwinBootstrap, and that is a fact about the backend rather than
-// an omission. macos-user passes no YOLO_LSP_*_INSTALL (its launcher builds no LSP env at
-// all) and stages no pack tree to compare against, so every declared-set input this needs
-// would read as empty there — and an empty declared set turns a catalog into a boot that
-// calls every installed package an orphan. A backend that cannot state what it declared
-// must not be asked what is undeclared.
+// an omission. macos-user stages no pack tree to compare against, so the declared-set input
+// this needs would read as empty there — and an empty declared set turns a catalog into a
+// boot that calls every installed package an orphan. A backend that cannot state what it
+// declared must not be asked what is undeclared.
+//
+// NO LSP RECIPE DECLARES ANYTHING ANY MORE. The three-entry table that mapped `lsp_servers`
+// names to packages (and the ~/.yolo-installed-lsps sentinel recording what it installed) is
+// deleted (docs/reference/mcp-configuration.md#oq-lsp1), so the packages it installed before
+// the deletion — pyright, typescript, typescript-language-server under the npm prefix, gopls
+// under $GOBIN — are exactly what this catalog now names as orphans, and `yolo programs
+// remove` (or `programs.autoprune`) is how they are collected. That is the migration: no
+// one-shot uninstall was written for them, because a record-keyed removal is the thing
+// orphanremove.go's header measured losing its record.
 
 import (
 	"fmt"
@@ -56,11 +64,11 @@ const (
 	OrphanNpm OrphanClass = "npm"
 	// OrphanLocalBin is an entry of ~/.local/bin — where a native installer lands.
 	OrphanLocalBin OrphanClass = "local-bin"
-	// OrphanGoBin is an entry of $GOPATH/bin — where the LSP bootstrap's go arm lands.
+	// OrphanGoBin is an entry of $GOPATH/bin — where the deleted LSP recipe's go arm landed.
 	OrphanGoBin OrphanClass = "go-bin"
 )
 
-// Orphan is one installed thing that no selected pack, preset or LSP recipe declares.
+// Orphan is one installed thing that no selected pack or MCP preset declares.
 //
 // IT CARRIES THE BYTES' ABSOLUTE PATH, which the boot report never prints, and that is the
 // point of the type: the catalog is a report, but the removal act OQ-PD4 rules is an act on
@@ -87,16 +95,16 @@ type Orphan struct {
 }
 
 // InstalledOrphans returns every installed package, ~/.local/bin entry and $GOBIN binary
-// that no selected pack, preset or LSP recipe declares. It reads two directory trees and
-// the pack manifests; it writes nothing.
+// that no selected pack or MCP preset declares. It reads the directory trees and the pack
+// manifests; it writes nothing.
 //
-// THE THREE FINDERS ARE THE THREE PLACES A yolo-RUN INSTALL LANDS, and the set is closed by
-// the mechanisms rather than by taste: an npm program resolves under
+// THE THREE FINDERS ARE THE THREE PLACES A yolo-RUN INSTALL LANDS OR LANDED, and the set is
+// closed by the mechanisms rather than by taste: an npm program resolves under
 // $NPM_CONFIG_PREFIX/lib/node_modules, a native installer's program under ~/.local/bin, and
-// the bootstrap's LSP go arm under $GOBIN (shell.go's `go install` + its `rm -f "$GOBIN/$bin"`
-// uninstall). A finder missing for one of them does not make that class clean — it makes it
-// INVISIBLE, which is worse the moment an explicit removal act reads this list: the act's
-// candidates would be the two classes someone happened to walk.
+// the deleted LSP recipe's go arm under $GOBIN (the bootstrap's `go install`, until the
+// recipe table went). A finder missing for one of them does not make that class clean — it
+// makes it INVISIBLE, which is worse the moment an explicit removal act reads this list: the
+// act's candidates would be the two classes someone happened to walk.
 //
 // It answers EMPTY unless YOLO_PACK_ROOT is set. Without a staged pack tree the declared set
 // is empty for a reason that has nothing to do with what is installed (an older host
@@ -136,7 +144,7 @@ func InstalledOrphans(e *Env) []Orphan {
 }
 
 // CatalogInstalledOrphans reports every installed package, ~/.local/bin entry and $GOBIN
-// binary that no selected pack, preset or LSP recipe declares: ONE line on the launch
+// binary that no selected pack or MCP preset declares: ONE line on the launch
 // terminal stating how many there are, and the list — one line each, naming the orphan and,
 // for a file, its size — in the boot log.
 //
@@ -179,8 +187,8 @@ func CatalogInstalledOrphans(e *Env) {
 // (OQ-PD4) — and it names the two verbs that act, so a reader who wants the list is one
 // command away rather than one file away.
 func catalogSummary(n int) string {
-	return fmt.Sprintf("%s%d installed %s %s declared by no selected pack, preset or LSP "+
-		"recipe — boot.log names them (`yolo programs ls` for sizes; `programs.autoprune` "+
+	return fmt.Sprintf("%s%d installed %s %s declared by no selected pack or preset — "+
+		"boot.log names them (`yolo programs ls` for sizes; `programs.autoprune` "+
 		"removes them)", catalogPrefix, n,
 		catalogPlural(n, "program", "programs"), catalogPlural(n, "is", "are"))
 }
@@ -194,19 +202,20 @@ func catalogPlural(n int, one, many string) string {
 	return many
 }
 
-// catalogLine is one orphan's line, in the boot log. The three classes state DIFFERENT
-// declaring sets — an npm package can be claimed by an MCP preset or an LSP recipe, a
-// ~/.local/bin entry only by a pack — and saying so per class is the half of the report that
-// tells a reader which declaration they would have to add to keep it.
+// catalogLine is one orphan's line, in the boot log. The classes state DIFFERENT declaring
+// sets — an npm package can be claimed by a pack or an MCP preset, a ~/.local/bin entry only
+// by a pack, and a $GOBIN entry by nothing at all now that the LSP recipe is gone — and
+// saying so per class is the half of the report that tells a reader which declaration they
+// would have to add to keep it.
 func catalogLine(o Orphan) string {
 	switch o.Class {
 	case OrphanNpm:
-		return "npm package installed but not declared by any selected pack, preset or " +
-			"LSP recipe: " + o.Display
+		return "npm package installed but not declared by any selected pack or preset: " +
+			o.Display
 	case OrphanLocalBin:
 		return o.Display + " installed but not declared by any selected pack" + o.Size
 	case OrphanGoBin:
-		return o.Display + " installed but not declared by any selected pack or LSP recipe" + o.Size
+		return o.Display + " installed but not declared by anything" + o.Size
 	}
 	return o.Display
 }
@@ -235,18 +244,6 @@ func catalogNpmOrphans(e *Env, packs []*packload.Pack) []string {
 	}
 	for _, pkg := range strings.Fields(mcpPresetNpmPackages(e)) {
 		declared[pkg] = struct{}{}
-	}
-	// Both halves of the LSP set: the env var is what THIS launch asked for, the sentinel
-	// is what the last bootstrap installed. A package the workspace dropped between boots
-	// is in the sentinel and not the env, and the uninstall loop in ~/.yolo-bootstrap.sh
-	// is about to remove it — reporting it here would name an orphan that has an owner.
-	for _, pkg := range splitLSPInstallList(e.Getenv("YOLO_LSP_NPM_INSTALL")) {
-		declared[pkg] = struct{}{}
-	}
-	for _, entry := range readLSPSentinel(e) {
-		if pkg, ok := strings.CutPrefix(entry, "npm:"); ok && pkg != "" {
-			declared[pkg] = struct{}{}
-		}
 	}
 
 	var orphans []string
@@ -372,55 +369,21 @@ func catalogLocalBinOrphans(e *Env, packs []*packload.Pack) []pathOrphan {
 	return catalogDirOrphans(e, e.LocalBin(), declared)
 }
 
-// catalogGoBinOrphans compares $GOBIN against the go tools that have an owner.
+// catalogGoBinOrphans lists every $GOBIN entry, because nothing in yolo declares one.
 //
-// THE DECLARED SET HERE IS THE LSP RECIPE TABLE'S GO ARM AND NOTHING ELSE, because that arm
-// is the only thing in yolo that ever runs `go install` into this directory (shell.go's LSP
-// loop; the two launcher templates land under the npm prefix and ~/.local/bin respectively,
-// and no `via` value installs a Go module — `knownVias` is {npm, installer}). A pack
-// therefore contributes no candidate here, which is why this finder takes no packs: an
-// argument nothing reads would read as "packs can own a go binary", and the next edit would
-// believe it.
+// THE DECLARED SET IS EMPTY, and that is the deletion of the LSP recipe table rather than an
+// oversight (docs/reference/mcp-configuration.md#oq-lsp1). Its go arm was the only thing in
+// yolo that ever ran `go install` into this directory — the launcher templates land under the
+// npm prefix and ~/.local/bin, and no `via` value installs a Go module (`knownVias` is {npm,
+// installer}) — so with it gone no declaration can own a $GOBIN file. The finder stays for
+// what the arm left behind: a gopls installed before the deletion has no record anywhere now
+// (the ~/.yolo-installed-lsps sentinel went with the table), and without this class it would
+// be invisible to the catalog and to `yolo programs remove` for the life of the home.
 //
-// It is derived from BOTH halves of the LSP set for the same reason catalogNpmOrphans is:
-// YOLO_LSP_GO_INSTALL is what THIS launch asked for, the sentinel is what the last bootstrap
-// installed and the uninstall loop is about to remove. A binary in the sentinel and not the
-// env has an owner — the loop that is about to `rm -f` it.
-//
-// The BIN NAME is what indexes this directory, so the declaration's module path is reduced
-// the same way shell.go reduces it (`base=${pkg%@*}; bin=${base##*/}`). Comparing module
-// paths against filenames would match nothing and report every installed go tool as an
-// orphan — including the two the recipe table itself installs.
+// It takes no packs for the same reason it took none before: an argument nothing reads would
+// read as "packs can own a go binary", and the next edit would believe it.
 func catalogGoBinOrphans(e *Env) []pathOrphan {
-	declared := map[string]struct{}{}
-	for _, pkg := range splitLSPInstallList(e.Getenv("YOLO_LSP_GO_INSTALL")) {
-		if bin := goModuleBinName(pkg); bin != "" {
-			declared[bin] = struct{}{}
-		}
-	}
-	for _, entry := range readLSPSentinel(e) {
-		if pkg, ok := strings.CutPrefix(entry, "go:"); ok {
-			if bin := goModuleBinName(pkg); bin != "" {
-				declared[bin] = struct{}{}
-			}
-		}
-	}
-	return catalogDirOrphans(e, e.GoBin(), declared)
-}
-
-// goModuleBinName reduces a `go install` argument to the binary name it lands as — the same
-// two steps shell.go's LSP go arm takes (`base=${pkg%@*}`, then `bin=${base##*/}`), so the
-// catalog indexes $GOBIN by the name that is actually there.
-//
-// `golang.org/x/tools/gopls@latest` → `gopls`; a bare `tool` → `tool`. Kept beside its one
-// caller rather than exported: the derivation is shell.go's, and a second spelling of it is
-// how the two stop agreeing about which file a declaration owns.
-func goModuleBinName(pkg string) string {
-	base, _, _ := strings.Cut(strings.TrimSpace(pkg), "@")
-	if i := strings.LastIndex(base, "/"); i >= 0 {
-		base = base[i+1:]
-	}
-	return base
+	return catalogDirOrphans(e, e.GoBin(), map[string]struct{}{})
 }
 
 // catalogDirOrphans lists every entry of dir whose name is not in declared, rendered as a
@@ -484,32 +447,4 @@ func RenderSize(n int64) string {
 	default:
 		return fmt.Sprintf("%.1f GB", float64(n)/(1024*1024*1024))
 	}
-}
-
-// splitLSPInstallList splits a YOLO_LSP_*_INSTALL value, which is newline-separated with
-// empty lines allowed (internal/config/lsp.go joins the recipe packages with "\n").
-func splitLSPInstallList(v string) []string {
-	var out []string
-	for _, line := range strings.Split(v, "\n") {
-		if s := strings.TrimSpace(line); s != "" {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
-// readLSPSentinel returns the lines of ~/.yolo-installed-lsps — what the LAST bootstrap
-// installed, one `kind:identifier` per line. Absent reads as empty; this never writes it.
-func readLSPSentinel(e *Env) []string {
-	data, err := os.ReadFile(filepath.Join(e.Home, ".yolo-installed-lsps"))
-	if err != nil {
-		return nil
-	}
-	var out []string
-	for _, line := range splitLines(string(data)) {
-		if s := strings.TrimSpace(line); s != "" {
-			out = append(out, s)
-		}
-	}
-	return out
 }

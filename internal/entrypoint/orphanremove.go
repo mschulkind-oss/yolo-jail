@@ -6,8 +6,9 @@ package entrypoint
 //
 // THE CANDIDATE SET IS THE BYTES, NEVER A RECORD, and that is the one design decision this
 // file exists to make. The system already had a removal loop keyed on a record — the LSP
-// bootstrap's `~/.yolo-installed-lsps` sentinel, which uninstalls exactly the entries it
-// wrote — and §10 step four measured what that costs: pyright, typescript and
+// bootstrap's `~/.yolo-installed-lsps` sentinel, which uninstalled exactly the entries it
+// wrote until it was deleted with the LSP recipe table
+// (docs/reference/mcp-configuration.md#oq-lsp1) — and §10 step four measured what that costs: pyright, typescript and
 // typescript-language-server were installed in this jail from a since-unconfigured
 // `lsp_servers` with their sentinel record LOST, so the loop that exists to remove them
 // could not see them and never will. MEASURED again 2026-09-04 from inside this jail: the

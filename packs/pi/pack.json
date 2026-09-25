@@ -16,6 +16,13 @@
         "openai",
         "openai-responses"
       ],
+      "refresh": {
+        "argv": [
+          "update",
+          "--extensions"
+        ],
+        "lock": ".pi-shared-npm/.yolo-update.lock"
+      },
       "via": "npm"
     },
     {
@@ -45,6 +52,11 @@
     {
       "from": "extensions/yolo-openai-auth.js",
       "into": ".pi/agent/extensions/yolo-openai-auth.js",
+      "kind": "files"
+    },
+    {
+      "from": "extensions/yolo-footer.js",
+      "into": ".pi/agent/extensions/yolo-footer.js",
       "kind": "files"
     },
     {

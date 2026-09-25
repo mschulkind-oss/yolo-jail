@@ -11,12 +11,12 @@ import (
 	"time"
 )
 
-// serverrefresh.go is the TRANSITIVE half of evergreen agent updates — the MCP and LSP
-// servers a yolo-installed agent connects to (docs/design/program-delivery.md §3.5,
+// serverrefresh.go is the TRANSITIVE half of evergreen agent updates — the MCP servers a
+// yolo-installed agent connects to (docs/design/program-delivery.md §3.5,
 // OQ-PD12/OQ-PD12a; ../plans/evergreen-agent-updates.md build-order step 7). The agent CLIs
-// went evergreen on 2026-09-04 and their servers did not: a yolo-installed MCP or LSP server
-// moved only when the bootstrap reinstalled it, which for a warm home is never, because
-// every install arm in the bootstrap is guarded by "is it missing?".
+// went evergreen on 2026-09-04 and their servers did not: a yolo-installed MCP server moved
+// only when the bootstrap reinstalled it, which for a warm home is never, because every
+// install arm in the bootstrap is guarded by "is it missing?".
 //
 // # The trigger is the agent's, not its own
 //
@@ -33,15 +33,20 @@ import (
 // resolves on every spawn and is already current — §6.1's *unmanaged* tier, where refreshing
 // would be inventing management this design declines. What actually freezes is the
 // bootstrap-installed set: the npm packages the enabled MCP presets need
-// (`mcpPresetNpmPackages`) and the LSP recipes' npm and go arms, which the
-// `~/.yolo-installed-lsps` sentinel tracks. `serverRefreshSet` is the one place that set is
-// derived, and it derives it from the same declarations the bootstrap installs from.
+// (`mcpPresetNpmPackages`). `serverRefreshSet` is the one place that set is derived, and it
+// derives it from the same declaration the bootstrap installs from.
+//
+// LANGUAGE SERVERS ARE NOT IN IT ANY MORE. They were — the LSP recipe table's npm and go
+// arms, tracked by the `~/.yolo-installed-lsps` sentinel — until the table and every install
+// path it fed were deleted (docs/reference/mcp-configuration.md#oq-lsp1). yolo installs no
+// language server now, so there is none for it to keep current; the go arm this file carried
+// served only that table and went with it.
 //
 // # Per-agent narrowing is a no-op TODAY, and this is where it would go
 //
 // §3.5 says the refresh happens for *"an agent whose config names that server"*, and notes
 // that the set is a rendered per-agent fact rather than something to infer. In this tree it
-// is the same set for every agent: `YOLO_MCP_PRESETS` and `lsp_servers` are jail-global keys,
+// is the same set for every agent: `YOLO_MCP_PRESETS` is a jail-global key,
 // and `Env.LoadMCPServers` builds one table that every agent's surface renders from. So every
 // launcher is handed the same list, and the narrowing costs nothing because there is nothing
 // to narrow. If MCP presets ever become per-pack, `serverRefreshSet` grows a pack argument
@@ -66,8 +71,7 @@ import (
 // # Why the common case costs no subprocess
 //
 // Presence is a STAT, not a probe: `$NPM_CONFIG_PREFIX/lib/node_modules/<pkg>/package.json`
-// for npm (the path `_installed_version` already reads) and `$GOBIN/<bin>` for go (the test
-// the bootstrap's go arm already makes). Freshness is another stat. So a jail whose servers
+// (the path `_installed_version` already reads). Freshness is another stat. So a jail whose servers
 // are all installed and all fresh runs a handful of stats and exits — measured 2026-09-09 at
 // 6.5 ms per invocation, ten in a row.
 //
@@ -95,14 +99,12 @@ const ServerRefreshInterval = 3600
 // a fifth of what it says.
 const ServerRefreshTimeout = 60
 
-// serverKind distinguishes the two resolvers the bootstrap installs servers with. It is not
-// a `via`: no pack contributes a server, and nothing here reads packdecl.
+// serverKind names the resolver the bootstrap installs servers with. npm is the only one
+// left: the go kind served the deleted LSP recipe's go arm alone. It is not a `via`: no pack
+// contributes a server, and nothing here reads packdecl.
 type serverKind string
 
-const (
-	serverNpm serverKind = "npm"
-	serverGo  serverKind = "go"
-)
+const serverNpm serverKind = "npm"
 
 // serverPkg is one yolo-installed server package, as declared.
 type serverPkg struct {
@@ -113,21 +115,20 @@ type serverPkg struct {
 	installedPath string
 	// pinned is true when the declaration names a version, in which case there is nothing
 	// for a refresh to resolve: the declaration already IS the answer, exactly as the npm
-	// launcher's PINNED branch says of a pack's `package`. No shipped recipe or preset is
-	// pinned today (`pyright`, `typescript`, `golang.org/x/tools/gopls@latest`), so this is
-	// for a recipe or a user declaration that grows one.
+	// launcher's PINNED branch says of a pack's `package`. No shipped preset is pinned today
+	// (`chrome-devtools-mcp`, `@modelcontextprotocol/server-sequential-thinking`), so this is
+	// for a preset that grows one.
 	pinned bool
 }
 
 // stampName is the per-package throttle file's basename.
 //
-// PER PACKAGE, not per agent (§3.5): two agents that both connect to pyright must not both
-// pay for it — the first invocation refreshes it and the second sees a fresh stamp. The
-// sanitizer exists because a spec is a path-shaped or scope-shaped string
-// (`@modelcontextprotocol/server-sequential-thinking`, `golang.org/x/tools/gopls@latest`) and
-// this is a filename. Two specs that differ only in a sanitized character would share a
-// stamp; npm package names and go module paths cannot differ that way, and a shared stamp
-// would cost a missed refresh rather than a wrong install.
+// PER PACKAGE, not per agent (§3.5): two agents that both connect to one server must not
+// both pay for it — the first invocation refreshes it and the second sees a fresh stamp. The
+// sanitizer exists because a spec is a scope-shaped string
+// (`@modelcontextprotocol/server-sequential-thinking`) and this is a filename. Two specs that
+// differ only in a sanitized character would share a stamp; npm package names cannot differ
+// that way, and a shared stamp would cost a missed refresh rather than a wrong install.
 func (p serverPkg) stampName() string {
 	flat := strings.Map(func(r rune) rune {
 		switch {
@@ -144,41 +145,26 @@ func (p serverPkg) stampName() string {
 
 // installArgv is the command that installs or refreshes this package.
 //
-// It is the BOOTSTRAP'S OWN spelling in both arms, deliberately: `npm install -g
-// --prefer-online <pkg>` is what the LSP npm arm runs, and `go install <pkg>` is what the go
-// arm runs. A refresh that reached the registry differently from the install would make the
-// two capable of landing different bytes for one declaration, which is the drift every
-// generated-client comment in this repo is about. `--prefer-online` is what makes a refresh a
-// refresh rather than a cache read.
+// `--prefer-online` is what makes a refresh a refresh rather than a cache read. (It was also
+// the deleted LSP npm arm's spelling, which is where it came from: a refresh that reached the
+// registry differently from the install would make the two capable of landing different
+// bytes for one declaration.)
 func (p serverPkg) installArgv() []string {
-	switch p.kind {
-	case serverGo:
-		return []string{"go", "install", p.spec}
-	default:
-		return []string{"npm", "install", "-g", "--prefer-online", p.spec}
-	}
+	return []string{"npm", "install", "-g", "--prefer-online", p.spec}
 }
 
-// serverRefreshSet derives the yolo-INSTALLED server set for this jail, npm arm then go arm.
-//
-// The npm arm is the MCP presets' packages plus the LSP recipes' npm packages; the go arm is
-// the LSP recipes' go modules. Both LSP halves read BOTH the env list (what THIS launch asked
-// for) and the sentinel (what the LAST bootstrap installed), for `catalogNpmOrphans`'s reason
-// turned around: a server in the sentinel and not the env is on its way out — the bootstrap's
-// uninstall loop will remove it — and refreshing it would fight that loop, so the env list
-// wins and the sentinel only ever ADDS the entries a launch cannot see because its own env is
-// empty. Which is the state that matters here: this runs from a launcher, not from boot.
+// serverRefreshSet derives the yolo-INSTALLED server set for this jail: the MCP presets'
+// npm packages, deduplicated in order.
 func serverRefreshSet(e *Env) []serverPkg {
 	nodeModules := filepath.Join(e.NpmPrefix, "lib", "node_modules")
 
 	var out []serverPkg
 	seen := map[string]bool{}
-	addNpm := func(spec string) {
-		spec = strings.TrimSpace(spec)
-		if spec == "" || seen[string(serverNpm)+spec] {
-			return
+	for _, spec := range strings.Fields(mcpPresetNpmPackages(e)) {
+		if seen[spec] {
+			continue
 		}
-		seen[string(serverNpm)+spec] = true
+		seen[spec] = true
 		name, version := splitNpmSpec(spec)
 		out = append(out, serverPkg{
 			kind:          serverNpm,
@@ -187,67 +173,24 @@ func serverRefreshSet(e *Env) []serverPkg {
 			pinned:        npmSpecIsPinned(version) && version != "latest",
 		})
 	}
-	addGo := func(spec string) {
-		spec = strings.TrimSpace(spec)
-		if spec == "" || seen[string(serverGo)+spec] {
-			return
-		}
-		seen[string(serverGo)+spec] = true
-		bin := goModuleBinName(spec)
-		if bin == "" {
-			return
-		}
-		_, version, _ := strings.Cut(spec, "@")
-		out = append(out, serverPkg{
-			kind:          serverGo,
-			spec:          spec,
-			installedPath: filepath.Join(e.GoBin(), bin),
-			pinned:        version != "" && version != "latest",
-		})
-	}
-
-	for _, pkg := range strings.Fields(mcpPresetNpmPackages(e)) {
-		addNpm(pkg)
-	}
-	for _, pkg := range splitLSPInstallList(e.Getenv("YOLO_LSP_NPM_INSTALL")) {
-		addNpm(pkg)
-	}
-	for _, pkg := range splitLSPInstallList(e.Getenv("YOLO_LSP_GO_INSTALL")) {
-		addGo(pkg)
-	}
-	// The sentinel's job here is the launch whose env says nothing: an older host launcher,
-	// or a re-render that did not carry the LSP vars. It never contradicts the env list —
-	// addNpm/addGo dedupe — it only supplies what the env could not.
-	for _, entry := range readLSPSentinel(e) {
-		if pkg, ok := strings.CutPrefix(entry, "npm:"); ok {
-			addNpm(pkg)
-		}
-		if pkg, ok := strings.CutPrefix(entry, "go:"); ok {
-			addGo(pkg)
-		}
-	}
 	return out
 }
 
-// launcherServers is the baked MCP/LSP server set, as a generated launcher carries it.
+// launcherServers is the baked MCP server set, as a generated launcher carries it.
 //
-// A named type rather than two strings on the argument list: the two lists have the same
-// SHAPE (whitespace-separated declarations) and different meanings, so a bare `"", ""` at a
-// call site says nothing about either, and swapping them at one of eighteen call sites would
-// compile. `launcherServers{}` also says "no servers" out loud, which is what every test but
-// the refresh ones wants.
+// A named type rather than a bare string on the argument list: a `""` at a call site says
+// nothing about what it is, and `launcherServers{}` says "no servers" out loud, which is what
+// every test but the refresh ones wants. It carried a second, go-module list until the LSP
+// recipe that was that list's only source was deleted.
 type launcherServers struct {
-	// npm is the npm package declarations — the MCP presets' packages and the LSP recipes'
-	// npm arm.
+	// npm is the npm package declarations — the MCP presets' packages.
 	npm string
-	// gomods is the LSP recipes' go arm, as `go install` arguments.
-	gomods string
 }
 
-func (s launcherServers) empty() bool { return s.npm == "" && s.gomods == "" }
+func (s launcherServers) empty() bool { return s.npm == "" }
 
-// ServerRefreshSpecs renders the baked launcher values: the npm arm and the go arm as
-// whitespace-separated declaration lists.
+// ServerRefreshSpecs renders the baked launcher value: the npm arm as a whitespace-separated
+// declaration list.
 //
 // WHITESPACE-SEPARATED SCALARS rather than bash arrays, and BAKED rather than read from the
 // environment. Both halves are the same lesson written down twice already in this package.
@@ -260,32 +203,24 @@ func (s launcherServers) empty() bool { return s.npm == "" && s.gomods == "" }
 // Scalars, because an empty bash array under `set -u` is unbound on the bash 3.2 macos-user
 // runs against, which is why UPDATE_VERB needs a HAS_UPDATE_VERB gate beside it. A scalar
 // that may be empty needs no gate. Splitting on whitespace loses nothing: the bootstrap
-// already word-splits both lists unquoted (`for pkg in $YOLO_MCP_NPM`), so a package name
+// already word-splits the list unquoted (`for pkg in $YOLO_MCP_NPM`), so a package name
 // containing a space has never been installable by yolo in the first place.
 func ServerRefreshSpecs(e *Env) launcherServers {
-	var npmList, goList []string
+	var npmList []string
 	for _, p := range serverRefreshSet(e) {
-		if p.kind == serverGo {
-			goList = append(goList, p.spec)
-		} else {
-			npmList = append(npmList, p.spec)
-		}
+		npmList = append(npmList, p.spec)
 	}
-	return launcherServers{
-		npm:    strings.Join(npmList, " "),
-		gomods: strings.Join(goList, " "),
-	}
+	return launcherServers{npm: strings.Join(npmList, " ")}
 }
 
 // ServerRefreshRequest is one refresh, fully specified. Every seam a test needs is a field:
 // the clock, the command runner and the sink, so the walk can be driven without a registry.
 type ServerRefreshRequest struct {
-	// Env supplies Home, NpmPrefix and GoBin. Nothing else is read from it.
+	// Env supplies Home and NpmPrefix. Nothing else is read from it.
 	Env *Env
-	// NpmSpecs and GoSpecs are the baked declaration lists, whitespace-separated, exactly
-	// as ServerRefreshSpecs rendered them.
+	// NpmSpecs is the baked declaration list, whitespace-separated, exactly as
+	// ServerRefreshSpecs rendered it.
 	NpmSpecs string
-	GoSpecs  string
 	// Updates is this jail's agent_updates policy for the pack that triggered the refresh.
 	//
 	// It gates the STALE phase and NOT the absent one, which is the launchers' own split
@@ -323,7 +258,7 @@ func RefreshServers(req ServerRefreshRequest) error {
 		run = runServerInstall
 	}
 
-	pkgs := serverPkgsFromSpecs(req.Env, req.NpmSpecs, req.GoSpecs)
+	pkgs := serverPkgsFromSpecs(req.Env, req.NpmSpecs)
 	if len(pkgs) == 0 {
 		return nil
 	}
@@ -421,10 +356,10 @@ func refreshStaleServers(e *Env, stampDir string, stale []serverPkg, stderr io.W
 	}
 }
 
-// serverPkgsFromSpecs re-derives serverPkg values from the launcher's baked lists. It is the
+// serverPkgsFromSpecs re-derives serverPkg values from the launcher's baked list. It is the
 // other end of ServerRefreshSpecs: the paths and the pin verdict are computed HERE rather
 // than baked, so a launcher generated against one home cannot carry stale paths into another.
-func serverPkgsFromSpecs(e *Env, npmSpecs, goSpecs string) []serverPkg {
+func serverPkgsFromSpecs(e *Env, npmSpecs string) []serverPkg {
 	nodeModules := filepath.Join(e.NpmPrefix, "lib", "node_modules")
 	var out []serverPkg
 	for _, spec := range strings.Fields(npmSpecs) {
@@ -439,30 +374,12 @@ func serverPkgsFromSpecs(e *Env, npmSpecs, goSpecs string) []serverPkg {
 			pinned:        npmSpecIsPinned(version) && version != "latest",
 		})
 	}
-	for _, spec := range strings.Fields(goSpecs) {
-		bin := goModuleBinName(spec)
-		if bin == "" {
-			continue
-		}
-		_, version, _ := strings.Cut(spec, "@")
-		out = append(out, serverPkg{
-			kind:          serverGo,
-			spec:          spec,
-			installedPath: filepath.Join(e.GoBin(), bin),
-			pinned:        version != "" && version != "latest",
-		})
-	}
 	return out
 }
 
-// serverLockDir names the lock for the prefix this kind installs into. The npm spelling is
-// the npm launcher template's `LOCK_DIR` verbatim; nothing but this file writes $GOBIN, so
-// the go arm's lock has only itself to serialize against — it exists so the rule reads the
-// same for both arms rather than having an exception a reader has to remember.
+// serverLockDir names the lock for the prefix this kind installs into: the npm launcher
+// template's `LOCK_DIR` verbatim, since the two write the same prefix.
 func serverLockDir(e *Env, kind serverKind) string {
-	if kind == serverGo {
-		return filepath.Join(e.GoPath, ".yolo-update.lock")
-	}
 	return filepath.Join(e.NpmPrefix, ".yolo-update.lock")
 }
 

@@ -140,12 +140,12 @@ func assertParses(t *testing.T, body, what string) {
 // arrives intact.
 func TestLauncherTemplatesParseWithHostileValues(t *testing.T) {
 	v := hostileValue("-parse")
-	// The server lists go through the SAME sentinel set as everything else, so they carry
-	// the hostile value too. They are the newest splice (§3.5's transitive refresh) and the
+	// The server list goes through the SAME sentinel set as everything else, so it carries
+	// the hostile value too. It is the newest splice (§3.5's transitive refresh) and the
 	// only one whose value is a whitespace-separated LIST landing in a scalar, which is the
 	// shape most likely to be spliced raw by someone reading the template rather than the
 	// contract.
-	srv := launcherServers{npm: v + " second-pkg", gomods: v + "/mod@latest"}
+	srv := launcherServers{npm: v + " second-pkg"}
 	// A pack's LAUNCH FLAGS are values from the same manifest (DP-B44), and they land in
 	// two places at once: a bare `LAUNCH_FLAGS=(…)` and a `case` PATTERN. The pattern is
 	// the one a reader would not think to quote, since it is the one position in these
@@ -156,12 +156,15 @@ func TestLauncherTemplatesParseWithHostileValues(t *testing.T) {
 		Before: []string{v},
 		After:  []string{v, v, "--plain"},
 	}
+	// The pre-launch refresh's argv and lock (prelaunchrefresh.go) are pack values too.
+	refresh := &packdecl.Refresh{Argv: []string{v, "--extensions"}, Lock: v + "/" + v}
 	assertParses(t, npmAgentLauncher(
 		&packdecl.Install{Kind: "npm", Bin: v, Package: v, Flags: []string{v, "--plain"},
-			UpdateVerb: []string{v, "--self"}},
+			UpdateVerb: []string{v, "--self"}, Refresh: refresh},
 		v, v, true, srv, inj), "npm launcher")
 	assertParses(t, nativeAgentLauncher(
-		&packdecl.Install{Kind: "native", Bin: v, InstallerURL: v, UpdateVerb: []string{v, "--self"}},
+		&packdecl.Install{Kind: "native", Bin: v, InstallerURL: v, UpdateVerb: []string{v, "--self"},
+			Refresh: refresh},
 		v, v, v, true, srv, inj), "native launcher")
 	// The wrapper is the fourth carrier and obeys the same contract; its own two values
 	// (the dir it must skip and the fallback it may exec) are paths derived from $HOME,

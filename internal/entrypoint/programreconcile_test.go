@@ -219,11 +219,11 @@ func TestReconcileComparesTheLatestReceiptForAProgram(t *testing.T) {
 	got := latestReceipts([]receipt{
 		{Kind: "npm", Bin: "tool", Resolved: "1.0.0"},
 		{Kind: "npm", Bin: "tool", Resolved: "2.0.0"},
-		{Kind: "lsp-go", Bin: "tool", Resolved: "v1.0.0"},
+		{Kind: "installer", Bin: "tool", Resolved: "v1.0.0"},
 	})
 	if len(got) != 2 {
-		t.Fatalf("kind is part of the key — an npm `tool` and an LSP go `tool` are different "+
-			"bytes in different directories: %v", got)
+		t.Fatalf("kind is part of the key — an npm `tool` and an installer `tool` are "+
+			"different bytes in different directories: %v", got)
 	}
 	if r := got[receiptKey{Kind: "npm", Bin: "tool"}]; r.Resolved != "2.0.0" {
 		t.Errorf("last append wins, got %q", r.Resolved)
@@ -369,104 +369,35 @@ func fileSHA256Of(t *testing.T, body []byte) (string, error) {
 	return fileSHA256(p)
 }
 
-// --- the LSP sentinel generalisation ---------------------------------------------------
+// --- the retired LSP record ---------------------------------------------------------
 
-// TestReconcileGeneralisesTheLSPSentinel is §10 step two's HEADLINE CLAIM and a live defect
-// in this jail.
+// TestReconcileNoLongerJudgesTheRetiredLSPRecord: the LSP recipe table, its install loop and
+// the ~/.yolo-installed-lsps sentinel that loop kept are deleted
+// (docs/reference/mcp-configuration.md#oq-lsp1), so the third comparison this report used to
+// make — sentinel against disk — has no record left to compare. An upgraded jail still HAS
+// the leftovers, and each one here would have been a finding before:
 //
-// The sentinel is "the only install/uninstall reconciliation loop in the system, and it is
-// one field short of being a receipt" (§4.3). What it cannot do is notice that its own record
-// and the disk disagree — and MEASURED 2026-09-02, ~/.yolo-installed-lsps here is ONE BYTE (a
-// newline) while pyright, typescript and typescript-language-server are all installed. The
-// uninstall loop is keyed on that record, so those three can never be removed by it.
-//
-// Both directions, because they are different defects with the same cause:
-//
-//	recorded, not installed  → the uninstall loop would remove nothing
-//	installed + declared, not recorded → dropping the declaration will not uninstall it
-func TestReconcileGeneralisesTheLSPSentinel(t *testing.T) {
+//   - a sentinel entry with nothing on disk, and an installed package the sentinel omits
+//     while an older launcher's YOLO_LSP_NPM_INSTALL declares it;
+//   - an `lsp-npm` receipt whose version disagrees with the disk. reconcileNpmVersion's
+//     advice is "run 'yolo pack update' to reassert the declaration", and there is no
+//     declaration left to reassert; the package is the catalog's orphan now.
+func TestReconcileNoLongerJudgesTheRetiredLSPRecord(t *testing.T) {
 	home, ws, packRoot := reconcileHome(t)
-	// Installed and declared, but the sentinel lost its record — the live shape.
 	seedNpmVersion(t, home, "pyright", "1.1.0")
-	// Recorded but gone: nothing under node_modules, nothing in $GOBIN.
 	if err := os.WriteFile(filepath.Join(home, ".yolo-installed-lsps"),
 		[]byte("npm:bash-language-server\ngo:github.com/x/vanished@v1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	writeReceipts(t, ws, `{"schema":1,"kind":"lsp-npm","declared":"pyright",`+
+		`"resolved":"1.0.0","act":"install","time":"2026-08-24T10:00:00Z"}`)
 
 	term, _ := runReconcile(t, map[string]string{
 		"JAIL_HOME": home, "YOLO_WORKSPACE": ws, "YOLO_PACK_ROOT": packRoot,
 		"YOLO_LSP_NPM_INSTALL": "pyright\n",
 	})
-
-	if !strings.Contains(term, "npm:pyright") || !strings.Contains(term, "absent from the LSP") {
-		t.Errorf("an installed, declared, unrecorded LSP package must be reported — this is "+
-			"the record-and-bytes divergence the whole design exists to close:\n%s", term)
-	}
-	for _, gone := range []string{"npm:bash-language-server", "go:github.com/x/vanished@v1"} {
-		if !strings.Contains(term, gone) {
-			t.Errorf("a sentinel entry with nothing on disk must be reported (%s):\n%s", gone, term)
-		}
-	}
-}
-
-// TestReconcileSentinelIsQuietWhenTheRecordMatchesTheDisk is the negative: a healthy sentinel
-// is the common case, and a report that fired anyway would put three lines on every launch of
-// every jail with LSP servers configured.
-func TestReconcileSentinelIsQuietWhenTheRecordMatchesTheDisk(t *testing.T) {
-	home, ws, packRoot := reconcileHome(t)
-	seedNpmVersion(t, home, "pyright", "1.1.0")
-	gobin := filepath.Join(home, "go", "bin")
-	if err := os.MkdirAll(gobin, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(gobin, "gopls"), []byte("x"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(home, ".yolo-installed-lsps"),
-		[]byte("npm:pyright\ngo:golang.org/x/tools/gopls@latest\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	if term, _ := runReconcile(t, map[string]string{
-		"JAIL_HOME": home, "YOLO_WORKSPACE": ws, "YOLO_PACK_ROOT": packRoot,
-		"YOLO_LSP_NPM_INSTALL": "pyright\n",
-		"YOLO_LSP_GO_INSTALL":  "golang.org/x/tools/gopls@latest\n",
-	}); term != "" {
-		t.Errorf("a sentinel that agrees with the disk must be silent, got:\n%s", term)
-	}
-}
-
-// TestReconcileSentinelSparesAnUninstalledDeclaration: a server this boot is about to
-// install — declared, unrecorded and ABSENT — is the cold path, not a divergence. The
-// bootstrap two steps from here installs it and writes the record.
-func TestReconcileSentinelSparesAnUninstalledDeclaration(t *testing.T) {
-	home, ws, packRoot := reconcileHome(t)
-
-	if term, _ := runReconcile(t, map[string]string{
-		"JAIL_HOME": home, "YOLO_WORKSPACE": ws, "YOLO_PACK_ROOT": packRoot,
-		"YOLO_LSP_NPM_INSTALL": "pyright\n",
-		"YOLO_LSP_GO_INSTALL":  "golang.org/x/tools/gopls@latest\n",
-	}); term != "" {
-		t.Errorf("a cold home about to install its declared servers is not a divergence:\n%s",
-			term)
-	}
-}
-
-// TestReconcileSentinelToleratesAnUnknownKind: a future sentinel kind this build does not know
-// is version skew, and reporting "not installed" for it would turn a newer host's record into
-// a wrong finding on every boot — the same tolerance `via` was given in §6.2.
-func TestReconcileSentinelToleratesAnUnknownKind(t *testing.T) {
-	home, ws, packRoot := reconcileHome(t)
-	if err := os.WriteFile(filepath.Join(home, ".yolo-installed-lsps"),
-		[]byte("uv:some-tool\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	if term, _ := runReconcile(t, map[string]string{
-		"JAIL_HOME": home, "YOLO_WORKSPACE": ws, "YOLO_PACK_ROOT": packRoot,
-	}); term != "" {
-		t.Errorf("a kind this build cannot probe must produce no finding:\n%s", term)
+	if term != "" {
+		t.Errorf("the reconcile still judges the deleted LSP recipe's record:\n%s", term)
 	}
 }
 
@@ -481,10 +412,6 @@ func TestReconcileIsSilentWithoutAStagedPackTree(t *testing.T) {
 	seedNpmVersion(t, home, "tool", "9.9.9")
 	writeReceipts(t, ws, `{"schema":1,"kind":"npm","bin":"tool","declared":"tool",`+
 		`"resolved":"1.0.0","act":"install","time":"2026-08-24T10:00:00Z"}`)
-	if err := os.WriteFile(filepath.Join(home, ".yolo-installed-lsps"),
-		[]byte("npm:vanished\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 
 	term, logOnly := runReconcile(t, map[string]string{"JAIL_HOME": home, "YOLO_WORKSPACE": ws})
 	if term != "" || logOnly != "" {
@@ -619,10 +546,6 @@ func TestReconcileTouchesNothing(t *testing.T) {
 			`"act":"install","time":"2026-08-24T10:00:00Z"}`,
 		`bad line`,
 		installerReceipt(t, bin, sum, int64(len("VERSION-ONE"))))
-	if err := os.WriteFile(filepath.Join(home, ".yolo-installed-lsps"),
-		[]byte("npm:vanished\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 
 	// The workspace holds the receipts log, so both trees are snapshotted.
 	beforeHome, beforeWS := treeSnapshot(t, home), treeSnapshot(t, ws)
@@ -846,10 +769,10 @@ func TestBootReconcilesBesideTheCatalog(t *testing.T) {
 	}
 }
 
-// TestReconcileIsNotWiredIntoTheDarwinBootstrap: catalog.go:16-21 states the argument and it
-// applies unchanged. macos-user stages no pack tree and passes no YOLO_LSP_*_INSTALL (its
-// launcher builds no LSP env at all), so every declared-set input would read empty there —
-// and an empty declared set turns a report into a boot that calls everything a divergence.
+// TestReconcileIsNotWiredIntoTheDarwinBootstrap: catalog.go's header states the argument and
+// it applies unchanged. macos-user stages no pack tree, so the declared-set input would read
+// empty there — and an empty declared set turns a report into a boot that calls everything a
+// divergence.
 // A backend that cannot state what it declared must not be asked what diverged.
 func TestReconcileIsNotWiredIntoTheDarwinBootstrap(t *testing.T) {
 	src, err := os.ReadFile(filepath.Join(repoRoot(t), "internal", "entrypoint", "darwin.go"))

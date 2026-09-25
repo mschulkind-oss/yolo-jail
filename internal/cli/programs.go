@@ -38,9 +38,9 @@ install record gets wrong. Run it INSIDE a jail: the programs live in that jail'
 per-workspace home, and the declarations come from its staged pack tree.
 
   yolo programs ls                  report, offline. Orphans (installed, and no selected
-                                    pack, preset or LSP recipe declares them) with their
-                                    sizes, plus every place the install receipts and the
-                                    LSP sentinel disagree with what is on disk.
+                                    pack or MCP preset declares them) with their sizes,
+                                    plus every place the install receipts disagree with
+                                    what is on disk.
   yolo programs remove [NAME...]    remove orphans. WITHOUT --apply it is a DRY RUN: it
                                     prints every path it would unlink and exits.
   yolo programs remove --apply      actually remove them.
@@ -49,8 +49,8 @@ per-workspace home, and the declarations come from its staged pack tree.
   NAME is an orphan as 'ls' names it — an npm package name, or the base name of a
   ~/.local/bin or $GOPATH/bin entry. With no NAME, every orphan is a candidate.
 
-Only an ORPHAN can be removed. A program a selected pack, an MCP preset or an LSP recipe
-declares is never a candidate, so this command cannot uninstall a tool your config still
+Only an ORPHAN can be removed. A program a selected pack or an MCP preset declares is
+never a candidate, so this command cannot uninstall a tool your config still
 asks for — drop the declaration first, then run it.
 
 Nothing is removed at boot unless you ask for it. Set "programs": {"autoprune": true} in
@@ -150,8 +150,7 @@ func programsLs(args []string, out, errw io.Writer, color bool) int {
 
 	rep := entrypoint.ReconcileInstalled(e)
 	pr.Printf("")
-	pr.Printf("[bold]Record[/bold] — where the install receipts and the LSP sentinel " +
-		"disagree with the disk")
+	pr.Printf("[bold]Record[/bold] — where the install receipts disagree with the disk")
 	switch {
 	case len(rep.Findings) > 0:
 		for _, f := range rep.Findings {

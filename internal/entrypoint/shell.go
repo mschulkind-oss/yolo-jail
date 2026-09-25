@@ -1,7 +1,6 @@
 package entrypoint
 
 import (
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -306,9 +305,16 @@ func GenerateBootstrapScript(e *Env) error {
 func bootstrapPath(e *Env) string { return e.Home + "/.yolo-bootstrap.sh" }
 
 // interpolation is the mise_shims path in the PATH export line, the preset-gated MCP npm
-// package list, and the receipt sentinels (a baked path plus the three constant JSON heads —
-// the MCP and LSP loops' bin/declared come from the environment at run time, so only the
+// package list, and the receipt sentinels (a baked path plus the constant JSON head of the
+// MCP loop's receipts — its declared package comes from the loop at run time, so only the
 // kind can be rendered here; see receiptPrefix).
+//
+// It installs NO language server. The LSP install loop that used to follow the MCP one — fed
+// by YOLO_LSP_NPM_INSTALL / YOLO_LSP_GO_INSTALL from a three-entry recipe table, tracked by
+// the ~/.yolo-installed-lsps sentinel — is deleted with the table
+// (docs/reference/mcp-configuration.md#oq-lsp1): a configured server's `command` must already
+// resolve on PATH. What it installed before the deletion is left in place, and the boot
+// catalog names it as an orphan (catalog.go) for `yolo programs remove` to collect.
 func BootstrapScript(e *Env) string {
 	r := strings.NewReplacer(
 		"__YOLO_MISE_SHIMS__", e.MiseShims(),
@@ -317,10 +323,7 @@ func BootstrapScript(e *Env) string {
 		// Baked for macos-user's `env -i`, per the comment at the consuming site.
 		"__YOLO_NODE_FLOORS__", declaredNodeFloors(e),
 		"__YOLO_RECEIPTS_FILE__", shquote.Quote(receiptsFile(e)),
-		"__YOLO_RECEIPT_LSP_NPM__", shquote.Quote(receiptPrefix("lsp-npm", "", "")),
-		"__YOLO_RECEIPT_LSP_GO__", shquote.Quote(receiptPrefix("lsp-go", "", "")),
 		"__YOLO_RECEIPT_MCP_NPM__", shquote.Quote(receiptPrefix("mcp-npm", "", "")),
-		"__YOLO_LSP_SENTINEL__", lspSentinelExpr(e),
 	)
 	return r.Replace(bootstrapTemplate)
 }
@@ -359,30 +362,6 @@ func mcpPresetNpmPackages(e *Env) string {
 	return strings.Join(pkgs, " ")
 }
 
-// lspSentinelExpr renders the SHELL EXPRESSION the generated script assigns to SENTINEL:
-// where this environment keeps the record of what the last provisioning run installed, so
-// an LSP server dropped from the config can be uninstalled on the next one.
-//
-// It is per-WORKSPACE state, and the two backends reach the same per-workspace directory
-// by different primitives — which is the whole reason it is a function.
-//
-//   - The container binds <ws>/.yolo/home/yolo-installed-lsps at ~/.yolo-installed-lsps
-//     (run.podmanBaseMounts), so `$HOME/.yolo-installed-lsps` already names this
-//     workspace's file and the expression is unchanged from the literal that was here.
-//   - macos-user has no binds and ONE account home shared by every workspace, so the same
-//     spelling would make workspace A's sentinel workspace B's. The install PREFIX it
-//     describes is per-workspace there (a sidecar symlink), so a shared sentinel is not
-//     merely untidy: it claims installs that live in another workspace's prefix.
-//
-// A shell expression rather than a path because the container's half must keep expanding
-// $HOME at run time — the jail resolves it, not the generator.
-func lspSentinelExpr(e *Env) string {
-	if sidecar := e.DarwinSidecar(); sidecar != "" {
-		return shquote.Quote(filepath.Join(sidecar, "yolo-installed-lsps"))
-	}
-	return `"$HOME/.yolo-installed-lsps"`
-}
-
 // bootstrapTemplate is the body of the bootstrap script.
 const bootstrapTemplate = `#!/bin/bash
 export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HOME/.npm-global}"
@@ -393,28 +372,13 @@ export PATH="$HOME/.local/bin:$NPM_CONFIG_PREFIX/bin:__YOLO_MISE_SHIMS__:$GOBIN:
 # Baked, never read from the environment: see receiptsFile.
 _YOLO_RECEIPTS=__YOLO_RECEIPTS_FILE__
 ` + receiptShellFns + `
-# The npm/go resolvers' "resolved identity" readers. Both may come back empty — a missing jq,
-# a binary built without module info — and an empty answer omits the field rather than
-# inventing one. _yolo_lsp_npm_version keeps its name and serves the MCP arm too: both are
-# the same question ("what version of <pkg> is in the global prefix?") asked of the same
-# resolver, and a second copy under a second name is how the two answers drift apart.
-_yolo_lsp_npm_version() {
+# The npm resolver's "resolved identity" reader. It may come back empty — a missing jq, an
+# unreadable package.json — and an empty answer omits the field rather than inventing one.
+_yolo_npm_version() {
     local v
     v=$(jq -r '.version' "$NPM_CONFIG_PREFIX/lib/node_modules/$1/package.json" 2>/dev/null) || return 0
     # jq prints "null" for an absent key, which is not a version.
     if [ "$v" != "null" ]; then printf '%s\n' "$v"; fi
-    return 0
-}
-
-# ` + "`" + `go version -m <bin>` + "`" + ` prints one tab-indented ` + "`" + `mod` + "`" + ` row: the literal "mod", the
-# module path, the version, then the checksum. The leading tab does NOT produce an empty
-# first field — tab is IFS whitespace, so read strips the leading run.
-_yolo_go_module_version() {
-    local out tag modpath ver rest
-    out=$(YOLO_BYPASS_SHIMS=1 go version -m "$1" 2>/dev/null) || return 0
-    while IFS=$'\t' read -r tag modpath ver rest; do
-        if [ "$tag" = "mod" ]; then printf '%s\n' "$ver"; return 0; fi
-    done <<< "$out"
     return 0
 }
 
@@ -424,7 +388,8 @@ fc-cache -f >/dev/null 2>&1
 # Agent CLIs (copilot, claude, codex) are NOT installed here.
 # Lazy-install launchers in ~/.yolo/bin/launch/ install them on first use, keeping boot
 # fast.  They no longer update themselves on a timer — "yolo pack update" is the act that
-# resolves a new version.  Only MCP/LSP tools that agents depend on are installed here.
+# resolves a new version.  Only the MCP preset tools agents depend on are installed here —
+# never a language server: a configured lsp_servers command must already be on PATH.
 
 # --- Node floors: install what a declared program needs, then REFUSE if it is absent ----
 # OQ-AR2's eager half and OQ-AR3's refusal (docs/design/agent-program-runtimes.md).
@@ -497,105 +462,15 @@ if [ -n "$YOLO_MCP_NPM" ]; then
             # naming it, not a line naming a set it happens to be in.
             for pkg in $YOLO_MCP_NPM; do
                 _yolo_receipt "$(_yolo_head __YOLO_RECEIPT_MCP_NPM__ '' "$pkg")" \
-                    "" "$(_yolo_lsp_npm_version "$pkg")" "" install
+                    "" "$(_yolo_npm_version "$pkg")" "" install
             done
         fi
     fi
 fi
 
-# --- LSP installs (gated on workspace config) ---------------------------
-# Sentinel records what we installed last boot, so we can uninstall on
-# removal.  Format: one ` + "``" + `kind:identifier` + "``" + ` per line, e.g.
-# ` + "``" + `npm:pyright` + "``" + ` / ` + "``" + `go:github.com/isaacphi/mcp-language-server` + "``" + `.
-SENTINEL=__YOLO_LSP_SENTINEL__
-prev=""
-[ -f "$SENTINEL" ] && prev=$(cat "$SENTINEL")
-desired=""
-for pkg in $(printf '%s\n' "${YOLO_LSP_NPM_INSTALL:-}" | sed '/^$/d'); do
-    desired="${desired}npm:${pkg}\n"
-done
-for pkg in $(printf '%s\n' "${YOLO_LSP_GO_INSTALL:-}" | sed '/^$/d'); do
-    desired="${desired}go:${pkg}\n"
-done
-desired=$(printf "$desired")
-
-# Install anything in desired that isn't already installed.
-echo "$desired" | while IFS= read -r entry; do
-    [ -z "$entry" ] && continue
-    kind=${entry%%:*}
-    pkg=${entry#*:}
-    case "$kind" in
-        npm)
-            # Probe via npm ls -g; faster than ` + "`" + `command -v` + "`" + ` when the bin name doesn't match the pkg name.
-            if ! YOLO_BYPASS_SHIMS=1 npm ls -g --depth=0 "$pkg" >/dev/null 2>&1; then
-                echo "  Installing npm: $pkg" >&2
-                # The status is CAPTURED, not dropped with "|| true". A receipt appended
-                # after an unconditional success records an install that may never have
-                # happened, and this is the one loop whose failures are routine (an
-                # offline boot retries the whole set next launch).
-                lsp_rc=0
-                YOLO_BYPASS_SHIMS=1 npm install -g --prefer-online "$pkg" 2>&1 || lsp_rc=$?
-                if [ "$lsp_rc" = 0 ]; then
-                    # Appended INSIDE the arm: this loop reads from a pipe, so it runs in
-                    # a subshell and no state it accumulates would survive the "done".
-                    _yolo_receipt "$(_yolo_head __YOLO_RECEIPT_LSP_NPM__ '' "$pkg")" \
-                        "" "$(_yolo_lsp_npm_version "$pkg")" "" install
-                fi
-            fi
-            ;;
-        go)
-            # ` + "``" + `go install pkg@ver` + "``" + ` is idempotent but slow; skip if the bin already exists.
-            # Strip ` + "``" + `@version` + "``" + ` to derive the binary name from the last path segment.
-            base=${pkg%@*}
-            bin=${base##*/}
-            if [ ! -f "$GOBIN/$bin" ]; then
-                if command -v go >/dev/null; then
-                    echo "  Installing go: $pkg" >&2
-                    mkdir -p "$GOBIN"
-                    lsp_rc=0
-                    YOLO_BYPASS_SHIMS=1 go install "$pkg" 2>&1 || lsp_rc=$?
-                    if [ "$lsp_rc" = 0 ]; then
-                        _yolo_receipt "$(_yolo_head __YOLO_RECEIPT_LSP_GO__ "$bin" "$pkg")" \
-                            "" "$(_yolo_go_module_version "$GOBIN/$bin")" "" install
-                    fi
-                else
-                    echo "  ⚠ go not found, skipping $pkg" >&2
-                fi
-            fi
-            ;;
-    esac
-done
-
-# Uninstall anything in prev that's no longer in desired (workspace
-# dropped an LSP between boots).
-echo "$prev" | while IFS= read -r entry; do
-    [ -z "$entry" ] && continue
-    if ! printf '%s\n' "$desired" | grep -qxF "$entry"; then
-        kind=${entry%%:*}
-        pkg=${entry#*:}
-        case "$kind" in
-            npm)
-                echo "  Uninstalling npm: $pkg (no longer configured)" >&2
-                YOLO_BYPASS_SHIMS=1 npm uninstall -g "$pkg" 2>&1 || true
-                ;;
-            go)
-                base=${pkg%@*}
-                bin=${base##*/}
-                if [ -f "$GOBIN/$bin" ]; then
-                    echo "  Removing go binary: $bin (no longer configured)" >&2
-                    rm -f "$GOBIN/$bin"
-                fi
-                ;;
-        esac
-    fi
-done
-
-# Persist the new sentinel.
-printf '%s\n' "$desired" > "$SENTINEL"
-
 # NOTE: an unconditional 'pip install showboat' used to live here. It is GONE, deliberately —
 # do not add another ungated tool install to this script. Every other install above is
-# config-gated (mcp presets, lsp_servers) or pack-declared, probes for what it needs, and
+# config-gated (mcp presets) or pack-declared, probes for what it needs, and
 # tolerates failure; showboat was the only one that did none of that, and being the LAST
 # command it turned a missing 'pip' into "PROVISIONING FAILED" on every boot (PR #29).
 # Nothing in the repo consumed it. If a tool is wanted in the image, the mechanisms are

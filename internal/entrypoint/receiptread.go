@@ -43,14 +43,16 @@ type receipt struct {
 	// Schema is the version receiptPrefix stamps. 1 is the only value ever written.
 	Schema int
 	// Kind is the RESOLVER: "npm" (both launcher funnels and the pnpm one), "installer",
-	// "lsp-npm", "lsp-go", "mcp-npm", "capture". The kind implies the landing prefix for
-	// the three bootstrap arms, which is why they carry no Path (receiptPrefix says why).
+	// "mcp-npm", "capture" — plus "lsp-npm" and "lsp-go" in a log written before the LSP
+	// recipe loop was deleted (docs/reference/mcp-configuration.md#oq-lsp1). The kind implies
+	// the landing prefix for the bootstrap's list arms, which is why they carry no Path
+	// (receiptPrefix says why).
 	Kind string
-	// Bin is the binary name, omitted by the two npm list arms (lsp-npm, mcp-npm) which
-	// install a package whose bin name they do not know.
+	// Bin is the binary name, omitted by the npm list arms (mcp-npm, and the retired
+	// lsp-npm) which install a package whose bin name they do not know.
 	Bin string
 	// Declared is the DECLARATION verbatim — a pack's `package` string, an installer URL, or
-	// an LSP recipe's module path. Not the install spec: the two differ the moment a pack
+	// (in a retired lsp-go receipt) an LSP recipe's module path. Not the install spec: the two differ the moment a pack
 	// names a version, and telling "the declaration moved" from "the registry moved" is what
 	// the pair is for.
 	Declared string

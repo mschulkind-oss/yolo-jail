@@ -535,13 +535,15 @@ func TestNativeLauncherVendorSelfUpdateEmitsNoReceipt(t *testing.T) {
 	}
 }
 
-// --- LSP bootstrap -------------------------------------------------------------------
+// --- the bootstrap's install arms -----------------------------------------------------
 
-// bootstrapProbe is a temp jail home wired with fake npm/jq/go, so ~/.yolo-bootstrap.sh's
-// LSP install loop can be RUN. That loop reads its package list from a PIPE, so it executes
-// in a subshell — the one detail that makes "assert on the script text" useless here: a
-// receipt accumulated in a variable and written after `done` is lost, silently, and looks
-// perfectly correct in a diff.
+// bootstrapProbe is a temp jail home wired with fake npm/jq/go, so ~/.yolo-bootstrap.sh can
+// be RUN rather than read: a receipt accumulated in the wrong scope is lost silently and
+// looks perfectly correct in a diff. It was built for the LSP install loop, which read its
+// list from a pipe and so ran in a subshell; that loop is deleted with the LSP recipe table
+// (docs/reference/mcp-configuration.md#oq-lsp1), and the probe now drives the MCP-preset arm
+// and pins that nothing installs a language server. The fake `go` stays so a surviving `go
+// install` would have something to run, and it logs what it was asked to do.
 type bootstrapProbe struct {
 	home    string
 	fakeBin string
@@ -550,8 +552,13 @@ type bootstrapProbe struct {
 	// that set it in the run env would exercise nothing.
 	presets      string
 	receiptsPath string
-	sentinel     string
-	gobin        string
+	// sentinel is where the deleted LSP loop kept its record; a test seeds a leftover one
+	// there to prove nothing reads or rewrites it.
+	sentinel string
+	gobin    string
+	// toolLog collects one line per fake npm/go invocation, so a test can assert that
+	// nothing was asked to install at all.
+	toolLog string
 }
 
 func newBootstrapProbe(t *testing.T) *bootstrapProbe {
@@ -565,8 +572,10 @@ func newBootstrapProbe(t *testing.T) *bootstrapProbe {
 		t.Fatal(err)
 	}
 
+	toolLog := filepath.Join(home, "tool.log")
 	// `npm ls -g` always reports "not installed", so the install arm always runs.
 	npm := `#!/bin/bash
+echo "npm $*" >> "` + toolLog + `"
 case "${1:-}" in
 ls) exit 1 ;;
 install)
@@ -581,6 +590,7 @@ exit 0
 	// `go install <pkg@ver>` lands a binary in $GOBIN; `go version -m <bin>` answers with
 	// the tab-separated mod row the real one prints (leading tab included).
 	goFake := `#!/bin/bash
+echo "go $*" >> "` + toolLog + `"
 case "${1:-}" in
 install)
     if [ -n "${FAKE_GO_FAIL:-}" ]; then echo "go: cannot download" >&2; exit 1; fi
@@ -619,6 +629,7 @@ printf '%s\n' "${line%%\"*}"
 		receiptsPath: filepath.Join(home, "ws", ".yolo", "receipts.jsonl"),
 		sentinel:     filepath.Join(home, ".yolo-installed-lsps"),
 		gobin:        filepath.Join(home, "go", "bin"),
+		toolLog:      toolLog,
 	}
 }
 
@@ -670,38 +681,45 @@ func pick(t *testing.T, got []map[string]any, kind string) map[string]any {
 	return found[0]
 }
 
-// TestLSPInstallsLeaveReceipts covers the third install site: the bootstrap's LSP loop.
-func TestLSPInstallsLeaveReceipts(t *testing.T) {
+// TestBootstrapInstallsNoLanguageServer: the LSP install loop, the YOLO_LSP_*_INSTALL lists
+// it read and the ~/.yolo-installed-lsps sentinel it kept are deleted with the recipe table
+// (docs/reference/mcp-configuration.md#oq-lsp1). Every retired input is present here, as an
+// upgraded jail or an older host launcher would still supply them, and none may move a byte:
+// no install, no receipt, no uninstall of what a previous boot left, and the leftover
+// sentinel neither rewritten nor removed. Collecting the leftovers is the catalog's and
+// `yolo programs remove`'s job, never the boot's.
+func TestBootstrapInstallsNoLanguageServer(t *testing.T) {
 	b := newBootstrapProbe(t)
+	leftover := filepath.Join(b.home, ".npm-global", "lib", "node_modules", "pyright")
+	if err := os.MkdirAll(leftover, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const sentinel = "npm:pyright\nnpm:typescript-language-server\n"
+	if err := os.WriteFile(b.sentinel, []byte(sentinel), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	out := b.run(t,
-		"YOLO_LSP_NPM_INSTALL=pyright",
-		"YOLO_LSP_GO_INSTALL=github.com/example/tool@v1.4.2")
+		"YOLO_LSP_NPM_INSTALL=typescript-language-server",
+		"YOLO_LSP_GO_INSTALL=github.com/example/tool@v1.4.2",
+		`YOLO_LSP_SERVERS={"go":{"command":"gopls"}}`)
 
-	got := b.receipts(t)
-	if len(got) != 2 {
-		t.Fatalf("want one receipt per LSP install, got %d: %v\n%s", len(got), got, out)
+	if log, err := os.ReadFile(b.toolLog); err == nil && len(log) > 0 {
+		t.Errorf("the bootstrap ran npm/go with no MCP preset enabled — an LSP install path "+
+			"survived:\n%s\n%s", log, out)
 	}
-
-	npm := pick(t, got, "lsp-npm")
-	if d := str(t, npm, "declared"); d != "pyright" {
-		t.Errorf("lsp-npm declared = %q, want pyright", d)
+	if got := b.receipts(t); len(got) != 0 {
+		t.Errorf("the bootstrap recorded installs it must not make: %v\n%s", got, out)
 	}
-	if v := str(t, npm, "resolved"); v != "3.2.1" {
-		t.Errorf("lsp-npm resolved = %q, want the version from the installed package.json", v)
+	if _, err := os.Stat(filepath.Join(b.gobin, "tool")); err == nil {
+		t.Errorf("a go module landed in $GOBIN:\n%s", out)
 	}
-
-	goR := pick(t, got, "lsp-go")
-	if d := str(t, goR, "declared"); d != "github.com/example/tool@v1.4.2" {
-		t.Errorf("lsp-go declared = %q, want the declared module@version", d)
+	if _, err := os.Stat(leftover); err != nil {
+		t.Errorf("the bootstrap removed a leftover install (%v); removal is an explicit act "+
+			"(yolo programs remove), never the boot's:\n%s", err, out)
 	}
-	// The bin name the uninstall loop derives, so a later reconcile can find the file.
-	if bin := str(t, goR, "bin"); bin != "tool" {
-		t.Errorf("lsp-go bin = %q, want tool", bin)
-	}
-	// From `go version -m`, not from the declaration: a declaration may name a branch or
-	// a pseudo-version and the binary knows what it actually is.
-	if v := str(t, goR, "resolved"); v != "v1.4.2" {
-		t.Errorf("lsp-go resolved = %q, want the mod line's version", v)
+	if data, err := os.ReadFile(b.sentinel); err != nil || string(data) != sentinel {
+		t.Errorf("the leftover sentinel was rewritten or removed (err=%v, now %q)", err, data)
 	}
 }
 
@@ -735,8 +753,8 @@ func TestMCPPresetInstallLeavesAReceiptPerPackage(t *testing.T) {
 }
 
 // TestMCPPresetReceiptIsNotWrittenAfterAFailedInstall: the arm captures npm's status rather
-// than running under "|| true", for the same reason the LSP arms do — an offline boot fails
-// here routinely and simply retries next launch, and a receipt is a claim about bytes.
+// than running under "|| true" — an offline boot fails here routinely and simply retries next
+// launch, and a receipt is a claim about bytes.
 func TestMCPPresetReceiptIsNotWrittenAfterAFailedInstall(t *testing.T) {
 	b := newBootstrapProbe(t)
 	b.presets = `["sequential-thinking"]`
@@ -761,71 +779,6 @@ func TestMCPPresetWithNoEnabledPresetInstallsNothingAndRecordsNothing(t *testing
 		if r["kind"] == "mcp-npm" {
 			t.Errorf("no preset asked for anything, so nothing was installed: %v\n%s", r, out)
 		}
-	}
-}
-
-// TestLSPReceiptsAreNotWrittenAfterAFailedInstall is the "|| true" trap, closed.
-//
-// Both arms used to end in `|| true`, which discards the status: appending a receipt after
-// one records every attempt as a success, including the offline boot that installed
-// nothing and will retry next launch.
-func TestLSPReceiptsAreNotWrittenAfterAFailedInstall(t *testing.T) {
-	b := newBootstrapProbe(t)
-	out := b.run(t,
-		"YOLO_LSP_NPM_INSTALL=pyright",
-		"YOLO_LSP_GO_INSTALL=github.com/example/tool@v1.4.2",
-		"FAKE_NPM_FAIL=1")
-
-	got := b.receipts(t)
-	for _, r := range got {
-		if r["kind"] == "lsp-npm" {
-			t.Errorf("a failed npm install must leave no receipt: %v\n%s", r, out)
-		}
-	}
-	// ...and the failure must not take the sibling arm down with it: the loop still has
-	// to install the go server, and still has to record it.
-	pick(t, got, "lsp-go")
-}
-
-// TestLSPGoReceiptOmitsAnUnreadableVersion: `go version -m` fails on a binary built
-// without module info, and the answer to "what version is this?" is then nothing. Omitting
-// the field says that; a placeholder would be a fact nobody measured.
-func TestLSPGoReceiptOmitsAnUnreadableVersion(t *testing.T) {
-	b := newBootstrapProbe(t)
-	b.run(t, "YOLO_LSP_GO_INSTALL=github.com/example/tool@v1.4.2", "FAKE_GO_NO_MODINFO=1")
-
-	r := pick(t, b.receipts(t), "lsp-go")
-	if _, present := r["resolved"]; present {
-		t.Errorf("an unparseable `go version -m` must omit resolved, not invent it: %v", r)
-	}
-	// The rest of the receipt is still true and still worth having.
-	if d := str(t, r, "declared"); d != "github.com/example/tool@v1.4.2" {
-		t.Errorf("declared = %q", d)
-	}
-}
-
-// TestLSPSentinelBytesAreUnchangedByTheReceiptHook is the constraint the receipt work had
-// to not break, pinned so a later edit cannot.
-//
-// ~/.yolo-installed-lsps is read back by the UNINSTALL loop with an exact-line match
-// (`grep -qxF`), so any change to its format — a trailing field, a different separator, a
-// reordering — orphans every entry a previous boot wrote: the loop would find no line
-// matching and uninstall the user's whole configured LSP set on the next launch.
-func TestLSPSentinelBytesAreUnchangedByTheReceiptHook(t *testing.T) {
-	b := newBootstrapProbe(t)
-	b.run(t,
-		"YOLO_LSP_NPM_INSTALL=pyright",
-		"YOLO_LSP_GO_INSTALL=github.com/example/tool@v1.4.2")
-
-	data, err := os.ReadFile(b.sentinel)
-	if err != nil {
-		t.Fatal(err)
-	}
-	const want = "npm:pyright\ngo:github.com/example/tool@v1.4.2\n"
-	if string(data) != want {
-		t.Errorf("sentinel bytes changed.\n got: %q\nwant: %q\n\nThe uninstall loop matches "+
-			"these lines EXACTLY, so a format change silently uninstalls every server a "+
-			"previous boot installed.", data, want)
 	}
 }
 
@@ -932,8 +885,9 @@ func TestReceiptPrefixEscapesTheDeclaration(t *testing.T) {
 	if m["bin"] != `bi"n` || m["declared"] != `pkg\"@1` {
 		t.Errorf("round-trip lost the original strings: %v", m)
 	}
-	// The LSP loop renders only the constant half; bin/declared come from the shell.
-	if got := receiptPrefix("lsp-npm", "", ""); got != `{"schema":1,"kind":"lsp-npm"` {
+	// The MCP-preset loop renders only the constant half; its declared package comes from
+	// the shell.
+	if got := receiptPrefix("mcp-npm", "", ""); got != `{"schema":1,"kind":"mcp-npm"` {
 		t.Errorf("empty bin/declared must be omitted, got %q", got)
 	}
 }

@@ -570,10 +570,11 @@ const (
 //     net has to survive in the tree the human reads from the host side — and because a boot
 //     has NO TTY to prompt on, so the copy is the only net that path can have (§6.3.3).
 //
-// WHY THE WORKSPACE IS THE JAIL'S ANCHOR, and why that is not lspSentinelExpr's problem: the
-// two backends reach a per-workspace directory INSIDE THE HOME by different primitives (the
+// WHY THE WORKSPACE IS THE JAIL'S ANCHOR, and why it needs no per-backend spelling: the two
+// backends reach a per-workspace directory INSIDE THE HOME by different primitives (the
 // container binds one, macos-user has one account home shared by every workspace), which is
-// what forces that function's two spellings. This directory is not in the home. It is in the
+// what forced the deleted LSP sentinel's path into two spellings. This directory is not in
+// the home. It is in the
 // workspace, which both backends name directly — Env.WorkspaceDir honors YOLO_WORKSPACE and
 // macos-user passes the real path (agentcfg.WorkspacePlaceholder says the same) — and it is
 // the SAME anchor SidecarDir already uses for the capture sidecars. One anchor, one answer,

@@ -66,16 +66,15 @@ func TestGeneratedLaunchersCarryThePolicy(t *testing.T) {
 	}
 
 	e := NewEnv(map[string]string{
-		"JAIL_HOME":           home,
-		"YOLO_PACK_ROOT":      packRoot,
-		AgentUpdatesEnv:       `{"*": true, "frozen": false}`,
-		"YOLO_MISE_TOOLS":     `{}`,
-		"NPM_CONFIG_PREFIX":   filepath.Join(home, ".npm-global"),
-		"YOLO_BLOCK_CONFIG":   `[]`,
-		"YOLO_LSP_SERVERS":    `{}`,
-		"YOLO_MCP_SERVERS":    `{}`,
-		"YOLO_MCP_PRESETS":    `[]`,
-		"YOLO_LSP_GO_INSTALL": "",
+		"JAIL_HOME":         home,
+		"YOLO_PACK_ROOT":    packRoot,
+		AgentUpdatesEnv:     `{"*": true, "frozen": false}`,
+		"YOLO_MISE_TOOLS":   `{}`,
+		"NPM_CONFIG_PREFIX": filepath.Join(home, ".npm-global"),
+		"YOLO_BLOCK_CONFIG": `[]`,
+		"YOLO_LSP_SERVERS":  `{}`,
+		"YOLO_MCP_SERVERS":  `{}`,
+		"YOLO_MCP_PRESETS":  `[]`,
 	})
 	if err := GenerateAgentLaunchers(e); err != nil {
 		t.Fatal(err)

@@ -106,6 +106,19 @@ func assertLinkedToShared(t *testing.T, link, shared string) {
 	}
 }
 
+// piRefreshLock is the absolute path of the lock the shipped pi pack's pre-launch refresh
+// takes, read from the manifest so this suite follows the declaration rather than a copy.
+func piRefreshLock(t *testing.T, p *packload.Pack, home string) string {
+	t.Helper()
+	for _, in := range p.Decl.InstallContributions() {
+		if in.Refresh != nil {
+			return filepath.Join(home, filepath.FromSlash(in.Refresh.Lock))
+		}
+	}
+	t.Fatal("the pi pack no longer declares a pre-launch refresh")
+	return ""
+}
+
 // seedStore writes a small store that exercises the three entry shapes a node_modules tree
 // actually contains: a file, a nested file, and a RELATIVE symlink (npm's .bin entries).
 func seedStore(t *testing.T, root, marker string) {
@@ -174,19 +187,40 @@ func TestSharedDirectoryHookLinksWhenNeitherSideExists(t *testing.T) {
 // declaration, and EMPTY-BUT-PRESENT is what EnsureGlobalStorage leaves — the common one, and
 // the one a Size()-based emptiness test gets exactly backwards (a fresh directory Stats
 // non-empty, so the rule would DISCARD the workspace's store).
+//
+// The third shape is a store holding NOTHING BUT yolo's own bookkeeping: the pack's
+// pre-launch refresh (prelaunchrefresh.go) takes its lock INSIDE this store, so a store no
+// extension was ever installed into holds only that lock while a refresh runs, and for up to
+// STALE_LOCK after an interrupted one. Counted as content, it made the store "populated" and
+// the hook DISCARDED the workspace's real tree — the extensions then existing nowhere.
 func TestSharedDirectoryHookMigratesAPopulatedStoreIntoAnEmptyShared(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		seedShared bool
+		seedLock   bool
 	}{
-		{"shared absent", false},
-		{"shared present but empty", true},
+		{"shared absent", false, false},
+		{"shared present but empty", true, false},
+		{"shared holds only the refresh lock", true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p, hook := sharedDirHook(t, "pi")
 			e, link, shared := sharedDirEnv(t, hook)
 			if tc.seedShared {
 				if err := os.MkdirAll(shared, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.seedLock {
+				lock := piRefreshLock(t, p, e.Home)
+				if filepath.Dir(lock) != shared {
+					t.Fatalf("pi's refresh lock %s is no longer a direct child of the store %s "+
+						"this hook shares, so this cell no longer covers it", lock, shared)
+				}
+				if err := os.Mkdir(lock, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(lock, ".yolo-lock-owner"), []byte("1.2.3\n"), 0o644); err != nil {
 					t.Fatal(err)
 				}
 			}

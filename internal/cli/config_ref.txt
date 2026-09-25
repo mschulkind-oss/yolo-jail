@@ -821,7 +821,7 @@
   [bold]agent_updates[/bold] (boolean, or object of pack name -> boolean): Keep agent CLIs
     current.  Default TRUE -- absent means on.
     An AGENT dependency is a program yolo installs so a coding agent can run: the
-    agent CLIs themselves, and the MCP and LSP servers they drive.  Nobody's build
+    agent CLIs themselves, and the MCP servers they drive.  Nobody's build
     reproduces against one, so a six-week-old copy is a defect rather than a
     guarantee, and yolo keeps them current.  A PROJECT dependency -- `mise_tools`,
     `packages`, anything the work in /workspace builds against -- is the opposite
@@ -1578,6 +1578,9 @@
       • fileExtensions (object): Extension → language ID map (required for Copilot).
     The entrypoint translates these for each agent:
       • Copilot: written to ~/.copilot/lsp-config.json as native LSP servers.
+      • Claude Code: the launcher renders ONE generated plugin, yolo-lsp, from the
+        whole table into the skills tree Claude loads plugins from.
+    yolo installs no language server itself, on any backend.
     Example: {"rust": {"command": "rust-analyzer", "args": [],
               "fileExtensions": {".rs": "rust"}}}
 
@@ -1729,8 +1732,8 @@
     programs nothing declares any more.
     • [bold]autoprune[/bold] (boolean, [bold]default false[/bold]): Remove orphans at boot.
       An ORPHAN is something installed in this jail's per-workspace home that no
-      selected pack, MCP preset or LSP recipe declares — what a dropped pack left
-      behind. Every boot already NAMES them ("boot catalog: ..." lines, with sizes);
+      selected pack or MCP preset declares — what a dropped pack left behind.
+      Every boot already NAMES them ("boot catalog: ..." lines, with sizes);
       nothing removes them unless you set this.
       With it on, each launch removes what it cataloged, printing every path first.
       [yellow]It is destructive and it runs with nobody present.[/yellow] ~/.local/bin

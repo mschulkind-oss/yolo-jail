@@ -91,22 +91,15 @@ func TestCatalogNamesNpmOrphansAndSparesEveryDeclaredSource(t *testing.T) {
 		"@scope/declared", // the pack's npm program (NAME half of a pinned spec)
 		"pnpm",            // GeneratePackageManagerLaunchers
 		"@modelcontextprotocol/server-sequential-thinking", // an enabled MCP preset
-		"pyright",                    // this launch's YOLO_LSP_NPM_INSTALL
-		"bash-language-server",       // the PREVIOUS boot's sentinel
 		"leftover-agent",             // an orphan
 		"@dropped/scoped-orphan",     // an orphan, two levels down
 		".bin", ".package-lock.json", // npm's own bookkeeping, never packages
 	)
-	if err := os.WriteFile(filepath.Join(home, ".yolo-installed-lsps"),
-		[]byte("npm:bash-language-server\ngo:github.com/x/y\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 
 	got := runCatalog(t, map[string]string{
-		"JAIL_HOME":            home,
-		"YOLO_PACK_ROOT":       packRoot,
-		"YOLO_MCP_PRESETS":     `["sequential-thinking"]`,
-		"YOLO_LSP_NPM_INSTALL": "pyright\n",
+		"JAIL_HOME":        home,
+		"YOLO_PACK_ROOT":   packRoot,
+		"YOLO_MCP_PRESETS": `["sequential-thinking"]`,
 	})
 
 	for _, want := range []string{"leftover-agent", "@dropped/scoped-orphan"} {
@@ -116,7 +109,7 @@ func TestCatalogNamesNpmOrphansAndSparesEveryDeclaredSource(t *testing.T) {
 	}
 	for _, spared := range []string{
 		"@scope/declared", "pnpm", "@modelcontextprotocol/server-sequential-thinking",
-		"pyright", "bash-language-server", ".bin", ".package-lock.json",
+		".bin", ".package-lock.json",
 	} {
 		if strings.Contains(got, spared) {
 			t.Errorf("%q has an owner and must not be cataloged as an orphan:\n%s", spared, got)
@@ -128,6 +121,39 @@ func TestCatalogNamesNpmOrphansAndSparesEveryDeclaredSource(t *testing.T) {
 		if strings.HasSuffix(line, "@dropped") {
 			t.Errorf("a scope was cataloged as if it were a package: %s", line)
 		}
+	}
+}
+
+// THE MIGRATION PATH for the deleted LSP recipe table (docs/reference/mcp-configuration.md#oq-lsp1):
+// what its install loop put on disk before the deletion has no owner now, so the catalog must
+// NAME it — that is what lets `yolo programs remove` collect it, since nothing uninstalls it
+// on its own any more. The two retired sources are both still present here, exactly as an
+// upgraded jail has them: a leftover ~/.yolo-installed-lsps sentinel in the home, and an older
+// host launcher's YOLO_LSP_*_INSTALL in the environment. Neither may make a package owned.
+func TestCatalogNamesWhatTheDeletedLSPRecipeInstalled(t *testing.T) {
+	home, packRoot := catalogHome(t)
+	seedNpm(t, home, "pyright", "typescript-language-server")
+	seedGoBin(t, home, 64, "gopls")
+	if err := os.WriteFile(filepath.Join(home, ".yolo-installed-lsps"),
+		[]byte("npm:pyright\nnpm:typescript-language-server\ngo:golang.org/x/tools/gopls@latest\n"),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := runCatalog(t, map[string]string{
+		"JAIL_HOME":            home,
+		"YOLO_PACK_ROOT":       packRoot,
+		"YOLO_LSP_NPM_INSTALL": "pyright\n",
+		"YOLO_LSP_GO_INSTALL":  "golang.org/x/tools/gopls@latest\n",
+	})
+	for _, want := range []string{"pyright", "typescript-language-server", "~/go/bin/gopls"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("%q was installed by the deleted LSP recipe and nothing declares it now, "+
+				"so the catalog must name it for `yolo programs remove` to collect:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "LSP recipe") {
+		t.Errorf("the catalog still names an LSP recipe as a declaring source:\n%s", got)
 	}
 }
 
@@ -268,64 +294,30 @@ func seedGoBin(t *testing.T, home string, size int, names ...string) {
 	}
 }
 
-// TestCatalogNamesGoBinOrphansAndSparesTheDeclaredRecipe is the third orphan CLASS, which
-// was invisible: the catalog walked node_modules and ~/.local/bin and never $GOBIN, so a go
-// tool the bootstrap's LSP arm installed under a declaration that has since gone had no line
+// TestCatalogNamesEveryGoBinEntryWithItsSize is the third orphan CLASS, which was
+// invisible: the catalog walked node_modules and ~/.local/bin and never $GOBIN, so a go tool
+// the bootstrap's LSP arm installed under a declaration that has since gone had no line
 // anywhere. MEASURED in this jail on 2026-09-02: ~/go/bin held gopls AND mcp-language-server,
-// the latter's only consumer deleted with the gemini agent (internal/config/lsp.go),
-// and the boot catalog named five orphans — none of them either one.
+// the latter's only consumer deleted with the gemini agent, and the boot catalog named five
+// orphans — none of them either one.
+//
+// NOTHING IS SPARED here any more. The LSP recipe's go arm was the only declaration that
+// could own a $GOBIN file, and it is deleted (docs/reference/mcp-configuration.md#oq-lsp1),
+// so every entry is named — the recipe's own gopls included, which is how an upgraded jail's
+// leftover is found at all.
 //
 // A missing finder is worse than an unreported directory once an explicit removal act reads
 // this list (OQ-PD4's other half): the act's candidates would be whichever classes someone
 // happened to walk, which is a removal list that is silently wrong rather than short.
-func TestCatalogNamesGoBinOrphansAndSparesTheDeclaredRecipe(t *testing.T) {
+func TestCatalogNamesEveryGoBinEntryWithItsSize(t *testing.T) {
 	home, packRoot := catalogHome(t)
-	seedGoBin(t, home, 2*1024*1024,
-		"gopls",               // this launch's YOLO_LSP_GO_INSTALL (the `go` recipe)
-		"tool",                // the PREVIOUS boot's sentinel
-		"mcp-language-server", // the live orphan: nothing declares it any more
-	)
-	if err := os.WriteFile(filepath.Join(home, ".yolo-installed-lsps"),
-		[]byte("go:github.com/example/tool@v1.4.2\nnpm:pyright\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	seedGoBin(t, home, 2*1024*1024, "gopls", "mcp-language-server")
 
-	got := runCatalog(t, map[string]string{
-		"JAIL_HOME":           home,
-		"YOLO_PACK_ROOT":      packRoot,
-		"YOLO_LSP_GO_INSTALL": "golang.org/x/tools/gopls@latest\n",
-	})
+	got := runCatalog(t, map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot})
 
-	if !lineWithBoth(got, "~/go/bin/mcp-language-server", "(2.0 MB)") {
-		t.Errorf("the $GOBIN orphan must be named with its size:\n%s", got)
-	}
-	for _, spared := range []string{"gopls", "~/go/bin/tool"} {
-		if strings.Contains(got, spared) {
-			t.Errorf("%q has an owner and must not be cataloged as an orphan:\n%s", spared, got)
-		}
-	}
-	// The declared set is indexed by the BIN NAME, not the module path: comparing
-	// `golang.org/x/tools/gopls@latest` against the filename `gopls` matches nothing, so a
-	// path-keyed set would report every installed go tool — the recipe's own included.
-	if strings.Contains(got, "golang.org/x/tools") {
-		t.Errorf("a declaration's module path is not a $GOBIN filename:\n%s", got)
-	}
-}
-
-// TestGoModuleBinName is the reduction shell.go's LSP go arm makes
-// (`base=${pkg%@*}; bin=${base##*/}`), which is the only thing that lets a declaration and a
-// file in $GOBIN be compared at all.
-func TestGoModuleBinName(t *testing.T) {
-	for _, tc := range []struct{ pkg, want string }{
-		{"golang.org/x/tools/gopls@latest", "gopls"},
-		{"github.com/isaacphi/mcp-language-server@v0.1.0", "mcp-language-server"},
-		{"github.com/example/tool", "tool"},
-		{"tool@v1.2.3", "tool"},
-		{"  golang.org/x/tools/gopls@latest  ", "gopls"},
-		{"", ""},
-	} {
-		if got := goModuleBinName(tc.pkg); got != tc.want {
-			t.Errorf("goModuleBinName(%q) = %q, want %q", tc.pkg, got, tc.want)
+	for _, want := range []string{"~/go/bin/gopls", "~/go/bin/mcp-language-server"} {
+		if !lineWithBoth(got, want, "(2.0 MB)") {
+			t.Errorf("the $GOBIN orphan %s must be named with its size:\n%s", want, got)
 		}
 	}
 }
@@ -395,10 +387,6 @@ func TestCatalogTouchesNothing(t *testing.T) {
 	seedNpm(t, home, "leftover-agent")
 	seedLocalBin(t, home, 8, "huge-orphan")
 	seedGoBin(t, home, 8, "orphan-go-tool")
-	sentinel := filepath.Join(home, ".yolo-installed-lsps")
-	if err := os.WriteFile(sentinel, []byte("npm:pyright\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 
 	before := treeSnapshot(t, home)
 	runCatalog(t, map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot})

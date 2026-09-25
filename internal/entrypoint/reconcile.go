@@ -24,9 +24,9 @@ package entrypoint
 //   - IT OBSERVES THE PREVIOUS BOOT'S STATE, deliberately. Main runs before
 //     ~/.yolo-bootstrap.sh and before any lazy launcher, so what is on disk here is what the
 //     LAST launch installed. That is the state a receipt describes.
-//   - IT IS NOT WIRED INTO RunDarwinBootstrap. catalog.go:16-21 states the argument and it
-//     applies unchanged: macos-user stages no pack tree and passes no YOLO_LSP_*_INSTALL, so
-//     every declared-set input would read as empty there.
+//   - IT IS NOT WIRED INTO RunDarwinBootstrap. catalog.go's header states the argument and it
+//     applies unchanged: macos-user stages no pack tree, so the declared-set input would read
+//     as empty there.
 //
 // AND IT IS NOT A genStep, for catalog.go's reason plus one of its own. A drifted version is
 // not a broken generator: nothing was half-written, and genStep is FATAL (A12) — routing this
@@ -43,7 +43,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 )
 
 // reconcilePrefix heads every line, the way catalogPrefix does and for the same reason: these
@@ -55,7 +54,7 @@ const reconcilePrefix = "boot reconcile: "
 // is on disk, and reports the differences. It installs nothing, removes nothing, and writes
 // nothing.
 //
-// Three comparisons, which are the three the record can actually make today:
+// Two comparisons, which are the two the record can actually make today:
 //
 //  1. an npm receipt's `resolved` version against the version in the installed package's
 //     package.json;
@@ -63,14 +62,13 @@ const reconcilePrefix = "boot reconcile: "
 //     drift a VENDOR SELF-UPDATER leaves, which the launcher deliberately records nothing
 //     about ("$REAL_BIN install" emits no receipt: what moved, to what and where are all the
 //     vendor's decisions, "and the drift it leaves is the RECONCILE's to report, against the
-//     bytes on disk rather than against a claim" — shims.go's own comment, §6.3);
-//  3. the LSP SENTINEL against what is actually on disk. This is the step's headline claim —
-//     the sentinel is "the only install/uninstall reconciliation loop in the system, and it is
-//     one field short of being a receipt" (§4.3) — and it is a LIVE DEFECT in this jail:
-//     MEASURED 2026-09-02, ~/.yolo-installed-lsps is one byte (a newline) while three npm LSP
-//     packages from a since-unconfigured `lsp_servers` are still installed, so the uninstall
-//     loop will never remove them (§10 step four found the same three as orphans, "their
-//     sentinel record lost").
+//     bytes on disk rather than against a claim" — shims.go's own comment, §6.3).
+//
+// There used to be a third: the LSP SENTINEL (~/.yolo-installed-lsps, the bootstrap's
+// record of what its LSP loop installed) against the disk. The sentinel, the loop and the
+// recipe table feeding it are deleted (docs/reference/mcp-configuration.md#oq-lsp1), so there
+// is no record left to disagree with anything; what the loop installed is the catalog's to
+// name now, as orphans.
 //
 // SILENCE IS THE COMMON CASE and is deliberate on both surfaces. An absent receipts file
 // produces nothing at all — that is the NORMAL state, since every install site sits behind a
@@ -117,7 +115,7 @@ type ReconcileReport struct {
 }
 
 // ReconcileInstalled runs the comparison and returns it. It reads files and nothing else: no
-// subprocess, no registry, no network. See the file header for the three comparisons and for
+// subprocess, no registry, no network. See the file header for the two comparisons and for
 // why an unknown value is never compared.
 func ReconcileInstalled(e *Env) ReconcileReport {
 	if e.Getenv("YOLO_PACK_ROOT") == "" {
@@ -126,7 +124,6 @@ func ReconcileInstalled(e *Env) ReconcileReport {
 	recs, malformed, present := readReceiptLog(e)
 	out := ReconcileReport{Malformed: malformed, ReceiptsPresent: present, Receipts: len(recs)}
 	out.Findings = append(out.Findings, reconcileReceiptFindings(e, latestReceipts(recs))...)
-	out.Findings = append(out.Findings, reconcileSentinelFindings(e)...)
 	return out
 }
 
@@ -143,7 +140,10 @@ func reconcileReceiptFindings(e *Env, latest map[receiptKey]receipt) []string {
 	var out []string
 	for _, r := range latest {
 		switch r.Kind {
-		case "npm", "lsp-npm", "mcp-npm":
+		// No "lsp-npm": a receipt of that kind was written by the deleted LSP recipe loop,
+		// and its package has no declaration left for `yolo pack update` to reassert — the
+		// advice reconcileNpmVersion ends with. Such a package is the catalog's orphan now.
+		case "npm", "mcp-npm":
 			if f := reconcileNpmVersion(e, r); f != "" {
 				out = append(out, f)
 			}
@@ -309,118 +309,4 @@ func itoa(n int64) string {
 		buf[i] = '-'
 	}
 	return string(buf[i:])
-}
-
-// reconcileSentinelFindings is the GENERALISATION §10 step two names: the LSP sentinel already
-// does install and uninstall against a declared set, so the thing it cannot do is notice that
-// its own record and the disk disagree.
-//
-// It compares ~/.yolo-installed-lsps — what the LAST bootstrap says it installed — against
-// what is actually there, both ways:
-//
-//   - a sentinel entry with nothing on disk: the record claims an install that is gone, so the
-//     uninstall loop's `npm uninstall -g` / `rm -f "$GOBIN/$bin"` would be a no-op and nothing
-//     would say why;
-//   - something on disk that THIS LAUNCH declares and the sentinel does not: the record is
-//     short, so when the declaration is dropped the uninstall loop will not see the entry and
-//     will leave the package installed forever. THAT IS THE LIVE DEFECT IN THIS JAIL — the
-//     sentinel is one byte while pyright, typescript and typescript-language-server are
-//     installed (§10 step four measured the same three from the other side, as orphans).
-//
-// The catalog names those three as ORPHANS, which is a different sentence about the same
-// bytes: the catalog says "nothing declares this", and this says "the record that is supposed
-// to be able to remove it does not know about it". A jail where `lsp_servers` still declares
-// them gets the second finding and not the first, which is exactly the case the catalog cannot
-// see.
-func reconcileSentinelFindings(e *Env) []string {
-	recorded := map[string]struct{}{}
-	for _, entry := range readLSPSentinel(e) {
-		recorded[entry] = struct{}{}
-	}
-
-	var out []string
-	// Half one: the record claims something that is not there.
-	for entry := range recorded {
-		kind, id, ok := strings.Cut(entry, ":")
-		if !ok || id == "" {
-			continue
-		}
-		if !lspEntryOnDisk(e, kind, id) {
-			out = append(out, "LSP sentinel records "+entry+" but it is not installed — the "+
-				"uninstall loop keyed on this record would remove nothing")
-		}
-	}
-	// Half two: it is there, this launch declares it, and the record is silent — so a later
-	// launch that drops the declaration cannot uninstall it.
-	for _, entry := range declaredLSPEntries(e) {
-		if _, ok := recorded[entry]; ok {
-			continue
-		}
-		kind, id, _ := strings.Cut(entry, ":")
-		if !lspEntryOnDisk(e, kind, id) {
-			// Declared, unrecorded and absent: this boot's bootstrap is about to install it
-			// and write the record. Nothing to report.
-			continue
-		}
-		out = append(out, entry+" is installed and declared but absent from the LSP "+
-			"sentinel — dropping the declaration will not uninstall it")
-	}
-	sort.Strings(out)
-	return out
-}
-
-// declaredLSPEntries renders THIS launch's YOLO_LSP_*_INSTALL lists in the sentinel's own
-// `kind:identifier` vocabulary, so the two are comparable line for line.
-//
-// The spelling is the bootstrap's (`npm:${pkg}`, `go:${pkg}`, shell.go's desired-set loop),
-// and it has to stay the bootstrap's: the uninstall loop matches those lines EXACTLY
-// (`grep -qxF`), so a reconcile that normalized them would report drift against a record that
-// is perfectly self-consistent.
-func declaredLSPEntries(e *Env) []string {
-	var out []string
-	for _, pkg := range splitLSPInstallList(e.Getenv("YOLO_LSP_NPM_INSTALL")) {
-		out = append(out, "npm:"+pkg)
-	}
-	for _, pkg := range splitLSPInstallList(e.Getenv("YOLO_LSP_GO_INSTALL")) {
-		out = append(out, "go:"+pkg)
-	}
-	return out
-}
-
-// lspEntryOnDisk answers, offline, whether a sentinel entry's program is present — probed the
-// way the BOOTSTRAP probes it, because a disagreement between the two would make this report
-// about the probe rather than about the jail.
-//
-// npm: the package DIRECTORY under the global prefix. The bootstrap uses `npm ls -g
-// --depth=0 "$pkg"`, which is a subprocess this must not spawn (the boot path is not a place
-// to fork npm, and macos-user has no guaranteed npm at all) — but both questions reduce to
-// "does node_modules/<name> exist", which is also what installedNpmPackages walks.
-//
-// go: `$GOBIN/<bin>`, with the bin name derived from the module path exactly as shell.go
-// derives it (`base=${pkg%@*}; bin=${base##*/}`, goModuleBinName) — the same reduction the
-// uninstall loop's `rm -f "$GOBIN/$bin"` uses, so "on disk" here means the file that loop
-// would remove.
-//
-// An unknown kind reads as PRESENT, which is the quiet answer: a future sentinel kind this
-// build does not know is version skew, and reporting "not installed" for it would turn a newer
-// host's record into a wrong finding on every boot.
-func lspEntryOnDisk(e *Env, kind, id string) bool {
-	switch kind {
-	case "npm":
-		name, _ := splitNpmSpec(id)
-		if name == "" {
-			return true
-		}
-		fi, err := os.Stat(filepath.Join(e.NpmPrefix, "lib", "node_modules", name))
-		return err == nil && fi.IsDir()
-	case "go":
-		bin := goModuleBinName(id)
-		if bin == "" {
-			return true
-		}
-		_, err := os.Stat(filepath.Join(e.GoBin(), bin))
-		return err == nil
-	default:
-		return true
-	}
 }

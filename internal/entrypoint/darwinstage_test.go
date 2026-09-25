@@ -50,38 +50,27 @@ func TestTheStagesScriptIsPerWorkspaceNotPerAccount(t *testing.T) {
 	}
 }
 
-// THE LSP SENTINEL is per-workspace state describing a per-workspace install prefix. In
-// the container `$HOME/.yolo-installed-lsps` is a bind of the workspace's own file; here
-// the same spelling would make workspace A's record workspace B's, while the prefix it
-// describes (~/.npm-global, a sidecar symlink) stays A's — so the record would claim
-// installs that live in another workspace's directory.
-func TestTheLSPSentinelFollowsTheWorkspaceNotTheAccountHome(t *testing.T) {
+// NO LSP INSTALL LOOP ON EITHER BACKEND. The loop, the YOLO_LSP_*_INSTALL lists it read and
+// the ~/.yolo-installed-lsps sentinel it kept (per-workspace on both backends: a bind in the
+// container, a sidecar path here) are deleted with the recipe table
+// (docs/reference/mcp-configuration.md#oq-lsp1). This asks both generators, because the
+// macos-user script is the stage's own and a darwin-only seam could keep an arm the
+// container's script lost.
+func TestNeitherBackendsScriptInstallsALanguageServer(t *testing.T) {
 	_, ws := darwinBootstrapHome(t, nil)
-	sidecar := filepath.Join(ws, ".yolo", "home")
-	body, err := os.ReadFile(DarwinBootstrapScriptPath(sidecar))
+	darwin, err := os.ReadFile(DarwinBootstrapScriptPath(filepath.Join(ws, ".yolo", "home")))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join(sidecar, "yolo-installed-lsps")
-	if !strings.Contains(string(body), want) {
-		t.Errorf("the generated script's SENTINEL is not %s:\n%s", want, sentinelLine(string(body)))
-	}
-	if strings.Contains(string(body), `SENTINEL="$HOME/.yolo-installed-lsps"`) {
-		t.Errorf("the generated script keeps the account-home sentinel:\n%s",
-			sentinelLine(string(body)))
-	}
-}
-
-// The CONTAINER's half of the same seam, unchanged: `$HOME/.yolo-installed-lsps` is
-// already this workspace's file there, by bind, and the expression must keep expanding
-// $HOME in the jail rather than being resolved by the generator.
-func TestTheContainerSentinelIsUnchanged(t *testing.T) {
-	e := NewEnv(map[string]string{"HOME": "/home/agent"})
-	if got := lspSentinelExpr(e); got != `"$HOME/.yolo-installed-lsps"` {
-		t.Errorf("container sentinel expression = %s, want the unchanged literal", got)
-	}
-	if !strings.Contains(BootstrapScript(e), `SENTINEL="$HOME/.yolo-installed-lsps"`) {
-		t.Error("the container's generated script no longer assigns the home-rooted sentinel")
+	container := BootstrapScript(NewEnv(map[string]string{"HOME": "/home/agent"}))
+	for name, body := range map[string]string{"macos-user": string(darwin), "container": container} {
+		for _, gone := range []string{"yolo-installed-lsps", "YOLO_LSP_NPM_INSTALL",
+			"YOLO_LSP_GO_INSTALL", "SENTINEL=", "go install"} {
+			if strings.Contains(body, gone) {
+				t.Errorf("the %s bootstrap script still carries %q — an LSP install path "+
+					"survived the recipe table's deletion", name, gone)
+			}
+		}
 	}
 }
 
@@ -119,14 +108,4 @@ func mcpNpmLine(body string) string {
 		}
 	}
 	return "(no YOLO_MCP_NPM= line at all)"
-}
-
-// sentinelLine pulls the SENTINEL assignment out of a script for a readable failure.
-func sentinelLine(body string) string {
-	for _, l := range strings.Split(body, "\n") {
-		if strings.HasPrefix(l, "SENTINEL=") {
-			return l
-		}
-	}
-	return "(no SENTINEL= line at all)"
 }

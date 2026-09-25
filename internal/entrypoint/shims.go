@@ -356,11 +356,11 @@ func GenerateAgentLaunchers(e *Env) error {
 	// path and the declared mise set are the same for every pack. See launchercollision.go
 	// for why the scope is what it is — a wider one turns evergreen off silently.
 	probePath, miseBins := imageProbePath(e), declaredMiseBins(e)
-	// The yolo-INSTALLED MCP/LSP server set, computed ONCE for the same reason the probe
+	// The yolo-INSTALLED MCP server set, computed ONCE for the same reason the probe
 	// path is: it is jail-global, not per-pack. §3.5 phrases the scope per agent ("an agent
 	// whose config names that server"), and in this tree that narrowing is the identity —
-	// YOLO_MCP_PRESETS and lsp_servers are jail-global keys and every agent's surface
-	// renders from one table. See serverrefresh.go's header for where a per-pack set would
+	// YOLO_MCP_PRESETS is a jail-global key and every agent's surface renders from one
+	// table. See serverrefresh.go's header for where a per-pack set would
 	// enter if that ever changes.
 	servers := ServerRefreshSpecs(e)
 
@@ -507,7 +507,6 @@ func npmAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath string,
 		// yolo-installed server at all" bit, so a jail with none carries no refresh call.
 		"__YOLO_SERVERS_ENABLED__", shquote.Quote(boolFlag(!servers.empty())),
 		"__YOLO_SERVERS_NPM__", shquote.Quote(servers.npm),
-		"__YOLO_SERVERS_GO__", shquote.Quote(servers.gomods),
 		// THE RESOLVED INTERPRETER, as an exec PREFIX rather than a variable, and that shape is
 		// what keeps the no-floor case byte-identical: an empty prefix leaves the line exactly
 		// `exec "$REAL_BIN" …` (docs/design/agent-program-runtimes.md §3.3, which makes
@@ -517,7 +516,7 @@ func npmAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath string,
 		// case is the launch's (§3.4), not this generator's — a content generator that refused
 		// would refuse during `yolo check`, which is an observe verb.
 		"__YOLO_EXEC_PREFIX__", nodeExecPrefix(inst.NodeFloor),
-	}, launchFlagSplices(flags)...)...)
+	}, append(launchFlagSplices(flags), refreshSplices(inst.Refresh)...)...)...)
 	return r.Replace(npmLauncherTemplate)
 }
 
@@ -595,8 +594,11 @@ func nativeAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath, capture
 		// yolo-installed server at all" bit, so a jail with none carries no refresh call.
 		"__YOLO_SERVERS_ENABLED__", shquote.Quote(boolFlag(!servers.empty())),
 		"__YOLO_SERVERS_NPM__", shquote.Quote(servers.npm),
-		"__YOLO_SERVERS_GO__", shquote.Quote(servers.gomods),
-	}, launchFlagSplices(flags)...)...)
+		// The pre-launch refresh (prelaunchrefresh.go) is shared with the npm template, where
+		// this sentinel is the resolved node interpreter. A native program is exec'd directly,
+		// so here it renders nothing.
+		"__YOLO_EXEC_PREFIX__", "",
+	}, append(launchFlagSplices(flags), refreshSplices(inst.Refresh)...)...)...)
 	return r.Replace(nativeLauncherTemplate)
 }
 
@@ -731,14 +733,14 @@ _stamp_mtime() {
 // receiptsFile is where every install yolo itself runs appends its gap receipt
 // (docs/design/program-delivery.md §10 step one, OQ-PD1's "yolo-written receipts only
 // where no native lock exists"). One JSON line per install: the npm and installer agent
-// launchers, the pnpm package-manager launcher, and the bootstrap's MCP-preset and LSP arms.
+// launchers, the pnpm package-manager launcher, and the bootstrap's MCP-preset arm.
 //
 // THE WORKSPACE OWNS THE REALIZATION, NOT THE DECLARATION, and the file is filed with the
 // former on purpose. Packs are USER scope by ruling (OQ-PD1: "ecosystem-native lockfiles at
 // the declaration's home … user for `packs`"), so the workspace under which an install ran
 // is not where its declaration lives and cannot be read as the pin. What IS per-workspace is
-// the thing the receipt describes: `<ws>/.yolo/home/{npm-global,local,go}` are the binds the
-// npm prefix, ~/.local/bin and $GOBIN resolve to, so the BYTES a receipt names exist in this
+// the thing the receipt describes: `<ws>/.yolo/home/{npm-global,local}` are the binds the
+// npm prefix and ~/.local/bin resolve to, so the BYTES a receipt names exist in this
 // workspace and in no other. That makes this a workspace-scope observation log beside the
 // realization (§10 step one, verbatim), and the user-scope pin OQ-PD1 names —
 // `packs.lock.json`, which already exists and is empty — arrives with the fifth step, where
@@ -769,17 +771,17 @@ func receiptsFile(e *Env) string {
 // a backslash cannot produce a line no reader can parse. The shell downstream interpolates
 // only constrained values (a spec, a version, a hex digest, an integer, an act, a date).
 //
-// bin and declared are omitted when empty, which is the LSP bootstrap's case: it reads its
-// package list out of the environment at run time, so it renders the constant half here and
-// appends the other two from the shell (_yolo_head) under the same scrubbing.
+// bin and declared are omitted when empty, which is the bootstrap MCP arm's case: it walks
+// its package list at run time, so it renders the constant half here and appends the
+// declaration from the shell (_yolo_head) under the same scrubbing.
 //
-// NO `path` FIELD FROM THE BOOTSTRAP'S ARMS (lsp-npm, lsp-go, mcp-npm), and that is what the
-// kind is for. Those three install a LIST — the whole of YOLO_LSP_NPM_INSTALL, of
-// YOLO_LSP_GO_INSTALL, of the enabled MCP presets — through one resolver each, so every
-// entry lands in the one directory that resolver owns: $NPM_CONFIG_PREFIX/lib/node_modules
-// (+ its bin/) for the two npm kinds, $GOBIN for lsp-go. The kind therefore IMPLIES the
-// prefix, and spelling it per line would repeat one constant across every receipt a boot
-// writes while adding nothing a reader could not derive. The three launcher funnels are the
+// NO `path` FIELD FROM THE BOOTSTRAP'S ARM (mcp-npm), and that is what the kind is for. It
+// installs a LIST — the enabled MCP presets' packages — through one resolver, so every entry
+// lands in the one directory that resolver owns: $NPM_CONFIG_PREFIX/lib/node_modules (+ its
+// bin/). The kind therefore IMPLIES the prefix, and spelling it per line would repeat one
+// constant across every receipt a boot writes while adding nothing a reader could not
+// derive. (Two more list kinds, lsp-npm and lsp-go, were written by the LSP recipe loop until
+// it was deleted; a receipts log from before then still holds them.) The three launcher funnels are the
 // opposite case and DO carry it: each installs one program and has $REAL_BIN in hand, and
 // for the installer kind the landing path is the only identity there is (§6.3).
 func receiptPrefix(kind, bin, declared string) string {
@@ -1039,16 +1041,15 @@ UPDATE_VERB=(__YOLO_UPDATE_VERB__)
 LOCK_DIR="$NPM_CONFIG_PREFIX/.yolo-update.lock"
 # Baked, never read from the environment: see receiptsFile.
 _YOLO_RECEIPTS=__YOLO_RECEIPTS_FILE__
-# The yolo-INSTALLED MCP/LSP server set, baked (see ServerRefreshSpecs). SERVERS_ENABLED is
+# The yolo-INSTALLED MCP server set, baked (see ServerRefreshSpecs). SERVERS_ENABLED is
 # 0 when this jail has none, which bakes the whole refresh out of the hot path.
 SERVERS_ENABLED=__YOLO_SERVERS_ENABLED__
 SERVERS_NPM=__YOLO_SERVERS_NPM__
-SERVERS_GO=__YOLO_SERVERS_GO__
 # The pack's declared LAUNCH FLAGS, baked (launchflags.go, DP-B44). HAS_LAUNCH_FLAGS gates
 # every expansion of the array for HAS_UPDATE_VERB's reason: bash 3.2 under "set -u".
 HAS_LAUNCH_FLAGS=__YOLO_HAS_LAUNCH_FLAGS__
 LAUNCH_FLAGS=(__YOLO_LAUNCH_FLAGS__)
-` + launchFlagsShellFn + `
+` + refreshDeclShell + launchFlagsShellFn + `
 
 # --- re-entry ----------------------------------------------------------------------
 # B2 PUT THE LAUNCH DIR AHEAD OF THE INSTALL PREFIXES, so a BARE-NAME call of this program
@@ -1089,7 +1090,7 @@ _installed_version() {
 # host has) would record "resolved":"0" for every install it ever made, and a reconcile
 # reading the file back cannot tell that from a package genuinely at version 0. An omitted
 # field says "unknown", which is the truth, and _yolo_receipt drops an empty one. Same shape
-# as the bootstrap's _yolo_lsp_npm_version, for the same reason.
+# as the bootstrap's _yolo_npm_version, for the same reason.
 _resolved_version() {
     local v
     v=$(jq -r '.version' "$NPM_CONFIG_PREFIX/lib/node_modules/$PKG/package.json" 2>/dev/null) || return 0
@@ -1314,7 +1315,7 @@ elif _update_due; then
 fi
 
 ` + agentAuthPrelaunchShellFn + `
-# --- transitive MCP/LSP refresh (§3.5, OQ-PD12a) ------------------------------------
+# --- transitive MCP server refresh (§3.5, OQ-PD12a) ---------------------------------
 # The servers this agent connects to inherit ITS trigger: a server exists only to serve an
 # agent, so there is no boot step and no timer — the refresh happens here, at the moment
 # somebody typed the agent's name, and it must COMPLETE BEFORE THE EXEC because the agent
@@ -1325,7 +1326,7 @@ fi
 # empty on the one backend with no image to hide it. Same reason CAPTURES_DIR and
 # _YOLO_RECEIPTS are baked; see ServerRefreshSpecs.
 #
-# The lists are QUOTED into one argument each and split in Go. UPDATES_ENABLED rides along
+# The list is QUOTED into one argument and split in Go. UPDATES_ENABLED rides along
 # because the policy gates the STALE half only — an absent server is installed whatever the
 # policy says, for the same reason the cold-install arm above ignores it.
 #
@@ -1335,14 +1336,14 @@ fi
 _refresh_servers() {
     command -v yolo >/dev/null 2>&1 || return 0
     YOLO_BYPASS_SHIMS=1 yolo internal refresh-servers \
-        --home="$HOME" --npm="$SERVERS_NPM" --go="$SERVERS_GO" \
+        --home="$HOME" --npm="$SERVERS_NPM" \
         --updates="$UPDATES_ENABLED" >&2 || true
 }
 
 if [ "$SERVERS_ENABLED" = "1" ]; then
     _refresh_servers
 fi
-
+` + prelaunchRefreshShellFn + `
 if [ -x "$REAL_BIN" ]; then
     _yolo_launch_argv "$@"
     exec __YOLO_EXEC_PREFIX__"$REAL_BIN" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}
@@ -1442,16 +1443,15 @@ _YOLO_RECEIPTS=__YOLO_RECEIPTS_FILE__
 # The machine's install-capture store, as this jail sees it. Empty when there is none —
 # baked at generation time for the same reason as the line above; see capturesDir.
 CAPTURES_DIR=__YOLO_CAPTURES_DIR__
-# The yolo-INSTALLED MCP/LSP server set, baked (see ServerRefreshSpecs). SERVERS_ENABLED is
+# The yolo-INSTALLED MCP server set, baked (see ServerRefreshSpecs). SERVERS_ENABLED is
 # 0 when this jail has none, which bakes the whole refresh out of the hot path.
 SERVERS_ENABLED=__YOLO_SERVERS_ENABLED__
 SERVERS_NPM=__YOLO_SERVERS_NPM__
-SERVERS_GO=__YOLO_SERVERS_GO__
 # The pack's declared LAUNCH FLAGS, baked (launchflags.go, DP-B44). HAS_LAUNCH_FLAGS gates
 # every expansion of the array for HAS_UPDATE_VERB's reason: bash 3.2 under "set -u".
 HAS_LAUNCH_FLAGS=__YOLO_HAS_LAUNCH_FLAGS__
 LAUNCH_FLAGS=(__YOLO_LAUNCH_FLAGS__)
-` + launchFlagsShellFn + `
+` + refreshDeclShell + launchFlagsShellFn + `
 # ONE lock per INSTALL PREFIX, not per program: §3.5's contention rule is about who may
 # write into $HOME/.local, and two vendor updaters running there at once is what it
 # forbids. On the container backends the prefix is a per-workspace bind and nothing can
@@ -1603,6 +1603,71 @@ _try_materialize() {
     [ -x "$REAL_BIN" ]
 }
 
+# _installer_body_kind says what a downloaded installer IS, judged by its first KiB (1024
+# bytes), and prints one word. _run_installer runs the body only on "script".
+#
+#   binary   a NUL byte in the first KiB. Checked FIRST, so a "#!" line cannot vouch for
+#            a body carrying one. A vendor CDN has served an executable where the install
+#            script belonged (agy, in the Pack Installs workflow). Given such a body, bash
+#            either says "cannot execute binary file" or, when the NUL comes after the
+#            first line or two, RUNS everything before it. Bytes past the first KiB are not
+#            examined: a self-extracting installer is a shell header with a binary payload
+#            after it.
+#   markup   the first line opens like HTML or XML: a moved endpoint answering 200 with
+#            a web page.
+#   script   the first line starts with "#!".
+#   nontext  no "#!" line, and some byte that file(1)'s text table (text_chars in its
+#            src/encoding.c) marks as never appearing in text: 0x01-0x06, 0x0E-0x19,
+#            0x1C-0x1F or 0x7F. Bytes 0x80 and up are text there, so UTF-8 passes.
+#   script   anything else. A shebang-less script is unusual but valid.
+#
+# BYTES ARE COUNTED BY tr AND wc, NEVER HELD IN A BASH VARIABLE: a bash string cannot hold
+# a NUL at all, and the verdict must not depend on how one bash version stores the other
+# control bytes (macos-user runs these launchers under a stock /bin/bash 3.2). head -c, tr
+# and wc are in the image and in a stock macOS. LC_ALL=C makes every byte one character
+# (BSD tr rejects bytes that are invalid in a UTF-8 locale), and YOLO_BYPASS_SHIMS keeps a
+# user's blocked_tools from standing in for any of the three. No grep: a pack can block it.
+# The body is a SUBSHELL, so neither export outlives the call.
+#
+# IT ALWAYS PRINTS A VERDICT. Only the two BYTE checks (binary, nontext) need head, tr and
+# wc; without all three those checks are SKIPPED, never guessed, because with no tr the
+# counts would differ for every body and everything would read as binary. The markup and
+# "#!" checks are pure bash and run either way, so a missing tool costs only the byte
+# checks and never the web-page refusal the launcher made before they existed.
+_installer_body_kind() (
+    export LC_ALL=C YOLO_BYPASS_SHIMS=1
+    bytes=1
+    command -v head >/dev/null && command -v tr >/dev/null && command -v wc >/dev/null || bytes=0
+    kib=0
+    if [ "$bytes" = 1 ]; then
+        kib=$(( $(head -c 1024 "$1" | wc -c) ))
+        if [ "$(( $(head -c 1024 "$1" | tr -d '\000' | wc -c) ))" -ne "$kib" ]; then
+            echo binary
+            exit 0
+        fi
+    fi
+    first=""
+    IFS= read -r first < "$1" || true
+    shopt -s nocasematch
+    if [[ "$first" =~ ^[[:space:]]*\<(\!doctype|html|\?xml) ]]; then
+        echo markup
+        exit 0
+    fi
+    shopt -u nocasematch
+    case "$first" in
+        '#!'*)
+            echo script
+            exit 0
+            ;;
+    esac
+    if [ "$bytes" = 1 ] &&
+        [ "$(( $(head -c 1024 "$1" | tr -d '\001-\006\016-\031\034-\037\177' | wc -c) ))" -ne "$kib" ]; then
+        echo nontext
+        exit 0
+    fi
+    echo script
+)
+
 # _run_installer downloads the vendor's script and runs it. IT RETURNS A STATUS, and that
 # status is load-bearing for update mode alone — the same split the npm template carries,
 # for the same reason: update mode exits instead of exec'ing, so the "-x $REAL_BIN" test at
@@ -1633,22 +1698,31 @@ _run_installer() {
         touch "$STAMP"
         return 1
     fi
-    # Pure-bash markup sniff: no grep, because grep is a SHIMMED tool in the jail and a
-    # launcher must not depend on the block config staying compatible with these flags.
-    local head_line
-    IFS= read -r head_line < "$script" || true
-    shopt -s nocasematch
-    if [[ "$head_line" =~ ^[[:space:]]*\<(\!doctype|html|\?xml) ]]; then
-        shopt -u nocasematch
-        echo "  ⚠ $BIN installer URL is not a shell script — it served a web page." >&2
+    # Only a body that looks like a script reaches bash; see _installer_body_kind, which
+    # always prints a verdict (a coreutil missing from PATH skips its byte checks rather
+    # than failing the call, so no fallback verdict is needed here).
+    local kind why=""
+    kind=$(_installer_body_kind "$script")
+    case "$kind" in
+        markup) why="it served a web page." ;;
+        binary) why="it served binary data (a NUL byte in its first KiB)." ;;
+        nontext) why="it served bytes that are neither a #! script nor text." ;;
+    esac
+    if [ -n "$why" ]; then
+        echo "  ⚠ $BIN installer URL is not a shell script — $why" >&2
         echo "    $URL" >&2
-        echo "    The pack's install.installerUrl is probably stale; check the tool's docs" >&2
-        echo "    for its current install command." >&2
+        if [ "$kind" = markup ]; then
+            echo "    The pack's install.installerUrl is probably stale; check the tool's docs" >&2
+            echo "    for its current install command." >&2
+        else
+            echo "    Nothing was run. A vendor CDN serving the wrong file has been transient" >&2
+            echo "    before, so retry; if it persists, the pack's installer URL no longer" >&2
+            echo "    names an install script." >&2
+        fi
         rm -f "$script"
         touch "$STAMP"
         return 1
     fi
-    shopt -u nocasematch
     YOLO_BYPASS_SHIMS=1 bash "$script" 2>&1 || true
     rm -f "$script"
     touch "$STAMP"
@@ -1779,7 +1853,7 @@ fi
 
 ` + agentAuthPrelaunchShellFn + `
 
-# --- transitive MCP/LSP refresh (§3.5, OQ-PD12a) ------------------------------------
+# --- transitive MCP server refresh (§3.5, OQ-PD12a) ---------------------------------
 # The servers this agent connects to inherit ITS trigger: a server exists only to serve an
 # agent, so there is no boot step and no timer — the refresh happens here, at the moment
 # somebody typed the agent's name, and it must COMPLETE BEFORE THE EXEC because the agent
@@ -1790,7 +1864,7 @@ fi
 # empty on the one backend with no image to hide it. Same reason CAPTURES_DIR and
 # _YOLO_RECEIPTS are baked; see ServerRefreshSpecs.
 #
-# The lists are QUOTED into one argument each and split in Go. UPDATES_ENABLED rides along
+# The list is QUOTED into one argument and split in Go. UPDATES_ENABLED rides along
 # because the policy gates the STALE half only — an absent server is installed whatever the
 # policy says, for the same reason the cold-install arm above ignores it.
 #
@@ -1800,7 +1874,7 @@ fi
 _refresh_servers() {
     command -v yolo >/dev/null 2>&1 || return 0
     YOLO_BYPASS_SHIMS=1 yolo internal refresh-servers \
-        --home="$HOME" --npm="$SERVERS_NPM" --go="$SERVERS_GO" \
+        --home="$HOME" --npm="$SERVERS_NPM" \
         --updates="$UPDATES_ENABLED" >&2 || true
 }
 
@@ -1808,7 +1882,7 @@ if [ "$SERVERS_ENABLED" = "1" ]; then
     _refresh_servers
 fi
 
-
+` + prelaunchRefreshShellFn + `
 if [ -x "$REAL_BIN" ]; then
     _yolo_launch_argv "$@"
     exec "$REAL_BIN" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}

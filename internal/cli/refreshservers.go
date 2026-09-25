@@ -37,13 +37,16 @@ import (
 // is present and runnable); the status exists so `yolo internal refresh-servers` is usable by
 // hand and so the failure has somewhere to go besides a message.
 
+// There is no `--go` list any more: its only source was the deleted LSP recipe's go arm
+// (docs/reference/mcp-configuration.md#oq-lsp1), and the launchers stopped passing it in the
+// same change.
 const refreshServersUsage = "usage: yolo internal refresh-servers [--home=DIR] " +
-	"[--npm=\"pkg pkg\"] [--go=\"mod mod\"] [--updates=0|1]"
+	"[--npm=\"pkg pkg\"] [--updates=0|1]"
 
 // runRefreshServers is the `yolo internal refresh-servers` entry.
 func runRefreshServers(args []string) int {
 	home := os.Getenv("HOME")
-	npmSpecs, goSpecs := "", ""
+	npmSpecs := ""
 	// The POLICY DEFAULT IS TRUE, and it inverts host_apply_on_launch's fail-closed
 	// precedent on purpose (the plan's trap 9): an absent or unreadable agent_updates means
 	// updates are ON, because the failure mode of the other default is every agent in every
@@ -56,8 +59,6 @@ func runRefreshServers(args []string) int {
 			home = strings.TrimPrefix(a, "--home=")
 		case strings.HasPrefix(a, "--npm="):
 			npmSpecs = strings.TrimPrefix(a, "--npm=")
-		case strings.HasPrefix(a, "--go="):
-			goSpecs = strings.TrimPrefix(a, "--go=")
 		case strings.HasPrefix(a, "--updates="):
 			updates = strings.TrimPrefix(a, "--updates=") == "1"
 		default:
@@ -71,9 +72,9 @@ func runRefreshServers(args []string) int {
 		return 2
 	}
 
-	// NewEnv rather than a second path resolution: Home, NpmPrefix and GoPath are exactly
-	// the three values this needs, and their defaults ($HOME/.npm-global, $HOME/go) are the
-	// same ones the launcher templates spell in bash. --home is authoritative over the
+	// NewEnv rather than a second path resolution: Home and NpmPrefix are exactly the values
+	// this needs, and the prefix's default ($HOME/.npm-global) is the same one the launcher
+	// templates spell in bash. --home is authoritative over the
 	// environment because the launcher passes its own $HOME, which under macos-user is the
 	// sandbox home and not whatever this process inherited.
 	vars := envMap(os.Environ())
@@ -84,7 +85,6 @@ func runRefreshServers(args []string) int {
 	if err := entrypoint.RefreshServers(entrypoint.ServerRefreshRequest{
 		Env:      e,
 		NpmSpecs: npmSpecs,
-		GoSpecs:  goSpecs,
 		Updates:  updates,
 		Stderr:   os.Stderr,
 	}); err != nil {

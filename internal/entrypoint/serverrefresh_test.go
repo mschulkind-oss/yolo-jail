@@ -1,6 +1,6 @@
 package entrypoint
 
-// serverrefresh_test.go drives the transitive MCP/LSP refresh (program-delivery.md §3.5,
+// serverrefresh_test.go drives the transitive MCP server refresh (program-delivery.md §3.5,
 // OQ-PD12a; evergreen-agent-updates.md step 7).
 //
 // THE FIRST TWO CELLS ARE THE CALL-SITE HALF, and they are first on purpose. AGENTS.md's
@@ -66,9 +66,12 @@ func TestGeneratedLauncherCallsTheServerRefresh(t *testing.T) {
 			const bin = "yolo-not-a-real-agent"
 			home := t.TempDir()
 			e := NewEnv(map[string]string{
-				"JAIL_HOME":            home,
-				"YOLO_PACK_ROOT":       writePackWithServerAgent(t, via, bin),
-				"YOLO_MCP_PRESETS":     `["sequential-thinking"]`,
+				"JAIL_HOME":        home,
+				"YOLO_PACK_ROOT":   writePackWithServerAgent(t, via, bin),
+				"YOLO_MCP_PRESETS": `["sequential-thinking"]`,
+				// The deleted LSP recipe's two lists, as an older host launcher would still
+				// send them. Nothing may bake them: yolo installs no language server now
+				// (docs/reference/mcp-configuration.md#oq-lsp1).
 				"YOLO_LSP_GO_INSTALL":  "golang.org/x/tools/gopls@latest",
 				"YOLO_LSP_NPM_INSTALL": "pyright",
 			})
@@ -87,20 +90,23 @@ func TestGeneratedLauncherCallsTheServerRefresh(t *testing.T) {
 				"yolo internal refresh-servers",
 				`--home="$HOME"`,
 				`--npm="$SERVERS_NPM"`,
-				`--go="$SERVERS_GO"`,
 				`--updates="$UPDATES_ENABLED"`,
 				// The BAKED set. Reading these from the environment instead is the
 				// macos-user `env -i` defect capturesDir and receiptsFile are baked to
 				// avoid, so the values have to be IN the script.
 				"\nSERVERS_ENABLED=1\n",
 				"@modelcontextprotocol/server-sequential-thinking",
-				"pyright",
-				"golang.org/x/tools/gopls@latest",
 			} {
 				if !strings.Contains(got, want) {
 					t.Errorf("the %s launcher is missing %q — the transitive refresh is "+
-						"not wired, so a yolo-installed MCP/LSP server only ever moves "+
+						"not wired, so a yolo-installed MCP server only ever moves "+
 						"when the bootstrap reinstalls it:\n%s", via, want, got)
+				}
+			}
+			for _, gone := range []string{"pyright", "gopls", "SERVERS_GO", "--go="} {
+				if strings.Contains(got, gone) {
+					t.Errorf("the %s launcher still carries %q — a language server reached "+
+						"the refresh set after the LSP recipe's deletion:\n%s", via, gone, got)
 				}
 			}
 			// Ordering is the design's ONE hard constraint (§3.5): the refresh must
@@ -207,14 +213,9 @@ func newRefreshProbe(t *testing.T, vars map[string]string) *refreshProbe {
 		now:  time.Unix(1_700_000_000, 0),
 	}
 	p.stampDir = filepath.Join(home, ".cache", "yolo-agent-stamps", "servers")
-	// Real prefixes, so the presence stats have somewhere to look.
-	for _, d := range []string{
-		filepath.Join(p.e.NpmPrefix, "lib", "node_modules"),
-		p.e.GoBin(),
-	} {
-		if err := os.MkdirAll(d, 0o755); err != nil {
-			t.Fatal(err)
-		}
+	// A real prefix, so the presence stats have somewhere to look.
+	if err := os.MkdirAll(filepath.Join(p.e.NpmPrefix, "lib", "node_modules"), 0o755); err != nil {
+		t.Fatal(err)
 	}
 	return p
 }
@@ -229,14 +230,6 @@ func (p *refreshProbe) installed(t *testing.T, pkg string) {
 	}
 	if err := os.WriteFile(filepath.Join(dir, "package.json"),
 		[]byte(`{"version":"1.0.0"}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// installedGo marks a go module's binary present under $GOBIN.
-func (p *refreshProbe) installedGo(t *testing.T, bin string) {
-	t.Helper()
-	if err := os.WriteFile(filepath.Join(p.e.GoBin(), bin), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -269,11 +262,10 @@ func (p *refreshProbe) stampTime(t *testing.T, kind serverKind, spec string) tim
 	return st.ModTime()
 }
 
-func (p *refreshProbe) run(npmSpecs, goSpecs string, updates bool) error {
+func (p *refreshProbe) run(npmSpecs string, updates bool) error {
 	return RefreshServers(ServerRefreshRequest{
 		Env:      p.e,
 		NpmSpecs: npmSpecs,
-		GoSpecs:  goSpecs,
 		Updates:  updates,
 		Stderr:   &p.out,
 		Now:      func() time.Time { return p.now },
@@ -299,20 +291,20 @@ func (p *refreshProbe) hasStamp(kind serverKind, spec string) bool {
 // silent one (§3.5's note: ABSENT and STALE resolve differently).
 func TestAnAbsentServerIsInstalledUnbounded(t *testing.T) {
 	p := newRefreshProbe(t, nil)
-	if err := p.run("pyright", "", true); err != nil {
+	if err := p.run("chrome-devtools-mcp", true); err != nil {
 		t.Fatalf("an absent server that installs cleanly must not report an error: %v", err)
 	}
 	if len(p.ran) != 1 {
-		t.Fatalf("ran %v, want one install of pyright", p.ran)
+		t.Fatalf("ran %v, want one install of chrome-devtools-mcp", p.ran)
 	}
-	if got := strings.Join(p.ran[0], " "); got != "npm install -g --prefer-online pyright" {
+	if got := strings.Join(p.ran[0], " "); got != "npm install -g --prefer-online chrome-devtools-mcp" {
 		t.Errorf("install argv = %q, want the bootstrap's own npm spelling", got)
 	}
 	if dl, ok := p.ctxs[0].Deadline(); ok {
 		t.Errorf("the absent install carries a deadline (%v) — the stale rule's bound "+
 			"applies to a package that HAS a working copy, not to one that does not", dl)
 	}
-	if !p.hasStamp(serverNpm, "pyright") {
+	if !p.hasStamp(serverNpm, "chrome-devtools-mcp") {
 		t.Error("a successful cold install left no stamp, so the next invocation would " +
 			"treat it as never-refreshed")
 	}
@@ -322,16 +314,16 @@ func TestAnAbsentServerIsInstalledUnbounded(t *testing.T) {
 // agent is about to try to connect to something that is not there.
 func TestAnAbsentServerThatCannotBeInstalledIsReported(t *testing.T) {
 	p := newRefreshProbe(t, nil)
-	p.fail["pyright"] = true
-	err := p.run("pyright", "", true)
+	p.fail["chrome-devtools-mcp"] = true
+	err := p.run("chrome-devtools-mcp", true)
 	if err == nil {
 		t.Fatal("an absent server that failed to install was swallowed — §3.5 requires it " +
 			"reported, because there is no working copy behind it")
 	}
-	if !strings.Contains(err.Error(), "pyright") {
+	if !strings.Contains(err.Error(), "chrome-devtools-mcp") {
 		t.Errorf("the error does not name the package: %v", err)
 	}
-	if !strings.Contains(p.out.String(), "pyright") {
+	if !strings.Contains(p.out.String(), "chrome-devtools-mcp") {
 		t.Errorf("nothing was said on stderr about the failed install:\n%s", p.out.String())
 	}
 }
@@ -340,11 +332,11 @@ func TestAnAbsentServerThatCannotBeInstalledIsReported(t *testing.T) {
 // is the fallback, so an offline registry costs the user a message and nothing else.
 func TestAStaleServerIsRefreshedBoundedAndSwallowed(t *testing.T) {
 	p := newRefreshProbe(t, nil)
-	p.installed(t, "pyright")
-	staleAt := p.stamp(t, serverNpm, "pyright", 2*ServerRefreshInterval*time.Second)
-	p.fail["pyright"] = true
+	p.installed(t, "chrome-devtools-mcp")
+	staleAt := p.stamp(t, serverNpm, "chrome-devtools-mcp", 2*ServerRefreshInterval*time.Second)
+	p.fail["chrome-devtools-mcp"] = true
 
-	if err := p.run("pyright", "", true); err != nil {
+	if err := p.run("chrome-devtools-mcp", true); err != nil {
 		t.Fatalf("a failed refresh of an INSTALLED server must not be an error: %v", err)
 	}
 	if len(p.ran) != 1 {
@@ -360,19 +352,19 @@ func TestAStaleServerIsRefreshedBoundedAndSwallowed(t *testing.T) {
 	// it an offline jail would spend the whole budget again on every single agent
 	// invocation. That is _do_install's rule (`touch "$STAMP"` sits outside its success
 	// branch) and it matters more here, because the cost is paid before an exec.
-	if at := p.stampTime(t, serverNpm, "pyright"); !at.Equal(p.now) {
+	if at := p.stampTime(t, serverNpm, "chrome-devtools-mcp"); !at.Equal(p.now) {
 		t.Errorf("a FAILED refresh did not advance the stamp (%v, was %v) — one attempt "+
 			"per interval is the throttle, and success is not its condition", at, staleAt)
 	}
 }
 
 // A stamp inside the interval is the throttle, and it is per PACKAGE: two agents that both
-// connect to pyright must not both pay for it.
+// connect to one server must not both pay for it.
 func TestAFreshStampDoesNoWork(t *testing.T) {
 	p := newRefreshProbe(t, nil)
-	p.installed(t, "pyright")
-	p.stamp(t, serverNpm, "pyright", 10*time.Second)
-	if err := p.run("pyright", "", true); err != nil {
+	p.installed(t, "chrome-devtools-mcp")
+	p.stamp(t, serverNpm, "chrome-devtools-mcp", 10*time.Second)
+	if err := p.run("chrome-devtools-mcp", true); err != nil {
 		t.Fatal(err)
 	}
 	if len(p.ran) != 0 {
@@ -384,22 +376,22 @@ func TestAFreshStampDoesNoWork(t *testing.T) {
 // refresh to resolve — the npm launcher's PINNED branch, applied to a server.
 func TestAPinnedServerIsNeverRefreshed(t *testing.T) {
 	p := newRefreshProbe(t, nil)
-	p.installed(t, "pyright")
-	if err := p.run("pyright@1.2.3", "", true); err != nil {
+	p.installed(t, "chrome-devtools-mcp")
+	if err := p.run("chrome-devtools-mcp@1.2.3", true); err != nil {
 		t.Fatal(err)
 	}
 	if len(p.ran) != 0 {
 		t.Errorf("a pinned server was refreshed anyway: %v", p.ran)
 	}
 	// `@latest` is a declaration to MOVE, not a pin, and reading it as one would freeze
-	// every LSP recipe the tree ships (`golang.org/x/tools/gopls@latest`).
+	// every server declared that way.
 	p2 := newRefreshProbe(t, nil)
-	p2.installedGo(t, "gopls")
-	if err := p2.run("", "golang.org/x/tools/gopls@latest", true); err != nil {
+	p2.installed(t, "chrome-devtools-mcp")
+	if err := p2.run("chrome-devtools-mcp@latest", true); err != nil {
 		t.Fatal(err)
 	}
 	if len(p2.ran) != 1 {
-		t.Errorf("@latest was read as a pin, so the shipped go LSP recipe would never " +
+		t.Errorf("@latest was read as a pin, so a server declared that way would never " +
 			"move: ran nothing")
 	}
 }
@@ -410,15 +402,16 @@ func TestAPinnedServerIsNeverRefreshed(t *testing.T) {
 // to connect to a server at all, which is not what "do not move it" means.
 func TestAFrozenPolicyStopsRefreshesButNotColdInstalls(t *testing.T) {
 	p := newRefreshProbe(t, nil)
-	p.installed(t, "pyright") // installed and stale
-	p.stamp(t, serverNpm, "pyright", 2*ServerRefreshInterval*time.Second)
-	if err := p.run("pyright chrome-devtools-mcp", "", false); err != nil {
+	p.installed(t, "chrome-devtools-mcp") // installed and stale
+	p.stamp(t, serverNpm, "chrome-devtools-mcp", 2*ServerRefreshInterval*time.Second)
+	const absent = "@modelcontextprotocol/server-sequential-thinking"
+	if err := p.run("chrome-devtools-mcp "+absent, false); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(p.ran) != 1 {
-		t.Fatalf("ran %v, want ONLY the absent chrome-devtools-mcp", p.ran)
+		t.Fatalf("ran %v, want ONLY the absent %s", p.ran, absent)
 	}
-	if last := p.ran[0][len(p.ran[0])-1]; last != "chrome-devtools-mcp" {
+	if last := p.ran[0][len(p.ran[0])-1]; last != absent {
 		t.Errorf("installed %q under a frozen policy; the stale one must be skipped and "+
 			"the absent one must not be", last)
 	}
@@ -429,8 +422,8 @@ func TestAFrozenPolicyStopsRefreshesButNotColdInstalls(t *testing.T) {
 // leaves no stamp, because nothing was attempted.
 func TestALockedPrefixProceedsWithoutUpdatingAndSaysSo(t *testing.T) {
 	p := newRefreshProbe(t, nil)
-	p.installed(t, "pyright")
-	staleAt := p.stamp(t, serverNpm, "pyright", 2*ServerRefreshInterval*time.Second)
+	p.installed(t, "chrome-devtools-mcp")
+	staleAt := p.stamp(t, serverNpm, "chrome-devtools-mcp", 2*ServerRefreshInterval*time.Second)
 
 	// The lock a competing npm agent launcher would hold, at the path its template names.
 	lock := filepath.Join(p.e.NpmPrefix, ".yolo-update.lock")
@@ -438,7 +431,7 @@ func TestALockedPrefixProceedsWithoutUpdatingAndSaysSo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := p.run("pyright", "", true); err != nil {
+	if err := p.run("chrome-devtools-mcp", true); err != nil {
 		t.Fatalf("a held lock must not be an error: %v", err)
 	}
 	if len(p.ran) != 0 {
@@ -450,7 +443,7 @@ func TestALockedPrefixProceedsWithoutUpdatingAndSaysSo(t *testing.T) {
 	// The stamp file is this cell's own fixture, so EXISTENCE proves nothing — what must
 	// not have happened is a TOUCH. A refreshed stamp here would throttle the retry for an
 	// hour over a lock that is gone in a second.
-	if at := p.stampTime(t, serverNpm, "pyright"); !at.Equal(staleAt) {
+	if at := p.stampTime(t, serverNpm, "chrome-devtools-mcp"); !at.Equal(staleAt) {
 		t.Errorf("a refresh that never ran touched the stamp (%v, was %v)", at, staleAt)
 	}
 	if _, err := os.Stat(lock); err != nil {
@@ -461,9 +454,9 @@ func TestALockedPrefixProceedsWithoutUpdatingAndSaysSo(t *testing.T) {
 // The lock is RELEASED, or the next hour's refresh finds it held by nobody.
 func TestTheRefreshReleasesThePrefixLock(t *testing.T) {
 	p := newRefreshProbe(t, nil)
-	p.installed(t, "pyright")
-	p.stamp(t, serverNpm, "pyright", 2*ServerRefreshInterval*time.Second)
-	if err := p.run("pyright", "", true); err != nil {
+	p.installed(t, "chrome-devtools-mcp")
+	p.stamp(t, serverNpm, "chrome-devtools-mcp", 2*ServerRefreshInterval*time.Second)
+	if err := p.run("chrome-devtools-mcp", true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(p.e.NpmPrefix, ".yolo-update.lock")); err == nil {
@@ -495,10 +488,12 @@ func TestTheServerSetIgnoresTheMCPServerTable(t *testing.T) {
 	}
 }
 
-// The set is derived from BOTH halves of the LSP declaration: the env list is what THIS
-// launch asked for, and the sentinel is what the LAST bootstrap installed. A launcher runs
-// from a shell, not from boot, so the sentinel is what a re-render with no LSP vars has.
-func TestTheServerSetReadsTheEnvListAndTheSentinel(t *testing.T) {
+// LANGUAGE SERVERS ARE OUT OF SCOPE, because yolo no longer installs any: the recipe table
+// that did, its YOLO_LSP_*_INSTALL lists and the ~/.yolo-installed-lsps sentinel are deleted
+// (docs/reference/mcp-configuration.md#oq-lsp1). Both retired inputs are present here, as an
+// upgraded jail has them, and neither may put a package into the set — refreshing a server
+// nothing declares would reinstall exactly what the catalog now reports as an orphan.
+func TestTheServerSetIgnoresTheRetiredLSPInputs(t *testing.T) {
 	home := t.TempDir()
 	if err := os.WriteFile(filepath.Join(home, ".yolo-installed-lsps"),
 		[]byte("npm:typescript-language-server\ngo:github.com/isaacphi/mcp-language-server\n"),
@@ -508,27 +503,19 @@ func TestTheServerSetReadsTheEnvListAndTheSentinel(t *testing.T) {
 	e := NewEnv(map[string]string{
 		"JAIL_HOME":            home,
 		"YOLO_LSP_NPM_INSTALL": "pyright",
+		"YOLO_LSP_GO_INSTALL":  "golang.org/x/tools/gopls@latest",
 	})
-	got := ServerRefreshSpecs(e)
-	for _, want := range []string{"pyright", "typescript-language-server"} {
-		if !strings.Contains(got.npm, want) {
-			t.Errorf("npm set %q is missing %q", got.npm, want)
-		}
-	}
-	if !strings.Contains(got.gomods, "github.com/isaacphi/mcp-language-server") {
-		t.Errorf("go set %q is missing the sentinel's go entry", got.gomods)
-	}
-	// Declared twice is installed once.
-	if n := strings.Count(got.npm, "pyright"); n != 1 {
-		t.Errorf("npm set %q names pyright %d times", got.npm, n)
+	if got := ServerRefreshSpecs(e); !got.empty() {
+		t.Errorf("the refresh set carries %q with no MCP preset enabled; a retired LSP "+
+			"input reached it", got.npm)
 	}
 }
 
 // --- the splice ------------------------------------------------------------------------
 
 // TestTheRefreshCallQuotesTheServerLists is the BEHAVIOURAL half of the splice contract for
-// the two newest sentinels, and it exists because `bash -n` cannot answer the question.
-// TestLauncherTemplatesParseWithHostileValues feeds the hostile value through these lists
+// the newest sentinel, and it exists because `bash -n` cannot answer the question.
+// TestLauncherTemplatesParseWithHostileValues feeds the hostile value through this list
 // too, but a raw `SERVERS_NPM=$(touch witness)` is perfectly valid bash — measured: splicing
 // the list raw left that cell GREEN. Only running the launcher and reading the argv the
 // subcommand actually received settles it.
@@ -554,12 +541,11 @@ fi`)
 	// once: the value must be data, and the list must still arrive as ONE argument (the
 	// Go side splits it, not the shell).
 	npmList := hostileValue("-srvnpm") + " second-pkg"
-	goList := "example.invalid/" + hostileValue("-srvgo") + "@latest"
 	body := npmAgentLauncher(
 		&packdecl.Install{Kind: "npm", Bin: "tool", Package: "tool"},
 		filepath.Join(home, "stamps"),
 		filepath.Join(home, "ws", ".yolo", "receipts.jsonl"), true,
-		launcherServers{npm: npmList, gomods: goList}, nil)
+		launcherServers{npm: npmList}, nil)
 
 	out, rc := runLauncher(t, home, "tool", body, fakeBin)
 	if rc != 0 {
@@ -567,7 +553,6 @@ fi`)
 			rc, out)
 	}
 	assertNoWitness(t, home, "-srvnpm", "the refresh call's --npm list")
-	assertNoWitness(t, home, "-srvgo", "the refresh call's --go list")
 
 	log := logLines(t, yoloLog)
 	if len(log) == 0 {
@@ -577,7 +562,6 @@ fi`)
 	for _, want := range []string{
 		"internal", "refresh-servers",
 		"--npm=" + npmList,
-		"--go=" + goList,
 	} {
 		if !hasExactArg(log, want) {
 			t.Errorf("the refresh subcommand did not receive %q as one intact argument.\n"+

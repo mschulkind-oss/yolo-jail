@@ -175,11 +175,10 @@ func TestBootRemovesOrphansWhenTheOptionIsOn(t *testing.T) {
 
 	var out strings.Builder
 	e := NewEnv(map[string]string{
-		"JAIL_HOME":            home,
-		"YOLO_PACK_ROOT":       packRoot,
-		orphanAutopruneEnv:     "1",
-		"NPM_CONFIG_PREFIX":    filepath.Join(home, ".npm-global"),
-		"YOLO_LSP_NPM_INSTALL": "",
+		"JAIL_HOME":         home,
+		"YOLO_PACK_ROOT":    packRoot,
+		orphanAutopruneEnv:  "1",
+		"NPM_CONFIG_PREFIX": filepath.Join(home, ".npm-global"),
 	})
 	e.Stderr = &out
 	CatalogInstalledOrphans(e)

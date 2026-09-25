@@ -25,7 +25,10 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
 // sharedNode is one payload shape: everything linkThroughShared does that depends on the
@@ -160,6 +163,12 @@ complete.
 // destructive bug rather than a wrong answer: a freshly MkdirAll'd directory Stats with a
 // non-zero Size() on ext4, so the file test answers "populated" for an EMPTY store — and the
 // rule would then discard the workspace's real tree in favour of nothing.
+//
+// yolo's OWN entries (packdecl.StoreBookkeepingPrefix) are not content either. A pack's
+// pre-launch refresh takes its lock inside this store (prelaunchrefresh.go), so a store no
+// package was ever installed into holds only that lock while the first refresh runs, and
+// after an interrupted one. Counted, it read as populated and the workspace's tree was
+// discarded for a store holding nothing.
 func sharedTreeIsEmpty(shared string) bool {
 	ents, err := os.ReadDir(shared)
 	if err != nil {
@@ -168,12 +177,16 @@ func sharedTreeIsEmpty(shared string) bool {
 		// unreadable store then fails the copy, which leaves the local tree in place.
 		return true
 	}
+	content := false
 	for _, ent := range ents {
-		if ent.Name() == sharedCopyIncomplete {
+		switch {
+		case ent.Name() == sharedCopyIncomplete:
 			return true
+		case !strings.HasPrefix(ent.Name(), packdecl.StoreBookkeepingPrefix):
+			content = true
 		}
 	}
-	return len(ents) == 0
+	return !content
 }
 
 // copyTreeIntoShared copies the local tree into the shared store, and returns nil only once
