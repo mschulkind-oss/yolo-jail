@@ -34,7 +34,7 @@ name: Apple Container parity
 # GitHub-hosted runners cannot run this backend, and the reason is a vice:
 #
 #   * Apple Container gives every container its own Virtualization.framework VM
-#     (docs/guides/macos.md). It needs virtualization on the machine it runs on.
+#     (userguide/guides/macos.md). It needs virtualization on the machine it runs on.
 #   * GitHub's Apple Silicon macOS runners do not support nested virtualization — which is
 #     exactly why nightly-macos.yml's podman job sits on `macos-26-intel` and says so.
 #   * Every Apple Container hardware result this repo has is arm64

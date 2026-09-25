@@ -12,9 +12,9 @@ vantage:
 
 **Status:** DESIGN, 2026-09-20. Nothing built; four questions open. Re-checked against the tree
 and the sibling rulings 2026-09-24: the identity lever in [§3](#3-what-is-actually-free-to-change)
-now follows [`OQ-D5`](./slots-and-contributions.md#OQ-D5) (declared once per pack, never derived),
+now follows [`OQ-D5`](slots-and-contributions.md#OQ-D5) (declared once per pack, never derived),
 which that doc ruled on 2026-09-20. Sibling to
-[`slots-and-contributions.md`](./slots-and-contributions.md) — that one fixes the manifest's
+[`slots-and-contributions.md`](slots-and-contributions.md) — that one fixes the manifest's
 **role** model, this one its **surface**.
 
 > **In short.** A pack manifest is a low-level, repetitive description of environment
@@ -45,8 +45,8 @@ written today is a migration debt tomorrow, so the format should be chosen once.
 **Needs your ruling:** [`OQ-M1`](#OQ-M1) (do the model change?), [`OQ-M2`](#OQ-M2) (which syntax?), [`OQ-M3`](#OQ-M3) (may a manifest be pure code that returns data?), [`OQ-M4`](#OQ-M4) (does the user config share the language?).
 
 **Reads with:** [`pack-system.md`](../reference/pack-system.md) (the contribution model and the
-total-enumeration rule), [`trust-paths.md`](./trust-paths.md) (the origin gate and why a pack
-never runs at boot), [`slots-and-contributions.md`](./slots-and-contributions.md) (the role split),
+total-enumeration rule), [`trust-paths.md`](trust-paths.md) (the origin gate and why a pack
+never runs at boot), [`slots-and-contributions.md`](slots-and-contributions.md) (the role split),
 and `yolo config-ref` (the user-config surface).
 
 ---
@@ -85,7 +85,7 @@ redundant thing in the repo. That is the whole complaint, quantified.
 ## 2. Principles
 
 - **M1. A declaration is inert data, never an effect.** The origin gate rests on it
-  ([`trust-paths.md`](./trust-paths.md)): a pack that could run at boot would make shipping
+  ([`trust-paths.md`](trust-paths.md)): a pack that could run at boot would make shipping
   content and executing code one grant. Nothing below may change that.
 - **M2. The claim enumeration is total.** Compression removes repetition, never a distinct fact.
 - **M3. No bespoke language.** We do not invent a config language or maintain its parser. Every
@@ -112,7 +112,7 @@ The syntax and the model are separable, and it is worth being exact about which 
 the *shape*, and see how much of the problem is left.
 
 > ⚠ **The agent name is declared once per pack, and never derived.** An earlier draft of this
-> row derived it from `program.bin`. [`OQ-D5`](./slots-and-contributions.md#OQ-D5) ruled
+> row derived it from `program.bin`. [`OQ-D5`](slots-and-contributions.md#OQ-D5) ruled
 > otherwise on 2026-09-20: a pack provides zero or one agents and must name the one it provides,
 > which is [`OQ-BA2`](../reference/agent-briefings.md#oq-ba2)'s refusal of a derived identity
 > restated at pack scope. Neither the pack's `name` nor its bin could be the source anyway:
@@ -144,11 +144,11 @@ Keep the syntax; change the model. Group by kind, derive the identity, keep conv
   reuse for genuinely repeated rows.
 
 *Illustrative only:* the `exposes` list form is
-[`slots-and-contributions.md`](./slots-and-contributions.md)'s, whose [`OQ-D4`](./slots-and-contributions.md#OQ-D4) ruled the field names
-provisional. Its [`OQ-D3`](./slots-and-contributions.md#OQ-D3) ruled on 2026-09-20 that `briefing` and
+[`slots-and-contributions.md`](slots-and-contributions.md)'s, whose [`OQ-D4`](slots-and-contributions.md#OQ-D4) ruled the field names
+provisional. Its [`OQ-D3`](slots-and-contributions.md#OQ-D3) ruled on 2026-09-20 that `briefing` and
 `skills` destinations become `exposes` entries too, so the `briefing` line above is shown in
 today's shape only. What those slots are called is still open there, as
-[`OQ-D8`](./slots-and-contributions.md#OQ-D8).
+[`OQ-D8`](slots-and-contributions.md#OQ-D8).
 
 ### B. Data-only Lua (reuse the sandbox already in the tree)
 
@@ -238,7 +238,7 @@ Dhall (total, typed).
 
    _Leaning:_ Yes — it is independent of the syntax decision, needs no dependency, and removes the
    bulk of the measured redundancy. The identity half of it has a recorded shape already:
-   [`OQ-D5`](./slots-and-contributions.md#OQ-D5) ruled that a pack declares its agent once, so
+   [`OQ-D5`](slots-and-contributions.md#OQ-D5) ruled that a pack declares its agent once, so
    what this question still decides is whether to make the change, and when. ⚠ **The re-measure this used to require was TAKEN 2026-09-22
    without building anything, and it retired the gzip metric rather than answering with it** — see
    [OQ-M2](#OQ-M2). So M1 no longer gates on a measurement, and M2 no longer gates on M1.

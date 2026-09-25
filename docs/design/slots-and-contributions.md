@@ -22,7 +22,7 @@ documenting it. **Nothing of `exposes` is built.** What DID land that day is
 [§5.1](#51-what-landed-instead-2026-09-21): **four** shipped defects in the mechanism this doc
 reworks — three of them already ruled elsewhere and never built, the fourth found by measuring —
 now fixed and pinned, including the alias-root layout, which was live at the host notch.
-Companion to [`pi-pack-extensions.md`](./pi-pack-extensions.md), whose slot shape this supersedes.
+Companion to [`pi-pack-extensions.md`](pi-pack-extensions.md), whose slot shape this supersedes.
 ⚠ Review moved this doc twice in one day: the [OQ-D3](#OQ-D3) leaning was WITHDRAWN (it rested on
 the `agent`/`agents` flag living in all three kinds, which the corpus does not bear out), then
 [OQ-D5](#OQ-D5) was FILED when writing the concrete replacement line showed that
@@ -37,7 +37,7 @@ where it had been left an hour earlier.
 > singular/plural flag is a bad way to say "which direction is this", and it already bit: because
 > `files` required `from` on every contribution, a *destination* had to carry content, which put
 > the owning pack's tree at the slot root and produced a nested-mount conflict
-> (the alias-root account in [`pi-pack-extensions.md`](./pi-pack-extensions.md#10-decision-ledger)).
+> (the alias-root account in [`pi-pack-extensions.md`](pi-pack-extensions.md#10-decision-ledger)).
 >
 > **The shape.** Two axes instead of one field-shape inside one kind. `contributes` stays what a
 > pack **supplies**; a new `exposes` list is what a pack **accepts** — a named slot with a landing
@@ -65,11 +65,11 @@ prior one-slot-per-agent ruling is now BUILT and this doc legalizes what it refu
 **Reads with:** [`pack-system.md`](../reference/pack-system.md) (the `contributes` vocabulary),
 [`agent-briefings.md`](../reference/agent-briefings.md#audiences-what-varies-per-destination) (the `agent`/`agents` mechanism this splits
 apart), [`stringly-typed-references-principle.md`](../reference/stringly-typed-references-principle.md)
-(what a name may reference), [`pi-pack-extensions.md`](./pi-pack-extensions.md) (the concrete
-case, and the bug that forced this), [`pi-pack-extensions-plan.md`](./pi-pack-extensions-plan.md)
+(what a name may reference), [`pi-pack-extensions.md`](pi-pack-extensions.md) (the concrete
+case, and the bug that forced this), [`pi-pack-extensions-plan.md`](pi-pack-extensions-plan.md)
 (the build hand-off carrying the superseded slices 1–3),
-[`pi-extension-lifecycle.md`](./pi-extension-lifecycle.md) (the sibling fetch axis),
-[`manifest-language.md`](./manifest-language.md) (the
+[`pi-extension-lifecycle.md`](pi-extension-lifecycle.md) (the sibling fetch axis),
+[`manifest-language.md`](manifest-language.md) (the
 sibling concern — the manifest's *surface*, or how many bytes say one fact).
 
 ---
@@ -230,7 +230,7 @@ adopt is not a schema yet.
 The build attempt that filed [OQ-D6](#OQ-D6)–[OQ-D12](#OQ-D12) did not leave empty-handed: reading
 every site that reads `agent` and `agents` turned up **four defects in the shipped mechanism**.
 Three needed no ruling from this doc — each was already ruled in
-[`pi-pack-extensions.md`](./pi-pack-extensions.md) and simply never built — and the fourth was found
+[`pi-pack-extensions.md`](pi-pack-extensions.md) and simply never built — and the fourth was found
 by measuring the arrangement rather than reading about it. All four were invisible for one reason:
 **no manifest in the corpus declares a files slot**, so the mechanism shipped with zero users and a
 green gate.
@@ -238,13 +238,13 @@ green gate.
 1. **The alias-root layout was live at the host notch.** The jail landed an addressed tree at
    `<slot>/<pack>`; destination borrowing landed it at the slot ROOT, so one `pack.json` delivered
    to two different paths and the host variant put a contributor's whole tree where the owner's own
-   content and every other contributor's go — [OQ-4](./pi-pack-extensions.md#10-decision-ledger)
-   and [§8](./pi-pack-extensions.md#8-invariants-and-failure-modes) invariant 2 ("collisions are impossible"), violated at one of two notches. The join now
+   content and every other contributor's go — [OQ-4](pi-pack-extensions.md#10-decision-ledger)
+   and [§8](pi-pack-extensions.md#8-invariants-and-failure-modes) invariant 2 ("collisions are impossible"), violated at one of two notches. The join now
    lives in ONE function both notches call
    ([`packload.SlotLanding`](../../internal/packload/mergedest.go)), and
    [`filesslotparity_test.go`](../../internal/cli/run/filesslotparity_test.go) pins the two against
    each other plus the catastrophic form itself: no delivery may reach the slot root or the home.
-2. **`files` slots were not one-per-agent.** [OQ-1](./pi-pack-extensions.md#10-decision-ledger)
+2. **`files` slots were not one-per-agent.** [OQ-1](pi-pack-extensions.md#10-decision-ledger)
    ruled a second one a load error; it was never implemented, and the two notches then picked
    DIFFERENTLY and silently (the jail's alias table is a map, so the last declaration won; borrowing
    dedups by path, so the host honored both). Now refused at authoring time by
@@ -344,7 +344,7 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    | Candidate | The line becomes | What it costs |
    | :--- | :--- | :--- |
    | **A — the slot carries it** | `{"name": "briefing", "agent": "claude", "into": ".claude/CLAUDE.md", "accepts": "concat"}` | `agent` does **not** disappear; it is renamed in place, and [§2](#2-what-a-kind-is-and-what-a-slot-is)'s claim is false as written |
-   | **B — the pack declares its identity once** | pack-level `"agent": "claude"`, then `{"name": "briefing", "into": …}` | The repetition goes, which is [`manifest-language.md`](./manifest-language.md)'s concern exactly — but it is a second structural change riding on this one |
+   | **B — the pack declares its identity once** | pack-level `"agent": "claude"`, then `{"name": "briefing", "into": …}` | The repetition goes, which is [`manifest-language.md`](manifest-language.md)'s concern exactly — but it is a second structural change riding on this one |
    | **C — derived from the `program` bin** | `{"name": "briefing", "into": …}`, agent inferred | **Mechanically available and ruled out.** Measured 2026-09-20: the declared `agent` equals the pack's own `program` bin in **7 of 7** agent packs, `oh-omp` included — so the derivation would work. [`OQ-BA2`](../reference/agent-briefings.md#oq-ba2) forbade it anyway: the audience match is against a declared string, typed and compared literally, never anything derived. (The profile chain does map a CLI name to the pack whose `program` installs it, `packload.binOwner`; the audience match deliberately does not use it.) |
 
    That 7-of-7 is the fact that reframes this question. The `agent` key on a destination is not
@@ -385,7 +385,7 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
 
    _Leaning:_ **B**, the pack declaring its identity once. It is the only candidate that *removes*
    the redundancy rather than renaming it (A) or re-deriving what [`OQ-BA2`](../reference/agent-briefings.md#oq-ba2) refused (C) — and it is
-   the same lever [`manifest-language.md`](./manifest-language.md) is pulling, so the two should be
+   the same lever [`manifest-language.md`](manifest-language.md) is pulling, so the two should be
    ruled together rather than twice.
 
    **Answer (2026-09-20):**
@@ -405,7 +405,7 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    - **The identity is restated 38 times for 7 distinct values** across the shipped agent packs
      (`agy` 7, `pi` 7, `claude` 6, `codex` 5, `copilot` 5, `opencode` 5, `oh-omp` 3). Declaring it
      once removes 31 restatements and is the same lever
-     [`manifest-language.md`](./manifest-language.md) is pulling.
+     [`manifest-language.md`](manifest-language.md) is pulling.
    - **0-or-1 is already true, including of the hard case.** Every shipped pack provides exactly
      one agent or none, and no pack names two. `packs/matt` contributes to `claude`, `agy`,
      `codex` **and** `pi` while naming **zero** agents — it *addresses* agents without *providing*
@@ -623,8 +623,8 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
     > _(empty — fill in when decided)_
 
 12. 💬 <a id="OQ-D12"></a>**[OQ-D12](#OQ-D12): how many slots may one agent expose, and what makes
-    two of them an error?** [`pi-pack-extensions.md`](./pi-pack-extensions.md)'s
-    [OQ-1](./pi-pack-extensions.md#10-decision-ledger) — *"one files destination per agent; a second
+    two of them an error?** [`pi-pack-extensions.md`](pi-pack-extensions.md)'s
+    [OQ-1](pi-pack-extensions.md#10-decision-ledger) — *"one files destination per agent; a second
     is a load error"* — is no longer merely unretired: it is **built** as of 2026-09-21
     ([§5.1](#51-what-landed-instead-2026-09-21)). `exposes` plus a slot `name` is exactly what makes
     two slots per agent legal, so this doc must retire that ruling EXPLICITLY, and answer the two
@@ -666,4 +666,4 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
 | **OQ-D10** | — **open.** "An unmatched `to` is refused at load" collapses two severities the tree split on purpose — unknown NAME fatal, no-such-destination reported — and lands the gate where R5 forbids it (`pack lint` has no config) | — | — | — |
 | **OQ-D11** | — **open.** Pack-scope identity vs core's own surfaces (`mise/config` has no pack) and vs a pack naming a surface for an agent it does not provide (legal today, silently forbidden after) | — | — | — |
 | **OQ-D12** | — **open.** How many slots per agent, and what makes two an error. The prior one-per-agent ruling is now BUILT, so this doc must retire it explicitly | — | — | — |
-| **Alias-root layout** | **`<slot>/<pack>`, at every notch**, through one resolver — [`pi-pack-extensions.md`](./pi-pack-extensions.md) [`OQ-4`](./pi-pack-extensions.md#10-decision-ledger) restated where it could be read, since the host notch had violated it since the slot shipped | 2026-09-21 | [§5.1](#51-what-landed-instead-2026-09-21) | **yes** — `packload.SlotLanding`, pinned at both notches |
+| **Alias-root layout** | **`<slot>/<pack>`, at every notch**, through one resolver — [`pi-pack-extensions.md`](pi-pack-extensions.md) [`OQ-4`](pi-pack-extensions.md#10-decision-ledger) restated where it could be read, since the host notch had violated it since the slot shipped | 2026-09-21 | [§5.1](#51-what-landed-instead-2026-09-21) | **yes** — `packload.SlotLanding`, pinned at both notches |

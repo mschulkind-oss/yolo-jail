@@ -18,7 +18,7 @@ import (
 // acROBindsFloor, refuses the mount with a printed reason. The directory branch of
 // hostUserFileArgs did not: it bound the user's host directory `:ro` on every Apple
 // Container version, so below 1.1.0 the jail held WRITE access to a host tree the user
-// declared read-only, and nothing said so (docs/reference/settings-per-setup.md, the
+// declared read-only, and nothing said so (userguide/reference/settings-per-setup.md, the
 // `acdir` footnote).
 //
 // Declining is safe for the jail's side: the entrypoint's stageHostFile treats an absent

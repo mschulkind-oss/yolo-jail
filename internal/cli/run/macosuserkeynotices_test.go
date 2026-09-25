@@ -53,7 +53,7 @@ func macosUserNoticeRun(t *testing.T, cfg string) string {
 }
 
 // TestMacosUserNamesThePlatformKeysItDoesNotRead is DP-L10. All three keys were silent on
-// this backend while docs/guides/macos.md said each was "skipped with a warning" (DP-B36).
+// this backend while userguide/guides/macos.md said each was "skipped with a warning" (DP-B36).
 func TestMacosUserNamesThePlatformKeysItDoesNotRead(t *testing.T) {
 	got := macosUserNoticeRun(t, `{
 	  "devices": ["/dev/ttyUSB0", {"usb": "1234:5678", "description": "my probe"}],

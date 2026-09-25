@@ -763,7 +763,7 @@ is what should happen to a leaf yolo has never asserted, which is [OQ-ST5](#OQ-S
   switch *"changes ZERO bytes"*; at VALUE granularity it does, and a hand-formatted file still
   does not come back formatted.
 - **Comments.** The host report has a class for them and states there is no remedy.
-- **A keyless (`raw`/`lines`) surface.** Refused outright at the host notch by [`[OQ-CO9](./config-ownership-and-promotion.md#13-decision-ledger)`](./config-ownership-and-promotion.md#13-decision-ledger) and NOT
+- **A keyless (`raw`/`lines`) surface.** Refused outright at the host notch by [`[OQ-CO9](config-ownership-and-promotion.md#13-decision-ledger)`](config-ownership-and-promotion.md#13-decision-ledger) and NOT
   refused in a jail, where its first render replaces the file. No shipped pack declares one today,
   so the class is empty rather than handled.
 - **An `assert` render's drop.** There is no yolo-side copy to restore from, by design — the

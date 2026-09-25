@@ -58,7 +58,7 @@ IDs (`CFP-*`) minted 2026-08-23.
    materialized copy whose only protection is file mode against the separate sandbox account.
    This decides whether "read-only" means the same thing on all three backends.
 
-   *Updated 2026-09-24:* [`settings-per-setup.md`](../reference/settings-per-setup.md) now
+   *Updated 2026-09-24:* [`settings-per-setup.md`](../../userguide/reference/settings-per-setup.md) now
    tabulates this per config key and per setup (`host_files`, `mounts`, `workspace_readonly`),
    which covers the host-file half of the question. It has no per-surface rows for composed
    (Derived) surfaces, so the question stays open.

@@ -812,10 +812,10 @@ wrong one to sequence on.
   fail until `pruneUsage` and `commandHelp` carry the new flag and the `capture` row.
 - **Docs:** [`../design/program-delivery.md`](../design/program-delivery.md) [§10](../design/program-delivery.md#10-what-i-would-build-in-order) step six status; [`../reference/storage-and-config.md`](../reference/storage-and-config.md)
   [§2](../reference/storage-and-config.md#machine-wide-storage)'s `<gs>` table (line 112 — already 9 dirs stale, so add `captures/` and say the table was
-  incomplete); [`roadmap.md`](roadmap.md)'s program-delivery row; [`../guides/USER_GUIDE.md`](../guides/USER_GUIDE.md) for the new verb.
+  incomplete); [`roadmap.md`](roadmap.md)'s program-delivery row; [`../guides/USER_GUIDE.md`](../../userguide/README.md) for the new verb.
 - **Surfaces:** `yolo capture --help`; **`YOLO_NO_AUTO_CAPTURE`** (slice 7 — any non-empty value,
   the `YOLO_ALLOW_STALE_IMAGE` convention, documented in
-  [`USER_GUIDE.md`](../guides/USER_GUIDE.md)'s `yolo capture` section, which no longer says a
+  [`USER_GUIDE.md`](../../userguide/README.md)'s `yolo capture` section, which no longer says a
   capture is an explicit act); ~~`yolo prune --captures-keep N`, default **1**~~ ⚠ *no such
   flag shipped — `K = 1` is ruled ([OQ-PD17](../design/program-delivery.md#decision-ledger)), so the
   knob would have had one legal value; the sweep is a `yolo prune` section, dry-run by default like

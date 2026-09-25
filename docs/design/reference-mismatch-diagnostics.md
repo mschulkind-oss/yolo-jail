@@ -463,9 +463,9 @@ left — steps 4 and 5 — waits on [`OQ-RM2`](#OQ-RM2) and [`OQ-RM3`](#OQ-RM3).
    Two dispositions with very different feels. **(a)** Refuse the launch: nothing starts until the
    claim is fixed. **(b)** Refuse the *pack*: it does not load, its other contributions do not
    render, the launch proceeds without it — which is
-   [`trust-paths.md`](trust-paths.md) [`OQ-TP6`](./trust-paths.md#decision-ledger)'s rule ("a refused contribution refuses the launch",
+   [`trust-paths.md`](trust-paths.md) [`OQ-TP6`](trust-paths.md#decision-ledger)'s rule ("a refused contribution refuses the launch",
    built 2026-08-18) read the other way. *(TP6's own subject, the approval refusal, was deleted
-   with the approval prompt on 2026-09-04 by [`OQ-TP9`](./trust-paths.md#decision-ledger); the
+   with the approval prompt on 2026-09-04 by [`OQ-TP9`](trust-paths.md#decision-ledger); the
    rule stands and binds any future refusal source, which a refusing supersession would be. Its
    "approve" option no longer exists.)*
 

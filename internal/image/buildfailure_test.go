@@ -104,7 +104,7 @@ func TestRemedyEchoesTail(t *testing.T) {
 	if !remedyEchoesTail("a\nb\nc", tail) {
 		t.Error("the exact tail join must count as an echo")
 	}
-	if remedyEchoesTail("Set up a Linux builder: see docs/guides/macos.md", tail) {
+	if remedyEchoesTail("Set up a Linux builder: see userguide/guides/macos.md", tail) {
 		t.Error("a classified remedy must not be swallowed as an echo")
 	}
 	if remedyEchoesTail("a\nb\nc", nil) {

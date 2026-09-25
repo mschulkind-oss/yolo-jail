@@ -206,7 +206,7 @@ func LoopholeManifestPlacementProblems(p LoopholeManifestPlacement, workspace st
 // an agent-writable target — including the ones no path check can see, since a
 // Python daemon imports and a compiled one dlopens. That limit is stated for the argv
 // faces — "a tripwire on the shape that actually occurs … not a boundary"
-// (docs/guides/loopholes.md#the-trust-story-a-pack-author-has-to-understand); checking
+// (userguide/guides/loopholes.md#the-trust-story-a-pack-author-has-to-understand); checking
 // the dir is how the tripwire covers the whole module rather than its entry point.
 //
 // Both the LEXICAL and the symlink-resolved spellings are tested, and the first hit
@@ -287,7 +287,7 @@ func argvPathTarget(arg, workspace string) (string, bool) {
 
 // underTree reports whether p is dir itself or anything beneath it. Symlinks are
 // deliberately not resolved: the rule is a tripwire against the shape that occurs
-// rather than a boundary — those words live in docs/guides/loopholes.md under "the trust
+// rather than a boundary — those words live in userguide/guides/loopholes.md under "the trust
 // story a pack author has to understand", which this file already cites correctly further
 // up; loophole-system.md's placement rule says only that it "cannot be complete", which is
 // the weaker half of the same point. An EvalSymlinks here would make the answer

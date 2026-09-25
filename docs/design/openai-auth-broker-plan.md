@@ -251,14 +251,14 @@ prove it — read *Instruments* below before believing a green.
   generalized, all claiming the two macOS backends carry exactly one loophole, and all still
   correct about Apple Container: [`../reference/agent-credentials.md`](../reference/agent-credentials.md)
   (the warning under *The OpenAI subscription credential service*, and the `macos-user` cell
-  of *Per-backend differences*), [`../guides/macos.md`](../guides/macos.md),
-  [`../guides/USER_GUIDE.md`](../guides/USER_GUIDE.md),
+  of *Per-backend differences*), [`../guides/macos.md`](../../userguide/guides/macos.md),
+  [`../guides/USER_GUIDE.md`](../../userguide/README.md),
   [`../research/macos-support-matrix.md`](../research/macos-support-matrix.md),
   [`../plans/macos-revival-and-distribution-plan.md`](../plans/macos-revival-and-distribution-plan.md).
 - **Docs that never covered it:** [`../reference/loophole-protocol.md`](../reference/loophole-protocol.md)
   does not mention this loophole, and `internal/cli/config_ref.txt` names no key or variable
   of it — correctly, since AGENTS.md documents a `YOLO_*` dial where it is enforced. Treat
-  step 8's docs line as satisfied by [`../guides/loopholes.md`](../guides/loopholes.md) plus
+  step 8's docs line as satisfied by [`../guides/loopholes.md`](../../userguide/guides/loopholes.md) plus
   [`../reference/agent-credentials.md`](../reference/agent-credentials.md). The measured Codex
   version floor is recorded in
   [`../research/openai-subscription-auth.md`](../research/openai-subscription-auth.md) beside

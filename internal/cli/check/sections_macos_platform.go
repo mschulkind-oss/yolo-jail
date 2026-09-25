@@ -152,7 +152,7 @@ func (o *Options) checkAppleContainerVmnetSubnet(r *reporter, gw string) bool {
 			"coherently:\n"+
 			"  container system stop && container system start\n"+
 			"If it recurs, pin the CIDR in ~/.config/container/config.toml "+
-			"([network] subnet = \"192.168.64.1/24\").  See docs/guides/macos.md.")
+			"([network] subnet = \"192.168.64.1/24\").  See userguide/guides/macos.md.")
 	return true
 }
 
@@ -201,7 +201,7 @@ func (o *Options) checkAppleContainerVmnetNAT(r *reporter, gw string) {
 	case !subnetDerived:
 		note += "Verify " + subnet + " is the container subnet.  "
 	}
-	note += "See docs/guides/macos.md."
+	note += "See userguide/guides/macos.md."
 
 	r.warn("Apple Container on macOS 15: IP forwarding is off — containers likely have no outbound internet", note)
 }

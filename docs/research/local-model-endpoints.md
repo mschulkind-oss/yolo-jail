@@ -35,7 +35,7 @@ installed binary or npm bundle in this jail — not just vendor docs, and carrie
 provenance tag saying which. Claims that could not be confirmed from a primary
 source are marked **UNCONFIRMED**.
 
-Companion docs: [`agent-config-distribution.md`](./agent-config-distribution.md)
+Companion docs: [`agent-config-distribution.md`](agent-config-distribution.md)
 (how config is *shared*; this doc is how it is *pointed*) and
 [`../reference/loopback-tls-reachability.md`](../reference/loopback-tls-reachability.md)
 (why host-reachability is the load-bearing half).

@@ -212,7 +212,7 @@ Built 2026-09-25, and not yet seen under a live agent: a human confirms build it
     names `sh`.
   - Copilot counts a non-zero exit as a failure and warns *"Status line command failed; the status line will be
     blank"* (MEASURED). macos-user renders copilot's config but delivers no `files` contribution
-    ([per setup](../reference/settings-per-setup.md#what-a-pack-can-contribute-per-setup)), so there the value finds
+    ([per setup](../../userguide/reference/settings-per-setup.md#what-a-pack-can-contribute-per-setup)), so there the value finds
     no script. The `test` makes that case exit 0 with nothing printed.
   - Copilot expands env references in the command before a shell sees it (MEASURED), so the value carries no `$`.
 
@@ -307,7 +307,7 @@ Three limits the rulings leave:
   omp and opencode in a scratch home). agy's fill includes `stack_with_default: true`. The frozen values name only
   stable paths and flags, so a later renderer fix reaches them.
 - **macos-user delivers no `files` contribution**
-  ([per setup](../reference/settings-per-setup.md#what-a-pack-can-contribute-per-setup)). So there, copilot's item
+  ([per setup](../../userguide/reference/settings-per-setup.md#what-a-pack-can-contribute-per-setup)). So there, copilot's item
   stays empty (its command finds no script and exits 0), and pi and omp get no extension. opencode's plugin list
   names a file that is not there, so opencode logs a `[tui.plugin]` line to its console, which its TUI keeps closed
   on errors (`openConsoleOnError: false` in 1.18.32). Claude's and agy's footers need no file and say `jail`. All

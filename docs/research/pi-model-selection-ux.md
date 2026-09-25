@@ -37,7 +37,7 @@ both escape it. A hard allowlist can only live at the wire bridge, which is
 > extension API.
 
 This document answers the model-picker questions adjacent to
-[`openai-subscription-auth.md`](./openai-subscription-auth.md). It does not
+[`openai-subscription-auth.md`](openai-subscription-auth.md). It does not
 change how credentials are acquired or refreshed.
 
 ## 1. What Pi 0.85.1 already does

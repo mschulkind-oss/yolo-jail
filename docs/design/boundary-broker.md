@@ -42,7 +42,7 @@ constraint the two share.
 **Reads with:** [`loophole-protocol.md`](../reference/loophole-protocol.md) (the wire format this extends),
 [`agent-credentials.md`](../reference/agent-credentials.md) (what crosses the boundary today and why),
 [`agent-auth-modes.md`](agent-auth-modes.md) (the split-out sibling),
-[`../guides/loopholes.md`](../guides/loopholes.md) (the shipped loopholes, all pack-shipped
+[`../guides/loopholes.md`](../../userguide/guides/loopholes.md) (the shipped loopholes, all pack-shipped
 since 2026-08-19), [`../plans/roadmap.md`](../plans/roadmap.md) — the whole doc sits in its 🧊 Icebox,
 with what would thaw it.
 

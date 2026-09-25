@@ -67,7 +67,7 @@ presence, selection is an explicit act.
 | Host-notch composition of the same | `internal/cli` (`composeHostLaunch`, `overlayGateProfiles`) |
 | The agent derives that consume the table, and the provider packs that fill it | `packs/*/derive.lua`; every pack declaring a `provider` contribution |
 
-**Reads with:** [`pack-system.md`](../reference/pack-system.md) (what a pack is, how derives are
+**Reads with:** [`pack-system.md`](pack-system.md) (what a pack is, how derives are
 loaded), [`protocol-resolution.md`](protocol-resolution.md) (how an agent's declared wire
 protocols and a provider's endpoints are paired, and the `adapter` contribution that supplies an
 address neither side declared), [`local-model-endpoints.md`](../research/local-model-endpoints.md) (the

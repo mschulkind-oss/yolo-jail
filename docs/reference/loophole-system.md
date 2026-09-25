@@ -50,7 +50,7 @@ loophole is on only because something said so, and a manifest that says nothing 
 | The host-target refusal and the jail-census exclusion | `internal/render` (`fieldset.go`) |
 | The shipped loopholes themselves | `packs/*/loopholes/*/manifest.jsonc` |
 
-**Reads with:** [`../guides/loopholes.md`](../guides/loopholes.md) — the authoring guide,
+**Reads with:** [`../guides/loopholes.md`](../../userguide/guides/loopholes.md) — the authoring guide,
 and the user-facing half of everything here: the manifest keys one by one, the config
 block, the CLI, and a worked example. This document does not restate it.
 [`pack-system.md`](pack-system.md) is the framework a loophole is a contribution to

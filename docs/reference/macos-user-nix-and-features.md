@@ -42,7 +42,7 @@ warnings came out of, and the census that would make a silent drop unwritable),
 [`macos-no-vm-direction.md`](macos-no-vm-direction.md) (why the backend exists),
 [`../design/macos-user-build-step-threat-model.md`](../design/macos-user-build-step-threat-model.md)
 (the host-side nix build as an attack surface),
-[`../guides/macos.md`](../guides/macos.md) (user-facing setup).
+[`../guides/macos.md`](../../userguide/guides/macos.md) (user-facing setup).
 
 ---
 

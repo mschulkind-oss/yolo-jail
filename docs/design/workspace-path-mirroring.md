@@ -734,12 +734,12 @@ destination shape a mirror would produce. The reasoning that predicted it still 
 AC's three known limits are not the ones a rename would trip. Mirroring is **mount-count-neutral** — it renames one
 destination and adds none, which matters because the mount-count pressure is what forced the
 single-writable-`/home/agent` shape (`internal/cli/run/assemble_parts.go`; the
-often-quoted "~22" limit is [not something this repo measures](../guides/macos.md)). Nesting
+often-quoted "~22" limit is [not something this repo measures](../../userguide/guides/macos.md)). Nesting
 depth is fine — the shared cache is already mounted at `/home/agent/.cache` inside the
-`/home/agent` mount on every AC launch ([`../guides/macos.md`](../guides/macos.md)).
+`/home/agent` mount on every AC launch ([`../guides/macos.md`](../../userguide/guides/macos.md)).
 The two limits this paragraph used to name — `:ro` binds ignored, single-file binds impossible
 — were both measured false on `container` 1.1.0 on 2026-09-14: `:ro` is honored from 1.1.0, and
-a regular-file bind arrives and honors `:ro` ([`../guides/macos.md`](../guides/macos.md)'s
+a regular-file bind arrives and honors `:ro` ([`../guides/macos.md`](../../userguide/guides/macos.md)'s
 per-setting table). yolo still gates `:ro` on that version and still copies single files by
 choice. Neither fact is touched by a destination rename either way.
 
@@ -853,7 +853,7 @@ inverts that: if both sides run the same nix-provided userland, content agrees, 
 whatever path agreement is needed is safe rather than merely convenient. The mechanism exists
 and is named — `yoloNoncontainerPackages` / `yoloUnavailablePackages`
 (`flake.nix` — re-resolved 2026-09-11), the subject of
-[the nix resolver read in depth](provisioner-evidence.md#3-the-nix-resolver-in-depth), whose [`OQ-NX1`](./provisioner-sets.md#decision-ledger) was answered
+[the nix resolver read in depth](provisioner-evidence.md#3-the-nix-resolver-in-depth), whose [`OQ-NX1`](provisioner-sets.md#decision-ledger) was answered
 by events on 2026-09-02 (*"the host notch is a place agents run"*, `yolo host -- <cmd>`
 shipped 2026-08-30). This is a much larger programme than mirroring and I am not proposing it
 here; I am naming it as the place the maintainer's underlying goal actually lives, so that a
@@ -1083,7 +1083,7 @@ Two consequences follow, and both are costs:
 
 - **A capture stops being structurally portable between machines.**
   [`program-delivery.md`](program-delivery.md) declines cross-machine distribution
-  as *"a provenance question for [`trust-paths.md`](./trust-paths.md)"* — a **trust** reason, not a path reason.
+  as *"a provenance question for [`trust-paths.md`](trust-paths.md)"* — a **trust** reason, not a path reason.
   Today the path half already works. Mirroring adds a second, harder blocker to a future the
   design deliberately left open.
 - **Mirroring would make slice 6 necessary on the container backends too**, the day anyone
@@ -1114,7 +1114,7 @@ path**. [`host-render-target.md`](host-render-target.md) heads the list — *"th
 in executable form: `mount` needs a mount namespace; `reads-host` *"carries a host file INTO a
 jail — meaningless when there is no jail"*; `install` must not mutate a real toolchain;
 a loophole has no client without a container. Nine manifest fields, four meaningless without a
-container, **exactly one target-independent** ([`host-render-target.md`](./host-render-target.md)).
+container, **exactly one target-independent** ([`host-render-target.md`](host-render-target.md)).
 
 Two specifics worth recording because they look like path problems and are not:
 

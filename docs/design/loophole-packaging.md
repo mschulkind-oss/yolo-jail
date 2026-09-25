@@ -134,7 +134,7 @@ grows faster than the system it describes.
 **Interaction to respect:** this is the same `guest` notch as the environment manager's
 unbuilt phase — carried now by the [💬 Needs you](../plans/roadmap.md#-needs-you) row on
 what the environment manager promises at each notch, whose doc is
-[`environment-manager-user-stories.md`](./environment-manager-user-stories.md) — so the two are
+[`environment-manager-user-stories.md`](environment-manager-user-stories.md) — so the two are
 meant to be ruled in one sitting.
 
 **Answer:**

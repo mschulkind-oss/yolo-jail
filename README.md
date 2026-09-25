@@ -23,7 +23,7 @@ AI coding agents like Claude Code, GitHub Copilot, and OpenAI Codex have a `--yo
 - **Restricted:** Blocked tools return clear errors with suggestions (e.g., `rg` instead of `grep`)
 - **Reproducible:** Defined entirely via Nix Flakes
 - **Agent-Ready:** MCP presets (Chrome DevTools, Sequential Thinking) and LSP servers (Pyright, TypeScript) — enable by name
-- **Configurable:** Per-project config via [`yolo-jail.jsonc`](./yolo-jail.jsonc), user defaults via `~/.config/yolo-jail/config.jsonc`
+- **Configurable:** Per-project config via [`yolo-jail.jsonc`](yolo-jail.jsonc), user defaults via `~/.config/yolo-jail/config.jsonc`
 - **Container Reuse:** Same workspace reuses the same container via `exec`
 - **Runtime Flexible:** Works with podman (Linux/macOS) and Apple Container (macOS native)
 - **Cross-Platform:** Full support for Linux and macOS (Apple Silicon and Intel)
@@ -39,13 +39,13 @@ Core requirements (both platforms):
 
 Additionally, to [install from source](#from-source):
 
-- **[Go](https://go.dev/dl/)** (see [`go.mod`](./go.mod) for the required version)
+- **[Go](https://go.dev/dl/)** (see [`go.mod`](go.mod) for the required version)
 - **[just](https://github.com/casey/just)**
 
 Platform specifics (in priority order):
 
 - **Linux / x86_64** — any modern distribution with Podman. No extra setup. The primary target.
-- **macOS / Apple Silicon** — via a native **arm64** Linux container (Apple Container or Podman Machine); no emulation. See [docs/guides/macos.md](docs/guides/macos.md).
+- **macOS / Apple Silicon** — via a native **arm64** Linux container (Apple Container or Podman Machine); no emulation. See [macOS guide](userguide/guides/macos.md).
 - **Linux / arm64 (aarch64-linux)** — supported and CI-tested (image built + integration-tested natively on `ubuntu-24.04-arm`); same nix image as x86_64, no arch switch.
 - **macOS / Intel** — also supported (x86_64 Linux container).
 
@@ -55,7 +55,7 @@ No builder is needed on macOS — the standard image builds entirely from the Ni
 
 Every channel below ships the same single `yolo` binary. Pick whichever fits — but read the note under each: a launch needs more than the binary.
 
-**Every launch also needs a *flake bundle*** — the copy of yolo's build inputs ([`flake.nix`](./flake.nix), its lockfile, the prebuilt in-jail binaries) that yolo builds the jail from. Homebrew and the from-source install put one beside the binary for you; `go install` and pipx/uvx ship the binary alone, so they need a checkout named by `YOLO_REPO_ROOT`. yolo never consults your working directory to find it. Full table: [docs/guides/USER_GUIDE.md](docs/guides/USER_GUIDE.md#an-install-that-includes-the-build-files).
+**Every launch also needs a *flake bundle*** — the copy of yolo's build inputs ([`flake.nix`](flake.nix), its lockfile, the prebuilt in-jail binaries) that yolo builds the jail from. Homebrew and the from-source install put one beside the binary for you; `go install` and pipx/uvx ship the binary alone, so they need a checkout named by `YOLO_REPO_ROOT`. yolo never consults your working directory to find it. Full table: [Getting Started](userguide/getting-started.md#an-install-that-includes-the-build-files).
 
 ### Homebrew (easiest, macOS and Linux)
 
@@ -130,7 +130,7 @@ podman machine init --cpus 4 --memory 8192 --disk-size 50
 podman machine start
 ```
 
-On macOS, image builds use the NixOS binary cache by default — no builder to set up. If you add packages that aren't in the cache (or build offline), the from-source Linux build is offloaded automatically to a throwaway container on the container runtime you already have running. See [docs/guides/macos.md](docs/guides/macos.md).
+On macOS, image builds use the NixOS binary cache by default — no builder to set up. If you add packages that aren't in the cache (or build offline), the from-source Linux build is offloaded automatically to a throwaway container on the container runtime you already have running. See [macOS guide](userguide/guides/macos.md).
 
 For development, see [CONTRIBUTING.md](https://github.com/mschulkind-oss/.github/blob/main/CONTRIBUTING.md).
 
@@ -198,7 +198,7 @@ These tokens are stored in `~/.local/share/yolo-jail/home/` (same path on Linux 
 
 ## Configuration
 
-Create a per-project config in [`yolo-jail.jsonc`](./yolo-jail.jsonc):
+Create a per-project config in [`yolo-jail.jsonc`](yolo-jail.jsonc):
 
 ```jsonc
 {
@@ -222,7 +222,7 @@ Workspace config merges over user defaults (`~/.config/yolo-jail/config.jsonc`),
 lives inside the jail's writable mount, so an agent could otherwise grant itself
 something.** `packs` and `cache_relocations` are read straight from
 `~/.config/yolo-jail/config.jsonc` and nowhere else; `yolo check` errors if either
-appears in [`yolo-jail.jsonc`](./yolo-jail.jsonc).
+appears in [`yolo-jail.jsonc`](yolo-jail.jsonc).
 
 ```jsonc
 // ~/.config/yolo-jail/config.jsonc — never yolo-jail.jsonc
@@ -257,9 +257,9 @@ host config. Run `yolo pack --help` for authoring and `yolo pack install` to fet
 }
 ```
 
-Moving an existing cache needs a stop-copy-configure-restart dance — see [Storage & Persistence](docs/guides/USER_GUIDE.md#relocating-a-cache-subdir-to-other-storage) in the user guide.
+Moving an existing cache needs a stop-copy-configure-restart dance — see [Storage & Persistence](userguide/guides/storage.md#relocating-a-cache-subdir-to-other-storage) in the user guide.
 
-Run `yolo check` after **every** edit to [`yolo-jail.jsonc`](./yolo-jail.jsonc) to validate the merged config, dry-run the generated jail agent configs, and preflight the image build before restarting into the jail. Inside a running jail, `yolo check --no-build` is the fast way to validate config changes mid-session before asking for a restart.
+Run `yolo check` after **every** edit to [`yolo-jail.jsonc`](yolo-jail.jsonc) to validate the merged config, dry-run the generated jail agent configs, and preflight the image build before restarting into the jail. Inside a running jail, `yolo check --no-build` is the fast way to validate config changes mid-session before asking for a restart.
 
 Run `yolo config-ref` for the full configuration reference.
 
@@ -312,7 +312,7 @@ The `runtime` config picks how the agent is isolated:
 - **`podman`** (Linux, default) / **`container`** (macOS, Apple Container) —
   the agent runs in a Linux container. Strongest boundary (kernel/VM
   isolation, resource caps). On macOS this means a lightweight Linux VM —
-  **native arm64 on Apple Silicon (no emulation)**; see [docs/guides/macos.md](docs/guides/macos.md).
+  **native arm64 on Apple Silicon (no emulation)**; see [macOS guide](userguide/guides/macos.md).
 
 ## Security
 
@@ -320,7 +320,7 @@ The `runtime` config picks how the agent is isolated:
 - **Separate Auth**: Run `gh auth login`, `codex login`, etc. inside the jail once
 - **User Mapping**: Files created in the jail are owned by your host user (matching UID/GID)
 - **Blocked Tools**: Configurable list of tools that return clear error messages
-- **Config Safety**: Changes to [`yolo-jail.jsonc`](./yolo-jail.jsonc) require human confirmation at next startup — agents cannot silently modify the jail environment. See [docs/reference/config-safety.md](docs/reference/config-safety.md).
+- **Config Safety**: Changes to [`yolo-jail.jsonc`](yolo-jail.jsonc) require human confirmation at next startup — agents cannot silently modify the jail environment. See [docs/reference/config-safety.md](docs/reference/config-safety.md).
 - **Read-Only Mounts**: Extra mounts are read-only by default
 
 ## Troubleshooting
@@ -333,7 +333,7 @@ yolo doctor
 
 This checks your container runtime, Nix installation, configuration files, image status, and running containers.
 
-Run `yolo check` after **every** config edit, especially when handing work from an outside agent into the jail or when an in-jail agent edits [`yolo-jail.jsonc`](./yolo-jail.jsonc) mid-session and needs to verify the restart will succeed.
+Run `yolo check` after **every** config edit, especially when handing work from an outside agent into the jail or when an in-jail agent edits [`yolo-jail.jsonc`](yolo-jail.jsonc) mid-session and needs to verify the restart will succeed.
 
 ## Contributing
 
@@ -341,8 +341,8 @@ See [CONTRIBUTING.md](https://github.com/mschulkind-oss/.github/blob/main/CONTRI
 
 ## Documentation
 
-- [User Guide](docs/guides/USER_GUIDE.md) — Detailed setup, configuration, and troubleshooting
-- [macOS Setup](docs/guides/macos.md) — macOS-specific installation and setup guide
+- [User Guide](https://docs.yolo-jail.mschulkind.dev) — Published setup, configuration, and troubleshooting ([source](userguide/README.md))
+- [macOS Setup](userguide/guides/macos.md) — macOS-specific installation and setup guide
 - [Platform Comparison](docs/research/platform-comparison.md) — Feature matrix: Linux vs macOS
 - [Config Safety](docs/reference/config-safety.md) — How config change approval works
 - [Storage & Config](docs/reference/storage-and-config.md) — Storage hierarchy and mount layout

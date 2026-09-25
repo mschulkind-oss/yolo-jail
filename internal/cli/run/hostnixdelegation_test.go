@@ -156,7 +156,7 @@ func TestMacosStoreClaimAloneMountsNothing(t *testing.T) {
 // TestLinuxStillMountsWithoutAnyDial is the blast-radius check. On Linux the host store IS
 // the jail's system and holds the image's closure because that host built it, so nested Nix
 // must keep working with no variable set at all — this is the default documented in
-// docs/guides/macos.md's own "exactly as on Linux".
+// userguide/guides/macos.md's own "exactly as on Linux".
 //
 // It reads goldenOptions unmodified except for the two nix paths, so a future edit that
 // moved the macOS gate up out of the `if !isMacOS` arm fails here rather than in production.

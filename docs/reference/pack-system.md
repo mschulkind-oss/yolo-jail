@@ -76,7 +76,7 @@ they are rendered into a jail.
 
 **Reads with:** [`providers.md`](providers.md) (the `provider` and `profile` kinds, the
 `profile:` modifier, and everything a selection does — the authority for all of it),
-[`../guides/loopholes.md`](../guides/loopholes.md) (what a loophole is, and its settings
+[`../guides/loopholes.md`](../../userguide/guides/loopholes.md) (what a loophole is, and its settings
 block), [`wire-bridge.md`](wire-bridge.md) (`needs`, and the `service`
 kind), [`protocol-resolution.md`](protocol-resolution.md) (the `adapter` kind and `protocols`),
 [`agent-briefings.md`](agent-briefings.md) (what a composed briefing contains around the pack
@@ -1877,7 +1877,7 @@ A loophole a pack ships gets a `settings` block under its own name —
 `loopholes.<name>.settings.<key>` — whose keys are **declared and typed in the loophole's
 manifest**. Core validates them at the existing validation point, resolves them from the
 merged config, and writes them to a file it owns. `yolo config-ref` is the authority for the
-config keys; [`../guides/loopholes.md`](../guides/loopholes.md) is the authority for the
+config keys; [`../guides/loopholes.md`](../../userguide/guides/loopholes.md) is the authority for the
 manifest block. The four halves are `internal/loopholedecl/settings.go` (declare),
 `internal/config/validate_loopholesettings.go` (validate), `internal/loopholes/settings.go`
 plus `internal/cli/run/loopholesettings.go` (resolve and write).
@@ -2042,7 +2042,7 @@ scope only and inexpressible at workspace scope by construction** — that is th
 restriction, and it is the one that survives, because a workspace config travels with a repo
 and is agent-editable. **An agent cannot add a pack.** So a prompt at `yolo pack install`
 refuses an actor who has already passed a strictly stronger gate, which
-[`../reference/gate-placement-principle.md`](../reference/gate-placement-principle.md) Test 1 calls
+[`../reference/gate-placement-principle.md`](gate-placement-principle.md) Test 1 calls
 theatre — and `internal/config/userlayer.go` already applied the same test, the same way, to
 `--user-layer`, the other route into `packs`.
 

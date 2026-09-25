@@ -64,9 +64,9 @@ holds. See [`OQ-2`](#OQ-2).
 **Reads with:** [`pi-extension-lifecycle-plan.md`](pi-extension-lifecycle-plan.md)
 (the companion implementation sketch — its blocking questions were ruled 2026-09-20, so what it owes
 now is completion against the tree rather than a decision),
-[`pi-pack-extensions.md`](./pi-pack-extensions.md) (the accepted sibling that assigns this doc the
+[`pi-pack-extensions.md`](pi-pack-extensions.md) (the accepted sibling that assigns this doc the
 fetch/resolve axis and names `internal/packsrc` + `packs.lock.json`),
-[`slots-and-contributions.md`](./slots-and-contributions.md) (the role model of the same
+[`slots-and-contributions.md`](slots-and-contributions.md) (the role model of the same
 constellation), [`program-delivery.md`](program-delivery.md) (the launcher and `agent_updates`
 foundation), and [`../reference/macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md)
 (the machine vs workspace storage tiers, as built).
@@ -201,7 +201,7 @@ At container initialization, YOLO links `~/.pi/agent/npm` to `~/.pi-shared-npm`:
 > Two corrections, both from the recon that preceded the build. The name: an "extension storage"
 > hook is the `claude_plugins` shape one step removed — a name only one pack could ever want for
 > a mechanism any pack can use — and the ruling that retired `claude_plugins` forbids it
-> ([`pi-pack-extensions.md` OQ-2](./pi-pack-extensions.md#10-decision-ledger), 2026-09-19). What it does is the
+> ([`pi-pack-extensions.md` OQ-2](pi-pack-extensions.md#10-decision-ledger), 2026-09-19). What it does is the
 > DIRECTORY twin of `shared_credentials`, so that is what it is called. The reuse: `linkThroughShared`
 > could not be adapted as written — it is file-shaped end to end, and its emptiness test INVERTS for
 > a directory — so the decision table is parameterized by a payload shape and the file and directory

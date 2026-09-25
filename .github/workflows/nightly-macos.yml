@@ -362,7 +362,7 @@ jobs:
 
       # The CLI expects nix on the macOS host (yolo check gates on it, and
       # per-workspace images with extra packages are nix-built locally,
-      # substituting from the NixOS binary cache — see docs/guides/macos.md).
+      # substituting from the NixOS binary cache — see userguide/guides/macos.md).
       - name: Install Nix
         uses: cachix/install-nix-action@v31
         with:
@@ -709,7 +709,7 @@ jobs:
           YOLO_RUNTIME: podman
           # The other half of the -v /nix:/nix above: this is yolo's ONE spelling
           # of "my runtime VM does share /nix into the container"
-          # (prefixUnreachableFromVM, docs/guides/macos.md). Without it the launcher
+          # (prefixUnreachableFromVM, userguide/guides/macos.md). Without it the launcher
           # refuses a store-path install prefix on darwin outright — deliberately,
           # since the alternative is podman's unattributable statfs error.
           #

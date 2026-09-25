@@ -52,7 +52,7 @@ log() { printf '%s\n' "$*" >&2; }
 die() { printf 'mac-ac-linux-builder: %s\n' "$*" >&2; exit 1; }
 
 command -v container >/dev/null 2>&1 || die "the \`container\` CLI is not on PATH. \
-This needs Apple Container (docs/guides/macos.md)."
+This needs Apple Container (userguide/guides/macos.md)."
 container system status >/dev/null 2>&1 || die "the Apple Container apiserver is not \
 running. Start it with: container system start"
 

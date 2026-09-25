@@ -64,7 +64,7 @@ service user under Apple Seatbelt, in a **real home on the real filesystem, no V
 image** — with your packs' full portable surface set rendered into it. This is the
 existing `macos-user` backend, now driven by the confinement dial and rendering surfaces
 (the zero-surfaces bug was fixed in Phase 1.4). See
-[../guides/macos.md](../guides/macos.md) for the backend today.
+[../guides/macos.md](../../userguide/guides/macos.md) for the backend today.
 
 **Why it's blocked here.** No macOS, no Seatbelt, no `_yolojail`.
 

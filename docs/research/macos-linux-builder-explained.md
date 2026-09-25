@@ -11,7 +11,7 @@
 > **STATUS (2026-07-23):** The VM-builder *direction* discussed below — the [§3](#3-the-real-options)
 > Option C launchd plist, the [§5](#5-what-this-means-for-the-code-we-already-have) rework recommendation, and the `yolo builder`
 > commands — is **SUPERSEDED**. The on-demand **container** builder is the sole
-> shipped builder; see `linux-builder-lifecycle.md` (archived 2026-09-09; git has it) (`linux-builder-lifecycle.md`, archived 2026-09-09 — the removal is DONE; the mechanism is in [`macos-linux-builder-explained.md`](../research/macos-linux-builder-explained.md))
+> shipped builder; see `linux-builder-lifecycle.md` (archived 2026-09-09; git has it) (`linux-builder-lifecycle.md`, archived 2026-09-09 — the removal is DONE; the mechanism is in [`macos-linux-builder-explained.md`](macos-linux-builder-explained.md))
 > (Open Decision #3, RESOLVED). The conceptual/mental-model content here (why
 > macOS needs a Linux builder, the Rosetta stone, the lifecycle mechanics) stays
 > valid; only the "we should build the VM this way" recommendation is retired.

@@ -47,7 +47,7 @@ followed, and the commit says so. This file is advice, and the first thing to be
 | :--- | :--- |
 | `packs/aws-auth/pack.json` | **BUILT** — `kind: "loophole"` (`from: loopholes/aws-auth`) + one `kind: "env"` gated on the `bedrock` profile ([Blockers](#blockers) 2), carrying the `overridden_by` declaration since step 6a |
 | `packs/aws-auth/loopholes/aws-auth/manifest.jsonc` | **BUILT** — `publishes: "socket"`, `scope: "host"`, `state_files: [".mount-sentinel"]`, a `settings` block, `doctor_cmd` |
-| `packs/aws-auth/README.md` | **BUILT** — the four items [§12](sso-backed-bedrock.md#12-what-i-would-build-in-order) step 4 owes it, plus the [`OQ-BR4`](./provider-credential-scope.md#OQ-BR4) instance |
+| `packs/aws-auth/README.md` | **BUILT** — the four items [§12](sso-backed-bedrock.md#12-what-i-would-build-in-order) step 4 owes it, plus the [`OQ-BR4`](provider-credential-scope.md#OQ-BR4) instance |
 | `packs/embed.go` | **BUILT** — `all:aws-auth` added to the `//go:embed` list (explicit, test-enforced) |
 | `internal/awsauth/` | **BUILT** — cache state keyed by profile, host-wide lock, mint + narrowing; mirrors `internal/openaiauth` |
 | `internal/awsauthdaemon/` | **BUILT** — `Main`, handler, `--self-check`; mirrors `internal/openaiauthdaemon` |
@@ -657,7 +657,7 @@ Stop and ask on each: the tree forces a choice the design does not make. None bl
 **Measured after steps 1 and 2: none of the five was hit.** They are all step-3-and-later
 facts, and the two packages reach none of them — 1 is a manifest spelling (`default_enabled`),
 2 is `packs/aws-auth`'s `env` contribution, 3 is step 7's arm, 4 is `internal/config`, and 5 is
-[`bedrock-plumbing.md`](./bedrock-plumbing.md). What steps 1–2 DID force were three choices the design leaves open and
+[`bedrock-plumbing.md`](bedrock-plumbing.md). What steps 1–2 DID force were three choices the design leaves open and
 the Blockers do not list, all three taken toward refusing rather than guessing and all three
 recorded in [Progress](#progress): the two contradictory-narrowing refusals, and a credential
 with no session token.

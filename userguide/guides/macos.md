@@ -39,9 +39,9 @@ backend.
 > `macos-user` was prototyped, briefly excised, then **revived** as a composed
 > product (native macos-user + Apple Container fallback) and is now verified on
 > hardware. See
-> [macos-no-vm-direction.md](../reference/macos-no-vm-direction.md) for the standing
+> [macos-no-vm-direction.md](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/reference/macos-no-vm-direction.md) for the standing
 > decision and
-> [macos-revival-and-distribution-plan.md](../plans/macos-revival-and-distribution-plan.md)
+> [macos-revival-and-distribution-plan.md](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/plans/macos-revival-and-distribution-plan.md)
 > for the current status.
 
 ## Choosing a runtime
@@ -200,7 +200,7 @@ readiness (Seatbelt, sandbox user, nix trusted), and
 bootstrap argv, launch argv) and runs its invariant checks — both zero-sudo.
 
 See [Choosing a runtime](#macos-user-trade-offs) for when to pick it, and the
-runbook [mac-macos-user-e2e.md](../plans/runbooks/mac-macos-user-e2e.md) for the
+runbook [mac-macos-user-e2e.md](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/plans/runbooks/mac-macos-user-e2e.md) for the
 full verification procedure.
 
 ### Building the image on macOS (cache vs. Linux builder)
@@ -217,7 +217,7 @@ Two things make that a non-event:
 **Best — download the prebuilt image (no build at all).** When yolo-jail's
 Cachix cache is published, macOS users download the fully-built image and
 never compile anything. This is the intended happy path; see
-[docs/plans/handoff-cachix-cache.md](../plans/handoff-cachix-cache.md) for its status. Once
+[docs/plans/handoff-cachix-cache.md](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/plans/handoff-cachix-cache.md) for its status. Once
 live, `yolo check` shows "every image path is served from the binary cache".
 CI pushes the **aarch64-linux** closure on every release (built natively on
 an arm runner), so Apple Silicon Macs pull the exact arm image they run — no
@@ -287,11 +287,11 @@ on macOS by default.
 
 **In-jail nix on the two container backends is possible, but not planned for
 now** (ruled 2026-09-24; the measured route is recorded in
-[the setup-support gaps plan](../plans/setup-support-gaps.md#2-ranked-gap-backlog)). Instead, add the tool to
+[the setup-support gaps plan](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/plans/setup-support-gaps.md#2-ranked-gap-backlog)). Instead, add the tool to
 `packages:` and restart the jail, install a runtime with mise, or use the
 `macos-user` backend, whose sandbox runs your Mac's own `nix` through its
 daemon — not yet tried on a real Mac; see
-[nix inside the sandbox](../reference/macos-user-nix-and-features.md#nix-inside-the-sandbox).
+[nix inside the sandbox](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/reference/macos-user-nix-and-features.md#nix-inside-the-sandbox).
 
 **Apple Container has no opt-in at all:** it never mounts the host's nix,
 whatever is set. On Podman Machine, opting back in takes **two** claims,
@@ -328,7 +328,7 @@ Linux. With only the first, it mounts neither and says so in one line.
 ### The same rule now decides whether a live checkout can launch at all
 
 Since 2026-09-06 yolo's own binaries are **bind-mounted** into the jail rather
-than baked into the image ([`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#the-mounted-prefix)). An
+than baked into the image ([`image-staging-vs-baking.md`](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/reference/image-staging-vs-baking.md#the-mounted-prefix)). An
 installed bundle — Homebrew, the release archive, `just install` — ships them
 prebuilt under `$HOME`, which the VM does share, so nothing changes for it. A
 **live checkout** ships none, so they are built, and a built prefix lives in
@@ -437,7 +437,7 @@ Everything that works on Linux works on macOS **except** the items listed in
 - ✅ Port forwarding and publishing (via TCP gateway on Podman, native sockets on Apple Container)
 - ✅ `mise` tool management inside the jail
 - ✅ Agent launchers for the shipped agent packs (`claude`, `codex`, `copilot` and
-  the rest under [`packs/`](../../packs/)), with one exception: `omp` is published
+  the rest under [`packs/`](https://github.com/mschulkind-oss/yolo-jail/blob/main/packs)), with one exception: `omp` is published
   for `darwin/arm64` and `linux/amd64` only, so on an Apple-silicon Mac it runs
   under `macos-user` but not in a Podman or Apple Container jail, which are
   `linux/arm64`. The jail warns and writes no `omp` launcher there. There is no
@@ -499,7 +499,7 @@ are the whole list.
 ### Backend feature parity at a glance
 
 **Moved.** The per-setup grid now lives once, in
-[the user guide's *What works in each setup*](USER_GUIDE.md#what-works-in-each-setup) — it covers all
+[the user guide's *What works in each setup*](../reference/settings-per-setup.md#what-works-in-each-setup) — it covers all
 four setups (this page's three plus `podman` on Linux, the parity reference), every top-level config
 key rather than a selection, and a *takes effect* column for the frozen-at-launch keys. It also
 carries the pre-flight gates that can refuse a launch outright, which are not macOS-specific.
@@ -595,15 +595,15 @@ It is the fastest backend and the one that delivers the least.
 | Config key / feature | On `macos-user` | Where it is decided |
 |---|---|---|
 | `loopholes` — the HOST half | **every one of them starts**, through the same spawn boundary a container launch uses, with the same "This launch runs pack code on your machine" disclosure printed first. ⚠ THIS ROW SAID *"inert, with exactly one exception"* UNTIL 2026-09-18 and that is retracted: it described an arm that started one credential service by hand, which is not what ships. Measured (unit, 2026-09-18): a bare `"packs": ["claude"]` publishes both `claude-oauth-broker.endpoint` and `openai-auth-broker.endpoint`. Reaching them needs no bind mount, which is why this backend can carry them at all: each endpoint file gets a per-file macOS ACL grant (`chmod +a`) for the sandbox account and its path is written into the session env the confined stage sources. `openai-auth-broker` is the one that **refuses the launch** if it does not come up. The inert line you still see here is the **platform** axis only — `audio`, `journal`, `host-processes` and `cgroup-delegate` declare `platforms: ["linux"]`. ⚠ NOT MEASURED on hardware | `run/run.go` → `Run` (the macos-user arm's `startLoopholesDisclosed` call); `macosuser/macosuser.go` → `EndpointGrantCommands`; `run/loopholeinert.go` → `backendInertReason` |
-| `loopholes` — the JAIL half (`jail_daemon`) | **none of them runs, and the launch now says so by name.** There is no in-jail supervisor on this backend and no `yolo-jaild` built for darwin at all, so nothing reads the `YOLO_JAIL_DAEMONS` payload here. One `Declined:` line per declared daemon at every launch, naming it and its argv — measured on that same bare `"packs": ["claude"]`, which declares **three** (`yolo-jaild oauth-terminator`, `yolo-jaild openai-auth-adapter --listen 127.0.0.1:1460`, `yolo-jaild wire-bridge`) because the `claude` pack `needs` `openai-auth` and `wire-bridge` unconditionally. **What it costs:** an intercepting loophole does nothing useful even though its host daemon runs — `claude-oauth-broker`'s TLS terminator IS its jail half, so Claude OAuth refreshes are **not** serialized here; a Codex session keeps working until its first token refresh, which dials a port nothing binds; and the `wire-bridge` service has no host half at all, so it is absent end to end. Starting any of them is blocked on two unfiled rulings — how a declared argv resolves with no image, and whether the child runs under the Seatbelt profile | `run/run.go` → `Run` (the hoisted `jailDaemonsFor` value); `run/jaildaemondecline.go` → `noteMacosUserJailDaemonDeclines`; [`jail-daemon-on-macos-user-plan.md`](../design/jail-daemon-on-macos-user-plan.md) |
-| `mounts` | **not delivered; the launch warns once per entry** (a pack's `mount` grant too), and [a delivery is proposed](../design/context-mounts.md) | warned by `run/macosctxtree.go` → `noteMacosUserCtxMountGaps`; delivered only by the container assembler (`run/assemble.go`) |
+| `loopholes` — the JAIL half (`jail_daemon`) | **none of them runs, and the launch now says so by name.** There is no in-jail supervisor on this backend and no `yolo-jaild` built for darwin at all, so nothing reads the `YOLO_JAIL_DAEMONS` payload here. One `Declined:` line per declared daemon at every launch, naming it and its argv — measured on that same bare `"packs": ["claude"]`, which declares **three** (`yolo-jaild oauth-terminator`, `yolo-jaild openai-auth-adapter --listen 127.0.0.1:1460`, `yolo-jaild wire-bridge`) because the `claude` pack `needs` `openai-auth` and `wire-bridge` unconditionally. **What it costs:** an intercepting loophole does nothing useful even though its host daemon runs — `claude-oauth-broker`'s TLS terminator IS its jail half, so Claude OAuth refreshes are **not** serialized here; a Codex session keeps working until its first token refresh, which dials a port nothing binds; and the `wire-bridge` service has no host half at all, so it is absent end to end. Starting any of them is blocked on two unfiled rulings — how a declared argv resolves with no image, and whether the child runs under the Seatbelt profile | `run/run.go` → `Run` (the hoisted `jailDaemonsFor` value); `run/jaildaemondecline.go` → `noteMacosUserJailDaemonDeclines`; [`jail-daemon-on-macos-user-plan.md`](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/design/jail-daemon-on-macos-user-plan.md) |
+| `mounts` | **not delivered; the launch warns once per entry** (a pack's `mount` grant too), and [a delivery is proposed](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/design/context-mounts.md) | warned by `run/macosctxtree.go` → `noteMacosUserCtxMountGaps`; delivered only by the container assembler (`run/assemble.go`) |
 | `cache_relocations` | not delivered (it is a nested bind mount) — **warns**. A hand-made symlink is not a workaround either: the sandbox profile denies writes outside the workspace and sandbox home, and denies reads under `/Volumes` | `macosuser/orchestrator.go` → `buildPlan` |
 | `forward_host_ports` | not wired (container-side only) | `run/assemble.go` → `assembleRunCmd`; `run/hostports.go` → `ParsePortForwards` |
 | `per_side_paths` | not enforced — **warns**. Per-side shadowing needs a mount namespace; Seatbelt filters permissions and cannot fork a path | `macosuser/orchestrator.go` → `buildPlan` |
 | `resources` | not enforced — **warns**. No cgroups, and no VM to size | `macosuser/orchestrator.go` → `buildPlan` |
 | `workspace_readonly` | **enforced**, as Seatbelt deny rules | `macosuser/seatbelt.go` → `readonlyDenies` |
 | Pack briefings and skills | **delivered by COPY** — **warns**, because a copy is writable where every other backend's bind is `:ro`: the agent can edit its own skills and briefing, and the next launch overwrites them again. They were *not delivered at all* until 2026-09-03, which was the sharper gap — the blocked-tool shims are generated either way, so a blocked command exited 127 with nothing explaining it | `run/loopholeinert.go` → `noteMacosUserContentGaps` |
-| `lsp_servers` | **config rendered, nothing installed** — on every backend since the LSP install recipes were deleted (2026-09-25). The server's `command` must already be on `PATH`; bring it with `mise_tools`, a pack program or an absolute path ([`mcp-configuration.md`](../reference/mcp-configuration.md#binaries-are-the-users)) | `macosuser/runplan.go` → `BuildRunPlan` (composes no install list) |
+| `lsp_servers` | **config rendered, nothing installed** — on every backend since the LSP install recipes were deleted (2026-09-25). The server's `command` must already be on `PATH`; bring it with `mise_tools`, a pack program or an absolute path ([`mcp-configuration.md`](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/reference/mcp-configuration.md#binaries-are-the-users)) | `macosuser/runplan.go` → `BuildRunPlan` (composes no install list) |
 | `mise_tools` | **installed**, since 2026-09-12: `mise` is on the floor and the stage runs `mise install` into a machine-wide `MISE_DATA_DIR`. Also warned until that landed. ⚠ NOT MEASURED on hardware | `macosuser/provision.go` → `ProvisionSetup` |
 | `mcp_presets` | config renders, wrappers are **not delivered** — **warns** from inside the bootstrap. The preset wrappers are Linux-absolute, and the stage installs none of the npm packages behind them | `entrypoint/darwin.go` → `RunDarwinBootstrap` |
 | Pack `reads-host` grants | **delivered by COPY, since 2026-09-13.** ⚠ NOT MEASURED on hardware — the delivery is unit-tested only; what *was* measured on a Mac (2026-09-13) is the probe that ruled out the cheaper alternative, a symlink, because Seatbelt evaluates the link's TARGET. The launcher copies each granted file into a root-owned tree under `/var/yolo-jail` that the sandbox can read and cannot write, and names it with `YOLO_CTX_ROOT`, so each surface composes *your* file. From 2026-08-24 until then they **did not cross** and warned: every surface rendered from its *defaults* layer, which was the more dangerous of the two host-byte gaps because nothing about the result looked wrong | `run/macosctxtree.go` → `buildMacosCtxTree`; `macosuser/macosuser.go` → `StageCtxCommands` |
@@ -646,7 +646,7 @@ dropped rather than emitted.
 > where it is and symlinks each `scope: workspace` directory into
 > `<workspace>/.yolo/home`, so the declared `scope: machine` directory never moves
 > and credential sharing works by the same hook it uses everywhere
-> ([`../reference/macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md)).
+> ([`../reference/macos-user-home-tiers.md`](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/reference/macos-user-home-tiers.md)).
 > ⚠ The reason this note gave for leaving it — *"the single home is that backend's
 > shared-credentials mechanism"* — is retracted; colocation only supplied that
 > directory's backing.
@@ -701,7 +701,7 @@ entries in the devices config are skipped on macOS.
 ### Cache Relocation (`cache_relocations`)
 
 Moving a cache subdir onto other storage (see
-[USER_GUIDE — Relocating a Cache Subdir](USER_GUIDE.md#relocating-a-cache-subdir-to-other-storage))
+[Relocating a Cache Subdir](storage.md#relocating-a-cache-subdir-to-other-storage))
 is **not implemented on Apple Container**. Not because the backend can't nest a
 bind mount — it already mounts the shared cache at `/home/agent/.cache` inside
 its writable `/home/agent` mount, which is the same nesting a relocation needs —
@@ -1042,7 +1042,7 @@ into the already-mounted directory. A file is what virtiofs carries fine, and
 the address lives inside it rather than in the mount.
 
 **There is no broker relay any more** (deleted 2026-08-19,
-`docs/design/broker-as-a-pack.md` [§7](../design/broker-as-a-pack.md#7-what-this-deletes-what-it-costs-what-it-forecloses)). `internal/brokerrelay`, its
+`docs/design/broker-as-a-pack.md` [§7](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/design/broker-as-a-pack.md#7-what-this-deletes-what-it-costs-what-it-forecloses)). `internal/brokerrelay`, its
 `/tmp/yolo-broker-relay-<hash>.{pid,lock,sock}` files and its
 `~/.local/share/yolo-jail/logs/broker-relay-<hash>.log` are gone, and so is the
 attach-time healing that used to restart one. The front is a **goroutine inside

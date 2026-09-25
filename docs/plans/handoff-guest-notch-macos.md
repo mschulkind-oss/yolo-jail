@@ -21,7 +21,7 @@ Mac could, and a commit settled the MCP-wrapper one.
 **Reads with:** [`environment-manager-plan.md`](environment-manager-plan.md) Phase 7 (the
 spec), [`../reference/macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md)
 (the existing backend — see the correction in [§2](#2-the-bug-that-was-fixed-blind--your-first-job-is-to-run-it) before trusting it),
-[`../guides/macos.md`](../guides/macos.md) (usage),
+[`../guides/macos.md`](../../userguide/guides/macos.md) (usage),
 [`../design/provisioner-evidence.md`](../design/provisioner-evidence.md#37-macos-vs-linux-coverage-freshness-and-the-traps)
 (macOS vs Linux coverage and freshness — split out of `provisioner-sets.md` on 2026-09-20)
 and [`../design/provisioner-sets.md`](../design/provisioner-sets.md#10-alternatives-each-with-a-verdict)'s alternatives (alternative H, formerly Option 1, **was** a prerequisite for 7.2 and is now shipped — see [§5](#5-the-nix-prerequisite--shipped-verified-2026-08-23) below),

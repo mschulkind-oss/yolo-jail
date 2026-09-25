@@ -8,9 +8,7 @@ summary: "Parking lot for build-level detail behind docs-website.md: file list, 
 
 # Docs website — implementation sketch
 
-**Status:** SKETCH, 2026-09-25. It is incomplete, and it is unstable while
-[OQ-DW1](docs-website.md#OQ-DW1) and [OQ-DW2](docs-website.md#OQ-DW2) are open. Do not build from
-it.
+**Status:** The repository build described here is in place, 2026-09-25. The Cloudflare dashboard connection is still a human step. [OQ-DW1](docs-website.md#OQ-DW1) is ruled; [OQ-DW2](docs-website.md#OQ-DW2)'s leaning was implemented provisionally. The [design](docs-website.md) wins on behavior.
 
 **Precedence:** [`docs-website.md`](docs-website.md) wins on behavior. This file holds settled detail
 the design doesn't need.
@@ -58,4 +56,4 @@ the script.
 2. Add the build script, the Worker files and the `AGENTS.md` line.
 3. Human: create the Worker in the Cloudflare dashboard and connect the repo, with the commands from
    [the design's §3.3](docs-website.md#33-cloudflare-workers-builds-the-one-deployer).
-4. Blocked on [OQ-DW1](docs-website.md#OQ-DW1): the custom domain, and URLs in runtime messages.
+4. Human: attach `docs.yolo-jail.mschulkind.dev` in the Cloudflare dashboard. Runtime messages still name repository paths until the domain is serving.

@@ -135,7 +135,7 @@ install, and that redrawing lives in
 
 | File | What it says today |
 | :--- | :--- |
-| [`USER_GUIDE.md`](../guides/USER_GUIDE.md) | An "MCP Presets" section with an availability table, an enable example, a disable example, and a troubleshooting line |
+| [`USER_GUIDE.md`](../../userguide/README.md) | An "MCP Presets" section with an availability table, an enable example, a disable example, and a troubleshooting line |
 | [`mcp-configuration.md`](../reference/mcp-configuration.md) | Presets in the pipeline diagram, in the loader rules, and two rows of its Current values table |
 | [`README.md`](../../README.md) | One sentence naming `mcp_presets` beside `mcp_servers` |
 | [`yolo-jail.jsonc`](../../yolo-jail.jsonc), `template_tail.txt` | A commented example line carrying both names |

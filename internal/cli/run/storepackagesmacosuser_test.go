@@ -43,7 +43,7 @@ func macosUserStorePackagesOutput(t *testing.T, val string) (string, bool) {
 // YOLO_STORE_PACKAGES=1 on macos-user used to vanish without a line: the macos-user arm
 // returns before planStorePackages, the dial's only reader, so the one ineligible setup
 // that said nothing was this one (docs/plans/setup-support-gaps.md G10,
-// docs/reference/settings-per-setup.md's "n/a — silent" cell).
+// userguide/reference/settings-per-setup.md's "n/a — silent" cell).
 //
 // A NOTICE, NOT A REFUSAL. The ruling that governs this dial is planStorePackages' own
 // (docs/reference/image-staging-vs-baking.md, "falls back ... and says so"): a requested

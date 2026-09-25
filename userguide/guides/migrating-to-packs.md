@@ -45,7 +45,7 @@ claimed your host `~/.claude/settings.json` no longer composes into a jail. It d
 > instruction genuinely expires — [`yolo host apply --revert`](#step-3-apply-it-for-real) is
 > gated on `host_management: "assert"` and the ruling names no successor value — so read the ⚠
 > beside it before you rely on that verb. The decision, and what it obliges, live in
-> [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md#4-declaring-ownership--the-host_management-key).
+> [`config-ownership-and-promotion.md`](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/design/config-ownership-and-promotion.md#4-declaring-ownership--the-host_management-key).
 
 This guide takes you from "yolo just runs claude in a jail with my hand-tuned
 `~/.claude/settings.json`" to "my agent environment is a **pack** I own — declared,
@@ -217,7 +217,7 @@ file already in `briefing/`, name it with `from` and an `agents` list. `{"kind":
 neither `into` nor `agents` is a broadcast, to every agent the jail selects.
 
 The manifest schema is documented in full by `yolo config-ref` (the `packs` section) and
-[../reference/pack-system.md](../reference/pack-system.md).
+[../reference/pack-system.md](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/reference/pack-system.md).
 
 ### Step 3: lint it — before you ever launch a jail
 
@@ -626,7 +626,7 @@ A few things the design calls for are **not built**:
   existing `skills` and briefing prose ARE migrated for you, on the first `yolo host apply --assert`
   (see Part 2) — that half is no longer manual.
 
-Tracking for all of it: [../plans/environment-manager-plan.md](../plans/environment-manager-plan.md).
+Tracking for all of it: [../plans/environment-manager-plan.md](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/plans/environment-manager-plan.md).
 
 ---
 
@@ -646,4 +646,4 @@ Tracking for all of it: [../plans/environment-manager-plan.md](../plans/environm
 | In-jail: is a restart owed? | `yolo config drift` |
 
 Full schema: `yolo config-ref`. The pack system in depth:
-[../reference/pack-system.md](../reference/pack-system.md).
+[../reference/pack-system.md](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/reference/pack-system.md).

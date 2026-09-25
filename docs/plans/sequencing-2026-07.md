@@ -440,7 +440,7 @@ post-Go-port backlog (nix-ld, color audit, consolidation) into the same picture.
 | [module-consolidation-and-cleanup.md](module-consolidation-and-cleanup.md) | Collapse the parity-era `internal/*` split; drop parity machinery; [§4 OSS-hygiene remnants](module-consolidation-and-cleanup.md#4-oss-hygiene-remnants-mostly-done--verify--close). | **DONE 2026-07-21** (package-merge declined) |
 
 | [integration-parallelism.md](integration-parallelism.md) | Bounded `t.Parallel()` for the container suite (needs per-test GlobalStorage first). | parked (test speed) |
-| [runbooks/](runbooks/) | Track M verification procedures (see [Runbooks](#runbooks) below). | hardware-gated |
+| [runbooks/](runbooks) | Track M verification procedures (see [Runbooks](#runbooks) below). | hardware-gated |
 
 ## Lanes — not everything is one linear sequence
 
@@ -749,7 +749,7 @@ dependency on J2 is discharged (both landed), and nix-ld is done.
 The Mac verification procedures moved here from `docs/guides/runbooks/` — they
 are Track M **verification gates**, not user-facing reference (the maintainer's
 "mostly plans in disguise" call). They now live under
-[`docs/plans/runbooks/`](runbooks/):
+[`docs/plans/runbooks/`](runbooks):
 
 - [runbooks/mac-macos-user-e2e.md](runbooks/mac-macos-user-e2e.md) — Track M
   gate. The you-drive/agent-advise macos-user acceptance-bar test

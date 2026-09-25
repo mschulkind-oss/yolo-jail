@@ -40,7 +40,7 @@ exactly that shape). Where yolo wrote the consumer — `yolo-ps`, `yolo-journalc
 
 A **jail daemon** here is specifically the `jail_daemon` manifest key: a process the framework
 supervises on the jail side of a loophole or a `kind: "service"` pack contribution
-([`loopholes.md`](../guides/loopholes.md)). **Not** a `host_daemon`, which `macos-user` has started
+([`loopholes.md`](../../userguide/guides/loopholes.md)). **Not** a `host_daemon`, which `macos-user` has started
 since 2026-09-17, and **not** the agent. Every declaration in the tree, two of which are not
 features:
 
@@ -259,7 +259,7 @@ against them.
     carries a warning retracting it in place, and the "loopholes: mostly moot" section names both of
     its 2026-09-17 falsehoods (that no host service starts here, and that `EndpointGrantCommands`
     has no call site) as retracted.
-  - **DONE** — [`loopholes.md`](../guides/loopholes.md): the backend table row no longer gives
+  - **DONE** — [`loopholes.md`](../../userguide/guides/loopholes.md): the backend table row no longer gives
     `macos-user` **nothing**. It gives "every host daemon, and no jail daemon", and points at the
     decline printer.
   - **DONE** — [`OQ-T4`](../reference/loophole-transport.md#oq-t4) no longer rests the

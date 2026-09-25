@@ -209,7 +209,7 @@ Three honest costs, stated rather than softened:
 That last line is the one a user will actually notice, and it is the right outcome: an unmanaged
 server *is* unmanaged, and the catalog saying so is the catalog working.
 
-**The replacement snippet must land in [`USER_GUIDE.md`](../guides/USER_GUIDE.md) in the same
+**The replacement snippet must land in [`USER_GUIDE.md`](../../userguide/README.md) in the same
 commit as the removal.** A key that refuses a name with no worked alternative is how a removal
 reads as a regression.
 
@@ -298,8 +298,8 @@ table, which is a map, not an agent surface.
 
 The closed hook set does not rescue this either: every member of `packdecl.KnownHooks` is a named
 link or history capability, and there is no general "run this at boot" escape hatch, by design.
-`claude_plugins` was a member until it was retired ([`pi-pack-extensions.md`](./pi-pack-extensions.md)
-[`OQ-2`](./pi-pack-extensions.md#10-decision-ledger), 2026-09-19 — retire it and add nothing like
+`claude_plugins` was a member until it was retired ([`pi-pack-extensions.md`](pi-pack-extensions.md)
+[`OQ-2`](pi-pack-extensions.md#10-decision-ledger), 2026-09-19 — retire it and add nothing like
 it, no agent-named hook). The one member added since, `shared_directory` (2026-09-21), generalizes
 an existing link hook and names no agent. So an MCP kind cannot expect to arrive as a hook by
 precedent; the precedent runs the other way.

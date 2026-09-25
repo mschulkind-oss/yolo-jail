@@ -236,7 +236,7 @@ func describeJailPrefix(p jailPrefix) string {
 // THE RULE IT ENFORCES IS NOT NEW. macOS runs containers in a VM, and that VM
 // shares the user's home and /private — not /nix. yolo has always known this:
 // shouldMountHostNix (hostprobes.go) SKIPS the nix store + daemon socket on
-// macOS for exactly this reason, and docs/guides/macos.md states the failure it
+// macOS for exactly this reason, and userguide/guides/macos.md states the failure it
 // avoids by name — "the bind mount would fail with a statfs error at startup".
 //
 // C8 then made yolo's own binaries a bind mount too (2026-09-06), and a LIVE
@@ -261,7 +261,7 @@ func describeJailPrefix(p jailPrefix) string {
 //
 // IT REUSES YOLO_NIX_HOST_DAEMON RATHER THAN ADDING A DIAL, because that
 // variable already means precisely "my runtime VM does share /nix into the
-// container" (hostprobes.go, docs/guides/macos.md). A second dial for one fact
+// container" (hostprobes.go, userguide/guides/macos.md). A second dial for one fact
 // is the shape shouldMountHostNix warns about: two dials that disagree about
 // what counts as true turn "I set the variable and nothing happened" into a
 // legitimate bug report.
@@ -329,7 +329,7 @@ func prefixUnreachableFromVM(p jailPrefix, rt string, isMacOS bool, nixOptIn str
 		"    install` stages one under $HOME, which the VM does share, and it ships\n" +
 		"    prebuilt binaries so nothing is built in the store at all. Unset\n" +
 		"    YOLO_REPO_ROOT to select it.\n" +
-		"docs/guides/macos.md — Nix daemon and /nix sharing"
+		"userguide/guides/macos.md — Nix daemon and /nix sharing"
 }
 
 // underDir reports whether path is dir itself or anything beneath it. Spelled as

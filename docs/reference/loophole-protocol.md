@@ -39,7 +39,7 @@ breaking changes bump the version and ship a transition window.
 one — how a jail reaches the daemon at all), [`loophole-system.md`](loophole-system.md)
 (how a loophole is declared, activated and disclosed),
 [`pack-system.md`](pack-system.md) (the pack framework a loophole is a contribution to),
-[`../guides/loopholes.md`](../guides/loopholes.md) (the authoring guide, including the
+[`../guides/loopholes.md`](../../userguide/guides/loopholes.md) (the authoring guide, including the
 manifest keys that select a server shape).
 
 ---

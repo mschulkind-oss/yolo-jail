@@ -389,7 +389,7 @@ first-party providers) moved to [`model-lists-and-pickers.md`](model-lists-and-p
 3. 💬 <a id="OQ-SW1"></a>**OQ-SW1: Should a selection outrank a value that came from your host
    config, not from an in-jail edit?** The id is coined here: `SW` stands for switching.
    It was filed while this doc's older series was still spelled `OQ-PS`, which
-   [`provisioner-sets.md`](./provisioner-sets.md) also uses for its own questions. That
+   [`provisioner-sets.md`](provisioner-sets.md) also uses for its own questions. That
    older series was renamed `OQ-PSW` (provider switching) on 2026-09-25, digits kept, so
    the old `PS2` is now [`OQ-PSW2`](#OQ-PSW2). This id kept its spelling.
 

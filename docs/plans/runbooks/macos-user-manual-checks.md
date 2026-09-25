@@ -780,7 +780,7 @@ workspace's launch is what would reveal it.
 > ([`OQ-P5`](../../reference/macos-user-provisioning.md#why-it-is-this-way);
 > `macosuser.PlanInvariants` refuses a plan carrying only one of the two crossings). The three
 > published rows that had said *installed* and were corrected to *MEASURED FALSE* have moved
-> again — [`../../guides/macos.md`](../../guides/macos.md), [the provisioner
+> again — [`../../guides/macos.md`](../../../userguide/guides/macos.md), [the provisioner
 > inventory](../../design/provisioner-evidence.md#1-the-provisioner-inventory-per-environment)'s
 > npm/go servers row, and
 > [the retired warnings](../../reference/macos-user-provisioning.md#the-two-retired-warnings-and-the-rule-that-retired-them).

@@ -744,7 +744,7 @@ targets a different directory.
 [`agent-credentials.md:250-256`](agent-credentials.md) argues that machine-scoping the lock directory
 would work "on podman … and only there", citing Apple Container *and* `macos-user`. The `macos-user`
 half does not follow: that backend has **no bind mounts at all**
-([`macos.md:556`](../guides/macos.md)), which means every sandbox writes the **real** host filesystem
+([`macos.md:556`](../../userguide/guides/macos.md)), which means every sandbox writes the **real** host filesystem
 under the **host** kernel — `HOME` never moves, so the `scope: machine` directory never moves either
 and the hook's output is byte-identical there
 ([`macos-user-nix-and-features.md:545`](macos-user-nix-and-features.md)), while each `scope: workspace`
@@ -752,7 +752,7 @@ directory is a symlink into `<workspace>/.yolo/home` (`:305-310`). Every sandbox
 the same inode and `flock` would contend correctly — arguably more reliably than podman, with no mount
 in between; `macos.md:562` independently notes that reaching these needs no bind mount, *"which is why
 this backend can carry them at all"*. The Apple Container half stands — one lightweight VM per
-container ([`macos.md:52`](../guides/macos.md)), so a lock is guest kernel state over virtiofs — and
+container ([`macos.md:52`](../../userguide/guides/macos.md)), so a lock is guest kernel state over virtiofs — and
 that doc already marks the cross-VM reasoning architectural and **UNVERIFIED**. So the conclusion
 survives with one backend behind it rather than two, and it should be stated that way.
 

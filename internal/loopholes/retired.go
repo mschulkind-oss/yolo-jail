@@ -111,7 +111,7 @@ func RetiredUserLoopholeNotice() string {
 	// — visible, but only if you know to expect it.
 	b.WriteString("A pack's loophole is held to the pack-shipped subset (no jail_env, no " +
 		"absolute or writable bind hosts, no publishes:\"endpoint\"), so a manifest using " +
-		"those is refused at load with the reason — see docs/guides/loopholes.md.")
+		"those is refused at load with the reason — see userguide/guides/loopholes.md.")
 	return b.String()
 }
 

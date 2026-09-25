@@ -439,7 +439,7 @@ func (o *Options) noteMacosUserHostByteGaps(delivery macosCtxDelivery) {
 // assembleRunCmd's GPU line all warn on macOS already — and every one of them is reached
 // only from run.assembleRunCmd, below the `rt == "macos-user"` return in run.Run, so on
 // this backend all three keys were SILENT. Not merely unhonored: silent, while
-// docs/guides/macos.md told the user each was "skipped with a warning" (DP-B36).
+// userguide/guides/macos.md told the user each was "skipped with a warning" (DP-B36).
 //
 // The reason those strings could not simply be moved here is that they state a DIFFERENT
 // FACT. "not supported on macOS" is a claim about the platform, and it is the container

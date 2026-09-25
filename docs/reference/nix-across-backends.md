@@ -40,7 +40,7 @@ provisioner each notch has and who chooses one; it absorbed `noncontainer-nix-en
 depth](../design/provisioner-evidence.md#3-the-nix-resolver-in-depth) — the four mechanisms, the
 profile, the traps),
 [`image-staging-vs-baking.md`](image-staging-vs-baking.md),
-[`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md).
+[`macos-user-nix-and-features.md`](macos-user-nix-and-features.md).
 
 ---
 

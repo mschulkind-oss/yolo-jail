@@ -35,7 +35,7 @@ defaults to `nvidia` — so every pre-existing config keeps working untouched.
 
 **Reads with:** [`../research/rocm-gpu-jail-findings.md`](../research/rocm-gpu-jail-findings.md)
 (the hardware findings and the downstream execution-provider work),
-[`../guides/USER_GUIDE.md`](../guides/USER_GUIDE.md) (the user-facing GPU section, including the
+[`../guides/USER_GUIDE.md`](../../userguide/README.md) (the user-facing GPU section, including the
 image steer).
 
 For the `gpu` block key by key — every field, its vendor, its default — run `yolo config-ref`.

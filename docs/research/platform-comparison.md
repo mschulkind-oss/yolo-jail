@@ -24,7 +24,7 @@ anything from this doc.
 >    bind mounts" or "Podman Machine vs Apple Container" framing applies to it.
 >    The accepted runtime set is `podman`, `container`, `macos-user`
 >    (`internal/config/validate.go:134`). See
->    [`../guides/macos.md`](../guides/macos.md) and
+>    [`../guides/macos.md`](../../userguide/guides/macos.md) and
 >    [`../reference/macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md).
 >    The sibling doc [`macos-support-matrix.md`](macos-support-matrix.md) is the
 >    live authority for macOS feature support and supersedes this doc's macOS

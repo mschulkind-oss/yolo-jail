@@ -45,8 +45,8 @@ throwing away the things that make this yolo rather than a sandbox wrapper.
 
 **Reads with:** [`macos-user-nix-and-features.md`](macos-user-nix-and-features.md) (that
 backend as built), [`nix-across-backends.md`](nix-across-backends.md) (what nix produces for
-each), [`../reference/happy-path-principle.md`](../reference/happy-path-principle.md) (one path per
-matrix cell), [`../guides/macos.md`](../guides/macos.md) (user-facing setup).
+each), [`../reference/happy-path-principle.md`](happy-path-principle.md) (one path per
+matrix cell), [`../guides/macos.md`](../../userguide/guides/macos.md) (user-facing setup).
 
 ---
 

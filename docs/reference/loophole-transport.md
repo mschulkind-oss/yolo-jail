@@ -44,7 +44,7 @@ and a daemon behind the transport never learns which one carried its bytes.
 layer — unchanged by anything here), [`loophole-system.md`](loophole-system.md) (how a
 loophole is declared, activated and disclosed),
 [`pack-system.md`](pack-system.md) (the pack framework a loophole is a contribution to),
-[`../guides/loopholes.md`](../guides/loopholes.md) (the manifest keys as an author writes
+[`../guides/loopholes.md`](../../userguide/guides/loopholes.md) (the manifest keys as an author writes
 them).
 
 ---

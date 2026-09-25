@@ -29,7 +29,7 @@ import (
 // host filesystem is visible". The census cannot check a belief. This test can, because the
 // belief is falsifiable from the argv alone: a path with no mount carrying it is not
 // visible, on any container backend, and Apple Container runs each container in its own
-// Virtualization.framework VM (docs/guides/macos.md), which is the strongest possible
+// Virtualization.framework VM (userguide/guides/macos.md), which is the strongest possible
 // version of "not visible".
 //
 // This is backend-parity.md §4's residue 1 — "a census prevents SILENT; it cannot prevent

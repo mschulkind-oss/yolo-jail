@@ -14,7 +14,7 @@ authority wins. Usage and config reference material is not here; see
 **AGENTS ARE PACKS. Core does not know what an agent is.** No agent registry, no `agents` config key, no
 `YOLO_AGENTS`. Config carries ONE list of `packs`; shipped packs live in `packs/*/pack.json` and are
 selected by BARE NAME — `"packs": ["claude"]`.
-[`internal/config/validate.go`](./internal/config/validate.go) hard-errors on `agents` on the host (and
+[`internal/config/validate.go`](internal/config/validate.go) hard-errors on `agents` on the host (and
 warns in-jail, where the config is the generated snapshot).
 
 **A pack that installs an agent is just one that declares a `kind: "program"` surface**, and **most
@@ -30,12 +30,12 @@ structural facts, not guessable from a manifest:
 - `wire-bridge` is the only `kind: "service"` pack — one in-jail daemon and its endpoint file, joined to a
   launch by any SELECTED pack whose `needs` names it. `packs/claude` names it UNCONDITIONALLY, so a bare
   `"packs": ["claude"]` gets it; `cerebras` and `kilo` name it only when their `when_bins` lists `claude`
-  or `copilot` ([`needs`](./docs/reference/wire-bridge.md#needs--a-conditional-pack-dependency)).
+  or `copilot` ([`needs`](docs/reference/wire-bridge.md#needs--a-conditional-pack-dependency)).
 
 **Every loophole yolo ships is a pack's, and there is no other channel.** `bundled_loopholes/` and its
 embed are DELETED; `claude-oauth-broker` is a **contribution of `packs/claude`**, not a pack of its own,
 the dependency being structural — selecting the claude pack IS the dependency
-([`OQ-A10`](./docs/reference/loophole-system.md#oq-a10)). So: `paths.BuiltinLoopholeNames` and
+([`OQ-A10`](docs/reference/loophole-system.md#oq-a10)). So: `paths.BuiltinLoopholeNames` and
 `loopholes.ReservedLoopholeNames` are GONE; the top-level `journal` and `host_processes` config keys are
 REFUSALS naming their replacements; and the pack-shipped subset is the only vocabulary left, so
 `publishes: "endpoint"`, `jail_env` and an absolute `requires.file_exists` are refused for every manifest
@@ -55,23 +55,23 @@ Three things to know before debugging it:
   contents-only, never the staging root itself, whose inode a live jail's `/ctx/packs` bind captured
   (`packstage` rule 3). A pack still configured but unresolvable this launch (offline git remote) is KEPT.
 - **Name reservation covers only the SELECTED packs**, by the maintainer's ruling
-  ([`OQ-BH14`](./docs/design/base-home-legacy-state.md#28-reservation-is-a-rule-about-config-names-not-about-directories)):
+  ([`OQ-BH14`](docs/design/base-home-legacy-state.md#28-reservation-is-a-rule-about-config-names-not-about-directories)):
   an unselected pack is treated as if it does not exist. A `writable_home_dirs` entry may not claim a
   selected pack's dir, and the refusal names that pack, because one user-scope entry can now pass in one
   workspace and be refused in another. A `host_files` destination under a selected pack's writable or
   shared dir needs no staging. Under any other pack's dir it is an ordinary path. The launch hands its staged set to
   `config.WritableHomeDirs` and `HostFileEntry.StagingFor`, and validation resolves the same selection
-  itself (`resolveSelectedPacks`, [`selectedpacks.go`](./internal/config/selectedpacks.go)). **Do not read
+  itself (`resolveSelectedPacks`, [`selectedpacks.go`](internal/config/selectedpacks.go)). **Do not read
   `packload.Embedded*` to reserve a name.** Two shipped-set readers remain beside them.
   `storage.EnsureGlobalStorage` makes every shipped pack's shared dir in the machine store, because it runs
   before config loads; that is a bind source a jail mounts only when it selects the pack (the launch makes the
   selected packs' own, a configured pack's included: `ensureSharedDirSources`). And `host_files`
   still refuses any SHIPPED pack's composed surface path (`builtinSurfacePaths`), a list of files the ruling
-  did not reach ([`OQ-BH15`](./docs/design/base-home-legacy-state.md#OQ-BH15), open).
+  did not reach ([`OQ-BH15`](docs/design/base-home-legacy-state.md#OQ-BH15), open).
 - **`packload.Embedded()` LEASES ONE IMMUTABLE TREE PER BUILD**, not one per process: a content hash of the
   embedded FS names `~/.local/share/yolo-jail/embedded-packs/<hash>`, the first reader populates it
   atomically, and every later process of that build adopts it under a shared `flock` on its `.lease`
-  ([`embeddedcache.go`](./internal/packload/embeddedcache.go)). Nothing is materialized until the first
+  ([`embeddedcache.go`](internal/packload/embeddedcache.go)). Nothing is materialized until the first
   real caller — package init writes nothing, so `yolo --version` creates nothing. ⚠ **Never move it under
   `cache/`**, which every jail mounts read-write: host yolo loads this tree with a shipped pack's authority
   (`paths.EmbeddedPacksDir` states why). When the base is unusable the process takes a per-process
@@ -82,7 +82,7 @@ Three things to know before debugging it:
   no handler is installed (Ctrl-C during a launch's nix build). Its lease dies with the process, so the next
   fallback's sweep or `yolo prune` reaps it once past the sweep's age floor; nothing reaps it sooner. A
   second process-lifetime copy is still the bug to watch for. Call `MaterializeEmbedded` directly only when
-  you delete the dest yourself ([`packs.go`](./internal/cli/run/packs.go) stages out of one).
+  you delete the dest yourself ([`packs.go`](internal/cli/run/packs.go) stages out of one).
 
 `agentcfg.BuiltinManifest()` is core's own surfaces only (`mise/config`); callers wanting the full set merge
 pack surfaces via `ManifestWith`. `internal/jailcontent` (was `internal/agents` until the name outlived the
@@ -98,7 +98,7 @@ Every command lives in `cmd/`, and the table below is the list — a count in pr
 true, and the two that used to sit here were both wrong within weeks. Everything is Go; the only
 bash/Python left is generated *content* (shims, `.bashrc`) emitted by `internal/entrypoint` — **no
 generated in-jail CLIENT survives**, two implementations of one client being the drift the transport
-unification exists to end ([`loophole-transport.md`](./docs/reference/loophole-transport.md)).
+unification exists to end ([`loophole-transport.md`](docs/reference/loophole-transport.md)).
 
 | Binary | Runs where | Role |
 |---|---|---|
@@ -111,10 +111,10 @@ unification exists to end ([`loophole-transport.md`](./docs/reference/loophole-t
 | `yolo-serial` | container | serial-bridge client (loopback-TLS; the `serial` loophole) |
 | `goprobe` | nowhere | deployment tripwire; excluded from runtime PATH |
 
-**A new `cmd/` binary must be added to [`flake.nix`](./flake.nix)'s `shippedBinaries` AND to
-[`scripts/stage-source-bundle.sh`](./scripts/stage-source-bundle.sh)'s `SHIPPED_BINARIES`** or it silently
+**A new `cmd/` binary must be added to [`flake.nix`](flake.nix)'s `shippedBinaries` AND to
+[`scripts/stage-source-bundle.sh`](scripts/stage-source-bundle.sh)'s `SHIPPED_BINARIES`** or it silently
 vanishes from the jail (source build) or from a shipped bundle while `go build ./...` stays green.
-[`shippedclients_test.go`](./internal/entrypoint/shippedclients_test.go) pins all three spellings together,
+[`shippedclients_test.go`](internal/entrypoint/shippedclients_test.go) pins all three spellings together,
 `goprobe` being the one declared exemption; `run.TestFlakeAndLauncherAgreeOnThePrefixLayout` pins the
 resulting prefix layout across the two languages.
 
@@ -122,7 +122,7 @@ resulting prefix layout across the two languages.
 four are image-side only. It also **publishes a flake-bundle GENERATION**, staging into a fresh
 `~/.local/share/yolo-jail/flake-bundles/<stamp>/` and swapping the stable `flake-bundle` symlink at it
 (`internal/flakebundle`). **Never hand
-[`stage-source-bundle.sh`](./scripts/stage-source-bundle.sh) the stable path** — restaging in place deletes
+[`stage-source-bundle.sh`](scripts/stage-source-bundle.sh) the stable path** — restaging in place deletes
 pid1 out from under every RUNNING jail, a launch having bind-mounted `<bundle>/bin/linux-<arch>`, and a bind
 mount pinning an inode rather than a path.
 
@@ -130,7 +130,7 @@ Generations are collected by LIVENESS, never by age. The TRI-STATE half of that 
 "unreferenced" and "I could not ask the runtime" are the same empty answer, so a reaper that cannot ask
 declines rather than sweeping. ⚠ **The liveness half is NOT universal**, the nix GC-root reaper being a pure
 ONE-WEEK AGE cutoff with no liveness veto by ruling
-([`OQ-LS1`](./docs/reference/image-retention.md#why-its-this-way)). Pick per reaper.
+([`OQ-LS1`](docs/reference/image-retention.md#why-its-this-way)). Pick per reaper.
 
 **Daemons are subcommands, not separate binaries.** Host daemons are hidden self-exec subcommands of
 `yolo` (`yolo internal daemon <name>`); in-jail daemons are `yolo-jaild <name>` (`supervise` reads
@@ -146,17 +146,17 @@ live, so edits are visible on the host instantly — there is no sync step.
 
 ## Build & deploy — the traps
 
-- `just build-go` → [`scripts/build-go.sh`](./scripts/build-go.sh) → `dist-go/<goos>-<goarch>/` is the
+- `just build-go` → [`scripts/build-go.sh`](scripts/build-go.sh) → `dist-go/<goos>-<goarch>/` is the
   **cross-compile-for-shipping** step only, feeding the flake's prebuilt short-circuit in a shipped bundle;
   it feeds no in-jail run. **`just deploy` does NOT cross-compile** — it is `just install` plus Claude-broker
   priming.
 - **THE IMAGE DOES NOT CONTAIN YOLO ANY MORE.** `/opt/yolo-jail` is TWO `:ro` BIND MOUNTS the launch
   supplies — linux binaries at `bin/`, the flake bundle at `share/yolo-jail/` — and the container argv names
-  `/opt/yolo-jail/bin/yolo-entrypoint` absolutely ([`jailprefix.go`](./internal/cli/run/jailprefix.go)). The
+  `/opt/yolo-jail/bin/yolo-entrypoint` absolutely ([`jailprefix.go`](internal/cli/run/jailprefix.go)). The
   image bakes only the mountpoints and the `/bin/<name>` symlinks into them
-  ([`flake.nix`](./flake.nix): `jailPrefixLinks`). **That takes `goSrc` out of the image derivation**, so a
+  ([`flake.nix`](flake.nix): `jailPrefixLinks`). **That takes `goSrc` out of the image derivation**, so a
   `cmd/`- or `internal/`-only commit no longer moves the image, which now moves only for
-  [`flake.nix`](./flake.nix), [`flake.lock`](./flake.lock) or `packages:`. The
+  [`flake.nix`](flake.nix), [`flake.lock`](flake.lock) or `packages:`. The
   [security delta](docs/reference/image-staging-vs-baking.md#the-security-delta) states the trade
   deliberately: what executes in the jail is host-mutable with no rebuild.
 - ⚠ **On a ROOTLESS podman — the common configuration — the image copy must run as
@@ -168,7 +168,7 @@ live, so edits are visible on the host instantly — there is no sync step.
 - **The outer jail's binaries are frozen for the session**, chosen by the host launcher at start, so you
   cannot live-patch them in-jail. Verify Go changes in a **nested** jail: it builds the live `/workspace`
   checkout's `.#installPrefix` and mounts THAT. See [Testing](#testing) for the command and the carve-outs.
-- **[`flake.nix`](./flake.nix) changes are fully verifiable in-jail**, runtime behavior included: a nested
+- **[`flake.nix`](flake.nix) changes are fully verifiable in-jail**, runtime behavior included: a nested
   launch's `AutoLoadImage` rebuilds the flake, notices the store path changed, loads the new image into the
   **nested** podman and runs *that*. A host `just load` only **ships** a flake change to the maintainer's
   day-to-day jails; it does not validate it.
@@ -176,8 +176,8 @@ live, so edits are visible on the host instantly — there is no sync step.
   image or a cached tar; it used to, and a broken build then looked like a working jail running **stale**
   code. `YOLO_ALLOW_STALE_IMAGE=1` opts back in, for the offline or disk-starved machine that was the good
   case. **`SkipBuild` is untouched:** no build ran, so nothing failed.
-- **The `goSrc` fileset trap** ([`flake.nix`](./flake.nix)): the hermetic Go build only sees
-  [`go.mod`](./go.mod), [`go.sum`](./go.sum), `vendor/`, `cmd/`, `internal/` and `packs/`. A Go package
+- **The `goSrc` fileset trap** ([`flake.nix`](flake.nix)): the hermetic Go build only sees
+  [`go.mod`](go.mod), [`go.sum`](go.sum), `vendor/`, `cmd/`, `internal/` and `packs/`. A Go package
   outside that set **silently vanishes from the jail**; the moment anything under `cmd/` imports it the
   build fails with "cannot find module providing package" while `go build ./...` stays green. Add it to the
   fileset by hand. `tools/` and `integration/` are excluded on purpose.
@@ -227,7 +227,7 @@ live, so edits are visible on the host instantly — there is no sync step.
   hash declared OUTSIDE `eachDefaultSystem`**, so every host computes the same value: a store path carries
   the evaluating host's `system`, and inside that scope a darwin host cannot vouch for a Linux-built image of
   its own commit (`TestImageIdentityIsSystemInvariant` in
-  [`imageskew_test.go`](./integration/imageskew_test.go) guards it). `YOLO_TEST_REBUILD_IMAGE=1` forces a
+  [`imageskew_test.go`](integration/imageskew_test.go) guards it). `YOLO_TEST_REBUILD_IMAGE=1` forces a
   rebuild+reload; `YOLO_TEST_IMAGE_SKEW=warn|off` downgrades the check (`fail` is the default; darwin
   auto-downgrades). **`git add` before rebuilding** — nix sees tracked files only, so an untracked new file
   moves neither side and the check reports a false "matches".
@@ -269,7 +269,7 @@ live, so edits are visible on the host instantly — there is no sync step.
   jail gives a FREE GREEN to two whole classes, however broken the change is.** Podman-in-podman forces
   `--net=host`, the one mode in which loopback-forwarding bugs **cannot** reproduce (the jail shares the
   launcher's stack, so the two loopbacks are one), so anything touching how a jail reaches a host daemon is
-  unverifiable here: the `--network` flag ([`hostloopback.go`](./internal/cli/run/hostloopback.go)),
+  unverifiable here: the `--network` flag ([`hostloopback.go`](internal/cli/run/hostloopback.go)),
   `internal/svcendpoint`'s bind/advertise pair, the `host.containers.internal` hop, the in-jail reachability
   probe. And `--userns=host` is forced, so a nested podman reports `rootless: false` and takes every rootful
   branch, leaving ID mapping, `/etc/subuid`, `newuidmap` and **image delivery into a rootless store** equally
@@ -279,12 +279,12 @@ live, so edits are visible on the host instantly — there is no sync step.
   Bare `podman run` against this jail's own loopback does work — the blindness is `yolo`'s forced
   `--net=host`, not the jail — but proves only that a FLAG behaves, never that a host's passt build has it.
   Reproductions:
-  [the blindness section](./docs/reference/loopback-tls-reachability.md#a-nested-jail-is-structurally-blind-to-this),
-  and the warning heading [`reachability_test.go`](./integration/reachability_test.go).
+  [the blindness section](docs/reference/loopback-tls-reachability.md#a-nested-jail-is-structurally-blind-to-this),
+  and the warning heading [`reachability_test.go`](integration/reachability_test.go).
 
 ## Invariants & gotchas
 
-- **Run `yolo check` after every edit** to [`yolo-jail.jsonc`](./yolo-jail.jsonc) or
+- **Run `yolo check` after every edit** to [`yolo-jail.jsonc`](yolo-jail.jsonc) or
   `~/.config/yolo-jail/config.jsonc`, before asking a human to restart. `yolo check --no-build` is the fast
   in-jail preflight. The y/N startup diff prompt is not a substitute.
 - **Shims are unconditional ONCE GENERATED, but nothing is blocked by default.** `defaultBlockedList()` is
@@ -296,11 +296,11 @@ live, so edits are visible on the host instantly — there is no sync step.
   installers and scripts needing the real tool. A user's own `security.blocked_tools` is unaffected, and an
   entry naming the same tool as a pack's REPLACES it whole.
 - **Use `shquote.Join`** (`internal/shquote`) for anything crossing into the container's `bash -c`.
-- **A LAUNCH HAS NO QUIET MODE, by ruling** ([`OQ-RO3`](./docs/reference/report-tiers.md#why-its-this-way)).
+- **A LAUNCH HAS NO QUIET MODE, by ruling** ([`OQ-RO3`](docs/reference/report-tiers.md#why-its-this-way)).
   Progress may be COMPRESSED to a line — that is the whole density control a launch gets — but a
   **disclosure is never suppressible**: the pack read/exec banners are the entire trust boundary today
   (`packhostgrants.go`: *"the boundary today is DISCLOSURE, not consent"*), so a flag hiding one deletes what
-  [`OQ-TP9`](./docs/design/trust-paths.md#decision-ledger) kept when it deleted the approval gate.
+  [`OQ-TP9`](docs/design/trust-paths.md#decision-ledger) kept when it deleted the approval gate.
   `YOLO_NO_BANNER` is the one hatch, narrow on purpose (the version line, nothing else), and
   `TestTheLaunchHasNoQuietFlag` fails if another appears on `runFlags`. Everything printed is teed to
   `<workspace>/.yolo/launch.log`, beside the entrypoint's `boot.log`.
@@ -313,18 +313,18 @@ live, so edits are visible on the host instantly — there is no sync step.
   option forwarding the host's LOOPBACK into the jail — `--network=pasta:--map-host-loopback,…` or
   `--network=slirp4netns:allow_host_loopback=true`. Without it every loopback-TLS service is unreachable from
   every jail on a pasta host (podman's default since 5.0).
-  [`hostloopback.go`](./internal/cli/run/hostloopback.go) is the whole decision and states why every unproven
+  [`hostloopback.go`](internal/cli/run/hostloopback.go) is the whole decision and states why every unproven
   fact emits nothing; `YOLO_NO_HOST_LOOPBACK=1` is the loud hatch, and an explicit `network.mode` is never
   overridden.
 - **The launcher tells the jail what it decided**, via
   `YOLO_HOST_LOOPBACK=requested|shared|unsupported|unknown`, emitted on EVERY launch — so an absent variable
   means only "launcher older than the variable". The in-jail witness
-  ([`reachability.go`](./internal/entrypoint/reachability.go)) cannot derive it: from inside, "this host
+  ([`reachability.go`](internal/entrypoint/reachability.go)) cannot derive it: from inside, "this host
   cannot forward loopback" and "yolo asked and the service is still down" are the same observation. **That
   witness is FATAL** — an enabled jail-facing service the jail cannot use REFUSES the launch, in all three
-  fault classes ([`OQ-R4`](./docs/reference/loopback-tls-reachability.md#oq-r4)) — and severity is the
+  fault classes ([`OQ-R4`](docs/reference/loopback-tls-reachability.md#oq-r4)) — and severity is the
   disposition's decision alone: only `requested` and `shared` escalate, a host yolo could not ask never being
-  refused for what it cannot help ([`OQ-R3`](./docs/reference/loopback-tls-reachability.md#oq-r3)). Hatch:
+  refused for what it cannot help ([`OQ-R3`](docs/reference/loopback-tls-reachability.md#oq-r3)). Hatch:
   `YOLO_ALLOW_UNREACHABLE_SERVICES=1`, forwarded from the host env and named in the refusal.
 - **A WORKSPACE MAY NOT CONTAIN THE CREDENTIAL BOUNDARY, AND THOSE DIRECTORIES MAY NOT HOLD A `.yolo`.** A
   workspace that IS or CONTAINS `$HOME`, `~/.config/yolo-jail` or `~/.local/share/yolo-jail` — or sits INSIDE
@@ -332,11 +332,11 @@ live, so edits are visible on the host instantly — there is no sync step.
   design: `~/.ssh` and the cloud tokens, the user-scope config deciding the NEXT launch's
   `packs`/`host_files`, and the state dir holding every other workspace's home overlay, the pack approvals
   and the flake bundle each launch binds as pid1. `refuseWorkspaceScope`
-  ([`workspacescopeguard.go`](./internal/cli/run/workspacescopeguard.go)) is the SECOND thing `Run` does,
+  ([`workspacescopeguard.go`](internal/cli/run/workspacescopeguard.go)) is the SECOND thing `Run` does,
   before the launch log, because the file that tee would create IS the artifact. It needs no mistake beyond a
   `cd`: there is no `--workspace` flag, so a bare `yolo` typed in the home is a launch on the home.
   `workspace_readonly` does not soften it — the READ half is the breach. **The predicate is
-  [`paths.WorkspaceScopeBreach`](./internal/paths/workspacescope.go), not the launcher's**, because those
+  [`paths.WorkspaceScopeBreach`](internal/paths/workspacescope.go), not the launcher's**, because those
   three directories must also never acquire a stray `.yolo`: one marker there and `workspaceRoot()`'s upward
   walk answers "the home" for every `yolo config` verb run below it, so `paths.EnsureWorkspaceStateDir` is the
   CREATION chokepoint and returns the breach as its error, and the walk STOPS at a boundary directory. There
@@ -344,8 +344,8 @@ live, so edits are visible on the host instantly — there is no sync step.
   `yolo capture` scratch store and nothing else.
 - **ONE host directory is bind-mounted WRITABLE into the jail, and it is the only one.** A recognised
   **content-addressed** host cache is aliased at the path the jail's own copy of the tool already uses, so it
-  stops existing twice (`internal/hostcas`, [`hostcasalias.go`](./internal/cli/run/hostcasalias.go);
-  [`OQ-BF10`](./docs/design/disk-levers-and-backfill.md#OQ-BF10)). Today that set is pants' `lmdb_store`
+  stops existing twice (`internal/hostcas`, [`hostcasalias.go`](internal/cli/run/hostcasalias.go);
+  [`OQ-BF10`](docs/design/disk-levers-and-backfill.md#OQ-BF10)). Today that set is pants' `lmdb_store`
   alone. **The gate is CONTENT ADDRESSING, and the reason is injection rather than size**: a path-keyed cache
   lets a jail write content the host tool later reads *because of where it sits*, the jail choosing both key
   and bytes, while a CAS rejects a blob whose digest does not match its key. ⚠ **npm's `_cacache` and Go's
@@ -365,12 +365,12 @@ live, so edits are visible on the host instantly — there is no sync step.
   ENABLED MCP preset (`chrome-devtools-mcp`, `@modelcontextprotocol/server-sequential-thinking`).
   **It installs no language server**: `lsp_servers` only renders config (Claude's generated plugin,
   Copilot's projection), so a configured `command` must already resolve on `PATH`
-  ([`OQ-LSP1`](./docs/reference/mcp-configuration.md#oq-lsp1)). Agent CLIs install lazily on first use via
+  ([`OQ-LSP1`](docs/reference/mcp-configuration.md#oq-lsp1)). Agent CLIs install lazily on first use via
   launchers in `~/.yolo/bin/launch/`.
-- **PATH order** (exact — `BootPath`, [`boot.go`](./internal/entrypoint/boot.go), the authority this line
+- **PATH order** (exact — `BootPath`, [`boot.go`](internal/entrypoint/boot.go), the authority this line
   mirrors):
   `$HOME/.yolo/bin/block:$HOME/.yolo/bin/launch:$NPM_CONFIG_PREFIX/bin:<mise-shims>:$GOPATH/bin:$HOME/.local/bin:/run/yolo/packages/bin:/bin:/usr/bin`.
-  The `.bashrc` export ([`shell.go`](./internal/entrypoint/shell.go)) is a second, independently-written copy
+  The `.bashrc` export ([`shell.go`](internal/entrypoint/shell.go)) is a second, independently-written copy
   of the same order, compared to `BootPath` **entry by entry** — the two disagreed about `$HOME/.local/bin`
   for months behind a test that only checked the ends. **`/opt/yolo-jail/bin` is deliberately NOT on it**,
   even though every yolo binary now lives there: the image bakes `/bin/<name>` symlinks into the mount
@@ -381,7 +381,7 @@ live, so edits are visible on the host instantly — there is no sync step.
   Linux + a running nix daemon only, otherwise the launcher says so and bakes. **Opt-in fast path, baked path
   retained, per LAUNCH and never per package** — an opt-in launch builds the image with no
   `YOLO_EXTRA_PACKAGES` and takes its tools from a boot-written symlink farm at `/run/yolo/packages`
-  ([`storepackages.go`](./internal/entrypoint/storepackages.go)), buying one image per machine instead of one
+  ([`storepackages.go`](internal/entrypoint/storepackages.go)), buying one image per machine instead of one
   per distinct `packages:` list. **Exactly one mechanism is live in any jail** — a package both baked *and*
   staged silently runs the **baked** copy. The SAME dial is C5, on purpose, so that stays a fact about a
   launch rather than a combination: an opt-in launch also builds `.#ociImageLean` and takes those packages
@@ -394,8 +394,8 @@ live, so edits are visible on the host instantly — there is no sync step.
   (`GenerateAgentLaunchers` / `GeneratePackageManagerLaunchers`) and is SECOND, **ahead of every install
   prefix** — placed after the prefixes it installs INTO, a launcher is unreachable the moment it succeeds and
   the evergreen update never runs again
-  ([`OQ-PD12a`](./docs/design/program-delivery.md#decision-ledger)). Shadowing is instead prevented at
-  generation time ([`launchercollision.go`](./internal/entrypoint/launchercollision.go)): no launcher is
+  ([`OQ-PD12a`](docs/design/program-delivery.md#decision-ledger)). Shadowing is instead prevented at
+  generation time ([`launchercollision.go`](internal/entrypoint/launchercollision.go)): no launcher is
   written for a name `/bin`, `/usr/bin` or a declared `mise_tools` entry already provides. ⚠ **That check
   must never consider the install prefixes** — spelled "already resolvable on PATH?" it destroys the feature,
   the launcher ceasing to be written after the first successful install. A tool both blocked and
@@ -420,10 +420,10 @@ live, so edits are visible on the host instantly — there is no sync step.
   handoff is announced on stderr with the `mv` that restores it. Skill priority: built-in < shared packs <
   **the conventional local pack** (`~/.config/yolo-jail/local`, appended LAST by `config.LoadPacks`). ⚠ The
   middle term is not "host user-level" — there is no such tree, and a skill in `~/.claude/skills` on the host
-  reaches the jail by no path ([`skills.go`](./internal/jailcontent/skills.go), where the deleted
+  reaches the jail by no path ([`skills.go`](internal/jailcontent/skills.go), where the deleted
   `SkillTarget.HostSource` was). ⚠ **A skills contribution may FENCE children of its destination**
   (`reserved`, pack-declared — core knows no vendor's directory name, by
-  [`OQ-ST2`](./docs/design/synced-skill-trees.md#OQ-ST2)): `packs/claude` reserves `synced`, because
+  [`OQ-ST2`](docs/design/synced-skill-trees.md#OQ-ST2)): `packs/claude` reserves `synced`, because
   `~/.claude/skills/synced/` is a sync root Claude Code regenerates from a registration OUTSIDE it, so
   adopting it moved the tree into the local pack, composed a byte-identical copy back, and lost the user's
   edits on the next upstream sync. A reserved child is never adopted and never composed over, and a
@@ -434,32 +434,32 @@ live, so edits are visible on the host instantly — there is no sync step.
 | Topic | Authority |
 |---|---|
 | Config *file* keys, all of them | `yolo config-ref` |
-| Pack manifest schema | [`internal/packdecl/packdecl.go`](./internal/packdecl/packdecl.go) (the doc comments ARE the reference) |
-| Pack authoring + the `packs` key | `yolo pack --help`, [`pack-system.md`](./docs/reference/pack-system.md) |
+| Pack manifest schema | [`internal/packdecl/packdecl.go`](internal/packdecl/packdecl.go) (the doc comments ARE the reference) |
+| Pack authoring + the `packs` key | `yolo pack --help`, [`pack-system.md`](docs/reference/pack-system.md) |
 | CLI surface | `yolo --help` |
-| End-user usage, devices/GPU, mise tools, `yolo-cglimit` | [`USER_GUIDE.md`](./docs/guides/USER_GUIDE.md) |
-| Every config key and pack contribution kind, per setup (backend × host OS) | [`settings-per-setup.md`](./docs/reference/settings-per-setup.md) |
-| Mounts, overlays, home layout | [`jail-home.md`](./docs/reference/jail-home.md) |
-| Briefing generation, skills staging | [`agent-briefings.md`](./docs/reference/agent-briefings.md) |
-| MCP/LSP config, the node/npx wrappers | [`mcp-configuration.md`](./docs/reference/mcp-configuration.md) |
-| `LD_LIBRARY_PATH` / nix-ld, the `/lib` farm | [`mise-node-dynamic-linking.md`](./docs/reference/mise-node-dynamic-linking.md) |
-| Loopholes: what each one opens | [`loopholes.md`](./docs/guides/loopholes.md), [`loophole-protocol.md`](./docs/reference/loophole-protocol.md) |
-| The loophole system: activation, trust, the pack-shipped subset | [`loophole-system.md`](./docs/reference/loophole-system.md) |
-| The wire-bridge service pack and `needs` | [`wire-bridge.md`](./docs/reference/wire-bridge.md) |
-| Config-change confirmation flow | [`config-safety.md`](./docs/reference/config-safety.md) |
-| `--timing`, `perf_logging`, the host perf log | [`perf-logging.md`](./docs/reference/perf-logging.md) |
-| Storage paths and state separation | [`storage-and-config.md`](./docs/reference/storage-and-config.md) |
+| End-user usage, devices/GPU, mise tools, `yolo-cglimit` | [User guide](userguide/README.md), published at [docs.yolo-jail.mschulkind.dev](https://docs.yolo-jail.mschulkind.dev) |
+| Every config key and pack contribution kind, per setup (backend × host OS) | [`settings-per-setup.md`](userguide/reference/settings-per-setup.md) |
+| Mounts, overlays, home layout | [`jail-home.md`](docs/reference/jail-home.md) |
+| Briefing generation, skills staging | [`agent-briefings.md`](docs/reference/agent-briefings.md) |
+| MCP/LSP config, the node/npx wrappers | [`mcp-configuration.md`](docs/reference/mcp-configuration.md) |
+| `LD_LIBRARY_PATH` / nix-ld, the `/lib` farm | [`mise-node-dynamic-linking.md`](docs/reference/mise-node-dynamic-linking.md) |
+| Loopholes: what each one opens | [`loopholes.md`](userguide/guides/loopholes.md), [`loophole-protocol.md`](docs/reference/loophole-protocol.md) |
+| The loophole system: activation, trust, the pack-shipped subset | [`loophole-system.md`](docs/reference/loophole-system.md) |
+| The wire-bridge service pack and `needs` | [`wire-bridge.md`](docs/reference/wire-bridge.md) |
+| Config-change confirmation flow | [`config-safety.md`](docs/reference/config-safety.md) |
+| `--timing`, `perf_logging`, the host perf log | [`perf-logging.md`](docs/reference/perf-logging.md) |
+| Storage paths and state separation | [`storage-and-config.md`](docs/reference/storage-and-config.md) |
 | What the image bakes vs. what a launch delivers; the mounted prefix; the rebuild/reload cost model | [`image-staging-vs-baking.md`](docs/reference/image-staging-vs-baking.md) |
-| Image and GC-root retention, the reapers | [`image-retention.md`](./docs/reference/image-retention.md) |
-| Loopback-TLS reachability, the witness, its severity rule | [`loopback-tls-reachability.md`](./docs/reference/loopback-tls-reachability.md) |
-| Report tiers, the launch stream, why there is no quiet mode | [`report-tiers.md`](./docs/reference/report-tiers.md) |
-| Program delivery: launchers, evergreen deps, the PATH ruling | [`program-delivery.md`](./docs/design/program-delivery.md) |
-| Disk levers, host-cache backfill | [`disk-levers-and-backfill.md`](./docs/design/disk-levers-and-backfill.md) |
-| Cgroup delegate security model | [`security-shim.md`](./docs/reference/security-shim.md) |
-| macOS backends | [`macos.md`](./docs/guides/macos.md) |
-| macos-user nix integration, disabled-feature surface | [`macos-user-nix-and-features.md`](./docs/reference/macos-user-nix-and-features.md) |
-| The standing macOS direction | [`macos-no-vm-direction.md`](./docs/reference/macos-no-vm-direction.md) |
-| The one-time host→jail handoff | [`host-to-jail-handoff.md`](./docs/reference/host-to-jail-handoff.md) |
+| Image and GC-root retention, the reapers | [`image-retention.md`](docs/reference/image-retention.md) |
+| Loopback-TLS reachability, the witness, its severity rule | [`loopback-tls-reachability.md`](docs/reference/loopback-tls-reachability.md) |
+| Report tiers, the launch stream, why there is no quiet mode | [`report-tiers.md`](docs/reference/report-tiers.md) |
+| Program delivery: launchers, evergreen deps, the PATH ruling | [`program-delivery.md`](docs/design/program-delivery.md) |
+| Disk levers, host-cache backfill | [`disk-levers-and-backfill.md`](docs/design/disk-levers-and-backfill.md) |
+| Cgroup delegate security model | [`security-shim.md`](docs/reference/security-shim.md) |
+| macOS backends | [`macos.md`](userguide/guides/macos.md) |
+| macos-user nix integration, disabled-feature surface | [`macos-user-nix-and-features.md`](docs/reference/macos-user-nix-and-features.md) |
+| The standing macOS direction | [`macos-no-vm-direction.md`](docs/reference/macos-no-vm-direction.md) |
+| The one-time host→jail handoff | [`host-to-jail-handoff.md`](docs/reference/host-to-jail-handoff.md) |
 
 **`YOLO_*` environment dials have no authority row, because they have no authority.** `config-ref`'s
 `ENVIRONMENT VARIABLES` section lists `YOLO_RUNTIME`, `YOLO_BYPASS_SHIMS`, the two record-only timing gates
@@ -476,7 +476,9 @@ the leading dot stripped) and on macos-user (the account home's links point ther
 
 ## Workflow
 
-1. **Image change** → edit [`flake.nix`](./flake.nix), then verify end-to-end in a nested jail
+**The `Workers Builds: yolo-jail` check is Cloudflare's.** Its build command (`bash scripts/build-site.sh`) and deploy command (`npx wrangler deploy --config docs-wrangler.toml`) live in the Cloudflare dashboard, not this repository. Renaming the script without updating that dashboard command leaves the site stale and the check red. Workers Builds is the only docs deployer; `docs.yolo-jail.mschulkind.dev` is attached in the dashboard, not by a second deploy script.
+
+1. **Image change** → edit [`flake.nix`](flake.nix), then verify end-to-end in a nested jail
    (`cd /tmp/yolo-nested && YOLO_REPO_ROOT=/workspace yolo -- bash` — never from `/workspace`). The nested
    run rebuilds the flake and runs the NEW image. Watch the output: a failed build is fatal.
 2. **Logic change** → edit `cmd/`/`internal/`, `just build-go`, then verify by running the freshly-built

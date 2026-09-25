@@ -50,7 +50,7 @@ broken code.
 **Reads with:** [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md) (that
 backend's own inert-feature inventory, which this generalises),
 [`host-render-target.md`](host-render-target.md) (`render.FieldSet` — the same idea one
-notch over, and the template [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset) copies), [`../guides/macos.md`](../guides/macos.md) (the
+notch over, and the template [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset) copies), [`../guides/macos.md`](../../userguide/guides/macos.md) (the
 user-facing consequence).
 
 ---
@@ -329,7 +329,7 @@ user granted read-only.
 > in [`applecontainer_test.go`](../../integration/applecontainer_test.go); `run.acMaterialize`'s
 > comment in `helpers.go` records it): a regular-file bind arrives. The copies are **kept by
 > choice**, because a copy needs no version floor
-> ([`macos.md`](../guides/macos.md)'s Apple Container table says the same to users). The
+> ([`macos.md`](../../userguide/guides/macos.md)'s Apple Container table says the same to users). The
 > `/dev/null` shadow skip is a different fault — the bind arrives but reads `ENXIO` — and stands.
 
 ---

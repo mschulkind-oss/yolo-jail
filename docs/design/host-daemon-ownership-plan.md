@@ -84,13 +84,13 @@ These three are wrong in the tree today and need no ruling. They are listed here
 fixed in passing because they are somebody else's files and each is a one-line edit with its
 own commit:
 
-- [`../guides/loopholes.md`](../guides/loopholes.md): the manifest schema census omits
+- [`../guides/loopholes.md`](../../userguide/guides/loopholes.md): the manifest schema census omits
   `host_daemon.scope`, and its `host_daemon` comment describes the per-jail lifecycle
   ("yolo spawns this ON THE HOST at jail startup") for a block that can declare the
   host-wide one.
 - [`../reference/agent-credentials.md`](../reference/agent-credentials.md): the
   current-values table names two `scope: "host"` daemons; `aws-auth` is absent from the file.
-- [`../guides/USER_GUIDE.md`](../guides/USER_GUIDE.md): the host-service Lifecycle list says
+- [`../guides/USER_GUIDE.md`](../../userguide/README.md): the host-service Lifecycle list says
   the container exiting `SIGTERM`s and `SIGKILL`s each service, with no host-scope carve-out
   — the opposite of the ruling.
 

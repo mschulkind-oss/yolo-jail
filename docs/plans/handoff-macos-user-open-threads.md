@@ -107,7 +107,7 @@ was corrected to *MEASURED FALSE* on 2026-09-12 and is corrected again here:
 
 | Doc | Now says |
 | :--- | :--- |
-| [`../guides/macos.md`](../guides/macos.md) | wired 2026-09-13, install unmeasured on hardware |
+| [`../guides/macos.md`](../../userguide/guides/macos.md) | wired 2026-09-13, install unmeasured on hardware |
 | [the provisioner inventory](../design/provisioner-evidence.md#1-the-provisioner-inventory-per-environment)'s npm/go servers row (it moved out of `provisioner-sets.md` in the 2026-09-20 split) | **drives**, with the same hardware caveat |
 | [the reference's retired warnings](../reference/macos-user-provisioning.md#the-two-retired-warnings-and-the-rule-that-retired-them) | the retirement was premature, the gap is wired, and the rule that retired it stands |
 

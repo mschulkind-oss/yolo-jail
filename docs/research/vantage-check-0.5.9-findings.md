@@ -98,7 +98,7 @@ Combined with D1: the rule refuses the right link for `§4.3b` and accepts one t
 
 ### D3. Cross-document references validate the number, never the document
 
-`[§2](#2-the-inventory)` and `[§2](./unrelated.md#2-something-else)` both pass. The rule verifies
+`[§2](#2-the-inventory)` and `[§2](unrelated.md#2-something-else)` both pass. The rule verifies
 number↔anchor *within whatever document the link names*, so a reference belonging to document A but
 linked to document B's own §N is undetectable.
 
@@ -123,7 +123,7 @@ before an intra-document `§` link) would have caught both instances above.
 
 | Source | 0.5.9 |
 | :--- | :--- |
-| `` `/workspace/flake.nix` `` | **ERROR**, suggests `` [`/workspace/flake.nix`](.//workspace/flake.nix) `` |
+| `` `/workspace/flake.nix` `` | **ERROR**, suggests `` [`/workspace/flake.nix`](workspace/flake.nix) `` |
 | `` `/zzz/nope/absent.conf` `` | no error (does not exist) |
 | `` `/etc/hostname` `` | no error (no extension) |
 | `` `roadmap.md` `` (real sibling) | error — **correct** |

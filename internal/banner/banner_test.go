@@ -91,7 +91,7 @@ func TestSuppressedIsOffByDefaultAndOnForAnyValue(t *testing.T) {
 }
 
 // The hatch's spelling is a user-facing contract: it is documented in
-// `yolo --help` and docs/guides/USER_GUIDE.md, and a rename would silently strand
+// `yolo --help` and userguide/reference/cli-reference.md, and a rename would silently strand
 // every shell profile that sets it.
 func TestSuppressEnvSpelling(t *testing.T) {
 	if SuppressEnv != "YOLO_NO_BANNER" {

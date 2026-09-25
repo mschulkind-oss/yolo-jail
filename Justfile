@@ -349,6 +349,11 @@ lint:
 # Lint (CI mode — every `lint` pass, plus a gofmt cleanliness check).
 lint-ci: lint
     @dirty="$(gofmt -l $(git ls-files --cached --others --exclude-standard '*.go'))"; test -z "$dirty" || { echo "gofmt needs to run on:"; echo "$dirty"; exit 1; }
+    python3 scripts/test-check-userguide-closed-tree.py
+    python3 scripts/check-userguide-closed-tree.py userguide
+    python3 scripts/test-check-site-output-dir.py
+    python3 scripts/check-site-output-dir.py
+    uvx vantage-check@0.7.0 userguide/
 
 # Format code (Go: gofmt on tracked files)
 format:

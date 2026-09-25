@@ -176,7 +176,7 @@ platform — a yolo-owned host directory on Linux, the `yolo-mise-data-v2` named
 macOS and Apple Container — and the in-jail path is identical either way. The host's own
 mise installation is never mounted, so host↔jail mise skew cannot matter; the design
 history and the path pitfalls are in
-[`mise-host-jail-path-mismatch.md`](./mise-host-jail-path-mismatch.md).
+[`mise-host-jail-path-mismatch.md`](mise-host-jail-path-mismatch.md).
 
 **When it installs:** provisioning runs `mise install` on every boot
 (`internal/cli/run/command.go`); already-present tools are skipped, so
@@ -435,7 +435,7 @@ from the image:
   changing it costs an image rebuild.
 - **mise** = per-workspace, user-controllable, persists across restarts **without
   an image rebuild**: add tools to the workspace's `mise.toml` and the next boot's
-  `mise install` fetches them ([`../guides/USER_GUIDE.md`](../guides/USER_GUIDE.md)). This is
+  `mise install` fetches them ([`../guides/USER_GUIDE.md`](../../userguide/README.md)). This is
   where project runtimes and versions live.
 - **npm globals / Go / native** = agent tooling that versions independently of the
   image and of each other (MCP servers, the coding-agent CLIs). Kept
@@ -509,4 +509,4 @@ before restarting.
 - Node-binary duality, the loader analysis and nix-ld:
   [`../reference/mise-node-dynamic-linking.md`](../reference/mise-node-dynamic-linking.md).
 - mise shared-store host↔jail pitfalls:
-  [`mise-host-jail-path-mismatch.md`](./mise-host-jail-path-mismatch.md).
+  [`mise-host-jail-path-mismatch.md`](mise-host-jail-path-mismatch.md).

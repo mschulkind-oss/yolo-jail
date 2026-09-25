@@ -2072,7 +2072,7 @@ After adoption, a removal is ordinary and reported, exactly as it is in a jail.
 ## 8. Alternatives considered
 
 **A. Leave it alone; document the asymmetry better.**
-[`migrating-to-packs-and-host-management.md`](../guides/migrating-to-packs-and-host-management.md)'s
+[`migrating-to-packs-and-host-management.md`](../../userguide/guides/migrating-to-packs.md)'s
 2026-09-09 correction is most of this. **Rejected** — it addresses the confusion
 and none of the missing capability: there is still no way out of capture except
 discard, and still no revert.

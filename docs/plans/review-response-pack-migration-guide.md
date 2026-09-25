@@ -7,7 +7,7 @@ day as env-manager Phase 9**, and D3's "these verbs are unreleased" stopped bein
 (2026-08-13). Read it as a record of a review round, not as outstanding work.
 
 **What this is.** A single record of the changes we are making in response to the
-adversarial review of [`../guides/migrating-to-packs-and-host-management.md`](../guides/migrating-to-packs-and-host-management.md)
+adversarial review of [`../guides/migrating-to-packs-and-host-management.md`](../../userguide/guides/migrating-to-packs.md)
 (reviewed 2026-08-01 from the persona of a coding agent running on the *real host*, trying
 to migrate an existing hand-tuned setup). The review returned **18 confirmed findings and
 3 refuted**, each verified against shipped code. This doc says, per finding: what it is,
@@ -222,5 +222,5 @@ Recorded so they are not re-raised:
 |---|---|---|
 | R1 design (autonomy = confinement policy) | [`../design/yolo-as-environment-manager.md`](../design/yolo-as-environment-manager.md) [§4.2](../design/yolo-as-environment-manager.md#42-agent-autonomy-is-a-confinement-policy-not-baked-pack-config) | committed `5ec0af0` |
 | R1 plan (Phase 9 + [OQ-11](environment-manager-plan.md#90-the-sketch-that-resolved-oq-11-two-encodings-vs-the-real-packs) + defect banner) | [`environment-manager-plan.md`](environment-manager-plan.md) | committed `5ec0af0` |
-| D1–D8 (guide corrections) | [`../guides/migrating-to-packs-and-host-management.md`](../guides/migrating-to-packs-and-host-management.md) | committed `787ba47` |
+| D1–D8 (guide corrections) | [`../guides/migrating-to-packs-and-host-management.md`](../../userguide/guides/migrating-to-packs.md) | committed `787ba47` |
 | R1 implementation (Phase 9) | `internal/render`, `internal/packdecl`, `packs/*` | **not started** (gated on [OQ-11](environment-manager-plan.md#90-the-sketch-that-resolved-oq-11-two-encodings-vs-the-real-packs)) |

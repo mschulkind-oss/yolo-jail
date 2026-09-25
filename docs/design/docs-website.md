@@ -3,23 +3,19 @@ title: "The user guide becomes a website, deployed exactly the way Vantage deplo
 date: 2026-09-25
 status: draft
 tags: [docs, website, userguide, vantage, cloudflare, deploy]
-summary: "A learner-facing user guide, published as a static site built by Vantage and served by a Cloudflare static-assets Worker that Workers Builds redeploys on every push to main. The setup, the directory layout and the page organization are copied from the Vantage repo, file for file. Two decisions are yolo-jail's own: the guide stops being docs/guides/ and becomes userguide/, a closed tree whose relative links never leave it, and Vantage comes from a pinned PyPI release instead of being built from source. Two questions are open: the address, and which reference pages cross into the guide. Nothing is built."
+summary: "The user guide is split into a closed userguide/ tree, built with pinned Vantage, and configured for a Cloudflare static-assets Worker. Repository build steps are in place; the dashboard connection and custom-domain attachment remain human actions."
 ---
 
 # The user guide becomes a website, deployed exactly the way Vantage deploys its own
 
-**Status:** DESIGN, 2026-09-25. Nothing built. The Vantage claims were checked against
-`mschulkind-oss/vantage` at `4b2ccbc` and against the live sites on this date. The yolo-jail claims
-were checked against `7e529260`.
+**Status:** Repository build complete, 2026-09-25; Cloudflare dashboard connection and custom-domain attachment pending. [OQ-DW2](#OQ-DW2)'s leaning was implemented provisionally. Vantage claims were checked against `mschulkind-oss/vantage` at `4b2ccbc` and against the live sites on this date; the original yolo-jail measurement was at `7e529260`.
 
 > **In short.** The user guide becomes a published site by copying Vantage's setup whole: a
 > `userguide/` tree, one build script, one static-assets Worker and a dashboard-configured Cloudflare
 > build. This repo adds exactly one rule of its own: the guide is a **closed tree**, so what readers
 > see on the site is what the gate checked.
 
-**Why it matters.** Today the guide is a
-[1,790-line single file](../guides/USER_GUIDE.md) readable only on GitHub, and a learner meets it
-beside 143 design, plan and research docs. Vantage already solved this for itself, and
+**Why it matters.** Before this build, the guide was a 1,790-line single file under `docs/guides/`, readable only on GitHub beside the project's design, plan, and research documents. Vantage already solved this for itself, and
 its solution has run long enough to have failed once in a way worth copying the fix for
 ([§3.4](#34-the-one-failure-vantage-already-paid-for)).
 
@@ -36,8 +32,7 @@ are repointed, and about 50 distinct link targets that leave the guide tree are 
 **Start at [§2.2](#22-the-closed-tree-rule).** That rule is the only design decision that isn't a
 copy of Vantage's.
 
-**Needs your ruling:** [OQ-DW1](#OQ-DW1) (the address), [OQ-DW2](#OQ-DW2) (which reference pages
-cross in).
+**Address ruled:** [OQ-DW1](#OQ-DW1) names `docs.yolo-jail.mschulkind.dev`. [OQ-DW2](#OQ-DW2) remains open; its leaning was used for the repository build.
 
 **Reads with:** [`docs-website-plan.md`](docs-website-plan.md) (the implementation sketch: incomplete,
 and not to be built from), and Vantage's
@@ -233,7 +228,7 @@ needs no build.
 
 ## Open Questions
 
-1. 💬 <a id="OQ-DW1"></a>**[OQ-DW1](#OQ-DW1): What address does the site live at?**
+1. ✅ <a id="OQ-DW1"></a>**[OQ-DW1](#OQ-DW1): What address does the site live at?**
    Vantage serves `docs.vantageapp.dev`, a custom domain on the Worker, and keeps the apex for a
    separate landing page. Choices: **(a)** `yolo-jail.<account>.workers.dev` only; **(b)** a
    `docs.` subdomain of a domain you register, with the `workers.dev` address kept as Vantage keeps
@@ -245,8 +240,8 @@ needs no build.
 
    <!-- vantage: oq id=OQ-DW1 leaning="(b): a docs. subdomain of a registered domain, launching on the workers.dev address meanwhile; attaching the domain later changes no file in the repo." -->
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer (maintainer, 2026-09-25):**
+   > `docs.yolo-jail.mschulkind.dev`. The `workers.dev` address stays enabled; attach the custom domain in the Cloudflare dashboard after connecting Workers Builds.
 
 2. 💬 <a id="OQ-DW2"></a>**[OQ-DW2](#OQ-DW2): Which `docs/reference/` pages cross into the guide?**
    The closed-tree rule turns every outbound link into a GitHub URL, which is right for contributor
@@ -268,4 +263,4 @@ needs no build.
 
 | ID | Ruling | Date |
 | :--- | :--- | :--- |
-| — | None yet | — |
+| OQ-DW1 | The published address is `docs.yolo-jail.mschulkind.dev`; attach it in the dashboard while retaining `workers.dev`. | 2026-09-25 |

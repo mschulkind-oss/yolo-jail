@@ -85,13 +85,13 @@ it is retracted in §*Retracted claims* below.
 > human installs — so a Mac left alone for a week reports a config error that is
 > really a deploy error.
 >
-> **ALL FOUR runbook items PASS** ([`runbooks/macos-user-manual-checks.md`](./runbooks/macos-user-manual-checks.md)),
+> **ALL FOUR runbook items PASS** ([`runbooks/macos-user-manual-checks.md`](runbooks/macos-user-manual-checks.md)),
 > measured on the maintainer's Mac in one session — the first live `macos-user` session
 > there. The privilege transition returns `_yolojail` and the workspace path; the
 > sandbox is refused both `/Users/<host user>/.ssh` and `/Library/Keychains`, which
 > closes the question of whether the kernel actually loads the profile; `packages:`
 > reaches the agent natively, with `just` and `fzf` both resolving into the store
-> profile over their competing host copies — **that is [`OQ-1`](./runbooks/mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown) answered, the re-prepend
+> profile over their competing host copies — **that is [`OQ-1`](runbooks/mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown) answered, the re-prepend
 > holds**; and all fourteen built-in skills plus the native briefing landed in the
 > sandbox home. This closes the Mac-gated column. It does NOT retire the runbook —
 > none of the four is pinned by a test. See the runbook for the two wording

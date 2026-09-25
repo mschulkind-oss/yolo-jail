@@ -920,9 +920,9 @@ the ruling, so this table is now a record of what the growth cost, not a list of
 
 | Doc | What it says | Why it is wrong now |
 | :--- | :--- | :--- |
-| [`../guides/loopholes.md`](../guides/loopholes.md) | the manifest schema census showed `host_daemon` with `cmd`, `env`, `publishes`, `request_end` | **`scope` was absent** — the author-facing schema did not document the key that creates a host singleton. It now has a `host_daemon.scope` section and the `rg` that derives the set |
+| [`../guides/loopholes.md`](../../userguide/guides/loopholes.md) | the manifest schema census showed `host_daemon` with `cmd`, `env`, `publishes`, `request_end` | **`scope` was absent** — the author-facing schema did not document the key that creates a host singleton. It now has a `host_daemon.scope` section and the `rg` that derives the set |
 | [`../reference/agent-credentials.md`](../reference/agent-credentials.md) | a current-values table naming the `scope: "host"` daemons | listed two; `aws-auth` now has its row |
-| [`../guides/USER_GUIDE.md`](../guides/USER_GUIDE.md) | the host-service Lifecycle list: "When the container exits, yolo sends `SIGTERM` to each service, waits 5 seconds, then `SIGKILL`" | had no host-scope carve-out; it now says a host-scoped daemon is exempt |
+| [`../guides/USER_GUIDE.md`](../../userguide/README.md) | the host-service Lifecycle list: "When the container exits, yolo sends `SIGTERM` to each service, waits 5 seconds, then `SIGKILL`" | had no host-scope carve-out; it now says a host-scoped daemon is exempt |
 
 ### Under the ruling (not built)
 

@@ -169,7 +169,7 @@ becomes "apply, then exec" — which is what it already does, now with a name.
 
 At jail level `apply` builds the image, stages packs, renders config, and exits. At host level
 `apply` *is* the whole feature: it renders your agent config into your real home
-([host-render-target.md](host-render-target.md) [§6](./host-render-target.md#6-the-host-as-a-reduced-target)). That doc had to argue hard that a host
+([host-render-target.md](host-render-target.md) [§6](host-render-target.md#6-the-host-as-a-reduced-target)). That doc had to argue hard that a host
 render was a coherent thing to want; under this framing it is just `apply` with the confinement
 dial at zero.
 
@@ -256,7 +256,7 @@ classified by whether it is part of the definition:
 | **Locked** (reproducible, pinned) | nixpkgs + the image (`flake.lock`); the pack set with per-pack commit pins and host-access approvals (`packs.lock.json`) | `flake.lock` revs |
 | **Declared** (named by the definition) | `yolo-jail.jsonc`; pack `contributes[]` — surfaces, `defaults`/`managed`, `derive`; inline `env_sources` entries | `flake.nix` |
 | **Declared-impure** (named, but the *content* is external machine state) | the user config `~/.config/yolo-jail/config.jsonc`; `include_if_found` targets; `env_sources` dotenv *files* (secret values); `mise_tools` (versions declared, toolchains fetched); the **`host` layer** (§below) | a fixed-output derivation — impure, but *named* |
-| **Undeclared** (participates, nothing names it) | `yolo-jail.local.jsonc` (auto-merged, gitignored); the **capture overlay** (outranks every declared layer, nothing declares *it*); the invoking process's PATH at the host notch ([`host-launch-environment.md`](../design/host-launch-environment.md) proposes moving it to Declared-impure) | `--impure`, silently |
+| **Undeclared** (participates, nothing names it) | `yolo-jail.local.jsonc` (auto-merged, gitignored); the **capture overlay** (outranks every declared layer, nothing declares *it*); the invoking process's PATH at the host notch ([`host-launch-environment.md`](host-launch-environment.md) proposes moving it to Declared-impure) | `--impure`, silently |
 
 Two inputs left this table on 2026-09-11: the workspace `yolo-jail.config.lua` (Declared) and
 the user `~/.config/yolo-jail/config.lua` (Declared-impure) were the Lua config transform's two
@@ -320,7 +320,7 @@ One Declared-impure row is different from the rest, and a reviewer was right to 
   settings *in* and asserts config *out* over the same file is a loop: which one is the source?
   You cannot cleanly have both on one surface — it is an XOR at best.
 - **It does not port.** It is the one input that needs a `:ro` `/ctx` mount to stay
-  non-circular: on a host target the source file *is* the output (a fixpoint — §host-render [§6.3](./host-render-target.md#63-the-structural-problem-on-a-host-target-the-host-layer-is-the-output)),
+  non-circular: on a host target the source file *is* the output (a fixpoint — §host-render [§6.3](host-render-target.md#63-the-structural-problem-on-a-host-target-the-host-layer-is-the-output)),
   and on `macos-user` there is no `/ctx`, so the layer silently drops today. Every other input
   in the closure means the same thing at every confinement level; this one does not.
 
@@ -426,7 +426,7 @@ clean: `check --at host` tells you the host has drifted; `yolo host apply` is th
 that fixes it.
 
 Today none of this information exists, and its absence has a live cost: on `macos-user`, packs
-render **zero surfaces every launch, silently** ([`host-render-target.md`](./host-render-target.md) [§9.7](./host-render-target.md#9-open-questions--the-discussion-part)). A description that
+render **zero surfaces every launch, silently** ([`host-render-target.md`](host-render-target.md) [§9.7](host-render-target.md#9-open-questions--the-discussion-part)). A description that
 cannot be honored must say which part, in the output, at the moment you ask.
 
 ### 3.5 Dependency provisioning: declare once, check once, hand off with a manifest

@@ -1,0 +1,9 @@
+name = "yolo-jail"
+compatibility_date = "2025-12-01"
+main = "docs-worker.js"
+workers_dev = true
+preview_urls = false
+
+[assets]
+directory = "dist/docs"
+not_found_handling = "single-page-application"
