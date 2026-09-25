@@ -257,7 +257,7 @@ func (s *Store) Materialize(a Addr, commit string) (*Resolved, error) {
 		return nil, fmt.Errorf("no resolved commit for %s", a.Raw)
 	}
 	tree := filepath.Join(s.Dir, "trees", commit)
-	marker := filepath.Join(tree, ".yolo-pack-complete")
+	marker := filepath.Join(tree, treeCompleteMarker)
 	if _, err := os.Stat(marker); err != nil {
 		// Not present, or a previous attempt died partway. Start clean: a partial
 		// tree staged silently would be worse than a re-checkout.
@@ -277,6 +277,16 @@ func (s *Store) Materialize(a Addr, commit string) (*Resolved, error) {
 			return nil, err
 		}
 	}
+	return treeResolved(a, tree, commit)
+}
+
+// treeCompleteMarker is the file Materialize writes LAST into a checked-out tree, so a tree
+// without it is one an interrupted checkout left behind.
+const treeCompleteMarker = ".yolo-pack-complete"
+
+// treeResolved is the pack root inside a complete tree: the tree itself, or the address's
+// subdirectory of it. It only reads.
+func treeResolved(a Addr, tree, commit string) (*Resolved, error) {
 	root := tree
 	if a.Path != "" {
 		root = filepath.Join(tree, filepath.FromSlash(a.Path))
@@ -351,6 +361,48 @@ func (s *Store) resolveFromStore(a Addr) (*Resolved, error) {
 		return nil, err
 	}
 	return s.Materialize(a, commit)
+}
+
+// ResolveExisting is Resolve for a caller that must WRITE NOTHING, such as the agent footer's
+// host profile read, which runs on every status-line refresh (docs/design/agent-footer.md
+// §2.1). A fetched pack resolves only when the tree for the commit its ref names is already
+// complete in the store; a missing or interrupted tree is an error, never the RemoveAll and
+// checkout Materialize would run. A local pack, and the staged-tree fallback, resolve as
+// Resolve resolves them, since neither writes.
+//
+// The one command it runs is `git rev-parse` in the mirror, which reads refs and objects only.
+// Resolution stays the launch's: the same mirror, the same ref, the same commit, so a pack this
+// answers for is the pack a launch would stage.
+func (s *Store) ResolveExisting(a Addr, name string) (*Resolved, error) {
+	res, err := s.existingFromStore(a)
+	if err == nil {
+		return res, nil
+	}
+	if staged, ok := s.stagedPackDir(name); ok {
+		return &Resolved{Root: staged, StagedFrom: staged}, nil
+	}
+	return nil, err
+}
+
+// existingFromStore is resolveFromStore without the checkout.
+func (s *Store) existingFromStore(a Addr) (*Resolved, error) {
+	if a.IsLocal() {
+		return s.Materialize(a, "") // a local address is only stat'ed
+	}
+	mirror := filepath.Join(s.Dir, "mirrors", mirrorSlug(a.Repo))
+	if _, err := os.Stat(filepath.Join(mirror, "HEAD")); err != nil {
+		return nil, fmt.Errorf("pack %s has never been fetched — run `yolo pack install`", a.Repo)
+	}
+	commit, err := s.resolveCommit(mirror, a.Ref)
+	if err != nil {
+		return nil, err
+	}
+	tree := filepath.Join(s.Dir, "trees", commit)
+	if _, err := os.Stat(filepath.Join(tree, treeCompleteMarker)); err != nil {
+		return nil, fmt.Errorf("pack %s: commit %s is not checked out in the pack store; the next "+
+			"launch or `yolo pack install` checks it out", a.Repo, commit[:min(8, len(commit))])
+	}
+	return treeResolved(a, tree, commit)
 }
 
 // stagedPackDir reports where a pack was actually DELIVERED, when it was.
