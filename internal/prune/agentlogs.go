@@ -1,8 +1,10 @@
 package prune
 
 import (
-	"path/filepath"
+	"os"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // agentLogWorkspaceSubdirs are the per-workspace overlay log dirs safe to
@@ -32,7 +34,7 @@ var agentLogGlobalCacheSubdirs = []string{
 // workspace's overlay home and the shared GlobalCache, older than olderThanDays.
 // It reuses the same file-walk discipline as PurgeCacheByAge (regular files
 // only, symlinks never followed, dirs kept as anchors, mtime-keyed, dry-run
-// accurate) via purgeOldFilesUnder.
+// accurate) via purgeOldFilesUnder, beneath a root on each tree.
 //
 // It NEVER touches the Claude session transcripts (claude/projects) — those are
 // durable user data, not cache (see agentLogWorkspaceSubdirs). Only the
@@ -42,17 +44,29 @@ var agentLogGlobalCacheSubdirs = []string{
 func PurgeAgentLogs(workspaces []string, globalCache string, olderThanDays float64, apply bool, now time.Time) (bytesRemoved int64, filesRemoved int) {
 	cutoff := now.Add(-time.Duration(olderThanDays * 86400 * float64(time.Second)))
 	for _, ws := range workspaces {
-		home := filepath.Join(ws, ".yolo", "home")
+		// The overlay is opened refusing a link at `.yolo` or at `.yolo/home`: both are
+		// jail-writable (the workspace bind puts them at /workspace/.yolo), so a link at either
+		// would aim this purge at a host directory of the jail's choosing. Such a workspace,
+		// like one with no overlay, has nothing of its own to purge.
+		home, err := paths.OpenWorkspaceStateSubdir(ws, "home")
+		if err != nil {
+			continue
+		}
 		for _, sub := range agentLogWorkspaceSubdirs {
-			b, f := purgeOldFilesUnder(filepath.Join(home, sub), cutoff, apply)
+			b, f := purgeOldFilesUnder(home, sub, cutoff, apply)
 			bytesRemoved += b
 			filesRemoved += f
 		}
+		home.Close()
 	}
-	for _, sub := range agentLogGlobalCacheSubdirs {
-		b, f := purgeOldFilesUnder(filepath.Join(globalCache, sub), cutoff, apply)
-		bytesRemoved += b
-		filesRemoved += f
+	// The shared cache is followed at its root, as PurgeCacheByAge's is, and walked beneath it.
+	if cache, err := os.OpenRoot(globalCache); err == nil {
+		for _, sub := range agentLogGlobalCacheSubdirs {
+			b, f := purgeOldFilesUnder(cache, sub, cutoff, apply)
+			bytesRemoved += b
+			filesRemoved += f
+		}
+		cache.Close()
 	}
 	return bytesRemoved, filesRemoved
 }

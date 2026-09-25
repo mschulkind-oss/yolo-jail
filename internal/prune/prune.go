@@ -14,9 +14,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -49,25 +51,69 @@ const hashChunkBytes = 1 << 20 // 1 MiB
 type Entry struct {
 	Path string
 	Size int64
+	// root is the tree Path was walked beneath, which HardlinkDuplicateFiles reopens on the
+	// same terms; the zero value, an Entry built from a path alone, is Path's parent directory.
+	root dedupRoot
+}
+
+// dedupRoot is a tree dedup walks and links beneath: a workspace's overlay, or a directory.
+type dedupRoot struct {
+	workspace string // <workspace>/.yolo/home, refusing a link at `.yolo` or at `home`
+	dir       string // else this directory, refusing a link at it
+}
+
+// open opens d as an os.Root, refusing a symbolic link at the directories the jail can replace
+// (docs/reference/jail-home.md, "Host code in jail-writable state").
+func (d dedupRoot) open() (*os.Root, error) {
+	if d.workspace != "" {
+		return paths.OpenWorkspaceStateSubdir(d.workspace, "home")
+	}
+	return paths.OpenStateDirRoot(d.dir)
+}
+
+// beneath is e's root and its path relative to that root.
+func (e Entry) beneath() (dedupRoot, string, error) {
+	if e.root == (dedupRoot{}) {
+		return dedupRoot{dir: filepath.Dir(e.Path)}, filepath.Base(e.Path), nil
+	}
+	dir := e.root.dir
+	if e.root.workspace != "" {
+		dir = paths.WorkspaceHomeState(e.root.workspace)
+	}
+	rel, err := filepath.Rel(dir, e.Path)
+	return e.root, rel, err
 }
 
 // WalkDedupTree yields dedup entries for regular, non-empty, non-symlink files
-// under root (recursively). Missing root yields nothing. Uses lstat; skips
-// symlinks, non-regular files, and zero-byte files.
+// under root (recursively). Missing root yields nothing, and so does a root that is a
+// symbolic link. Uses lstat; skips symlinks, non-regular files, and zero-byte files.
 func WalkDedupTree(root string) []Entry {
+	r, err := paths.OpenStateDirRoot(root)
+	if err != nil {
+		return nil
+	}
+	defer r.Close()
+	return walkDedupBeneath(r, dedupRoot{dir: root}, root, ".")
+}
+
+// walkDedupBeneath is WalkDedupTree of rel below r, whose directory is dir: every trees dedup
+// walks is one a jail can write, so the walk resolves each path beneath the root rather than by
+// a plain path a link the jail left could redirect. A symbolic link at rel yields nothing.
+func walkDedupBeneath(r *os.Root, root dedupRoot, dir, rel string) []Entry {
 	var out []Entry
-	info, err := os.Lstat(root)
+	info, err := r.Lstat(rel)
 	if err != nil || !info.IsDir() {
 		return nil
 	}
-	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+	_ = fs.WalkDir(r.FS(), filepath.ToSlash(rel), func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil // skip unreadable subtrees, keep walking
 		}
 		if d.IsDir() {
 			return nil
 		}
-		st, err := os.Lstat(path)
+		path = filepath.FromSlash(path)
+		st, err := r.Lstat(path)
 		if err != nil {
 			return nil
 		}
@@ -80,7 +126,7 @@ func WalkDedupTree(root string) []Entry {
 		if st.Size() == 0 {
 			return nil
 		}
-		out = append(out, Entry{Path: path, Size: st.Size()})
+		out = append(out, Entry{Path: filepath.Join(dir, path), Size: st.Size(), root: root})
 		return nil
 	})
 	return out
@@ -88,18 +134,25 @@ func WalkDedupTree(root string) []Entry {
 
 // WalkDedupableWorkspaces yields entries under each workspace's
 // .yolo/home/{npm-global,local,go,codex/packages/standalone}, minus dedupExcludedSubtrees.
+// The overlay is opened refusing a link at `.yolo` or at `.yolo/home`, and walked beneath
+// that root: both are jail-writable, through the workspace bind.
 func WalkDedupableWorkspaces(workspaces []string) []Entry {
 	var out []Entry
 	for _, ws := range workspaces {
-		home := filepath.Join(ws, ".yolo", "home")
+		r, err := paths.OpenWorkspaceStateSubdir(ws, "home")
+		if err != nil {
+			continue
+		}
+		home := paths.WorkspaceHomeState(ws)
 		for _, sub := range dedupeSubtrees {
 			root := filepath.Join(home, sub)
 			var skip []string
 			for _, rel := range dedupExcludedSubtrees[sub] {
 				skip = append(skip, filepath.Join(root, rel))
 			}
-			out = append(out, walkDedupTreeExcept(root, skip)...)
+			out = append(out, excludeUnder(walkDedupBeneath(r, dedupRoot{workspace: ws}, home, sub), skip)...)
 		}
+		r.Close()
 	}
 	return out
 }
@@ -126,13 +179,13 @@ var dedupExcludedSubtrees = func() map[string][]string {
 	return out
 }()
 
-// walkDedupTreeExcept is WalkDedupTree minus every entry at or under a skip path.
-func walkDedupTreeExcept(root string, skip []string) []Entry {
+// excludeUnder is entries minus every entry at or under a skip path.
+func excludeUnder(entries []Entry, skip []string) []Entry {
 	if len(skip) == 0 {
-		return WalkDedupTree(root)
+		return entries
 	}
 	var out []Entry
-	for _, e := range WalkDedupTree(root) {
+	for _, e := range entries {
 		excluded := false
 		for _, s := range skip {
 			if e.Path == s || strings.HasPrefix(e.Path, s+string(filepath.Separator)) {
@@ -157,27 +210,74 @@ func WalkGlobalDedupable(globalStorage string) []Entry {
 	return out
 }
 
-// hashFile SHA-256s a file in 1 MiB chunks; "" on I/O error (skip).
-func hashFile(path string) string {
-	f, err := os.Open(path)
+// hashedEntry is an entry opened beneath its root and hashed: rel is its path below root,
+// and ino/dev the identity of the file that was hashed, which the link checks the name
+// against before and after linking.
+type hashedEntry struct {
+	root     *os.Root
+	rel      string
+	ino, dev uint64
+}
+
+// hashBeneath SHA-256s rel below r in 1 MiB chunks, reading only a regular file (a link at rel
+// is not followed; paths.OpenRegularFileBeneath), and returns the hashed file's identity with
+// the digest; "" on I/O error (skip).
+func hashBeneath(r *os.Root, rel string) (digest string, ino, dev uint64) {
+	f, err := paths.OpenRegularFileBeneath(r, rel)
 	if err != nil {
-		return ""
+		return "", 0, 0
 	}
 	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return "", 0, 0
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return "", 0, 0
+	}
 	h := sha256.New()
 	buf := make([]byte, hashChunkBytes)
 	if _, err := io.CopyBuffer(h, f, buf); err != nil {
-		return ""
+		return "", 0, 0
 	}
-	return hex.EncodeToString(h.Sum(nil))
+	return hex.EncodeToString(h.Sum(nil)), st.Ino, uint64(st.Dev)
 }
+
+// dedupBeforeLink, when set, is called after the files are hashed and before each link. It is a
+// test seam, nil in production: the window it opens is the one in which a jail can swap a
+// directory on the way for a link after the hash has vouched for the file below it.
+var dedupBeforeLink func()
 
 // HardlinkDuplicateFiles groups entries by (size, sha256) and hardlinks
 // duplicates. Within a group the first entry is canonical; the rest are
 // linked to it via the ATOMIC link-to-tmp-then-rename discipline (NEVER unlink
 // the original first). Same-inode pairs are skipped. Returns (bytesSaved,
 // linksMade); apply=false computes the same numbers without mutating.
+//
+// Every file is hashed and linked BENEATH the root it was walked under, never by plain path
+// (docs/reference/jail-home.md, "Host code in jail-writable state"): the jail can swap a
+// directory on the way for a link between the walk and the link, and a plain path then replaced
+// the host file behind it with a hardlink to the jail's file, or, on the canonical's side,
+// hardlinked a HOST file into the jail's tree (linkBeneath).
 func HardlinkDuplicateFiles(entries []Entry, apply bool) (bytesSaved int64, linksMade int) {
+	roots := map[dedupRoot]*os.Root{}
+	defer func() {
+		for _, r := range roots {
+			if r != nil {
+				r.Close()
+			}
+		}
+	}()
+	openRoot := func(d dedupRoot) *os.Root {
+		r, seen := roots[d]
+		if !seen {
+			r, _ = d.open()
+			roots[d] = r
+		}
+		return r
+	}
+
 	// Bucket by size first (cheap filter; only hash colliding sizes).
 	bySize := map[int64][]Entry{}
 	sizeOrder := []int64{}
@@ -193,17 +293,25 @@ func HardlinkDuplicateFiles(entries []Entry, apply bool) (bytesSaved int64, link
 		if len(group) < 2 {
 			continue
 		}
-		byHash := map[string][]Entry{}
+		byHash := map[string][]hashedEntry{}
 		hashOrder := []string{}
 		for _, e := range group {
-			digest := hashFile(e.Path)
+			d, rel, err := e.beneath()
+			if err != nil {
+				continue
+			}
+			r := openRoot(d)
+			if r == nil {
+				continue
+			}
+			digest, ino, dev := hashBeneath(r, rel)
 			if digest == "" {
 				continue
 			}
 			if _, seen := byHash[digest]; !seen {
 				hashOrder = append(hashOrder, digest)
 			}
-			byHash[digest] = append(byHash[digest], e)
+			byHash[digest] = append(byHash[digest], hashedEntry{root: r, rel: rel, ino: ino, dev: dev})
 		}
 		for _, digest := range hashOrder {
 			same := byHash[digest]
@@ -211,16 +319,8 @@ func HardlinkDuplicateFiles(entries []Entry, apply bool) (bytesSaved int64, link
 				continue
 			}
 			canonical := same[0]
-			cIno, cDev, ok := inode(canonical.Path)
-			if !ok {
-				continue
-			}
 			for _, dup := range same[1:] {
-				dIno, dDev, ok := inode(dup.Path)
-				if !ok {
-					continue
-				}
-				if dIno == cIno && dDev == cDev {
+				if dup.ino == canonical.ino && dup.dev == canonical.dev {
 					continue // already linked
 				}
 				if !apply {
@@ -228,13 +328,10 @@ func HardlinkDuplicateFiles(entries []Entry, apply bool) (bytesSaved int64, link
 					linksMade++
 					continue
 				}
-				tmp := dup.Path + ".yolo-dedup-tmp"
-				if err := os.Link(canonical.Path, tmp); err != nil {
-					_ = os.Remove(tmp) // clean partial
-					continue
+				if dedupBeforeLink != nil {
+					dedupBeforeLink()
 				}
-				if err := os.Rename(tmp, dup.Path); err != nil {
-					_ = os.Remove(tmp)
+				if err := linkBeneath(canonical, dup); err != nil {
 					continue
 				}
 				bytesSaved += size

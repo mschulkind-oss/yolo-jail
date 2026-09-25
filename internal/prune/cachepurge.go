@@ -1,6 +1,7 @@
 package prune
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -60,42 +61,69 @@ var cachePurgeForbidden = map[string]struct{}{
 func PurgeCacheByAge(cacheRoot string, subdirs []string, relocations map[string]string, olderThanDays float64, apply bool, now time.Time) (bytesRemoved int64, filesRemoved int) {
 	cutoff := now.Add(-time.Duration(olderThanDays * 86400 * float64(time.Second)))
 
+	// The cache root is opened FOLLOWING a link at it, and so is a relocation target: neither
+	// is a path the jail can replace (each is a jail's mountpoint, and the components above are
+	// the host's own), and a user may well have put the machine store or a relocated cache on
+	// another disk through one. Everything BELOW them is the jail's to write, so it is walked
+	// and removed beneath the root (purgeOldFilesUnder).
+	cache, _ := os.OpenRoot(cacheRoot)
+	if cache != nil {
+		defer cache.Close()
+	}
 	for _, sub := range subdirs {
 		if _, forbidden := cachePurgeForbidden[sub]; forbidden {
 			continue
 		}
-		root := filepath.Join(cacheRoot, sub)
+		var b int64
+		var f int
 		if target := relocations[sub]; target != "" {
-			root = target
+			if r, err := os.OpenRoot(target); err == nil {
+				b, f = purgeOldFilesUnder(r, ".", cutoff, apply)
+				r.Close()
+			}
+		} else if cache != nil {
+			b, f = purgeOldFilesUnder(cache, sub, cutoff, apply)
 		}
-		b, f := purgeOldFilesUnder(root, cutoff, apply)
 		bytesRemoved += b
 		filesRemoved += f
 	}
 	return bytesRemoved, filesRemoved
 }
 
-// purgeOldFilesUnder removes regular files under root whose mtime is before
-// cutoff, returning (bytesRemoved, filesRemoved). Shared by PurgeCacheByAge and
-// PurgeAgentLogs. Discipline (identical to the cache-purge contract):
-//   - a missing/non-dir root is a no-op (returns 0,0);
+// purgeBeforeRemove, when set, is called with each file's path (relative to the purge's root)
+// just before the purge removes it. It is a test seam, nil in production: the window it opens is
+// the one in which a jail can swap a directory on the way for a link, between the walk's check
+// and the removal.
+var purgeBeforeRemove func(rel string)
+
+// purgeOldFilesUnder removes regular files under rel below r whose mtime is before cutoff,
+// returning (bytesRemoved, filesRemoved). Shared by PurgeCacheByAge and PurgeAgentLogs.
+// Discipline (identical to the cache-purge contract):
+//   - a missing/non-dir rel is a no-op (returns 0,0), and so is a symbolic link at rel;
 //   - symlinks are never followed or deleted;
 //   - only regular files are counted/removed (dirs are left as mount anchors);
 //   - mtime >= cutoff is kept;
 //   - apply=false computes accurate counts without mutating.
-func purgeOldFilesUnder(root string, cutoff time.Time, apply bool) (bytesRemoved int64, filesRemoved int) {
-	info, err := os.Stat(root)
+//
+// BENEATH r, never by plain path (docs/reference/jail-home.md, "Host code in jail-writable
+// state"): every tree this purges is one a jail can write, and the purge runs as the host user.
+// A directory the jail swaps for a link, before the walk or between the walk's check and the
+// removal, leaves the root, and r refuses the removal rather than deleting the host file of the
+// same name behind it.
+func purgeOldFilesUnder(r *os.Root, rel string, cutoff time.Time, apply bool) (bytesRemoved int64, filesRemoved int) {
+	info, err := r.Lstat(rel)
 	if err != nil || !info.IsDir() {
 		return 0, 0
 	}
-	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+	_ = fs.WalkDir(r.FS(), filepath.ToSlash(rel), func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 		if d.IsDir() {
 			return nil
 		}
-		st, err := os.Lstat(path)
+		path = filepath.FromSlash(path)
+		st, err := r.Lstat(path)
 		if err != nil {
 			return nil
 		}
@@ -111,7 +139,10 @@ func purgeOldFilesUnder(root string, cutoff time.Time, apply bool) (bytesRemoved
 		}
 		size := st.Size()
 		if apply {
-			if err := os.Remove(path); err != nil {
+			if purgeBeforeRemove != nil {
+				purgeBeforeRemove(path)
+			}
+			if err := r.Remove(path); err != nil {
 				return nil
 			}
 		}
