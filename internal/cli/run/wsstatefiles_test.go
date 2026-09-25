@@ -186,7 +186,8 @@ func TestPackFilesManifestNeverWritesThroughALink(t *testing.T) {
 		// pins the READ half only: the jail can write a regular manifest in `.yolo` just as
 		// well as a link to one, so what the refusal buys is that a host file is never parsed
 		// as yolo's own state, not that the manifest's content is trustworthy. The removal
-		// such a manifest can ask for stays beneath the overlay (preparePackFiles' pathParentWithin check).
+		// such a manifest can ask for stays beneath the overlay: retirePackFileMountpoints removes
+		// only beneath an os.Root on it (packfilesretire_test.go).
 		owned := filepath.Join(wsState, "pi", "agent", "stale")
 		writeFixture(t, owned, "")
 		hostManifest := filepath.Join(t.TempDir(), "m.json")

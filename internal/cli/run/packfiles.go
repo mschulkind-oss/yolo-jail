@@ -14,6 +14,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // packFilesTarget is one resolved `files` contribution: the pack that declared it, the
@@ -232,6 +234,11 @@ func packFilesSkipWarning(t packFilesTarget) string {
 // Manifest paths are host-side paths relative to wsState, not home-relative paths: podman
 // maps `.pi/...` to `<wsState>/pi/...`, while Apple Container maps it to
 // `<wsState>/.pi/...` through its whole-home bind.
+// packFilesBeforeRetire, when set, runs between the retire loop's check that a recorded
+// mountpoint is unchanged and its removal: a test seam for a directory the jail swaps for a link
+// in that window.
+var packFilesBeforeRetire func(rel string)
+
 const packFilesMountpointManifestName = "pack-files-mountpoints.json"
 const packFilesMountpointManifestVersion = 1
 
@@ -273,23 +280,8 @@ func preparePackFiles(packs []*packload.Pack, wsState, rt string) []string {
 	}
 
 	// Retire first, so a contribution changing shape at one destination can recreate the
-	// right target below. Removal is deliberately conditional on the recorded scaffold
-	// still being unchanged: a file the user replaced or a directory that gained content
-	// is forgotten and left alone.
-	for rel, owned := range previous.Entries {
-		if !safePackFilesManifestRel(rel) {
-			delete(previous.Entries, rel)
-			continue
-		}
-		if claimed, stillClaimed := current[rel]; stillClaimed && packFilesTargetKind(claimed) == owned.Kind {
-			continue
-		}
-		dest := filepath.Join(wsState, rel)
-		if pathParentWithin(dest, wsState) && packFilesMountpointUnchanged(dest, owned) {
-			_ = os.Remove(dest)
-		}
-		delete(previous.Entries, rel)
-	}
+	// right target below.
+	retirePackFileMountpoints(wsState, previous, current)
 
 	next := &packFilesMountpointManifest{
 		Version: previous.Version,
@@ -342,6 +334,108 @@ func preparePackFiles(packs []*packload.Pack, wsState, rt string) []string {
 	}
 	_ = savePackFilesMountpointManifest(manifestPath, next)
 	return archived
+}
+
+// retirePackFileMountpoints removes each mountpoint previous records that current no longer
+// claims at the same kind, and forgets it. Removal is deliberately conditional on the recorded
+// scaffold still being unchanged: a file the user replaced or a directory that gained content
+// is forgotten and left alone.
+//
+// The check and the removal are both made beneath a root on wsState (wsstatebeneath.go), opened
+// refusing a link at wsState or `.yolo`, and never creating either. The manifest is jail-written
+// evidence (it sits in `.yolo`), so the jail chooses every recorded path and its digest; and
+// the overlay is jail-writable, so it can put a link at wsState or at any directory on the way,
+// before the launch or between the check and the removal. By plain path, os.Remove followed
+// such a link and deleted the host file of that name: through a link at wsState the old
+// EvalSymlinks containment check resolved both sides into the host directory and passed, and a
+// forged digest made any host file whose content the jail knows count as "unchanged". Beneath
+// the root, a link leaving it is refused at every component, and r.Remove never follows a link
+// at the final name.
+func retirePackFileMountpoints(wsState string, previous *packFilesMountpointManifest, current map[string]packFilesTarget) {
+	var overlay *os.Root
+	opened := false
+	defer func() {
+		if overlay != nil {
+			overlay.Close()
+		}
+	}()
+	for rel, owned := range previous.Entries {
+		if !safePackFilesManifestRel(rel) {
+			delete(previous.Entries, rel)
+			continue
+		}
+		if claimed, stillClaimed := current[rel]; stillClaimed && packFilesTargetKind(claimed) == owned.Kind {
+			continue
+		}
+		if !opened {
+			opened = true
+			overlay, _ = openExistingStateRoot(wsState)
+		}
+		if overlay != nil && packFilesMountpointUnchangedBeneath(overlay, rel, owned) {
+			if packFilesBeforeRetire != nil {
+				packFilesBeforeRetire(rel)
+			}
+			_ = overlay.Remove(rel)
+		}
+		delete(previous.Entries, rel)
+	}
+}
+
+// openExistingStateRoot is openStateRoot that creates nothing: dir (wsState) and its parent
+// (`.yolo`) must already exist, and a link at either is refused (paths.OpenStateDirRoot,
+// paths.OpenStateSubdirRoot).
+func openExistingStateRoot(dir string) (*os.Root, error) {
+	dir = filepath.Clean(dir)
+	parent, err := paths.OpenStateDirRoot(filepath.Dir(dir))
+	if err != nil {
+		return nil, err
+	}
+	defer parent.Close()
+	return paths.OpenStateSubdirRoot(parent, filepath.Base(dir), dir)
+}
+
+// packFilesMountpointUnchangedBeneath is packFilesMountpointUnchanged for rel below r: a link
+// at rel is never unchanged, and a file's digest is read only from a regular file beneath r.
+func packFilesMountpointUnchangedBeneath(r *os.Root, rel string, owned packFilesMountpoint) bool {
+	info, err := r.Lstat(rel)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 {
+		return false
+	}
+	switch owned.Kind {
+	case "file":
+		if !info.Mode().IsRegular() {
+			return false
+		}
+		if info.Size() == 0 {
+			return true
+		}
+		if owned.SHA256 == "" {
+			return false
+		}
+		f, err := paths.OpenRegularFileBeneath(r, rel)
+		if err != nil {
+			return false
+		}
+		defer f.Close()
+		h := sha256.New()
+		if _, err := io.Copy(h, f); err != nil {
+			return false
+		}
+		return hex.EncodeToString(h.Sum(nil)) == owned.SHA256
+	case "dir":
+		if !info.IsDir() {
+			return false
+		}
+		d, err := r.Open(rel)
+		if err != nil {
+			return false
+		}
+		defer d.Close()
+		entries, err := d.ReadDir(1)
+		return errors.Is(err, io.EOF) && len(entries) == 0
+	default:
+		return false
+	}
 }
 
 func hasSingleFilePackTarget(targets map[string]packFilesTarget) bool {
@@ -474,9 +568,10 @@ func safePackFilesManifestRel(rel string) bool {
 		!strings.HasPrefix(clean, ".."+string(filepath.Separator))
 }
 
-// pathParentWithin rejects a stale ownership record whose parent now escapes the
-// workspace overlay through a symlink. The record is weak evidence; it never authorizes
-// removing a path outside the tree that contains it.
+// pathParentWithin reports whether path's parent, resolving every link, is still below root.
+// The legacy archive uses it to skip listing a directory that escapes the overlay; its move is
+// made beneath a root regardless. It is not a containment check for a removal: through a link
+// at root itself both sides resolve alike (retirePackFileMountpoints).
 func pathParentWithin(path, root string) bool {
 	resolvedRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
