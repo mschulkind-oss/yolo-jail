@@ -683,13 +683,29 @@ it is one small file in the top layer with no closure entry.
 > bind; it would show only under a bare `podman run` of the image without `--read-only`.
 > nix2container's `perms` is the lever if that ever matters.
 
-> [!IMPORTANT]
-> **Two guards this plan is owed do not exist yet.** Nothing reads `/bin/bash`'s target in a built
-> image whose `packages:` ships a colliding `bin/` name, so a precedence flip would pass every
-> test while replacing the boot's shell. And nothing asserts a byte budget on a `flake.nix`-only
-> re-delivery, so a package added to the flake in the wrong tier silently costs a full copy per
-> build; the only test is of the copied/skipped arithmetic, not of a real image. Both are roadmap
-> items rather than properties.
+> [!NOTE]
+> **Two integration guards hold this plan to a real image**
+> ([`layerplan_test.go`](../../integration/layerplan_test.go), Linux lanes only, because
+> `.#ociImage` is a Linux image). Each builds `.#ociImage` from a two-file copy of the flake
+> (`flake.nix` and `flake.lock` as a `path:` flake, which evaluates to the checkout's own image)
+> and reads the nix2container manifest rather than loading anything into a runtime.
+>
+> - **Precedence.** `TestLayerPlanKeepsTheCuratedShellOverAPackagesCollision` builds with
+>   `packages: ["bashNonInteractive"]`, which ships its own `bin/bash` and `bin/sh`, and checks
+>   that both still resolve to the curated `bashInteractive`. It works out the answer the way the
+>   image does: the last root entry, bottom layer to top, that carries the name. So it fails both
+>   on a reordered join and on a top tier split into several root entries. `bash` itself would
+>   not do as the fixture, because in the pinned nixpkgs `bash` is the interactive build and
+>   collides with nothing. The test checks that its collision is real before it trusts the
+>   answer. Flipping the join order, with `extraPackages` first, turns it red.
+> - **Byte budget.** `TestLayerPlanFlakeOnlyEditRedeliversOnlyTheTopLayer` builds the image
+>   twice, once with a comment appended to `flake.nix`. That edit moves `imageIdentity` and
+>   nothing else. The second image may re-deliver exactly one layer, the top one, and at most
+>   40 MiB of it, counted by the production copy-report arithmetic (`image.ReportFor`). On
+>   2026-09-25, on x86_64-linux, the edit moved only the top layer, at 27,408,896 bytes. The
+>   budget was set by mutation. Linking one package whose closure is not in the base tier
+>   (nix2container's skopeo, through a `bin-path-links` symlink) put about 33 MB of that closure
+>   in the top layer, which grew to 61,253,120 bytes, and the test fails on that.
 
 ### Delivering into the runtime
 
