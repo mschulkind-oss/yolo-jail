@@ -150,13 +150,19 @@ new named hook in core.
   document it independently.
 
 > [!WARNING]
-> **Reservation lists are deliberately NOT selection-gated.** The lists that say which home
-> roots a `host_files` entry may write into, which path segments `writable_home_dirs` may
-> not claim, and which global-home subdirs to create are the union over every pack yolo
-> SHIPS (`packload.Embedded`). Gating them on the loaded set would let a `host_files` entry
-> claim a path a pack added tomorrow needs, and the collision would surface as a mount
-> conflict with no obvious cause. The guarantee is bounded honestly: a *configured* pack's
-> writable dir is not reserved.
+> **Name reservation covers only the SELECTED packs** — the maintainer's
+> [`OQ-BH14`](../design/base-home-legacy-state.md#OQ-BH14) ruling, which reversed what this
+> warning used to say: an unselected pack is treated as if it does not exist. A
+> `writable_home_dirs` entry may not claim a selected pack's writable or shared dir, and the
+> refusal names the pack; a `host_files` destination under a selected pack's writable or
+> shared dir needs no staging, and under any other pack's dir it is an ordinary path. A *configured*
+> pack's dirs are reserved too, which the old shipped-set lists never did. The accepted
+> cost: one user-scope entry can pass in one workspace and be refused in another. Two lists
+> still span every pack yolo SHIPS: the machine store's shared dirs, which
+> `EnsureGlobalStorage` creates before the config is loaded, and `host_files`' surface-path
+> reservation, which the ruling did not reach
+> ([`jail-home.md`](jail-home.md#reserving-a-name-is-not-creating-a-directory); open as
+> [`OQ-BH15`](../design/base-home-legacy-state.md#OQ-BH15)).
 
 > [!WARNING]
 > **`packload.Embedded()` leases one immutable tree per build, shared by every process of
@@ -232,18 +238,21 @@ spelling the `git mv`:
 - a `briefing` `from` naming one (`packdecl.RepositoryInstructionFile`, in the validator, so the
   tolerant in-jail decode refuses it too);
 - a file with one of those names inside `briefing/` — a fatal `packload.LoadDir` problem, so it
-  refuses every launch and `yolo pack lint`.
+  refuses every launch, `yolo pack lint` and `yolo check`.
 
 The two refusals share one message (`packdecl.ReservedBriefingSourceProblem`), so the manifest
 spelling and the file spelling teach the same move. The explicit-`from` refusal is on `briefing`
 alone; a `skills` or `files` `from` is not checked against the basenames.
 
-> [!WARNING]
-> **`yolo check` does not report the `briefing/AGENTS.md` refusal.** `check` keeps a pack only
-> when `packload.LoadDir` returns no problems, and drops one that has problems without printing
-> them, so a pack carrying `briefing/AGENTS.md` passes `yolo check` and is then refused at
-> launch. `yolo pack lint` does report it. The gap is in `check`, and `packload`'s own comment
-> records it as such; do not answer it with a second refusal site.
+> [!NOTE]
+> **`yolo check` and the launch agree about a pack that does not load.** Every
+> `packload.LoadDir` problem is fatal at launch, and `check`'s Packs section fails on each one
+> with LoadDir's own message (`loadStagedPack` in `internal/cli/check/packs.go`, at both of its
+> load sites). It used to keep a pack only when LoadDir returned no problems and drop one that
+> had problems without printing them, so a pack carrying `briefing/AGENTS.md` passed
+> `yolo check` and was then refused at launch
+> (`TestSectionPacksFailsOnALoadProblemTheLaunchRefuses`). The gap was closed in `check`,
+> where it was; do not answer a check/launch disagreement with a second refusal site.
 
 The rule is about sources only. A destination path ending in `AGENTS.md`, which several shipped
 agent packs declare, and `after: "host:AGENTS.md"` are not sources, and neither is checked.
@@ -501,6 +510,26 @@ therefore deliberately NOT a closed enum: the vendors disagree, and core hardcod
 how `yolo pack update` came to skip the installer class entirely. `update` is read on
 `program` alone and refused by name on every other kind.
 
+`refresh` is the program's **pre-launch refresh**, a term coined for this field (2026-09-25).
+It is an object: `argv`, the program's own argv with the bin omitted, and `lock`, a
+home-relative lock directory whose parent is the store the refresh writes. Pi declares
+`{"argv": ["update", "--extensions"], "lock": ".pi-shared-npm/.yolo-update.lock"}`. The launcher
+runs it right before the exec, at most once an hour on a machine-global stamp, and only when
+`agent_updates` lets the pack move. It is bounded by the same timeout as an update, reads
+nothing from the terminal, writes its stdout to stderr, and runs only while it holds `lock`.
+`lock` is a non-blocking `mkdir`: a lock another jail holds skips the refresh, and so does a
+store that is missing or read-only. The holder touches the lock while it runs, so only a lock
+whose launcher died goes stale. Every outcome still launches the program. The lock serializes
+the refresh only, not writes the program makes to the store on its own. A refresh is not
+`update`: it leaves the binary alone, ignores the binary's pin, and `yolo pack update` does not
+run it. `refresh` is read on `program` alone. `packdecl` refuses an empty `argv` or word, and a
+`lock` that is absolute, escapes the home, or has no directory above it. It also refuses a lock
+whose name does not start with `.yolo-`: the lock sits inside the store, and that prefix is what
+tells yolo's bookkeeping apart from the tool's content when the `shared_directory` hook asks
+whether the store is empty.
+[`pi-extension-lifecycle.md`](../design/pi-extension-lifecycle.md#32-execution-tier-pre-launch-auto-refresh)
+is the design.
+
 `platforms` is **where the vendor publishes a build**: a list of `<goos>` or
 `<goos>/<goarch>` entries, spelled as Go spells them. Absent means every platform, which is
 what almost every pack wants and what every manifest written before the key kept meaning. A
@@ -566,7 +595,7 @@ a pack needing a tool the image already bakes, or the user already has, had only
 so it either lied — declaring an npm install for a baked binary, which then shadowed it — or
 declared nothing and lost `install_hints` entirely.
 
-`via`/`package`/`url`/`update` are **refused by name**: those belong to `program`, and a
+`via`/`package`/`url`/`update`/`refresh` are **refused by name**: those belong to `program`, and a
 `requires` carrying one is the author reaching for the other kind. At the jail and guest
 notches a missing bin is a **warning naming the bin**, never a boot failure — the pack's
 other contributions are fine, and a fatal here would stop the jail you need in order to fix
@@ -942,6 +971,16 @@ packs both set collides. For values that must reference a secret or a host path,
 config's `env_sources` is the channel, kept out of a distributable pack on purpose. `env` is
 shown on the launch banner anyway, because it changes what the agent inside the jail sees,
 which is the other thing a user checks a launch for.
+
+An `env` contribution may also declare **`overridden_by`**: what, delivered into the same jail,
+makes a consumer ignore its variables — other variables (all of them delivered, unless one of an
+`unless` list is too), or a `host_files` grant under a home path — each with a `because` the
+refusal quotes. A launch delivering the contribution beside one of those is **refused**, fatally
+and with no escape hatch, and `yolo check` predicts it. The pack owns the knowledge and core names
+no variable: `packs/aws-auth` declares that a Bedrock bearer, a static AWS key pair or a `~/.aws`
+grant beats its credentials pointer
+([`sso-backed-bedrock.md` OQ-SSO8](../design/sso-backed-bedrock.md#OQ-SSO8)). The schema and its
+rules are `packdecl.EnvOverride`'s doc comment.
 
 #### `hook`
 
@@ -1585,13 +1624,34 @@ The contract:
   Lua `nil` in a table just drops the entry, which cannot express "delete this key" — and
   `ctx.empty_array` is the sentinel for an intentional empty JSON array, which Lua cannot
   distinguish from an empty object.
+- `ctx.in_full(t)` declares that `t` — the value of a TOP-LEVEL key — is a table the derive
+  regenerates in full: its entries track a live table, so an entry on disk this run did not
+  produce is yolo's own stale output. A first migration's adoption takes such a table whole,
+  and `hostTableKeys` counts only such tables among the ones the host writes by replacement;
+  at those two readers, a table returned without it claims only the leaves it names. Refused
+  nested, around an array, and around a non-table.
+  ⚠ **The jail's `rmw` arm does not read the declaration yet.** On an `rmw` surface
+  `regenerateManagedTables` still clears and rewrites EVERY object-valued key of the computed
+  layer, declared or not, so a table there that a derive means only to assert leaves of is
+  regenerated whole in a jail while the host merges it. No shipped `rmw` surface returns such a
+  table; what `rmw` should do with one awaits a ruling
+  ([the residual](../design/config-ownership-and-promotion.md#built-2026-09-25--what-shipped)).
+  Shipped derives reach the sentinel through a local guard so an older entrypoint, whose `ctx`
+  lacks it, still runs them. The reverse pairing is not covered: a newer entrypoint handed an
+  older derive (the packs are staged from the host binary) sees no declaration at all. That
+  pairing arises only when `YOLO_REPO_ROOT` names a source tree newer than the host `yolo`, and
+  the only refusal of it is the launch-time check comparing the binary's commit stamp with that
+  tree's `HEAD` (`version.SourceSkew`, overruled by `YOLO_ALLOW_SOURCE_SKEW=1`, and silent for
+  uncommitted changes)
+  ([`CO13`](../design/config-ownership-and-promotion.md#co13--how-a-derive-says-it-fills-a-computed-table-in-full--decided)).
 - It runs in the sandboxed Lua VM, and it must be deterministic.
 
 The VM (`luahook.GopherLuaVM`, pure-Go gopher-lua, vendored so the hermetic image build works
 offline) is **the derive path's alone**: the `luahook` package's whole identity is the pack derive
 sandbox. It opens only the base, string, table and math libraries and then strips every forbidden
-global by subtraction — no `os`, `io`, `require`, `package`, code loaders, `print` or environment
-reassignment — so a script's only channel in or out is the context the VM marshals. A run is bounded
+global by subtraction — no `os`, `io`, `require`, `package`, code loaders, `print`, environment
+reassignment or the `math` library's random-number generator — so a script's only channel in or
+out is the context the VM marshals. A run is bounded
 by a wall-clock budget, and a Lua error surfaces as a loud Go error carrying file and line, never as
 a partial computed layer. `internal/agentcfg`, the compose engine, does not link Lua at all; the
 config-composition pipeline has no user-supplied script slot.
@@ -1614,11 +1674,15 @@ config-composition pipeline has no user-supplied script slot.
 <a id="derive-determinism"></a>
 
 > [!WARNING]
-> **"Must be deterministic" is a requirement on the script, not a property the sandbox
-> enforces.** The `math` library is opened whole and neither stripped-globals list names
-> `math.random`, so a `derive.lua` can call it and produce a different computed layer every
-> boot. Nothing yolo ships does. Closing it is one name in `extraStrippedGlobals` plus a test; the
-> package doc and `sandbox.go` record the gap.
+> **"Must be deterministic" is still partly a requirement on the script.** The sandbox enforces
+> it for randomness: the `math` library is opened for its deterministic functions, and
+> `extraStrippedGlobals` clears `math.random` and `math.randomseed` out of it, so a
+> `derive.lua` calling either fails loudly instead of producing a different computed layer
+> every boot (`TestDeriveSandbox_RandomnessUnavailable`). It does not enforce reference
+> identity: `tostring()` of a table or a function prints the Go pointer behind it
+> (`table: 0xc000…`, gopher-lua's `LTable.String`), so a script that keys on or emits that
+> string still varies between runs. Nothing yolo ships does. The package doc and
+> `sandbox.go` record the remaining gap.
 
 The **canonical MCP-server type** lives in core: `name → {command, args, env}`, open and
 additively versioned, so a new transport is a new optional field that never breaks an
@@ -2109,7 +2173,7 @@ only place the values themselves are stated.
 | `state` scopes | `workspace` (default), `machine` (requires `because`) | `packdecl` |
 | `skills_tier` values | `""` / `flat` (default), `namespaced` | `packdecl.Manifest.SkillsTier` |
 | Derive registrations | `yolo.derive(agent, surface, fn)`, `yolo.env(agent, fn)` | `internal/agentcfg/luahook` |
-| Derive ctx sentinels | `ctx.tombstone`, `ctx.empty_array` | `luahook/derive.go` |
+| Derive ctx sentinels | `ctx.tombstone`, `ctx.empty_array`, `ctx.in_full(t)` | `luahook/derive.go` |
 | Derive ctx sources | live tables `ctx.mcp_servers`, `ctx.lsp_servers`, `ctx.providers`, `ctx.use_profiles`; scalars `ctx.agent`, `ctx.surface`, `ctx.selected_provider`, `ctx.profile_name`; `ctx.profile` | `luahook.DeriveCtx`, `knownDeriveSources` |
 | Loophole settings token | `{settings}` in a manifest `cmd` | `internal/loopholes/settings.go` |
 | Settings types | `string`, `bool`, `int`, `string_list` | `loopholedecl/settings.go` |

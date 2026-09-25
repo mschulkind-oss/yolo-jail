@@ -141,7 +141,7 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 		if res.StagedFrom != "" {
 			r.ok(e.Name + ": staged at " + res.StagedFrom)
 			r.note("  source " + res0Path(addr, e.Source) + " is host-side and not visible from in here")
-			if p, probs := packload.LoadDir(res.StagedFrom, e.Name); len(probs) == 0 && p != nil {
+			if p := loadStagedPack(r, res.StagedFrom, e.Name); p != nil {
 				loaded = append(loaded, p)
 			}
 			continue
@@ -178,7 +178,7 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 		// Load the STAGED tree, so the declarations checked are the ones a jail would
 		// render. There is nothing origin-dependent left to match: OQ-TP9 deleted the
 		// host-access gate, so `check` and the launch load a pack the same way.
-		if p, probs := packload.LoadDir(packDir, e.Name); len(probs) == 0 && p != nil {
+		if p := loadStagedPack(r, packDir, e.Name); p != nil {
 			loaded = append(loaded, p)
 		}
 	}
@@ -252,18 +252,18 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 		r.warn(w, "")
 	}
 
-	// The launch's AWS CREDENTIAL-CHANNEL EXCLUSIVITY refusal, predicted over the same
-	// selected set and for the same reason it sits in this section rather than in Merged
-	// Configuration: one of the two channels is a selected pack's `kind: "env"`
-	// contribution, and `loaded` is the only place that declaration is in hand. After
-	// ResolveNeeds, so a pack pulled in by `needs` delivers here exactly as it does at
-	// launch. awschannels.go states why this calls the launch's own rule instead of
-	// restating it, and which two delivery channels it cannot see.
-	awsErrs, awsWarns := awsCredentialChannelGap(loaded, merged, o.Workspace, o.getenv, r.configWarn)
-	for _, e := range awsErrs {
+	// The launch's ENV-OVERRIDE refusal, predicted over the same selected set and for the
+	// same reason it sits in this section rather than in Merged Configuration: both the
+	// overridden contribution and its `overridden_by` declaration are a selected pack's, and
+	// `loaded` is the only place they are in hand. After ResolveNeeds, so a pack pulled in by
+	// `needs` delivers here exactly as it does at launch. envoverrides.go states why this
+	// calls the launch's own rule instead of restating it, which two delivery channels it
+	// cannot see, and why a directory grant counts only off macOS (!o.IsMacOS below).
+	overrideErrs, overrideWarns := envOverrideGap(loaded, merged, o.Workspace, !o.IsMacOS, r.configWarn)
+	for _, e := range overrideErrs {
 		r.fail(e, "")
 	}
-	for _, w := range awsWarns {
+	for _, w := range overrideWarns {
 		r.warn(w, "")
 	}
 
@@ -288,6 +288,30 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 				"packs "+strings.Join(c.Packs, ", ")+" — "+c.Reason)
 		}
 	}
+}
+
+// loadStagedPack loads one staged pack tree the way the launch does and FAILS on every
+// problem packload.LoadDir reports, returning nil when there was any.
+//
+// FAIL, not warn, and never silent, because the launch refuses the pack on the first of
+// these (run's stagePacks returns on any LoadDir problem): `yolo check` passing a pack the
+// launch then refuses is the one outcome this section exists to prevent. Both of this
+// section's load sites go through here. They used to keep a pack only when LoadDir returned
+// no problems and drop one that had problems without printing them, so a pack carrying
+// `briefing/AGENTS.md` (packload's reservedBriefingFiles) passed check and was refused at
+// launch (docs/reference/pack-system.md#briefing-governance).
+//
+// A pack with problems stays out of `loaded`, as it always has: the set-level checks below
+// would otherwise report collisions for a pack that can never be part of a launch.
+func loadStagedPack(r *reporter, dir, name string) *packload.Pack {
+	p, probs := packload.LoadDir(dir, name)
+	for _, prob := range probs {
+		r.fail(prob, "the launch refuses this pack until it is fixed")
+	}
+	if len(probs) > 0 {
+		return nil
+	}
+	return p
 }
 
 // getenv is nil-safe: several tests drive a zero Options directly rather than

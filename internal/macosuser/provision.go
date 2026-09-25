@@ -168,8 +168,14 @@ func ProvisionBootstrapScript(workspace string) string {
 //
 // THE SKIP RULE, and its point is that `yolo -- bash` in a workspace that declares no
 // tools pays nothing: no third privileged step, no sudo, no `mise install` against an
-// empty config. The two keys are exactly the two imperative surfaces this backend can now
-// deliver.
+// empty config. `mise_tools` is the one imperative surface this backend delivers.
+//
+// `lsp_servers` is NOT one any more. It used to count, because a recipe table mapped three
+// server names to packages the generated script installed; that table is deleted
+// (docs/reference/mcp-configuration.md#oq-lsp1) and yolo now installs no LSP server on any
+// backend. The key only renders config — Claude's generated plugin, host-side, and
+// Copilot's projection — so starting a privileged stage for it would be one that does
+// nothing.
 //
 // `mcp_presets` is NOT one of them, and that is the design's list minus one entry rather
 // than an oversight: the preset WRAPPERS are not generated on this backend at all
@@ -177,20 +183,7 @@ func ProvisionBootstrapScript(workspace string) string {
 // have nothing to be spawned by — Env.SkipMCPPresets empties that arm of the generated
 // script too. Counting presets here would start a stage whose only work is a download
 // nothing can exec.
-//
-// ⚠ ONE STRANDED CASE, stated rather than closed. The generated script's UNINSTALL loop
-// reads a sentinel of what the last run installed, so removing the final entry from
-// `lsp_servers` flips this to false and that loop never runs: the package stays in the
-// workspace's npm prefix. Closing it needs a filesystem probe, and this is a pure
-// function of the config by deliberate choice — the dry-run plan has to be able to
-// describe the launch without touching the disk. The leak is bounded to the workspace's
-// own prefix, and re-adding the key then removing it with a launch in between collects it.
 func ProvisionNeeded(cfg *jsonx.OrderedMap) bool {
-	if mise := config.MergeMiseTools(cfg); mise != nil && mise.Len() > 0 {
-		return true
-	}
-	if lsp, ok := getSectionOrEmptyMap(cfg, "lsp_servers").(*jsonx.OrderedMap); ok && lsp.Len() > 0 {
-		return true
-	}
-	return false
+	mise := config.MergeMiseTools(cfg)
+	return mise != nil && mise.Len() > 0
 }

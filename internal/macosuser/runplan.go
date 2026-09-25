@@ -276,39 +276,6 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 		sandboxEnv = withHostNixEnv(sandboxEnv)
 	}
 
-	// THE SAME TWO LSP INSTALL LISTS, into the launch env — which is how they reach the
-	// CONFINED PROVISIONING STAGE, the process that actually runs the install.
-	//
-	// ⚠ TWO ENV LISTS, NOT ONE, and setting either alone is a green-looking launch that
-	// still installs nothing: the readers live in different processes. The generated
-	// script's install loop (entrypoint/shell.go) runs in the STAGE, and the stage's
-	// environment is the session env file (ProvisionArgv carries only the identity quartet
-	// and the file's name); the catalog and refresh readers run under the BOOTSTRAP env
-	// buildBootstrapEnv composes. Both are resolved from one `config.LSPInstalls(cfg)` per
-	// channel, so the stage cannot be told to install a different set than the bootstrap
-	// was told to expect — and PlanInvariants fails if one of the two crossings is deleted.
-	//
-	// THE ENV FILE RATHER THAN THE STAGE ARGV, because these are values COMPOSED from the
-	// user's config and that is the closed rule this backend's argvs are under
-	// (SandboxArgvEnvProblems' allowlist: a new composed variable fails that check by
-	// existing, which is what keeps the next secret off a world-readable command line).
-	// Set only when there is something to install, so a workspace that declares no LSP
-	// server still composes nothing and still pays for no env file at all.
-	if npm, goPkgs := config.LSPInstalls(cfg); npm != "" || goPkgs != "" {
-		merged := jsonx.NewOrderedMap()
-		if sandboxEnv != nil {
-			for _, k := range sandboxEnv.Keys() {
-				v, _ := sandboxEnv.Get(k)
-				merged.Set(k, v)
-			}
-		}
-		// Both names, together, even when one list is empty: they are a pair, and a launch
-		// that carried one of them would be the half-fix this comment exists to prevent.
-		merged.Set("YOLO_LSP_NPM_INSTALL", npm)
-		merged.Set("YOLO_LSP_GO_INSTALL", goPkgs)
-		sandboxEnv = merged
-	}
-
 	cname := cnameFor(workspace)
 	profilePath := SessionProfilePath(cname, "")
 
@@ -556,23 +523,6 @@ func buildBootstrapEnv(workspace string, cfg, gitIdentity, sandboxEnv *jsonx.Ord
 	bootstrapEnv.Set("YOLO_MISE_TOOLS", miseJSON)
 	lspJSON, _ := jsonx.DumpsCompact(getSectionOrEmptyMap(cfg, "lsp_servers"))
 	bootstrapEnv.Set("YOLO_LSP_SERVERS", lspJSON)
-	// THE TWO INSTALL LISTS BESIDE THE TABLE THAT RENDERS THEM, and the pair is the point:
-	// YOLO_LSP_SERVERS is what writes an agent's LSP config, while these two are what puts
-	// the servers on disk. This backend set the first and neither of the other two until
-	// 2026-09-13, so a workspace declaring `lsp_servers` got config naming servers that
-	// were never installed — the confined stage execed the generated script, its install
-	// loop iterated an empty list, and the stage exited 0 (docs/design/
-	// macos-user-provisioning.md §10.6). BuildRunPlan carries the SAME two values into the
-	// session env file, which is how the stage gets them; here they reach the generators
-	// that read the launch's declared set — catalog.go's orphan finders and
-	// serverrefresh.go's refresh set both ask the environment what THIS launch asked for.
-	//
-	// Emitted on every launch, empty included, on the wire tables' rule below: the
-	// container emits both `-e` lines unconditionally (internal/cli/run/assemble.go), and
-	// an empty value is what the readers already treat as "install nothing".
-	lspNPM, lspGo := config.LSPInstalls(cfg)
-	bootstrapEnv.Set("YOLO_LSP_NPM_INSTALL", lspNPM)
-	bootstrapEnv.Set("YOLO_LSP_GO_INSTALL", lspGo)
 	mcpSrvJSON, _ := jsonx.DumpsCompact(getSectionOrEmptyMap(cfg, "mcp_servers"))
 	bootstrapEnv.Set("YOLO_MCP_SERVERS", mcpSrvJSON)
 	mcpPresetsJSON, _ := jsonx.DumpsCompact(getSectionOrEmptyList(cfg, "mcp_presets"))
@@ -903,40 +853,6 @@ func PlanInvariants(plan RunPlan) []string {
 						"("+a+"); the pack surfaces and derives would render as if no "+
 						"profile were selected")
 			}
-		}
-	}
-
-	// THE TWO LSP INSTALL LISTS MUST REACH BOTH ENVIRONMENTS — and "both" is the whole
-	// invariant, because either one alone is a launch that reports success and installs
-	// nothing. The bootstrap env is what the generators read (catalog.go's orphan finders,
-	// serverrefresh.go's refresh set); the session env file is what the CONFINED
-	// PROVISIONING STAGE reads, and the stage is the process that runs `npm install`. This
-	// backend carried NEITHER until 2026-09-13 while still setting YOLO_LSP_SERVERS, so an
-	// agent's config named servers that were never on disk — a silent failure no test on the
-	// rendered config could see, which is why the check is here and not on the table.
-	//
-	// An EMPTY bootstrap value asks nothing of the file: empty and absent are the same
-	// instruction to every reader, and BuildRunPlan deliberately composes no env file for a
-	// workspace that declared no LSP server.
-	for _, key := range []string{"YOLO_LSP_NPM_INSTALL", "YOLO_LSP_GO_INSTALL"} {
-		want, ok := argvEnvValue(plan.BootstrapArgv, key)
-		if !ok {
-			problems = append(problems,
-				key+" is not baked into the bootstrap env; the launch's declared LSP set "+
-					"would be invisible to every generator that reads it — orphan detection "+
-					"would report the servers it installed as unowned, and the evergreen "+
-					"refresh would skip them")
-			continue
-		}
-		if want == "" {
-			continue
-		}
-		if !SandboxEnvFileSets(plan.EnvFileContent, key, want) {
-			problems = append(problems,
-				key+"="+want+" reached the bootstrap env but not the session env file; the "+
-					"provisioning stage reads its environment from that file, so it would "+
-					"exec the generated script, find an empty install list and exit 0 having "+
-					"installed no LSP server — while the agent's config names them")
 		}
 	}
 

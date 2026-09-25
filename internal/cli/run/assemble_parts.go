@@ -76,9 +76,8 @@ func appleContainerBaseMounts(rt string, runFlags []string, workspace string, in
 	// so it is deliberately not repeated here. What the repo knows is that there IS
 	// a limit and that the single-home bind exists to respect it.)
 	//
-	// storage.Ensure MkdirAlls every EmbeddedSharedDirs() under GlobalHome on
-	// every backend (internal/storage/ensure.go:54), so the host side exists
-	// before this argv runs.
+	// storage.EnsureGlobalStorage MkdirAlls every EmbeddedSharedDirs() under GlobalHome
+	// on every backend, so the host side exists before this argv runs.
 	//
 	// NO MOUNTPOINT IS PRE-CREATED under wsState, and that is checked rather than
 	// assumed: nothing creates <wsState>/.cache either, yet the GlobalCache mount
@@ -94,17 +93,24 @@ func appleContainerBaseMounts(rt string, runFlags []string, workspace string, in
 	return runCmd
 }
 
-// podmanBaseMounts builds the podman base mounts: the :ro GLOBAL_HOME base +
+// podmanBaseMounts builds the podman base mounts: this jail's :ro home skeleton +
 // the per-workspace writable overlays (dirs, files) + the mise store mount
 // (named volume on macOS, bind dir otherwise).
 // isMacOS comes from the Options seam, never paths.IsMacOS, so the golden argv
 // is the same on every host.
+//
+// THE HOME ROOT IS PER JAIL. It was paths.GlobalHome(), one machine-wide base every podman
+// jail shared, which is how one workspace's pack dirs, host_files links and old bytes — and
+// a claude-less jail's view of the machine's Claude credential file — reached every jail.
+// It is now in.homeSkeleton, built from THIS launch's selected packs and config
+// (buildHomeSkeleton, docs/design/base-home-legacy-state.md#2-the-design-a-per-jail-skeleton).
+// Still bound :ro, so writing an undeclared home path fails with EROFS as before.
 func podmanBaseMounts(rt string, runFlags []string, workspace string, in *assembleInput, isMacOS bool) []string {
 	ws := in.wsState
 	runCmd := append([]string{rt, "run"}, runFlags...)
 	runCmd = append(runCmd,
 		"-v", workspace+":/workspace",
-		"-v", paths.GlobalHome()+":/home/agent:ro",
+		"-v", in.homeSkeleton+":/home/agent:ro",
 		"-v", filepath.Join(ws, "npm-global")+":/home/agent/.npm-global",
 		"-v", filepath.Join(ws, "local")+":/home/agent/.local",
 		"-v", filepath.Join(ws, "go")+":/home/agent/go",
@@ -152,16 +158,15 @@ func podmanBaseMounts(rt string, runFlags []string, workspace string, in *assemb
 		"-v", filepath.Join(ws, "yolo-socat.log")+":/home/agent/.yolo-socat.log",
 		"-v", filepath.Join(ws, "yolo-entrypoint.lock")+":/home/agent/.yolo-entrypoint.lock",
 		"-v", filepath.Join(ws, "yolo-ca-bundle.crt")+":/home/agent/.yolo-ca-bundle.crt",
-		"-v", filepath.Join(ws, "yolo-installed-lsps")+":/home/agent/.yolo-installed-lsps",
 		"-v", filepath.Join(ws, "bash_history")+":/home/agent/.bash_history",
 		"-v", filepath.Join(ws, "ssh")+":/home/agent/.ssh",
 	)
 	// Writable home dirs: extra $HOME subpaths (config writable_home_dirs) made
-	// read-write by nesting a bind INSIDE the :ro GLOBAL_HOME base. The OCI
+	// read-write by nesting a bind INSIDE the :ro home skeleton. The OCI
 	// runtime does NOT auto-create mountpoints inside a :ro bind mount (crun
 	// mkdirat fails with EROFS) — existing mounts (.npm-global etc.) work only
-	// because those dirs already exist in GLOBAL_HOME. prepareWsState creates
-	// the mountpoint in GLOBAL_HOME for each declared entry. Sorted for a
+	// because those dirs already exist in the skeleton. buildHomeSkeleton creates
+	// the mountpoint there for each declared entry. Sorted for a
 	// deterministic argv (the deriver already sorts; this keeps the guarantee
 	// local to the emitter, matching the cache-relocation block above).
 	for _, rel := range sortedWritableHomeDirs(in.writableHomeDirs) {

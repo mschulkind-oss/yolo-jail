@@ -39,25 +39,6 @@ type LoopholeInfo struct {
 	// "the loophole is not known at all" case (info == nil) is the one that stays
 	// unvalidated, and it already has its own warning.
 	Settings []loopholedecl.Setting
-
-	// Serves is the loophole's manifest-declared `serves` list: the CAPABILITIES —
-	// named jobs — it implements (internal/loopholedecl/capabilities.go). Nil or
-	// empty means "not participating", and silence is never a claim.
-	//
-	// It travels because a validator that has to ask "is something in this config
-	// answering the container-credentials protocol" must ask it of the JOB and never
-	// of a name. `if name == "aws-auth"` is forbidden in this repo — the launch and
-	// boot paths render every pack in one loop with no switch on any tool name
-	// (AGENTS.md) — and a rule keyed on the capability inherits a replacement pack
-	// that claims it without anything here changing.
-	Serves []string
-
-	// DefaultEnabled is the manifest's `default_enabled`: the PACK AUTHOR's opinion,
-	// which the user's `loopholes.<name>.enabled` outranks in both directions
-	// (LoopholeEnabledOverride). The two are deliberately different facts, and a
-	// validator that needs the RESOLVED answer has to combine them — see
-	// loopholeIsOn.
-	DefaultEnabled bool
 }
 
 // LoopholeResolver supplies the file-backed loophole set (including disabled
@@ -123,10 +104,6 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateCacheRelocations(config, workspace, errs, warns)
 	validateWritableHomeDirs(config, errs)
 	validateHostFiles(config, workspace, errs)
-	// After validateHostFiles, so an entry's SHAPE problems are reported before the
-	// cross-feature conflict its destination creates — a reader who wrote an unparseable
-	// entry should not first be told what it collides with.
-	validateAWSSharedConfigGrant(config, resolver, errs, warns)
 	validateHostWrappers(config, workspace, errs)
 	validateHostApplyOnLaunch(config, workspace, errs)
 	validateHostManagement(config, workspace, errs)

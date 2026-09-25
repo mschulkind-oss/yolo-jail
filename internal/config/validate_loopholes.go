@@ -2,9 +2,7 @@ package config
 
 import (
 	"path/filepath"
-	"sort"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/awschain"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
@@ -731,12 +729,16 @@ func validateInlineService(spec *jsonx.OrderedMap, path string, errs *[]string) 
 // change which configs activate — and `validateLoopholeOverride` already refuses the sloppy
 // spelling (`enabled: expected a boolean`) before any launch reaches this.
 //
-// IT LIVES HERE AND NOT IN internal/loopholes, where it was written and where
-// `ConfigEnabledOverride` still names it, because its readers now straddle the import
-// boundary: applyWorkspaceOverrides resolves the record a launch acts on, `yolo check`
-// reports what that launch will do, and awsSharedConfigGrantProblems below needs the same
-// answer inside a validator that internal/loopholes imports. Its own history is the
-// argument against a second copy — the reporting surface once answered off the manifest
+// IT LIVES HERE, BUT NOTHING IN THIS PACKAGE READS IT ANY MORE. It moved here from
+// internal/loopholes, where `ConfigEnabledOverride` still names it, for a reader inside
+// config.ValidateConfig: the `~/.aws` grant check (validateAWSSharedConfigGrant), which
+// internal/loopholes could not host because it imports this package. That check was
+// deleted when OQ-SSO8 moved the grant conflict into packs/aws-auth's own declaration
+// (docs/design/sso-backed-bedrock.md), and every remaining reader — applyWorkspaceOverrides,
+// the inert-loophole report, `yolo check`'s loophole section — goes through
+// loopholes.ConfigEnabledOverride. So the body could return to internal/loopholes; moving
+// it is a separate refactor, and until then this is the one copy. Its own history is the
+// argument against a second — the reporting surface once answered off the manifest
 // default alone, so a loophole the user had switched ON rendered as `[PASS] loophole X:
 // disabled` and its host daemon was never probed.
 func LoopholeEnabledOverride(loopholesConfig *jsonx.OrderedMap, name string) (enabled, set bool) {
@@ -752,139 +754,4 @@ func LoopholeEnabledOverride(loopholesConfig *jsonx.OrderedMap, name string) (en
 		return false, false
 	}
 	return truthy(enabledV), true
-}
-
-// --- the ~/.aws grant conflict (docs/design/sso-backed-bedrock.md §8, Forbidden) ---
-
-// awsSharedConfigGrantInJailSuffix is the in-jail downgrade's explanation, and it is a
-// DIFFERENT sentence from loopholeScopeInJailSuffix above even though both mark the same
-// asymmetry. That one is about the live-mounted workspace file; this conflict is normally
-// declared at USER scope — a `host_files` entry naming a host source is user-scope only —
-// and inside a jail the user config is the host-generated snapshot, which the in-jail user
-// cannot edit at its source at all.
-const awsSharedConfigGrantInJailSuffix = " (warning in-jail: this config is the " +
-	"host-generated snapshot, so an error here would refuse every nested launch over an " +
-	"entry the in-jail user cannot fix at its source — fix it host-side.)"
-
-// awsCredentialServer is one loophole this config would have ANSWERING the
-// container-credentials protocol, with the phrase naming what switched it on.
-type awsCredentialServer struct{ name, where string }
-
-// validateAWSSharedConfigGrant refuses a config that both mounts an AWS shared-config
-// directory into the jail and runs a loophole serving container credentials.
-//
-// It is an ERROR ON THE HOST, which is the whole reason it lives in ValidateConfig rather
-// than in the launch pre-flight beside its exclusivity twin: a `config.ValidateConfig`
-// error is BOTH a `yolo check` FAIL and a launch refusal, and the plan's step 6 asks for
-// both from one place (docs/design/sso-backed-bedrock-plan.md, Blockers item 4 — "a
-// warning is only the first"). §8 lists this under *Forbidden*, so the first is not enough.
-//
-// ⚠ IT KEYS ON THE CAPABILITY, NEVER ON A LOOPHOLE NAME. `if name == "aws-auth"` is the
-// switch on a tool name AGENTS.md forbids in the paths that render every pack in one loop,
-// and the plan opened a Blocker on exactly it. What makes the conflict real is that an AWS
-// SDK's `fromIni` provider sits AHEAD of the container-credentials provider in the resolved
-// chain — true of whatever declares `serves: ["aws-container-credentials"]`, and of a
-// replacement pack that claims the same job tomorrow.
-func validateAWSSharedConfigGrant(config *jsonx.OrderedMap, resolver LoopholeResolver, errs, warns *[]string) {
-	v, present := config.Get(hostFilesKey)
-	if !present || v == nil {
-		return
-	}
-	list, ok := asList(v)
-	if !ok {
-		// A host_files value that is not a list is validateHostFiles' problem, and it
-		// has already said so. Reporting one mistake twice is the thing this file's
-		// doctor_cmd note warns about.
-		return
-	}
-	// THE GRANTS ARE SCANNED BEFORE THE LOOPHOLES ARE RESOLVED, and the order is for cost
-	// rather than clarity: resolver.Known() walks the pack store and reads every manifest,
-	// while this scan is a map lookup per entry. Nearly every config with `host_files` has
-	// no ~/.aws entry at all, and that config must not pay for a discovery pass to learn so.
-	//
-	// The entries are re-lowered rather than read off checkHostFiles' return, for the
-	// INDEX: that function drops rejected entries, so its output positions stop matching
-	// the ones a reader wrote and the ones validateHostFiles' own messages carry. A
-	// refusal naming config.host_files[2] has to mean the third entry in the file.
-	reserved := hostFileReservedDests()
-	type grant struct{ itemPath, dest string }
-	var grants []grant
-	for idx, raw := range list {
-		itemPath := "config." + hostFilesKey + "[" + itoa(idx) + "]"
-		entry, problem := checkHostFileEntry(raw, itemPath, "merged", reserved, false)
-		if problem != "" || !awschain.GrantConflict(entry.Path) {
-			continue
-		}
-		grants = append(grants, grant{itemPath: itemPath, dest: entry.Path})
-	}
-	if len(grants) == 0 {
-		return
-	}
-
-	servers := awsCredentialServers(config, resolver)
-	for _, g := range grants {
-		for _, s := range servers {
-			msg := awschain.GrantRefusal(g.itemPath, g.dest, s.name, s.where)
-			if inJail() {
-				add(warns, msg+awsSharedConfigGrantInJailSuffix)
-				continue
-			}
-			add(errs, msg)
-		}
-	}
-}
-
-// awsCredentialServers returns the loopholes this config would have serving container
-// credentials, in name order so a config with two of them reports deterministically.
-//
-// A loophole counts only when it is ON, and "on" is the manifest's `default_enabled`
-// overridden by the user's own `loopholes.<name>.enabled` in both directions
-// (LoopholeEnabledOverride). Skipping the enabled check would refuse every jail that
-// merely SELECTS the pack — `packs/aws-auth` ships `default_enabled: false`, so selection
-// alone serves nothing and a ~/.aws grant beside it disables nothing.
-func awsCredentialServers(config *jsonx.OrderedMap, resolver LoopholeResolver) []awsCredentialServer {
-	if resolver == nil {
-		return nil
-	}
-	known, _ := resolver.Known()
-	if len(known) == 0 {
-		return nil
-	}
-	loopholesBlock, _ := asMap(getOr(config, "loopholes", nil))
-	names := make([]string, 0, len(known))
-	for name := range known {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	var out []awsCredentialServer
-	for _, name := range names {
-		info := known[name]
-		if !servesCapability(info, awschain.ContainerCredentialsCapability) {
-			continue
-		}
-		enabled, set := LoopholeEnabledOverride(loopholesBlock, name)
-		origin := "config.loopholes." + name + ".enabled"
-		if !set {
-			enabled, origin = info.DefaultEnabled, "its manifest's `default_enabled`"
-		}
-		if !enabled {
-			continue
-		}
-		out = append(out, awsCredentialServer{name: name, where: origin})
-	}
-	return out
-}
-
-// servesCapability is LoopholeInfo's half of loopholedecl.Manifest.ServesCapability. The
-// declarations travel to this package as a bare list (LoopholeInfo.Serves) rather than as
-// the manifest, so the membership test is spelled here; it is the same test, and silence
-// is never a claim in either spelling.
-func servesCapability(info LoopholeInfo, capability string) bool {
-	for _, c := range info.Serves {
-		if c == capability {
-			return true
-		}
-	}
-	return false
 }

@@ -19,8 +19,7 @@ import (
 	"sort"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	"github.com/mschulkind-oss/yolo-jail/internal/storage"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // hostUserCtxDir is the read-only mount root under which each source-bearing
@@ -123,14 +122,22 @@ func (o *Options) hostUserFileArgs(in *assembleInput) []string {
 // hostFileWritableDirArgs mounts a writable subtree for every destination that
 // needs one (config.HostFileStagingWritableDir — a new top-level dir), reusing the
 // writable_home_dirs shape: <wsState>/writable-home/<rel> bound rw over
-// /home/agent/<rel>, nested inside the :ro base. prepareHostFiles created both
-// ends before assembly.
+// /home/agent/<rel>, nested inside the :ro home skeleton. prepareHostFiles created the
+// backing end and buildHomeSkeleton the mountpoint, both before assembly.
 //
 // Deduped and sorted: two entries can share a parent (~/foo/a.json and
 // ~/foo/b.json), and a duplicate -v for one destination is a hard podman error.
+//
+// PODMAN ONLY. Apple Container binds wsState read-write, whole, at /home/agent, so a new
+// top-level destination is writable there as it stands, and nothing on that backend's launch
+// path creates a writable-home backing dir (prepareHostFiles and the skeleton are podman-only):
+// a bind emitted there named a missing source.
 func (o *Options) hostFileWritableDirArgs(in *assembleInput) []string {
+	if in.rt == "container" { // parity: HonoredBy — Apple Container binds this workspace's wsState read-write at /home/agent, so the entrypoint's write lands in wsState with no staging
+		return nil
+	}
 	var args []string
-	for _, rel := range hostFileWritableDirs(in.hostFiles) {
+	for _, rel := range hostFileWritableDirs(in.hostFiles, in.packs, in.writableHomeDirs) {
 		args = append(args, "-v",
 			filepath.Join(in.wsState, config.WritableHomeBackingSubdir, rel)+":/home/agent/"+rel)
 	}
@@ -138,27 +145,50 @@ func (o *Options) hostFileWritableDirArgs(in *assembleInput) []string {
 }
 
 // hostFileWritableDirs returns the deduped, sorted home-relative subtrees the
-// host_files destinations need staged read-write. Shared by the provisioning step
-// (which creates both ends) and the argv emitter, so the two cannot disagree
-// about which dirs exist.
+// host_files destinations need staged read-write. Shared by the two provisioning steps
+// (prepareHostFiles creates the backing end, buildHomeSkeleton the mountpoint) and the
+// argv emitter, so the three cannot disagree about which dirs exist.
 //
 // An entry whose subtree is already covered by ANOTHER entry's writable dir is
 // dropped — nesting a second bind inside the first is redundant, and for a
 // directory entry it would shadow the tree the copy is about to write.
-func hostFileWritableDirs(entries []config.HostFileEntry) []string {
+//
+// packs are the launch's SELECTED packs: an entry under one of their writable dirs needs
+// nothing, and an entry under a dir only an unselected pack declares is staged like any
+// other new top-level dir (config.HostFileEntry.StagingFor, the OQ-BH14 ruling).
+//
+// writableHomeDirs are the launch's validated writable_home_dirs entries, and a subtree at or
+// under one is dropped too: that key stages the SAME backing layout
+// (<wsState>/writable-home/<path>), so its bind already covers the destination, and staging it
+// again was a second, identical -v at one destination, which podman refuses. OQ-BH14 made that
+// easy to reach: `writable_home_dirs: [".codex"]` is legal in a workspace that does not select
+// codex, beside a host_files entry under ~/.codex/.
+func hostFileWritableDirs(entries []config.HostFileEntry, packs []*packload.Pack, writableHomeDirs []string) []string {
 	seen := map[string]struct{}{}
 	for _, entry := range entries {
-		if entry.StagingFor() != config.HostFileStagingWritableDir {
+		if entry.StagingFor(packs) != config.HostFileStagingWritableDir {
 			continue
 		}
 		seen[entry.WritableParent()] = struct{}{}
 	}
 	out := make([]string, 0, len(seen))
 	for rel := range seen {
-		out = append(out, rel)
+		if !underAny(rel, writableHomeDirs) {
+			out = append(out, rel)
+		}
 	}
 	sort.Strings(out)
 	return dropNestedPaths(out)
+}
+
+// underAny reports whether p is one of dirs or lies under one (slash-separated, cleaned).
+func underAny(p string, dirs []string) bool {
+	for _, d := range dirs {
+		if p == d || hasPathPrefix(p, d) {
+			return true
+		}
+	}
+	return false
 }
 
 // dropNestedPaths removes any path that lies under another path in the (sorted)
@@ -186,43 +216,40 @@ func hasPathPrefix(p, dir string) bool {
 	return len(p) > len(dir) && p[:len(dir)] == dir && p[len(dir)] == '/'
 }
 
-// prepareHostFiles provisions everything a host_files destination needs to be
-// writable, BEFORE the container starts. Three cases, matching
+// prepareHostFiles provisions the WORKSPACE-OVERLAY half of everything a host_files
+// destination needs to be writable, BEFORE the container starts. Three cases, matching
 // config.HostFileEntry.StagingFor (docs/reference/composed-file-permissions.md §7.5):
 //
 //   - None: nothing to do — the destination is already under a rw bind.
-//   - Symlink: materialize a RELATIVE symlink in GlobalHome pointing into the
-//     writable ~/.config overlay, plus the overlay dir that holds the targets.
-//     The symlink is left DANGLING on purpose: `once` seeds a file it cannot
-//     stat, so a pre-created target would permanently suppress the seed.
-//   - WritableDir: the writable_home_dirs recipe — backing dir under wsState AND
-//     the mountpoint inside GlobalHome. The backing dir is load-bearing (podman
-//     fails the whole container on a missing bind source); the GlobalHome
-//     mountpoint is belt-and-braces (podman auto-creates it on the runtimes
-//     tested, but pre-creating it makes the mode/ownership deterministic instead
-//     of podman's drwxr-xr-t).
+//   - Symlink: the overlay dir that holds the link targets. The RELATIVE link itself,
+//     pointing into the writable ~/.config overlay and left DANGLING on purpose (`once`
+//     seeds a file it cannot stat, so a pre-created target would permanently suppress
+//     the seed), is the podman home skeleton's (buildHomeSkeleton).
+//   - WritableDir: the writable_home_dirs recipe's backing dir under wsState, which is
+//     load-bearing (podman fails the whole container on a missing bind source). The
+//     mountpoint inside the :ro home root is the skeleton's too — belt-and-braces (podman
+//     auto-creates it on the runtimes tested, but pre-creating it makes the mode/ownership
+//     deterministic instead of podman's drwxr-xr-t).
+//
+// Both skeleton halves used to be created here, in the shared base home every podman jail
+// mounted, so one workspace's host_files links showed up in every jail on the machine.
 //
 // Best-effort throughout: a provisioning failure degrades that one entry to the
 // entrypoint's fail-open warning rather than blocking the launch.
-func prepareHostFiles(wsState string, entries []config.HostFileEntry) {
-	for _, rel := range hostFileWritableDirs(entries) {
+//
+// packs and writableHomeDirs are the launch's selected packs and validated writable_home_dirs
+// entries, the same values the skeleton and the argv read, so the three cannot disagree about
+// which entries are staged.
+func prepareHostFiles(wsState string, entries []config.HostFileEntry, packs []*packload.Pack, writableHomeDirs []string) {
+	for _, rel := range hostFileWritableDirs(entries, packs, writableHomeDirs) {
 		_ = os.MkdirAll(filepath.Join(wsState, config.WritableHomeBackingSubdir, rel), 0o755)
-		_ = os.MkdirAll(filepath.Join(paths.GlobalHome(), rel), 0o755)
 	}
 
 	var needConfigDir bool
 	for _, entry := range entries {
-		if entry.StagingFor() != config.HostFileStagingSymlink {
-			continue
+		if entry.StagingFor(packs) == config.HostFileStagingSymlink {
+			needConfigDir = true
 		}
-		needConfigDir = true
-		// The symlink lives in the :ro base and resolves THROUGH the container's
-		// mount table into the rw .config overlay, so the link text must be
-		// relative (storage.EnsureSymlink enforces that) and is never resolved
-		// host-side.
-		link := filepath.Join(paths.GlobalHome(), filepath.FromSlash(entry.Path))
-		_ = os.MkdirAll(filepath.Dir(link), 0o755)
-		_ = storage.EnsureSymlink(link, entry.SymlinkTarget())
 	}
 	if needConfigDir {
 		// The link targets live under the per-workspace .config overlay, whose

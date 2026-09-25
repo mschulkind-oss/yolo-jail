@@ -3,24 +3,23 @@ package packload
 // embedded.go answers "what do the EMBEDDED packs declare" without a caller having to
 // materialize a tree.
 //
-// It exists for the RESERVATION and PROVISIONING lists — the places that must account for
-// every pack's writable dirs regardless of which packs a particular jail loads:
+// It exists for the lists that must account for every pack yolo SHIPS, whether or not a
+// particular jail loads it:
 //
-//	internal/config      which home roots a host_files entry may write into,
-//	                     and which path segments writable_home_dirs may not claim
-//	internal/storage     which GlobalHome subdirs to create
+//	internal/storage     which machine-store (GlobalHome) shared dirs to create — before
+//	                     any config is loaded, so the selection is not known yet
+//	internal/config      the host_files surface-path reservation (builtinSurfacePaths)
 //	internal/entrypoint  which mise tool tokens to retire (core's list today; reads no pack)
 //
-// These are NOT selection-gated, and that distinction has been got wrong before: a
-// reservation list gated on the loaded packs would let a user's host_files entry claim a
-// path that a pack they add tomorrow needs, and the collision would surface as a mount
-// conflict with no obvious cause. They are the union over everything yolo SHIPS.
-//
-// Embedded only, which bounds the guarantee honestly: a configured pack's writable dir is
-// not reserved, so a user who declares a host_files entry at that path gets a conflict
-// rather than a clear error. Reading the pack store from inside config validation would
-// mean a filesystem dependency (and a failure mode) in a function that only inspects
-// config values.
+// NAME RESERVATION IS NOT ONE OF THEM ANY MORE. Which home roots a host_files entry needs no
+// staging under, and which path segments writable_home_dirs may not claim, were read from
+// here on the argument that a list gated on the loaded packs would let an entry claim a path
+// a pack added tomorrow needs. The maintainer ruled the other way (OQ-BH14,
+// docs/design/base-home-legacy-state.md#28-reservation-is-a-rule-about-config-names-not-about-directories):
+// an unselected pack is treated as if it does not exist, and the shipped set never covered a
+// configured pack anyway. Those lists take the SELECTED packs now (config.WritableHomeDirs,
+// config.HostFileEntry.StagingFor), and config validation resolves the selection itself,
+// configured packs included, from the pack store (internal/config/selectedpacks.go).
 
 import (
 	"io/fs"

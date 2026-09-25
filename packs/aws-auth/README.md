@@ -82,6 +82,32 @@ measured the bearer **beats** the credential chain, so a jail with both configur
 the frozen bearer and this service never runs — a silent wrong answer rather than a
 visible conflict.
 
+**Nor a static key pair.** `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` together are
+what the chain's environment provider answers with, and it runs *before* the
+container-credentials provider in claude, codex, opencode and pi alike, so the jail signs
+with the long-lived key and this service is never asked. One half alone answers nothing
+and is left alone. The pair beside an `AWS_PROFILE` delivered into the same jail is left
+alone too, because the JavaScript SDKs then skip the environment provider — but codex's
+Rust SDK does not, so do not lean on that exception to keep both.
+
+**yolo refuses all three at launch.** The pointer's `env` contribution in
+[`pack.json`](pack.json) declares them under `overridden_by`, and whenever the pointer is
+delivered (the `bedrock` profile is active) a launch that also delivers the bearer, the
+pair, or a `host_files` entry that renders anything under `~/.aws` stops before the jail
+starts, names both sides, and says to drop one. There is no escape hatch: proceeding would
+be proceeding into the wrong credential. `yolo check` predicts the same refusal, and
+`yolo pack footprint aws-auth` lists the three lines. Core names none of these variables;
+the rule is this pack's declaration ([`OQ-SSO8`](../../docs/design/sso-backed-bedrock.md#OQ-SSO8)).
+
+"Delivers" means into the jail, through `env_sources` or a pack. A variable exported only in
+the shell you run `yolo` from never reaches the jail, so it is not refused, and an
+`AWS_PROFILE` exported there does not excuse a pair that `env_sources` delivers. A directory
+grant such as `~/.aws/` counts only on a backend that delivers it: podman, and Apple
+Container from 1.1.0. macos-user never copies one. ⚠ The `~/.aws` rule is also broader than
+the chain: it refuses a `~/.aws` holding no credentials, such as a region-only config, which
+the SDKs would skip. Whether it should is an open question under
+[`OQ-SSO8`](../../docs/design/sso-backed-bedrock.md#OQ-SSO8).
+
 **No authorization token, deliberately.** An SDK sends `Authorization` only when
 `AWS_CONTAINER_AUTHORIZATION_TOKEN` is set, and setting it here would buy nothing:
 an environment variable is inherited by every process the agent spawns, so everything

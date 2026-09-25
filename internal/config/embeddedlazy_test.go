@@ -62,10 +62,12 @@ func TestConfigCodeThatReadsNoPackCreatesNothing(t *testing.T) {
 	}
 
 	// Positive control: the first real reader loads, into the cache base and nowhere else.
-	_ = HostFileEntry{Path: ".claude/x.json"}.StagingFor()
+	// builtinSurfacePaths, the host_files surface reservation, rather than StagingFor, which
+	// read the packs here until OQ-BH14 made it take the selection as an argument.
+	_ = builtinSurfacePaths()
 	if !packload.EmbeddedLoaded() {
-		t.Fatal("StagingFor did not load the embedded packs; the negative assertions above " +
-			"cannot tell lazy from never")
+		t.Fatal("builtinSurfacePaths did not load the embedded packs; the negative assertions " +
+			"above cannot tell lazy from never")
 	}
 	root, fallback := packload.EmbeddedLocation()
 	if fallback || filepath.Dir(root) != cache {

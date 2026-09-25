@@ -725,7 +725,11 @@ func TestSourceLessHostFiles(t *testing.T) {
 // TestHostFileStagingCategories pins which destinations need host-side staging to
 // be writable. This is the whole reason ~/.npmrc did not work: the jail home is a
 // :ro bind, so only a destination under an existing rw bind composes for free.
+//
+// The jail here selects claude and pi, so their dirs are bound read-write; the
+// selection-dependence itself is TestStagingForKeysOnTheSelectedPacks.
 func TestHostFileStagingCategories(t *testing.T) {
+	selected := embeddedPacksNamed(t, "claude", "pi")
 	for _, c := range []struct {
 		name  string
 		entry HostFileEntry
@@ -734,8 +738,13 @@ func TestHostFileStagingCategories(t *testing.T) {
 		{"under .config is already rw", HostFileEntry{Path: ".config/mytool/config.json"}, HostFileStagingNone},
 		{"under .cache is already rw", HostFileEntry{Path: ".cache/tool/x.json"}, HostFileStagingNone},
 		{"under .local is already rw", HostFileEntry{Path: ".local/share/x"}, HostFileStagingNone},
-		{"under an agent overlay dir is rw", HostFileEntry{Path: ".claude/extra.json"}, HostFileStagingNone},
+		{"under a selected pack's dir is rw", HostFileEntry{Path: ".claude/extra.json"}, HostFileStagingNone},
 		{"pi overlay dir is rw", HostFileEntry{Path: ".pi/agent/models.json"}, HostFileStagingNone},
+		{"an unselected pack's dir is an ordinary new dir", HostFileEntry{Path: ".codex/prompts/review.md"}, HostFileStagingWritableDir},
+		// A selected pack's SHARED dir is a rw bind too (from the machine store); staging a
+		// subtree at it was a second bind at one destination, which podman refuses.
+		{"under a selected pack's shared dir is rw", HostFileEntry{Path: ".claude-shared-credentials/x.json"}, HostFileStagingNone},
+		{"an unselected pack's shared dir is an ordinary new dir", HostFileEntry{Path: ".gemini-shared-credentials/x.json"}, HostFileStagingWritableDir},
 		{"home-root dotfile needs the symlink hatch", HostFileEntry{Path: ".npmrc"}, HostFileStagingSymlink},
 		{"home-root plain file needs the symlink hatch", HostFileEntry{Path: "gitignore_global"}, HostFileStagingSymlink},
 		{"new top-level dir needs a writable subtree", HostFileEntry{Path: "foo/bar.json"}, HostFileStagingWritableDir},
@@ -743,7 +752,7 @@ func TestHostFileStagingCategories(t *testing.T) {
 		{"home-root DIR entry needs a writable subtree", HostFileEntry{Path: "mydir", IsDir: true}, HostFileStagingWritableDir},
 		{"dir under .config is already rw", HostFileEntry{Path: ".config/nvim", IsDir: true}, HostFileStagingNone},
 	} {
-		if got := c.entry.StagingFor(); got != c.want {
+		if got := c.entry.StagingFor(selected); got != c.want {
 			t.Errorf("%s: StagingFor(%q, isDir=%v) = %v, want %v",
 				c.name, c.entry.Path, c.entry.IsDir, got, c.want)
 		}
@@ -762,7 +771,7 @@ func TestHostFileSymlinkTargetIsInWritableConfig(t *testing.T) {
 			t.Errorf("SymlinkTarget(%q) = %q, want a path under .config/ (the rw overlay)", e.Path, target)
 		}
 		// The target itself must need no further staging, else the hatch is moot.
-		if got := (HostFileEntry{Path: target}).StagingFor(); got != HostFileStagingNone {
+		if got := (HostFileEntry{Path: target}).StagingFor(nil); got != HostFileStagingNone {
 			t.Errorf("SymlinkTarget(%q) = %q, which itself needs staging %v", e.Path, target, got)
 		}
 	}
@@ -902,8 +911,8 @@ func TestHostFilesInferredPathStillReserved(t *testing.T) {
 
 // A2: a reserved home FILE and the symlink TARGET it points at are the same file,
 // so both must be rejected as host_files destinations. yolo materializes three
-// dangling relative symlinks into the :ro GlobalHome base
-// (storage/ensure.go:95-101):
+// relative redirect links into every podman jail's :ro home skeleton
+// (paths.HomeFileRedirects, written by buildHomeSkeleton in internal/cli/run):
 //
 //	~/.claude.json -> .claude/claude.json
 //	~/.gitconfig   -> .config/git/config

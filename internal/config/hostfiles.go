@@ -1019,23 +1019,26 @@ func SourceLessHostFilesFrom(merged *jsonx.OrderedMap) []HostFileEntry {
 }
 
 // HostFileStaging names what the host CLI must provision so a destination is
-// WRITABLE inside the jail. The jail home is a `:ro` bind of GlobalHome with
-// read-write binds nested inside it, so where a destination lands decides whether
-// the entrypoint's composed write succeeds at all — an uncovered path EROFS-fails
+// WRITABLE inside the jail. A podman jail's home is a `:ro` bind of its own home
+// skeleton (buildHomeSkeleton, internal/cli/run) with read-write binds nested inside
+// it, so where a destination lands decides whether the entrypoint's composed write
+// succeeds at all — an uncovered path EROFS-fails
 // (docs/reference/composed-file-permissions.md §7.5).
 type HostFileStaging int
 
 const (
 	// HostFileStagingNone: the destination already sits under a read-write bind
-	// (`~/.config/…`, `~/.cache/…`, `~/.local/…`, `go/…`, or a selected agent's
-	// overlay dir). The entrypoint's own MkdirAll+write just works; provisioning
-	// anything here would shadow a yolo mount.
+	// (`~/.config/…`, `~/.cache/…`, `~/.local/…`, `go/…`, or a SELECTED pack's
+	// writable or shared dir). The entrypoint's own MkdirAll+write just works; provisioning
+	// anything here would shadow a yolo mount. (A `writable_home_dirs` entry is such a bind
+	// too; the run pipeline's hostFileWritableDirs drops a destination under one, since
+	// this method sees no config.)
 	HostFileStagingNone HostFileStaging = iota
 
 	// HostFileStagingSymlink: a HOME-ROOT file (`~/.npmrc`) — it would land
-	// directly in the `:ro` base. The CLI materializes a relative symlink in
-	// GlobalHome pointing into the writable `~/.config` overlay, exactly as
-	// storage.EnsureSymlink already does for .bashrc/.claude.json/.gitconfig.
+	// directly in the `:ro` skeleton. The CLI materializes a relative symlink in
+	// the skeleton pointing into the writable `~/.config` overlay, the same shape
+	// as the skeleton's own .bashrc/.claude.json/.gitconfig redirects.
 	//
 	// A DIRECTORY bind cannot serve this case (it would make the destination a
 	// directory, so the composed write fails "is a directory"), and a
@@ -1047,49 +1050,65 @@ const (
 	HostFileStagingSymlink
 
 	// HostFileStagingWritableDir: a NEW top-level directory (`~/foo/bar.json`) —
-	// the parent does not exist in the `:ro` base at all, so the entrypoint's
+	// the parent does not exist in the `:ro` skeleton at all, so the entrypoint's
 	// MkdirAll EROFS-fails before any write. The CLI stages the destination's
 	// parent as a writable subtree, reusing the writable_home_dirs recipe
-	// (backing dir + GlobalHome mountpoint + a nested rw bind).
+	// (backing dir + skeleton mountpoint + a nested rw bind).
 	HostFileStagingWritableDir
 )
 
 // hostFileWritableRoots are the home-relative first segments already covered by a
-// read-write bind, so a destination under one needs no staging. Authority:
-// podmanBaseMounts (internal/cli/run/assemble_parts.go) plus the per-agent overlay
-// dirs (packload.EmbeddedWritableDirs — every pack yolo ships, NOT only the loaded ones:
-// a reservation gated on selection would let a host_files entry claim a path a pack added
-// tomorrow needs, surfacing as a mount conflict with no obvious cause).
+// read-write bind in a jail that selected packs, so a destination under one needs no
+// staging. Authority: podmanBaseMounts (internal/cli/run/assemble_parts.go) plus the
+// writable dirs of the SELECTED packs, which runContainer binds from the workspace
+// overlay, and their SHARED dirs, which it binds from the machine store.
+//
+// The shared dirs were missing, so `~/.claude-shared-credentials/x.json` with claude selected
+// was staged a writable subtree AT the shared dir's own destination, a second bind there, and
+// podman refused the launch ("duplicate mount destination"). The entry now lands inside the
+// shared bind, in the machine store, which is where a file under that dir lives for every
+// other writer in the jail too.
+//
+// THE SELECTED PACKS, NOT EVERY PACK YOLO SHIPS — the maintainer's OQ-BH14 ruling
+// (docs/design/base-home-legacy-state.md#28-reservation-is-a-rule-about-config-names-not-about-directories).
+// This list used to be packload.EmbeddedWritableDirs, and that answered "already under a rw
+// bind" for every shipped pack's dir, which is true only when the pack is selected: a
+// `~/.codex/x` entry in a claude-only jail got no staging, found no ~/.codex in the
+// skeleton, and its write failed EROFS. An unselected pack's dir is now an ordinary path, so
+// that entry gets a writable subtree like any other new top-level dir.
 //
 // `.ssh` is deliberately absent: it is a rw bind, but composing a file into the
 // jail's ssh dir from config is not a use case worth blessing implicitly.
 //
-// A sync.OnceValue, NOT a package-level map: reading the embedded packs materializes their
-// tree, and a package-level initializer did that at INIT for every process linking this
-// package — every test binary, `yolo --version`, every in-jail daemon — whether or not it
-// ever looked at a host_files entry (internal/packload/embedded.go has the history).
-// embeddedlazy_test.go pins that loading this package reads no pack.
-var hostFileWritableRoots = sync.OnceValue(func() map[string]struct{} {
+// A function of its argument, so it reads no pack itself: embeddedlazy_test.go pins that
+// loading this package materializes nothing (internal/packload/embedded.go has the history
+// of the package-level initializer this used to be).
+func hostFileWritableRoots(packs []*packload.Pack) map[string]struct{} {
 	roots := map[string]struct{}{
 		".config": {}, ".cache": {}, ".local": {}, "go": {}, ".npm-global": {},
 	}
-	for _, d := range packload.EmbeddedWritableDirs() {
+	for _, d := range append(packload.WritableDirs(packs), packload.SharedDirs(packs)...) {
 		roots[firstHomeSegment(d)] = struct{}{}
 	}
 	return roots
-})
+}
 
 // StagingFor reports what the host CLI must provision for this entry's
-// destination. It keys on the destination's FIRST SEGMENT, because that is what
-// the mount table keys on: a nested rw bind covers its whole subtree, so
-// `.config/mytool/config.json` is writable for the same reason `.config/x` is.
+// destination in a jail that selected packs. It keys on the destination's FIRST
+// SEGMENT, because that is what the mount table keys on: a nested rw bind covers its
+// whole subtree, so `.config/mytool/config.json` is writable for the same reason
+// `.config/x` is.
+//
+// packs are the launch's selected packs (hostFileWritableRoots): a dir only an
+// unselected pack declares is not bound in that jail, so an entry under it is staged
+// like any other.
 //
 // A directory entry never needs symlink staging (its tree is copied wholesale
 // into the destination, and copyTree does its own MkdirAll), but it does still
 // need a writable parent, so the dir case falls through the same way.
-func (e HostFileEntry) StagingFor() HostFileStaging {
+func (e HostFileEntry) StagingFor(packs []*packload.Pack) HostFileStaging {
 	seg, rest := firstHomeSegment(e.Path), strings.Contains(e.Path, "/")
-	if _, ok := hostFileWritableRoots()[seg]; ok {
+	if _, ok := hostFileWritableRoots(packs)[seg]; ok {
 		return HostFileStagingNone
 	}
 	if !rest {
@@ -1109,7 +1128,7 @@ func (e HostFileEntry) StagingFor() HostFileStaging {
 const hostFileStagingRoot = ".config/yolo-home"
 
 // SymlinkTarget is the home-relative path a HostFileStagingSymlink entry's
-// GlobalHome symlink points at: a private subtree of the writable `~/.config`
+// skeleton symlink points at: a private subtree of the writable `~/.config`
 // overlay, keyed by the entry's injective slug so two entries can never collide.
 //
 // Kept under `.config/yolo-home/` rather than the overlay root so a composed

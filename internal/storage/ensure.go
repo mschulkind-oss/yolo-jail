@@ -21,23 +21,25 @@ import (
 // ~/.local/share/mise.
 const StorageLayoutVersion = 2
 
-// fileMountpoints are the paths under GLOBAL_HOME that must exist as files (not
-// dirs) for single-file bind mounts.
-var fileMountpoints = []string{
-	".bash_history",
-	".yolo-bootstrap.sh",
-	".yolo-venv-precreate.sh",
-	".yolo-perf.log",
-	".yolo-socat.log",
-	".yolo-entrypoint.lock",
-	".yolo-ca-bundle.crt",
-	".yolo-installed-lsps",
-}
-
-// EnsureGlobalStorage makes sure ~/.local/share/yolo-jail/* and the GLOBAL_HOME
-// mountpoints exist and are the right shape (files vs dirs, symlinks for atomic-
-// write paths).
-// (pass MigrateStorageLayout wired with a liveness probe, or a no-op).
+// EnsureGlobalStorage makes sure ~/.local/share/yolo-jail/* exists, and that the MACHINE
+// STORE, <state>/home (paths.GlobalHome), holds what only it can hold: the machine-scope
+// shared dirs every shipped pack declares (packload.EmbeddedSharedDirs — the rw bind SOURCES
+// of `.claude-shared-credentials` and its kin, on both container backends) and the Claude
+// credential migration below. Then it runs migrate (pass MigrateStorageLayout wired with a
+// liveness probe, or a no-op).
+//
+// It no longer provisions a HOME. <state>/home used to be bound :ro at /home/agent in every
+// podman jail, so this also created the union of every shipped pack's writable dirs, core's
+// own dirs, the single-file mountpoints and the three redirect links in it — the whole
+// shared base. Each podman jail now gets its own skeleton, built on the fresh-launch path
+// from that launch's selection (buildHomeSkeleton in internal/cli/run;
+// docs/design/base-home-legacy-state.md#26-which-writers-move), and <state>/home is mounted
+// at /home/agent by nothing. The dirs an older yolo created here are left as they are: a
+// downgraded yolo still finds its base, and legacy bytes stay unmounted and unread.
+//
+// The shared dirs stay the EMBEDDED set rather than the selected one because this runs
+// before the config is loaded (both callers: the run pipeline's ensureStorage and `yolo
+// check`), and an empty directory in a store no jail mounts whole affects nothing.
 func EnsureGlobalStorage(migrate func()) error {
 	globalHome := paths.GlobalHome()
 	for _, d := range []string{
@@ -49,16 +51,9 @@ func EnsureGlobalStorage(migrate func()) error {
 		}
 	}
 
-	// Per-agent overlay dirs (UNION across all known agents) + shared dirs.
-	overlaySubdirs := append([]string{}, packload.EmbeddedWritableDirs()...)
-	overlaySubdirs = append(overlaySubdirs, packload.EmbeddedSharedDirs()...)
-	// The non-pack half is paths.BaseHomeCoreDirs, not an inline list: the base-home
-	// legacy-state sweep must EXCLUDE exactly what core provisions here (the detection rule
-	// is `git show 33e53f0e:docs/design/base-home-legacy-state.md` §5.1; that sweep's fate is
-	// OQ-BH13 of the current doc, whose §2.1 skeleton also starts from this list), and a
-	// second copy of this list is a sweep that proposes archiving .ssh.
-	overlaySubdirs = append(overlaySubdirs, paths.BaseHomeCoreDirs()...)
-	for _, sub := range overlaySubdirs {
+	// The machine-scope shared dirs: bind sources, so they must exist before any argv
+	// names them.
+	for _, sub := range packload.EmbeddedSharedDirs() {
 		if err := os.MkdirAll(filepath.Join(globalHome, sub), 0o755); err != nil {
 			return err
 		}
@@ -75,28 +70,6 @@ func EnsureGlobalStorage(migrate func()) error {
 	}
 	if !pathExists(newCred) {
 		_ = touch(newCred)
-	}
-
-	// File mountpoints — create only if missing (existing files may have
-	// restrictive perms from prior container UID mapping).
-	for _, fname := range fileMountpoints {
-		p := filepath.Join(globalHome, fname)
-		if !pathExists(p) {
-			if err := touch(p); err != nil {
-				return err
-			}
-		}
-	}
-
-	// Atomic-write files that must be symlinks into writable overlay dirs. The list is
-	// paths.HomeFileRedirects because macos-user lays the SAME three into its sandbox
-	// account home (entrypoint.DeriveDarwinHomeLayout) — where the per-workspace directory
-	// they point into is a symlink rather than a mount. Two spellings of it would be a
-	// file that is per-workspace on one backend and machine-wide on the other.
-	for _, r := range paths.HomeFileRedirects() {
-		if err := EnsureSymlink(filepath.Join(globalHome, r.Name), r.Target); err != nil {
-			return err
-		}
 	}
 
 	if migrate != nil {

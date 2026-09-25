@@ -22,17 +22,17 @@ func whdConfig(v any) *jsonx.OrderedMap {
 func TestWritableHomeDirsAbsent(t *testing.T) {
 	m := jsonx.NewOrderedMap()
 	m.Set("packages", []any{"htop"})
-	if got := WritableHomeDirs(m); got != nil {
+	if got := WritableHomeDirs(m, nil); got != nil {
 		t.Errorf("expected nil, got %v", got)
 	}
 	// A present-but-null value is also nothing.
-	if got := WritableHomeDirs(whdConfig(nil)); got != nil {
+	if got := WritableHomeDirs(whdConfig(nil), nil); got != nil {
 		t.Errorf("null value: expected nil, got %v", got)
 	}
 }
 
 func TestWritableHomeDirsHappyPath(t *testing.T) {
-	got := WritableHomeDirs(whdConfig([]any{".pi-lens", ".foo/bar"}))
+	got := WritableHomeDirs(whdConfig([]any{".pi-lens", ".foo/bar"}), nil)
 	want := []string{".foo/bar", ".pi-lens"} // sorted
 	if !slices.Equal(got, want) {
 		t.Errorf("got %v, want %v", got, want)
@@ -41,7 +41,7 @@ func TestWritableHomeDirsHappyPath(t *testing.T) {
 
 func TestWritableHomeDirsCleansAndDedups(t *testing.T) {
 	// "./x" and "x/" both clean to "x"; "a/../b" cleans to "b".
-	got := WritableHomeDirs(whdConfig([]any{"./x", "x/", "a/../b", "b"}))
+	got := WritableHomeDirs(whdConfig([]any{"./x", "x/", "a/../b", "b"}), nil)
 	want := []string{"b", "x"}
 	if !slices.Equal(got, want) {
 		t.Errorf("got %v, want %v", got, want)
@@ -60,7 +60,7 @@ func TestWritableHomeDirsDropsInvalid(t *testing.T) {
 		"",            // empty
 		42,            // not a string
 		".pi-lens",    // the one valid entry
-	}))
+	}), nil)
 	want := []string{".pi-lens"}
 	if !slices.Equal(got, want) {
 		t.Errorf("got %v, want %v", got, want)
@@ -97,15 +97,15 @@ func TestValidateWritableHomeDirsNotAList(t *testing.T) {
 }
 
 // reservedHomeSegments must cover the base overlays, single-file mounts,
-// symlinks AND every agent overlay dir. Spot-check representatives from each
+// symlinks AND every SELECTED pack's dirs. Spot-check representatives from each
 // class so a future overlay rename can't silently open a clobber.
 func TestReservedHomeSegments(t *testing.T) {
-	reserved := reservedHomeSegments()
+	reserved := reservedHomeSegments(embeddedPacksNamed(t, "claude", "copilot", "agy", "pi", "codex"))
 	for _, seg := range []string{
 		".npm-global", ".local", "go", ".config", ".cache", ".ssh", // base
-		".bash_history", ".yolo-installed-lsps", // single-file
+		".bash_history", ".yolo-ca-bundle.crt", // single-file
 		".gitconfig", ".bashrc", ".claude.json", // symlinks
-		".claude", ".copilot", ".gemini", ".pi", ".codex", // agent overlays
+		".claude", ".copilot", ".gemini", ".pi", ".codex", // selected packs' overlays
 	} {
 		if _, ok := reserved[seg]; !ok {
 			t.Errorf("reserved set missing %q", seg)
@@ -117,31 +117,33 @@ func TestReservedHomeSegments(t *testing.T) {
 	}
 }
 
-// F6 revisited, and the finding does NOT hold as stated: these unions SHOULD span
-// every known agent, not the selected set.
+// OQ-BH14 REVERSED WHAT THIS TEST USED TO PIN, on purpose. It was
+// TestReservedHomeDirsSpanAllAgentsNotSelected, which held that these reservation lists
+// must span every shipped pack so that "a repo's config would be portable" and a dir a
+// FUTURE jail might mount over could not be claimed. The maintainer ruled the other way on
+// 2026-09-25 (docs/design/base-home-legacy-state.md#9-open-questions): "it has to be like the other
+// packs don't exist … packs could come from anywhere and be added, removed, whatever." The
+// shipped set never covered every pack a jail could select, and one user-scope entry being
+// valid in one workspace and refused in another is an accepted consequence.
 //
-// The claim was that agents.AllOverlayDirs being a union over all specs is a
-// correctness bug that D5 (no agent by default) must fix. It is the opposite. These
-// are RESERVATION lists — what a user's host_files/writable_home_dirs entry may not
-// claim. If they were selection-gated, the same committed config would validate in a
-// jail that selects claude and fail in one that does not, so a repo's config would be
-// portable only by accident.
-//
-// The other all-agents union (storage.EnsureGlobalStorage) is right for the same kind
-// of reason: it pre-creates GlobalHome MOUNTPOINTS, and the OCI runtime cannot mkdir
-// inside a :ro bind, so a dir any FUTURE jail might mount over has to exist now.
-//
-// This test pins the intent so the "fix" is not applied later by someone reading the
-// finding without the reasoning.
-func TestReservedHomeDirsSpanAllAgentsNotSelected(t *testing.T) {
-	dirs := reservedHomeDirs()
-	// Every agent's overlay dir is reserved regardless of selection — and with no
-	// default agent set, a jail's selection is routinely EMPTY, which makes the point
-	// sharper than when this said "pi and codex are not in DefaultAgents": reservation
-	// cannot depend on a selection that is usually nothing.
-	for _, want := range []string{".claude", ".pi", ".codex", ".copilot"} {
-		if _, ok := dirs[want]; !ok {
-			t.Errorf("%s not reserved — reservation must not depend on agent selection", want)
+// So this pins the ruling instead: an unselected shipped pack reserves nothing, and the
+// same pack selected reserves its dirs, named.
+func TestReservedHomeDirsCoverOnlyTheSelectedPacks(t *testing.T) {
+	claudeOnly := reservedHomeDirs(embeddedPacksNamed(t, "claude"))
+	for _, dir := range []string{".pi", ".codex", ".copilot", ".oh-omp", ".gemini"} {
+		if owner, ok := claudeOnly[dir]; ok {
+			t.Errorf("%s is reserved (owner %q) in a claude-only selection — an unselected pack "+
+				"is treated as if it does not exist", dir, owner)
 		}
+	}
+	if owner := claudeOnly[".claude"]; owner != "claude" {
+		t.Errorf(".claude owner = %q, want claude (the selected pack declaring it)", owner)
+	}
+	if owner := claudeOnly[".claude-shared-credentials"]; owner != "claude" {
+		t.Errorf(".claude-shared-credentials owner = %q, want claude", owner)
+	}
+	withCodex := reservedHomeDirs(embeddedPacksNamed(t, "claude", "codex"))
+	if owner := withCodex[".codex"]; owner != "codex" {
+		t.Errorf(".codex owner = %q once codex is selected, want codex", owner)
 	}
 }

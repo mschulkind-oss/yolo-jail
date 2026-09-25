@@ -21,8 +21,8 @@ func TestHostFileReservedDestsCoverStagingTargets(t *testing.T) {
 	reserved := hostFileReservedDests()
 	// The exact target a `~/.npmrc` entry stages: the alias/target pair for the SAME file.
 	alias := HostFileEntry{Path: ".npmrc"}
-	if alias.StagingFor() != HostFileStagingSymlink {
-		t.Fatalf("fixture: ~/.npmrc must be a symlink-staged destination, got %v", alias.StagingFor())
+	if alias.StagingFor(nil) != HostFileStagingSymlink {
+		t.Fatalf("fixture: ~/.npmrc must be a symlink-staged destination, got %v", alias.StagingFor(nil))
 	}
 	target := alias.SymlinkTarget()
 	if _, why := checkHostFileDest(target, reserved); why == "" {

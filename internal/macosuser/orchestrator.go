@@ -12,6 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/provision"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
 // Deps are the injectable seams for the macOS-only orchestrator + the four
@@ -151,8 +152,8 @@ type Options struct {
 	// into the bootstrap env (BuildRunPlan), because the native bootstrap renders pack
 	// surfaces and derives from them exactly as the container boot does.
 	PackEnv *jsonx.OrderedMap
-	// SandboxEnv is an optional caller-supplied env layered LAST; nil is the
-	// common case.
+	// SandboxEnv is an optional caller-supplied env layered last, under only the
+	// jail marker buildPlan sets over everything; nil is the common case.
 	SandboxEnv *jsonx.OrderedMap
 	DryRun     bool
 }
@@ -188,8 +189,8 @@ func MacosSandboxEnv(deps Deps, cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
 }
 
 // buildPlan starts from the sandbox env, merges env_sources (swallowing any
-// error — a bad entry must not crash the plan), layers the caller's sandbox_env
-// last, then builds the plan.
+// error — a bad entry must not crash the plan), layers the caller's sandbox_env,
+// sets the jail marker over all of them, then builds the plan.
 func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	env := MacosSandboxEnv(deps, opts.Config)
 	// Trust the workspace's mise configs, for the same reason the container gets this on its
@@ -284,6 +285,21 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 			env.Set(k, v)
 		}
 	}
+	// THE JAIL MARKER, the one variable every container launch sets (`-e YOLO_VERSION=` in
+	// internal/cli/run's commonEnvBlock) and this backend did not (docs/design/agent-footer.md
+	// OQ-FT13). config.InJail() and the probes that copy it read it, so without it every
+	// `yolo` the agent runs in here answered "host" from inside a Seatbelt sandbox, the agent
+	// footer included, although this backend renders at the jail notch (render.Jail).
+	//
+	// The launcher's version, resolved as the container arm resolves it (version.Get over the
+	// same repo root), so the in-sandbox banner reports it as a jail's does. Set LAST, after
+	// env_sources and the caller's own env: whether this process is a jail is the launcher's
+	// fact, and a composed layer that emptied it would turn every in-jail refusal off.
+	//
+	// It crosses in the session env file, so it reaches the provisioning stage and the agent,
+	// not the bootstrap, which reads a closed contract of its own (buildBootstrapEnv). What
+	// setting it changes on this backend is audited in the design's §2.2.
+	env.Set("YOLO_VERSION", version.Get(opts.RepoRoot))
 	selfExe := ""
 	if deps.SelfExe != nil {
 		selfExe = deps.SelfExe()
@@ -755,7 +771,7 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 	p.print("")
 	if len(plan.ProvisionArgv) == 0 {
 		p.print("[bold]── provisioning stage ──[/bold]")
-		p.print("  [dim]skipped — no mise_tools and no lsp_servers declared[/dim]")
+		p.print("  [dim]skipped — no mise_tools declared[/dim]")
 	} else {
 		p.print("[bold]── provisioning stage (confined, before the agent) ──[/bold]")
 		p.print("  " + strings.Join(plan.ProvisionArgv, " "))

@@ -292,8 +292,8 @@ func Collect(packs []*packload.Pack, autonomy bool, profiles map[string]string) 
 // shippedOwnerOf names the EMBEDDED pack that owns a surface identity, or "" when none
 // does.
 //
-// It reads the not-selection-gated embedded set on purpose (see the Embedded() note in
-// AGENTS.md), and that is what makes the R2 message actionable rather than merely
+// It reads the embedded set, every pack yolo ships whether selected or not, on purpose,
+// and that is what makes the R2 message actionable rather than merely
 // honest: "claude/settings has no owner" tells a user their overlay did nothing;
 // "…(the `claude` pack is not selected)" tells them what to do about it. The distinction
 // only exists if the lookup can see a pack the user did NOT select.

@@ -38,7 +38,11 @@ const WritableHomeBackingSubdir = "writable-home"
 // Invalid entries are dropped here (ValidateConfig reports the same problems as
 // errors, and preflight blocks the run before assembly), so a bad entry never
 // silently mounts something unexpected; it is simply absent.
-func WritableHomeDirs(cfg *jsonx.OrderedMap) []string {
+//
+// packs are the launch's SELECTED packs (the staged set), whose directories an entry may
+// not claim (see reservedHomeDirs). Validation resolves the same selection itself
+// (resolveSelectedPacks), so what `yolo check` refuses is what this drops.
+func WritableHomeDirs(cfg *jsonx.OrderedMap, packs []*packload.Pack) []string {
 	if cfg == nil {
 		return nil
 	}
@@ -46,14 +50,14 @@ func WritableHomeDirs(cfg *jsonx.OrderedMap) []string {
 	if !present || v == nil {
 		return nil
 	}
-	entries, _ := checkWritableHomeDirs(v)
+	entries, _ := checkWritableHomeDirs(v, packs)
 	return entries
 }
 
 // reservedHomeDirRoots are the home-relative DIRECTORY roots yolo mounts
-// read-write into the jail: the base overlays and the shared dirs. Every
-// selected-agent overlay dir joins them dynamically (see reservedHomeDirs).
-// Authority: podmanBaseMounts in internal/cli/run + storage.EnsureGlobalStorage.
+// read-write into the jail whatever the selection: the base overlays. The
+// selected packs' writable and shared dirs join them (see reservedHomeDirs).
+// Authority: podmanBaseMounts in internal/cli/run.
 var reservedHomeDirRoots = []string{
 	".npm-global", ".local", "go", ".yolo",
 	// The retired names of the two generated-script dirs. Kept reserved for one
@@ -64,17 +68,18 @@ var reservedHomeDirRoots = []string{
 }
 
 // reservedHomeFiles are the home-relative paths yolo owns as SINGLE FILES: the
-// per-file bind mounts, plus the symlinks materialized into the :ro GLOBAL_HOME
-// base. Writing any of them from config would clobber a bind mount or replace a
-// symlink yolo depends on. Authority: podmanBaseMounts +
-// storage.fileMountpoints + storage.EnsureGlobalStorage's EnsureSymlink calls.
+// per-file bind mounts, plus the redirect links every podman jail's :ro home
+// skeleton carries. Writing any of them from config would clobber a bind mount or
+// replace a symlink yolo depends on. Authority: podmanBaseMounts +
+// paths.HomeFileMountpoints + paths.HomeFileRedirects (buildHomeSkeleton, in
+// internal/cli/run, creates both in the skeleton).
 var reservedHomeFiles = []string{
 	".bash_history", ".yolo-bootstrap.sh", ".yolo-venv-precreate.sh",
 	".yolo-perf.log", ".yolo-socat.log", ".yolo-entrypoint.lock",
-	".yolo-ca-bundle.crt", ".yolo-installed-lsps",
+	".yolo-ca-bundle.crt",
 	".gitconfig", ".bashrc", ".claude.json",
-	// A2: the TARGETS of the three symlinks EnsureGlobalStorage materializes into
-	// the :ro GlobalHome base (storage/ensure.go:95-101). A symlink and its target
+	// A2: the TARGETS of the three redirect links in the :ro home skeleton
+	// (paths.HomeFileRedirects). A symlink and its target
 	// are the SAME FILE, so reserving only the link name left the other name
 	// claimable — a config could take ~/.config/git/config and silently clobber
 	// what ~/.gitconfig resolves to, while the reservation looked complete.
@@ -89,7 +94,7 @@ var reservedHomeFiles = []string{
 // the members cannot be enumerated as paths: what they hold is generated.
 //
 // V1. There is exactly one, and it is the other half of the A2 alias problem. A home-root
-// destination (`~/.npmrc`) cannot be written into the `:ro` home base, so the CLI stages a
+// destination (`~/.npmrc`) cannot be written into the `:ro` home skeleton, so the CLI stages a
 // symlink there pointing at HostFileEntry.SymlinkTarget() — `.config/yolo-home/<slug>` in
 // the writable `.config` overlay. That makes the alias and the target two spellings of ONE
 // file, exactly as `~/.gitconfig` and `~/.config/git/config` are; but where A2 could list
@@ -112,29 +117,50 @@ var reservedHomeSubtrees = []string{
 	hostFileStagingRoot,
 }
 
-// reservedHomeDirs returns reservedHomeDirRoots plus every known agent's overlay
-// dirs, as a set. Kept as a function (not a package var) so it always reflects
-// the current agent set.
-func reservedHomeDirs() map[string]struct{} {
-	dirs := make(map[string]struct{}, len(reservedHomeDirRoots)+len(packload.EmbeddedWritableDirs())+len(packload.EmbeddedSharedDirs()))
+// reservedHomeDirs maps each reserved home-relative directory to the pack that
+// declares it: reservedHomeDirRoots (core's, owner "") plus the writable and shared
+// dirs of the SELECTED packs.
+//
+// THE SELECTED PACKS, NOT EVERY PACK YOLO SHIPS — the maintainer's OQ-BH14 ruling
+// (docs/design/base-home-legacy-state.md#28-reservation-is-a-rule-about-config-names-not-about-directories):
+// an unselected pack is treated as if it does not exist, so `writable_home_dirs:
+// [".codex"]` is legal in a workspace that does not select codex and refused once it
+// does. The shipped set never was the right universe anyway: packs can come from
+// anywhere, and a configured pack's directory was never in it. Both consequences were
+// accepted with the ruling: one user-scope entry can be valid in one workspace and
+// refused in another, and a pack selected later can refuse an entry that passed before
+// — which is why the refusal names the pack.
+//
+// Reserving a name is not creating a directory: nothing here touches a filesystem. After
+// this ruling the two sets agree, though — the home skeleton a podman jail gets carries
+// exactly the selected packs' dirs (buildHomeSkeleton, internal/cli/run).
+func reservedHomeDirs(packs []*packload.Pack) map[string]string {
+	dirs := make(map[string]string, len(reservedHomeDirRoots))
 	for _, d := range reservedHomeDirRoots {
-		dirs[d] = struct{}{}
+		dirs[d] = ""
 	}
-	for _, d := range packload.EmbeddedWritableDirs() {
-		dirs[d] = struct{}{}
-	}
-	for _, d := range packload.EmbeddedSharedDirs() {
-		dirs[d] = struct{}{}
+	// Selection order, so the first selected pack to declare a dir is the one a refusal
+	// names.
+	for _, p := range packs {
+		if p == nil {
+			continue
+		}
+		for _, d := range append(p.Decl.WritableDirContributions(), p.Decl.SharedDirContributions()...) {
+			if _, have := dirs[d]; !have {
+				dirs[d] = p.Name
+			}
+		}
 	}
 	return dirs
 }
 
 // reservedHomeSegments is the set of first path segments yolo already manages
-// under /home/agent — the union of reservedHomeDirs and reservedHomeFiles,
-// reduced to first segments. A writable_home_dirs entry whose first segment is
-// one of these is rejected: either it would clobber a yolo mount (dir-over-file
-// or file-over-dir), or the subtree is ALREADY writable (the overlay dirs are
-// read-write binds), so the key is redundant there.
+// under /home/agent — the union of reservedHomeDirs(packs) and reservedHomeFiles,
+// reduced to first segments, each mapped to the selected pack that declares it ("" for
+// core's own). A writable_home_dirs entry whose first segment is one of these is
+// rejected: either it would clobber a yolo mount (dir-over-file or file-over-dir), or
+// the subtree is ALREADY writable (the overlay dirs are read-write binds), so the key is
+// redundant there.
 //
 // Note this is deliberately COARSER than what host_files needs. Rejecting a
 // whole first segment is right for writable_home_dirs, whose entries request a
@@ -142,13 +168,29 @@ func reservedHomeDirs() map[string]struct{} {
 // host_files destination is a single composed FILE, and `~/.config/mytool/x.json`
 // is its central use case, so that guard matches exact paths instead; see
 // checkHostFileDest.
-func reservedHomeSegments() map[string]struct{} {
-	segs := make(map[string]struct{}, len(reservedHomeDirRoots)+len(reservedHomeFiles)+len(packload.EmbeddedWritableDirs())+len(packload.EmbeddedSharedDirs()))
-	for d := range reservedHomeDirs() {
-		segs[firstHomeSegment(d)] = struct{}{}
-	}
+//
+// Core's claims are made first and win a shared segment. One of them outlives every
+// selection on purpose: reservedHomeFiles holds `.claude/claude.json`, the target of core's
+// `~/.claude.json` redirect, so the `.claude` segment stays reserved in a workspace that
+// selects no claude pack. That is core reserving the target of a link every skeleton
+// carries, not a pack's directory, so OQ-BH14 does not reach it.
+func reservedHomeSegments(packs []*packload.Pack) map[string]string {
+	segs := make(map[string]string, len(reservedHomeDirRoots)+len(reservedHomeFiles))
 	for _, f := range reservedHomeFiles {
-		segs[firstHomeSegment(f)] = struct{}{}
+		segs[firstHomeSegment(f)] = ""
+	}
+	dirs := reservedHomeDirs(packs)
+	// Sorted, so which pack a shared segment names does not depend on map order.
+	names := make([]string, 0, len(dirs))
+	for d := range dirs {
+		names = append(names, d)
+	}
+	sort.Strings(names)
+	for _, d := range names {
+		seg, owner := firstHomeSegment(d), dirs[d]
+		if cur, have := segs[seg]; !have || (cur != "" && owner == "") {
+			segs[seg] = owner
+		}
 	}
 	return segs
 }
@@ -168,13 +210,17 @@ func firstHomeSegment(p string) string {
 // exactly the same words. There is no filesystem access: every destination is
 // synthetic (/home/agent/<path>) and every backing dir is created by
 // prepareWsState, so nothing here needs to stat the host.
-func checkWritableHomeDirs(v any) (entries []string, problems []string) {
+//
+// packs are the selected packs whose directories an entry may not claim
+// (reservedHomeSegments). Each caller brings its own copy of the one selection: the
+// launch its staged set, validation resolveSelectedPacks.
+func checkWritableHomeDirs(v any, packs []*packload.Pack) (entries []string, problems []string) {
 	prefix := "config." + writableHomeDirsKey
 	list, ok := asList(v)
 	if !ok {
 		return nil, []string{prefix + ": expected a list of home-relative path strings"}
 	}
-	reserved := reservedHomeSegments()
+	reserved := reservedHomeSegments(packs)
 	seen := make(map[string]struct{}, len(list))
 	for idx, raw := range list {
 		itemPath := fmt.Sprintf("%s[%d]", prefix, idx)
@@ -202,8 +248,9 @@ func checkWritableHomeDirs(v any) (entries []string, problems []string) {
 // rejected. An entry must be a clean path RELATIVE to /home/agent that does not
 // escape it, does not contain a ':' (which podman would parse as a mount
 // option, not part of the path — the same footgun cache_relocations guards),
-// and whose first segment is not one yolo already manages.
-func checkWritableHomeDir(s string, reserved map[string]struct{}) string {
+// and whose first segment is not one yolo already manages. reserved maps each
+// managed segment to the selected pack that declares it ("" for core's own).
+func checkWritableHomeDir(s string, reserved map[string]string) string {
 	if s == "" {
 		return "must not be empty"
 	}
@@ -224,9 +271,16 @@ func checkWritableHomeDir(s string, reserved map[string]struct{}) string {
 		return "must not escape $HOME with '..'"
 	}
 	seg := firstHomeSegment(clean)
-	if _, bad := reserved[seg]; bad {
-		return fmt.Sprintf("first path segment %s is already managed read-write by yolo — "+
-			"paths under it are writable without this key", pytext.Repr(seg))
+	if owner, bad := reserved[seg]; bad {
+		// Name the pack: under OQ-BH14 this refusal can arrive the day a pack is
+		// selected, in a workspace whose config never changed, and the pack is the
+		// only thing that did.
+		by := ""
+		if owner != "" {
+			by = fmt.Sprintf(" (the selected pack %s declares it)", owner)
+		}
+		return fmt.Sprintf("first path segment %s is already managed read-write by yolo%s — "+
+			"paths under it are writable without this key", pytext.Repr(seg), by)
 	}
 	return ""
 }
@@ -234,12 +288,17 @@ func checkWritableHomeDir(s string, reserved map[string]struct{}) string {
 // validateWritableHomeDirs surfaces every checkWritableHomeDirs problem as a
 // `yolo check` error. Safe at any scope, so — unlike validateCacheRelocations —
 // there is no workspace-scope rejection.
+//
+// The selection is resolved only when the key is present, so a config without it costs no
+// pack resolution. A selection that resolves only partly still reserves what it could
+// read; resolveSelectedPacks says why that is the right answer.
 func validateWritableHomeDirs(config *jsonx.OrderedMap, errs *[]string) {
 	v, present := config.Get(writableHomeDirsKey)
 	if !present || v == nil {
 		return
 	}
-	_, problems := checkWritableHomeDirs(v)
+	selected, _ := resolveSelectedPacks()
+	_, problems := checkWritableHomeDirs(v, selected)
 	for _, p := range problems {
 		add(errs, p)
 	}

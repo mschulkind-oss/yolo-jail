@@ -2,6 +2,7 @@ package basehome
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -71,10 +72,10 @@ func (r Report) ByRoot() []RootSummary {
 //
 //   - no entry paths, no workspace names, no absolute paths (ByRoot's doc comment);
 //   - no transcript content — nothing here ever opened a file;
-//   - NO "command to quarantine", which §5.8 asks for, because in this step there is no
-//     such command. Naming one that does not exist is worse than omitting it, so the line
-//     says what it is instead: detection only. The command belongs to the step that can
-//     honor it (§11 step 2), and this sentence is where it goes.
+//   - NO "command to quarantine", which §5.8 asks for: no such command exists, and the
+//     move step (§11 step 2) was dropped with the quarantine. Naming one that does not
+//     exist is worse than omitting it, so the line says what it is instead: detection
+//     only. The optional `mv` a user may run is CleanupLines', printed by `yolo check`.
 func (r Report) Summary() string {
 	roots := r.ByRoot()
 	if len(roots) == 0 {
@@ -95,9 +96,9 @@ func (r Report) Summary() string {
 	// regeneration path). An EMPTY directory has none, so there is nothing to move, nothing
 	// to lose and nothing for a reader to do — and the candidates are empty on every host
 	// that never ran the old shared-writable home, which is every host but one or two.
-	// A permanent line about a legacy condition that CANNOT RECUR — the base is bound `:ro`
-	// into every jail and the host CLI only ever MkdirAlls into it — is noise that teaches
-	// people to stop reading launch output.
+	// A permanent line about a legacy condition that CANNOT RECUR — no jail mounts the base
+	// any more, and the host writes into it only the shared dirs, the Claude login seed and
+	// the credential migration — is noise that teaches people to stop reading launch output.
 	if r.Bytes() == 0 && unreadable == 0 {
 		return ""
 	}
@@ -124,10 +125,62 @@ func (r Report) Summary() string {
 	if unreadable > 0 {
 		line += fmt.Sprintf(" %s could not be read and is counted as-is.", plural(unreadable, "entry", "entries"))
 	}
-	// No trailing "nothing has been moved" any more: the launch now REFUSES on a
-	// non-zero finding and prints the mv, so the sentence contradicted the instruction
-	// directly beneath it.
+	// What the finding MEANS is CleanupLines' to say, beneath this line: since the per-jail
+	// skeleton, nothing mounts or reads these bytes, so the cleanup is optional.
 	return line
+}
+
+// CleanupLines is what `yolo check` prints beneath Summary: what the finding means now, and
+// the OPTIONAL cleanup — a printed `mv` per root, never a verb (the maintainer's DIR-BH0
+// call, 2026-09-21). nil when Summary is silent.
+//
+// # Why it is optional
+//
+// This used to be a launch REFUSAL, on two grounds: every podman jail could read the bytes
+// through the shared base bound at /home/agent, and seedAgentDir copied them into each new
+// workspace. Both are gone — each podman jail binds its own skeleton instead, and seedAgentDir
+// is deleted — so the bytes are unmounted and unread, inert disk that is the user's to clear
+// or keep (the maintainer's OQ-BH13 ruling, docs/design/base-home-legacy-state.md#10-decision-ledger).
+//
+// # Which roots get an `mv`
+//
+// Only the roots carrying bytes and declared by a shipped pack — the rule the refusal used.
+// An undeclared root is classified without its own declarations (ActionableBytes says why),
+// so its "runtime" bytes may be a local pack's own content; it is reported, never offered.
+// Nothing recreates a moved root: <state>/home is no longer provisioned as a home.
+func (r Report) CleanupLines(globalHome, archive string) []string {
+	if r.Summary() == "" {
+		return nil
+	}
+	lines := []string{"Nothing mounts or reads these bytes any more — every podman jail gets its " +
+		"own home skeleton, and no workspace is seeded from them — so they are inert."}
+	roots := r.cleanupRoots()
+	if len(roots) == 0 {
+		return lines
+	}
+	lines = append(lines, "Moving them aside is optional cleanup:", "", "  mkdir -p "+archive)
+	for _, root := range roots {
+		lines = append(lines, "  mv "+filepath.Join(globalHome, root)+" "+archive+"/")
+	}
+	return append(lines, "",
+		"Do NOT move .claude-shared-credentials or .gemini-shared-credentials — those are your "+
+			"logins. Moving .claude also moves the Claude login seed (.claude/claude.json); the "+
+			"next launch of a logged-in claude workspace writes it again.")
+}
+
+// cleanupRoots is the roots CleanupLines offers an `mv` for: bytes present, and declared.
+func (r Report) cleanupRoots() []string {
+	unknown := map[string]bool{}
+	for _, u := range r.UnknownRoots {
+		unknown[u] = true
+	}
+	var roots []string
+	for _, s := range r.ByRoot() {
+		if s.Bytes > 0 && !unknown[s.Root] {
+			roots = append(roots, s.Root)
+		}
+	}
+	return roots
 }
 
 // Warnings is every degradation this pass found, one line each — a refused root, or a
@@ -136,8 +189,8 @@ func (r Report) Summary() string {
 // silent.
 //
 // A refused root is the one with real teeth: a `.claude` SYMLINK in the base home means
-// every jail on this machine has been writing into whatever it points at, which is a fact
-// worth a line whether or not anything is ever quarantined.
+// every jail that mounted the shared base was writing into whatever it points at, which is
+// a fact worth a line whether or not anything is ever quarantined.
 func (r Report) Warnings() []string {
 	var out []string
 	// A REFUSED ROOT IS ALWAYS WARNED, whatever was measured. It is an anomaly rather than
@@ -151,9 +204,9 @@ func (r Report) Warnings() []string {
 	// moved. With nothing to move and nothing unknown, warning that an undeclared root
 	// would have been classified without its own declarations is a permanent line about a
 	// decision nobody is going to take — and on most hosts these are empty fossils like
-	// `.yolo-shims`. Silence here is what stops a legacy condition that CANNOT RECUR (the
-	// base is `:ro` to every jail and the host CLI only MkdirAlls into it) from costing
-	// every launch a warning forever.
+	// `.yolo-shims`. Silence here is what stops a legacy condition that CANNOT RECUR (no
+	// jail mounts the base any more, and the host writes into it only the shared dirs, the
+	// seed and the credential migration) from costing every run a warning forever.
 	if r.Bytes() > 0 || r.unreadableCount() > 0 {
 		for _, p := range r.Problems {
 			out = append(out, "Base-home detection is incomplete: "+p+".")

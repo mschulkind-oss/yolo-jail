@@ -1085,7 +1085,7 @@ func TestNoTokenInLaunchArgv(t *testing.T) {
 		cfg: cfg, rt: "podman", cname: "yolo-ws-abcd1234",
 		packs: claudePackFixture(t), agentsPath: "/agents/yolo-ws-abcd1234",
 		wsState: "/ws/.yolo/home", miseStore: "/mise-store", yoloVersion: "9.9.9-test",
-		mountTargets: map[string]struct{}{}, lspNPMInstall: "", lspGoInstall: "",
+		mountTargets: map[string]struct{}{},
 	}
 	argv := o.assembleRunCmd(in)
 

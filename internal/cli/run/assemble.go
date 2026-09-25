@@ -76,16 +76,18 @@ type assembleInput struct {
 	// :ro so an in-jail launcher can materialize an entry instead of downloading it.
 	// EMPTY means "do not mount it" — the capture jail's own launch, which must not be
 	// able to resolve against the store it is filling (Options.CapturesDir).
-	capturesDir  string
+	capturesDir string
+	// homeSkeleton is this launch's per-jail home skeleton (buildHomeSkeleton), the
+	// directory podmanBaseMounts binds read-only at /home/agent. It is INPUT, built by the
+	// run pipeline on the fresh-launch path, because building it creates directories and
+	// argv assembly must stay free of that. Unused on Apple Container, which binds wsState
+	// whole at /home/agent instead.
+	homeSkeleton string
 	wsState      string // <workspace>/.yolo/home
 	miseStore    string // _jail_mise_store_dir()
 	hostTZ       string // "" => no TZ
 	yoloVersion  string // _git_describe_version() or "unknown"
 	mountTargets map[string]struct{}
-	// lspNPMInstall / lspGoInstall are the resolved YOLO_LSP_*_INSTALL values
-	// (config.LSPInstalls over the lsp_servers keys).
-	lspNPMInstall string
-	lspGoInstall  string
 	// storePruneOK is true when the host CLI proved no other jail is live and
 	// grants the in-jail store prune (`-e YOLO_STORE_PRUNE_OK=1`). Set by the
 	// lifecycle phase; false leaves the env unset.
@@ -188,10 +190,6 @@ func (in *assembleInput) envChannel(o *Options) *packChannel {
 	}
 	return c
 }
-
-// lspNPM / lspGo return the resolved YOLO_LSP_*_INSTALL values.
-func (in *assembleInput) lspNPM() string { return in.lspNPMInstall }
-func (in *assembleInput) lspGo() string  { return in.lspGoInstall }
 
 // storePruneEnv returns the `-e YOLO_STORE_PRUNE_OK=1` pair when granted, else
 // nil.
@@ -1035,8 +1033,6 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		"-e", "OVERMIND_SOCKET=/tmp/overmind.sock",
 		"-e", "YOLO_MISE_TOOLS="+jsonDumps(config.MergeMiseTools(cfg)),
 		"-e", "YOLO_LSP_SERVERS="+jsonDumpsOrEmptyObj(cfgMap(cfg, "lsp_servers")),
-		"-e", "YOLO_LSP_NPM_INSTALL="+in.lspNPM(),
-		"-e", "YOLO_LSP_GO_INSTALL="+in.lspGo(),
 		"-e", "YOLO_MCP_SERVERS="+jsonDumpsOrEmptyObj(cfgMap(cfg, "mcp_servers")),
 		"-e", "YOLO_MCP_PRESETS="+jsonDumpsOrEmptyList(cfgList(cfg, "mcp_presets")),
 		// The `agent_updates` policy, read from USER scope directly rather than from the

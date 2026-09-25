@@ -89,12 +89,11 @@ func TestMacosUserNoLongerClaimsMachineWideWorkspaceState(t *testing.T) {
 	}
 }
 
-// The two content pipelines that never reach macos-user: skills+briefings (composed
-// host-side and delivered by MOUNTING, which this backend cannot do) and lsp_servers
-// binaries (installed by a bootstrap script it deliberately does not run). Both warn
-// rather than being fixed here — the first needs a delivery mechanism, the second needs
-// a node precondition — but neither may be silent, because in both cases the agent is
-// told the capability exists.
+// The content pipeline that reached macos-user last: skills+briefings, composed host-side
+// and delivered by MOUNTING everywhere else, which this backend cannot do. (This comment
+// also named lsp_servers binaries, "installed by a bootstrap script it deliberately does
+// not run"; that gap closed on 2026-09-12, and since 2026-09-25 no backend installs a
+// language server at all — docs/reference/mcp-configuration.md#oq-lsp1.)
 func TestMacosUserNotesContentGaps(t *testing.T) {
 	home := packHome(t)
 	writeUserPacks(t, home, `["claude"]`)
@@ -177,6 +176,12 @@ func TestConfigDeclaredLoopholesAreReportedInert(t *testing.T) {
 // be observed rather than inferred from silence — macosuser.TestProvisioningStageRuns…,
 // which fails if the orchestrator's call site is deleted. Absence of a warning is not
 // evidence of a feature.
+//
+// The lsp_servers half now stays retired for a different reason: since the LSP recipe
+// table's deletion (docs/reference/mcp-configuration.md#oq-lsp1) NO backend installs a
+// language server — the user brings the binary — so "the binaries are not installed" is
+// the ruled design everywhere rather than a gap of this backend's, and a warning here
+// would single out macos-user for a property every backend shares.
 func TestMacosUserNoLongerWarnsThatToolsAreUninstallable(t *testing.T) {
 	home := packHome(t)
 	writeUserPacks(t, home, `["claude"]`)
@@ -207,7 +212,7 @@ func TestMacosUserNoLongerWarnsThatToolsAreUninstallable(t *testing.T) {
 			"provisioning stage runs `mise install` before the agent:\n%s", got)
 	}
 	if strings.Contains(got, "lsp_servers CONFIG renders but the binaries are not installed") {
-		t.Errorf("the launch still says lsp_servers never install here, but the bootstrap "+
-			"script that installs them is generated and exec'd by the stage:\n%s", got)
+		t.Errorf("the launch still says lsp_servers never install here, but no backend "+
+			"installs a language server; the user brings the binary:\n%s", got)
 	}
 }

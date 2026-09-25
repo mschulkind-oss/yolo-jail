@@ -57,20 +57,6 @@ func (r *Resolver) Known() (map[string]config.LoopholeInfo, bool) {
 			// learned the name from here and the declarations from somewhere else
 			// could accept a key for a loophole that is not the one it is validating.
 			Settings: lp.Settings,
-			// THE CAPABILITIES AND THE AUTHOR'S DEFAULT travel for one validator:
-			// the ~/.aws grant conflict (config/validate_loopholes.go), which has to
-			// ask whether anything in this config ANSWERS the container-credentials
-			// protocol. Keyed on the declared job rather than on a loophole name,
-			// because a name check is the switch AGENTS.md forbids and would have to
-			// be edited for the next pack that ships the same channel.
-			//
-			// Enabled is deliberately NOT forwarded: Discover runs here with no
-			// config, so `lp.Enabled` is the manifest default and nothing more. The
-			// user's own switch is applied by the validator, through
-			// config.LoopholeEnabledOverride — the same function applyWorkspaceOverrides
-			// resolves a launch with.
-			Serves:         lp.Serves,
-			DefaultEnabled: lp.Enabled,
 		}
 	}
 	return out, true

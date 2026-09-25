@@ -30,7 +30,6 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentenv"
-	"github.com/mschulkind-oss/yolo-jail/internal/awschain"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -232,40 +231,45 @@ func (c *packChannel) deliveryLookup(o *Options, argvPairs map[string]string) fu
 // that disagree about the order.
 //
 // The phrase exists because a refusal has to name where each side was DECLARED
-// (docs/reference/protocol-resolution.md#the-four-outcomes): "you have two AWS
-// credential channels" sends a reader hunting through four files, and "env_sources, and
-// a selected pack's env contribution" does not. It never carries the VALUE — these are
-// credentials.
+// (docs/reference/protocol-resolution.md#the-four-outcomes): "something overrides that
+// pack's variable" sends a reader hunting through four files, and "env_sources, and a
+// selected pack's env contribution" does not. It never carries the VALUE — these are
+// typically credentials.
 //
 // It cannot name WHICH pack set a var. packEnv is already the fold
 // (packload.EnvVarsFor), and the launch delivers the fold rather than any one
 // contribution, so "a selected pack's" is the honest precision available here; the
 // `yolo pack footprint` verb is where a reader learns which one.
 //
-// THE PHRASES THEMSELVES ARE awschain's (awschain.From*), not this file's, because the
-// `yolo check` prediction reports the same conflict from three of these five channels
-// (internal/cli/check/awschannels.go). Spelled at both callers they would drift, and a
+// THE PHRASES THEMSELVES ARE packload's (packload.From*), not this file's, because the
+// `yolo check` prediction reports the same refusal from two of these five channels
+// (internal/cli/check/envoverrides.go). Spelled at both callers they would drift, and a
 // prediction that worded one problem differently from the launch is the defect that file
 // exists to avoid rather than to introduce. WHICH channels exist and IN WHAT ORDER they
 // are consulted stays here, where the launch composes them.
+//
+// ⚠ THE FIFTH SOURCE IS NOT A DELIVERY INTO THE JAIL. The launch environment is here
+// because the credential pre-flight asks what the relay can draw on; nothing forwards it
+// into the jail under its own name. So the env-override pre-flight reads this through
+// jailOriginLookup (envoverrides.go), which drops that answer.
 func (c *packChannel) deliverySource(o *Options, argvPairs map[string]string,
 	name string) (value, origin string, ok bool) {
 	if s := mapStr(c.userEnv, name); s != "" {
-		return s, awschain.FromEnvSources, true
+		return s, packload.FromEnvSources, true
 	}
 	if v, found := argvPairs[name]; found && v != "" {
-		return v, awschain.FromContainerArgv, true
+		return v, packload.FromContainerArgv, true
 	}
 	if v := c.packEnv[name]; v != "" {
-		return v, awschain.FromPackEnv, true
+		return v, packload.FromPackEnv, true
 	}
 	for _, v := range c.shapeVars {
 		if v.Key == name && v.Value != "" {
-			return v.Value, awschain.FromProfileEnv, true
+			return v.Value, packload.FromProfileEnv, true
 		}
 	}
 	if v := o.Getenv(name); v != "" {
-		return v, awschain.FromLaunchEnv, true
+		return v, packload.FromLaunchEnv, true
 	}
 	return "", "", false
 }

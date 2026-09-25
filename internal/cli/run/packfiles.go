@@ -23,7 +23,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // packFilesTarget is one resolved `files` contribution: the pack that declared it, the
@@ -208,12 +207,12 @@ func packFilesSkipWarning(t packFilesTarget) string {
 }
 
 // A `files` destination needs a same-shaped mountpoint before the runtime applies the
-// read-only source bind. The target may live in GlobalHome or in the workspace overlay:
-// preparePackFiles owns the latter (including retirement), while preparePackFilesGlobal
-// handles the machine-wide base.
+// read-only source bind. The target may live in the podman jail's home skeleton or in the
+// workspace overlay: preparePackFiles owns the latter (including retirement), while
+// packFilesSkeletonEntries names the former for buildHomeSkeleton.
 //
-// Same belt-and-braces as writable_home_dirs and host_files (prepareWsState,
-// prepareHostFiles) and for the same reason: the OCI runtime does not reliably create a
+// Same belt-and-braces as writable_home_dirs and host_files (buildHomeSkeleton creates all
+// three) and for the same reason: the OCI runtime does not reliably create a
 // mountpoint inside a :ro bind. podman 5.8.4/crun 1.27.1 does auto-create one (verified
 // — see project_ro_home_mount_autocreate), but the maintainer hit the EROFS path on their
 // stack, where it surfaces as the unreadable `conmon bytes "": readObjectStart`.
@@ -313,19 +312,9 @@ func preparePackFiles(packs []*packload.Pack, wsState, rt string) []string {
 			continue
 		}
 
-		_, statErr := os.Lstat(dest)
-		created := os.IsNotExist(statErr)
-		if created {
-			_ = os.MkdirAll(filepath.Dir(dest), 0o755)
-			if kind == "dir" {
-				_ = os.Mkdir(dest, 0o755)
-			} else {
-				f, err := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
-				if err == nil {
-					_ = f.Close()
-				}
-			}
-		}
+		// Beneath wsState, never through a symlinked directory the jail left in its home
+		// (mountpointBeneath, wsstatebeneath.go).
+		created := mountpointBeneath(wsState, rel, kind)
 
 		owned := packFilesMountpoint{Kind: kind}
 		if kind == "file" && rt == "container" { // parity: Honored — Apple Container delivers the source as a copied snapshot.
@@ -548,23 +537,31 @@ func fileSHA256(path string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-func preparePackFilesGlobal(packs []*packload.Pack, rt string) {
+// packFilesSkeletonEntries returns the `files` destinations that need a mountpoint in a podman
+// jail's home skeleton (buildHomeSkeleton), split by the leaf type of their source: every
+// target no selected pack's writable dir covers. A target under a writable dir is prepared in
+// the workspace overlay instead (preparePackFiles), because that dir's own bind shadows the
+// skeleton there; an absent source mounts nothing (packFilesMountArgs warns), so it needs no
+// mountpoint.
+//
+// It replaced preparePackFilesGlobal, which created the same entries in the shared base home
+// every podman jail mounted — so one workspace's pack `files` mountpoints showed up in every
+// other jail on the machine. The backend gate that function carried is the builder's call
+// site's now: only podman builds a skeleton (runContainer).
+func packFilesSkeletonEntries(packs []*packload.Pack) (dirs, files []string) {
+	writable := packload.WritableDirs(packs)
 	for _, t := range packFilesTargets(packs) {
-		if rt == "macos-user" || rt == "container" || pathUnderAny(t.Dest, packload.WritableDirs(packs)) { // parity: HonoredBy — those backends/paths are prepared in the workspace overlay above.
+		if pathUnderAny(t.Dest, writable) {
 			continue
 		}
-		dest := filepath.Join(paths.GlobalHome(), filepath.FromSlash(t.Dest))
-		if isDir(t.Src) {
-			_ = os.MkdirAll(dest, 0o755)
-			continue
+		switch {
+		case isDir(t.Src):
+			dirs = append(dirs, t.Dest)
+		case isFile(t.Src):
+			files = append(files, t.Dest)
 		}
-		if isFile(t.Src) {
-			_ = os.MkdirAll(filepath.Dir(dest), 0o755)
-			touchFile(dest)
-		}
-		// Absent source: nothing is mounted (packFilesMountArgs warns), so there is no
-		// mountpoint to provision.
 	}
+	return dirs, files
 }
 
 // packDestConflicts reports every home destination that more than one contribution of

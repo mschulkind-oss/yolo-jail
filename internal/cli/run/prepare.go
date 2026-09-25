@@ -364,9 +364,16 @@ func blockedToolRecords(blocked []any) []jailcontent.BlockedTool {
 // re-typing the `resources` block the user wrote.
 
 // prepareWsState prepares the ws_state overlay: create the
-// per-workspace overlay dirs + touch the overlay files, seed selected agents'
-// config dirs, sync claude.json, and run the old-overlay migrations. Returns the
+// per-workspace overlay dirs + touch the overlay files, sync claude.json, and run the
+// old-overlay migrations, each in the layout this launch's backend reads (podman's
+// dot-stripped bind sources, or Apple Container's whole-home dotted paths). Returns the
 // ws_state path (<workspace>/.yolo/home).
+//
+// It writes nothing into <state>/home but the two machine-store channels that belong there
+// — the Claude login seed and the stranded-credential rescue below. The MOUNTPOINTS this
+// used to create in that shared base (writable_home_dirs, pack `files`, skills and briefing
+// destinations) are the podman home skeleton's now (buildHomeSkeleton, homeskeleton.go):
+// created there, they showed up in every jail on the machine.
 func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, loadedPacks []*packload.Pack, rt string) string {
 	wsState := paths.WorkspaceHomeState(o.Workspace)
 	// Through the chokepoint rather than a bare MkdirAll of wsState's parent: this is the
@@ -378,67 +385,38 @@ func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, loadedPacks []*packload.
 	// message naming the path, which is the failure a human can act on.
 	_, _ = paths.EnsureWorkspaceStateDir(o.Workspace)
 	_ = os.MkdirAll(wsState, 0o755)
-	_ = os.MkdirAll(filepath.Join(wsState, "ssh"), 0o700)
 
-	// Backing dirs for the PACK-DECLARED writable dirs. These must exist before the
-	// :ro home bind is applied: podman refuses to start with a bare
-	// "statfs …: no such file or directory" when a bind source is missing, which reads
-	// as a yolo bug rather than a missing directory.
-	var overlaySubdirs []string
-	for _, dir := range packload.WritableDirs(loadedPacks) {
-		overlaySubdirs = append(overlaySubdirs, strings.TrimPrefix(dir, "."))
-	}
-	for _, subdir := range append([]string{
-		"npm-global", "local", "go", "yolo-bin", "config",
-		filepath.Join("pi", "agent"),
-	}, overlaySubdirs...) {
-		_ = os.MkdirAll(filepath.Join(wsState, subdir), 0o755)
-	}
-
-	// Writable home dirs (config writable_home_dirs): create BOTH the backing dir
-	// under <wsState>/writable-home/<path> AND the mountpoint dir in GLOBAL_HOME.
-	// podman binds the backing dir over /home/agent/<path> (nesting inside the
-	// :ro GLOBAL_HOME base). The OCI runtime does NOT auto-create mountpoints
-	// inside a :ro bind mount — it works for .npm-global/.config/etc. only because
-	// those dirs already exist in GLOBAL_HOME. A path absent from GLOBAL_HOME
-	// makes crun mkdirat inside the :ro bind → "read-only file system", which
-	// surfaces as the cryptic "conmon bytes '': readObjectStart" error. Creating
-	// the mountpoint in GLOBAL_HOME before the :ro bind is applied avoids this.
-	// The paths are already validated (relative, no '..', no reserved segment), so
-	// MkdirAll can never escape wsState or GLOBAL_HOME.
-	for _, rel := range config.WritableHomeDirs(cfg) {
-		_ = os.MkdirAll(filepath.Join(wsState, config.WritableHomeBackingSubdir, rel), 0o755)
-		_ = os.MkdirAll(filepath.Join(paths.GlobalHome(), rel), 0o755)
+	// THE TWO CONTAINER BACKENDS LAY wsState OUT DIFFERENTLY, and each path here follows the
+	// layout this launch's backend reads (the design's OQ-BH12,
+	// docs/design/base-home-legacy-state.md#3-the-apple-container-seed-defect). Podman binds
+	// wsState's entries one at a time, each named with its leading dot stripped, and a
+	// missing bind source kills the container, so all of them are created first. Apple
+	// Container binds wsState WHOLE at /home/agent, so there a home path IS its wsState path:
+	// the selected packs' dirs are created at their dotted names, and so is `go`, the one core
+	// overlay dir whose name has no dot to strip. The rest of podman's bind sources are not
+	// created there at all: they are sources of binds that backend never makes, and each one
+	// showed up in its jails as a stray undotted entry (~/claude, ~/npm-global, ~/ssh) that
+	// nothing in the jail reads.
+	if rt == "container" { // parity: Honored — the same pack dirs, at the dotted paths Apple Container's whole-home wsState bind reads
+		for _, dir := range append([]string{"go"}, packload.WritableDirs(loadedPacks)...) {
+			_ = os.MkdirAll(filepath.Join(wsState, filepath.FromSlash(dir)), 0o755)
+		}
+	} else {
+		preparePodmanBindSources(wsState, cfg, loadedPacks)
 	}
 
-	// Mountpoints for the PACK-DECLARED `files` trees, skills, and briefings. A files
-	// destination below writable pack state belongs in wsState and carries an ownership
-	// record so a dropped contribution can retire it; destinations in the read-only base,
-	// plus skills and briefings, still need their GlobalHome mountpoints.
+	// Mountpoints for the PACK-DECLARED `files` trees below writable pack state: they belong
+	// in wsState and carry an ownership record so a dropped contribution can retire it. The
+	// ones outside every writable dir, and every skills and briefing destination, are the
+	// podman skeleton's (packFilesSkeletonEntries, buildHomeSkeleton). preparePackFiles
+	// follows the same per-backend layout itself (packFilesWorkspaceRel).
 	for _, archived := range preparePackFiles(loadedPacks, wsState, rt) {
 		o.pr(o.Stdout).printf("[yellow]Archived an unclaimed zero-byte legacy pack-file mountpoint: %s[/yellow]", archived)
 	}
-	preparePackFilesGlobal(loadedPacks, rt)
-	for _, target := range packSkillTargets(loadedPacks) {
-		_ = os.MkdirAll(filepath.Join(paths.GlobalHome(), filepath.FromSlash(target.Dest)), 0o755)
-	}
-	for _, d := range briefingDestinations(loadedPacks) {
-		dest := filepath.Join(paths.GlobalHome(), filepath.FromSlash(d.Into))
-		_ = os.MkdirAll(filepath.Dir(dest), 0o755)
-		touchFile(dest)
-	}
-	for _, fname := range []string{
-		"bash_history", "yolo-bootstrap.sh", "yolo-venv-precreate.sh",
-		"yolo-perf.log", "yolo-socat.log", "yolo-entrypoint.lock",
-		"yolo-ca-bundle.crt", "yolo-installed-lsps",
-	} {
-		touchFile(filepath.Join(wsState, fname))
-	}
 
-	// Seed selected agents' config dirs from the :ro GLOBAL_HOME base.
-	for _, subdir := range overlaySubdirs {
-		seedAgentDir(filepath.Join(paths.GlobalHome(), "."+subdir), filepath.Join(wsState, subdir))
-	}
+	// No pack dir is seeded from the machine store any more: the Claude login below is the
+	// one deliberate channel from <state>/home into a workspace (see storagehelpers.go for
+	// what seedAgentDir used to copy, and why it went).
 
 	// One-time LAYOUT MIGRATIONS from a pre-overlay-subdir yolo (flat
 	// <wsState>/claude-projects → <wsState>/claude/projects, and the same for copilot's
@@ -451,21 +429,25 @@ func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, loadedPacks []*packload.
 	//
 	// Transitional. Each entry cleans up a layout no yolo has written for some time, and
 	// they can all go once no live workspace still carries one.
+	//
+	// The legacy SOURCES are the same on both backends (the yolo that wrote them had no runtime
+	// branch); each TARGET is where this backend's jail reads the path (wsStateHomePath). On
+	// Apple Container podman's target, wsState/claude/…, is a stray ~/claude nothing reads.
 	if hasWritableDir(loadedPacks, ".claude") {
 		syncClaudeJSONSeed(
 			filepath.Join(paths.GlobalHome(), ".claude", "claude.json"),
-			filepath.Join(wsState, "claude", "claude.json"))
-		migrateOldOverlay(filepath.Join(wsState, "claude-projects"), filepath.Join(wsState, "claude", "projects"))
-		// claude-settings.json → claude/settings.json (only if new absent).
+			claudeJSONInWsState(wsState, rt))
+		migrateOldOverlay(filepath.Join(wsState, "claude-projects"), wsStateHomePath(wsState, rt, ".claude/projects"))
+		// claude-settings.json → ~/.claude/settings.json (only if new absent).
 		oldSettings := filepath.Join(wsState, "claude-settings.json")
-		newSettings := filepath.Join(wsState, "claude", "settings.json")
+		newSettings := wsStateHomePath(wsState, rt, ".claude/settings.json")
 		if isFile(oldSettings) && !fileExists(newSettings) {
-			_ = os.MkdirAll(filepath.Join(wsState, "claude"), 0o755)
+			_ = os.MkdirAll(filepath.Dir(newSettings), 0o755)
 			_ = copyFile2(oldSettings, newSettings)
 		}
 	}
 	if hasWritableDir(loadedPacks, ".copilot") {
-		migrateOldOverlay(filepath.Join(wsState, "copilot-sessions"), filepath.Join(wsState, "copilot", "session-state"))
+		migrateOldOverlay(filepath.Join(wsState, "copilot-sessions"), wsStateHomePath(wsState, rt, ".copilot/session-state"))
 	}
 
 	// THE MACHINE-WIDE TIER, RESCUED OUT OF THE PER-WORKSPACE ONE (#39).
@@ -494,6 +476,79 @@ func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, loadedPacks []*packload.
 		migrateOldOverlay(filepath.Join(wsState, dir), filepath.Join(paths.GlobalHome(), dir))
 	}
 	return wsState
+}
+
+// preparePodmanBindSources creates, in wsState, the SOURCE of every bind podman nests inside
+// a jail's :ro home skeleton from this workspace's overlay: core's overlay dirs, the selected
+// packs' writable dirs, `ssh`, the writable_home_dirs backing dirs and the single-file binds.
+// Each is spelled the way podmanBaseMounts and assembleRunCmd spell it, the home-relative
+// path with its leading dot stripped (`~/.claude` is bound from wsState/claude). They must
+// exist before the argv runs: podman refuses to start with a bare
+// "statfs …: no such file or directory" when a bind source is missing, which reads as a yolo
+// bug rather than a missing directory.
+//
+// Podman only. Apple Container binds none of them (prepareWsState says what it gets instead).
+func preparePodmanBindSources(wsState string, cfg *jsonx.OrderedMap, loadedPacks []*packload.Pack) {
+	_ = os.MkdirAll(filepath.Join(wsState, "ssh"), 0o700)
+
+	// Backing dirs for the PACK-DECLARED writable dirs.
+	var overlaySubdirs []string
+	for _, dir := range packload.WritableDirs(loadedPacks) {
+		overlaySubdirs = append(overlaySubdirs, strings.TrimPrefix(dir, "."))
+	}
+	for _, subdir := range append([]string{
+		"npm-global", "local", "go", "yolo-bin", "config",
+		filepath.Join("pi", "agent"),
+	}, overlaySubdirs...) {
+		_ = os.MkdirAll(filepath.Join(wsState, subdir), 0o755)
+	}
+
+	// Writable home dirs (config writable_home_dirs): the BACKING dir under
+	// <wsState>/writable-home/<path>, which podman binds over /home/agent/<path>. A missing
+	// bind source kills the container. The mountpoint that bind needs inside the :ro home
+	// root is the skeleton's (buildHomeSkeleton). The paths are already validated
+	// (relative, no '..', no reserved segment), so MkdirAll can never escape wsState.
+	for _, rel := range config.WritableHomeDirs(cfg, loadedPacks) {
+		_ = os.MkdirAll(filepath.Join(wsState, config.WritableHomeBackingSubdir, rel), 0o755)
+	}
+
+	// The single-file bind sources.
+	for _, fname := range []string{
+		"bash_history", "yolo-bootstrap.sh", "yolo-venv-precreate.sh",
+		"yolo-perf.log", "yolo-socat.log", "yolo-entrypoint.lock",
+		"yolo-ca-bundle.crt",
+	} {
+		touchFile(filepath.Join(wsState, fname))
+	}
+}
+
+// claudeJSONInWsState is where this workspace's ~/.claude.json lives in wsState on backend
+// rt: the file the Claude login seed (<state>/home/.claude/claude.json) forwards into and
+// learns back from.
+//
+//   - Podman: ~/.claude.json is the skeleton's redirect link to `.claude/claude.json`, and
+//     ~/.claude is bound from wsState/claude, so the file is wsState/claude/claude.json.
+//   - Apple Container: wsState IS /home/agent and nothing puts a redirect there, so the file
+//     is wsState/.claude.json, the one the jail itself writes. Syncing the podman path on this
+//     backend was the defect the design's §3 records: the seed never reached an Apple
+//     Container jail and never learned from one.
+func claudeJSONInWsState(wsState, rt string) string {
+	if rt == "container" { // parity: Honored — the same file, at the path Apple Container's whole-home wsState bind puts it
+		return filepath.Join(wsState, ".claude.json")
+	}
+	return filepath.Join(wsState, "claude", "claude.json")
+}
+
+// wsStateHomePath is where the home path homeRel (slash-separated, relative to /home/agent,
+// and lying under a pack's single-segment writable dir such as `.claude`) lives in wsState
+// on backend rt: at its own dotted name on Apple Container, whose whole-home wsState bind
+// puts every home path there, and under the dot-stripped bind source on podman, which binds
+// wsState/claude at ~/.claude.
+func wsStateHomePath(wsState, rt, homeRel string) string {
+	if rt == "container" { // parity: Honored — the same home path, at the spelling Apple Container's whole-home wsState bind reads
+		return filepath.Join(wsState, filepath.FromSlash(homeRel))
+	}
+	return filepath.Join(wsState, filepath.FromSlash(strings.TrimPrefix(homeRel, ".")))
 }
 
 // hasWritableDir reports whether any loaded pack declared dir writable.

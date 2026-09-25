@@ -54,9 +54,19 @@ Three things to know before debugging it:
   `_official/` is cleared wholesale, and each configured pack's dir is pruned when its slug leaves `packs` —
   contents-only, never the staging root itself, whose inode a live jail's `/ctx/packs` bind captured
   (`packstage` rule 3). A pack still configured but unresolvable this launch (offline git remote) is KEPT.
-- **`packload.Embedded*` is deliberately NOT selection-gated.** The reservation lists (`host_files` writable
-  roots, `writable_home_dirs` segments, GlobalHome subdirs) cover every pack yolo SHIPS, or a `host_files`
-  entry could claim a path a pack added tomorrow needs.
+- **Name reservation covers only the SELECTED packs**, by the maintainer's ruling
+  ([`OQ-BH14`](./docs/design/base-home-legacy-state.md#28-reservation-is-a-rule-about-config-names-not-about-directories)):
+  an unselected pack is treated as if it does not exist. A `writable_home_dirs` entry may not claim a
+  selected pack's dir, and the refusal names that pack, because one user-scope entry can now pass in one
+  workspace and be refused in another. A `host_files` destination under a selected pack's writable or
+  shared dir needs no staging. Under any other pack's dir it is an ordinary path. The launch hands its staged set to
+  `config.WritableHomeDirs` and `HostFileEntry.StagingFor`, and validation resolves the same selection
+  itself (`resolveSelectedPacks`, [`selectedpacks.go`](./internal/config/selectedpacks.go)). **Do not read
+  `packload.Embedded*` to reserve a name.** Two shipped-set readers remain beside them.
+  `storage.EnsureGlobalStorage` makes every shipped pack's shared dir in the machine store, because it runs
+  before config loads; that is a bind source a jail mounts only when it selects the pack. And `host_files`
+  still refuses any SHIPPED pack's composed surface path (`builtinSurfacePaths`), a list of files the ruling
+  did not reach ([`OQ-BH15`](./docs/design/base-home-legacy-state.md#OQ-BH15), open).
 - **`packload.Embedded()` LEASES ONE IMMUTABLE TREE PER BUILD**, not one per process: a content hash of the
   embedded FS names `~/.local/share/yolo-jail/embedded-packs/<hash>`, the first reader populates it
   atomically, and every later process of that build adopts it under a shared `flock` on its `.lease`
@@ -350,10 +360,12 @@ live, so edits are visible on the host instantly — there is no sync step.
 - **Claude YOLO** is `--dangerously-skip-permissions` + `IS_SANDBOX=1` (the env var bypasses the UID-0
   refusal). `settings.json` sets `permissions.allow` to **`[]`** and `defaultMode: acceptEdits` — it is not
   an allowlist mechanism.
-- **Bootstrap installs only** `chrome-devtools-mcp` and
-  `@modelcontextprotocol/server-sequential-thinking`. LSP servers are config-gated, tracked by the
-  `~/.yolo-installed-lsps` sentinel, and uninstalled when dropped from config. Agent CLIs install lazily on
-  first use via launchers in `~/.yolo/bin/launch/`.
+- **Bootstrap installs only** a Node floor a selected pack declares and the npm package behind each
+  ENABLED MCP preset (`chrome-devtools-mcp`, `@modelcontextprotocol/server-sequential-thinking`).
+  **It installs no language server**: `lsp_servers` only renders config (Claude's generated plugin,
+  Copilot's projection), so a configured `command` must already resolve on `PATH`
+  ([`OQ-LSP1`](./docs/reference/mcp-configuration.md#oq-lsp1)). Agent CLIs install lazily on first use via
+  launchers in `~/.yolo/bin/launch/`.
 - **PATH order** (exact — `BootPath`, [`boot.go`](./internal/entrypoint/boot.go), the authority this line
   mirrors):
   `$HOME/.yolo/bin/block:$HOME/.yolo/bin/launch:$NPM_CONFIG_PREFIX/bin:<mise-shims>:$GOPATH/bin:$HOME/.local/bin:/run/yolo/packages/bin:/bin:/usr/bin`.

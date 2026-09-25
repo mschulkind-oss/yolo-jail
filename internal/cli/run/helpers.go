@@ -116,10 +116,12 @@ func hostServiceEndpointPath(serviceName string) string {
 // at BOOT, so a snapshot is as good as a bind — which is what makes retaining the copy cheap
 // rather than a compromise. Revisit only with a measured version floor, the way
 // acROBindsFloor is done (internal/cli/run/backendcaps.go).
+//
+// THE WRITE IS BENEATH wsState (copyFileBeneath), never a plain path write: wsState IS the jail's
+// home on this backend, so the jail can leave a symlink at targetRel, or at a directory above
+// it, for the next launch to follow onto a host file of its choosing.
 func acMaterialize(src, targetRel, wsState string) {
-	dst := filepath.Join(wsState, targetRel)
-	_ = os.MkdirAll(filepath.Dir(dst), 0o755)
-	_ = copyFile2(src, dst)
+	_ = copyFileBeneath(src, wsState, targetRel)
 }
 
 // acMaterializeTree is acMaterialize's DIRECTORY twin: it copies a whole host tree into

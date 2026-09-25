@@ -366,7 +366,9 @@ func (o *Options) noteMacosUserContentGaps(packs []*packload.Pack, cfg *jsonx.Or
 	// The other said `lsp_servers` CONFIG renders but the binaries never install,
 	// because the installer is a generated bootstrap script "the container path runs and
 	// this backend deliberately does not". That script is now generated here too
-	// (entrypoint.GenerateDarwinBootstrapScript) and the stage execs it.
+	// (entrypoint.GenerateDarwinBootstrapScript) and the stage execs it — and since the LSP
+	// recipe table's deletion (docs/reference/mcp-configuration.md#oq-lsp1) no backend
+	// installs a language server at all, so the property is shared rather than a gap.
 	//
 	// Leaving either would be the failure the note above this function names: a warning
 	// that describes a gap yolo has closed teaches the reader to distrust the warnings

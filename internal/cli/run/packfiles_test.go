@@ -522,14 +522,18 @@ func TestStagePacksRefusesFilesCollision(t *testing.T) {
 	}
 }
 
-// TestPrepareWsStateCreatesSkillsAndBriefingMountpointsInGlobalHome tests that mountpoints
-// for skills and briefings are pre-created in GlobalHome, preventing crun EROFS on unselected packs.
-func TestPrepareWsStateCreatesSkillsAndBriefingMountpointsInGlobalHome(t *testing.T) {
+// TestTheSkeletonCreatesSkillsAndBriefingMountpoints tests that mountpoints for skills and
+// briefings outside every writable dir are pre-created in the podman home skeleton, preventing
+// crun EROFS inside the :ro home root — and that they are no longer created in the machine
+// store (<state>/home), which every podman jail used to mount, so one workspace's pack
+// mountpoints showed up in every jail. It was
+// TestPrepareWsStateCreatesSkillsAndBriefingMountpointsInGlobalHome until the writes moved.
+func TestTheSkeletonCreatesSkillsAndBriefingMountpoints(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	ws := t.TempDir()
 
-	// Pack contributing skills and briefing to an unselected agent dir (.pi/agent/...)
+	// Pack contributing skills and briefing to a dir no selected pack declares writable.
 	root := t.TempDir()
 	manifest := `{"name":"custom-contributor","contributes":[
 		{"kind":"skills","from":"skills","into":".pi/agent/skills"},
@@ -542,19 +546,78 @@ func TestPrepareWsStateCreatesSkillsAndBriefingMountpointsInGlobalHome(t *testin
 	if len(problems) != 0 {
 		t.Fatalf("loading pack: %v", problems)
 	}
+	packs := []*packload.Pack{p}
 
 	o := &Options{Workspace: ws}
-	_ = o.prepareWsState(nil, []*packload.Pack{p}, "podman")
-
-	// Verify GlobalHome mountpoints were created
-	skillsPath := filepath.Join(paths.GlobalHome(), ".pi", "agent", "skills")
-	if fi, err := os.Stat(skillsPath); err != nil || !fi.IsDir() {
-		t.Errorf("skills mountpoint in GlobalHome %s was not created as dir: %v", skillsPath, err)
+	_ = o.prepareWsState(nil, packs, "podman")
+	sk, err := buildHomeSkeleton(paths.HomeSkeletonRoot("yolo-test-contributor"), packs, nil, nil)
+	if err != nil {
+		t.Fatalf("buildHomeSkeleton: %v", err)
 	}
 
-	briefingPath := filepath.Join(paths.GlobalHome(), ".pi", "agent", "AGENTS.md")
+	skillsPath := filepath.Join(sk.dir, ".pi", "agent", "skills")
+	if fi, err := os.Stat(skillsPath); err != nil || !fi.IsDir() {
+		t.Errorf("skills mountpoint %s was not created as dir: %v", skillsPath, err)
+	}
+	briefingPath := filepath.Join(sk.dir, ".pi", "agent", "AGENTS.md")
 	if fi, err := os.Stat(briefingPath); err != nil || fi.IsDir() {
-		t.Errorf("briefing mountpoint in GlobalHome %s was not created as file: %v", briefingPath, err)
+		t.Errorf("briefing mountpoint %s was not created as file: %v", briefingPath, err)
+	}
+	for _, rel := range []string{filepath.Join(".pi", "agent", "skills"), filepath.Join(".pi", "agent", "AGENTS.md")} {
+		if _, err := os.Lstat(filepath.Join(paths.GlobalHome(), rel)); err == nil {
+			t.Errorf("%s was created in the machine store (<state>/home); it belongs in the "+
+				"launching jail's skeleton only", rel)
+		}
+	}
+}
+
+// TestTheSkeletonCreatesFilesMountpointsOfTheSourcesType covers packFilesSkeletonEntries
+// through the builder: a `files` target outside every writable dir gets a mountpoint of
+// its SOURCE's leaf type (a dir bind over a file aborts container creation), a target
+// under a writable dir gets none here (preparePackFiles puts it in the workspace overlay),
+// and an absent source gets none at all.
+func TestTheSkeletonCreatesFilesMountpointsOfTheSourcesType(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "tree"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "one.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"name":"files-shapes","contributes":[
+		{"kind":"state","at":".shapes-state","scope":"workspace"},
+		{"kind":"files","from":"tree","into":".shapes/tree"},
+		{"kind":"files","from":"one.json","into":".shapes/one.json"},
+		{"kind":"files","from":"one.json","into":".shapes-state/inside.json"},
+		{"kind":"files","from":"missing","into":".shapes/missing"}
+	]}`
+	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, problems := packload.LoadDir(root, "files-shapes")
+	if len(problems) != 0 {
+		t.Fatalf("loading pack: %v", problems)
+	}
+
+	sk, err := buildHomeSkeleton(paths.HomeSkeletonRoot("yolo-test-files-shapes"), []*packload.Pack{p}, nil, nil)
+	if err != nil {
+		t.Fatalf("buildHomeSkeleton: %v", err)
+	}
+	if fi, err := os.Lstat(filepath.Join(sk.dir, ".shapes", "tree")); err != nil || !fi.IsDir() {
+		t.Errorf("a directory source's mountpoint is not a directory: %v", err)
+	}
+	if fi, err := os.Lstat(filepath.Join(sk.dir, ".shapes", "one.json")); err != nil || !fi.Mode().IsRegular() {
+		t.Errorf("a file source's mountpoint is not a regular file: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(sk.dir, ".shapes-state", "inside.json")); err == nil {
+		t.Error("a target under the pack's writable dir got a skeleton mountpoint; that dir's " +
+			"own bind shadows it, and preparePackFiles provisions it in the workspace overlay")
+	}
+	if _, err := os.Lstat(filepath.Join(sk.dir, ".shapes", "missing")); err == nil {
+		t.Error("an absent source got a mountpoint; nothing is mounted there")
 	}
 }
 

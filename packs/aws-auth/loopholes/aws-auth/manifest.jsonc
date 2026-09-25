@@ -17,6 +17,8 @@
 // ⚠ NEVER GRANT `~/.aws` ALONGSIDE THIS. `fromIni` sits AHEAD of the container
 // provider in every SDK's chain, so a `host_files` mount of ~/.aws does not duplicate
 // this loophole — it DISABLES it while looking like it works (design §8, Forbidden).
+// The launch refuses it, with the bearer and the static key pair: the pointer's `env`
+// contribution in ../../pack.json declares all three under `overridden_by` (OQ-SSO8).
 {
   "name": "aws-auth",
   "description": "Serve Bedrock-scoped AWS credentials to the jail from a host SSO session, minted per profile and narrowed before they cross.",

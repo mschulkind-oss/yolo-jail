@@ -1183,9 +1183,9 @@ func addressedSourceLabel(from string) string {
 // removed from config is not in `entries`, so its briefing destination would otherwise never
 // be visited — and its block would outlive the pack silently, unattributed.
 //
-// packload.Embedded() is deliberately not selection-gated (see AGENTS.md), which is exactly
-// what makes it the right source here: the point is to visit the destination of a pack that
-// is NOT selected.
+// packload.Embedded() is every pack yolo ships, selected or not, which is exactly what makes
+// it the right source here: the point is to visit the destination of a pack that is NOT
+// selected.
 func embeddedPacksForPrune() []*packload.Pack { return packload.Embedded() }
 
 // applySealed enumerates the input closure (env-manager design §3.3) and refuses if any

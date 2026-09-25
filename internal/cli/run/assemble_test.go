@@ -117,19 +117,18 @@ func TestAssembleRunCmdPodmanLinuxGolden(t *testing.T) {
 	)
 
 	in := &assembleInput{
-		cfg:           cfg,
-		rt:            "podman",
-		cname:         "yolo-ws-abcd1234",
-		imageRef:      goldenImageRef,
-		jailPrefix:    goldenJailPrefix,
-		packs:         claudePackFixture(t),
-		agentsPath:    "/agents/yolo-ws-abcd1234",
-		wsState:       "/ws/.yolo/home",
-		miseStore:     "/mise-store",
-		yoloVersion:   "9.9.9-test",
-		mountTargets:  map[string]struct{}{},
-		lspNPMInstall: "",
-		lspGoInstall:  "",
+		cfg:          cfg,
+		rt:           "podman",
+		cname:        "yolo-ws-abcd1234",
+		imageRef:     goldenImageRef,
+		jailPrefix:   goldenJailPrefix,
+		packs:        claudePackFixture(t),
+		agentsPath:   "/agents/yolo-ws-abcd1234",
+		homeSkeleton: goldenHomeSkeleton,
+		wsState:      "/ws/.yolo/home",
+		miseStore:    "/mise-store",
+		yoloVersion:  "9.9.9-test",
+		mountTargets: map[string]struct{}{},
 	}
 
 	got := o.assembleRunCmd(in)
@@ -222,6 +221,7 @@ func relocationInput(t *testing.T, rt, wsState string, rels []config.CacheReloca
 		jailPrefix:       goldenJailPrefix,
 		packs:            claudePackFixture(t),
 		agentsPath:       "/agents/yolo-ws-abcd1234",
+		homeSkeleton:     goldenHomeSkeleton,
 		wsState:          wsState,
 		miseStore:        "/mise-store",
 		yoloVersion:      "9.9.9-test",
@@ -412,6 +412,12 @@ func TestAssembleNeverBindsRepoSource(t *testing.T) {
 	}
 }
 
+// goldenHomeSkeleton is the fixture's per-jail home skeleton (buildHomeSkeleton), the
+// directory the golden argv binds :ro at /home/agent. A constant rather than a built
+// directory because assembly only EMITS the path; TestEveryHomeBindHasASkeletonEntry is
+// where a real skeleton is built and checked against the argv.
+const goldenHomeSkeleton = "/agents/yolo-ws-abcd1234/home/20260925T000000Z-golden"
+
 // podmanLinuxGolden is the expected ordered argv.
 func podmanLinuxGolden(home string) []string {
 	ws := "/ws"
@@ -432,9 +438,11 @@ func podmanLinuxGolden(home string) []string {
 		"--rm", "-i", "--init", "--cgroupns=private", "--read-only", "--name", "yolo-ws-abcd1234",
 		"--read-only-tmpfs=false", "--pull=never", "--log-driver", "none",
 		"--security-opt", "unmask=/proc/sys")
-	// podman base mounts.
+	// podman base mounts. The home root is THIS JAIL'S skeleton, not the machine store
+	// (<state>/home) every podman jail used to share: that store's only mounts left are the
+	// selected packs' shared dirs, below (docs/design/base-home-legacy-state.md#29-backends).
 	add("-v", ws+":/workspace",
-		"-v", globalHome+":/home/agent:ro",
+		"-v", goldenHomeSkeleton+":/home/agent:ro",
 		"-v", wsState+"/npm-global:/home/agent/.npm-global",
 		"-v", wsState+"/local:/home/agent/.local",
 		"-v", wsState+"/go:/home/agent/go",
@@ -451,7 +459,6 @@ func podmanLinuxGolden(home string) []string {
 		"-v", wsState+"/yolo-socat.log:/home/agent/.yolo-socat.log",
 		"-v", wsState+"/yolo-entrypoint.lock:/home/agent/.yolo-entrypoint.lock",
 		"-v", wsState+"/yolo-ca-bundle.crt:/home/agent/.yolo-ca-bundle.crt",
-		"-v", wsState+"/yolo-installed-lsps:/home/agent/.yolo-installed-lsps",
 		"-v", wsState+"/bash_history:/home/agent/.bash_history",
 		"-v", wsState+"/ssh:/home/agent/.ssh",
 		"-v", "/mise-store:/mise")
@@ -508,8 +515,6 @@ func podmanLinuxGolden(home string) []string {
 		// package instead (config.go defaultMiseToolsKeys is deliberately empty).
 		"-e", "YOLO_MISE_TOOLS={}",
 		"-e", "YOLO_LSP_SERVERS={}",
-		"-e", "YOLO_LSP_NPM_INSTALL=",
-		"-e", "YOLO_LSP_GO_INSTALL=",
 		"-e", "YOLO_MCP_SERVERS={}",
 		"-e", "YOLO_MCP_PRESETS=[]",
 		// Empty because no user config declares `agent_updates`; the jail defaults OPEN.

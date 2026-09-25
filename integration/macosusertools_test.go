@@ -12,8 +12,15 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/provision"
 )
 
-// RUNBOOK ITEM 9 — `mise_tools` and `lsp_servers` actually arrive
+// RUNBOOK ITEM 9 — `mise_tools` actually arrive
 // (docs/plans/runbooks/macos-user-manual-checks.md).
+//
+// ⚠ ITS `lsp_servers` HALF IS GONE, and not because it failed. It asked whether the server
+// the recipe table installed (`python` → pyright) reached the sandbox's npm prefix. That
+// table and every install path it fed are deleted (docs/reference/mcp-configuration.md#oq-lsp1):
+// yolo installs no language server on ANY backend now, and a configured server's `command`
+// must already resolve on PATH. There is no install left to arrive, so the subtest went with
+// it; internal/macosuser/lspservers_test.go pins, from Linux, that this backend asks for none.
 //
 // WHAT IT SETTLES. Two launch warnings were RETIRED on 2026-09-12 — `mise_tools` and
 // `lsp_servers` each used to say "this backend installs nothing" — and both were removed
@@ -32,33 +39,8 @@ import (
 //
 // IT RUNS ONE LAUNCH AND SPLITS THE ANSWER INTO SUBTESTS, on this suite's fencing
 // convention: a macos-user launch builds a native nix closure and then installs from the
-// network, so asking four questions in four launches would cost four of those. A subtest
+// network, so asking three questions in three launches would cost three of those. A subtest
 // inherits the TestMacosUser… prefix the gate requires, so the CI filter still selects it.
-//
-// ⚠ THE `lsp_servers` SUBTEST WAS PREDICTED TO FAIL, AND THE GAP IT PREDICTED HAS SINCE
-// BEEN WIRED (2026-09-13). The prediction was a SOURCE READING made on 2026-09-12 while
-// writing this test, never a measurement: nothing on this backend set
-// YOLO_LSP_NPM_INSTALL or YOLO_LSP_GO_INSTALL, the two variables the generated bootstrap
-// script's install loop reads (internal/entrypoint/shell.go), so the stage execed the
-// script, the loop iterated an empty list, and the stage exited 0 having installed no LSP
-// server. Both now cross — into the bootstrap env and into the session env file the
-// confined stage reads — resolved through the same config.LSPInstalls the container's
-// podman argv uses (internal/macosuser/runplan.go; macosuser.PlanInvariants fails if
-// either crossing is deleted, and internal/macosuser/lspinstall_test.go is the Linux half).
-//
-// ⚠ THE FIRST RED NIGHTLY IS OLDER THAN THE FIX, AND SAYS SO NOWHERE A READER WILL LOOK.
-// The `macos-user backend` workflow's run 34757074558 failed this subtest at
-// 2026-09-13T12:26Z with exactly the symptom above — `ls: /Users/_yolojail/.npm-global/bin:
-// No such file or directory` — and a reader who finds it will reasonably conclude the
-// wiring did not work. It ran on `7475b26b`, which `git merge-base --is-ancestor` puts SIX
-// commits BEFORE `885a7dcc`, the commit that wired both variables: the fix was committed
-// locally at 04:35Z and pushed after the scheduled checkout, so the nightly measured the
-// pre-fix tree. It is evidence FOR the diagnosis, not against the repair, and the next
-// scheduled run is the first one whose verdict is about the wiring at all.
-//
-// THE ASSERTION IS UNCHANGED, and that is the point: it was written against the SPEC
-// rather than against the reading, so it is still the thing a Mac has to answer. Nothing
-// above is a measurement either — a real launch is what turns the wiring into an install.
 func TestMacosUserDeclaredToolsArrive(t *testing.T) {
 	requireMacosUser(t)
 
@@ -70,18 +52,7 @@ func TestMacosUserDeclaredToolsArrive(t *testing.T) {
 	// store path even when mise installed nothing. That is why nothing below asks PATH:
 	// item 9 is about ARRIVAL, and `mise ls` plus the store directory are what answer it.
 	const miseTool = "jq"
-	// The declared LSP server is `python`, whose recipe is the single npm package
-	// `pyright` (internal/config/lsp.go lspInstallRecipes). It is the cheapest entry in
-	// that table — one package, no `go install`, no compiler — and `command`/
-	// `fileExtensions` are spelled because config.validateLSPServers requires both.
-	const lspServer = "python"
-	const lspBin = "pyright-langserver"
-	wsConfig := fmt.Sprintf(`{
-  "mise_tools": {%q: "latest"},
-  "lsp_servers": {
-    %q: {"command": %q, "args": ["--stdio"], "fileExtensions": {".py": "python"}}
-  }
-}`, miseTool, lspServer, lspBin)
+	wsConfig := fmt.Sprintf(`{"mise_tools": {%q: "latest"}}`, miseTool)
 
 	ws := macosUserWorkspace(t, wsConfig)
 	// The startup log is the stage's own record, and the ONE place that says why an
@@ -109,8 +80,6 @@ func TestMacosUserDeclaredToolsArrive(t *testing.T) {
 		`  elif [ -d "$p" ]; then printf '%s|dir|%s\n' "$p" "$(cd "$p" && pwd -P)";`,
 		`  else printf '%s|missing|\n' "$p"; fi`,
 		`done`,
-		`echo "=== NPMBIN ==="`,
-		`ls -1 "$HOME/.npm-global/bin" 2>&1 || echo "NPMBIN-UNREADABLE"`,
 		`echo "=== END ==="`,
 	}, "\n")
 
@@ -121,7 +90,7 @@ func TestMacosUserDeclaredToolsArrive(t *testing.T) {
 			"fault, not a missing tool — read the log below.\nstdout:\n%s\nstderr:\n%s\n"+
 			"%s:\n%s", r.rc, r.stdout, r.stderr, provision.StartupLog(ws), readProvisionLog(ws))
 	}
-	if strings.TrimSpace(section(r.stdout, "=== TIERS ===", "=== NPMBIN ===")) == "" {
+	if strings.TrimSpace(section(r.stdout, "=== TIERS ===", "=== END ===")) == "" {
 		t.Fatalf("the sandbox produced no probe output, so nothing below can be read as a "+
 			"result (runbook item 9).\nstdout:\n%s\nstderr:\n%s", r.stdout, r.stderr)
 	}
@@ -150,7 +119,7 @@ func TestMacosUserDeclaredToolsArrive(t *testing.T) {
 		}
 	})
 
-	tiers := parseMacosUserTiers(section(r.stdout, "=== TIERS ===", "=== NPMBIN ==="))
+	tiers := parseMacosUserTiers(section(r.stdout, "=== TIERS ===", "=== END ==="))
 	sidecar := paths.WorkspaceHomeState(ws)
 
 	t.Run("mise_store_is_machine_tier", func(t *testing.T) {
@@ -187,44 +156,20 @@ func TestMacosUserDeclaredToolsArrive(t *testing.T) {
 		}
 	})
 
-	// SEPARATE FROM lsp_servers ON PURPOSE: where the binaries LAND and whether they were
-	// installed are two verdicts, and a Mac reader with only a CI log needs to be able to
-	// tell "installed into the wrong prefix" from "never installed".
+	// Where npm-installed programs LAND, asserted on its own: it is a property of the home
+	// layout, independent of whether this launch installed anything into the prefix.
 	t.Run("npm_prefix_is_workspace_tier", func(t *testing.T) {
 		npmPrefix := tiers[macosuser.SandboxHome()+"/.npm-global"]
 		if npmPrefix.kind != "symlink" {
-			t.Fatalf("~/.npm-global is %q, not a symlink into %s. The LSP binaries are "+
+			t.Fatalf("~/.npm-global is %q, not a symlink into %s. npm programs are "+
 				"installed into this prefix and it is WORKSPACE tier "+
 				"(paths.HomeSurfaces), so a real directory here is one npm prefix shared "+
 				"by every workspace on the machine.", npmPrefix.describe(), sidecar)
 		}
 		if want := filepath.Join(sidecar, "npm-global"); !samePath(npmPrefix.target, want) {
 			t.Errorf("~/.npm-global points at %s, not at this workspace's sidecar %s — so "+
-				"the LSP servers this launch installed land in some OTHER workspace's "+
+				"the npm programs this launch installs land in some OTHER workspace's "+
 				"prefix.", npmPrefix.target, want)
-		}
-	})
-
-	t.Run("lsp_servers", func(t *testing.T) {
-		bins := section(r.stdout, "=== NPMBIN ===", "=== END ===")
-		if strings.Contains(bins, "NPMBIN-UNREADABLE") {
-			t.Fatalf("~/.npm-global/bin could not be listed at all:\n%s", bins)
-		}
-		if !lineSetHas(bins, lspBin) {
-			t.Errorf("`lsp_servers` declares %q and ~/.npm-global/bin holds no %q, so the "+
-				"server was never installed (runbook item 9).\n\n"+
-				"WHAT TO CHECK FIRST: the generated bootstrap script's install loop reads "+
-				"$YOLO_LSP_NPM_INSTALL and $YOLO_LSP_GO_INSTALL "+
-				"(internal/entrypoint/shell.go), and this backend crosses both in TWO "+
-				"places — the bootstrap env (macosuser.buildBootstrapEnv) and the session "+
-				"env file the confined stage sources (macosuser.BuildRunPlan; "+
-				"ProvisionArgv carries only the identity quartet and the file's name). "+
-				"`yolo run --dry-run` prints the bootstrap argv and the env file's KEYS, "+
-				"so start there: a missing name is a regression the unit tests should have "+
-				"caught (internal/macosuser/lspinstall_test.go), and a name that is "+
-				"present means the list arrived and the INSTALL failed — which the "+
-				"startup log below records.\n\n"+
-				"ls ~/.npm-global/bin:\n%s", lspServer, lspBin, bins)
 		}
 	})
 }
@@ -275,18 +220,6 @@ func samePath(a, b string) bool {
 		return p
 	}
 	return a == b || resolve(a) == resolve(b)
-}
-
-// lineSetHas reports whether one whole line of `ls -1` output is name. Substring matching
-// would accept `pyright-langserver-shim` for `pyright-langserver`, which is the kind of
-// near-miss an installer really does leave behind.
-func lineSetHas(lsOutput, name string) bool {
-	for _, line := range strings.Split(lsOutput, "\n") {
-		if strings.TrimSpace(line) == name {
-			return true
-		}
-	}
-	return false
 }
 
 // readProvisionLog reaches the stage's own record from the HOST side, at the path the

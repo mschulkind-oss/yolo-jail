@@ -136,12 +136,13 @@ func synthesizeConfigLoopholes(loopholesConfig *jsonx.OrderedMap) []*Loophole {
 // spelling before this ever sees it.
 //
 // THE BODY MOVED TO internal/config and this is now a one-line delegation, because a
-// THIRD reader arrived that cannot be here: the ~/.aws grant conflict is a
-// config.ValidateConfig error (so `yolo check` and the launch report it from one place),
-// and internal/config cannot import this package — loopholes -> config is the direction
-// the resolver seam already runs in. Re-implementing the rule there would have been the
-// two-copies-can-disagree shape this function's own history is a case study in. The name
-// stays here because this package's own callers spell it.
+// THIRD reader once arrived that could not be here: the ~/.aws grant conflict, a
+// config.ValidateConfig error, and internal/config cannot import this package — loopholes
+// -> config is the direction the resolver seam already runs in. That reader is gone (the
+// conflict became packs/aws-auth's own `overridden_by` declaration, OQ-SSO8), so every
+// caller now reaches the body through this delegation and it could move back; until it
+// does, config.LoopholeEnabledOverride is the one copy. The name stays here because this
+// package's own callers spell it.
 func ConfigEnabledOverride(loopholesConfig *jsonx.OrderedMap, name string) (enabled bool, set bool) {
 	return config.LoopholeEnabledOverride(loopholesConfig, name)
 }

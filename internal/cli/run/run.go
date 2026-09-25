@@ -513,7 +513,7 @@ func Run(opts Options) (rc int) {
 		// which delivers the channel and checks it there). On THIS backend every
 		// invocation is a fresh sandbox, so the arm's own call site is where the two
 		// backends agree. The channel is the same value both arms check.
-		if lines := o.checkAWSCredentialChannels(channel, nil); len(lines) > 0 {
+		if lines := o.checkEnvOverrides(cfg, rt, staged.packs, channel, nil); len(lines) > 0 {
 			o.printProviderRefusal(lines)
 			return 1
 		}
@@ -845,31 +845,26 @@ func (o *Options) noteUseProfiles(effective *jsonx.OrderedMap, loadedPacks []*pa
 // unstamped to retry); the full live-container probe is the run-slice's concern,
 // and declining is always safe. insideJail short-circuits (never scans /mise).
 //
-// It is a METHOD, and was a package-level func until the base-home disclosure
-// needed a stream: warnf wrote the PROCESS os.Stderr, so the migration's own
-// messages bypassed the launch-log tee that AGENTS.md says everything printed
-// goes through (attachLaunchLog sets o.Stderr 49 lines above the call), and no
-// test could capture them. Both facts are the same missing receiver.
+// It is a METHOD, and was a package-level func until the launch needed a stream:
+// warnf wrote the PROCESS os.Stderr, so the migration's own messages bypassed the
+// launch-log tee that AGENTS.md says everything printed goes through (attachLaunchLog
+// sets o.Stderr above the call), and no test could capture them. Both facts are the
+// same missing receiver.
 //
-// The base-home walk runs HERE and not inside storage.MigrateStorageLayout,
-// because that function early-returns on its layout-version marker
-// (internal/storage/ensure.go:261-265) and detection is deliberately NOT
-// marker-gated: the marker gates only the apply
-// (docs/design/base-home-legacy-state.md §5.7).
+// It returns EnsureGlobalStorage's error and nothing else. The legacy base-home refusal
+// that used to follow it (noteLegacyBaseHome, and its YOLO_ALLOW_LEGACY_BASE_HOME hatch)
+// is gone with the shared mount it guarded: no jail mounts <state>/home at /home/agent any
+// more and no seed copies from it, so its legacy bytes are unmounted, unread, and nothing
+// a launch has cause to refuse over (the maintainer's OQ-BH13 ruling,
+// docs/design/base-home-legacy-state.md#10-decision-ledger). `yolo check` still reports
+// them, as optional cleanup.
 func (o *Options) ensureStorage() error {
-	if err := storage.EnsureGlobalStorage(func() {
+	return storage.EnsureGlobalStorage(func() {
 		insideJail := o.Getenv("YOLO_VERSION") != ""
 		storage.MigrateStorageLayout(insideJail, func() bool { return false }, func(msg string) {
 			fmt.Fprintln(o.Stderr, msg)
 		})
-	}); err != nil {
-		return err
-	}
-	// RETURNED, not just printed: legacy base-home state REFUSES the launch, and the
-	// refusal is this function's error. Run turns a non-nil return here into a red line
-	// and rc=1, which is the behaviour wanted — see noteLegacyBaseHome for why it is fatal
-	// rather than a permanent warning, and why there is no verb.
-	return o.noteLegacyBaseHome()
+	})
 }
 
 // runContainer is the post-config flow: the attach-to-existing decision
@@ -1208,10 +1203,10 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		return 1
 	}
 	// Provision each destination's writable staging BEFORE the argv is assembled:
-	// a missing bind source kills the whole container, and the GlobalHome symlink
-	// hatch must exist before the :ro base is applied.
+	// a missing bind source kills the whole container, and the symlink hatch must
+	// exist in the home skeleton (below) before the :ro home root is applied.
 	if rt != "container" {
-		prepareHostFiles(wsState, hostFiles)
+		prepareHostFiles(wsState, hostFiles, loadedPacks, config.WritableHomeDirs(cfg, loadedPacks))
 	}
 
 	// --- Assemble the ordered argv ---
@@ -1231,16 +1226,37 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		hostTZ:           detectHostTZ(),
 		yoloVersion:      o.yoloVersion(repoRoot),
 		mountTargets:     BindMountTargets(),
-		lspNPMInstall:    lspNPMOf(cfg),
-		lspGoInstall:     lspGoOf(cfg),
 		storePruneOK:     storePruneOK,
 		storePackages:    storePkgs,
 		cacheRelocations: relocations,
 		hostCASAlias:     hostCAS,
-		writableHomeDirs: config.WritableHomeDirs(cfg),
+		writableHomeDirs: config.WritableHomeDirs(cfg, loadedPacks),
 		hostFiles:        hostFiles,
 		userEnv:          userEnv,
 		channel:          channel,
+	}
+	// THE HOME SKELETON (homeskeleton.go): a NEW per-jail directory, bound :ro at
+	// /home/agent, holding only the mountpoints and links this launch's binds need. Here,
+	// and only here, because this is the first point where all three of its inputs exist
+	// (the selected packs, the config and the resolved host_files entries), the attach
+	// decision has been made twice, and the workspace flock is held. An attach never
+	// reaches this line: the running jail keeps the skeleton it booted with, and nothing
+	// ever edits or removes one (the design's OQ-BH10 ruling).
+	//
+	// Built from the assembly input and written straight back into it, so the skeleton and
+	// the argv binding it come from one value; TestRunContainerBuildsTheSkeletonOnTheFreshPath
+	// pins that flow. Apple Container builds none: it binds wsState whole at /home/agent.
+	if rt != "container" { // parity: HonoredBy — Apple Container binds this workspace's own wsState read-write at /home/agent, which needs no mountpoints and holds no other workspace's
+		sk, err := buildHomeSkeleton(paths.HomeSkeletonRoot(cname), in.packs, in.cfg, in.hostFiles)
+		if err != nil {
+			out.printf("[bold red]%s[/bold red]", err.Error())
+			lock.Close()
+			return 1
+		}
+		for _, w := range sk.warnings {
+			out.printf("[yellow]Warning: %s[/yellow]", w)
+		}
+		in.homeSkeleton = sk.dir
 	}
 	sp = o.Perf.Span("launch.assemble_argv")
 	runCmd := o.assembleRunCmd(in)
@@ -1261,10 +1277,11 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// (checkProviderCredentials); only the placement differs, for the attach reason
 	// recorded on the macos-user arm.
 	// THE NINTH, immediately before it and at every one of its three call sites
-	// (awschannels.go): the same composed channel answers both, and a jail carrying two
-	// AWS credential arms is a wrong answer rather than a missing one, so it is refused
-	// first. It has no escape hatch, which is why there is no verdict to weigh here.
-	if lines := o.checkAWSCredentialChannels(channel, envPairs(runCmd)); len(lines) > 0 {
+	// (envoverrides.go): the same composed channel answers both, and a jail carrying a
+	// pack's variable beside something that pack declares overrides it is a wrong answer
+	// rather than a missing one, so it is refused first. It has no escape hatch, which is
+	// why there is no verdict to weigh here.
+	if lines := o.checkEnvOverrides(cfg, rt, loadedPacks, channel, envPairs(runCmd)); len(lines) > 0 {
 		o.printProviderRefusal(lines)
 		lock.Close()
 		return 1
@@ -1814,9 +1831,11 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 //     its launch-time providers and the warning says so. Refusing here would hold
 //     a workspace's day-to-day re-entry hostage to a one-time upgrade.
 //
-// On a POST-CHANGE jail the delivery always runs, with the CREDENTIAL PRE-FLIGHT
-// beside it — the same check the fresh path runs (§6.2, OQ-13), whose attach
-// exemption existed because "attaching to a running jail delivers no environment".
+// On a POST-CHANGE jail the delivery runs unless a pre-flight refuses it: the
+// env-override check, then the CREDENTIAL PRE-FLIGHT — the same checks the fresh
+// path runs (§6.2, OQ-13), the second of whose attach exemption existed because
+// "attaching to a running jail delivers no environment". Both run BEFORE the write,
+// so a refused attach leaves the live file as the previous entry wrote it.
 // A session that would start with a base URL and no token is the
 // mysterious-first-API-call failure the gate refuses elsewhere;
 // YOLO_ALLOW_MISSING_PROVIDERS=1 remains the loud hatch.
@@ -1846,14 +1865,13 @@ func (o *Options) deliverChannelOnAttach(cname, rt string, cfg *jsonx.OrderedMap
 			"it ('yolo stop', then rerun yolo) to pick the selection up.[/yellow]")
 		return 0
 	}
-	// The SAME write the fresh path performs (run.go's lifecycle phase): one
-	// composition, one writer, the file the boot hydrates and every shell sources.
-	// What this entry did not compose is revoked by the rewrite — including a
-	// previous entry's shape vars, which an override-only channel would have left
-	// behind. The bind is live; no argv changes.
-	writeUserEnvFile(filepath.Join(paths.WorkspaceHomeState(o.Workspace), "yolo-user-env.sh"),
-		channel.userEnv, channel)
-	if lines := o.checkAWSCredentialChannels(channel, nil); len(lines) > 0 {
+	// The two pre-flights run BEFORE the write, not after it. The file is the RUNNING
+	// jail's, live-mounted: every new shell and agent process in it sources what was last
+	// written. A refusal after the write would have told this entry "no" while already
+	// handing the live jail the refused channel — for the override check, the pack's
+	// variable beside what overrides it; for the credential check, a provider with no
+	// token. Refusing first leaves the file as the previous entry wrote it.
+	if lines := o.checkEnvOverrides(cfg, rt, staged.packs, channel, nil); len(lines) > 0 {
 		o.printProviderRefusal(lines)
 		return 1
 	}
@@ -1863,6 +1881,13 @@ func (o *Options) deliverChannelOnAttach(cname, rt string, cfg *jsonx.OrderedMap
 			return 1
 		}
 	}
+	// The SAME write the fresh path performs (run.go's lifecycle phase): one
+	// composition, one writer, the file the boot hydrates and every shell sources.
+	// What this entry did not compose is revoked by the rewrite — including a
+	// previous entry's shape vars, which an override-only channel would have left
+	// behind. The bind is live; no argv changes.
+	writeUserEnvFile(filepath.Join(paths.WorkspaceHomeState(o.Workspace), "yolo-user-env.sh"),
+		channel.userEnv, channel)
 	// WHERE THE SELECTIONS LANDED, on this arm too — the disclosure line the fresh
 	// path prints beside its banner. An attach that delivers a profile owes the same
 	// sentence; providers.md#pv-oq-10's rule (never "honored") travels with it.
@@ -1936,9 +1961,6 @@ func detectHostTZ() string {
 	}
 	return ""
 }
-
-func lspNPMOf(cfg *jsonx.OrderedMap) string { n, _ := resolveLSPInstalls(cfg); return n }
-func lspGoOf(cfg *jsonx.OrderedMap) string  { _, g := resolveLSPInstalls(cfg); return g }
 
 // runtimeWriteTracking wraps runtime.WriteContainerTracking with the resolved
 // workspace path.

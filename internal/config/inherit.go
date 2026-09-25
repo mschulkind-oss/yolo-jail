@@ -135,7 +135,7 @@ var inheritCensus = map[string]keyDisposition{
 	"mise_tools":  {preflight: true, nested: true, reason: "the check dry-run runs ConfigureMisePrism over it; an inner launcher installs from it"},
 	"mcp_servers": {preflight: true, nested: true, reason: "MCP processes run in the jail; the check dry-run renders their wrappers and a launcher passes them on"},
 	"mcp_presets": {preflight: true, nested: true, reason: "MCP presets the check dry-run resolves and an inner launcher passes on"},
-	"lsp_servers": {preflight: true, nested: true, reason: "LSP servers installed in the jail; the check dry-run renders their config"},
+	"lsp_servers": {preflight: true, nested: true, reason: "LSP servers the jail's agents spawn; the check dry-run renders their config"},
 	// `providers` is merged-scope EXCEPT for its address half: `base_url` and
 	// `endpoints.<protocol>.base_url` are user-scope only (OQ-LM3,
 	// validate.go's validateProviderAddressScope). The distinction survives the crossing
