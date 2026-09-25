@@ -1,8 +1,9 @@
 package oauthbroker
 
 import (
+	"errors"
 	"fmt"
-	"os"
+	"io/fs"
 	"strings"
 	"time"
 
@@ -107,14 +108,15 @@ func SelfCheck(credsPath string) int {
 // of remaining life, so dipping below that is a warning even though nothing has
 // broken yet, and crossing zero means refreshes are not landing at all.
 func gradeSharedCreds(credsPath string, now time.Time) []selfCheckLine {
-	info, err := os.Stat(credsPath)
-	if err != nil {
+	raw, info, err := readCreds(credsPath)
+	if errors.Is(err, fs.ErrNotExist) {
 		return []selfCheckLine{{grade: "NOTE",
 			title: credsPath + " does not exist — run Claude and `/login` first"}}
 	}
-	raw, rerr := os.ReadFile(credsPath)
-	if rerr != nil {
-		return []selfCheckLine{{grade: "FAIL", title: fmt.Sprintf("%s: %s", credsPath, rerr)}}
+	if err != nil {
+		// A link at the path lands here, named (readCreds): the broker refuses it, so the
+		// grade is the broker's view, not the file's behind the link.
+		return []selfCheckLine{{grade: "FAIL", title: fmt.Sprintf("%s: %s", credsPath, err)}}
 	}
 	if strings.TrimSpace(string(raw)) == "" {
 		// The documented pre-login placeholder: `yolo run` creates the file empty

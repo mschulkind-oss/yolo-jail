@@ -23,12 +23,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // Upstream OAuth endpoint constants. Frozen contract (must not drift — the
@@ -120,12 +123,53 @@ func nowMS() int64 { return nowFunc() }
 // empty OrderedMap + nil err. Callers distinguish "creds unreadable" (err !=
 // nil) from "no refresh token" (empty object).
 func oauthFromCreds(credsPath string) (*jsonx.OrderedMap, error) {
-	data, err := os.ReadFile(credsPath)
+	data, _, err := readCreds(credsPath)
 	if err != nil {
 		return nil, err
 	}
 	return oauthFromCredsBytes(data)
 }
+
+// readCreds reads the shared credentials file, and its FileInfo, beneath a root on the file's
+// directory, taking only a REGULAR file: a symbolic link at credsPath, dangling or not, is
+// refused with errCredsIsLink rather than followed. Every read of the file in this package goes
+// through here.
+//
+// The directory is the machine store's `.claude-shared-credentials`, which every Claude jail
+// binds read-write, and the broker runs on the host as the host user. So the jail can put a link
+// at `.credentials.json` naming any host file (the host user's own
+// ~/.claude/.credentials.json is the obvious one), and a plain read here served that file's
+// tokens to every jail that asked (docs/reference/jail-home.md, "Host code in jail-writable
+// state"). The directory itself is the jail's mountpoint, which it cannot replace; it is opened
+// refusing a link anyway, as internal/storage's ensureSharedCredentials opens it.
+//
+// The WRITE needs no root: WriteTokens renames a fresh O_EXCL temp file over the name, and
+// rename(2) replaces a link there rather than following it.
+func readCreds(credsPath string) ([]byte, fs.FileInfo, error) {
+	r, err := paths.OpenStateDirRoot(filepath.Dir(credsPath))
+	if err != nil {
+		return nil, nil, err
+	}
+	defer r.Close()
+	name := filepath.Base(credsPath)
+	if fi, err := r.Lstat(name); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
+		return nil, nil, &fs.PathError{Op: "read", Path: credsPath, Err: errCredsIsLink}
+	}
+	f, err := paths.OpenRegularFileBeneath(r, name)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, nil, err
+	}
+	data, err := io.ReadAll(f)
+	return data, fi, err
+}
+
+var errCredsIsLink = errStr("it is a symbolic link, and the jail can write the directory it is in, " +
+	"so the broker does not follow it (remove the link; the next /login writes a real file)")
 
 // oauthFromCredsBytes is oauthFromCreds' body once the file is in hand, split
 // out for the one caller that has already read the bytes for another reason

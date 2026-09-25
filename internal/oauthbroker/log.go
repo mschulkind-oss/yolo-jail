@@ -81,9 +81,10 @@ func LogStartup(credsPath string) {
 
 // describeCreds is a one-line summary of a creds file for logging: mtime, the
 // access + refresh token FINGERPRINTS (never the tokens), and expiresAt.
-// Tolerates absent / malformed files (never raises).
+// Tolerates absent / malformed files (never raises), and reads through readCreds, so a link
+// at path is reported rather than followed.
 func describeCreds(path string) string {
-	st, err := os.Stat(path)
+	data, st, err := readCreds(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return path + ": <absent>"
@@ -91,10 +92,6 @@ func describeCreds(path string) string {
 		return fmt.Sprintf("%s: stat_error=%s", path, err)
 	}
 	mtime := st.ModTime().Unix()
-	data, rerr := os.ReadFile(path)
-	if rerr != nil {
-		return fmt.Sprintf("%s: mtime=%d read_error=%s", path, mtime, rerr)
-	}
 	decoded, jerr := jsonx.Decode(data)
 	if jerr != nil {
 		return fmt.Sprintf("%s: mtime=%d read_error=%s", path, mtime, jerr)
