@@ -803,8 +803,14 @@ workspace store the same way. Promote opens its sidecars through `storeFile`
 (`wsOverlayFile`, `wsLastRenderFile`, `wsListCaptureFile`). A refused link
 fails its plan with exit 1 before anything is written. Its overlay write-back goes through the
 same `captureFile`, so a link the jail swaps in at the overlay is replaced, and a linked
-`.yolo/prism` abandons the promotion. The write-back stays atomic (`captureFile.replace`: a temp
-file and a rename, both beneath the root), where capture and reset truncate in place. `apply --sealed` counts captured keys
+`.yolo/prism` abandons the promotion. The write-back is atomic (`captureFile.replace`: a temp
+file and a rename, both beneath the root), and so is every other sidecar write: the overlay and list-capture sidecars that capture and
+capture-on-terminate write, and the baseline reset re-seeds, each at its store's mode
+(`SidecarFileMode`, 0600 in a real home). No mount names a file in either store. The surface
+reset truncates is the exception, and is rewritten in place in every form, because it is
+mount-visible: a `host_files` source, a single-file bind target in-jail, or one of the
+single-file bind sources at the top of `<workspace>/.yolo/home` (`bash_history`,
+`yolo-user-env.sh`, …), which `~/.bash_history` maps onto. `apply --sealed` counts captured keys
 through `sealedConfigTarget` (`overlayKeyCount`) and refuses to seal over a sidecar it could not
 read.
 
