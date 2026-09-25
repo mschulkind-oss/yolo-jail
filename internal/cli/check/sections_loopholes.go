@@ -156,8 +156,14 @@ func (o *Options) checkLoopholes(r *reporter) {
 			r.ok("loophole " + lp.Name + ": disabled")
 			continue
 		}
-		if !lp.RequirementsMet() {
-			reason, _ := lp.InactiveReason()
+		// Every gate of Active() but the switch, which was resolved just above from the
+		// config this walk otherwise does not read — NOT RequirementsMet() alone. That
+		// probe folds in neither supersession nor `platforms`, so a loophole a selected
+		// pack superseded, or one this machine cannot run at all, used to fall through to
+		// its doctor_cmd: executed on the host, graded as a live row ("self-check ok", or
+		// a [FAIL] for something the user's own pack selection switched off), with the
+		// broker's daemon-liveness block under it.
+		if reason, inert := inertReason(lp); inert {
 			r.ok("loophole " + lp.Name + ": inactive (" + reason + ")")
 			continue
 		}
@@ -186,7 +192,16 @@ func (o *Options) checkLoopholes(r *reporter) {
 			r.warn("loophole "+lp.Name+": self-check could not run", out)
 		default:
 			if graded := reportSelfCheckLines(r, lp.Name, res.Output); graded == 0 {
-				r.fail(fmt.Sprintf("loophole %s: self-check failed (rc=%d)", lp.Name, *res.RC), "no output")
+				// Zero GRADED lines is not zero output: a doctor_cmd owes the protocol
+				// nothing, and one that failed in its own words (openai-auth-broker's did,
+				// until it spoke the protocol) was reported as "no output" over the one
+				// sentence saying what broke. Show what it printed; say "no output" only
+				// when that is true.
+				note := strings.TrimSpace(res.Output)
+				if note == "" {
+					note = "no output"
+				}
+				r.fail(fmt.Sprintf("loophole %s: self-check failed (rc=%d)", lp.Name, *res.RC), note)
 			}
 		}
 		// OUTSIDE the switch, and deliberately: the daemon-liveness block is the
@@ -200,6 +215,23 @@ func (o *Options) checkLoopholes(r *reporter) {
 			o.reportBrokerDaemon(r)
 		}
 	}
+}
+
+// inertReason reports why a loophole whose switch is ON still does nothing here, or
+// ("", false) when a launch would run it. It is Active()'s gates minus `Enabled` —
+// supersession, then `platforms`, then the `requires` probes — worded by InactiveReason,
+// the one place that orders them (docs/reference/loophole-system.md: "the order is
+// load-bearing and InactiveReason repeats it").
+//
+// Minus `Enabled` because both sections here resolve the switch themselves, from the
+// merged config (loopholeConfigBlock), where the record carries only the manifest
+// default. Asking InactiveReason on the record would answer "disabled" for a loophole
+// the user switched on, so it is asked on a copy whose switch is set: a copy, never the
+// record, because the record is the Set's and RunDoctorChecks reads it next.
+func inertReason(lp *loopholes.Loophole) (string, bool) {
+	on := *lp
+	on.Enabled = true
+	return on.InactiveReason()
 }
 
 // loopholeConfigBlock returns the merged (user + workspace) `loopholes` block, or nil
@@ -382,7 +414,10 @@ func (o *Options) checkHostServiceLiveness(r *reporter) {
 		r.skip("Inside jail — host-service liveness skipped", "These probes dial host sockets; run `yolo check` on the host.")
 		return
 	}
-	entries := loopholes.ValidateLoopholes()
+	// ValidateSet, not ValidateLoopholes: only the Set construction applies the selected
+	// packs' `supersedes` claims (ValidateSet says why), and without them a superseded
+	// loophole's daemon — which no launch spawns — is queued below and probed as missing.
+	entries, _ := loopholes.ValidateSet()
 	// The same resolution the row above needs, for the same reason and with sharper
 	// stakes: this walker reads no config at all, so the record's Enabled is the
 	// manifest default. A loophole the user switched on has a daemon RUNNING — the
@@ -401,7 +436,7 @@ func (o *Options) checkHostServiceLiveness(r *reporter) {
 		if v, set := loopholes.ConfigEnabledOverride(userSwitches, lp.Name); set {
 			enabled = v
 		}
-		if enabled && lp.RequirementsMet() && lp.HostDaemon != nil {
+		if _, inert := inertReason(lp); enabled && !inert && lp.HostDaemon != nil {
 			externals = append(externals, lp)
 		}
 	}

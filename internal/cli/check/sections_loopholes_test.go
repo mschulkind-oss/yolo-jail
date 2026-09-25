@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -1201,5 +1202,165 @@ func TestCheckLoopholesGradesASupersessionWithNothingInstalled(t *testing.T) {
 		!strings.Contains(out, "declares `serves` at all") {
 		t.Errorf("a supersession on a machine with no loopholes was not graded (warned=%d):\n%s",
 			r.warned, out)
+	}
+}
+
+// otherPlatform is a GOOS in loopholedecl's closed list that is NOT this machine's, so a
+// manifest declaring only it is unsupported here on every host the suite runs on.
+func otherPlatform() string {
+	if runtime.GOOS == "linux" {
+		return "darwin"
+	}
+	return "linux"
+}
+
+// TestCheckLoopholesDoesNotGradeAnInertLoopholeAsLive: a loophole a selected pack
+// SUPERSEDES, and one whose `platforms` exclude this machine, are both enabled and both do
+// nothing — Active() is false for each (docs/reference/loophole-system.md: four gates,
+// supersession second, platforms third). The section used to gate on RequirementsMet()
+// alone, which folds in neither, so both RAN their doctor_cmd on the host and reported
+// "self-check ok" — a live row for a loophole no launch starts. A superseded self-check
+// that failed would have been a [FAIL] for something the user's own pack selection
+// switched off.
+//
+// What each must render instead is the row the unmet-requirement case already had,
+// `inactive (<reason>)`, with InactiveReason's wording: the superseding pack, capability
+// and `because` (anything that turns something off names who and why, pack-system.md
+// §5), and for the platform case the sentence saying nothing is missing.
+func TestCheckLoopholesDoesNotGradeAnInertLoopholeAsLive(t *testing.T) {
+	moduleRoot := isolatedModuleDir(t)
+	sentinels := t.TempDir()
+
+	supersededRan := filepath.Join(sentinels, "superseded-ran")
+	writeLoopholeManifest(t, moduleRoot, "acme-refresh",
+		`"name":"acme-refresh","description":"d","transport":"none","default_enabled":true,`+
+			`"serves":["acme-oauth-refresh"],`+
+			`"doctor_cmd":["/bin/sh","-c","touch `+supersededRan+`; echo 'OK: refresher healthy'"]`)
+	recordSupersessions(t, loopholes.PackSupersession{Pack: "acme-bedrock",
+		Capability: "acme-oauth-refresh", Because: "Bedrock needs no OAuth refresh"})
+
+	platformRan := filepath.Join(sentinels, "platform-ran")
+	writeLoopholeManifest(t, moduleRoot, "acme-elsewhere",
+		`"name":"acme-elsewhere","description":"d","transport":"none","default_enabled":true,`+
+			`"platforms":["`+otherPlatform()+`"],`+
+			`"doctor_cmd":["/bin/sh","-c","touch `+platformRan+`; echo 'OK: daemon healthy'"]`)
+
+	r, out := runCheckLoopholes(t, t.TempDir())
+
+	for _, ran := range []string{supersededRan, platformRan} {
+		if _, err := os.Stat(ran); err == nil {
+			t.Errorf("an inert loophole's doctor_cmd ran on the host (%s):\n%s",
+				filepath.Base(ran), out)
+		}
+	}
+	for _, name := range []string{"acme-refresh", "acme-elsewhere"} {
+		if strings.Contains(out, "loophole "+name+": self-check") ||
+			strings.Contains(out, "healthy") {
+			t.Errorf("inert loophole %s was graded as live:\n%s", name, out)
+		}
+	}
+	for _, want := range []string{
+		"loophole acme-refresh: inactive (superseded by pack 'acme-bedrock'",
+		"'acme-oauth-refresh'",
+		"Bedrock needs no OAuth refresh",
+		"loophole acme-elsewhere: inactive (unsupported on " + runtime.GOOS + "/" + runtime.GOARCH,
+		"Nothing is missing on this machine",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the inert rows do not say %q:\n%s", want, out)
+		}
+	}
+	// Neither is a finding: supersession is the user's own selection and an unsupported
+	// platform has nothing to fix.
+	if r.failed != 0 || r.warned != 0 {
+		t.Errorf("inert loopholes drew a grade (failed=%d warned=%d):\n%s", r.failed, r.warned, out)
+	}
+}
+
+// TestHostServiceLivenessSkipsAnInertLoophole is the same defect one section down: the
+// externals filter gated on RequirementsMet() too, so a superseded or platform-unsupported
+// loophole's host_daemon was queued for probing — which, with a jail running, is a
+// "[FAIL] … no endpoint published" per jail for a daemon no launch ever spawns.
+//
+// It asserts the filter rather than a probe (as TestHostServiceLivenessResolvesUserScopeEnable
+// does): with only inert loopholes installed, there is nothing to probe, and the section
+// must say so before it ever looks for a runtime.
+func TestHostServiceLivenessSkipsAnInertLoophole(t *testing.T) {
+	moduleRoot := isolatedModuleDir(t)
+	writeLoopholeManifest(t, moduleRoot, "acme-refresh",
+		`"name":"acme-refresh","description":"d","transport":"loopback-tls","default_enabled":true,`+
+			`"serves":["acme-oauth-refresh"],"host_daemon":{"cmd":["/bin/true"],"publishes":"socket"}`)
+	recordSupersessions(t, loopholes.PackSupersession{Pack: "acme-bedrock",
+		Capability: "acme-oauth-refresh", Because: "Bedrock needs no OAuth refresh"})
+	writeLoopholeManifest(t, moduleRoot, "acme-elsewhere",
+		`"name":"acme-elsewhere","description":"d","transport":"loopback-tls","default_enabled":true,`+
+			`"platforms":["`+otherPlatform()+`"],"host_daemon":{"cmd":["/bin/true"],"publishes":"socket"}`)
+	// Both fixtures must LOAD: a manifest the walk rejects never reaches the filter, and
+	// "nothing to probe" would then pass for the wrong reason.
+	loaded := 0
+	for _, e := range loopholes.ValidateLoopholes() {
+		if e.Err != "" {
+			t.Fatalf("fixture manifest rejected: %s", e.Err)
+		}
+		loaded++
+	}
+	if loaded != 2 {
+		t.Fatalf("loaded %d fixture loopholes, want 2", loaded)
+	}
+
+	var buf bytes.Buffer
+	r := newReporter(&buf, false)
+	o := &Options{
+		Workspace: t.TempDir(),
+		Getenv:    func(string) string { return "" },
+		LookPath:  func(string) (string, bool) { return "", false },
+	}
+	fillDefaults(o)
+	o.checkHostServiceLiveness(r)
+	out := buf.String()
+
+	if !strings.Contains(out, "no host-side daemons to probe") {
+		t.Errorf("an inert loophole's daemon was queued for a liveness probe:\n%s", out)
+	}
+	if r.failed != 0 || r.warned != 0 {
+		t.Errorf("failed=%d warned=%d, want the nothing-to-probe pass alone:\n%s",
+			r.failed, r.warned, out)
+	}
+}
+
+// TestCheckLoopholesShowsAnUngradedFailingSelfCheck: a doctor_cmd that exits non-zero
+// without speaking the graded protocol still printed SOMETHING, and the row must carry it.
+// The section used to note "no output" whenever it found zero graded lines, which is how the
+// openai-auth-broker self-check's "OpenAI authentication: unavailable: open …: no such file
+// or directory" reached the screen as `[FAIL] … self-check failed (rc=1)` / "no output" — a
+// claim about the output that was false, over the one sentence that said what was wrong.
+// A third-party loophole's doctor_cmd owes this protocol nothing, so the fallback is core's.
+//
+// "no output" stays for the case it is true of.
+func TestCheckLoopholesShowsAnUngradedFailingSelfCheck(t *testing.T) {
+	moduleRoot := isolatedModuleDir(t)
+	selfCheckModule(t, moduleRoot, "acme-chatty",
+		[]string{"/bin/sh", "-c", "echo 'acme: credential store unreadable'; exit 1"})
+	selfCheckModule(t, moduleRoot, "acme-silent", []string{"/bin/sh", "-c", "exit 3"})
+
+	r, out := runCheckLoopholes(t, t.TempDir())
+
+	if !strings.Contains(out, "loophole acme-chatty: self-check failed (rc=1)") ||
+		!strings.Contains(out, "acme: credential store unreadable") {
+		t.Errorf("an ungraded failing self-check's own output did not reach its row:\n%s", out)
+	}
+	chatty := out[strings.Index(out, "acme-chatty"):]
+	if end := strings.Index(chatty, "acme-silent"); end >= 0 {
+		chatty = chatty[:end]
+	}
+	if strings.Contains(chatty, "no output") {
+		t.Errorf("a self-check that printed a line was reported as having no output:\n%s", out)
+	}
+	if !strings.Contains(out, "loophole acme-silent: self-check failed (rc=3)") ||
+		!strings.Contains(out[strings.Index(out, "acme-silent"):], "no output") {
+		t.Errorf("a self-check that printed nothing lost its \"no output\" note:\n%s", out)
+	}
+	if r.failed != 2 {
+		t.Errorf("failed=%d, want 2:\n%s", r.failed, out)
 	}
 }
