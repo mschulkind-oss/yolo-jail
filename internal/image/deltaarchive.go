@@ -304,8 +304,8 @@ func tarLayoutConsuming(layoutDir, archive string) (int64, error) {
 // the directory walk saw at path.
 //
 // DEFENSE IN DEPTH, on top of the directory being private. The file is opened
-// O_NOFOLLOW and the OPENED file is checked — regular, and the same file the walk
-// listed — so an entry swapped between the walk and the open (for a symlink to a
+// O_NOFOLLOW and the OPENED file is checked — regular, the same file the walk
+// listed, with the size and modification time it recorded — so an entry swapped between the walk and the open (for a symlink to a
 // host file, or for different content) fails the tar instead of being archived.
 func appendFile(tw *tar.Writer, path, name string, walked fs.FileInfo) error {
 	src, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
@@ -317,7 +317,11 @@ func appendFile(tw *tar.Writer, path, name string, walked fs.FileInfo) error {
 	if err != nil {
 		return err
 	}
-	if !st.Mode().IsRegular() || !os.SameFile(st, walked) {
+	// Identity alone is not enough: a file rewritten in place keeps its inode, and
+	// a removed file's inode number can be reused at once by its replacement. So
+	// the size and modification time the walk recorded must match too.
+	if !st.Mode().IsRegular() || !os.SameFile(st, walked) ||
+		st.Size() != walked.Size() || !st.ModTime().Equal(walked.ModTime()) {
 		return fmt.Errorf("%s changed between listing the image layout and archiving it", name)
 	}
 	if err := tw.WriteHeader(&tar.Header{

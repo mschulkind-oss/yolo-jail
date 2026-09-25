@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -670,8 +671,17 @@ func TestTheTarRefusesAnEntrySwappedAfterItWasListed(t *testing.T) {
 			must(t, os.Symlink(aside, p))
 		}},
 		{"a different regular file", func(t *testing.T, p string) {
-			must(t, os.Remove(p))
+			// Moved aside rather than removed: a removed inode's number can be
+			// reused at once (ext4 does, CI's check-go hit it 2026-09-25), which
+			// would make the replacement look like the same file by identity.
+			must(t, os.Rename(p, p+".aside"))
 			must(t, os.WriteFile(p, []byte("substituted"), 0o644))
+		}},
+		{"the listed file rewritten in place", func(t *testing.T, p string) {
+			// Same inode on every filesystem, so identity alone cannot see it:
+			// only the size and modification time the walk recorded can.
+			time.Sleep(10 * time.Millisecond)
+			must(t, os.WriteFile(p, []byte("rewritten, longer"), 0o644))
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
