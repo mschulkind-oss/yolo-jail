@@ -5,4 +5,18 @@ node = "24"
 go = "1.26"
 just = "latest"
 # staticcheck is the Go lint gate (playbook: lint = go vet + staticcheck).
-"go:honnef.co/go/tools/cmd/staticcheck" = "latest"
+#
+# CGO_ENABLED=0 makes it a STATIC binary, and the lint gate depends on that. mise's
+# `go:` backend builds it with `go install`, and in a jail `gcc` is on PATH, so cgo
+# defaulted on and the result was dynamically linked with its ELF interpreter inside
+# the HOST's /nix/store (a nix glibc's ld-linux). A host nix garbage collection then
+# deleted that glibc and every `staticcheck` run failed to exec until someone
+# reinstalled it (2026-09-24). A static binary names no interpreter, so no GC can
+# break it. `install_env` is mise's per-tool environment for the install step — the
+# go backend applies it to `go install` — so this scopes the setting to this one
+# tool, not to the project's own builds and tests.
+#
+# ⚠ Changing an option does NOT rebuild an installed version. After editing this
+# line: `mise install --force go:honnef.co/go/tools/cmd/staticcheck`, then
+# `file "$(mise which staticcheck)"` must say "statically linked".
+"go:honnef.co/go/tools/cmd/staticcheck" = { version = "latest", install_env = { CGO_ENABLED = "0" } }

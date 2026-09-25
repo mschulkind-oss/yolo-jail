@@ -155,8 +155,13 @@ mise manages the *interactive* / *project* toolchains. Two config scopes:
   node = "24"
   go   = "1.26"      # kept in lockstep with go.mod
   just = "latest"
-  "go:honnef.co/go/tools/cmd/staticcheck" = "latest"
+  "go:honnef.co/go/tools/cmd/staticcheck" = { version = "latest", install_env = { CGO_ENABLED = "0" } }
   ```
+
+  `install_env` is mise's per-tool install environment, which the `go:` backend hands to
+  `go install`. `CGO_ENABLED = "0"` makes staticcheck a static binary: built with cgo on,
+  it was dynamically linked against a host `/nix/store` glibc, and a host nix GC broke the
+  lint gate. `mise.toml`'s comment carries the reinstall step an option change needs.
 
   Workspace config is layered **over** global (mise's normal merge), so the
   workspace `node = "24"` wins here.
