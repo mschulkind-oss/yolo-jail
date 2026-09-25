@@ -203,12 +203,14 @@ func TestTakeSelectionSplits(t *testing.T) {
 func TestTakeSelectionRefusesNonScalars(t *testing.T) {
 	// A table under the namespace is the one shape that could be mistaken for a
 	// yolo-managed table (hostTableKeys's sentinel probe asks the derive exactly which
-	// of its keys are tables), so it is refused rather than flattened.
+	// of its keys are tables), so it is refused rather than flattened, and so is an
+	// array that holds one. An array of scalars is a leaf and passes (pi's
+	// enabledModels; TestTakeSelectionKeepsAnArrayOfScalars).
 	computed := map[string]any{
 		SelectionKey: map[string]any{
 			"model_provider": "llamacpp",
 			"nested":         map[string]any{"a": 1},
-			"list":           []any{"a"},
+			"list_of_tables": []any{map[string]any{"a": 1}},
 		},
 	}
 	rest, selection, problems := TakeSelection(computed)
@@ -304,18 +306,103 @@ func TestParseSelectionRecord(t *testing.T) {
 }
 
 // A record the writer cannot have produced — the writer only ever persists what
-// TakeSelection let through, which is scalars — must claim nothing rather than feed a
-// table into ApplySelection, where it would flow into `next` and be written back as the
-// record of a write yolo never made.
+// TakeSelection let through, which is scalars and arrays of scalars — must claim nothing
+// rather than feed a table into ApplySelection, where it would flow into `next` and be
+// written back as the record of a write yolo never made. An array of scalars is one the
+// writer does produce (pi's enabledModels), so it is kept, its numbers normalized.
 func TestParseSelectionRecordDropsNonScalars(t *testing.T) {
 	got := ParseSelectionRecord([]byte(
-		`{"model_provider":"llamacpp","nested":{"a":1},"list":[1,2],"nothing":null}`))
-	want := map[string]any{"model_provider": "llamacpp"}
+		`{"model_provider":"llamacpp","nested":{"a":1},"list":[1,2],"tables":[{"a":1}],"nothing":null}`))
+	want := map[string]any{"model_provider": "llamacpp", "list": []any{float64(1), float64(2)}}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("record = %v, want the scalar keys alone %v", got, want)
+		t.Errorf("record = %v, want the scalar and scalar-array keys alone %v", got, want)
 	}
 	if got := ParseSelectionRecord([]byte(`{"nested":{"a":1}}`)); got != nil {
 		t.Errorf("a record with no scalar at all = %v, want nil (nothing is trustworthy)",
 			got)
+	}
+}
+
+// TestTakeSelectionKeepsAnArrayOfScalars pins the one non-scalar shape the namespace
+// carries: pi's enabledModels, an array that is a leaf everywhere it is read.
+func TestTakeSelectionKeepsAnArrayOfScalars(t *testing.T) {
+	list := []any{"zai/glm-5.3", "zai/glm-4.6"}
+	_, selection, problems := TakeSelection(map[string]any{
+		SelectionKey: map[string]any{"defaultProvider": "zai", "enabledModels": list},
+	})
+	if len(problems) != 0 {
+		t.Fatalf("problems = %v, want none for an array of scalars", problems)
+	}
+	if !reflect.DeepEqual(selection["enabledModels"], list) {
+		t.Errorf("enabledModels = %v, want %v kept", selection["enabledModels"], list)
+	}
+}
+
+// TestApplySelectionDecidesArrays is TestApplySelectionDecides's table for an ARRAY value:
+// the same five rules, compared by value and in order, with numbers normalized so a
+// derive's int64 and a record's float64 read as one choice.
+func TestApplySelectionDecidesArrays(t *testing.T) {
+	yolo := []any{"zai/glm-5.3", "zai/glm-4.6"}
+	moved := []any{"kilo/deepseek"}
+	mine := []any{"zai/glm-5.3-flash"}
+	cases := []struct {
+		name                    string
+		selection, file, record map[string]any
+		wantLift, wantNext      map[string]any
+	}{
+		{name: "activation writes the array",
+			selection: map[string]any{"enabledModels": yolo}, file: map[string]any{},
+			wantLift: map[string]any{"enabledModels": yolo}, wantNext: map[string]any{"enabledModels": yolo}},
+		{name: "a same-selection re-render writes nothing new",
+			selection: map[string]any{"enabledModels": yolo}, file: map[string]any{"enabledModels": yolo},
+			record:   map[string]any{"enabledModels": yolo},
+			wantLift: map[string]any{"enabledModels": yolo}, wantNext: map[string]any{"enabledModels": yolo}},
+		{name: "a changed selection moves a yolo-written array",
+			selection: map[string]any{"enabledModels": moved}, file: map[string]any{"enabledModels": yolo},
+			record:   map[string]any{"enabledModels": yolo},
+			wantLift: map[string]any{"enabledModels": moved}, wantNext: map[string]any{"enabledModels": moved}},
+		{name: "a user-edited array survives the same selection",
+			selection: map[string]any{"enabledModels": yolo}, file: map[string]any{"enabledModels": mine},
+			record:   map[string]any{"enabledModels": yolo},
+			wantLift: map[string]any{"enabledModels": mine}, wantNext: map[string]any{"enabledModels": yolo}},
+		{name: "a reorder is a user edit, not the same choice",
+			selection: map[string]any{"enabledModels": yolo},
+			file:      map[string]any{"enabledModels": []any{"zai/glm-4.6", "zai/glm-5.3"}},
+			record:    map[string]any{"enabledModels": yolo},
+			wantLift:  map[string]any{"enabledModels": []any{"zai/glm-4.6", "zai/glm-5.3"}},
+			wantNext:  map[string]any{"enabledModels": yolo}},
+		{name: "deactivation clears a yolo-written array",
+			file: map[string]any{"enabledModels": yolo}, record: map[string]any{"enabledModels": yolo},
+			wantLift: map[string]any{}, wantNext: map[string]any{}},
+		{name: "deactivation keeps a user-edited array",
+			file: map[string]any{"enabledModels": mine}, record: map[string]any{"enabledModels": yolo},
+			wantLift: map[string]any{"enabledModels": mine}, wantNext: map[string]any{"enabledModels": yolo}},
+		{name: "an unrecorded file array equal to the selection is adopted",
+			selection: map[string]any{"defaultProvider": "zai", "enabledModels": yolo},
+			file:      map[string]any{"defaultProvider": "zai", "enabledModels": yolo},
+			record:    map[string]any{"defaultProvider": "zai"},
+			wantLift:  map[string]any{"defaultProvider": "zai", "enabledModels": yolo},
+			wantNext:  map[string]any{"defaultProvider": "zai", "enabledModels": yolo}},
+		{name: "an unrecorded scalar equal to the selection is adopted too",
+			selection: map[string]any{"model": "glm-5.3"}, file: map[string]any{"model": "glm-5.3"},
+			wantLift: map[string]any{"model": "glm-5.3"}, wantNext: map[string]any{"model": "glm-5.3"}},
+		{name: "an unrecorded file array that differs stays the user's",
+			selection: map[string]any{"enabledModels": yolo}, file: map[string]any{"enabledModels": mine},
+			wantLift: map[string]any{"enabledModels": mine}, wantNext: map[string]any{}},
+		{name: "numbers normalize inside an array",
+			selection: map[string]any{"ports": []any{int64(8080)}}, file: map[string]any{"ports": []any{float64(8080)}},
+			record:   map[string]any{"ports": []any{float64(8080)}},
+			wantLift: map[string]any{"ports": []any{float64(8080)}}, wantNext: map[string]any{"ports": []any{float64(8080)}}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			lift, next := ApplySelection(c.selection, c.file, c.record)
+			if !reflect.DeepEqual(lift, c.wantLift) {
+				t.Errorf("lift = %v, want %v", lift, c.wantLift)
+			}
+			if !reflect.DeepEqual(next, c.wantNext) {
+				t.Errorf("next = %v, want %v", next, c.wantNext)
+			}
+		})
 	}
 }

@@ -224,9 +224,15 @@ func TestPiDeriveSettingsScopesDeclaredModels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	enabled, ok := got["enabledModels"].([]any)
+	// enabledModels rides the selection namespace, so pi's own /model scoping is not
+	// reverted by the next render (TestPiEnabledModelsUserEditSurvivesARerender).
+	if _, leaked := got["enabledModels"]; leaked {
+		t.Errorf("enabledModels was emitted as a computed key, which every boot re-asserts: %#v", got)
+	}
+	gotSel, _ := got["selection"].(map[string]any)
+	enabled, ok := gotSel["enabledModels"].([]any)
 	if !ok {
-		t.Fatalf("enabledModels missing or not a slice: %#v", got)
+		t.Fatalf("selection.enabledModels missing or not a slice: %#v", got)
 	}
 	want := []string{"zai/glm-5.3", "zai/glm-4.6", "zai/glm-5.3-flash"}
 	if len(enabled) != len(want) {
@@ -263,9 +269,10 @@ func TestPiDeriveSettingsScopesDeclaredModels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	kiloEnabled, ok := gotKilo["enabledModels"].([]any)
+	kiloSel, _ := gotKilo["selection"].(map[string]any)
+	kiloEnabled, ok := kiloSel["enabledModels"].([]any)
 	if !ok || len(kiloEnabled) != 1 || kiloEnabled[0] != "kilo/*" {
-		t.Errorf("kilo enabledModels = %v, want ['kilo/*']", gotKilo["enabledModels"])
+		t.Errorf("kilo selection.enabledModels = %v, want ['kilo/*']", kiloSel["enabledModels"])
 	}
 }
 
@@ -825,9 +832,9 @@ func TestPiDeriveHandlesKiloGatewayNormalizationAndContextWindow(t *testing.T) {
 	if sel["defaultModel"] != "deepseek/deepseek-v4.1-flash" {
 		t.Errorf("defaultModel = %v, want 'deepseek/deepseek-v4.1-flash'", sel["defaultModel"])
 	}
-	enabled, ok := gotSettings["enabledModels"].([]any)
+	enabled, ok := sel["enabledModels"].([]any)
 	if !ok {
-		t.Fatalf("enabledModels missing: %#v", gotSettings)
+		t.Fatalf("selection.enabledModels missing: %#v", gotSettings)
 	}
 	found := false
 	for _, em := range enabled {

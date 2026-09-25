@@ -1290,8 +1290,9 @@ func sortedKeys(m map[string]any) []string {
 // both what puts them at the top level of the agent's file and what lets a NEW
 // selection outrank a stale captured edit.
 //
-// A shallow merge is exact here, because a lifted value is always a scalar
-// (agentcfg.TakeSelection refuses the rest): there is nothing to recurse into.
+// A shallow merge is exact here, because a lifted value is a scalar or an array of
+// scalars, and an array is a leaf replaced whole (agentcfg.TakeSelection refuses
+// objects): there is nothing to recurse into.
 func mergeSurfaceRoot(base, over map[string]any) map[string]any {
 	out := make(map[string]any, len(base)+len(over))
 	for k, v := range base {

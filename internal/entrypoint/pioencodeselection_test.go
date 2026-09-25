@@ -580,3 +580,180 @@ func TestPiAndOpencodeWriteNoRecordWhenNothingIsSelected(t *testing.T) {
 	requirePiSelection(t, r.piSettings(t), r.piModels(t), "", "")
 	requireOpencodeSelection(t, r.ocConfig(t), "")
 }
+
+// editValue is edit for a value of any JSON shape — an interactive change to pi's scoped
+// models writes an ARRAY, which edit's string-only signature cannot express.
+func (r *pioencodeRender) editValue(t *testing.T, rel []string, key string, value any) {
+	t.Helper()
+	m := r.surface(t, rel...)
+	m[key] = value
+	out, err := (codec.JSON{}).Encode(m)
+	if err != nil {
+		t.Fatalf("encode the hand edit: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(append([]string{r.e.Home}, rel...)...), out, 0o644); err != nil {
+		t.Fatalf("write the hand edit: %v", err)
+	}
+}
+
+// piEnabledModels is pi's enabledModels as the rendered file holds it, as strings, or nil
+// when the key is absent.
+func piEnabledModels(t *testing.T, settings map[string]any) []string {
+	t.Helper()
+	raw, ok := settings["enabledModels"]
+	if !ok {
+		return nil
+	}
+	list, ok := raw.([]any)
+	if !ok {
+		t.Fatalf("enabledModels is %T, want an array", raw)
+	}
+	out := make([]string, 0, len(list))
+	for _, v := range list {
+		s, _ := v.(string)
+		out = append(out, s)
+	}
+	return out
+}
+
+// TestPiEnabledModelsUserEditSurvivesARerender is the array half of the hazard OQ-CS2 exists
+// for: pi's /model scoping writes enabledModels, and a same-selection launch must not revert
+// the user's list to the derive's.
+func TestPiEnabledModelsUserEditSurvivesARerender(t *testing.T) {
+	r := newPioencodeRender(t, zaiReachableJSON)
+	piSettings := []string{".pi", "agent", "settings.json"}
+	r.wireProfiles(`{"zai": {"provider": "zai", "model": "glm-5.3"}}`)
+
+	r.render(t, `{"pi":"zai"}`)
+	if got := piEnabledModels(t, r.piSettings(t)); strings.Join(got, ",") != "zai/glm-5.3,zai/glm-4.6,zai/glm-5.3-flash" {
+		t.Fatalf("activation enabledModels = %v, want the default-led list", got)
+	}
+
+	mine := []any{"zai/glm-5.3-flash"}
+	r.editValue(t, piSettings, "enabledModels", mine)
+	r.render(t, `{"pi":"zai"}`)
+	if got := piEnabledModels(t, r.piSettings(t)); strings.Join(got, ",") != "zai/glm-5.3-flash" {
+		t.Errorf("after a same-selection re-render enabledModels = %v, want the user's [zai/glm-5.3-flash] kept", got)
+	}
+}
+
+// TestPiEnabledModelsFollowTheSelectionRules walks enabledModels through the rest of the
+// selection state machine over real boots: a changed selection moves yolo's own list,
+// deactivation clears it (OQ-PSW2), and deactivation keeps a list the user wrote.
+func TestPiEnabledModelsFollowTheSelectionRules(t *testing.T) {
+	piSettings := []string{".pi", "agent", "settings.json"}
+	const zaiList = "zai/glm-5.3,zai/glm-4.6,zai/glm-5.3-flash"
+
+	t.Run("a changed selection moves yolo's list", func(t *testing.T) {
+		r := newPioencodeRender(t, zaiReachableJSON)
+		r.wireProfiles(`{"zai": {"provider": "zai", "model": "glm-5.3"}}`)
+		r.render(t, `{"pi":"zai"}`)
+		r.wireProfiles(`{"zai": {"provider": "zai", "model": "glm-5.3-flash"}}`)
+		r.render(t, `{"pi":"zai"}`)
+		if got := strings.Join(piEnabledModels(t, r.piSettings(t)), ","); got != "zai/glm-5.3-flash,zai/glm-4.6,zai/glm-5.3" {
+			t.Errorf("enabledModels = %s, want the new default leading", got)
+		}
+	})
+	t.Run("deactivation clears yolo's list", func(t *testing.T) {
+		r := newPioencodeRender(t, zaiReachableJSON)
+		r.wireProfiles(`{"zai": {"provider": "zai", "model": "glm-5.3"}}`)
+		r.render(t, `{"pi":"zai"}`)
+		if got := strings.Join(piEnabledModels(t, r.piSettings(t)), ","); got != zaiList {
+			t.Fatalf("activation enabledModels = %s, want %s", got, zaiList)
+		}
+		r.render(t, ``)
+		if got := piEnabledModels(t, r.piSettings(t)); got != nil {
+			t.Errorf("after deactivation enabledModels = %v, want it cleared", got)
+		}
+	})
+	t.Run("deactivation keeps the user's list", func(t *testing.T) {
+		r := newPioencodeRender(t, zaiReachableJSON)
+		r.wireProfiles(`{"zai": {"provider": "zai", "model": "glm-5.3"}}`)
+		r.render(t, `{"pi":"zai"}`)
+		r.editValue(t, piSettings, "enabledModels", []any{"zai/glm-5.3-flash"})
+		r.render(t, ``)
+		if got := strings.Join(piEnabledModels(t, r.piSettings(t)), ","); got != "zai/glm-5.3-flash" {
+			t.Errorf("after deactivation enabledModels = %s, want the user's list kept", got)
+		}
+	})
+}
+
+// TestPiSelectionArrayIsNotAHostTable pins the host notch's half of letting an array ride
+// the selection: hostTableKeys claims object-valued keys alone as wholesale yolo tables, so
+// neither the namespace nor the enabledModels array under it may appear among pi/settings'
+// host tables, where it would be written by replacement into the user's real settings.json.
+func TestPiSelectionArrayIsNotAHostTable(t *testing.T) {
+	pi, err := embeddedPack("pi")
+	if err != nil {
+		t.Fatalf("embedded pi: %v", err)
+	}
+	surfaces, _ := pi.SurfacesFor(false)
+	visited := false
+	for _, s := range surfaces {
+		if s.Agent != "pi" || s.Name != "settings" {
+			continue
+		}
+		visited = true
+		for _, k := range hostTableKeys(pi, s) {
+			if k == "enabledModels" || k == "selection" {
+				t.Errorf("pi/settings host tables include %q; an array or the selection namespace must never be a wholesale host table", k)
+			}
+		}
+	}
+	if !visited {
+		t.Fatal("pi/settings surface was never visited — did the pack drop it?")
+	}
+}
+
+// TestPiEnabledModelsWrittenBeforeTheSelectionAreAdopted is the upgrade path: a jail
+// rendered before enabledModels rode the selection holds yolo's list with NO record entry
+// for it. A file value equal to what the selection names is indistinguishable from yolo's
+// own write, so it is adopted; otherwise the list would read as the user's forever, and a
+// changed selection would never move it.
+func TestPiEnabledModelsWrittenBeforeTheSelectionAreAdopted(t *testing.T) {
+	r := newPioencodeRender(t, zaiReachableJSON)
+	r.wireProfiles(`{"zai": {"provider": "zai", "model": "glm-5.3"}}`)
+	r.render(t, `{"pi":"zai"}`)
+
+	// Rewrite the record as the pre-change mechanism left it: the pair only.
+	path := prismSelectionRecordPath(r.e, "pi", "settings")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read the selection record: %v", err)
+	}
+	rec := agentcfgParseRecordForTest(t, raw)
+	delete(rec, "enabledModels")
+	writeRecordForTest(t, path, rec)
+
+	r.render(t, `{"pi":"zai"}`) // same selection: the equal list is adopted
+	r.wireProfiles(`{"zai": {"provider": "zai", "model": "glm-5.3-flash"}}`)
+	r.render(t, `{"pi":"zai"}`) // a changed selection must move the adopted list
+	if got := strings.Join(piEnabledModels(t, r.piSettings(t)), ","); got != "zai/glm-5.3-flash,zai/glm-4.6,zai/glm-5.3" {
+		t.Errorf("after a changed selection enabledModels = %s, want the new default leading — "+
+			"the pre-selection list was never adopted and is being held as the user's", got)
+	}
+}
+
+func agentcfgParseRecordForTest(t *testing.T, raw []byte) map[string]any {
+	t.Helper()
+	decoded, err := (codec.JSON{}).Decode(raw)
+	if err != nil {
+		t.Fatalf("decode the selection record: %v", err)
+	}
+	m, ok := decoded.(map[string]any)
+	if !ok {
+		t.Fatalf("selection record is %T, want an object", decoded)
+	}
+	return m
+}
+
+func writeRecordForTest(t *testing.T, path string, rec map[string]any) {
+	t.Helper()
+	out, err := (codec.JSON{}).Encode(rec)
+	if err != nil {
+		t.Fatalf("encode the selection record: %v", err)
+	}
+	if err := os.WriteFile(path, out, 0o644); err != nil {
+		t.Fatalf("write the selection record: %v", err)
+	}
+}

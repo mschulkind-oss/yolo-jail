@@ -24,20 +24,22 @@ package agentcfg
 // The three properties the apply implements, all §5.1:
 //
 //	write on activation    a key the file does not have gets the selected value.
-//	never on absence       a key the selection stops naming is left exactly as it is —
-//	                       not cleared, not defaulted (OQ-CS2: the no-profile case is
-//	                       the agent's own).
+//	clear yolo's own       a key the selection stops naming is cleared when the file
+//	                       still holds what yolo wrote, and kept when the user changed
+//	                       it (OQ-PSW2, docs/design/provider-switching.md).
 //	user edit wins         a key whose value the user changed since yolo wrote it is
 //	                       left alone, until a NEW selection value differs from the
 //	                       last one yolo wrote — an explicit selection outranks a
 //	                       stale interactive choice, but never an un-stale one.
 //
-// A SCALAR here is a string, a boolean, or a number. A selection value is always a
-// scalar: the namespace's body is a flat map, and a table under it would be
-// indistinguishable — to internal/entrypoint.hostTableKeys's sentinel probe, which
-// asks the derive which of its keys are wholesale-managed tables — from a table yolo
-// owns and would be regenerated as one. Non-scalar values are therefore refused, not
-// flattened, at TakeSelection.
+// A SCALAR here is a string, a boolean, or a number. A selection value is a scalar or an
+// ARRAY of scalars (pi's enabledModels), never an object: the namespace's body is a flat
+// map, and a table under it would be indistinguishable — to
+// internal/entrypoint.hostTableKeys's sentinel probe, which asks the derive which of its
+// keys are wholesale-managed tables — from a table yolo owns and would be regenerated as
+// one. An array is a leaf to every reader (replaced whole, never merged into), so it
+// carries no such ambiguity. Objects are therefore refused, not flattened, at
+// TakeSelection.
 
 import (
 	"encoding/json"
@@ -77,10 +79,10 @@ func TakeSelection(computed map[string]any) (rest, selection map[string]any, pro
 	selection = map[string]any{}
 	for _, k := range sortedMapKeys(body) {
 		v := body[k]
-		if !isScalar(v) {
+		if !isSelectionValue(v) {
 			problems = append(problems, "reserved "+SelectionKey+" key "+k+
-				" is not a scalar (string, number, or boolean); dropped — a table under "+
-				SelectionKey+" would read as a yolo-managed table")
+				" is not a scalar (string, number, or boolean) or an array of scalars; "+
+				"dropped — a table under "+SelectionKey+" would read as a yolo-managed table")
 			continue
 		}
 		selection[k] = v
@@ -133,8 +135,9 @@ func DropSelection(computed map[string]any) (map[string]any, []string) {
 // Per key, with V the selected value, cur the file's value, and wrote the recorded
 // one:
 //
-//	not selected                  lift cur (or nothing, if the key is absent); the
-//	                              record keeps what it knew — never clear (OQ-CS2)
+//	not selected                  cur == wrote: lift nothing and forget the key, so the
+//	                              file falls back to the agent's default or the host
+//	                              layer (OQ-PSW2); cur != wrote: lift cur, the user's
 //	not in the file               lift V, record V — activation, and re-activation
 //	                              after the user removed the key
 //	cur == wrote                  lift V, record V when V differs — the selection
@@ -143,6 +146,8 @@ func DropSelection(computed map[string]any) (map[string]any, []string) {
 //	                              unless V differs from wrote, which is a NEW
 //	                              selection and outranks the stale choice: lift V,
 //	                              record V
+//	no record, cur == V           adopt: lift V, record V — a value equal to the
+//	                              selection cannot be told from yolo's own write
 //
 // A nil or empty selection with no record returns nil, nil, which is every surface
 // whose derive emits no selection: no lift, no record, no sidecar, and a render
@@ -169,7 +174,7 @@ func ApplySelection(selection, file, record map[string]any) (lift, next map[stri
 			// from the record. Only an interactive user edit (cur != record[k])
 			// is preserved.
 			if inFile {
-				if isScalar(cur) {
+				if isSelectionValue(cur) {
 					if wrote, ok := record[k]; ok && sameScalar(cur, wrote) {
 						delete(next, k)
 					} else {
@@ -199,10 +204,21 @@ func ApplySelection(selection, file, record map[string]any) (lift, next map[stri
 			// value stands — unless the selection itself has moved off the last
 			// value yolo wrote, which is an explicit new choice outranking a stale
 			// interactive one.
-			if wrote, ok := record[k]; ok && !sameScalar(wrote, V) {
+			wrote, recorded := record[k]
+			switch {
+			case recorded && !sameScalar(wrote, V):
 				lift[k] = V
 				next[k] = V
-			} else if isScalar(cur) {
+			case !recorded && sameScalar(cur, V):
+				// ADOPTION: nothing is recorded for the key, and the file already holds
+				// exactly the selected value. That value is indistinguishable from yolo's
+				// own write, so it is recorded as one. This is the upgrade path for a key
+				// that moved INTO the selection (pi's enabledModels, re-asserted every
+				// boot as a computed key before), whose file value would otherwise read
+				// as the user's forever and never move with the selection again.
+				lift[k] = V
+				next[k] = V
+			case isSelectionValue(cur):
 				lift[k] = cur
 			}
 		}
@@ -249,10 +265,10 @@ func ParseSelectionRecord(data []byte) map[string]any {
 	}
 	out := make(map[string]any, len(m))
 	for k, v := range m {
-		if !isScalar(v) {
+		if !isSelectionValue(v) {
 			continue
 		}
-		out[k] = selectionScalar(v)
+		out[k] = selectionValue(v)
 	}
 	if len(out) == 0 {
 		return nil
@@ -326,9 +342,7 @@ func selectionScalar(v any) any {
 	}
 }
 
-// isScalar reports whether v is a value a selection may carry: a string, a boolean,
-// or a number. Everything else — a table, a list, nil — is refused at TakeSelection,
-// for the hostTableKeys reason the package comment spells out.
+// isScalar reports whether v is a string, a boolean, or a number.
 func isScalar(v any) bool {
 	switch v.(type) {
 	case string, bool, int, int32, int64, float32, float64:
@@ -337,8 +351,45 @@ func isScalar(v any) bool {
 	return false
 }
 
+// isSelectionValue reports whether v is a value a selection may carry: a scalar, or an
+// ARRAY of scalars (pi's enabledModels). An array is a LEAF — the render replaces it whole
+// and never merges into it — so it cannot read as a yolo-managed table, which is the only
+// thing the refusal protects (hostTableKeys claims object-valued keys alone). Everything
+// else — an object, an array holding one, nil — is refused at TakeSelection.
+func isSelectionValue(v any) bool {
+	if isScalar(v) {
+		return true
+	}
+	list, ok := v.([]any)
+	if !ok {
+		return false
+	}
+	for _, el := range list {
+		if !isScalar(el) {
+			return false
+		}
+	}
+	return true
+}
+
 // sameScalar reports whether two selection values are the same choice, after number
-// normalization (see selectionScalar for why the normalization is not optional).
+// normalization (see selectionScalar for why the normalization is not optional). Arrays
+// compare element by element, in order: a reordered list is a different choice, since pi
+// starts a session on the FIRST enabled model.
 func sameScalar(a, b any) bool {
-	return reflect.DeepEqual(selectionScalar(a), selectionScalar(b))
+	return reflect.DeepEqual(selectionValue(a), selectionValue(b))
+}
+
+// selectionValue is selectionScalar applied to a scalar or to every element of an array,
+// so a derive's []any of int64 and a record's []any of float64 compare equal.
+func selectionValue(v any) any {
+	list, ok := v.([]any)
+	if !ok {
+		return selectionScalar(v)
+	}
+	out := make([]any, len(list))
+	for i, el := range list {
+		out[i] = selectionScalar(el)
+	}
+	return out
 }

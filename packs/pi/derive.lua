@@ -488,11 +488,6 @@ yolo.derive("pi", "settings", function(ctx)
     -- row: lead with the default, and the fallback lands on it too.
     local model = (ctx.profile and ctx.profile.model) or "gpt-6-sol"
     return {
-      enabledModels = {
-        "openai-codex/gpt-6-sol",
-        "openai-codex/gpt-6-astra",
-        "openai-codex/gpt-6-luna",
-      },
       -- Pi-subagents has its own default, independent of Pi's chat selection.
       -- Computed output is intentional here: selection can only lift scalar keys,
       -- while this structured policy must reject legacy explicit workflow models.
@@ -507,9 +502,19 @@ yolo.derive("pi", "settings", function(ctx)
           },
         },
       },
+      -- enabledModels rides the selection, not the computed layer: pi's /model scoping
+      -- writes the same key, and a computed key is re-asserted every boot, which would
+      -- revert the user's scoped list on the next launch. Under the selection it gets
+      -- the same rules as the pair: written on activation, a user edit kept, yolo's own
+      -- list cleared on deselect (OQ-PSW2). An array is a leaf there, replaced whole.
       selection = {
         defaultProvider = "openai-codex",
         defaultModel = model,
+        enabledModels = {
+          "openai-codex/gpt-6-sol",
+          "openai-codex/gpt-6-astra",
+          "openai-codex/gpt-6-luna",
+        },
       },
     }
   end
@@ -578,7 +583,10 @@ yolo.derive("pi", "settings", function(ctx)
   else
     table.insert(enabled, ctx.selected_provider .. "/*")
   end
-  return { enabledModels = enabled, selection = sel }
+  -- enabledModels travels under the selection for the reason given in the openai-codex
+  -- branch above: a computed key would revert pi's own /model scoping every launch.
+  sel.enabledModels = enabled
+  return { selection = sel }
 end)
 
 -- mcp: passthrough — canonical mcp_servers lands verbatim under mcpServers
