@@ -796,7 +796,7 @@ jobs:
   #
   # WHY A SEPARATE JOB. The first delivery is a full 3.45 GB `podman load` — 10–33 min on this
   # runner (docs/research/macos-layer-reusing-image-delivery.md) — and OQ-LR2's measurement adds
-  # two more cold loads. On a shard that would sit on top of the 15–22 min preload inside a
+  # two more cold loads and one cold in-VM copy. On a shard that would sit on top of the 15–22 min preload inside a
   # 75-minute budget that was raised once already; here it is the whole job, capped per step.
   #
   # THE MACHINE comes from scripts/ci-macos-podman-machine.sh rather than a second inline copy of
@@ -812,8 +812,8 @@ jobs:
     runs-on: macos-26-intel
     needs: build-image
     # The outer bound only; each expensive step carries its own. 25 (machine) + 90 (the two
-    # deliveries) + 80 (the two OQ-LR2 loads) plus checkout, Nix and Go.
-    timeout-minutes: 210
+    # deliveries) + 125 (OQ-LR2: the two loads plus the in-VM copy) plus checkout, Nix and Go.
+    timeout-minutes: 255
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -898,11 +898,18 @@ jobs:
           YOLO_TEST_MAC_ARCHIVE_DELIVERY: podman
 
       # OQ-LR2, MEASUREMENT ONLY: a cold `podman load` of image A from the uncompressed archive
-      # yolo writes against a gzip oci-archive of it. Runs even when the step above failed — it
-      # evicts A itself and depends on nothing that step leaves.
-      - name: OQ-LR2 — time a cold first load, uncompressed vs gzip (measurement only)
+      # yolo writes against a gzip oci-archive of it, then (TestMacArchiveFirstLoadInVMCopierOnPodman)
+      # a cold delivery of A by the LINUX copier run inside the VM over its /nix share — the
+      # research doc's second candidate, which needs no archive at all. Runs even when the step
+      # above failed — each test evicts A itself and depends on nothing that step leaves.
+      #
+      # THE CAP WAS 80 AND IS 125, raised 2026-09-25 for the third cold delivery: the two loads
+      # were sized at up to ~33 min each on this runner, and the in-VM copy has no measurement
+      # yet, so it gets its own deadline inside the test (macArchiveLaunchTimeout) and this cap
+      # leaves room for it. Revise it against the step duration a run reports.
+      - name: OQ-LR2 — time a cold first load, uncompressed vs gzip vs the in-VM copier (measurement only)
         if: ${{ !cancelled() && steps.cachix.outputs.enabled == 'true' && steps.select.outcome == 'success' }}
-        timeout-minutes: 80
+        timeout-minutes: 125
         run: go test -count=1 -timeout 0 -v -run '${{ steps.select.outputs.firstload }}' ./integration
         env:
           YOLO_RUNTIME: podman

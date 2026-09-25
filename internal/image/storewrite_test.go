@@ -213,6 +213,23 @@ func TestTheCopierArgvCarriesTheNamespacePrefixFirst(t *testing.T) {
 	}
 }
 
+// TestDeliveryCopyArgvIsTheLaunchsCopyArgv pins the exported delegate to the argv a
+// launch execs, for every destination transport copyArgv distinguishes. The macOS
+// in-VM copier experiment times DeliveryCopyArgv's output as "the Linux delivery";
+// an exported copy that drifted from copyArgv would make that timing describe a
+// command no launch runs.
+func TestDeliveryCopyArgvIsTheLaunchsCopyArgv(t *testing.T) {
+	for _, dest := range []string{ContainersStorageDest("localhost/yolo-jail:0123"), "oci:/tmp/layout:ref"} {
+		for _, prefix := range [][]string{nil, StoreWritePrefix("podman", RootlessYes)} {
+			got := DeliveryCopyArgv(prefix, "/nix/store/x/bin/skopeo", "/nix/store/img.json", dest)
+			want := copyArgv(prefix, "/nix/store/x/bin/skopeo", "/nix/store/img.json", dest)
+			if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+				t.Errorf("DeliveryCopyArgv(%q, %q) =\n  %q\ncopyArgv gives\n  %q", prefix, dest, got, want)
+			}
+		}
+	}
+}
+
 // TestACopyThroughAPrefixKeepsTheChildsOwnWords drives the REAL copyImage through
 // a two-token prefix and answers the two questions a wrapper raises, neither of
 // which the argv table can settle:

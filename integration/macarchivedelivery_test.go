@@ -205,6 +205,10 @@ type macArchiveImages struct {
 	copier           string // the skopeo binary
 	layersA, layersB []image.LayerInfo
 	realize          []string // summary rows: what each nix build did and how long it took
+	// realizeAttr is the same timed, reported `nix build` for one more attribute — the Linux
+	// copier TestMacArchiveFirstLoadInVMCopierOnPodman runs inside the VM. It closes over the
+	// test that called macArchiveRealize, so it is only valid inside that test.
+	realizeAttr func(label, attr, pkgs string) string
 }
 
 // macArchiveFlakeRoot is the flake a launch resolves: YOLO_REPO_ROOT when the job names one
@@ -311,6 +315,7 @@ func macArchiveRealize(t *testing.T) macArchiveImages {
 		t.Fatalf("image A and image B are the same store path (%s): YOLO_EXTRA_PACKAGES=%s did "+
 			"not reach the flake, so there is no delta to measure", m.a, macArchivePackagesJSON)
 	}
+	m.realizeAttr = build
 	return m
 }
 
@@ -1158,6 +1163,9 @@ func TestMacArchiveFirstLoadCompressionOnPodman(t *testing.T) {
 	}
 	macEvictImage(t, rt, gzRef)
 	_ = os.Remove(gz)
+	// Kept for the in-VM copier measurement below, which runs next in the same step and prints
+	// its number beside this one. Absent when this test did not run first; that one says so.
+	oqLR2Uncompressed = lr2Sample{write: writeU, load: loadU}
 
 	r := func(d time.Duration) string { return d.Round(100 * time.Millisecond).String() }
 	stepSummary(t,
@@ -1206,6 +1214,157 @@ func ociArchiveLayerCompression(path string) (gzipped, total int, err error) {
 		}
 	}
 	return gzipped, total, nil
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// OQ-LR2's second candidate: the Linux copier, run INSIDE the Podman Machine VM.
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+// lr2Sample is one first-delivery timing: the archive write and the `podman load` of it.
+type lr2Sample struct{ write, load time.Duration }
+
+// oqLR2Uncompressed is TestMacArchiveFirstLoadCompressionOnPodman's uncompressed sample, kept
+// so the in-VM copier's number can be printed beside it. Zero when that test did not run first
+// in this process — the nightly step selects both, in source order, so it normally has.
+var oqLR2Uncompressed lr2Sample
+
+// TestMacArchiveFirstLoadInVMCopierOnPodman is OQ-LR2's SECOND candidate
+// (docs/research/macos-layer-reusing-image-delivery.md#OQ-LR2), measured: a cold first delivery
+// of image A made by the LINUX copier running inside the Podman Machine VM, reading the image
+// over the VM's /nix share and writing straight into the machine's own containers-storage.
+//
+// That is exactly the Linux delivery path — the same `[podman unshare --] <copier>
+// --insecure-policy copy nix:<image.json> containers-storage:<ref>` argv a Linux launch runs
+// (inVMCopyArgv states where each piece comes from) — so it removes the archive entirely: no
+// tar is written on the Mac and nothing crosses the API socket. The candidate only exists
+// where /nix is shared with the VM, which scripts/ci-macos-podman-machine.sh does and a default
+// `podman machine init` does not; that is why it is a CI candidate first.
+//
+// A MEASUREMENT, like its sibling above. Every outcome of the copy is a result and passes: it
+// works (with a time), it lands in a store the Mac's default connection does not read, it
+// fails, or it overruns its own deadline. What FAILS is the experiment not happening: the VM's
+// arch unreadable, the Linux copier not realizable here (it is substituted from Cachix, which
+// `build-image` fills — this Mac cannot build x86_64-linux), or the VM unable to see image A
+// or the copier through its /nix share.
+//
+// COLD like the sibling: A's content ref is evicted first, and the report says how many of A's
+// layers the store held anyway.
+func TestMacArchiveFirstLoadInVMCopierOnPodman(t *testing.T) {
+	rt := requireMacArchiveDelivery(t, "podman")
+	requireJail(t)
+	macArchivePrivateState(t)
+	imgs := macArchiveRealize(t)
+	refA := image.JailImageRef(rt, imgs.a)
+
+	// ── the VM, as the candidate sees it ──
+	unameOut, rc := macStdout(2*time.Minute, "podman", "machine", "ssh", "--", "uname", "-m")
+	linuxSystem, err := vmLinuxSystem(unameOut)
+	if rc != 0 || err != nil {
+		t.Fatalf("could not read the Podman Machine VM's architecture (`podman machine ssh -- "+
+			"uname -m` rc=%d, %q, %v), so there is no Linux copier to pick and nothing was "+
+			"measured", rc, strings.TrimSpace(unameOut), err)
+	}
+	linuxCopierAttr := ".#packages." + linuxSystem + "." + strings.TrimPrefix(image.ImageCopierAttr, ".#")
+	linuxCopier := image.ImageCopierBinary(imgs.realizeAttr("Linux copier (for the VM)", linuxCopierAttr, ""))
+	for _, p := range []string{imgs.a, linuxCopier} {
+		if out, rc := macRun(2*time.Minute, "podman", "machine", "ssh", "--", "test", "-r", p); rc != 0 {
+			t.Fatalf("the Podman Machine VM cannot read %s (rc=%d), so this candidate cannot run "+
+				"here at all. It exists only where /nix is shared with the VM "+
+				"(scripts/ci-macos-podman-machine.sh shares it; a default machine does not).\n%s",
+				p, rc, lastLines(out, 10))
+		}
+	}
+
+	// The same rootlessness question production asks before a copy, asked of the Mac's default
+	// connection — which is the store the copy has to land in to count.
+	rootless := image.PodmanRootlessness(rt, func(argv []string) (string, bool) {
+		out, rc := macStdout(2*time.Minute, argv...)
+		return out, rc == 0
+	})
+	prefix := image.StoreWritePrefix(rt, rootless)
+	storeWrite := "bare (rootful or unknown)"
+	if len(prefix) > 0 {
+		storeWrite = "`" + strings.Join(prefix, " ") + "` (rootless)"
+	}
+	argv := inVMCopyArgv(prefix, linuxCopier, imgs.a, refA)
+
+	hadA := macEvictImage(t, rt, refA)
+	if hadA {
+		t.Logf("%s was loaded before this measurement and has been evicted for it", refA)
+	}
+	t.Cleanup(func() { macEvictImage(t, rt, refA) })
+	warm, _ := splitByPresence(imgs.layersA, macPresentNow(t, rt))
+
+	copyTimeout := macArchiveLaunchTimeout()
+	t0 := time.Now()
+	out, crc := macRun(copyTimeout, argv...)
+	took := time.Since(t0)
+	landed := crc == 0 && macImagePresent(rt, refA)
+
+	var verdict string
+	switch {
+	case landed:
+		verdict = fmt.Sprintf("**LANDED** in %s", took.Round(100*time.Millisecond))
+	case crc == 0:
+		verdict = "the copy exited 0 and the Mac's default connection does NOT see " + refA +
+			": it wrote a store that connection does not read (the research doc's premise that " +
+			"`podman machine ssh` reaches the default connection's store does not hold here)"
+	case crc == -1:
+		verdict = fmt.Sprintf("did not finish within %s (killed) — slower than that, or wedged", copyTimeout)
+	default:
+		verdict = fmt.Sprintf("FAILED, rc=%d: %s", crc, strings.ReplaceAll(lastLines(out, 3), "\n", " ⏎ "))
+	}
+	t.Logf("OQ-LR2 IN-VM COPIER: %s\nargv: %s\noutput (last lines):\n%s",
+		verdict, strings.Join(argv, " "), lastLines(out, 30))
+
+	baseline := "not measured in this process (run TestMacArchiveFirstLoadCompressionOnPodman first, as the nightly step does)"
+	if oqLR2Uncompressed.load > 0 {
+		b := oqLR2Uncompressed
+		baseline = fmt.Sprintf("write %s + `podman load` %s = %s", b.write.Round(100*time.Millisecond),
+			b.load.Round(100*time.Millisecond), (b.write + b.load).Round(100*time.Millisecond))
+	}
+	stepSummary(t,
+		"### OQ-LR2: first delivery of image A by the Linux copier INSIDE the VM (no archive)",
+		"",
+		"| candidate | result | A's layers already in the store | VM | store write |",
+		"| --- | --- | --- | --- | --- |",
+		fmt.Sprintf("| `podman machine ssh -- … skopeo copy nix: containers-storage:` | %s | %d of %d | %s | %s |",
+			verdict, warm, len(imgs.layersA), linuxSystem, storeWrite),
+		"",
+		"Against today's archive path, measured just above in the same job: "+baseline+".",
+		"One sample, into a store with A evicted. Measurement only (OQ-LR2); no delivery code depends on it.",
+		"",
+	)
+}
+
+// vmLinuxSystem maps the VM's `uname -m` to the nix system whose copier runs there. PURE, and
+// pinned under -short (TestVMLinuxSystem): a wrong mapping would realize a copier the VM cannot
+// execute, and the candidate would read as "FAILED" for a reason that is this test's.
+func vmLinuxSystem(unameM string) (string, error) {
+	switch strings.TrimSpace(unameM) {
+	case "x86_64", "amd64":
+		return "x86_64-linux", nil
+	case "aarch64", "arm64":
+		return "aarch64-linux", nil
+	}
+	return "", fmt.Errorf("unrecognized VM architecture %q", strings.TrimSpace(unameM))
+}
+
+// inVMCopyArgv is the Linux delivery argv, run inside the VM through `podman machine ssh`.
+//
+// It IS the Linux launch's argv, not a copy of it: image.DeliveryCopyArgv delegates to the
+// copyArgv a launch execs (internal/image/storewrite.go), fed the same exported pieces —
+// image.StoreWritePrefix for the namespace, image.ContainersStorageDest for the destination.
+// So a flag the Linux delivery gains reaches this candidate too, and the timing recorded here
+// stays a timing of the Linux path.
+//
+// `podman machine ssh` names no machine, so it is the DEFAULT one, which is the machine the
+// Mac's default connection talks to; it logs in as root on a rootful machine and as the
+// machine user otherwise, which is the store that connection reads.
+func inVMCopyArgv(prefix []string, copier, imageJSON, ref string) []string {
+	argv := []string{"podman", "machine", "ssh", "--"}
+	return append(argv, image.DeliveryCopyArgv(prefix, copier, imageJSON,
+		image.ContainersStorageDest(ref))...)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -1333,5 +1492,57 @@ func TestFailClosedProbeArchiveIsCoherent(t *testing.T) {
 	sort.Strings(names)
 	if len(names) != 2 {
 		t.Errorf("the probe carries %d blobs %v, want exactly the new manifest and config", len(names), names)
+	}
+}
+
+// TestVMLinuxSystem pins the one mapping the in-VM copier measurement cannot survive getting
+// wrong: a copier built for the other arch does not execute in the VM, and the candidate would
+// be reported as FAILED for a reason that is this test's rather than the candidate's.
+func TestVMLinuxSystem(t *testing.T) {
+	for in, want := range map[string]string{
+		"x86_64\n": "x86_64-linux", "amd64": "x86_64-linux",
+		"aarch64\n": "aarch64-linux", "arm64": "aarch64-linux",
+	} {
+		if got, err := vmLinuxSystem(in); err != nil || got != want {
+			t.Errorf("vmLinuxSystem(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	if got, err := vmLinuxSystem("riscv64"); err == nil {
+		t.Errorf("vmLinuxSystem(riscv64) = %q with no error; an unknown arch must stop the "+
+			"measurement rather than pick a copier", got)
+	}
+}
+
+// TestInVMCopyArgvIsTheLinuxDeliveryArgv: the argv run inside the VM is the Linux launch's copy
+// — image.DeliveryCopyArgv, which internal/image's TestDeliveryCopyArgvIsTheLaunchsCopyArgv pins
+// to the copyArgv a launch execs — behind nothing but `podman machine ssh --`. The expected
+// value is taken from production, never spelled here: a hand-built literal would stay green when
+// the Linux delivery gains a flag, and the OQ-LR2 row would then time a command no launch runs.
+// The literal check underneath pins the one fact production cannot supply: that the
+// destination is containers-storage, the transport a Linux launch writes. The rootless case is
+// the one the nightly's machine takes (podman machine init is rootless by default).
+func TestInVMCopyArgvIsTheLinuxDeliveryArgv(t *testing.T) {
+	const copier, img, ref = "/nix/store/c-skopeo/bin/skopeo", "/nix/store/a-image.json", "localhost/yolo-jail:0123456789abcdef"
+	for _, tc := range []struct {
+		name     string
+		rootless image.PodmanRootless
+	}{
+		{"rootless machine", image.RootlessYes},
+		{"rootful machine", image.RootlessNo},
+		{"unknown", image.RootlessUnknown},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			prefix := image.StoreWritePrefix("podman", tc.rootless)
+			got := inVMCopyArgv(prefix, copier, img, ref)
+			want := append([]string{"podman", "machine", "ssh", "--"},
+				image.DeliveryCopyArgv(prefix, copier, img, image.ContainersStorageDest(ref))...)
+			if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+				t.Errorf("inVMCopyArgv =\n  %q\nwant\n  %q", got, want)
+			}
+			if last := got[len(got)-1]; !strings.HasPrefix(last, "containers-storage:") {
+				t.Errorf("inVMCopyArgv's destination is %q, not a containers-storage ref: the "+
+					"Linux launch writes the runtime's store, and this candidate must too", last)
+			}
+		})
 	}
 }

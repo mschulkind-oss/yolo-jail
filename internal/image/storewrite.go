@@ -281,6 +281,16 @@ func copyArgv(prefix []string, copier, imageJSON, dest string) []string {
 	return append(argv, "nix:"+imageJSON, dest)
 }
 
+// DeliveryCopyArgv is copyArgv, exported for the one caller outside this package that
+// has to run the SAME copy somewhere else: the macOS archive-delivery experiment
+// (integration/macarchivedelivery_test.go, OQ-LR2's in-VM copier candidate) runs a
+// Linux launch's copy inside the podman VM, and its timing only means anything while
+// that argv is this one. A thin delegate rather than a rename, so every in-package
+// caller and test keeps naming the function the launch calls.
+func DeliveryCopyArgv(prefix []string, copier, imageJSON, dest string) []string {
+	return copyArgv(prefix, copier, imageJSON, dest)
+}
+
 // unshareProbeArgv is the command that establishes, without copying anything,
 // that this host will let the copier run inside podman's user namespace. `yolo
 // check` runs it; the launch does not (a launch that is about to copy learns the

@@ -12,9 +12,11 @@ vantage:
 # Layer-reusing image delivery on the two Mac backends
 
 **Status:** RESEARCH, 2026-09-24; all three questions ruled the same day ([Decisions](#decisions)) — build the delta archive, and improve the first load where it measurably can be. **Built the same day** in `deliverViaArchive` (placeholder seeding, the Apple Container delivery record, the single empty-set retry); how it works and what it measured through the real launch path are in [The delta archive](../reference/image-staging-vs-baking.md#the-delta-archive). Everything on Linux here is **MEASURED** in this jail. Everything
-about the Mac is **SOURCED** (read in upstream source at a named commit) or **INFERRED**. No Mac
-was used. [What only a Mac can confirm](#what-only-a-mac-can-confirm) lists the commands that
-settle each Mac claim.
+about the Mac was **SOURCED** (read in upstream source at a named commit) or **INFERRED** when
+this was written, and no Mac was used. [What only a Mac can confirm](#what-only-a-mac-can-confirm)
+lists the commands that settle each Mac claim. ⚠ **Since 2026-09-25 the built delta archive is
+MEASURED on both Mac backends**, through real launches in CI rather than through those commands:
+[Mac results](#mac-results-2026-09-25) has the numbers.
 
 **The question** (the maintainer, 2026-09-24): on podman-on-macOS and on Apple Container, can
 image delivery get the layer reuse that `skopeo copy nix: → containers-storage:` gives podman on
@@ -351,7 +353,10 @@ So on Apple Container, the most layer reuse can save is:
 - ingesting the blobs it already has.
 
 The ext4 build stays. Whether that turns 22 s into 5 s or into 18 s is the first thing to
-measure on the Mac ([commands](#apple-container)).
+measure on the Mac ([commands](#apple-container)). ⚠ **Measured 2026-09-25, not isolated:** B's
+whole delta delivery (copy, tar and load, the unpack included) took 19.4 s on an arm64 Mac
+([Mac results](#mac-results-2026-09-25)). That is the 18 s end, which fits the ext4 build
+dominating (INFERRED; nothing timed the unpack alone).
 
 > [!NOTE]
 > The [`Justfile`](../../Justfile) `load` recipe says Apple Container's "VM owns its store". Per
@@ -448,6 +453,39 @@ runners, and the ext4 unpack on Apple Container. The registry (option 2) stays s
 case the Mac shows that `container image load` refuses a layout with missing blobs.
 
 ---
+
+## Mac results, 2026-09-25
+
+**MEASURED**, in CI, at commit `22011184`, by `integration/TestMacArchiveDeliveryReusesLayers`
+and `TestMacArchiveFailClosedOnAppleContainer`
+([`macarchivedelivery_test.go`](../../integration/macarchivedelivery_test.go)). They deliver
+this doc's A/B pair through real launches of the built `deliverViaArchive`, not through the
+scripts below. Every test passed.
+
+| Backend (run) | Delivery | Layers sent | Layers reused | Archive | `image.layer_copy` (copy + tar + load) | Whole launch |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| Apple Container 1.1.0, self-hosted arm64 Mac (Apple Container parity run `36095912087`) | A, first | 91 (3.2 GB) | 0 | 3.2 GB | 35.1 s | 45 s |
+| | B | 2 (26 MB) | 90 (3.2 GB) | 27 MB | 19.4 s | 30 s |
+| Podman Machine, GitHub `macos-26-intel` (nightly run `36128365198`, job `archive-delivery-macos`) | A, first | 91 (3.2 GB) | 0 | 3.2 GB | 988.1 s | 18 min 6 s |
+| | B | 2 (26 MB) | 90 (3.2 GB) | 27 MB | 48.3 s | 1 min 46 s |
+
+What that settles:
+
+- **Apple Container imports a layout whose missing blobs its content store holds** (step 2's
+  question). ⚠ A's delivery on that Mac was not cold: `yolo-jail:latest` from `just load` was
+  already loaded, so the store held A's blobs before A's full archive arrived.
+- **Apple Container fails closed** (step 2b's question). A delta naming a blob no store holds made
+  `container image load` exit 1 with `missingContent(…)` and leave no image, so the single retry
+  fires.
+- **On Podman Machine the upload is most of the incremental cost**, the first half of
+  [`OQ-LR1`](#OQ-LR1)'s leaning: B's delta took 48 s where A's full archive took 16.5 min.
+- **The x86_64-darwin copier builds.** `macArchiveRealize` realized `.#imageCopier` on the Intel
+  runner (56 paths substituted, one derivation built, 2 min 28 s), so the darwin skopeo, an older
+  minor under the same `nix:` patch, has now run a delivery.
+- **The gzip half of [`OQ-LR2`](#OQ-LR2) ran in the same job**, one sample each into a store with
+  A evicted: a cold `podman load` of A took 14 min 6 s from the 3.2 GB uncompressed archive and
+  13 min 49 s from a 1.1 GB gzip archive, whose write took 15 s longer. At one sample, that is no
+  measurable win. The in-VM copier test landed after `22011184` and has not run.
 
 ## What only a Mac can confirm
 
@@ -579,6 +617,26 @@ What each step settles:
 
    **Answer:**
    > **Ruled 2026-09-24 (maintainer): yes, where it can be improved.** "if we can improve it, yes" — measure the candidates (the gzip archive, and the in-VM copier where `/nix` is shared) on the Mac runners, then build what measurably wins.
+
+   **Both measurements exist, UNRUN (2026-09-25).** They run in `nightly-macos.yml`'s
+   `archive-delivery-macos` job, in the step named for this question (its name continues
+   `— time a cold first load, uncompressed vs gzip vs the in-VM copier`), which selects every `TestMacArchiveFirstLoad…` test in
+   [`macarchivedelivery_test.go`](../../integration/macarchivedelivery_test.go).
+   `TestMacArchiveFirstLoadCompressionOnPodman` times the gzip candidate against today's
+   uncompressed archive. `TestMacArchiveFirstLoadInVMCopierOnPodman` is the second candidate. It
+   evicts image A, then runs the Linux delivery argv itself inside the VM: `podman machine ssh --
+   [podman unshare --] <copier> --insecure-policy copy nix:<image.json> containers-storage:<ref>`.
+   The test takes everything after `--` from `image.DeliveryCopyArgv`, a delegate to the builder a
+   Linux launch execs, so a flag the Linux delivery gains reaches this candidate too.
+   The copier is the Linux one, realized from Cachix for the VM's architecture, and it reads image A
+   over the VM's `/nix` share. Every outcome of the copy passes and is reported: a time, a store the
+   Mac's default connection does not read, a failure, or a timeout. The test fails only when the
+   experiment could not happen: the VM's arch is unreadable, the copier cannot be realized, or the
+   VM cannot see the image or the copier. **How to read it:** the job's step summary has one
+   section per candidate, and the job log has a line that starts with this question's id followed
+   by `IN-VM COPIER:`, carrying the argv and the output. **The step's cap was raised from 80 to 125 minutes, and the job's from 210 to 255,** to
+   fit the third cold delivery. The in-VM copy has no measurement yet, so it also carries its own
+   deadline inside the test.
 
 3. <a id="OQ-LR3"></a>[**OQ-LR3**](#OQ-LR3) (decided): What is Apple Container's present-set probe?** Podman has one:
    `PresentLayerDigests`. For Apple Container the choice is `container image inspect`, if it
