@@ -330,21 +330,26 @@ launch host-side. There is deliberately no second reporting channel.
 > only crossing: the live-mounted file reaches a running jail at least as well, and an
 > attach reaches it ONLY that way.
 
-## Selection: write on activation, never on absence
+<a id="selection-write-on-activation-never-on-absence"></a>
+
+## Selection: write on activation, clear only what yolo wrote
 
 An interactive in-agent model choice (pi's `/model`, opencode's picker) writes the SAME keys a
 selection would. A render that re-asserts those keys every boot would silently revert the
 user's choice on the next launch — the exact hazard the selection semantics refuse. So
 selection keys ride a **reserved namespace** of the computed layer — `selection`, a flat map
-of scalar surface keys — and the stateful render lifts it onto the surface root with an
-edge-triggered apply (`ApplySelection`):
+of surface keys whose values are scalars or arrays of scalars — and the stateful render lifts it
+onto the surface root with an edge-triggered apply (`ApplySelection`):
 
 | Situation | What the render does |
 | :--- | :--- |
 | Key absent in the file, selection names it | **writes it** (activation) |
 | File value equals what yolo last wrote, selection moved | **writes the new value** |
 | File value differs from what yolo last wrote | **keeps the user's value** — yolo claims nothing |
-| Selection stops naming the key | **leaves the file untouched** — never clears |
+| File value is the host layer's (equal to what your host config supplies, or unchanged since a render that took it from the host) | **writes the selection over it**: a host value is not an in-jail edit ([`OQ-SW1`](../design/provider-switching.md#OQ-SW1)) |
+| Nothing recorded for the key, file value equals the selection | **adopts it** as yolo's write — the upgrade path for a key that moved into the selection, such as pi's `enabledModels` |
+| Selection stops naming the key, file still holds what yolo wrote | **clears it**, so the agent's default or the host layer applies ([`OQ-PSW2`](../design/provider-switching.md#decision-ledger)) |
+| Selection stops naming the key, file value differs from what yolo wrote | **keeps the user's value** |
 
 The baseline "what yolo last wrote" is a per-surface record beside the last-render state —
 NOT the last render itself (a user edit is captured into the overlay and re-asserted by it,
@@ -354,11 +359,17 @@ direction, and the re-arm path if a selection ever seems inert: delete the key f
 once. Non-stateful surfaces drop the namespace with a warning; the host render's key-probe
 never claims it.
 
+An array compares by value and in order, so a reordered list is a user edit: pi starts a
+session on the first entry of `enabledModels`.
+
 > [!WARNING]
-> **Selection values must stay scalars.** The host render discovers dynamic *table* keys by
-> probing each derive with an empty selection; a derive that gated a whole table on the
-> selection would register no keys there and make the host deep-merge where the boot replaces.
-> Catalog tables come from presence; selection keys are scalars.
+> **Selection values are scalars or arrays of scalars, never objects.** The host render
+> discovers dynamic *table* keys by probing each derive with an empty selection, and claims
+> every object-valued key as a table it writes wholesale. An object under the selection would
+> read as such a table; a derive that gated a whole table on the selection would register no
+> keys there and make the host deep-merge where the boot replaces. An array is a leaf to every
+> reader, replaced whole and never merged into, so it carries neither risk. Catalog tables come
+> from presence; selection values are scalars or arrays.
 
 ## Per-agent delivery
 
@@ -367,7 +378,7 @@ What each agent actually receives, from one composed table and one selection:
 | Agent | Catalog | Selection |
 | :--- | :--- | :--- |
 | codex | `~/.codex/config.toml` `[model_providers.<id>]` (TOML) | top-level `model_provider` + `model` |
-| pi | `~/.pi/agent/models.json` `providers.<id>` (JSON; credential as `apiKey: "${VAR}"` config-value syntax) | `~/.pi/agent/settings.json` `defaultProvider` + `defaultModel` (a pair of bare ids) |
+| pi | `~/.pi/agent/models.json` `providers.<id>` (JSON; credential as `apiKey: "${VAR}"` config-value syntax) | `~/.pi/agent/settings.json` `defaultProvider` + `defaultModel` (a pair of bare ids), and `enabledModels` (the scoped list, default first) |
 | opencode | `~/.config/opencode/opencode.json` `provider.<id>` — `baseURL`/`apiKey` live UNDER `options` | top-level `model = "<provider>/<model>"` |
 | omp | `~/.oh-omp/agent/models.yml` `providers.<id>` (YAML; credential as the provider's env-var NAME, which oh-omp resolves before treating it as a literal) | **none** — the derive writes a catalog and no selection key, so a selected profile makes the provider *available* and the user chooses it inside the agent |
 | copilot | no catalog (BYOK is env-var-only; no copilot config file has provider keys) | process env from the copilot pack's env derive: `COPILOT_PROVIDER_BASE_URL` (the sole activation gate), `COPILOT_PROVIDER_TYPE`, `COPILOT_PROVIDER_WIRE_API` (openai type only), `COPILOT_MODEL` (required — a provider with no resolvable alias composes nothing at all), `COPILOT_PROVIDER_API_KEY` (a placeholder for a keyless loopback endpoint), `COPILOT_PROVIDER_MAX_PROMPT_TOKENS` ← the provider's `context_window` option |

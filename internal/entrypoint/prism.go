@@ -489,8 +489,18 @@ func composeStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, 
 			agentcfg.SelectionKey + " namespace, which needs an object surface; dropped")
 		selection = nil
 	}
-	lift, next := agentcfg.ApplySelection(selection,
-		agentcfg.DecodeSurfaceObject(surface.Codec, current), selectionRecord)
+	fileObj := agentcfg.DecodeSurfaceObject(surface.Codec, current)
+	var hostOwned map[string]bool
+	if len(selection) > 0 {
+		// Which of the file's values are the HOST's, so a selection outranks them rather
+		// than reading them as in-jail edits (OQ-SW1). The previous render's provenance is
+		// read here, before this render overwrites it.
+		hostOwned = agentcfg.HostOwnedKeys(fileObj,
+			agentcfg.DecodeSurfaceObject(surface.Codec, hostBytes),
+			agentcfg.DecodeSurfaceObject(surface.Codec, lastRenderBytes),
+			readProvenanceRecord(e, surface.Agent, surface.Name))
+	}
+	lift, next := agentcfg.ApplySelectionOver(selection, fileObj, selectionRecord, hostOwned)
 	if len(lift) > 0 {
 		computed = mergeSurfaceRoot(computed, lift)
 	}

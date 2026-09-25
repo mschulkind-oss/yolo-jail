@@ -148,11 +148,22 @@ func DropSelection(computed map[string]any) (map[string]any, []string) {
 //	                              record V
 //	no record, cur == V           adopt: lift V, record V — a value equal to the
 //	                              selection cannot be told from yolo's own write
+//	cur is the host layer's       lift V, record V — a value the user's HOST config
+//	                              supplies is not an in-jail edit, and a selection
+//	                              outranks it (OQ-SW1); see HostOwnedKeys
 //
 // A nil or empty selection with no record returns nil, nil, which is every surface
 // whose derive emits no selection: no lift, no record, no sidecar, and a render
 // byte-identical to a build without this mechanism.
 func ApplySelection(selection, file, record map[string]any) (lift, next map[string]any) {
+	return ApplySelectionOver(selection, file, record, nil)
+}
+
+// ApplySelectionOver is ApplySelection with the keys whose current file value belongs to
+// the HOST layer (HostOwnedKeys). Without that set every unrecorded file value reads as the
+// user's in-jail edit, which is how a host settings.json rendered into a jail's file once
+// made `-p` inert for pi forever (OQ-SW1, docs/design/provider-switching.md).
+func ApplySelectionOver(selection, file, record map[string]any, hostOwned map[string]bool) (lift, next map[string]any) {
 	if len(selection) == 0 && len(record) == 0 {
 		return nil, nil
 	}
@@ -209,6 +220,12 @@ func ApplySelection(selection, file, record map[string]any) (lift, next map[stri
 			case recorded && !sameScalar(wrote, V):
 				lift[k] = V
 				next[k] = V
+			case hostOwned[k]:
+				// The HOST's value, not the user's (OQ-SW1): the user's host config put it
+				// there, and "just because they're the host files doesn't mean you want them
+				// that way in the jail". The selection is the more specific choice.
+				lift[k] = V
+				next[k] = V
 			case !recorded && sameScalar(cur, V):
 				// ADOPTION: nothing is recorded for the key, and the file already holds
 				// exactly the selected value. That value is indistinguishable from yolo's
@@ -224,6 +241,41 @@ func ApplySelection(selection, file, record map[string]any) (lift, next map[stri
 		}
 	}
 	return lift, next
+}
+
+// HostOwnedKeys names the top-level keys whose value in the surface file belongs to the
+// HOST layer rather than to an in-jail edit, for ApplySelectionOver. A key is the host's
+// when its file value either
+//
+//   - equals what the host layer supplies NOW (host), or
+//   - is unchanged since the previous render (lastRender) AND that render's provenance
+//     names the host layer as the key's winner — a host value an earlier launch rendered,
+//     whose source has since moved on the host.
+//
+// A value the user edited in the jail matches neither: it differs from the host layer, and
+// it differs from the previous render (or, one boot later, the provenance names the
+// capture overlay). A user edit that happens to equal the host's value is indistinguishable
+// from it and harmless to treat as the host's. Any input may be nil.
+func HostOwnedKeys(file, host, lastRender map[string]any, provenance map[string]string) map[string]bool {
+	var out map[string]bool
+	for k, cur := range file {
+		if !isSelectionValue(cur) {
+			continue
+		}
+		owned := false
+		if hv, ok := host[k]; ok && sameScalar(cur, hv) {
+			owned = true
+		} else if lv, ok := lastRender[k]; ok && provenance[k] == layerHost && sameScalar(cur, lv) {
+			owned = true
+		}
+		if owned {
+			if out == nil {
+				out = map[string]bool{}
+			}
+			out[k] = true
+		}
+	}
+	return out
 }
 
 // DecodeSurfaceObject decodes bytes with the named codec and returns the object's

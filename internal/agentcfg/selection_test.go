@@ -406,3 +406,52 @@ func TestApplySelectionDecidesArrays(t *testing.T) {
 		})
 	}
 }
+
+// TestHostOwnedKeysNamesOnlyTheHostsValues pins the OQ-SW1 predicate: a file value is the
+// host's when it equals the host layer now, or is unchanged since a previous render whose
+// provenance named the host; anything else, a scalar or an array, is the user's.
+func TestHostOwnedKeysNamesOnlyTheHostsValues(t *testing.T) {
+	file := map[string]any{
+		"defaultModel":    "host-m",
+		"defaultProvider": "stale-host",
+		"enabledModels":   []any{"a/x", "a/y"},
+		"edited":          "mine",
+		"table":           map[string]any{"k": "v"},
+	}
+	host := map[string]any{"defaultModel": "host-m", "enabledModels": []any{"a/x", "a/y"}, "edited": "host-e"}
+	last := map[string]any{"defaultProvider": "stale-host", "edited": "host-e"}
+	prov := map[string]string{"defaultProvider": LayerHost, "edited": LayerHost}
+
+	got := HostOwnedKeys(file, host, last, prov)
+	for _, k := range []string{"defaultModel", "defaultProvider", "enabledModels"} {
+		if !got[k] {
+			t.Errorf("%s is the host's value and was not named: %v", k, got)
+		}
+	}
+	for _, k := range []string{"edited", "table"} {
+		if got[k] {
+			t.Errorf("%s is not the host's value (an in-jail edit, or not a selection value) and was named: %v", k, got)
+		}
+	}
+	if HostOwnedKeys(file, nil, nil, nil) != nil {
+		t.Error("with no host layer and no provenance nothing is the host's")
+	}
+}
+
+// TestApplySelectionOverOutranksAHostValue: an unrecorded host value is overridden and
+// recorded; the same value NOT marked as the host's is still read as the user's.
+func TestApplySelectionOverOutranksAHostValue(t *testing.T) {
+	sel := map[string]any{"defaultModel": "glm-5.3", "enabledModels": []any{"zai/glm-5.3"}}
+	file := map[string]any{"defaultModel": "host-m", "enabledModels": []any{"a/x"}}
+
+	lift, next := ApplySelectionOver(sel, file, nil, map[string]bool{"defaultModel": true, "enabledModels": true})
+	for k, v := range sel {
+		if !sameScalar(lift[k], v) || !sameScalar(next[k], v) {
+			t.Errorf("%s: lift %v record %v, want the selection %v over the host's value", k, lift[k], next[k], v)
+		}
+	}
+	lift, next = ApplySelectionOver(sel, file, nil, nil)
+	if !sameScalar(lift["defaultModel"], "host-m") || next["defaultModel"] != nil {
+		t.Errorf("unmarked, the file's value is the user's: lift %v record %v", lift["defaultModel"], next["defaultModel"])
+	}
+}
