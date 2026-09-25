@@ -6,6 +6,28 @@
     },
     {
       "kind": "env",
+      "overridden_by": [
+        {
+          "because": "Bedrock clients prefer AWS_BEARER_TOKEN_BEDROCK over the AWS credential chain, in every client measured, so the aws-auth service behind the pointer is never asked and the jail authenticates with a bearer frozen at launch.",
+          "vars": [
+            "AWS_BEARER_TOKEN_BEDROCK"
+          ]
+        },
+        {
+          "because": "the AWS credential chain reads a static AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY pair (its environment provider) before the container-credentials pointer in every consumer measured (claude, codex, opencode, pi), so the service is never asked and the jail signs with the long-lived key, neither narrowed nor refreshed.",
+          "unless": [
+            "AWS_PROFILE"
+          ],
+          "vars": [
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY"
+          ]
+        },
+        {
+          "because": "an AWS SDK reads ~/.aws (its shared-config provider) before the container-credentials pointer, so a jail holding both resolves whatever ~/.aws holds — the whole permission set, refresh token included — and the narrowed, refreshing service is skipped while everything looks like it works.",
+          "host_file": ".aws"
+        }
+      ],
       "profile": "bedrock",
       "vars": {
         "AWS_CONTAINER_CREDENTIALS_FULL_URI": "http://127.0.0.1:1461/credentials"

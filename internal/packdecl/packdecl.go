@@ -240,12 +240,61 @@ type Install struct {
 	// quoting rules the launcher has no business owning; and §6.2's `via` tolerance does
 	// not apply, because there is no mechanism here for a later build to learn.
 	UpdateVerb []string `json:"update,omitempty"`
+	// Refresh is the program's PRE-LAUNCH REFRESH, nil when it declares none. The
+	// Contribution field of the same name carries the reasoning; see Refresh for the shape.
+	Refresh *Refresh `json:"refresh,omitempty"`
 	// Platforms is WHERE THE VENDOR PUBLISHES A BUILD: `<goos>` or `<goos>/<goarch>`
 	// entries, absent meaning every platform. The Contribution field of the same name
 	// carries the grammar and the reasoning; this is its projection, and
 	// SupportsPlatform below is the predicate every consumer must ask before installing.
 	Platforms []string `json:"platforms,omitempty"`
 }
+
+// Refresh declares a program's PRE-LAUNCH REFRESH — a term coined here (2026-09-25) for the
+// step docs/design/pi-extension-lifecycle.md §3.2 calls the execution tier: an argv the
+// generated launcher runs the INSTALLED program with, before exec'ing it, to bring up to
+// date what the program manages BESIDE ITSELF. Pi's extension packages are the case that
+// bought it: `pi update --extensions` refreshes the machine-scoped store every jail reads.
+//
+// It is not the update verb (Install.UpdateVerb), and the two must not be merged. The verb
+// moves the PROGRAM, so it is gated by the program's own pin and stamp; a refresh moves the
+// program's add-ons and leaves the binary alone, so it runs whether or not the binary is
+// pinned, on a stamp of its own, and never through `yolo pack update`.
+//
+// What the launcher guarantees around it (§3.2–§3.3), none of which the pack can turn off:
+// at most once per UPDATE_INTERVAL on a machine-global stamp; only when the jail's
+// `agent_updates` policy lets this pack move; bounded by the launcher's UPDATE_TIMEOUT;
+// stdin from /dev/null and stdout sent to stderr, so it can neither prompt nor pollute a
+// piped launch; and only while holding Lock. Its failure is reported and the program
+// launches anyway.
+type Refresh struct {
+	// Argv is the program's own argv for the refresh, with the bin omitted:
+	// `["update", "--extensions"]` for pi. A vendor's words, so neither a closed enum nor a
+	// string to split — the same reasoning as UpdateVerb. Required and non-empty.
+	Argv []string `json:"argv"`
+	// Lock is the home-relative path of the refresh's LOCK DIRECTORY, taken with a
+	// non-blocking mkdir (§3.3): `.pi-shared-npm/.yolo-update.lock` for pi.
+	//
+	// ITS PARENT IS THE STORE THE REFRESH WRITES, and that is why a pack declares it rather
+	// than core choosing one: the lock must live where every writer on the machine can see
+	// it, which is the machine-scoped directory the pack itself declared. The launcher never
+	// creates the parent — a missing store is a fault to report, not a directory to invent
+	// in a per-workspace home — and a refresh whose lock it cannot take does not run.
+	//
+	// ITS NAME MUST START WITH StoreBookkeepingPrefix, because the lock lives inside a store
+	// that other code judges by its contents: a store the shared_directory hook shares holds
+	// ONLY this lock while the first refresh runs (and after an interrupted one), and a lock
+	// counted as content made that store "populated", so the hook discarded a workspace's
+	// real tree in favor of an empty one. Required.
+	Lock string `json:"lock"`
+}
+
+// StoreBookkeepingPrefix begins the name of every entry yolo itself keeps inside a
+// directory that holds a TOOL's content — a pre-launch refresh's lock (Refresh.Lock), the
+// shared_directory hook's incomplete-copy marker. Such an entry is never content: code that
+// asks whether a store is empty skips it, and Refresh.Lock is refused without it so that
+// question keeps a single answer.
+const StoreBookkeepingPrefix = ".yolo-"
 
 // SupportsPlatform reports whether this program's vendor publishes a build for the
 // given GOOS/GOARCH pair.

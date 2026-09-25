@@ -57,6 +57,15 @@ type Contribution struct {
 	// not know has to be skipped rather than refused (§6.2). These words are a vendor's
 	// argv: there is nothing here for a later build to learn, so nothing can be skew.
 	Update []string `json:"update,omitempty"`
+	// Refresh is the program's PRE-LAUNCH REFRESH (a coined term — see the Refresh type):
+	// `"refresh": {"argv": ["update", "--extensions"], "lock": ".pi-shared-npm/.yolo-update.lock"}`
+	// for pi. Read only on `program`, and refused on every other kind for `update`'s reason.
+	//
+	// DECLARED BY THE PACK, never keyed on a bin name in core: the launcher templates are
+	// shared by every program, and a `pi`-shaped branch in them is how core learns what an
+	// agent is (AGENTS.md, "Core does not know what an agent is"). The argv is the vendor's
+	// and the lock's location is the pack's store, so both facts are the pack's to state.
+	Refresh *Refresh `json:"refresh,omitempty"`
 	// InstallHints maps a host package manager ("brew"|"apt"|"dnf"|"pacman"|"nix") to
 	// the package name that provides Bin on that manager (env-manager plan Phase 6). Read
 	// from a `program` AND from a `requires` contribution — a pack that only ASSERTS a
@@ -266,6 +275,12 @@ type Contribution struct {
 	// are literal strings only — no interpolation, no secrets, no host references — so
 	// an env contribution never reads the host and is honored regardless of origin.
 	Vars map[string]string `json:"vars,omitempty"`
+	// OverriddenBy names what, delivered into the same jail, makes a consumer IGNORE these
+	// vars: a launch that would carry both is refused, because the agent would silently use
+	// the other thing (docs/design/sso-backed-bedrock.md OQ-SSO8). `env` only. The shape,
+	// its rules and why the pack declares it rather than core are EnvOverride's doc
+	// (envoverride.go).
+	OverriddenBy []EnvOverride `json:"overridden_by,omitempty"`
 
 	// --- hook ---
 	Hook string `json:"hook,omitempty"` // hook: the named capability from KnownHooks
@@ -724,6 +739,13 @@ func (m *Manifest) InstallContributions() []Install {
 		// and a projection that only carried it for installers would silently discard
 		// it (OQ-PD14).
 		in.UpdateVerb = c.Update
+		// The pre-launch refresh too, for the same reason: it is what the PROGRAM does to
+		// its own add-ons, whichever mechanism delivered the program. Copied rather than
+		// aliased, so a consumer that edits its Install cannot reach back into the manifest.
+		if c.Refresh != nil {
+			r := Refresh{Argv: append([]string(nil), c.Refresh.Argv...), Lock: c.Refresh.Lock}
+			in.Refresh = &r
+		}
 		// The platform list is projected for EVERY via, for UpdateVerb's reason: it
 		// names where the VENDOR publishes, which is a fact about the program rather
 		// than about how it arrives. An npm package with per-platform optional
@@ -2024,6 +2046,54 @@ func protocolsProblems(label string, c Contribution) []string {
 	return problems
 }
 
+// refreshProblems validates a `program`'s pre-launch refresh (the Refresh type carries the
+// shape). field is the label of the `refresh` object itself.
+//
+// Every refusal here is a declaration that would otherwise do nothing, or do something other
+// than it says, WITHOUT a message: an empty argv runs the bare program (an interactive agent)
+// as a "refresh"; an empty word reaches the vendor as a zero-length argument; a lock with no
+// directory above it guards no store; and a lock outside the home is not the pack's to take.
+func refreshProblems(field string, r *Refresh) []string {
+	var problems []string
+	if len(r.Argv) == 0 {
+		problems = append(problems, field+".argv: required — the refresh is the program's own "+
+			"argv (bin omitted), and an empty one would launch the program itself as the \"refresh\"")
+	}
+	for i, w := range r.Argv {
+		if strings.TrimSpace(w) == "" {
+			problems = append(problems, fmt.Sprintf(
+				"%s.argv[%d]: empty word — the refresh is the program's own argv, and an "+
+					"empty argument reaches the vendor as one", field, i))
+		}
+	}
+	if r.Lock == "" {
+		return append(problems, field+".lock: required — the home-relative lock directory, "+
+			"inside the store the refresh writes (e.g. \".pi-shared-npm/.yolo-update.lock\"); "+
+			"a refresh with no lock is two jails writing one store at once")
+	}
+	before := len(problems)
+	problems = appendPathProblems(problems, field+".lock", r.Lock)
+	if len(problems) > before {
+		return problems
+	}
+	clean := path.Clean(r.Lock)
+	if clean != r.Lock || !strings.Contains(clean, "/") {
+		problems = append(problems, fmt.Sprintf(
+			"%s.lock: %q must be a clean home-relative path NAMING A DIRECTORY INSIDE A STORE "+
+				"(\"<store>/<lock>\") — the lock's parent is the directory the refresh writes, and "+
+				"a lock with none above it guards nothing", field, r.Lock))
+	}
+	if !strings.HasPrefix(path.Base(clean), StoreBookkeepingPrefix) {
+		problems = append(problems, fmt.Sprintf(
+			"%s.lock: %q must be named %s<something> (e.g. \".pi-shared-npm/.yolo-update.lock\") — "+
+				"the lock lives inside the store, and only a name with that prefix is known to be "+
+				"yolo's bookkeeping rather than the tool's content; a store holding nothing but an "+
+				"unmarked lock reads as populated, and the shared_directory hook discards a "+
+				"workspace's real tree for it", field, r.Lock, StoreBookkeepingPrefix))
+	}
+	return problems
+}
+
 func platformsProblems(label string, c Contribution) []string {
 	if c.Platforms == nil {
 		return nil
@@ -2276,9 +2346,21 @@ func validateContribution(label string, c Contribution) []string {
 			"%s: kind %q does not take \"update\" — the verb runs the installed PROGRAM "+
 				"against itself, so only \"program\" has anything to run it on", label, c.Kind))
 	}
+	// `refresh` is program's alone for the same reason: the launcher runs the refresh
+	// through the installed program, so on any other kind no consumer reads it.
+	if c.Refresh != nil && c.Kind != KindProgram {
+		problems = append(problems, fmt.Sprintf(
+			"%s: kind %q does not take \"refresh\" — a pre-launch refresh runs the installed "+
+				"PROGRAM from its launcher, so only \"program\" has a launcher to run it from",
+			label, c.Kind))
+	}
+	if c.Refresh != nil && c.Kind == KindProgram {
+		problems = append(problems, refreshProblems(label+".refresh", c.Refresh)...)
+	}
 	problems = append(problems, platformsProblems(label, c)...)
 	problems = append(problems, capabilitiesProblems(label, c)...)
 	problems = append(problems, protocolsProblems(label, c)...)
+	problems = append(problems, envOverrideProblems(label, c)...)
 	// `adapts` and `address` are the adapter's whole body, refused elsewhere in `profile`'s
 	// position and for its reason: on any other kind they are read by no consumer, so
 	// accepting them would be a declaration that silently does nothing. Ahead of the kind

@@ -253,6 +253,38 @@ const ExecutablesClaimKind = packdecl.Kind("executables")
 // packdecl.KnownKinds() need no entry for it.
 const AgentNameClaimKind = packdecl.Kind("agent")
 
+// OverriddenByClaimKind is the Claim.Kind an env contribution's `overridden_by` declaration
+// is reported under (packdecl.EnvOverride).
+//
+// A DISPLAY LABEL, not a packdecl.Kind in the closed registry — the same shape and for the
+// same three reasons as SupersedesClaimKind above: `kind: "overridden-by"` stays an unknown
+// kind in a manifest (it is a key ON an env contribution), Collisions skips the label
+// because two packs refusing over one variable is not a conflict, and the per-kind
+// exhaustiveness tests that walk packdecl.KnownKinds() need no entry for a non-kind.
+//
+// NOT ReviewWorthy: it widens nothing. It is a refusal the pack asks for, so it belongs where
+// someone is deliberately inspecting a pack, never on the launch banner.
+const OverriddenByClaimKind = packdecl.Kind("overridden-by")
+
+// overrideClaimDetail is one `overridden_by` entry as a footprint line's detail: what the
+// launch is refused beside, and the gate under which the contribution is delivered at all.
+func overrideClaimDetail(d packdecl.EnvOverrideDecl, o packdecl.EnvOverride) string {
+	var detail string
+	switch {
+	case len(o.Vars) > 0:
+		detail = "launch refused beside " + strings.Join(o.Vars, " + ")
+		if len(o.Unless) > 0 {
+			detail += " unless " + strings.Join(o.Unless, " or ") + " is also delivered"
+		}
+	default:
+		detail = "launch refused beside a host_files grant at ~/" + o.HostFile
+	}
+	if d.Profile != "" {
+		detail += " (when profile \"" + d.Profile + "\" is active)"
+	}
+	return detail
+}
+
 // execClaimListCap bounds how many paths the executables claim names before it summarizes.
 // A pack of scripts should not push its other claims off the reader's screen.
 const execClaimListCap = 5
@@ -641,6 +673,15 @@ func FootprintOf(p *Pack) Footprint {
 		for _, k := range sortedMapKeys(gated.Vars) {
 			add(packdecl.KindEnv, k, "="+gated.Vars[k]+" when profile \""+
 				gated.Profile+"\" is active", false)
+		}
+	}
+
+	// The `overridden_by` declarations, one line each, so an author sees in `pack lint` and
+	// a reader in `pack footprint` exactly what this pack will REFUSE a launch over — a
+	// refusal with no hatch is the last thing a user should first meet at launch time.
+	for _, d := range p.Decl.EnvOverrideContributions() {
+		for _, o := range d.Overrides {
+			add(OverriddenByClaimKind, strings.Join(d.Sets, ", "), overrideClaimDetail(d, o), false)
 		}
 	}
 
