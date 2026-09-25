@@ -38,9 +38,12 @@
 //   - wrapLuaErr still prefixes "lua transform error:". The word is wrong and
 //     the string is quoted by derive's own tests; renaming it is a wording
 //     choice, not a behaviour one.
-//   - the sandbox opens Lua's `math` library whole, and neither ForbiddenGlobals
-//     nor extraStrippedGlobals names math.random. A derive.lua is required to be
-//     a pure function and can still call it (measured 2026-09-10). That is a real
-//     finding, named as out of scope by the removal (docs/reference/pack-system.md#derive-determinism), and the fix is one
-//     line in extraStrippedGlobals plus a test.
+//   - the sandbox opens Lua's `math` library whole and then clears math.random
+//     and math.randomseed out of it (extraStrippedGlobals' dotted entries). That
+//     closed a finding the removal named as out of scope
+//     (docs/reference/pack-system.md#derive-determinism): a derive.lua is required
+//     to be a pure function and could call the generator until then. What is
+//     still NOT enforced is reference identity — tostring() of a table or
+//     function prints its Go pointer — so determinism remains a requirement on
+//     the script, which the sandbox now enforces for randomness only.
 package luahook

@@ -55,6 +55,43 @@ func TestDeriveSandbox_ForbiddenGlobalUnavailable(t *testing.T) {
 	}
 }
 
+// TestDeriveSandbox_RandomnessUnavailable is the determinism half of the sandbox
+// contract (docs/reference/pack-system.md#derive-determinism): a derive.lua must be a
+// pure function of its context, so the math library's random-number generator is
+// stripped even though the rest of `math` stays open. Until this test existed the
+// requirement was stated and not enforced: `math.random()` returned a fresh value every
+// boot, so a script calling it produced a different computed layer each time.
+//
+// Through the real VM, like every proof in this file, so deleting the two names from
+// extraStrippedGlobals (or the dotted-name branch that clears them) turns it red.
+func TestDeriveSandbox_RandomnessUnavailable(t *testing.T) {
+	for _, tc := range []struct{ name, body string }{
+		{"math.random", `local r = math.random()`},
+		{"math.random(n)", `local r = math.random(10)`},
+		{"math.randomseed", `math.randomseed(42)`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			script := `yolo.derive("pi", "settings", function(ctx) ` + tc.body + ` return {} end)`
+			if _, err := runDerive(t, "pi", "settings", script, nil); err == nil {
+				t.Fatalf("%s was reachable in the derive sandbox — a derive must be deterministic, "+
+					"so the random-number generator must be a loud error", tc.name)
+			}
+		})
+	}
+	// The strip is of two FIELDS, not of the library: the deterministic rest of `math` is
+	// what TestDeriveSandbox_SafeLibsAvailable relies on, and it must survive.
+	script := `yolo.derive("pi", "settings", function(ctx)
+  return { floor = math.floor(2.5), huge = math.huge > 0, random = type(math.random) }
+end)`
+	got, err := runDerive(t, "pi", "settings", script, nil)
+	if err != nil {
+		t.Fatalf("the rest of the math library must stay available: %v", err)
+	}
+	if got["floor"] != int64(2) || got["huge"] != true || got["random"] != "nil" {
+		t.Errorf("math after the strip = %#v, want floor=2, huge=true, random=\"nil\"", got)
+	}
+}
+
 // TestDeriveSandbox_SafeLibsAvailable re-homes TestRealVM_SafeLibsAvailable: the
 // positive companion. The deterministic, side-effect-free stock libs (string,
 // table, math, and the base builtins) ARE opened, so a legitimate producer using

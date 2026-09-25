@@ -15,9 +15,14 @@ package luahook
 //   - It is a PURE FUNCTION of its inputs: given the same script and ctx it
 //     returns the same object. No wall clock, no I/O.
 //
-//     ⚠ Not enforced for randomness: openSandboxLibs opens Lua's `math` whole
-//     and nothing below names math.random (measured 2026-09-10). The fix is one
-//     line in extraStrippedGlobals; see the package doc.
+//     Randomness IS enforced: `math` is opened for its deterministic functions
+//     and extraStrippedGlobals clears math.random and math.randomseed out of it
+//     (TestDeriveSandbox_RandomnessUnavailable).
+//
+//     ⚠ Not enforced for reference identity: tostring() of a table or function
+//     is its Go pointer ("table: 0xc000…", gopher-lua's LTable.String), so a
+//     script that keys or emits on it still varies between runs. The
+//     requirement is on the script there; see the package doc.
 //
 //   - A Lua error (typo, nil index, calling a stripped global) is a LOUD Go
 //     error with file/line/message — never a silently partial computed layer.

@@ -2,6 +2,7 @@ package luahook
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
@@ -37,10 +38,17 @@ type GopherLuaVM struct {
 // only exists to convert a runaway loop into a loud error.
 const DefaultTimeout = 5 * time.Second
 
-// extraStrippedGlobals are names not in ForbiddenGlobals that the base library
-// still installs and that could weaken the sandbox (function-environment
-// manipulation, the module loader, the debug-ish proxy). Removed alongside
-// ForbiddenGlobals, so the two lists together are the whole subtraction.
+// extraStrippedGlobals are names not in ForbiddenGlobals that the opened
+// libraries still install and that could weaken the sandbox (function-environment
+// manipulation, the module loader, the debug-ish proxy, the random-number
+// generator). Removed alongside ForbiddenGlobals, so the two lists together are
+// the whole subtraction.
+//
+// A DOTTED name is a field of an opened library's table rather than a global, and
+// stripGlobal clears it in that table: `math` is opened whole for its
+// deterministic functions, and `math.random` / `math.randomseed` are the two
+// members of it that make a script's output vary between boots
+// (docs/reference/pack-system.md#derive-determinism).
 var extraStrippedGlobals = []string{
 	"require", "module", // loadlib entries planted in _G by OpenBase
 	"getfenv", "setfenv", // reassign a function's environment → escape
@@ -48,6 +56,23 @@ var extraStrippedGlobals = []string{
 	"_printregs", // gopher-lua debug hook
 	"print",      // side-effecting I/O; a pure producer has no console
 	"dostring",   // belt-and-suspenders (not a stock name, but listed forbidden)
+	// A derive must be a pure function of its context; gopher-lua's generator is
+	// Go's process-seeded math/rand, so either call differs run to run.
+	"math.random", "math.randomseed",
+}
+
+// stripGlobal removes one name from the sandbox environment: a plain name is
+// cleared in _G, and a dotted "lib.field" name is cleared in that library's table.
+// A dotted name whose library is not a table (not opened) has nothing to clear.
+func stripGlobal(L *lua.LState, name string) {
+	lib, field, dotted := strings.Cut(name, ".")
+	if !dotted {
+		L.SetGlobal(name, lua.LNil)
+		return
+	}
+	if tbl, ok := L.GetGlobal(lib).(*lua.LTable); ok {
+		tbl.RawSetString(field, lua.LNil)
+	}
 }
 
 // openSandboxLibs opens only the safe libraries (base, string, table, math) and
@@ -78,7 +103,7 @@ func openSandboxLibs(L *lua.LState) error {
 		L.SetGlobal(name, lua.LNil)
 	}
 	for _, name := range extraStrippedGlobals {
-		L.SetGlobal(name, lua.LNil)
+		stripGlobal(L, name)
 	}
 	return nil
 }
