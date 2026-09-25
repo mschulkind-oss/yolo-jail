@@ -76,8 +76,9 @@ apply flags:
                   verb does not grow a second output mode.
 
 The report ends in one sentence saying how the run went, with the counts beneath it.
-Packs resolve the way a launch resolves them, offline: a git pack from the pack store
-(` + "`yolo pack install`" + ` fetches it), a local one from its path. If ANY configured pack
+Packs resolve the way a launch resolves them: a git pack from the pack store, which this
+command first fetches when it never was and refreshes when it follows a branch (hourly; a
+tag or commit pin is never re-fetched), a local one from its path. If ANY configured pack
 cannot be resolved, an --assert is REFUSED with nothing written — an incomplete pack set
 is never applied — and the dry run names each pack, why, and the fix.
 A missing declared dependency STOPS an --assert: yolo shows the install command each
@@ -184,6 +185,12 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	// below gives for its own placement: a launch that is going to be stopped should be stopped
 	// while the only thing it has done is read some files. It is silent unless the user opted
 	// in, and it is a no-op in a jail.
+	// THE PACK REFRESH, above the gate: the gate's observe pass and the composition below
+	// both resolve the selected packs, and a never-fetched git pack must be fetched (and a
+	// branch-following one refreshed hourly) before either reads the store, exactly as a
+	// jail launch does (hostpackrefresh.go). stderr, like the gate: an agent's stdout is
+	// routinely parsed.
+	refreshHostPacks(errw)
 	if !hostApplyGate(errw, stdin, cmd[0]) {
 		return 1
 	}

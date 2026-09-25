@@ -90,6 +90,9 @@ func hostApply(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 	if rc, refused := refuseHostManagement(errw); refused {
 		return rc
 	}
+	// Fetch-before-resolve, as a launch does (hostpackrefresh.go). To stderr, so a
+	// `--format json` stdout still carries one document and nothing else.
+	refreshHostPacks(errw)
 	rc := applyHostFormatted(out, errw, color, write, stdin, format)
 	if shellInit {
 		// THROUGH THE SINK, like the report above it: in JSON mode stdout carries one

@@ -10,11 +10,16 @@ package check
 // is normal and the message can be actionable. It is defense in depth, not the only
 // line of defense: everything here is re-checked in the jail.
 //
-// It deliberately does NOT fetch. `yolo check` must work offline and must not make a
-// surprise network call, so a pack that has never been installed is reported as such
-// (pointing at `yolo pack install`) rather than fetched on the spot.
+// It deliberately does NOT fetch. `yolo check` is read-only preflight: it must work
+// offline and must not make a surprise network call, so a git pack the pack store does not
+// hold yet is reported as a [SKIP] saying the next host launch fetches it (a launch runs the
+// pack refresh step before it resolves anything; docs/reference/pack-system.md, "Fetch,
+// refresh, lock") rather than fetched on the spot. It is a SKIP and not a FAIL because
+// nothing is wrong: the launch will supply the pack. What check cannot do is look inside
+// it, and a skip is the level that says "not examined" without counting it as a pass.
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -124,12 +129,28 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 			r.fail(e.Name+": "+err.Error(), "")
 			continue
 		}
-		// Offline resolve: reports "never fetched" rather than fetching. The pack's slug
-		// is passed because Resolve falls back to the DELIVERED tree under
+		// ResolveExisting, not Resolve: check writes nothing and reaches no network, and
+		// Resolve CHECKS OUT a commit whose tree is missing — which, in the partial
+		// (--filter=blob:none) mirror, fetches that commit's blobs from the remote. The
+		// pack's slug is passed because resolution falls back to the DELIVERED tree under
 		// YOLO_PACK_ROOT when the address is not visible from here — a jail's inherited
 		// config names host paths, so that is every local pack, every time.
-		res, err := store.Resolve(addr, e.Slug())
+		res, err := store.ResolveExisting(addr, e.Slug())
 		if err != nil {
+			switch o.launchWouldRepair(addr, err) {
+			case packsrc.ErrNotFetched:
+				r.skip(e.Name+": not in the pack store yet — the next launch fetches it, "+
+					"so its contents are not checked here",
+					"pack store: "+err.Error()+"\n"+
+						"run `yolo pack install` to fetch it now, then `yolo check` again")
+				continue
+			case packsrc.ErrNotCheckedOut:
+				r.skip(e.Name+": not checked out yet — the next launch checks it out, "+
+					"so its contents are not checked here",
+					"pack store: "+err.Error()+"\n"+
+						"run `yolo pack install` to check it out now, then `yolo check` again")
+				continue
+			}
 			r.fail(e.Name+": "+err.Error(), "")
 			continue
 		}
@@ -269,10 +290,19 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 
 	// Drift last, so it reads as a summary rather than interleaving with per-pack
 	// results. It is a WARNING, not a failure: the jail will still start, using the
-	// config address — the user just has not fetched what they asked for.
+	// config address, and for a git pack that launch's refresh step fetches it and
+	// rewrites the lock entry (a local pack's entry only install rewrites). What the
+	// warning reports is that the lock does not yet say what was asked for.
 	for _, d := range lock.DriftFrom(configured) {
-		r.warn(d.Name+": config address changed since install",
-			"locked "+d.LockedSource+", config "+d.WantedSource+" — run `yolo pack install`")
+		remedy := "the next host launch fetches the config address and rewrites the lock entry " +
+			"(or run `yolo pack install` to do it now)"
+		if a, err := packsrc.Parse(d.WantedSource); err != nil || a.IsLocal() {
+			// A launch records only the git packs its refresh fetched, never a local one.
+			remedy = "a local pack: run `yolo pack install` to record the config address " +
+				"(no launch rewrites a local pack's entry)"
+		}
+		r.warn(d.Name+": config address changed since the lock was written",
+			"locked "+d.LockedSource+", config "+d.WantedSource+" — "+remedy)
 	}
 
 	// Footprint collision check (the one-writer rule, §3.6): compute the union of
@@ -312,6 +342,36 @@ func loadStagedPack(r *reporter, dir, name string) *packload.Pack {
 		return nil
 	}
 	return p
+}
+
+// launchWouldRepair reports which store miss a resolution failure is when the next HOST
+// launch repairs it: packsrc.ErrNotFetched for a git pack whose mirror the store does not
+// have, or whose ref the mirror does not hold and no fetch has come back without; and
+// packsrc.ErrNotCheckedOut for a commit the store holds but has not checked out. The launch's
+// refresh does exactly those before it resolves anything (docs/reference/pack-system.md,
+// "Fetch, refresh, lock").
+//
+// NIL, so the failure stays a FAIL, for everything else:
+//   - a local (file://) pack, which nothing fetches;
+//   - in a jail, where the refresh step does nothing (the jail has no pack store and no git
+//     credentials), so a nested launch refuses a pack the outer launch did not stage;
+//   - a ref a SUCCESSFUL fetch did not find (a typo in ?ref=, a deleted branch), which the
+//     store reports without ErrNotFetched: every launch would fail on it;
+//   - any other store error — a subpath absent at the resolved commit, a failed checkout —
+//     which a fetch does not repair and the launch refuses by name.
+//
+// It classifies by the store's TYPED errors (errors.Is), not its wording.
+// TestSectionPacksSkipsAPackTheLaunchWouldFetch drives the REAL store into each case.
+func (o *Options) launchWouldRepair(addr packsrc.Addr, err error) error {
+	if addr.IsLocal() || o.getenv("YOLO_VERSION") != "" {
+		return nil
+	}
+	for _, kind := range []error{packsrc.ErrNotFetched, packsrc.ErrNotCheckedOut} {
+		if errors.Is(err, kind) {
+			return kind
+		}
+	}
+	return nil
 }
 
 // getenv is nil-safe: several tests drive a zero Options directly rather than

@@ -144,13 +144,15 @@ func configuredDepRequirements() ([]depcheck.Requirement, []unresolvedPack) {
 }
 
 // unresolvedPack is one configured pack that could not be resolved, and the resolver's own
-// words for why — which name the remedy (`yolo pack install` for a git pack the store does not
-// have, `yolo pack update` for a ref its mirror lacks, the path for a missing local dir).
+// words for why, which name what is missing (a git pack the store does not have, a ref its
+// mirror lacks, the path of a missing local dir).
 type unresolvedPack struct {
 	Name   string `json:"name"`
 	Reason string `json:"reason"`
-	// NeedsInstall is whether the fix is `yolo pack install`: a git pack whose address parsed
-	// but whose mirror, ref or tree is not in the store. Carried as a fact decided where the
+	// NeedsInstall is whether the fix is a FETCH: a git pack whose address parsed but whose
+	// mirror or ref is not in the store (packsrc.ErrNotFetched). The next host launch's pack refresh step
+	// fetches it, and `yolo pack install` fetches it now; the field keeps its name (and its
+	// JSON key) from when install was the only way. Carried as a fact decided where the
 	// failure happened, never recovered from the reason's wording.
 	NeedsInstall bool `json:"needs_install"`
 }
@@ -164,9 +166,13 @@ func newUnresolvedPack(name string, err error) unresolvedPack {
 		NeedsInstall: errors.As(err, &miss)}
 }
 
-// storeMissError marks a git pack the pack store cannot supply — never fetched, a ref the
-// mirror lacks, a subpath absent at the resolved commit. `yolo pack install` re-fetches every
-// configured git pack, so it is the remedy for exactly this class and no other.
+// storeMissError marks a git pack the pack store cannot supply YET — never fetched, or a ref
+// the mirror lacks that no successful fetch has come back without (packsrc.ErrNotFetched). A
+// fetch is the remedy for exactly this class and no other: the next host launch's pack
+// refresh step fetches such a pack, and `yolo pack install` re-fetches every configured git
+// pack on demand. A subpath absent at the resolved commit, or a ref a successful fetch did
+// not find, is NOT this class — no fetch repairs either, so they are reported as an address
+// to fix in the config. This resolver itself never fetches.
 type storeMissError struct{ err error }
 
 func (e storeMissError) Error() string { return e.err.Error() }
@@ -195,7 +201,8 @@ func describeUnresolved(list []unresolvedPack) string {
 //
 // ONE RESOLUTION RULE, THE LAUNCH'S. An embedded pack comes from the binary; every other one
 // goes through run.PackRoot — the function stagePacks calls — so a git pack resolves OFFLINE
-// from the pack store (`yolo pack install` is what puts it there) and a local one from its path,
+// from the pack store (a launch's pack refresh step, or `yolo pack install`, is what puts it
+// there; this function never fetches) and a local one from its path,
 // with the same staged-tree fallback a nested launch relies on. This loader used to return
 // nothing for every git pack without asking the store, so `yolo host apply` skipped a pack the
 // user HAD installed and told them to install it.
@@ -221,7 +228,7 @@ func resolveConfiguredPack(e config.PackEntry) (*packload.Pack, error) {
 	}
 	root, err := run.PackRoot(e, nil)
 	if err != nil {
-		if _, perr := packsrc.Parse(e.Source); perr == nil && !e.IsLocal() {
+		if errors.Is(err, packsrc.ErrNotFetched) && !e.IsLocal() {
 			return nil, storeMissError{err}
 		}
 		return nil, err
@@ -272,9 +279,10 @@ and kin) you can run in one step.
   yolo check-deps               probe + write the manifest for missing deps
   yolo check-deps --no-manifest probe only, write nothing
 
-Packs resolve the way a launch resolves them: a git pack from the pack store
-(` + "`yolo pack install`" + ` fetches it), a local one from its path. A configured pack that
-cannot be resolved is named with the reason, and its deps are not probed.
+Packs resolve the way a launch resolves them: a git pack from the pack store, a
+local one from its path. check-deps never fetches: a git pack not in the store yet
+is fetched by the next launch, or now by ` + "`yolo pack install`" + `. A configured pack
+that cannot be resolved is named with the reason, and its deps are not probed.
 
 It never installs anything — it detects and hands off. Exit is non-zero when a declared
 dep is missing, or when a configured pack could not be resolved.

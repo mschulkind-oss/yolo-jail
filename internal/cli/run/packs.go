@@ -224,11 +224,11 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 		briefings = append(briefings, o.packBriefingProses(p.Name, p)...)
 	}
 
-	// THE LOCKFILE IS NOT READ HERE, and since OQ-TP9 it is not read on the launch path at
-	// all (docs/design/trust-paths.md, 2026-09-04). Its one launch-time job was the
-	// host-access approval gate, which is deleted: a launch resolves a fetched pack from the
-	// local mirror at the config's ref, and the mirror only moves when `yolo pack
-	// install`/`update` runs, so the lock is written by install and read by `pack status`.
+	// THE LOCKFILE IS NOT READ HERE (OQ-TP9, docs/design/trust-paths.md, 2026-09-04). Its
+	// one launch-time READ was the host-access approval gate, which is deleted: a launch
+	// resolves a fetched pack from the local mirror at the config's ref. The launch does
+	// WRITE it — RefreshConfiguredPacks, above config validation in Run, records what each
+	// git pack resolved to — and `pack status` reads it.
 	// Making resolution read the lock's COMMIT instead of the mirror's ref is worth doing —
 	// it is what a lockfile means everywhere else — but it is correctness-of-meaning, not a
 	// gate, and it is tracked as OQ-LP8 rather than smuggled back in here.
@@ -614,13 +614,15 @@ type PackLoopholeDecl struct {
 //   - `packs/claude` OCCUPIES the name. Loophole names are sole-owned across packs, so a
 //     second pack claiming it refuses the launch here, by name, for anyone who selected
 //     claude — which is everyone the broker is for.
-//   - Without claude selected, a pack MAY claim the name, and the bound is the origin
-//     gate: brokerLoopholeActive asks for Honored (Active AND the pack may touch the
-//     host), so an unapproved fetched pack cannot switch the terminator, the CA mount and
-//     the endpoint variable on. An APPROVED pack can, which is precisely the case OQ-A3
-//     already admits — "a fetched pack can declare itself on", bounded by approval rather
-//     than by the declaration — and it is the same bound `cgroup-delegate` took when it
-//     retired its own reservation.
+//   - Without claude selected, a pack MAY claim the name. brokerLoopholeActive asks for
+//     Honored (Active AND the pack may touch the host), but since OQ-TP9 deleted the
+//     host-access approval every pack module is HostExecApproved (packLoopholeModules), so
+//     that is no bound on a pack the user selected: a selected pack can switch the
+//     terminator, the CA mount and the endpoint variable on. That is the case OQ-A3 admits —
+//     "a fetched pack can declare itself on" — now bounded by the SELECTION (the consent)
+//     and by the launch's disclosure, not by an approval; and for a git pack, by its ref (a
+//     tag or commit pin never moves at launch, OQ-PF1). It is the same bound
+//     `cgroup-delegate` took when it retired its own reservation.
 //
 // This cannot be a row in packload.Collisions for the reason §3.2 measures: packload
 // cannot import internal/loopholes (loopholes → config → packload is a cycle), and the
@@ -766,7 +768,7 @@ func packLoopholeModules(loaded []*packload.Pack) []loopholes.PackModule {
 // has to be pushed IN from a package that can. internal/cli/run is linked into `yolo`
 // (internal/cli imports it), which is what makes one registration cover every subcommand.
 //
-// It resolves from the STORE and is strictly OFFLINE, like PackRoot: a `yolo check` must not
+// It resolves from the STORE and never fetches, like PackRoot: a `yolo check` must not
 // depend on a reachable git server, and an unresolvable pack contributes nothing rather than
 // failing the command. The staged record supersedes it the moment staging runs, because
 // staging is the authoritative view — it is what the jail actually mounts, `only`/`exclude`
@@ -948,8 +950,8 @@ func (o *Options) packSkillSourceDirs(p *packload.Pack) []jailcontent.PackSkillS
 // fetched pack whose mirror cannot be read this launch (offline, moved remote, never
 // installed) is still CONFIGURED, and pruning it would silently discard content the user
 // asked for — on every offline launch, no less. Resolution failure is reported later by
-// PackRoot as a fatal error naming `yolo pack install`; it is emphatically not a
-// deactivation signal.
+// PackRoot as a fatal error naming the pack (and the refresh's fetch error, when it had
+// one); it is emphatically not a deactivation signal.
 //
 // embedded names are excluded because an embedded pack does not live at <root>/<slug> at
 // all: it is staged under _official, which is cleared and rebuilt wholesale. Including it
@@ -1009,10 +1011,11 @@ func pruneDroppedPackStaging(stagingRoot string, live map[string]bool) ([]string
 
 // PackRoot resolves a pack entry to a directory on disk.
 //
-// LAUNCH IS STRICTLY OFFLINE (C5): it resolves from the store and never fetches. A
-// jail start must not depend on a reachable git server, and a missing pin must be a
-// clear error pointing at `yolo pack install` rather than a surprise network call
-// mid-boot — or worse, a 30-second askpass hang that reads as yolo wedging.
+// IT DOES NOT FETCH. The launch's fetch is RefreshConfiguredPacks (packrefresh.go), which
+// Run calls before anything resolves a pack; PackRoot is the offline half that reads the
+// store that refresh left, and it is also what the read-only surfaces call, which must
+// never reach the network. A pack the refresh could not fetch is a clear error here that
+// names the fetch failure.
 //
 // It passes the entry's SLUG to Resolve, which is what makes a NESTED launch work: a
 // jail's inherited config names the host path a pack came from, so resolution from the

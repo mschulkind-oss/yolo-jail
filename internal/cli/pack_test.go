@@ -714,7 +714,7 @@ func TestPackStatusFlagsConfigDrift(t *testing.T) {
 	if rc == 0 {
 		t.Error("status should fail when config and lock disagree")
 	}
-	if !strings.Contains(out.String(), "config changed since install") {
+	if !strings.Contains(out.String(), "config changed since the lock was written") {
 		t.Errorf("status did not flag drift:\n%s", out.String())
 	}
 }

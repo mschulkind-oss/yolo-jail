@@ -695,7 +695,8 @@
 
       nothing would change      silent; the agent starts as usual.
       a configured pack cannot  renders NOTHING, names each pack with why and the
-      be resolved               remedy (`yolo pack install` for a git pack), and the
+      be resolved               remedy (for a git pack, the fetch this launch already
+                                tried; `yolo pack install` retries it), and the
                                 agent launches on the render already in place: an
                                 incomplete pack set is never applied.
       an apply would ask        renders NOTHING, prints each question (a skills or
@@ -1127,13 +1128,16 @@
     it.  Set "name" when the directory is unhelpful, and note that two entries may not
     share one:  { "source": "/tmp/build/002", "name": "house" }
     Host access = a reads-host file, a `mount` of a host dir, an installer program, or
-    a host-prepending briefing.  An EMBEDDED or LOCAL (file://) pack may read the host
-    unconditionally.  A FETCHED (git) pack may too, but only for the claims you APPROVE
-    at `yolo pack install` (it shows what the pack reads and asks y/N once, recording
-    the approval per-commit in the lockfile); a moved pin re-prompts only if it gains a
-    new claim, and an unapproved claim is refused at launch with a printed notice.
-    Static `env` values are never gated (they read nothing).  Each launch's banner
-    lists what every loaded pack reads from the host.
+    a host-prepending briefing.  EVERY pack's declared claims are honored, whatever its
+    origin — embedded, local (file://) or fetched (git).  There is no approval prompt:
+    selecting the pack in your config is the consent, `yolo pack footprint <ref>` is
+    where to review what a pack claims before you select it, and each launch's banner
+    lists what every loaded pack reads from the host.  A launch on the host fetches a
+    git pack it has never fetched and re-fetches a BRANCH ref at most hourly, printing
+    "Fetched pack …" / "Updated pack …" when content arrives or moves; a TAG or a full
+    commit SHA is never re-fetched by a launch, so a pin is how to freeze a pack that
+    carries host code (only an explicit `yolo pack install`/`update` follows a
+    re-pointed tag).
     A pack.json declares effects as a "contributes" list, one entry per effect with a
     "kind" from the closed set:
       program       a tool on PATH: {bin, via:"npm"|"installer", package|url, flags}
@@ -1323,9 +1327,11 @@
                     it is sole-owned, so two packs shipping one name is an error.
                     THE SHARPEST KIND, and the only one whose claim is host code
                     EXECUTION rather than a host read.  Every crossing the module
-                    declares is a SEPARATE claim you approve at `yolo pack install`:
-                    the daemon argv + doctor_cmd (one claim, raw and unelided, so a
-                    changed argv re-prompts), one per TLS intercept (a CA every client
+                    declares is a SEPARATE claim, disclosed rather than approved (there
+                    is no prompt; selecting the pack is the consent, and `yolo pack
+                    footprint` lists the claims): the daemon argv + doctor_cmd (one
+                    claim, raw and unelided, printed just before it runs), one per TLS
+                    intercept (a CA every client
                     in the jail trusts — claimed even with no daemon), one per host bind
                     mount, one per SOCKET bind as its own read-write host-IPC class (`:ro`
                     is no boundary for an AF_UNIX socket — measured), and one per host
@@ -1339,7 +1345,7 @@
                     daemon`, plus its endpoint file at /run/yolo-services/<endpoint>.
                     THE ANTI-LOOPHOLE: it holds NO grant and crosses NO boundary — it
                     binds the jail's own loopback, reads no host state, mounts nothing,
-                    and so is never gated at `pack install` and never a claim.  The name
+                    and so is never a claim.  The name
                     is sole-owned (the daemon log and the endpoint file are both
                     name-keyed).  In this build the jail daemon runs under the existing
                     supervisor and the host_daemon half is declared and carried, not yet

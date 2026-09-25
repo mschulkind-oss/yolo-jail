@@ -63,14 +63,16 @@ func hostFooterTables() footer.Tables {
 }
 
 // footerHostPacks is the selected pack set, resolved offline as a host launch resolves it
-// (an embedded pack by name, a git pack from the pack store, a local one from its path),
-// minus the fetched-tree staging hostFooterTables explains, and WRITING NOTHING to the pack
-// store: a fetched pack whose tree for the pinned commit is not already checked out is
-// skipped rather than checked out (packsrc.Store.ResolveExisting). A pack that does not
-// resolve contributes nothing, as it contributes nothing to a host launch's env, so a profile
-// only it declares reads as its bare name: an under-claim, never a wrong provider. The one
-// write a refresh can still cause is packload.Embedded's tree, made once per build by the
-// first host `yolo` of that build, whatever the command.
+// once that launch's pack refresh step has run (an embedded pack by name, a git pack from the
+// pack store, a local one from its path), minus the fetched-tree staging hostFooterTables
+// explains, and WRITING NOTHING to the pack store. It NEVER FETCHES: a refresh per
+// status-line redraw would put the network on the footer's path, so a git pack no launch has
+// fetched yet is simply unresolved here. A fetched pack whose tree for the pinned commit is
+// not already checked out is skipped rather than checked out (packsrc.Store.ResolveExisting).
+// A pack that does not resolve contributes nothing, as it contributes nothing to a host
+// launch's env, so a profile only it declares reads as its bare name: an under-claim, never a
+// wrong provider. The one write a refresh can still cause is packload.Embedded's tree, made
+// once per build by the first host `yolo` of that build, whatever the command.
 func footerHostPacks() []*packload.Pack {
 	entries, err := config.LoadPacks(nil)
 	if err != nil {

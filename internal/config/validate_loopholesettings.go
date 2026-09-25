@@ -26,11 +26,12 @@ import (
 //
 // Because the declarations are AUTHORITATIVE (OQ-K1). The design first assumed core
 // might be unable to see a pack's declaration at launch and would therefore have to
-// accept values unvalidated — but launch is strictly offline BY DESIGN (it resolves
-// from the local pack store and never reaches out mid-boot) and a pack that cannot
-// be resolved is already a FATAL launch error naming `yolo pack install`. So there
-// is no launch in which a configured pack's declaration is missing and the jail
-// starts anyway, and validation keeps its teeth.
+// accept values unvalidated — but a host launch fetches a missing git pack BEFORE
+// validation runs (its pack refresh step, OQ-PF1 in docs/reference/pack-system.md),
+// and a pack still unresolvable after that is a FATAL launch error naming the pack
+// (and the fetch error, when there was one). So there is no launch in which a
+// configured pack's declaration is missing and the jail starts anyway, and
+// validation keeps its teeth.
 //
 // The one case that does survive — this build's decoder not understanding a
 // declaration written for a newer one — is handled a level down, in

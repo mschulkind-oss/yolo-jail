@@ -144,6 +144,14 @@ func Run(opts Options) (rc int) {
 		o.pr(o.Stdout).printf("[bold red]%s[/bold red]", err.Error())
 		return 1
 	}
+	// THE PACK REFRESH, before anything resolves a pack (maintainer ruling, 2026-09-25):
+	// a never-fetched git pack is fetched here and a branch-following one re-fetched at
+	// most hourly (packrefresh.go). Above config validation, not merely above staging,
+	// because validation already resolves the selected packs (writable_home_dirs
+	// reservation, use_profiles keys) and would otherwise judge a pack this launch is
+	// about to deliver as absent. A no-op in a jail. Pinned by
+	// TestLaunchFetchesANeverInstalledGitPack.
+	o.refreshPacks()
 	cfg, ok := o.loadAndValidateConfig()
 	if !ok {
 		return 1

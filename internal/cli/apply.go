@@ -157,6 +157,8 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 		if rc, refused := refuseHostManagement(errw); refused {
 			return rc
 		}
+		// The same fetch-before-resolve `yolo host apply` does: one operation, two spellings.
+		refreshHostPacks(errw)
 		return applyHostFormatted(out, errw, color, assert && !dryRun, stdin, format)
 	case config.ConfinementGuest:
 		// render.NotchUnbuilt is the sentence, not a literal: `run.Run` refuses a guest
@@ -408,8 +410,9 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// kind exists to do (docs/reference/pack-system.md §6).
 	//
 	// THE LAUNCH'S RESOLUTION (resolveConfiguredPack → run.PackRoot): embedded from the binary,
-	// local from its path, git OFFLINE from the pack store. No network — `yolo pack install` is
-	// the one verb that fetches.
+	// local from its path, git from the pack store with no network HERE. The fetch already
+	// happened at the command's entry (refreshHostPacks, before applyHostFormatted), not in
+	// this render, which the launch gate's observe pass also runs inside a one-second budget.
 	for _, e := range entries {
 		configured[e.Name] = true
 		p, rerr := resolveConfiguredPack(e)

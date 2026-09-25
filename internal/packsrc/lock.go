@@ -89,8 +89,8 @@ func LoadLock(path string) (*Lock, error) {
 	}
 	var l Lock
 	if err := json.Unmarshal(data, &l); err != nil {
-		return nil, fmt.Errorf("%s: %w (delete it to start over — it will be "+
-			"regenerated on the next `yolo pack install`)", path, err)
+		return nil, fmt.Errorf("%s: %w (delete it to start over — the next launch or "+
+			"`yolo pack install` regenerates it)", path, err)
 	}
 	if l.Schema > LockSchema {
 		return nil, fmt.Errorf("%s: schema %d is newer than this yolo understands (%d) — "+
@@ -120,7 +120,31 @@ func (l *Lock) Save(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(data, '\n'), 0o644)
+	// Temp file + rename: a launch rewrites this file now, so a reader (`yolo pack
+	// status`, another launch) must never see it half-written. Writers are serialised by
+	// WithLock; the rename is what protects the readers, which take no lock.
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".packs.lock.json.*")
+	if err != nil {
+		return err
+	}
+	if _, err := tmp.Write(append(data, '\n')); err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmp.Name())
+		return err
+	}
+	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
+		os.Remove(tmp.Name())
+		return err
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		os.Remove(tmp.Name())
+		return err
+	}
+	return nil
 }
 
 // Set records a resolution, replacing any previous entry for that name.
@@ -168,9 +192,9 @@ type Drift struct {
 
 // DriftFrom reports the configured packs whose address differs from the lock.
 //
-// This is what makes a stale lock visible instead of silently ignored: launch resolves
-// from the LOCK, so an edited `ref` in config would otherwise appear to do nothing
-// until someone ran install — the single most confusing possible behavior.
+// This is what makes a stale lock visible instead of silently ignored: an edited `ref`
+// in config and the commit recorded for the old one disagree until the next launch (or
+// `yolo pack install`) resolves the new address and rewrites the entry.
 func (l *Lock) DriftFrom(configured map[string]string) []Drift {
 	var out []Drift
 	names := make([]string, 0, len(configured))

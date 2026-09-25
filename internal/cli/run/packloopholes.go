@@ -87,7 +87,8 @@ const (
 	// disclosureRead: the claim reads the user's host, or sets the jail's environment.
 	// Printed with the launch banner. For a read, printing after the fact is merely
 	// cosmetic (§4.3 G4) — the bytes were already visible to yolo when it decided to mount
-	// them, and the user's approval was recorded before this launch existed.
+	// them, and selecting the pack (the consent, since OQ-TP9 deleted the approval prompt)
+	// happened before this launch existed.
 	disclosureRead
 	// disclosureExec: the claim runs code ON THE HOST. Printed BEFORE the spawn, because
 	// after the spawn the line is not a disclosure, it is a notification that something
@@ -145,9 +146,9 @@ const (
 // runtime, loud in review.
 var disclosureClasses = map[packdecl.Kind]disclosureClass{
 	// Host-crossing. These are exactly the kinds the retired Manifest.HostAccessClaims produced a claim
-	// for — the set the user APPROVED at `yolo pack install` — plus env, which is ungated.
-	// Matching the approval set is the whole of G4: the launch discloses what was approved,
-	// so the two can be compared by a human rather than taken on trust.
+	// for — the set `yolo pack install` used to ask the user to approve, before OQ-TP9 deleted
+	// that prompt — plus env, which was never gated. The launch discloses every one of them,
+	// and since there is no approval any more, that disclosure is the boundary.
 	packdecl.KindReadsHost: disclosureRead,
 	packdecl.KindMount:     disclosureRead,
 	// program: only its `via: installer` instance crosses anything (a fetched script), and
@@ -167,8 +168,7 @@ var disclosureClasses = map[packdecl.Kind]disclosureClass{
 	// claim is ReviewWorthy — it leaks across workspaces — but it is a subtree of the JAIL's
 	// home that yolo owns, not a path on the host the pack reads or writes. Disclosing it
 	// here would put a line on every launch about a directory the jail created for itself,
-	// and the review it needs is the one `yolo pack footprint` and `pack install` already
-	// give. TestDisclosureCoversEveryReviewWorthyKind names it as the deliberate exclusion,
+	// and the review it needs is the one `yolo pack footprint` already gives. TestDisclosureCoversEveryReviewWorthyKind names it as the deliberate exclusion,
 	// so this reasoning has to be restated (or refuted) by anyone who changes it.
 	packdecl.KindState: disclosureSkip,
 	// Everything below is jail-internal by construction.

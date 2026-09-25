@@ -154,8 +154,9 @@ func (p PackEntry) IsLocal() bool {
 // 2026-09-04) this was the input to MayGrantHostFiles and through it to every host-access
 // gate in the product; that whole chain is deleted, and a pack's declarations are honored
 // the same whoever shipped it. What origin still names is the DELIVERY ROUTE — a fetched
-// pack has to be `yolo pack install`ed to reach the store and gets a lockfile entry with a
-// commit, an embedded one is already in the binary, a local one is read in place — which is
+// pack reaches the store by a fetch (a host launch's refresh, or `yolo pack install`) and
+// gets a lockfile entry with a commit, an embedded one is already in the binary, a local one
+// is read in place — which is
 // what `pack install`, `pack status` and the drift report key on (through Embedded() and
 // IsLocal(), which are the two questions those paths actually ask).
 type Origin int

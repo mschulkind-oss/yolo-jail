@@ -183,8 +183,8 @@ func TestPackRootIsEmptyWhenNoPacksAreConfigured(t *testing.T) {
 // no backend can be dispatched with a half-resolved pack set.
 func TestStagingFailureStopsBeforeAnyContainerWork(t *testing.T) {
 	home := packHome(t)
-	// A fetched pack that was never installed: launch is strictly offline, so this
-	// resolves against the empty local store and fails without a network call.
+	// A git pack whose address has no ?ref=, so it cannot be parsed: the launch-time
+	// refresh skips it (no network), and resolution fails it by name.
 	writeUserPacks(t, home,
 		`[{"name": "ghost", "source": "git+https://example.invalid/ghost.git"}]`)
 	ws := t.TempDir()

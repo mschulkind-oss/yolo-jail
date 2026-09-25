@@ -132,8 +132,8 @@ way for a content-only pack to carry install_hints for the host notch.
 Examples:
   yolo pack ls                        # what packs are selected, and what they ship
   yolo pack footprint file://./packs/claude   # every claim a pack makes — READ THIS FIRST
-  yolo pack install                   # fetch what "packs" names into the local mirror
-  yolo pack update                    # move the pins your refs allow to move
+  yolo pack install                   # fetch every git pack now (a launch also fetches)
+  yolo pack update                    # re-fetch every git pack, tags and commit pins too
 
 See ` + "`yolo config-ref`" + ` (the "packs" section) for the full per-kind field reference.
 
@@ -148,15 +148,21 @@ could withhold. So READ BEFORE YOU SELECT: yolo pack footprint <ref> prints ever
 pack makes, and every loaded pack's host access is listed in the startup banner at each
 launch, with host EXECUTION printed just before it happens.
 
-FOLLOWING A MUTABLE REF IS THE TRUST DECISION. A "?ref=main" re-fetches whatever the author
-has pushed since you last looked, and nothing asks you again — putting a branch in your
-config is the consent, given once, for every commit that ever lands on it. So PIN A TAG for
-any pack that carries code, and pin it hardest for the kind that runs on YOUR OWN MACHINE: a
-loophole whose module declares a host_daemon or a doctor_cmd. ("?ref=" also takes a full
-commit SHA.) You are not exposed between installs either way — a launch resolves from the
-local mirror and never touches the network, and that mirror only moves when you run
-yolo pack install or yolo pack update; the pin is what decides whether THAT command hands
-you code you have looked at.
+A LAUNCH FETCHES, AND THE REF DECIDES WHAT MOVES. A launch on the host (yolo -- …,
+yolo host -- …, yolo host apply) fetches a git pack that was never fetched, and
+re-fetches a BRANCH ("?ref=main") when its last fetch is over an hour old. A TAG
+("?ref=v1.2.0") or a full 40-hex commit SHA is never re-fetched by a launch: that is how
+you freeze a pack. Every launch that delivers a pack for the first time or moves its
+commit says so ("Fetched pack …", "Updated pack …"); a fetch that fails while a copy is
+cached warns and uses the copy.
+
+FOLLOWING A BRANCH IS THE TRUST DECISION. A "?ref=main" picks up whatever the author has
+pushed, within the hour, at your next launch, and nothing asks you again — putting a
+branch in your config is the consent, given once, for every commit that ever lands on it.
+So PIN A TAG OR A COMMIT for any pack that carries code, and pin it hardest for the kind
+that runs on YOUR OWN MACHINE: a loophole whose module declares a host_daemon or a
+doctor_cmd. A pinned pack moves only when you change the pin, or when an explicit
+yolo pack install or yolo pack update re-fetches a tag its author re-pointed.
 
   yolo pack init [dir]        scaffold a pack skeleton (default: current dir)
                               --from-plugin <dir>  wrap an EXISTING agent plugin (a tree with
@@ -169,8 +175,10 @@ you code you have looked at.
   yolo pack explain <name>    show which files a pack stages, and what it dropped
   yolo pack footprint [ref]   what packs claim on the environment + collisions;
                               [ref] = an embedded name OR a local path / file:// pack
-  yolo pack install           fetch configured packs and write the lockfile.
-                              It NEVER asks a registry what the latest version is
+  yolo pack install           fetch every configured git pack NOW — tags and commit pins
+                              included — write the lockfile and prune entries for packs
+                              that left the config. Optional: a launch fetches a missing
+                              pack itself. It NEVER asks a registry what the latest version is
   yolo pack update            install, PLUS the only act that resolves a new version for a
                               pack's npm-declared program. Run it inside the jail — that is
                               where an agent CLI is installed
@@ -185,7 +193,9 @@ address for one from elsewhere:
             "file:///home/me/code/my-pack",
             "git+ssh://git@github.com/org/repo//subdir?ref=v1"]
 
-Then run ` + "`yolo pack install`" + ` (fetching only ever happens there, never at launch).
+The next launch fetches a git pack it has never fetched, and refreshes a branch-following
+one at most hourly; a tag or a commit pin is how to freeze a pack. Run ` + "`yolo pack install`" + `
+to fetch everything now instead of at the next launch.
 
 A pack's ` + "`program via npm`" + ` no longer updates itself. Its launcher installs the tool on
 first use and afterwards only REPORTS, at most hourly, that a newer version exists —
@@ -1412,11 +1422,15 @@ func reviewSummary(claims []packload.Claim) string {
 
 // packInstall fetches every configured pack and records what it resolved to (C5).
 //
-// THIS IS THE ONLY PLACE NETWORK ACCESS HAPPENS. Launch resolves offline from the
-// store, so fetching is an explicit, user-initiated act — never something that fires
-// mid-boot. `update` is the same operation with a different name and intent, so they
-// share this body: the distinction users care about is "did my pins move", and the
-// output reports exactly that.
+// OPTIONAL SINCE 2026-09-25: a launch fetches a never-fetched pack and refreshes a
+// branch-following one hourly by itself (run.RefreshConfiguredPacks). What install adds
+// is doing it NOW and for EVERY git pack — Force, so a tag or a pinned SHA is fetched
+// too — plus the lockfile prune, which a launch never does. `update` is this plus the
+// program refresh (packupdate.go).
+//
+// ONE CODE PATH WITH THE LAUNCH: the fetch, checkout, locks and lockfile record are
+// packsrc.Store.Refresh's, so install and a concurrent launch serialise on the same
+// per-mirror and lockfile flocks.
 func packInstall(out, errw io.Writer, color bool) int {
 	entries, err := config.LoadPacks(func(msg string) {
 		fmt.Fprintf(errw, "Warning: %s\n", msg)
@@ -1432,8 +1446,8 @@ func packInstall(out, errw io.Writer, color bool) int {
 	// so the pack looked installed forever and `status` reported a pin for content
 	// that was no longer being delivered.
 	lockPath := packsrc.LockPath(paths.UserConfigPath())
-	lock, err := packsrc.LoadLock(lockPath)
-	if err != nil {
+	// Read once up front so a corrupt lockfile refuses before any fetch, as it always has.
+	if _, err := packsrc.LoadLock(lockPath); err != nil {
 		fmt.Fprintf(errw, "yolo pack install: %v\n", err)
 		return 1
 	}
@@ -1441,6 +1455,9 @@ func packInstall(out, errw io.Writer, color bool) int {
 
 	rc := 0
 	var names []string
+	var locals []packsrc.LockEntry
+	var git []packsrc.RefreshPack
+	unparsed := map[string]bool{}
 	for _, e := range entries {
 		names = append(names, e.Name)
 		// An EMBEDDED pack ships inside the binary: nothing to fetch, no commit to pin.
@@ -1452,6 +1469,7 @@ func packInstall(out, errw io.Writer, color bool) int {
 		addr, err := packsrc.Parse(e.Source)
 		if err != nil {
 			fmt.Fprintf(errw, "yolo pack install: %s: %v\n", e.Name, err)
+			unparsed[e.Name] = true
 			rc = 1
 			continue
 		}
@@ -1459,61 +1477,81 @@ func packInstall(out, errw io.Writer, color bool) int {
 			// A local pack has nothing to fetch and no commit to pin. Recording it
 			// anyway keeps `pack ls`/rollback able to see every pack, without
 			// inventing a pin it does not have.
-			lock.Set(packsrc.LockEntry{Name: e.Name, Source: e.Source})
+			locals = append(locals, packsrc.LockEntry{Name: e.Name, Source: e.Source})
+			continue
+		}
+		git = append(git, packsrc.RefreshPack{Name: e.Name, Source: e.Source})
+	}
+
+	// NO HOST-ACCESS PROMPT. There was one here — it printed every claim the fetched pack
+	// made and asked y/N, recording the answer in the lockfile. OQ-TP9 deleted it as
+	// theatre on 2026-09-04 (docs/design/trust-paths.md): to reach this command with this
+	// pack configured you edited `packs` in ~/.config/yolo-jail/config.jsonc as the host
+	// user, which is strictly more authority than the prompt withheld, so it refused an
+	// actor who had already passed a stronger gate. What a user gets instead is `yolo pack
+	// footprint`, which shows the same claims on demand, and the launch banner, which
+	// shows what actually crossed.
+	var pruned []string
+	outcomes, lockErr := store.Refresh(git, packsrc.RefreshOptions{
+		Force:    true,
+		LockPath: lockPath,
+		Waiting:  func(line string) { pr.Printf("[dim]%s[/dim]", line) },
+		EditLock: func(l *packsrc.Lock) {
+			for _, e := range locals {
+				l.Set(e)
+			}
+			// Prune entries for packs that left the config, and SAY SO: a lock entry
+			// vanishing means content is about to stop being delivered.
+			pruned = l.Prune(names)
+		},
+	})
+	byName := map[string]packsrc.Outcome{}
+	for _, o := range outcomes {
+		byName[o.Name] = o
+	}
+	for _, e := range entries {
+		if e.Embedded() || unparsed[e.Name] {
+			continue
+		}
+		if e.IsLocal() {
 			pr.Printf("[dim]%s: local, nothing to fetch[/dim]", e.Name)
 			continue
 		}
-		prev, hadPrev := lock.Get(e.Name)
-		commit, err := store.Sync(addr)
-		if err != nil {
-			fmt.Fprintf(errw, "yolo pack install: %s: %v\n", e.Name, err)
+		o, ok := byName[e.Name]
+		if !ok {
+			continue // an address that did not parse, reported above
+		}
+		if o.Err != nil {
+			fmt.Fprintf(errw, "yolo pack install: %s: %v\n", e.Name, o.Err)
 			rc = 1
 			continue
 		}
-		// CALLED FOR THE CHECKOUT, not for the path it returns: Materialize is what puts
-		// the commit's content in the store where an offline launch resolves it. The
-		// returned root had one reader, the approval prompt that loaded the tree to
-		// enumerate its claims, and OQ-TP9 deleted that.
-		if _, err := store.Materialize(addr, commit); err != nil {
-			fmt.Fprintf(errw, "yolo pack install: %s: %v\n", e.Name, err)
+		if o.FetchErr != nil {
+			// The explicit fetch failed, so this is a failed install even though the cached
+			// commit stays usable — the user asked for the network and did not get it.
+			fmt.Fprintf(errw, "yolo pack install: %s\n", o.Warning())
 			rc = 1
-			continue
 		}
 		// Report whether the pin MOVED, which is the thing a user actually wants to
 		// know from an update — not merely that it succeeded.
 		switch {
-		case !hadPrev:
-			pr.Printf("[green]%s[/green] %s → %s", e.Name, addr.Ref, shortSHA(commit))
-		case prev.Commit != commit:
-			pr.Printf("[yellow]%s[/yellow] %s: %s → %s", e.Name, addr.Ref,
-				shortSHA(prev.Commit), shortSHA(commit))
+		case !o.Locked:
+			pr.Printf("[green]%s[/green] %s → %s", e.Name, o.Ref, shortSHA(o.Commit))
+		case o.Prev != o.Commit:
+			pr.Printf("[yellow]%s[/yellow] %s: %s → %s", e.Name, o.Ref,
+				shortSHA(o.Prev), shortSHA(o.Commit))
 		default:
-			pr.Printf("[dim]%s unchanged (%s)[/dim]", e.Name, shortSHA(commit))
+			pr.Printf("[dim]%s unchanged (%s)[/dim]", e.Name, shortSHA(o.Commit))
 		}
-
-		// NO HOST-ACCESS PROMPT. There was one here — it printed every claim the fetched
-		// pack made and asked y/N, recording the answer in the lockfile. OQ-TP9 deleted it
-		// as theatre on 2026-09-04 (docs/design/trust-paths.md): to reach this command with
-		// this pack configured you edited `packs` in ~/.config/yolo-jail/config.jsonc as the
-		// host user, which is strictly more authority than the prompt withheld, so it
-		// refused an actor who had already passed a stronger gate. What a user gets instead
-		// is `yolo pack footprint`, which shows the same claims on demand, and the launch
-		// banner, which shows what actually crossed.
-		lock.Set(packsrc.LockEntry{
-			Name: e.Name, Source: e.Source, Commit: commit, Ref: addr.Ref,
-		})
 	}
-
-	// Prune entries for packs that left the config, and SAY SO: a lock entry
-	// vanishing means content is about to stop being delivered.
-	for _, gone := range lock.Prune(names) {
+	for _, gone := range pruned {
 		pr.Printf("[dim]%s removed from config — dropped from the lockfile[/dim]", gone)
 	}
 	if len(entries) == 0 {
 		pr.Printf("[dim]No packs configured.[/dim]")
 	}
-	if err := lock.Save(lockPath); err != nil {
-		fmt.Fprintf(errw, "yolo pack install: writing lockfile: %v\n", err)
+	if lockErr != nil {
+		fmt.Fprintf(errw, "yolo pack install: writing lockfile: %v\n", lockErr)
 		return 1
 	}
 	return rc
@@ -1546,8 +1584,8 @@ func promptYesNo(out io.Writer, stdin io.Reader, prompt string) bool {
 // config address that no longer matches what is locked.
 //
 // Drift is the whole reason this verb exists. Launch resolves from the store using
-// the CONFIG address, but a user who edits `?ref=v1` to `?ref=v2` without running
-// install has a config and a lockfile that disagree, and nothing else would tell them.
+// the CONFIG address, and a user who edits `?ref=v1` to `?ref=v2` has a config and a
+// lockfile that disagree until the next launch (or install) records the new address.
 func packStatus(out, errw io.Writer, color bool) int {
 	entries, err := config.LoadPacks(nil)
 	if err != nil {
@@ -1594,8 +1632,14 @@ func packStatus(out, errw io.Writer, color bool) int {
 		}
 		locked, ok := lock.Get(e.Name)
 		switch {
+		case !ok && e.IsLocal():
+			// A launch never records a local pack (nothing is fetched for it), so "the next
+			// launch" is no remedy here: install is what writes its entry.
+			pr.Printf("[yellow]%-20s not installed[/yellow] [dim](a local pack: nothing fetches "+
+				"it, and `yolo pack install` records it in the lockfile)[/dim]", e.Name)
 		case !ok:
-			pr.Printf("[yellow]%-20s not installed[/yellow] [dim](run `yolo pack install`)[/dim]", e.Name)
+			pr.Printf("[yellow]%-20s not installed[/yellow] [dim](the next host launch fetches it, "+
+				"or run `yolo pack install` to fetch it now)[/dim]", e.Name)
 		case locked.Commit == "":
 			pr.Printf("%-20s [dim]local[/dim]", e.Name)
 		default:
@@ -1604,15 +1648,27 @@ func packStatus(out, errw io.Writer, color bool) int {
 	}
 	drift := lock.DriftFrom(configured)
 	for _, d := range drift {
-		pr.Printf("[yellow]⚠ %s: config changed since install[/yellow]", d.Name)
+		pr.Printf("[yellow]⚠ %s: config changed since the lock was written[/yellow]", d.Name)
 		pr.Printf("    locked: [dim]%s[/dim]", d.LockedSource)
 		pr.Printf("    config: [cyan]%s[/cyan]", d.WantedSource)
+		pr.Printf("    [dim]%s[/dim]", driftRemedy(d.WantedSource))
 	}
 	if len(drift) > 0 {
-		pr.Printf("[dim]Run `yolo pack install` to fetch the new address.[/dim]")
 		return 1
 	}
 	return 0
+}
+
+// driftRemedy is what repairs a lock entry whose source no longer matches the config. A git
+// address is fetched and re-recorded by the next host launch's refresh; a local one never is
+// (a launch records only the git packs it fetched), so only install rewrites it.
+func driftRemedy(wantedSource string) string {
+	if a, err := packsrc.Parse(wantedSource); err == nil && !a.IsLocal() {
+		return "the next host launch fetches the config address and rewrites the lock entry " +
+			"(or run `yolo pack install` to do it now)"
+	}
+	return "a local pack: run `yolo pack install` to record the config address " +
+		"(no launch rewrites a local pack's entry)"
 }
 
 // shortSHA abbreviates a commit for display, tolerating a short or empty input rather

@@ -204,8 +204,8 @@ func TestPromoteDeepMergesIntoAnExistingContribution(t *testing.T) {
 	}
 }
 
-// §5.1: a FETCHED pack is refused — it is not the user's file to edit, and the next `yolo
-// pack install` would overwrite the change from the locked commit. A pack yolo SHIPS is
+// §5.1: a FETCHED pack is refused — it is not the user's file to edit, and its commit-keyed
+// store tree is left behind the next time its pin moves. A pack yolo SHIPS is
 // refused separately, because its manifest is inside the binary and the reason differs.
 func TestPromoteRefusesPackDestinationsItMustNotWrite(t *testing.T) {
 	for _, c := range []struct {

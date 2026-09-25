@@ -158,17 +158,28 @@ func TestSectionPacksUsesTheSharedNoPacksText(t *testing.T) {
 
 // A never-installed GIT pack is reported, not fetched: `yolo check` must work offline
 // and must never make a surprise network call.
+//
+// Since the launch-time pack refresh (maintainer ruling, 2026-09-25) the report is a
+// non-failing [SKIP] saying the next launch fetches it, where it used to be a [FAIL]
+// demanding `yolo pack install`. The not-fetching half is unchanged, and is asserted on the
+// store itself: no mirror may appear.
 func TestSectionPacksReportsUnfetchedGitPackWithoutFetching(t *testing.T) {
 	packsFixture(t, `{"packs": ["git+https://example.invalid/o/r//p?ref=main"]}`)
 	var buf bytes.Buffer
 	r := &reporter{w: &buf}
-	(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
-	if r.failed == 0 {
-		t.Errorf("expected a failure for a never-fetched pack:\n%s", buf.String())
+	(&Options{Getenv: hostEnv}).sectionPacks(r, jsonx.NewOrderedMap())
+	if r.failed != 0 {
+		t.Errorf("a never-fetched git pack FAILED check, but the next launch fetches it:\n%s",
+			buf.String())
+	}
+	if r.skipped != 1 || !strings.Contains(buf.String(), "the next launch fetches it") {
+		t.Errorf("a never-fetched git pack must be one [SKIP] naming the launch fetch "+
+			"(skipped=%d):\n%s", r.skipped, buf.String())
 	}
 	if !strings.Contains(buf.String(), "pack install") {
-		t.Errorf("message should point at the fetch command:\n%s", buf.String())
+		t.Errorf("the note should still name the fetch-it-now command:\n%s", buf.String())
 	}
+	assertNoMirrors(t)
 }
 
 // The section ALWAYS prints its header and a trailing blank, on every branch.

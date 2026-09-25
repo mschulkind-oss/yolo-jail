@@ -111,9 +111,9 @@ func hostApplyRemedyGroups(s *hostApplySurvey, home string, write bool) []remedy
 }
 
 // unresolvedPackGroups is the unresolvable-pack BLOCKER, grouped by remedy: one group for the
-// git packs (the remedy is `yolo pack install`, which fetches every configured git pack into the
-// store) and one for everything else (a local path or an address only the config can fix). The
-// per-pack REASON is printed where the pack was resolved; the group states the fix once.
+// git packs (this apply already tried to fetch them at its entry, so the remedy is to fix what
+// the fetch error names and retry, `yolo pack install` being the retry) and one for everything
+// else (a local path or an address only the config can fix). The per-pack REASON is printed where the pack was resolved; the group states the fix once.
 //
 // Shared by the dry run's report and the --assert refusal, so the lines a user reads when the
 // apply refuses are the lines the dry run showed them.
@@ -133,8 +133,8 @@ func unresolvedPackGroups(list []unresolvedPack) []remedyGroup {
 			Key:      "yolo pack install",
 			Headline: "configured packs not in the pack store, so nothing can be applied",
 			Items:    git,
-			Remedy: "yolo pack install   (fetches every configured git pack into the store; " +
-				"a launch and this apply then resolve it offline)",
+			Remedy: "yolo pack install   (retries the fetch this apply already attempted — " +
+				"why it failed is named above for each pack; the next host launch retries it too)",
 			VerdictTerm: git[0],
 			Warn:        true,
 		})

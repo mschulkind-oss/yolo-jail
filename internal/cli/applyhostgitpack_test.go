@@ -29,6 +29,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
@@ -121,12 +122,21 @@ func hookHome(t *testing.T, src string) string {
 // hashTree fingerprints every path under root — its relative name, its mode, and a regular
 // file's bytes or a symlink's target — so "nothing was written" is asserted over the whole
 // home rather than over the few paths a test happened to think of.
+//
+// THE PACK STORE IS SKIPPED (paths.PacksDir, under the home's state dir). It is yolo's fetch
+// cache, not a render: every launch-shaped host entry runs the pack refresh first, which takes
+// the store's flocks and attempts a fetch for a never-fetched pack, so its lock files appear
+// whether or not anything is rendered — and "nothing rendered" is the question these ask.
 func hashTree(t *testing.T, root string) string {
 	t.Helper()
+	store := paths.PacksDir()
 	var lines []string
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+		if p == store && d.IsDir() {
+			return filepath.SkipDir
 		}
 		rel, _ := filepath.Rel(root, p)
 		info, err := os.Lstat(p)

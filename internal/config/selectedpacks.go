@@ -27,9 +27,11 @@ import (
 
 // resolveSelectedPacks returns the packs the user config selects, loaded, plus complete=false
 // when some of the selection could not be read: a malformed user config, a configured pack
-// the store cannot resolve without writing (never installed, offline, moved, or fetched but
-// its tree not checked out), or a `needs` declaration the closure refuses. The packs that DID
-// resolve are still returned.
+// the store cannot resolve without writing (never fetched, a ref not fetched yet, moved, or
+// fetched but its tree not checked out), or a `needs` declaration the closure refuses. The
+// packs that DID resolve are still returned. Validation NEVER FETCHES: fetching is the
+// launch's pack refresh step, which runs before that launch validates and stages, so a pack
+// unresolvable here is one the launch fetches first.
 //
 // PARTIAL IS THE RIGHT ANSWER FOR A RESERVATION CHECK, and it is deliberately not "refuse
 // everything" or "reserve every shipped pack". A pack that cannot be resolved here either

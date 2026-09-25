@@ -192,13 +192,16 @@ func resolvePromotePack(name string, errw io.Writer) (promoteDest, int) {
 				"config-overlay folds after every shipped pack.\n", name)
 			return promoteDest{}, 1
 		case !e.IsLocal():
-			// §5.1: refused for a fetched pack — not the user's file to edit. A write would
-			// also be undone by the next `yolo pack install`, which re-materializes the
-			// store from the locked commit.
+			// §5.1: refused for a fetched pack — not the user's file to edit. The store's
+			// tree is keyed by COMMIT and never rewritten in place, so a write would not be
+			// overwritten so much as abandoned: the next time the pin moves (a launch's hourly
+			// refresh of a branch, or an explicit install/update), resolution reads a
+			// different commit's tree and the edit silently stops applying.
 			fmt.Fprintf(errw, "yolo config promote: `%s` is a FETCHED pack (%s) — it is not "+
-				"your file to edit, and the next `yolo pack install` would overwrite the "+
-				"change from the locked commit. Promote to `--to local`, or edit that pack "+
-				"at its source and re-install.\n", name, e.Source)
+				"your file to edit: its pack-store tree is keyed by commit, so the next time "+
+				"its pin moves (a launch refreshing a branch, or `yolo pack install`/`update`) "+
+				"the edit is silently left behind. Promote to `--to local`, or edit that pack "+
+				"at its source.\n", name, e.Source)
 			return promoteDest{}, 1
 		}
 		dir := strings.TrimPrefix(e.Source, "file://")
