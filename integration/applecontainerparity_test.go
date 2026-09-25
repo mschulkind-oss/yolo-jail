@@ -481,9 +481,10 @@ func TestAppleContainerExplicitHostModeKeepsPublishedPorts(t *testing.T) {
 	bridge := acPublishedPortProbe(t, fix, "bridge")
 	host := acPublishedPortProbe(t, fix, "host")
 	evidence := fmt.Sprintf("default (bridge): %s\nexplicit host:    %s\nhost-mode warning printed: %v\n"+
-		"address family: %s\n\nin-jail evidence, default (bridge):\n%s\n\nin-jail evidence, explicit host:\n%s",
+		"address family: %s\n\nin-jail evidence, default (bridge):\n%s\n\nin-jail evidence, explicit host:\n%s"+
+		"\n\nMac-side evidence, default (bridge):\n%s\n\nMac-side evidence, explicit host:\n%s",
 		bridge.describe(), host.describe(), host.warned, acPortFamilyFinding(bridge, host),
-		bridge.jailDiag, host.jailDiag)
+		bridge.jailDiag, host.jailDiag, bridge.macDiag, host.macDiag)
 	switch {
 	case bridge.reached() && host.reached():
 		acParityRecord(t, fix, true, "a published port answers the Mac under an explicit "+
@@ -518,6 +519,14 @@ type acPortResult struct {
 	v4       acListenerResult // socat TCP-LISTEN: IPv4 only
 	dual     acListenerResult // socat TCP6-LISTEN,ipv6only=0: IPv4 and IPv6
 	jailDiag string
+	// macDiag is the Mac's view beyond the published port, gathered once the jail has written
+	// its address (acPortMacDiag): the container's own vmnet address dialed directly, the
+	// published host port dialed on the vmnet gateway and on [::1], and what `container
+	// inspect` says was published. It separates "Apple never bound the host port" from "Apple
+	// bound it somewhere other than 127.0.0.1" from "the vmnet path itself is down", which the
+	// second Mac run (2026-09-25: both listeners alive and self-reachable, every Mac dial
+	// refused) could not.
+	macDiag string
 }
 
 // acListenerResult is the Mac's side of one published listener.
@@ -603,9 +612,13 @@ func acPublishedPortProbe(t *testing.T, fix, mode string) acPortResult {
 			time.Sleep(500 * time.Millisecond)
 		}
 	}
-	dialers.Add(2)
+	dialers.Add(3)
 	go dial(v4Host, v4Token, &r.v4)
 	go dial(dualHost, dualToken, &r.dual)
+	go func() {
+		defer dialers.Done()
+		r.macDiag = acPortMacDiag(stop, filepath.Join(dir, acPortAddrFile), v4Host, dualHost, v4Token, dualToken)
+	}()
 	var marked sync.WaitGroup
 	marked.Add(1)
 	go func() {
@@ -655,6 +668,10 @@ func acPublishedPortScript(v4Token, dualToken, marker string) string {
 		`addrs4=$(awk '/32 host/ {print f} {f=$2}' /proc/net/fib_trie 2>/dev/null | sort -u | grep -v '^127\.')`,
 		`addrs6=$(awk '$4=="00" {print $1}' /proc/net/if_inet6 2>/dev/null | sed 's/\(....\)/\1:/g; s/:$//')`,
 		`echo "non-loopback addresses: v4=[$(echo $addrs4)] v6=[$(echo $addrs6)]"`,
+		`g=$(awk '$2=="00000000" {print $3; exit}' /proc/net/route 2>/dev/null)`,
+		`gw=; [ ${#g} -eq 8 ] && gw=$(printf '%d.%d.%d.%d' 0x${g:6:2} 0x${g:4:2} 0x${g:2:2} 0x${g:0:2})`,
+		`echo "default gateway: ${gw:-none}; hostname: $(hostname)"`,
+		`echo "$(echo $addrs4 | awk '{print $1}') ${gw:--} $(hostname)" > /workspace/` + acPortAddrFile,
 		`for port in ` + v4Port + ` ` + dualPort + `; do ` +
 			`for a in TCP4:127.0.0.1 'TCP6:[::1]' $(for x in $addrs4; do echo TCP4:$x; done) $(for x in $addrs6; do echo "TCP6:[$x]"; done); do ` +
 			`echo "self-dial $a:$port -> $(timeout 4 socat -T2 - "$a:$port" </dev/null 2>&1 | head -1)"; done; done`,
@@ -679,6 +696,93 @@ func acDialLine(addr string) (string, error) {
 	}
 	return strings.TrimSpace(line), nil
 }
+
+// acPortAddrFile is where the jail writes "<its first IPv4> <default gateway> <hostname>" for
+// acPortMacDiag, in the workspace the Mac shares with it.
+const acPortAddrFile = ".yolo-it-addr"
+
+// acPortMacDiag waits for the jail's address file, then gathers the Mac-side evidence
+// acPortResult.macDiag describes. Every dial is bounded (acPortMacTries), so it adds seconds,
+// not the launch's whole bound, and it gives up with a line saying so if the file never comes.
+func acPortMacDiag(stop <-chan struct{}, addrFile string, v4Host, dualHost int, v4Token, dualToken string) string {
+	var fields []string
+	for deadline := time.Now().Add(60 * time.Second); ; time.Sleep(500 * time.Millisecond) {
+		if b, err := os.ReadFile(addrFile); err == nil {
+			if fields = strings.Fields(string(b)); len(fields) == 3 {
+				break
+			}
+		}
+		select {
+		case <-stop:
+			return "the jail exited before writing " + acPortAddrFile + "; no Mac-side evidence"
+		default:
+		}
+		if time.Now().After(deadline) {
+			return "the jail never wrote " + acPortAddrFile + " within 60s; no Mac-side evidence"
+		}
+	}
+	jailIP, gw, name := fields[0], fields[1], fields[2]
+	type target struct {
+		label, host string
+		port        int
+		token       string
+	}
+	targets := []target{
+		{"container address, IPv4-only listener", jailIP, acPublishedPortJailPort, v4Token},
+		{"container address, dual-stack listener", jailIP, acPublishedPortDualJailPort, dualToken},
+		{"published port on the vmnet gateway, IPv4-only", gw, v4Host, v4Token},
+		{"published port on the vmnet gateway, dual-stack", gw, dualHost, dualToken},
+		{"published port on [::1], IPv4-only", "::1", v4Host, v4Token},
+		{"published port on [::1], dual-stack", "::1", dualHost, dualToken},
+	}
+	// Concurrently, and each into its own slot, so the whole diagnostic costs one probe's
+	// worst case rather than six in a row, and still prints in this fixed order.
+	lines := make([]string, len(targets))
+	var probes sync.WaitGroup
+	for i, tg := range targets {
+		probes.Add(1)
+		go func() {
+			defer probes.Done()
+			lines[i] = acPortMacProbe(tg.label, tg.host, tg.port, tg.token)
+		}()
+	}
+	probes.Wait()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "container", "inspect", name).CombinedOutput()
+	inspect := strings.TrimSpace(string(out))
+	if len(inspect) > 3000 {
+		inspect = inspect[:3000] + " …(truncated)"
+	}
+	lines = append(lines, fmt.Sprintf("container inspect %s (err=%v):\n%s", name, err, inspect))
+	return strings.Join(lines, "\n")
+}
+
+// acPortMacProbe dials one Mac-side target up to acPortMacTries times and says what happened.
+func acPortMacProbe(label, host string, port int, token string) string {
+	if host == "" || host == "-" {
+		return label + ": no address to dial"
+	}
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	last := "none"
+	for i := 1; i <= acPortMacTries; i++ {
+		line, err := acDialLine(addr)
+		switch {
+		case err != nil:
+			last = err.Error()
+		case strings.Contains(line, token):
+			return fmt.Sprintf("%s %s: REACHED on try %d", label, addr, i)
+		default:
+			last = fmt.Sprintf("connected, read %q instead of the token", line)
+		}
+		time.Sleep(time.Second)
+	}
+	return fmt.Sprintf("%s %s: not reached in %d tries, last: %s", label, addr, acPortMacTries, last)
+}
+
+// acPortMacTries bounds each Mac-side diagnostic dial: the jail is already listening when its
+// address file appears, so a path that works answers on the first try or two.
+const acPortMacTries = 5
 
 // acFreeLoopbackPort asks the kernel for a free port and releases it. A small race, and a
 // harmless one: a port taken in between makes the launch fail to publish, which the record
