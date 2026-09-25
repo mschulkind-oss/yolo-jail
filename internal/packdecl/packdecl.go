@@ -287,6 +287,23 @@ type Refresh struct {
 	// counted as content made that store "populated", so the hook discarded a workspace's
 	// real tree in favor of an empty one. Required.
 	Lock string `json:"lock"`
+	// DueOnChange lists home-relative FILES whose content, when it differs from every
+	// content a refresh has already SUCCEEDED for on this machine, makes the refresh due
+	// regardless of the hourly stamp: `[".pi/agent/settings.json"]` for pi.
+	//
+	// It exists because the stamp alone lets a program install its add-ons OUTSIDE the lock.
+	// Pi installs a newly configured extension itself, at startup, whenever the refresh is not
+	// due; per workspace that was harmless, but a machine-shared store makes it two jails
+	// cloning one checkout at once, where the loser's cleanup deletes the winner's tree
+	// (docs/design/pi-git-extension-caching.md, "The first-install race"). Watching the file
+	// that names the add-ons routes their first install through the locked refresh.
+	//
+	// CONTENT, not mtime: yolo rewrites a composed config file on every boot, so its mtime
+	// moves when nothing a refresh cares about did. The launcher records one marker per
+	// content key beside the refresh stamp, only when a refresh exits 0, so a failed or
+	// skipped refresh leaves the change due; an absent file has a content of its own, so
+	// absent and present differ. Optional; omit it for a stamp-only refresh.
+	DueOnChange []string `json:"due_on_change,omitempty"`
 }
 
 // StoreBookkeepingPrefix begins the name of every entry yolo itself keeps inside a

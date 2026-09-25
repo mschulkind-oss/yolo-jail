@@ -65,6 +65,10 @@ const refreshDeclShell = `# The pack's declared PRE-LAUNCH REFRESH (packdecl.Ref
 HAS_REFRESH=__YOLO_HAS_REFRESH__
 REFRESH_ARGV=(__YOLO_REFRESH_ARGV__)
 REFRESH_LOCK_REL=__YOLO_REFRESH_LOCK__
+# The declared DUE-ON-CHANGE files (packdecl.Refresh.DueOnChange), home-relative. HAS_REFRESH_DUE
+# gates every expansion of the list, for HAS_REFRESH's bash-3.2 reason.
+HAS_REFRESH_DUE=__YOLO_HAS_REFRESH_DUE__
+REFRESH_DUE_ON_CHANGE=(__YOLO_REFRESH_DUE_ON_CHANGE__)
 `
 
 // prelaunchRefreshShellFn runs the declared refresh, and is spliced into both templates after
@@ -90,11 +94,71 @@ REFRESH_STORE="${REFRESH_LOCK%/*}"
 REFRESH_TOKEN=""
 REFRESH_HEARTBEAT=60 # seconds between touches of a HELD lock; STALE_LOCK is ten of them
 REFRESH_BEAT_PID=""
+# One marker per CONTENT KEY a refresh has SUCCEEDED for on this machine (DueOnChange). Beside
+# the stamp, so machine-global like it; keyed by content rather than by workspace, so two
+# workspaces with different settings each refresh once and then stop, instead of taking turns.
+REFRESH_SEEN_DIR="$STAMP_DIR/refresh/$BIN.seen"
+REFRESH_KEY=""
+
+# _refresh_content_key prints one key for the current content of every declared file: an
+# absent file contributes "absent", so absent and present differ. cksum is POSIX and ships on a
+# stock macOS; the key is only compared, never trusted, so a CRC is enough.
+_refresh_content_key() {
+    local f all=""
+    for f in "${REFRESH_DUE_ON_CHANGE[@]}"; do
+        if [ -f "$HOME/$f" ]; then
+            all="$all$f $(cksum < "$HOME/$f" 2>/dev/null || echo unreadable)
+"
+        else
+            all="$all$f absent
+"
+        fi
+    done
+    printf '%s' "$all" | cksum | tr ' ' '-'
+}
+
+# _refresh_content_unseen: 0 when the watched content has never been refreshed with here.
+_refresh_content_unseen() {
+    [ "$HAS_REFRESH_DUE" = "1" ] || return 1
+    [ -n "$REFRESH_KEY" ] || REFRESH_KEY=$(_refresh_content_key)
+    [ ! -e "$REFRESH_SEEN_DIR/$REFRESH_KEY" ]
+}
+
+# _refresh_content_unseen_fresh re-asks after a wait: the key is unchanged (this launch's own
+# content), but the holder may have recorded it meanwhile.
+_refresh_content_unseen_fresh() {
+    [ "$HAS_REFRESH_DUE" = "1" ] || return 1
+    [ ! -e "$REFRESH_SEEN_DIR/$REFRESH_KEY" ]
+}
+
+_refresh_record_seen() {
+    [ "$HAS_REFRESH_DUE" = "1" ] && [ -n "$REFRESH_KEY" ] || return 0
+    mkdir -p "$REFRESH_SEEN_DIR" 2>/dev/null && : > "$REFRESH_SEEN_DIR/$REFRESH_KEY" 2>/dev/null
+}
 
 _refresh_due() {
     [ "$UPDATES_ENABLED" = "1" ] || return 1
+    _refresh_content_unseen && return 0
     [ -f "$REFRESH_STAMP" ] || return 0
     [ "$(( $(date +%s) - $(_stamp_mtime "$REFRESH_STAMP") ))" -gt "$UPDATE_INTERVAL" ]
+}
+
+# _wait_for_refresh_lock is the ONE case a held lock is waited on: this launch's watched
+# content has never been refreshed with, so the program is about to install what it names —
+# and doing that outside the lock, while the holder installs the same thing into the same
+# shared store, is the first-install race DueOnChange exists to close. Bounded by
+# UPDATE_TIMEOUT; returns 0 once the lock is free (and taken by this launcher), 1 on timeout.
+_wait_for_refresh_lock() {
+    local waited=0 lrc
+    echo "  $BIN: another refresh holds $REFRESH_LOCK and this workspace's add-ons are new — waiting for it (up to ${UPDATE_TIMEOUT}s)..." >&2
+    while [ "$waited" -lt "$UPDATE_TIMEOUT" ]; do
+        sleep 1
+        waited=$((waited + 1))
+        lrc=0
+        _take_refresh_lock || lrc=$?
+        [ "$lrc" = 1 ] || return "$lrc"
+    done
+    return 1
 }
 
 _refresh_touch() { mkdir -p "${REFRESH_STAMP%/*}" 2>/dev/null && touch "$REFRESH_STAMP" 2>/dev/null; }
@@ -165,6 +229,16 @@ _prelaunch_refresh() {
     _refresh_due || return 0
     local lrc=0
     _take_refresh_lock || lrc=$?
+    if [ "$lrc" = 1 ] && _refresh_content_unseen; then
+        lrc=0
+        _wait_for_refresh_lock || lrc=$?
+        # The holder may have refreshed exactly this content while we waited: then there is
+        # nothing left to do, and the lock just taken is released unused.
+        if [ "$lrc" = 0 ] && ! _refresh_content_unseen_fresh; then
+            _drop_refresh_lock
+            return 0
+        fi
+    fi
     if [ "$lrc" = 1 ]; then
         # No stamp: the holder touches it when it finishes, and a launch after that sees it.
         echo "  $BIN: another refresh holds $REFRESH_LOCK — running what is installed." >&2
@@ -173,7 +247,10 @@ _prelaunch_refresh() {
     if [ "$lrc" != 0 ]; then
         echo "  ⚠ $BIN: cannot take the refresh lock $REFRESH_LOCK ($REFRESH_STORE is missing or not writable) — skipping the pre-launch refresh." >&2
         # Stamped, so a store that is simply absent says so once an hour rather than every launch.
+        # The content key is recorded for the same reason: a refresh that can never run must not
+        # turn the change trigger into a warning on every launch.
         _refresh_touch || true
+        _refresh_record_seen || true
         return 0
     fi
     echo "  Refreshing $BIN (${REFRESH_ARGV[*]})..." >&2
@@ -185,6 +262,9 @@ _prelaunch_refresh() {
     _stop_refresh_heartbeat
     # Stamped on EVERY outcome (§4.1 invariant 3): an offline hour must not retry per launch.
     _refresh_touch || true
+    # The content key only on SUCCESS: a failed refresh leaves the change due, so the next
+    # launch retries the install under the lock instead of leaving it to the program.
+    [ "$rc" != 0 ] || _refresh_record_seen || true
     _drop_refresh_lock
     case "$rc" in
         0) ;;
@@ -212,11 +292,16 @@ func refreshSplices(r *packdecl.Refresh) []string {
 			"__YOLO_HAS_REFRESH__", shquote.Quote(boolFlag(false)),
 			"__YOLO_REFRESH_ARGV__", "",
 			"__YOLO_REFRESH_LOCK__", shquote.Quote(""),
+			"__YOLO_HAS_REFRESH_DUE__", shquote.Quote(boolFlag(false)),
+			"__YOLO_REFRESH_DUE_ON_CHANGE__", "",
 		}
 	}
 	return []string{
 		"__YOLO_HAS_REFRESH__", shquote.Quote(boolFlag(len(r.Argv) > 0 && r.Lock != "")),
 		"__YOLO_REFRESH_ARGV__", shquote.Join(r.Argv),
 		"__YOLO_REFRESH_LOCK__", shquote.Quote(r.Lock),
+		// Join, like the argv: a LIST of home-relative files, each one word.
+		"__YOLO_HAS_REFRESH_DUE__", shquote.Quote(boolFlag(len(r.DueOnChange) > 0)),
+		"__YOLO_REFRESH_DUE_ON_CHANGE__", shquote.Join(r.DueOnChange),
 	}
 }

@@ -118,3 +118,60 @@ func TestRefreshSurvivesTheTolerantDecoder(t *testing.T) {
 		t.Fatalf("the tolerant path dropped the refresh: %+v", installs)
 	}
 }
+
+// TestRefreshDueOnChangeDecodesAndProjects: the watched files survive the strict and the
+// tolerant decoder and InstallContributions — the only road to the launcher — as a copy.
+func TestRefreshDueOnChangeDecodesAndProjects(t *testing.T) {
+	doc := []byte(`{"name":"x","contributes":[
+	  {"kind":"program","bin":"pi","via":"npm","package":"p",
+	   "refresh":{"argv":["update"],"lock":"s/.yolo-l","due_on_change":[".pi/agent/settings.json"]}}]}`)
+	m, probs := Decode(doc)
+	if len(probs) != 0 {
+		t.Fatalf("problems: %v", probs)
+	}
+	got := m.InstallContributions()[0].Refresh.DueOnChange
+	if strings.Join(got, ",") != ".pi/agent/settings.json" {
+		t.Fatalf("the strict path lost due_on_change: %v", got)
+	}
+	got[0] = "mutated"
+	if again := m.InstallContributions()[0].Refresh.DueOnChange[0]; again != ".pi/agent/settings.json" {
+		t.Errorf("the projection must copy the list, not alias it: %q", again)
+	}
+	tm, tprobs, skipped := DecodeTolerant(doc)
+	if len(tprobs) != 0 || len(skipped) != 0 {
+		t.Fatalf("tolerant: problems=%v skipped=%v", tprobs, skipped)
+	}
+	if got := tm.InstallContributions()[0].Refresh.DueOnChange; len(got) != 1 {
+		t.Errorf("the tolerant path lost due_on_change: %v", got)
+	}
+	// Absent means a stamp-only refresh: no list, not an empty one.
+	m2, _ := Decode([]byte(`{"name":"x","contributes":[
+	  {"kind":"program","bin":"t","via":"npm","package":"t","refresh":{"argv":["u"],"lock":"s/.yolo-l"}}]}`))
+	if m2.InstallContributions()[0].Refresh.DueOnChange != nil {
+		t.Errorf("an undeclared due_on_change must project as nil")
+	}
+}
+
+// TestRefreshDueOnChangeRefusesMalformedLists: each is a trigger that could never fire, or
+// would hash something outside the home the launcher is scoped to.
+func TestRefreshDueOnChangeRefusesMalformedLists(t *testing.T) {
+	for _, tc := range []struct{ name, due, want string }{
+		{"not a list", `".pi/agent/settings.json"`, "due_on_change"},
+		{"empty list", `[]`, "watches nothing"},
+		{"empty entry", `[""]`, "empty path"},
+		{"absolute", `["/etc/passwd"]`, "must be relative"},
+		{"escaping", `["a/../../x"]`, `must not contain ".."`},
+		{"unclean", `["./a//b"]`, "clean home-relative FILE"},
+		{"a directory", `["a/b/"]`, "clean home-relative FILE"},
+		{"duplicate", `["a","a"]`, "listed twice"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, probs := Decode([]byte(`{"name":"x","contributes":[
+			  {"kind":"program","bin":"t","via":"npm","package":"t",
+			   "refresh":{"argv":["u"],"lock":"s/.yolo-l","due_on_change":` + tc.due + `}}]}`))
+			if !strings.Contains(strings.Join(probs, "\n"), tc.want) {
+				t.Errorf("want a problem containing %q, got: %v", tc.want, probs)
+			}
+		})
+	}
+}

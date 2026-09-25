@@ -74,6 +74,9 @@ type prelaunchProbe struct {
 	// heartbeat, when set, replaces the baked REFRESH_HEARTBEAT interval (seconds) in the
 	// rendered launcher, so a cell can watch the heartbeat without waiting a real minute.
 	heartbeat string
+	// bodyPatch replaces baked literals in the rendered launcher (old → new), for a cell that
+	// must shorten a bound it cannot otherwise wait out.
+	bodyPatch map[string]string
 }
 
 // newPrelaunchProbe seeds a fake program at REAL_BIN (so the launch path, not the cold-install
@@ -138,6 +141,12 @@ func (p *prelaunchProbe) write(t *testing.T) {
 			t.Fatalf("the launcher no longer bakes %q, so this cell cannot shorten it", baked)
 		}
 		body = strings.Replace(body, baked, "\nREFRESH_HEARTBEAT="+p.heartbeat+" ", 1)
+	}
+	for from, to := range p.bodyPatch {
+		if !strings.Contains(body, from) {
+			t.Fatalf("the launcher no longer bakes %q, so this cell cannot patch it", from)
+		}
+		body = strings.Replace(body, from, to, 1)
 	}
 	if err := os.WriteFile(p.script, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
@@ -695,6 +704,12 @@ func TestShippedPiLauncherRefreshesItsExtensions(t *testing.T) {
 	}
 	if !strings.Contains(string(body), "REFRESH_ARGV=(update --extensions)") {
 		t.Fatalf("the shipped pi launcher does not bake `update --extensions`:\n%s", body)
+	}
+	// The first-install race's trigger (pi-git-extension-caching.md): pi's settings name its
+	// extensions, so a change there must route their install through the locked refresh.
+	if !strings.Contains(string(body), "\nREFRESH_DUE_ON_CHANGE=(.pi/agent/settings.json)\n") ||
+		!strings.Contains(string(body), "\nHAS_REFRESH_DUE=1\n") {
+		t.Fatalf("the shipped pi launcher does not watch .pi/agent/settings.json")
 	}
 
 	// The real pi's place, with pi's own update stamp fresh so the program is not updated.

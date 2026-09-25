@@ -184,7 +184,7 @@ func TestTheSkeletonCarriesOnlyTheSelectedPacksDirs(t *testing.T) {
 		}
 		// `.pi` included: core's list used to carry the pi pack's `.pi/agent`, which put a
 		// ~/.pi in every jail whether pi was selected or not.
-		for _, rel := range []string{".codex", ".copilot", ".oh-omp", ".pi", ".pi-lens", ".gemini-shared-credentials", ".pi-shared-npm"} {
+		for _, rel := range []string{".codex", ".copilot", ".oh-omp", ".pi", ".pi-lens", ".gemini-shared-credentials", ".pi-shared-npm", ".pi-shared-git"} {
 			if _, err := os.Lstat(filepath.Join(dir, rel)); err == nil {
 				t.Errorf("a claude-only skeleton has %s, which no selected pack declares", rel)
 			}

@@ -43,12 +43,17 @@ func loadAll(t *testing.T) []*packload.Pack {
 // (entrypoint's sharedTreeNode), and why the macos-user briefing sentence this list feeds
 // (run.backendLimits) now names a package store alongside credential dirs.
 //
+// THE FOURTH, `.pi-shared-git`, is the same kind as the third (2026-09-25,
+// docs/design/pi-git-extension-caching.md): pi's git extension checkouts, derived and
+// re-cloneable, shared so a repository already on the machine is fetched rather than cloned
+// again per workspace and every workspace runs one checkout.
+//
 // Ported from TestSharedDirsForIsClaudeOnlyAndSelectionGated. Its selection-gating half is
 // gone with the concept: sharedDirs are now mounted for the packs actually loaded, which is
 // the same gate expressed structurally.
 func TestMachineGlobalTierStaysNarrow(t *testing.T) {
 	got := packload.SharedDirs(loadAll(t))
-	want := []string{".claude-shared-credentials", ".gemini-shared-credentials", ".pi-shared-npm"}
+	want := []string{".claude-shared-credentials", ".gemini-shared-credentials", ".pi-shared-git", ".pi-shared-npm"}
 	if len(got) != len(want) {
 		t.Errorf("sharedDirs across every shipped pack = %v, want %v; each entry leaks state "+
 			"between workspaces by design — confirm that is intended, then update this "+

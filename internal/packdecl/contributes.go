@@ -749,7 +749,11 @@ func (m *Manifest) InstallContributions() []Install {
 		// its own add-ons, whichever mechanism delivered the program. Copied rather than
 		// aliased, so a consumer that edits its Install cannot reach back into the manifest.
 		if c.Refresh != nil {
-			r := Refresh{Argv: append([]string(nil), c.Refresh.Argv...), Lock: c.Refresh.Lock}
+			r := Refresh{Argv: append([]string(nil), c.Refresh.Argv...), Lock: c.Refresh.Lock,
+				DueOnChange: append([]string(nil), c.Refresh.DueOnChange...)}
+			if len(r.DueOnChange) == 0 {
+				r.DueOnChange = nil
+			}
 			in.Refresh = &r
 		}
 		// The platform list is projected for EVERY via, for UpdateVerb's reason: it
@@ -2098,6 +2102,45 @@ func refreshProblems(field string, r *Refresh) []string {
 				"yolo's bookkeeping rather than the tool's content; a store holding nothing but an "+
 				"unmarked lock reads as populated, and the shared_directory hook discards a "+
 				"workspace's real tree for it", field, r.Lock, StoreBookkeepingPrefix))
+	}
+	return append(problems, dueOnChangeProblems(field+".due_on_change", r.DueOnChange)...)
+}
+
+// dueOnChangeProblems validates Refresh.DueOnChange: each entry is a clean home-relative FILE
+// path the launcher hashes. A present-but-empty list is refused for platforms' reason: it
+// declares a trigger that can never fire, where omitting the key is the stated way to have
+// none. A duplicate is refused because it can only be a typo for a second file.
+func dueOnChangeProblems(field string, files []string) []string {
+	if files == nil {
+		return nil
+	}
+	if len(files) == 0 {
+		return []string{field + ": an empty list watches nothing — omit the key for a " +
+			"stamp-only refresh, or name the files whose content should make it due " +
+			"(e.g. [\".pi/agent/settings.json\"])"}
+	}
+	var problems []string
+	seen := map[string]bool{}
+	for i, f := range files {
+		label := fmt.Sprintf("%s[%d]", field, i)
+		if strings.TrimSpace(f) == "" {
+			problems = append(problems, label+": empty path")
+			continue
+		}
+		before := len(problems)
+		problems = appendPathProblems(problems, label, f)
+		if len(problems) > before {
+			continue
+		}
+		if path.Clean(f) != f || strings.HasSuffix(f, "/") || f == "." {
+			problems = append(problems, fmt.Sprintf(
+				"%s: %q must be a clean home-relative FILE path (no ./, //, or trailing /)", label, f))
+			continue
+		}
+		if seen[f] {
+			problems = append(problems, fmt.Sprintf("%s: %q is listed twice", label, f))
+		}
+		seen[f] = true
 	}
 	return problems
 }
