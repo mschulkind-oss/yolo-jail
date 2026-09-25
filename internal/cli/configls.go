@@ -287,15 +287,16 @@ func hostFileLayers(e config.HostFileEntry) []string {
 }
 
 // overlayKeyCount is `yolo apply --sealed`'s reader: how many captured keys the CWD's
-// workspace store holds for one surface.
+// workspace store holds for one surface. t is sealedConfigTarget's, and a link it refused is
+// recorded in t's refusals for the verb to name; the count reads it as 0.
 //
 // ⚠ IT IS DELIBERATELY NOT THE CONFIG TARGET'S. See workspaceRoot, one file over: whether
 // `applySealed` takes the resolved target is Blocker 3 of
 // docs/design/config-target-resolution-plan.md and is unruled, so this keeps the bare-cwd
 // answer that verb has always been given. Every `yolo config` verb reads
-// overlayKeyCountAt(configTarget.overlayPath(...)) instead.
-func overlayKeyCount(agent, name string) int {
-	return overlayKeyCountAt(captureFile{name: sealedWorkspaceStore().OverlayPath(agent, name)})
+// overlayKeyCountAt(configTarget.overlayFile(...)) instead.
+func overlayKeyCount(t configTarget, agent, name string) int {
+	return overlayKeyCountAt(t.overlayFile(agent, name))
 }
 
 // overlayKeyCountAt is overlayKeyCount over an explicit sidecar — what a resolved target

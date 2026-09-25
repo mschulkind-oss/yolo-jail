@@ -1128,6 +1128,65 @@ func (f captureFile) write(data []byte, perm fs.FileMode) error {
 	})
 }
 
+// replace writes name atomically, a temp file beside it and then a rename over it, so a crash
+// mid-write cannot leave it truncated. Rooted, both halves stay beneath the root: the temp is
+// created O_EXCL, so never through a link the jail left at its name, and the rename replaces
+// whatever is at name, a link included, without following it. A link at a directory on the
+// way is refused, as for write.
+func (f captureFile) replace(data []byte, perm fs.FileMode) error {
+	if !f.rooted() {
+		return replaceFile(nil, f.name, data, perm)
+	}
+	return f.beneath("write", false, func(r *os.Root) error {
+		return replaceFile(r, f.name, data, perm)
+	})
+}
+
+// replaceFile is replace's one implementation, beneath r, or by plain path when r is nil.
+func replaceFile(r *os.Root, name string, data []byte, perm fs.FileMode) error {
+	var (
+		open   = os.OpenFile
+		rename = os.Rename
+		remove = os.Remove
+	)
+	if r != nil {
+		open, rename, remove = r.OpenFile, r.Rename, r.Remove
+	}
+	var tmp string
+	var t *os.File
+	for i := 0; ; i++ {
+		tmp = filepath.Join(filepath.Dir(name), fmt.Sprintf(".yolo-replace-%d-%d", os.Getpid(), i))
+		var err error
+		t, err = open(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, fs.ErrExist) || i == 99 {
+			return err
+		}
+	}
+	if _, err := t.Write(data); err != nil {
+		t.Close()
+		remove(tmp)
+		return err
+	}
+	// Chmod through the handle: O_CREATE's perm is masked by the umask.
+	if err := t.Chmod(perm); err != nil {
+		t.Close()
+		remove(tmp)
+		return err
+	}
+	if err := t.Close(); err != nil {
+		remove(tmp)
+		return err
+	}
+	if err := rename(tmp, name); err != nil {
+		remove(tmp)
+		return err
+	}
+	return nil
+}
+
 // remove removes name itself: a link there is removed, never followed.
 func (f captureFile) remove() error {
 	if !f.rooted() {

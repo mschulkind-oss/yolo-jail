@@ -9,13 +9,16 @@ package cli
 // those names, or at a directory above them. Through a link, `diff` and `ls` printed a host
 // file's content, `reset` truncated the host file a surface link named and wrote a baseline
 // beside it, and `capture --force` read a host file into the overlay the jail reads and wrote
-// capture JSON through a sidecar link into the host file it named.
+// capture JSON through a sidecar link into the host file it named. `yolo config promote`
+// declared a host file's keys in a pack manifest and wrote the overlay back into a linked
+// store, and `yolo apply --sealed` counted a host file's keys, or sealed over a dangling link.
 //
-// Each case plants the link, runs the verb through configRunW (the production dispatch, which
-// resolves the target from the cwd), and checks both the host side and that the verb named
-// what it refused.
+// Each case plants the link, runs the verb through its production dispatch (configRunW, which
+// resolves the target from the cwd, or applyMain), and checks both the host side and that the
+// verb named what it refused.
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -451,6 +454,256 @@ func TestConfigCaptureNeverFollowsALinkedDirectory(t *testing.T) {
 				t.Errorf("capture read the host directory behind the link at %s:\n%s", linked, got)
 			}
 			assertNamedRefusal(t, errw, filepath.Join(w.ws, linked))
+		})
+	}
+}
+
+// --- promote ------------------------------------------------------------------------------
+
+// promoteLinkWorld is a verbLinkWorld whose configured packs own claude/settings, so a
+// captured key there is promotable into the conventional local pack.
+func promoteLinkWorld(t *testing.T) verbLinkWorld {
+	t.Helper()
+	w := newVerbLinkWorld(t)
+	t.Setenv("YOLO_USE_PROFILES", "")
+	writeFile(t, filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc"),
+		`{"packs":["claude"]}`)
+	return w
+}
+
+// localPackManifestPath is where promote declares a key.
+func localPackManifestPath() string {
+	return filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "local", "pack.json")
+}
+
+// `yolo config promote` is a host-side verb over a jail's store: it READS the overlay, the
+// baseline and the list capture, and on --accept-promotion it copies the captured keys into a
+// pack manifest under ~/.config/yolo-jail and WRITES the overlay back without them. Through a
+// link at a sidecar it read a host file and declared its keys in the manifest, which every
+// later jail reads.
+func TestConfigPromoteNeverReadsThroughALink(t *testing.T) {
+	for _, tc := range []struct {
+		name, suffix, overlay, host, leak string
+	}{
+		{"the overlay", ".overlay.json", "", `{"hostOnlyPref":"leaked"}`, "hostOnlyPref"},
+		{"the last_render baseline", ".last_render", `{"autoMemoryEnabled":true}`,
+			`{"autoMemoryEnabled":true}`, "redundant"},
+		{"the list capture", render.ListCaptureSuffix, "",
+			`{"/plugins":{"add":["a","b","c","d","e"],"remove":[]}}`, "5 captured list"},
+	} {
+		for _, shape := range verbLinkShapes {
+			t.Run(tc.name+"/"+shape.name, func(t *testing.T) {
+				w := promoteLinkWorld(t)
+				lastRender := `{"model":"base"}`
+				if tc.suffix == ".last_render" {
+					lastRender = ""
+				}
+				w.seed(t, `{"model":"base"}`, lastRender, tc.overlay, "")
+				link := w.sidecar(tc.suffix)
+				verify := shape.plant(t, link, tc.host)
+
+				rc, out, errw := runConfigVerb(t, "promote", "claude/settings", "--accept-promotion")
+
+				verify(t)
+				if strings.Contains(out+errw, tc.leak) {
+					t.Errorf("promote reported a host file read through the jail's link at %s (%q):\n%s%s",
+						link, tc.leak, out, errw)
+				}
+				if data, err := os.ReadFile(localPackManifestPath()); err == nil {
+					t.Errorf("promote declared keys from a store it refused to read:\n%s", data)
+				}
+				if rc == 0 {
+					t.Errorf("promote exited 0 over a store file it refused to read:\n%s%s", out, errw)
+				}
+				assertNamedRefusal(t, errw, link)
+			})
+		}
+	}
+}
+
+// With `.yolo` or `.yolo/prism` a link to a host directory, promote read that directory's
+// overlay, declared its keys, and wrote the overlay back into it.
+func TestConfigPromoteNeverFollowsALinkedDirectory(t *testing.T) {
+	for _, linked := range storeDirLinks {
+		t.Run(linked, func(t *testing.T) {
+			w := promoteLinkWorld(t)
+			w.seed(t, `{"model":"base"}`, `{"model":"base"}`, `{"hostOnlyPref":"leaked"}`, "")
+			hostDir, before := linkDirToHost(t, w.ws, linked, `{"hostOnlyPref":"leaked"}`)
+
+			rc, out, errw := runConfigVerb(t, "promote", "claude/settings", "--accept-promotion")
+
+			if after := treeListing(t, hostDir); after != before {
+				t.Errorf("promote wrote into the host directory behind %s:\nbefore:\n%s\nafter:\n%s",
+					linked, before, after)
+			}
+			if strings.Contains(out+errw, "hostOnlyPref") {
+				t.Errorf("promote reported the host directory behind the link at %s:\n%s%s", linked, out, errw)
+			}
+			if data, err := os.ReadFile(localPackManifestPath()); err == nil {
+				t.Errorf("promote declared keys read through the link at %s:\n%s", linked, data)
+			}
+			if rc == 0 {
+				t.Errorf("promote exited 0 over a store it refused to read:\n%s%s", out, errw)
+			}
+			assertNamedRefusal(t, errw, filepath.Join(w.ws, linked))
+		})
+	}
+}
+
+// Between the plan and the write the jail can swap the overlay, or the store it is in, for a
+// link. The write-back replaces a link at the overlay with a regular file, and refuses a linked
+// store, abandoning the promotion; it never writes into the host file or directory a link names.
+func TestConfigPromoteNeverWritesTheOverlayThroughALink(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		swap func(t *testing.T, w verbLinkWorld) (verify func(t *testing.T))
+		ok   bool
+	}{
+		{"a link at the overlay", func(t *testing.T, w verbLinkWorld) func(*testing.T) {
+			host := filepath.Join(t.TempDir(), "host-file")
+			writeFile(t, host, `{"hostOnlyPref":"kept"}`)
+			captureSymlink(t, host, w.sidecar(".overlay.json"))
+			return func(t *testing.T) {
+				t.Helper()
+				if got, _ := os.ReadFile(host); string(got) != `{"hostOnlyPref":"kept"}` {
+					t.Errorf("promote wrote the overlay through the jail's link into the host file: %q", got)
+				}
+				fi, err := os.Lstat(w.sidecar(".overlay.json"))
+				if err != nil || !fi.Mode().IsRegular() {
+					t.Fatalf("the rewritten overlay is not a regular file (err %v)", err)
+				}
+				if got := readOverlayNoFollow(t, w.ws, "claude-settings"); !strings.Contains(got, "kept") ||
+					strings.Contains(got, "autoMemoryEnabled") {
+					t.Errorf("the rewritten overlay = %q, want only the unpromoted key", got)
+				}
+			}
+		}, true},
+		{"a link at .yolo/prism", func(t *testing.T, w verbLinkWorld) func(*testing.T) {
+			hostDir, before := linkDirToHost(t, w.ws, filepath.Join(".yolo", "prism"), "")
+			return func(t *testing.T) {
+				t.Helper()
+				if after := treeListing(t, hostDir); after != before {
+					t.Errorf("promote wrote into the host directory behind .yolo/prism:\nbefore:\n%s\nafter:\n%s",
+						before, after)
+				}
+				if _, err := os.Lstat(localPackManifestPath()); !os.IsNotExist(err) {
+					t.Errorf("the manifest survived a promotion whose overlay reset was refused (err %v)", err)
+				}
+			}
+		}, false},
+		// Not a jail's link: a second name for the overlay's inode, which tells a rename from
+		// an in-place truncate. The write-back must stay atomic beneath its root, so a crash
+		// mid-write cannot leave a truncated overlay, and a truncate would rewrite this name too.
+		{"a hard link to the overlay (the rewrite is a rename)", func(t *testing.T, w verbLinkWorld) func(*testing.T) {
+			second := filepath.Join(w.ws, "second-name")
+			if err := os.Link(w.sidecar(".overlay.json"), second); err != nil {
+				t.Fatal(err)
+			}
+			before, _ := os.ReadFile(second)
+			return func(t *testing.T) {
+				t.Helper()
+				if got, _ := os.ReadFile(second); string(got) != string(before) {
+					t.Errorf("the overlay was truncated and rewritten in place, not replaced: %q", got)
+				}
+			}
+		}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := promoteLinkWorld(t)
+			w.seed(t, `{"model":"base"}`, `{"model":"base"}`, `{"autoMemoryEnabled":true,"kept":1}`, "")
+
+			var verify func(*testing.T)
+			real := promoteWriteFile
+			promoteWriteFile = func(dst captureFile, data []byte) error {
+				if verify == nil && strings.HasSuffix(dst.path(), ".overlay.json") {
+					verify = tc.swap(t, w)
+				}
+				return real(dst, data)
+			}
+			t.Cleanup(func() { promoteWriteFile = real })
+
+			rc, out, errw := runConfigVerb(t, "promote", "claude/settings", "--keys", "autoMemoryEnabled",
+				"--accept-promotion")
+			if verify == nil {
+				t.Fatalf("promote never wrote the overlay (rc=%d):\n%s%s", rc, out, errw)
+			}
+			verify(t)
+			if tc.ok && rc != 0 {
+				t.Errorf("rc=%d:\n%s%s", rc, out, errw)
+			}
+			if !tc.ok {
+				if rc == 0 {
+					t.Errorf("promote exited 0 over an overlay reset it refused:\n%s%s", out, errw)
+				}
+				assertNamedRefusal(t, errw, filepath.Join(w.ws, ".yolo", "prism"))
+			}
+		})
+	}
+}
+
+// --- apply --sealed -----------------------------------------------------------------------
+
+// sealedLinkWorld is a verbLinkWorld in which `yolo apply --sealed` has exactly one question
+// left: the workspace declares packs, and the user declares host_management.
+func sealedLinkWorld(t *testing.T) verbLinkWorld {
+	t.Helper()
+	w := newVerbLinkWorld(t)
+	writeFile(t, filepath.Join(w.ws, "yolo-jail.jsonc"), `{"packs":["claude"]}`)
+	writeFile(t, filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc"),
+		`{"host_management":"assert"}`)
+	return w
+}
+
+func runApplySealed(t *testing.T) (rc int, stdout, stderr string) {
+	t.Helper()
+	var out, errw bytes.Buffer
+	rc = applyMain([]string{"--sealed"}, &out, &errw, false, nil)
+	return rc, out.String(), errw.String()
+}
+
+// `yolo apply --sealed` counts each surface's captured keys in the workspace store, host-side.
+// Through a link it counted a host file's keys, and through a dangling one it counted none and
+// reported the environment sealed: a store it did not read, certified as holding nothing.
+func TestApplySealedNeverReadsThroughALink(t *testing.T) {
+	for _, shape := range verbLinkShapes {
+		t.Run(shape.name, func(t *testing.T) {
+			w := sealedLinkWorld(t)
+			link := w.sidecar(".overlay.json")
+			verify := shape.plant(t, link, `{"a":1,"b":2,"c":3,"d":4,"e":5,"f":6,"g":7}`)
+
+			rc, out, errw := runApplySealed(t)
+
+			verify(t)
+			if strings.Contains(out, "has 7 captured") {
+				t.Errorf("apply --sealed counted a host file read through the jail's link at %s:\n%s", link, out)
+			}
+			if rc == 0 {
+				t.Errorf("apply --sealed exited 0 over a store file it refused to read:\n%s%s", out, errw)
+			}
+			assertNamedRefusal(t, out, link)
+		})
+	}
+}
+
+func TestApplySealedNeverFollowsALinkedDirectory(t *testing.T) {
+	for _, linked := range storeDirLinks {
+		t.Run(linked, func(t *testing.T) {
+			w := sealedLinkWorld(t)
+			w.seed(t, "", "", `{"a":1,"b":2,"c":3,"d":4,"e":5,"f":6,"g":7}`, "")
+			hostDir, before := linkDirToHost(t, w.ws, linked, "")
+
+			rc, out, errw := runApplySealed(t)
+
+			if after := treeListing(t, hostDir); after != before {
+				t.Errorf("apply --sealed changed the host directory behind %s:\n%s", linked, after)
+			}
+			if strings.Contains(out, "has 7 captured") {
+				t.Errorf("apply --sealed counted the host directory's overlay behind %s:\n%s", linked, out)
+			}
+			if rc == 0 {
+				t.Errorf("apply --sealed exited 0 over a directory it refused to follow:\n%s%s", out, errw)
+			}
+			assertNamedRefusal(t, out, filepath.Join(w.ws, linked))
 		})
 	}
 }

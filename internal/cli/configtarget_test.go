@@ -401,28 +401,31 @@ func TestTheRetiredPredicatesHaveNoOtherCallers(t *testing.T) {
 // TestWorkspaceRootIsOnlyTheSealedVerbs pins the exemption above from the other side, so the
 // bare-cwd walk cannot quietly spread back into the config verbs while Blocker 3 is open.
 //
-// ALL THREE SPELLINGS, AND A DIFFERENT ALLOWLIST FOR EACH. The bare-cwd answer has three
+// ALL FOUR SPELLINGS, AND A DIFFERENT ALLOWLIST FOR EACH. The bare-cwd answer has four
 // names, not one: `workspaceRoot()`; `sealedWorkspaceStore()`, which is
-// `render.Jail(paths.Home(), workspaceRoot(), nil)` — the same answer one call deeper; and
+// `render.Jail(paths.Home(), workspaceRoot(), nil)` — the same answer one call deeper;
+// `sealedConfigTarget()`, the configTarget that store's files are opened through; and
 // `overlayKeyCount()`, which reads that store. This test checked only the first, so a config
-// verb reaching for either of the other two spread the bare cwd with nothing failing — the
+// verb reaching for any of the others spread the bare cwd with nothing failing — the
 // callee-pinned/call-site-unpinned shape one file over, in the fence meant to catch it.
 //
 // Each list is that identifier's real callers plus the file that DECLARES it (a declaration is
 // an identifier too), and they are deliberately not unioned: `workspaceRoot` has no business
-// in configls.go, `sealedWorkspaceStore` none in apply.go, and `overlayKeyCount` none in
-// configtarget.go. A union of the three files would permit all nine pairs and stop being a
+// in configls.go, `sealedWorkspaceStore` none outside configtarget.go, and `overlayKeyCount`
+// none in configtarget.go. A union of the three files would permit every pair and stop being a
 // statement about any of them. `overlayKeyCountAt` is a DIFFERENT identifier and is
 // unguarded on purpose: it takes the sidecar path, so it is what every config verb calls
 // through the resolved target.
 func TestWorkspaceRootIsOnlyTheSealedVerbs(t *testing.T) {
-	// configtarget.go declares the walk and its store; apply.go is the verb the exemption is
-	// FOR (applySealed calls workspaceRoot and overlayKeyCount); configls.go declares
-	// overlayKeyCount — `apply --sealed`'s key counter, beside the listing it also serves —
-	// and is sealedWorkspaceStore's one caller.
+	// configtarget.go declares the walk, its store and the target over it, and
+	// sealedConfigTarget is sealedWorkspaceStore's one caller; apply.go is the verb the
+	// exemption is FOR (applySealed calls workspaceRoot, sealedConfigTarget and
+	// overlayKeyCount); configls.go declares overlayKeyCount — `apply --sealed`'s key counter,
+	// beside the listing it also serves.
 	allowed := map[string]map[string]bool{
 		"workspaceRoot":        {"configtarget.go": true, "apply.go": true},
-		"sealedWorkspaceStore": {"configtarget.go": true, "configls.go": true},
+		"sealedWorkspaceStore": {"configtarget.go": true},
+		"sealedConfigTarget":   {"configtarget.go": true, "apply.go": true},
 		"overlayKeyCount":      {"configls.go": true, "apply.go": true},
 	}
 	forEachIdentInPackageSource(t, func(file, name string) {

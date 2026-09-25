@@ -324,7 +324,10 @@ type promoteWrite struct {
 // promoteFileWrite is one file's new content plus what undoes it. preImage == nil means the
 // file did not exist, and the rollback is to remove it.
 type promoteFileWrite struct {
-	path     string
+	// dst is the file: the manifest by plain path, since ~/.config/yolo-jail is the host's own;
+	// an overlay as the classification opened it (promoteSurface.Overlay), which host-side is
+	// rooted in the jail's writable store.
+	dst      captureFile
 	data     []byte
 	preImage []byte
 	existed  bool
@@ -365,7 +368,7 @@ func buildPromoteWrite(plan promotePlan) (promoteWrite, error) {
 			return w, derr
 		}
 		w.files = append(w.files, promoteFileWrite{
-			path:     ps.OverlayPath,
+			dst:      ps.Overlay,
 			data:     append(updated, '\n'),
 			preImage: pre,
 			existed:  true,
@@ -378,7 +381,7 @@ func buildPromoteWrite(plan promotePlan) (promoteWrite, error) {
 	// The MANIFEST FIRST, so a failure resetting an overlay leaves the declaration to roll
 	// back rather than a captured key already gone with nowhere to put it back.
 	w.files = append([]promoteFileWrite{{
-		path: plan.Dest.path, data: []byte(body + "\n"),
+		dst: captureFile{name: plan.Dest.path}, data: []byte(body + "\n"),
 		preImage: manifestPre, existed: existed, mkdir: plan.Dest.dir,
 	}}, w.files...)
 	return w, nil
@@ -397,15 +400,15 @@ func (w promoteWrite) apply() error {
 				return fmt.Errorf("creating %s: %w", f.mkdir, err)
 			}
 		}
-		if err := promoteWriteFile(f.path, f.data); err != nil {
+		if err := promoteWriteFile(f.dst, f.data); err != nil {
 			rollback := w.rollback(i)
 			if rollback != nil {
 				return fmt.Errorf("writing %s: %w — AND THE ROLLBACK FAILED: %v. The "+
 					"promotion is half-applied; `yolo config diff` shows what the overlay "+
-					"still holds", f.path, err, rollback)
+					"still holds", f.dst.path(), err, rollback)
 			}
 			return fmt.Errorf("writing %s: %w — the promotion was abandoned and every file "+
-				"restored", f.path, err)
+				"restored", f.dst.path(), err)
 		}
 	}
 	return nil
@@ -418,9 +421,9 @@ func (w promoteWrite) rollback(n int) error {
 		f := w.files[i]
 		var err error
 		if f.existed {
-			err = promoteWriteFile(f.path, f.preImage)
+			err = promoteWriteFile(f.dst, f.preImage)
 		} else {
-			err = os.Remove(f.path)
+			err = f.dst.remove()
 		}
 		if err != nil && failed == nil {
 			failed = err
@@ -429,37 +432,18 @@ func (w promoteWrite) rollback(n int) error {
 	return failed
 }
 
-// promoteWriteFile writes one file atomically: a temp file in the destination directory,
-// then a rename over the target, so a crash mid-write cannot leave a truncated pack
-// manifest or a truncated capture overlay.
+// promoteWriteFile writes one file atomically (captureFile.replace): a temp file in the
+// destination directory, then a rename over the target, so a crash mid-write cannot leave a
+// truncated pack manifest or a truncated capture overlay. An overlay is rooted in the jail's
+// writable store host-side, and both halves then happen beneath that root, so a link the jail
+// left at the overlay is replaced rather than written through, and one at `.yolo` or
+// `.yolo/prism` is refused.
 //
 // A package var so a test can make one named path fail, which is the only way to exercise
 // the rollback: the writes are ordinary files in a temp home, and the test suite runs as
 // root in this jail, where permissions refuse nothing.
-var promoteWriteFile = func(path string, data []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".yolo-promote-*")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(name)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(name)
-		return err
-	}
-	if err := os.Chmod(name, 0o644); err != nil {
-		os.Remove(name)
-		return err
-	}
-	if err := os.Rename(name, path); err != nil {
-		os.Remove(name)
-		return err
-	}
-	return nil
+var promoteWriteFile = func(dst captureFile, data []byte) error {
+	return dst.replace(data, 0o644)
 }
 
 // readIfPresent reads a file, reporting whether it existed. An absent file is not an error

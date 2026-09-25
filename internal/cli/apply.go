@@ -1227,8 +1227,9 @@ func applySealed(out, errw io.Writer, color bool) int {
 				"yolo-jail.jsonc or remove it to seal.")
 	}
 	// (2) any capture surface carrying outstanding overlay keys.
+	store := sealedConfigTarget()
 	for _, s := range surfaceManifest().Surfaces() {
-		if n := overlayKeyCount(s.Agent, s.Name); n > 0 {
+		if n := overlayKeyCount(store, s.Agent, s.Name); n > 0 {
 			// BOTH EXITS ARE NAMED AS COMMANDS. This line said "promote them into a
 			// pack" in English while `yolo config promote` shipped (configpromote.go),
 			// so the one remedy a reader could act on was the DISCARDING one — a
@@ -1242,6 +1243,13 @@ func applySealed(out, errw io.Writer, color bool) int {
 					"`yolo config reset %s/%s` to discard.",
 				s.Agent, s.Name, n, s.Agent, s.Name, s.Agent, s.Name))
 		}
+	}
+	// A sidecar the count refused to read is not a sidecar with no keys: sealing over it
+	// would certify a store this verb did not read (stateRefusals).
+	for _, err := range store.refusals.errs {
+		refusals = append(refusals, fmt.Sprintf(
+			"the capture store could not be read, so whether it holds captured in-jail edits "+
+				"is unknown: %v", err))
 	}
 
 	// (3) the host-ownership contract, unstated.

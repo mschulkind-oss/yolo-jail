@@ -266,11 +266,11 @@ func TestPromoteRollsBackTheManifestWhenTheResetFails(t *testing.T) {
 	before := w.overlayFor("claude", "settings")
 
 	real := promoteWriteFile
-	promoteWriteFile = func(path string, data []byte) error {
-		if strings.HasSuffix(path, ".overlay.json") {
+	promoteWriteFile = func(dst captureFile, data []byte) error {
+		if strings.HasSuffix(dst.path(), ".overlay.json") {
 			return errors.New("injected: the sidecar write failed")
 		}
-		return real(path, data)
+		return real(dst, data)
 	}
 	t.Cleanup(func() { promoteWriteFile = real })
 
@@ -300,11 +300,11 @@ func TestPromoteRollbackRestoresAnExistingManifestVerbatim(t *testing.T) {
 	w.capture("claude", "settings", `{"autoMemoryEnabled":true}`, `{}`)
 
 	real := promoteWriteFile
-	promoteWriteFile = func(path string, data []byte) error {
-		if strings.HasSuffix(path, ".overlay.json") {
+	promoteWriteFile = func(dst captureFile, data []byte) error {
+		if strings.HasSuffix(dst.path(), ".overlay.json") {
 			return errors.New("injected")
 		}
-		return real(path, data)
+		return real(dst, data)
 	}
 	t.Cleanup(func() { promoteWriteFile = real })
 

@@ -312,6 +312,22 @@ func sealedWorkspaceStore() render.Target {
 	return render.Jail(paths.Home(), workspaceRoot(), nil)
 }
 
+// sealedConfigTarget is the configTarget `yolo apply --sealed` opens sealedWorkspaceStore's
+// files through, so they take storeFile's rule: host-side the store is a jail's writable
+// state, and a link at a sidecar, at `.yolo/prism` or at `.yolo` is refused, never followed.
+// It carries the store and nothing else a config verb resolves — no disclosure, no runtime —
+// because the sealed verb reads sidecars only, and its workspace stays workspaceRoot's.
+func sealedConfigTarget() configTarget {
+	ws := workspaceRoot()
+	return configTarget{
+		notch:     render.KindJail,
+		workspace: ws,
+		local:     processOwnsWorkspace(ws),
+		store:     sealedWorkspaceStore(),
+		refusals:  &stateRefusals{},
+	}
+}
+
 // workspaceMarked reports whether dir carries a workspace marker: the launch artifact
 // `.yolo/config-boot.json`, or any of the four workspace config file names.
 //
@@ -543,17 +559,24 @@ func (t configTarget) surfaceFileExists(surfacePath string) bool {
 // or previews host paths into a jail file.
 func (t configTarget) composeTarget() render.Target { return localTarget() }
 
-// wsOverlayPath is `promote`'s reader: the WORKSPACE store's overlay for one surface, or ""
-// at a host target. Promote is deliberately not retargeted by this design — host-side it
-// reads the cwd's workspace store because lifting a jail's captured keys into a pack is its
-// whole job — so it gets its own accessor rather than the target's store.
-func (t configTarget) wsOverlayPath(agent, name string) string {
-	return t.wsStore.OverlayPath(agent, name)
+// wsOverlayFile is `promote`'s reader: the WORKSPACE store's overlay for one surface, or the
+// zero captureFile at a host target. Promote is deliberately not retargeted by this design —
+// host-side it reads the cwd's workspace store because lifting a jail's captured keys into a
+// pack is its whole job — so it gets its own accessor rather than the target's store. It is
+// opened through storeFile all the same: promote runs host-side only (refuseInJailPromote), so
+// the store it reads is a jail's writable state, rooted rather than read by plain path.
+func (t configTarget) wsOverlayFile(agent, name string) captureFile {
+	return t.storeFile(t.wsStore.OverlayPath(agent, name))
 }
 
-// wsLastRenderPath is wsOverlayPath's baseline twin, for the same reason.
-func (t configTarget) wsLastRenderPath(agent, name string) string {
-	return t.wsStore.LastRenderPath(agent, name)
+// wsLastRenderFile and wsListCaptureFile are wsOverlayFile's baseline and list-capture twins,
+// for the same reason.
+func (t configTarget) wsLastRenderFile(agent, name string) captureFile {
+	return t.storeFile(t.wsStore.LastRenderPath(agent, name))
+}
+
+func (t configTarget) wsListCaptureFile(agent, name string) captureFile {
+	return t.storeFile(t.wsStore.ListCapturePath(agent, name))
 }
 
 // --- the three answers a store can give -------------------------------------------------

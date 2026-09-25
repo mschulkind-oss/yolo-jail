@@ -40,7 +40,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"sort"
 	"strings"
 
@@ -247,10 +246,10 @@ func splitPromoteList(v string) []string {
 }
 
 // configPromote implements `yolo config promote`.
-func configPromote(t configTarget, args []string, out, errw io.Writer, color bool) int {
-	o, rc := parsePromoteArgs(args, out, errw)
-	if rc >= 0 {
-		return rc
+func configPromote(t configTarget, args []string, out, errw io.Writer, color bool) (rc int) {
+	o, prc := parsePromoteArgs(args, out, errw)
+	if prc >= 0 {
+		return prc
 	}
 	if refuseInJailPromote(t, errw) {
 		return 1
@@ -259,16 +258,21 @@ func configPromote(t configTarget, args []string, out, errw io.Writer, color boo
 	if drc != 0 {
 		return drc
 	}
-	plan, prc := buildPromotePlan(t, o, dest, errw)
-	if prc != 0 {
-		return prc
+	// Every link the plan's readers refused in the workspace store is named once the verb is
+	// done, and turns its exit into 1: the plan describes a store promote did not wholly read.
+	defer func() { rc = t.reportRefusals("promote", errw, rc, true) }()
+	plan, brc := buildPromotePlan(t, o, dest, errw)
+	if brc != 0 {
+		return brc
 	}
 	if outfmt.IsJSON(o.format) {
 		return emitPromoteDoc(plan, out, errw)
 	}
 	pr := richtext.Printer{W: out, Color: color}
 	writePromoteReport(pr, plan)
-	if o.plan {
+	// A REFUSED LINK WRITES NOTHING. The refused file read as absent, so the plan may declare
+	// a key its baseline would have shown redundant, or reset an overlay it never read.
+	if o.plan || (t.refusals != nil && len(t.refusals.errs) > 0) {
 		return 0
 	}
 	return applyPromotion(plan, o, pr, errw)
@@ -330,14 +334,14 @@ type promoteSurface struct {
 	// OverlayJSON is the capture sidecar's bytes, carried so the writer resets from the
 	// exact bytes the classification read (configpromotewrite.go's pre-image contract).
 	OverlayJSON []byte
-	// OverlayPath is the file those bytes came from, carried for the same contract: the
+	// Overlay is the file those bytes came from, carried for the same contract: the
 	// writer must reset the sidecar the classification READ rather than re-resolve one. Two
 	// resolutions of one store is the defect docs/reference/config-target-resolution.md removes
 	// — it is how `diff` and `reset` came to describe different stores
 	// (F3, docs/reference/config-target-resolution.md#the-config-target) — and the
 	// write half of promote is the last place that could still grow it back.
-	OverlayPath string
-	Keys        []promoteKey
+	Overlay captureFile
+	Keys    []promoteKey
 	// Note is a caveat about what this classification could not see, or "".
 	Note string
 	// ListNote names the per-entry list edits captured at this surface's config-list paths
@@ -462,11 +466,11 @@ func promoteNonCaptureHint(agent, surface string) string {
 // Promote does not lift them — a list record is not a key, and promoting one is a separate
 // roadmap item (docs/reference/pack-system.md#list-records-stay-outside-the-overlay) — so the
 // line says so and points at the verb that shows them.
-func promoteListNote(path string) string {
-	if path == "" {
+func promoteListNote(f captureFile) string {
+	if f.name == "" {
 		return ""
 	}
-	data, err := os.ReadFile(path)
+	data, err := f.read()
 	if err != nil {
 		return ""
 	}
@@ -493,16 +497,20 @@ func promoteListNote(path string) string {
 // classifyPromoteSurface is §5.2 steps 1-4 for ONE surface.
 func classifyPromoteSurface(t configTarget, s manifest.Surface, o promoteOptions, dest promoteDest, fold promoteFold) promoteSurface {
 	ps := promoteSurface{Surface: s}
-	ps.OverlayPath = t.wsOverlayPath(s.Agent, s.Name)
-	ps.OverlayJSON, _ = os.ReadFile(ps.OverlayPath)
-	ps.ListNote = promoteListNote(t.wsStore.ListCapturePath(s.Agent, s.Name))
+	// Every store file through the target's opener (wsOverlayFile): host-side, where promote
+	// runs, a link the jail left at a sidecar or on the way to one is refused, not followed.
+	ps.Overlay = t.wsOverlayFile(s.Agent, s.Name)
+	if ps.Overlay.name != "" {
+		ps.OverlayJSON, _ = ps.Overlay.read()
+	}
+	ps.ListNote = promoteListNote(t.wsListCaptureFile(s.Agent, s.Name))
 
 	// The DISPLAY reader (jsonx, key order and integer literals preserved) is the one the
 	// captured values are taken from, because those values are written back into a
 	// hand-readable pack.json — encoding/json would turn a port number into a float.
 	// agentcfg's own reader is used where the ENGINE's answer is wanted (dead keys).
-	overlay := readOverlayValue(captureFile{name: ps.OverlayPath})
-	states, isObject := overlayKeyStates(overlay, readLastRenderKeys(captureFile{name: t.wsLastRenderPath(s.Agent, s.Name)}, s))
+	overlay := readOverlayValue(ps.Overlay)
+	states, isObject := overlayKeyStates(overlay, readLastRenderKeys(t.wsLastRenderFile(s.Agent, s.Name), s))
 	if !isObject {
 		if !overlayIsEmpty(overlay) {
 			ps.Note = "keyless surface (" + s.Codec + "): the whole file is one captured " +
