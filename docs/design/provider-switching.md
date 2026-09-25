@@ -11,11 +11,7 @@ summary: "When you stop passing a profile, codex, pi and opencode keep the provi
 **The question this doc answers.** When a user stops selecting a profile, should yolo clear the
 model id it wrote into the agent's config, and should it say so when it does?
 
-**Status:** DESIGN, 2026-09-25. Nothing built. MEASURED: a null tombstone deletes through the
-user's host file (`5e15b964`, 2026-09-20). Read from the tree 2026-09-24, not run:
-`agentcfg.ApplySelection`'s not-selected arm still lifts the current value and never clears.
-MEASURED 2026-09-25 through the real boot render, with both variants patched into a private
-copy ([§3](#3-what-happens-today)'s last note):
+**Status:** DECIDED, 2026-09-25. Ruled by user: OQ-PSW2 decided (deselecting clears what yolo wrote via omission, falling back to native defaults or host layer).
 
 - **Omission keeps a host-file value**, and the clear holds on the launch after it.
 - **A tombstone deletes the host value for one launch**, and the value comes back on the next.
@@ -25,18 +21,12 @@ copy ([§3](#3-what-happens-today)'s last note):
 The same run found that only pi has a host layer to keep, and that a selection over a
 host-layer value is refused ([`OQ-SW1`](#OQ-SW1)). Code claims cite a symbol, never a line.
 
-**Where things stand.** Nothing here is built, and nothing here is ruled. The rule this revises is
-[`OQ-CS2`](../reference/providers.md#oq-cs2) in the providers reference, which is ruled and
-shipped. The alias and shipped-model questions that used to live here moved out on 2026-09-25
-([Where the rest went](#where-the-rest-went)).
+**Where things stand.** Ruled on 2026-09-25: `OQ-PSW2` settles the deselection clear via omission.
+The rule this revises is [`OQ-CS2`](../reference/providers.md#oq-cs2) in the providers reference.
+The alias and shipped-model questions moved out on 2026-09-25 ([Where the rest went](#where-the-rest-went)).
 
 **Needs your ruling:**
 
-- [`OQ-PSW2`](#OQ-PSW2): should deselecting clear the model id yolo wrote, and fall back to the
-  `model` in your host config if you set one? Leaning: yes to both. "Never clear" was how
-  [`OQ-CS2`](../reference/providers.md#oq-cs2)'s answer was implemented, not the answer itself.
-  The mechanism (tombstone or omission) is the implementer's, chosen by build step 1's test, and
-  it must keep a host-file value.
 - [`OQ-PSW4`](#OQ-PSW4) 🤷: should the clear print a one-line notice? Leaning: genuinely your call,
   with a mild preference to print it.
 - [`OQ-SW1`](#OQ-SW1), found by the 2026-09-25 measurement: should a selection outrank a value
@@ -208,12 +198,12 @@ already tells them apart, and row three uses it. Row four simply does not ask.
 
 ## 4. The fourth row: clear what yolo wrote, keep what the user wrote
 
-The proposal is one new branch in `ApplySelection`, keyed on the record it already holds. It runs
+The settled design is one new branch in `ApplySelection`, keyed on the record it already holds. It runs
 per key, so a provider-and-model pair clears as a pair:
 
 | Situation, key not selected | New behavior |
 | :--- | :--- |
-| File value == the record (**yolo's own value**) | lift a **null tombstone**, and **drop the key from the record** |
+| File value == the record (**yolo's own value**) | **omit from lift** (clear to native default or host layer), and **drop the key from the record** |
 | File value != the record (the user changed it) | lift the current value (unchanged) |
 | No record for the key (yolo never wrote it) | lift the current value (unchanged) |
 | Key absent from the file | nothing, except that the record entry is dropped |
@@ -223,7 +213,24 @@ remembered the value, a user who later typed that same id by hand would lose it 
 deselect. After a clear, yolo has no claim. That matches the rule the mechanism already follows
 elsewhere: "a lost or corrupt record claims nothing".
 
-This changes a ruled decision, so it is [`OQ-PSW2`](#OQ-PSW2) rather than a fiat.
+When all keys on a surface are cleared, `composeStatefulSurface` updates `selectionRecord` to the
+empty map, and `writeSelectionRecord` removes the empty `.selection.json` sidecar from disk.
+
+### 4.1 Native First-Party Provider Resolution (`openai-codex` for `codex`)
+
+An agent CLI's first-party subscription provider (such as `openai-codex` for `codex`) must not be
+refused by protocol resolution, and must not configure an invalid third-party `model_providers`
+entry in the agent's configuration:
+
+1. **Protocol declaration**: Codex CLI natively speaks `openai-responses`. `packs/codex/pack.json`
+   must declare `protocols: ["openai-responses", "openai"]` so pointing `codex` at `openai-codex`
+   (which declares `openai-responses`) succeeds directly.
+2. **Native authentication fallback**: In `packs/codex/derive.lua`, `openai-codex` is recognized as
+   Codex's built-in first-party provider (backed by the host's `openai-auth-broker`). When selected,
+   the derive sets `selection = { model = modelAlias }` without setting `model_provider`, allowing
+   Codex CLI to run natively with OAuth credentials while clearing any stale third-party
+   `model_provider` residue. `openai-codex` is also excluded from the third-party `model_providers`
+   TOML table.
 
 ```mermaid
 stateDiagram-v2
@@ -348,30 +355,7 @@ first-party providers) moved to [`model-lists-and-pickers.md`](model-lists-and-p
 
 ## 10. Open Questions
 
-1. 💬 **OQ-PSW2: Should deselecting clear the id yolo wrote, which revises the
-   providers ledger's fourth rule?** Today the fourth row keeps whatever the file holds. The
-   proposal narrows "never clear" to "never clear the user's value", using the record already on
-   disk. Stakes: this is the live defect, and it changes a ruled decision on a shipped mechanism.
-   It hides a user-visible sub-question: what "clear" returns to when you set a `model` in your
-   host config. A tombstone deletes that host value, so "clear" would mean the agent's built-in
-   default. Omission falls back to your host value: MEASURED 2026-09-25, except on a boot that
-   adopts the file ([§3](#3-what-happens-today)'s note). This ruling decides which behavior is
-   right, and the test then picks a mechanism that delivers it.
-
-   <!-- vantage: oq id=OQ-PSW2 leaning="Revise it, and yes to both halves. OQ-CS2 answered 'must an interactive /model survive the next launch?' — yes, and the record already distinguishes that case. 'Never clear' was the implementation of that answer, not the answer, and it protects yolo's own stale value as a side effect nobody chose. 'Clear' means return to what you had before yolo wrote anything: your host config's model if set, else the agent's default. The mechanism (tombstone or omission) is the implementer's, chosen by build step 1's test; one that deletes a host-file value fails this ruling." -->
-
-   _Leaning:_ Revise it. [`OQ-CS2`](../reference/providers.md#oq-cs2) answered "must an
-   interactive `/model` survive the next launch?" The answer was yes, and the record already
-   distinguishes that case. "Never clear" was the implementation of that answer, not the answer
-   itself, and it protects yolo's own stale value as a side effect nobody chose. "Clear" means
-   return to what you had before yolo wrote anything: your host config's `model` if set, else
-   the agent's default. The mechanism (tombstone or omission) is the implementer's, chosen by
-   build step 1's test. A mechanism that deletes a host-file value fails this ruling.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 🤷 **OQ-PSW4: Should a deselect that clears a key say so on stderr?** The
+1. 💬 🤷 **OQ-PSW4: Should a deselect that clears a key say so on stderr?** The
    clear is otherwise invisible: a file loses a line between two launches. A one-line notice
    ("cleared the `model` yolo set for profile `bedrock`") makes it legible. Because the clear drops
    the record entry, the notice fires on exactly one launch per deselect, not on every later one.
@@ -386,12 +370,12 @@ first-party providers) moved to [`model-lists-and-pickers.md`](model-lists-and-p
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 <a id="OQ-SW1"></a>**OQ-SW1: Should a selection outrank a value that came from your host
+2. 💬 <a id="OQ-SW1"></a>**OQ-SW1: Should a selection outrank a value that came from your host
    config, not from an in-jail edit?** The id is coined here: `SW` stands for switching.
    It was filed while this doc's older series was still spelled `OQ-PS`, which
    [`provisioner-sets.md`](provisioner-sets.md) also uses for its own questions. That
    older series was renamed `OQ-PSW` (provider switching) on 2026-09-25, digits kept, so
-   the old `PS2` is now [`OQ-PSW2`](#OQ-PSW2). This id kept its spelling.
+   the old `PS2` is now [`OQ-PSW2`](#decision-ledger). This id kept its spelling.
 
    The 2026-09-25 measurement found this ([§3](#3-what-happens-today)'s note,
    [§11](#11-evidence)). `ApplySelection` reads any file value it has no record for as the
@@ -403,7 +387,7 @@ first-party providers) moved to [`model-lists-and-pickers.md`](model-lists-and-p
    layer, so they are unaffected.
 
    Stakes: whether `-p` works for pi at all for a user whose host config names a model. It is
-   separate from [`OQ-PSW2`](#OQ-PSW2) (activation, not deselection), but Done 4 depends on it.
+   separate from [`OQ-PSW2`](#decision-ledger) (activation, not deselection), but Done 4 depends on it.
 
    - **A. Keep today's rule.** A host value is the user's choice, and `-p` never overrides it.
      Done 3 and Done 4 are reworded to say so. A user who wants `-p` to work for pi removes the
@@ -421,7 +405,7 @@ first-party providers) moved to [`model-lists-and-pickers.md`](model-lists-and-p
    _Leaning:_ B. An explicit `-p` is a more specific choice than a standing host default. The
    hazard [`OQ-CS2`](../reference/providers.md#oq-cs2) protects is an in-jail interactive choice,
    and B still protects it. Paired with omission as the clear, B makes a deselect return to the
-   host value, which is [`OQ-PSW2`](#OQ-PSW2)'s leaning. But whether a launch flag may override a
+   host value, which is [`OQ-PSW2`](#decision-ledger)'s leaning. But whether a launch flag may override a
    host config is a product call, so this is yours.
 
    **Answer:**
@@ -431,12 +415,10 @@ first-party providers) moved to [`model-lists-and-pickers.md`](model-lists-and-p
 
 ### Decision Ledger
 
-No question in this doc is ruled yet. These pointer rows record rulings made elsewhere that shape
-it:
-
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| OQ-CS2 | **Never write the selection key when no profile is active**, because an interactive in-agent choice must survive the next launch. This is the rule [`OQ-PSW2`](#OQ-PSW2) would narrow. | undated there | [providers.md](../reference/providers.md#oq-cs2) | yes |
+| OQ-PSW2 | **Deselecting a profile clears yolo's written selection keys via omission**, allowing the surface to fall back to the native mechanism or host layer. The selection record entry is dropped. | 2026-09-25 | [§4](#4-the-fourth-row-clear-what-yolo-wrote-keep-what-the-user-wrote) | — |
+| OQ-CS2 | **Never write the selection key when no profile is active**, because an interactive in-agent choice must survive the next launch. This is the rule [`OQ-PSW2`](#decision-ledger) narrowed. | undated there | [providers.md](../reference/providers.md#oq-cs2) | yes |
 | OQ-PSW3 | **Answered by the [`OQ-BR3`](model-lists-and-pickers.md#OQ-BR3) ruling**, which says to ship model defaults in a built-in pack. The row lives in [model-lists-and-pickers.md](model-lists-and-pickers.md#OQ-PSW3). | 2026-09-25 | [`model-lists-and-pickers.md`](model-lists-and-pickers.md#OQ-PSW3) | — |
 
 ---
