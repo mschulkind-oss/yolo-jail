@@ -30,12 +30,14 @@ current.
 
 - **Ruled 2026-09-25:** yolo picks model ids where an agent cannot just default, and ships them
   in a built-in pack that comes with yolo, not in core ([OQ-BR3](#OQ-BR3)). That also answers
-  provider-switching's "does yolo ship the ids?" ([OQ-PS3](#OQ-PS3)).
+  provider-switching's "does yolo ship the ids?" ([OQ-PSW3](#OQ-PSW3)).
 - **Built:** nothing of this design. Today's model lists are per-pack alias maps plus two
   hard-coded GPT-6 lists ([§3](#3-what-exists-today)).
 - **Moved here on 2026-09-25**, with their ids unchanged: [OQ-BR3](#OQ-BR3) and
   [OQ-BR12](#OQ-BR12)–[OQ-BR15](#OQ-BR15) from [`bedrock-plumbing.md`](bedrock-plumbing.md), and
-  [OQ-PS1](#OQ-PS1) and [OQ-PS3](#OQ-PS3) from [`provider-switching.md`](provider-switching.md).
+  [OQ-PSW1](#OQ-PSW1) and [OQ-PSW3](#OQ-PSW3) from [`provider-switching.md`](provider-switching.md).
+  Those two carried the old prefix `PS`, as `PS1` and `PS3`, until later that day, when that doc's series was
+  renamed `OQ-PSW` because [`provisioner-sets.md`](provisioner-sets.md) also uses `OQ-PS`.
 
 **Needs your ruling.** Rule [OQ-ML2](#OQ-ML2) first: it decides how many ids the other
 questions are about.
@@ -55,7 +57,7 @@ questions are about.
   derive renders the one list into its own agent's surface.
 - [OQ-BR14](#OQ-BR14): how the lists stay current. Leaning: the agents' own catalogs, plus a
   `yolo check` warning.
-- [OQ-PS1](#OQ-PS1): claude's derive reads `balanced`/`fast`. Leaning: yes, keeping
+- [OQ-PSW1](#OQ-PSW1): claude's derive reads `balanced`/`fast`. Leaning: yes, keeping
   `sonnet`/`haiku` as synonyms.
 - [OQ-BR15](#OQ-BR15): the bridge serves `GET /v1/models`. **Later, measure first.**
 
@@ -63,7 +65,7 @@ questions are about.
 [`wire-bridge-gateway.md`](wire-bridge-gateway.md#OQ-WG3), which reads this doc's effective
 list. Which vendors each agent can call on Bedrock, and the per-agent filter table:
 [`bedrock-plumbing.md`](bedrock-plumbing.md#OQ-BR9). Clearing a model id when you stop
-selecting a profile: [`provider-switching.md`](provider-switching.md#OQ-PS2). Withholding a
+selecting a profile: [`provider-switching.md`](provider-switching.md#OQ-PSW2). Withholding a
 credential so that a menu shrinks: [`provider-credential-scope.md`](provider-credential-scope.md#OQ-CN4).
 What a provider and a profile should mean at all:
 [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md).
@@ -255,7 +257,7 @@ covers every pick.
 
 An unverified prefix is exactly the 404-on-unknown-model failure bedrock-plumbing's P1 describes.
 So no Anthropic id enters the picks pack until its prefixes are read from AWS's own pages and
-dated. This was [OQ-PS3](#OQ-PS3)'s blocker. It is now a build prerequisite, not a question.
+dated. This was [OQ-PSW3](#OQ-PSW3)'s blocker. It is now a build prerequisite, not a question.
 
 **SOURCED 2026-09-25 from AWS's model cards**, which are now where AWS lists inference
 profile ids. Its [inference-profile support page](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-support.html)
@@ -334,7 +336,7 @@ that also declares `sol` has four aliases, and that is not an error.
 **claude is where it bites.** Its env derive reads the vendor names `sonnet` and `haiku`
 literally. The proposal: read `balanced` → `ANTHROPIC_DEFAULT_SONNET_MODEL` and `fast` →
 `ANTHROPIC_DEFAULT_HAIKU_MODEL`, keeping `sonnet`/`haiku` as synonyms so no user config breaks
-([OQ-PS1](#OQ-PS1)). It says nothing yet about the opus tier, or the Fable tier
+([OQ-PSW1](#OQ-PSW1)). It says nothing yet about the opus tier, or the Fable tier
 (`ANTHROPIC_DEFAULT_FABLE_MODEL`), which [OQ-BR13](#OQ-BR13) maps only from a declared `fable`
 alias.
 
@@ -515,7 +517,7 @@ through each provider's own pack ([OQ-ML1](#OQ-ML1) option (b)).
    provider-switching's three-line `models` map for claude's native `bedrock` provider lands here
    only if [OQ-ML2](#OQ-ML2) gives that profile a pick.
 3. **The alias vocabulary**: the default-only warning, the claude derive's synonym reading, and a
-   line in `providers.md` naming the three ([OQ-PS1](#OQ-PS1)).
+   line in `providers.md` naming the three ([OQ-PSW1](#OQ-PSW1)).
 4. **First-party providers** for claude, with no picks under [OQ-ML2](#OQ-ML2)'s leaning
    ([§5.4](#54-first-party-providers-are-a-use-of-this)).
 5. **The `yolo check` staleness warning** ([OQ-BR14](#OQ-BR14)).
@@ -591,9 +593,9 @@ through each provider's own pack ([OQ-ML1](#OQ-ML1) option (b)).
    2026-09-25), and yolo's codex-subscription defaults moved to GPT-6 in September (`2f11de95`,
    `7ad8358c`). Which ids ship is a build-time check, dated in the README.
 
-4. ✅ <a id="OQ-PS3"></a>**[OQ-PS3](#OQ-PS3): Does yolo ship the model ids, or only the empty
+4. ✅ <a id="OQ-PSW3"></a>**[OQ-PSW3](#OQ-PSW3): Does yolo ship the model ids, or only the empty
    provider shape?** (moved from [`provider-switching.md`](provider-switching.md) on 2026-09-25,
-   id kept.) **Answered 2026-09-25 by [OQ-BR3](#OQ-BR3)'s ruling:** yolo ships the ids, in a
+   where it was `PS3` before the rename noted at the top of this doc.) **Answered 2026-09-25 by [OQ-BR3](#OQ-BR3)'s ruling:** yolo ships the ids, in a
    built-in pack. It was always the same decision. Which of its two cases (the first-party
    provider, claude's `bedrock` map) get ids is [OQ-ML2](#OQ-ML2)'s. The geo-prefix verification
    stays a build prerequisite ([§5.3](#53-the-prerequisite-verify-before-an-id-ships)).
@@ -668,13 +670,13 @@ through each provider's own pack ([OQ-ML1](#OQ-ML1) option (b)).
    **Answer:**
    > _(empty — fill in when decided)_
 
-8. 💬 <a id="OQ-PS1"></a>**[OQ-PS1](#OQ-PS1): Does claude's derive move to capability
-   aliases?** (moved from [`provider-switching.md`](provider-switching.md), id kept.) It reads `sonnet` and `haiku`
+8. 💬 <a id="OQ-PSW1"></a>**[OQ-PSW1](#OQ-PSW1): Does claude's derive move to capability
+   aliases?** (moved from [`provider-switching.md`](provider-switching.md), where it was `PS1` before the rename noted at the top of this doc.) It reads `sonnet` and `haiku`
    literally today. The proposal reads `balanced` and `fast`, keeping the old names as synonyms
    ([§6](#6-tier-aliases-default-fast-balanced)). Stakes: whether one alias vocabulary spans every
    provider, or claude keeps a dialect and a `-p` swap means something slightly different there.
 
-   <!-- vantage: oq id=OQ-PS1 leaning="Move, with synonyms. A vendor tier name cannot survive a switch to another vendor, which is the whole problem this doc is about; and synonyms make the move free for anyone's existing config." -->
+   <!-- vantage: oq id=OQ-PSW1 leaning="Move, with synonyms. A vendor tier name cannot survive a switch to another vendor, which is the whole problem this doc is about; and synonyms make the move free for anyone's existing config." -->
 
    _Leaning:_ Move, with synonyms. A vendor tier name cannot survive a switch to another vendor,
    and synonyms make the move free for existing config.
@@ -707,7 +709,7 @@ through each provider's own pack ([OQ-ML1](#OQ-ML1) option (b)).
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
 | OQ-BR3 | **yolo picks model ids where an agent cannot default, and ships them in a built-in pack that comes with yolo, not in core.** *"in cases where we can't just fall to the default by just not having an opinion and letting the agent pick … I do want to pick these … let's actually ship this in core some way … a built-in pack (it's not in core per se but it comes with [yolo]) with these that tries to pick these different models."* Moved from [`bedrock-plumbing.md`](bedrock-plumbing.md), id kept. Narrows [OQ-GP2](gateway-provider-packs.md#decision-ledger) (note made there) and, in letter, [agent-auth-modes OQ-3](agent-auth-modes.md#12-decision-ledger) (note owed there) | 2026-09-25 | [§5](#5-the-picks-pack) | — |
-| OQ-PS3 | **Answered by [OQ-BR3](#OQ-BR3)'s ruling: yolo ships the ids, in a built-in pack.** Moved from [`provider-switching.md`](provider-switching.md), id kept. The Anthropic-on-Bedrock geo-prefix verification stays a build prerequisite, not a question; which cases get ids is [OQ-ML2](#OQ-ML2) | 2026-09-25 | [§5.3](#53-the-prerequisite-verify-before-an-id-ships) | — |
+| OQ-PSW3 | **Answered by [OQ-BR3](#OQ-BR3)'s ruling: yolo ships the ids, in a built-in pack.** Moved from [`provider-switching.md`](provider-switching.md), where it was `PS3` before the rename noted at the top of this doc. The Anthropic-on-Bedrock geo-prefix verification stays a build prerequisite, not a question; which cases get ids is [OQ-ML2](#OQ-ML2) | 2026-09-25 | [§5.3](#53-the-prerequisite-verify-before-an-id-ships) | — |
 
 ---
 

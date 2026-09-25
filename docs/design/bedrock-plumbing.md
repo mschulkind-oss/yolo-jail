@@ -40,7 +40,7 @@ set.** Rule them in this order, because each later doc leans on the earlier ones
 
 | Order | Doc | Its one question | Open |
 | :--- | :--- | :--- | :--- |
-| 1 | [`provider-switching.md`](provider-switching.md) | what happens to the model id yolo wrote when you drop a profile ([OQ-PS2](provider-switching.md#OQ-PS2), [OQ-PS4](provider-switching.md#OQ-PS4)) | 2 |
+| 1 | [`provider-switching.md`](provider-switching.md) | what happens to the model id yolo wrote when you drop a profile ([OQ-PSW2](provider-switching.md#OQ-PSW2), [OQ-PSW4](provider-switching.md#OQ-PSW4)) | 2 |
 | 2 | this doc | one Bedrock provider, and what you type ([OQ-BR9](#OQ-BR9) with [OQ-BR1](#OQ-BR1)) | 2 |
 | 3 | [`provider-credential-scope.md`](provider-credential-scope.md) | which credentials and env a profile lets through to which agent ([OQ-CN6](provider-credential-scope.md#OQ-CN6) with [OQ-CN2](provider-credential-scope.md#OQ-CN2) first) | 6 |
 | 4 | [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md) | what a provider and a profile should mean ([OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2), then [OQ-BR8](providers-and-profiles-redesign.md#OQ-BR8), then the PP questions) | 5 |

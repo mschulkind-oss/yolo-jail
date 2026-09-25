@@ -94,7 +94,7 @@ This doc is kept. It lost no question and gained two.
 | [OQ-CN1](#OQ-CN1)–[OQ-CN5](#OQ-CN5) | here, [§6](#6-open-questions), unchanged in substance |
 | [OQ-BR4](#OQ-BR4), trap D2, done-condition 3, build step 6 | **moved in** from [`bedrock-plumbing.md`](bedrock-plumbing.md) on 2026-09-25: [§2.6](#26-the-pack-env-gate-is-the-same-leak-through-a-second-door-trap-d2), [§5](#5-what-done-looks-like-and-what-i-would-build) |
 | [OQ-CN6](#OQ-CN6) | new here, 2026-09-25 |
-| [`OQ-PS5`](provider-switching.md#OQ-PS5) | raised in [`provider-switching.md`](provider-switching.md) on 2026-09-21 and split out here, because the fix lands in the launch's environment channel, not in `agentcfg/selection.go`; a redirect there points here |
+| [`OQ-PSW5`](provider-switching.md#OQ-PSW5) | raised in [`provider-switching.md`](provider-switching.md) on 2026-09-21 and split out here, because the fix lands in the launch's environment channel, not in `agentcfg/selection.go`; a redirect there points here |
 | Whether a gate keys on the profile NAME or the provider ([`OQ-BR8`](providers-and-profiles-redesign.md#OQ-BR8), trap D5) | [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md); [OQ-CN1](#OQ-CN1) reads it |
 | All traffic through the wire bridge, routed per agent ([DIR-WG1](wire-bridge-gateway.md#DIR-WG1)) | [`wire-bridge-gateway.md`](wire-bridge-gateway.md) |
 | Model allowlists enforced at the bridge ([`OQ-WG3`](wire-bridge-gateway.md#OQ-WG3)) | [`wire-bridge-gateway.md`](wire-bridge-gateway.md) |
@@ -225,7 +225,7 @@ on how the render merges a derive's plain key, which this doc has not traced.
 
 ### 2.5 The mapping half-exists
 
-[`OQ-PS5`](provider-switching.md#OQ-PS5) was filed saying yolo cannot tell which `env_sources`
+[`OQ-PSW5`](provider-switching.md#OQ-PSW5) was filed saying yolo cannot tell which `env_sources`
 key belongs to which provider. That is **half** wrong, and the right half is the load-bearing one.
 
 A provider declaration carries `api_key_env_name`, with consumers across the tree: four pack

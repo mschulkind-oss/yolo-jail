@@ -32,12 +32,12 @@ shipped. The alias and shipped-model questions that used to live here moved out 
 
 **Needs your ruling:**
 
-- [`OQ-PS2`](#OQ-PS2): should deselecting clear the model id yolo wrote, and fall back to the
+- [`OQ-PSW2`](#OQ-PSW2): should deselecting clear the model id yolo wrote, and fall back to the
   `model` in your host config if you set one? Leaning: yes to both. "Never clear" was how
   [`OQ-CS2`](../reference/providers.md#oq-cs2)'s answer was implemented, not the answer itself.
   The mechanism (tombstone or omission) is the implementer's, chosen by build step 1's test, and
   it must keep a host-file value.
-- [`OQ-PS4`](#OQ-PS4) 🤷: should the clear print a one-line notice? Leaning: genuinely your call,
+- [`OQ-PSW4`](#OQ-PSW4) 🤷: should the clear print a one-line notice? Leaning: genuinely your call,
   with a mild preference to print it.
 - [`OQ-SW1`](#OQ-SW1), found by the 2026-09-25 measurement: should a selection outrank a value
   that came from your host config rather than from an in-jail edit? Today it does not. Once
@@ -160,7 +160,7 @@ already tells them apart, and row three uses it. Row four simply does not ask.
 > MEASURED 2026-09-20: three tombstones in `packs/claude/derive.lua` deleted a user's deliberate
 > plugin enables on every boot (`5e15b964`). The selection lift lands on the computed layer, so
 > a tombstone clear would also remove a `model` the user set in their **host** config: "clear"
-> would mean the agent's built-in default, never the host value. [`OQ-PS2`](#OQ-PS2)'s leaning
+> would mean the agent's built-in default, never the host value. [`OQ-PSW2`](#OQ-PSW2)'s leaning
 > says that is not acceptable, so a tombstone that does this fails the ruling.
 
 > [!NOTE]
@@ -170,7 +170,7 @@ already tells them apart, and row three uses it. Row four simply does not ask.
 > (2026-09-10). On every boot it drops overlay keys that the computed layer asserts, and it
 > persists the narrowed overlay. So a selected key no longer sits in the overlay, and omitting
 > it falls through to the host layer. The run is described in [§11](#11-evidence). No
-> mechanism is chosen here: that is still build step 1's, under [`OQ-PS2`](#OQ-PS2)'s ruling.
+> mechanism is chosen here: that is still build step 1's, under [`OQ-PSW2`](#OQ-PSW2)'s ruling.
 >
 > Each boot runs on the sidecars the previous boot left. "Deselect ×2" means two launches with
 > no profile.
@@ -185,7 +185,7 @@ already tells them apart, and row three uses it. Row four simply does not ask.
 >
 > Four consequences for build step 1:
 >
-> 1. **Only omission matches [`OQ-PS2`](#OQ-PS2)'s leaning in the steady state.** A tombstone
+> 1. **Only omission matches [`OQ-PSW2`](#OQ-PSW2)'s leaning in the steady state.** A tombstone
 >    returns to the agent's default for one launch and then to the host value, so it flaps.
 > 2. **Omission is wrong on an adopting boot.** That is a boot whose `last_render` sidecar is
 >    absent or untrusted. The adoption residue re-captures yolo's own id from the file. The
@@ -223,7 +223,7 @@ remembered the value, a user who later typed that same id by hand would lose it 
 deselect. After a clear, yolo has no claim. That matches the rule the mechanism already follows
 elsewhere: "a lost or corrupt record claims nothing".
 
-This changes a ruled decision, so it is [`OQ-PS2`](#OQ-PS2) rather than a fiat.
+This changes a ruled decision, so it is [`OQ-PSW2`](#OQ-PSW2) rather than a fiat.
 
 ```mermaid
 stateDiagram-v2
@@ -240,7 +240,7 @@ stateDiagram-v2
 ```
 
 `FirstParty` is a first-party provider entry, which does not exist yet. It is proposed in
-[`model-lists-and-pickers.md`](model-lists-and-pickers.md#OQ-PS3). This doc only needs the arrows
+[`model-lists-and-pickers.md`](model-lists-and-pickers.md#OQ-PSW3). This doc only needs the arrows
 back to `Unpinned`.
 
 ---
@@ -321,7 +321,7 @@ gate dropped.
 
 | Risk | Mitigation |
 | :--- | :--- |
-| **R1.** The clear surprises someone relying on today's stickiness: they used `-p` once and expected it to persist. | `use_profiles` is the supported persistent form, and it is unaffected. The clear goes in the release notes and is visible on the first deselect, not silently later. [`OQ-PS4`](#OQ-PS4)'s notice would make it visible in the moment. |
+| **R1.** The clear surprises someone relying on today's stickiness: they used `-p` once and expected it to persist. | `use_profiles` is the supported persistent form, and it is unaffected. The clear goes in the release notes and is visible on the first deselect, not silently later. [`OQ-PSW4`](#OQ-PSW4)'s notice would make it visible in the moment. |
 | **R2.** The new branch lands, and no test fails when its call site is deleted. This is the repo's recurring test shape. | The done-conditions are file-state assertions after a multi-launch sequence, which is where the call site (`internal/entrypoint/prism.go`) actually runs. |
 
 ---
@@ -332,7 +332,7 @@ gate dropped.
   with a multi-launch test. Select, deselect, launch again, and assert the keys are gone. Then
   select, hand-edit, deselect, and assert the edit survives. Run the tombstone and omission
   variants first, and keep whichever passes while also preserving a host-file value (Done 3). If
-  neither does, stop and bring [`OQ-PS2`](#OQ-PS2) back rather than ship a clear that deletes
+  neither does, stop and bring [`OQ-PSW2`](#OQ-PSW2) back rather than ship a clear that deletes
   the host value. It is the only defect here, and it depends on nothing else.
   MEASURED 2026-09-25 ([§3](#3-what-happens-today)'s note): omission passes Done 1 to 3 in the
   steady state, and the tombstone fails Done 3 for one launch. Neither passes Done 4 on pi with
@@ -348,7 +348,7 @@ first-party providers) moved to [`model-lists-and-pickers.md`](model-lists-and-p
 
 ## 10. Open Questions
 
-1. 💬 **OQ-PS2: Should deselecting clear the id yolo wrote, which revises the
+1. 💬 **OQ-PSW2: Should deselecting clear the id yolo wrote, which revises the
    providers ledger's fourth rule?** Today the fourth row keeps whatever the file holds. The
    proposal narrows "never clear" to "never clear the user's value", using the record already on
    disk. Stakes: this is the live defect, and it changes a ruled decision on a shipped mechanism.
@@ -358,7 +358,7 @@ first-party providers) moved to [`model-lists-and-pickers.md`](model-lists-and-p
    adopts the file ([§3](#3-what-happens-today)'s note). This ruling decides which behavior is
    right, and the test then picks a mechanism that delivers it.
 
-   <!-- vantage: oq id=OQ-PS2 leaning="Revise it, and yes to both halves. OQ-CS2 answered 'must an interactive /model survive the next launch?' — yes, and the record already distinguishes that case. 'Never clear' was the implementation of that answer, not the answer, and it protects yolo's own stale value as a side effect nobody chose. 'Clear' means return to what you had before yolo wrote anything: your host config's model if set, else the agent's default. The mechanism (tombstone or omission) is the implementer's, chosen by build step 1's test; one that deletes a host-file value fails this ruling." -->
+   <!-- vantage: oq id=OQ-PSW2 leaning="Revise it, and yes to both halves. OQ-CS2 answered 'must an interactive /model survive the next launch?' — yes, and the record already distinguishes that case. 'Never clear' was the implementation of that answer, not the answer, and it protects yolo's own stale value as a side effect nobody chose. 'Clear' means return to what you had before yolo wrote anything: your host config's model if set, else the agent's default. The mechanism (tombstone or omission) is the implementer's, chosen by build step 1's test; one that deletes a host-file value fails this ruling." -->
 
    _Leaning:_ Revise it. [`OQ-CS2`](../reference/providers.md#oq-cs2) answered "must an
    interactive `/model` survive the next launch?" The answer was yes, and the record already
@@ -371,13 +371,13 @@ first-party providers) moved to [`model-lists-and-pickers.md`](model-lists-and-p
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 🤷 **OQ-PS4: Should a deselect that clears a key say so on stderr?** The
+2. 💬 🤷 **OQ-PSW4: Should a deselect that clears a key say so on stderr?** The
    clear is otherwise invisible: a file loses a line between two launches. A one-line notice
    ("cleared the `model` yolo set for profile `bedrock`") makes it legible. Because the clear drops
    the record entry, the notice fires on exactly one launch per deselect, not on every later one.
    Stakes: only how loud the transition is.
 
-   <!-- vantage: oq id=OQ-PS4 leaning="Genuinely your call. I would print it: it fires on one launch per deselect, and a silent config change is the thing this doc is complaining about. But it is noise on a routine path, and I have no technical argument either way." -->
+   <!-- vantage: oq id=OQ-PSW4 leaning="Genuinely your call. I would print it: it fires on one launch per deselect, and a silent config change is the thing this doc is complaining about. But it is noise on a routine path, and I have no technical argument either way." -->
 
    _Leaning:_ Genuinely your call. I would print it, because it fires on one launch per deselect
    and a silent config change is the thing this doc is complaining about. But it is noise on a
@@ -388,9 +388,10 @@ first-party providers) moved to [`model-lists-and-pickers.md`](model-lists-and-p
 
 3. 💬 <a id="OQ-SW1"></a>**OQ-SW1: Should a selection outrank a value that came from your host
    config, not from an in-jail edit?** The id is coined here: `SW` stands for switching.
-   The next number in this doc's series would collide, because
-   [`provisioner-sets.md`](./provisioner-sets.md) already has an
-   [`OQ-PS6`](./provisioner-sets.md#OQ-PS6), and its `OQ-PS` series overlaps this doc's.
+   It was filed while this doc's older series was still spelled `OQ-PS`, which
+   [`provisioner-sets.md`](./provisioner-sets.md) also uses for its own questions. That
+   older series was renamed `OQ-PSW` (provider switching) on 2026-09-25, digits kept, so
+   the old `PS2` is now [`OQ-PSW2`](#OQ-PSW2). This id kept its spelling.
 
    The 2026-09-25 measurement found this ([§3](#3-what-happens-today)'s note,
    [§11](#11-evidence)). `ApplySelection` reads any file value it has no record for as the
@@ -402,7 +403,7 @@ first-party providers) moved to [`model-lists-and-pickers.md`](model-lists-and-p
    layer, so they are unaffected.
 
    Stakes: whether `-p` works for pi at all for a user whose host config names a model. It is
-   separate from [`OQ-PS2`](#OQ-PS2) (activation, not deselection), but Done 4 depends on it.
+   separate from [`OQ-PSW2`](#OQ-PSW2) (activation, not deselection), but Done 4 depends on it.
 
    - **A. Keep today's rule.** A host value is the user's choice, and `-p` never overrides it.
      Done 3 and Done 4 are reworded to say so. A user who wants `-p` to work for pi removes the
@@ -415,12 +416,12 @@ first-party providers) moved to [`model-lists-and-pickers.md`](model-lists-and-p
    - **C. Keep today's rule, but say so.** The launch prints that the selection was not applied
      because the host config sets the key.
 
-   <!-- vantage: oq id=OQ-SW1 leaning="B. An explicit -p is a more specific choice than a standing host default, and the hazard OQ-CS2 protects is an in-jail interactive choice, which B still protects because a captured edit differs from the host value. Paired with omission as the clear, B makes deselect return to the host value, which is OQ-PS2's leaning. But whether a launch flag may override a host config is a product call." -->
+   <!-- vantage: oq id=OQ-SW1 leaning="B. An explicit -p is a more specific choice than a standing host default, and the hazard OQ-CS2 protects is an in-jail interactive choice, which B still protects because a captured edit differs from the host value. Paired with omission as the clear, B makes deselect return to the host value, which is OQ-PSW2's leaning. But whether a launch flag may override a host config is a product call." -->
 
    _Leaning:_ B. An explicit `-p` is a more specific choice than a standing host default. The
    hazard [`OQ-CS2`](../reference/providers.md#oq-cs2) protects is an in-jail interactive choice,
    and B still protects it. Paired with omission as the clear, B makes a deselect return to the
-   host value, which is [`OQ-PS2`](#OQ-PS2)'s leaning. But whether a launch flag may override a
+   host value, which is [`OQ-PSW2`](#OQ-PSW2)'s leaning. But whether a launch flag may override a
    host config is a product call, so this is yours.
 
    **Answer:**
@@ -435,8 +436,8 @@ it:
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| OQ-CS2 | **Never write the selection key when no profile is active**, because an interactive in-agent choice must survive the next launch. This is the rule [`OQ-PS2`](#OQ-PS2) would narrow. | undated there | [providers.md](../reference/providers.md#oq-cs2) | yes |
-| OQ-PS3 | **Answered by the [`OQ-BR3`](model-lists-and-pickers.md#OQ-BR3) ruling**, which says to ship model defaults in a built-in pack. The row lives in [model-lists-and-pickers.md](model-lists-and-pickers.md#OQ-PS3). | 2026-09-25 | [`model-lists-and-pickers.md`](model-lists-and-pickers.md#OQ-PS3) | — |
+| OQ-CS2 | **Never write the selection key when no profile is active**, because an interactive in-agent choice must survive the next launch. This is the rule [`OQ-PSW2`](#OQ-PSW2) would narrow. | undated there | [providers.md](../reference/providers.md#oq-cs2) | yes |
+| OQ-PSW3 | **Answered by the [`OQ-BR3`](model-lists-and-pickers.md#OQ-BR3) ruling**, which says to ship model defaults in a built-in pack. The row lives in [model-lists-and-pickers.md](model-lists-and-pickers.md#OQ-PSW3). | 2026-09-25 | [`model-lists-and-pickers.md`](model-lists-and-pickers.md#OQ-PSW3) | — |
 
 ---
 
@@ -444,12 +445,12 @@ it:
 
 Moved on 2026-09-25. Each anchor is kept here so inbound links resolve.
 
-- <a id="OQ-PS1"></a>[**OQ-PS1**](#OQ-PS1) (does claude's derive move to capability aliases?) →
-  [`model-lists-and-pickers.md#OQ-PS1`](model-lists-and-pickers.md#OQ-PS1).
-- <a id="OQ-PS3"></a>[**OQ-PS3**](#OQ-PS3) (does yolo ship model ids?) →
-  [`model-lists-and-pickers.md#OQ-PS3`](model-lists-and-pickers.md#OQ-PS3), answered there by the
+- <a id="OQ-PSW1"></a>[**OQ-PSW1**](#OQ-PSW1) (does claude's derive move to capability aliases?) →
+  [`model-lists-and-pickers.md#OQ-PSW1`](model-lists-and-pickers.md#OQ-PSW1).
+- <a id="OQ-PSW3"></a>[**OQ-PSW3**](#OQ-PSW3) (does yolo ship model ids?) →
+  [`model-lists-and-pickers.md#OQ-PSW3`](model-lists-and-pickers.md#OQ-PSW3), answered there by the
   [`OQ-BR3`](model-lists-and-pickers.md#OQ-BR3) ruling.
-- <a id="OQ-PS5"></a>[**OQ-PS5**](#OQ-PS5) (which credentials a profile lets reach an agent) →
+- <a id="OQ-PSW5"></a>[**OQ-PSW5**](#OQ-PSW5) (which credentials a profile lets reach an agent) →
   [`provider-credential-scope.md`](provider-credential-scope.md), split out 2026-09-22. It uses a
   different mechanism: the launch's env channel in
   [`userenv.go`](../../internal/cli/run/userenv.go), not selection. Its live questions are
