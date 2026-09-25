@@ -1,15 +1,15 @@
 ---
 title: "Why does every podman jail share one home? It should not — a per-jail skeleton instead"
 date: 2026-09-20
-status: in-review
+status: accepted
 tags: [base-home, jail-home, storage, backend-parity, design]
 summary: "Podman mounts ONE machine-wide base, <state>/home, read-only at /home/agent in every jail. A jail needs nothing in it: it holds empty mountpoints, three redirect links, the machine's shared credential dirs and a login seed only the host reads. Sharing it is the defect: one workspace's pack dirs, host_files links and old bytes show up in every jail, and a jail that did not select claude can read the machine's Claude credential file. The design: mount a per-jail read-only skeleton built from the SELECTED packs, keep <state>/home as the machine store for the shared dirs and the Claude login seed, delete seedAgentDir, and leave legacy bytes unmounted and unread."
 ---
 
 # Why does every podman jail share one home? It should not — a per-jail skeleton instead
 
-**Status:** DESIGN, 2026-09-25, rewritten around a new premise after the maintainer's review.
-Nothing built. MEASURED: what the base holds on two bases, EROFS on the home root, the jail
+**Status:** ACCEPTED, 2026-09-25: rewritten around a new premise after the maintainer's review,
+then every open question settled the same day. Nothing built. MEASURED: what the base holds on two bases, EROFS on the home root, the jail
 writing through `/workspace/.yolo/home`, the machine credential file sitting in the base, and a
 host `rmdir` detaching a bind (in a user+mount namespace; `internal/prune/shadowed.go` records
 the same failure in a real jail, 2026-07-04). UNMEASURED: the Apple Container seed defect (no
@@ -30,15 +30,18 @@ the machine's Claude refresh token, through the base (agy's dir likewise).
 **Cost:** four writers move, one bind changes, the quarantine design is dropped
 ([§7](#7-what-died)). Rootless behavior can only be checked on a real host or in CI.
 
-## Needs your ruling
+## Settled, 2026-09-25
 
-| Question | Leaning |
-| :--- | :--- |
-| [OQ-BH9](#OQ-BH9) Where does the skeleton live? | Under `AgentsDir/<cname>/`: host-only, already liveness-reaped |
-| [OQ-BH10](#OQ-BH10) Edit one skeleton in place, or a new one per launch? | New per launch, so no launch ever removes a mountpoint |
-| [OQ-BH12](#OQ-BH12) How is the Apple Container login seed fixed? | Runtime-aware seed paths, verified on a Mac |
-| [OQ-BH13](#OQ-BH13) The launch refusal and `yolo check`'s report? | Delete the refusal and its hatch with the skeleton; keep the report, reworded |
-| [OQ-BH14](#OQ-BH14) Name reservation over every shipped pack: the one exception to [DIR-BH1](#10-decision-ledger)? | Keep it: it refuses a config key and puts nothing in any jail |
+Nothing is left for you to rule. The five questions closed in one review
+([§10](#10-decision-ledger)):
+
+- **Yours:** [OQ-BH14](#OQ-BH14): name reservation covers only the **selected** packs, so
+  [DIR-BH1](#10-decision-ledger) has no exception left. [OQ-BH10](#OQ-BH10): a new skeleton per
+  fresh launch, never edited. [OQ-BH13](#OQ-BH13): the launch refusal and its hatch go with the
+  skeleton; `yolo check` keeps a reworded report.
+- **Delegated to the build** ("an implementation detail"): [OQ-BH9](#OQ-BH9), the skeleton
+  lives under `AgentsDir/<cname>/`; [OQ-BH12](#OQ-BH12), the Apple Container seed gets
+  runtime-aware paths, verified on a Mac.
 
 **Decided here without a ruling; object if any is wrong:**
 
@@ -48,7 +51,8 @@ the machine's Claude refresh token, through the base (agy's dir likewise).
   which stays core-owned ([§2.7](#27-the-seed)).
 
 **To measure, not to rule:** whether a `host_files` entry under an unselected shipped pack's dir
-fails today ([§2.8](#28-reservation-is-a-rule-about-config-names-not-about-directories)).
+fails today ([§2.8](#28-reservation-is-a-rule-about-config-names-not-about-directories)). The
+fix no longer depends on the answer.
 
 **Reads with:** [`base-home-legacy-state-plan.md`](base-home-legacy-state-plan.md) (the build
 sketch, not a hand-off), [`jail-home.md`](../reference/jail-home.md) (the home layout this
@@ -111,8 +115,8 @@ runs before `loadAndValidateConfig` (`run.go`), when the selection is not known 
   into each new workspace, legacy bytes included, whatever is mounted.
 
 **The rule this design is checked against** is [DIR-BH1](#10-decision-ledger): *"a
-non-selected pack can never have an impact."* One exception remains, name reservation; whether
-it stays is [OQ-BH14](#OQ-BH14).
+non-selected pack can never have an impact."* It has no exceptions: name reservation, the last
+one, now covers only the selected packs ([OQ-BH14](#OQ-BH14)).
 
 ## 2. The design: a per-jail skeleton
 
@@ -139,7 +143,7 @@ deterministic.
 
 **Not in `wsState`**: `/workspace/.yolo/home` is writable from inside the jail (MEASURED). A
 skeleton there would be read-only in name only, and the host's `MkdirAll`/`touchFile`/
-`EnsureSymlink` would follow links the jail planted. The leaning is under
+`EnsureSymlink` would follow links the jail planted. It lives under
 `paths.AgentsDir()/<cname>/` ([OQ-BH9](#OQ-BH9)): host-only, keyed per jail, already bound into
 jails for skills and briefings, and already reaped by liveness (`PruneOrphanAgentStaging`,
 which reaps nothing when liveness is unknown, never the launching jail's own dir, and has a
@@ -170,7 +174,8 @@ by accident. The skeleton has to state them as rules:
    (INFERRED from `lifecycle.go`, `run.go`, `flock.go`; detail in
    [Appendix A](#appendix-a-evidence)). So editing a skeleton in place needs two new, UNBUILT
    signals: a tri-state liveness probe that removes only on "known absent", and an `acquired`
-   flag on the lock. [OQ-BH10](#OQ-BH10)'s leaning needs neither, because it never removes.
+   flag on the lock. [OQ-BH10](#OQ-BH10)'s ruling needs neither: a new skeleton per launch
+   never removes anything.
 3. **Keep `<state>/home` as the machine store** ([§2.5](#25-the-machine-store-stays)).
 
 ### 2.5 The machine store stays
@@ -193,8 +198,8 @@ still write the shared dirs; the host-built `:ro` skeleton does not join that li
 | `podmanBaseMounts` | binds `paths.GlobalHome()+":/home/agent:ro"` | binds the skeleton at the same place |
 
 Unchanged: the shared-dir binds, `appleContainerBaseMounts`, the seed path and
-`migrateOldOverlay`. If [OQ-BH10](#OQ-BH10) goes to (a), `acquireWorkspaceLock` and the
-container probes in `lifecycle.go` change too.
+`migrateOldOverlay`. [OQ-BH10](#OQ-BH10)'s ruling leaves `acquireWorkspaceLock` and the
+container probes in `lifecycle.go` unchanged.
 
 ### 2.7 The seed
 
@@ -214,18 +219,29 @@ Decided here, not by a ruling:
 
 `hostFileWritableRoots` (`internal/config/hostfiles.go`) and `reservedHomeDirs`
 (`internal/config/writablehome.go`) are built in memory from `packload.Embedded*` and never look
-at `<state>/home`. They refuse a `host_files` or `writable_home_dirs` entry claiming **any**
-shipped pack's directory, so `writable_home_dirs: [".codex"]` is refused in a workspace that
-never selects codex. **That is an unselected pack's effect, against
-[DIR-BH1](#10-decision-ledger)**; whether it stays is [OQ-BH14](#OQ-BH14). Either way the
-skeleton creates only the selection's directories, and `jail-home.md`, which treats reserving a
-name and creating a directory as one thing, needs rewording.
+at `<state>/home`. Today they refuse a `host_files` or `writable_home_dirs` entry claiming
+**any** shipped pack's directory, so `writable_home_dirs: [".codex"]` is refused in a workspace
+that never selects codex. That is an unselected pack's effect, against
+[DIR-BH1](#10-decision-ledger).
+
+**Ruled ([OQ-BH14](#OQ-BH14)): reserve only the selected packs' directories.** The maintainer's
+reason: packs can come from anywhere and be added or removed at any time, so reserving the
+shipped set never covered every pack a jail could select. An unselected pack is treated as if it
+does not exist. So:
+
+- One user-scope entry can be valid in one workspace and refused in another, and a pack selected
+  later can refuse an entry that passed before. Both are accepted.
+- `jail-home.md` treats reserving a name and creating a directory as one thing. It needs
+  rewording, and after this change the two sets are the same: the selection's dirs.
+- AGENTS.md's bullet "`packload.Embedded*` is deliberately NOT selection-gated" states the
+  opposite rule for these lists. The build rewrites that bullet in the same change. The
+  embedded-tree leasing half of that bullet is unaffected.
 
 **To measure:** `StagingFor` answers "already under a rw bind" for every shipped pack's dir,
 true only when the pack is selected. So a `host_files` entry such as `~/.codex/x` in a
-claude-only jail probably fails with EROFS today, and would with the skeleton (INFERRED,
-untested). One nested-jail launch settles it; the fix then depends on [OQ-BH14](#OQ-BH14),
-since skipping the entry with a disclosure is itself an unselected pack's effect.
+claude-only jail probably fails with EROFS today (INFERRED, untested). Under the ruling the fix is
+the same whatever the measurement shows: gate `StagingFor` on the selection too, so an
+unselected pack's dir is an ordinary path and the entry gets its normal skeleton link.
 
 ### 2.9 Backends
 
@@ -334,7 +350,7 @@ carry unused undotted dirs (`~/claude`, `~/npm-global`). MEASURED in a `/tmp` co
 
 ## 9. Open Questions
 
-1. 💬 **OQ-BH9: Where does the skeleton live?** Decides who can reach it and what reaps it.
+1. ✅ **OQ-BH9: Where does the skeleton live?** Decides who can reach it and what reaps it.
    Options: (a) under `paths.AgentsDir()/<cname>/`; (b) a new `<state>/skeletons/<cname>` with
    its own reaper. `wsState` is ruled out ([§2.2](#22-where-it-lives-host-only-never-in-wsstate)).
 
@@ -344,9 +360,10 @@ carry unused undotted dirs (`~/claude`, `~/npm-global`). MEASURED in a `/tmp` co
    second reaper is one more liveness rule to get right.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > (a), decided by the build. The maintainer delegated it: *"This is an implementation
+   > detail that I don't care about."*
 
-2. 💬 **OQ-BH10: Edit one skeleton in place, add only, or a new one per launch?** Decides
+2. ✅ **OQ-BH10: Edit one skeleton in place, add only, or a new one per launch?** Decides
    whether a dropped mountpoint or `host_files` link ever goes away, and whether a launch can
    detach a live jail's bind. Options: (a) reconcile in place, removing only when a new
    tri-state probe says no `cname` container exists and the flock was acquired
@@ -362,9 +379,11 @@ carry unused undotted dirs (`~/claude`, `~/npm-global`). MEASURED in a `/tmp` co
    leftover pile back within one workspace.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > (c). The maintainer ruled the leaning as written: *"A new skeleton directory per
+   > fresh launch, never modified afterwards; old ones go with the jail's AgentsDir entry through
+   > PruneOrphanAgentStaging, which already declines when liveness is unknown."*
 
-3. 💬 **OQ-BH12: How is the Apple Container seed fixed?** Every new Apple Container workspace
+3. ✅ **OQ-BH12: How is the Apple Container seed fixed?** Every new Apple Container workspace
    starts without the login seed ([§3](#3-the-apple-container-seed-defect)). Options: (a)
    runtime-aware paths in `prepareWsState`; (b) bind that backend's pack dirs the podman way,
    adding mounts where mount count is the constraint.
@@ -374,9 +393,10 @@ carry unused undotted dirs (`~/claude`, `~/npm-global`). MEASURED in a `/tmp` co
    _Leaning:_ (a), verified on a Mac, landing separately from the podman change.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > (a), decided by the build and verified on a Mac, landing separately from the podman
+   > change. The maintainer delegated it: *"Also an implementation detail for you."*
 
-4. 💬 **OQ-BH13: What happens to the launch refusal and `yolo check`'s report?** The refusal
+4. ✅ **OQ-BH13: What happens to the launch refusal and `yolo check`'s report?** The refusal
    (`noteLegacyBaseHome`, `internal/cli/run/basehomedisclosure.go`, hatch
    `YOLO_ALLOW_LEGACY_BASE_HOME`) shipped 2026-09-21 on reasons this design removes, printing an
    `mv` rather than offering a verb ([DIR-BH0](#10-decision-ledger)). Options: (a) delete the
@@ -390,9 +410,11 @@ carry unused undotted dirs (`~/claude`, `~/npm-global`). MEASURED in a `/tmp` co
    nothing. The report costs nothing, and the bytes are the user's to find.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > (a). The maintainer ruled the leaning as written: delete the refusal and its hatch
+   > in the same change that stops the mount and deletes `seedAgentDir`; keep `yolo check`'s
+   > detection-only report, reworded, with the printed `mv` as optional cleanup.
 
-5. 💬 **OQ-BH14: Does name reservation stay over every shipped pack?** Today a `host_files` or
+5. ✅ **OQ-BH14: Does name reservation stay over every shipped pack?** Today a `host_files` or
    `writable_home_dirs` entry may not claim any shipped pack's directory, selected or not
    ([§2.8](#28-reservation-is-a-rule-about-config-names-not-about-directories)), which is an
    unselected pack's effect under [DIR-BH1](#10-decision-ledger). Options: (a) keep it, as
@@ -406,7 +428,9 @@ carry unused undotted dirs (`~/claude`, `~/npm-global`). MEASURED in a `/tmp` co
    some workspaces and refused in others.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > (b), reserve only the selected packs' directories. The maintainer: *"it has to be
+   > like the other packs don't exist … packs could come from anywhere and be added, removed,
+   > whatever."* Consequences in [§2.8](#28-reservation-is-a-rule-about-config-names-not-about-directories).
 
 ## 10. Decision Ledger
 
@@ -417,13 +441,18 @@ carry unused undotted dirs (`~/claude`, `~/npm-global`). MEASURED in a `/tmp` co
 | R3 | **Fail closed**: no TTY or unconfirmed safety ⇒ do nothing, leave the marker unstamped, retry later. *Met trivially*: no migration, no marker | 2026-09-20 | [§7](#7-what-died) | — |
 | R4 | **Generic**: every pack state dir, every backend (podman, `container`, macos-user). *Still binds*: [§2.9](#29-backends) covers all three | 2026-09-20 | [§2.9](#29-backends) | — |
 | DIR-BH0 | **The maintainer's call:** no `yolo base-home --archive` verb; the user runs a printed `mv`. The verb was built and deleted the same day (comment in `internal/cli/run/basehomedisclosure.go`, commit `1f440af3`) | 2026-09-21 | [OQ-BH13](#OQ-BH13) | yes |
-| DIR-BH1 | **Principle, the maintainer's:** *"a non-selected pack can never have an impact."* Name reservation is the one remaining exception, pending [OQ-BH14](#OQ-BH14) | 2026-09-25 | [§1](#1-the-question-and-the-answer) | — |
+| DIR-BH1 | **Principle, the maintainer's:** *"a non-selected pack can never have an impact."* No exception remains: [OQ-BH14](#OQ-BH14) narrowed name reservation to the selected packs | 2026-09-25 | [§1](#1-the-question-and-the-answer) | — |
 | DIR-BH2 | **Direction, the maintainer's:** *"So basically this directory seems like it's always empty and there's some complication with sharing across jails because then they could have different packs. Why is this not just per jail? It seems like it's nothing."* After the investigation: *"yes rewrite"*. What he directed: per jail, not shared, the doc rewritten around that. **This design's reading, not his words:** a `:ro` skeleton from the selected packs, `<state>/home` kept as the machine store, alternative B rejected ([§5](#5-alternatives-with-verdicts)) | 2026-09-25 | [§2](#2-the-design-a-per-jail-skeleton) | — |
 | OQ-BH1 | **Superseded by DIR-BH2.** Archive location and retention: no archive exists; legacy bytes stay in place, unmounted | 2026-09-25 | [§7](#7-what-died) | — |
 | OQ-BH2 | **Superseded by DIR-BH2: no migration exists.** The same reason closes [OQ-BH3](#10-decision-ledger) (automatic move or confirmation), [OQ-BH6](#10-decision-ledger) (shadow layer, which a per-jail skeleton carries all the way, [§5](#5-alternatives-with-verdicts) A) and [OQ-BH8](#10-decision-ledger) (partial failure of a move). This row was trigger and marker | 2026-09-25 | [§7](#7-what-died) | — |
 | OQ-BH4 | **Closed by this design, not by a ruling.** The launch path no longer classifies; the one remaining allowlist is `claudeJSONSeedKeys`, core-owned as today. The code comments citing this id (`internal/paths/basehomecore.go`, `internal/storage/basehomecoredirs_test.go`) point here | 2026-09-25 | [§2.7](#27-the-seed) | — |
 | OQ-BH5 | **Closed by this design, not by a ruling, split.** The seed half: delete `seedAgentDir` rather than allowlist it, its inputs since April being legacy-only (INFERRED). The posture half is now [OQ-BH13](#OQ-BH13) | 2026-09-25 | [§2.7](#27-the-seed) | — |
 | OQ-BH7 | **Superseded by DIR-BH2 for the container base**: no migration, so nothing to reuse [`OQ-HT2`](../reference/macos-user-home-tiers.md#oq-ht2)'s discard for; macos-user never mounts `<state>/home` or reaches `prepareWsState`. **Its macos-user half is dropped from this doc**: reopening [`OQ-HT2`](../reference/macos-user-home-tiers.md#oq-ht2) for an account used for real work belongs to [`../reference/macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md) | 2026-09-25 | [§4](#4-what-this-does-not-cover) | — |
+| OQ-BH9 | **Delegated to the build:** the skeleton lives under `paths.AgentsDir()/<cname>/`, reaped by `PruneOrphanAgentStaging` | 2026-09-25 | [§2.2](#22-where-it-lives-host-only-never-in-wsstate) | — |
+| OQ-BH10 | **The maintainer's ruling:** a new skeleton per fresh launch, never modified afterwards | 2026-09-25 | [§2.4](#24-the-three-rules-the-shared-base-obeys-by-accident) | — |
+| OQ-BH12 | **Delegated to the build:** runtime-aware seed paths in `prepareWsState`, verified on a Mac, landing separately | 2026-09-25 | [§3](#3-the-apple-container-seed-defect) | — |
+| OQ-BH13 | **The maintainer's ruling:** delete the launch refusal and `YOLO_ALLOW_LEGACY_BASE_HOME` with the skeleton; keep `yolo check`'s report, reworded | 2026-09-25 | [§8](#8-build-order-and-done-conditions) | — |
+| OQ-BH14 | **The maintainer's ruling:** reserve only the selected packs' directories; an unselected pack is treated as nonexistent | 2026-09-25 | [§2.8](#28-reservation-is-a-rule-about-config-names-not-about-directories) | — |
 
 ## Appendix A: Evidence
 

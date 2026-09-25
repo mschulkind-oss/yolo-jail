@@ -8,7 +8,7 @@ summary: "Build sketch for the per-jail read-only skeleton that replaces podman'
 
 # Per-jail home skeleton — build sketch
 
-**Status:** SKETCH, 2026-09-24 — incomplete, and unstable while questions are open. Rewritten
+**Status:** SKETCH, 2026-09-25 — incomplete; every design question is now settled. Rewritten
 with the design; the previous quarantine sketch is superseded and lives in git history.
 
 **Design:** [`base-home-legacy-state.md`](base-home-legacy-state.md). **Precedence:** the design
@@ -31,15 +31,16 @@ sketches) and [`jail-home.md`](../reference/jail-home.md) (the home layout it ch
 
 ## Step 2 — the skeleton
 
-- **Root path:** blocked on [OQ-BH9](base-home-legacy-state.md#OQ-BH9). Under the leaning it is
+- **Root path** ([OQ-BH9](base-home-legacy-state.md#OQ-BH9)):
   `filepath.Join(paths.AgentsDir(), cname, "home")`, and a `paths` helper keeps the spelling in
   one place.
 - **Builder:** one function taking the root, the selected packs, the config, the `host_files`
   entries and `rt`. It runs for podman only, on the fresh-launch path, where `prepareWsState`
   and `prepareHostFiles` run today. `prepareHostFiles` runs later in `run.go` than
   `prepareWsState`, so either call the builder after both inputs exist, or split it into two
-  calls that share the root. Reconcile behavior is blocked on
-  [OQ-BH10](base-home-legacy-state.md#OQ-BH10).
+  calls that share the root. Per [OQ-BH10](base-home-legacy-state.md#OQ-BH10), each fresh
+  launch builds a new skeleton directory and never edits an old one; old ones go with the jail's
+  `AgentsDir` entry.
 - **Re-point:** move the home loops, `fileMountpoints` and `HomeFileRedirects` out of
   `storage.EnsureGlobalStorage`. It keeps the storage dirs, `EmbeddedSharedDirs` and the
   credential migration. Also re-point the `GlobalHome` writes in `prepareWsState`
@@ -58,7 +59,7 @@ sketches) and [`jail-home.md`](../reference/jail-home.md) (the home layout it ch
 
 ## Step 3 — the refusal and the check report
 
-Blocked on [OQ-BH13](base-home-legacy-state.md#OQ-BH13). Under the leaning:
+Per [OQ-BH13](base-home-legacy-state.md#OQ-BH13), in the same change as step 2:
 
 - `noteLegacyBaseHome` and `legacyBaseHomeHatch` (`internal/cli/run/basehomedisclosure.go`)
   and their tests go, and `ensureStorage` returns only `EnsureGlobalStorage`'s error.
@@ -66,7 +67,22 @@ Blocked on [OQ-BH13](base-home-legacy-state.md#OQ-BH13). Under the leaning:
 
 ## Step 4 — the Apple Container seed
 
-Blocked on [OQ-BH12](base-home-legacy-state.md#OQ-BH12). It needs a Mac.
+Per [OQ-BH12](base-home-legacy-state.md#OQ-BH12): runtime-aware seed paths in `prepareWsState`
+(on `rt=container`, sync `wsState/.claude.json` and create the dotted dirs). It needs a Mac.
+
+## Step 4a — reservation covers only the selected packs
+
+Per [OQ-BH14](base-home-legacy-state.md#OQ-BH14):
+
+- `reservedHomeDirs` and its segment set (`internal/config/writablehome.go`) and
+  `hostFileWritableRoots` (`internal/config/hostfiles.go`) take the selected packs instead of
+  `packload.Embedded*`. Validation already has the selection.
+- Gate `StagingFor` on the selection the same way, so an entry under an unselected pack's dir is
+  an ordinary path.
+- Tests: `writable_home_dirs: [".codex"]` passes in a claude-only workspace and is refused once
+  codex is selected; a `host_files` entry under `~/.codex/` works in a claude-only jail.
+- Rewrite AGENTS.md's "`packload.Embedded*` is deliberately NOT selection-gated" bullet for
+  these lists in the same change.
 
 ## Step 5 — docs and comments
 
