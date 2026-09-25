@@ -100,6 +100,131 @@ func TestPackAudienceDeliversToOneAgentOnly(t *testing.T) {
 	}
 }
 
+// TestPackAudienceRoutesBriefingFilesPerAgent is the `briefing/` convention's routing in a
+// launched jail (docs/reference/pack-system.md#briefing, #briefing-governance): ONE pack whose
+// `briefing/` directory holds three files, two of them addressed by manifest lines and one named
+// by nothing, beside a root AGENTS.md.
+//
+// Each file tests a different rule, and the four together are why this is one launch rather than
+// four:
+//
+//   - `briefing/shared.md` is named by NO contribution, so it broadcasts implicitly — and it must
+//     keep broadcasting although the same pack declares two narrow deliveries (P3 (briefing
+//     defaults), "declarations add; they never subtract"). That is the trap R5 (briefing
+//     defaults) records: every notch once kept its own "does this pack declare anything of this
+//     kind?" gate, and declaring one narrow delivery switched the pack's whole implicit
+//     broadcast off.
+//   - `briefing/claude.md` and `briefing/codex.md` are each addressed to one agent by `agents`, so
+//     each must reach its own agent's file and not the other one. The FILENAME is not what routes
+//     them: "a filename never addresses" (#briefing-non-goals), so these fixtures are named after
+//     their audience only to make a misrouting readable in the failure output.
+//   - the root `AGENTS.md` is the pack repository's own instructions and is never pack prose (P1
+//     (briefing defaults)), so its text must reach neither agent.
+//
+// It also asserts the documented ORDER inside one destination: a pack's delivered files form one
+// section, byte-wise by pack-relative path, and a file routed elsewhere does not split it. So in
+// both destinations the addressed file (`briefing/claude.md`, `briefing/codex.md`) precedes
+// `briefing/shared.md`.
+//
+// No agent is started: the assertions read the two composed briefing files the launch wrote.
+func TestPackAudienceRoutesBriefingFilesPerAgent(t *testing.T) {
+	requireJail(t)
+
+	const (
+		sharedText = "SHAREDBRIEFING every agent in this jail reads this"
+		claudeText = "CLAUDEBRIEFING only claude reads this"
+		codexText  = "CODEXBRIEFING only codex reads this"
+		repoText   = "REPOINSTRUCTIONS for contributors to this pack repository"
+	)
+	// A real directory name, for the reason the file header gives: the effective pack name is
+	// the source directory's basename.
+	pack := filepath.Join(t.TempDir(), "house-rules")
+	if err := os.MkdirAll(filepath.Join(pack, "briefing"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for rel, body := range map[string]string{
+		"briefing/shared.md": sharedText,
+		"briefing/claude.md": claudeText,
+		"briefing/codex.md":  codexText,
+		"AGENTS.md":          repoText,
+	} {
+		if err := os.WriteFile(filepath.Join(pack, filepath.FromSlash(rel)), []byte(body+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Two addressed contributions and NOTHING for shared.md: naming it would make it a declared
+	// delivery, and the implicit broadcast is the half this test exists to keep honest.
+	if err := os.WriteFile(filepath.Join(pack, "pack.json"), []byte(
+		`{"name":"house","description":"per-agent house rules","contributes":[`+
+			`{"kind":"briefing","from":"briefing/claude.md","agents":["claude"]},`+
+			`{"kind":"briefing","from":"briefing/codex.md","agents":["codex"]}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := writeProject(t, `{}`)
+	packHome(t, `{"packs": ["claude", "codex", "file://`+pack+`"]}`)
+
+	// Both files are printed whole and fenced, and every assertion is made here rather than with
+	// a shell exit code: a missing FILE and absent TEXT are different defects, and a failure is
+	// only diagnosable with the composed briefing in front of the reader.
+	const (
+		claudeFile = "/home/agent/.claude/CLAUDE.md"
+		codexFile  = "/home/agent/.codex/AGENTS.md"
+		absent     = "__BRIEFING_FILE_ABSENT__"
+	)
+	var script []string
+	for _, f := range []string{claudeFile, codexFile} {
+		script = append(script,
+			`echo "=== BEGIN `+f+` ==="`,
+			`cat `+f+` 2>/dev/null || echo `+absent,
+			`echo "=== END `+f+` ==="`)
+	}
+	r := runYolo(t, dir, strings.Join(script, "; "))
+	if r.rc != 0 {
+		t.Fatalf("launch failed: rc %d\nstdout: %s\nstderr: %s", r.rc, r.stdout, r.stderr)
+	}
+
+	cases := []struct {
+		agent, file, routed, notRouted string
+	}{
+		{"claude", claudeFile, claudeText, codexText},
+		{"codex", codexFile, codexText, claudeText},
+	}
+	for _, c := range cases {
+		body := section(r.stdout, "=== BEGIN "+c.file+" ===", "=== END "+c.file+" ===")
+		if strings.TrimSpace(body) == "" || strings.Contains(body, absent) {
+			t.Errorf("%s's briefing %s was not written at all — every assertion below would be "+
+				"vacuous\nstdout: %s\nstderr: %s", c.agent, c.file, r.stdout, r.stderr)
+			continue
+		}
+		if !strings.Contains(body, sharedText) {
+			t.Errorf("%s did not receive briefing/shared.md, which no contribution names and so "+
+				"broadcasts implicitly — declaring two addressed files switched the pack's "+
+				"implicit broadcast off (P3 (briefing defaults); the trap R5 (briefing "+
+				"defaults) records):\n%s", c.agent, body)
+		}
+		if !strings.Contains(body, c.routed) {
+			t.Errorf("%s did not receive the file addressed to it (`agents: [%q]`):\n%s",
+				c.agent, c.agent, body)
+		}
+		if strings.Contains(body, c.notRouted) {
+			t.Errorf("%s received the file addressed to the OTHER agent — an `agents` audience "+
+				"must reach the agent it names and nothing else:\n%s", c.agent, body)
+		}
+		if strings.Contains(body, repoText) {
+			t.Errorf("%s received the pack's root AGENTS.md, which is the pack repository's own "+
+				"instructions and never pack prose (P1 (briefing defaults)):\n%s", c.agent, body)
+		}
+		// The order is only meaningful once both halves are present; their absence is already
+		// reported above.
+		if i, j := strings.Index(body, c.routed), strings.Index(body, sharedText); i >= 0 && j >= 0 && i > j {
+			t.Errorf("%s's section is out of order: its addressed file must precede "+
+				"briefing/shared.md, a pack's files being ordered byte-wise by pack-relative path "+
+				"(docs/reference/pack-system.md#briefing):\n%s", c.agent, body)
+		}
+	}
+}
+
 // TestPackAudienceRefusesAnAgentTheJailDoesNotHave is P3 in a real launch: the jail must
 // REFUSE rather than start with prose addressed to nobody.
 //
