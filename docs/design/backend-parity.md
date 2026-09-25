@@ -8,7 +8,9 @@ summary: "Issue #39 was not one bug. A 48-agent sweep found 42 candidates and co
 
 # Three backends, one pipeline, and no census — why a mechanism goes missing quietly
 
-**Status:** DESIGN, 2026-08-24 — a diagnosis and a proposal. **Fourteen fixes are shipped** ([§5](#5-what-is-already-fixed-2026-08-24)); the census
+**Status:** DESIGN, 2026-08-24 — a diagnosis and a proposal. **Fourteen fixes are shipped** ([§5](#5-what-is-already-fixed-2026-08-24)), and since
+2026-09-25 each has a named hardware test or a stated reason for having none, most of them still
+unrun ([§5.4](#54-which-test-answers-which-row)); the census
 in [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset) is unbuilt **as a data structure** and **built as an
 enforced annotation** — `internal/cli/run/backendparity_test.go` (2026-09-14) has required a
 `// parity: <Disposition> — <reason>` on every runtime-gated line in the run pipeline since,
@@ -373,6 +375,46 @@ for building it. A table can hold seven quiet rows; a launch cannot hold seven q
 > ([§5.3](#53-the-premise-under-defects-11-and-13-was-measured-and-inverted)). Read a row here as
 > verified on hardware only where a named integration test says so. AGENTS.md's nested-jail
 > carve-out still applies with extra force — podman-in-podman cannot exercise either backend.
+>
+> ⚠ **"Four ran green on 2026-09-14" meant four Apple Container TESTS, not four of these
+> fixes.** The job's first subset (`d9f76b40`) was `TestAppleContainerJailStarts`,
+> `…PackTreeIsReadable`, `…MachineWideTierArrives` and `…IgnoresReadOnlyBinds` (now
+> `…HonorsReadOnlyBinds`). Only one of them checks a row of this table, #1. A second checks the
+> premise under #11 and #13 ([§5.3](#53-the-premise-under-defects-11-and-13-was-measured-and-inverted)),
+> and `…BindsASingleFile`, added the same day, refuted #12's premise. None of the macos-user
+> rows had a test.
+
+### 5.4 Which test answers which row
+
+As of 2026-09-25, every row now has a named hardware test or a
+stated reason for having none. The tests landed together, all of them UNRUN.
+
+| # | Hardware test | Shape | Workflow |
+| :--- | :--- | :--- | :--- |
+| 1 | `TestAppleContainerMachineWideTierArrives` | check, green since 2026-09-14 | `apple-container.yml` |
+| 2 | `TestAppleContainerRescuesAStrandedSharedDir` | experiment | `apple-container.yml` |
+| 3 | `TestAppleContainerReadsHostGrantArrives` | experiment | `apple-container.yml` |
+| 4 | `TestAppleContainerHostFilesSourceArrivesUnmasked` | experiment | `apple-container.yml` |
+| 5 | none: pinned at argv level on Linux, and an argv is the whole of the fix | — | — |
+| 6 | `TestMacosUserReportsOnlyPlatformInertLoopholes` | check | `macos-user.yml` |
+| 7 | `TestMacosUserStartsAConfigDeclaredLoophole` (macos-user half; the AC half is a launch line) | check | `macos-user.yml` |
+| 8 | `TestAppleContainerBriefingAdvertisesNoLoopholes` | experiment | `apple-container.yml` |
+| 9 | `TestMacosUserSaysResourcesAndRelocationsAreIgnored` | check | `macos-user.yml` |
+| 10 | `TestAppleContainerExplicitHostModeKeepsPublishedPorts` | experiment | `apple-container.yml` |
+| 11, 13 | `TestAppleContainerHonorsReadOnlyBinds`: the refusal became the `acROBindsFloor` version gate ([§5.3](#53-the-premise-under-defects-11-and-13-was-measured-and-inverted)) | check | `apple-container.yml` |
+| 12 | `TestAppleContainerBindsASingleFile`: the premise was refuted | check | `apple-container.yml` |
+| 14 | `TestMacosUserDeliversHostBytesByCopy` | check | `macos-user.yml` |
+
+"Experiment" here uses `TestAppleContainerReachesHostLoopback`'s rule. Both answers pass, and
+only a run that fails to conduct the experiment is red. Each test logs one
+`AC-PARITY #<n> VERDICT: HOLDS` or `… DOES NOT HOLD` line with its evidence
+([`applecontainerparity_test.go`](../../integration/applecontainerparity_test.go)). The Apple
+Container rows are experiments because that file's header allows a new test there only after it
+has passed on the Mac. The macos-user rows are REAL ASSERTIONS
+([`macosuserparity_test.go`](../../integration/macosuserparity_test.go)), each one a claim a
+comment or launch line already makes. Three of those four (#6, #7, #14) were REWRITTEN after
+2026-08-24, so each asserts today's behavior, not the original fix. So a red there is a defect or
+a stale claim, and the failure message names the comment to read.
 
 ---
 
