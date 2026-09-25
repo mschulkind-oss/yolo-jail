@@ -64,7 +64,8 @@ Three things to know before debugging it:
   itself (`resolveSelectedPacks`, [`selectedpacks.go`](./internal/config/selectedpacks.go)). **Do not read
   `packload.Embedded*` to reserve a name.** Two shipped-set readers remain beside them.
   `storage.EnsureGlobalStorage` makes every shipped pack's shared dir in the machine store, because it runs
-  before config loads; that is a bind source a jail mounts only when it selects the pack. And `host_files`
+  before config loads; that is a bind source a jail mounts only when it selects the pack (the launch makes the
+  selected packs' own, a configured pack's included: `ensureSharedDirSources`). And `host_files`
   still refuses any SHIPPED pack's composed surface path (`builtinSurfacePaths`), a list of files the ruling
   did not reach ([`OQ-BH15`](./docs/design/base-home-legacy-state.md#OQ-BH15), open).
 - **`packload.Embedded()` LEASES ONE IMMUTABLE TREE PER BUILD**, not one per process: a content hash of the
@@ -468,8 +469,10 @@ any `YOLO_ALLOW_*` hatch. Each is documented where it is ENFORCED instead: the i
 it, the refusal message that offers it, or the design doc that ruled it. Grep the source for the spelling
 before believing any prose about one.
 
-Agent logs, for debugging: `~/.copilot/logs/`, `~/.claude/projects/` inside the jail; same paths under
-`~/.local/share/yolo-jail/home/` on the host.
+Agent logs, for debugging: `~/.copilot/logs/` and `~/.claude/projects/` inside the jail. On the host they live
+in the workspace's own overlay, `<workspace>/.yolo/home/`, under `copilot/` and `claude/` on podman (bound there,
+the leading dot stripped) and on macos-user (the account home's links point there), and under `.copilot/` and
+`.claude/` on Apple Container, which binds that directory whole at `/home/agent`.
 
 ## Workflow
 

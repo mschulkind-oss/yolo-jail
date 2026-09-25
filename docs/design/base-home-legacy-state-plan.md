@@ -10,9 +10,11 @@ summary: "Build sketch for the per-jail read-only skeleton that replaces podman'
 
 **Status:** SKETCH, 2026-09-25 — every design question this sketch builds is settled; one
 found in the build is open ([OQ-BH15](base-home-legacy-state.md#OQ-BH15), which changes no step
-here). **Every step BUILT 2026-09-25**: 1, 2 and 3 first, then 4, 4a and 5, then the review
-fixes below. Still owed: a container run of `integration/homeskeleton_test.go`, the rootless
-check (CI or a real rootless host), and a Mac run of step 4. Rewritten with the design; the previous quarantine sketch is superseded
+here), and a second, [OQ-BH16](base-home-legacy-state.md#OQ-BH16), found making the reaper
+work. **Every step BUILT 2026-09-25**: 1, 2 and 3 first, then 4, 4a and 5, then the review
+fixes and follow-ups below. `integration/homeskeleton_test.go` passed in a nested, rootful jail
+the same day. Still owed: the rootless check (CI or a real rootless host), a run of that test's
+new anywhere-under-`~` search, and a Mac run of step 4. Rewritten with the design; the previous quarantine sketch is superseded
 and lives in git history.
 
 **Where the build departed from this sketch** (2026-09-25):
@@ -35,7 +37,8 @@ and lives in git history.
   `internal/basehome` must still treat an old base's empty `.pi/agent` as core's.
 - `preparePackFilesGlobal` is gone; `packFilesSkeletonEntries` names the same targets for the
   builder. The single-file mountpoint list moved from `storage.fileMountpoints` to
-  `paths.HomeFileMountpoints`. `storage.EnsureSymlink` now has no production caller.
+  `paths.HomeFileMountpoints`. `storage.EnsureSymlink` had no production caller left and was
+  deleted in the follow-ups.
 - `internal/storage/basehomecoredirs_test.go` became `TestTheSkeletonHoldsTheCoreEntries` (in
   `internal/cli/run/homeskeleton_test.go`); `internal/storage/machinestore_test.go` pins what the
   machine store holds instead. `TestRunCallsEnsureStorage` moved there too, since the v2 layout
@@ -65,6 +68,16 @@ and lives in git history.
 - **Step 5** re-points `internal/basehome`'s bare `§` numbers once, in the package header
   (`classify.go`), at `git show 030c8f52:docs/design/base-home-legacy-state.md`, the last text
   before the rewrite, rather than editing each of them.
+- **Review follow-ups** (the design's [§8](base-home-legacy-state.md#8-build-order-and-done-conditions),
+  last bullet, names the tests). The tracking file goes at each of the three ends of a launch
+  once the container is known gone (`forgetGoneContainer`, `internal/cli/run/trackingcleanup.go`,
+  which takes the workspace lock non-blocking and a tri-state `probeExistingContainer` split out
+  of `findExistingContainer`). The builder removes its own partial directory on a fatal entry, and
+  `runContainer` calls `discardUnheldSkeleton` before each return between the build and the
+  container start. `ensureSharedDirSources` creates the selected packs' shared-dir sources
+  before the argv, on both container backends. `resolveSelectedPacks` uses
+  `packsrc.Store.ResolveExisting`. `packload.EmbeddedWritableDirs` and
+  `internal/config/zz_probe_test.go` are deleted with `storage.EnsureSymlink`.
 
 **Design:** [`base-home-legacy-state.md`](base-home-legacy-state.md). **Precedence:** the design
 wins on behavior; this file is the first thing here to be wrong.
@@ -158,15 +171,15 @@ Per [OQ-BH14](base-home-legacy-state.md#OQ-BH14):
   nor tracked and is older than one hour. The skeleton goes with it, which is fine because no
   container holds it. `internal/cli/capturehost.go` also `RemoveAll`s `AgentsDir/<cname>` after
   a capture.
-- **Found while building: a skeleton can outlive its jail by a long time.** A tracking file is
+- **Found while building: a skeleton can outlive its jail by a long time.** A tracking file was
   removed only by a stale-container removal (`removeStaleContainer`), `yolo ps`
   (`PruneStaleTrackingFiles`), `yolo check`'s cleanup and a capture; a `--rm` container that
-  exits normally leaves it. The reaper keeps every tracked name, and `touchAgentStagingDir`
-  refreshes the entry's mtime on every launch. So a workspace's `AgentsDir/<cname>` may go
-  unreaped for as long as the workspace is in use, and its skeletons collect at one per fresh
-  launch, a couple of dozen entries each. [OQ-BH10](base-home-legacy-state.md#OQ-BH10)'s ruling accepted
-  "a few 16K directories per workspace between reaps"; whether this pile-up is inside that is
-  the maintainer's call, not the build's.
+  exited normally left it. The reaper keeps every tracked name, and `touchAgentStagingDir`
+  refreshes the entry's mtime on every launch. So a workspace's `AgentsDir/<cname>` went
+  unreaped for as long as the workspace was in use. **Fixed in the follow-ups:** the launch
+  removes the tracking file once the container is known gone. What is left, a workspace used
+  alone on its machine, whose own launches' housekeeping always keeps its name, is
+  [OQ-BH16](base-home-legacy-state.md#OQ-BH16).
 - `jailcontent.PrepareSkills` clears only the contents of `skills-*` under `AgentsDir/<cname>`,
   so it never touches a sibling `home/`.
 - `EnsureGlobalStorage` has two callers: `ensureStorage` and `internal/cli/check/check.go`.

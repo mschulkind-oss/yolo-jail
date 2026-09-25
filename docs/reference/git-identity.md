@@ -5,7 +5,8 @@ verified_commit: 38873c0d
 covers:
   - internal/cli/run/assemble_parts.go
   - internal/entrypoint/identity.go
-  - internal/storage/ensure.go
+  - internal/paths/paths.go
+  - internal/cli/run/homeskeleton.go
 tags: [git, identity, credentials, mounts, allowlist]
 summary: "The jail's git identity is a two-key allowlist — user.name and user.email — composed fresh on the host every run and delivered read-only at git's default global path. Nothing else from the host's git config crosses, which is what keeps credentials, pagers and signing config out."
 ---
@@ -28,7 +29,7 @@ imperatively.
 | Reading the host keys, composing the file, mounting it | `internal/cli/run` (`gitIdentityMountArgs`, `composeGitconfig`, `hostGitConfigGet`, `gitConfigValue`, `gitIncludeHeader`) |
 | The Apple Container materialize path | `internal/cli/run` (`acMaterialize`) |
 | The imperative replay, `macos-user` only | `internal/entrypoint` (`configureGit`, reading `YOLO_GIT_*`) |
-| The home-root alias that makes `~/.gitconfig` resolve | `internal/storage` (`EnsureSymlink`) |
+| The home-root alias that makes `~/.gitconfig` resolve | `internal/paths` (`HomeFileRedirects`), written into each podman jail's home skeleton by `internal/cli/run` (`buildHomeSkeleton`) and into the `macos-user` account home by `internal/entrypoint` (`DeriveDarwinHomeLayout`) |
 
 **Reads with:** [`composed-file-permissions.md`](composed-file-permissions.md) (what `:ro`
 actually buys, and why this surface is *Derived*),
@@ -186,7 +187,7 @@ only place the values themselves are stated.
 | Host-side staged file | `<workspace state>/yolo-gitconfig` | `Options.gitIdentityMountArgs` |
 | Host key lookup | `git config --get <key>`; `--global --get core.excludesFile` | `Options.hostGitConfigGet` |
 | `macos-user` variables | `YOLO_GIT_NAME`, `YOLO_GIT_EMAIL` — **and NOT `YOLO_GLOBAL_GITIGNORE`**, which `configureGit` reads and nothing sets (see the note below) | `macosuser.MacosSandboxEnv` sets; `entrypoint.configureGit` reads |
-| Home-root alias | `~/.gitconfig` → `.config/git/config` | `storage.EnsureSymlink` |
+| Home-root alias | `~/.gitconfig` → `.config/git/config` | `paths.HomeFileRedirects` |
 
 > [!WARNING]
 > **`YOLO_GLOBAL_GITIGNORE` is read and never set — the global gitignore does NOT

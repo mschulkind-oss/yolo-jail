@@ -47,7 +47,7 @@ There is no fourth answer, and "read-only-ish" is not one of the three: a `0o444
 | Applying a mode in the jail, and the lock/unlock pair | `internal/entrypoint` (`hostfiles.go`, `hostFileModes`) |
 | Writing a composed file, and its mode | `internal/entrypoint` (`WriteStringInPlace`, `writeInPlaceString`, `writeExecutable`) |
 | Making capture visible and discardable | `internal/cli` (`configls.go`, `configdiff.go` — `yolo config ls`/`diff`/`reset`) |
-| Home-root aliases into a writable overlay | `internal/storage` (`EnsureSymlink`) |
+| Home-root aliases into a writable overlay | `internal/cli/run` (`buildHomeSkeleton`, which writes core's `paths.HomeFileRedirects` and each home-root `host_files` link into the podman jail's home skeleton) |
 
 **Reads with:** [`pack-system.md`](pack-system.md) (how a surface is declared, the four modes, and
 the layer fold), [`config-migration-to-prism.md`](config-migration-to-prism.md) (the boot state
@@ -224,9 +224,9 @@ exist yet, and both need a mechanism, because:
   bind-mounted empty file succeeds, so the seed-if-absent guard returns early on the first boot
   and the file stays empty forever.
 
-**A home-root destination therefore uses the `GlobalHome` relative symlink** — the same mechanism
-the shell rc and the agent identity file already use: materialize `~/<name>` pointing into a
-directory that resolves through the mount table into an already-writable overlay. It needs no new
+**A home-root destination therefore uses a relative symlink in the jail's home skeleton** — the
+same mechanism the shell rc and the agent identity file already use: materialize `~/<name>`
+pointing into a directory that resolves through the mount table into an already-writable overlay. It needs no new
 mount, it reuses a mechanism with existing precedents, and — the detail that makes it correct —
 **a dangling symlink keeps `once` honest**: the stat returns `ENOENT` on the seeding boot and
 succeeds afterwards.
