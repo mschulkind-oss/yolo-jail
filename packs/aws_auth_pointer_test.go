@@ -4,7 +4,8 @@ package packs_test
 // cannot check each other: THE PORT.
 //
 // The loophole manifest starts the adapter (`yolo-jaild aws-credential-adapter
-// --listen …`) and the pack's `env` contribution tells every AWS SDK in the jail
+// --listen …`) and the pack's `env` contribution in
+// [`aws-auth/pack.json`](./aws-auth/pack.json) tells every AWS SDK in the jail
 // where to find it (AWS_CONTAINER_CREDENTIALS_FULL_URI). Nothing at runtime compares
 // them: a drifted pair produces a jail whose adapter is up, whose pointer is set, and
 // whose every credential fetch is a connection refused three retries deep inside
@@ -29,7 +30,7 @@ import (
 
 func awsAuthPack(t *testing.T) *packdecl.Manifest {
 	t.Helper()
-	data, err := fs.ReadFile(packs.FS, "aws-auth/pack.json")
+	data, err := fs.ReadFile(packs.FS, "aws-auth/"+packdecl.ManifestName)
 	if err != nil {
 		t.Fatalf("reading the embedded aws-auth pack: %v", err)
 	}
@@ -70,7 +71,9 @@ func TestAWSAuthPointerAndAdapterAgreeOnThePort(t *testing.T) {
 }
 
 // TestAWSAuthPointerIsProfileGated: selecting this pack must change NOTHING observable
-// until an agent is actually pointed at Bedrock (design §12 step 4).
+// until an agent is actually pointed at Bedrock
+// ([sso-backed-bedrock.md §12](../docs/design/sso-backed-bedrock.md#12-what-i-would-build-in-order)
+// step 4).
 //
 // The gate is a profile NAME rather than a pack name, which is what lets one pointer
 // serve every consumer: `bedrock` is packs/claude's profile today, and the other three
@@ -78,6 +81,14 @@ func TestAWSAuthPointerAndAdapterAgreeOnThePort(t *testing.T) {
 // the variable in every jail that selects this pack — including one whose loophole is
 // disabled for want of a profile — and an AWS SDK would then dial a port with nothing
 // behind it instead of falling through its chain.
+//
+// Neither half of that gate is final. Whether a gate keys on the profile NAME or on
+// the provider is still open, as
+// [`OQ-BR8`](../docs/design/providers-and-profiles-redesign.md#OQ-BR8). And the gate's
+// jail-wide reach — the variable lands for every agent in the jail once any one selects
+// `bedrock` — was ruled against on 2026-09-25
+// ([`OQ-BR4`](../docs/design/provider-credential-scope.md#7-decision-ledger): per-agent
+// delivery, not yet built). This test pins today's behavior until those land.
 func TestAWSAuthPointerIsProfileGated(t *testing.T) {
 	m := awsAuthPack(t)
 	if unconditional := m.EnvContributions(); len(unconditional) != 0 {
@@ -98,7 +109,8 @@ func TestAWSAuthPointerIsProfileGated(t *testing.T) {
 //
 // AWS_CONTAINER_AUTHORIZATION_TOKEN is in the list for a different reason and is worth
 // reading twice: it is not a credential, it is the protocol's optional request header,
-// and it is absent DELIBERATELY (design §5). Setting it would buy nothing — everything
+// and it is absent DELIBERATELY
+// ([sso-backed-bedrock.md §5](../docs/design/sso-backed-bedrock.md#5-the-recommended-shape)). Setting it would buy nothing — everything
 // that could read the variable can already reach the port — while implying a boundary
 // that is not there. The real boundary is the 0600 endpoint file on the hop the adapter
 // makes, not a header on the hop it serves.

@@ -88,7 +88,9 @@ witness that makes an unpublishable endpoint fatal).
   witness); the *trust* is not, and the vocabulary says so.
 - **Not a gateway.** One upstream, chosen by the launch's own selection machinery. No routing
   tables, no failover, no budgets, no model remapping beyond what translation requires. A gateway
-  is a product; a bridge is a shim.
+  is a product; a bridge is a shim. That is the bridge as built: rulings of 2026-09-24 (unbuilt)
+  amend it with SigV4 signing, routing by model id and opt-in failover, and an all-traffic mode is
+  proposed, all in [`wire-bridge-gateway.md`](../design/wire-bridge-gateway.md).
 
 ## `kind: "service"` — the vocabulary it landed as
 

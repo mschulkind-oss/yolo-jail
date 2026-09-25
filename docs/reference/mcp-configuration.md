@@ -56,7 +56,8 @@ yolo itself declares.
 principle that core knows the domain and never the tool),
 [`mise-node-dynamic-linking.md`](mise-node-dynamic-linking.md) (the loader story the wrappers
 used to carry), `yolo config-ref` (the authority for `mcp_servers`, `mcp_presets` and
-`lsp_servers`).
+`lsp_servers`). A pack-shipped AgentCore web-search entry for every Bedrock profile is proposed,
+unbuilt, in [`bedrock-web-search.md`](../design/bedrock-web-search.md).
 
 ---
 

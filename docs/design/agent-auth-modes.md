@@ -370,7 +370,7 @@ requirement without fragile in-jail interceptors.
 > [!NOTE]
 > **Superseded in part, 2026-09-24.** For claude's subscription routed through the wire bridge,
 > automatic per-model failover to Bedrock is ruled in, opt-in
-> ([`bedrock-plumbing.md` OQ-BR17](bedrock-plumbing.md#OQ-BR17)): the bridge receives the
+> ([`wire-bridge-gateway.md` OQ-BR17](wire-bridge-gateway.md#OQ-BR17)): the bridge receives the
 > limit, switches per model, and claude never changes credentials, which removes all three
 > reasons above. Launch-time selection remains the rule everywhere else.
 
@@ -468,7 +468,7 @@ dropped it without answering it (the roadmap and sibling docs cited it as [`auth
 | :--- | :--- | :--- | :--- |
 | **OQ-1** | **Launch-time selection is sufficient for v1.** Dynamic in-session failover deferred due to opacity of 429s and per-model limits. | 2026-08-29 | [§8](#8-dynamic-overflow-what-is-reachable-and-what-is-not) |
 | **OQ-2** | **Config must be complete before launch.** Required keys for active profiles must resolve at pre-flight; unresolvable active keys refuse launch. | 2026-08-29 | [§5.2](#52-secret-discipline) |
-| **OQ-3** | **User-level config is source of truth in v1.** No binary presets baked; `~/.config/yolo-jail/config.jsonc` defines providers with canonical doc examples. | 2026-08-29 | [§4](#4-declarative-provider-profiles-in-yolo-config) |
+| **OQ-3** | **User-level config is source of truth in v1.** No binary presets baked; `~/.config/yolo-jail/config.jsonc` defines providers with canonical doc examples. Narrowed 2026-09-25 by [`OQ-BR3`](model-lists-and-pickers.md#OQ-BR3): a built-in pack ships model picks where an agent cannot default. | 2026-08-29 | [§4](#4-declarative-provider-profiles-in-yolo-config) |
 | **OQ-4** | **Support both compound profiles and concise per-agent CLI overrides.** `yolo -p glm -- pi` applies `glm` directly to `pi` without redundant `pi=glm` syntax. | 2026-08-29 | [§4.2](#42-launch-time-cli-swapping--ergonomics) |
 | **OQ-CAP1** | **Fatal refusal on multiple MCP capability collision.** If two MCP servers declare the same `provides`, core refuses launch. | 2026-08-29 | [§6.2](#62-capability-resolution-rules) |
 | **OQ-CAP2** | **Fatal refusal on unmet `required_capabilities`.** `web_search` is opt-in; if required and unsatisfied, launch refuses. | 2026-08-29 | [§6.2](#62-capability-resolution-rules) |

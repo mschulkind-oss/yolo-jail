@@ -23,8 +23,8 @@ and secret, and an SSO session — and the SSO session is **the primary one**. T
 that one. The other two are existing `env_sources` channels and need nothing from it; the bearer
 also has an arm here (step 7). ⚠ Step 6's refusal covers the pointer beside a bearer only: a
 static key pair beside the pointer is the same silent wrong answer — the chain's environment
-provider wins — and is **not refused today**
-([`bedrock-plumbing.md` §6.5](bedrock-plumbing.md#65-the-credential-three-are-supported)).
+provider wins — and is **not refused today**; whether it should be is
+[`OQ-SSO8`](sso-backed-bedrock.md#OQ-SSO8).
 
 **Design:** [`sso-backed-bedrock.md`](sso-backed-bedrock.md) — behaviour in
 [§8](sso-backed-bedrock.md#8-behaviour-this-design-specifies), order in
@@ -42,7 +42,7 @@ followed, and the commit says so. This file is advice, and the first thing to be
 | :--- | :--- |
 | `packs/aws-auth/pack.json` | **BUILT** — `kind: "loophole"` (`from: loopholes/aws-auth`) + one `kind: "env"` gated on the `bedrock` profile ([Blockers](#blockers) 2) |
 | `packs/aws-auth/loopholes/aws-auth/manifest.jsonc` | **BUILT** — `publishes: "socket"`, `scope: "host"`, `state_files: [".mount-sentinel"]`, a `settings` block, `doctor_cmd` |
-| `packs/aws-auth/README.md` | **BUILT** — the four items [§12](sso-backed-bedrock.md#12-what-i-would-build-in-order) step 4 owes it, plus the [`OQ-BR4`](./bedrock-plumbing.md#OQ-BR4) instance |
+| `packs/aws-auth/README.md` | **BUILT** — the four items [§12](sso-backed-bedrock.md#12-what-i-would-build-in-order) step 4 owes it, plus the [`OQ-BR4`](./provider-credential-scope.md#OQ-BR4) instance |
 | `packs/embed.go` | **BUILT** — `all:aws-auth` added to the `//go:embed` list (explicit, test-enforced) |
 | `internal/awsauth/` | **BUILT** — cache state keyed by profile, host-wide lock, mint + narrowing; mirrors `internal/openaiauth` |
 | `internal/awsauthdaemon/` | **BUILT** — `Main`, handler, `--self-check`; mirrors `internal/openaiauthdaemon` |
@@ -541,9 +541,11 @@ with no session token.
    [§12](sso-backed-bedrock.md#12-what-i-would-build-in-order) step 4 says selecting the pack
    changes nothing observable. Only a `profile`-gated contribution satisfies both, and the gate is
    a profile **name**: `bedrock` is `packs/claude`'s, while the other three agents' names are open
-   in [`bedrock-plumbing.md`](bedrock-plumbing.md) — [`OQ-BR4`](bedrock-plumbing.md#OQ-BR4) and
-   [`OQ-BR8`](bedrock-plumbing.md#OQ-BR8), which ask whether a gate keys on the name or the
-   provider. The shipped alternative is consumer-side — `packs/codex` sets
+   in [`bedrock-plumbing.md`](bedrock-plumbing.md) ([`OQ-BR1`](bedrock-plumbing.md#OQ-BR1)).
+   [`OQ-BR4`](provider-credential-scope.md#OQ-BR4) (ruled 2026-09-25: the pointer reaches only the
+   agents that selected it) and [`OQ-BR8`](providers-and-profiles-redesign.md#OQ-BR8) (whether a
+   gate keys on the name or the provider, open in
+   [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md)) decide its gate. The shipped alternative is consumer-side — `packs/codex` sets
    `CODEX_REFRESH_TOKEN_URL_OVERRIDE` itself.
 3. **The N1 bearer's channel and its switch.** Step 7's "the boot that writes the bearer" is one
    line. Two routes: a host-side mint at launch through the daemon's `.host` socket into

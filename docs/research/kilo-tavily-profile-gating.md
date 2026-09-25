@@ -18,6 +18,8 @@ boot loop, not by an observed run. The rule below shipped that day (`8e324800`),
 term *authentication source* — and it records the rule and where the tree
 enforces it. It still adds no Tavily server and changes nobody's configuration:
 the mechanism ships, the server is the user's to configure.
+Which search a Bedrock profile gets when a user's Tavily entry is also eligible is
+[`bedrock-web-search.md`](../design/bedrock-web-search.md)'s question.
 
 An **authentication source** *(coined here)* is the credential and endpoint
 mode an agent uses for a launch. It may be a selected provider profile, such

@@ -373,6 +373,8 @@ in the derives (pi 0.84.4's settings-manager keys and its ten-id api registry; o
 first-slash model format and options nesting; codex's binary-verified `responses`-only). The
 model a selection names is resolved IN THE DERIVE — alias = the profile's `model` option or
 `default`, then the provider's `models` map; core resolves no model.
+Which ids yolo ships where an agent cannot default, a `models` kind for company packs, and how
+each picker renders the list are designed in [`model-lists-and-pickers.md`](../design/model-lists-and-pickers.md).
 
 A `models.<alias>` value is either the bare wire-id string (the shorthand) or an **object**:
 `id` (required — the wire id, which is usually not the alias), plus optional `name`,
@@ -448,6 +450,8 @@ never in a release, and redundant once `-p` carried both grammars.)
 A **profile** is a named selection over one provider, and the name is what the user types. It is
 also the whole of the `profile` kind: whatever a pack does differently while a profile is active
 lives on other contributions, gated by name ([the `profile` modifier](#the-profile-modifier)).
+Whether a gate should key on the profile name or the provider, and what `-p <name>` should name
+at all, is open in [`providers-and-profiles-redesign.md`](../design/providers-and-profiles-redesign.md).
 
 ### Declaring and selecting a profile
 
@@ -525,9 +529,12 @@ env map (only a derive's `ctx.tombstone` removes).
 > [!WARNING]
 > **The env gate's wide pass fires across agents.** Because the second pass matches any bin the
 > launch installs, `-p pi=bedrock` satisfies `packs/claude`'s `bedrock`-gated env as well as
-> pi's. That is current behavior, and it is recorded as a defect awaiting a ruling
-> ([`OQ-BR4`](../design/bedrock-plumbing.md#OQ-BR4)) — not the design's rule, which scoped a
-> gate to the pack that owns the CLI. Narrowing it must keep the CLI-less case reachable.
+> pi's. That is current behavior and a defect — not the design's rule, which scoped a gate to the
+> pack that owns the CLI. **Ruled 2026-09-25, unbuilt**
+> ([`OQ-BR4`](../design/provider-credential-scope.md#OQ-BR4)): a satisfied gate delivers to each
+> agent whose selected profile satisfies it and to no other, and the CLI-less case stays reachable.
+> Building it needs a per-agent delivery vehicle, which is
+> [`OQ-CN6`](../design/provider-credential-scope.md#OQ-CN6).
 
 The config-overlay half composes the provider's facts rather than restating them
 ([OQ-PT3](#oq-pt3)): a pack that routes an agent through a provider ships the provider entry

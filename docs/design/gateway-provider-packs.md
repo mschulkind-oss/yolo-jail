@@ -14,7 +14,10 @@ vantage:
 manifests, the codex credential-field fix and the per-agent projections are pinned by
 `internal/entrypoint/providerderive_test.go`. **NOT A GRADUATION CANDIDATE**: two of this doc's
 rulings were contradicted by a later change, and [OQ-GP4](#OQ-GP4) must be ruled before its
-durable half can move to the reference tree (the warning below).
+durable half can move to the reference tree (the warning below). **Amended 2026-09-25:**
+[OQ-GP2](#decision-ledger)'s *"ship no models"* is narrowed by
+[OQ-BR3](model-lists-and-pickers.md#OQ-BR3) (the ledger note below); this doc's gateway packs
+still ship no models.
 
 > [!WARNING]
 > **`caaaae1b` added hard-coded Kilo policy to two agent derives, against
@@ -63,6 +66,12 @@ existing provider table, which every agent pack derives into its own dialect.
 **Reads with:** [`gateway-provider-packs-plan.md`](gateway-provider-packs-plan.md)
 (the implementation hand-off), [`gateway-providers.md`](../research/gateway-providers.md)
 (protocol evidence), and [`providers.md`](../reference/providers.md) (the existing system).
+Also [`wire-bridge-gateway.md`](wire-bridge-gateway.md), whose direction
+[DIR-WG1](wire-bridge-gateway.md#DIR-WG1) (routing every agent's model traffic through the wire
+bridge) names OpenRouter model filtering as its motivating case, and whose
+[OQ-WG3](wire-bridge-gateway.md#OQ-WG3) asks whether a curated OpenRouter or Kilo map
+([§2](#2-a-selected-set-not-a-synchronized-catalog)) becomes an enforced allowlist rather than
+only the set a picker shows.
 
 ---
 
@@ -186,5 +195,5 @@ the config, the existing behavior is unchanged.
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
 | OQ-GP1 | Ship two packs rather than one generic gateway pack; endpoint capability differs by provider. | 2026-09-15 | [§1](#1-the-provider-facts) | shipped |
-| OQ-GP2 | Ship no models; users curate the finite selectable map and profiles choose defaults. | 2026-09-15 | [§2](#2-a-selected-set-not-a-synchronized-catalog) | shipped |
+| OQ-GP2 | Ship no models; users curate the finite selectable map and profiles choose defaults. **Amended 2026-09-25 by [OQ-BR3](model-lists-and-pickers.md#OQ-BR3):** where an agent cannot fall back to its own default by yolo having no opinion, yolo does pick model ids, shipped in a built-in pack that comes with yolo rather than in core (*"I do want to pick these … a built-in pack (it's not in core per se but it comes with [yolo]) with these that tries to pick these different models"*). Where an agent can default, yolo still ships nothing, and the user still curates the selectable map. The OpenRouter and Kilo packs are unchanged. Whether a pack may also carry a list an org reshapes is [OQ-BR12](model-lists-and-pickers.md#OQ-BR12), still open. | 2026-09-15; amended 2026-09-25 | [§2](#2-a-selected-set-not-a-synchronized-catalog); amendment in [`model-lists-and-pickers.md`](model-lists-and-pickers.md#OQ-BR3) | shipped; amendment not built |
 | OQ-GP3 | Kilo is Chat Completions only until a documented, verified Responses route exists; Claude and Copilot reuse the existing wire bridge. | 2026-09-15 | [§3](#3-failure-and-safety-rules) | shipped |

@@ -1,126 +1,127 @@
 ---
-title: "The same model has a different name in every provider — and switching leaves the old one behind"
+title: "Deselecting a profile clears the model id yolo wrote, and keeps the one you wrote"
 date: 2026-09-04
 status: draft
-tags: [providers, profiles, selection, models, aliases, switching]
-summary: "Why moving claude between Teams and Bedrock, or codex between two Bedrock endpoint families, means retyping model ids — and the three-part fix: a shared tier vocabulary so a profile swap means the same thing everywhere, a fourth row in the selection state machine so deselecting clears the id yolo itself wrote, and first-party providers so 'off' stops being a state you switch to."
+tags: [providers, profiles, selection, models, deselection]
+summary: "When you stop passing a profile, codex, pi and opencode keep the provider and model id yolo wrote into their config file, so the next launch asks the wrong endpoint for the old provider's model. The fix is one new rule in the selection mechanism: clear the id when yolo wrote it, and keep it when you wrote it. Claude is not affected."
 ---
 
-# The same model has a different name in every provider — and switching leaves the old one behind
+# Deselecting a profile clears the model id yolo wrote, and keeps the one you wrote
 
-**Status:** SKETCH, 2026-09-04; re-verified against the tree 2026-09-24. Nothing built:
-`agentcfg.ApplySelection`'s not-selected branch still lifts the current value and never
-clears, and packs/claude's `bedrock` provider still declares no `models`. Code claims cite a
-symbol, never a line.
+**The question this doc answers.** When a user stops selecting a profile, should yolo clear the
+model id it wrote into the agent's config, and should it say so when it does?
 
-**The short version.** A model id is provider-local — `claude-opus-5` on the first-party
-API, `us.anthropic.claude-opus-5` on Bedrock, `openai.gpt-5.6-sol` on Bedrock Mantle,
-`global.openai.gpt-5.6-sol` on Bedrock Runtime — so every provider switch is really a
-*rename*, and yolo only does half of it. The provider system already has the right
-primitive (`models: {alias → id}`, resolved per agent in its own derive); what it is
-missing is three things. **One**, an alias vocabulary shared across providers, so `-p a`
-and `-p b` resolve the same word to each side's own id. **Two**, a fourth row in the
-selection state machine: deselecting a profile currently *keeps* the id yolo wrote, so the
-agent goes on asking a new endpoint for the old provider's model. **Three**, a first-party
-provider entry per agent, so "switch back" is a named selection rather than an absence.
+**Status:** DESIGN, 2026-09-24. Nothing built. MEASURED: a null tombstone deletes through the
+user's host file (`5e15b964`, 2026-09-20). Read from the tree 2026-09-24, not run:
+`agentcfg.ApplySelection`'s not-selected arm still lifts the current value and never clears.
+UNMEASURED: whether the clear holds on the launch *after* it, and whether plain omission would now
+work ([§3](#3-what-happens-today)'s last note). Build step 1's test settles both. Code claims cite
+a symbol, never a line.
 
-**The most important section is [§4.2](#42-the-fourth-row-clear-what-yolo-wrote-keep-what-the-user-wrote)** — the missing state-machine row is the only part
-that is a live defect rather than a convenience.
+**Where things stand.** Nothing here is built, and nothing here is ruled. The rule this revises is
+[`OQ-CS2`](../reference/providers.md#oq-cs2) in the providers reference, which is ruled and
+shipped. The alias and shipped-model questions that used to live here moved out on 2026-09-25
+([Where the rest went](#where-the-rest-went)).
 
-**Scope note.** This doc was split out of
-[`bedrock-plumbing.md`](bedrock-plumbing.md), which raised the problem in its P1 and then
-correctly refused to solve it: nothing here is Bedrock-specific, and the fix lands in the
-provider system, not in a pack.
+**Needs your ruling:**
 
-**Needs your ruling:** [OQ-PS1](#OQ-PS1), [OQ-PS2](#OQ-PS2), [OQ-PS3](#OQ-PS3), [OQ-PS4](#OQ-PS4).
+- [`OQ-PS2`](#OQ-PS2): should deselecting clear the model id yolo wrote, and fall back to the
+  `model` in your host config if you set one? Leaning: yes to both. "Never clear" was how
+  [`OQ-CS2`](../reference/providers.md#oq-cs2)'s answer was implemented, not the answer itself.
+  The mechanism (tombstone or omission) is the implementer's, chosen by build step 1's test, and
+  it must keep a host-file value.
+- [`OQ-PS4`](#OQ-PS4) 🤷: should the clear print a one-line notice? Leaning: genuinely your call,
+  with a mild preference to print it.
 
-**Reads with:** [`../reference/providers.md`](../reference/providers.md) (the mechanism
-this amends — especially "Selection: write on activation, never on absence"),
-[`bedrock-plumbing.md`](bedrock-plumbing.md) (the motivating case, and the second consumer
-of a shared alias vocabulary),
-[`provider-credential-scope.md`](provider-credential-scope.md) (the sibling half — which provider
-CREDENTIALS reach an agent, split out of this doc 2026-09-22).
+**The most important section is [§4](#4-the-fourth-row-clear-what-yolo-wrote-keep-what-the-user-wrote).**
+It covers the only live defect.
 
----
+**Scope note.** This doc was split out of [`bedrock-plumbing.md`](bedrock-plumbing.md). Its
+principle P1 ([§1 there](bedrock-plumbing.md#1-verdict-and-principles)) says an auth mode moves
+its credential, environment and model ids together. That doc raised the problem and declined to
+solve it. Nothing here is Bedrock-specific, and the fix lands in the provider system rather than
+in a pack.
 
-## 1. Verdict and principles
+**Reads with:**
 
-**Make the tier the thing a human types, make the provider entry own the translation, and
-make deselection a real transition rather than a no-op.**
-
-**P1. An auth mode is a bundle of `{credential channel, environment, model ids}`, and the
-three move together.** Inherited verbatim from [`bedrock-plumbing.md`](./bedrock-plumbing.md) [§1](./bedrock-plumbing.md#1-verdict-and-principles), which inherited it
-from the 2026-05 Teams switch on this machine: the credential and the env moved, the
-Bedrock-shaped model pin stayed, and the failure arrived later as a 404 on an unknown model
-rather than as an auth error. Every rule below is this principle applied to one more place
-the id can hide.
-
-**P2. A human names a capability; a provider names a model.** `opus` and `fast` are things
-a person means. `us.anthropic.claude-opus-5` is a thing a service calls something. If the
-person has to type the second, the abstraction has failed, and it fails exactly at the
-moment they switch — which is the moment they are least likely to notice.
-
-**P3. Deselection is a state, not the absence of one.** Today "no profile active" means
-"whatever the last profile left behind." That is not neutral, and it is the one state a
-user reaches by *doing nothing*, which is why it is the one that bites.
+- [`../reference/providers.md`](../reference/providers.md), the mechanism this amends. See
+  especially [Selection: write on activation, never on absence](../reference/providers.md#selection-write-on-activation-never-on-absence).
+- [`model-lists-and-pickers.md`](model-lists-and-pickers.md), for aliases, first-party providers
+  and shipped ids.
+- [`provider-credential-scope.md`](provider-credential-scope.md), for which credentials reach
+  which agent.
 
 ---
 
-## 2. Two shapes of the problem, and only one of them is a bug
+## Terms, in plain words
 
-The agents split cleanly by whether they have a **tier indirection** *(coined here: a
-user-typed, provider-relative model name the agent itself resolves to a provider's id)*.
+- **Provider.** A pack entry that describes one model service: where it lives, if it has a
+  URL, and a `models` map from short aliases to that service's own model ids.
+- **Profile.** A name you select (`yolo -p <name>`, or `use_profiles` in config) that picks one
+  provider for an agent. Selecting a profile is how you tell yolo "this agent talks to that
+  service".
+- **Selection keys.** The config lines naming the provider and model an agent starts on: codex's
+  `model_provider` + `model`, pi's `defaultProvider` + `defaultModel`, and opencode's `model`.
+  yolo writes them only while a profile is selected.
+- **Selection record.** A per-agent, per-file sidecar,
+  `<workspace>/.yolo/prism/<agent>-<name>.selection.json`, holding what yolo's selection
+  mechanism last wrote, key by key. It is how yolo tells its own value from yours.
+- **Stateful render, computed layer, capture overlay.** At boot, yolo's *stateful render*
+  rebuilds each agent config file from stacked layers. The *capture overlay* holds edits you made
+  inside the jail, so they survive the rebuild. The *computed* layer is what packs' derive scripts
+  emit, and it outranks both the capture overlay and your host file. See [`jail-home.md`](../reference/jail-home.md).
+- **Null tombstone.** A JSON `null` in a layer, which the fold treats as "delete this key"
+  ([RFC 7386](https://www.rfc-editor.org/rfc/rfc7386)).
+- **Tier indirection** *(coined here)*. A user-typed, provider-relative model name that the agent
+  itself resolves to a provider's id, such as Claude Code's `opus`.
 
-**Claude has one.** `--model opus` / `/model opus` is provider-relative by design, and
-Claude Code resolves the alias differently per provider — the documented consequence being
-that on Bedrock `--model sonnet` reaches an *older* Sonnet than the same word does on the
-first-party API. `ANTHROPIC_DEFAULT_OPUS_MODEL` / `_SONNET_MODEL` / `_HAIKU_MODEL` exist
-precisely to repoint an alias, and the claude env derive (`yolo.env("claude", …)` in
-`packs/claude/derive.lua`) already emits all three — plus `ANTHROPIC_MODEL` — from the
-selected provider's `models` map.
+---
 
-> [!NOTE]
-> **Two behaviours landed after this was written (`f7b14308` and `caaaae1b`, 2026-09-15/16),
-> and both narrow the "claude resolves its own tier" half of the table below.** When the
-> provider declares no `sonnet` or `haiku` alias, the derive now sets SONNET and HAIKU to the
-> *selected* model rather than leaving Claude Code's per-provider alias in place. And a profile
-> `model` option that names no alias — in a map that has no `default` either — is used as a
-> **literal model id**, for every provider. So a Bedrock profile carrying
-> `model: "us.anthropic.…"` already pins every tier with no `models` map at all; what the map
-> adds is distinct ids per tier.
+## 1. The defect, and the principle behind it
 
-**Codex, pi and opencode have none.** yolo resolves the alias itself and writes a literal
-id into their config — `model` in `config.toml`, `defaultModel` in pi's `settings.json`,
-`model = "provider/id"` in `opencode.json` — through the reserved `selection` namespace.
+Run `yolo -p bedrock -- codex`, and yolo writes a Bedrock provider and model id into
+`~/.codex/config.toml`. Then run `yolo -- codex`. Both lines stay. Codex keeps asking for the
+Bedrock model, because nothing ever removes what yolo wrote.
 
-That difference decides where each half of the fix lands:
+**The principle: deselection is a state, not the absence of one.** Today "no profile active"
+means "whatever the last profile left behind". You reach that state by doing nothing, which is
+why it is the one that bites.
+
+---
+
+## 2. Why claude needs no fix
+
+The agents split on whether they have a tier indirection.
+
+**Claude has one.** `/model opus` is provider-relative by design. The claude env derive
+(`yolo.env("claude", …)` in `packs/claude/derive.lua`) emits `ANTHROPIC_MODEL` and the
+`ANTHROPIC_DEFAULT_*_MODEL` variables *only while a provider is selected*. These are process
+environment variables rebuilt every launch, and nothing is written to a file. So when you
+deselect, the variables are simply absent, and Claude Code falls back to its own aliases. Two
+later commits (`f7b14308`, 2026-09-15, and `caaaae1b`, 2026-09-16) made a profile's `model` option
+pin every tier. That still happens only through the environment, so it vanishes on deselect too.
+
+**Codex, pi and opencode have none.** yolo resolves the alias itself and writes a literal id into
+a config file, through the reserved `selection` namespace. That file persists between launches.
 
 | | claude | codex · pi · opencode |
 | :--- | :--- | :--- |
 | Who resolves the tier | the agent | yolo's derive |
-| Where the id lives | a process env var | a line in a config file |
-| What deselection does today | the var is not emitted — **correct** | the line stays — **the bug** |
-| What is missing | a shipped `models` map, and a shared alias vocabulary | the above, plus a clear |
+| Where the id lives | a process env var, rebuilt per launch | a line in a config file, kept |
+| What deselection does today | the var is not emitted: **correct** | the line stays: **the bug** |
+| What is missing here | nothing | a clear |
 
 > [!IMPORTANT]
-> **Do not "fix" claude's half.** Its env path is already right: no provider selected means
-> no `ANTHROPIC_DEFAULT_*_MODEL` emitted, which means Claude Code falls back to its own
-> per-provider aliases. Adding a claude-side clear would be work with no defect under it.
-> The claude gap is a missing table, not a missing transition.
+> **Do not "fix" claude's half.** Its env path is already right, and a claude-side clear would be
+> work with no defect under it. Claude's remaining gap is a missing `models` table, which is
+> [`model-lists-and-pickers.md`](model-lists-and-pickers.md)'s business.
 
 ---
 
-## 3. What happens today, precisely
+## 3. What happens today
 
-`packs/claude/pack.json` ships the `bedrock` provider as a bare name — **no `models` map at
-all**. So the alias machinery that would make `opus` mean the right thing on both sides has
-nothing to read: with no profile `model` option the claude env derive emits no model variable,
-and the user is back to typing ids. That is the whole of the claude problem — a missing three-line table, not a
-missing mechanism.
-
-The other three share a state machine that is deliberate, documented, and one row short.
-`agentcfg.ApplySelection`'s doc comment states the contract (the per-key table), and its
-body implements it:
+`agentcfg.ApplySelection` decides each selection key once per launch. Its doc comment states the
+contract, and its body implements it:
 
 | Situation | Today | Right? |
 | :--- | :--- | :--- |
@@ -129,100 +130,63 @@ body implements it:
 | File value != what yolo last wrote | keep the user's value | yes |
 | Selection stops naming the key | **keep the file's value, keep the record** | **no** |
 
-The fourth row is where the residue comes from, and the code comment says so in as many
-words: *"not selected → lift cur … never clear ([`OQ-CS2`](../reference/providers.md#oq-cs2))"*. [`OQ-CS2`](../reference/providers.md#oq-cs2) was right about the
-danger it named — an interactive `/model` choice must survive the next launch — but the
-rule it produced is broader than the danger. It protects two different values with one
-behaviour: **the user's** value, which must never be touched, and **yolo's own** stale
-value, which nothing should be protecting.
-
-The information needed to tell them apart is already on disk. The selection record
-(`<workspace>/.yolo/prism/<agent>-<name>.selection.json`) holds exactly "what yolo's
-selection mechanism last wrote, per key", and the third row above already uses it to
-distinguish the two cases. The fourth row simply does not ask.
+The code comment reads *"not selected → lift cur … never clear"* and cites
+[`OQ-CS2`](../reference/providers.md#oq-cs2). That ruling was right about the danger it named: an
+interactive `/model` choice must survive the next launch. But the rule it produced is broader than
+that danger.
+One behavior protects two different values. It protects **the user's** value, which must never be
+touched, and **yolo's own** stale value, which nothing should protect. The selection record
+already tells them apart, and row three uses it. Row four simply does not ask.
 
 > [!WARNING]
-> **Omitting the key is not clearing it.** The stateful render rewrites the file wholesale
-> from its layers, and the capture overlay may still hold the key's pre-yolo value — so a
-> key no layer asserts falls back to that stale value rather than disappearing
-> (`ApplySelection`'s doc comment explains this at length; it is why deactivation lifts the
-> current value rather than dropping it). A clear must lift an explicit RFC-7386 **null
-> tombstone**, which the fold already honours as a deletion (`agentcfg.mergeValue`).
+> **Omitting the key is not clearing it**, as `ApplySelection`'s doc comment argues. The render
+> rewrites the file wholesale, and the capture overlay may still hold the key's pre-yolo value.
+> A key no layer asserts would fall back to that stale value instead of disappearing. So the
+> design clears by lifting an explicit **null tombstone**, which `agentcfg.mergeValue` honors as a
+> deletion.
 >
-> ⚠ **A tombstone deletes through every layer BELOW it, the user's own host file included**
-> — measured 2026-09-20, when three tombstones in `packs/claude/derive.lua` deleted a user's
-> deliberate plugin enables on every boot (`5e15b964`). The selection lift lands on the
-> computed layer, so [§4.2](#42-the-fourth-row-clear-what-yolo-wrote-keep-what-the-user-wrote)'s
-> clear would also remove a `model` the user set in their **host** config, rather than
-> falling back to it. That bears on [`OQ-PS2`](#OQ-PS2): the clear as proposed restores the
-> agent's built-in default, never a host-layer value.
+> ⚠ **A tombstone deletes through every layer below it, the user's own host file included.**
+> MEASURED 2026-09-20: three tombstones in `packs/claude/derive.lua` deleted a user's deliberate
+> plugin enables on every boot (`5e15b964`). The selection lift lands on the computed layer, so
+> a tombstone clear would also remove a `model` the user set in their **host** config: "clear"
+> would mean the agent's built-in default, never the host value. [`OQ-PS2`](#OQ-PS2)'s leaning
+> says that is not acceptable, so a tombstone that does this fails the ruling.
+
+> [!NOTE]
+> **UNMEASURED, found 2026-09-24 while rewriting this doc: the omission premise may be stale.**
+> `ApplySelection`'s comment dates from `36dbc88e` (2026-09-02). Overlay narrowing,
+> `agentcfg.narrowOverlay`, landed later in `7b0cc818` (2026-09-10). On every boot it drops overlay
+> keys that the computed layer asserts, and it persists the narrowed overlay. Every boot since a
+> key was selected has lifted that key onto the computed layer, so the overlay should no longer
+> hold it. If so, two things follow.
+>
+> 1. A tombstone clear holds on the third launch, when no tombstone is lifted.
+> 2. Plain omission might now work, and it would fall back to the user's host value instead of
+>    deleting it.
+>
+> This is read from code and has not been run. Build step 1 tests both before choosing a
+> mechanism.
 
 ---
 
-## 4. The proposal
+## 4. The fourth row: clear what yolo wrote, keep what the user wrote
 
-### 4.1 A shared tier vocabulary
+The proposal is one new branch in `ApplySelection`, keyed on the record it already holds. It runs
+per key, so a provider-and-model pair clears as a pair:
 
-Alias names are open vocabulary today and the reference doc says so deliberately: *"which
-aliases a provider's consumers read is the consumer's business."* That stays true for
-*extra* aliases. What is missing is a small **conventional core** every provider is expected
-to declare, so one profile swap means one thing:
-
-| Alias | Means | Today |
-| :--- | :--- | :--- |
-| `default` | what you get when nothing is said | cerebras and llamacpp, and every derive's fallback |
-| `fast` | cheap and quick | nowhere — zai's aliases became its wire ids (`8e901423`) |
-| `balanced` | the middle tier, where one exists | nowhere |
-
-Three names, capability-shaped rather than vendor-shaped, because a vendor tier name
-(`sonnet`, `terra`) cannot survive a switch to another vendor. This is a **convention with a
-warning**, not an enum: a provider missing one gets a launch warning naming which, and
-nothing is refused — the same tolerance the open `endpoints` key set has, for the same
-version-skew reason.
-
-The one place it bites is claude, whose env derive reads the *vendor* aliases `sonnet` and
-`haiku` literally, falling back to the selected model when either is absent. The proposal is that it read `balanced` → SONNET and
-`fast` → HAIKU, keeping `sonnet`/`haiku` as accepted synonyms so no existing user config
-breaks. **[`OQ-PS1`](#OQ-PS1).**
-
-### 4.2 The fourth row: clear what yolo wrote, keep what the user wrote
-
-One new branch in `ApplySelection`, keyed on the record it already holds:
-
-| Situation, key not selected | New behaviour |
+| Situation, key not selected | New behavior |
 | :--- | :--- |
-| File value == the record — **yolo's own value** | lift a **null tombstone**, and **drop the key from the record** |
-| File value != the record — the user changed it | lift the current value (unchanged) |
-| No record for the key — yolo never wrote it | lift the current value (unchanged) |
-| Key absent from the file | nothing (unchanged) |
+| File value == the record (**yolo's own value**) | lift a **null tombstone**, and **drop the key from the record** |
+| File value != the record (the user changed it) | lift the current value (unchanged) |
+| No record for the key (yolo never wrote it) | lift the current value (unchanged) |
+| Key absent from the file | nothing, except that the record entry is dropped |
 
-Dropping the record entry alongside the clear is not tidiness — it closes the one edge the
-naive version opens. If yolo cleared the key but *remembered* the value, a user who later
-typed that same id by hand would find it silently eaten by the next deselect. After a clear,
-yolo has no claim, which is the safe direction the mechanism already prefers everywhere
-else ("a lost or corrupt record claims nothing").
+**Dropping the record entry is what makes the clear safe.** If yolo cleared the key but
+remembered the value, a user who later typed that same id by hand would lose it on the next
+deselect. After a clear, yolo has no claim. That matches the rule the mechanism already follows
+elsewhere: "a lost or corrupt record claims nothing".
 
-This is a change to a ruled decision, so it is **[`OQ-PS2`](#OQ-PS2)**, not a fiat — but the ruling it
-revises answered a narrower question than the rule it produced.
-
-### 4.3 First-party providers, so "off" is rarely the transition
-
-With [§4.2](#42-the-fourth-row-clear-what-yolo-wrote-keep-what-the-user-wrote) in place, deselecting is safe. It is still not *useful*: it drops the agent to
-whatever defaults it has, which is rarely what someone switching between two accounts wants.
-The complete answer is that both sides of a switch are named:
-
-```jsonc
-// packs/claude — the shape, not the file
-{ "kind": "provider", "name": "anthropic",
-  "models": { "default": "…", "balanced": "…", "fast": "…" } },
-{ "kind": "profile",  "name": "anthropic", "provider": "anthropic" }
-```
-
-An endpoint-less provider, exactly like `bedrock` — the first-party endpoint is the client's
-own default, so there is no URL to state, and no `api_key_env_name`, so the credential
-preflight demands nothing. `-p anthropic` ↔ `-p bedrock` then swaps a whole bundle in one
-word, and every id lives in a table rather than in someone's memory. **[`OQ-PS3`](#OQ-PS3)** asks whether
-yolo ships the ids or only the empty shape.
+This changes a ruled decision, so it is [`OQ-PS2`](#OQ-PS2) rather than a fiat.
 
 ```mermaid
 stateDiagram-v2
@@ -230,29 +194,29 @@ stateDiagram-v2
     Unpinned --> Bedrock: -p bedrock
     Bedrock --> FirstParty: -p anthropic
     FirstParty --> Bedrock: -p bedrock
-    Bedrock --> Unpinned: no profile (§4.2 clears yolo's id)
-    FirstParty --> Unpinned: no profile (§4.2 clears yolo's id)
+    Bedrock --> Unpinned: no profile (§4 clears yolo's id)
+    FirstParty --> Unpinned: no profile (§4 clears yolo's id)
     note right of Unpinned
         Today this state keeps the
         previous provider's model id.
     end note
 ```
 
+`FirstParty` is a first-party provider entry, which does not exist yet. It is proposed in
+[`model-lists-and-pickers.md`](model-lists-and-pickers.md#OQ-PS3). This doc only needs the arrows
+back to `Unpinned`.
+
 ---
 
 ## 5. What this does not license
 
-- **No model catalog in core.** The tier vocabulary is three *names*; the ids behind them
-  stay in provider entries a user can replace.
-- **No clearing a value yolo did not write.** The record is the whole authority. No record,
-  no claim — and a corrupt or missing record means no claim either.
-- **No touching claude's env path.** [§2](#2-two-shapes-of-the-problem-and-only-one-of-them-is-a-bug)'s warning stands.
-- **No closing the alias vocabulary.** `default`/`fast`/`balanced` are a convention with a
-  warning; a provider declaring `sol` as well is a provider with four aliases, not an error.
-- **No cross-agent selection.** Each derive still writes its own agent's keys, and a
-  selection is still per CLI name.
-- **No new persistence.** The selection record already exists, is already per surface, and
-  gains no new fields.
+- **No clearing a value yolo did not write.** The record is the whole authority. No record means
+  no claim, and a corrupt record means no claim either.
+- **No touching claude's env path.** [§2](#2-why-claude-needs-no-fix)'s warning stands.
+- **No cross-agent selection.** Each derive writes only its own agent's keys, and a selection is
+  per CLI name. This matches the [`OQ-BR4`](provider-credential-scope.md#OQ-BR4) ruling (*"as
+  specific as possible"*).
+- **No new persistence.** The selection record already exists per surface and gains no fields.
 
 ---
 
@@ -260,60 +224,49 @@ stateDiagram-v2
 
 | Alternative | Verdict |
 | :--- | :--- |
-| **Clear on deselect by omitting the key** rather than tombstoning it | **Rejected — does not work.** The capture overlay re-supplies the stale value; `ApplySelection`'s doc comment documents exactly this. |
-| **Always re-assert the selection every boot**, making the file yolo's outright | **Rejected.** It reverts an interactive `/model` on the next launch — the hazard [`OQ-CS2`](../reference/providers.md#oq-cs2) exists to prevent, and the reason the record mechanism was built. |
-| **Drop the record entirely on deselect, keep the file value** | **Rejected.** It makes the residue permanent *and* unattributable: the next selection would then read the stale id as the user's and refuse to move it. |
-| **A canonical model-name translation table in core** (one id per model, per provider) | **Rejected as the catalog [§5](#5-what-this-does-not-license) forbids.** It is the `wire_api` enum mistake at model granularity: yolo would own a mapping that changes weekly and is wrong silently. |
-| **Leave it, and document "always pass `-p`"** | **Rejected.** It is a rule enforced by memory, at the exact moment memory fails. `use_profiles` in user config is the legitimate version of this and is unaffected. |
-| **Refuse the launch when a config holds an id the selected provider's `models` does not contain** | **Rejected for v1 — reconsider later.** It would catch the residue loudly, but it also refuses every legitimate hand-picked model, which is most of them. |
+| **Clear by omitting the key** instead of tombstoning it | **Rejected**, because the capture overlay re-supplies the stale value. ⚠ That premise may be stale ([§3](#3-what-happens-today)'s note), and if it is, this alternative is the better one. |
+| **Always re-assert the selection every boot** | **Rejected.** It reverts an interactive `/model` on the next launch, which is the hazard [`OQ-CS2`](../reference/providers.md#oq-cs2) exists to prevent. |
+| **Drop the record on deselect, keep the file value** | **Rejected.** The residue becomes permanent *and* unattributable: the next selection reads the stale id as the user's and refuses to move it. |
+| **Refuse the launch when a config holds an id the selected provider's `models` does not contain** | **Rejected for v1 — reconsider later.** It would catch the residue loudly, but it also refuses every legitimate hand-picked model, which is most of them. It cannot see a mid-session `/model` switch either. The intent, an enforced allowlist, is now [`OQ-WG3`](wire-bridge-gateway.md#OQ-WG3) in the wire bridge, which sees every request. |
+| **Document "always pass `-p`"** | **Rejected.** That rule would be enforced by memory. `use_profiles` in user config is the legitimate persistent form, and it is unaffected. |
 
 ---
 
-## 7. Behaviour this design fixes
+## 7. Behavior this design fixes
 
-**Degenerate inputs.** No record and a key in the file → never cleared, never claimed. A
-record for a key absent from the file → nothing to clear; the record entry is dropped so
-yolo stops claiming it. An empty `models` map → no selection value, no clear, unchanged.
-A provider declaring only `default` → warning naming `fast` and `balanced`; launch proceeds.
+**Degenerate inputs.** A key in the file with no record is never cleared and never claimed. A
+record entry for a key absent from the file leaves nothing to clear, so the entry is dropped. An
+empty `models` map produces no selection value and no clear.
 
-**Failure paths.** Record unreadable or corrupt → treated as absent: nothing is cleared and
-nothing is claimed, which is the existing fail-safe. Tombstone write fails → the render
-fails as any render failure does, at the boot step, refusing the jail; there is no partial
-apply because the file is written wholesale.
+**Failure paths.** An unreadable or corrupt record is treated as absent, so nothing is cleared.
+That is the existing fail-safe. A failed tombstone write fails the render at the boot step and
+refuses the jail. There is no partial apply, because the file is written wholesale.
 
-**Concurrency and ordering.** The record is per workspace, per agent, per surface, written
-once per launch by the render. Two concurrent launches on one workspace are last-writer-wins
-on the record, which is already true and already benign — the loser's next boot reads the
-winner's record and claims nothing it should not.
+**Concurrency and ordering.** The record is per workspace, per agent and per surface, and the
+render writes it once per launch. Two concurrent launches are last-writer-wins on the record,
+which is already true and already benign.
 
-**Defaults, with units.** No new knobs, no timeouts, no retries. The alias vocabulary
-defaults to warning-only. The tier names are `default`, `fast`, `balanced` — strings, not an
-enum.
+**Defaults, trigger, pre-existing state, one writer.** There are no new knobs, timeouts or
+retries. The trigger is the stateful render, once per launch. There is no migration: the new
+branch first runs on the first deselect after it ships. The selection mechanism stays the
+record's only writer, and the clear only lets it give a key back.
 
-**Trigger.** The stateful render, once per launch, as today. Nothing new watches anything.
-
-**Pre-existing state.** Every jail already carrying a selection record is handled by the
-existing branches; the new branch only fires on the *next* launch that has no selection for
-a key the record holds. There is no migration and nothing to rewrite — the first deselect
-after this ships is the first time the new row runs.
-
-**One writer.** The selection record is written only by the selection mechanism, as its own
-docstring insists. The clear does not change that; it only lets the mechanism give a key
-back.
-
-**Forbidden.** Never clear a key the record does not hold. Never clear on a *changed*
-selection (that is row three's job). Never write a tier→id table into core. Never emit a
-selection key for a provider whose catalog row the same gate dropped.
+**Forbidden.** Never clear a key the record does not hold. Never clear on a *changed* selection,
+which is row three's job. Never emit a selection key for a provider whose catalog row the same
+gate dropped.
 
 **What done looks like.**
-1. `yolo -p bedrock -- codex`, then `yolo -- codex`: `~/.codex/config.toml` has no `model`
-   key, and codex starts on its own default rather than on a Bedrock id.
-2. Same sequence with a `/model` change in between: the user's id survives untouched.
-3. `-p anthropic` and `-p bedrock` on claude both put the *same tier word* on the right id,
-   with no hand-editing between them.
-4. A provider declaring only `default` produces one warning naming the two missing aliases,
-   and a working launch.
-5. Re-selecting after a clear writes the id again through the activation branch.
+
+- **Done 1.** Run `yolo -p bedrock -- codex`, then `yolo -- codex`, then `yolo -- codex` again.
+  After both later launches, `~/.codex/config.toml` has no `model` or `model_provider` key, and
+  codex starts on its own default. The third launch is the UNMEASURED case from
+  [§3](#3-what-happens-today).
+- **Done 2.** Run the same sequence with a `/model` change in between. The user's id survives
+  untouched.
+- **Done 3.** Run the Done 1 sequence with a `model` set in the user's host
+  `~/.codex/config.toml`. After the deselect, the jail's file holds that host value again, not
+  the agent's default and not the Bedrock id.
+- **Done 4.** Re-selecting after a clear writes the id again through the activation branch.
 
 ---
 
@@ -321,135 +274,127 @@ selection key for a provider whose catalog row the same gate dropped.
 
 | Risk | Mitigation |
 | :--- | :--- |
-| **R1.** The clear surprises someone relying on today's stickiness — they used `-p` once and expected it to persist. | `use_profiles` in user config is the supported persistent form and is unaffected. The clear is announced in release notes and is observable on the first deselect, not silently later. |
-| **R2.** Renaming claude's `sonnet`/`haiku` aliases to `balanced`/`fast` breaks a user config that already declares the old names. | Synonyms, not a rename: the derive reads the new names and falls back to the old. [§4.1](#41-a-shared-tier-vocabulary) says so; a test should pin both. |
-| **R3.** Shipping first-party model ids ([§4.3](#43-first-party-providers-so-off-is-rarely-the-transition)) puts a model list in the repo that rots. | The same answer [`bedrock-plumbing.md`](./bedrock-plumbing.md) [`OQ-BR3`](./bedrock-plumbing.md#OQ-BR3) gives: they are defaults, overridable in two lines, and dated in the pack README. [`OQ-PS3`](#OQ-PS3) may rule them out entirely. |
-| **R4.** The new branch is added and no test fails when its call site is deleted — this repo's recurring test shape. | The done-conditions are file-state assertions after a two-launch sequence, which is where the call site actually lives. |
+| **R1.** The clear surprises someone relying on today's stickiness: they used `-p` once and expected it to persist. | `use_profiles` is the supported persistent form, and it is unaffected. The clear goes in the release notes and is visible on the first deselect, not silently later. [`OQ-PS4`](#OQ-PS4)'s notice would make it visible in the moment. |
+| **R2.** The new branch lands, and no test fails when its call site is deleted. This is the repo's recurring test shape. | The done-conditions are file-state assertions after a multi-launch sequence, which is where the call site (`internal/entrypoint/prism.go`) actually runs. |
 
 ---
 
 ## 9. What I would build, in order
 
-1. **The fourth row** ([§4.2](#42-the-fourth-row-clear-what-yolo-wrote-keep-what-the-user-wrote)) with a two-launch test: select, deselect, assert the key is
-   gone; and select, hand-edit, deselect, assert the edit survives. It is the only defect
-   here and it is independent of everything else.
-2. **The `models` map for packs/claude's `bedrock` provider** ([§3](#3-what-happens-today-precisely)) — the claude half, three
-   lines, no code.
-3. **The alias vocabulary** ([§4.1](#41-a-shared-tier-vocabulary)): the warning, the claude derive's synonym reading, and a
-   line in `providers.md` naming the three.
-4. **First-party providers** ([§4.3](#43-first-party-providers-so-off-is-rarely-the-transition)) for claude, and for any other agent whose first-party
-   endpoint has ids worth naming.
-5. **Fold into `docs/reference/providers.md`** — the selection table there grows a row, and
-   this doc retires via `system-doc`.
+- **Step 1. The fourth row** ([§4](#4-the-fourth-row-clear-what-yolo-wrote-keep-what-the-user-wrote)),
+  with a multi-launch test. Select, deselect, launch again, and assert the keys are gone. Then
+  select, hand-edit, deselect, and assert the edit survives. Run the tombstone and omission
+  variants first, and keep whichever passes while also preserving a host-file value (Done 3). If
+  neither does, stop and bring [`OQ-PS2`](#OQ-PS2) back rather than ship a clear that deletes
+  the host value. It is the only defect here, and it depends on nothing else.
+- **Step 2. Fold into [`providers.md`](../reference/providers.md) and retire this doc** through
+  `system-doc`. The selection table there grows a row.
+
+The pre-split doc's build steps 2 to 4 (the claude `models` map, the alias vocabulary and the
+first-party providers) moved to [`model-lists-and-pickers.md`](model-lists-and-pickers.md).
 
 ---
 
 ## 10. Open Questions
 
-1. 💬 **OQ-PS1: Does claude's derive move to capability aliases?** It reads the vendor names
-   `sonnet` and `haiku` literally today. The proposal is to read `balanced` and `fast`,
-   keeping the old names as synonyms. Stakes: whether one alias vocabulary spans every
-   provider, or claude keeps a dialect of its own and a `-p` swap means something slightly
-   different there.
+1. 💬 **OQ-PS2: Should deselecting clear the id yolo wrote, which revises the
+   providers ledger's fourth rule?** Today the fourth row keeps whatever the file holds. The
+   proposal narrows "never clear" to "never clear the user's value", using the record already on
+   disk. Stakes: this is the live defect, and it changes a ruled decision on a shipped mechanism.
+   It hides a user-visible sub-question: what "clear" returns to when you set a `model` in your
+   host config. A tombstone deletes that host value, so "clear" would mean the agent's built-in
+   default. Omission, if [§3](#3-what-happens-today)'s UNMEASURED note holds, falls back to your
+   host value. This ruling decides which behavior is right, and the test then picks a mechanism
+   that delivers it.
 
-   <!-- vantage: oq id=OQ-PS1 leaning="Move, with synonyms. A vendor tier name cannot survive a switch to another vendor, which is the whole problem this doc is about; and synonyms make the move free for anyone's existing config." -->
+   <!-- vantage: oq id=OQ-PS2 leaning="Revise it, and yes to both halves. OQ-CS2 answered 'must an interactive /model survive the next launch?' — yes, and the record already distinguishes that case. 'Never clear' was the implementation of that answer, not the answer, and it protects yolo's own stale value as a side effect nobody chose. 'Clear' means return to what you had before yolo wrote anything: your host config's model if set, else the agent's default. The mechanism (tombstone or omission) is the implementer's, chosen by build step 1's test; one that deletes a host-file value fails this ruling." -->
 
-   _Leaning:_ Move, with synonyms. A vendor tier name cannot survive a switch to another
-   vendor — which is the whole problem this doc is about — and synonyms make the move free
-   for existing config.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-PS2: Clear on deselect — revise the providers ledger's fourth rule?** The selection state machine's fourth
-   row currently keeps whatever the file holds. The proposal narrows "never clear" to "never
-   clear the user's value", using the record already on disk. Stakes: this is the live
-   defect. It is also a change to a ruled decision on a shipped mechanism, and the ruling it
-   revises was made for a real hazard. And the clear reaches further than this doc first said:
-   a computed-layer tombstone also deletes a host-layer value
-   ([§3](#3-what-happens-today-precisely)'s warning), so "clear" means "the agent's built-in
-   default", not "whatever the user's host config says".
-
-   <!-- vantage: oq id=OQ-PS2 leaning="Revise it. OQ-CS2 answered 'must an interactive /model survive the next launch?' — yes, and the record already distinguishes that case. 'Never clear' was the implementation of that answer, not the answer, and it protects yolo's own stale value as a side effect nobody chose." -->
-
-   _Leaning:_ Revise it. [`OQ-CS2`](../reference/providers.md#oq-cs2) answered "must an interactive `/model` survive the next
-   launch?" — yes, and the record already distinguishes that case. "Never clear" was the
-   implementation of that answer, not the answer itself, and it protects yolo's own stale
-   value as a side effect nobody chose.
+   _Leaning:_ Revise it. [`OQ-CS2`](../reference/providers.md#oq-cs2) answered "must an
+   interactive `/model` survive the next launch?" The answer was yes, and the record already
+   distinguishes that case. "Never clear" was the implementation of that answer, not the answer
+   itself, and it protects yolo's own stale value as a side effect nobody chose. "Clear" means
+   return to what you had before yolo wrote anything: your host config's `model` if set, else
+   the agent's default. The mechanism (tombstone or omission) is the implementer's, chosen by
+   build step 1's test. A mechanism that deletes a host-file value fails this ruling.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **OQ-PS3: Does yolo ship the model ids, or only the empty provider shape?** [§4.3](#43-first-party-providers-so-off-is-rarely-the-transition)'s
-   first-party provider and [§3](#3-what-happens-today-precisely)'s `bedrock` `models` map both mean shipping literal ids that
-   change on someone else's schedule — and for Bedrock they carry a geographic prefix
-   (`us.` / `eu.` / `global.`) whose availability I did **not** verify for Anthropic models
-   in this pass. Stakes: shipped ids make `-p bedrock` work on first use; empty ones make it
-   a two-step setup but keep yolo out of the catalog business [§5](#5-what-this-does-not-license) forbids.
-   It is the same decision as [`bedrock-plumbing.md`](bedrock-plumbing.md)'s
-   [`OQ-BR3`](bedrock-plumbing.md#OQ-BR3), so rule the two together.
+2. 💬 🤷 **OQ-PS4: Should a deselect that clears a key say so on stderr?** The
+   clear is otherwise invisible: a file loses a line between two launches. A one-line notice
+   ("cleared the `model` yolo set for profile `bedrock`") makes it legible. Because the clear drops
+   the record entry, the notice fires on exactly one launch per deselect, not on every later one.
+   Stakes: only how loud the transition is.
 
-   <!-- vantage: oq id=OQ-PS3 leaning="Ship them, dated, in the pack README — but verify the Anthropic-on-Bedrock geo prefixes first, because an unverified prefix is exactly the 404-on-unknown-model failure P1 describes. If that verification is inconvenient, ship the shape empty and document the two lines." -->
+   <!-- vantage: oq id=OQ-PS4 leaning="Genuinely your call. I would print it: it fires on one launch per deselect, and a silent config change is the thing this doc is complaining about. But it is noise on a routine path, and I have no technical argument either way." -->
 
-   _Leaning:_ Ship them, dated, in the pack README — but verify the Anthropic-on-Bedrock geo
-   prefixes first, because an unverified prefix is exactly the 404-on-unknown-model failure
-   P1 describes. If that verification is inconvenient, ship the shape empty and document the
-   two lines instead.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-4. 💬 🤷 **OQ-PS4: Should a deselect that clears a key say so on stderr?** The clear is
-   invisible: a file loses a line between two launches. A one-line notice ("cleared the
-   `model` yolo set for profile `bedrock`") makes it legible; it also adds noise to every
-   launch after a profile is dropped. Stakes: purely how loud the transition is.
-
-   <!-- vantage: oq id=OQ-PS4 leaning="Genuinely your call. I would print it once, because a silent config change is the thing this whole doc is complaining about — but it is noise on a path people will hit routinely, and I have no technical argument either way." -->
-
-   _Leaning:_ Genuinely your call. I would print it, because a silent config change is the
-   thing this doc is complaining about — but it is noise on a routine path, and I have no
-   technical argument either way.
+   _Leaning:_ Genuinely your call. I would print it, because it fires on one launch per deselect
+   and a silent config change is the thing this doc is complaining about. But it is noise on a
+   routine path, and I have no technical argument either way.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
 ---
 
-5. ↪ <a id="OQ-PS5"></a>**[OQ-PS5](#OQ-PS5): MOVED — how does a profile narrow which provider CREDENTIALS reach an entry?**
-   Split out to [`provider-credential-scope.md`](provider-credential-scope.md) on 2026-09-22. This
-   anchor is kept so inbound links resolve; the question is not live here.
+### Decision Ledger
 
-   It left because it is a different mechanism from the rest of this doc — the defect is in the
-   launch's environment channel ([`userenv.go`](../../internal/cli/run/userenv.go)) rather than in
-   the selection state machine, and it needs a trust section this doc has no other use for. Three of
-   its premises did not survive re-measurement against the installed programs: pi compiles in 41
-   providers rather than six, a stored credential outranks the environment, and opencode and claude
-   each already ship a menu-narrowing key. The live questions are
-   [`OQ-CN1`](provider-credential-scope.md#OQ-CN1) through
-   [`OQ-CN5`](provider-credential-scope.md#OQ-CN5) there.
+No question in this doc is ruled yet. These pointer rows record rulings made elsewhere that shape
+it:
+
+| ID | Ruling / Decision | Date | Settled in | Built |
+| :--- | :--- | :--- | :--- | :--- |
+| OQ-CS2 | **Never write the selection key when no profile is active**, because an interactive in-agent choice must survive the next launch. This is the rule [`OQ-PS2`](#OQ-PS2) would narrow. | undated there | [providers.md](../reference/providers.md#oq-cs2) | yes |
+| OQ-PS3 | **Answered by the [`OQ-BR3`](model-lists-and-pickers.md#OQ-BR3) ruling**, which says to ship model defaults in a built-in pack. The row lives in [model-lists-and-pickers.md](model-lists-and-pickers.md#OQ-PS3). | 2026-09-25 | [`model-lists-and-pickers.md`](model-lists-and-pickers.md#OQ-PS3) | — |
+
+---
+
+## Where the rest went
+
+Moved on 2026-09-25. Each anchor is kept here so inbound links resolve.
+
+- <a id="OQ-PS1"></a>[**OQ-PS1**](#OQ-PS1) (does claude's derive move to capability aliases?) →
+  [`model-lists-and-pickers.md#OQ-PS1`](model-lists-and-pickers.md#OQ-PS1).
+- <a id="OQ-PS3"></a>[**OQ-PS3**](#OQ-PS3) (does yolo ship model ids?) →
+  [`model-lists-and-pickers.md#OQ-PS3`](model-lists-and-pickers.md#OQ-PS3), answered there by the
+  [`OQ-BR3`](model-lists-and-pickers.md#OQ-BR3) ruling.
+- <a id="OQ-PS5"></a>[**OQ-PS5**](#OQ-PS5) (which credentials a profile lets reach an agent) →
+  [`provider-credential-scope.md`](provider-credential-scope.md), split out 2026-09-22. It uses a
+  different mechanism: the launch's env channel in
+  [`userenv.go`](../../internal/cli/run/userenv.go), not selection. Its live questions are
+  [`OQ-CN1`](provider-credential-scope.md#OQ-CN1) through
+  [`OQ-CN6`](provider-credential-scope.md#OQ-CN6).
+- **The shared tier vocabulary** (`default`/`fast`/`balanced`), **first-party
+  providers**, the pre-split doc's **principle P2**, the no-catalog and open-vocabulary
+  non-goals, the "canonical translation table" alternative, the "provider declaring only
+  `default` warns" behavior, and the pre-split doc's done-conditions 3 and 4, risks R2 and R3
+  and build steps 2 to 4 all went to [`model-lists-and-pickers.md`](model-lists-and-pickers.md).
+  This doc's own numbering restarted after the split.
+- **The "refuse the launch on an id outside the provider's `models`" alternative** stays in
+  [§6](#6-alternatives-considered), where it is still rejected as a launch-time check. Its intent,
+  an enforced model allowlist, moved to the wire bridge as
+  [`OQ-WG3`](wire-bridge-gateway.md#OQ-WG3).
+
+---
 
 ## 11. Evidence
 
-Code, re-verified 2026-09-24. Each claim names the symbol or file that carries it, so it
-survives an edit elsewhere in the file:
+Code, re-verified 2026-09-24. Each claim names the symbol or file that carries it, so it survives
+an edit elsewhere in the file:
 
 | Claim | Anchor |
 | :--- | :--- |
 | The four-row selection contract, stated | `agentcfg.ApplySelection`'s doc comment (`internal/agentcfg/selection.go`) |
 | The not-selected branch keeps the file value and the record | the `case !selected:` arm of `agentcfg.ApplySelection` |
-| Why omission is not clearing (wholesale rewrite + capture overlay) | `agentcfg.ApplySelection`'s doc comment |
-| Null tombstones delete a key in the fold, through every lower layer | `agentcfg.mergeValue` (`internal/agentcfg/engine.go`); the `LiteralNulls` field comment in `internal/agentcfg/compose.go`; `5e15b964` |
+| Why omission was judged not to clear (wholesale rewrite + capture overlay) | `agentcfg.ApplySelection`'s doc comment, from `36dbc88e` (2026-09-02) |
+| The overlay is narrowed against the computed layer every boot | `agentcfg.narrowOverlay` and its call in `internal/agentcfg/staterender.go`, from `7b0cc818` (2026-09-10) |
+| Null tombstones delete a key through every lower layer | `agentcfg.mergeValue` (`internal/agentcfg/engine.go`); the `LiteralNulls` field comment in `internal/agentcfg/compose.go`; `5e15b964` |
 | The selection lift lands on the computed layer | `agentcfg.ApplySelection`'s call site in `internal/entrypoint/prism.go` |
-| claude emits `ANTHROPIC_MODEL` and the three `ANTHROPIC_DEFAULT_*_MODEL` vars from `models` | `yolo.env("claude", …)` in `packs/claude/derive.lua` |
+| claude emits its model vars only from a selected provider | `yolo.env("claude", …)` in `packs/claude/derive.lua` |
 | packs/claude's `bedrock` provider declares no `models` | the `kind: "provider"` entry named `bedrock` in `packs/claude/pack.json` |
-| The three id-writing selection keys | the `selection` table each of `packs/codex/derive.lua`, `packs/pi/derive.lua` and `packs/opencode/derive.lua` returns |
+| The id-writing selection keys | the `selection` table returned by `packs/codex/derive.lua` (`model_provider`, `model`), `packs/pi/derive.lua` (`defaultProvider`, `defaultModel`) and `packs/opencode/derive.lua` (`model`) |
 | Selection record path | `<workspace>/.yolo/prism/<agent>-<name>.selection.json` |
 
-Vendor, 2026-09-04: Claude Code's `opus`/`sonnet` aliases resolve per provider, and resolve
-to *older* models on Bedrock than on the first-party API — which is what
-`ANTHROPIC_DEFAULT_OPUS_MODEL` / `_SONNET_MODEL` exist to repoint
-([model configuration](https://code.claude.com/docs/en/model-config),
-[Claude Code model configuration](https://support.claude.com/en/articles/11940350-claude-code-model-configuration)).
-Claude Code 2.1.261 is the version installed in this jail. The Bedrock id spellings are
-sourced in [`bedrock-plumbing.md`](bedrock-plumbing.md) [§14](./bedrock-plumbing.md#14-evidence-and-how-to-re-check-it); the Anthropic-on-Bedrock
-geographic prefix set is **not** verified here and is [`OQ-PS3`](#OQ-PS3)'s blocker.
+Vendor, 2026-09-04: Claude Code's aliases resolve per provider, which is what
+`ANTHROPIC_DEFAULT_OPUS_MODEL` and its siblings exist to repoint
+([model configuration](https://code.claude.com/docs/en/model-config)).
