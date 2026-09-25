@@ -781,13 +781,26 @@ forged digest removed any host file whose content the jail knows; and a director
 link after the check had the removal delete the host file of that name.
 `internal/cli/run/packfilesretire_test.go` covers both.
 
-**Not converted yet.** Host-side `yolo config` at a workspace target (`configTarget` in
-`internal/cli/configtarget.go`, the verbs in `internal/cli/configdiff.go` and `configls.go`)
-still reads and writes that workspace's `.yolo/home` and `.yolo/prism` by plain path. `reset`
-runs there whenever the workspace's jail is not running, and writes the surface file and its
-baseline with `os.WriteFile`; `capture --force` writes the sidecars; `diff` and `ls` read.
-The fix is the capture's: roots from `paths.OpenWorkspaceStateSubdir` and each file named beneath
-one. It is a follow-up, not a ruling.
+**Host-side `yolo config` at a workspace target.** `configTarget`
+(`internal/cli/configtarget.go`) resolves a workspace's surfaces to its overlay under
+`.yolo/home` and its sidecars to `.yolo/prism`, and the verbs in `internal/cli/configdiff.go`,
+`configls.go` and `configprovenance.go` read and write them as the host user. By plain path, a
+link at a sidecar had `diff` print a host file as captured edits and `ls` count or list its keys;
+a link at the surface had `reset`, which runs whenever the workspace's jail is not running,
+truncate the host file it named, after discarding the captures; a link at `.yolo/prism` had
+`reset` remove host files of the sidecars' names; and `capture --force` read a host file into
+the overlay and wrote capture JSON through a sidecar link into the file it named. Each file is
+now a `captureFile` opened beneath a root from `paths.OpenWorkspaceStateSubdir`
+(`storeFile`, `surfaceStateFile`): a read takes only a regular file, a write replaces a link with
+a regular file, a remove takes the link itself, and a link at a name being read, or at `.yolo`,
+the subdir or a directory on the way, is refused. `reset` checks the surface before it discards
+anything. Each refusal names the path and says the jail can write it, and `diff` and `ls` exit 1
+rather than report a store they did not read. The host notch and the jail that owns the
+workspace keep plain paths, since there every file is the process's own.
+`internal/cli/configverblinks_test.go` plants a link at each file and at each directory on the
+way, dangling and not, per verb. Still by plain path: `yolo config promote`'s reads of the
+workspace store (`configpromote.go`) and `yolo apply --sealed`'s overlay count
+(`overlayKeyCount`).
 
 **What this does not close.** podman resolves a bind source when the container is created, after
 the preparation has replaced any link, so a jail running CONCURRENTLY with a write path into this
