@@ -10,6 +10,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/flakebundle"
+	"github.com/mschulkind-oss/yolo-jail/internal/footer"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostmigrate"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostprocesses"
 	"github.com/mschulkind-oss/yolo-jail/internal/journald"
@@ -32,10 +33,20 @@ import (
 // rewrite semantics.
 func runInternal(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-materialize|capture-run|config-dump|daemon|darwin-bootstrap|migrate-host|node-floor-satisfied|openai-auth|openai-auth-client|refresh-servers|bundle-dir> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-materialize|capture-run|config-dump|daemon|darwin-bootstrap|footer|migrate-host|node-floor-satisfied|openai-auth|openai-auth-client|refresh-servers|bundle-dir> [args...]")
 		return 2
 	}
 	switch args[0] {
+	case "footer":
+		// The agent footer's one renderer (docs/design/agent-footer.md §2), run by the
+		// status-line command each agent pack writes into its agent's settings. Hidden
+		// because its caller is a pack's command string, not a person. It never exits
+		// non-zero and never writes to stderr: an agent shows a failing status command's
+		// noise, and a footer that errors costs the user the row.
+		//
+		// hostFooterTables is the host notch's profile read (OQ-FT6): outside a jail, with
+		// no selection in the agent's env, the tables come from the user config.
+		return footer.Main(args[1:], os.Stdin, os.Stdout, hostFooterTables)
 	case "capture-materialize":
 		// Install-capture's second verb (program-delivery.md §6.3), called by the
 		// GENERATED NATIVE LAUNCHER before it would download. Hidden for capture-run's
