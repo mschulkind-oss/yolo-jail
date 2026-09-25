@@ -36,9 +36,11 @@ criterion that decides what is composed and what passes through; the rest follow
 
 **Needs your ruling:** [OQ-HE1](#oq-he1), [OQ-HE2](#oq-he2), [OQ-HE3](#oq-he3),
 [OQ-HE4](#oq-he4), [OQ-HE5](#oq-he5), [OQ-HE6](#oq-he6), [OQ-HE7](#oq-he7), [OQ-HE8](#oq-he8),
-[OQ-HE9](#oq-he9).
+[OQ-HE9](#oq-he9), [OQ-HE10](#oq-he10).
 
 **Reads with:**
+- [`host-tool-provisioning.md`](host-tool-provisioning.md): whether yolo installs the floor this
+  design resolves against (its own agent installs, or a `mise install`).
 - [`host-agent-environment.md`](../reference/host-agent-environment.md): the host env channel and
   wrappers. This design overturns its "start from the current environment" for PATH.
 - [`report-tiers.md`](../reference/report-tiers.md#the-dependency-rule): the dependency rule, whose
@@ -150,6 +152,13 @@ child reads it for every subprocess it spawns. An npm-installed CLI whose entry 
 value is also the child's PATH.** Resolving against one PATH and exec'ing into another would move
 the incident one process down instead of fixing it.
 
+That rule is under review: [OQ-HE10](#oq-he10) proposes that the composed value be the child
+PATH's **prefix** rather than all of it, with the ambient PATH carried after it. yolo's decisions
+still read only the composed value. Everything yolo resolved still resolves the same way in the
+child, because the composed entries come first. The ambient tail adds the user's own tools and
+never outranks what yolo checked. What that tail supplies still varies with the launcher, and no
+design can guarantee it.
+
 How the criterion classifies the rest of [§1.2](#12-ambient-values-yolo-reads-to-decide-something):
 
 - **Credentials are a decision input.** They steer `credentialGaps`. They stay an open question,
@@ -259,6 +268,11 @@ The options:
 Under option B, a shim whose `mise which` fails gets a distinct verdict, not *present*: **"shim
 present; the version selected here is not installed,"** with the remedy `mise install`. The
 dependency rule treats that verdict as missing.
+
+Whether yolo runs that `mise install` itself, and whether it keeps agent installs of its own on the
+host so that the floor a selected pack needs never depends on the user's mise, is
+[`host-tool-provisioning.md`](host-tool-provisioning.md)'s question. This doc only resolves and
+reports.
 
 Other managers need no typed entry. Homebrew, npm's global prefix, pipx and `~/.local/bin` all put
 real binaries in a fixed directory, and a plain `host_path` string names it. A pack-declared install
@@ -413,7 +427,7 @@ Each test is chosen by the repo's question: **does it fail if I delete the call 
 ## 8. Risks
 
 - **Stage 3 breaks tools the child spawns.** Stage 1 cannot report them. Mitigation: the release
-  note, `{"inherit": "PATH"}` if OQ-HE5 is accepted, and `yolo check` listing the composed entries.
+  note, `{"inherit": "PATH"}` if [OQ-HE5](#oq-he5) is accepted, and `yolo check` listing the composed entries.
 - **Shim confirmation costs time on the gate's one-second budget.** On a budget overrun the survey
   reports "cannot determine" and launches (the existing disposition), so the worst case is
   today's behavior.
@@ -512,6 +526,35 @@ present. They are fixed locations, not launch environment.
 **Leaning:** setting `host_path` is the per-user opt-in (stage 2) from the first release. The
 default flips in a later release named at the time. It does not flip on a timer, and not before
 `yolo check`'s host launch section has shipped.
+
+> **Answer:**
+
+### <a id="oq-he10"></a>💬 [`OQ-HE10`](#oq-he10) — is the composed value the child's whole PATH, or its prefix? — **OPEN**
+
+Raised by the maintainer in review, 2026-09-25. yolo can't require a particular outside PATH to run
+at all, and what it provides has to be there whoever launched it. Yet a tool the user put on PATH in
+their shell rc should reach a host agent "just the same as it is outside".
+
+**(a) Whole.** The child gets the composed value only ([§2.1](#21-the-criterion--decision-inputs-versus-carried-variables)
+as first written). It is fully predictable, but a user tool outside `host_path` disappears from the
+agent's subprocesses, and stage 3 breaks tools yolo can't enumerate ([§4.1](#41-stages)).
+
+**(b) Prefix.** The child's PATH is the composed value followed by the ambient PATH, with
+duplicates removed and the first occurrence kept. Every decision still reads only the composed
+value, so [OQ-HE0](#oq-he0) holds. The ambient tail is a *carried* use of PATH, not a decision
+input. Stage 3 then breaks only what yolo itself resolves, and the [§4.1](#41-stages) row "the tools the child
+spawns" leaves the migration's risk list.
+
+**(c) Ambient first.** The composed value is appended after the ambient PATH. Rejected: an ambient
+entry could then shadow a binary yolo checked. The target is exec'd by absolute path, but its own
+subprocesses (`node` under an npm CLI) would resolve against the caller's PATH again. That is the
+incident, one process down.
+
+**Leaning: (b).** It is the distinction the review drew: yolo guarantees a floor, and it inherits
+everything else without depending on it. [OQ-HE5](#oq-he5)'s `{"inherit": "PATH"}` then narrows to
+*decisions only*. Under (b) it is an off-ramp almost nobody needs.
+
+<!-- vantage: oq id=OQ-HE10 leaning="(b): the child's PATH is the composed value followed by the ambient PATH, deduplicated first-wins; decisions read only the composed value, so OQ-HE0 holds, and stage 3 breaks only what yolo itself resolves." -->
 
 > **Answer:**
 
