@@ -115,7 +115,8 @@ func packInitFromPlugin(pluginDir, packRoot, name string, out, errw io.Writer) i
 
 	// Report what the plugin declares, with the code-running components called out. This is
 	// the moment the user is deciding whether to trust the thing, so it is the moment to say
-	// what it does — not at the next `pack install`, and certainly not at first apply.
+	// what it does — not at the next launch's disclosure banner, and certainly not at first
+	// apply.
 	fmt.Fprintf(out, "\nWrapped plugin %s (from %s)\n", pluginName, pluginAbs)
 	comps := plugin.Components()
 	if len(comps) == 0 {
@@ -133,8 +134,9 @@ func packInitFromPlugin(pluginDir, packRoot, name string, out, errw io.Writer) i
 	if plugin.RunsCode() {
 		fmt.Fprintf(out, "\n  Those components run code on your behalf. On a namespaced "+
 			"destination they are DELIVERED (the tool loads the plugin's manifest); on a flat "+
-			"one they are refused by name. If this pack is ever consumed from a git address, "+
-			"`yolo pack install` will ask you to approve them.\n")
+			"one they are refused by name. Nothing asks you to approve them later, from a git "+
+			"address or anywhere else: selecting the pack in your config is the consent, and "+
+			"`yolo pack footprint` is where to review what it runs.\n")
 	}
 	if skills := plugin.SkillDirs(); len(skills) > 0 {
 		fmt.Fprintf(out, "\n  Its skills will invoke as /%s:<skill> (%d skill(s)).\n",

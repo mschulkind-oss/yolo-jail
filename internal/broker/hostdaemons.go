@@ -113,10 +113,14 @@ func DeclaredSingletons(workspace string) []Singleton {
 		switch {
 		case !set.MayRunHostCode(lp):
 			// The ORIGIN GATE, evaluated here because this verb spawns host code. A
-			// management verb is not a second door into running an unapproved fetched
-			// pack's program.
-			s.NoSpawn = "its pack's host access is not approved on this machine " +
-				"(`yolo pack install` records the approval)"
+			// management verb is not a second door into running a pack module nothing in
+			// this process resolved. It is not an approval: OQ-TP9
+			// (docs/design/trust-paths.md) deleted the fetched-pack approval, and every
+			// module pack resolution records passes this gate, so reaching it means the Set
+			// was built without resolving packs — the same fail-safe branch, and the same
+			// words, as the doctor loop's in internal/loopholes/runtime.go.
+			s.NoSpawn = "its pack was not resolved by this process, so nothing vouches " +
+				"for the module (a yolo bug, not a config problem — please report it)"
 		case len(hd.Cmd) == 0:
 			s.NoSpawn = "its manifest declares no command"
 		default:

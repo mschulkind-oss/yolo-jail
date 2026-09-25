@@ -211,8 +211,11 @@ func (s Set) RuntimeArgsWithJailDaemons(from []*Loophole, runtime string, specs 
 // the design's wording and its visibility requirement are reconciled: nothing reaches
 // the jail, while `yolo loopholes list`/`status` still show it — as `unapproved`, which is
 // the state a user has to be able to see. A pack loophole missing from the list is
-// indistinguishable from one that failed to stage, and the fix ("`yolo pack install`
-// records the approval") is not discoverable from an absence.
+// indistinguishable from one that failed to stage, and an absence names no fix. (Since
+// OQ-TP9 deleted the host-access approval there is no user-facing fix to name: every
+// PackModule the launch builds carries HostExecApproved, so a refused pack record is
+// reachable only through a caller that evaluated no origin decision at all — the
+// programming error the gate still guards.)
 //
 // # Who reports it
 //

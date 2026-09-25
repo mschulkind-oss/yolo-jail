@@ -1094,8 +1094,10 @@ func TestWorkspaceEnableDisclosureAgreesAcrossSurfaces(t *testing.T) {
 // It has to be VISIBLE, which is why this asserts the wording and not merely the
 // absence of the sentinel: silence would render as "no self-check declared", telling
 // the reader the loophole measures nothing when in fact its measurement was withheld —
-// and the fix (`yolo pack install` records the approval) is not discoverable from an
-// absence.
+// and the reason (nothing in this process resolved the pack, so nothing vouches for its
+// module) is not discoverable from an absence. There is no approval to record any more:
+// OQ-TP9 (docs/design/trust-paths.md) deleted the fetched-pack approval, so the only way to
+// reach this branch is a Set built without pack resolution.
 func TestCheckLoopholesWithholdsAnUnapprovedPackSelfCheck(t *testing.T) {
 	isolatedModuleDir(t)
 	ran := filepath.Join(t.TempDir(), "ran")
