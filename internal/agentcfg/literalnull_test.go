@@ -346,3 +346,33 @@ func TestDropNullLeavesKeepsAnAlreadyEmptyObject(t *testing.T) {
 		t.Errorf("got %#v, want %#v", got, want)
 	}
 }
+
+// A TYPED-NIL MAP IN THE FOLD IS DESCENDED INTO, NOT ASSIGNED INTO. reinstateAt's subtree
+// branch allocated only when the key was ABSENT; a `map[string]any(nil)` is PRESENT and is an
+// object, so the recursion wrote the file's null into a nil map and panicked with
+// `assignment to entry in nil map` — on the boot render path. The one producer is a `managed`
+// block holding a typed-nil map (enforceValue deep-copies it to nil), which encoding/json never
+// yields, so no shipped surface reaches it
+// (docs/design/config-ownership-and-promotion.md §11, live residue item 4). The fix allocates
+// and writes the map back; the managed floor still wins every key it names, and it names none.
+func TestLiteralNullsReinstateUnderATypedNilMap(t *testing.T) {
+	cfg, res := composeWith(t, Inputs{
+		Surface: manifest.Surface{Agent: "acme", Name: "settings", Codec: "json",
+			Managed: map[string]any{"permissions": map[string]any(nil)}},
+		LiteralNulls: map[string]any{"permissions": map[string]any{"ask": nil}},
+	})
+	want := map[string]any{"permissions": map[string]any{"ask": nil}}
+	if !reflect.DeepEqual(cfg, want) {
+		t.Errorf("got %#v, want %#v", cfg, want)
+	}
+	// The key was PRESENT before the pass (managed put it there), so the pass did not create
+	// it and must not claim it.
+	if got := res.Provenance["permissions"]; got != layerManaged {
+		t.Errorf("provenance[permissions] = %q, want %q", got, layerManaged)
+	}
+	// And the bytes: a typed-nil map left in place would encode as `null`, deleting the
+	// user's `ask: null` along with its parent.
+	if got, err := json.Marshal(cfg); err != nil || string(got) != `{"permissions":{"ask":null}}` {
+		t.Errorf("encoded = %s (%v), want {\"permissions\":{\"ask\":null}}", got, err)
+	}
+}

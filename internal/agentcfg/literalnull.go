@@ -133,7 +133,14 @@ func reinstateAt(cfg map[string]any, k string, marked any, layers []map[string]a
 	if present && !curIsObject {
 		return false
 	}
-	if !present {
+	// Allocate on NIL, not on absent: a typed-nil `map[string]any(nil)` is PRESENT and is
+	// an object, and the leaf branch above would assign into it and panic. The one producer
+	// is a `managed` block holding a typed-nil map (enforceValue deep-copies it to nil);
+	// encoding/json never yields one, so no shipped surface reaches this — which is why the
+	// guard was missing, not why it is optional (config-ownership-and-promotion.md §11,
+	// live residue item 4).
+	allocated := curMap == nil
+	if allocated {
 		curMap = map[string]any{}
 	}
 	child := childLayers(layers, k)
@@ -145,7 +152,12 @@ func reinstateAt(cfg map[string]any, k string, marked any, layers []map[string]a
 	}
 	if present {
 		// Descended into a key the fold already produced; nothing was created at
-		// THIS level even if something was below it.
+		// THIS level even if something was below it. A map allocated over a typed
+		// nil is written back only when something landed in it, so a nil nothing
+		// reached stays exactly as the fold left it.
+		if allocated && changed {
+			cfg[k] = curMap
+		}
 		return false
 	}
 	if !changed {
