@@ -1,12 +1,26 @@
-// Package basehome detects legacy per-workspace agent state in the BASE home — the one
-// host directory every jail mounts as its home, which is a union of tiers that were never
-// supposed to share a directory (docs/design/base-home-legacy-state.md §1).
+// Package basehome detects legacy per-workspace agent state in the BASE home, <state>/home
+// (paths.GlobalHome) — the one host directory every podman jail used to mount as its home,
+// a union of tiers that were never supposed to share a directory. Nothing mounts it at
+// /home/agent any more: each podman jail gets its own read-only skeleton
+// (docs/design/base-home-legacy-state.md#1-the-question-and-the-answer), and <state>/home
+// stays only as the machine store of the shared dirs and the Claude login seed. So the
+// legacy bytes this package finds are unmounted and unread, and its one consumer is `yolo
+// check`'s detection-only report, whose printed `mv` is optional cleanup (the maintainer's
+// OQ-BH13 ruling).
+//
+// THE BARE § NUMBERS IN THIS PACKAGE, code and tests, cite the PRE-REWRITE design: the
+// quarantine that was dropped once the shared base itself was found to be the defect. Read
+// them in `git show 030c8f52:docs/design/base-home-legacy-state.md` — §5.1 Detection, §5.2
+// Classification, §5.8 Disclosure, §6 Prevention, §8 What this does not cover, §11
+// Sequencing. The current doc, rewritten in 8c7eb2b9, numbers its sections differently and
+// keeps none of those rules as design; they survive here only as what the report
+// classifies by.
 //
 // THIS PACKAGE OBSERVES. It opens no file, follows no symlink, and writes nothing: the
-// walk is Lstat/ReadDir only and the archive move is step 2 of the design's §11 sequence.
-// Every mutating verb the design names — the move, the manifest, the marker, the
-// confirmation prompt — is deliberately absent here, so no amount of misuse of this
-// package can touch a byte of the base home.
+// walk is Lstat/ReadDir only. Every mutating verb the pre-rewrite design named — the move,
+// the manifest, the marker, the confirmation prompt — was never built, and the current
+// design drops them, so no amount of misuse of this package can touch a byte of the base
+// home.
 //
 // The DECLARATION SETS ARE INPUTS (Decls), not reads of the shipped packs. Classification
 // is a derive across three separate declaration systems (state dirs, config surfaces,
@@ -199,15 +213,17 @@ func (d Decls) classify(rel string, sidecars bool) Class {
 	return Runtime
 }
 
-// ProvisionedDir reports whether rel is EXACTLY one of the directories core provisions in
-// the base home.
+// ProvisionedDir reports whether rel is EXACTLY one of the directories core provisioned in
+// the base home (paths.BaseHomeCoreDirs).
 //
-// Such a directory is a MOUNTPOINT, and the mountpoint rule that keeps a walk root out of
-// the candidate list applies to it for the same reason one level down: its steady state is
-// empty, so §5.2's "a directory with no kept leaf beneath it moves whole" would rename it
-// — and the OCI runtime cannot mkdirat it back inside the :ro /home/agent bind, so the
-// next launch fails with an opaque crun error (the reason EnsureGlobalStorage creates it
-// at all).
+// Such a directory WAS A MOUNTPOINT: storage.EnsureGlobalStorage created it in the shared
+// base every podman jail bound :ro at /home/agent, because the OCI runtime cannot mkdirat
+// inside a read-only bind. Neither is true any more — each jail's skeleton carries core's
+// dirs, and nothing creates them in <state>/home — but every base an older yolo provisioned
+// still holds them, empty. So the mountpoint rule that keeps a walk root out of the
+// candidate list still applies to one, for the same reason one level down: an empty
+// directory core made is not legacy state, and §5.2's "a directory with no kept leaf
+// beneath it moves whole" would otherwise report it as a candidate.
 //
 // `.pi/agent` is the live case: `.pi` is a pack state dir and therefore a walk root, while
 // `.pi/agent` is core's, so the nested entry is reached as a child of a root and the

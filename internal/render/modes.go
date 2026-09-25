@@ -30,7 +30,9 @@ var censusModes = []string{
 // AND THE ORIGINAL JUSTIFICATION FOR `stateful` WAS WRONG, which is why the census had to be
 // restated rather than merely relocated (plan §6b D2). `stateful` was justified as
 // jail-shaped "because a jail home is disposable, so an edit must survive --rm". The jail home
-// is NOT disposable: it is bind-mounted from paths.GlobalHome(), and the sidecars live under
+// is NOT disposable: every writable path in it is a host bind that outlives the container,
+// mostly from the workspace's own <workspace>/.yolo/home (podman's read-only root above them
+// is a per-jail skeleton of mountpoints and holds no content), and the sidecars live under
 // <workspace>/.yolo/prism/ with the workspace a live host bind — both persist across
 // containers. The real reason `stateful` exists is that the destination inside a jail is an
 // artifact yolo REGENERATES every boot, so an in-place edit is lost at the next render unless

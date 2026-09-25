@@ -148,7 +148,7 @@ func terminateCaptureSurfaces(sidecarDir string) []manifest.Surface {
 //
 //   - Apple Container ("container") binds the whole ws_state dir AT /home/agent
 //     (`-v wsState:/home/agent`), so `~/X` is `<ws_state>/X` verbatim.
-//   - podman binds a :ro GlobalHome base and nests a per-workspace writable overlay
+//   - podman binds a per-jail :ro home skeleton and nests a per-workspace writable overlay
 //     per dir, each named with the LEADING DOT STRIPPED
 //     (`<ws_state>/claude:/home/agent/.claude`, and the same for .config, .local,
 //     .npm-global, go, and every pack-declared writable dir). So `~/.X/rest` is
@@ -158,10 +158,10 @@ func terminateCaptureSurfaces(sidecarDir string) []manifest.Surface {
 // one of those binds simply has no file at the derived location and is skipped,
 // rather than being captured from somewhere it does not live.
 //
-// The :ro GlobalHome base and the machine-scope shared dirs are deliberately NOT
-// searched. The jail cannot write the :ro base at all, so a "capture" from it would
-// record yolo's own old output as a user edit; and no shipped capture surface lives
-// in a shared dir (they hold credentials). Declining is free here — the next boot,
+// The :ro home skeleton and the machine-scope shared dirs are deliberately NOT
+// searched. The jail cannot write the skeleton at all, and it holds no file content, only
+// mountpoints and links; and no shipped capture surface lives in a shared dir (they hold
+// credentials). Declining is free here — the next boot,
 // which reads the real jail home, captures either way.
 func jailHomeHostPath(workspace, runtime, surfacePath string) (string, bool) {
 	path, ok := jailHomeHostLocation(workspace, runtime, surfacePath)

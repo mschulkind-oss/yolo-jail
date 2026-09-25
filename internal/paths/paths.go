@@ -592,9 +592,9 @@ type HomeFileRedirect struct {
 }
 
 // HomeFileRedirects returns those three. ONE list, two consumers that must agree about it:
-// storage.EnsureGlobalStorage writes them into the container's GlobalHome base, and the
-// macos-user home layout writes the same three into the sandbox account home
-// (entrypoint.DeriveDarwinHomeLayout). A fourth file redirected on one backend and not the
+// the podman launch writes them into each jail's :ro home skeleton (buildHomeSkeleton, in
+// internal/cli/run), and the macos-user home layout writes the same three into the sandbox
+// account home (entrypoint.DeriveDarwinHomeLayout). A fourth file redirected on one backend and not the
 // other is a per-backend answer to "where does my agent's state live", which is the drift
 // docs/design/macos-user-home-tiers.md §5.0 rules out.
 func HomeFileRedirects() []HomeFileRedirect {

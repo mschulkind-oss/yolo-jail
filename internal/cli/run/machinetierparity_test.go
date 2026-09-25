@@ -28,9 +28,9 @@ import (
 // whoever adds the mount, not by whoever remembers this file.
 //
 // THE ONE WAIVER is podman's `/home/agent` base itself. That is not a gap: it is the
-// defining difference between the backends (podman layers a :ro GlobalHome base with
-// per-workspace overlays; AC binds wsState whole), and it is why the nested mounts have
-// to be compared rather than the whole set.
+// defining difference between the backends (podman binds a per-jail :ro home skeleton with
+// per-workspace overlays nested in it; AC binds wsState whole), and it is why the nested
+// mounts have to be compared rather than the whole set.
 func TestMachineWideMountsReachBothContainerBackends(t *testing.T) {
 	podman := nestedMachineTierMounts(t, "podman")
 	ac := nestedMachineTierMounts(t, "container")

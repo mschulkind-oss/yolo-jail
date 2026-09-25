@@ -18,8 +18,10 @@ package config
 // agent writes.
 //
 // Two trees qualify, and they are the two THIS launch hands to an agent: the
-// workspace being mounted :rw, and paths.GlobalHome() (the shared /home/agent
-// backing tree). The rule is deliberately incomplete — yolo knows those two, not
+// workspace being mounted :rw, and paths.GlobalHome(), the machine store whose shared
+// dirs are bound :rw into every jail that selects their pack (it was the shared
+// /home/agent backing tree until each podman jail got its own skeleton). The rule is
+// deliberately incomplete — yolo knows those two, not
 // that ~/code/other-project is agent-writable in some other jail — and the rule
 // says so itself (the "cannot be complete" warning under #the-placement-rule): it
 // catches the shape that occurs (a daemon inside the repo being worked on) and the
