@@ -18,13 +18,17 @@
 //   - NO Setsid (setsid broke `podman -it`); NEVER signal.Notify(SIGTSTP)
 //     (default disposition required to actually stop).
 //   - SIGCONT -> re-raw the host TTY, and resync the window size (a resize while
-//     stopped raises no signal we will see). SIGWINCH -> TIOCSWINSZ to the pty,
+//     stopped raises no signal we will see) — only while we own the terminal. A
+//     SIGCONT in the background (`bg`, or `kill %1` on the stopped job) leaves the
+//     shell's termios alone, since the write would raise SIGTTOU and stop us again. SIGWINCH -> TIOCSWINSZ to the pty,
 //     then a TARGETED SIGWINCH at the child pid — the runtime shares our process
 //     group on the host tty and reads its size from the proxy pty, so without the
 //     poke it can read a stale size and nothing ever corrects it (resyncWinsize).
-//   - Ctrl-C, SIGHUP or SIGTERM -> restore cooked termios and reset the terminal,
-//     run onTerminate, exit 130 or 128+n. Raw mode delivers Ctrl-C as a byte, so
-//     the proxy turns it into a TARGETED SIGINT rather than leaking it to the jail.
+//   - SIGINT, SIGHUP or SIGTERM -> restore cooked termios and reset the terminal
+//     (in the foreground only, and with SIGTTOU/SIGTTIN ignored, so the arm reaches
+//     its exit from the background too), run onTerminate, SIGKILL the child at its
+//     pid, exit 128+n. A Ctrl-C keypress is not one of these: raw mode delivers it
+//     as a byte, and the byte is forwarded to the jail (proxyLoop states the ruling).
 //   - stdin EOF -> stop reading stdin, keep pumping the master until child exit
 //     (the decided semantics).
 //
@@ -134,7 +138,7 @@ const (
 	StageDrainDone       = "drain_done"
 	StageTermiosRestored = "termios_restored"
 	// StageSuspended and StageResumed bracket a ^Z self-suspend. The suspend is
-	// the one way out of a lingering client that a user has found (^Z, then
+	// how a user gets out of a lingering client (^Z, then `kill %1`, or
 	// `kill -9 %1`), and a SIGKILL records nothing after it — so the log has to
 	// hold the suspend itself, written as it happens.
 	StageSuspended = "suspended"
@@ -299,6 +303,14 @@ func RunWithProxyObserved(cmd []string, onStarted func(*os.Process), onTerminate
 			case syscall.SIGWINCH:
 				resyncWinsize(inFd, master, c)
 			case syscall.SIGCONT:
+				// Resumed in the BACKGROUND — `bg`, or the SIGCONT bash's `kill %1`
+				// sends a stopped job — the terminal is the shell's: a termios write
+				// from here would raise SIGTTOU and stop us again, and would put the
+				// shell's terminal in raw mode if it got through. `fg` sends another
+				// SIGCONT, from the foreground, and that one re-raws.
+				if !ownsTerminal(inFd) {
+					continue
+				}
 				setRaw(inFd, cooked) // host TTY was cooked while suspended
 				// AND RESIZE. A window resized while we were stopped changed the
 				// host tty behind our back, and the resulting SIGWINCH is only
@@ -309,11 +321,26 @@ func RunWithProxyObserved(cmd []string, onStarted func(*os.Process), onTerminate
 				resyncWinsize(inFd, master, c)
 			case syscall.SIGINT, syscall.SIGHUP, syscall.SIGTERM:
 				termOnce.Do(func() {
-					restoreCooked()
+					// The terminate arm must reach os.Exit from the background too:
+					// that is where `kill %1` finds a job the user ^Z'd out of a
+					// lingering quit. Any tty write or read on the way out would
+					// raise SIGTTOU/SIGTTIN there and stop us instead, so both are
+					// ignored from here on — and the termios, which is the shell's
+					// while we are in the background, is left alone.
+					signal.Ignore(syscall.SIGTTOU, syscall.SIGTTIN)
+					if ownsTerminal(inFd) {
+						restoreCooked()
+					}
 					callStage(hook, StageTermiosRestored)
 					if onTerminate != nil {
 						onTerminate()
 					}
+					// Then the child, TARGETED at its pid: a runtime client that
+					// outlived its container ignores the SIGTERM a shell sends the
+					// job's group (the podman client forwards it to a container that
+					// is gone), and os.Exit would leave it running with nobody
+					// waiting on it. An error means it already exited.
+					_ = c.Process.Kill()
 					n := int(s.(syscall.Signal))
 					os.Exit(128 + n)
 				})
@@ -527,6 +554,18 @@ func resetTerminal(inFd int) {
 // terminal modes (shows the cursor, resets attributes, and disables mouse
 // tracking, bracketed paste, application cursor/keypad modes, focus reporting
 // and the enhanced keyboard protocols).
+// ownsTerminal reports whether this process's group is the terminal's foreground
+// group — false once a ^Z has handed the terminal back to the shell. Reading the
+// foreground group is allowed from the background; an fd that is not a terminal
+// answers true, because a termios write to it cannot stop us.
+func ownsTerminal(fd int) bool {
+	pgrp, err := unix.IoctlGetInt(fd, unix.TIOCGPGRP)
+	if err != nil {
+		return true
+	}
+	return pgrp == unix.Getpgrp()
+}
+
 func restoreTerminal(inFd int, cooked *unix.Termios) {
 	_ = unix.IoctlSetTermios(inFd, unix.TCSETS, cooked)
 	resetTerminal(inFd)
