@@ -433,14 +433,32 @@ type extensionRun struct {
 	Calls  [][]string `json:"calls"`
 }
 
+// requireNode returns node's path, or SKIPS the calling test — naming what went unexercised —
+// when node is not on PATH. A skip, not a failure: node is a runtime of the agents these
+// adapters ship for, not of yolo's own build, and a from-source `go test -short ./...` on a
+// machine without it must not go red over an absent interpreter. What keeps the skip from
+// hiding a regression is that CI's two short-suite jobs (check-go on ubuntu-latest,
+// check-macos on macos-latest, .github/workflows/ci.yml) both run with node on PATH — neither
+// installs it; each runner image ships it, and internal/entrypoint's
+// pi_openai_auth_extension_test.go, which execs node unconditionally, is green on both.
+//
+// Called AFTER a test's static assertions, never at the top, so the manifest and source
+// checks that need no interpreter still run without one.
+func requireNode(t *testing.T, what string) string {
+	t.Helper()
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skipf("node is not on PATH (%v), so %s did not run; install node to run "+
+			"this test — CI's short-suite jobs have it", err, what)
+	}
+	return node
+}
+
 // runExtension runs the shipped extension file under node through extensionHarness. withYolo
 // puts the stand-in yolo on the extension's PATH; without it the PATH holds node alone.
 func runExtension(t *testing.T, source []byte, hasUI, withYolo bool, env map[string]string) extensionRun {
 	t.Helper()
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Fatalf("node is needed to run the pi and omp extensions: %v", err)
-	}
+	node := requireNode(t, "the pi and omp extensions")
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "extension.mjs"), source, 0o644); err != nil {
 		t.Fatal(err)
@@ -608,10 +626,7 @@ type opencodeRun struct {
 // stand-in yolo on PATH when withYolo is set.
 func runOpencodePlugin(t *testing.T, source []byte, withYolo bool, muted string, env map[string]string) opencodeRun {
 	t.Helper()
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Fatalf("node is needed to run the opencode plugin: %v", err)
-	}
+	node := requireNode(t, "the opencode plugin")
 	dir := t.TempDir()
 	stub := filepath.Join(dir, "node_modules", "@opentui", "solid")
 	if err := os.MkdirAll(stub, 0o755); err != nil {
