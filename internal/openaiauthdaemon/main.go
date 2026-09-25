@@ -2,7 +2,7 @@ package openaiauthdaemon
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -113,18 +113,59 @@ func serveSockets(jailHandler, hostHandler hostservice.Handler,
 	return err
 }
 
+// selfCheck is the openai-auth-broker loophole's `doctor_cmd`, which `yolo check` runs.
+//
+// Its lines are GRADED by internal/cli/check's reportSelfCheckLines — "OK:" passes, "NOTE:"
+// warns, "FAIL:" fails — the protocol the aws-auth and host-processes self-checks already
+// speak. It printed a JSON status view and an ungraded "unavailable" line until 2026-09-25,
+// neither of which that grader reads, so every non-zero exit rendered as
+// `self-check failed (rc=1)` over the note "no output".
+//
+// # A MISSING state file is not a failure
+//
+// It is the normal state of a machine that has never logged in — the fresh HOME `yolo check`
+// runs on — and the daemon's own `status` action already answers it as `logged_in: false`
+// rather than as an error. So it is a NOTE naming the two ways to log in, exit 0: a warn is
+// how this report says "working as configured, and you should know" (awsauthdaemon's
+// SelfCheck), and here the reader does need to know, because nothing logs in for them.
+// A state file that exists and cannot be read, and a grant OpenAI has refused to refresh,
+// are the real faults, and FAIL.
+//
+// It never prints a token, only the fingerprints the status view carries.
 func selfCheck(statePath string, output io.Writer) int {
 	state, err := openaiauth.ReadState(statePath)
-	if err != nil {
-		fmt.Fprintln(output, "OpenAI authentication: unavailable:", err)
-		return 1
+	if errors.Is(err, os.ErrNotExist) {
+		fmt.Fprintln(output, "NOTE: no OpenAI subscription login on this machine yet (no "+
+			"credential state at "+statePath+") — `yolo host codex` signs in through the "+
+			"browser, or `yolo openai-auth import --from <auth.json>` installs an existing "+
+			"Codex login")
+		return 0
 	}
-	if err := json.NewEncoder(output).Encode(statusView(state)); err != nil {
+	if err != nil {
+		fmt.Fprintln(output, "FAIL: OpenAI credential state at "+statePath+" is unusable: "+
+			err.Error()+" — `yolo openai-auth logout` deletes it, then log in again")
 		return 1
 	}
 	if state.LoginRequired {
+		code := state.LastErrorCode
+		if code == "" {
+			code = "no error code recorded"
+		}
+		fmt.Fprintln(output, "FAIL: OpenAI refused to refresh the machine-wide grant ("+code+
+			"), so every jail borrowing it fails — log in again with `yolo host codex`, or "+
+			"`yolo openai-auth import --from <auth.json>`")
 		return 1
 	}
+	account := state.AccountID
+	if account == "" {
+		account = "unknown account"
+	}
+	fmt.Fprintf(output, "OK: logged in (%s, generation %d); access token expires %s\n",
+		account, state.Generation,
+		time.UnixMilli(state.ExpiresAtMS).UTC().Format(time.RFC3339))
+	fmt.Fprintf(output, "OK: token fingerprints — access %s, refresh %s\n",
+		openaiauth.TokenFingerprint(state.AccessToken),
+		openaiauth.TokenFingerprint(state.RefreshToken))
 	return 0
 }
 

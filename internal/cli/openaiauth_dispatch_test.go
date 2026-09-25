@@ -17,11 +17,12 @@ func TestInternalDispatchRoutesOpenAIAuthClient(t *testing.T) {
 }
 
 func TestInternalDaemonDispatchRoutesOpenAIAuthBroker(t *testing.T) {
-	// Self-check is read-only and returns 1 for absent state. Falling through
-	// the daemon dispatch returns 2, so this pins the production caller.
+	// Self-check is read-only and returns 0 for absent state — a machine that has never
+	// logged in, graded as a NOTE rather than a failure (openaiauthdaemon's selfCheck).
+	// Falling through the daemon dispatch returns 2, so this pins the production caller.
 	state := filepath.Join(t.TempDir(), "missing.json")
-	if rc := runInternalDaemon([]string{"openai-auth-broker", "--self-check", "--state-file", state}); rc != 1 {
-		t.Fatalf("openai-auth-broker dispatch rc = %d, want self-check failure 1", rc)
+	if rc := runInternalDaemon([]string{"openai-auth-broker", "--self-check", "--state-file", state}); rc != 0 {
+		t.Fatalf("openai-auth-broker dispatch rc = %d, want the fresh-machine self-check's 0", rc)
 	}
 }
 
