@@ -242,8 +242,10 @@ version collision made it urgent.
    > is pre-authenticated", but nothing grants a token and `~/.config/gh` does not exist in a jail —
    > so that line was false regardless of what this question rules. **Fixed 2026-09-25**: the
    > briefing now says gh is not signed in, and `TestBriefingDoesNotClaimGhIsAuthenticated`
-   > (`internal/cli/briefingclaims_test.go`) holds it there. ⚠ `config_ref.txt`'s *Identity &
-   > Auth* block still says "pre-authenticated via the shared home" and is not yet fixed.
+   > (`internal/cli/briefingclaims_test.go`) holds it there. `config_ref.txt`'s *Identity & Auth*
+   > block made the same claim ("pre-authenticated via the shared home"); **fixed 2026-09-25** to
+   > say gh is not signed in, held by `TestConfigRefDoesNotClaimGhIsAuthenticated` in the same
+   > file.
 
    _Leaning:_ **Rule on `neovim` alone here; the table above is what a follow-up sprint would take.**
    That was the leaning before the measurement and it survives it — the audit's value is that the

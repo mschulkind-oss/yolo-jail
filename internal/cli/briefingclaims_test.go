@@ -146,3 +146,62 @@ func TestBriefingDoesNotClaimGhIsAuthenticated(t *testing.T) {
 			"as the old promise:\n%s", bullet)
 	}
 }
+
+// TestConfigRefDoesNotClaimGhIsAuthenticated is the same claim in `yolo config-ref`'s
+// *Identity & Auth* block, which said "GitHub CLI (gh) is pre-authenticated via the shared
+// home" after the briefing's copy was corrected (docs/design/baked-editor-preference.md
+// OQ-ED4's audit). Nothing grants gh a token: the host's gh credentials do not cross, and no
+// pack or core code writes ~/.config/gh or sets GH_TOKEN. Read through configRefRun — what
+// the command prints — so the assertion is about the output, not the embedded file alone.
+func TestConfigRefDoesNotClaimGhIsAuthenticated(t *testing.T) {
+	var buf bytes.Buffer
+	configRefRun(&buf, false)
+	text := buf.String()
+	if strings.Contains(strings.ToLower(text), "pre-authenticated") {
+		t.Errorf("config-ref claims gh is pre-authenticated; no host credential for it " +
+			"reaches the jail")
+	}
+	at := strings.Index(text, "Identity & Auth")
+	if at < 0 {
+		t.Fatal("config-ref no longer has an Identity & Auth block — this test has lost its " +
+			"subject; repoint it at wherever config-ref explains gh")
+	}
+	block := text[at:]
+	if end := strings.Index(block, "\n\n"); end >= 0 {
+		block = block[:end]
+	}
+	if !strings.Contains(block, "not signed in") {
+		t.Errorf("config-ref's Identity & Auth block mentions gh without saying it is not "+
+			"signed in — silence reads as the old promise:\n%s", block)
+	}
+}
+
+// TestConfigRefHomeBlockDoesNotClaimOneSharedHome pins `yolo config-ref`'s *Home Directory*
+// block, which said the home is "the SAME across ALL jail workspaces" and "Contains: auth
+// tokens (gh, claude, codex)". Neither is true: the home is composed per launch, most of it
+// from the workspace's own overlay (docs/reference/jail-home.md, Sharing semantics), and no
+// gh token reaches a jail at all (the test above).
+func TestConfigRefHomeBlockDoesNotClaimOneSharedHome(t *testing.T) {
+	var buf bytes.Buffer
+	configRefRun(&buf, false)
+	text := buf.String()
+	at := strings.Index(text, "Home Directory (/home/agent)")
+	if at < 0 {
+		t.Fatal("config-ref no longer has a Home Directory block — this test has lost its " +
+			"subject; repoint it at wherever config-ref explains the home")
+	}
+	block := text[at:]
+	if end := strings.Index(block, "\n\n"); end >= 0 {
+		block = block[:end]
+	}
+	lower := strings.ToLower(block)
+	for _, claim := range []string{"same across all", "auth tokens (gh"} {
+		if strings.Contains(lower, claim) {
+			t.Errorf("config-ref's Home Directory block still claims %q:\n%s", claim, block)
+		}
+	}
+	if !strings.Contains(block, ".yolo/home") {
+		t.Errorf("config-ref's Home Directory block does not say the home is per-workspace "+
+			"(<workspace>/.yolo/home):\n%s", block)
+	}
+}

@@ -1953,11 +1953,12 @@
     neither key is needed.
 
   [bold]Home Directory (/home/agent)[/bold]
-    A shared persistent home that is the SAME across ALL jail workspaces.
-    Contains: auth tokens (gh, claude, codex), tool caches, npm/go globals,
-    nvim config, shell configs. All of this survives jail restarts and is
-    shared between every project's jail. Mise tool data lives at /mise —
-    also shared between all jails, also surviving restarts.
+    Composed at every launch, not one directory. Most of it is the
+    workspace's own overlay (<workspace>/.yolo/home): npm/go globals, shell
+    and agent state, sessions. It survives restarts of that workspace's jail
+    and is not seen by any other. Shared by every jail on the machine: each
+    selected pack's shared dirs, the cache at ~/.cache, and mise tool data
+    at /mise. No host credential is mounted unless your config grants it.
 
   [bold]Per-Workspace State[/bold]
     Some state is isolated per-workspace (in <workspace>/.yolo/):
@@ -1966,7 +1967,9 @@
 
   [bold]Identity & Auth[/bold]
     Git identity (name + email) is injected from the host automatically.
-    GitHub CLI (gh) is pre-authenticated via the shared home.
+    GitHub CLI (gh) is not signed in: the host's gh token does not cross
+    into the jail. Give gh a credential of its own if the work needs it
+    (e.g. GH_TOKEN through env_sources, or `gh auth login` in the jail).
     SSH keys are per-workspace — configure in <workspace>/.yolo/home/ssh/.
 
   [bold]Tools & Runtimes[/bold]
