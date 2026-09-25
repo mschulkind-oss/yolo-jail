@@ -272,9 +272,11 @@ func TestBuiltinAgySettingsSurface(t *testing.T) {
 	if got, want := s.ManagedMap()["trustedWorkspaces"], []any{"/workspace"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("agy/settings trustedWorkspaces = %#v, want %#v", got, want)
 	}
-	// No setDefault keys — Defaults is empty (yolo owns the file outright).
-	if len(s.DefaultsMap()) != 0 {
-		t.Errorf("agy/settings Defaults should be empty, got %#v", s.Defaults)
+	// One default and only one: the footer's statusLine (docs/design/agent-footer.md), at
+	// the lowest layer so a statusLine of the user's own replaces it. The adapter itself is
+	// pinned in internal/footer's adapter tests.
+	if got := s.DefaultsMap(); len(got) != 1 || got["statusLine"] == nil {
+		t.Errorf("agy/settings Defaults should hold only the footer's statusLine, got %#v", s.Defaults)
 	}
 	// The dynamic mcp_config.json is a separate pure-overwrite sibling, not a
 	// manifest layer — it must not be baked into settings.

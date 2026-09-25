@@ -30,6 +30,10 @@
           "agent": "copilot",
           "codec": "json",
           "defaults": {
+            "statusLine": {
+              "command": "test ! -r ~/.copilot/yolo/footer.sh || sh ~/.copilot/yolo/footer.sh",
+              "type": "command"
+            },
             "yolo": true
           },
           "mode": "rmw",
@@ -38,6 +42,11 @@
         }
       ],
       "kind": "config"
+    },
+    {
+      "from": "footer/yolo-footer.sh",
+      "into": ".copilot/yolo/footer.sh",
+      "kind": "files"
     },
     {
       "config": [

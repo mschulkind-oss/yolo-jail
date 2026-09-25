@@ -25,6 +25,11 @@
       "kind": "skills"
     },
     {
+      "from": "footer/yolo-footer.js",
+      "into": ".config/opencode/yolo/footer.js",
+      "kind": "files"
+    },
+    {
       "config": [
         {
           "agent": "opencode",
@@ -37,6 +42,17 @@
           "retireOnFirstRender": [
             "yolo-managed-mcp-servers.json"
           ]
+        },
+        {
+          "agent": "opencode",
+          "codec": "json",
+          "defaults": {
+            "plugin": [
+              "./yolo/footer.js"
+            ]
+          },
+          "name": "tui",
+          "path": "~/.config/opencode/tui.jsonc"
         }
       ],
       "kind": "config"

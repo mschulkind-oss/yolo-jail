@@ -26,6 +26,11 @@
       "kind": "skills"
     },
     {
+      "from": "extensions/yolo-footer.js",
+      "into": ".oh-omp/agent/extensions/yolo-footer/index.js",
+      "kind": "files"
+    },
+    {
       "config": [
         {
           "agent": "oh-omp",

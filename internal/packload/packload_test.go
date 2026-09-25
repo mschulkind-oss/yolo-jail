@@ -46,10 +46,11 @@ func TestEmbeddedPackSurfacesDecode(t *testing.T) {
 		}
 		total += len(surfaces)
 	}
-	// The official packs carry 14 surfaces across the agents.
+	// The official packs carry 15 surfaces across the agents (the 15th, opencode's tui, is the
+	// agent footer's plugin list: docs/design/agent-footer.md).
 	// A drop here means a pack lost a surface in translation.
-	if total != 14 {
-		t.Errorf("official packs declare %d surfaces, want 14", total)
+	if total != 15 {
+		t.Errorf("official packs declare %d surfaces, want 15", total)
 	}
 }
 

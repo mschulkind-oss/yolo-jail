@@ -65,6 +65,12 @@
         {
           "agent": "claude",
           "codec": "json",
+          "defaults": {
+            "statusLine": {
+              "command": "yolo internal footer --agent claude --login 'Claude subscription' --truthy 1,true,yes,on --switch CLAUDE_CODE_USE_BEDROCK=bedrock --switch CLAUDE_CODE_USE_FOUNDRY=foundry --switch CLAUDE_CODE_USE_ANTHROPIC_AWS=anthropic-aws --switch CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD=anthropic-google-cloud --switch CLAUDE_CODE_USE_MANTLE=mantle --switch CLAUDE_CODE_USE_VERTEX=vertex --words bedrock=Bedrock --words 'openai-codex=ChatGPT subscription' --words 'foundry=Microsoft Foundry' --words 'anthropic-aws=Claude Platform on AWS' --words 'anthropic-google-cloud=Claude Platform on Google Cloud' --words 'mantle=Bedrock Mantle' --words 'vertex=Vertex AI' --bridged openai-codex --bridged cerebras --bridged kilo --template '{stdin.model.display_name} · yolo: {yolo.billing} · {yolo.notch}'",
+              "type": "command"
+            }
+          },
           "name": "settings",
           "path": "~/.claude/settings.json",
           "readsHost": true,
