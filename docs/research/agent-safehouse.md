@@ -894,12 +894,17 @@ Re-check these before quoting them; everything here moved within the last six mo
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **OQ-AS3: Should `mounts` and `env_sources` become user-scope-only?**
+3. <a id="OQ-AS3"></a>💬 **OQ-AS3: Should `mounts` and `env_sources` become user-scope-only?**
 
    <!-- vantage: oq id=OQ-AS3 leaning="Yes for env_sources at least — source-bearing host_files is already user-scope-only for exactly this reason, and env_sources reaches the same host files by another name." -->
 
    *(Opened 2026-09-18 by the maintainer while reading this comparison's trust-boundary
    section, and verified against `internal/config` before filing.)*
+
+   *Paired 2026-09-25 with [`workspace-config-trust.md`](../design/workspace-config-trust.md), which
+   adds a third answer — grants allowed in the local file only against a host-side trust record —
+   and argues that §9 item 1's scope rule holds against the repo author but not against the in-jail
+   agent, who can write the local file.*
 
    Stakes: the comparison's sharpest finding about Safehouse is that they gate a repo-supplied
    policy behind explicit per-directory trust while yolo honours a repo-committed

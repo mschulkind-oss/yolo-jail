@@ -634,6 +634,11 @@ user-scope-only set, by contrast, has grown well past the four this section used
 install, `env`, `doctor_cmd` and `settings` keys (every one a `user-scope only` refusal in
 `internal/config`, counted 2026-09-06).
 
+An iceboxed consent proposal, [`workspace-config-trust.md`](workspace-config-trust.md), would add a
+host-side trust record for writable grants in the local file. It passes Test 1 where OQ-TP9's gate
+failed, because neither the repo author nor the in-jail agent could already grant a writable host
+path; built, it would be a new refusal source bound by OQ-TP6.
+
 > [!WARNING]
 > **And the scope model inverts one level down.** Measured: `/home/agent/.config/yolo-jail` and
 > `/workspace/.yolo/home/config/yolo-jail` **share an inode**. So "user scope" — the property the
