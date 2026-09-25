@@ -9,6 +9,7 @@ covers:
   - internal/cli/run/prepare.go
   - internal/cli/run/briefingdest.go
   - internal/cli/run/briefingreadback.go
+  - internal/cli/run/unmatchedaudience.go
   - internal/cli/run/backendcaps.go
   - internal/entrypoint/hostbriefing.go
   - internal/packload/agentaudience.go
@@ -324,7 +325,7 @@ it.
 > looks.** It would make this the only kind whose owner is inferred. A derived identity also
 > changes meaning silently when a pack or a path is renamed. A third-party agent pack that
 > declares no `agent` is therefore unaddressable until it adds one. That cost is accepted, and
-> [`yolo host apply` reports it](#two-severities-an-unknown-name-is-fatal-an-unmatched-destination-is-reported)
+> [`yolo host apply` and the jail launch report it](#two-severities-an-unknown-name-is-fatal-an-unmatched-destination-is-reported)
 > rather than hiding it.
 
 #### Two severities: an unknown name is fatal, an unmatched destination is reported
@@ -368,9 +369,23 @@ not redundant:
 
 `yolo host apply` prints both views (`reportInferredDestinations` in `internal/cli`). An unmatched
 audience is a `no effect` warning at exit status 0. It names the owning pack and the selector, and
-it says outright that declaring `into` is not the remedy. **The jail launch prints no equivalent
-line.** At the jail notch, addressed prose that matches no destination is simply composed into
-none of them, and nothing under `internal/cli/run` reads `Orphaned` or `Addressed`.
+it says outright that declaring `into` is not the remedy.
+
+**The jail launch prints its own warning for the unmatched case, and still refuses nothing**
+(`reportUnmatchedAudiences` in `internal/cli/run/unmatchedaudience.go`, called from the launch's
+pack loading right after the fatal gate). The line names the addressing pack, the kind, the
+pack-relative sources and the audience, and it says that declaring `into` is not the remedy. It
+does not tell the user to select a pack, because the fatal gate has just proved that every name
+reaching it belongs to a selected pack. The launch still reads neither `Orphaned` nor
+`Addressed`. The jail never resolves destinations the host's way: it composes each destination
+from the whole pack set, filtering by that destination's declared identity. So the report asks
+the jail's own enumerations instead: `briefingDestinations` for briefing, `packSkillTargets` for
+skills, and the `files` slot rule `packFilesTargets` applies. Tests in
+`unmatchedaudience_test.go` pin each of the three against the code that delivers it: briefing
+composition (`refreshJailBriefings`), skills staging (`jailcontent.PrepareSkills`, read off the
+staged files), and the files mount targets (`packFilesTargets`). So the warning prints exactly when
+the jail delivers that content to no agent. Both notches report per contribution: content that
+reaches at least one destination prints nothing, however many of its names matched none.
 
 **Allowlist only.** No `except: [...]` form exists. Under P3 an author may name only enabled
 agents, so the list is already bounded by the jail rather than by the set of agents in the world.
@@ -671,7 +686,7 @@ their own rules. The audience model's principles `P1`–`P5` are in the body, un
 | <a id="oq-ba5"></a>[`OQ-BA5`](#oq-ba5) | The fields are spelled **`agent`** (identity) and **`agents`** (audience), and the value is still the bin | The spelling follows what users call a launcher command and what a config surface already calls its owner. Renaming them to `bins` or `for` would change nothing about the namespace and break every manifest. |
 | <a id="oq-ba6"></a>[`OQ-BA6`](#oq-ba6) | The identity is **declared by the agent pack that owns the name**, and two packs claiming one name is **fatal**, through a pass of its own | The generic collision loop skips kinds that merge, which `briefing` and `skills` do by design, so folding this into it makes the collision invisible. |
 | <a id="oq-ba7"></a>[`OQ-BA7`](#oq-ba7) | Ownership is **per NAME, across kinds** ([P5](#ba-p5)) | `claude-official` and `claude-matt-fork` both launch as `claude` and cannot both be selected. A per-kind key would let one own the briefing and the other the program. `-p claude=<profile>`, `use_profiles.claude` and `agents: ["claude"]` would then each resolve to whichever declaration they happened to read. |
-| <a id="ba-r1"></a>[`R1`](#ba-r1) | An addressed contribution that matches no destination of its kind is **reported, not refused** | The addressing pack's `agents` is correct; the fix belongs to the owning pack. Refusing would punish the wrong author, and the fatal half is P3's. `yolo host apply` is where the report lives; the jail launch prints none ([two severities](#two-severities-an-unknown-name-is-fatal-an-unmatched-destination-is-reported)). |
+| <a id="ba-r1"></a>[`R1`](#ba-r1) | An addressed contribution that matches no destination of its kind is **reported, not refused** | The addressing pack's `agents` is correct; the fix belongs to the owning pack. Refusing would punish the wrong author, and the fatal half is P3's. Both notches print the report: `yolo host apply` and the jail launch ([two severities](#two-severities-an-unknown-name-is-fatal-an-unmatched-destination-is-reported)). |
 | <a id="ba-r2"></a>[`R2`](#ba-r2) | The destination enumeration and the staging-name encoding live in one place each, called by both halves | A mismatch does not fail the launch — podman binds an absent file source happily — so the failure is a *blank briefing*, which nothing reports. Coupling by comment had already let the two drift. |
 | <a id="ba-r3"></a>[`R3`](#ba-r3) | Each notch carries its own call-site pin for the audience | The two notches narrow in different places. A test of the shared predicate stays green when either call site is deleted, which is the shape this repo has shipped repeatedly. |
 | <a id="ba-r4"></a>[`R4`](#ba-r4) | A destination that declares no identity can be named by no `agents` selector, but still receives every broadcast | It is the state every pack was in before the field existed, so treating it as an error would break every existing pack, and treating it as matchable would deliver addressed prose to a destination that never claimed the identity. |

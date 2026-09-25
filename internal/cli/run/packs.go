@@ -463,6 +463,10 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 	if probs := packload.AgentAudienceProblems(loaded); len(probs) > 0 {
 		return "", nil, nil, fmt.Errorf("packs: %s", strings.Join(probs, "\npacks: "))
 	}
+	// And R1 itself, the half that is REPORTED: every name here is now known to be owned by a
+	// selected pack, so an addressed contribution that still reaches no destination of its kind
+	// is the owning pack's missing `agent`, printed and never refused (unmatchedaudience.go).
+	o.reportUnmatchedAudiences(loaded)
 
 	jailcontent.SetPackSkillDirs(skillDirs)
 	// Record the pack-contributed loophole modules for every host-side consumer, with
