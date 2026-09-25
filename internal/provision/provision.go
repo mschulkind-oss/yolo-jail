@@ -3,7 +3,8 @@
 //
 // THE STAGE is the imperative provisioning step a launch runs INSIDE the jail, after the
 // package floor exists and before the agent starts: the store prune, `mise install`, and
-// the generated bootstrap script that npm-installs LSP servers and MCP tools. The word is
+// the generated bootstrap script that npm-installs MCP tools and installs — or refuses the
+// launch over — a Node floor a selected pack declares (RefusedStatus). The word is
 // docs/design/macos-user-provisioning.md's; it is not a config key and it names nothing a
 // user types.
 //
@@ -25,6 +26,7 @@ package provision
 
 import (
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
@@ -34,6 +36,27 @@ import (
 // exits non-zero, and the literal jailcontent.ReadProvisioningFailed greps for. See the
 // package comment for the three readers.
 const FailedMarker = "PROVISIONING FAILED"
+
+// RefusedStatus is the ONE exit status a provisioning step uses to REFUSE the launch, and
+// the one status Script passes through unconditionally — non-interactively, at a terminal,
+// with nobody asked. Every other non-zero status keeps degrading exactly as it did.
+//
+// It exists for docs/reference/agent-program-runtimes.md's OQ-AR3: a selected pack declares a
+// program whose Node floor nothing satisfies, even after the stage tried to install one, and
+// the ruling is that "the jail does not start" — with no escape hatch. Before this status the
+// bootstrap's refusal was an ordinary `exit 1`, which Script degraded like any other failed
+// step, so the target command ran anyway, which is the unready jail the ruling forbids.
+//
+// 78 is sysexits.h's EX_CONFIG ("something was found in an unconfigured or misconfigured
+// state"). The value only has to be one that no OTHER step produces by accident, since a
+// collision would turn an ordinary failure into a refusal. None of the steps does: `mise
+// install` exits 1 on failure, the venv step always exits 0, and the bootstrap's own npm run
+// has its status captured rather than returned. A signal death is 128+N, never 78.
+//
+// ⚠ BAKED, NEVER SPELLED: the bootstrap template (entrypoint.BootstrapScript) renders this
+// constant into its `exit`, so the producer and the one consumer that tests for it cannot
+// disagree about the number.
+const RefusedStatus = 78
 
 // StartupLog is the provisioning log for one workspace: <workspace>/.yolo/startup.log.
 //
@@ -51,6 +74,13 @@ func StartupLog(workspace string) string {
 // The STEPS of the stage, each a complete shell command. Setup joins them with `&&`, so
 // each is also the point at which the stage stops: a failing step skips the rest and the
 // wrapper records it.
+//
+// ⚠ THE BOOTSTRAP IS THE LAST STEP ON BOTH BACKENDS, because it is the one step that can
+// exit RefusedStatus, and a refusal must not cost the steps that follow it. The container
+// used to run the venv step AFTER it, so a refused floor would also have skipped venv
+// creation — a step that has nothing to do with Node. Every step before it still gates it
+// (a failed `mise install` skips the bootstrap, as it always did); what that leaves unchecked
+// is docs/design/agent-program-runtimes.md's OQ-AR6, still open.
 //
 // They are constants rather than a rendered script because the two backends take
 // DIFFERENT SUBSETS, and a subset is only legible if the members have names. What each
@@ -111,11 +141,18 @@ func SetupBypassingShims(steps ...string) string {
 // It is bash, not sh: ${PIPESTATUS[0]} is how the exit status of the stage survives the
 // pipe into tee, and a plain `sh` would report tee's.
 //
-// The exit status is the CALLER'S SIGNAL, and it says exactly one thing: whether the human
-// asked to stop. A failed stage that was not vetoed — including every non-interactive one,
-// where there is nobody to ask — completes with status 0, because a jail whose tools did
-// not install is still a jail the user asked for and the record is in the log. Only the
-// `n` answer propagates.
+// The exit status is the CALLER'S SIGNAL, and it says one of exactly two things: the human
+// asked to stop, or a step REFUSED the launch. A failed stage that was neither — including
+// every non-interactive one, where there is nobody to ask — completes with status 0,
+// because a jail whose tools did not install is still a jail the user asked for and the
+// record is in the log. Only the `n` answer and RefusedStatus propagate.
+//
+// THE REFUSAL IS TESTED BEFORE THE PROMPT and exits without asking. A prompt offering to
+// "continue anyway" would be the escape hatch OQ-AR3 ruled out, and a terminal is exactly
+// where a human would take it. The marker is still written first: the refusal IS a failed
+// provision, both readers of the log should say so, and macos-user's orchestrator tells a
+// stage that ran from one that never started by the marker's presence
+// (macosuser.runProvisionStage).
 //
 // ⚠ THE TTY TEST IS THE ONLY LIVE HALF OF THE PROMPT'S GATE. `${YOLO_PROVISION_PROMPT:-1}`
 // beside it has NO WRITER: the container's launcher emits every `-e` by name and never this
@@ -127,6 +164,7 @@ func SetupBypassingShims(steps ...string) string {
 // moves with it).
 func Script(logPath, setup string) string {
 	log := shquote.Quote(logPath)
+	refused := strconv.Itoa(RefusedStatus)
 	return "" +
 		`printf "=== yolo provisioning %s ===\n" "$(date "+%Y-%m-%dT%H:%M:%S%z")" ` +
 		">" + log + "; " +
@@ -134,6 +172,10 @@ func Script(logPath, setup string) string {
 		`_prc="${PIPESTATUS[0]}"; ` +
 		`if [ "$_prc" -ne 0 ]; then ` +
 		`printf "` + FailedMarker + ` (exit %s)\n" "$_prc" >>` + log + "; " +
+		`if [ "$_prc" -eq ` + refused + ` ]; then ` +
+		`printf "\033[1;31m✗ Provisioning refused the launch (exit %s): the reason is above — log: ` +
+		dquoteEscape(logPath) + `\033[0m\n" "$_prc" >&2; ` +
+		`exit "$_prc"; fi; ` +
 		`printf "\033[1;31m✗ Provisioning failed (exit %s) — log: ` +
 		dquoteEscape(logPath) + `\033[0m\n" "$_prc" >&2; ` +
 		`if [ -t 0 ] && [ "${YOLO_PROVISION_PROMPT:-1}" != "0" ]; then ` +

@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -39,8 +40,9 @@ func TestScriptWritesTheMarkerIntoTheLog(t *testing.T) {
 	}
 }
 
-// A FAILED STAGE THAT NOBODY VETOED MUST NOT ABORT THE LAUNCH. The only path out with a
-// non-zero status is the interactive `n` answer; a non-interactive run (no tty) has
+// A FAILED STAGE THAT NOBODY VETOED MUST NOT ABORT THE LAUNCH. Apart from a step that
+// REFUSES (RefusedStatus, TestARefusingStepStopsTheLaunchBeforeTheTarget), the only path out
+// with a non-zero status is the interactive `n` answer; a non-interactive run (no tty) has
 // nobody to ask, and a jail whose tools did not install is still a jail the user asked
 // for — the record is in the log.
 func TestOnlyAnExplicitNoPropagatesAFailure(t *testing.T) {
@@ -145,5 +147,97 @@ func TestBootstrapStepQuotesItsPath(t *testing.T) {
 func TestSetupBypassingShimsActuallyBypasses(t *testing.T) {
 	if !strings.HasPrefix(SetupBypassingShims("true"), "YOLO_BYPASS_SHIMS=1 sh -c '") {
 		t.Error("the container's stage no longer bypasses the blocked-tool shims")
+	}
+}
+
+// runStage runs Script(setup) followed by a TARGET line, the way the container composes
+// it (buildFinalInternalCmd: the stage, then `…; <target>`), with the log in a temp dir and
+// stdin wired to `stdin` (nil = /dev/null, the non-interactive shape). It returns the exit
+// status, stdout, stderr and the log.
+func runStage(t *testing.T, setup string, stdin *os.File) (rc int, stdout, stderr, log string) {
+	t.Helper()
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("no bash on PATH; the stage script is bash")
+	}
+	logPath := StartupLog(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(bash, "-c", Script(logPath, setup)+"; echo TARGET-REACHED")
+	if stdin != nil {
+		cmd.Stdin = stdin
+	}
+	var out, errb strings.Builder
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	err = cmd.Run()
+	if ee, ok := err.(*exec.ExitError); ok {
+		rc = ee.ExitCode()
+	} else if err != nil {
+		t.Fatalf("the stage script could not be run: %v", err)
+	}
+	body, _ := os.ReadFile(logPath)
+	return rc, out.String(), errb.String(), string(body)
+}
+
+// THE REFUSAL (docs/reference/agent-program-runtimes.md OQ-AR3): a step exiting RefusedStatus stops the
+// composed command before the target, with that status — and without anyone at a terminal
+// to ask, which is the case the old "only `n` propagates" wrapper waved through.
+func TestARefusingStepStopsTheLaunchBeforeTheTarget(t *testing.T) {
+	rc, stdout, stderr, log := runStage(t, Setup("echo installing >&2", "exit "+strconv.Itoa(RefusedStatus)), nil)
+	if rc != RefusedStatus {
+		t.Errorf("rc = %d, want RefusedStatus (%d) passed through — the caller (the container's "+
+			"exit, macos-user's orchestrator) reads the refusal from it", rc, RefusedStatus)
+	}
+	if strings.Contains(stdout, "TARGET-REACHED") {
+		t.Errorf("the target ran after a step refused the launch — the jail started unready:\n%s", stdout)
+	}
+	// The record is still written: a refusal IS a failed provision, and macos-user's
+	// orchestrator tells "ran" from "never started" by the marker's presence.
+	if !strings.Contains(log, FailedMarker) {
+		t.Errorf("the refusal left no %q in the log:\n%s", FailedMarker, log)
+	}
+	if !strings.Contains(stderr, "refused the launch") {
+		t.Errorf("the console does not say the launch was refused:\n%s", stderr)
+	}
+	if strings.Contains(stderr, "continue anyway") {
+		t.Errorf("a refusal offered to continue — that prompt is the escape hatch OQ-AR3 ruled out:\n%s", stderr)
+	}
+}
+
+// EVERY OTHER FAILURE STILL DEGRADES — the vacuity guard for the test above, and the half of
+// the change that must not move: a non-interactive failed stage records the failure and the
+// target runs, with status 0 from the wrapper.
+func TestAnOrdinaryFailureStillReachesTheTarget(t *testing.T) {
+	for _, status := range []int{1, 2, 77, 79, 127} {
+		rc, stdout, _, log := runStage(t, Setup("exit "+strconv.Itoa(status)), nil)
+		if rc != 0 || !strings.Contains(stdout, "TARGET-REACHED") {
+			t.Errorf("exit %d: rc = %d, target reached = %v — an ordinary failed step must keep "+
+				"degrading, only RefusedStatus refuses", status, rc, strings.Contains(stdout, "TARGET-REACHED"))
+		}
+		if !strings.Contains(log, FailedMarker) {
+			t.Errorf("exit %d: the failure was not recorded in the log:\n%s", status, log)
+		}
+	}
+	// And a clean stage is silent.
+	rc, stdout, _, log := runStage(t, Setup("true"), nil)
+	if rc != 0 || !strings.Contains(stdout, "TARGET-REACHED") || strings.Contains(log, FailedMarker) {
+		t.Errorf("a clean stage: rc %d, stdout %q, log %q", rc, stdout, log)
+	}
+}
+
+// THE STATUS IS SPELLED ONCE. The literal 78 must reach the script from the constant, or a
+// renumbering would leave the wrapper testing for a status nothing produces any more.
+func TestTheRefusalTestReadsTheConstant(t *testing.T) {
+	s := Script(StartupLog("/ws"), Setup("true"))
+	if !strings.Contains(s, `[ "$_prc" -eq `+strconv.Itoa(RefusedStatus)+` ]`) {
+		t.Errorf("the wrapper does not test for RefusedStatus (%d):\n%s", RefusedStatus, s)
+	}
+	// Before the prompt, so a terminal cannot be offered the hatch: asserted behaviorally at
+	// a real pty in provision_tty_linux_test.go, and structurally here for every GOOS.
+	refuse := strings.Index(s, "-eq "+strconv.Itoa(RefusedStatus))
+	prompt := strings.Index(s, "[ -t 0 ]")
+	if refuse < 0 || prompt < 0 || refuse > prompt {
+		t.Errorf("the refusal must be decided before the tty prompt (refusal at %d, prompt at %d)", refuse, prompt)
 	}
 }

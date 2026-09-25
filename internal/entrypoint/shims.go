@@ -509,11 +509,11 @@ func npmAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath string,
 		"__YOLO_SERVERS_NPM__", shquote.Quote(servers.npm),
 		// THE RESOLVED INTERPRETER, as an exec PREFIX rather than a variable, and that shape is
 		// what keeps the no-floor case byte-identical: an empty prefix leaves the line exactly
-		// `exec "$REAL_BIN" …` (docs/design/agent-program-runtimes.md §3.3, which makes
+		// `exec "$REAL_BIN" …` (docs/reference/agent-program-runtimes.md, "The launcher", which makes
 		// byte-identity a test rather than an intention).
 		//
 		// A declared floor that resolves to NOTHING also renders empty here. The refusal for that
-		// case is the launch's (§3.4), not this generator's — a content generator that refused
+		// case is the launch's ("The refusal", same doc), not this generator's — a content generator that refused
 		// would refuse during `yolo check`, which is an observe verb.
 		"__YOLO_EXEC_PREFIX__", nodeExecPrefix(inst.NodeFloor),
 	}, append(launchFlagSplices(flags), refreshSplices(inst.Refresh)...)...)...)

@@ -20,15 +20,13 @@ func TestBuildFinalInternalCmdBashGolden(t *testing.T) {
 	}
 }
 
-// TestBuildFinalInternalCmdQuotingEscapesDisplay checks the display_cmd single-
-// quote escaping (target_cmd's quotes → '\” in the "Executing:" printf).
+// TestBuildFinalInternalCmdQuotingEscapesDisplay: the raw target_cmd (unescaped) is what
+// actually runs at the tail; only the banner's copy of it is quoted. How the banner renders
+// it is TestExecutingBannerPrintsTheTargetVerbatim's job, which runs it rather than
+// grepping for an escape.
 func TestBuildFinalInternalCmdQuotingEscapesDisplay(t *testing.T) {
 	got := buildFinalInternalCmd("echo 'hi'", false)
-	if !contains(got, `Executing: echo '\''hi'\''`) {
-		t.Errorf("display_cmd not escaped: %q", got)
-	}
-	// The raw target_cmd (unescaped) is what actually runs at the tail.
-	if !hasSuffixStr(got, "echo 'hi'") {
+	if !hasSuffixStr(got, "; echo 'hi'") {
 		t.Errorf("target_cmd tail not raw: %q", got)
 	}
 }

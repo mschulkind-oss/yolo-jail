@@ -74,6 +74,12 @@ func ProvisionSetup(bootstrapScript string) string {
 // resolved it from the host's workspace instead. On the container the bind makes those
 // two paths one file; here there is no bind, so the emitter has to name the real path or
 // the record lands somewhere nothing reads. Both now come from provision.StartupLog.
+//
+// THE SAME WRAPPER MEANS THE SAME REFUSAL. A bootstrap that exits provision.RefusedStatus (a
+// selected pack's Node floor nothing satisfies, docs/reference/agent-program-runtimes.md OQ-AR3)
+// has that status passed through here exactly as in the container, and runProvisionStage
+// (orchestrator.go) stops the launch on it. The bootstrap is already this backend's LAST step,
+// which is what keeps a refusal from skipping anything else ProvisionSetup runs.
 func ProvisionScript(workspace, bootstrapScript string) string {
 	return provision.Script(provision.StartupLog(workspace), ProvisionSetup(bootstrapScript))
 }
@@ -183,6 +189,17 @@ func ProvisionBootstrapScript(workspace string) string {
 // have nothing to be spawned by — Env.SkipMCPPresets empties that arm of the generated
 // script too. Counting presets here would start a stage whose only work is a download
 // nothing can exec.
+//
+// ⚠ A DECLARED NODE FLOOR IS NOT ONE EITHER, and that one IS a gap rather than a decision.
+// The floor's eager install and its refusal live in the generated bootstrap, so on this
+// backend they run only when `mise_tools` happens to start a stage: a workspace selecting a
+// floor-declaring pack with no `mise_tools` gets neither. Counting a floor here is not the
+// obvious fix — this backend's image-equivalent node, if the package floor supplies one as
+// flake.nix intends (unmeasured on hardware, docs/reference/agent-program-runtimes.md's "macos-user: UNVERIFIED"), is on the floor
+// prefix and usually meets the floor already (the resolution now sees it:
+// entrypoint.packageFloorNodes), so counting every declared floor would charge each such launch
+// a privileged stage for nothing. Counting only a floor the resolution cannot meet is the
+// leaning; docs/design/agent-program-runtimes.md OQ-AR5 holds the ruling, not guessed at here.
 func ProvisionNeeded(cfg *jsonx.OrderedMap) bool {
 	mise := config.MergeMiseTools(cfg)
 	return mise != nil && mise.Len() > 0

@@ -1,10 +1,13 @@
 package entrypoint
 
 import (
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/provision"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
@@ -319,9 +322,13 @@ func BootstrapScript(e *Env) string {
 	r := strings.NewReplacer(
 		"__YOLO_MISE_SHIMS__", e.MiseShims(),
 		"__YOLO_MCP_NPM_PACKAGES__", mcpPresetNpmPackages(e),
-		// The distinct Node floors every selected pack's programs declare, space-separated.
-		// Baked for macos-user's `env -i`, per the comment at the consuming site.
-		"__YOLO_NODE_FLOORS__", declaredNodeFloors(e),
+		// One check per distinct Node floor the selected packs' programs declare, each naming
+		// the programs and packs that declare it. Baked for macos-user's `env -i`, per the
+		// comment at the consuming site.
+		"__YOLO_NODE_FLOOR_CHECKS__", nodeFloorChecks(e),
+		// The one status the stage's wrapper passes through as a refusal. Spelled by
+		// provision, the package that tests for it, and never here.
+		"__YOLO_REFUSED_STATUS__", strconv.Itoa(provision.RefusedStatus),
 		"__YOLO_RECEIPTS_FILE__", shquote.Quote(receiptsFile(e)),
 		"__YOLO_RECEIPT_MCP_NPM__", shquote.Quote(receiptPrefix("mcp-npm", "", "")),
 	)
@@ -391,42 +398,6 @@ fc-cache -f >/dev/null 2>&1
 # resolves a new version.  Only the MCP preset tools agents depend on are installed here —
 # never a language server: a configured lsp_servers command must already be on PATH.
 
-# --- Node floors: install what a declared program needs, then REFUSE if it is absent ----
-# OQ-AR2's eager half and OQ-AR3's refusal (docs/design/agent-program-runtimes.md).
-#
-# THIS is the eager slot, and the reason is ordering: launcher generation runs before
-# mise install AND host-side under yolo check, so the generator may resolve but must not
-# install.  This script runs in the provisioning stage — after the CA bundle, after
-# mise install, in the one place that already installs over the network.
-#
-# The floors are BAKED, not read from the environment: macos-user runs the stage under
-# env -i, so an inherited variable would be a silent no-op there.
-#
-# ⚠ mise install node@<floor> is the right call here even though a mise SELECTOR IS A
-# PREFIX rather than a floor.  That asymmetry is the whole point: a prefix is wrong for
-# ACCEPTING an installed version (it would fetch 22.19.0 while 22.23.2 sits there) and
-# exactly right for INSTALLING one, because what it fetches satisfies >= floor.
-YOLO_NODE_FLOORS="__YOLO_NODE_FLOORS__"
-if [ -n "$YOLO_NODE_FLOORS" ]; then
-    for _floor in $YOLO_NODE_FLOORS; do
-        if yolo internal node-floor-satisfied "$_floor" >/dev/null 2>&1; then
-            continue
-        fi
-        echo "  ↳ installing node@$_floor (a selected pack declares it)" >&2
-        mise install "node@$_floor" >&2 || true
-        if ! yolo internal node-floor-satisfied "$_floor" >/dev/null 2>&1; then
-            # REFUSAL, not a warning: a jail that cannot run a program its own config
-            # selected is not a ready environment, and reporting success while leaving it
-            # unready states a result that was not achieved.  The provisioning stage's
-            # failure path carries this to the user.
-            echo "yolo: no Node satisfying >=$_floor is available, and installing one failed." >&2
-            echo "      A selected pack declares a program that cannot run without it." >&2
-            echo "      Fix the network, or drop the pack that declares the floor." >&2
-            exit 1
-        fi
-    done
-fi
-
 # --- MCP preset tools (gated on the ENABLED presets, D6) ----------------
 # Empty when no preset needs an npm package, so a jail that wants none installs
 # nothing.  This was previously unconditional: 112 npm packages in every jail,
@@ -468,10 +439,68 @@ if [ -n "$YOLO_MCP_NPM" ]; then
     fi
 fi
 
+# --- Node floors: install what a declared program needs, then REFUSE if it is absent ----
+# OQ-AR2's eager half and OQ-AR3's refusal (docs/reference/agent-program-runtimes.md).
+#
+# THIS is the eager slot, and the reason is ordering: launcher generation runs before
+# mise install AND host-side under yolo check, so the generator may resolve but must not
+# install.  This script runs in the provisioning stage — after the CA bundle, after
+# mise install, in the one place that already installs over the network.
+#
+# The checks are BAKED, not read from the environment: macos-user runs the stage under
+# env -i, so an inherited variable would be a silent no-op there.  Each baked call names
+# one distinct floor and, as its second argument, every program and pack declaring it —
+# the two things the refusal must name that only the generator knows.
+#
+# LAST IN THE SCRIPT, AND THE REFUSAL IS AN EXIT STATUS, NOT AN EARLY EXIT.  A floor
+# nothing satisfies must stop the launch, but must not cost the installs above, which
+# are for other programs.  The status is the one the stage's wrapper passes through
+# unconditionally (provision.RefusedStatus): every other failure in this stage degrades,
+# and until this status existed the refusal degraded with them, so the target ran anyway.
+#
+# ⚠ mise install node@<floor> is the right call here even though a mise SELECTOR IS A
+# PREFIX rather than a floor.  That asymmetry is the whole point: a prefix is wrong for
+# ACCEPTING an installed version (it would fetch 22.19.0 while 22.23.2 sits there) and
+# exactly right for INSTALLING one, because what it fetches satisfies >= floor.
+_yolo_floor_refused=""
+_yolo_node_floor() {
+    if yolo internal node-floor-satisfied "$1" >/dev/null 2>&1; then
+        return 0
+    fi
+    echo "  ↳ installing node@$1 (for $2)" >&2
+    mise install "node@$1" >&2 || true
+    # Exit 1 means "not satisfied" and prints what IS available on stdout; any other
+    # non-zero means the predicate itself could not answer, and saying "none" then would
+    # be a claim nobody measured.
+    local _avail _rc=0
+    _avail=$(yolo internal node-floor-satisfied "$1" 2>/dev/null) || _rc=$?
+    if [ "$_rc" = 0 ]; then
+        return 0
+    fi
+    if [ "$_rc" != 1 ]; then
+        _avail="unknown (yolo internal node-floor-satisfied exited $_rc)"
+    fi
+    # REFUSAL, not a warning: a jail that cannot run a program its own config selected is
+    # not a ready environment, and reporting success while leaving it unready states a
+    # result that was not achieved.
+    echo "yolo: REFUSING to start this jail: a selected pack needs a Node that is not here." >&2
+    echo "      Needed by: $2" >&2
+    echo "      Floor:     Node >=$1 (installing node@$1 failed)" >&2
+    echo "      Available: ${_avail:-none}" >&2
+    echo "      Make a Node >=$1 available (installing one needs the network), or drop" >&2
+    echo "      the pack from your packs list." >&2
+    _yolo_floor_refused=1
+}
+__YOLO_NODE_FLOOR_CHECKS__
+if [ -n "$_yolo_floor_refused" ]; then
+    exit __YOLO_REFUSED_STATUS__
+fi
+
 # NOTE: an unconditional 'pip install showboat' used to live here. It is GONE, deliberately —
 # do not add another ungated tool install to this script. Every other install above is
-# config-gated (mcp presets) or pack-declared, probes for what it needs, and
-# tolerates failure; showboat was the only one that did none of that, and being the LAST
+# config-gated (mcp presets) or pack-declared, probes for what it needs, and either
+# tolerates failure or — the Node floor alone — refuses the launch by exit status;
+# showboat was the only one that did none of that, and being the LAST
 # command it turned a missing 'pip' into "PROVISIONING FAILED" on every boot (PR #29).
 # Nothing in the repo consumed it. If a tool is wanted in the image, the mechanisms are
 # 'packages:' (baked) or a pack's 'requires'/'program' contribution — not this file.
@@ -552,39 +581,74 @@ fi
 "$_uv" venv --clear "/workspace/$_vp" --python "$_py" || true
 `
 
-// declaredNodeFloors is the space-separated set of DISTINCT Node floors the selected packs'
-// `program` contributions declare, for the bootstrap's eager install and its refusal.
+// nodeFloorDecl is one DISTINCT Node floor and every program that declares it, as
+// "program <bin> (pack <name>)" — the words OQ-AR3's refusal must say, in the order the packs
+// were loaded.
+type nodeFloorDecl struct {
+	Floor      string
+	DeclaredBy []string
+}
+
+// declaredNodeFloors is the set of DISTINCT Node floors the selected packs' `program`
+// contributions declare, each with the programs and packs declaring it, for the bootstrap's
+// eager install and its refusal.
 //
-// Distinct, and sorted, for the reason every other baked list here is: two packs declaring 22.19
-// is one install, and a stable order keeps the generated script byte-stable across boots so a
-// diff of two bootstrap scripts means something.
+// Distinct, and sorted by floor, for the reason every other baked list here is: two packs
+// declaring 22.19 is one install, and a stable order keeps the generated script byte-stable
+// across boots so a diff of two bootstrap scripts means something. The declarers are NOT merged
+// away with the duplicate floor: a refusal naming only the first of two programs that need it
+// would send the user to drop a pack and meet the same refusal again.
 //
 // A pack whose installs cannot be resolved contributes nothing rather than failing generation —
 // its own problems are reported on their own path, and a pack that cannot say what it installs
 // cannot be shown to need an interpreter.
-func declaredNodeFloors(e *Env) string {
-	seen := map[string]bool{}
-	var out []string
+func declaredNodeFloors(e *Env) []nodeFloorDecl {
 	// LoadJailPacks, the same source every other generator in this package reads. An error
 	// contributes nothing: a boot that cannot load packs has a louder problem than a missing
 	// interpreter, and it is reported on its own path.
 	packs, err := LoadJailPacks(e)
 	if err != nil {
-		return ""
+		return nil
 	}
+	byFloor := map[string]*nodeFloorDecl{}
 	for _, p := range packs {
 		if p == nil {
 			continue
 		}
 		installs, _ := p.HonoredInstalls()
 		for _, in := range installs {
-			if in.NodeFloor == "" || seen[in.NodeFloor] {
+			if in.NodeFloor == "" {
 				continue
 			}
-			seen[in.NodeFloor] = true
-			out = append(out, in.NodeFloor)
+			d := byFloor[in.NodeFloor]
+			if d == nil {
+				d = &nodeFloorDecl{Floor: in.NodeFloor}
+				byFloor[in.NodeFloor] = d
+			}
+			who := "program " + in.Bin + " (pack " + p.Name + ")"
+			if !slices.Contains(d.DeclaredBy, who) {
+				d.DeclaredBy = append(d.DeclaredBy, who)
+			}
 		}
 	}
-	sort.Strings(out)
-	return strings.Join(out, " ")
+	out := make([]nodeFloorDecl, 0, len(byFloor))
+	for _, d := range byFloor {
+		out = append(out, *d)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Floor < out[j].Floor })
+	return out
+}
+
+// nodeFloorChecks renders declaredNodeFloors as the bootstrap's `_yolo_node_floor <floor> <who>`
+// calls, one per line, or "" when no selected pack declares a floor.
+//
+// Every value is shquote'd into a bare word: the floor is validated (packdecl.ValidNodeFloor) but
+// the bin and the pack name are pack-supplied strings, and this is shell source.
+func nodeFloorChecks(e *Env) string {
+	var lines []string
+	for _, d := range declaredNodeFloors(e) {
+		lines = append(lines, "_yolo_node_floor "+shquote.Quote(d.Floor)+" "+
+			shquote.Quote(strings.Join(d.DeclaredBy, " and ")))
+	}
+	return strings.Join(lines, "\n")
 }

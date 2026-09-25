@@ -618,7 +618,7 @@ func RunMacosUser(deps Deps, opts Options) int {
 }
 
 // runProvisionStage runs the confined provisioning stage and reports whether the launch
-// should continue. false means the human asked to stop.
+// should continue. false means the human asked to stop, or the stage REFUSED the launch.
 //
 // ⚠ A FAILING STAGE MUST NOT ABORT THE LAUNCH (§4 of the design doc), and the stage's
 // RETURNCODE CANNOT TELL YOU WHETHER IT FAILED. That is the whole reason this is a
@@ -640,6 +640,10 @@ func RunMacosUser(deps Deps, opts Options) int {
 //
 //   - non-zero AND the marker is in this launch's log → the stage ran, its body failed,
 //     and a human answered `n`. A deliberate veto: abort, as before.
+//   - provision.RefusedStatus AND the marker → the stage ran and REFUSED the launch, which
+//     the script does without asking anyone (a selected pack's Node floor nothing
+//     satisfies, docs/reference/agent-program-runtimes.md OQ-AR3). Abort, naming it as a
+//     refusal rather than a veto nobody gave; the reason is already on the console.
 //   - non-zero AND no marker → the stage never reported anything, so the status came from
 //     the exec layer. WARN and continue to the agent, per §4.
 //
@@ -650,13 +654,20 @@ func RunMacosUser(deps Deps, opts Options) int {
 func runProvisionStage(deps Deps, out printer, plan RunPlan) bool {
 	log := provision.StartupLog(plan.Workspace)
 	cleared := deps.RemoveFile != nil && deps.RemoveFile(log)
-	if deps.Run(plan.ProvisionArgv) == 0 {
+	rc := deps.Run(plan.ProvisionArgv)
+	if rc == 0 {
 		return true
 	}
 	vetoed := true // the conservative reading; see the docstring.
 	if cleared && deps.ReadFile != nil {
 		body, ok := deps.ReadFile(log)
 		vetoed = !ok || strings.Contains(body, provision.FailedMarker)
+	}
+	if vetoed && rc == provision.RefusedStatus {
+		out.print("[bold red]Provisioning refused the launch.[/bold red] A selected pack " +
+			"declares something this sandbox cannot provide; the reason is printed above " +
+			"and in " + log + ".")
+		return false
 	}
 	if vetoed {
 		out.print("[bold red]Provisioning was aborted.[/bold red] The sandbox is set up " +

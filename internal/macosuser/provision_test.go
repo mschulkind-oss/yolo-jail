@@ -2,6 +2,7 @@ package macosuser
 
 import (
 	"bytes"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -477,5 +478,42 @@ func TestAnUnreadableLogIsTreatedAsAVeto(t *testing.T) {
 	if rc := RunMacosUser(d, opts); rc != 1 {
 		t.Fatalf("rc = %d, want 1 — an unclassifiable stage failure must not be read as "+
 			"'the human said nothing'\n%s", rc, buf.String())
+	}
+}
+
+// A REFUSAL (provision.RefusedStatus, docs/reference/agent-program-runtimes.md OQ-AR3): the stage
+// ran — the marker is in the log — and refused the launch without asking anyone, because a
+// selected pack declares a Node floor nothing satisfies. The agent must not launch, and the
+// console must call it a refusal: "Provisioning was aborted" names a veto nobody gave.
+func TestARefusingStageStopsTheLaunchAndSaysSo(t *testing.T) {
+	ws := "/Users/Shared/yolo/proj"
+	var rec []string
+	d := stageFailureDeps(t, &rec, ws,
+		"=== yolo provisioning ===\n"+provision.FailedMarker+" (exit "+strconv.Itoa(provision.RefusedStatus)+")\n")
+	failing := d.Run
+	d.Run = func(argv []string) int {
+		if rc := failing(argv); rc != 7 {
+			return rc
+		}
+		return provision.RefusedStatus // the script's `exit "$_prc"` on a refusal
+	}
+	var buf bytes.Buffer
+	d.Out = &buf
+	opts := newOpts(ws)
+	opts.Config = provisionCfg()
+
+	if rc := RunMacosUser(d, opts); rc != 1 {
+		t.Fatalf("rc = %d, want 1 — a refusing stage must stop the launch\n%s", rc, buf.String())
+	}
+	for _, line := range rec {
+		if strings.HasPrefix(line, "proxy:") {
+			t.Errorf("the agent launched after the stage refused:\n%s", line)
+		}
+	}
+	if !strings.Contains(buf.String(), "refused the launch") {
+		t.Errorf("the console does not name the refusal:\n%s", buf.String())
+	}
+	if strings.Contains(buf.String(), "was aborted") {
+		t.Errorf("a refusal was reported as a human's veto:\n%s", buf.String())
 	}
 }

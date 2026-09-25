@@ -1,16 +1,18 @@
 package entrypoint
 
 // nodefloor_test.go covers the interpreter resolution for a `program` declaring a `node_floor`
-// (docs/design/agent-program-runtimes.md §3.2, OQ-AR1).
+// (docs/reference/agent-program-runtimes.md, "Resolution" and OQ-AR1).
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/provision"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
@@ -134,7 +136,7 @@ func TestNoFloorResolvesNothing(t *testing.T) {
 	}
 }
 
-// THE BYTE-IDENTITY REQUIREMENT, which §3.3 makes a test rather than an intention: a program with no
+// THE BYTE-IDENTITY REQUIREMENT, which docs/reference/agent-program-runtimes.md's "The launcher" makes a test rather than an intention: a program with no
 // declared floor must render the launcher it rendered before this feature existed.
 func TestNoFloorRendersAByteIdenticalLauncher(t *testing.T) {
 	stubImageNode(t, "24.19.0")
@@ -188,6 +190,49 @@ func TestAnUnsatisfiableFloorStillRendersAPlainExec(t *testing.T) {
 	}
 }
 
+// THE STAGE-INSTALL GAP (docs/design/agent-program-runtimes.md, OQ-AR7): the interpreter is
+// resolved ONCE, when the launcher is generated, and generation runs at boot BEFORE the
+// provisioning stage. So a node the stage installs satisfies the floor CHECK (which asks the
+// resolver again) but is not in the launcher of the launch that installed it; the next
+// generation, i.e. the next boot, bakes it. This pins that documented behavior, so the reference's
+// Resolution table cannot drift back into claiming the launcher execs a stage-installed node on
+// the launch that installs it. A fix for OQ-AR7 is expected to change this test.
+func TestAStageInstalledNodeReachesTheLauncherOnlyAtTheNextGeneration(t *testing.T) {
+	stubImageNode(t, "20.20.2")
+	root := fakeMiseStore(t)
+	inst := &packdecl.Install{Kind: "npm", Bin: "thing", Package: "thing", NodeFloor: "22.19"}
+
+	// Boot: nothing satisfies yet, so the launcher is baked with a plain exec.
+	atBoot := npmAgentLauncher(inst, "/stamps", "/receipts", false, launcherServers{}, nil)
+
+	// The stage installs node@22.19 into the store; the floor check's resolver now sees it.
+	bin := filepath.Join(root, "22.19.0", "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "node"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	installed := filepath.Join(bin, "node")
+	if got := ResolveNodeForFloor("22.19"); got != installed {
+		t.Fatalf("after the install the check's resolver must see %q, got %q", installed, got)
+	}
+
+	for _, line := range execLinesOf(atBoot) {
+		if !strings.Contains(line, `exec "$REAL_BIN" `) {
+			t.Errorf("the launcher generated before the install must not name an interpreter; got: %s", line)
+		}
+	}
+
+	// Next boot: generation runs again against the now-populated store and bakes the interpreter.
+	nextBoot := npmAgentLauncher(inst, "/stamps", "/receipts", false, launcherServers{}, nil)
+	for _, line := range execLinesOf(nextBoot) {
+		if !strings.Contains(line, "exec "+shquote.Quote(installed)+" \"$REAL_BIN\" ") {
+			t.Errorf("the next generation must bake the stage-installed interpreter; got: %s", line)
+		}
+	}
+}
+
 // execLinesOf returns EVERY exec-the-program line. Plural on purpose: the first draft of this file
 // checked only the first match and passed while the re-entry guard's exec was still unwrapped.
 func execLinesOf(launcher string) []string {
@@ -201,46 +246,126 @@ func execLinesOf(launcher string) []string {
 	return out
 }
 
-// TestBootstrapSubstitutesTheFloorPlaceholder pins OQ-AR2's eager half at the GENERATOR: the floors
-// must reach the script that installs them. A placeholder left unsubstituted is the failure mode —
-// the script would test a literal `__YOLO_NODE_FLOORS__` for emptiness, find it non-empty, and try to
-// install a package named after a placeholder.
+// TestBootstrapSubstitutesTheFloorPlaceholders pins OQ-AR2's eager half at the GENERATOR: the
+// checks must reach the script that runs them. A placeholder left unsubstituted is the failure mode
+// — the script would run a line named after a placeholder, or `exit` with a non-number.
 //
 // Asserted on the rendered script rather than on declaredNodeFloors alone, because the wiring is the
-// half that can be lost: the projection could be perfect and the replacer entry deleted.
-func TestBootstrapSubstitutesTheFloorPlaceholder(t *testing.T) {
+// half that can be lost: the projection could be perfect and the replacer entry deleted. What the
+// checks DO is TestTheBootstrapRefusesAnUnsatisfiableFloor's job (nodefloorrefusal_test.go), which
+// runs them.
+func TestBootstrapSubstitutesTheFloorPlaceholders(t *testing.T) {
 	e := NewEnv(map[string]string{"HOME": t.TempDir()})
 	script := BootstrapScript(e)
 
-	if strings.Contains(script, "__YOLO_NODE_FLOORS__") {
-		t.Error("the floor placeholder was not substituted — the script would try to install a " +
-			"package named after it")
+	for _, ph := range []string{"__YOLO_NODE_FLOOR_CHECKS__", "__YOLO_REFUSED_STATUS__", "__YOLO_NODE_FLOORS__"} {
+		if strings.Contains(script, ph) {
+			t.Errorf("the placeholder %s was not substituted", ph)
+		}
 	}
-	// The install-and-refuse loop must be present regardless of whether this fixture declares a
-	// floor: it is gated at RUN time on the baked list being non-empty, not at generation time.
-	if !strings.Contains(script, "node-floor-satisfied") {
-		t.Error("the bootstrap carries no floor check — OQ-AR2's eager half is not wired in")
-	}
-	if !strings.Contains(script, "no Node satisfying") {
-		t.Error("the bootstrap carries no refusal — OQ-AR3 is not wired in")
+	// The refusal's exit is the wrapper's reserved status, rendered from the constant.
+	if !strings.Contains(script, "exit "+strconv.Itoa(provision.RefusedStatus)+"\n") {
+		t.Errorf("the bootstrap does not exit provision.RefusedStatus (%d) on a refused floor — the "+
+			"stage's wrapper would degrade it like any other failure and the target would run",
+			provision.RefusedStatus)
 	}
 }
 
-// TestFloorsAreDistinctAndSorted is the byte-stability property: two packs declaring one floor is
-// one install, and a stable order keeps two bootstrap scripts diffable.
-func TestFloorsAreDistinctAndSorted(t *testing.T) {
-	// Exercised through the projection rather than a fake Env, since LoadJailPacks needs a tree.
-	seen := map[string]bool{}
-	var out []string
-	for _, f := range []string{"22.19", "20", "22.19", "24"} {
-		if seen[f] {
-			continue
-		}
-		seen[f] = true
-		out = append(out, f)
+// TestFloorsAreDistinctSortedAndKeepEveryDeclarer is the projection, over a REAL staged pack tree:
+// two packs declaring one floor is one install, a stable order keeps two bootstrap scripts
+// diffable, and BOTH declarers survive the merge — a refusal naming only the first would send the
+// user to drop one pack and meet the same refusal again.
+func TestFloorsAreDistinctSortedAndKeepEveryDeclarer(t *testing.T) {
+	e := NewEnv(map[string]string{"JAIL_HOME": t.TempDir(), "YOLO_PACK_ROOT": stageFloorPacks(t, map[string]string{
+		"zeta":  floorProgram("zed", "22.19"),
+		"alpha": floorProgram("ay", "24"),
+		"mid":   floorProgram("em", "22.19"),
+		"plain": `{"name": "plain", "contributes": [{"kind": "program", "bin": "pl", "via": "npm", "package": "pl"}]}`,
+	})})
+	got := declaredNodeFloors(e)
+	want := []nodeFloorDecl{
+		{Floor: "22.19", DeclaredBy: []string{"program em (pack mid)", "program zed (pack zeta)"}},
+		{Floor: "24", DeclaredBy: []string{"program ay (pack alpha)"}},
 	}
-	sort.Strings(out)
-	if strings.Join(out, " ") != "20 22.19 24" {
-		t.Errorf("distinct+sorted = %q", strings.Join(out, " "))
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("declaredNodeFloors =\n  %v\nwant\n  %v", got, want)
+	}
+	// And the rendered calls quote what they bake: the declarer list is one shell word.
+	checks := nodeFloorChecks(e)
+	if want := "_yolo_node_floor 22.19 'program em (pack mid) and program zed (pack zeta)'\n" +
+		"_yolo_node_floor 24 'program ay (pack alpha)'"; checks != want {
+		t.Errorf("nodeFloorChecks =\n%s\nwant\n%s", checks, want)
+	}
+}
+
+// fakePackageFloor puts an executable `node` printing `v<version>` in a fresh dir, and sets
+// $YOLO_DARWIN_LOGIN_PATH to a sandbox-shaped PATH: a mise shims dir UNDER $HOME first (whose
+// node is the workspace's pin, and must never be read), then the floor dir, then an empty stand-in
+// for the system dirs (the test host's own /bin may hold a node; a Mac's does not). It returns the
+// floor's node.
+func fakePackageFloor(t *testing.T, version string) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	shims := filepath.Join(home, ".yolo", "mise", "shims")
+	floorBin := filepath.Join(t.TempDir(), "profile", "bin")
+	for _, d := range []string{shims, floorBin} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The shim reports a floor-satisfying version on purpose: if the home filter were lost, the
+	// resolution would pick THIS, and the assertions below name which one it picked.
+	if err := os.WriteFile(filepath.Join(shims, "node"), []byte("#!/bin/sh\necho v99.0.0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	node := filepath.Join(floorBin, "node")
+	if err := os.WriteFile(node, []byte("#!/bin/sh\necho v"+version+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(DarwinLoginPathEnv, shims+":"+floorBin+":"+t.TempDir())
+	return node
+}
+
+// macos-user HAS NO IMAGE, so candidate 1 is the package floor's node on the sandbox PATH. The
+// reviewer's scenario: no /bin/node, an empty mise store (the stage's `mise install node@22.19`
+// failed offline), and nodejs_24 on the floor. Before packageFloorNodes this resolved to "" — and
+// since the floor check became fatal, that refused a launch the floor's node would have served.
+func TestMacosUserResolvesThePackageFloorNode(t *testing.T) {
+	stubImageNode(t, "")
+	fakeMiseStore(t)
+	node := fakePackageFloor(t, "24.19.0")
+	if got := ResolveNodeForFloor("22.19"); got != node {
+		t.Errorf("ResolveNodeForFloor = %q, want the package floor's %q (never the mise shim under $HOME)", got, node)
+	}
+	if got := DescribeAvailableNodes(); got != "24.19.0 at "+node {
+		t.Errorf("DescribeAvailableNodes = %q, want %q", got, "24.19.0 at "+node)
+	}
+}
+
+// A floor node too old for the floor is listed but not chosen, and the mise store still answers.
+func TestATooOldPackageFloorNodeFallsThroughToTheStore(t *testing.T) {
+	stubImageNode(t, "")
+	store := fakeMiseStore(t, "22.23.2")
+	node := fakePackageFloor(t, "20.20.2")
+	want := filepath.Join(store, "22.23.2", "bin", "node")
+	if got := ResolveNodeForFloor("22.19"); got != want {
+		t.Errorf("ResolveNodeForFloor = %q, want the store's %q", got, want)
+	}
+	if got, w := DescribeAvailableNodes(), "20.20.2 at "+node+"; 22.23.2 at "+want; got != w {
+		t.Errorf("DescribeAvailableNodes = %q, want %q", got, w)
+	}
+}
+
+// Nothing anywhere on macos-user: the refusal's "none" names all three places it looked.
+func TestMacosUserNoneNamesTheLoginPath(t *testing.T) {
+	stubImageNode(t, "")
+	store := fakeMiseStore(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(DarwinLoginPathEnv, t.TempDir())
+	want := "none (no readable " + imageNodePath + ", no node outside $HOME on $" + DarwinLoginPathEnv +
+		", and no node in " + store + ")"
+	if got := DescribeAvailableNodes(); got != want {
+		t.Errorf("DescribeAvailableNodes = %q, want %q", got, want)
 	}
 }

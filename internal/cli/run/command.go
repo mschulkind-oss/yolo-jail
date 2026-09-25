@@ -1,9 +1,8 @@
 package run
 
 import (
-	"strings"
-
 	"github.com/mschulkind-oss/yolo-jail/internal/provision"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // jailWorkspace is where every container backend binds the workspace. The stage's log
@@ -11,13 +10,21 @@ import (
 // macos-user's come from one function (provision.StartupLog).
 const jailWorkspace = "/workspace"
 
-// setupScript is the provisioning core (store prune, mise install, bootstrap,
-// venv-precreate) run under `YOLO_BYPASS_SHIMS=1 sh -c '…'`.
+// setupScript is the provisioning core (store prune, mise install, venv-precreate,
+// bootstrap) run under `YOLO_BYPASS_SHIMS=1 sh -c '…'`.
 //
 // THE CONTAINER TAKES ALL SIX STEPS, which is the thing to notice about this list: it is
 // a SUBSET selection, and the other backend running a stage takes four of them
 // (macosuser.ProvisionSetup). The steps themselves live in internal/provision because
 // internal/macosuser cannot import this package — see that package's comment.
+//
+// ⚠ THE BOOTSTRAP IS LAST, AND THE ORDER IS LOAD-BEARING. It is the one step that can exit
+// provision.RefusedStatus (a declared Node floor nothing satisfies,
+// docs/reference/agent-program-runtimes.md OQ-AR3), and the `&&` join skips whatever follows a
+// failing step. The venv step used to follow it, so a refused floor also skipped venv
+// creation, which needs only `mise install` and has nothing to do with Node.
+// TestARefusedFloorSkipsNoUnrelatedStep (command_refusal_test.go) runs the composed bytes and
+// fails if the venv step moves back behind it.
 //
 // ONE thing binds THESE bytes: testdata/final_cmd_bash.txt, which
 // TestBuildFinalInternalCmdBashGolden (command_test.go) compares for exact equality
@@ -34,9 +41,9 @@ var setupScript = provision.SetupBypassingShims(
 	provision.StepPruneStore,
 	provision.StepAnnounceMiseInstall,
 	provision.StepMiseInstall,
+	provision.StepRunVenvPrecreate,
 	provision.StepAnnounceBootstrap,
 	provision.StepRunBootstrap,
-	provision.StepRunVenvPrecreate,
 )
 
 // startupLog is the in-jail provisioning log path — the workspace bind's .yolo sidecar,
@@ -57,6 +64,11 @@ const miseActivate = `. "$HOME/.config/yolo-user-env.sh" 2>/dev/null; ` +
 // macos-user stage; what is container-specific here is only the log path and which
 // steps the body carries.
 //
+// It is also what keeps a REFUSED stage from reaching the target: provision.Script ends in
+// `exit` on provision.RefusedStatus, and because provisionScript is spliced into
+// buildFinalInternalCmd's top-level `bash -c` rather than a subshell, that exit ends the
+// container's command before miseActivate, the Executing banner and the target.
+//
 // The WHOLE string is composed into buildFinalInternalCmd's output, pinned byte-for-byte
 // by TestBuildFinalInternalCmdBashGolden against testdata/final_cmd_bash.txt — so drift
 // is a golden diff. The cross-process contract the literal carries is documented where
@@ -65,23 +77,34 @@ const miseActivate = `. "$HOME/.config/yolo-user-env.sh" 2>/dev/null; ` +
 // single definition makes the rename a compile error instead.
 var provisionScript = provision.Script(startupLog, setupScript)
 
+// executingBanner is the "⚡ Executing: <target>" line both branches of
+// buildFinalInternalCmd print just before the target runs.
+//
+// THE TARGET IS printf's ARGUMENT, NEVER ITS FORMAT. It used to be spliced into the format
+// string (with only its single quotes escaped), so every `%` and `\` in a command was a
+// printf directive: `stat -c "%u:%g %a" f` was displayed as `stat -c "0:0 0x0p+0" f`, which
+// shows the user a command they did not type. As an argument to `%s` it is printed
+// byte-for-byte, and shquote.Quote makes it one word whatever it contains.
+func executingBanner(targetCmd string) string {
+	return `printf '\033[1;36m⚡ Executing: %s\033[0m\n' ` + shquote.Quote(targetCmd) + ` >&2`
+}
+
 // buildFinalInternalCmd assembles the final_internal_cmd:
 // the provisioning message → provision_script → mise activate → executing
-// message → target command. displayCmd is target_cmd with single quotes escaped
-// as '\”. timing wraps each phase in timers (the timing branch; --timing since
-// docs/reference/providers.md OQ-PT5 — the in-jail report it prints still says
-// "YOLO Jail Profile", which is a name this step did not own).
+// message (executingBanner) → target command. timing wraps each phase in timers (the
+// timing branch; --timing since docs/reference/providers.md OQ-PT5 — the in-jail report
+// it prints still says "YOLO Jail Profile", which is a name this step did not own).
 //
 // THIS is where the "frozen bytes" claim the three constants above make actually
 // lives: TestBuildFinalInternalCmdBashGolden pins this function's non-timing output
 // against testdata/final_cmd_bash.txt, and that output closes over setupScript,
 // provisionScript and miseActivate — so the golden is the single binder for all four.
-// The timing branch has NO golden, and the two other tests here are property checks
-// rather than byte pins: TestBuildFinalInternalCmdQuotingEscapesDisplay (non-timing
-// only, display escaping) and TestFinalInternalCmdNeverUpgrades (both branches, the
-// one OQ-PD3 property). So a change confined to the timing branch ships green.
+// The timing branch has NO golden. The other tests here are property checks rather than
+// byte pins, and three of them cover BOTH branches: TestExecutingBannerPrintsTheTargetVerbatim
+// (the banner, run through bash), TestARefusedStageNeverReachesTheTarget (the composed
+// command run with a refusing bootstrap) and TestFinalInternalCmdNeverUpgrades (the one
+// OQ-PD3 property). Anything else confined to the timing branch still ships green.
 func buildFinalInternalCmd(targetCmd string, timing bool) string {
-	displayCmd := strings.ReplaceAll(targetCmd, "'", `'\''`)
 	if timing {
 		return "" +
 			"exec 3>&2; " +
@@ -90,7 +113,7 @@ func buildFinalInternalCmd(targetCmd string, timing bool) string {
 			"_t1=$(date +%s%N); " +
 			miseActivate + "; " +
 			"_t2=$(date +%s%N); " +
-			`printf '\033[1;36m⚡ Executing: ` + displayCmd + `\033[0m\n' >&2; ` +
+			executingBanner(targetCmd) + "; " +
 			targetCmd + "; _rc=$?; " +
 			"_t3=$(date +%s%N); " +
 			"echo '' >&3; echo '=== YOLO Jail Profile ===' >&3; " +
@@ -114,6 +137,6 @@ func buildFinalInternalCmd(targetCmd string, timing bool) string {
 		`printf '\033[2m📦 Provisioning tools...\033[0m\n' >&2; ` +
 		provisionScript + "; " +
 		miseActivate + "; " +
-		`printf '\033[1;36m⚡ Executing: ` + displayCmd + `\033[0m\n' >&2; ` +
+		executingBanner(targetCmd) + "; " +
 		targetCmd
 }

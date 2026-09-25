@@ -1,7 +1,7 @@
 package packdecl
 
 // nodefloor_test.go covers the `node_floor` field's semantics
-// (docs/design/agent-program-runtimes.md, OQ-AR1 and OQ-AR4).
+// (docs/reference/agent-program-runtimes.md, OQ-AR1 and OQ-AR4 under "Why it's this way").
 
 import (
 	"strings"
@@ -10,13 +10,13 @@ import (
 
 // THE CASE THE WHOLE FUNCTION EXISTS FOR. Lexically "20.20.2" > "22.19", because '0' < '2' at the
 // second character — so a strings.Compare would accept Node 20 against a floor of 22.19, which is
-// precisely the failure this design was written to prevent, reached by the cheapest implementation.
+// precisely the failure the floor exists to prevent, reached by the cheapest implementation.
 func TestFloorRejectsNode20ForA2219Floor(t *testing.T) {
 	if SatisfiesNodeFloor("20.20.2", "22.19") {
 		t.Fatal("20.20.2 satisfied a floor of 22.19 — this is the lexical-compare bug, and it is " +
 			"the one thing this comparison must never do")
 	}
-	// The measured trio from the design's §1 table.
+	// The measured trio from docs/reference/agent-program-runtimes.md, "The principle".
 	for _, ok := range []string{"22.23.2", "24.19.0"} {
 		if !SatisfiesNodeFloor(ok, "22.19") {
 			t.Errorf("%s must satisfy 22.19", ok)

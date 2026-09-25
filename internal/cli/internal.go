@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -92,8 +93,9 @@ func runInternal(args []string) int {
 		// installs. It exists as a subcommand because the resolution is Go (a version compare
 		// over the mise store) while the eager slot is a shell stage — and a shell
 		// reimplementation of the comparison is the second implementation this repo keeps
-		// deleting. Exit 0 = satisfied, 1 = not, 2 = misuse.
-		return runNodeFloorSatisfied(args[1:])
+		// deleting. Exit 0 = satisfied, 1 = not (with what IS available on stdout, for the
+		// refusal to name), 2 = misuse.
+		return runNodeFloorSatisfied(args[1:], os.Stdout)
 	case "bundle-dir":
 		// The flake-bundle paths `just install` stages through, printed so the
 		// recipe never recomputes them — the drift that once aimed `rm -rf` at the
@@ -441,14 +443,16 @@ func envMap(environ []string) map[string]string {
 }
 
 // runNodeFloorSatisfied answers "is a Node meeting this floor available?" for the bootstrap's eager
-// install and its refusal (docs/design/agent-program-runtimes.md, OQ-AR2/OQ-AR3).
+// install and its refusal (docs/reference/agent-program-runtimes.md, OQ-AR2/OQ-AR3).
 //
-// Silent by design — the caller redirects both streams and branches on the exit code alone, so
-// anything printed here would be noise in a startup log. The floor is validated before it is used:
-// a floor the comparison cannot handle exits 2 rather than reporting "not satisfied", because
-// answering a malformed question with "no" would send the bootstrap into an install it cannot
-// complete.
-func runNodeFloorSatisfied(args []string) int {
+// Silent when satisfied. When NOT, it prints one line on stdout — the interpreters the resolution
+// can see (entrypoint.DescribeAvailableNodes) — because OQ-AR3's refusal must name what is
+// available and the bootstrap has no other way to learn it without re-implementing the store walk
+// in shell. The bootstrap's first probe discards both streams; only its post-install probe keeps
+// stdout, and only to quote it in the refusal. The floor is validated before it is used: a floor
+// the comparison cannot handle exits 2 rather than reporting "not satisfied", because answering a
+// malformed question with "no" would send the bootstrap into an install it cannot complete.
+func runNodeFloorSatisfied(args []string, stdout io.Writer) int {
 	if len(args) != 1 || args[0] == "" {
 		fmt.Fprintln(os.Stderr, "usage: yolo internal node-floor-satisfied <floor>")
 		return 2
@@ -458,6 +462,7 @@ func runNodeFloorSatisfied(args []string) int {
 		return 2
 	}
 	if entrypoint.ResolveNodeForFloor(args[0]) == "" {
+		fmt.Fprintln(stdout, entrypoint.DescribeAvailableNodes())
 		return 1
 	}
 	return 0

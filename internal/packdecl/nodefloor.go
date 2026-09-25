@@ -2,7 +2,7 @@ package packdecl
 
 // nodefloor.go is the `node_floor` field's semantics: a MINIMUM version a `program`'s entrypoint
 // requires, compared against a candidate interpreter's version
-// (docs/design/agent-program-runtimes.md, OQ-AR1 and OQ-AR4).
+// (docs/reference/agent-program-runtimes.md, OQ-AR1 and OQ-AR4 under "Why it's this way").
 //
 // # Why a floor, and why yolo compares it itself
 //
@@ -56,7 +56,7 @@ func ValidNodeFloor(v string) bool {
 //
 // This is the whole reason the function exists: lexically "20.20.2" > "22.19" because '0' < '2' at
 // the second character, so a string compare would accept Node 20 against a floor of 22.19 — the
-// exact failure the design exists to prevent, arrived at by the cheapest possible implementation.
+// exact failure the floor exists to prevent, arrived at by the cheapest possible implementation.
 //
 // A missing part counts as zero, so "22" == "22.0.0" and "22.19" < "22.19.1". An unparseable part
 // counts as zero rather than erroring: the caller has already validated the floor, and a CANDIDATE
