@@ -450,19 +450,46 @@ vmnet path itself is down. #3 **HOLDS** on the same run, which confirms its isol
 - The Mac cannot reach the container's own address at all: dials to `192.168.64.x` fail with
   **"no route to host"**, although the jail reaches that address itself.
 
-A forwarder that cannot reach its container resets exactly like that. The leading hypothesis,
-**UNVERIFIED**, is macOS Local Network privacy. It returns EHOSTUNREACH to a process it has not
-granted, and the runner is a non-interactive service that no prompt can reach. That would block
-both the test and Apple's user-level forwarder. Meanwhile the runner's nix daemon, running as
-root, reaches the Linux builder on the same subnet. If the hypothesis holds, #10 is a property of
-the runner rather than of yolo, and an interactive user who grants the permission would see ports
-publish.
+A forwarder that cannot reach its container resets exactly like that.
 
-The probe now records the Mac's route to the container, `container inspect`'s published ports
-and networks, and `lsof` for the listening process and address. The check that settles it is
-human: System Settings → Privacy & Security → Local Network on the runner's Mac, or the same
-test run from an interactive Terminal. The macos-user checks #6, #7, #9 and #14 are still unrun: the last
-`macos-user.yml` run, on 2026-09-25, did not select them.
+**The "no route to host" is macOS Local Network privacy, measured on the runner's Mac the same
+day** (macOS 26.5, `container` 1.1.0 from Homebrew). Local Network privacy is Apple's per-process
+gate on connections to hosts on the Mac's local networks
+([TN3179](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy)):
+a process it has not granted gets `EHOSTUNREACH` before any packet leaves the Mac. Apple's own
+platform binaries and root processes are exempt. The measurement was hand dials, each target
+tried from both kinds of binary:
+
+| Target | Apple binaries (`/usr/bin/nc`, `/usr/bin/python3`) | Non-Apple binaries (an ad-hoc-signed Go dialer, Homebrew and pyenv `python3`) |
+|---|---|---|
+| a container, `192.168.64.3` | reached: port 22 connects, a closed port refuses | `no route to host` on every port |
+| other hosts on the Mac's LAN, `192.168.1.12` and `.14` | reached: refused or timed out | `no route to host` |
+| the Mac's own vmnet address `192.168.64.1`, and the LAN gateway | reached | reached |
+
+`route -n get 192.168.64.3` names `bridge100` and `ping` answers throughout, so the route exists.
+The block is per BINARY, not per session. An interactive tmux shell was denied exactly as a
+launchd job shaped like the runner's service was, so the earlier guess that only a
+non-interactive service is affected was wrong. It also covers the whole LAN, not only the vmnet
+subnet. The runner's nix daemon reaches the builder because it runs as root.
+
+Apple's forwarder is in the same class. Every Homebrew `container` helper
+(`container-apiserver`, `container-runtime-linux`, `container-network-vmnet`) is ad-hoc signed,
+meaning signed with no developer identity, and runs as a user LaunchAgent. So the forwarder can
+accept on `192.168.64.1`, its own address, and is then denied the dial to the container. That
+matches the accept-then-reset. This part is **inferred from the pattern**: the unified log holds
+nothing from the helpers for the run's window, and no published-port container was dialed by
+hand.
+
+Two things remain open. First, the loopback and `[::1]` refusals are a separate fact that the
+privacy gate does not explain: nothing listens there, so on this backend a published port is
+reached at the vmnet gateway, not at `localhost`. Second, it is **unverified** that granting the
+permission makes #10 hold. A grant is keyed to a binary's code signature, so an ad-hoc-signed
+helper's grant may not survive a `brew upgrade`, and a background helper may never raise a prompt.
+Apple's Developer-ID-signed release package may behave differently. The next step is a grant in
+System Settings → Privacy & Security → Local Network, or that package on the runner, then a #10
+rerun. Until then #10 measures the runner's Local Network permissions, not yolo. The macos-user
+checks #6, #7, #9 and #14 are still unrun: the last `macos-user.yml` run, on 2026-09-25, did not
+select them.
 
 ---
 
