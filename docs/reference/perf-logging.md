@@ -503,9 +503,9 @@ on during it.
 
 The probe watches the `podman run` client from the moment its container dies and
 writes down what the client is blocked on, into `host-perf.log`, **as each sample
-is taken**. That is P3 again, and here it is decisive: the one exit a user has
-found from a lingering client is ^Z and then `kill -9 %1`, which kills the
-launcher too, and a SIGKILL records nothing after itself.
+is taken**. That is P3 again, and here it is decisive: a user gets out of a
+lingering client with ^Z and then `kill %1` or `kill -9 %1`, and a SIGKILL
+records nothing after itself.
 
 **How yolo learns the container died.** This had to cost nothing for a jail's
 whole life and poll nothing during a normal session. conmon writes
@@ -546,10 +546,26 @@ gets:
   is shown as time remaining. This is what tells a poll-with-backoff loop (short
   timeouts, repeating) from one long wait.
 
+And for each process, in braces after its threads, what it has done and holds
+(added 2026-09-25, after a linger whose samples showed one thread running and one
+opening a file on disk in every sample, which is a client working rather than
+waiting, and a thread list cannot say at what):
+
+- `cpu`: its utime plus stime so far, from `stat`;
+- `disk read`: bytes it has fetched from storage so far, the `io` file's
+  `read_bytes`;
+- `open:` every regular file it holds open, deduplicated and sorted, cut to a
+  count after eight. Sockets, pipes, anon inodes and `/dev` are left out.
+
+Both counters are cumulative, so the change from one sample to the next is the
+rate. What `open:` names is the candidate: podman 6.1's post-attach path reads
+no event log (its exit code is one sqlite query), so the files to look for are
+its database and its storage tree, the two things its shutdown still touches.
+
 Threads are grouped by identical state. An illustrative line, not a measured one:
 
 ```text
-+1.003s pid 4243 podman: 1× S read(0 → /dev/pts/5) [wait_woken], 14× S futex(timeout=none) [futex_wait_queue], 1× S epoll_pwait(4 → anon_inode:[eventpoll], timeout=0.100s) [do_epoll_wait]; pty icanon=off isig=off echo=off
++1.003s pid 4243 podman: 1× S read(0 → /dev/pts/5) [wait_woken], 14× S futex(timeout=none) [futex_wait_queue], 1× S epoll_pwait(4 → anon_inode:[eventpoll], timeout=0.100s) [do_epoll_wait] {cpu 0.412s, disk read 0.3MB, open: /home/u/.local/share/containers/storage/db.sql}; pty icanon=off isig=off echo=off
 ```
 
 A state that holds is written once, then as `unchanged ×N` every tenth sample, so
@@ -631,7 +647,21 @@ marked now: `child.suspended`, then `child.resumed` on `fg`. What happens next:
   stopped Go process with a SIGTERM handler received the SIGTERM at the moment of
   the `kill`, with no `SIGCONT` sent by hand, while a SIGTERM sent to the stopped
   pid (not the job spec) stayed pending until a SIGCONT arrived. The resumed
-  proxy's signal goroutine then takes the SIGTERM arm. `onTerminate` first marks
+  proxy's signal goroutine then takes the SIGTERM arm.
+
+  **Until 2026-09-25 that arm never finished from the background.** It opened
+  with a termios write, and a termios write from a background process group
+  raises SIGTTOU, whose default disposition stops the process again. The
+  SIGCONT arm did the same before it did anything. So `jobs` still said
+  `Stopped` after every `kill %1`, measured on the maintainer's host, and only
+  `kill -9 %1` worked. Both arms now leave the terminal alone while the shell
+  owns it, and the terminate arm ignores SIGTTOU and SIGTTIN on its way out
+  (`ownsTerminal`, pinned by `TestBackgroundTerminate`). The arm also SIGKILLs
+  the child at its pid after `onTerminate`: the lingering client ignores the
+  SIGTERM that `kill %1` sends the job's group, and would otherwise be left
+  running after the launcher exits.
+
+  `onTerminate` first marks
   `terminate.signal` and takes one bounded, synchronous final sample (tagged
   `final (terminate arm)`) before `stopJail`, the step that can itself hang. With
   no `child.exited`, Window A is still recorded when the probe saw the death, cut
@@ -836,7 +866,8 @@ host, and still **unpriced**. What the first real-host shutdown settled
   starts at the keystroke.
 
 The arm is pinned by an unexpected instrument: **`^Z` reaches the user's shell
-during the wait**, and `kill -9 %1` from that shell frees it. The proxy
+during the wait**, and `kill -9 %1` from that shell frees it (and, since
+2026-09-25, a plain `kill %1`: see [The terminate arm](#the-terminate-arm-and-a-killed-launcher)). The proxy
 intercepts `^Z` (0x1A) in its own stdin loop and self-suspends
 (`ttyproxy.go`, `selfSuspend`), and that loop runs only until `cmd.Wait()`
 returns. So a `^Z` that works is proof the launcher is still inside

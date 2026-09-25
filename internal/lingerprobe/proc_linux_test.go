@@ -307,3 +307,53 @@ func TestHostContextCountsFromProcAlone(t *testing.T) {
 		t.Errorf("line = %s", h.Line())
 	}
 }
+
+// The 2026-09-25 linger showed one podman thread running in every sample and one
+// blocked opening a file on disk, which is a client doing work rather than waiting on
+// a lock — and a thread list cannot say what work. The process's CPU time, its disk
+// reads and the regular files it holds open can: a client scanning the journal for an
+// exit code holds journal files open while both counters climb.
+func TestSampleRecordsCPUDiskReadsAndOpenFiles(t *testing.T) {
+	f := newFakeProc(t)
+	// utime 120 + stime 30 ticks = 1.500 s at USER_HZ 100.
+	f.write("200/stat", "200 (podman) S 1 0 0 0 0 0 0 0 0 0 120 30 0 0 0 0 0 0 7000 0 0\n")
+	f.write("200/comm", "podman\n")
+	f.write("200/io", "rchar: 999999999\nwchar: 1\nsyscr: 5\nsyscw: 1\nread_bytes: 2097152\nwrite_bytes: 0\ncancelled_write_bytes: 0\n")
+	f.thread(200, 200, "R", "running", "0")
+	f.fd(200, 0, "/dev/pts/5")
+	f.fd(200, 3, "socket:[123]")
+	f.fd(200, 5, "/var/log/journal/abc/user-1000.journal")
+	f.fd(200, 6, "/var/log/journal/abc/system.journal")
+	f.fd(200, 7, "/home/u/.local/share/containers/storage/db.sql")
+	f.fd(200, 8, "/var/log/journal/abc/system.journal") // a second fd on one file counts once
+
+	line := f.sampler().Sample(200).Line()
+	for _, want := range []string{
+		"cpu 1.500s",
+		"disk read 2.0MB",
+		"open: /home/u/.local/share/containers/storage/db.sql, /var/log/journal/abc/system.journal, /var/log/journal/abc/user-1000.journal",
+	} {
+		if !strings.Contains(line, want) {
+			t.Errorf("sample line missing %q:\n%s", want, line)
+		}
+	}
+	for _, not := range []string{"/dev/pts/5, ", "socket:[123]"} {
+		if strings.Contains(line, "open: ") && strings.Contains(line[strings.Index(line, "open: "):], not) {
+			t.Errorf("open files list %q, which is not a regular file:\n%s", not, line)
+		}
+	}
+}
+
+// Many open files are cut to a count, so one sample cannot flood the log.
+func TestSampleCapsTheOpenFileList(t *testing.T) {
+	f := newFakeProc(t)
+	f.proc(300, 1, "podman", "S", 7000)
+	f.thread(300, 300, "S", sc(unix.SYS_FUTEX, 0, 128, 0, 0), "futex_wait_queue")
+	for i := 0; i < maxOpenFiles+3; i++ {
+		f.fd(300, 10+i, fmt.Sprintf("/data/f%02d", i))
+	}
+	line := f.sampler().Sample(300).Line()
+	if !strings.Contains(line, fmt.Sprintf("/data/f%02d (+3 more)", maxOpenFiles-1)) {
+		t.Errorf("open-file list not capped at %d with a count:\n%s", maxOpenFiles, line)
+	}
+}

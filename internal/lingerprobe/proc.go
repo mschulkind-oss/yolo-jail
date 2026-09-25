@@ -57,7 +57,24 @@ type Proc struct {
 	Comm     string
 	Threads  []Thread
 	Children []int
+	// CPU is utime+stime, -1 when unreadable. With ReadBytes (the io file's
+	// read_bytes, bytes fetched from storage; -1 when unreadable) it separates a
+	// client doing work from one waiting: a thread list shows a thread running, not
+	// how much it has run.
+	CPU       time.Duration
+	ReadBytes int64
+	// Files is every regular file the process holds open, deduplicated and sorted —
+	// the work's subject, when the client is working (the journal, the database).
+	Files []string
 }
+
+// maxOpenFiles is how many open files a sample line names before it cuts the list
+// to a count.
+const maxOpenFiles = 8
+
+// userHZ is the unit of stat's utime and stime. Fixed at 100 by the kernel's ABI
+// on every architecture Linux podman runs on, whatever CONFIG_HZ is.
+const userHZ = 100
 
 // Snapshot is one sample: the root process first, then its live descendants.
 type Snapshot struct {
@@ -93,12 +110,13 @@ func statFields(line string) (comm string, rest []string, ok bool) {
 	return line[open+1 : closeParen], strings.Fields(line[closeParen+1:]), true
 }
 
-// ProcStat is the three stat facts the probe needs about a process.
+// ProcStat is the stat facts the probe needs about a process.
 type ProcStat struct {
 	Comm      string
 	State     string
 	PPID      int
-	StartTime uint64 // field 22, clock ticks since boot: pid-reuse detection
+	StartTime uint64        // field 22, clock ticks since boot: pid-reuse detection
+	CPU       time.Duration // fields 14+15, utime+stime; -1 when unparseable
 }
 
 // Stat reads /proc/<pid>/stat.
@@ -113,7 +131,53 @@ func (s Sampler) Stat(pid int) (ProcStat, bool) {
 	}
 	ppid, _ := strconv.Atoi(rest[1])
 	start, _ := strconv.ParseUint(rest[19], 10, 64) // field 22 = rest[22-3]
-	return ProcStat{Comm: comm, State: rest[0], PPID: ppid, StartTime: start}, true
+	cpu := time.Duration(-1)
+	utime, uerr := strconv.ParseUint(rest[11], 10, 64) // field 14
+	stime, serr := strconv.ParseUint(rest[12], 10, 64) // field 15
+	if uerr == nil && serr == nil {
+		cpu = time.Duration(utime+stime) * time.Second / userHZ
+	}
+	return ProcStat{Comm: comm, State: rest[0], PPID: ppid, StartTime: start, CPU: cpu}, true
+}
+
+// readBytes is /proc/<pid>/io's read_bytes, or -1. The io file needs ptrace read
+// access, the same access the syscall file needs, so a host that hides one hides both.
+func (s Sampler) readBytes(pid int) int64 {
+	b, err := os.ReadFile(s.path(strconv.Itoa(pid), "io"))
+	if err != nil {
+		return -1
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if v, ok := strings.CutPrefix(line, "read_bytes:"); ok {
+			if n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64); err == nil {
+				return n
+			}
+		}
+	}
+	return -1
+}
+
+// openFiles is the regular files among pid's open fds: absolute link targets outside
+// /dev and /proc. Sockets, pipes and anon inodes are not paths and never match.
+func (s Sampler) openFiles(pid int) []string {
+	dir := s.path(strconv.Itoa(pid), "fd")
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, e := range ents {
+		l, err := os.Readlink(filepath.Join(dir, e.Name()))
+		if err != nil || !strings.HasPrefix(l, "/") ||
+			strings.HasPrefix(l, "/dev/") || strings.HasPrefix(l, "/proc/") || seen[l] {
+			continue
+		}
+		seen[l] = true
+		out = append(out, l)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // Alive reports whether pid is still the process whose start time was
@@ -155,10 +219,11 @@ func (s Sampler) readProc(pid int) (Proc, bool) {
 	if !ok {
 		return Proc{}, false
 	}
-	proc := Proc{PID: pid, PPID: st.PPID, Comm: st.Comm}
+	proc := Proc{PID: pid, PPID: st.PPID, Comm: st.Comm, CPU: st.CPU, ReadBytes: s.readBytes(pid)}
 	if b, err := os.ReadFile(s.path(strconv.Itoa(pid), "comm")); err == nil {
 		proc.Comm = strings.TrimSpace(string(b))
 	}
+	proc.Files = s.openFiles(pid)
 	tids := s.tids(pid)
 	maxThreads := s.MaxThreads
 	if maxThreads <= 0 {
@@ -505,10 +570,35 @@ func (snap Snapshot) Line() string {
 		for i, k := range keys {
 			groups[i] = fmt.Sprintf("%d× %s", counts[k], k)
 		}
-		parts = append(parts, fmt.Sprintf("pid %d %s: %s", p.PID, p.Comm, strings.Join(groups, ", ")))
+		part := fmt.Sprintf("pid %d %s: %s", p.PID, p.Comm, strings.Join(groups, ", "))
+		if extra := p.workLine(); extra != "" {
+			part += " {" + extra + "}"
+		}
+		parts = append(parts, part)
 	}
 	if len(parts) == 0 {
 		return "no process readable"
 	}
 	return strings.Join(parts, "; ")
+}
+
+// workLine renders what the process has done and holds — "cpu 1.50s, disk read
+// 2.0MB, open: a, b" — leaving out any part that was unreadable.
+func (p Proc) workLine() string {
+	var parts []string
+	if p.CPU >= 0 {
+		parts = append(parts, "cpu "+fmtDur(p.CPU))
+	}
+	if p.ReadBytes >= 0 {
+		parts = append(parts, fmt.Sprintf("disk read %.1fMB", float64(p.ReadBytes)/(1<<20)))
+	}
+	if n := len(p.Files); n > 0 {
+		shown := p.Files
+		more := ""
+		if n > maxOpenFiles {
+			shown, more = p.Files[:maxOpenFiles], fmt.Sprintf(" (+%d more)", n-maxOpenFiles)
+		}
+		parts = append(parts, "open: "+strings.Join(shown, ", ")+more)
+	}
+	return strings.Join(parts, ", ")
 }
