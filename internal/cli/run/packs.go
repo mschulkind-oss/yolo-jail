@@ -785,11 +785,37 @@ func init() {
 // loopholes" — never an invented one. The real diagnostics belong to the launch path, which
 // fails loudly through stagePacks.
 func resolvePackLoopholeModules() []loopholes.PackModule {
+	var out []loopholes.PackModule
+	for _, p := range resolveConfiguredPacks() {
+		for _, d := range packLoopholeDecls([]*packload.Pack{p}) {
+			// HostExecApproved unconditionally — see packLoopholeModules for why the field
+			// survives the deletion of the gate that used to fill it.
+			out = append(out, loopholes.PackModule{Dir: d.Dir, HostExecApproved: true})
+		}
+	}
+	return out
+}
+
+// resolveConfiguredPacks is the pack set the lazy resolvers read: every configured pack
+// that resolves OFFLINE, extended by the same needs closure stagePacks computes, so a
+// read-only surface describes the pack set the launch would deliver.
+//
+// THE CLOSURE IS NOT OPTIONAL, and its absence was measured: with `"packs": ["claude"]`,
+// packs/claude needs openai-auth, the launch stages it, and its openai-oauth-refresh
+// capability is served — but `yolo check` listed only claude-oauth-broker, and a local
+// pack's correct `supersedes` of openai-oauth-refresh was graded "matched no served
+// capability", sending the user to fix a pack that was right.
+//
+// Silent-and-empty like its callers: a pack that cannot be resolved contributes nothing,
+// and a closure that errors (a cycle, a need naming a non-embedded pack) contributes no
+// additions — the launch refuses that config loudly through stagePacks, and a read-only
+// surface has nothing more honest to say than the configured set.
+func resolveConfiguredPacks() []*packload.Pack {
 	entries, err := config.LoadPacks(func(string) {})
 	if err != nil {
 		return nil
 	}
-	var out []loopholes.PackModule
+	var out []*packload.Pack
 	embedded := embeddedPacksByName()
 	for _, entry := range entries {
 		if entry.Embedded() {
@@ -813,9 +839,7 @@ func resolvePackLoopholeModules() []loopholes.PackModule {
 			if !isEmbedded {
 				continue // named an embedded pack that this build does not carry
 			}
-			for _, d := range packLoopholeDecls([]*packload.Pack{p}) {
-				out = append(out, loopholes.PackModule{Dir: d.Dir, HostExecApproved: true})
-			}
+			out = append(out, p)
 			continue
 		}
 		// nil getenv: these resolvers run behind read-only commands with no Options to
@@ -830,13 +854,16 @@ func resolvePackLoopholeModules() []loopholes.PackModule {
 		if len(probs) > 0 || p == nil {
 			continue
 		}
-		for _, d := range packLoopholeDecls([]*packload.Pack{p}) {
-			// HostExecApproved unconditionally — see packLoopholeModules for why the field
-			// survives the deletion of the gate that used to fill it.
-			out = append(out, loopholes.PackModule{Dir: d.Dir, HostExecApproved: true})
-		}
+		out = append(out, p)
 	}
-	return out
+	added, _, err := packload.ResolveNeeds(out, func(name string) (*packload.Pack, bool) {
+		p, ok := embedded[name]
+		return p, ok
+	})
+	if err != nil {
+		return out
+	}
+	return append(out, added...)
 }
 
 // embeddedPacksByName indexes the EMBEDDED packs by name, materialized out of the binary.
@@ -887,33 +914,7 @@ func packSupersessions(packs []*packload.Pack) []loopholes.PackSupersession {
 // like its sibling — the honest answer to "I cannot read the packs" is "I know of no
 // supersessions", which leaves every loophole running.
 func resolvePackSupersessions() []loopholes.PackSupersession {
-	entries, err := config.LoadPacks(func(string) {})
-	if err != nil {
-		return nil
-	}
-	var out []loopholes.PackSupersession
-	embedded := embeddedPacksByName()
-	for _, entry := range entries {
-		var p *packload.Pack
-		if entry.Embedded() {
-			var ok bool
-			if p, ok = embedded[entry.Name]; !ok {
-				continue
-			}
-		} else {
-			root, rootErr := PackRoot(entry, nil) // read-only surface; see above
-			if rootErr != nil {
-				continue
-			}
-			loaded, probs := packload.LoadDir(root, entry.Name)
-			if len(probs) > 0 || loaded == nil {
-				continue
-			}
-			p = loaded
-		}
-		out = append(out, packSupersessions([]*packload.Pack{p})...)
-	}
-	return out
+	return packSupersessions(resolveConfiguredPacks())
 }
 
 // packSkillSourceDirs is the pack's skills source dirs for THIS launch, honoring each
