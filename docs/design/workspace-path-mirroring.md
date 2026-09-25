@@ -10,7 +10,8 @@ summary: "Two questions, one verdict. Mirroring just the workspace is a good ide
 
 **Status:** DESIGN, 2026-09-23 — sketched 2026-09-04 and **reopened and extended the same day** (see
 the postscript); ten questions owe a ruling, and an eleventh, [`OQ-WP12`](#OQ-WP12), was answered
-by another design's ruling ([Decision Ledger](#decision-ledger)). No mirroring is built, and my recommendation is
+by another design's ruling ([Decision Ledger](#decision-ledger)). [`OQ-WP9`](#OQ-WP9)'s candidate
+oracle was measured on 2026-09-25: it is cheap, and it cannot tell the sides apart. No mirroring is built, and my recommendation is
 still that none should be, but the reason has changed completely. The one piece that was worth
 doing regardless, `-trimpath` in `scripts/build-go.sh`, shipped 2026-09-09 (`6bfcfe7b`,
 [`OQ-WP2`](#decision-ledger)). This doc exists to make the *no* checkable rather than
@@ -735,12 +736,16 @@ single-writable-`/home/agent` shape (`internal/cli/run/assemble_parts.go`; the
 often-quoted "~22" limit is [not something this repo measures](../guides/macos.md)). Nesting
 depth is fine — the shared cache is already mounted at `/home/agent/.cache` inside the
 `/home/agent` mount on every AC launch ([`../guides/macos.md`](../guides/macos.md)).
-The real AC limits — `:ro` binds ignored, single-file binds impossible — are untouched by a
-destination rename.
+The two limits this paragraph used to name — `:ro` binds ignored, single-file binds impossible
+— were both measured false on `container` 1.1.0 on 2026-09-14: `:ro` is honored from 1.1.0, and
+a regular-file bind arrives and honors `:ro` ([`../guides/macos.md`](../guides/macos.md)'s
+per-setting table). yolo still gates `:ro` on that version and still copies single files by
+choice. Neither fact is touched by a destination rename either way.
 
 What remains is that nobody has confirmed an arbitrary deep destination on AC. That is
 exactly [`OQ-MP2`](../research/mise-host-jail-path-mismatch.md#-oq-mp2-does-apple-container-support-arbitrary-same-path-bind-targets--moot-2026-07-03), asked in July and closed **moot** rather than answered — and un-mooting
-option A re-opens it. See [`OQ-WP5`](#open-questions). Second-order: `workspace_readonly` and
+option A re-opens it. See [`OQ-WP5`](#open-questions), whose measurement now exists and is
+unrun (2026-09-25). Second-order: `workspace_readonly` and
 the per-side shadows build `"/workspace/"+rel` destinations
 (`internal/cli/run/mounts.go`), so mirroring moves those strings too, on a backend
 where they are already degraded.
@@ -878,7 +883,7 @@ R2 is withdrawn from this table by the churn ruling; R1, R4, R6 and R7 carry ove
 | # | Risk | Severity | Mitigation |
 | :--- | :--- | :--- | :--- |
 | R8 | A cross-boundary reference resolves to an ABI-incompatible artifact instead of failing with ENOENT ([§12.4](#124-the-new-central-objection-you-can-mirror-a-name-but-not-its-content)) | **Critical, and it is the verdict** | None available. The two sides are different userlands by design; only alternative G addresses it |
-| R9 | `retireJailMadeVenv` (`internal/cli/run/retire.go`) degrades from a working guard to always-pass ([§12.4](#124-the-new-central-objection-you-can-mirror-a-name-but-not-its-content)) | High — a shipped safety net stops working, silently | Replace the path-prefix test with something that survives mirroring. Nothing in the tree offers one; a content probe (`file`, ELF interpreter) would have to be invented |
+| R9 | `retireJailMadeVenv` (`internal/cli/run/retire.go`) degrades from a working guard to always-pass ([§12.4](#124-the-new-central-objection-you-can-mirror-a-name-but-not-its-content)) | High — a shipped safety net stops working, silently | Replace the path-prefix test with something that survives mirroring. Nothing in the tree offers one; a content probe would have to be invented, and the ELF interpreter, measured 2026-09-25, cannot tell the two sides apart ([`OQ-WP9`](#OQ-WP9)) |
 | R10 | Host-credential paths and their jail namesakes become the same string, in agent-editable config ([§12.5](#125-the-credential-boundary--the-argument-that-could-have-killed-it-and-does)) | High | Scope-rule workspace `mounts` ([`OQ-WP4`](#OQ-WP4)), which is worth doing regardless and is not sufficient alone |
 | R11 | On `macos-user`, a sandbox home at `/Users/<hostuser>` hands the agent read-write over the human's home via `(subpath <sandboxHome>)` ([§12.8](#128-macos-users-neutral-ground-is-it-a-constraint-or-a-choice)) | **Critical, mechanical** | None. `dscl` also refuses the duplicate shortname, so the shape is inexpressible rather than dangerous — but only because macOS stops it, not because yolo does |
 | R12 | Captures and other home-relative artifacts stop being machine-independent, foreclosing cross-machine reuse ([§12.6](#126-capture-relocation--chased-hard-it-cuts-the-other-way)) | Medium, and it is a foreclosure rather than a break | None. It is inherent: the mirrored home embeds the host username |
@@ -1336,13 +1341,27 @@ and it already has a home in the tree.
    **Answer:**
    > _(empty — fill in when decided)_
 
-5. 💬 **OQ-WP5: Does Apple Container support an arbitrary deep bind destination?**
+5. 💬 <a id="OQ-WP5"></a>**OQ-WP5: Does Apple Container support an arbitrary deep bind destination?**
    Unanswered since [`OQ-MP2`](../research/mise-host-jail-path-mismatch.md#-oq-mp2-does-apple-container-support-arbitrary-same-path-bind-targets--moot-2026-07-03) closed it as moot in July. It does not block the *no*, but it
    would block a future *yes*, and it is cheap to measure for whoever next has AC hardware
    in front of them. `docs/design/backend-parity.md` is where the answer belongs.
 
    _Leaning:_ Unverified, and I would guess yes (AC does ordinary directory binds), but a
    guess is exactly what this repo's doc norms forbid recording as fact.
+
+   **The measurement exists, UNRUN (2026-09-25).** It is
+   `TestAppleContainerBindsADeepDestination` in
+   [`applecontainerparity_test.go`](../../integration/applecontainerparity_test.go). It is
+   selected by `apple-container.yml`'s `^TestAppleContainer` subset, and it is an experiment:
+   both answers pass. It skips when no jail image is loaded into Apple Container yet. It first runs a shallow control bind, and if that fails the test is red,
+   because nothing was measured. Then it binds a seeded host directory at three deep shapes:
+   a new top-level path (`/Users/yolo-wp5-probe/code/proj`, the host-path mirror), a path
+   nested inside another bind (`/workspace/a/b/c/proj`), and a path deep under an image
+   directory (`/opt/yolo-wp5/a/b/c/proj`). Each runs with `--read-only` as a yolo launch does,
+   and again without it on a failure, so the log says whether the rootfs or the destination
+   refused. **How to read it:** grep the job log for `AC-WP5 VERDICT`. `SUPPORTED` answers
+   this question yes. `NOT SUPPORTED for [...]` names the shapes that failed. Either way,
+   record the `container` version the line prints.
 
    <!-- vantage: oq id=OQ-WP5 leaning="Unverified. I would guess Apple Container does support an arbitrary deep bind destination, but a guess is exactly what this repo's doc norms forbid recording as fact. It blocks a future yes, not this no." -->
 
@@ -1411,11 +1430,51 @@ and it already has a home in the tree.
    interpreter happens to exist on the host at the same path.
 
    _Leaning:_ Yes, but as separate, small work, and only if a better oracle exists. Reading
-   the ELF interpreter out of the recorded `home` binary would be one; I have not checked
-   whether that is cheap enough to run on every fresh-container launch, so this is a question
+   the ELF interpreter out of the recorded `home` binary was the candidate. It is now measured
+   (below): cheap enough, but it cannot tell the two sides apart, so it does not meet the
+   leaning's own condition. No other oracle has been found, so this is still a question
    rather than a proposal.
 
-   <!-- vantage: oq id=OQ-WP9 leaning="Yes, separately and only with a better oracle. The path-prefix plus existence test in retireJailMadeVenv is already thin — it misses a jail-made venv whose interpreter exists at the same path on the host. Reading the ELF interpreter would be a content-based oracle, but I have not measured whether it is cheap enough for every fresh-container launch." -->
+   **Evidence, MEASURED 2026-09-25**, with no ruling implied. The benchmark is
+   `internal/cli/run/retire_bench_test.go`. It ran in this development jail on an AMD Ryzen AI
+   MAX+ 395 with Go 1.26.7 and a warm page cache:
+   `env -u YOLO_VERSION -u YOLO_HOST_LAYERS go test -short -run '^$' -bench 'RetireJailMadeVenvToday|VenvELFInterp' -benchtime=2s -count=5 ./internal/cli/run/`.
+   The real-interpreter columns add `YOLO_BENCH_ELF=<path>` and use `-count=3`. Each cell is
+   the median of its runs.
+
+   | Per venv, per launch | Synthetic ELF | mise Python 3.13.12 (114 MB) | mise Python 3.11.14 (52 MB) |
+   | :--- | :--- | :--- | :--- |
+   | `retireJailMadeVenv` today, the whole function | 4.6 µs | — | — |
+   | Added probe, minimal reader (header, program headers, interpreter string) | 4.1 µs | 4.4 µs | 4.6 µs |
+   | Added probe through `debug/elf`, which also parses the section headers | 4.3 µs | 10–11 µs | 9 µs |
+
+   - **Cost: negligible.** A launch in this workspace spends a median of 2.15 s between its
+     first recorded event and `child.spawned`. That is 31 launches in
+     `<workspace>/.yolo/host-perf.log`, 2026-09-09 to 2026-09-25. Even the `debug/elf` probe
+     costs about 0.0005% of that. **NOT MEASURED:** a cold cache, because dropping the page
+     cache needs root. The minimal reader touches two places in the file: the first page and
+     the interpreter string. For 3.11.14 that string sits at offset `0x31e5690`, about 52 MB
+     in. `debug/elf` also reads the section-header table at the end of the file.
+   - **Oracle: it cannot tell the two sides apart.** The jail's mise Pythons 3.11.14, 3.12.7
+     and 3.13.12 all request `/lib64/ld-linux-x86-64.so.2`. So would a host's mise Python on
+     an FHS distribution. In the jail that path is a symlink to nix-ld. On the host the same
+     string names the host's own loader (not measured on the host from here). Only the
+     nix-built `/bin/python3` requests a store path
+     (`/nix/store/…-glibc-2.42-84/lib/ld-linux-x86-64.so.2`). That path resolves on the host
+     too, because the jail's `/nix/store` is the host's store, mounted read-only.
+   - **Blind by construction to the case this question names.** When the recorded `home`
+     path also exists on the host, the host reads its own file at that path, never the
+     jail's. The venv holds no copy of the interpreter to read instead. This jail's uv
+     0.11.27 `.venv/bin/python` is a symlink to the `home` binary. A content oracle would
+     have to read something the jail wrote *into* the venv, such as the RUNPATH of a compiled
+     extension module or a script's shebang. That is neither measured nor proposed.
+   - **READ FROM CODE, for context.** The two paths `retireJailMadeVenv` checks, `.venv` and
+     the mise-config venv path, are the first two members of the per-side shadow set
+     ([`SS-2`](../reference/jail-state-separation-design.md#ss-2)). So on a backend that
+     mounts that shadow, a jail-made venv at those paths is pre-shadow legacy state.
+     Whether `macos-user` shadows them was not checked.
+
+   <!-- vantage: oq id=OQ-WP9 leaning="Yes, separately and only with a better oracle. The path-prefix plus existence test in retireJailMadeVenv is already thin — it misses a jail-made venv whose interpreter exists at the same path on the host. The ELF-interpreter candidate is now measured (2026-09-25): about 4.4 µs per venv against a 2.15 s median launch, so cost is no objection, but it is no better oracle. The jail's mise Pythons request the same generic loader path a host's would, and a probe of the recorded path reads the host's own file. No better oracle is known." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
