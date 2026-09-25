@@ -27,14 +27,16 @@ import (
 
 // resolveSelectedPacks returns the packs the user config selects, loaded, plus complete=false
 // when some of the selection could not be read: a malformed user config, a configured pack
-// the store cannot resolve (never installed, offline, moved), or a `needs` declaration the
-// closure refuses. The packs that DID resolve are still returned.
+// the store cannot resolve without writing (never installed, offline, moved, or fetched but
+// its tree not checked out), or a `needs` declaration the closure refuses. The packs that DID
+// resolve are still returned.
 //
 // PARTIAL IS THE RIGHT ANSWER FOR A RESERVATION CHECK, and it is deliberately not "refuse
-// everything" or "reserve every shipped pack". A pack that cannot be resolved here cannot be
-// staged either, and staging fails closed (stagePacks in internal/cli/run refuses the
-// launch), so no launch ever runs with that pack's
-// directory unreserved; `yolo check` reports the pack itself, louder and first, in its Packs
+// everything" or "reserve every shipped pack". A pack that cannot be resolved here either
+// cannot be staged, and staging fails closed (stagePacks in internal/cli/run refuses the
+// launch), or is a fetched pack whose tree staging checks out, and that launch reserves its
+// dirs through the staged set. So no launch ever runs with that pack's directory
+// unreserved; `yolo check` reports a broken pack itself, louder and first, in its Packs
 // section. Refusing a config key over it would dress a broken install up as a bad
 // `writable_home_dirs` entry — the same reason UseProfileCLINames steps aside.
 //
@@ -73,7 +75,14 @@ func resolveSelectedPacks() (packs []*packload.Pack, complete bool) {
 			complete = false
 			continue
 		}
-		res, err := store.Resolve(addr, entry.Slug())
+		// ResolveExisting, NOT Resolve: validation (and so `yolo check`) must write nothing
+		// into the pack store, and Resolve is the launch's resolver, which checks a missing
+		// tree out and RemoveAll's an incomplete one first. A fetched pack whose tree is not
+		// checked out yet is therefore unresolvable HERE and reserves nothing, although the
+		// launch's staging will check it out: that launch's own deriver
+		// (WritableHomeDirs over the staged set) then drops the entry the pack's dir covers,
+		// and the next validation, with the tree in place, refuses it.
+		res, err := store.ResolveExisting(addr, entry.Slug())
 		if err != nil {
 			complete = false
 			continue

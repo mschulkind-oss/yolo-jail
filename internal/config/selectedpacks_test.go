@@ -13,12 +13,15 @@ package config
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // embeddedPacksNamed returns the shipped packs of these names, in this order.
@@ -271,4 +274,111 @@ func TestAHostFilesEntryUnderAnUnselectedPacksDirValidates(t *testing.T) {
 	if got := entries[0].StagingFor(embeddedPacksNamed(t, "claude")); got != HostFileStagingWritableDir {
 		t.Errorf("StagingFor = %v, want a writable subtree", got)
 	}
+}
+
+// fetchedPackStore makes a real git repository holding manifest as its pack.json, fetches it
+// into this HOME's pack store the way `yolo pack install` does (a bare mirror, no tree), and
+// returns the pack's source address and the commit its ref names. Real git, because a mocked
+// one would pass while the store's real invocations were wrong.
+func fetchedPackStore(t *testing.T, manifest string) (source, commit string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	repo := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		cmd.Env = append(packsrc.CleanGitEnv(os.Environ()),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@e", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@e")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q", "-b", "main")
+	if err := os.WriteFile(filepath.Join(repo, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "-A")
+	git("commit", "-qm", "initial")
+
+	source = "git+file://" + repo + "?ref=main"
+	addr, err := packsrc.Parse(source)
+	if err != nil {
+		t.Skipf("the pack grammar does not accept a local git transport: %v", err)
+	}
+	commit, err = (&packsrc.Store{Dir: paths.PacksDir()}).Sync(addr)
+	if err != nil {
+		t.Fatalf("fetching the pack into the store: %v", err)
+	}
+	return source, commit
+}
+
+// VALIDATION WRITES NOTHING INTO THE PACK STORE. It used to resolve a configured pack with
+// packsrc.Store.Resolve, the launch's resolver, which checks a missing tree out and
+// RemoveAll's an incomplete one before re-checking it out, so `yolo check` and every
+// validation of a config holding `writable_home_dirs` could rewrite the store. With
+// ResolveExisting, a fetched pack whose tree is missing or incomplete is left exactly as it
+// was and reserves nothing, the answer resolveSelectedPacks already gives any pack it cannot
+// resolve (the launch's staging checks the tree out, and its own deriver reserves the dir).
+func TestValidationLeavesThePackStoreAlone(t *testing.T) {
+	home := useProfileKeysHome(t)
+	// No staged-tree fallback: this jail's own YOLO_PACK_ROOT must not answer for the pack.
+	t.Setenv("YOLO_PACK_ROOT", "")
+	source, commit := fetchedPackStore(t,
+		`{"name": "mytool", "contributes": [{"kind": "state", "at": ".mytool", "scope": "workspace"}]}`)
+	writeUseProfileKeysUserConfig(t, home, `[{"source": "`+source+`", "name": "mytool"}]`)
+	cfg := `{"writable_home_dirs": [".mytool"]}`
+	trees := filepath.Join(paths.PacksDir(), "trees")
+
+	t.Run("no tree", func(t *testing.T) {
+		if errs, _ := ValidateConfig(decode(t, cfg), t.TempDir(), nil); len(errs) != 0 {
+			t.Errorf("a pack with no tree in the store reserves nothing, so the entry passes: %v", errs)
+		}
+		if entries, _ := os.ReadDir(trees); len(entries) != 0 {
+			t.Errorf("validation checked the fetched pack out into %s: %v", trees, entries)
+		}
+	})
+
+	t.Run("an incomplete tree", func(t *testing.T) {
+		// An interrupted checkout: content present, completion marker missing.
+		if err := os.RemoveAll(filepath.Join(trees, commit)); err != nil {
+			t.Fatal(err)
+		}
+		partial := filepath.Join(trees, commit, "pack.json")
+		if err := os.MkdirAll(filepath.Dir(partial), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(partial, []byte("PARTIAL"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if errs, _ := ValidateConfig(decode(t, cfg), t.TempDir(), nil); len(errs) != 0 {
+			t.Errorf("a pack whose tree is incomplete reserves nothing, so the entry passes: %v", errs)
+		}
+		if b, err := os.ReadFile(partial); err != nil || string(b) != "PARTIAL" {
+			t.Errorf("validation rewrote the incomplete tree: %q, %v", b, err)
+		}
+		if entries, _ := os.ReadDir(filepath.Join(trees, commit)); len(entries) != 1 {
+			t.Errorf("validation added to the incomplete tree: %v", entries)
+		}
+	})
+
+	t.Run("a complete tree still reserves", func(t *testing.T) {
+		// Control: once a launch has checked the tree out, validation reads it where it sits.
+		if err := os.RemoveAll(filepath.Join(trees, commit)); err != nil {
+			t.Fatal(err)
+		}
+		addr, err := packsrc.Parse(source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := (&packsrc.Store{Dir: paths.PacksDir()}).Resolve(addr, "mytool"); err != nil {
+			t.Fatalf("checking the tree out as a launch does: %v", err)
+		}
+		errs, _ := ValidateConfig(decode(t, cfg), t.TempDir(), nil)
+		if len(errs) != 1 || !strings.Contains(errs[0], "the selected pack mytool declares it") {
+			t.Errorf("with the tree checked out, the fetched pack's dir must be reserved; got %v", errs)
+		}
+	})
 }
