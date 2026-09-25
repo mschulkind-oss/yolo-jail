@@ -98,7 +98,7 @@ MEASURED from the code at `5e8e64f6`; the symbols named were re-checked present 
 is AWS's Bedrock-only credential, sent as-is as a bearer from `AWS_BEARER_TOKEN_BEDROCK`. It is
 one of the three credentials yolo supports; the others are a static key pair and an SSO session
 through `aws-auth` ([OQ-SSO7](sso-backed-bedrock.md#13-decision-ledger);
-[`bedrock-plumbing.md`](bedrock-plumbing.md#65-the-credential-three-are-supported)). A user
+[`bedrock-plumbing.md`](bedrock-plumbing.md#64-the-credential-three-are-supported)). A user
 provider pointing `endpoints.openai` at runtime's `/openai/v1` with
 `wire_api: "openai-chat-completions"` and such a key should give claude and copilot every
 chat-completions model runtime serves. That is INFERRED; no request has been made. Nothing signs
