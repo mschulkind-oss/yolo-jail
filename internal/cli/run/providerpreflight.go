@@ -66,22 +66,37 @@ func (o *Options) checkProviderCredentials(cfg *jsonx.OrderedMap, packs []*packl
 			paths.AllowMissingProvidersEnv+"=1.")...), true
 }
 
-// printProviderRefusal renders the check's output: the first line as the bold verdict,
-// the rest as its facts. One renderer for both arms, so the same refusal reads the same
-// way on a container and on a native sandbox.
+// printProviderRefusal renders a pre-flight's output: every VERDICT line in bold red, the
+// facts under it plain. One renderer for both arms, so the same refusal reads the same way
+// on a container and on a native sandbox.
 //
-// It renders the AWS credential-channel refusal beside it (awschannels.go) too — same
-// shape, same three call sites, and a second renderer would be a second way for one
-// class of pre-flight to look on the terminal.
+// It renders the env-override refusal beside it (envoverrides.go) too — same shape, same
+// three call sites, and a second renderer would be a second way for one class of
+// pre-flight to look on the terminal.
+//
+// A VERDICT IS AN UNINDENTED LINE, not the first line. The lines can hold SEVERAL findings:
+// checkEnvOverrides concatenates one block per tripped certain `overridden_by` entry, each
+// opening with its own "Refusing to launch: …" verdict, and bolding only lines[0] left
+// every later finding's verdict looking like one more fact under the first. Both
+// producers already follow the convention this reads — packload's finding lines and
+// ProviderCredentialGaps' facts are indented, verdicts are not —
+// and TestPrintProviderRefusalBoldsEveryFindingsVerdict renders a real two-finding refusal
+// through this, so a producer that broke it would fail there.
 func (o *Options) printProviderRefusal(lines []string) {
 	out := o.pr(o.Stderr)
-	for i, line := range lines {
-		if i == 0 {
+	for _, line := range lines {
+		if isVerdictLine(line) {
 			out.printf("[bold red]%s[/bold red]", line)
 			continue
 		}
 		out.print(line)
 	}
+}
+
+// isVerdictLine reports whether a pre-flight line opens a finding: it is non-empty and not
+// indented. See printProviderRefusal.
+func isVerdictLine(line string) bool {
+	return line != "" && line[0] != ' ' && line[0] != '\t'
 }
 
 // envPairs lifts every `-e K=V` pair out of an assembled container argv, keyed by K.

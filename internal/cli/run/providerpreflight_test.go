@@ -1,6 +1,7 @@
 package run
 
 import (
+	"bytes"
 	"go/ast"
 	"go/token"
 	"os"
@@ -394,5 +395,65 @@ func TestShippedPacksRequireNoCredential(t *testing.T) {
 				"launch that selects it would refuse until the key is present, which is the "+
 				"property the program-pack check above guards", p.Name)
 		}
+	}
+}
+
+// TestPrintProviderRefusalBoldsEveryFindingsVerdict: a refusal can carry SEVERAL findings —
+// checkEnvOverrides concatenates one block per tripped certain `overridden_by` entry, each
+// opening with its own "Refusing to launch: …" verdict — and every verdict must render
+// bold, not only the first line of the whole block. The fixture is the real two-finding
+// launch: aws-auth's pointer under `bedrock`, with BOTH the Bedrock bearer and a static key
+// pair (no AWS_PROFILE) delivered, which trips two of the pack's certain entries.
+//
+// The lines come from checkEnvOverrides rather than a hand-written slice, so the test also
+// fails if the finding text stops following the convention the renderer reads (a verdict
+// is unindented; every fact, reason and remedy under it is indented).
+func TestPrintProviderRefusalBoldsEveryFindingsVerdict(t *testing.T) {
+	o := overrideOptions(t)
+	var stderr bytes.Buffer
+	o.Stderr = &stderr
+	o.Color = true
+	o.IsTTYStdout = func() bool { return true }
+	o.Getenv = shellWith(nil)
+	o.ProfileName = "bedrock"
+	selected := awsAuthSelected(t)
+	cfg := newConfig()
+	lines := o.checkEnvOverrides(cfg, "podman", selected, channelFor(t, o, cfg, selected,
+		userEnvWith(map[string]string{
+			bearerVar:               "sk-bedrock-frozen",
+			"AWS_ACCESS_KEY_ID":     "AKIAEXAMPLE",
+			"AWS_SECRET_ACCESS_KEY": "example",
+		})), nil)
+	var verdicts []string
+	for _, l := range lines {
+		if strings.HasPrefix(l, "Refusing to launch:") {
+			verdicts = append(verdicts, l)
+		}
+	}
+	if len(verdicts) != 2 {
+		t.Fatalf("fixture: want two certain findings, got %d verdicts:\n%s",
+			len(verdicts), strings.Join(lines, "\n"))
+	}
+	stderr.Reset()
+	o.printProviderRefusal(lines)
+	// Line by line, because the two verdicts are the same sentence: an index lookup would
+	// find the first one twice.
+	const bold = "\x1b[1m"
+	var boldVerdicts int
+	for _, l := range strings.Split(strings.TrimSuffix(stderr.String(), "\n"), "\n") {
+		switch {
+		case strings.Contains(l, "Refusing to launch:"):
+			if strings.HasPrefix(l, bold) {
+				boldVerdicts++
+			} else {
+				t.Errorf("a finding's verdict rendered plain: %q", l)
+			}
+		case strings.Contains(l, bold):
+			// The facts under each verdict stay plain: bolding everything is not the fix.
+			t.Errorf("a fact line rendered bold: %q", l)
+		}
+	}
+	if boldVerdicts != len(verdicts) {
+		t.Errorf("want %d bold verdicts, got %d:\n%q", len(verdicts), boldVerdicts, stderr.String())
 	}
 }
