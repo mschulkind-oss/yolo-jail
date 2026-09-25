@@ -1,6 +1,7 @@
 package codec
 
 import (
+	"math"
 	"reflect"
 	"testing"
 )
@@ -325,5 +326,59 @@ func TestKindDecodeAgreement(t *testing.T) {
 		if !k.Matches(k.ZeroValue()) {
 			t.Errorf("%s: ZeroValue %#v does not match its own kind %v", name, k.ZeroValue(), k)
 		}
+	}
+}
+
+// TestTOMLNonFiniteFloats: TOML spells the non-finite floats `inf`, `+inf`, `-inf` and
+// `nan`, and nothing else. The scalar encoder used to append `.0` to any FormatFloat
+// result with no `.eE` in it, so a surface file holding `infinite = inf` decoded to +Inf
+// and was written back as `infinite = +Inf.0` — invalid TOML, which the next `own` render
+// then refused to rewrite (docs/design/config-ownership-and-promotion.md §11, live residue
+// item 6). Round-tripped through Decode on purpose: the bytes must be TOML this codec can
+// read back, not merely a string the test agrees with.
+func TestTOMLNonFiniteFloats(t *testing.T) {
+	for _, tc := range []struct {
+		in     string
+		golden string
+		check  func(float64) bool
+	}{
+		{"a = inf\n", "a = inf\n", func(f float64) bool { return math.IsInf(f, 1) }},
+		{"a = +inf\n", "a = inf\n", func(f float64) bool { return math.IsInf(f, 1) }},
+		{"a = -inf\n", "a = -inf\n", func(f float64) bool { return math.IsInf(f, -1) }},
+		{"a = nan\n", "a = nan\n", math.IsNaN},
+		{"a = -nan\n", "a = nan\n", math.IsNaN},
+	} {
+		t.Run(tc.in, func(t *testing.T) {
+			v, err := (TOML{}).Decode([]byte(tc.in))
+			if err != nil {
+				t.Fatalf("Decode(%q): %v", tc.in, err)
+			}
+			f, ok := v.(map[string]any)["a"].(float64)
+			if !ok || !tc.check(f) {
+				t.Fatalf("Decode(%q) = %#v, want the non-finite float", tc.in, v)
+			}
+			enc, err := (TOML{}).Encode(v)
+			if err != nil {
+				t.Fatalf("Encode(%#v): %v", v, err)
+			}
+			if string(enc) != tc.golden {
+				t.Errorf("Encode = %q, want %q (TOML has no `+Inf.0` or `NaN.0`)", enc, tc.golden)
+			}
+			back, err := (TOML{}).Decode(enc)
+			if err != nil {
+				t.Fatalf("the encoded bytes %q are not valid TOML: %v", enc, err)
+			}
+			if f, ok := back.(map[string]any)["a"].(float64); !ok || !tc.check(f) {
+				t.Errorf("Decode(Encode(v)) = %#v, want the same non-finite float", back)
+			}
+		})
+	}
+	// The same rule inside an array, which goes through the same scalar encoder.
+	enc, err := (TOML{}).Encode(map[string]any{"xs": []any{math.Inf(1), math.Inf(-1), 1.5}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "xs = [inf, -inf, 1.5]\n"; string(enc) != want {
+		t.Errorf("Encode(array) = %q, want %q", enc, want)
 	}
 }

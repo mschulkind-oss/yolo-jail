@@ -2,6 +2,7 @@ package codec
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -217,6 +218,20 @@ func encodeScalar(v any) (string, error) {
 	case int64:
 		return strconv.FormatInt(t, 10), nil
 	case float64:
+		// The non-finite floats FIRST: TOML spells them `inf`, `-inf` and `nan`, and
+		// FormatFloat's `+Inf`/`-Inf`/`NaN` are not TOML at all — with the `.0` below
+		// appended they were written as `+Inf.0`, which the next decode of the file
+		// refuses (docs/design/config-ownership-and-promotion.md §11, residue item 6).
+		// A NaN's sign is dropped: TOML allows `-nan`, but which bit pattern it names is
+		// implementation-defined, and the decode of both spellings is a NaN either way.
+		switch {
+		case math.IsInf(t, 1):
+			return "inf", nil
+		case math.IsInf(t, -1):
+			return "-inf", nil
+		case math.IsNaN(t):
+			return "nan", nil
+		}
 		// Shortest round-tripping form; ensure a decimal point so it decodes
 		// back as a float, not an int.
 		s := strconv.FormatFloat(t, 'g', -1, 64)
