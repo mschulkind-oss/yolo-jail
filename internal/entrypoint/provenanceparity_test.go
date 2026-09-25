@@ -383,7 +383,7 @@ func parityRecords(t *testing.T, tc parityCase) (jail, host map[string]string) {
 	var jailErr bytes.Buffer
 	ej := &Env{Home: t.TempDir(), Workspace: t.TempDir(), Vars: map[string]string{}, Stderr: &jailErr}
 	contribs := &surfaceContribs{overlays: tc.overlays, lists: tc.lists}
-	if _, err := renderSurfaceStatefulSurface(ej, surface, hostBytes, tc.computed, contribs); err != nil {
+	if _, err := renderSurfaceStatefulSurface(ej, surface, hostBytes, tc.computed, nil, contribs); err != nil {
 		t.Fatalf("jail render: %v", err)
 	}
 	jail = readProvenanceFile(t, prismProvenancePath(ej, "parity", "settings"))

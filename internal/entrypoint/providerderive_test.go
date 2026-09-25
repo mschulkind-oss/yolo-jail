@@ -76,7 +76,7 @@ func TestGatewayProviderPacksDeclareOnlyStableFacts(t *testing.T) {
 // every routed provider becomes an anonymous first request.
 func TestCodexDeriveUsesCodexCredentialField(t *testing.T) {
 	script, s := deriveSurface(t, "codex", "codex/config")
-	got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, map[string]map[string]any{
+	got, _, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, map[string]map[string]any{
 		manifest.SourceProviders: {
 			"router": map[string]any{
 				"api_key_env_name": "ROUTER_API_KEY",
@@ -104,7 +104,7 @@ func TestCodexDeriveUsesCodexCredentialField(t *testing.T) {
 // "provider name must not be empty" otherwise.
 func TestCodexDeriveSetsModelProviderName(t *testing.T) {
 	script, s := deriveSurface(t, "codex", "codex/config")
-	got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, map[string]map[string]any{
+	got, _, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, map[string]map[string]any{
 		manifest.SourceProviders: {
 			"local": map[string]any{
 				"endpoints": map[string]any{
@@ -142,7 +142,7 @@ func TestCodexDeriveSetsModelProviderName(t *testing.T) {
 // errors on endpoints with output token limits), and maps max_tokens when specified.
 func TestPiDeriveHandlesLocalProviderContextAndKey(t *testing.T) {
 	script, s := deriveSurface(t, "pi", "pi/models")
-	got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, map[string]map[string]any{
+	got, _, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, map[string]map[string]any{
 		manifest.SourceProviders: {
 			// The address is written UNDER ITS PROTOCOL, the only spelling a provider has
 			// since the single-protocol shorthand was deleted (protocol-resolution.md):
@@ -199,7 +199,7 @@ func TestPiDeriveSettingsScopesDeclaredModels(t *testing.T) {
 	script, s := deriveSurface(t, "pi", "pi/settings")
 
 	// 1. Provider with declared models (like zai)
-	got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{
+	got, _, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{
 		Profile:  "zai",
 		Provider: "zai",
 	}, map[string]map[string]any{
@@ -246,7 +246,7 @@ func TestPiDeriveSettingsScopesDeclaredModels(t *testing.T) {
 	}
 
 	// 2. Provider without declared models (like kilo) falls back to wildcard
-	gotKilo, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{
+	gotKilo, _, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{
 		Profile:  "kilo",
 		Provider: "kilo",
 	}, map[string]map[string]any{
@@ -271,7 +271,7 @@ func TestPiDeriveSettingsScopesDeclaredModels(t *testing.T) {
 // and selection sets small_model to prevent opencode from phoning home to gpt-5-nano.
 func TestOpenCodeDeriveHandlesLocalProviderLimitAndSmallModel(t *testing.T) {
 	script, s := deriveSurface(t, "opencode", "opencode/config")
-	got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{
+	got, _, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{
 		Profile:  "local",
 		Provider: "local",
 	}, map[string]map[string]any{
@@ -432,7 +432,7 @@ func TestProviderDerivesResolveAnEndpointsOnlyProvider(t *testing.T) {
 
 	t.Run("pi", func(t *testing.T) {
 		script, s := deriveSurface(t, "pi", "pi/models")
-		got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, tables)
+		got, _, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, tables)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -473,7 +473,7 @@ func TestProviderDerivesResolveAnEndpointsOnlyProvider(t *testing.T) {
 
 	t.Run("codex", func(t *testing.T) {
 		script, s := deriveSurface(t, "codex", "codex/config")
-		got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, tables)
+		got, _, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, tables)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -495,7 +495,7 @@ func TestProviderDerivesResolveAnEndpointsOnlyProvider(t *testing.T) {
 
 	t.Run("opencode", func(t *testing.T) {
 		script, s := deriveSurface(t, "opencode", "opencode/config")
-		got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, tables)
+		got, _, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, tables)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -625,7 +625,7 @@ func TestProviderDerivesTranslateTheCanonicalVocabulary(t *testing.T) {
 
 			t.Run("pi", func(t *testing.T) {
 				script, s := deriveSurface(t, "pi", "pi/models")
-				got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, tables)
+				got, _, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, tables)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -653,7 +653,7 @@ func TestProviderDerivesTranslateTheCanonicalVocabulary(t *testing.T) {
 
 			t.Run("codex", func(t *testing.T) {
 				script, s := deriveSurface(t, "codex", "codex/config")
-				got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, tables)
+				got, _, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, tables)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -686,7 +686,7 @@ func TestProviderDerivesTranslateTheCanonicalVocabulary(t *testing.T) {
 // jail silently drops the provider from Pi's catalog.
 func TestPiDeriveUsesResponsesEndpointWhenOpenAIIsAbsent(t *testing.T) {
 	script, s := deriveSurface(t, "pi", "pi/models")
-	got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, map[string]map[string]any{
+	got, _, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, map[string]map[string]any{
 		manifest.SourceProviders: map[string]any{
 			"responses-only": map[string]any{"endpoints": map[string]any{
 				"openai-responses": map[string]any{"base_url": "https://provider.example/v1", "wire_api": "openai-responses"},
@@ -738,7 +738,7 @@ func TestProviderDerivesSkipAProviderWithNoURLForThem(t *testing.T) {
 		},
 	}
 	script, s := deriveSurface(t, "pi", "pi/models")
-	got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, tables)
+	got, _, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, tables)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -767,7 +767,7 @@ func TestProviderDerivesSkipAProviderWithNoURLForThem(t *testing.T) {
 // defaults to 1,048,576 for DeepSeek models, and settings.json selection matches the normalized ID.
 func TestPiDeriveHandlesKiloGatewayNormalizationAndContextWindow(t *testing.T) {
 	scriptModels, sModels := deriveSurface(t, "pi", "pi/models")
-	gotModels, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, sModels, scriptModels, surfaceSelection{
+	gotModels, _, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, sModels, scriptModels, surfaceSelection{
 		Profile:  "kilo",
 		Provider: "kilo",
 	}, map[string]map[string]any{
@@ -797,7 +797,7 @@ func TestPiDeriveHandlesKiloGatewayNormalizationAndContextWindow(t *testing.T) {
 	}
 
 	scriptSettings, sSettings := deriveSurface(t, "pi", "pi/settings")
-	gotSettings, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, sSettings, scriptSettings, surfaceSelection{
+	gotSettings, _, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, sSettings, scriptSettings, surfaceSelection{
 		Profile:  "kilo",
 		Provider: "kilo",
 	}, map[string]map[string]any{
@@ -847,7 +847,7 @@ func TestPiDeriveHandlesKiloGatewayNormalizationAndContextWindow(t *testing.T) {
 // additive half: no `model_options` renders the same row it did before the map existed.
 func TestPiDeriveProjectsModelCapabilityFacts(t *testing.T) {
 	script, s := deriveSurface(t, "pi", "pi/models")
-	got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, map[string]map[string]any{
+	got, _, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, map[string]map[string]any{
 		manifest.SourceProviders: {
 			"multi": map[string]any{
 				"endpoints": map[string]any{"openai": map[string]any{

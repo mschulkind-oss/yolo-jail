@@ -291,6 +291,12 @@ func surfaceSelectionFor(packs []*packload.Pack, resolved map[string]packload.Re
 // registered for this surface (the identity: no dynamic layer). A Lua error is
 // fatal, matching the old BuildComputed error contract.
 //
+// The second return is the layer's IN-FULL keys (luahook.DeriveOutput.InFull, CO13): the
+// top-level tables the derive declared it regenerates in full. Both notches read it from
+// here — the boot's stateful render hands it to adoption (agentcfg.Inputs.ComputedInFull),
+// and the host's table probe keeps only those keys (hostTableKeys) — so the two cannot
+// disagree about which tables are yolo's to regenerate.
+//
 // sel is the resolved selection the ctx exposes (surfaceSelection); the env path's
 // producer reads the same fields, so neither derive path can grow a private answer to
 // "which provider is active".
@@ -304,11 +310,11 @@ func surfaceSelectionFor(packs []*packload.Pack, resolved map[string]packload.Re
 // user to route around it. Measured: yolo.env arriving in packs/claude/derive.lua killed
 // every jail on a pre-f55f2109 image with a Lua type error at line 51, and took both
 // claude surfaces down over a producer the entrypoint never even invokes.
-func deriveComputedLayer(e *Env, surface manifest.Surface, deriveScript string, sel surfaceSelection, tables map[string]map[string]any) (map[string]any, error) {
+func deriveComputedLayer(e *Env, surface manifest.Surface, deriveScript string, sel surfaceSelection, tables map[string]map[string]any) (map[string]any, []string, error) {
 	if deriveScript == "" {
-		return nil, nil
+		return nil, nil, nil
 	}
-	out, err := (luahook.GopherLuaVM{}).Derive(deriveScript, &luahook.DeriveCtx{
+	out, err := (luahook.GopherLuaVM{}).DeriveLayer(deriveScript, &luahook.DeriveCtx{
 		Agent:              surface.Agent,
 		Surface:            surface.Name,
 		ProfileName:        sel.Profile,
@@ -319,9 +325,9 @@ func deriveComputedLayer(e *Env, surface manifest.Surface, deriveScript string, 
 		UnknownAPI:         func(name string) { e.warnOnce(unknownDeriveAPINote(surface.Agent, name)) },
 	})
 	if err != nil {
-		return nil, fmt.Errorf("surface %s/%s: derive: %w", surface.Agent, surface.Name, err)
+		return nil, nil, fmt.Errorf("surface %s/%s: derive: %w", surface.Agent, surface.Name, err)
 	}
-	return out, nil
+	return out.Layer, out.InFull, nil
 }
 
 // unknownDeriveAPINote is the skew line for one `yolo.<name>` this build does not know,
@@ -446,8 +452,11 @@ func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]m
 
 	// The dynamic (computed) layer: produced by the surface's derive function over the
 	// live tables (docs/reference/pack-system.md §7). One map serves both the compose
-	// path (as Inputs.Computed) and the RMW path (as the managed dynamic table).
-	computed, err := deriveComputedLayer(e, surface, deriveScript, sel, tables)
+	// path (as Inputs.Computed) and the RMW path (as the managed dynamic table). inFull
+	// is what the derive declared about it (ctx.in_full, CO13), and only the stateful arm
+	// reads it: it is the one mechanism that ADOPTS a file, so the one that has to know
+	// which tables it may claim wholesale as yolo's own previous output.
+	computed, inFull, err := deriveComputedLayer(e, surface, deriveScript, sel, tables)
 	if err != nil {
 		return err
 	}
@@ -495,7 +504,7 @@ func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]m
 		if err != nil {
 			return err
 		}
-		out, err := renderSurfaceStatefulSurface(e, surface, hostBytes, computed, contribs)
+		out, err := renderSurfaceStatefulSurface(e, surface, hostBytes, computed, inFull, contribs)
 		if err != nil {
 			return err
 		}

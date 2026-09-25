@@ -79,7 +79,13 @@ func ConfigureMisePrism(e *Env) error {
 	//     (engine.go mergeValue), while an injected pin still wins its own key.
 	computed := map[string]any{"tools": tools}
 
-	if _, err := renderSurfaceStateful(e, "mise", "config", nil, computed); err != nil {
+	// [tools] is REGENERATED IN FULL (CO13): every entry comes from YOLO_MISE_TOOLS, so on a
+	// first migration a runtime under it that this boot did not inject is an older yolo's
+	// output (the §4.1 stale-runtime class) rather than the user's. This is the Go spelling
+	// of a pack derive's ctx.in_full — mise/config is core's own surface and has no derive.
+	// An EMPTY [tools] still claims nothing (agentcfg.dropComputedTables), so a hand-added
+	// `mise use -g` tool on a jail with no pin is adopted.
+	if _, err := renderSurfaceStateful(e, "mise", "config", nil, computed, []string{"tools"}); err != nil {
 		return err
 	}
 

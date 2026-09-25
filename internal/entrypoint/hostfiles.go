@@ -123,7 +123,7 @@ func renderHostFileSurface(e *Env, entry config.HostFileEntry) error {
 		// THE overlay exception: render statefully so in-jail edits are captured
 		// into a sidecar that outranks the host layer. The sidecars key on
 		// (surface.Agent="user", surface.Name=slug), collision-free with builtins.
-		_, err := renderSurfaceStatefulSurface(e, surface, hostBytes, nil, nil)
+		_, err := renderSurfaceStatefulSurface(e, surface, hostBytes, nil, nil, nil)
 		return err
 
 	case config.HostFileModeOnce:

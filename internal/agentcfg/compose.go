@@ -93,6 +93,14 @@ type Inputs struct {
 	// boot simply is not emitted — no sidecar memory needed. nil = absent.
 	Computed any
 
+	// ComputedInFull names the top-level keys of Computed whose table the derive DECLARED it
+	// regenerates in full — the ctx.in_full sentinel (luahook.DeriveOutput.InFull; CO13,
+	// docs/design/config-ownership-and-promotion.md). It never folds and never reaches the
+	// file: it is read by exactly one decision, what a first migration's adoption may claim
+	// under such a table as yolo's own previous output (dropComputedTables). A key not named
+	// here is a table the derive only asserts LEAVES of, whatever its size. nil = none.
+	ComputedInFull []string
+
 	// LiteralNulls marks the keypaths whose composed value must be a literal
 	// `null` — the ONE shape the layer stack cannot express, carried beside it
 	// rather than inside it. nil/empty = none, which is every caller that does

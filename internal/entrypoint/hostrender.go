@@ -490,7 +490,7 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 			// the declared layers, so a key the user owns and a pack also declares would flip to
 			// the pack's value while adoption says it should not.
 			var sr *statefulRender
-			sr, werr = renderSurfaceStatefulDetail(e, s, nil, tableLayer, contribs)
+			sr, werr = renderSurfaceStatefulDetail(e, s, nil, tableLayer, hostTableInFull(tableLayer), contribs)
 			if sr != nil {
 				archived = sr.archived
 			}
@@ -584,7 +584,7 @@ func hostListConflict(e *Env, mechanism string, s manifest.Surface, path string,
 		return ""
 	}
 	if mechanism == manifest.ModeStateful {
-		if _, err := composeStatefulSurface(e, s, nil, computed, contribs); err != nil {
+		if _, err := composeStatefulSurface(e, s, nil, computed, hostTableInFull(computed), contribs); err != nil {
 			if refusal, isRefusal := asRMWRefusal(err); isRefusal {
 				return refusal.Reason()
 			}
@@ -635,7 +635,7 @@ func hostListConflict(e *Env, mechanism string, s manifest.Surface, path string,
 // to run in the observe posture and, for confirmHostLosses, twice.
 func hostStatefulWouldChange(e *Env, s manifest.Surface, computed map[string]any,
 	contribs *surfaceContribs) bool {
-	r, err := composeStatefulSurface(e, s, nil, computed, contribs)
+	r, err := composeStatefulSurface(e, s, nil, computed, hostTableInFull(computed), contribs)
 	if err != nil {
 		return false
 	}
@@ -844,13 +844,32 @@ func hostProvenanceExists(e *Env, s manifest.Surface) bool {
 //     computed layer (OQ-4/§6.6). So the entries written at the host come from the pack's
 //     own declared layers, never from liveTables.
 //
+// A KEY IS A TABLE ONLY IF THE DERIVE DECLARED IT IN FULL (ctx.in_full, CO13 —
+// docs/design/config-ownership-and-promotion.md). The rule used to be "every object-valued
+// key the derive produces", and the sentinel probe makes that rule over-claim by
+// construction: fed a non-empty live table, claude/settings' derive always produced a
+// non-empty `env`, so every `assert` apply cleared the user's real env block and rewrote it
+// from yolo's declared layers — which declare no env at all. `env` is a table yolo asserts ONE
+// leaf of; it was never yolo's to regenerate. The declaration is the same one the jail's
+// stateful adoption reads (deriveComputedLayer hands both), so the host and that adoption
+// cannot disagree about which keys are tables — which is what this function exists for.
+//
+// ⚠ The jail's RMW arm is the one reader that does not consult the declaration yet:
+// regenerateManagedTables regenerates every object-valued computed key, declared or not. For
+// the shipped packs that changes nothing (claude/config's derive returns only the declared
+// mcpServers, and copilot/config has no producer), but a pack's rmw surface returning a table
+// NOT declared in full would be merged here and regenerated whole in a jail. What rmw should do
+// with one is an open ruling (docs/design/config-ownership-and-promotion.md, "Built
+// 2026-09-25 — what shipped").
+//
 // The alternative was a SHAPE heuristic ("an object whose values are all objects is a
 // table"), which would have guessed `mcpServers` right and had no principled answer for the
 // next key. Asking the pack is a declaration, and it is the same declaration the jail path
-// already uses — so the two notches cannot disagree about which keys are tables.
+// already uses.
 //
-// A pack with no derive, or a surface with no producer, has no tables: the result is nil and
-// every key merges, which is the pre-existing behavior for every other surface.
+// A pack with no derive, a surface with no producer, or a derive that declares nothing in
+// full has no tables: the result is nil and every key merges, which is the pre-existing
+// behavior for every other surface.
 func hostTableKeys(p *packload.Pack, s manifest.Surface) []string {
 	script := packload.DeriveScript(p)
 	if script == "" {
@@ -875,30 +894,45 @@ func hostTableKeys(p *packload.Pack, s manifest.Surface) []string {
 	// the catalog tables come from presence (OQ-CS1 option D), the selection key itself
 	// is a scalar. A real selection would make the probe's answer a fact about a launch
 	// this function has no launch for.
-	derived, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, probe)
+	derived, inFull, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, probe)
 	if err != nil {
 		return nil // a broken derive is the jail path's error to report, not this one's
 	}
 	var keys []string
-	for k, v := range derived {
+	for _, k := range inFull {
+		v := derived[k]
 		// The reserved selection namespace is never a table, whatever a derive returns
 		// under it. Its body is a flat map of SCALARS by contract
 		// (agentcfg.TakeSelection refuses the rest), and this probe is exactly the reader
-		// that would misread one: an object-valued key here is claimed as yolo-owned and
-		// wholesale-written (regenerateManagedTables), so a table-shaped selection would
-		// reach the agent's file as a literal `selection` table the host render also does
-		// not apply — the host notch runs no edge-triggered apply at all.
+		// that would misread one: a declared object-valued key here is claimed as yolo-owned
+		// and wholesale-written (regenerateManagedTables), so a table-shaped selection a
+		// derive wrapped in ctx.in_full would reach the agent's file as a literal `selection`
+		// table the host render also does not apply — the host notch runs no edge-triggered
+		// apply at all.
 		if k == agentcfg.SelectionKey {
 			continue
 		}
-		// Only OBJECT-valued keys are tables, matching regenerateManagedTables exactly — a
-		// tombstone or scalar is an ordinary managed key.
+		// Only OBJECT-valued keys are tables, matching regenerateManagedTables exactly. The
+		// decoder already refuses an in-full wrapper around anything else, so this is the
+		// same rule restated where the write depends on it.
 		if _, isObj := v.(map[string]any); isObj {
 			keys = append(keys, k)
 		}
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// hostTableInFull is the in-full declaration (agentcfg.Inputs.ComputedInFull) for the host's
+// computed slot, which carries ONLY the wholesale table layer (hostTableLayer) — every key of
+// it a table hostTableKeys kept because its derive declared it in full. So the declaration is
+// that layer's own key set, and an `own` adoption takes each such table whole exactly as the
+// jail's adoption does, rather than freezing whatever the file held under it.
+func hostTableInFull(tableLayer map[string]any) []string {
+	if len(tableLayer) == 0 {
+		return nil
+	}
+	return sortedKeys(tableLayer)
 }
 
 // hostTableLayer builds the wholesale content for each of the surface's table keys from the

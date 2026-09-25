@@ -260,7 +260,7 @@ func TestJailStatefulRepairSaysSoOnStderr(t *testing.T) {
 	e := &Env{Home: home, Workspace: t.TempDir(), Vars: map[string]string{}, Stderr: &errw}
 
 	if _, err := renderSurfaceStatefulDetail(e, piFixedSurfaceDecl(manifest.ModeStateful),
-		nil, nil, nil); err != nil {
+		nil, nil, nil, nil); err != nil {
 		t.Fatalf("render: %v", err)
 	}
 	if out := errw.String(); !strings.Contains(out, "repaired") ||

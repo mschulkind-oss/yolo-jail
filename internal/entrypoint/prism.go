@@ -286,10 +286,14 @@ func (c *surfaceContribs) listPacks() []string {
 // citizen like any other at this entry, and is taken out and applied here with the
 // rest — see renderSurfaceStatefulSurface.
 //
+// inFull names the computed tables the caller regenerates IN FULL (CO13 — what a pack
+// derive declares with ctx.in_full; see agentcfg.Inputs.ComputedInFull). A core surface
+// has no derive, so its Go caller states it directly.
+//
 // A recoverable on-disk condition never aborts boot (ComposeStateful self-heals
 // corrupt/absent sidecars); only a genuine error (unknown codec, Lua failure)
 // propagates, and boot's genStep downgrades even that to a warning.
-func renderSurfaceStateful(e *Env, agent, name string, hostBytes []byte, computed map[string]any) (*agentcfg.StatefulOutput, error) {
+func renderSurfaceStateful(e *Env, agent, name string, hostBytes []byte, computed map[string]any, inFull []string) (*agentcfg.StatefulOutput, error) {
 	surface, ok := agentcfg.BuiltinManifest().Lookup(agent, name)
 	if !ok {
 		return nil, &missingSurfaceError{agent: agent, name: name}
@@ -297,7 +301,7 @@ func renderSurfaceStateful(e *Env, agent, name string, hostBytes []byte, compute
 	// No overlays: this entry renders CORE's own surfaces (mise/config), and a
 	// config-overlay names a surface a PACK owns. A pack pointing an overlay at a core
 	// surface is reported as ownerless rather than honored here — see packoverlay.Collect.
-	return renderSurfaceStatefulSurface(e, surface, hostBytes, computed, nil)
+	return renderSurfaceStatefulSurface(e, surface, hostBytes, computed, inFull, nil)
 }
 
 // renderSurfaceStatefulSurface is the surface-taking core of the stateful
@@ -310,8 +314,12 @@ func renderSurfaceStateful(e *Env, agent, name string, hostBytes []byte, compute
 // contribs are the config-overlay layers and config-list entries other packs contribute to
 // this surface (nil for none, the common case). Both fold BELOW the capture overlay, so a
 // user's in-jail edit still wins over another pack's contribution.
-func renderSurfaceStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any, contribs *surfaceContribs) (*agentcfg.StatefulOutput, error) {
-	r, err := renderSurfaceStatefulDetail(e, surface, hostBytes, computed, contribs)
+//
+// inFull names the top-level computed tables regenerated IN FULL (CO13 — a derive's
+// ctx.in_full declarations, or the host's own table set); nil for none, and then every
+// computed table claims only the leaves it names on an adopting render.
+func renderSurfaceStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any, inFull []string, contribs *surfaceContribs) (*agentcfg.StatefulOutput, error) {
+	r, err := renderSurfaceStatefulDetail(e, surface, hostBytes, computed, inFull, contribs)
 	if err != nil {
 		return nil, err
 	}
@@ -329,8 +337,8 @@ func renderSurfaceStatefulSurface(e *Env, surface manifest.Surface, hostBytes []
 // above. A refusal at the COMPOSE — a surface file that exists and cannot be read — has no
 // render to hand back and returns nil, which is why the host arm reads sr for the archive path
 // under a nil check rather than unconditionally.
-func renderSurfaceStatefulDetail(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any, contribs *surfaceContribs) (*statefulRender, error) {
-	r, err := composeStatefulSurface(e, surface, hostBytes, computed, contribs)
+func renderSurfaceStatefulDetail(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any, inFull []string, contribs *surfaceContribs) (*statefulRender, error) {
+	r, err := composeStatefulSurface(e, surface, hostBytes, computed, inFull, contribs)
 	if err != nil {
 		return nil, err
 	}
@@ -392,7 +400,7 @@ func (r *statefulRender) pureText() string {
 
 // composeStatefulSurface is the PURE half of the stateful render: read the sidecars and the
 // current file, decide the selection, compose. It writes nothing.
-func composeStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any, contribs *surfaceContribs) (*statefulRender, error) {
+func composeStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any, inFull []string, contribs *surfaceContribs) (*statefulRender, error) {
 	// A11: resolve ${workspace} in the surface's layer DATA before composing. The
 	// workspace root is not always "/workspace" (YOLO_WORKSPACE; macos-user has no
 	// /workspace), so a literal in the manifest would assert keys under a path the
@@ -487,7 +495,7 @@ func composeStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, 
 
 	surface, out, err := t.ComposeStateful(surface,
 		render.Layers{HostBytes: hostBytes, Overlays: contribs.overlayLayers(), Computed: computed,
-			Lists: contribs.listContribs()},
+			ComputedInFull: inFull, Lists: contribs.listContribs()},
 		render.State{
 			CurrentBytes:      current,
 			LastRenderPresent: lastErr == nil,
@@ -1204,6 +1212,14 @@ func retireUnclaimed(prov, previous map[string]string) map[string]string {
 // drop is announced (noteDroppedManagedEntries) so it is never a silent surprise.
 // Local-scope servers (nested under a project path, not the top-level key) and the
 // project `.mcp.json` are untouched — yolo only ever writes this one top-level key.
+//
+// ⚠ IT DOES NOT READ THE CO13 DECLARATION (ctx.in_full, luahook.DeriveOutput.InFull), so on
+// the jail path a table the derive does NOT declare in full is regenerated whole here too,
+// while the stateful adoption and the host's table probe (hostTableKeys) claim only its
+// leaves. Unobservable for the shipped packs — every object-valued key a shipped rmw
+// surface's derive returns is declared — and left so on purpose: whether rmw should assert
+// such a table's leaves or skip it is a ruling, not a guess
+// (docs/design/config-ownership-and-promotion.md, "Built 2026-09-25 — what shipped").
 func regenerateManagedTables(e *Env, surface manifest.Surface, obj *jsonx.OrderedMap, computed map[string]any) {
 	for _, to := range sortedKeys(computed) {
 		table, isObj := computed[to].(map[string]any)

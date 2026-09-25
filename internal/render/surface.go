@@ -55,6 +55,12 @@ type Layers struct {
 	// supplies nothing rather than something wrong.
 	Computed any
 
+	// ComputedInFull names the top-level keys of Computed whose table the derive declared
+	// it regenerates in full (agentcfg.Inputs.ComputedInFull, the ctx.in_full sentinel).
+	// It travels beside Computed rather than inside it, so no reader of the layer has a
+	// marker to strip. nil = none: every computed table claims only the leaves it names.
+	ComputedInFull []string
+
 	// Lists are other packs' config-list contributions onto this surface
 	// (agentcfg.ListContribution): entries appended to one array each, after every overlay
 	// and below the capture. Empty = none. A capture that passes no layers passes none, and
@@ -130,6 +136,8 @@ func (t Target) Compose(s manifest.Surface, l Layers) (manifest.Surface, *agentc
 		Overlays:  l.Overlays,
 		Computed:  l.Computed,
 		Lists:     l.Lists,
+
+		ComputedInFull: l.ComputedInFull,
 	})
 	if err != nil {
 		return s, nil, err
@@ -154,6 +162,8 @@ func (t Target) ComposeStateful(s manifest.Surface, l Layers, st State) (manifes
 			Overlays:  l.Overlays,
 			Computed:  l.Computed,
 			Lists:     l.Lists,
+
+			ComputedInFull: l.ComputedInFull,
 		},
 		CurrentBytes:      st.CurrentBytes,
 		LastRenderPresent: st.LastRenderPresent,

@@ -774,8 +774,9 @@ func TestComposeStatefulFirstMigrationKeepsManagedObjectSibling(t *testing.T) {
 
 // TestComposeStatefulFirstMigrationDropsComputedTableWholesale is the other half
 // of the adoption narrowing, and the half that must stay WHOLESALE. A top-level
-// key the COMPUTED layer holds as an object is a table yolo regenerates in full
-// (codex's mcp_servers, opencode's mcp, mise's tools), so a stale entry sitting
+// key the COMPUTED layer holds as an object AND its derive declares regenerated in
+// full (ctx.in_full → Inputs.ComputedInFull, CO13 — codex's mcp_servers, opencode's
+// mcp, mise's tools) is a table yolo regenerates in full, so a stale entry sitting
 // under it on disk is yolo's own output from a previous boot, not agent state.
 //
 // The leaf-level pass cannot express this: dropOverriddenKeys recurses into an
@@ -794,7 +795,8 @@ func TestComposeStatefulFirstMigrationDropsComputedTableWholesale(t *testing.T) 
 		`"stale":{"command":"/gone"}},"model":"agent-picked"}`
 
 	out, err := ComposeStateful(StatefulInputs{
-		Base:              Inputs{Surface: piSurface(), Computed: computed},
+		Base: Inputs{Surface: piSurface(), Computed: computed,
+			ComputedInFull: []string{"mcpServers"}},
 		CurrentBytes:      []byte(current),
 		LastRenderPresent: false,
 	})
@@ -829,13 +831,17 @@ func TestComposeStatefulFirstMigrationDropsComputedTableWholesale(t *testing.T) 
 // same shape reaches claude/settings whenever no LSP is configured.
 //
 // ⚠ Read with TestComposeStatefulFirstMigrationDropsComputedTableWholesale, which is
-// the other side and must stay true: a NON-empty computed table still takes the whole
-// key, because a leaf yolo did regenerate makes the stale-output reading available.
-// Neither test implies the other, and the two fixtures differ in exactly one thing.
+// the other side and must stay true: a NON-empty computed table declared in full still
+// takes the whole key, because a leaf yolo did regenerate makes the stale-output reading
+// available. Neither test implies the other, and the two fixtures differ in exactly one
+// thing.
+//
+// BOTH tables are DECLARED in full here (CO13 postdates this test), and that makes it the
+// stronger statement: an empty table claims nothing even when its derive says it owns the
+// whole table — mise's [tools] is declared so, and is the live shape.
 func TestComposeStatefulFirstMigrationKeepsResidueUnderAnEmptyComputedTable(t *testing.T) {
 	// `tools` is present and empty — yolo asserts no tool this boot. `flags` is the
-	// control: computed asserts a leaf inside it, so the leaf-level pass must still
-	// drop that leaf even though the table survives.
+	// control: non-empty and declared, so the whole key is still taken.
 	computed := map[string]any{
 		"tools": map[string]any{},
 		"flags": map[string]any{"yoloOwned": true},
@@ -843,7 +849,8 @@ func TestComposeStatefulFirstMigrationKeepsResidueUnderAnEmptyComputedTable(t *t
 	current := `{"tools":{"neovim":"nightly"},"flags":{"yoloOwned":false,"userOwned":true}}`
 
 	out, err := ComposeStateful(StatefulInputs{
-		Base:              Inputs{Surface: piSurface(), Computed: computed},
+		Base: Inputs{Surface: piSurface(), Computed: computed,
+			ComputedInFull: []string{"flags", "tools"}},
 		CurrentBytes:      []byte(current),
 		LastRenderPresent: false,
 	})
@@ -872,23 +879,19 @@ func TestComposeStatefulFirstMigrationKeepsResidueUnderAnEmptyComputedTable(t *t
 	}
 }
 
-// TestComposeStatefulFirstMigrationStillTakesAPartlyAssertedTable pins the COST the
-// 2026-09-20 ruling did not pay off, so it is visible in the suite rather than only in
-// prose: a NON-EMPTY computed table is still taken WHOLE, including the leaves the
-// derive never asserted.
+// TestComposeStatefulFirstMigrationKeepsTheUnassertedLeavesOfAPartlyAssertedTable is
+// CO13's data-loss case at the engine (docs/design/config-ownership-and-promotion.md
+// §6.3.2): a NON-EMPTY computed table the derive did NOT declare it regenerates in full
+// claims only the leaves it names, so the rest of the file's table is adopted.
 //
-// This is claude/settings' `env` (OQ-CO13,
-// docs/design/config-ownership-and-promotion.md §6.3.2). yolo asserts ENABLE_LSP_TOOL
-// and can never own the rest of a user's environment, so "a table yolo regenerates in
-// full" is false there by construction — yet AWS_PROFILE below goes with it.
+// This is claude/settings' `env`. yolo asserts ENABLE_LSP_TOOL and can never own the rest
+// of a user's environment, so "a table yolo regenerates in full" is false there by
+// construction — and until CO13 landed this test was pinned the other way round
+// (…StillTakesAPartlyAssertedTable), with AWS_PROFILE going with the table.
 //
-// ⚠ IT IS PINNED, NOT ENDORSED. Closing it needs the half of the signal that does not
-// exist (see dropComputedTables): the computed table's key set already says exactly
-// which leaves the derive asserted, and says nothing about whether the derive fills
-// the table. When OQ-CO13 lands, this test is the one to invert — and inverting it
-// must leave TestComposeStatefulFirstMigrationDropsComputedTableWholesale green, or
-// the resurrection class came back with it.
-func TestComposeStatefulFirstMigrationStillTakesAPartlyAssertedTable(t *testing.T) {
+// ⚠ Read with TestComposeStatefulFirstMigrationDropsComputedTableWholesale, which is the
+// declared side and must stay green, or the resurrection class came back with this fix.
+func TestComposeStatefulFirstMigrationKeepsTheUnassertedLeavesOfAPartlyAssertedTable(t *testing.T) {
 	computed := map[string]any{"env": map[string]any{"ENABLE_LSP_TOOL": "1"}}
 	current := `{"env":{"ENABLE_LSP_TOOL":"1","AWS_PROFILE":"mine"}}`
 
@@ -900,9 +903,50 @@ func TestComposeStatefulFirstMigrationStillTakesAPartlyAssertedTable(t *testing.
 	if err != nil {
 		t.Fatalf("ComposeStateful error: %v", err)
 	}
-	if got := jsonObj(t, string(out.OverlayJSON)); got["env"] != nil {
-		t.Errorf("overlay env = %v — if this now KEEPS AWS_PROFILE, OQ-CO13 was closed and "+
-			"this test should be inverted rather than deleted", got["env"])
+	got := jsonObj(t, string(out.OverlayJSON))
+	env, _ := got["env"].(map[string]any)
+	if env["AWS_PROFILE"] != "mine" {
+		t.Errorf("overlay env = %v, want the leaf the derive never asserted adopted", got["env"])
+	}
+	if _, bad := env["ENABLE_LSP_TOOL"]; bad {
+		t.Errorf("overlay env = %v, want the asserted leaf narrowed out (computed wins it)", env)
+	}
+	rendered, _ := out.Result.ConfigMap()["env"].(map[string]any)
+	if rendered["AWS_PROFILE"] != "mine" || rendered["ENABLE_LSP_TOOL"] != "1" {
+		t.Errorf("rendered env = %v, want the user's variable and yolo's leaf together", rendered)
+	}
+}
+
+// TestComposeStatefulFirstMigrationInFullIsPerKey pins the granularity the CO13 ruling
+// chose the sentinel for: the claim is per KEY, and one surface can hold both kinds — so a
+// declaration on the surface (a manifest field) could not have expressed it. The declared
+// table is taken whole, stale entry and all; the one beside it not declared in full keeps the
+// agent's own leaf and loses only the one yolo asserted.
+func TestComposeStatefulFirstMigrationInFullIsPerKey(t *testing.T) {
+	computed := map[string]any{
+		"mcpServers": map[string]any{"live": map[string]any{"command": "/bin/live"}},
+		"env":        map[string]any{"ENABLE_LSP_TOOL": "1"},
+	}
+	current := `{"mcpServers":{"live":{"command":"/bin/live"},"stale":{"command":"/gone"}},` +
+		`"env":{"ENABLE_LSP_TOOL":"1","AWS_PROFILE":"mine"}}`
+
+	out, err := ComposeStateful(StatefulInputs{
+		Base: Inputs{Surface: piSurface(), Computed: computed,
+			ComputedInFull: []string{"mcpServers"}},
+		CurrentBytes:      []byte(current),
+		LastRenderPresent: false,
+	})
+	if err != nil {
+		t.Fatalf("ComposeStateful error: %v", err)
+	}
+	rendered := out.Result.ConfigMap()
+	servers, _ := rendered["mcpServers"].(map[string]any)
+	if _, resurrected := servers["stale"]; resurrected {
+		t.Errorf("rendered mcpServers = %v, want the declared table regenerated whole", servers)
+	}
+	env, _ := rendered["env"].(map[string]any)
+	if env["AWS_PROFILE"] != "mine" || env["ENABLE_LSP_TOOL"] != "1" {
+		t.Errorf("rendered env = %v, want the agent's own leaf of a table not declared in full kept beside yolo's", env)
 	}
 }
 

@@ -95,7 +95,7 @@ func requireCompat(t *testing.T, where string, entry map[string]any, want map[st
 func piModelsFor(t *testing.T, sel surfaceSelection, e *Env, providers map[string]any) map[string]any {
 	t.Helper()
 	script, s := deriveSurface(t, "pi", "pi/models")
-	got, err := deriveComputedLayer(e, s, script, sel, map[string]map[string]any{
+	got, _, err := deriveComputedLayer(e, s, script, sel, map[string]map[string]any{
 		manifest.SourceProviders: providers,
 	})
 	if err != nil {
