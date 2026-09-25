@@ -16,9 +16,10 @@ were corrected, and the provider section gained rows for its four live docs it d
 
 This directory holds the **active** work — plans and designs we're currently
 implementing or still discussing. Reference docs (how live systems work) live in
-[`../design/`](../design) and [`../research/`](../research); done/obsolete
-working docs are archived in git history (see [`doc-triage.md`](doc-triage.md)
-for the classification and `git log --follow` to recover any).
+[`../reference/`](../reference); [`../design/`](../design) holds designs, and [`../research/`](../research)
+holds investigations. Done or obsolete working docs are deleted, and
+`git log --follow -- <path>` recovers any of them. How a built design moves into
+`../reference/` is [the graduation rules](#oq-dt1).
 
 > **Where to start:** [`roadmap.md`](roadmap.md) — the living forward plan, and the
 > only doc here that answers "what is left?". Everything else in this directory is
@@ -263,7 +264,7 @@ $ rg -n '^status: ' docs/design docs/plans \
 
 **7a and 7c are findings; 7b is a finding; the state itself is not checkable by any of them.** A
 status line is a **claim**, and this repo's own lesson is that it is the one nobody re-checks —
-[`doc-triage.md`](doc-triage.md) found *~20 status lines that were FALSE against the code, in both
+the 2026-09-09 triage re-run found *~20 status lines that were FALSE against the code, in both
 directions*. So the sweep that introduced this check re-verified every doc it moved to `BUILT`
 against the tree rather than re-spelling what the line said, and that is the part of the check a
 person has to do.
@@ -352,6 +353,62 @@ dropped suffix *outside* the link it just created, silently turning a citation o
 citation of the ruling it supersedes half of. Those are the report's own `D1` and `D7`, still live,
 and they are why it is a report rather than a cleanup task.
 
+<a id="oq-dt1"></a>
+
+### Graduating a doc into `../reference/` — the local rules
+
+A **graduation** is the last phase of the `system-doc` genre: a built design's settled body is
+rewritten as an evergreen reference in [`../reference/`](../reference), and the design doc is
+deleted or cut to a stub. The rules below are this repo's, stricter than the genre's. They came out
+of three triage runs (2026-07-03, 2026-09-09, 2026-09-12/13) recorded in `doc-triage.md`, which was
+retired on 2026-09-25 once they were moved here; `git log --follow -- docs/plans/doc-triage.md`
+recovers the record.
+
+**[`OQ-DT1`](#oq-dt1), ruled 2026-09-13: graduate one at a time, and do not hold a set for its slowest
+member.** Each move rewrites content, re-points dozens of references and closes a roadmap row, and
+batching them is how an anchor gets missed; the triage record found that failure in both
+directions across its three runs. The argument for batching was that it saves one
+[`AGENTS.md`](../../AGENTS.md) edit, and that is not worth the missed anchor.
+
+- **Every reference carries `verified_commit:`.** The stamp tells a reader how far to trust the
+  rest of the file, so a doc that cannot honestly carry one — behavior nobody has watched run — is
+  not a candidate. That is what held the two macOS-user designs until a Mac ran them. (One
+  reference lacks the stamp today, measured 2026-09-25:
+  [`settings-per-setup.md`](../reference/settings-per-setup.md).)
+- **A reference carries no live question.** A doc with live questions leaves a **stub at its old
+  path** holding them, so the roadmap rows that route them keep resolving, and only the built body
+  moves. The precedent is [`composed-file-permissions.md`](../design/composed-file-permissions.md)
+  (2026-09-09).
+- **Fold into an existing reference rather than mint a second authority.** When a reference already
+  owns the subsystem, the design's surviving rulings go into that reference's why-appendix and the
+  design is deleted. `lua-transform-removal.md` was folded into
+  [`pack-system.md`](../reference/pack-system.md#oq-lt1) and `darwin-image-provenance.md` into
+  [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#why-its-this-way). The
+  2026-09-09 run found one subsystem described three times, and one fact asserted in four copies of
+  which three were wrong.
+- **Rule ids are an API.** `OQ-N`, `P1`, `R3` and their kind are cited from Go comments, sibling
+  docs and the roadmap. A ruling that survives keeps its original id in the reference's
+  `## Why it's this way` appendix, because once the design doc is gone that appendix is the only
+  place the id resolves.
+- **Go `§N` citations are repaired line by line, never by `sed`.** A reference drops numbered
+  sections, so every Go comment citing the design by section number has to be re-pointed. A
+  mechanical substitution corrupts citations to *other* docs: during the `report-tiers.md`
+  graduation, one section number in `hostapplysurvey.go` meant two different docs on two lines of
+  one file, and `configpromote_test.go`'s section-5 citations all belonged to a doc it never names.
+  Attribution is per line, by reading.
+
+#### The dangling `§N` citations in Go comments
+
+Measured 2026-09-13 during the `report-tiers.md` graduation: **211 numbered-section citations from
+the Go tree dangled into reference docs that have no numbered sections**, across 17 docs, led by
+`wire-bridge.md` (51) and `pack-system.md` (49). Every earlier graduation left its own behind, and
+`vantage-check` cannot see Go comments, so nothing catches this. The count is a dated measurement;
+re-run it before trusting it. The open question — whether Go comments should cite a reference by
+*named* section, and whether the rest get the same repair — has no id yet and is listed in
+[`roadmap.md`](roadmap.md). The house has both conventions today:
+[`self-documenting-cli.md`](../reference/self-documenting-cli.md) keeps numbered sections, and so
+does [`security-shim.md`](../reference/security-shim.md) (its component headings).
+
 ---
 
 ## macOS revival + distribution
@@ -403,9 +460,9 @@ here:
 | [perf-logging.md](perf-logging.md) | Performance logging across the yolo lifecycle behind `--timing` (grown) and a new global `--verbose`; `internal/perf` spans the launch, the child window (with podman-cleanup attribution), and both shutdown arms, because "who holds my shell prompt 30s after the agent exits?" had no answerable spelling. Reference, as built: [../reference/perf-logging.md](../reference/perf-logging.md). | **BUILT 2026-09-06** (`f9eee104`..`03b18afb`) — flag, env gates, spans, Window A attribution, unit + integration pins, verified in a nested jail. Its OQ list was triaged 2026-09-08 and is **empty**: the rename was ruled, `--verbose`'s vocabulary was always a policy rather than a pending decision, and the remaining four are fix candidates the spans exist to NAME — decided, each waiting on a span, none waiting on a person. **H1 is still unconfirmed** — a nested jail is structurally blind to it, so the settling measurement is one `--timing` quit on the real host. |
 | [../design/forked-programs-as-packs.md](../design/forked-programs-as-packs.md) | A fork satisfies neither shipped delivery route, so distributing one means installing it by hand everywhere. Adds a pinned source plus a build recipe, built once in a throwaway capture jail and served from the existing capture store. The hard part is relocation, not the build. | **DESIGN, 2026-09-22** — the six original questions were ruled that day; three new ones ([`OQ-FP7`](../design/forked-programs-as-packs.md#OQ-FP7)–FP9) are open, routed as [roadmap row 37](roadmap.md#-needs-you). Nothing built. |
 | [../design/base-home-legacy-state.md](../design/base-home-legacy-state.md) | Podman mounts one machine-wide base home, `<state>/home`, read-only at `/home/agent` in every jail, and sharing it is the defect: a jail needs nothing in it, yet one workspace's pack dirs, `host_files` links and old bytes show up in every jail. Each podman jail instead gets its own read-only skeleton (mountpoints and redirect links only) built from its SELECTED packs; `<state>/home` stays as the machine-wide store for the shared dirs and the Claude login seed, and `seedAgentDir` is deleted. Legacy bytes are left in place, unmounted and unread — nothing is moved. | **DESIGN, nothing built** — the rewrite dates from 2026-09-24; the legacy-bytes detection and launch refusal that shipped 2026-09-21 predate it, and what becomes of them is [`OQ-BH13`](../design/base-home-legacy-state.md#OQ-BH13). Five questions ([`OQ-BH9`](../design/base-home-legacy-state.md#OQ-BH9)–BH13), routed as [roadmap row 36](roadmap.md#-needs-you); the old [`OQ-BH1`](../design/base-home-legacy-state.md#10-decision-ledger)–BH8 are superseded in its ledger. |
-| [../design/agent-program-runtimes.md](../design/agent-program-runtimes.md) | The Node that runs an npm-delivered agent CLI is chosen by the *workspace's* `mise.toml`, because the generated launcher execs a `#!/usr/bin/env node` symlink and mise's shims precede `/bin` — so a repo pinning Node 20 makes pi fail at `import` with an error naming a module export and neither the pack nor the pin. Adds a declared Node floor to a `program` contribution and resolves one interpreter into the generated launcher, leaving the workspace pin authoritative for everything except that one process. `opencode-ai`'s native ELF is why the pin must be opt-in per program. | **BUILT 2026-09-22** — all four rulings shipped: a `program` contribution declares a Node floor, resolution enumerates the installed candidates rather than pinning a mise selector (a selector is a PREFIX, not a floor), the generated launcher execs the interpreter that satisfies it, and the bootstrap installs one and REFUSES if the floor is still unmet. The floors are baked into that script rather than read from the environment, because `macos-user` runs the stage under `env -i`. UNMEASURED: no run of the shipped fix is recorded. The roadmap row is retired. Companion sketch: [../design/agent-program-runtimes-plan.md](../design/agent-program-runtimes-plan.md). |
+| [../reference/agent-program-runtimes.md](../reference/agent-program-runtimes.md) | The Node that runs an npm-delivered agent CLI is chosen by the *workspace's* `mise.toml`, because the generated launcher execs a `#!/usr/bin/env node` symlink and mise's shims precede `/bin` — so a repo pinning Node 20 makes pi fail at `import` with an error naming a module export and neither the pack nor the pin. Adds a declared Node floor to a `program` contribution and resolves one interpreter into the generated launcher, leaving the workspace pin authoritative for everything except that one process. `opencode-ai`'s native ELF is why the pin must be opt-in per program. | **GRADUATED 2026-09-25** — the settled body moved to [../reference/agent-program-runtimes.md](../reference/agent-program-runtimes.md), now the authority: the `node_floor` declaration, [the resolution order](../reference/agent-program-runtimes.md#resolution) and why resolving is split from installing, the launcher's exec prefix, [the refusal](../reference/agent-program-runtimes.md#the-refusal), and the rulings [OQ-AR1](../reference/agent-program-runtimes.md#oq-ar1)–[OQ-AR4](../reference/agent-program-runtimes.md#oq-ar4) and [AR-L2](../reference/agent-program-runtimes.md#ar-l2). UNMEASURED: its two integration tests have not run. Three questions stay open in the stub at [../design/agent-program-runtimes.md](../design/agent-program-runtimes.md): [OQ-AR5](../design/agent-program-runtimes.md#OQ-AR5), [OQ-AR6](../design/agent-program-runtimes.md#OQ-AR6) and [OQ-AR7](../design/agent-program-runtimes.md#OQ-AR7). The companion plan was deleted. |
 | [../design/workspace-mcp-sources.md](../design/workspace-mcp-sources.md) | Which workspace MCP files reach an in-jail agent, and the one thing left open. States the position — a repo's or the user's own MCP config reaching the agent is **desired** — records the measured per-agent project-scope file sets (Copilot reads three, Claude a fourth), and keeps the record of the `.vscode/mcp.json` shadow removed 2026-09-22. | **DESIGN 2026-09-22** — one question open ([`OQ-WM1`](../design/workspace-mcp-sources.md#OQ-WM1): what yolo says when a workspace file and `mcp_servers` name one server), routed as [roadmap row 40](roadmap.md#-needs-you). The removal itself is BUILT; the anti-re-proposal record is [`retired-decisions.md`](retired-decisions.md). |
-| [../design/additive-config-lists.md](../design/additive-config-lists.md) | Why a personal pack must copy another pack's whole config array to add one entry (arrays replace under JSON Merge Patch), and a narrow explicit `config-list` contribution that appends de-duplicated entries after ordinary overlays without changing merge-patch semantics anywhere else. | **BUILT 2026-09-24** — both questions ruled ([ledger](../design/additive-config-lists.md#decision-ledger)); MEASURED in a nested jail. The roadmap row is retired; the reference is [pack-system.md](../reference/pack-system.md#adding-entries-to-an-array-config-list). |
+| [../reference/pack-system.md](../reference/pack-system.md#adding-entries-to-an-array-config-list) | Why a personal pack must copy another pack's whole config array to add one entry (arrays replace under JSON Merge Patch), and a narrow explicit `config-list` contribution that appends de-duplicated entries after ordinary overlays without changing merge-patch semantics anywhere else. | **GRADUATED 2026-09-25** — the design and its build plan were folded into [../reference/pack-system.md](../reference/pack-system.md#adding-entries-to-an-array-config-list), which is now the authority: the fold, per-entry capture, [what it does not do](../reference/pack-system.md#config-list-limits), [OQ-AL1](../reference/pack-system.md#oq-al1) and [OQ-AL2](../reference/pack-system.md#oq-al2). MEASURED in CI on rootless podman (run 36093253387); UNMEASURED against a real `pi install`. Both files were deleted. |
 | [../reference/pack-system.md](../reference/pack-system.md#briefing) | Why a pack's root `AGENTS.md` shipped to the wrong readers: it is also the repository's own agent instructions, declaring one narrow briefing silently switched its delivery off, and a manifest could not spell broadcast at all. Shipped prose now lives in a `briefing/` directory, silence means broadcast in a manifest, and every declaration is additive and per-file. | **GRADUATED 2026-09-23** to [../reference/pack-system.md](../reference/pack-system.md#briefing), which is now the authority — the `briefing/` convention, P1–P6 (briefing defaults), per-file governance, the lint listing, the local-pack move, and [OQ-PB1](../reference/pack-system.md#oq-pb1)–[OQ-PB5](../reference/pack-system.md#oq-pb5). The design and its companion sketch were deleted in the same commit; the prior-art appendix was not carried. |
 | [../reference/image-retention.md](../reference/image-retention.md) | **Image and GC-root retention, as built.** Two reapers asking two different questions: the image reaper asks liveness and gets it from the runtime; the nix GC-root reaper asks a cache question and gets a pure age cutoff. Image retention is one current-image pointer per workspace — no global count, no undo buffer — and an unreachable authority declines the sweep. | **GRADUATED 2026-09-18** from `docs/design/the-load-sentinel-is-not-a-liveness-oracle.md`, and that redirect stub is **deleted (2026-09-22)** — every prose citation it existed to protect now points at [`image-retention.md#why-its-this-way`](../reference/image-retention.md#why-its-this-way) or at the reference's own [load-sentinel section](../reference/image-retention.md#the-load-sentinel-and-what-it-may-be-cited-for). ⚠ **Two of them hid from every `<basename>\.md` scan by line-wrapping mid-path across two comment lines** in `internal/image/` — a scan that reports zero inbound for a path is not evidence until it has been run against the wrapped spellings too. `P1`–`P3` and every [OQ-LS](../reference/image-retention.md#why-its-this-way) ruling resolve in the reference's why-appendix. The `imageroots.go`/`autoload.go` comment contradiction the design recorded is **fixed**. |
 | [../reference/image-staging-vs-baking.md](../reference/image-staging-vs-baking.md#delivering-into-the-runtime) | Layer-aware delivery (C9): nix2container + `skopeo copy` replaced `streamLayeredImage` + `podman load`, so a rebuild ships the layers that changed instead of all 3.47 GB. Measured: 81.0s of a 96.1s load was the stream; the customisation layer is 0.78% of the image. | **GRADUATED 2026-09-23** to [../reference/image-staging-vs-baking.md](../reference/image-staging-vs-baking.md#delivering-into-the-runtime), which is now the authority — the layer plan, the copy and its namespace, archive destinations, the image-copy lock, and its rulings — [`OQ-LI1`](../reference/image-staging-vs-baking.md#why-its-this-way) through LI7, C9 and R8 — at its why-appendix (R3 folded into [`OQ-LI5`](../reference/image-staging-vs-baking.md#why-its-this-way)). The design was deleted; its unbuilt guards and unmeasured macOS archive paths are in [roadmap.md](roadmap.md). |
@@ -447,10 +504,9 @@ wrong and gets fixed, but a doc with no row cannot be caught disagreeing with an
 below is the doc's own header, read 2026-09-12.
 
 Whether each has earned a `system-doc` graduation was assessed the same day, per doc, walked against
-the code rather than against the status line:
-[`doc-triage.md`](doc-triage.md#the-2026-09-12-graduation-assessment--the-five-docs-the-sprint-built).
-**One graduates**; the other four are held, each for a different named reason, and the sequencing is
-that file's [OQ-DT1](doc-triage.md#decision-ledger).
+the code rather than against the status line, in a triage record since retired (`doc-triage.md`,
+recoverable with `git log --follow`). **One graduated at once**; the other four were held, each for a
+different named reason, and the sequencing is [OQ-DT1](#oq-dt1).
 
 | Doc | What it is | Status |
 |---|---|---|

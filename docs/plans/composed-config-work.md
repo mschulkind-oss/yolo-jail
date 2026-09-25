@@ -165,7 +165,7 @@ places which makes it look smaller than it is.
 ## Doc consolidation
 
 The reasoning docs sprawled to ~8,900 lines across 14 files with the same items restated.
-[`doc-triage.md`](doc-triage.md) already established the policy — **A** reference (`design/`), **B** active
+`doc-triage.md` (retired 2026-09-25; `git log` recovers it) already established the policy — **A** reference (`design/`), **B** active
 plan (`plans/`), **C** archive (`git rm`, history preserves it) — but it predates most of
 this cluster.
 

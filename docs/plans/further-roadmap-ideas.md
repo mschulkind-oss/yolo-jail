@@ -335,7 +335,7 @@ files in `docs/plans/` announce their own completion in the first six lines —
 [`feedback-real-pack-adoption.md`](feedback-real-pack-adoption.md) (*"ALL SEVEN FINDINGS CLOSED"*), [`cache-relocation.md`](cache-relocation.md)
 (*"Implemented 2026-07-21"*), [`module-consolidation-and-cleanup.md`](module-consolidation-and-cleanup.md), [`agent-settings-composition.md`](agent-settings-composition.md)
 and [`handoff-fzf-pack-adoption.md`](handoff-fzf-pack-adoption.md). The triage that produced
-this layout ([`doc-triage.md`](doc-triage.md)) ran once, in July, and was executed properly; nothing
+this layout (recorded in `doc-triage.md`, retired 2026-09-25) ran once, in July, and was executed properly; nothing
 has swept since.
 
 **Verdict: do the cheap half only, and only when passing through.** A `docs/plans/archive/` move is

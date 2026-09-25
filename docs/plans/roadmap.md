@@ -164,20 +164,14 @@ rows; they are real and cheap, and none of them is holding anything up.
 - Whether [`OQ-LS1`](../reference/image-retention.md#why-its-this-way)'s "costs a rebuild, never a running jail" holds on podman/Linux, where the host store is bound over the jail's — [`storage-lifecycle.md`](storage-lifecycle.md#decision-ledger). Read from code, unmeasured, defect-shaped.
 - Whether a pack may pin an agent CLI (`packs/omp` does) against P6's "Pin: none" — [`program-delivery.md`](../design/program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03).
 - Whether [§8](../design/diagnostics-past-the-boundary.md#8-what-i-would-build-in-order) step 1's port-skip report stays on the terminal (`e.warn`) or moves to `boot.log`.
-- Two `config-list` tails: entries yolo inserted stay in the host file when both owner and contributor drop, and promote does not lift list captures — [`additive-config-lists.md`](../design/additive-config-lists.md).
+- Two `config-list` tails: entries yolo inserted stay in the host file when both owner and contributor drop, and promote does not lift list captures — [`pack-system.md`](../reference/pack-system.md#config-list-limits).
 - Whether the three `packages:`-declaring tests should SKIP rather than fail on a builder-less runner ([`handoff-mac-unmeasured-claims.md` §4](handoff-mac-unmeasured-claims.md#4-the-nightly--five-links-all-now-named)).
-- Whether Go comments should cite a reference doc by named section, and what becomes of the dangling citations that census found ([`doc-triage.md`](doc-triage.md#the-2026-09-12-graduation-assessment--the-five-docs-the-sprint-built)).
+- Whether Go comments should cite a reference doc by named section, and what becomes of the dangling citations that census found ([the dangling `§N` citations](README.md#the-dangling-n-citations-in-go-comments)).
 - Whether a bare `-p <name>` that selects NOTHING should say so, stated only at `checkProfileTargets`' docstring in [`packs.go`](../../internal/cli/run/packs.go).
 - Whether the macOS nightly should run any vendor agent install at all ([`agent-install-in-ci.md`](../reference/agent-install-in-ci.md#what-runs-on-macos)).
 
-**Doc closures that are bookkeeping, not decisions.** Docs graduate in a ruled order
-([`doc-triage.md`](doc-triage.md#recommendation)). BUILT docs with zero live questions waiting to
-join it: [`agent-program-runtimes.md`](../design/agent-program-runtimes.md) with its
-[plan](../design/agent-program-runtimes-plan.md),
-[`additive-config-lists.md`](../design/additive-config-lists.md) with its
-[plan](../design/additive-config-lists-plan.md),
-[`gateway-provider-packs-plan.md`](../design/gateway-provider-packs-plan.md) (its design is 💬 row 27),
-and [`doc-triage.md`](doc-triage.md) itself, better retired than graduated. They are work, not
-questions.
+**Doc closures that are bookkeeping, not decisions.** Docs graduate one at a time
+([`OQ-DT1`](README.md#oq-dt1)). No BUILT doc with zero live questions is waiting its turn today;
+when one is, it is listed here, because it is work, not a question.
 
 *A question is promoted to a row the day it starts blocking something, and leaves the day it stops.*

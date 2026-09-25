@@ -12,7 +12,7 @@ vantage:
 
 **Status:** DESIGN, 2026-09-25 — the bulk was BUILT 2026-09-12 and amended twice on 2026-09-20, and the first amendment's follow-on [`CO13`](#13-decision-ledger) is BUILT 2026-09-25; but [`OQ-CO14`](#oq-co14) now owes a ruling, so the word names that rather than the code.
 
-**Needs your ruling:** [`OQ-CO14`](#oq-co14) (what retiring `assert` does to a config, and a home, already on it).
+**Needs your ruling:** [`OQ-CO14`](#oq-co14) (what retiring `assert` does to a config, and a home, already on it). Two smaller ones, both opened 2026-09-25 by the `CO13` build and neither blocking anything: [`OQ-CO15`](#oq-co15) (what the jail's `rmw` arm does with a table not declared in full) and [`OQ-CO16`](#oq-co16) (whether the provider catalogs stay declared in full).
 
 **The first amendment narrowed the adoption drop.** It no longer takes a computed table that
 asserts nothing, *wholesale against `computed`* is withdrawn as the general rule, and the half
@@ -94,8 +94,10 @@ exactly this way**, and twice in one day is a fact about the sprint rather than 
 ⚠ **Settled is not the same as clean, and the difference is recorded rather than rounded off.**
 Two sections carry **live residue** — measured behavior that no ruling covers and no commit closed:
 [§6.3.3](#633-what-survives-as-a-guard)'s one unnetted adoption loss, and
-[§11](#11-success-criteria)'s six, found by verifying the ruling above rather than by trusting it.
-Both sit in the body as present-tense behavior, because that is what they are.
+[§11](#11-success-criteria)'s list, found by verifying the ruling above rather than by trusting
+it — of which the two smallest, a latent `reinstateAt` panic and an invalid TOML float, were fixed
+on 2026-09-25 and are marked so in place. The rest sit in the body as present-tense behavior,
+because that is what they are.
 **The graduation rewrite is no longer the only thing left, and it should now WAIT.** Every
 ruling is folded into [§13](#13-decision-ledger) and the sections it governs; what still
 reads as sequencing is [§10](#10-what-i-would-build-in-order)'s build order, which is now history,
@@ -104,8 +106,8 @@ to re-state as a contract. ⚠ But [§4.5](#45-retiring-assert--the-two-value-ke
 the reference would have to state as current, so graduating this file before
 [`OQ-CO14`](#oq-co14) is ruled
 would mint a `CURRENT` doc with a known expiry. That rewrite is scoped in
-[`doc-triage.md`](../plans/doc-triage.md#2-config-ownership-and-promotionmd--both-named-blockers-are-closed-and-the-rewrite-is-larger-than-they-were),
-which no longer holds a live question against this file. [`OQ-DT1`](../plans/doc-triage.md#decision-ledger)
+[what the graduation owes](#what-the-graduation-owes--the-scope-of-the-rewrite), below.
+[`OQ-DT1`](../plans/README.md#oq-dt1)
 was ruled on 2026-09-13: graduate one doc at a time. So what holds this file back is
 [`OQ-CO14`](#oq-co14) alone.
 ⚠ **One thing to carry out of this doc rather than into it:** four rulings in
@@ -190,7 +192,7 @@ Every layer above is still in [`compose.go`](../../internal/agentcfg/compose.go)
 of its own. A `config-list` contribution appends entries to an array another pack owns
 (`applyListContributions`, [`listcontrib.go`](../../internal/agentcfg/listcontrib.go)). The
 additions apply after every ordinary overlay, and only capture, `computed` and `managed` can
-replace the final array ([`OQ-AL2`](additive-config-lists.md#decision-ledger)).
+replace the final array ([`OQ-AL2`](../reference/pack-system.md#oq-al2)).
 
 `managed` is a floor: a pack's own asserted keys win everything. `overlay` is the
 capture-diff sidecar — in-jail edits, carried across regeneration. Note that
@@ -363,7 +365,7 @@ patch that turns the render yolo last produced into the file as it now stands,
 accumulated into the overlay sidecar. ⚠ **One exception, since 2026-09-24.** At an array
 path that a `config-list` contribution targets, capture records per-entry additions and
 removals in a separate `<agent>-<name>.list-capture.json` sidecar, never the whole array
-([`OQ-AL1`](additive-config-lists.md#decision-ledger),
+([`OQ-AL1`](../reference/pack-system.md#oq-al1),
 [the reference](../reference/config-migration-to-prism.md#list-paths-capture-per-entry)).
 Everything below is about the overlay, and the list sidecar is outside it. Open-ended by construction: a key the jail
 adds is recorded as its new subtree, a leaf that changed as its new value, and **a
@@ -1090,7 +1092,7 @@ is that yolo declines to read it.
    `yolo config diff` lists them (`promoteListNote`,
    [`configpromote.go`](../../internal/cli/configpromote.go)). Lifting them is a separate
    roadmap item
-   ([the plan's "Don't"](additive-config-lists-plan.md#dont)).
+   ([`pack-system.md`'s warning](../reference/pack-system.md#list-records-stay-outside-the-overlay)).
 2. Drop keys `yolo config diff` already reports as **redundant** — identical to
    what the layers produce anyway — and keys that are **dead**: overridden where
    they already sit, so the move cannot help them. The overlay cannot hold a
@@ -1814,11 +1816,11 @@ notches have one definition rather than two hand-copied joins:
 | jail / preview | `<workspace>/.yolo/archive/config/<agent>-<name>/<basename>` |
 
 The jail's anchor is the **workspace**, which is the same anchor the capture sidecars already
-use — and that is why this is not the problem
-[`lspSentinelExpr`](../../internal/entrypoint/shell.go) solves. That function needs two
-spellings because the per-workspace file it names lives inside the **home**, which podman
-reaches by a bind mount and `macos-user` cannot reach at all (one account home, every
-workspace). A path in the workspace is one both backends name directly — `Env.WorkspaceDir`
+use — and that is why this is not the problem the deleted `lspSentinelExpr` (formerly in
+`internal/entrypoint/shell.go`, removed with the LSP install recipes on 2026-09-25) solved. That
+function needed two spellings because the per-workspace file it named, the
+`~/.yolo-installed-lsps` sentinel, lived inside the **home**, which podman reaches by a bind mount
+and `macos-user` cannot reach at all (one account home, every workspace). A path in the workspace is one both backends name directly — `Env.WorkspaceDir`
 honors `YOLO_WORKSPACE` and `macos-user` passes the real path. One anchor, no backend switch.
 
 > [!WARNING]
@@ -2127,6 +2129,8 @@ already has.
 | A credential is promoted into a pack, and the pack is pushed — or already sits in a sidecar | Promote's deny-list ([§5.3](#53-classification--what-a-machine-can-decide-and-what-it-cannot), new work); `--force` is per-key and named in output; the sidecar half is a capture-time question at every notch ([§6.2](#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to)), listed for the roadmap |
 | The local pack becomes an unreviewable pile of promoted keys | Every promotion is an ordinary edit to a readable `pack.json`; `yolo pack lint` and `footprint` already report its claims |
 | Three-value enum confuses users who wanted a switch | Explained in `yolo config-ref` and at the point of the act (`none` names the key that made it write nothing). Accepted: the value a confused user lands on is `assert`, which is what they already have. ⚠ **The mitigation inverts under [§4.5](#45-retiring-assert--the-two-value-key)**: with two values the confusion largely goes, and what a confused user lands on becomes `none` — yolo writing nothing, which is the safe landing but no longer "what they already have". That swap is [`OQ-CO14`](#oq-co14)'s face 2, stated here as a risk because this row is where a reader looks for it |
+| A pack's derive returns a table it does not declare in full, and the jail and the host treat it differently | The host's table probe and the jail's `stateful` adoption both claim only declared tables (`CO13`, built 2026-09-25). The jail's `rmw` arm does not read the declaration yet, and no shipped pack exposes the gap; what it should do is [`OQ-CO15`](#oq-co15) |
+| A user's own provider entry, added by hand to an agent's catalog, is dropped | The provider catalogs are declared in full, so a first-migration adoption and a host apply take them whole, as they did before `CO13`. The supported place for a personal provider is a user `providers` entry. Whether the catalogs should stay declared is [`OQ-CO16`](#oq-co16) |
 | A jail-side agent cannot promote, so the workflow stalls where the work happens | The refusal names the host command; the request channel ([§5.5](#55-where-promote-may-run)) is designed for when there is evidence to shape its prompt |
 
 ---
@@ -2425,10 +2429,11 @@ Observable outcomes that mean this was built as designed:
 > failure this section is already the case study for.** So a second verification pass ran on
 > 2026-09-12, after the two deletions were fixed, and measured the six below through
 > `RenderHostPack` and `Compose` against real fixtures rather than reasoning about them. **None
-> is fixed here.** Two are value-model calls whose fix reaches well past this design, one is the
-> durable-state sweep the note above declined to make a side effect, and three are smaller. They
-> sit here as present-tense behavior because that is what they are — a reference would say the
-> same sentences.
+> was fixed here.** Two are value-model calls whose fix reaches well past this design, one is the
+> durable-state sweep the note above declined to make a side effect, and three are smaller. Two of
+> the smaller three — items 4 and 6 — were fixed on 2026-09-25, each in its own commit with its own
+> test, and are marked **FIXED** where they stand; the rest sit here as present-tense behavior
+> because that is what they are — a reference would say the same sentences.
 
 **1. A JSON integer past $$2^{53}$$ is silently rounded, and keys-and-values is structurally
 incapable of seeing it.** Measured: a file holding `"bigId": 9007199254740993` keeps that value
@@ -2493,7 +2498,11 @@ unfixed because it needs the same argument made in a different place: *a decoded
 tombstones* is what licensed the jail-file channel, and whether it licenses the host file — and at
 what precedence a host-file null should fold — is a ruling rather than a patch.
 
-**4. `reinstateAt` panics on a typed-nil map, on the boot render path.**
+**4. ✅ FIXED 2026-09-25 — `reinstateAt` panicked on a typed-nil map, on the boot render path.**
+Its subtree branch now allocates on a NIL map rather than on an absent key, and writes the map
+back only when a null landed in it; `TestLiteralNullsReinstateUnderATypedNilMap`
+([`literalnull_test.go`](../../internal/agentcfg/literalnull_test.go)) drives the measured case
+below through `Compose`. What was measured:
 [`literalnull.go`](../../internal/agentcfg/literalnull.go) is the only writer into the composed
 config in its package, and every other writer allocates by construction, so nothing before it
 needed the guard. Its subtree branch allocates when the key is absent — but a `map[string]any(nil)`
@@ -2516,8 +2525,13 @@ UNDOCUMENTED divergence, and no literal-null fixture was added to it. Reporting-
 `overlay` is the honest label for a value that came from the file is a judgement, and a declared
 divergence is what that corpus is for.
 
-**6. Adjacent, and not this ruling's subject: `assert` writes invalid TOML for a non-finite float,
-and `own` then refuses the file.** `codec.TOML`'s scalar encoder formats a `float64` with
+**6. ✅ FIXED 2026-09-25 — adjacent, and not this ruling's subject: `assert` wrote invalid TOML for
+a non-finite float, and `own` then refused the file.** The scalar encoder now spells the three
+TOML's own way — `inf`, `-inf`, `nan` — before the `.0` rule runs, and
+`TestTOMLNonFiniteFloats` ([`codec_test.go`](../../internal/agentcfg/codec/codec_test.go))
+round-trips each through decode. A NaN's sign is not preserved (`-nan` writes back as `nan`):
+which bit pattern TOML's `-nan` names is implementation-defined, and both decode to a NaN. What
+was measured: `codec.TOML`'s scalar encoder formats a `float64` with
 `strconv.FormatFloat` and appends `.0` whenever the result contains none of `.eE`, so a TOML file
 holding `infinite = inf` survives decode as `+Inf` and is written back as `infinite = +Inf.0`.
 Measured: the `assert` apply reports `rendered`, and the next `own` render refuses with *"is not
@@ -2617,7 +2631,8 @@ failure that function's docstring says it exists to prevent.
   and `providers` on `pi/models` and `oh-omp/models`), and `mise`'s `[tools]`. Not declared in
   full: `claude/settings`' `env` and `modelPicker`, and `pi/settings`' `subagents`. ⚠ The
   catalogs are the one classification the criterion made rather than this section: they were
-  taken wholesale before the build, and declaring them keeps that.
+  taken wholesale before the build, and declaring them keeps that. Whether that is right is
+  filed as [`OQ-CO16`](#oq-co16).
   `TestShippedDerivesDeclareTheirInFullTables` pins the whole list, both halves, by making each
   table exist: it runs every producer in two probe worlds, one with no provider selected and one
   with `openai-codex` selected, because `modelPicker` and `subagents` are produced only under a
@@ -2671,8 +2686,8 @@ which is declared, and `copilot/config` has no producer), so nothing observable 
 But a pack's `rmw` surface returning an assert-leaves table would have it cleared in a jail and
 merged at the host — the notches disagreeing, which the scope note above exists to prevent.
 Closing it means choosing what `rmw` does with a table not declared in full (assert its leaves,
-or skip it with a note), which changes what such a pack gets, so it is filed rather than guessed.
-Until then, every statement that a table not declared in full "claims only the leaves it names"
+or skip it with a note), which changes what such a pack gets, so it is filed rather than guessed,
+as [`OQ-CO15`](#oq-co15). Until then, every statement that a table not declared in full "claims only the leaves it names"
 holds for the `stateful` adoption and for the host's table probe, not for the jail's `rmw` arm.
 
 <details>
@@ -2781,10 +2796,11 @@ a developer who has written the key is unaffected by either face.
 
 ⚠ **Two open questions are not two outstanding items, and the questions are kept apart from the
 residue on purpose.**
-Seven measured behaviors are unclosed and live in the body as present-tense **residue** rather
-than here: [§6.3.3](#633-what-survives-as-a-guard)'s unnetted overlay-sidecar loss, and
-[§11](#11-success-criteria)'s
-[six](#what-the-criterion-does-not-see--live-residue-measured-after-the-ruling). Three of the seven
+The measured behaviors still unclosed live in the body as present-tense **residue** rather
+than here: [§6.3.3](#633-what-survives-as-a-guard)'s unnetted overlay-sidecar loss, and what is
+left of [§11](#11-success-criteria)'s
+[list](#what-the-criterion-does-not-see--live-residue-measured-after-the-ruling), whose two
+smallest items were fixed on 2026-09-25. Three of them
 will need a ruling eventually — a JSON value model, a host-file null's precedence, and where a
 stale tombstone gets swept — and none is opened as an `OQ-CO` here, because a question in this
 section is one whose answer this design owes before it can be believed, and all three outlive it.
@@ -2800,6 +2816,127 @@ is **superseded**, and it is one of four from that ledger this design reverses �
 [§3](#3-the-diagnosis--one-asymmetry-three-unrelated-justifications) names them all with
 their dated reversals.
 
+### <a id="oq-co15"></a>💬 [`OQ-CO15`](#oq-co15) — what the jail's `rmw` arm does with a table not declared in full — **OPEN**
+
+**Opened 2026-09-25 by the `CO13` build**, as the one residual
+[what shipped](#built-2026-09-25--what-shipped) records. The jail's `rmw` arm
+(`regenerateManagedTables`, [`prism.go`](../../internal/entrypoint/prism.go)) does not read
+`ctx.in_full`: it clears and rewrites every object-valued key the computed layer returns. The
+host's table probe (`hostTableKeys`) claims only the declared keys and merges the rest. So a
+pack whose `rmw` surface returns a table it does not declare in full would have that table
+cleared in a jail and merged at the host, which is the two notches disagreeing. **No shipped
+pack does this today**, so nothing a user sees changes until a pack does. It is a question and
+not an implementation shape, because the options differ in what that pack's user gets:
+
+- **(a) Assert its leaves.** Merge the table leaf by leaf into what the file holds, as the host
+  does. The jail and the host then agree, and a user's own keys in that table survive a boot.
+  A leaf yolo stopped asserting stays in the file unless the derive tombstones it.
+- **(b) Skip it with a boot note.** Leave the table as the file holds it and print that the
+  derive returned a table `rmw` will not regenerate. Nothing is lost, and nothing is written
+  either, so the pack's contribution silently does not arrive.
+- **(c) Refuse the pack.** Reject, at pack load, an `rmw` surface whose derive returns an
+  object-valued key it does not declare in full. Loud and early, and it forbids a shape the
+  host arm already handles.
+
+<!-- vantage: oq id=OQ-CO15 leaning="(a) assert its leaves: it is what the host notch already does, so it makes one declaration mean one thing at both notches, which is the scope note's own requirement." -->
+
+_Leaning:_ **(a).** It is what the host notch already does, so it makes one declaration mean
+one thing at both notches, which is what the scope note above requires. (b) hides a pack's
+contribution and (c) forbids a shape the host already handles. Not urgent: it changes nothing
+until a pack ships the shape.
+
+**Answer:**
+> _(empty — fill in when decided)_
+
+### <a id="oq-co16"></a>💬 [`OQ-CO16`](#oq-co16) — do the provider catalogs stay declared in full? — **OPEN**
+
+**Opened 2026-09-25 by the `CO13` build.** Every other classification in
+[what shipped](#built-2026-09-25--what-shipped) follows a plain reading of what the table is
+for. The provider catalogs (`codex/config`'s `model_providers`, `opencode/config`'s `provider`,
+and `providers` on `pi/models` and `oh-omp/models`) were declared in full because the
+criterion said so: their key set tracks a live table, the selected providers. That keeps what
+they did before the build, which was to be taken wholesale. The cost is the same one an MCP
+table has: a provider entry the user added by hand beside yolo's is dropped at a first-migration
+adoption and at a host apply. Unlike an MCP server, a hand-added provider is a thing users
+plausibly have.
+
+- **(a) Keep them declared in full** (today's behavior). A provider removed from config leaves
+  no stale entry. A user's own provider must be declared in yolo config to survive.
+- **(b) Stop declaring them.** A user's hand-added provider survives. A provider yolo stopped
+  selecting stays in the file unless the derive tombstones it, and a stale provider entry
+  points at an endpoint or credential the jail no longer serves.
+- **(c) Decide per catalog.** For example, keep the ones whose agent has no way to add a
+  provider in its own UI, and stop declaring the rest.
+
+<!-- vantage: oq id=OQ-CO16 leaning="(a) keep them declared in full: a stale provider entry names an endpoint the jail no longer serves, which fails at use rather than at boot, and yolo config already has a place for a user's own provider." -->
+
+_Leaning:_ **(a).** A stale provider entry names an endpoint or credential the jail no longer
+serves, so it fails when the agent uses it rather than at boot, which is worse than a dropped
+entry the boot can report. And yolo config already has a place for a user's own provider.
+Weak: it rests on a guess about how many users hand-edit a catalog.
+
+**Answer:**
+> _(empty — fill in when decided)_
+
+---
+
+## What the graduation owes — the scope of the rewrite
+
+This scope was written on 2026-09-12 in a triage record, `doc-triage.md`, and moved here on
+2026-09-25 when that record was retired (`git log --follow -- docs/plans/doc-triage.md` recovers
+it). A **graduation** is the move of a built design's settled body into
+[`../reference/`](../reference); the local rules it follows are in
+[`../plans/README.md`](../plans/README.md#oq-dt1).
+
+**Not a candidate yet.** [`OQ-CO14`](#oq-co14) is open and
+[§4.5](#45-retiring-assert--the-two-value-key)'s retirement of `assert` is unbuilt, so a reference
+written today would state a three-value key as current and expire on the next build.
+
+**Where it would live:** `docs/reference/config-ownership.md`, which does not exist yet. It would
+hold the ownership axis (the notch does not decide who owns a file; a declared key does), the modes
+and their surface postures, promotion as the way out of capture including the precedence refusal,
+the deletion asymmetry, and what the one-time adoption archive does and does not catch.
+[§10](#10-what-i-would-build-in-order)'s build order is history and is cut;
+[§6.3](#63-the-one-asymmetry-that-survives-deletion)'s argument is re-stated as a contract, and so
+is [`OQ-CO12`](#13-decision-ledger)'s keys-and-values criterion: *`own` composes through the
+surface's codec*.
+
+**The ids that must survive.** Each ledger id cited from outside this file keeps its id in the
+reference's `## Why it's this way` appendix, because after this file goes that appendix is the only
+place it resolves. That means every [ledger](#13-decision-ledger) id, whichever way it is spelled:
+most rows are `OQ-CO<n>`, but [`CO13`](#13-decision-ledger) has no `OQ-` prefix, and Go and
+`packs/omp/derive.lua` cite it that way. The 2026-09-12 assessment counted eight cited from Go
+([`OQ-CO1`](#13-decision-ledger), CO2, CO4, CO5, CO7, CO8, CO9 and CO10). On 2026-09-25 the same
+sweep, widened to the unprefixed spelling, also finds [`OQ-CO12`](#13-decision-ledger) and
+[`CO13`](#13-decision-ledger). Re-run it at the move rather than trust either list. It prints each
+id with the `OQ-` stripped, so both spellings of one id are counted together:
+
+```console
+$ rg -o '\b(OQ-)?CO[0-9]+\b' internal cmd packs integration | sed 's/.*://; s/^OQ-//' | sort -V | uniq -c
+```
+
+**The residue, re-stated in present tense.** Seven live items were counted on 2026-09-12: the
+unnetted overlay-sidecar loss in
+[§6.3.3](#633-what-survives-as-a-guard) ([the residue it records](#what-the-net-does-not-reach--live-residue-found-after-it-shipped)),
+and the six [§11](#11-success-criteria) measured after the [`OQ-CO12`](#13-decision-ledger) ruling
+([the residue list](#what-the-criterion-does-not-see--live-residue-measured-after-the-ruling)).
+An item marked **FIXED** where it stands is closed and carries nothing into the reference. Every
+other item is behavior a reference would state as behavior — *here is what the render does and
+does not preserve* — which is the same re-statement the criterion needs, once per item.
+
+**Fix the tombstone readers before the move, not after.** Item 2 of
+[that list](#what-the-criterion-does-not-see--live-residue-measured-after-the-ruling) is the one residue item with
+a data-loss path: `yolo config diff` and `yolo config promote` read a stale tombstone as a deletion,
+and an accepted `promote` writes that `null` into the local pack's `config-overlay`, where it is a
+real tombstone at every notch. A reference that documents that as behavior documents a defect as
+the contract. It is unfixed as of 2026-09-25; the fix is provable, and only where it goes — sweep
+the sidecar, narrow the delta, or fix the readers — is unruled.
+
+**Go's `§N` citations are repaired by hand.** Go comments cite this file by numbered section
+([§11](#11-success-criteria) most of all), and a reference drops numbered sections, so each citation is re-pointed line by
+line at whatever section now holds its text. The reason it is never a `sed` is in
+[the rules](../plans/README.md#oq-dt1).
+
 ---
 
 
@@ -2808,7 +2945,7 @@ their dated reversals.
 Rulings on [§12](#12-follow-ons-and-the-one-this-design-settled-itself)'s questions are folded into the normative
 body text and compacted here, keeping the exact `OQ-CO` ids so citations from
 sibling docs and code comments continue to resolve. **Every row but
-[`OQ-CO14`](#13-decision-ledger) is settled** — the ones the design opened, the last three of
+[`OQ-CO14`](#13-decision-ledger), [`OQ-CO15`](#13-decision-ledger) and [`OQ-CO16`](#13-decision-ledger) is settled** — the ones the design opened, the last three of
 those on 2026-09-11, [`OQ-CO12`](#13-decision-ledger), which its build opened, on 2026-09-12, and
 [`CO13`](#13-decision-ledger), decided 2026-09-20 and built 2026-09-25. A RULING opened both of the
 last two, which is the one way a settled design reopens.
@@ -2856,10 +2993,12 @@ and its residue is the larger of the two.
 | [`OQ-CO8`](#13-decision-ledger) | **`--to workspace` is out of scope for this design** — a decision, not a wait. It could not have been built here regardless: the `workspace` layer has no config key, no producer sets `Inputs.Workspace`, and `render.Host` leaves it empty by definition. Whoever wires that layer also owns the argument that a jail-writable layer must not reach a real home. | 2026-09-11 | [§5.1](#51-surface), [§7](#7-what-this-does-not-propose) | ✅ `resolvePromoteDest` refuses `--to workspace` by naming this ruling, rather than folding it into "unknown destination" |
 | [`OQ-CO9`](#13-decision-ledger) | **Refuse `own` for a keyless surface, until a real example exists.** The guard-growing alternative was the author's leaning, not something evidence forced, and the class is empty today — so the cheap answer is the honest one. Revisit when a pack has a reason to want a keyless surface host-rendered. | 2026-09-11 | [§6.3.2](#632-the-three-classes-adoption-does-not-cover) | ✅ `render.HostOwnedModes` refuses the coercion and `entrypoint.hostStatefulRefusal` refuses the surface, leaving the user's file untouched |
 | [`OQ-CO10`](#13-decision-ledger) | **The declaration moves ONTO the surface** so the binding is structural instead of a `path.Base` match, and **the read fails CLOSED** — which turns the `macos-user` silent drop into a refusal that names the backend. The disclosure survives (it comes from the declaration being present and enumerable, not from a separate kind), and the `reads-host` kind stays for `host_files`, whose entries have no mirrored twin. Coverage becomes a visible per-surface yes/no, making `mise/config` a deliberate **no**. Promote refuses `--to host` on a surface with no host layer. | 2026-09-11 | [§5.1.1](#511-why-only-two-surfaces-have-a-host-layer) | ✅ `manifest.Surface.ReadsHost` is the predicate, `packload.SurfaceHostFile` derives the `/ctx` path both halves evaluate, and `packload.HostLayerReport` makes the read fail closed; a launch that delivered nothing reports `unsupported` and is not refused. ⚠ The status cell read *"`macos-user` reports `unsupported` and is not refused"* until 2026-09-13: DP-L1 gave that backend a delivery mechanism, so it now reports `supported` and REFUSES an unreadable delivered file like every other backend, and `unsupported` became a fact about a launch rather than about a backend |
-| [`OQ-CO12`](#13-decision-ledger) | **Keys-and-values, not bytes** — and the two silent deletions are BUGS, fixed on their own rather than absorbed. A composing renderer that sorts keys is the contract `own` states, and matching `rmw`'s byte layout would make the capture path carry formatting it has no reason to know about. So JSON key order and a TOML surface's comments and generated header are CONFORMANT; a key valued `null` or `{}` disappearing is not, at any depth. The comparator is the surface codec's own decode, defined in [§11](#11-success-criteria). | 2026-09-12 | [§11](#11-success-criteria), [§6.3.1](#631-adoption-is-capture-then-regenerate) | ✅ `TestSwitchingToOwnPreservesKeysAndValues` states the criterion over deliberately non-canonical fixtures — asserting both that the bytes differ and that the values do not — and `TestSwitchingToOwnKeepsACanonicalFileByteIdentical` keeps the stricter byte comparison where it is still the sharper instrument. Both deletions are FIXED (2026-09-12): `dropNullLeaves` keeps an object the user wrote empty, and `agentcfg.Inputs.LiteralNulls` carries a literal `null` beside the layer stack because no merge patch can hold one. ⚠ `hostStatefulWouldChange` stays a BYTE comparison deliberately, so a conformant reformat is still disclosed as a pending change. ⚠ **Built is not complete**: a second verification pass the same day measured [six live items](#what-the-criterion-does-not-see--live-residue-measured-after-the-ruling) the relaxed criterion cannot see or the fixes did not reach — a JSON integer past 2^53 rounded, the stale tombstone making `config diff` and `promote` misreport a null the user ADDED, a host-file null on a `readsHost` surface, a latent `reinstateAt` panic, an undeclared provenance divergence, and an `assert`-side non-finite float. None is fixed |
+| [`OQ-CO12`](#13-decision-ledger) | **Keys-and-values, not bytes** — and the two silent deletions are BUGS, fixed on their own rather than absorbed. A composing renderer that sorts keys is the contract `own` states, and matching `rmw`'s byte layout would make the capture path carry formatting it has no reason to know about. So JSON key order and a TOML surface's comments and generated header are CONFORMANT; a key valued `null` or `{}` disappearing is not, at any depth. The comparator is the surface codec's own decode, defined in [§11](#11-success-criteria). | 2026-09-12 | [§11](#11-success-criteria), [§6.3.1](#631-adoption-is-capture-then-regenerate) | ✅ `TestSwitchingToOwnPreservesKeysAndValues` states the criterion over deliberately non-canonical fixtures — asserting both that the bytes differ and that the values do not — and `TestSwitchingToOwnKeepsACanonicalFileByteIdentical` keeps the stricter byte comparison where it is still the sharper instrument. Both deletions are FIXED (2026-09-12): `dropNullLeaves` keeps an object the user wrote empty, and `agentcfg.Inputs.LiteralNulls` carries a literal `null` beside the layer stack because no merge patch can hold one. ⚠ `hostStatefulWouldChange` stays a BYTE comparison deliberately, so a conformant reformat is still disclosed as a pending change. ⚠ **Built is not complete**: a second verification pass the same day measured [six live items](#what-the-criterion-does-not-see--live-residue-measured-after-the-ruling) the relaxed criterion cannot see or the fixes did not reach — a JSON integer past 2^53 rounded, the stale tombstone making `config diff` and `promote` misreport a null the user ADDED, a host-file null on a `readsHost` surface, a latent `reinstateAt` panic, an undeclared provenance divergence, and an `assert`-side non-finite float. The panic and the float are FIXED (2026-09-25: `TestLiteralNullsReinstateUnderATypedNilMap`, `TestTOMLNonFiniteFloats`); the rest are not |
 | [`OQ-CO11`](#13-decision-ledger) | **The read-in `host` layer stays — decided by [`OQ-CO10`](#13-decision-ledger), not separately.** Ruling a mechanism's binding, failure direction and coverage decides that it exists; asking in the same breath whether to delete it is incoherent. Supersedes env-manager plan [`OQ-3`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase). | 2026-09-11 | [§5.1.1](#511-why-only-two-surfaces-have-a-host-layer), [§3](#3-the-diagnosis--one-asymmetry-three-unrelated-justifications) | n/a — a ruling to KEEP. The layer stands, restructured by [`OQ-CO10`](#13-decision-ledger) rather than removed |
 | [`CO13`](#13-decision-ledger) | **DECIDED — how does a derive say it fills a computed table IN FULL?** ⚠ This cell said OPEN until 2026-09-21, contradicting [its own section](#co13--how-a-derive-says-it-fills-a-computed-table-in-full--decided), which records that filing it as a question was the mistake: the four shapes differ in what the CODE carries and not in what the USER gets, so it is a decision the design makes. The last column is the BUILD, which is a different axis (⬜ until 2026-09-25). The 2026-09-20 ruling narrowed the adoption drop to the leaves yolo regenerated, which settles the EMPTY table and leaves the non-empty one guessing. The leaf half of the signal already exists (a computed table's key set IS the asserted set, tombstones included); the fill-in-full half exists nowhere, and four candidate discriminators were measured to flip on configuration rather than intent. It has to be declared by the derive, and the decision is WHERE: a third derive sentinel beside `ctx.tombstone` and `ctx.empty_array`. | 2026-09-20 | [the decision](#co13--how-a-derive-says-it-fills-a-computed-table-in-full--decided), [the drop-narrowing ruling](#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule) | ✅ built 2026-09-25 ([what shipped](#built-2026-09-25--what-shipped)): `ctx.in_full` is the third sentinel in `luahook/derive.go`, decoded to `DeriveOutput.InFull`; `dropComputedTables` takes a non-empty table whole only when it is declared, so one not declared in full (claude's `env`) keeps the agent's own leaves (`TestComposeStatefulFirstMigrationKeepsTheUnassertedLeavesOfAPartlyAssertedTable`, the old cost pin inverted; `TestConfigureClaudePrismFirstMigrationKeepsTheAgentsOwnEnv`); `hostTableKeys` keeps only declared keys, so a host apply no longer clears the user's `env` (`TestHostApplyKeepsTheUsersClaudeEnv`). Every shipped table whose key set tracks a live table is declared, and every fixed-key-set one is not (`TestShippedDerivesDeclareTheirInFullTables`, over two probe worlds). ⚠ Version skew is covered in ONE direction: a derive staged by a host `yolo` older than the build declares nothing, so a newer entrypoint adopts MCP tables leaf by leaf and a first migration keeps a removed server; only the `SourceSkew` gate refuses that pairing ([what shipped](#built-2026-09-25--what-shipped)). The EMPTY-table half that landed 2026-09-20 stands (`TestComposeStatefulFirstMigrationKeepsResidueUnderAnEmptyComputedTable`, now declaring both its tables). ⚠ One residual filed rather than built: the jail's `rmw` arm still regenerates every object-valued computed key, declared or not — unobservable for the shipped packs ([the residual](#built-2026-09-25--what-shipped)). ⚠ **Unaffected by [`OQ-CO1`](#13-decision-ledger)'s reversal**, checked rather than assumed: the drop is a `stateful` mechanism and the host probe feeds both `own` arms, so retiring `assert` moves the population and not the scope ([the check](#does-retiring-assert-change-co13s-scope)) |
 | [`OQ-CO14`](#13-decision-ledger) | **OPEN — what does retiring `assert` do to a config, and a home, already on it?** Two faces, one migration: a user config that *says* `"assert"` becomes unspellable, and an absent key on a home yolo has already asserted into flips from "keep maintaining this file" to "stop, and leave what was written". The second **re-opens [`OQ-CO2`](#13-decision-ledger)**, whose "neither prompt nor notice" rests entirely on the unset state equalling today's behaviour. It is a question rather than an implementation shape by [§12](#12-follow-ons-and-the-one-this-design-settled-itself)'s own test: refusing, silently ceasing to manage, and silently composing the whole file are three different outcomes for the same user. | — | [the question](#oq-co14), [§4.5](#45-retiring-assert--the-two-value-key) | ⬜ open, and it blocks the value being dropped rather than following it |
+| [`OQ-CO15`](#13-decision-ledger) | **OPEN — what does the jail's `rmw` arm do with a table its derive does not declare in full?** `regenerateManagedTables` rewrites every object-valued computed key wholesale, while the host's table probe claims only declared keys, so such a table would be cleared in a jail and merged at the host. No shipped pack returns one. Options: assert its leaves, skip it with a note, or refuse the pack; leaning assert its leaves. | — | [the question](#oq-co15), [what shipped](#built-2026-09-25--what-shipped) | ⬜ open; changes nothing until a pack ships the shape |
+| [`OQ-CO16`](#13-decision-ledger) | **OPEN — do the provider catalogs stay declared in full?** Declaring them keeps the wholesale take they had before `CO13`, so a user's hand-added provider is dropped at adoption and at a host apply. Options: keep, stop declaring, or decide per catalog; leaning keep, weakly. | — | [the question](#oq-co16), [what shipped](#built-2026-09-25--what-shipped) | ⬜ open; today's behavior is (a) |
 | — | **The adoption archive's layout and failure policy, decided at build time** because [`OQ-CO7`](#13-decision-ledger) left them open and one of them contradicts what that ruling assumed. Keyed by SURFACE, not by the `<stamp>/` generation the other buckets use — under the stamped layout `yolo prune`'s keep-newest-3 would sweep the originals of every surface but the newest few, which is the loss this bucket exists to prevent performed by yolo's own reaper. Idempotent on the archive's own existence, so a second adoption cannot overwrite the user's original with yolo's output. A copy that cannot be written REFUSES the adoption rather than warning past it. Not an OQ; recorded because the first of them departs from [§6.3.3](#633-what-survives-as-a-guard)'s original text. | 2026-09-12 | [§6.3.3](#633-what-survives-as-a-guard) | ✅ `render.Target.ArchivePath` (layout), `entrypoint.archiveAdoption` (idempotency, refusal); `TestPruneLeavesTheAdoptionArchiveAlone` pins the reaper half across the two packages that each know only their own half |
 | — | **Terminology: the absent key is the *unset* state, never the "undeclared" one** — *undeclared* is reserved for the input-closure tier ([§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running)'s note). Not an OQ; recorded because renaming it later costs four anchors. | 2026-09-10 | [§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running) | n/a — terminology |
 
