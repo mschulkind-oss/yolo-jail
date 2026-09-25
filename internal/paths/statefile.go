@@ -2,6 +2,7 @@ package paths
 
 import (
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -55,6 +56,86 @@ func OpenStateDirRoot(dir string) (*os.Root, error) {
 		return nil, &LinkedStateDirError{Path: dir}
 	}
 	return r, nil
+}
+
+// OpenStateSubdirRoot opens name, an EXISTING direct child of parent (a root on a jail-writable
+// directory), as an os.Root, refusing with a *LinkedStateDirError naming full when name is a
+// symbolic link: parent.OpenRoot follows a link that stays inside parent, and the jail can put
+// one there. The open is checked against the directory that was Lstat'ed, so a link swapped in
+// between is refused too. It creates nothing: a missing name is an fs.ErrNotExist.
+func OpenStateSubdirRoot(parent *os.Root, name, full string) (*os.Root, error) {
+	fi, err := parent.Lstat(name)
+	if err != nil {
+		return nil, err
+	}
+	if fi.Mode()&fs.ModeSymlink != 0 {
+		return nil, &LinkedStateDirError{Path: full}
+	}
+	if !fi.IsDir() {
+		return nil, &fs.PathError{Op: "open", Path: full, Err: syscall.ENOTDIR}
+	}
+	r, err := parent.OpenRoot(name)
+	if err != nil {
+		return nil, err
+	}
+	if st, err := r.Stat("."); err != nil || !os.SameFile(fi, st) {
+		r.Close()
+		return nil, &LinkedStateDirError{Path: full}
+	}
+	return r, nil
+}
+
+// OpenWorkspaceStateSubdir opens name, an existing directory directly under
+// <workspace>/.yolo (the overlay "home", the sidecar dir "prism"), as an os.Root, refusing a
+// link at `.yolo` or at name with a *LinkedStateDirError naming it. It creates nothing, and
+// is for host code that only reads, or writes only into state that already exists, such as
+// the capture at jail exit and `yolo prune`.
+func OpenWorkspaceStateSubdir(workspace, name string) (*os.Root, error) {
+	if name == "" || filepath.Base(name) != name || name == "." || name == ".." {
+		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrInvalid}
+	}
+	dir := WorkspaceStateDir(workspace)
+	parent, err := OpenStateDirRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer parent.Close()
+	return OpenStateSubdirRoot(parent, name, filepath.Join(dir, name))
+}
+
+// ReadRegularFileBeneath reads name below r only when it is a regular file: a link at name,
+// dangling or not, is not read (r refuses one that leaves it; this refuses one that stays), and
+// the opened file is checked to be regular, O_NONBLOCK keeping a FIFO swapped in meanwhile from
+// hanging the open. A missing name is an fs.ErrNotExist.
+func ReadRegularFileBeneath(r *os.Root, name string) ([]byte, error) {
+	f, err := OpenRegularFileBeneath(r, name)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return io.ReadAll(f)
+}
+
+// OpenRegularFileBeneath opens name below r for reading, on ReadRegularFileBeneath's terms, for
+// a caller that streams the file (a hash) or needs its identity (the opened file's Stat).
+func OpenRegularFileBeneath(r *os.Root, name string) (*os.File, error) {
+	return openRegularBeneath(r, name, os.O_RDONLY, 0)
+}
+
+// WriteRegularFileBeneath is os.WriteFile of name below r, on OpenWorkspaceStateFile's terms: a
+// regular file already there is truncated and rewritten in place, keeping its inode; anything
+// else there (a link the jail left, dangling or not) is removed and replaced by a regular file;
+// and a name that leaves r through a linked directory is refused. name's parent must exist.
+func WriteRegularFileBeneath(r *os.Root, name string, data []byte, perm fs.FileMode) error {
+	f, err := openRegularBeneath(r, name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 // OpenWorkspaceStateFile opens name, a file directly under <workspace>/.yolo, with flag and

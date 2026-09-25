@@ -44,7 +44,9 @@ package cli
 // capture` at the host to prevent.
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -58,7 +60,7 @@ import (
 // captureOnTerminate folds this session's in-jail edits into the overlay sidecars
 // for the jail launched from workspace, which has just been torn down. runtime is
 // the resolved container runtime, needed because the two container backends back
-// the jail home differently (see jailHomeHostPath).
+// the jail home differently (see jailHomeSurfaceRel).
 //
 // It NEVER returns an error and never panics out: every failure is one warn line
 // and the loop continues. See R7 in the file comment — the teardown this hangs off
@@ -69,29 +71,40 @@ func captureOnTerminate(workspace, runtime string, warn func(string)) {
 			warn(fmt.Sprintf("could not capture in-jail config edits: %v", r))
 		}
 	}()
-	sidecarDir := filepath.Join(paths.WorkspaceStateDir(workspace), "prism")
-	if st, err := os.Stat(sidecarDir); err != nil || !st.IsDir() {
+	// BENEATH A ROOT ON EACH, never by plain path: both directories are jail-writable (the
+	// workspace bind puts `.yolo` at /workspace/.yolo), and this runs as the host user. A link
+	// the jail left at a surface, at a sidecar, or at a directory above either, had the capture
+	// read a host file into the overlay the jail reads, or truncate the host file the link
+	// named (docs/reference/jail-home.md, "Host code in jail-writable state").
+	prism, ok := openCaptureRoot(workspace, "prism", warn)
+	if !ok {
 		// No jail has ever rendered into this workspace, so there is no baseline to
 		// diff against and nothing to capture. Silent: this is the ordinary state of
 		// a workspace whose packs compose no capture surface, not a problem.
 		return
 	}
-	for _, s := range terminateCaptureSurfaces(sidecarDir) {
-		path, ok := jailHomeHostPath(workspace, runtime, s.Path)
+	defer prism.Close()
+	home, ok := openCaptureRoot(workspace, "home", warn)
+	if !ok {
+		return
+	}
+	defer home.Close()
+	for _, s := range terminateCaptureSurfaces(prism) {
+		rel, ok := jailHomeSurfaceRel(home, runtime, s.Path)
 		if !ok {
 			// The surface's file is not in this workspace's host-side home backing —
 			// it was never composed here, or it lives in a machine-scope shared dir
-			// (see jailHomeHostPath). Skipping loses nothing: the next boot captures.
+			// (see jailHomeSurfaceRel). Skipping loses nothing: the next boot captures.
 			continue
 		}
 		if _, err := captureSurfaceAt(s, captureLocation{
-			surface:    path,
-			lastRender: filepath.Join(sidecarDir, s.Agent+"-"+s.Name+".last_render"),
-			overlay:    filepath.Join(sidecarDir, s.Agent+"-"+s.Name+".overlay.json"),
+			surface:    captureFile{root: home, name: rel},
+			lastRender: captureFile{root: prism, name: s.Agent + "-" + s.Name + ".last_render"},
+			overlay:    captureFile{root: prism, name: s.Agent + "-" + s.Name + ".overlay.json"},
 			// The per-entry capture at config-list paths, read AND written — without it this
 			// teardown capture cannot know a path is a list path and would freeze the whole
 			// array into the overlay on every jail exit.
-			listCapture: filepath.Join(sidecarDir, s.Agent+"-"+s.Name+render.ListCaptureSuffix),
+			listCapture: captureFile{root: prism, name: s.Agent + "-" + s.Name + render.ListCaptureSuffix},
 		}); err != nil {
 			warn(fmt.Sprintf("could not capture %s/%s: %v (the next launch will capture it)",
 				s.Agent, s.Name, err))
@@ -99,24 +112,40 @@ func captureOnTerminate(workspace, runtime string, warn func(string)) {
 	}
 }
 
+// openCaptureRoot opens name under the workspace's `.yolo` as a root for the capture, and
+// reports false when there is none. A missing directory, or something other than one, is
+// silent (nothing was ever rendered here); a symbolic link at `.yolo` or at name is WARNED,
+// naming it, because it is either a jail's plant or a relocation the next launch refuses too.
+func openCaptureRoot(workspace, name string, warn func(string)) (*os.Root, bool) {
+	r, err := paths.OpenWorkspaceStateSubdir(workspace, name)
+	if err != nil {
+		var linked *paths.LinkedStateDirError
+		if errors.As(err, &linked) {
+			warn(fmt.Sprintf("could not capture in-jail config edits: %v", err))
+		}
+		return nil, false
+	}
+	return r, true
+}
+
 // terminateCaptureSurfaces is every surface capture-on-terminate considers: the
 // manifest's capture-mode surfaces, plus the `user` host_files surfaces, which are
 // discovered from the sidecar dir because their destinations live in config rather
-// than the manifest (the same discovery userSidecarSurfaces does, over an explicit
-// dir instead of the cwd's).
+// than the manifest (the same discovery userSidecarSurfaces does, over a root on an
+// explicit dir instead of the cwd's).
 //
 // Deliberately NOT gated on this launch's loaded packs. A surface no pack composed
 // has no host-side file and no baseline, so it is already a no-op twice over —
 // while threading the loaded set through teardown would put a second, drift-prone
 // answer to "which surfaces exist" next to the manifest's.
-func terminateCaptureSurfaces(sidecarDir string) []manifest.Surface {
+func terminateCaptureSurfaces(sidecarDir *os.Root) []manifest.Surface {
 	var out []manifest.Surface
 	for _, s := range surfaceManifest().Surfaces() {
 		if surfaceMode(s) == "capture" {
 			out = append(out, s)
 		}
 	}
-	entries, err := os.ReadDir(sidecarDir)
+	entries, err := fs.ReadDir(sidecarDir.FS(), ".")
 	if err != nil {
 		return out
 	}
@@ -139,9 +168,11 @@ func terminateCaptureSurfaces(sidecarDir string) []manifest.Surface {
 	return out
 }
 
-// jailHomeHostPath resolves a jail-home surface path (`~/.claude/settings.json`) to
-// the HOST file backing it for the jail launched from workspace, or ok=false when
-// this workspace has no such file.
+// jailHomeSurfaceRel resolves a jail-home surface path (`~/.claude/settings.json`) to
+// the file backing it beneath home, a root on the workspace overlay (`<ws>/.yolo/home`),
+// for the jail launched from that workspace, or ok=false when the overlay has no such file.
+// The answer is relative to home, so the capture reads it beneath the root rather than by a
+// path a link in the overlay could redirect.
 //
 // The two container backends lay the home out differently, so the runtime decides
 // rather than a filesystem guess:
@@ -156,25 +187,26 @@ func terminateCaptureSurfaces(sidecarDir string) []manifest.Surface {
 //
 // Existence is required, and that is what keeps the rule honest: a path that is not
 // one of those binds simply has no file at the derived location and is skipped,
-// rather than being captured from somewhere it does not live.
+// rather than being captured from somewhere it does not live. Existence is an Lstat
+// beneath the root: a link there counts as present, so the read that refuses it warns.
 //
 // The :ro home skeleton and the machine-scope shared dirs are deliberately NOT
 // searched. The jail cannot write the skeleton at all, and it holds no file content, only
 // mountpoints and links; and no shipped capture surface lives in a shared dir (they hold
 // credentials). Declining is free here — the next boot,
 // which reads the real jail home, captures either way.
-func jailHomeHostPath(workspace, runtime, surfacePath string) (string, bool) {
-	path, ok := jailHomeHostLocation(workspace, runtime, surfacePath)
+func jailHomeSurfaceRel(home *os.Root, runtime, surfacePath string) (string, bool) {
+	rel, ok := jailHomeRel(runtime, surfacePath)
 	if !ok {
 		return "", false
 	}
-	if _, err := os.Stat(path); err != nil {
+	if _, err := home.Lstat(rel); err != nil {
 		return "", false
 	}
-	return path, true
+	return rel, true
 }
 
-// jailHomeHostLocation is the MAPPING half of jailHomeHostPath, without the existence test:
+// jailHomeHostLocation is the MAPPING half of jailHomeSurfaceRel, without the existence test:
 // where this workspace's jail home would hold surfacePath, and ok=false when the path is not
 // in a jail home at all.
 //
@@ -185,6 +217,16 @@ func jailHomeHostPath(workspace, runtime, surfacePath string) (string, bool) {
 // (docs/reference/config-target-resolution.md#unknown-is-not-empty). One answer cannot carry both, and re-deriving
 // the mapping beside this one is what the backend branch below must never have two of.
 func jailHomeHostLocation(workspace, runtime, surfacePath string) (string, bool) {
+	rel, ok := jailHomeRel(runtime, surfacePath)
+	if !ok {
+		return "", false
+	}
+	return filepath.Join(paths.WorkspaceHomeState(workspace), rel), true
+}
+
+// jailHomeRel is the mapping itself, relative to the workspace overlay: the one definition
+// both jailHomeHostLocation and jailHomeSurfaceRel answer from.
+func jailHomeRel(runtime, surfacePath string) (string, bool) {
 	rel, ok := strings.CutPrefix(surfacePath, "~/")
 	if !ok {
 		return "", false // an absolute surface path is not in the jail home
@@ -200,5 +242,5 @@ func jailHomeHostLocation(workspace, runtime, surfacePath string) (string, bool)
 			rel = filepath.Join(seg, tail)
 		}
 	}
-	return filepath.Join(paths.WorkspaceHomeState(workspace), rel), true
+	return rel, true
 }

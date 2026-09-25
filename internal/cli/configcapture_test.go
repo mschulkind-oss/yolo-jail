@@ -113,11 +113,14 @@ func TestCaptureOnTerminateNeverBreaksTeardown(t *testing.T) {
 	if f, err := os.OpenFile(filepath.Join(prism, "probe"), os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
 		// Running as root (the jail's own uid) ignores the mode bits, so the write
 		// would succeed and the assertion would be vacuous. Fall back to making the
-		// overlay path a DIRECTORY, which no uid can WriteFile over.
+		// overlay path a NON-EMPTY DIRECTORY, which no uid can write a file over (the
+		// capture replaces anything else at a sidecar name, an empty directory included,
+		// but it removes nothing with content under it).
 		_ = f.Close()
 		_ = os.Remove(filepath.Join(prism, "probe"))
 		_ = os.Chmod(prism, 0o755)
-		if err := os.Mkdir(filepath.Join(prism, "claude-settings.overlay.json"), 0o755); err != nil {
+		overlayDir := filepath.Join(prism, "claude-settings.overlay.json")
+		if err := os.MkdirAll(filepath.Join(overlayDir, "keep"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -173,7 +176,7 @@ func TestCaptureOnTerminateIsANoOpWithoutABaseline(t *testing.T) {
 	}
 }
 
-// TestJailHomeHostPath pins the two backend layouts and the decline. The rule is
+// TestJailHomeHostPath pins, through jailHomeSurfaceRel and jailHomeHostLocation, the two backend layouts and the decline. The rule is
 // load-bearing: get it wrong and capture either reads nothing (silent no-op) or
 // reads the wrong file.
 func TestJailHomeHostPath(t *testing.T) {
@@ -210,18 +213,27 @@ func TestJailHomeHostPath(t *testing.T) {
 		{"podman", "~/.nothing/here.json", "", false},
 		{"podman", "/etc/passwd", "", false},
 	}
+	home, err := os.OpenRoot(filepath.Join(ws, ".yolo", "home"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer home.Close()
 	for _, tc := range cases {
-		got, ok := jailHomeHostPath(ws, tc.runtime, tc.surface)
+		got, ok := jailHomeSurfaceRel(home, tc.runtime, tc.surface)
 		if ok != tc.wantOK {
-			t.Errorf("jailHomeHostPath(%s, %q) ok = %v, want %v", tc.runtime, tc.surface, ok, tc.wantOK)
+			t.Errorf("jailHomeSurfaceRel(%s, %q) ok = %v, want %v", tc.runtime, tc.surface, ok, tc.wantOK)
 			continue
 		}
 		if !ok {
 			continue
 		}
-		want := filepath.Join(ws, ".yolo", "home", filepath.FromSlash(tc.wantRel))
-		if got != want {
-			t.Errorf("jailHomeHostPath(%s, %q) = %q, want %q", tc.runtime, tc.surface, got, want)
+		if want := filepath.FromSlash(tc.wantRel); got != want {
+			t.Errorf("jailHomeSurfaceRel(%s, %q) = %q, want %q", tc.runtime, tc.surface, got, want)
+		}
+		// The mapping half answers the same file, as a host path.
+		loc, ok := jailHomeHostLocation(ws, tc.runtime, tc.surface)
+		if want := filepath.Join(ws, ".yolo", "home", filepath.FromSlash(tc.wantRel)); !ok || loc != want {
+			t.Errorf("jailHomeHostLocation(%s, %q) = %q, %v, want %q", tc.runtime, tc.surface, loc, ok, want)
 		}
 	}
 }
@@ -235,7 +247,12 @@ func TestTerminateCaptureSurfacesCoversCaptureModeAndUserSidecars(t *testing.T) 
 		[]byte("{}"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got := terminateCaptureSurfaces(dir)
+	r, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	got := terminateCaptureSurfaces(r)
 
 	byKey := map[string]manifest.Surface{}
 	for _, s := range got {

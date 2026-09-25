@@ -28,6 +28,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
@@ -946,27 +947,58 @@ func configCapture(t configTarget, args []string, out, errw io.Writer, color boo
 }
 
 // captureLocation is where ONE capture reads and writes: the surface file itself
-// plus its two sidecars, as absolute paths.
+// plus its sidecars.
 //
-// It exists because capture has two callers that resolve those three paths
+// It exists because capture has two callers that resolve those files
 // differently, and only differently. `yolo config capture` runs inside the jail
 // that owns the workspace, so `~` is the jail's home and the sidecar dir is the
 // cwd's — the local case. Capture-on-terminate runs on the HOST after the
 // container is gone, where `~` is the invoking human's real home and reading it
 // would be the G2 privacy defect refuseHostSideWrite exists to stop; it resolves
-// the same three files against the workspace's host-side backing dirs instead.
-// Making the paths a parameter is what lets the second caller reuse the engine
+// the same files against the workspace's host-side backing dirs instead, and
+// beneath a root on each (captureFile), because the jail can write both.
+// Making the files a parameter is what lets the second caller reuse the engine
 // call below rather than grow a second capture implementation that would be free
 // to disagree with it.
 type captureLocation struct {
-	surface    string // the composed file the agent reads and may have edited
-	lastRender string // yolo's own last output, the baseline an edit is measured against
-	overlay    string // the accumulated captured edits (written)
+	surface    captureFile // the composed file the agent reads and may have edited
+	lastRender captureFile // yolo's own last output, the baseline an edit is measured against
+	overlay    captureFile // the accumulated captured edits (written)
 	// listCapture is the per-entry capture at the surface's config-list paths (read AND
 	// written). It is also where this capture learns WHICH paths are list paths — it passes
 	// no layers, so no contribution can tell it — and without it a capture would freeze the
-	// whole array into the overlay, the defect per-entry capture exists to end.
-	listCapture string
+	// whole array into the overlay, the defect per-entry capture exists to end. An empty
+	// name means the caller has none.
+	listCapture captureFile
+}
+
+// captureFile is one file a capture reads or writes: name below root, or, with no root, name
+// as a plain path.
+//
+// The ROOTED form is the host's (capture-on-terminate): root is a root on a jail-writable
+// directory, the workspace overlay or `.yolo/prism`, so a read takes only a regular file (a
+// link the jail left there, dangling or not, is not followed) and a write replaces anything
+// else at name with a regular file, and a name that leaves the root through a linked directory
+// is refused either way (paths.ReadRegularFileBeneath, paths.WriteRegularFileBeneath;
+// docs/reference/jail-home.md, "Host code in jail-writable state"). The plain form is the
+// in-jail `yolo config capture`'s, where every path is the jail's own.
+type captureFile struct {
+	root *os.Root
+	name string
+}
+
+func (f captureFile) read() ([]byte, error) {
+	if f.root == nil {
+		return os.ReadFile(f.name)
+	}
+	return paths.ReadRegularFileBeneath(f.root, f.name)
+}
+
+func (f captureFile) write(data []byte) error {
+	if f.root == nil {
+		return os.WriteFile(f.name, data, 0o644)
+	}
+	return paths.WriteRegularFileBeneath(f.root, f.name, data, 0o644)
 }
 
 // captureSurface folds one surface's on-disk state into its overlay, returning the
@@ -978,32 +1010,38 @@ func captureSurface(t configTarget, s manifest.Surface) (int, error) {
 	if !ok {
 		return -1, nil // not resolvable at this notch: the same answer as "no baseline"
 	}
-	return captureSurfaceAt(s, captureLocation{
-		surface:     path,
-		lastRender:  t.lastRenderPath(s.Agent, s.Name),
-		overlay:     t.overlayPath(s.Agent, s.Name),
-		listCapture: t.listCapturePath(s.Agent, s.Name),
+	overlay, listCapture := t.overlayPath(s.Agent, s.Name), t.listCapturePath(s.Agent, s.Name)
+	captured, err := captureSurfaceAt(s, captureLocation{
+		surface:     captureFile{name: path},
+		lastRender:  captureFile{name: t.lastRenderPath(s.Agent, s.Name)},
+		overlay:     captureFile{name: overlay},
+		listCapture: captureFile{name: listCapture},
 	})
+	if err != nil || !captured {
+		return -1, err
+	}
+	return overlayKeyCountAt(overlay) + listCaptureCountAt(listCapture), nil
 }
 
-// captureSurfaceAt is the capture itself, over explicit paths. Both callers land
-// here, so there is exactly one definition of what capturing means.
-func captureSurfaceAt(s manifest.Surface, at captureLocation) (int, error) {
-	current, err := os.ReadFile(at.surface)
+// captureSurfaceAt is the capture itself, over explicit files. Both callers land
+// here, so there is exactly one definition of what capturing means. It reports false
+// when there was nothing to capture: no surface file, or no baseline.
+func captureSurfaceAt(s manifest.Surface, at captureLocation) (bool, error) {
+	current, err := at.surface.read()
 	if err != nil {
 		if os.IsNotExist(err) {
-			return -1, nil
+			return false, nil
 		}
-		return 0, err
+		return false, err
 	}
-	lastRender, err := os.ReadFile(at.lastRender)
+	lastRender, err := at.lastRender.read()
 	if err != nil {
-		return -1, nil // no baseline: cannot tell an edit from yolo's own output
+		return false, nil // no baseline: cannot tell an edit from yolo's own output
 	}
-	overlayJSON, _ := os.ReadFile(at.overlay)
+	overlayJSON, _ := at.overlay.read()
 	var listCaptureJSON []byte
-	if at.listCapture != "" {
-		listCaptureJSON, _ = os.ReadFile(at.listCapture)
+	if at.listCapture.name != "" {
+		listCaptureJSON, _ = at.listCapture.read()
 	}
 
 	// Reuse the RENDERER's capture path rather than reimplementing the diff: a second
@@ -1018,19 +1056,19 @@ func captureSurfaceAt(s manifest.Surface, at captureLocation) (int, error) {
 		ListCaptureJSON:   listCaptureJSON,
 	})
 	if err != nil {
-		return 0, err
+		return false, err
 	}
-	if err := os.WriteFile(at.overlay, append(out.OverlayJSON, '\n'), 0o644); err != nil {
-		return 0, err
+	if err := at.overlay.write(append(out.OverlayJSON, '\n')); err != nil {
+		return false, err
 	}
 	// The per-entry half, written only when the surface HAS a list path (the sidecar named
 	// one) — nil otherwise, and then no file is created.
-	if out.ListCaptureJSON != nil && at.listCapture != "" {
-		if err := os.WriteFile(at.listCapture, append(out.ListCaptureJSON, '\n'), 0o644); err != nil {
-			return 0, err
+	if out.ListCaptureJSON != nil && at.listCapture.name != "" {
+		if err := at.listCapture.write(append(out.ListCaptureJSON, '\n')); err != nil {
+			return false, err
 		}
 	}
-	return overlayKeyCountAt(at.overlay) + listCaptureCountAt(at.listCapture), nil
+	return true, nil
 }
 
 // listCaptureCountAt is how many captured list entries the list-capture sidecar at path
