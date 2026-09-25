@@ -2,23 +2,28 @@
 title: "Bedrock plumbing: every Bedrock model, in every agent"
 date: 2026-09-04
 status: in-review
-tags: [packs, providers, profiles, bedrock, aws, codex, gpt, wire-bridge, models]
-summary: "How every shipped agent reaches every model Bedrock serves: natively where the agent ships its own Bedrock client (codex, opencode, pi, and claude for Anthropic models), and through the wire bridge where it does not (claude for every other model, copilot). The endpoint family and the model-id spelling are one provider entry; the bridge signs its own requests with SigV4; and a company pack can ship one ordered model list that every agent's picker renders. Which credential a jail carries is sso-backed-bedrock.md's question; this design works with all three that yolo supports."
+tags: [packs, providers, profiles, bedrock, aws, codex, gpt, wire-bridge, models, mcp, web-search, agentcore]
+summary: "How every shipped agent reaches every model Bedrock serves, on one endpoint family, bedrock-runtime: natively where the agent ships its own Bedrock client (codex, opencode, pi, and claude for Anthropic models), and through the wire bridge where it does not (claude for every other model, copilot). The bridge signs its own requests with SigV4, a company pack can ship one ordered model list that every agent's picker renders, and every Bedrock profile gets web search as an MCP preset served by an AgentCore gateway, because no Bedrock-served agent has native search on runtime. bedrock-mantle is a documented manual recipe, not a shipped family. Which credential a jail carries is sso-backed-bedrock.md's question; this design works with all three that yolo supports."
 ---
 
 # Bedrock plumbing: every Bedrock model, in every agent
 
-**Status:** DESIGN, 2026-09-24. Fifteen rulings are owed. **Nothing of this design is built,
+**Status:** DESIGN, 2026-09-25. Seventeen rulings are owed. **Nothing of this design is built,
 while the credential half is.** Drafted 2026-09-04, amended 2026-09-18, [OQ-BR8](#OQ-BR8) opened
 2026-09-23, refreshed 2026-09-24 against the maintainer's credential ruling, and widened the
 same day by the maintainer's direction that every agent reach every Bedrock model
-([§6.6](#66-every-bedrock-model-in-every-agent--the-direction)).
+([§6.6](#66-every-bedrock-model-in-every-agent--the-direction)). Narrowed 2026-09-25 by two
+more of the maintainer's rulings: yolo ships `bedrock-runtime` only
+([DIR-BR3](#decision-ledger), [§5](#5-one-endpoint-family--runtime-ships-and-why-not-mantle)),
+and every Bedrock profile gets web search through an AgentCore gateway
+([DIR-BR4](#decision-ledger), [§6.9](#69-web-search-for-every-bedrock-profile--an-agentcore-mcp-preset)).
 **UNMEASURED:** no one has sent a request to Bedrock from any agent, through the wire bridge,
 or with any of the three credentials. Nothing has exercised runtime's `/openai/v1/chat/completions`
-for a non-Anthropic model, mantle's SigV4 service name or base path, codex 0.156.1's
+for a non-Anthropic model, runtime's Anthropic Messages route, codex 0.156.1's
 `amazon-bedrock-runtime` provider, Claude Code's gateway model discovery under
-`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, or `aws-auth` against a live `aws sso login`. The
-SigV4 signer [§6.6](#66-every-bedrock-model-in-every-agent--the-direction) proposes does not exist.
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, an AgentCore gateway, or `aws-auth` against a live
+`aws sso login`. The SigV4 signer
+[§6.6](#66-every-bedrock-model-in-every-agent--the-direction) proposes does not exist.
 
 Bedrock reaches yolo through two designs, and they are siblings, not alternatives:
 
@@ -70,11 +75,19 @@ the third, and document the second.
   [§6.6](#66-every-bedrock-model-in-every-agent--the-direction) proposes that the bridge sign
   its own requests, so that it takes the same three credentials the native arm does.
 
-For the native arm the hard part is none of those. **The three native clients default to different
-Bedrock endpoint families, and the model-id spelling differs between them**:
-`openai.gpt-5.6-sol` on `bedrock-mantle`, `global.openai.gpt-5.6-sol` on `bedrock-runtime`. So
-the family and the model ids are **one entry, shipped twice**: `-p bedrock-gpt` for runtime and
-`-p bedrock-gpt-mantle` for mantle, both available to measure against each other.
+For the native arm the hard part is none of those. **Bedrock has two endpoint families, the
+native clients default to different ones, and the model-id spelling differs between them**:
+`openai.gpt-5.6-sol` on `bedrock-mantle`, `global.openai.gpt-5.6-sol` on `bedrock-runtime`. The
+family and the model ids are therefore one entry. **yolo ships one family, `bedrock-runtime`**
+(ruled 2026-09-25): runtime serves every model family mantle does, plus Converse, and
+cross-Region inference that mantle lacks. Mantle is a documented manual recipe, a provider the
+user declares ([§5](#5-one-endpoint-family--runtime-ships-and-why-not-mantle)).
+
+**Search comes from AgentCore.** On runtime no agent has native web search: Bedrock's own Web
+Search is a mantle-only server-side tool, and Claude Code's WebSearch tool is not available on
+Bedrock at all. So every Bedrock profile gets an MCP web-search tool served by an AgentCore
+gateway the company creates once, and yolo signs the agents' calls to it
+([§6.9](#69-web-search-for-every-bedrock-profile--an-agentcore-mcp-preset)).
 
 **Which credential — ruled 2026-09-24 by the maintainer**, and recorded as
 [`OQ-SSO7`](sso-backed-bedrock.md#13-decision-ledger) in the sso-backed Bedrock design's Decision
@@ -94,16 +107,18 @@ one.
 the three, and the one place a credential choice does bite: today the gateway and bridge arms
 can carry only an API key.
 
-**The most important sections are [§5](#5-two-families-two-providers--because-the-family-and-the-ids-are-one-entry)**, on why the family is a provider entry rather than a
-knob, **and [§6.6](#66-every-bedrock-model-in-every-agent--the-direction)**, on how every model reaches every
-agent and every picker. **[§7](#7-traps--read-before-writing-code) is the one to read before writing code**: six
+**The most important sections are [§5](#5-one-endpoint-family--runtime-ships-and-why-not-mantle)**, on why one
+family ships and the family is a provider entry rather than a knob,
+**[§6.6](#66-every-bedrock-model-in-every-agent--the-direction)**, on how every model reaches every
+agent and every picker, **and [§6.9](#69-web-search-for-every-bedrock-profile--an-agentcore-mcp-preset)**,
+on search. **[§7](#7-traps--read-before-writing-code) is the one to read before writing code**: seven
 traps. Three of them are live in shipped code or docs today, and a fourth was fixed on 2026-09-15.
 
-**Needs your ruling:** [OQ-BR9](#OQ-BR9), [OQ-BR12](#OQ-BR12), [OQ-BR13](#OQ-BR13), [OQ-BR14](#OQ-BR14), [OQ-BR15](#OQ-BR15), [OQ-BR1](#OQ-BR1), [OQ-BR2](#OQ-BR2), [OQ-BR3](#OQ-BR3), [OQ-BR4](#OQ-BR4), [OQ-BR8](#OQ-BR8), [OQ-BR5](#OQ-BR5), [OQ-BR6](#OQ-BR6), [OQ-BR7](#OQ-BR7).
-The seven new questions come first because they carry the maintainer's direction, and
-[OQ-BR9](#OQ-BR9) (the provider shape) decides the premise of [OQ-BR1](#OQ-BR1),
-[OQ-BR3](#OQ-BR3) and [OQ-BR7](#OQ-BR7). Rule [OQ-BR4](#OQ-BR4) and [OQ-BR8](#OQ-BR8) together;
-they are one function. The 2026-09-24
+**Needs your ruling:** [OQ-BR9](#OQ-BR9), [OQ-BR12](#OQ-BR12), [OQ-BR13](#OQ-BR13), [OQ-BR14](#OQ-BR14), [OQ-BR15](#OQ-BR15), [OQ-BR19](#OQ-BR19), [OQ-BR20](#OQ-BR20), [OQ-BR21](#OQ-BR21), [OQ-BR22](#OQ-BR22), [OQ-BR23](#OQ-BR23), [OQ-BR1](#OQ-BR1), [OQ-BR2](#OQ-BR2), [OQ-BR3](#OQ-BR3), [OQ-BR4](#OQ-BR4), [OQ-BR8](#OQ-BR8), [OQ-BR5](#OQ-BR5), [OQ-BR6](#OQ-BR6).
+The direction's questions come first because they carry the maintainer's rulings, and
+[OQ-BR9](#OQ-BR9) (the provider shape) decides the premise of [OQ-BR1](#OQ-BR1) and
+[OQ-BR3](#OQ-BR3). [OQ-BR19](#OQ-BR19)–[OQ-BR23](#OQ-BR23) are how search is built. Rule
+[OQ-BR4](#OQ-BR4) and [OQ-BR8](#OQ-BR8) together; they are one function. The 2026-09-24
 refresh changed the premise of five of them, and each says how in a ⚠ note:
 [OQ-BR2](#OQ-BR2), [OQ-BR3](#OQ-BR3), [OQ-BR4](#OQ-BR4), [OQ-BR5](#OQ-BR5) and
 [OQ-BR6](#OQ-BR6). **One more question is owed but is not this doc's to ask:** whether static
@@ -128,18 +143,22 @@ per-agent config surfaces, source-verified),
 [`provider-switching.md`](provider-switching.md) (the sibling this doc's P1 spawned — tier
 aliases, and the id a deselected profile leaves behind),
 [`provider-credential-scope.md`](provider-credential-scope.md) (why a credential delivered
-through `env_sources` reaches every agent in the jail, whichever profile is selected).
+through `env_sources` reaches every agent in the jail, whichever profile is selected),
+[`../reference/mcp-configuration.md`](../reference/mcp-configuration.md) and
+[`../research/kilo-tavily-profile-gating.md`](../research/kilo-tavily-profile-gating.md) (the
+MCP table, presets, and the capability rule the search preset rides on).
 
 ---
 
 ## 1. Verdict and principles
 
-**Build the native arm as endpoint-less providers, one per endpoint family, each holding every
-model family the org selected, plus a derive binding per agent. Put the wire bridge in front of
-the same providers for every agent or model the native arm cannot carry, and have it sign its
-own requests. Ship the gateway arm as a documented config recipe, not as code.** The
-one-provider-per-endpoint-family shape is [OQ-BR9](#OQ-BR9)'s to rule; until it does,
-[§6.1](#61-three-providers-because-a-models-map-cannot-hold-two-model-families) states the
+**Build the native arm on one endpoint family, `bedrock-runtime`, as an endpoint-less provider
+holding every model family the org selected, plus a derive binding per agent. Put the wire
+bridge in front of the same provider for every agent or model the native arm cannot carry, and
+have it sign its own requests. Give every Bedrock profile web search as an MCP preset served by
+an AgentCore gateway. Ship the gateway arm, and mantle, as documented config recipes, not as
+code.** The one-provider shape is [OQ-BR9](#OQ-BR9)'s to rule; until it does,
+[§6.1](#61-two-providers-because-a-models-map-cannot-hold-two-model-families) states the
 earlier split by model family.
 
 The native arm is where the leverage is. Three agents already implement Bedrock, and what they
@@ -177,26 +196,32 @@ and nothing else), and the rest of the system already treats it correctly:
 **P3. One model-id spelling per provider entry, and every agent that selects it gets that
 one.** The `models` map is one map and the alias a profile names resolves through it once,
 so an agent-dependent spelling is not a configuration — it is a `models` map that is wrong
-somewhere. The corollary is the shape of [§5](#5-two-families-two-providers--because-the-family-and-the-ids-are-one-entry): two endpoint families means two entries, never
-one entry with a switch, because a switch is exactly the thing that could move the endpoint
-and leave the ids.
+somewhere. The corollary is the shape of [§5](#5-one-endpoint-family--runtime-ships-and-why-not-mantle): an endpoint family is a
+provider entry, never a switch on one, because a switch is exactly the thing that could move the
+endpoint and leave the ids. yolo ships one family, so it ships one spelling per model, runtime's
+inference-profile id; a user who wants mantle declares a second provider with mantle's ids.
 
 ---
 
 ## 2. What Bedrock is now — measured 2026-09-04
 
-Two endpoints, both OpenAI-compatible, and they are **not** interchangeable.
+Two endpoints, both OpenAI-compatible, and they are **not** interchangeable. yolo ships the
+first ([§5](#5-one-endpoint-family--runtime-ships-and-why-not-mantle)); the second column is
+here because it is why.
 
 | | `bedrock-runtime` | `bedrock-mantle` |
 | :--- | :--- | :--- |
-| Base URL | `https://bedrock-runtime.{region}.amazonaws.com/openai/v1` | `https://bedrock-mantle.{region}.api.aws/openai/v1` (⚠ AWS's own pages disagree on `/openai/v1` versus `/v1` — [§14](#14-evidence-and-how-to-re-check-it)) |
+| Base URL | `https://bedrock-runtime.{region}.amazonaws.com/openai/v1` | `https://bedrock-mantle.{region}.api.aws/openai/v1`. The GPT-5.6 Sol and GPT-6 Astra cards both say *"On `bedrock-mantle`, both APIs use the `/openai/v1` base path, not `/v1`"*; AWS's Chat Completions and Responses pages still give `/v1` ([§14](#14-evidence-and-how-to-re-check-it)) |
 | GPT-5.6 Sol model id | `us.openai.gpt-5.6-sol` / `global.openai.gpt-5.6-sol` — **in-Region is not available** | `openai.gpt-5.6-sol` — **Geo and Global are not supported** |
 | Regions serving GPT-5.6 Sol | 25+, via Geo/Global cross-Region inference | `us-east-1`, `us-east-2` only |
+| GPT-6 Astra | `us.openai.gpt-6-astra` / `global.openai.gpt-6-astra`, through US Geo and Global cross-Region inference (no in-Region id), Converse included | `openai.gpt-6-astra`, **`us-west-2` only**, no Converse |
 | APIs | Responses, Chat Completions, Converse, InvokeModel, Messages | Responses, Chat Completions, Messages |
-| Auth | SigV4 **or** Bedrock API key (bearer) | SigV4 **or** Bedrock API key (bearer) — re-read 2026-09-24, [§6.5](#65-the-credential-three-are-supported) |
-| Server-side tools, `background=true` | Not supported | Supported |
-| Structured outputs (this model) | Not supported | Not supported |
-| Price | Global CRIS ≈10% cheaper per token than In-Region/Geo | same per-token rates |
+| Auth | SigV4 **or** Bedrock API key (bearer) | SigV4 **or** Bedrock API key (bearer) — re-read 2026-09-24, [§6.5](#65-the-credential-three-are-supported). Its SigV4 service name is undocumented |
+| IAM for inference | `bedrock:InvokeModel`, `bedrock:InvokeModelWithResponseStream` | a separate set: `bedrock-mantle:CreateInference`, plus `CountTokens` and `ListModels` |
+| Server-side and pre-configured tools (Web Search), `background=true` | Not supported | Supported |
+| Structured outputs (these models) | Not supported | Not supported |
+| Price | Global CRIS ≈10% cheaper per token than In-Region or Geo ($10.00 against $11.00 per million input tokens for GPT-6 Astra) | the In-Region rate; it has no Global CRIS. AWS: *"Per-token pricing for the same model is identical on `bedrock-runtime` and `bedrock-mantle`"* |
+| AWS's recommendation | *"For most new applications, use the `bedrock-runtime` endpoint"* | *"when you specifically need capabilities that are currently available only there"* |
 
 > [!IMPORTANT]
 > **The model id is a function of the endpoint family, and AWS says so explicitly.** From
@@ -223,13 +248,15 @@ Two more facts that shape the design:
   models only**, so a non-Anthropic model reaches claude only through a translation. SOURCED
   2026-09-24 from AWS's endpoints and model API compatibility pages
   ([§14](#14-evidence-and-how-to-re-check-it)); no request was made.
-- **Only mantle lists its models.** Runtime has no `GET /openai/v1/models`. Mantle has
-  `GET /v1/models`, authorized by `bedrock-mantle:ListModels`, and its inference action is
-  `bedrock-mantle:CreateInference`. AWS documents neither mantle's SigV4 service name nor
-  whether its base path is `/v1` or `/openai/v1`. Third-party clients sign it as `bedrock-mantle`:
-  codex's `mantle.rs` source, oh-my-pi and LiteLLM issue #31475, per the 2026-09-24 research
-  pass. None of the three was re-read here, and the string is absent from codex 0.156.1's
-  binary apart from the URL.
+- **Runtime has no model-list endpoint.** There is no `GET /openai/v1/models` on runtime, so
+  nothing yolo ships can ask Bedrock which models exist. (Mantle has `GET /v1/models`, under
+  `bedrock-mantle:ListModels`; with mantle not shipped, that changes nothing here.)
+- **Runtime has no search.** Server-side and pre-configured tools, Web Search among them, are
+  mantle-only. AWS's Web Search page lists it for `openai.gpt-5.4`, `openai.gpt-5.5` and the
+  three GPT-5.6 models, on mantle's Responses API, in `us-east-1`, `us-east-2` and `us-west-2`.
+  So no agent on runtime has native search, whatever its model
+  ([§6.9](#69-web-search-for-every-bedrock-profile--an-agentcore-mcp-preset)).
+  SOURCED 2026-09-25 from the endpoints and Web Search pages.
 
 ---
 
@@ -313,6 +340,36 @@ signs. So today the bridge can carry only that key.
   provider. The `config-list` kind appends to a list but cannot narrow one, and it refuses a
   `profile` gate (`internal/packdecl`, `configlist_test.go`).
 
+**MCP servers reach agents through one table, and it holds stdio commands only.** MEASURED at
+`6f21b82c`, from the code and
+[`mcp-configuration.md`](../reference/mcp-configuration.md):
+
+- `Env.LoadMCPServers` (`internal/entrypoint/mcp.go`) builds one canonical table in-jail from
+  two inputs: the **presets** a user opts into with `mcp_presets`, a closed list core owns
+  (`validMCPPresets` in `internal/config/config.go`: `chrome-devtools` and `sequential-thinking`,
+  whose entries are the `presets` map in `LoadMCPServers`), and the user's own `mcp_servers`.
+  `requires_env` drops an entry whose named variable is unset, before any derive sees it.
+- **An entry's keys are closed**: `command`, `args`, `env`, `requires_env`, `provides`
+  (`knownMCPServerKeys`, same file). There is no `url` or `type` key, and none of the six
+  derives that project the table (claude, codex, copilot, opencode, pi, agy) writes one. So yolo
+  can deliver an MCP server only as a command the agent spawns and speaks stdio to.
+- **No pack can contribute an MCP server.** There is no contribution kind for one:
+  `ValidateKind` refuses `mcp-server` as an unknown kind (`internal/packdecl/kinds_test.go`).
+- **Capability-driven MCP delivery** *(coined in
+  [`kilo-tavily-profile-gating.md`](../research/kilo-tavily-profile-gating.md))* drops a server
+  whose `provides` names a capability the launch's **authentication source** already has.
+  `sourceCapabilities` (`internal/agentcfg/luahook/derive.go`) reads that set from the selected
+  provider row's `capabilities`, or, with no provider selected, from the agent's `kind:
+  "program"` contribution (`packdecl.Manifest.NativeCapabilities`). `eligibleMCPServers` drops
+  the exact match inside `buildDeriveCtxTable`, and `withoutProvidesKey` then strips `provides`.
+  `validate.go` refuses two `mcp_servers` entries declaring the same `provides`.
+- **Tavily is the worked example, and yolo ships no Tavily server.** A user's
+  `mcp_servers.tavily` with `provides: "web_search"` and `requires_env: ["TAVILY_API_KEY"]` is
+  delivered under Kilo, which declares no `web_search`, and suppressed under the sources that do
+  (`rg -n web_search packs/*/pack.json`: claude's and agy's program contributions, the `zai` and
+  `openai-codex` providers). claude's `bedrock` provider declares no capabilities, so under
+  `-p bedrock` such a server already reaches claude. INFERRED from the resolver; not run.
+
 So: claude on Bedrock is wired, though end to end it is unmeasured
 ([providers.md](../reference/providers.md#two-channels-split-by-payload-type)). copilot and
 claude can reach Bedrock's other models through the bridge with a Bedrock API key. The native
@@ -363,27 +420,58 @@ So with no intervention, `-p bedrock-gpt -- codex` and `-p bedrock-gpt -- pi` wa
 
 ---
 
-## 5. Two families, two providers — because the family and the ids are one entry
+## 5. One endpoint family — runtime ships, and why not mantle
 
-**The proposal: ship BOTH endpoint families, each as its own provider entry, and let a
-profile name pick between them.** `-p bedrock-gpt` is runtime; `-p bedrock-gpt-mantle` is
-mantle. One word apart at the CLI, and both available to try.
+**The ruling: yolo ships `bedrock-runtime` only** (the maintainer, 2026-09-25: *"let's skip
+mantle"*; [DIR-BR3](#decision-ledger)). Mantle is not refused. It is a **documented manual
+recipe**: a provider the user declares in their own config, below. The ruling is revisited when
+someone needs a model or a feature that exists only on mantle.
 
-The reason this is two *providers* rather than one provider with an `endpoint_family`
-option is structural, not stylistic. [§2](#2-what-bedrock-is-now--measured-2026-09-04) established that the model id is a function of the
-family — `openai.gpt-5.6-sol` on mantle, `global.openai.gpt-5.6-sol` on runtime — and an
-option **cannot** carry model ids: `options` is a flat name→value map a derive reads, while
-`models` is a provider field the option layer never touches. A family option would therefore
-let a user move the endpoint and leave the ids behind, which is P1's failure with a knob
-attached. Two entries make that unrepresentable: the family and its ids sit in the same
-object, and switching families is switching objects.
+Why, each reason checked against the evidence in [§2](#2-what-bedrock-is-now--measured-2026-09-04)
+and [§14](#14-evidence-and-how-to-re-check-it):
 
-Reaching runtime from codex no longer needs an override. codex 0.156.1 ships a runtime
-built-in, `amazon-bedrock-runtime` ([§4](#4-what-each-agent-can-actually-do)), so for the
-runtime provider the codex derive selects that id and writes only `aws.region`. For the mantle
-provider it selects `amazon-bedrock` and lets codex's own default URL stand. Either way codex's
-built-in Bedrock client — SigV4, API-key support, `auth.json` integration — is what does the
-talking. INFERRED from the binary's strings; codex was not run.
+| Reason | Evidence |
+| :--- | :--- |
+| **Runtime serves every model family mantle does, plus Converse**, which pi drives | Runtime serves InvokeModel, Converse, Chat Completions, Responses and Messages; mantle serves the last three. Runtime's chat completions serve every family [§2](#2-what-bedrock-is-now--measured-2026-09-04) lists. ⚠ This is per family, not per model: AWS names *"a model that is available only on `bedrock-mantle`"* as a reason to choose it, and Claude Code's docs say mantle *"has its own model lineup"* of Anthropic ids. That is the revisit trigger, not a counterexample to the ruling |
+| **GPT-6 Astra is on runtime, broadly; on mantle, in one Region** | `us.openai.gpt-6-astra` and `global.openai.gpt-6-astra` through US Geo and Global cross-Region inference, Converse included, against `openai.gpt-6-astra` in `us-west-2` only ([its model card](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-astra.html)) |
+| **Runtime's global inference is ≈10% cheaper** | Global CRIS is $10.00 against $11.00 per million input tokens for GPT-6 Astra, and $4.00 against $4.40 for GPT-5.6 Sol. Mantle offers In-Region only, so it cannot reach the Global rate |
+| **Cross-Region inference is runtime's alone** | The endpoints page's capability table: Geo and Global profiles on runtime, neither on mantle |
+| **AWS recommends runtime for new applications** | Endpoints page: *"For most new applications, use the `bedrock-runtime` endpoint"*; the GPT-5.6 Sol card: *"Whenever possible, we recommend using the `bedrock-runtime` endpoint for new applications"* |
+| **Mantle's signing is undocumented** | No AWS page read names its SigV4 service name; third-party clients sign it as `bedrock-mantle`. Its base path is `/openai/v1` per the GPT-5.6 Sol and GPT-6 Astra cards, and `/v1` per the Chat Completions and Responses pages |
+| **Mantle needs its own IAM action set** | `bedrock-mantle:CreateInference`, `CountTokens` and `ListModels`, none of which the `bedrock:` actions cover, and none of which the `aws-auth` example policy grants ([D6](#7-traps--read-before-writing-code)) |
+| **It doubles the matrix** | Every cell of [§6.7](#67-the-whole-matrix--every-agent-every-model-every-credential) — agent × model × credential — would be measured twice, and every derive would carry a second branch |
+
+**What mantle alone offers, and where that goes instead.** Its unique features are server-side
+and pre-configured tools, background inference, and Projects and Workspaces. The one a coding
+agent would use is **Web Search**, and AWS lists it for `openai.gpt-5.4`, `openai.gpt-5.5` and
+the three GPT-5.6 models only, on mantle's Responses API, in `us-east-1`, `us-east-2` and
+`us-west-2` ([the Web Search page](https://docs.aws.amazon.com/bedrock/latest/userguide/web-search.html)).
+Every coding agent here drives client-side tools, which runtime serves. Search for every model,
+on runtime, comes from AgentCore instead
+([§6.9](#69-web-search-for-every-bedrock-profile--an-agentcore-mcp-preset)).
+
+**The recipe, for a user who wants mantle anyway.** It is [§6.4](#64-the-gateway-arm-ships-as-documentation)'s
+gateway-arm entry with mantle's base URL and mantle's bare ids, declared as its own provider,
+because P3 makes a second family a second entry. It carries a Bedrock API key and nothing else:
+the bridge's signer signs for the runtime host alone
+([§6.6.3](#663-behavior-these-parts-fix)). Claude Code's own mantle mode
+(`CLAUDE_CODE_USE_MANTLE=1`, with its own `anthropic.`-prefixed ids) is the claude half of the
+recipe. The user guide carries it ([§12](#12-what-i-would-build-in-order)).
+
+**Why a family is a provider entry, never an option.** [§2](#2-what-bedrock-is-now--measured-2026-09-04)
+established that the model id is a function of the family — `openai.gpt-5.6-sol` on mantle,
+`global.openai.gpt-5.6-sol` on runtime — and an option **cannot** carry model ids: `options` is
+a flat name→value map a derive reads, while `models` is a provider field the option layer never
+touches. A family option would let a user move the endpoint and leave the ids behind, which is
+P1's failure with a knob attached. That argument is what makes the recipe above a separate
+provider rather than a switch on the shipped one.
+
+**codex reaches runtime with no override.** codex 0.156.1 ships a runtime built-in,
+`amazon-bedrock-runtime` ([§4](#4-what-each-agent-can-actually-do)), so the codex derive selects
+that id and writes only `aws.region`. codex's built-in Bedrock client — SigV4, API-key support,
+`auth.json` integration — does the talking. INFERRED from the binary's strings; codex was not
+run. (codex's other built-in, `amazon-bedrock`, is its mantle client; nothing yolo ships
+selects it.)
 
 The override is the fallback for a codex older than the runtime built-in. codex permits it:
 its guard on built-in providers reads, verbatim from the 0.156.1 binary:
@@ -395,63 +483,32 @@ So an older codex takes
 beside `aws.region`. The list grew by the two `aws.*` keys between 0.145.0 and 0.156.1, which
 is why [R1](#11-risks) pins the version.
 
-Which family you would reach for:
-
-| | runtime | mantle |
-| :--- | :--- | :--- |
-| Regions for GPT-5.6 | 25+ | 2 (`us-east-1`, `us-east-2`) |
-| Cross-Region inference (capacity headroom) | yes | no |
-| Global CRIS price | ≈10% cheaper | n/a |
-| Server-side tools / `background=true` | no | yes |
-| Guardrails, intelligent prompt routing | yes | no |
-| codex | its `amazon-bedrock-runtime` built-in (0.156.1) | its `amazon-bedrock` built-in |
-
-**Not every agent can reach both**, and the derives drop what they cannot — the ordinary
-behaviour for an unreachable provider, no new machinery:
-
-| Agent | runtime | mantle |
-| :--- | :--- | :--- |
-| codex | yes, natively since 0.156.1; via the `base_url` override before | yes, natively |
-| opencode | yes, natively (its SDK resolves runtime) | yes per its catalog's per-model markers ([§6.3](#63-what-each-derive-emits)); no request made |
-| pi | yes, via `bedrock-converse-stream` | **no** — the model card marks Converse unsupported on mantle |
-| gateway arm ([§6.4](#64-the-gateway-arm-ships-as-documentation)) | yes | yes |
-
-**Runtime is the one I would make the recommended default**, and the doc should say so in
-the pack README: 25 regions against two, Global CRIS a little cheaper, reachable by all
-three agents. The column mantle wins — server-side tool use and background inference — is a
-column no coding agent in this repo uses; all four drive **client-side** tools, which both
-endpoints serve. But "recommended" is a sentence in a README, not a constraint in the code:
-both profiles ship, and the maintainer's stated reason for asking is to measure them against
-each other rather than take my word for it.
-
 ---
 
 ## 6. The proposed shape
 
-### 6.1 Three providers, because a `models` map cannot hold two model families
+### 6.1 Two providers, because a `models` map cannot hold two model families
 
 > [!NOTE]
 > **[OQ-BR9](#OQ-BR9) would replace this split.** Under the maintainer's direction
-> ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction)), one provider per endpoint
-> family holds every model family, and each derive filters by a per-model vendor fact. This
-> section is the shape that ships if [OQ-BR9](#OQ-BR9) rules the other way.
+> ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction)), one runtime provider holds
+> every model family, and each derive filters by a per-model vendor fact. This section is the
+> shape that ships if [OQ-BR9](#OQ-BR9) rules the other way.
 
-claude on Bedrock wants Anthropic ids (`us.anthropic.claude-opus-5`); codex wants GPT ids;
-and the two Bedrock families spell the same GPT model differently. All of them resolve the
-alias `default` through *a* map, so each needs its own — which the provider `Name` field's
-comment in `internal/packdecl/contributes.go` already calls the ordinary case ("one pack
-shipping two names is two contributions").
+claude on Bedrock wants Anthropic ids (`us.anthropic.claude-opus-5`) and codex wants GPT ids.
+Both resolve the alias `default` through *a* map, so each needs its own — which the provider
+`Name` field's comment in `internal/packdecl/contributes.go` already calls the ordinary case
+("one pack shipping two names is two contributions").
 
 | Provider | Owner | Models | Reachable by |
 | :--- | :--- | :--- | :--- |
 | `bedrock` | packs/claude, **unchanged** | Anthropic ids | claude |
 | `bedrock-openai` *(new)* | a new `bedrock` pack | `global.openai.gpt-5.6-*` | codex, pi, opencode |
-| `bedrock-openai-mantle` *(new)* | the same pack | `openai.gpt-5.6-*` | codex, opencode (unverified) |
 
 Keeping `bedrock` exactly where it is avoids renaming a name users already type and
-sidesteps the sole-ownership collision entirely. The new pack ships two providers, two
-profiles and no CLI — the same shape as `packs/zai`, the precedent for a pack whose whole
-content is declarative facts.
+sidesteps the sole-ownership collision entirely. The new pack ships one provider, one profile
+and no CLI — the same shape as `packs/zai`, the precedent for a pack whose whole content is
+declarative facts.
 
 ```jsonc
 // packs/bedrock/pack.json — the shape, not the file
@@ -460,7 +517,6 @@ content is declarative facts.
   "contributes": [
     { "kind": "provider", "name": "bedrock-openai",
       "service": "aws-bedrock",                  // the marker — see §6.2, OQ-BR2
-      "endpoint_family": "runtime",              // decides the URL, not the ids
       "region": "us-east-1",
       "models": {
         "default":  "global.openai.gpt-5.6-sol",
@@ -469,36 +525,21 @@ content is declarative facts.
       },
       "options": { "model": "default", "aws_profile": null }
     },
-    { "kind": "provider", "name": "bedrock-openai-mantle",
-      "service": "aws-bedrock",
-      "endpoint_family": "mantle",
-      "region": "us-east-1",
-      "models": {
-        "default":  "openai.gpt-5.6-sol",
-        "balanced": "openai.gpt-5.6-terra",
-        "fast":     "openai.gpt-5.6-luna"
-      },
-      "options": { "model": "default", "aws_profile": null }
-    },
-    { "kind": "profile", "name": "bedrock-gpt",        "provider": "bedrock-openai" },
-    { "kind": "profile", "name": "bedrock-gpt-mantle", "provider": "bedrock-openai-mantle" }
+    { "kind": "profile", "name": "bedrock-gpt", "provider": "bedrock-openai" }
   ]
 }
 ```
 
-`endpoint_family` is a **provider field, beside `region`**, not a profile option — same
-reasoning as [§5](#5-two-families-two-providers--because-the-family-and-the-ids-are-one-entry), and the same reasoning that put `region` there
-(the `Region` field's comment in `internal/packdecl/contributes.go`: a service fact, saying
-where the provider lives). A field a profile cannot reach is a field that cannot drift away from the `models`
-map next to it. **[OQ-BR7](#OQ-BR7)** asks whether it is a distinct field at all or just falls out of
-`service`.
+There is no endpoint-family field. With one family shipped, the marker alone says where the
+provider lives: every consumer composes runtime's host from `region`, and a user's mantle
+recipe is a gateway-arm entry carrying its own URL, not this marker
+([§5](#5-one-endpoint-family--runtime-ships-and-why-not-mantle)).
 
 `yolo -p bedrock-gpt -- codex` is then the whole user gesture. The credential arrives by
 whichever of the three supported routes the user has set up
-([§6.5](#65-the-credential-three-are-supported)), and neither entry above names any of them:
+([§6.5](#65-the-credential-three-are-supported)), and the entry above names none of them:
 an entry with no `api_key_env_name` points at no credential, which is what lets one entry
-serve all three. `-p bedrock-gpt-mantle` is the same gesture against the other family, and
-the two can be compared back to back in one session.
+serve all three.
 
 ### 6.2 How a derive recognizes "this is Bedrock"
 
@@ -531,9 +572,9 @@ agent's vocabulary, and core resolves no model.
 
 | Agent | Catalog | Selection | Region / profile |
 | :--- | :--- | :--- | :--- |
-| **codex** | `[model_providers.<id>]` with `aws.region`, where `<id>` is `amazon-bedrock-runtime` for the runtime family and `amazon-bedrock` for mantle; `base_url` only for a runtime entry on a codex older than 0.156.1; **no other fields** — codex refuses them | `model_provider = "<id>"`, `model = <resolved id>` | `aws.region` from `region`; `aws.profile` from the `aws_profile` option when set |
-| **opencode** | ⚠ **This cell is WRONG as written — see the measurement below.** It proposes `provider["amazon-bedrock"] = { npm: "@ai-sdk/amazon-bedrock", options: { region, profile? }, models: {…} }`, and both of those fields would break the mantle family | `model = "amazon-bedrock/<resolved id>"` | `options.region`, `options.profile` |
-| **pi** | `providers["bedrock-openai"] = { api: "bedrock-converse-stream", models: [...] }` — **runtime family only**; the mantle provider yields no pi row, because Converse is not served there. ⚠ Written against pi-ai 0.82.1, which had only the API id; 0.87.1 ships a built-in `amazon-bedrock` provider ([§4](#4-what-each-agent-can-actually-do)), so the row may bind to that the way codex's does — re-read before writing ([§14](#14-evidence-and-how-to-re-check-it)) | `defaultProvider` / `defaultModel` | region via `AWS_REGION` in the jail env |
+| **codex** | `[model_providers.amazon-bedrock-runtime]` with `aws.region`; `base_url` only on a codex older than 0.156.1, and then on `amazon-bedrock` ([§5](#5-one-endpoint-family--runtime-ships-and-why-not-mantle)); **no other fields** — codex refuses them | `model_provider = "amazon-bedrock-runtime"`, `model = <resolved id>` | `aws.region` from `region`; `aws.profile` from the `aws_profile` option when set |
+| **opencode** | ⚠ **This cell is WRONG as written — see the measurement below.** It proposes `provider["amazon-bedrock"] = { npm: "@ai-sdk/amazon-bedrock", options: { region, profile? }, models: {…} }`, and both of those fields override opencode's per-model routing | `model = "amazon-bedrock/<resolved id>"` | `options.region`, `options.profile` |
+| **pi** | `providers["bedrock-openai"] = { api: "bedrock-converse-stream", models: [...] }` — Converse is served on runtime, the one family shipped. ⚠ Written against pi-ai 0.82.1, which had only the API id; 0.87.1 ships a built-in `amazon-bedrock` provider ([§4](#4-what-each-agent-can-actually-do)), so the row may bind to that the way codex's does — re-read before writing ([§14](#14-evidence-and-how-to-re-check-it)) | `defaultProvider` / `defaultModel` | region via `AWS_REGION` in the jail env |
 | **claude** | none (claude has no catalog) | env, as today | `AWS_REGION` from `region` |
 
 > [!WARNING]
@@ -545,15 +586,17 @@ agent's vocabulary, and core resolves no model.
 > `@ai-sdk/amazon-bedrock/mantle` factory, and its embedded models.dev catalog marks **13** bedrock
 > models with `provider:{npm:"@ai-sdk/amazon-bedrock/mantle", api:"…bedrock-mantle.${AWS_REGION}.api.aws/openai/v1"}`
 > — including all three GPT-5.6 ids in **bare** spelling. The geo-prefixed ids (`global.`, `us.`,
-> `in.`) carry no override and so take the provider default, which is runtime. **So [§5](#5-two-families-two-providers--because-the-family-and-the-ids-are-one-entry)'s
+> `in.`) carry no override and so take the provider default, which is runtime. **So [§5](#5-one-endpoint-family--runtime-ships-and-why-not-mantle)'s
 > model-id premise is not merely right, opencode enforces it structurally.**
 >
 > **Which is why the proposed cell is a defect.** The config→catalog merge resolves
 > `npm = config.provider?.npm ?? … ?? model.api.npm`, so a **provider-level** `npm:"@ai-sdk/amazon-bedrock"`
 > **overrides the catalog's per-model mantle markers** and silently drags every bare-spelled id onto
 > the runtime endpoint, where that spelling is wrong. `options.endpoint`/`baseURL` does the same via
-> `baseURL !== "" ? baseURL : model.api.url`. The derive must therefore set mantle **per model**, or
-> **omit `npm` entirely** and let the catalog decide.
+> `baseURL !== "" ? baseURL : model.api.url`. The derive must therefore **omit `npm` and the
+> endpoint entirely**, emit only runtime-spelled (`global.`/`us.`) ids, and let the catalog route
+> them to runtime, its default. A bare id a user adds then reaches mantle through opencode's own
+> catalog, which is the one way mantle enters an opencode session, and it is the user's.
 >
 > ⚠ **And `options.region` alone does not enable the provider.** Autoload gates on six credential
 > signals — `AWS_PROFILE`/`options.profile`, `AWS_ACCESS_KEY_ID`, a bearer token, `options.apiKey`,
@@ -777,17 +820,17 @@ direction needs three things that are missing:
 
 #### 6.6.2 The recommended design, in eight parts
 
-1. **One provider per endpoint family, holding every model family.** A runtime provider and a
-   mantle provider. Each carries every model the org selected on that family: Anthropic,
+1. **One runtime provider, holding every model family.** It carries every model the org
+   selected: Anthropic,
    OpenAI, DeepSeek, Qwen, Kimi, GLM, MiniMax, Mistral, Grok, Nemotron, Gemma. Each entry
    declares its **vendor** *(coined here)*: the model's maker, as an open-vocabulary lowercase
    string (`anthropic`, `openai`, `deepseek`, …) that the derives read and core does not
-   interpret. This replaces [§6.1](#61-three-providers-because-a-models-map-cannot-hold-two-model-families)'s
-   split by model family. [§6.1](#61-three-providers-because-a-models-map-cannot-hold-two-model-families)'s reason was that one `default` alias cannot name an Anthropic
+   interpret. This replaces [§6.1](#61-two-providers-because-a-models-map-cannot-hold-two-model-families)'s
+   split by model family. [§6.1](#61-two-providers-because-a-models-map-cannot-hold-two-model-families)'s reason was that one `default` alias cannot name an Anthropic
    id for claude and a GPT id for codex. A vendor fact answers that, because each derive
    resolves the default among the entries its agent can call (part 2). P3 survives
-   unchanged: the endpoint family still splits providers, because the id spelling is a function
-   of it. [OQ-BR9](#OQ-BR9).
+   unchanged: one family is shipped, so every entry carries runtime's spelling, and a user's
+   mantle recipe is a separate provider. [OQ-BR9](#OQ-BR9).
 2. **Derives filter by what their agent can call.** No agent is offered a model its transport
    cannot reach:
 
@@ -797,7 +840,7 @@ direction needs three things that are missing:
    | claude, through the bridge | every vendor except `anthropic` | those are better native; the bridge drops `cache_control` and `thinking` ([§3](#3-what-yolo-has-today)) |
    | copilot, through the bridge | every vendor | copilot has no native arm |
    | codex, native (Responses) | vendor `openai` | this doc's evidence of Bedrock's Responses covers GPT only; widen when another family is read |
-   | pi, native (Converse, runtime only) | every vendor, runtime family only | pi-ai 0.87.1's catalog carries 165 Bedrock ids, all on Converse |
+   | pi, native (Converse) | every vendor | pi-ai 0.87.1's catalog carries 165 Bedrock ids, all on Converse |
    | opencode, native | every vendor | its SDK routes per model ([§6.3](#63-what-each-derive-emits)) |
    | oh-omp | none until its Bedrock support is read | [§4](#4-what-each-agent-can-actually-do) |
 
@@ -839,11 +882,11 @@ direction needs three things that are missing:
    wants nothing between claude and AWS. This **amends** the wire bridge's rule that it dials
    only the upstream selected at boot
    ([`wire-bridge.md`, Lifecycle and failure behavior](../reference/wire-bridge.md#lifecycle-and-failure-behavior)):
-   the everything route has two upstreams under one provider, chosen per request. UNMEASURED,
-   and the first thing to measure: which Bedrock endpoint serves the Anthropic Messages API for
-   the pass-through (mantle's `/anthropic/v1/messages` is sourced; runtime's is not), and
-   whether it streams Anthropic SSE or AWS's binary event-stream, which the bridge would then
-   have to re-frame.
+   the everything route has two upstreams under one provider, chosen per request. With mantle
+   not shipped, the pass-through is **runtime's** Messages route: AWS's endpoints page lists
+   the Messages API on `bedrock-runtime` (read 2026-09-25). UNMEASURED, and the first thing to
+   measure: that route's path, and whether it streams Anthropic SSE or AWS's binary
+   event-stream, which the bridge would then have to re-frame.
 5. **A `models` contribution kind, for the company pack.** It names a provider and carries an
    ordered list of object-form entries: `id`, `vendor`, and the existing optional `name`,
    `context_window`, `cost`, `reasoning`, `input` and `max_tokens`. Its verb is either `add`,
@@ -950,8 +993,8 @@ in list order. No error when nothing is callable: that is the empty case above.
   is safe because a rejected request did not run, and `doUpstream` already builds a fresh
   request per attempt.
 - Any other AWS error passes through, as today.
-- **The upstream URL** for a provider carrying the Bedrock marker is composed from its `region` and endpoint
-  family, never shipped as a literal. [§6.2](#62-how-a-derive-recognizes-this-is-bedrock)'s
+- **The upstream URL** for a provider carrying the Bedrock marker is composed from its `region`
+  on runtime's host, never shipped as a literal. [§6.2](#62-how-a-derive-recognizes-this-is-bedrock)'s
   warning holds: a pack cannot know the region.
 
 **Staleness** (part 7):
@@ -968,30 +1011,34 @@ in list order. No error when nothing is callable: that is the empty case above.
 - the bridge dialing anything but its boot-selected upstream;
 - `enforceAvailableModels` without an `only`.
 
-**IAM, per family.** SOURCED from AWS's endpoints and model API compatibility pages, 2026-09-24:
+**IAM, per use.** SOURCED from AWS's endpoints, model API compatibility and AgentCore gateway
+pages, 2026-09-24 and 2026-09-25:
 
-| Use | Actions |
+| Use | Actions the jail's credential needs |
 | :--- | :--- |
 | runtime: native clients, chat completions, Messages | `bedrock:InvokeModel`, `bedrock:InvokeModelWithResponseStream`, plus the `project/default` resource in [R5](#11-risks) |
-| mantle: inference | `bedrock-mantle:CreateInference` |
-| mantle: listing models | `bedrock-mantle:ListModels` |
+| web search through an AgentCore gateway ([§6.9](#69-web-search-for-every-bedrock-profile--an-agentcore-mcp-preset)) | `bedrock-agentcore:InvokeGateway` on the gateway's ARN. `bedrock-agentcore:InvokeWebSearch` belongs to the gateway's own service role, not to the caller |
 
 The `aws-auth` README's example session policy grants the first row alone
-([D6](#7-traps--read-before-writing-code)).
+([D6](#7-traps--read-before-writing-code)). Mantle's `bedrock-mantle:*` actions are the recipe
+user's to grant; nothing yolo ships calls them.
 
 #### 6.6.4 What this reopens
 
 | Settled or leaning | Reopened or touched by |
 | :--- | :--- |
-| [§6.1](#61-three-providers-because-a-models-map-cannot-hold-two-model-families)'s split by model family, and [§10](#10-alternatives-considered)'s rejection of "one `bedrock` provider for all four agents" | [OQ-BR9](#OQ-BR9) — reopened |
+| [§6.1](#61-two-providers-because-a-models-map-cannot-hold-two-model-families)'s split by model family, and [§10](#10-alternatives-considered)'s rejection of "one `bedrock` provider for all four agents" | [OQ-BR9](#OQ-BR9) — reopened |
 | [§10](#10-alternatives-considered)'s rejection of moving `bedrock` out of packs/claude | [OQ-BR9](#OQ-BR9) — a shared provider needs a shared owner |
-| [OQ-BR1](#OQ-BR1) (names), [OQ-BR7](#OQ-BR7) (`endpoint_family`) | [OQ-BR9](#OQ-BR9) — touched |
+| [OQ-BR1](#OQ-BR1) (names) | [OQ-BR9](#OQ-BR9) — touched |
+| [OQ-BR7](#decision-ledger) (`endpoint_family`) | [DIR-BR3](#decision-ledger) — answered: one family, no field |
 | [OQ-BR2](#OQ-BR2) (the marker) | [OQ-BR10](#OQ-BR10) — the marker becomes what the bridge signs for |
 | [OQ-BR5](#OQ-BR5) (pi through the gateway needs a bearer) | [OQ-BR10](#OQ-BR10) — not if the bridge signs; pi does not use the bridge, though |
 | [OQ-BR8](#OQ-BR8) (gates key on names) | [OQ-BR11](#OQ-BR11) — a second claude profile over one provider is D5's shape |
 | [OQ-GP2](gateway-provider-packs.md#decision-ledger) (*"ship no models"*), [OQ-BR3](#OQ-BR3), [OQ-PS3](provider-switching.md#OQ-PS3) | [OQ-BR12](#OQ-BR12), [OQ-BR14](#OQ-BR14) — reopened |
 | [WB-D4](../reference/wire-bridge.md#wb-d4), [WB-D14](../reference/wire-bridge.md#wb-d14) | [OQ-BR10](#OQ-BR10), [OQ-BR15](#OQ-BR15) — amended |
 | [providers.md](../reference/providers.md#what-this-does-not-license)'s "no provider registry or discovery" | [OQ-BR14](#OQ-BR14), [OQ-BR15](#OQ-BR15) — touched |
+| [`mcp-configuration.md`](../reference/mcp-configuration.md)'s closed preset list, stdio-only entries, and no pack-contributed MCP server | [OQ-BR21](#OQ-BR21), [OQ-BR22](#OQ-BR22) — touched ([§6.9](#69-web-search-for-every-bedrock-profile--an-agentcore-mcp-preset)) |
+| `validate.go`'s one server per `provides` | [OQ-BR23](#OQ-BR23) — touched: a pack-shipped and a user search server can both be eligible |
 
 
 ---
@@ -1007,15 +1054,19 @@ credentials ([§6.5](#65-the-credential-three-are-supported)): a Bedrock API key
 pair, or an SSO session through `aws-auth`. **Every cell must work**, and a model must be one
 pick in the agent's own model menu, not a config edit.
 
-| Agent | Anthropic models | Every other model | API key | Static keys | SSO session | State |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **claude** | native profile, or the everything profile's pass-through ([OQ-BR11](#OQ-BR11)) | everything profile, through the bridge | native: yes · bridge: yes | native: yes · bridge: needs the signer | native: yes · bridge: needs the signer | native built; everything profile, signer and picker unbuilt |
-| **codex** | native | native (its Responses catalog) | yes | yes | yes, through the chain | native provider binding unbuilt ([§6.3](#63-what-each-derive-emits)) |
-| **opencode** | native | native | yes | yes | yes, through the chain | binding unbuilt |
-| **pi** | native (Converse) | native (Converse) | yes | yes | yes, through the chain | binding unbuilt |
-| **copilot** | through the bridge | through the bridge | yes | needs the signer | needs the signer | unbuilt |
-| **oh-omp** | its `bedrock-mantle` provider (SOURCED, not installed here) | same | yes | needs the bridge's signing pass-through | needs the bridge's signing pass-through | unverified |
-| **agy** | no Bedrock transport at all | — | — | — | — | **the one hole**: agy's closed transport enum admits no Bedrock ([§4](#4-what-each-agent-can-actually-do)) |
+| Agent | Anthropic models | Every other model | API key | Static keys | SSO session | Web search | State |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **claude** | native profile, or the everything profile's pass-through ([OQ-BR11](#OQ-BR11)) | everything profile, through the bridge | native: yes · bridge: yes | native: yes · bridge: needs the signer | native: yes · bridge: needs the signer | the AgentCore preset, on both profiles | native built; everything profile, signer, picker and search unbuilt |
+| **codex** | native | native (its Responses catalog) | yes | yes | yes, through the chain | the AgentCore preset | native provider binding unbuilt ([§6.3](#63-what-each-derive-emits)) |
+| **opencode** | native | native | yes | yes | yes, through the chain | the AgentCore preset | binding unbuilt |
+| **pi** | native (Converse) | native (Converse) | yes | yes | yes, through the chain | the AgentCore preset, through pi's MCP adapter extension | binding unbuilt |
+| **copilot** | through the bridge | through the bridge | yes | needs the signer | needs the signer | the AgentCore preset | unbuilt |
+| **oh-omp** | through the bridge's OpenAI signing route, to runtime. Its own Bedrock provider is a mantle client (SOURCED, not installed here), so it goes unused | same | yes | needs the signing route | needs the signing route | **none**: its derive projects no MCP table | unverified |
+| **agy** | no Bedrock transport at all | — | — | — | — | — | **the one hole**: agy's closed transport enum admits no Bedrock ([§4](#4-what-each-agent-can-actually-do)) |
+
+The web-search column holds for static keys and the SSO session. **Under an API key alone there
+is no search:** a bearer cannot sign, and whether AgentCore accepts a Bedrock API key is unknown
+([§6.9](#69-web-search-for-every-bedrock-profile--an-agentcore-mcp-preset)).
 
 **What the matrix adds to [§6.6](#66-every-bedrock-model-in-every-agent--the-direction):**
 
@@ -1033,7 +1084,10 @@ pick in the agent's own model menu, not a config edit.
    ([OQ-BR12](#OQ-BR12), [OQ-BR14](#OQ-BR14)); and the claude derive rendering that list into
    `modelPicker` ([OQ-BR13](#OQ-BR13)). Switching from an OpenAI model to Claude mid-session is
    the everything profile's whole purpose.
-4. **Done means the matrix, measured.** A cell counts as built only when one request has gone
+4. **Every Bedrock profile searches.** On runtime no agent has native search, so the search
+   column is one mechanism for every agent that projects the MCP table: the AgentCore preset of
+   [§6.9](#69-web-search-for-every-bedrock-profile--an-agentcore-mcp-preset).
+5. **Done means the matrix, measured.** A cell counts as built only when one request has gone
    through it on a real host. That is a manual runbook, not a test: automated tests never make
    API calls. [§8](#8-behaviour-this-design-fixes) carries it as a done-condition.
 
@@ -1092,6 +1146,173 @@ the reset headers claude reads), whether claude tolerates a response from a diff
 mid-conversation (it should; each request carries the whole conversation), and how a switch is
 shown to the user, since the bridge cannot write into claude's interface.
 
+### 6.9 Web search for every Bedrock profile — an AgentCore MCP preset
+
+**The ruling** ([DIR-BR4](#decision-ledger), 2026-09-25). The maintainer asked *"we could also
+integrate search for agent core and get search for all models?"*, then ruled *"let's skip
+mantle"*, and shaped the answer: *"it'll probably just be a mcp preconfig like devtools, and
+easy to include with bedrock by default just like we can include tavily optionally by
+capability."* So every Bedrock profile, in every agent that takes MCP servers and for every
+model, gets web search as an MCP tool served by an AgentCore gateway the company creates once.
+The tool arrives as an MCP preset the Bedrock pack contributes, **on by default on Bedrock
+profiles**, and keyed the way Tavily is keyed. How it is built is
+[OQ-BR19](#OQ-BR19)–[OQ-BR23](#OQ-BR23).
+
+#### 6.9.1 Why Bedrock profiles have no search today
+
+| Source of search | On a Bedrock profile |
+| :--- | :--- |
+| Bedrock's built-in Web Search | **mantle only**: a server-side tool on mantle's Responses API, for GPT-5.4, 5.5 and 5.6, in three US Regions ([§5](#5-one-endpoint-family--runtime-ships-and-why-not-mantle)). Runtime serves no server-side tools |
+| Claude Code's WebSearch tool | **absent**: *"The WebSearch tool is not available on Amazon Bedrock"* ([Claude Code on Amazon Bedrock](https://code.claude.com/docs/en/amazon-bedrock)) |
+| codex's search | AWS documents it on mantle only (*"Codex … connects to Amazon Bedrock through the `bedrock-mantle` endpoint and can use Web Search"*, CLI 0.147.0 or later) |
+| opencode, pi, copilot | nothing Bedrock-specific that this doc has read |
+| Tavily | works anywhere, as a user's own `mcp_servers` entry with a Tavily key ([§3](#3-what-yolo-has-today)) |
+
+#### 6.9.2 What AgentCore Web Search is
+
+SOURCED 2026-09-25 from AWS's AgentCore guide and launch post
+([§14](#14-evidence-and-how-to-re-check-it)); nothing here was called.
+
+- **A managed MCP tool behind a gateway.** An **AgentCore gateway** is an AWS-hosted MCP
+  endpoint an account creates; Web Search is one of its built-in **connector targets**
+  (`connectorId: "web-search"`). An agent finds it with MCP `tools/list` and calls it with
+  `tools/call`, as the tool `WebSearch`. AWS: *"Works with … any MCP-compatible client through the
+  standard Model Context Protocol."*
+- **Any model.** The gateway serves a tool, and the model that decides to call it is whatever
+  the agent runs. That is why it answers "search for every model" where mantle's Web Search
+  answers it for five.
+- **Data stays in AWS.** *"Customer queries are not sent to a third-party search engine or
+  routed outside AWS."* AWS's launch post adds the caveat: the query is served in an AWS service
+  account, not the customer's.
+- **Transport.** MCP streamable HTTP at `https://gateway-<id>.gateway.bedrock-agentcore.<region>.amazonaws.com/mcp`
+  (the launch post's form). A gateway with IAM inbound authorization takes requests signed with
+  SigV4 as the service `bedrock-agentcore`; AWS's sample opens it with
+  `aws_iam_streamablehttp_client(endpoint=gateway_url, aws_region=…, aws_service="bedrock-agentcore")`.
+- **Inbound authorization** is one of: IAM identity, a JWT, authenticate-only (SigV4 checked,
+  no authorization decision), or none. This design serves the two SigV4 types. A JWT gateway
+  is out of scope: its credential is an OAuth token, not an AWS one.
+- **IAM.** The caller needs `bedrock-agentcore:InvokeGateway` on the gateway's ARN. The
+  gateway's own service role needs `bedrock-agentcore:InvokeWebSearch` on
+  `arn:aws:bedrock-agentcore:<region>:aws:tool/web-search.v1`; that is the company's, not the jail's.
+- **Inputs and limits.** `query` of at most 200 characters; `maxResults` 1–25, default 10.
+  Connector version 1.2.0 adds per-request domain and published-date filters; an administrator
+  can set domain include and exclude lists on the target, which the agent cannot relax.
+- **Regions.** `us-east-1`, `eu-west-1`, `ap-northeast-1`. The gateway's Region need not be the
+  Bedrock Region a profile uses.
+- **Acceptable use.** A user of the results *"must retain and display the source citations and
+  links"*.
+
+#### 6.9.3 The shape
+
+Four components, three of them new *(each coined here)*:
+
+1. **The gateway** — an AWS resource the company creates once: a gateway with IAM inbound
+   authorization and a Web Search target. yolo creates nothing in AWS
+   ([OQ-BR20](#OQ-BR20)).
+2. **The gateway URL** — the one piece of configuration the preset needs. Where it lives is
+   [OQ-BR19](#OQ-BR19). With no URL the preset is absent, and the launch says so.
+3. **The AgentCore search preset** — an MCP server entry in the canonical table,
+   `provides: "web_search"`, which packs/bedrock contributes and every Bedrock profile gets. How
+   a pack contributes it is [OQ-BR22](#OQ-BR22).
+4. **The signing proxy** — the in-jail program the preset's entry runs. Agents' MCP clients
+   cannot sign SigV4, so the proxy speaks MCP to the agent and MCP streamable HTTP to the
+   gateway, signing each request as `bedrock-agentcore`. It is the same standard-library signer
+   [OQ-BR10](#decision-ledger) put in the wire bridge, used as a third route: MCP
+   pass-through, sign only, no translation. Its shape is [OQ-BR21](#OQ-BR21).
+
+```mermaid
+flowchart LR
+  agent["any agent's MCP client<br/>on a Bedrock profile"] -->|MCP, stdio| proxy["signing proxy<br/>(in the jail)"]
+  creds["static keys, or aws-auth's<br/>container endpoint"] --> proxy
+  proxy -->|MCP streamable HTTP<br/>SigV4, bedrock-agentcore| gw["the company's<br/>AgentCore gateway"]
+  gw --> ws["Web Search connector<br/>(AWS-operated index)"]
+```
+
+#### 6.9.4 Keyed the way Tavily is keyed
+
+Capability-driven MCP delivery ([§3](#3-what-yolo-has-today)) already does most of "on by
+default on Bedrock, off where search is native", with no new rule:
+
+- The preset declares `provides: "web_search"`.
+- **No Bedrock provider row declares `web_search`.** claude's `bedrock` provider declares no
+  capabilities today, and the shared provider [OQ-BR9](#OQ-BR9) proposes must not declare it
+  either, because on runtime it is not true. So under every Bedrock profile
+  `sourceCapabilities` returns a set without `web_search`, and `eligibleMCPServers` keeps the
+  preset.
+- **claude's subscription keeps its own WebSearch.** With no profile selected, the source is
+  claude's built-in login, whose program contribution declares `web_search`, so the preset is
+  dropped for that render. The same holds under `openai-codex` and `zai`, whose rows declare it.
+
+What the capability rule cannot do is confine the preset to Bedrock. Kilo declares no
+`web_search` either, so a preset sitting in every launch's table would reach Kilo too. **The
+preset is therefore gated on the selected provider carrying the Bedrock marker**
+([OQ-BR2](#OQ-BR2)), per render target, the provider-keyed direction [OQ-BR8](#OQ-BR8) leans
+toward. That gate is the one mechanism this section adds, and [OQ-BR22](#OQ-BR22) decides
+where it lives.
+
+#### 6.9.5 What today's MCP mechanisms can and cannot express
+
+MEASURED at `6f21b82c` ([§3](#3-what-yolo-has-today)):
+
+| The preset needs | Today | Verdict |
+| :--- | :--- | :--- |
+| An MCP entry a pack ships | presets are core's closed list (`validMCPPresets`); no contribution kind carries an MCP server | **missing** — [OQ-BR22](#OQ-BR22) |
+| On by default | presets are opt-in through `mcp_presets` | **missing** — the same question |
+| Delivered only on a Bedrock profile | the capability rule keys on the source's capabilities, not its identity; name-keyed gates are [D5](#7-traps--read-before-writing-code)'s trap | **missing** — [OQ-BR22](#OQ-BR22) |
+| Suppressed where search is native | capability-driven MCP delivery | **present**, reused unchanged |
+| Absent, with a notice, when unconfigured | `requires_env` drops an entry whose variable is unset, with a notice | **present** if the URL is a variable — [OQ-BR19](#OQ-BR19) |
+| Reached through a yolo-provided local proxy | an entry is `command`, `args` and `env`, nothing else, and no derive writes a `url` | **present only for a stdio proxy.** A loopback HTTP route would need a URL transport in `knownMCPServerKeys` and in six derives — [OQ-BR21](#OQ-BR21) |
+
+#### 6.9.6 Behavior
+
+- **Credentials** resolve as the bridge's signer resolves them
+  ([§6.6.3](#663-behavior-these-parts-fix)): static `AWS_ACCESS_KEY_ID` /
+  `AWS_SECRET_ACCESS_KEY` first, then `aws-auth`'s container-credentials endpoint, cached until
+  five minutes before its `Expiration`, fetched lazily on the first request, and shared by
+  concurrent requests. **A bearer cannot sign**, so under a Bedrock API key alone there is no
+  search. Whether AgentCore accepts a Bedrock API key at all is unknown: AWS's API-key actions
+  (`bedrock:CallWithBearerToken`, `bedrock-mantle:CallWithBearerToken`) name only Bedrock's two
+  endpoints. The proxy never sends a bearer to the gateway.
+- **The Region** is read from the gateway URL's host. There is no separate Region knob, and
+  the Bedrock provider's `region` is not used, since the two may differ.
+- **Degenerate inputs.**
+  - No URL: the preset is absent, and the launch prints one line naming where the URL goes.
+    `yolo check` says the same.
+  - A URL whose host is not `*.gateway.bedrock-agentcore.<region>.amazonaws.com`: the proxy
+    refuses at start and names the pattern. The agent reports a failed MCP server.
+  - No signing credential: every `tools/list` and `tools/call` answers a JSON-RPC error naming
+    the two sources tried, and saying that a Bedrock API key cannot sign.
+- **Failure paths.**
+  - The gateway answers AccessDenied: AWS's error passes through as the tool error, and it
+    names `bedrock-agentcore:InvokeGateway` ([D6](#7-traps--read-before-writing-code)).
+  - The gateway is JWT-authorized: its `401` carries `WWW-Authenticate`, and the proxy says the
+    gateway is not IAM-authorized.
+  - An expired signature: refresh once and retry once, the bridge's rule.
+  - Anything else, including a timeout: returned to the agent as a tool error. Each call is
+    bounded at 30 s, with no other retry.
+- **Concurrency.** Each agent process spawns its own proxy for its MCP session, and each proxy
+  holds its own credential cache. Nothing is shared across agents, so nothing needs a lock
+  beyond the one in-flight fetch per proxy.
+- **One writer.** The gateway and its target are the company's. yolo writes only the preset's
+  entry, as a managed layer like every MCP projection. A user's `mcp_servers` entry of the same
+  name overrides it, and a `null` there removes it: the existing preset override and removal.
+- **Disclosure.** When the preset is delivered, the launch names the gateway host once. The
+  host decides where every search query goes, and a launch's disclosures are never quiet
+  ([`report-tiers.md`](../reference/report-tiers.md)).
+- **Forbidden.**
+  - signing for any host outside the AgentCore gateway pattern;
+  - sending a bearer, or any credential, to the gateway unsigned;
+  - logging a credential;
+  - creating or changing anything in AWS;
+  - delivering the preset to a render whose selected provider is not Bedrock.
+
+**Tavily stays the non-AWS alternative.** Nothing about it changes: a user's Tavily entry with
+`provides: "web_search"` is delivered wherever the source lacks search, Kilo included. On a
+Bedrock profile it and the preset are both eligible, and which one the agent gets is
+[OQ-BR23](#OQ-BR23).
+
+---
+
 ## 7. Traps — read before writing code
 
 **D1 (FIXED 2026-09-15, `f7b14308`). The codex derive wrote a key codex does not read.** It
@@ -1147,20 +1368,45 @@ spellings (`gpt-5.6-sol` → `openai.gpt-5.6-sol`). In 0.156.1 it also holds `gl
 `gpt-5.6-terra` and `gpt-5.6-luna`, and a search finds none for `-sol`. An id it does not know it
 reports: *"Unknown model … is used. This will use fallback model metadata."* The request
 works; the context-window and pricing metadata are wrong. That is an accepted cost
-of the [§5](#5-two-families-two-providers--because-the-family-and-the-ids-are-one-entry) pin, and the alternative — pinning mantle to keep codex's metadata — costs 23
-regions and every other agent.
+of the runtime pin. The alternative, mantle's bare ids that codex's catalog knows, is the
+family yolo does not ship ([§5](#5-one-endpoint-family--runtime-ships-and-why-not-mantle)).
 
-**D6 (live, in docs). The `aws-auth` example policy denies half of this design.**
+**D6 (live, in docs). The `aws-auth` example policy denies search and model listing.**
 [The pack README](../../packs/aws-auth/README.md)'s example `session_policy` allows
 `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream` and nothing else. That is
-enough for runtime's chat completions and for every native client on runtime. It denies every
-`bedrock-mantle` action (`bedrock-mantle:CreateInference`, `bedrock-mantle:ListModels`), so both
-`-mantle` profiles fail with AccessDenied under it. It also denies any model-listing call that
-[OQ-BR14](#OQ-BR14) or [OQ-BR15](#OQ-BR15) might add. The README is
-[`sso-backed-bedrock.md`](sso-backed-bedrock.md)'s to change. What this doc owes is the list of
-actions each family needs, stated where the README can copy it: the IAM paragraph in
-[§6.6.3](#663-behavior-these-parts-fix). SOURCED from AWS's endpoints page, 2026-09-24; the
-denial is INFERRED, since no request was made.
+enough for runtime's chat completions and for every native client on runtime. It denies:
+
+- `bedrock-agentcore:InvokeGateway`, so under that policy every call the search preset makes
+  fails with AccessDenied, and a jail that follows the README has no search
+  ([§6.9](#69-web-search-for-every-bedrock-profile--an-agentcore-mcp-preset));
+- any model-listing call that [OQ-BR14](#OQ-BR14) or [OQ-BR15](#OQ-BR15) might add;
+- every `bedrock-mantle` action, which matters only to a user of the mantle recipe
+  ([§5](#5-one-endpoint-family--runtime-ships-and-why-not-mantle)).
+
+The README is [`sso-backed-bedrock.md`](sso-backed-bedrock.md)'s to change. What this doc owes
+is the list of actions each use needs, stated where the README can copy it: the IAM table in
+[§6.6.3](#663-behavior-these-parts-fix). A session policy narrows only as far as the role
+allows, so the role behind `aws-auth` must grant `InvokeGateway` too. SOURCED from AWS's
+endpoints and AgentCore gateway pages, 2026-09-24 and 2026-09-25; the denial is INFERRED, since
+no request was made.
+
+**D7 (unmeasured). Two search traps a derive can walk into.**
+
+- **An agent may offer a native search tool its transport cannot serve.** Claude Code's
+  WebSearch is not available in Bedrock mode, but claude's everything profile is not Bedrock
+  mode: it is `ANTHROPIC_BASE_URL` pointed at the bridge. Whether claude then still offers its
+  own WebSearch, and sends that server tool in a request the bridge forwards to Bedrock, is
+  unread. So is whether codex's `amazon-bedrock-runtime` provider sends Bedrock's `web_search`
+  tool to runtime, which serves no server-side tools. Either would fail at the first search,
+  or give the agent two search tools. Measure both before the preset ships.
+- **An agent's MCP client may not pass the jail's environment to the proxy.** The proxy needs
+  the credential variables (the static keys, or `AWS_CONTAINER_CREDENTIALS_FULL_URI`) and the
+  gateway URL. Some MCP clients spawn a stdio server with only an allowlisted environment. The
+  preset's entry therefore names every variable it needs in its `env`, as `${VAR}` references
+  that the agent resolves — yolo interpolates nothing
+  ([`mcp-configuration.md`](../reference/mcp-configuration.md)) — which is the shape the
+  Tavily entry already takes. Whether each of the six projecting agents resolves `${VAR}` in an
+  MCP `env` is unmeasured.
 
 ---
 
@@ -1180,11 +1426,9 @@ Written for the implementer. Anything not here and not an OQ is theirs.
 - Profile selected for an agent with no native path (agy; oh-omp until its support is read;
   copilot until the bridge serves a provider carrying the Bedrock marker, per [OQ-BR10](#OQ-BR10)) → **nothing written**, no warning. Same as any unreachable provider today.
 - Two providers both marked `service: "aws-bedrock"` → both are ordinary catalog rows; only
-  the selected one gets a selection key. Not a collision — and it is the **shipped** case,
-  since the two endpoint families are two entries.
-- A provider whose `endpoint_family` an agent cannot serve (mantle for pi) → **no catalog
-  row and no selection key**, through the same gate that drops any unreachable provider. It
-  is not an error: the other agents in the same jail still get theirs.
+  the selected one gets a selection key. Not a collision — and it is the shipped case under
+  [§6.1](#61-two-providers-because-a-models-map-cannot-hold-two-model-families)'s split, or
+  whenever a user declares a second Bedrock provider of their own.
 
 **Failure paths.**
 - Credential absent: the provider declares no `api_key_env_name` — the native arm's
@@ -1202,23 +1446,24 @@ Written for the implementer. Anything not here and not an OQ is theirs.
   credential 3 and whose lapsed-session message names the `aws sso login` to run
   ([its §7](sso-backed-bedrock.md#7-refresh--what-happens-when-you-log-in-again)). Nothing
   refreshes a bearer.
-- Region unsupported for the chosen family (mantle outside `us-east-*`): surfaces as
-  codex's own *"Amazon Bedrock Mantle does not support region …"*. yolo carries no region
-  allowlist of its own — a list that would rot within a quarter.
+- A Region where the chosen model is not served surfaces as AWS's own model error, or codex's
+  *"Amazon Bedrock does not support region …"*. yolo carries no region allowlist of its own —
+  a list that would rot within a quarter.
 
-**Defaults, with units.** `endpoint_family` is a provider FIELD with no default — each
-shipped entry states its own (`runtime`, `mantle`), and an entry omitting it is refused
-rather than guessed, because a guessed family is a wrong model id (P1). `region:
-"us-east-1"` (shipped on both entries; overridable per user). `aws_profile: null` — declared, no
-default, meaning "use the chain". Model alias fallback: the profile's `model` option, else
-`default` — the existing [`OQ-CS3`](../reference/providers.md#oq-cs3) ladder,
-unchanged. No timeouts and no retries are introduced by this design.
+**Defaults, with units.** The endpoint family is not a setting: every shipped entry is
+runtime ([§5](#5-one-endpoint-family--runtime-ships-and-why-not-mantle)). `region:
+"us-east-1"` (shipped; overridable per user). `aws_profile: null` — declared, no default,
+meaning "use the chain". Model alias fallback: the profile's `model` option, else `default` —
+the existing [`OQ-CS3`](../reference/providers.md#oq-cs3) ladder, unchanged. The native arm
+introduces no timeouts and no retries; the bridge signer's are in
+[§6.6.3](#663-behavior-these-parts-fix) and the search proxy's in
+[§6.9.6](#696-behavior).
 
 **Trigger.** Everything renders in the ordinary boot render, once per launch, from the
 composed provider table — plus the host notch's env derive at `yolo host -- <agent>`. There
 is no watcher, no refresh and no second write.
 
-**One writer.** yolo owns the catalog rows it renders (`model_providers.amazon-bedrock`,
+**One writer.** yolo owns the catalog rows it renders (`model_providers.amazon-bedrock-runtime`,
 `provider["amazon-bedrock"]`, pi's `providers` entry) as managed layers, re-asserted every
 boot. It does **not** own the selection keys in the same sense: those ride the reserved
 `selection` namespace, and a user's interactive model change wins until yolo's own selection
@@ -1232,14 +1477,11 @@ provider the catalog dropped. Never carry a region allowlist or a model catalog 
 **What done looks like.**
 1. `yolo -p bedrock-gpt -- codex` in a jail carrying one supported credential and a region
    completes one turn against GPT-5.6, and `codex doctor` reports provider
-   `amazon-bedrock`, wire api `responses`, endpoint `bedrock-runtime.<region>`.
+   `amazon-bedrock-runtime`, wire api `responses`, endpoint `bedrock-runtime.<region>`.
 1b. Condition 1 holds for each of the three credentials in turn — a Bedrock API key, static
    keys, and `aws-auth`'s pointer — one per jail, never two
    ([§6.5](#65-the-credential-three-are-supported)).
 2. The same flag on `opencode` and on `pi` completes one turn against the same model id.
-2b. `yolo -p bedrock-gpt-mantle -- codex` completes one turn, and `codex doctor` reports the
-   `bedrock-mantle` endpoint — the two families demonstrably side by side, which is the
-   point of shipping both.
 3. `yolo -p codex=bedrock-gpt -- codex` leaves `CLAUDE_CODE_USE_BEDROCK` **unset** in the
    jail env (D2 closed) — or, if [OQ-BR4](#OQ-BR4) rules otherwise, the briefing says why it is set.
 4. Dropping the profile leaves each agent's interactively-chosen model untouched.
@@ -1266,6 +1508,19 @@ For the direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction
     cell — each agent, an Anthropic and a non-Anthropic model where its transport carries both, and
     each of the three credentials — completes, and each model was chosen from the agent's own menu.
     Run by hand from a runbook; automated tests never make API calls.
+
+For search ([§6.9](#69-web-search-for-every-bedrock-profile--an-agentcore-mcp-preset)), once
+[OQ-BR19](#OQ-BR19)–[OQ-BR23](#OQ-BR23) rule:
+
+12. With a gateway URL configured and a gateway carrying a Web Search target, every agent that
+    projects MCP servers (claude on both Bedrock profiles, codex, opencode, pi through its MCP
+    adapter, copilot) lists the search tool and completes one search under static keys and
+    under the SSO credential, on a real host, and the answer cites its sources. Under a Bedrock
+    API key alone the tool's error says a bearer cannot sign. With no URL the preset is absent
+    and the launch says where the URL goes. Under claude's subscription, with no profile
+    selected, the preset is absent and claude's own WebSearch is what it has. A unit test that
+    drives the boot render (the `capabilitymcp_test.go` pattern) pins the delivery rule: present
+    on a Bedrock profile, absent under Kilo and under a native-search source.
 
 ---
 
@@ -1299,6 +1554,15 @@ For the direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction
   bridge arm is never a second route to a model an agent can already call natively — with one
   exception: claude's everything profile carries Anthropic ids through the bridge, untranslated,
   so that one session can switch vendors ([OQ-BR11](#OQ-BR11)).
+- **No mantle in what yolo ships.** No shipped provider, profile or derive branch names it,
+  and the signers sign for runtime's host and the AgentCore gateway's alone. A user reaches it
+  through the recipe in [§5](#5-one-endpoint-family--runtime-ships-and-why-not-mantle).
+- **No AWS resources.** yolo creates no AgentCore gateway, target or role, and holds no
+  control-plane permission ([OQ-BR20](#OQ-BR20) if that changes). It does not serve a
+  JWT-authorized gateway, whose credential is an OAuth token rather than an AWS one.
+- **No change to search where it is native.** claude's subscription, `openai-codex` and `zai`
+  keep their own search; the preset is dropped for them by the capability rule
+  ([§6.9.4](#694-keyed-the-way-tavily-is-keyed)).
 - **Not a rewrite of claude's native mode.** packs/claude's four Bedrock contributions stay
   as they are, except as D2's fix may narrow the env gate. What the direction adds for claude
   is the everything profile and a picker rendered from the effective list
@@ -1311,14 +1575,16 @@ For the direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction
 | Alternative | Verdict |
 | :--- | :--- |
 | **Gateway arm only** — one provider with a full `/openai/v1` base URL, no native bindings, no new pack | **Rejected as the primary path, adopted as the escape hatch ([§6.4](#64-the-gateway-arm-ships-as-documentation)).** It works and costs almost nothing, but it discards SigV4, the credential chain, codex's `auth.json` Bedrock mode and opencode's region/profile options, and it makes yolo the owner of a URL it must keep current. Since the 2026-09-24 credential ruling it has a sharper cost: it carries only an API key, so it cannot use the SSO credential the maintainer called the primary one ([§6.5](#65-the-credential-three-are-supported)). It is the right answer for an agent with no native path. |
-| **Ship one family only** — pick runtime, document mantle as a manual config | **Rejected on the maintainer's ask.** Both are wanted for comparison, and the second entry costs one JSON object plus one line in each derive. Runtime remains the *recommended* one, in the README. |
-| **One provider, `endpoint_family` as a profile OPTION** | **Rejected — it cannot work.** Options are a flat name→value map; `models` is a provider field the option layer never reaches. The option would move the endpoint and leave the ids, which is P1's failure with a knob attached ([§5](#5-two-families-two-providers--because-the-family-and-the-ids-are-one-entry)). |
-| **One `bedrock` provider for all four agents** | **Reopened by [OQ-BR9](#OQ-BR9), now per endpoint family.** It was rejected because claude wants Anthropic ids and codex wants GPT ids through the same `default` alias. A per-model vendor fact answers that: each derive resolves the default among the entries its agent can call ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction)). |
+| **Ship mantle too** — a second provider and profile per family, so the two can be measured side by side | **Rejected by the maintainer's ruling ([DIR-BR3](#decision-ledger), 2026-09-25).** Runtime serves every model family mantle does, plus Converse; GPT-6 Astra is on runtime through US Geo and Global inference and on mantle in `us-west-2` alone; runtime's Global inference is ≈10% cheaper; AWS recommends runtime for new applications; mantle's signing service name is undocumented and its base path disputed between AWS's own pages; it needs a separate IAM action set; and it doubles the matrix ([§5](#5-one-endpoint-family--runtime-ships-and-why-not-mantle)). Its one unique feature a coding agent would use, Web Search, covers GPT-5.4–5.6 in three US Regions, and AgentCore gives every model search instead ([§6.9](#69-web-search-for-every-bedrock-profile--an-agentcore-mcp-preset)). Mantle stays a documented manual recipe, revisited when someone needs a model or feature only it serves. |
+| **One provider, `endpoint_family` as a profile OPTION** | **Rejected — it cannot work.** Options are a flat name→value map; `models` is a provider field the option layer never reaches. The option would move the endpoint and leave the ids, which is P1's failure with a knob attached ([§5](#5-one-endpoint-family--runtime-ships-and-why-not-mantle)). |
+| **One `bedrock` provider for all four agents** | **Reopened by [OQ-BR9](#OQ-BR9), as the one runtime provider.** It was rejected because claude wants Anthropic ids and codex wants GPT ids through the same `default` alias. A per-model vendor fact answers that: each derive resolves the default among the entries its agent can call ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction)). |
 | **Move `bedrock` out of packs/claude into the new pack** | **Reopened by [OQ-BR9](#OQ-BR9).** It was rejected as churn while only claude read the provider. A runtime provider every agent reads needs an owner every agent's jail selects, and sole ownership means that cannot be packs/claude. |
 | **Bridge routes by model id**, so one claude session mixes native Anthropic and bridged models | **Adopted for the everything profile ([OQ-BR11](#OQ-BR11), ruled 2026-09-24).** It amends the bridge's one-upstream rule and adds a pass-through path for Anthropic Messages; the maintainer wants one claude session that switches between Anthropic and OpenAI models, which two profiles alone cannot give. The native profile stays beside it. |
 | **Mint a Bedrock API key for the bridge** ([`sso-backed-bedrock.md`](sso-backed-bedrock.md#4-five-options)'s option D) | **Superseded if [OQ-BR10](#OQ-BR10) rules to sign.** It lives at most an hour over the narrowed session ([§6.5](#65-the-credential-three-are-supported)), is frozen for the launch, and fails on an account that denies `CallWithBearerToken`. |
 | **A host-side signing proxy** (that doc's option E) | **Not needed.** An in-jail signer gets the refresh and the SCP resilience without the host seeing any prompt. |
-| **yolo fetches Bedrock's model list at launch** | **Leaning against ([OQ-BR14](#OQ-BR14)).** Runtime has no list endpoint. Mantle's needs an IAM action the example policy lacks. And a launch-time network call makes a jail's model list depend on the network at boot. |
+| **yolo fetches Bedrock's model list at launch** | **Leaning against ([OQ-BR14](#OQ-BR14)).** Runtime has no list endpoint, so the only source would be the Bedrock control plane, which the example policy does not grant. And a launch-time network call makes a jail's model list depend on the network at boot. |
+| **Bedrock's own Web Search** for search | **Rejected with mantle.** It is a mantle server-side tool for five GPT models in three US Regions ([§5](#5-one-endpoint-family--runtime-ships-and-why-not-mantle)), so it would search for codex on GPT and for nobody else. |
+| **Tavily as the Bedrock profiles' search** | **Kept as the alternative, not the default.** It works with any model and is already how a user adds search ([§3](#3-what-yolo-has-today)), but it needs a second credential and sends queries outside AWS. AgentCore uses the credential the jail already has and keeps queries in AWS ([§6.9](#69-web-search-for-every-bedrock-profile--an-agentcore-mcp-preset)); [OQ-BR23](#OQ-BR23) decides which wins where both are eligible. |
 | **Match the provider by NAME in each derive** (`if name == "bedrock-openai"`) | **Rejected** — [`stringly-typed-references-principle.md`](../reference/stringly-typed-references-principle.md) exists for this, and it would silently break the moment a user declares their own Bedrock provider under another name. |
 | **A `bedrock` key in the open `endpoints` map, with no URL** | **Rejected — unrepresentable.** `validateProviderEndpoints` in `internal/packdecl/contributes.go` refuses an endpoint with no `base_url`. |
 | **Coin `bedrock-converse` as a fourth canonical `wire_api`** | **Deferred ([OQ-BR5](#OQ-BR5)).** Only pi consumes it, and pi is reachable through the native marker without it. Coin it if a second Converse consumer appears. |
@@ -1330,7 +1596,7 @@ For the direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction
 | Risk | Mitigation |
 | :--- | :--- |
 | **R1.** codex renames or drops `amazon-bedrock-runtime`, or tightens its override list so `base_url` stops being permitted — the runtime entry loses its way in. The list already changed once, between 0.145.0 and 0.156.1. | Both are strings in the binary and re-checkable in seconds ([§14](#14-evidence-and-how-to-re-check-it)). Pin the codex version in the evidence table and re-verify on upgrade; the fallback is the gateway arm under a non-reserved id. |
-| **R2.** D4's fallback metadata makes codex mis-estimate the context window and compact too early or too late against a 1M-token model. | Measurable in one session. If it bites, the escape is already shipped: `-p bedrock-gpt-mantle` is the family whose ids codex's catalog knows, and it moves both halves at once. |
+| **R2.** D4's fallback metadata makes codex mis-estimate the context window and compact too early or too late against a 1M-token model. | Measurable in one session. If it bites, the fix is the object-form entry's `context_window` for that id ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction) part 5), rendered into codex's catalog once `model_catalog_json`'s format is read ([OQ-BR13](#OQ-BR13)). The mantle recipe, whose bare ids codex's catalog knows, is the user's escape until then. |
 | **R3.** The three agents' shared `amazon-bedrock` id drifts apart (one renames it). | Each derive already owns its agent's spelling; a rename is one line in one derive, with provenance. |
 | **R4.** No end-to-end request is made during implementation, and this ships on schema reading alone — the standing weakness of every provider integration in this repo. | The done-conditions in [§8](#8-behaviour-this-design-fixes) are all live turns. `codex doctor` settles codex without burning a turn; the other two need one real request each. |
 | **R5.** Bedrock IAM needs `bedrock:InvokeModel` on the account's **default project** (`arn:aws:bedrock:{region}:{account}:project/default`) in addition to the inference profile — a policy the existing invoke-only `matt-bedrock` IAM user may not carry. | Test with the real account before declaring the arm done; the failure is an AccessDenied naming the project ARN, which is self-diagnosing. |
@@ -1338,6 +1604,8 @@ For the direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction
 | **R7.** Translation loses something a non-Anthropic model needs: tool-call fidelity, reasoning, or a streaming quirk per vendor. | The bridge already fails closed on unknown block types ([WB-D5](../reference/wire-bridge.md#wb-d5)). Measure one turn per vendor in the org's list before shipping that vendor in a company pack. |
 | **R8.** A company pack's list goes stale: AWS retires an id, and every agent's picker offers a model that 404s. | The `yolo check` staleness warning ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction)). The failure itself is AWS's model error, naming the id. |
 | **R9.** The effective list and an agent's own catalog disagree about an id's context window or cost. | The object-form entry's fields win where the agent reads them, and a pack states them only where it has a source. |
+| **R10.** AgentCore Web Search is new (generally available 2026-06-19) and serves three Regions; a company outside them, or an account where it is not enabled, has no search. | The gateway's Region is independent of the Bedrock Region, so any account can place it in one of the three. Without it the preset is absent and says so, and Tavily remains. |
+| **R11.** The search proxy's signer drifts from the bridge's, and one of the two fails for a credential the other handles. | One signer package, pinned by AWS's SigV4 test vectors, used by both ([OQ-BR21](#OQ-BR21)). |
 
 ---
 
@@ -1347,8 +1615,8 @@ For the direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction
    ([§7](#7-traps--read-before-writing-code)). The gateway arm no longer waits on anything.
 2. **Rule [OQ-BR2](#OQ-BR2)** (the marker) and add the field to `packdecl` with its tolerance
    behaviour. Nothing renders yet; the schema is the thing three derives will key on.
-3. **The `bedrock` pack** — both providers, both profiles, README (including which family
-   is recommended and why). Selecting either changes nothing observable until step 4, which
+3. **The `bedrock` pack** — the runtime provider, its profile, and a README saying why runtime
+   is the one family shipped. Selecting it changes nothing observable until step 4, which
    makes it a safe landing.
 4. **The codex derive binding** — the pin, `aws.region`, the selection. codex first because
    it is the motivating case and because `codex doctor` verifies it cheaply.
@@ -1356,21 +1624,32 @@ For the direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction
    comment recording the version its spelling was read from.
 6. **Close D2 and D5 together** (per [OQ-BR4](#OQ-BR4) and [OQ-BR8](#OQ-BR8), ruled as one),
    each with a test that fails when the call site is deleted.
-7. **The gateway-arm recipe** in the user guide, and the model-id/endpoint-family pairing
-   (P1) stated where a user will hit it.
+7. **The gateway-arm and mantle recipes** in the user guide, and the model-id/endpoint-family
+   pairing (P1) stated where a user will hit it.
 8. **The direction, after [OQ-BR9](#OQ-BR9) through [OQ-BR13](#OQ-BR13) rule** — in this order:
    1. the bridge's SigV4 signer with its test vectors, and the lazy credential resolution
       ([OQ-BR10](#OQ-BR10)). It is the piece with no dependency on the model-list work, and
       it closes the SSO gap for copilot and claude's everything profile on its own;
-   2. the shared runtime and mantle providers with per-model `vendor`, and the derive filters
+   2. the shared runtime provider with per-model `vendor`, and the derive filters
       ([OQ-BR9](#OQ-BR9));
    3. claude's everything profile ([OQ-BR11](#OQ-BR11));
    4. the `models` kind ([OQ-BR12](#OQ-BR12)), then picker rendering, moving the GPT-6 lists
       into data under a byte-identical test ([OQ-BR13](#OQ-BR13));
    5. the `yolo check` staleness warning ([OQ-BR14](#OQ-BR14)). A bridge `/v1/models`
       ([OQ-BR15](#OQ-BR15)) waits on its measurement.
-9. **Fold the settled parts into `docs/reference/providers.md`** and retire this doc via
-   `system-doc`.
+9. **Search, after [OQ-BR19](#OQ-BR19)–[OQ-BR23](#OQ-BR23) rule**, and after 8.1, whose signer
+   it reuses:
+   1. measure [D7](#7-traps--read-before-writing-code) first: which agents offer a native
+      search tool on a Bedrock profile, and which pass `${VAR}` references in an MCP `env`;
+   2. the signing proxy ([OQ-BR21](#OQ-BR21)), on the shared signer;
+   3. the preset and its Bedrock gate ([OQ-BR22](#OQ-BR22)), with a boot-render test that
+      fails when the gate's call site is deleted;
+   4. the `aws-auth` README's policy gaining `bedrock-agentcore:InvokeGateway`
+      ([D6](#7-traps--read-before-writing-code)), and a README section on the three AWS calls
+      that create the gateway.
+10. **Fold the settled parts into `docs/reference/providers.md`** and
+    [`mcp-configuration.md`](../reference/mcp-configuration.md), and retire this doc via
+    `system-doc`.
 
 ---
 
@@ -1378,26 +1657,28 @@ For the direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction
 
 Questions 1–8 are the native arm's. Questions 9–15 carry the maintainer's 2026-09-24
 direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction)), and
-[OQ-BR9](#OQ-BR9) sets the premise of [OQ-BR1](#OQ-BR1), [OQ-BR3](#OQ-BR3) and
-[OQ-BR7](#OQ-BR7). No question here is ruled yet; the direction itself is recorded in the
-[Decision Ledger](#decision-ledger) below.
+[OQ-BR9](#OQ-BR9) sets the premise of [OQ-BR1](#OQ-BR1) and [OQ-BR3](#OQ-BR3). Questions 16–18
+are ruled. Questions 19–23 are how search is built
+([§6.9](#69-web-search-for-every-bedrock-profile--an-agentcore-mcp-preset)). The directions
+themselves, and every ruling, are in the [Decision Ledger](#decision-ledger) below.
 
-1. 💬 **OQ-BR1: Provider and profile naming.** The proposal ships providers
-   `bedrock-openai` / `bedrock-openai-mantle` and profiles `bedrock-gpt` /
-   `bedrock-gpt-mantle`, alongside claude's existing `bedrock`/`bedrock`. The profile names
-   are what a user types, so they are a surface, not internal ids. Stakes: these are the
-   strings in this design that are expensive to change later, `bedrock-gpt-mantle` is long
-   for something typed often, and `bedrock` for claude vs `bedrock-gpt` for everything else
-   is an asymmetry a reader will trip on. **Depends on [OQ-BR9](#OQ-BR9):** under one
-   provider per endpoint family, `-p bedrock` serves every agent and these names shrink to at
-   most a `model` option, plus the everything profile's name ([OQ-BR11](#OQ-BR11)).
+1. 💬 **OQ-BR1: Provider and profile naming.** Under
+   [§6.1](#61-two-providers-because-a-models-map-cannot-hold-two-model-families)'s split the
+   proposal ships the provider `bedrock-openai` and the profile `bedrock-gpt`, alongside
+   claude's existing `bedrock`/`bedrock`. The profile names are what a user types, so they are
+   a surface, not internal ids. Stakes: these are the strings in this design that are
+   expensive to change later, and `bedrock` for claude against `bedrock-gpt` for everything
+   else is an asymmetry a reader will trip on. **Depends on [OQ-BR9](#OQ-BR9):** under one
+   runtime provider, `-p bedrock` serves every agent and these names shrink to at most a
+   `model` option, plus the everything profile's name ([OQ-BR11](#OQ-BR11)). With mantle not
+   shipped ([DIR-BR3](#decision-ledger)), no `-mantle` name remains to choose.
 
-   _Leaning:_ Ship them as proposed. They read correctly at the point of use and leave
-   claude's shipped name alone. A shorter `-p gpt` is tempting but would collide with a
-   future first-party OpenAI provider, and the mantle one is typed rarely enough that
-   explicit beats short.
+   _Leaning:_ Under the split, ship `bedrock-openai` and `bedrock-gpt`. They read correctly at
+   the point of use and leave claude's shipped name alone, and a shorter `-p gpt` would collide
+   with a future first-party OpenAI provider. Under [OQ-BR9](#OQ-BR9)'s leaning the question
+   reduces to the everything profile's name.
 
-   <!-- vantage: oq id=OQ-BR1 leaning="Ship bedrock-openai / bedrock-openai-mantle and bedrock-gpt / bedrock-gpt-mantle as proposed. They read correctly at the point of use and leave claude's shipped bedrock name alone. A shorter -p gpt would collide with a future first-party OpenAI provider, and the mantle profile is typed rarely enough that explicit beats short." -->
+   <!-- vantage: oq id=OQ-BR1 leaning="Under the split, ship bedrock-openai / bedrock-gpt beside claude's bedrock: they read correctly at the point of use, leave claude's shipped name alone, and a shorter -p gpt would collide with a future first-party OpenAI provider. Under OQ-BR9's one-provider leaning the question reduces to the everything profile's name." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -1450,8 +1731,7 @@ direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction)), and
    > moved to GPT-6 in September (`2f11de95`, `7ad8358c`). **Bedrock does serve GPT-6 Astra**
    > (SOURCED 2026-09-25, [its model card](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-astra.html)):
    > on `bedrock-runtime` as `us.openai.gpt-6-astra` / `global.openai.gpt-6-astra` (no in-Region
-   > id), including through Converse; on `bedrock-mantle` as `openai.gpt-6-astra`, in `us-west-2`
-   > only. AWS's Web Search page lists only GPT-5.4, 5.5 and 5.6 as supported. It sharpens the stakes this question already names — a shipped model
+   > id), including through Converse. It sharpens the stakes this question already names — a shipped model
    > list is one yolo has to keep from rotting — without choosing between them.
 
    _Leaning:_ Ship the three. They are a *default*, not a catalog: a wrong one is overridden
@@ -1675,57 +1955,47 @@ direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction)), and
    **Answer:**
    > _(empty — fill in when decided)_
 
-8. 💬 **OQ-BR7: Is `endpoint_family` its own provider field, or does it fall out of the
-   marker?** [§6.1](#61-three-providers-because-a-models-map-cannot-hold-two-model-families) proposes a field beside `region` holding `runtime` | `mantle`, which each
-   derive reads to decide whether to override codex's `base_url` and whether it can serve
-   the entry at all. The alternative is folding it into `service` (`aws-bedrock-runtime` vs
-   `aws-bedrock-mantle`), which adds no field but makes the marker carry two facts. Stakes:
-   one schema field, and whether "is this Bedrock?" and "which Bedrock?" are one question or
-   two — pi has to answer them separately, since it serves one family and not the other.
-   **Touched by [OQ-BR9](#OQ-BR9):** the family still splits providers under its leaning, and
-   the bridge's upstream URL is composed from this field and `region`
-   ([§6.6.3](#663-behavior-these-parts-fix)).
+8. <a id="OQ-BR7"></a>[**OQ-BR7**](#OQ-BR7) (answered 2026-09-25 by [DIR-BR3](#decision-ledger)):
+   **Is `endpoint_family` its own provider field, or does it fall out of the marker?** Neither:
+   with one family shipped there is nothing to name, so no field is added and the marker
+   ([OQ-BR2](#OQ-BR2)) alone says "runtime, composed from `region`". Nothing of the question
+   survives. The one fact it protected, that a family and its model ids must never be split by a
+   profile, now shows up as the mantle recipe being a separate provider
+   ([§5](#5-one-endpoint-family--runtime-ships-and-why-not-mantle)).
 
-   <!-- vantage: oq id=OQ-BR7 leaning="Its own field. pi answers 'is this Bedrock' and 'which family' separately — it serves runtime and cannot serve mantle — so a marker carrying both facts would have to be destructured by every consumer anyway. A field beside region also keeps it out of a profile's reach, which is what makes the family and its model ids inseparable." -->
-
-   _Leaning:_ Its own field. pi answers "is this Bedrock?" and "which family?" separately —
-   it serves runtime and cannot serve mantle — so a marker carrying both facts would be
-   destructured by every consumer anyway. A field beside `region` also keeps it out of a
-   profile's reach, which is exactly what makes the family and its ids inseparable ([§5](#5-two-families-two-providers--because-the-family-and-the-ids-are-one-entry)).
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-9. 💬 **OQ-BR9: One provider per endpoint family, holding every model family?**
-   [§6.6](#66-every-bedrock-model-in-every-agent--the-direction) part 1 proposes a runtime
-   provider and a mantle provider, each carrying every model family the org selected. Each
-   entry would declare a `vendor`, and each derive would resolve the default among the entries
-   its agent can call. Stakes: this is the shape every other new question builds on. It decides
-   whether a new vendor on Bedrock is a list entry or a new provider plus a new profile, and
-   whether `-p bedrock` means one thing for every agent.
+9. 💬 **OQ-BR9: One Bedrock provider, holding every model family, in its own pack?**
+   With mantle not shipped ([DIR-BR3](#decision-ledger)), the question is no longer one
+   provider *per endpoint family*: it is whether a single runtime provider carries every model
+   family the org selected, and who owns it.
+   [§6.6](#66-every-bedrock-model-in-every-agent--the-direction) part 1 proposes that provider:
+   every entry declares a `vendor`, and each derive resolves the default among the entries its
+   agent can call. Stakes: this is the shape every other new question builds on. It decides
+   whether a new vendor on Bedrock is a list entry or a new provider plus a new profile, whether
+   `-p bedrock` means one thing for every agent, and whether claude's shipped `bedrock` provider
+   leaves packs/claude.
 
    | Option | Verdict |
    | :--- | :--- |
-   | **A.** One provider per endpoint family, every model family in it, a declared `vendor` per entry | **Leaning** |
-   | **B.** Keep [§6.1](#61-three-providers-because-a-models-map-cannot-hold-two-model-families): one provider per model family per endpoint family | Two providers per vendor, and a company pack must know which one to extend |
+   | **A.** One runtime provider, every model family in it, a declared `vendor` per entry, owned by a new `bedrock` pack | **Leaning** |
+   | **B.** Keep [§6.1](#61-two-providers-because-a-models-map-cannot-hold-two-model-families): claude's `bedrock` for Anthropic ids, and `bedrock-openai` for the rest | A provider per vendor group, a profile per provider, and a company pack must know which one to extend |
    | **C.** Option A, but infer the vendor from the id prefix (`anthropic.`, `us.anthropic.`) | Weaker: the prefixes vary by inference profile, a user's own id defeats it, and it is the stringly-typed match [`stringly-typed-references-principle.md`](../reference/stringly-typed-references-principle.md) forbids |
 
-   **Reopens** [§6.1](#61-three-providers-because-a-models-map-cannot-hold-two-model-families)'s split and two [§10](#10-alternatives-considered) rows: "one `bedrock`
+   **Reopens** [§6.1](#61-two-providers-because-a-models-map-cannot-hold-two-model-families)'s split and two [§10](#10-alternatives-considered) rows: "one `bedrock`
    provider for all four agents", and "move `bedrock` out of packs/claude". Under option A the
-   runtime provider has to move. A provider every agent reads needs an owner that every agent's
-   jail selects, and sole ownership means that cannot be packs/claude. So a new `bedrock` pack
-   owns it, and packs/claude `needs` that pack, as it does `openai-auth`.
-   **Touches** [OQ-BR1](#OQ-BR1): the `bedrock-gpt` profiles become at most a `model` option
-   over the shared provider. It touches [OQ-BR7](#OQ-BR7): `endpoint_family` stays a provider
-   field, since the family still splits providers. And it touches [OQ-BR3](#OQ-BR3): which ids
-   yolo's own pack ships. It also makes [OQ-BR4](#OQ-BR4)'s leak routine: `-p codex=bedrock`
-   becomes the ordinary gesture.
+   provider has to move. A provider every agent reads needs an owner that every agent's jail
+   selects, and sole ownership means that cannot be packs/claude. So a new `bedrock` pack owns
+   it, and packs/claude `needs` that pack, as it does `openai-auth`. The same pack ships the
+   search preset ([§6.9](#69-web-search-for-every-bedrock-profile--an-agentcore-mcp-preset)).
+   **Touches** [OQ-BR1](#OQ-BR1): the `bedrock-gpt` profile becomes at most a `model` option
+   over the shared provider. It touches [OQ-BR3](#OQ-BR3): which ids yolo's own pack ships.
+   It also makes [OQ-BR4](#OQ-BR4)'s leak routine: `-p codex=bedrock` becomes the ordinary
+   gesture.
 
-   _Leaning:_ A, with the runtime provider moving into a new `bedrock` pack under its existing
-   name, so `-p bedrock` keeps working for claude and starts working for every other agent.
-   The vendor is declared, never parsed.
+   _Leaning:_ A, with the provider moving into a new `bedrock` pack under its existing name,
+   so `-p bedrock` keeps working for claude and starts working for every other agent. The
+   vendor is declared, never parsed.
 
-   <!-- vantage: oq id=OQ-BR9 leaning="A: one provider per endpoint family holding every model family, with a declared per-entry vendor that each derive filters on. The runtime provider moves out of packs/claude into a new bedrock pack under its existing name, which packs/claude needs, so -p bedrock works for every agent. Never parse the vendor from the id prefix." -->
+   <!-- vantage: oq id=OQ-BR9 leaning="A: one runtime provider holding every model family, with a declared per-entry vendor that each derive filters on. It moves out of packs/claude into a new bedrock pack under its existing name, which packs/claude needs, so -p bedrock works for every agent; the same pack ships the search preset. Never parse the vendor from the id prefix." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -1735,8 +2005,9 @@ direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction)), and
     requirement puts SSO on the bridge route, and the alternative, a key minted from the SSO
     session, lives at most an hour. A standard-library signer pinned by AWS's published test
     vectors, credentials resolved as static keys, then the `aws-auth` container endpoint (cached
-    until five minutes before expiry), then a bearer; runtime first, mantle once its service name
-    and base path are measured ([§6.7](#67-the-whole-matrix--every-agent-every-model-every-credential)).
+    until five minutes before expiry), then a bearer; runtime only
+    ([§6.7](#67-the-whole-matrix--every-agent-every-model-every-credential)). The same signer
+    also serves the search proxy ([§6.9](#69-web-search-for-every-bedrock-profile--an-agentcore-mcp-preset)).
     **Still touches** [OQ-BR2](#OQ-BR2) (the marker is what the bridge signs for) and
     [OQ-BR8](#OQ-BR8) (the bridge reads the adapter address from the composed provider row).
     Amends WB-D4. Retiring [`sso-backed-bedrock.md`](sso-backed-bedrock.md)'s option D stays that doc's call.
@@ -1826,7 +2097,7 @@ direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction)), and
     | Option | Verdict |
     | :--- | :--- |
     | **A.** Each agent's vendor catalog is the source, plus a `yolo check` warning for any listed id that no installed catalog knows | **Leaning** |
-    | **B.** yolo asks AWS at launch (mantle's `/v1/models`, or the Bedrock control plane) and filters by the answer | Runtime has no list endpoint, the example IAM policy denies the call ([D6](#7-traps--read-before-writing-code)), and a jail's models would depend on the network at boot |
+    | **B.** yolo asks AWS at launch (the Bedrock control plane) and filters by the answer | Runtime has no list endpoint, so this is a control-plane call the example IAM policy denies ([D6](#7-traps--read-before-writing-code)), and a jail's models would depend on the network at boot |
     | **C.** yolo ships a dated catalog snapshot | A catalog in yolo, which rots on a schedule nobody runs |
     | **D.** A dated README only | Today's state; a retired id is a 404 at first request |
 
@@ -1861,8 +2132,11 @@ direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction)), and
     | :--- | :--- |
     | **A.** Later: measure discovery under that setting first, then serve the composed effective list with no upstream call | **Leaning** |
     | **B.** Now, beside [OQ-BR13](#OQ-BR13)'s settings rendering | Ships on an unmeasured dependency |
-    | **C.** Proxy mantle's `/v1/models` | Lists everything the account can see rather than the org's list, runtime has no such endpoint, and it needs `bedrock-mantle:ListModels` |
-    | **D.** Never; settings rendering suffices | Fine if it does. It forecloses nothing that A does not defer |
+    | **C.** Never; settings rendering suffices | Fine if it does. It forecloses nothing that A does not defer |
+
+    There is no upstream to proxy for it: runtime has no model-list endpoint
+    ([§2](#2-what-bedrock-is-now--measured-2026-09-04)), so whatever the bridge serves is the
+    list yolo composed.
 
     **Amends** the bridge's one-route surface (WB-D14's refusal would still cover every other
     path). **Touches** [providers.md](../reference/providers.md#what-this-does-not-license)'s
@@ -1871,7 +2145,7 @@ direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction)), and
     _Leaning:_ A. Measure first. If discovery survives, serve the effective list from memory
     and never call upstream for it.
 
-    <!-- vantage: oq id=OQ-BR15 leaning="A, later: first measure whether CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY survives CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1; if it does, the bridge serves GET /v1/models from the composed effective list with no upstream call. Not a mantle proxy." -->
+    <!-- vantage: oq id=OQ-BR15 leaning="A, later: first measure whether CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY survives CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1; if it does, the bridge serves GET /v1/models from the composed effective list with no upstream call — runtime has no list endpoint to proxy." -->
 
     **Answer:**
     > _(empty — fill in when decided)_
@@ -1881,6 +2155,117 @@ direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction)), and
 17. <a id="OQ-BR17"></a>[**OQ-BR17**](#OQ-BR17) (ruled 2026-09-24): **Does the bridge fail over from the subscription to Bedrock when the subscription runs out?** Yes, opt-in: automatic and per model on the subscription's usage-limit response, enabled per profile, every switch disclosed. Supersedes, for the bridged subscription, the in-session-failover deferral in [`agent-auth-modes.md` OQ-1](agent-auth-modes.md#12-decision-ledger).
 
 18. <a id="OQ-BR18"></a>[**OQ-BR18**](#OQ-BR18) (ruled 2026-09-24): **May yolo's bridge carry a Claude subscription at all?** Yes, the maintainer's call on terms and company policy.
+
+19. 💬 **OQ-BR19: Where does the gateway URL live?**
+    [§6.9](#69-web-search-for-every-bedrock-profile--an-agentcore-mcp-preset) needs one value,
+    the AgentCore gateway's URL, and the company that created the gateway is the one who knows
+    it. Stakes: whether a company can ship it once or every user copies it, and who may point a
+    jail's searches somewhere. That value decides where every query goes, so it is not a value a
+    checked-in workspace file should be able to set.
+
+    | Option | Verdict |
+    | :--- | :--- |
+    | **A.** An environment variable (proposed: `AGENTCORE_WEB_SEARCH_GATEWAY`) the preset lists in `requires_env`. A company pack sets it with a `kind: "env"` contribution; a user sets it with a local pack or `env_sources` | **Leaning** |
+    | **B.** A provider option on the Bedrock provider (`options.web_search_gateway`), set in user config | A company pack cannot set another pack's provider option, the sole-ownership wall [OQ-BR12](#OQ-BR12) also hits, and "no URL, no preset" would need a new gate |
+    | **C.** A new top-level config key | Core would learn an AWS service by name |
+
+    Under A, "no URL, no preset, and say so" is `requires_env`'s existing behavior: the entry is
+    dropped before any derive sees it, with a notice. The proxy then reads the URL from the
+    variable the entry's `env` names ([D7](#7-traps--read-before-writing-code)).
+
+    _Leaning:_ A. It is the one home a company pack and a user can both write today, and it
+    needs no new gate. The launch discloses the gateway host whenever the preset is delivered.
+
+    <!-- vantage: oq id=OQ-BR19 leaning="A: an environment variable (proposed AGENTCORE_WEB_SEARCH_GATEWAY) the preset lists in requires_env — a company pack sets it with a kind: env contribution, a user with a local pack or env_sources. requires_env already drops the entry with a notice when it is unset, so no new gate is needed; the launch discloses the gateway host when the preset is delivered." -->
+
+    **Answer:**
+    > _(empty — fill in when decided)_
+
+20. 💬 **OQ-BR20: Does yolo ever create the gateway?** The gateway, its Web Search target and
+    its service role are AWS resources. Creating them takes `bedrock-agentcore-control`
+    permissions, an IAM role with a trust policy, and an account-level decision about who may
+    search. Stakes: first-use friction against yolo holding control-plane permissions and
+    writing into an organization's AWS account.
+
+    _Leaning:_ No. It is an organization's AWS resource, made once per company, and yolo is a
+    consumer of AWS rather than an administrator of it. The pack README carries the three calls
+    that make one (a gateway with IAM inbound authorization, a `web-search` connector target, an
+    `InvokeGateway` grant) and `yolo check` names what is missing.
+
+    <!-- vantage: oq id=OQ-BR20 leaning="No: the gateway, its web-search target and its service role are an organization's AWS resources, created once per company; yolo consumes AWS and does not administer it. The pack README documents the three calls that create one, and yolo check names what is missing." -->
+
+    **Answer:**
+    > _(empty — fill in when decided)_
+
+21. 💬 **OQ-BR21: What shape is the signing proxy?** Agents' MCP clients cannot sign SigV4,
+    so the preset's entry runs something that does
+    ([§6.9.3](#693-the-shape)). The maintainer's framing is the wire bridge's signer as a third
+    route. The signer is shared whichever option wins; what differs is the transport the agent
+    reaches it by, and [§6.9.5](#695-what-todays-mcp-mechanisms-can-and-cannot-express) found
+    that yolo's MCP table can express only a stdio command. Stakes: whether this needs an MCP
+    schema change and six derive changes, and how many processes hold credentials.
+
+    | Option | Verdict |
+    | :--- | :--- |
+    | **A.** A stdio MCP proxy that is a hidden `yolo` subcommand, run by the preset's `command`, built on the bridge's signer package | **Leaning** |
+    | **B.** A route on the wire bridge's loopback: MCP streamable HTTP in, signed pass-through out | One process and one credential cache for every agent, but the MCP table has no URL transport: `knownMCPServerKeys` and all six projecting derives would change, and each agent's streamable-HTTP client support is unread |
+    | **C.** AWS's own [`mcp-proxy-for-aws`](https://github.com/aws/mcp-proxy-for-aws) (Apache-2.0, stdio to SigV4, the boto3 credential chain), run through `uvx` | No yolo signing code, but a third-party Python dependency fetched at first use, which needs `uvx` in the jail and the network at run time |
+
+    _Leaning:_ A. It is expressible with today's `command`/`args`/`env` and no schema change, it
+    reuses the one signer the bridge already needs ([R11](#11-risks)), and it keeps a credential
+    in no process the agent did not start. B stays the upgrade if a per-agent proxy process
+    proves costly.
+
+    <!-- vantage: oq id=OQ-BR21 leaning="A: a stdio MCP proxy that is a hidden yolo subcommand, named by the preset's command and built on the wire bridge's signer package. It is expressible today (command/args/env only, no schema change) and shares one signer with the bridge. A loopback bridge route (B) needs a URL transport in knownMCPServerKeys and six derives; AWS's mcp-proxy-for-aws via uvx (C) adds a Python dependency fetched at run time." -->
+
+    **Answer:**
+    > _(empty — fill in when decided)_
+
+22. 💬 **OQ-BR22: How does a pack put the preset in the MCP table, gated to Bedrock?** Today
+    only core has presets, they are opt-in, and no gate keys on the selected provider's identity
+    ([§6.9.5](#695-what-todays-mcp-mechanisms-can-and-cannot-express)). Stakes: whether "on by
+    default on Bedrock" is a pack fact or a core fact, and whether the same mechanism later
+    carries Tavily "optionally by capability", as the maintainer put it.
+
+    | Option | Verdict |
+    | :--- | :--- |
+    | **A.** A new contribution kind carrying one MCP entry (`command`, `args`, `env`, `requires_env`, `provides`) and a gate on the selected provider's Bedrock marker ([OQ-BR2](#OQ-BR2)), evaluated per render target. Merged into the canonical table before the capability filter, under the user's `mcp_servers` as last writer. packs/bedrock ships the preset as `agentcore-web-search` | **Leaning** |
+    | **B.** A core preset in `validMCPPresets`, switched on automatically when a Bedrock provider is selected | Core would learn one AWS service and one provider's fact, where [OQ-BR8](#OQ-BR8) leans toward provider facts living with the provider |
+    | **C.** No preset: a documented `mcp_servers` recipe | Not on by default, which the ruling requires ([DIR-BR4](#decision-ledger)) |
+
+    Under A, a user's `mcp_servers.agentcore-web-search: null` removes it, which is the existing
+    preset removal. A Tavily preset shipped by a pack would be the same kind with no provider
+    gate.
+
+    _Leaning:_ A. Default-on for a provider is a fact about that provider, so the pack that owns
+    the provider ships it. The gate keys on the marker, never on a provider or profile name,
+    which is [D5](#7-traps--read-before-writing-code)'s trap.
+
+    <!-- vantage: oq id=OQ-BR22 leaning="A: a new pack contribution kind carrying one MCP entry (command, args, env, requires_env, provides) plus a gate on the selected provider's Bedrock marker (OQ-BR2), evaluated per render target, merged before the capability filter with the user's mcp_servers as last writer; packs/bedrock ships it as agentcore-web-search. Not a core preset (core would learn an AWS service); not a recipe (not default-on)." -->
+
+    **Answer:**
+    > _(empty — fill in when decided)_
+
+23. 💬 **OQ-BR23: When a user's Tavily entry and the AgentCore preset are both eligible, which
+    does the agent get?** On a Bedrock profile neither is suppressed by the capability rule, since
+    the source lacks `web_search`. `validate.go` refuses two `mcp_servers` entries with one
+    `provides` as ambiguous, but that check sees only the user's config, not a pack's preset.
+    Stakes: an agent with two search tools, one of which sends queries outside AWS.
+
+    | Option | Verdict |
+    | :--- | :--- |
+    | **A.** The preset only: on a render where it is delivered, other `web_search` servers are dropped, with a notice naming them | **Leaning** |
+    | **B.** Both are delivered | Two search tools; the agent picks per call, and queries may leave AWS unpredictably |
+    | **C.** The user's Tavily entry wins | Honors the user's explicit entry, but a company's "search stays in AWS" is then one config line from undone without saying so |
+
+    _Leaning:_ A. One search tool per render, matching the ambiguity rule `validate.go` already
+    enforces, and the one that keeps queries in AWS. A user who prefers Tavily there removes the
+    preset by name, which is visible in their own config.
+
+    <!-- vantage: oq id=OQ-BR23 leaning="A: where the AgentCore preset is delivered, other web_search servers are dropped for that render with a notice naming them — one search tool per render, as validate.go's one-server-per-provides rule already intends, and queries stay in AWS. A user who prefers Tavily removes the preset by name (mcp_servers.agentcore-web-search: null)." -->
+
+    **Answer:**
+    > _(empty — fill in when decided)_
 
 ### Decision Ledger
 
@@ -1893,12 +2278,15 @@ direction ([§6.6](#66-every-bedrock-model-in-every-agent--the-direction)), and
 | OQ-BR16 | **The everything profile carries the subscription too**, forwarded untranslated with its own bearer, so one model list spans Teams and Bedrock. *"yes that would be amazing"* | 2026-09-24 | [§6.8](#68-the-subscription-through-the-same-bridge--aligned-names-and-failover-when-it-runs-out) | — |
 | OQ-BR17 | **Opt-in automatic failover, per model, from the subscription to Bedrock** on the subscription's usage-limit response, every switch disclosed. *"yes, opt in"*. Supersedes [agent-auth-modes OQ-1](agent-auth-modes.md#12-decision-ledger)'s deferral for this path | 2026-09-24 | [§6.8](#68-the-subscription-through-the-same-bridge--aligned-names-and-failover-when-it-runs-out) | — |
 | OQ-BR11 | **Both claude profiles: native, and an everything profile.** *"if you only do native or the rest, then you'll never be able to switch between Claude and, say, OpenAI in one Claude session, which I think we'll want. So I guess just both options."* The everything profile routes by model id at the bridge: Anthropic ids pass through untranslated to Bedrock's Anthropic Messages route, everything else is translated. Amends the bridge's one-upstream rule. The leaning (two profiles, no routing) was overruled | 2026-09-24 | [§6.6](#66-every-bedrock-model-in-every-agent--the-direction) part 4 | — |
+| DIR-BR3 | **yolo ships `bedrock-runtime` only; mantle is a documented manual recipe.** *"let's skip mantle"*. Runtime serves every model family mantle does plus Converse, carries GPT-6 Astra through US Geo and Global inference where mantle has `us-west-2` alone, is ≈10% cheaper through Global inference, and is AWS's recommendation for new applications; mantle's signing service name and base path are undocumented or disputed, it needs its own IAM actions, and it doubles the matrix. Revisited when someone needs a model or feature only mantle serves. `-p bedrock-gpt-mantle` and every mantle provider are gone. A direction, so no question id | 2026-09-25 | [§5](#5-one-endpoint-family--runtime-ships-and-why-not-mantle) | — |
+| OQ-BR7 | **Answered by DIR-BR3, moot:** with one family there is no `endpoint_family` field; the marker alone means runtime. The leaning (its own field) had nothing left to decide | 2026-09-25 | [§6.1](#61-two-providers-because-a-models-map-cannot-hold-two-model-families) | — |
+| DIR-BR4 | **Every Bedrock profile, in every agent and for every model, gets web search as an MCP tool served by an AgentCore gateway the company creates once.** *"we could also integrate search for agent core and get search for all models?"*, then *"let's skip mantle"*, refined: *"it'll probably just be a mcp preconfig like devtools, and easy to include with bedrock by default just like we can include tavily optionally by capability."* So the tool is an MCP preset the Bedrock pack contributes, on by default on Bedrock profiles and keyed the way Tavily is keyed, reached through an in-jail signing proxy. How it is built is [OQ-BR19](#OQ-BR19)–[OQ-BR23](#OQ-BR23) | 2026-09-25 | [§6.9](#69-web-search-for-every-bedrock-profile--an-agentcore-mcp-preset) | — |
 
 ---
 
 ## 14. Evidence, and how to re-check it
 
-Everything in [§2](#2-what-bedrock-is-now--measured-2026-09-04), [§4](#4-what-each-agent-can-actually-do) and [§6.5](#65-the-credential-three-are-supported) is a fact about a third party, so it carries its source and its
+Everything in [§2](#2-what-bedrock-is-now--measured-2026-09-04), [§4](#4-what-each-agent-can-actually-do), [§6.5](#65-the-credential-three-are-supported) and [§6.9](#69-web-search-for-every-bedrock-profile--an-agentcore-mcp-preset) is a fact about a third party, so it carries its source and its
 date. Re-run these rather than trusting the table. Repo claims are verified at `f491d192`
 (2026-09-24) and cited by symbol rather than by line, because a line number is the first thing
 to go stale.
@@ -1978,9 +2366,30 @@ Presence only: none was exercised, and what discovery does under
 **AWS: the endpoints and the model** — the GPT-5.6 Sol model card and the endpoints page, both
 read 2026-09-04: endpoint URLs, the runtime/mantle model-id split, the region matrices, the API
 support tables, the `project/default` IAM requirement, and the Global CRIS discount. ⚠ **AWS's
-pages disagree on the mantle path**: the model card says *"On `bedrock-mantle`, both APIs use
-the `/openai/v1` base path, not `/v1`"*, while the Chat Completions and Responses API pages give
+pages disagree on the mantle path**: the GPT-5.6 Sol and GPT-6 Astra cards both say *"On
+`bedrock-mantle`, both APIs use the `/openai/v1` base path, not `/v1`"* (re-read 2026-09-25),
+while the Chat Completions and Responses API pages give
 `https://bedrock-mantle.{region}.api.aws/v1` (read 2026-09-24).
+
+**AWS: the mantle ruling's evidence** — read 2026-09-25:
+
+| Claim | Source |
+| :--- | :--- |
+| GPT-6 Astra: `us.openai.gpt-6-astra` / `global.openai.gpt-6-astra` on runtime, no in-Region id, Converse supported; `openai.gpt-6-astra` on mantle, *"available only in `us-west-2`"*, no Converse; Global CRIS $10.00 against In-Region and Geo $11.00 per million input tokens | GPT-6 Astra model card |
+| *"For most new applications, use the `bedrock-runtime` endpoint. Use `bedrock-mantle` when you specifically need capabilities that are currently available only there, such as server-side and pre-configured tools (including web search)"*; cross-Region inference on runtime only; *"Per-token pricing for the same model is identical"* on both; mantle's IAM is `bedrock-mantle:CreateInference`; *"Use a model that is available only on `bedrock-mantle`"* | Bedrock endpoints page |
+| *"Whenever possible, we recommend using the `bedrock-runtime` endpoint for new applications"* | GPT-5.6 Sol model card |
+| Web Search: mantle's Responses API only, for `openai.gpt-5.6-{sol,terra,luna}`, `openai.gpt-5.4` and `openai.gpt-5.5` in commercial US Regions; `us-east-1`, `us-east-2`, `us-west-2`; *"it isn't available when you call the Responses API on the `bedrock-runtime` endpoint"*; Codex on mantle can use it from CLI 0.147.0 | Bedrock Web Search page |
+| *"The WebSearch tool is not available on Amazon Bedrock"*; Mantle has its own `bedrock-mantle:` IAM actions and *"its own model lineup"* of `anthropic.`-prefixed ids, enabled with `CLAUDE_CODE_USE_MANTLE` | Claude Code on Amazon Bedrock |
+
+**AWS: AgentCore Web Search** — read 2026-09-25; nothing was called:
+
+| Claim | Source |
+| :--- | :--- |
+| A managed, MCP-compliant tool, a connector target (`connectorId: "web-search"`) on a gateway; discovered with `tools/list`, called with `tools/call`; *"any MCP-compatible client"*; `query` ≤200 characters, `maxResults` 1–25 (default 10); request-level filters from connector 1.2.0; *"Queries never leave AWS"*; Regions `us-east-1`, `eu-west-1`, `ap-northeast-1`; citations must be retained and displayed | AgentCore guide, Web Search Tool |
+| The gateway service role needs `bedrock-agentcore:InvokeGateway` and `bedrock-agentcore:InvokeWebSearch` on `arn:aws:bedrock-agentcore:<region>:aws:tool/web-search.v1`; connector targets take only `GATEWAY_IAM_ROLE`; *"`bedrock-agentcore:InvokeGateway` … belongs to the caller"* | AgentCore guide, gateway target configuration |
+| Inbound authorization: JWT, IAM identity, authenticate-only (SigV4, no authorization decision), none; an IAM caller needs `bedrock-agentcore:InvokeGateway` on the gateway ARN | AgentCore guide, inbound authorization |
+| Generally available, posted 2026-06-19; the client sample `aws_iam_streamablehttp_client(endpoint=gateway_url, aws_region="us-east-1", aws_service="bedrock-agentcore")` from `mcp_proxy_for_aws`; URL form `https://gateway-<id>.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp`; queries served in an AWS service account | AWS Machine Learning Blog, *Introducing Web Search on Amazon Bedrock AgentCore* |
+| MCP Proxy for AWS: stdio to the client, SigV4 to the server, the boto3 credential chain, fresh credentials read per request, Apache-2.0, run as `uvx mcp-proxy-for-aws-cli@latest <endpoint>` | the `aws/mcp-proxy-for-aws` README |
 
 **AWS: the model families and their APIs** — the endpoints page and the model API
 compatibility page, read 2026-09-24 by the research pass:
@@ -2035,4 +2444,12 @@ any row above.
 [AWS SDK credential providers](https://docs.aws.amazon.com/sdkref/latest/guide/standardized-credentials.html) ·
 [Codex with Amazon Bedrock](https://learn.chatgpt.com/docs/amazon-bedrock) ·
 [codex PR #18744 — built-in Bedrock provider](https://github.com/openai/codex/pull/18744) ·
-[opencode providers](https://opencode.ai/docs/providers/)
+[opencode providers](https://opencode.ai/docs/providers/) ·
+[GPT-6 Astra model card](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-astra.html) ·
+[Bedrock Web Search](https://docs.aws.amazon.com/bedrock/latest/userguide/web-search.html) ·
+[Claude Code on Amazon Bedrock](https://code.claude.com/docs/en/amazon-bedrock) ·
+[AgentCore Web Search Tool](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/gateway-target-connector-web-search-tool.html) ·
+[AgentCore gateway target configuration](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/gateway-add-target-api-target-config.html) ·
+[AgentCore gateway inbound authorization](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/gateway-inbound-auth.html) ·
+[Introducing Web Search on Amazon Bedrock AgentCore](https://aws.amazon.com/blogs/machine-learning/introducing-web-search-on-amazon-bedrock-agentcore) ·
+[MCP Proxy for AWS](https://github.com/aws/mcp-proxy-for-aws)
