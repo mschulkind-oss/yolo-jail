@@ -381,9 +381,16 @@ func (t *ResponsesStreamTranslator) Chunk(payload []byte) ([]Event, error) {
 			IncompleteDetails *struct {
 				Reason string `json:"reason"`
 			} `json:"incomplete_details"`
+			// Error is response.failed's reason, the upstream's own words.
+			Error *responsesStreamError `json:"error"`
 		} `json:"response"`
 		Delta string          `json:"delta"`
 		Item  responsesOutput `json:"item"`
+		// A top-level `error` event carries its code and message flat, or, in the
+		// other shape seen from OpenAI-compatible backends, inside an `error` object.
+		Code    string                `json:"code"`
+		Message string                `json:"message"`
+		Error   *responsesStreamError `json:"error"`
 	}
 	if err := json.Unmarshal(payload, &e); err != nil {
 		return nil, fmt.Errorf("wirebridge: decoding Responses stream event: %w", err)
@@ -495,10 +502,73 @@ func (t *ResponsesStreamTranslator) Chunk(payload []byte) ([]Event, error) {
 		if err := closeAndStop(e.Response.Status, e.Response.IncompleteDetails, e.Response.Usage); err != nil {
 			return nil, err
 		}
+	case "response.failed", "error":
+		// The upstream's own terminal failure (OQ-WB1). Close any open block so the
+		// client's grammar is well-formed up to the error event, and hand the
+		// upstream's code and message to the daemon, which ends the stream with an
+		// anthropic api_error carrying the message. The error type stays api_error:
+		// mapping codes to other types changes how an agent retries, and waits until
+		// the codes are measured.
+		failed := &UpstreamFailedError{Event: e.Type}
+		switch {
+		case e.Type == "response.failed" && e.Response.Error != nil:
+			failed.Code, failed.Message = e.Response.Error.Code, e.Response.Error.Message
+		case e.Error != nil:
+			failed.Code, failed.Message = e.Error.Code, e.Error.Message
+		default:
+			failed.Code, failed.Message = e.Code, e.Message
+		}
+		if t.textOpen || t.toolOpen {
+			ev, err := marshalEvent("content_block_stop", blockStopEvent{Type: "content_block_stop", Index: t.index})
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, ev)
+			t.textOpen, t.toolOpen = false, false
+		}
+		t.finished = true
+		return out, failed
 	case "response.created", "response.in_progress", "response.output_item.done", "response.content_part.added", "response.content_part.done", "response.output_text.done", "response.output_text.annotation.added", "response.output_text.annotation.done", "response.function_call_arguments.done", "response.web_search_call.searching", "response.web_search_call.in_progress", "response.web_search_call.completed":
 		// Lifecycle markers have no Anthropic equivalent; deltas above carry the data.
 	default:
 		return nil, fmt.Errorf("wirebridge: unsupported Responses stream event %q", e.Type)
 	}
 	return out, nil
+}
+
+// responsesStreamError is the error object a failed response, or a nested
+// top-level error event, carries.
+type responsesStreamError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// UpstreamFailedError is what ResponsesStreamTranslator.Chunk returns when the
+// upstream itself ends the stream in failure: a response.failed event, or a
+// top-level `error` event (OQ-WB1, docs/reference/wire-bridge.md). It is not a
+// translation fault: the events returned beside it close any open block, and the
+// daemon ends the client's stream with an anthropic `api_error` event carrying
+// ClientMessage. Code is for the log; Message is for the agent, never the log,
+// the same split the daemon keeps for an upstream 4xx before the stream starts.
+type UpstreamFailedError struct {
+	// Event is the upstream event type that carried the failure.
+	Event string
+	// Code and Message are the upstream's own, either possibly empty.
+	Code, Message string
+}
+
+func (e *UpstreamFailedError) Error() string {
+	return fmt.Sprintf("wirebridge: upstream %s (code %q)", e.Event, e.Code)
+}
+
+// ClientMessage is the upstream's message verbatim, or, when it sent none, a
+// sentence that is still true and names the code it did send.
+func (e *UpstreamFailedError) ClientMessage() string {
+	if e.Message != "" {
+		return e.Message
+	}
+	if e.Code != "" {
+		return fmt.Sprintf("wire-bridge: upstream reported the response failed (code %s)", e.Code)
+	}
+	return "wire-bridge: upstream reported the response failed"
 }

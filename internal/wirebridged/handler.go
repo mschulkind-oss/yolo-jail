@@ -448,6 +448,22 @@ func (h *bridgeHandler) relayStream(rec *statusRecorder, resp *http.Response) {
 				"reported once", h.upstreamURL, lost.Err)
 			err = nil
 		}
+		var failed *wirebridge.UpstreamFailedError
+		if errors.As(err, &failed) {
+			// The upstream ended the stream in failure (OQ-WB1): not a translation
+			// fault, so the agent gets the upstream's own message, still typed
+			// api_error. evs closes any open block first. The log names the event
+			// and the code and never the message, which is the agent's alone, as
+			// relayUpstreamError keeps it for a 4xx before the stream starts.
+			if !write(evs) {
+				return
+			}
+			logf("upstream %s ended the stream in failure at chunk %d with %s (code %q) — "+
+				"relaying its message to the client as an api_error event",
+				h.upstreamURL, chunks, failed.Event, failed.Code)
+			h.failStream(rec, flusher, failed.ClientMessage())
+			return
+		}
 		if err != nil {
 			// A chunk that does not decode is a mid-stream upstream fault:
 			// close the stream with an anthropic error EVENT (the only legal

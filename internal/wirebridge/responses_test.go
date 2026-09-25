@@ -2,6 +2,7 @@ package wirebridge
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -294,5 +295,82 @@ func TestResponsesStreamTranslatorSkipsHostedWebSearchEvents(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("stream missing %s:\n%s", want, got)
 		}
+	}
+}
+
+// OQ-WB1 (docs/reference/wire-bridge.md, ruled (b) 2026-09-25): response.failed is
+// the upstream's own terminal failure, and a top-level `error` event is its
+// transport-level twin. Both used to reach the default arm as an "unsupported
+// Responses stream event", so the agent was told the bridge could not translate a
+// known event and the upstream's reason was lost. Each now closes any open block
+// and returns an *UpstreamFailedError carrying the upstream's code and message,
+// which the daemon forwards as an anthropic `api_error` event.
+func TestResponsesStreamFailedIsATerminalUpstreamError(t *testing.T) {
+	tr := NewResponsesStreamTranslator()
+	for _, payload := range []string{
+		`{"type":"response.created","sequence_number":0,"response":{"id":"resp_f","object":"response","model":"terra","status":"in_progress"}}`,
+		`{"type":"response.output_text.delta","sequence_number":1,"delta":"partial"}`,
+	} {
+		if _, err := tr.Chunk([]byte(payload)); err != nil {
+			t.Fatalf("Chunk(%s): %v", payload, err)
+		}
+	}
+	evs, err := tr.Chunk([]byte(`{"type":"response.failed","sequence_number":2,"response":{"id":"resp_f","object":"response","model":"terra","status":"failed","error":{"code":"server_error","message":"The model produced invalid content."},"usage":null}}`))
+	var failed *UpstreamFailedError
+	if !errors.As(err, &failed) {
+		t.Fatalf("response.failed must return an *UpstreamFailedError, got %v", err)
+	}
+	if failed.Code != "server_error" || failed.Message != "The model produced invalid content." {
+		t.Fatalf("UpstreamFailedError = %+v, want the upstream's own code and message", failed)
+	}
+	if got := failed.ClientMessage(); got != "The model produced invalid content." {
+		t.Fatalf("ClientMessage() = %q, want the upstream's message verbatim", got)
+	}
+	// The open text block is closed before the error, so the anthropic grammar the
+	// client holds is well-formed up to the error event.
+	assertEvents(t, evs, []Event{
+		{Name: "content_block_stop", Data: []byte(`{"type":"content_block_stop","index":0}`)},
+	})
+	// Terminal: nothing after it is translated.
+	if evs, err := tr.Chunk([]byte(`{"type":"response.output_text.delta","delta":"late"}`)); err != nil || len(evs) != 0 {
+		t.Fatalf("a chunk after response.failed must be dropped, got %v, %v", evs, err)
+	}
+}
+
+func TestResponsesStreamTopLevelErrorIsATerminalUpstreamError(t *testing.T) {
+	for name, payload := range map[string]string{
+		"flat":   `{"type":"error","sequence_number":1,"code":"rate_limit_exceeded","message":"Rate limit reached for requests","param":null}`,
+		"nested": `{"type":"error","error":{"type":"rate_limit_error","code":"rate_limit_exceeded","message":"Rate limit reached for requests"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			tr := NewResponsesStreamTranslator()
+			evs, err := tr.Chunk([]byte(payload))
+			var failed *UpstreamFailedError
+			if !errors.As(err, &failed) {
+				t.Fatalf("a top-level error event must return an *UpstreamFailedError, got %v", err)
+			}
+			if failed.Code != "rate_limit_exceeded" || failed.Message != "Rate limit reached for requests" {
+				t.Fatalf("UpstreamFailedError = %+v", failed)
+			}
+			// Nothing was open, so nothing is closed: the daemon's error event is the
+			// whole of the client's stream.
+			if len(evs) != 0 {
+				t.Fatalf("no block was open, want no events, got %s", formatAll(evs))
+			}
+		})
+	}
+}
+
+// A failure that names no message still tells the agent something true, and
+// names the code when there is one.
+func TestResponsesStreamFailedWithoutAMessageStillSaysWhat(t *testing.T) {
+	tr := NewResponsesStreamTranslator()
+	_, err := tr.Chunk([]byte(`{"type":"response.failed","response":{"id":"resp_e","status":"failed","error":{"code":"server_error"}}}`))
+	var failed *UpstreamFailedError
+	if !errors.As(err, &failed) {
+		t.Fatalf("want *UpstreamFailedError, got %v", err)
+	}
+	if got := failed.ClientMessage(); !strings.Contains(got, "upstream reported the response failed") || !strings.Contains(got, "server_error") {
+		t.Fatalf("ClientMessage() = %q, want a fallback naming the failure and its code", got)
 	}
 }

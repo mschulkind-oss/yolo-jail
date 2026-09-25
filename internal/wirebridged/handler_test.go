@@ -717,3 +717,52 @@ func TestNoKeyMeansNoAuthorizationHeader(t *testing.T) {
 		t.Errorf("no credential declared: the header must be absent, got %q", up.gotAuth)
 	}
 }
+
+// OQ-WB1 at the daemon: a Responses stream the upstream ends with response.failed
+// reaches the agent as an anthropic error event carrying the UPSTREAM's message,
+// not the bridge's "upstream stream did not translate". The log names the event and
+// the upstream's code and never the message, the same split relayUpstreamError
+// keeps for a 4xx before the stream starts.
+func TestResponsesStreamFailedForwardsTheUpstreamsMessage(t *testing.T) {
+	logged := captureDiag(t)
+	const reason = "The model produced invalid content."
+	up := &stubUpstream{t: t, status: 200, contentType: "text/event-stream", body: strings.Join([]string{
+		`data: {"type":"response.created","response":{"id":"resp_f","model":"terra","status":"in_progress"}}`,
+		"",
+		`data: {"type":"response.output_text.delta","delta":"partial"}`,
+		"",
+		`data: {"type":"response.failed","response":{"id":"resp_f","model":"terra","status":"failed","error":{"code":"server_error","message":"` + reason + `"}}}`,
+		"",
+	}, "\n")}
+	upSrv := httptest.NewServer(up.handler())
+	defer upSrv.Close()
+	srv := httptest.NewServer(NewResponsesHandler(upSrv.URL, "k"))
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL+"/v1/messages", "application/json",
+		strings.NewReader(`{"model":"terra","max_tokens":8,"stream":true,"messages":[{"role":"user","content":"hi"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	got := string(body)
+
+	if strings.Contains(got, "did not translate") {
+		t.Fatalf("the agent was told the bridge could not translate the upstream's own failure:\n%s", got)
+	}
+	errAt := strings.Index(got, "event: error")
+	if errAt < 0 || !strings.Contains(got[errAt:], `"type":"api_error"`) || !strings.Contains(got[errAt:], `"message":"`+reason+`"`) {
+		t.Fatalf("want an api_error event carrying the upstream's message, got:\n%s", got)
+	}
+	if stop := strings.Index(got, "event: content_block_stop"); stop < 0 || stop > errAt {
+		t.Fatalf("the open text block must be closed before the error event:\n%s", got)
+	}
+	log := logged()
+	if !strings.Contains(log, "response.failed") || !strings.Contains(log, "server_error") {
+		t.Errorf("the log must name the upstream event and its code, got:\n%s", log)
+	}
+	if strings.Contains(log, reason) {
+		t.Errorf("the upstream's message reached the log, which only the agent may see:\n%s", log)
+	}
+}
