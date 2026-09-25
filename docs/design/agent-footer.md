@@ -1,15 +1,15 @@
 ---
 title: "Which provider is this session on? — yolo facts in every agent's footer"
 date: 2026-09-25
-status: in-review
+status: accepted
 tags: [footer, statusline, packs, providers, profiles, confinement, claude, pi, omp, agy, copilot, opencode, codex]
 summary: "Six of the seven agents yolo ships can show extra text in their footer, through one of three hooks: a status-line command (claude, copilot, agy), a keyed status call in an extension (pi, omp), or a TUI plugin (opencode). Codex has no hook. One core renderer, `yolo internal footer`, prints two facts: what the session is billed through, in plain words, and where the agent runs (jail, guest or host). Each agent pack wires it into its agent's hook, on by default at the lowest layer so a user's own footer replaces it, and always beside the agent's stock status line, never over it. Bedrock cost and bridge failover state are a separate, later design."
 ---
 
 # Which provider is this session on? — yolo facts in every agent's footer
 
-**Status:** DESIGN, 2026-09-25. Six questions ruled in that day's review, and the rulings opened two more. Nothing
-built. MEASURED: each agent's hook ([appendix](#appendix-evidence)) and this jail's env. UNMEASURED: that Claude's
+**Status:** DESIGN, 2026-09-25. Every question is ruled: six in that day's first review, and the two they opened
+([OQ-FT13](#OQ-FT13), [OQ-FT14](#OQ-FT14)) in the second. Nothing built. MEASURED: each agent's hook ([appendix](#appendix-evidence)) and this jail's env. UNMEASURED: that Claude's
 status-line command runs in a jail and inherits its env, and anything about macos-user, which needs a Mac.
 
 > **In short.** No agent's footer knows what yolo routed it to or where yolo put it, so both facts have to come from
@@ -24,8 +24,8 @@ startup header names the billing once, and after that nothing on screen says it,
 hides most keyboard hints whenever any status line is set, and no key keeps them
 ([§2](#2-one-renderer-one-adapter-per-agent)).
 
-**Needs your ruling** ([table](#needs-your-ruling)): [OQ-FT13](#OQ-FT13), [OQ-FT14](#OQ-FT14). What a macos-user
-session calls itself, and whether the footer names your plan.
+**Nothing left to rule.** A macos-user session says `jail` ([OQ-FT13](#OQ-FT13)), and a Claude login reads
+`Claude subscription`, without naming the plan ([OQ-FT14](#OQ-FT14)).
 
 ---
 
@@ -40,11 +40,11 @@ away anything it already shows? Bedrock cost is a later design ([Later](#later-c
 subscription failover [OQ-BR17](wire-bridge-gateway.md#OQ-BR17));
 [`handoff-guest-notch-macos.md`](../plans/handoff-guest-notch-macos.md) (the three notches, and why `guest` is unbuilt).
 
-## Needs your ruling
+## Settled questions
 
-| Question | Leaning |
+| Question | Ruling |
 |---|---|
-| [OQ-FT13](#OQ-FT13) What does a macos-user session's footer say, and what tells the renderer? | `jail`, by having macos-user set the marker every container launch sets |
+| [OQ-FT13](#OQ-FT13) What does a macos-user session's footer say, and what tells the renderer? | `jail`: macos-user sets the marker every container launch sets |
 | [OQ-FT14](#OQ-FT14) Does the footer name your plan ("Claude Team"), or only the login? | Only the login: `Claude subscription` |
 
 ## Terms used throughout
@@ -102,7 +102,7 @@ the switch wins (a table-only footer would call this Bedrock jail a subscription
    counts it on only for `1`, `true`, `yes` or `on`. Switches are not secrets; a credential variable is only ever
    tested for presence. The first switch that is on wins, marked `(env)`: "set outside yolo's profiles".
 3. **Neither:** the pack's words for the agent's built-in login, for example `Claude subscription`, never guessed.
-   Naming the plan is [OQ-FT14](#OQ-FT14).
+   It never names the plan ([OQ-FT14](#OQ-FT14)).
 
 **The plain words come from the pack.** No provider declaration carries a display name, so the pack's command
 passes the words for its login and for each provider its profiles select (`bedrock` → `Bedrock`, `openai-codex` →
@@ -131,8 +131,9 @@ that is not there. The renderer calls `config.InJail` and keeps no copy of the t
 > [!WARNING]
 > **macos-user sets no marker today** (READ: nothing under `internal/macosuser` sets `YOLO_VERSION`, and the profile
 > channel it takes instead of the container env block does not either). Its footer would say `host` inside a
-> Seatbelt sandbox, though yolo renders that backend at the jail notch (`render.Jail`). UNVERIFIED on a Mac;
-> [OQ-FT13](#OQ-FT13).
+> Seatbelt sandbox, though yolo renders that backend at the jail notch (`render.Jail`). UNVERIFIED on a Mac.
+> [OQ-FT13](#OQ-FT13) ruled the fix: the macos-user launch sets `YOLO_VERSION`, after every other `config.InJail()`
+> caller on that backend is checked.
 
 Degenerate inputs:
 - Absent or malformed `YOLO_*` JSON is treated as empty.
@@ -268,7 +269,7 @@ in the [Decision Ledger](#decision-ledger).
 6. ✅ <a id="OQ-FT12"></a>[**OQ-FT12**](#OQ-FT12) (ruled 2026-09-25): **In agy, stack yolo's line with agy's own,
    or replace it?** Stack. It was only ever about agy's built-in line; a footer you write yourself is
    [OQ-FT5](#OQ-FT5)'s, and just works. The rule behind the answer covers every agent: [DIR-FT2](#DIR-FT2).
-7. 💬 <a id="OQ-FT13"></a>**OQ-FT13: What does a macos-user session's footer say, and what tells the renderer?**
+7. ✅ <a id="OQ-FT13"></a>**OQ-FT13: What does a macos-user session's footer say, and what tells the renderer?**
    Today it would say `host` ([§1.2](#12-the-notch)). Options: (a) the macos-user launch sets `YOLO_VERSION` as the
    container launch does, so it says `jail`, the notch its config resolves to (`ResolveConfinement` defaults to
    `jail`) and the one yolo renders it at; that moves every other `config.InJail()` caller on that backend, so each
@@ -279,10 +280,10 @@ in the [Decision Ledger](#decision-ledger).
 
    _Leaning:_ (a). One probe keeps one answer, and `host` inside a sandbox is the one label that is plainly wrong.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer:** (a), ruled 2026-09-25 as leaned: *"macos-user sets YOLO_VERSION like the container launch, after
+   each other config.InJail caller on that backend is checked, so its footer says jail: one probe, one answer."*
 
-8. 💬 <a id="OQ-FT14"></a>**OQ-FT14: Does the footer name your plan, or only the login?** The login words come from
+8. ✅ <a id="OQ-FT14"></a>**OQ-FT14: Does the footer name your plan, or only the login?** The login words come from
    the pack, which cannot know your plan, and Claude's status-line data has no account field. The plan sits in
    Claude's account cache, `~/.claude.json` `oauthAccount.organizationType` (`claude_team` here), and in its
    credential file, which yolo never reads. Options: (a) `Claude subscription`; (b) `Claude Team`, read from that
@@ -292,8 +293,9 @@ in the [Decision Ledger](#decision-ledger).
 
    _Leaning:_ (a). A home holds one login, so `Claude subscription` already tells your Team login from Bedrock.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer:** (a), ruled 2026-09-25 as leaned: *"Claude subscription: it already tells your Team login from
+   Bedrock, since a home holds one login, and naming the plan means reading Claude's undocumented account cache on
+   every run."*
 
 ## Decision Ledger
 
@@ -307,6 +309,8 @@ in the [Decision Ledger](#decision-ledger).
 | [OQ-FT7](#OQ-FT7) | **Set it, and do nothing special about Copilot's gate.** *"why do we care? set it, and it works or it doesn't."* yolo writes Copilot's `statusLine` like every other agent's and neither flips the experimental flag nor checks it. This is the leaning's "no flag", and it also retires the question's other half, whether the gate still exists: nothing depends on it | 2026-09-25 | [§2](#2-one-renderer-one-adapter-per-agent) | — |
 | [OQ-FT12](#OQ-FT12) | **(b), stack with agy's own line:** the agy default sets `stack_with_default: true`. *"I don't want to get rid of the stock agent status lines wherever they exist. I want to add our own, not remove what's there. So I think it's your option B … but I'm not sure what it has to do with a user's own status lines, 'cause we decided that in a question up and yeah, it'll just work."* A user's own footer is [OQ-FT5](#OQ-FT5)'s | 2026-09-25 | [§2](#2-one-renderer-one-adapter-per-agent), [§3](#3-how-a-users-own-footer-survives) | — |
 | <a id="DIR-FT2"></a>DIR-FT2 | **In every agent, yolo's segment is added beside the agent's stock status line wherever it has one, and never removes or replaces it.** Given with [OQ-FT12](#OQ-FT12): *"I want to add our own, not remove what's there."* Claude's hidden keyboard hints are the one loss no hook avoids | 2026-09-25 | [§2](#2-one-renderer-one-adapter-per-agent) | — |
+| [OQ-FT13](#OQ-FT13) | **(a), as its leaning:** the macos-user launch sets `YOLO_VERSION` like the container launch, after each other `config.InJail()` caller on that backend is checked, so its footer says `jail`: one probe, one answer | 2026-09-25 | [§1.2](#12-the-notch) | — |
+| [OQ-FT14](#OQ-FT14) | **(a), as its leaning:** a Claude login reads `Claude subscription`. A home holds one login, so that already tells a Team login from Bedrock; naming the plan would read Claude's undocumented account cache on every run | 2026-09-25 | [§1.1](#11-the-billing-route) | — |
 
 ## What I would build, in order
 
@@ -319,8 +323,9 @@ in the [Decision Ledger](#decision-ledger).
 4. The pi and omp extension files. Done: pi's footer as before, plus a `yolo` status entry.
 5. Copilot's script file. Done: its `custom` footer item shows the segment, or it shows nothing and yolo lets it.
 6. The host: `yolo host apply` fills Claude's command. Done: host Claude shows `· host` and your config's profile.
-7. Last, opencode's plugin (its slot API is known only from binary strings), and macos-user's marker once
-   [OQ-FT13](#OQ-FT13) is ruled.
+7. Last, opencode's plugin (its slot API is known only from binary strings), and macos-user's marker
+   ([OQ-FT13](#OQ-FT13)): audit each `config.InJail()` caller reachable on that backend, then set `YOLO_VERSION`
+   in its launch. Done: a macos-user Claude shows `· jail`, on a Mac.
 
 ## Appendix: evidence
 
