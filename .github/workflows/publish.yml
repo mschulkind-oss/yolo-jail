@@ -9,11 +9,17 @@
 # release. goreleaser (release.yml) creates the release with the
 # workflow-scoped GITHUB_TOKEN, and GitHub's recursion guard means
 # bot-token-created events NEVER trigger `on: release` workflows — a
-# release-only trigger would silently never fire on the documented
-# "releasing = push a v* tag" flow. The release trigger is kept as well so a
+# release-only trigger would silently never fire on the documented flow, where
+# `just release <version>` pushes the v* tag. The release trigger is kept as well so a
 # HUMAN-published release (UI/gh — e.g. re-publishing after a failure) also
 # works; `uv publish --check-url` and the image pushes are idempotent, and the
 # concurrency group collapses double-fires.
+#
+# ⚠ Gate: every job here waits on `release-notes`, which refuses a tag whose
+# CHANGELOG.md has no written section for its version. `just release` runs the
+# same check before it creates a tag, so this only fires on a tag pushed by
+# hand, and then it stops PyPI and the image pushes from shipping a version
+# whose GitHub release (release.yml) refused to exist.
 #
 # PyPI auth is Trusted Publishing (OIDC): pinned to THIS workflow filename +
 # the `pypi` environment — renaming either breaks the publisher config.
@@ -36,7 +42,24 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The same extractor release.yml uses for the release body, run here only as
+  # a gate: its output is discarded, its refusal fails the run.
+  release-notes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Require a CHANGELOG.md section for this tag
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          if ! sh scripts/changelog-section.sh "$version" > /dev/null; then
+            echo "::error::${GITHUB_REF_NAME} has no usable CHANGELOG.md section — it was not cut with 'just release'. Nothing is published."
+            exit 1
+          fi
+
   build-wheels:
+    needs: release-notes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -83,6 +106,7 @@ jobs:
   # and defaults to `yolo-jail` (the CACHIX_CACHE variable only overrides it,
   # e.g. for a fork pushing to its own cache).
   push-image-cache:
+    needs: release-notes
     # Push BOTH x86_64-linux and aarch64-linux closures — each matrix cell
     # builds + pushes its own native arch.  The aarch64-linux closure is the
     # SAME one Apple Silicon Macs consume, so this also serves the mac/arm
@@ -192,6 +216,7 @@ jobs:
   # `nix build .#packages.x86_64-linux.builderImage` on the arm runner cannot
   # substitute its way out of a build.  Same shape as push-image-cache above.
   push-builder-image:
+    needs: release-notes
     strategy:
       # Both cells run even when one fails, so a release reports BOTH arch
       # results instead of hiding the second.  publish-builder-index `needs:`

@@ -236,7 +236,7 @@ func TestAudioPackLoopholeIsInsideThePackShippedSubset(t *testing.T) {
 		t.Fatalf("manifest did not decode: %s", mod.Problem)
 	}
 	// FALSE, and the value FLIPPED when the two audio loopholes merged
-	// (docs/reference/loophole-system.md R4, and the entry in docs/RELEASE-NOTES.md).
+	// (docs/reference/loophole-system.md R4, and the 0.9.x section of CHANGELOG.md).
 	//
 	// The `audio-alsa` sibling shipped `default_enabled: true` on an argument that was
 	// sound for what it was: R4's subject is HOST ACCESS, and an ALSA config fragment

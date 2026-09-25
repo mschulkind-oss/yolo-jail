@@ -211,7 +211,18 @@ of exactly this test, and the reproduction is already written down.
 
 ### I5. Release notes that have accumulated since the last release, and no cut in sight
 
-[`../RELEASE-NOTES.md`](../RELEASE-NOTES.md) holds **eighteen** entries, every one of them under
+> [!NOTE]
+> **Superseded 2026-09-25 by adopting the changelog standard.** A cut now means a written section
+> of [`CHANGELOG.md`](../../CHANGELOG.md): `just release <version>` refuses to tag until that
+> version's section passes `scripts/changelog-section.sh`, and the release workflow publishes the
+> section as the GitHub release body. The old `docs/RELEASE-NOTES.md` is deleted (nobody read it). Its entries were folded
+> into the matching release's section, except those no reader of a published version could have
+> noticed: an entry undone before its release was tagged (such as refusing a fetched pack whose host
+> access was never approved), a fix to something first added in the same cycle, and one with no
+> visible effect (copilot's `--yolo` moving under the autonomy notch). The rest of this item is
+> kept as it was written.
+
+`docs/RELEASE-NOTES.md` (deleted 2026-09-25; `git log -p -- docs/RELEASE-NOTES.md` has it) held **eighteen** entries, every one of them under
 `## Unreleased`, several carrying upgrade instructions that only make sense at a boundary
 (*"restart the broker singleton after upgrading, or every OAuth refresh on that host fails"*).
 

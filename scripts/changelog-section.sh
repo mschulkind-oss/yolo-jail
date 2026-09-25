@@ -1,0 +1,415 @@
+#!/bin/sh
+# Print one version's section of CHANGELOG.md, and refuse the ways a section can
+# exist without saying anything.
+#
+# Adopted from Vantage (mschulkind-oss/vantage, scripts/changelog-section.sh),
+# which is the reference implementation of the portfolio's changelog standard:
+# the open-source-project skill's "Changelog and release notes" section and its
+# references/changelog.md. Keep the two copies' rules the same; a refusal added
+# to one belongs in the other.
+#
+# TWO CALLERS, ONE DEFINITION OF "the prose exists". `just release` runs this
+# before it creates a tag, so a version whose notes were never written cannot
+# become one. The `goreleaser` job in .github/workflows/release.yml runs it
+# against the tag's own tree and hands what it prints to goreleaser as
+# `--release-notes`, which makes it the GitHub release body. publish.yml runs it
+# too, as the gate in front of PyPI and the image pushes. Until 2026-09-25 the
+# body was goreleaser's commit-subject list, and the only prose about an upgrade
+# lived in a separate upgrade-notes doc that no release carried (folded into
+# CHANGELOG.md and deleted the same day).
+#
+# Usage:
+#   changelog-section.sh [--link-base <url>] [--unwrap] <version> [changelog-file]
+#
+# <version> may be written `0.11.0` or `v0.11.0`; the file defaults to
+# CHANGELOG.md beside this script's repository root, so the caller's working
+# directory does not matter.
+#
+# Exit 0 with the section on stdout; 1 with the reason on stderr when there is no
+# usable prose; 2 on a usage error or an unreadable file. Diagnostics go to
+# STDERR, not stdout, because stdout is the payload: `just release` redirects it
+# to /dev/null and must still show the reader why it refused.
+#
+# WHAT IT PRINTS is the section body — everything under the version heading up to
+# the next version heading, minus the heading itself and the blank lines around
+# the body, and nothing else changed unless `--link-base` or `--unwrap` asks
+# (below). Nothing is re-wrapped, so hard line breaks
+# (two trailing spaces), indentation, tables and link references survive into the
+# release verbatim. The heading is dropped because the GitHub release already
+# carries the version in its own title.
+#
+# WHAT IT ACCEPTS is Keep a Changelog, the shape CHANGELOG.md uses, read
+# liberally around the version and strictly on the version itself:
+#
+#     ## [0.11.0] - 2026-10-01     the shape a release section takes
+#     ## [v0.11.0] — 2026-10-01    a `v`, an em dash
+#     ## 0.11.0                    no brackets, no date
+#
+# Level two only: `###` is the subsection level *inside* a section (`### Added`),
+# so accepting it as a version heading would make "where does this section end"
+# ambiguous. A section ends at the next `#` or `##` heading, or at end of file —
+# except inside a fenced code block, where a `# comment` line is code and not a
+# heading.
+#
+# A RETROSPECTIVE HEADING IS NOT EXTRACTABLE, by construction. CHANGELOG.md
+# summarizes the releases before it adopted this gate one minor line at a time,
+# under `## 0.9.x`. `0.9.x` is not a version anyone can release, and `0.9.0`
+# does not match it, because the version has to be followed by `]`, whitespace
+# or the end of the line. A bare `## 0.9` would be unsafe for the same reason
+# `0.9.0` is safe, and test-changelog-section.sh checks every retrospective
+# heading in the real file.
+#
+# RELATIVE LINKS, AND WHY THE RELEASE BODY NEEDS THEM ABSOLUTE. The file links
+# the repository's own docs the repository's way — `[wire bridge](docs/reference/wire-bridge.md)`
+# — because that is what a link checker can follow, so a dead link or a dead
+# anchor is caught before it can ship. But a GitHub release body is not rendered
+# inside the repository tree: GitHub leaves the href exactly as written, and the
+# page it sits on is `/releases/tag/v0.11.0`, so every such link resolves under
+# `/releases/tag/` and 404s. Since a tag is never moved, that is a dead link that
+# can never be fixed. `--link-base` is how CI closes the gap: given
+# `https://github.com/<owner>/<repo>/blob/<tag>/`, every relative link target is
+# printed prefixed with it — pinned to the tag, so it shows the doc as it stood
+# for that release — and a bare `#anchor` is pointed at `CHANGELOG.md#anchor`.
+# Without the option the body is byte-for-byte as written. Absolute URLs,
+# `mailto:` and the like are left alone, as is anything inside a code span or a
+# fenced block, where `](x)` is text and not a link.
+#
+# HARD-WRAPPED PROSE, AND WHY THE RELEASE BODY NEEDS IT JOINED. The file is
+# wrapped at about 100 columns so it diffs and reviews well. GitHub renders a
+# release body the way it renders a comment, with every newline a `<br>` (Vantage
+# measured this on its v0.7.0 release page), so the wrapping would arrive as a
+# ragged column. `--unwrap` joins each paragraph and each list item back onto one
+# line and leaves everything whose line breaks mean something: fences, tables,
+# headings, HTML, reference definitions, block quotes, indented code, and a hard
+# break written as two trailing spaces or a backslash.
+#
+# The version has to match whole. `0.11.0` will not find `## [0.11.0-rc1]` or
+# `## [10.11.0]`: the requested version must be followed by `]`, whitespace, or
+# the end of the line, and `-` is none of those.
+set -eu
+
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+usage="usage: $0 [--link-base <url>] [--unwrap] <version> [changelog-file]"
+
+link_base=
+unwrap=
+while :; do
+    case "${1:-}" in
+        --link-base)
+            [ "$#" -ge 2 ] && [ -n "$2" ] || { echo "$usage" >&2; exit 2; }
+            # One trailing slash, however the caller wrote it, so the join never
+            # doubles one or drops one.
+            link_base="${2%/}/"
+            shift 2
+            ;;
+        --unwrap)
+            unwrap=1
+            shift
+            ;;
+        -*)
+            echo "$usage" >&2
+            exit 2
+            ;;
+        *) break ;;
+    esac
+done
+
+[ "$#" -ge 1 ] || { echo "$usage" >&2; exit 2; }
+[ "$#" -le 2 ] || { echo "$usage" >&2; exit 2; }
+
+version=${1#v}
+file=${2:-$here/../CHANGELOG.md}
+
+[ -n "$version" ] || { echo "$0: empty version" >&2; exit 2; }
+[ -r "$file" ] || { echo "$0: cannot read $file" >&2; exit 2; }
+
+# The version is interpolated into a regex, so its dots have to stop meaning "any
+# character": unescaped, a request for `0.7.0` would also match `## [0x7x0]`, and
+# whatever else a caller typed would be read as syntax rather than as a version.
+version_re=$(printf '%s\n' "$version" | sed 's/[][\\^$.|?*+(){}]/\\&/g')
+heading_re="^[[:space:]]*##[[:space:]]*\\[?v?${version_re}\\]?([[:space:]]|\$)"
+
+# awk processes escape sequences in a `-v` assignment before the value is ever
+# used as a regex, so every backslash has to arrive doubled. Getting this wrong
+# is not a warning you can live with: in Vantage's first cut `\[?` arrived as
+# `[?v?0.3.1]?`, a bracket expression, and the extractor matched the first
+# heading in the file regardless of which version was asked for.
+heading_awk_re=$(printf '%s\n' "$heading_re" | sed 's/\\/\\\\/g')
+
+fail=0
+problem() {
+    echo "$@" >&2
+    fail=1
+}
+
+# --- extract -----------------------------------------------------------------
+
+# Two passes, both in awk, because both are line-exact work and neither may
+# rewrite a byte of the body: the first finds the section, the second trims only
+# the blank lines the surrounding headings leave behind.
+body=$(
+    awk -v start="$heading_awk_re" '
+        # A fence flips first, before any heading test: a section may contain a
+        # shell snippet, and `# rebuild the bundle` inside one is a comment, not
+        # the start of the next version.
+        /^[[:space:]]*(```|~~~)/ { fenced = !fenced; if (found) print; next }
+        !fenced && $0 ~ start    { found = 1; next }
+        # `#{1,2}` and then a non-#: level one or two ends the section, level
+        # three (### Added) is part of it.
+        found && !fenced && /^[[:space:]]*#{1,2}[^#]/ { exit }
+        found { print }
+        END { exit(found ? 0 : 1) }
+    ' "$file"
+) || {
+    echo "$0: CHANGELOG.md has no section for $version." >&2
+    echo "  Rename its [Unreleased] heading to the version, or add a section in the" >&2
+    echo "  shape the file already uses, newest first:" >&2
+    echo "" >&2
+    echo "      ## [$version] - $(date +%Y-%m-%d)" >&2
+    echo "" >&2
+    echo "      ### Added" >&2
+    echo "" >&2
+    echo "      - What changed, and why a reader would care." >&2
+    exit 1
+}
+
+# Blank lines at the two ends are an artifact of the headings, not content.
+# Interior lines are held and replayed as they were written — a "blank" line of
+# two spaces inside the body stays two spaces.
+body=$(
+    printf '%s\n' "$body" | awk '
+        /[^[:space:]]/ {
+            if (seen) for (i = 1; i <= held; i++) print hold[i]
+            held = 0; seen = 1; print; next
+        }
+        { hold[++held] = $0 }
+    '
+)
+
+if [ -z "$body" ]; then
+    echo "$0: the [$version] section of CHANGELOG.md is empty." >&2
+    echo "  A heading is not a release note. Say what changed and why it matters." >&2
+    exit 1
+fi
+
+# --- what counts as content --------------------------------------------------
+
+# Sub-headings and HTML comments are scaffolding: a section holding nothing but
+# `### Added` and `<!-- fill this in -->` is as empty as a section holding
+# nothing, and saying so is more useful than extracting it.
+content=$(
+    printf '%s\n' "$body" | awk '
+        /^[[:space:]]*<!--/ { if ($0 !~ /-->/) commented = 1; next }
+        commented           { if ($0 ~ /-->/) commented = 0; next }
+        /^[[:space:]]*#/    { next }
+        /^[[:space:]]*$/    { next }
+        { print }
+    '
+)
+
+if [ -z "$content" ]; then
+    echo "$0: the [$version] section of CHANGELOG.md has headings but no content." >&2
+    echo "  Write the notes under them, or delete the empty headings." >&2
+    exit 1
+fi
+
+# Strip the markup off a line so the placeholder test compares words: list
+# marker, emphasis, backticks, brackets, trailing punctuation, case.
+reduce() {
+    sed -e 's/^[[:space:]]*[-*+][[:space:]]*//' \
+        -e 's/^[[:space:]]*[0-9][0-9]*\.[[:space:]]*//' \
+        -e 's/[][`*_~()<>]//g' \
+        -e 's/^[[:space:]]*//' \
+        -e 's/[[:space:]]*$//' \
+        -e 's/[[:punct:]]*$//' \
+        | tr 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' 'abcdefghijklmnopqrstuvwxyz'
+}
+
+# A line that survives `reduce` as one of these carries no information. A line
+# that reduces to nothing at all — `...`, a lone bullet — is the same statement
+# made with punctuation, so it counts too; it is a second alternative rather than
+# an empty branch inside the first, because BSD grep refuses `(a|b|)` with
+# `empty (sub)expression` and GNU grep accepts it. That divergence is exactly how
+# this went wrong once: the empty branch cost nothing on Linux and made every
+# macOS run print "still a placeholder" for prose that was already written.
+placeholder_re='^(tbd|t\.?b\.?d|to be (determined|written|filled in|done)|todo|to-?do|wip|fixme|xxx|coming soon|write (me|this)|nothing (yet|here)|no changes yet|placeholder|notes|n/a|none|…)$|^$'
+
+# `grep -v` exits 1 when it filters everything out and 2 when the pattern itself
+# is bad, and only the first means "every line was a stub". Collapsing them with
+# `|| true` is what let a rejected regex masquerade as a placeholder section on
+# one platform, so a real error is reported as one and nothing is released on the
+# strength of a verdict grep never reached.
+unplaceheld=$(printf '%s\n' "$content" | reduce | grep -Eiv "$placeholder_re") || {
+    _status=$?
+    if [ "$_status" -gt 1 ]; then
+        echo "$0: grep rejected the placeholder pattern (exit $_status)." >&2
+        echo "  That is a bug in this script, not a problem with CHANGELOG.md." >&2
+        exit 2
+    fi
+}
+if [ -z "$unplaceheld" ]; then
+    echo "$0: the [$version] section of CHANGELOG.md is still a placeholder." >&2
+    echo "  Every line in it is a stub. Replace them before cutting the tag:" >&2
+    printf '%s\n' "$body" | sed 's/^/      /' >&2
+    exit 1
+fi
+
+# --- the slop list -----------------------------------------------------------
+#
+# A script cannot judge prose. It can refuse the phrases that only appear when
+# nobody has decided what to say, and a refusal that names the phrase teaches
+# more than a style guide nobody opens. Extend the list freely — one `refuse`
+# line per phrase — but keep every entry a phrase that is a tell on its own: a
+# check that fires on honest prose is worse than no check at all.
+refuse() {
+    _re=$1
+    _advice=$2
+    _hit=$(printf '%s\n' "$body" | grep -Eio "$_re" | head -1 || true)
+    [ -n "$_hit" ] || return 0
+    problem "$0: \"$_hit\" — $_advice"
+}
+
+# "Various" and its synonyms are what you write instead of reading the diff.
+refuse 'various (improvements|fixes|changes|updates|enhancements)' \
+    'name them. A release with too many changes to list has too many changes for one line.'
+refuse 'misc(ellaneous)?\.? (fixes|changes|improvements|updates)' \
+    'same dodge, different word. Which fixes, and what did they fix?'
+# True of every release ever shipped, which is what makes it worthless.
+refuse 'bug fixes and (other |various )?improvements' \
+    'the app-store default. Say which bug, and who was hitting it.'
+# Preamble that restates the heading before saying anything.
+refuse '(this|the) release (includes|contains|brings)' \
+    'the heading already said which release this is. Open on the change itself.'
+# Marketing affect about our own work; the reader wants the change, not our mood.
+refuse "(we|we'?re|we are) (excited|thrilled|pleased|happy) (to|about)|excited to (announce|share)" \
+    'skip the announcement voice and describe what is different.'
+# Promises the mechanism and then names a category instead.
+refuse 'under the hood' \
+    'name the machinery you are alluding to, or cut the sentence.'
+# Trails off exactly where the detail belongs.
+refuse 'and (much|lots|plenty) more|and more!' \
+    'finish the list, or end it where it ends.'
+# A pasted --generate-notes block: the thing this script exists to replace.
+refuse 'full changelog\*{0,2}:' \
+    "that is GitHub's compare link, not release notes. Write the prose it was standing in for."
+
+# --- a dumped git log --------------------------------------------------------
+
+# Commit subjects are written for the next maintainer bisecting; release notes
+# are written for the person deciding whether to upgrade. The vocabulary is the
+# conventional-commit set this repository's commits use (AGENTS.md, Workflow),
+# so a pasted `git log --format=%s` is recognizable here.
+commit_re='^[[:space:]]*[-*+][[:space:]]*(feat|fix|docs|chore|refactor|test|perf|ci|build|style|revert)(\([^)]+\))?!?:[[:space:]]'
+bullets=$(printf '%s\n' "$content" | grep -Ec '^[[:space:]]*[-*+][[:space:]]' || true)
+prose=$(printf '%s\n' "$content" | grep -Evc '^[[:space:]]*[-*+][[:space:]]' || true)
+subjects=$(printf '%s\n' "$content" | grep -Ec "$commit_re" || true)
+
+# Bullets alone are fine — a fixes list is often nothing else. What
+# is refused is bullets that are still commit subjects, and only when they are
+# the majority, so one honest bullet reading "fix: ..." cannot fail a release.
+if [ "$prose" -eq 0 ] && [ "$subjects" -ge 1 ] && [ $((subjects * 2)) -ge "$bullets" ]; then
+    problem "$0: the [$version] section is a list of commit subjects ($subjects of $bullets bullets)."
+    echo "  Those are written for someone bisecting. Write for someone deciding" >&2
+    echo "  whether to upgrade: what is different, and why they would want it." >&2
+fi
+
+if [ "$fail" -ne 0 ]; then
+    echo "" >&2
+    echo "Rewrite the [$version] section of CHANGELOG.md, then cut the release again." >&2
+    exit 1
+fi
+
+# --- links, for a body that is read off the repository tree -----------------
+
+if [ -n "$link_base" ]; then
+# Inline links `](target` and reference definitions `[name]: target`. Code spans
+# are skipped by splitting on backticks and rewriting only the even pieces; a
+# fence skips whole lines, the same way the extractor above treats one.
+body=$(printf '%s\n' "$body" | awk -v base="$link_base" '
+    function absolute(t) {
+        # A scheme (https:, mailto:), or a protocol-relative //host.
+        return t ~ /^[A-Za-z][A-Za-z0-9+.-]*:/ || t ~ /^\/\//
+    }
+    function resolve(t) {
+        if (absolute(t)) return t
+        if (t ~ /^#/) return base "CHANGELOG.md" t
+        sub(/^\.\//, "", t)
+        sub(/^\//, "", t)
+        return base t
+    }
+    function inline_links(s,    out, t) {
+        out = ""
+        while (match(s, /\]\([^)[:space:]]+/)) {
+            t = substr(s, RSTART + 2, RLENGTH - 2)
+            out = out substr(s, 1, RSTART + 1) resolve(t)
+            s = substr(s, RSTART + RLENGTH)
+        }
+        return out s
+    }
+    /^[[:space:]]*(```|~~~)/ { fenced = !fenced; print; next }
+    fenced { print; next }
+    # [name]: target — at most three spaces of indent, as CommonMark has it.
+    /^ {0,3}\[[^]]+\]:[[:space:]]*[^[:space:]]/ {
+        match($0, /\]:[[:space:]]*/)
+        head = substr($0, 1, RSTART + RLENGTH - 1)
+        rest = substr($0, RSTART + RLENGTH)
+        t = rest; sub(/[[:space:]].*$/, "", t)
+        print head resolve(t) substr(rest, length(t) + 1)
+        next
+    }
+    {
+        n = split($0, piece, "`")
+        line = ""
+        for (i = 1; i <= n; i++) {
+            if (i > 1) line = line "`"
+            line = line (i % 2 ? inline_links(piece[i]) : piece[i])
+        }
+        print line
+    }
+')
+fi
+
+# --- paragraphs, for a body GitHub renders with every newline a break -------
+
+# A block is buffered until a blank line or the start of another block ends it.
+# Only a paragraph or a list item is joinable; the rest are "verbatim" and keep
+# each line as written. A continuation joins with one space and loses its
+# indentation — which, inside a list item, is only there to hang under the
+# marker — unless the line before it ends in a hard break, which is kept.
+if [ -n "$unwrap" ]; then
+body=$(printf '%s\n' "$body" | awk '
+    function flush() { if (buf != "") print buf; buf = ""; kind = ""; item = 0 }
+    function hard(l) { return l ~ /  $/ || l ~ /\\$/ }
+    /^[[:space:]]*(```|~~~)/ { flush(); fenced = !fenced; print; next }
+    fenced { print; next }
+    /^[[:space:]]*$/ { flush(); print; next }
+    # A heading is one line by definition, so it closes itself.
+    /^[[:space:]]*#/ { flush(); print; next }
+    # A line that opens a block no matter what came before it.
+    /^[[:space:]]*\|/ || /^[[:space:]]*</ || /^[[:space:]]*>/ ||
+    /^ ? ? ?\[[^]]+\]:/ {
+        flush(); buf = $0; kind = "verbatim"; last = $0; next
+    }
+    # A bullet always opens an item. A number only does where CommonMark lets it:
+    # after a blank, inside a list, or as `1.` — so a wrapped sentence whose next
+    # line happens to open with "2026. " stays one sentence.
+    /^[[:space:]]*[-*+][[:space:]]/ ||
+    (/^[[:space:]]*[0-9]+[.)][[:space:]]/ && (buf == "" || item || /^[[:space:]]*1[.)]/)) {
+        flush(); buf = $0; kind = "join"; item = 1; last = $0; next
+    }
+    # Four columns of indent after a blank line is indented code, not prose.
+    buf == "" && (/^    / || /^\t/) { buf = $0; kind = "verbatim"; last = $0; next }
+    buf == "" { buf = $0; kind = "join"; last = $0; next }
+    kind == "verbatim" || hard(last) { buf = buf "\n" $0; last = $0; next }
+    {
+        line = $0
+        sub(/^[[:space:]]+/, "", line)
+        buf = buf " " line
+        last = $0
+    }
+    END { flush() }
+')
+fi
+
+printf '%s\n' "$body"

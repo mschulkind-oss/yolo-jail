@@ -73,7 +73,7 @@ against exactly one threat, the silent update.
 | **OQ-TP7** | **RETIRED, not answered — [`OQ-TP9`](#decision-ledger) deleted its subject.** *"`yolo check` reports PASS on a config the launch refuses, and the refusal's APPROVE option needs a tty and a network."* Every refusal source gated on the deleted `MayAccessHost`, so there is no refusal to predict and no approve path to be unreachable — both gaps dissolved rather than closed. **Preserved:** the third-gate trap — a preflight that predicts a launch refusal must SHARE the gate, never copy it; the test that pinned *two* gates by name could be satisfied vacuously by a third, and now pins *zero* | 2026-09-04 | [§3.1](#31-a-refused-contribution-refuses-the-launch-) (the third-gate warning) |
 | **OQ-TP8** | **Ungated, both halves — a recorded ruling, not an accident.** Pack `derive.lua` runs with no origin check, in-jail at boot and host-side under `yolo host -- <cmd>`. The leaning's host-half gate failed a parity check: the same command folds each pack's **static** `kind: "env"` keys into the process environment one step EARLIER, ungated, so the derive computes a field the manifest can already state literally — gating the computed path while the literal one is open is theatre. The disclosure is the commit pin ([`OQ-LP8`](../reference/loophole-system.md#oq-lp8)), not a claim line. Reopens if the VM gains I/O, exec, network or an unbudgeted loop, or if `ctx` grows a field static `env` cannot carry | 2026-09-04 | [§2](#2-the-inventory), [the pack-Lua section](#pack-shipped-lua-is-ungated-on-both-sides-and-that-is-the-ruling) |
 | **OQ-TP10** | **(a) — plugin claims get their own disclosure class,** so a wrapped plugin's `hooks` and `mcpServers` render on the launch banner beside mounts and host reads. TP9's argument was about AUTHORITY and says nothing about VISIBILITY; disclosure is the half TP9 kept precisely because it is not consent, so a hole in it is the shape this census exists to catch. **The rendering is not invented here — [`../reference/report-tiers.md`](../reference/report-tiers.md) already decides it**: [P5](../reference/report-tiers.md#principles) (*named, not itemized — "appearing once is appearing"*), [P6](../reference/report-tiers.md#principles) (*count what the reader cares about — hooks and servers, not files*) and [P1](../reference/report-tiers.md#principles) (*a property of the pack set is stated once per set*) together make it ONE line per pack naming counts by kind, with the itemization landing in `boot.log` through the same tee the boot catalog uses. So (a) costs one line, not one per hook — which is what makes it compatible with the startup-density work rather than in tension with it. [P4](../reference/report-tiers.md#principles) then forbids gating that line, which is the same sentence that keeps the host-access banner. **Covers `jail_daemon` too** ([§3.2](#32-jail_daemon-is-a-claim-free-crossing-to-supervised-in-jail-execution)): it is a claim-free crossing to supervised in-jail execution, which is the same disclosure question with no claim to hang it on, and a class that renders counts can carry a zero-claim crossing by name.<br><br>**BUILT 2026-09-17**, and it settled the ⚠ this row left open — *which* class. The answer is a FOURTH one, `disclosureJailExec`: the first three are axes of HOST crossing, and this claim's honest answer to "what does it do to your machine" is *nothing*. `KindSkills` stays `disclosureSkip` as the ruling requires (candidate (c) stays rejected); the override is per-claim, keyed on a `plugin:` target that `RunsCode`, mirroring the per-claim split the loophole kinds already use. **Two halves of this row did NOT ship.** The itemization does not reach `boot.log` — that split is `Env.LogOnly` in the ENTRYPOINT, and the launcher's tee copies both streams verbatim, so no host-side detail-only sink exists; `yolo pack footprint` is the itemization pointer instead. And `jail_daemon` is not yet carried: naming a declared daemon without the per-launch "will it actually run" answer would be the overclaim the `autonomy` and `profile` rows refuse | 2026-09-14 | [the launch stream](../reference/report-tiers.md#the-launch-stream) |
-| **OQ-TP9** | **The fetched-pack approval prompt is THEATRE — deleted.** Selecting a pack means writing user-scope config as the host user (`packs` is inexpressible at workspace scope *by construction*), so the gate refused an actor who had already passed a stronger one — [`gate-placement-principle.md`](../reference/gate-placement-principle.md) [Test 1](../reference/gate-placement-principle.md#test-1--the-authority-test-could-this-actor-already-do-it), already applied this way to the sibling `--user-layer` route. Its original containment rationale was refuted in-house ([`pack-execution-trust.md`](../reference/pack-system.md#why-there-is-no-approval-gate) [§2](../reference/pack-system.md#why-there-is-no-approval-gate)). **Kept:** `packs` user-scope-only (that half PASSES Test 1) and the startup disclosure banner, onto which [`pack-execution-trust.md`](../reference/pack-system.md#why-there-is-no-approval-gate) [§6](../reference/pack-system.md#why-there-is-no-approval-gate) is retargeted. **Corrected same day:** the pin is effectively honored already (a launch resolves from the local mirror, which only moves at `pack install`), so the follow-on was [`OQ-LP8`](../reference/loophole-system.md#oq-lp8)'s two documentation requirements (delivered 2026-09-04), not enforcement; the lockfile is write-only at launch, and G2b is moot. Retires [`OQ-TP7`](#decision-ledger); opens [`OQ-TP10`](#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner) | 2026-09-04 | [§3.1](#31-a-refused-contribution-refuses-the-launch-) |
+| **OQ-TP9** | **The fetched-pack approval prompt is THEATRE — deleted.** Selecting a pack means writing user-scope config as the host user (`packs` is inexpressible at workspace scope *by construction*), so the gate refused an actor who had already passed a stronger one — [`gate-placement-principle.md`](../reference/gate-placement-principle.md) [Test 1](../reference/gate-placement-principle.md#test-1--the-authority-test-could-this-actor-already-do-it), already applied this way to the sibling `--user-layer` route. Its original containment rationale was refuted in-house ([`pack-execution-trust.md`](../reference/pack-system.md#why-there-is-no-approval-gate) [§2](../reference/pack-system.md#why-there-is-no-approval-gate)). **Kept:** `packs` user-scope-only (that half PASSES Test 1) and the startup disclosure banner, onto which [`pack-execution-trust.md`](../reference/pack-system.md#why-there-is-no-approval-gate) [§6](../reference/pack-system.md#why-there-is-no-approval-gate) is retargeted. **Corrected same day:** the pin is effectively honored already (a launch resolves from the local mirror, which only moves at `pack install`), so the follow-on was [`OQ-LP8`](../reference/loophole-system.md#oq-lp8)'s two documentation requirements (delivered 2026-09-04), not enforcement; the lockfile is write-only at launch, and G2b is moot. *(Its premise that the mirror moves only at `pack install` was retired 2026-09-25 by [`OQ-PF1`](../reference/pack-system.md#oq-pf1): a host launch now fetches a missing pack and re-fetches a branch hourly, while a tag or commit pin still never moves without an explicit `yolo pack install` or `update`.)* Retires [`OQ-TP7`](#decision-ledger); opens [`OQ-TP10`](#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner) | 2026-09-04 | [§3.1](#31-a-refused-contribution-refuses-the-launch-) |
 
 > [!WARNING]
 > **This document's questions were renumbered on 2026-08-18, and the reason is worth keeping.** They
@@ -101,8 +101,7 @@ against exactly one threat, the silent update.
 > **The section numbers and question headings are an API too.** [`§1 row 1`](#1-the-verdict) is
 > cited from `internal/cli/packupdate.go`, `internal/cli/pack.go`, `internal/entrypoint/shims.go`,
 > `internal/entrypoint/npmspec.go` and two tests (`packupdate_test.go`, `npmlauncher_test.go`);
-> [`§3.1`](#31-a-refused-contribution-refuses-the-launch-) from [`RELEASE-NOTES.md`](../RELEASE-NOTES.md)
-> and three sibling docs (the code that cited it, `run/packrefusal.go`, is deleted).
+> [`§3.1`](#31-a-refused-contribution-refuses-the-launch-) from three sibling docs (the code that cited it, `run/packrefusal.go`, is deleted).
 >
 > ⚠ **The question HEADINGS are not an API, and believing they were is what kept this document
 > long.** This note said they were "linked by slug from seven other docs (counted 2026-09-06)",
@@ -130,7 +129,9 @@ write a few lines later; re-checked 2026-09-24). The act that moves the content 
 pin. A pin advanced by the same command that changes the bytes is a receipt. It becomes a gate only
 if three things hold together — (i) enforced at use, (ii) advanced by a *different* act than the one
 that changes content, (iii) that act shows you what changed. Today **none** hold, and nobody is
-proposing to fix (ii).
+proposing to fix (ii). Since 2026-09-25 a host launch is a second such act: its fetch and its
+lockfile write are one step too ([`OQ-PF1`](../reference/pack-system.md#oq-pf1)), and what it
+adds toward (iii) is a disclosure line naming the old and new commit whenever a pack moved.
 
 ### The lockfile is a receipt, not a gate
 
@@ -139,16 +140,22 @@ and `Ref` — and, since 2026-09-04, deliberately nothing else:
 
 | Field | Read at launch? | Evidence |
 | :--- | :--- | :--- |
-| `ApprovedHostAccess` | ⛔ **DELETED 2026-09-04** by [`OQ-TP9`](#decision-ledger), with the gate that read it. It was the lockfile's only launch-time reader, so **the lockfile is now write-only at launch** — `run/packs.go` says so where it used to be read, and `LockEntry`'s doc comment records the deletion and refuses reintroduction without a design ruling | was the one real gate; ruled theatre |
-| `Commit` · `Ref` | **No.** Every reader is **display-only**: the moved-pin message and the `pack status` listing, both in [`internal/cli/pack.go`](../../internal/cli/pack.go). The launch re-resolves the **config's ref** against the local mirror | verified 2026-08-18, **still true 2026-09-06**. Cited by SYMBOL rather than by line: the four `#L` anchors this row carried all drifted or died within a month |
+| `ApprovedHostAccess` | ⛔ **DELETED 2026-09-04** by [`OQ-TP9`](#decision-ledger), with the gate that read it. It was the lockfile's only launch-time reader, so **the lockfile was write-only at launch** — `run/packs.go` says so where it used to be read, and `LockEntry`'s doc comment records the deletion and refuses reintroduction without a design ruling. *(Since 2026-09-25 the launch reads it again, for one thing only: the refresh step compares a pack's locked commit with the one it resolved, to print the `Updated pack` disclosure ([`OQ-PF1`](../reference/pack-system.md#oq-pf1)). Nothing gates on it.)* | was the one real gate; ruled theatre |
+| `Commit` · `Ref` | **Not for resolution.** Every reader is **display-only**: the moved-pin message and the `pack status` listing, both in [`internal/cli/pack.go`](../../internal/cli/pack.go), and since 2026-09-25 the launch's own `Updated pack <name>: <ref> <old> → <new>` line, which compares the lock's commit with the one the launch resolved. The launch re-resolves the **config's ref** against the local mirror | verified 2026-08-18, **still true 2026-09-06**; the launch reader is [`OQ-PF1`](../reference/pack-system.md#oq-pf1)'s, written with that change. Cited by SYMBOL rather than by line: the four `#L` anchors this row carried all drifted or died within a month |
 
 **What bounds this, and why it is a meaning defect rather than a security one** (the correction
 [`OQ-TP9`](#decision-ledger) made to its own ruling, the same day): a launch resolves a fetched pack
-from the **local mirror** at the config's ref (`packsrc.Store.resolveFromStore`), and the mirror
-moves only when `yolo pack install`/`update` runs — the one network step in the product. So content
-is frozen between installs, and the lock's commit and the mirror's ref agree right after either
-command writes both. Making resolution read the lock's commit instead of the mirror's ref is what a
-lockfile means everywhere else, and worth doing — but it is correctness-of-meaning, not a gate.
+from the **local mirror** at the config's ref (`packsrc.Store.resolveFromStore`). Until
+2026-09-25 the mirror moved only when `yolo pack install`/`update` ran. Now a host launch fetches
+too, by the ref rule of [`OQ-PF1`](../reference/pack-system.md#oq-pf1): a pack missing from the
+store is fetched, a branch is re-fetched at most hourly, and a tag or commit pin is never
+re-fetched. So a pinned pack's content is still frozen until an explicit `yolo pack install` or `update`, a branch's moves
+within the hour and says so on the launch that moved it, and the lock's commit and the mirror's
+ref agree right after any of those steps writes both. Within one launch, resolution now stages
+the commit that launch's refresh decided rather than re-reading the shared mirror's ref, so a
+concurrent fetch cannot slip in content the launch did not disclose. Making resolution read the
+lock's commit instead of the mirror's ref is what a lockfile means everywhere else, and worth
+doing — but it is correctness-of-meaning, not a gate.
 [`OQ-LP8`](../reference/loophole-system.md#oq-lp8)
 ruled the substance — *"choosing to follow a branch IS the trust decision"* — and its two
 documentation requirements (say that in one plain sentence; document **tag pins** as the shape for
@@ -242,9 +249,12 @@ now retired — kept because they remain true of the lockfile and constrain anyt
    > has no path in it at all. (Whether that string appears on any launch banner at all is
    > [`OQ-TP10`](#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner).)
 3. **Editing `?ref=` in config without reinstalling.** The mirror already holds every branch and tag,
-   so a config-only edit resolves offline at the next launch and delivers new content with **no
-   install, no network and no prompt**. `pack status` calls this drift; nothing on the launch path
-   consults it.
+   so a config-only edit resolves at the next launch and delivers new content with **no install
+   and no prompt** (and, since [`OQ-PF1`](../reference/pack-system.md#oq-pf1), a network fetch
+   when the new ref is a branch due for its hourly refresh, or one the mirror lacks). `pack status`
+   calls this drift. Since 2026-09-25 the launch does consult the lock, but only to DISCLOSE: its
+   refresh prints `Updated pack <name>: <ref> <old> → <new>` against the locked commit, and
+   nothing refuses the move.
 
    > **What `?ref=` is.** A fetched pack is named by a URL-shaped *address* in your user config, and
    > `?ref=` is the query parameter on it that selects which git ref to use
@@ -279,8 +289,10 @@ now retired — kept because they remain true of the lockfile and constrain anyt
    > changes a generated artifact and nothing else.
    >
    > The gap is real but narrower than it reads: a **person** who edits `?ref=` gets new code with no
-   > prompt, because nothing on the launch path compares the ref they are now running against the
-   > ref they installed. Same missing enforcement as the lockfile finding above.
+   > prompt, because nothing on the launch path refuses on the ref they are now running against
+   > the ref they installed. Since [`OQ-PF1`](../reference/pack-system.md#oq-pf1) the launch
+   > compares the COMMIT with the lock's and prints the move; it still enforces nothing. Same
+   > missing enforcement as the lockfile finding above.
 
 ### P1. Trust flows DOWNWARD, and a parent controlling its child is not a finding
 
@@ -479,9 +491,10 @@ nothing about trust**. What it still names is the **delivery route**:
 | :--- | :--- | :--- |
 | **embedded** | compiled into the yolo binary (`packs/*`) | already in the binary; no lockfile row |
 | **local** | `file:///path/to/pack` on your own disk | read in place, every launch; a lockfile row with no commit |
-| **fetched** | `git+https://…?ref=…`, content someone else controls | `yolo pack install` into the store; a lockfile row with a commit |
+| **fetched** | `git+https://…?ref=…`, content someone else controls | fetched into the store by a host launch or by `yolo pack install`; a lockfile row with a commit |
 
-That is what `pack install`, `pack status` and the drift report key on — and nothing else does.
+That is what the launch's fetch, `pack install`, `pack status` and the drift report key on — and
+nothing else does.
 
 #### Why the gate was theatre — the argument, preserved
 
@@ -635,9 +648,9 @@ install, `env`, `doctor_cmd` and `settings` keys (every one a `user-scope only` 
 `internal/config`, counted 2026-09-06).
 
 An iceboxed consent proposal, [`workspace-config-trust.md`](workspace-config-trust.md), would add a
-host-side trust record for writable grants in the local file. It passes Test 1 where OQ-TP9's gate
+host-side trust record for writable grants in the local file. It passes Test 1 where [`OQ-TP9`](#decision-ledger)'s gate
 failed, because neither the repo author nor the in-jail agent could already grant a writable host
-path; built, it would be a new refusal source bound by OQ-TP6.
+path; built, it would be a new refusal source bound by [`OQ-TP6`](#decision-ledger).
 
 > [!WARNING]
 > **And the scope model inverts one level down.** Measured: `/home/agent/.config/yolo-jail` and

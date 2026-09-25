@@ -10,8 +10,10 @@
 # yolo-jaild) also ship inside the NIX IMAGE and must NOT be listed here;
 # goprobe is dev-only.
 #
-# Releasing = pushing a v* tag (.github/workflows/release.yml). No local
-# `just release` recipe by design.
+# Releasing = `just release <version>`: it refuses unless CHANGELOG.md has a
+# written section for the version and the tree is clean, then pushes the v* tag
+# that .github/workflows/release.yml runs this config on. The release body is
+# that section, passed as --release-notes; see the note where `changelog:` was.
 #
 # Version stamping: internal/version resolves a baked stamp before live
 # `git describe` (divergence D18), so these ldflags are what a released binary
@@ -81,12 +83,12 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
-# Exclude patterns cover both the scoped (docs(scope):) and unscoped (docs:)
-# conventional-commit forms this repo uses.
-changelog:
-  sort: asc
-  filters:
-    exclude:
-      - "^docs[:(]"
-      - "^chore[:(]"
-      - "^test[:(]"
+# NO `changelog:` BLOCK, on purpose. The release body is the tag's CHANGELOG.md
+# section, which release.yml extracts with scripts/changelog-section.sh and
+# passes as `--release-notes`; goreleaser then loads that file and never builds
+# its commit-subject list (the filters that used to sit here shaped a body that
+# is no longer published). Do NOT add `changelog: {disable: true}` to make that
+# explicit: disabling skips goreleaser's whole changelog pipe, and that pipe is
+# also what loads `--release-notes`, so the release would ship with an empty
+# body. Checked against goreleaser's internal/pipe/changelog (Skip, then Run's
+# early return on ReleaseNotesFile).

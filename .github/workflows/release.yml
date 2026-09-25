@@ -1,8 +1,13 @@
 # Release — tag-triggered goreleaser + homebrew tap update (★ step 2 of the Go
 # transition; shape copied from mschulkind-oss/swarf).
 #
-# Releasing = pushing a v* tag. goreleaser builds the host-facing yolo
-# binary, creates the GitHub release, and uploads archives.
+# Releasing = `just release <version>`, which refuses unless CHANGELOG.md has a
+# written section for that version and the tree is clean, then pushes the v* tag
+# this workflow runs on. goreleaser builds the host-facing yolo binary, creates
+# the GitHub release, and uploads archives. The release BODY is that CHANGELOG.md
+# section, extracted from the tag's own tree by scripts/changelog-section.sh and
+# handed to goreleaser as --release-notes (see the goreleaser job); goreleaser's
+# commit-subject changelog is never published.
 # publish.yml
 # (PyPI wheels + image pushes) runs off the SAME tag push — NOT off the
 # release event: goreleaser creates the release with the workflow-scoped
@@ -55,10 +60,43 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # The release body is the tag's own CHANGELOG.md section, never a commit
+      # list. `just release` runs this same script before it will create a tag,
+      # so on a release cut that way this cannot fail. It fails loudly when it
+      # does: a tag pushed by hand skipped the gate, and the fix is a new tag,
+      # because a tag is never moved.
+      #
+      # `--link-base` turns the file's repository-relative links into absolute
+      # ones pinned to this tag: the release page is /releases/tag/<tag>, where a
+      # relative href resolves under /releases/tag/ and 404s. `--unwrap` joins the
+      # file's hard-wrapped paragraphs, because GitHub renders every newline in a
+      # release body as a line break.
+      #
+      # The notes are written to $RUNNER_TEMP, OUTSIDE the checkout: goreleaser
+      # refuses to release from a dirty tree, and a notes file in the workspace
+      # would make it one.
+      - name: Extract the release notes from the tag's CHANGELOG.md
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          base="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}"
+          if ! sh scripts/changelog-section.sh --link-base "$base" --unwrap "$version" > "$RUNNER_TEMP/notes.md"; then
+            echo "::error::${GITHUB_REF_NAME} has no usable CHANGELOG.md section — it was not cut with 'just release'."
+            echo "Delete this tag, write the [${version}] section, and cut it again with: just release ${version}"
+            exit 1
+          fi
+          echo "Release notes: $(wc -l < "$RUNNER_TEMP/notes.md") lines from the [${version}] section"
+
+      # --release-notes replaces goreleaser's generated changelog with the file:
+      # goreleaser's changelog pipe loads the file and returns before it builds
+      # the commit list (internal/pipe/changelog, Run). Do NOT set
+      # `changelog.disable: true` in .goreleaser.yaml to get the same effect —
+      # that skips the whole pipe, including the load, and the release would go
+      # out with an empty body.
       - uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
-          args: release --clean
+          args: release --clean --release-notes ${{ runner.temp }}/notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -101,7 +139,7 @@ jobs:
 
           cat > yolo-jail.rb <<FORMULA
           class YoloJail < Formula
-            desc "Sandboxed container jail for running AI coding agents in YOLO mode"
+            desc "Declarative agentic development environments, from a sealed jail to your host"
             homepage "https://github.com/mschulkind-oss/yolo-jail"
             url "${TARBALL}"
             sha256 "${SHA256}"

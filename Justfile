@@ -349,6 +349,13 @@ lint:
 # Lint (CI mode — every `lint` pass, plus a gofmt cleanliness check).
 lint-ci: lint
     @dirty="$(gofmt -l $(git ls-files --cached --others --exclude-standard '*.go'))"; test -z "$dirty" || { echo "gofmt needs to run on:"; echo "$dirty"; exit 1; }
+    # The release gate's own tests, and the check that CHANGELOG.md's sections still extract.
+    # `just release` and both release workflows share scripts/changelog-section.sh, so a rule
+    # changed there shows up here first rather than on a tag that can never be moved.
+    sh scripts/test-changelog-section.sh
+    # CHANGELOG.md's links become the release body's, and a release is never edited after its
+    # tag, so a dead link or anchor there has to fail here, before it can ship.
+    uvx vantage-check@0.7.0 CHANGELOG.md
     python3 scripts/test-check-userguide-closed-tree.py
     python3 scripts/check-userguide-closed-tree.py userguide
     python3 scripts/test-check-site-output-dir.py
@@ -403,3 +410,54 @@ done: check
         exit 1; \
     fi
     @echo "All checks passed, working tree clean"
+
+# Cut a release: refuse unless CHANGELOG.md has a written section for VERSION and the tree is
+# clean, then tag v<VERSION> and push the tag. The tag push is the whole release: release.yml
+# runs goreleaser (archives, the GitHub release, the Homebrew formula) and publish.yml the PyPI
+# wheels and image pushes, and both run the same extractor against the tag's tree, publishing its
+# section as the release body. Rename [Unreleased] to `[VERSION] - YYYY-MM-DD` and commit that
+# first; `sh scripts/changelog-section.sh VERSION` previews exactly what will be published.
+#
+# THIS IS THE ONE PATH. A hand-pushed tag whose section is missing fails both workflows before
+# anything is built or published, and the fix is a new tag, since a tag is never moved.
+release version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    v="{{version}}"
+    v="${v#v}"
+    if ! printf '%s\n' "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+        echo "✗ '{{version}}' is not a release version (want X.Y.Z or X.Y.Z-pre)." >&2
+        exit 2
+    fi
+    if [ -n "$(git status --porcelain)" ]; then
+        echo "✗ the working tree is dirty — commit or stash first. Nothing has been tagged." >&2
+        git status --short >&2
+        exit 1
+    fi
+    if git rev-parse -q --verify "refs/tags/v$v" >/dev/null; then
+        echo "✗ tag v$v already exists — a tag is never moved; pick another version." >&2
+        exit 1
+    fi
+    # The notes are written before the tag exists, and this is where that is enforced. The
+    # script is the only definition of "the section exists and says something", and it is the
+    # same one release.yml and publish.yml run, so what refuses here is what CI would refuse.
+    # Its stdout is the section and its reasons go to stderr, so discarding one keeps the other.
+    if ! sh scripts/changelog-section.sh "{{version}}" >/dev/null; then
+        echo "" >&2
+        echo "✗ refusing to cut v$v until CHANGELOG.md has a section for it that reads as release" >&2
+        echo "  notes. Nothing has been tagged." >&2
+        exit 1
+    fi
+    # The tag names HEAD, so HEAD must be a commit other people can already see: a tag pushed
+    # ahead of its branch releases a commit that main does not contain. Only ORIGIN's branches
+    # count, since the tag is pushed there, and `--prune` drops the tracking ref of a branch
+    # origin has since deleted, which would otherwise vouch for a commit nobody can see.
+    git fetch --quiet --prune origin
+    if [ -z "$(git branch -r --contains HEAD --list 'origin/*')" ]; then
+        echo "✗ HEAD ($(git rev-parse --short HEAD)) is on no branch of origin — push it first." >&2
+        echo "  Nothing has been tagged." >&2
+        exit 1
+    fi
+    git tag -a "v$v" -m "yolo-jail $v"
+    git push origin "v$v"
+    echo "pushed v$v — release.yml and publish.yml take it from here"

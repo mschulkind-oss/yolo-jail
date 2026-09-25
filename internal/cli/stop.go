@@ -9,8 +9,8 @@ package cli
 // headless straggler. It is also the first half of the recommended replacement
 // series — `yolo stop`, then an ordinary `yolo` launch — which is what every
 // message that used to recommend the old `--new` flag now names instead
-// (RELEASE-NOTES records why --new was removed: its one-command replacement
-// hid the kill).
+// (--new was removed in 0.9.0, recorded in CHANGELOG.md: its one-command
+// replacement hid the kill).
 
 import (
 	"fmt"
