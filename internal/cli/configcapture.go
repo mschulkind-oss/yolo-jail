@@ -105,6 +105,10 @@ func captureOnTerminate(workspace, runtime string, warn func(string)) {
 			// teardown capture cannot know a path is a list path and would freeze the whole
 			// array into the overlay on every jail exit.
 			listCapture: captureFile{root: prism, name: s.Agent + "-" + s.Name + render.ListCaptureSuffix},
+			// This workspace's store, at the jail notch's mode (0644), which the Target that
+			// names the store decides. Not localTarget(): that one carries the container
+			// workspace, and this runs on the host.
+			sidecarMode: render.Jail(paths.Home(), workspace, nil).SidecarFileMode(),
 		}); err != nil {
 			warn(fmt.Sprintf("could not capture %s/%s: %v (the next launch will capture it)",
 				s.Agent, s.Name, err))

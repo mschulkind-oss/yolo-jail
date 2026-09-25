@@ -656,8 +656,10 @@ func reseedResetBaseline(t configTarget, lastRender captureFile, baseline []byte
 	// real home, 0644 in a workspace. Read through the Target rather than spelled here: a
 	// hand-copied 0644 would put a host user's own config bytes, credentials included, in a
 	// world-readable file.
-	// A regular file in the store, whatever the jail left at the name (captureFile.write).
-	return lastRender.write(baseline, t.sidecarFileMode())
+	// A regular file in the store, whatever the jail left at the name, and written atomically
+	// (captureFile.replace): a baseline truncated by a crash would be diffed by the next
+	// render as the user's edit.
+	return lastRender.replace(baseline, t.sidecarFileMode())
 }
 
 // readOverlayValue decodes the GIVEN overlay sidecar, or nil. File-taking for
@@ -853,7 +855,14 @@ func truncateSurfaceToPureRender(t configTarget, s manifest.Surface) ([]byte, st
 		return nil, "", err
 	}
 	text := pureRenderText(sub, res.Encoded)
-	// Truncate in place: the file may be a bind-mount target whose inode matters.
+	// Truncate in place, in every form, never a rename: the surface is a mount-visible file.
+	// Host-side at the host notch it can be a `host_files` source a running jail binds as a
+	// single file; in-jail it can be a single-file bind target; and a workspace's store is
+	// itself a bind source for single files (`bash_history`, `yolo-user-env.sh` and the rest
+	// at the top of <workspace>/.yolo/home, internal/cli/run/assemble_parts.go), which a home
+	// surface such as ~/.bash_history maps onto (jailHomeRel). docs/reference/jail-home.md,
+	// "No rename-writes to mount-visible files". The sidecars are the atomic half
+	// (captureFile.replace): no mount names a file in either store.
 	if err := surf.write(text, 0o644); err != nil {
 		return nil, "", err
 	}
@@ -1021,6 +1030,9 @@ type captureLocation struct {
 	// whole array into the overlay, the defect per-entry capture exists to end. An empty
 	// name means the caller has none.
 	listCapture captureFile
+	// sidecarMode is the mode the written sidecars get: their store's
+	// (render.Target.SidecarFileMode), 0600 in a real home.
+	sidecarMode fs.FileMode
 }
 
 // captureFile is one file a `yolo config` verb, or a capture, reads or writes: name below a
@@ -1301,6 +1313,7 @@ func captureSurface(t configTarget, s manifest.Surface) (int, error) {
 		lastRender:  t.lastRenderFile(s.Agent, s.Name),
 		overlay:     overlay,
 		listCapture: listCapture,
+		sidecarMode: t.sidecarFileMode(),
 	})
 	if err != nil || !captured {
 		return -1, err
@@ -1343,13 +1356,16 @@ func captureSurfaceAt(s manifest.Surface, at captureLocation) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if err := at.overlay.write(append(out.OverlayJSON, '\n'), 0o644); err != nil {
+	// Both sidecars are REPLACED (captureFile.replace), never truncated in place, so a crash
+	// mid-write cannot leave the next render a truncated overlay; and at the store's own mode,
+	// which a rename takes from the writer rather than from the file it replaces.
+	if err := at.overlay.replace(append(out.OverlayJSON, '\n'), at.sidecarMode); err != nil {
 		return false, err
 	}
 	// The per-entry half, written only when the surface HAS a list path (the sidecar named
 	// one) — nil otherwise, and then no file is created.
 	if out.ListCaptureJSON != nil && at.listCapture.name != "" {
-		if err := at.listCapture.write(append(out.ListCaptureJSON, '\n'), 0o644); err != nil {
+		if err := at.listCapture.replace(append(out.ListCaptureJSON, '\n'), at.sidecarMode); err != nil {
 			return false, err
 		}
 	}
