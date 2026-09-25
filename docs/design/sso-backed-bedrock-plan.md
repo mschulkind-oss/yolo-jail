@@ -558,7 +558,8 @@ repo can stand in for:
 ## Blockers
 
 ⚠ **A sixth, opened 2026-09-18 while wiring steps 1–2: the launch-side disclosure has no
-generic mechanism, and it must not get a bespoke one.** `Narrowing.DisclosureLine` has two of
+generic mechanism, and it must not get a bespoke one.** Filed 2026-09-25 as
+[`OQ-SSO10`](sso-backed-bedrock.md#OQ-SSO10), which is the ruling it waits on. `Narrowing.DisclosureLine` has two of
 its three call sites — the daemon's spawn log and the `--self-check` `NOTE:`. The third, a
 launch-side line, is what [`OQ-SSO1`](sso-backed-bedrock.md#13-decision-ledger)'s *"the
 explicit setting is disclosed at every launch"* actually requires, and neither existing caller
