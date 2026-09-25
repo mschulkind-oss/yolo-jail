@@ -70,6 +70,7 @@ import (
 	"reflect"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonptr"
 )
 
 // RejectedValue is one entry of the closed list: a value yolo shipped for a key of a
@@ -99,6 +100,46 @@ var rejectedValues = []RejectedValue{
 			`has no "system", so every launch failed with ` +
 			`'Failed to load theme "system": Theme not found: system'`,
 	},
+}
+
+// RejectedListEntry is one entry of the closed list for list paths: an array entry yolo shipped
+// for a list path of a surface, which the program that reads the surface cannot load (e.g.
+// conflicts with a replacement extension package).
+type RejectedListEntry struct {
+	Agent   string
+	Surface string
+	Path    string // JSON pointer, e.g. "/packages"
+	Value   any    // exact value to match, e.g. "npm:@quintinshaw/pi-dynamic-workflows"
+	Why     string
+}
+
+// rejectedListEntries IS THE CLOSED LIST for list paths.
+var rejectedListEntries = []RejectedListEntry{
+	{
+		Agent: "pi", Surface: "settings", Path: "/packages",
+		Value: "npm:@quintinshaw/pi-dynamic-workflows",
+		Why: `conflicts with git:github.com/mschulkind/pi-dynamic-workflows ` +
+			`(duplicate tool registrations "workflow" and "workflow_control") ` +
+			`causing pi startup to fail`,
+	},
+	{
+		Agent: "pi", Surface: "settings", Path: "/packages",
+		Value: "npm:pi-subagents",
+		Why: `conflicts with git:github.com/mschulkind/pi-subagents ` +
+			`(duplicate tool registrations "subagent", "bg_wait", and "subagents_enable") ` +
+			`causing pi startup to fail`,
+	},
+}
+
+// RejectedListEntriesFor returns the rejected list entries for surface s.
+func RejectedListEntriesFor(s manifest.Surface) []RejectedListEntry {
+	var out []RejectedListEntry
+	for _, rle := range rejectedListEntries {
+		if rle.Agent == s.Agent && rle.Surface == s.Name {
+			out = append(out, rle)
+		}
+	}
+	return out
 }
 
 // RejectedValuesFor is the entries that apply to this surface AND whose pack has already
@@ -132,6 +173,9 @@ type Repair struct {
 	// read from the manifest rather than stored beside the rejected value, so the notice
 	// cannot state a replacement the pack no longer ships.
 	Replacement any
+	// Path is the list path (e.g. "/packages") when this repair was for a list entry,
+	// or empty for top-level key repairs.
+	Path string
 }
 
 // Describe is the notice for one repair, and it is REQUIRED reading rather than decoration:
@@ -148,11 +192,66 @@ type Repair struct {
 // One sentence-builder for every call site, so no two notches describe the same mutation
 // differently.
 func (r Repair) Describe(verb, where string) string {
+	if r.Path != "" {
+		return r.Agent + "/" + r.Surface + ": " + verb + " " + r.Path + " entry " + literal(r.Value) +
+			" from " + where + " — " + r.Why + ". With the entry removed, pack contributions supply it"
+	}
 	return r.Agent + "/" + r.Surface + ": " + verb + " " + r.Key + " = " + literal(r.Value) +
 		" from " + where + " — yolo shipped that value as a default and " + r.Why +
 		". With the key unset the pack default (" + literal(r.Replacement) +
 		") supplies it; nothing you chose was changed, and a later change to that default " +
 		"will reach you"
+}
+
+// RepairRejectedListRecords removes rejected list entries from the per-entry capture records
+// (lc.recs) and from the overlay map (if an older whole-array capture still holds them).
+func RepairRejectedListRecords(s manifest.Surface, recs map[string]ListRecord, overlay map[string]any) (map[string]any, []Repair) {
+	entries := RejectedListEntriesFor(s)
+	if len(entries) == 0 {
+		return overlay, nil
+	}
+	var done []Repair
+	for _, rle := range entries {
+		repaired := false
+		if recs != nil {
+			if rec, ok := recs[rle.Path]; ok {
+				if containsEntry(rec.Add, rle.Value) {
+					rec.Add = withoutEntry(rec.Add, rle.Value)
+					recs[rle.Path] = rec
+					repaired = true
+				}
+			}
+		}
+		if overlay != nil {
+			tokens, err := jsonptr.Parse(rle.Path)
+			if err == nil && len(tokens) > 0 {
+				v, st, _ := walkPath(overlay, tokens)
+				if st == pathFound {
+					if arr, ok := v.([]any); ok && containsEntry(arr, rle.Value) {
+						cleaned := withoutEntry(arr, rle.Value)
+						if len(cleaned) == 0 {
+							overlay = deletePath(overlay, tokens, pruneAlways)
+						} else {
+							overlay = setPath(overlay, tokens, cleaned)
+						}
+						repaired = true
+					}
+				}
+			}
+		}
+		if repaired {
+			done = append(done, Repair{
+				RejectedValue: RejectedValue{
+					Agent:   rle.Agent,
+					Surface: rle.Surface,
+					Value:   rle.Value,
+					Why:     rle.Why,
+				},
+				Path: rle.Path,
+			})
+		}
+	}
+	return overlay, done
 }
 
 // literal renders a value the way the surface's own JSON would, so a notice about a string

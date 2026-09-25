@@ -228,4 +228,103 @@ func TestRejectedValuesEntriesAreJustified(t *testing.T) {
 				"to justify the edit to the user whose file it is", rv)
 		}
 	}
+	for _, rle := range rejectedListEntries {
+		if rle.Agent == "" || rle.Surface == "" || rle.Path == "" {
+			t.Errorf("list entry %+v: agent, surface and path are all required", rle)
+		}
+		if rle.Value == nil {
+			t.Errorf("list entry %+v: an entry names ONE exact value", rle)
+		}
+		if len(rle.Why) < 40 {
+			t.Errorf("list entry %+v: Why must state the target's own failure, in enough detail "+
+				"to justify the edit to the user whose file it is", rle)
+		}
+	}
+}
+
+// TestRepairRemovesRejectedListEntryFromListCapture tests that a list-capture sidecar holding
+// an obsolete package spec has it repaired and removed from Add on boot.
+func TestRepairRemovesRejectedListEntryFromListCapture(t *testing.T) {
+	s := piFixedSurface()
+	lastRender := `{"packages":["git:github.com/mschulkind/pi-dynamic-workflows","npm:@quintinshaw/pi-dynamic-workflows"]}`
+	listCap := []byte(`{"/packages":{"add":["npm:@quintinshaw/pi-dynamic-workflows"],"remove":[]}}`)
+	out, err := ComposeStateful(StatefulInputs{
+		Base: Inputs{
+			Surface: s,
+			Lists: []ListContribution{
+				mustList(t, "matt", "/packages", `["git:github.com/mschulkind/pi-dynamic-workflows"]`),
+			},
+		},
+		CurrentBytes:      []byte(lastRender),
+		LastRenderPresent: true,
+		LastRenderBytes:   []byte(lastRender),
+		ListCaptureJSON:   listCap,
+	})
+	if err != nil {
+		t.Fatalf("ComposeStateful: %v", err)
+	}
+
+	recs := ParseListCapture(out.ListCaptureJSON)
+	if rec, ok := recs["/packages"]; !ok || containsEntry(rec.Add, "npm:@quintinshaw/pi-dynamic-workflows") {
+		t.Errorf("rec.Add = %v, want rejected package removed", rec.Add)
+	}
+	pkgs, _ := out.Result.ConfigMap()["packages"].([]any)
+	if containsEntry(pkgs, "npm:@quintinshaw/pi-dynamic-workflows") {
+		t.Errorf("rendered packages = %v, want rejected package absent", pkgs)
+	}
+	if !containsEntry(pkgs, "git:github.com/mschulkind/pi-dynamic-workflows") {
+		t.Errorf("rendered packages = %v, want git package present", pkgs)
+	}
+	if len(out.Repairs) != 1 {
+		t.Fatalf("Repairs = %v, want 1 repair", out.Repairs)
+	}
+	desc := out.Repairs[0].Describe("removed", "the captured in-jail edits for this surface")
+	if !strings.Contains(desc, "pi-dynamic-workflows") || !strings.Contains(desc, "duplicate tool") {
+		t.Errorf("Describe() = %q, want mention of package and tool conflict", desc)
+	}
+}
+
+// TestRepairRemovesRejectedListEntryFromOverlay tests that an overlay holding a whole array
+// with a rejected package spec is cleaned before migration or persistence.
+func TestRepairRemovesRejectedListEntryFromOverlay(t *testing.T) {
+	s := piFixedSurface()
+	overlay := []byte(`{"packages":["npm:pi-subagents","npm:custom-pkg"]}`)
+	lastRender := `{"packages":["npm:pi-subagents","npm:custom-pkg"]}`
+	out, err := ComposeStateful(StatefulInputs{
+		Base: Inputs{
+			Surface: s,
+			Lists: []ListContribution{
+				mustList(t, "matt", "/packages", `["git:github.com/mschulkind/pi-subagents"]`),
+			},
+		},
+		CurrentBytes:      []byte(lastRender),
+		LastRenderPresent: true,
+		LastRenderBytes:   []byte(lastRender),
+		OverlayJSON:       overlay,
+	})
+	if err != nil {
+		t.Fatalf("ComposeStateful: %v", err)
+	}
+
+	recs := ParseListCapture(out.ListCaptureJSON)
+	rec := recs["/packages"]
+	if containsEntry(rec.Add, "npm:pi-subagents") {
+		t.Errorf("rec.Add = %v, want rejected package removed", rec.Add)
+	}
+	if !containsEntry(rec.Add, "npm:custom-pkg") {
+		t.Errorf("rec.Add = %v, want custom-pkg preserved as user add", rec.Add)
+	}
+	pkgs, _ := out.Result.ConfigMap()["packages"].([]any)
+	if containsEntry(pkgs, "npm:pi-subagents") {
+		t.Errorf("rendered packages = %v, want rejected package absent", pkgs)
+	}
+	if !containsEntry(pkgs, "git:github.com/mschulkind/pi-subagents") {
+		t.Errorf("rendered packages = %v, want git package present", pkgs)
+	}
+	if !containsEntry(pkgs, "npm:custom-pkg") {
+		t.Errorf("rendered packages = %v, want custom-pkg present", pkgs)
+	}
+	if len(out.Repairs) != 1 {
+		t.Fatalf("Repairs = %v, want 1 repair", out.Repairs)
+	}
 }

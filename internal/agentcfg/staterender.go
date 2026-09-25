@@ -247,6 +247,7 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 	}
 
 	kind := in.Base.Surface.Kind()
+	var repairs []Repair
 
 	// Decide the effective overlay and whether this is a first migration.
 	//
@@ -385,12 +386,21 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 		overlay = parseOverlayKind(kind, in.OverlayJSON)
 		// A WHOLE ARRAY an older yolo captured at what is now a list path is converted to
 		// a per-entry record first, before this boot's delta (the migration).
-		if overlayMap, isMap := overlay.(map[string]any); isMap && lc.active() {
-			converted, err := lc.migrate(overlayMap)
-			if err != nil {
-				return nil, err
+		if lc.active() {
+			if om, isMap := overlay.(map[string]any); isMap {
+				var listRepairs []Repair
+				om, listRepairs = RepairRejectedListRecords(in.Base.Surface, lc.recs, om)
+				repairs = append(repairs, listRepairs...)
+				converted, err := lc.migrate(om)
+				if err != nil {
+					return nil, err
+				}
+				overlay = converted
+			} else {
+				var listRepairs []Repair
+				_, listRepairs = RepairRejectedListRecords(in.Base.Surface, lc.recs, nil)
+				repairs = append(repairs, listRepairs...)
 			}
-			overlay = converted
 		}
 		if curOK {
 			// §5: diff the on-disk file against the trusted baseline and fold the
@@ -444,10 +454,15 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 	//
 	// Before the narrowing passes below so they see an already-repaired overlay, and
 	// reported on StatefulOutput because this function writes nothing.
-	var repairs []Repair
 	if kind == codec.KindObject {
 		if overlayMap, isMap := overlay.(map[string]any); isMap {
-			repairs = RepairRejected(in.Base.Surface, MapObject(overlayMap))
+			repairs = append(repairs, RepairRejected(in.Base.Surface, MapObject(overlayMap))...)
+			if lc.active() {
+				var listRepairs []Repair
+				overlayMap, listRepairs = RepairRejectedListRecords(in.Base.Surface, lc.recs, overlayMap)
+				repairs = append(repairs, listRepairs...)
+				overlay = overlayMap
+			}
 		}
 	}
 
@@ -1038,7 +1053,10 @@ func (lc *listCapture) migrate(overlay map[string]any) (map[string]any, error) {
 			return nil, err
 		}
 		base := arrayAt(b, t)
-		lc.recs[p] = lc.recs[p].accumulate(subtractEntries(o, base), subtractEntries(base, o))
+		contributed := ContributedEntries(lc.in.Base.Lists, p)
+		add := subtractEntries(subtractEntries(o, base), contributed)
+		remove := subtractEntries(base, o)
+		lc.recs[p] = lc.recs[p].accumulate(add, remove)
 		overlay = deletePath(overlay, t, pruneAlways)
 		lc.converted = append(lc.converted, p)
 	}

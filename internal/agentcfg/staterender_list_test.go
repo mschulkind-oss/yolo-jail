@@ -211,6 +211,44 @@ func TestStatefulListMigratesLegacyWholeArrayCapture(t *testing.T) {
 	}
 }
 
+// When a pack transitions an array from config-overlay to config-list, the legacy overlay
+// may contain entries that the new config-list declares. Migration must not adopt those
+// pack-contributed entries into ListRecord.Add.
+func TestStatefulListMigratesOverlayWithoutAdoptingContributedEntries(t *testing.T) {
+	// A surface whose Defaults has no packages (e.g. pi/settings).
+	s := manifest.Surface{
+		Agent: "pi", Name: "settings", Codec: "json", Path: "~/.pi/agent/settings.json",
+	}
+	// The old whole-array overlay captured from when a pack declared packages via config-overlay:
+	legacy := []byte(`{"packages":["git:github.com/mschulkind/pi-archimedes","npm:user-installed"]}`)
+	lastRender := []byte(`{"packages":["git:github.com/mschulkind/pi-archimedes","npm:user-installed"]}`)
+	h := &listHome{file: lastRender, last: lastRender, lastPresent: true, overlay: legacy}
+
+	// The pack now declares packages via config-list:
+	out := h.boot(t, Inputs{
+		Surface: s,
+		Lists: []ListContribution{
+			mustList(t, "matt", "/packages", `["git:github.com/mschulkind/pi-archimedes"]`),
+		},
+	})
+
+	if overlayHas(t, out.OverlayJSON, "packages") {
+		t.Fatalf("the legacy array survived in the overlay: %s", out.OverlayJSON)
+	}
+	recs := ParseListCapture(out.ListCaptureJSON)
+	rec := recs["/packages"]
+	// user-installed is adopted as a user addition; pi-archimedes is contributed by the pack and must NOT be in Add.
+	if containsEntry(rec.Add, "git:github.com/mschulkind/pi-archimedes") {
+		t.Errorf("rec.Add = %v, want pack contribution excluded from user additions", rec.Add)
+	}
+	if !containsEntry(rec.Add, "npm:user-installed") {
+		t.Errorf("rec.Add = %v, want user-installed kept in user additions", rec.Add)
+	}
+	if got, want := h.packages(t), []any{"git:github.com/mschulkind/pi-archimedes", "npm:user-installed"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("packages after migration = %#v, want %#v", got, want)
+	}
+}
+
 // A legacy TOMBSTONE at the path is not converted: it stays a whole-value deletion and
 // the boot says so.
 func TestStatefulListLegacyTombstoneStaysAndIsNoted(t *testing.T) {
