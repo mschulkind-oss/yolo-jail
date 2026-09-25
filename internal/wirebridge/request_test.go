@@ -74,9 +74,14 @@ func TestTranslateRequestRows(t *testing.T) {
 			want: `{"model":"m","messages":[{"role":"tool","tool_call_id":"t9","content":"line1\nline2"},{"role":"user","content":[{"type":"text","text":"and then?"}]}],"max_tokens":2}`,
 		},
 		{
-			name: "sampling maps temperature/top_p, stop_sequences/max_tokens map, stream passes",
+			name: "sampling maps temperature/top_p, stop_sequences/max_tokens map, stream passes and asks for usage",
 			in:   `{"model":"m","max_tokens":8,"temperature":0.7,"top_p":0.9,"top_k":40,"stop_sequences":["END","STOP"],"stream":true,"thinking":{"type":"disabled"},"messages":[{"role":"user","content":"go"}]}`,
-			want: `{"model":"m","messages":[{"role":"user","content":"go"}],"max_tokens":8,"temperature":0.7,"top_p":0.9,"stop":["END","STOP"],"stream":true}`,
+			want: `{"model":"m","messages":[{"role":"user","content":"go"}],"max_tokens":8,"temperature":0.7,"top_p":0.9,"stop":["END","STOP"],"stream":true,"stream_options":{"include_usage":true}}`,
+		},
+		{
+			name: "an explicit non-stream request asks for no stream options",
+			in:   `{"model":"m","max_tokens":8,"stream":false,"messages":[{"role":"user","content":"go"}]}`,
+			want: `{"model":"m","messages":[{"role":"user","content":"go"}],"max_tokens":8,"stream":false}`,
 		},
 		{
 			name: "model id passes through verbatim",
@@ -105,6 +110,21 @@ func TestTranslateRequestRows(t *testing.T) {
 				t.Errorf("TranslateRequest mismatch\n got: %s\nwant: %s", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestTranslateRequestWithOmitStreamUsage: an upstream whose provider declares
+// it does not accept stream_options gets a streamed request without it, and
+// nothing else about the request changes.
+func TestTranslateRequestWithOmitStreamUsage(t *testing.T) {
+	in := `{"model":"m","max_tokens":8,"stream":true,"messages":[{"role":"user","content":"go"}]}`
+	out, err := TranslateRequestWith([]byte(in), ChatOptions{OmitStreamUsage: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"model":"m","messages":[{"role":"user","content":"go"}],"max_tokens":8,"stream":true}`
+	if string(out) != want {
+		t.Errorf("TranslateRequestWith(OmitStreamUsage)\n got: %s\nwant: %s", out, want)
 	}
 }
 

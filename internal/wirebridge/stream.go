@@ -29,31 +29,67 @@ func (e Event) Format() []byte {
 // JSON payload of one "data:" line each — into anthropic SSE events,
 // event-for-event (wire-bridge.md §4's streaming rows). It is stateful by
 // necessity: message_start goes out with the first chunk, content-block
-// open/delta/stop bookkeeping spans chunks, and message_delta + message_stop
-// go out with the first chunk that carries a finish_reason. The daemon owns
-// SSE framing (the "data: " prefix, the "data: [DONE]" sentinel) and never
-// feeds [DONE] here; chunks after the finish are tolerated and translate to
-// nothing, so a chatty provider cannot break the grammar after message_stop.
+// open/delta/stop bookkeeping spans chunks, and the finish is split in two.
+// The daemon owns SSE framing (the "data: " prefix, the "data: [DONE]"
+// sentinel) and never feeds [DONE] here; it calls End instead.
+//
+// ⚠ THE FINISH CHUNK IS NOT THE LAST CHUNK. An upstream asked for
+// stream_options.include_usage (which TranslateRequest asks for) sends the
+// finish_reason on one chunk with no usage, then ONE MORE chunk with
+// "choices": [] and the request's usage. So the chunk carrying finish_reason
+// closes the open content block and records the stop reason, and message_delta
+// + message_stop wait for the usage: they go out with the first chunk after
+// the finish that reports usage, or with End when the stream ends without one.
+// An upstream that has already reported usage by the finish chunk (in that
+// chunk or an earlier one) gets both at once, with no wait. This translator
+// used to emit message_stop on the finish chunk and drop everything after it,
+// which dropped the usage chunk and gave Claude zero tokens for every bridged
+// turn.
+//
+// Chunks after message_stop are tolerated and translate to nothing, so a chatty
+// provider cannot break the grammar after it closes. Between the finish and the
+// usage, a chunk that does not decode ends the wait instead of failing the
+// stream: the answer is complete, so it closes the grammar with the usage
+// reported so far rather than turning a finished answer into an error, and
+// returns a *UsageLostError beside those events so that the lost usage is
+// reported rather than arriving at Claude as a silent zero.
 //
 // Blocks are strictly sequential, as the anthropic grammar requires: opening
 // a new block closes the one open, and finish closes anything open before
 // message_delta. Upstream reasoning deltas (reasoning, reasoning_content)
 // have no field to land in and so never surface (WB-D5). message_start
-// carries empty usage; upstream usage, when the provider sends it at all,
-// lands in message_delta's output_tokens.
+// carries the usage the first chunk reports, which for most upstreams is none
+// (so zeros); message_delta carries every count reported by the end, in
+// Anthropic's terms (tokenCounts).
 type StreamTranslator struct {
 	started   bool
-	finished  bool
+	finished  bool    // message_stop has been emitted
+	stop      *string // the anthropic stop_reason, once a finish_reason arrived
 	nextIndex int
 	openIdx   int  // anthropic index of the currently open block, -1 when none
 	textOpen  bool // the open block, if any, is a text block
 	tools     map[int]*streamToolState
-	lastOut   int
+	usage     tokenCounts
 }
 
 type streamToolState struct {
 	anthropicIndex int
 }
+
+// UsageLostError is the error StreamTranslator.Chunk returns when a chunk after
+// the finish_reason, where the usage would be, does not decode. It is the one
+// error Chunk returns WITH events: the answer is whole, so Chunk also returns
+// the message_delta and message_stop that close it, and the caller writes them.
+// The error reports that the usage was lost, not that the stream failed; Err is
+// the decode error.
+type UsageLostError struct{ Err error }
+
+func (e *UsageLostError) Error() string {
+	return "wirebridge: a stream chunk after the finish did not decode, so the message " +
+		"was closed without the usage it may have carried: " + e.Err.Error()
+}
+
+func (e *UsageLostError) Unwrap() error { return e.Err }
 
 // NewStreamTranslator returns a translator for one upstream SSE stream, one
 // per request. It is not safe for concurrent use; a request's stream is
@@ -63,7 +99,10 @@ func NewStreamTranslator() *StreamTranslator {
 }
 
 // Chunk translates one upstream data: payload (raw JSON, no "data: " prefix,
-// no [DONE]) into zero or more anthropic SSE events, in order.
+// no [DONE]) into zero or more anthropic SSE events, in order. An error means
+// the stream failed and the events are nil, with one exception: a
+// *UsageLostError comes WITH the events that close the message, which the
+// caller must still write.
 func (t *StreamTranslator) Chunk(payload []byte) ([]Event, error) {
 	if t.finished {
 		return nil, nil
@@ -73,8 +112,20 @@ func (t *StreamTranslator) Chunk(payload []byte) ([]Event, error) {
 	}
 	var ch openaiChunk
 	if err := json.Unmarshal(payload, &ch); err != nil {
+		if t.stop != nil {
+			// Waiting on the usage chunk after a finish: the answer is whole,
+			// so an undecodable trailer costs the usage, not the answer. The
+			// loss is still reported, beside the events that close the message.
+			end, endErr := t.messageEnd()
+			if endErr != nil {
+				return nil, endErr
+			}
+			return end, &UsageLostError{Err: fmt.Errorf("decoding openai stream chunk: %w", err)}
+		}
 		return nil, fmt.Errorf("wirebridge: decoding openai stream chunk: %w", err)
 	}
+	reported := usageFromOpenAI(ch.Usage)
+	t.usage = t.usage.merge(reported)
 	var evs []Event
 	if !t.started {
 		t.started = true
@@ -84,13 +135,19 @@ func (t *StreamTranslator) Chunk(payload []byte) ([]Event, error) {
 		}
 		evs = append(evs, start)
 	}
-	if ch.Usage != nil && ch.Usage.CompletionTokens != nil {
-		t.lastOut = *ch.Usage.CompletionTokens
+	if t.stop != nil {
+		// After the finish, a chunk matters only for the usage it carries: the
+		// grammar has no place for content after the stop, so any delta here
+		// is dropped, and the first report of usage closes the message.
+		if reported.reported() {
+			end, err := t.messageEnd()
+			return append(evs, end...), err
+		}
+		return evs, nil
 	}
 	if len(ch.Choices) == 0 {
-		// A usage-only chunk ("choices": [], the standard final chunk when the
-		// provider honors include_usage) carries no delta — usage is recorded
-		// above and nothing else translates.
+		// A usage-only chunk before any finish carries no delta: its usage is
+		// recorded above and nothing else translates.
 		return evs, nil
 	}
 	choice := ch.Choices[0]
@@ -151,23 +208,49 @@ func (t *StreamTranslator) Chunk(payload []byte) ([]Event, error) {
 		if err := t.closeOpenBlock(&evs); err != nil {
 			return nil, err
 		}
-		md, err := marshalEvent("message_delta", messageDeltaEvent{
-			Type:  "message_delta",
-			Delta: messageDeltaBody{StopReason: stopReasonFromFinish(*choice.FinishReason)},
-			Usage: messageDeltaUsage{OutputTokens: t.lastOut},
-		})
-		if err != nil {
-			return nil, err
+		reason := stopReasonFromFinish(*choice.FinishReason)
+		t.stop = &reason
+		if t.usage.reported() {
+			// This upstream reports usage by the finish (in this chunk or an
+			// earlier one), so there is nothing to wait for.
+			end, err := t.messageEnd()
+			return append(evs, end...), err
 		}
-		evs = append(evs, md)
-		stop, err := marshalEvent("message_stop", simpleEvent{Type: "message_stop"})
-		if err != nil {
-			return nil, err
-		}
-		evs = append(evs, stop)
-		t.finished = true
 	}
 	return evs, nil
+}
+
+// End is the upstream stream's end — the [DONE] sentinel, or the body closing
+// — and the daemon calls it exactly once, after the last Chunk. When a
+// finish_reason has arrived and message_stop is still waiting on a usage chunk
+// that never came, End emits message_delta (with whatever usage was reported)
+// and message_stop. Otherwise it emits nothing: a stream that ended before any
+// finish_reason did not complete, and that is the daemon's to report.
+func (t *StreamTranslator) End() ([]Event, error) {
+	if t.finished || t.stop == nil {
+		return nil, nil
+	}
+	return t.messageEnd()
+}
+
+// messageEnd closes the anthropic grammar: message_delta with the stop reason
+// and the usage reported so far, then message_stop. It is the one place either
+// is emitted.
+func (t *StreamTranslator) messageEnd() ([]Event, error) {
+	md, err := marshalEvent("message_delta", messageDeltaEvent{
+		Type:  "message_delta",
+		Delta: messageDeltaBody{StopReason: *t.stop},
+		Usage: t.usage.delta(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	stop, err := marshalEvent("message_stop", simpleEvent{Type: "message_stop"})
+	if err != nil {
+		return nil, err
+	}
+	t.finished = true
+	return []Event{md, stop}, nil
 }
 
 // openBlock closes whatever block is open (blocks are strictly sequential in
@@ -218,7 +301,10 @@ func (t *StreamTranslator) messageStart(ch openaiChunk) (Event, error) {
 	start.Message.Role = "assistant"
 	start.Message.Content = []any{}
 	start.Message.Model = ch.Model
-	start.Message.Usage = anthropicUsage{} // empty: usage lands in message_delta
+	// What is known at the first chunk, which for an upstream that reports usage
+	// only at the end is nothing: zeros here, and the real counts in
+	// message_delta, which Anthropic's grammar allows and Claude Code reads.
+	start.Message.Usage = t.usage.message()
 	return marshalEvent("message_start", start)
 }
 
@@ -313,8 +399,12 @@ type messageDeltaBody struct {
 	StopSequence *string `json:"stop_sequence"`
 }
 
+// messageDeltaUsage is message_delta's cumulative usage, in Anthropic's field
+// order; see tokenCounts.delta for which fields appear when.
 type messageDeltaUsage struct {
-	OutputTokens int `json:"output_tokens"`
+	InputTokens          *int `json:"input_tokens,omitempty"`
+	CacheReadInputTokens *int `json:"cache_read_input_tokens,omitempty"`
+	OutputTokens         int  `json:"output_tokens"`
 }
 
 type simpleEvent struct {

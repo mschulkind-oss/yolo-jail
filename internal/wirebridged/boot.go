@@ -54,6 +54,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/wirebridge"
 )
 
 // ServiceName is this daemon's service name — the supervisor entry's name and
@@ -233,7 +234,8 @@ func serve(ctx context.Context, route route, e *entrypoint.Env) int {
 			signalNotReady(ServiceName, "provider credential is unavailable")
 			return idleUntilStopped(ctx)
 		}
-		handler = NewHandler(route.UpstreamBaseURL, key)
+		handler = newChatHandler(route.UpstreamBaseURL, key,
+			wirebridge.ChatOptions{OmitStreamUsage: route.OmitStreamUsage})
 	}
 
 	// BIND BEFORE PUBLISH (§5): the endpoint file's appearance is the promise
@@ -432,7 +434,20 @@ type route struct {
 	UpstreamBaseURL  string
 	KeyEnvName       string
 	CodexAccessToken bool
+	// OmitStreamUsage is the chat-completions route's one request-shape fact:
+	// the selected profile's supports_usage_in_streaming option (the provider's
+	// declared default, or the user's value over it) is "false", so a streamed
+	// request must not carry stream_options. It is the same service fact pi's
+	// derive reads as supportsUsageInStreaming (packs/pi/derive.lua), read here
+	// by the same rule: only the JSON spelling "false" turns it off, and an
+	// absent or unrecognized value keeps the default, which asks for usage.
+	OmitStreamUsage bool
 }
+
+// streamUsageOption is the provider option that states whether an upstream
+// accepts stream_options.include_usage (packs/llamacpp/README.md, "The compat
+// facts").
+const streamUsageOption = "supports_usage_in_streaming"
 
 func credentialDescription(route route, source string) string {
 	if route.CodexAccessToken {
@@ -666,6 +681,7 @@ func routeFor(providers *jsonx.OrderedMap, useProfiles map[string]string,
 			ListenAddr:      listenAddr,
 			UpstreamBaseURL: openaiURL,
 			KeyEnvName:      entryString(entry, "", "api_key_env_name"),
+			OmitStreamUsage: resolved[profileName].Options[streamUsageOption] == "false",
 		}, ""
 	}
 	return route{}, skip

@@ -10,14 +10,17 @@ package wirebridged
 // one of these goes red.
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
 	"github.com/mschulkind-oss/yolo-jail/internal/wirebridge"
 )
@@ -388,6 +391,163 @@ func TestStreamRoundTrip(t *testing.T) {
 	// message_stop.
 	if strings.Count(got, "event: message_stop") != 1 {
 		t.Errorf("exactly one message_stop expected:\n%s", got)
+	}
+}
+
+// usageAfterFinishStream is a recorded OpenAI chat-completions stream from an
+// upstream that honored stream_options.include_usage: the finish_reason chunk
+// carries no usage, and the usage arrives in one more chunk, "choices": [],
+// before the [DONE] sentinel.
+var usageAfterFinishStream = strings.Join([]string{
+	`data: {"id":"c","object":"chat.completion.chunk","model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":"Hi"},"finish_reason":null}],"usage":null}`,
+	"",
+	`data: {"id":"c","object":"chat.completion.chunk","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":null}`,
+	"",
+	`data: {"id":"c","object":"chat.completion.chunk","model":"m","choices":[],"usage":{"prompt_tokens":1200,"completion_tokens":42,"total_tokens":1242,"prompt_tokens_details":{"cached_tokens":1000}}}`,
+	"",
+	"data: [DONE]",
+	"",
+}, "\n")
+
+// sseEvents splits a relayed anthropic stream into (name, data) pairs, in order.
+func sseEvents(t *testing.T, body string) []wirebridge.Event {
+	t.Helper()
+	var out []wirebridge.Event
+	for _, frame := range strings.Split(body, "\n\n") {
+		if strings.TrimSpace(frame) == "" {
+			continue
+		}
+		var ev wirebridge.Event
+		for _, line := range strings.Split(frame, "\n") {
+			switch {
+			case strings.HasPrefix(line, "event: "):
+				ev.Name = strings.TrimPrefix(line, "event: ")
+			case strings.HasPrefix(line, "data: "):
+				ev.Data = []byte(strings.TrimPrefix(line, "data: "))
+			}
+		}
+		out = append(out, ev)
+	}
+	return out
+}
+
+// TestStreamedUsageReachesClaude is the end-to-end pin for the streaming-usage
+// defect (docs/design/agent-footer.md, "Later: cost and failover"): the bridge
+// ASKS for usage on a streamed chat-completions request, READS PAST the finish
+// chunk to the usage chunk, and reports input, cache-read and output tokens in
+// message_delta, the event whose usage Claude Code merges into its cost and
+// context figures. Before the fix every one of those numbers reached Claude as 0.
+func TestStreamedUsageReachesClaude(t *testing.T) {
+	up := &stubUpstream{t: t, status: 200, contentType: "text/event-stream", body: usageAfterFinishStream}
+	upSrv := httptest.NewServer(up.handler())
+	defer upSrv.Close()
+	srv := httptest.NewServer(NewHandler(upSrv.URL, "k"))
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL+"/v1/messages", "application/json",
+		strings.NewReader(`{"model":"m","max_tokens":8,"stream":true,"messages":[{"role":"user","content":"hi"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	var sent struct {
+		StreamOptions *struct {
+			IncludeUsage bool `json:"include_usage"`
+		} `json:"stream_options"`
+	}
+	if err := json.Unmarshal(up.gotBody, &sent); err != nil {
+		t.Fatalf("upstream body not JSON: %v", err)
+	}
+	if sent.StreamOptions == nil || !sent.StreamOptions.IncludeUsage {
+		t.Errorf("a streamed request must ask the upstream for usage "+
+			"(stream_options.include_usage), or a compliant upstream never sends it: %s", up.gotBody)
+	}
+
+	evs := sseEvents(t, string(body))
+	var names []string
+	for _, ev := range evs {
+		names = append(names, ev.Name)
+	}
+	if len(evs) < 2 || evs[len(evs)-2].Name != "message_delta" || evs[len(evs)-1].Name != "message_stop" {
+		t.Fatalf("the stream must end message_delta, message_stop; got %v:\n%s", names, body)
+	}
+	var delta struct {
+		Usage map[string]int `json:"usage"`
+	}
+	if err := json.Unmarshal(evs[len(evs)-2].Data, &delta); err != nil {
+		t.Fatalf("message_delta is not JSON: %v", err)
+	}
+	for field, want := range map[string]int{
+		"input_tokens":            200, // prompt_tokens 1200 minus the 1000 it served from cache
+		"cache_read_input_tokens": 1000,
+		"output_tokens":           42,
+	} {
+		if got, ok := delta.Usage[field]; !ok || got != want {
+			t.Errorf("message_delta usage %s = %d (present %v), want %d: %s",
+				field, got, ok, want, evs[len(evs)-2].Data)
+		}
+	}
+	if strings.Count(string(body), "event: message_stop") != 1 {
+		t.Errorf("exactly one message_stop expected:\n%s", body)
+	}
+}
+
+// TestServeCarriesTheRoutesStreamUsageFactToTheUpstream drives the PRODUCTION
+// serve path, not the handler constructor: serve builds the chat handler from
+// the boot route, so this is the test that fails if serve stops passing
+// route.OmitStreamUsage (or asks for usage when told not to). One stub upstream
+// per case records the streamed request body the bridge sent it.
+func TestServeCarriesTheRoutesStreamUsageFactToTheUpstream(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		omit     bool
+		wantSent bool
+	}{
+		{"the default asks for usage", false, true},
+		{"a provider declaring supports_usage_in_streaming false is not asked", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			noReadinessPipe(t)
+			up := &stubUpstream{t: t, status: 200, contentType: "text/event-stream", body: usageAfterFinishStream}
+			upSrv := httptest.NewServer(up.handler())
+			defer upSrv.Close()
+			endpointFile := filepath.Join(t.TempDir(), "wire-bridge.endpoint")
+			old := EndpointFile
+			EndpointFile = endpointFile
+			t.Cleanup(func() { EndpointFile = old })
+
+			ctx, cancel := context.WithCancel(context.Background())
+			done := make(chan int, 1)
+			go func() {
+				done <- serve(ctx, route{ProviderName: "p", ListenAddr: "127.0.0.1:0",
+					UpstreamBaseURL: upSrv.URL, OmitStreamUsage: tc.omit},
+					entrypoint.NewEnv(map[string]string{"JAIL_HOME": t.TempDir()}))
+			}()
+			defer func() { cancel(); <-done }()
+			var addr string
+			waitFor(t, func() bool {
+				b, err := os.ReadFile(endpointFile)
+				addr = strings.TrimSpace(string(b))
+				return err == nil && addr != ""
+			})
+
+			resp, err := http.Post("http://"+addr+"/v1/messages", "application/json",
+				strings.NewReader(`{"model":"m","max_tokens":8,"stream":true,"messages":[{"role":"user","content":"hi"}]}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _ = io.ReadAll(resp.Body)
+			resp.Body.Close()
+			var sent map[string]json.RawMessage
+			if err := json.Unmarshal(up.gotBody, &sent); err != nil {
+				t.Fatalf("upstream body not JSON: %v\n%s", err, up.gotBody)
+			}
+			if _, got := sent["stream_options"]; got != tc.wantSent {
+				t.Errorf("stream_options sent = %v, want %v: %s", got, tc.wantSent, up.gotBody)
+			}
+		})
 	}
 }
 

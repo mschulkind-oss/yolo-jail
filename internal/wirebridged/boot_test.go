@@ -207,6 +207,33 @@ func TestResolveRouteStillBindsTheCerebrasAddressTheComposedEntryNames(t *testin
 	}
 }
 
+// The chat-completions route reads the selected profile's
+// supports_usage_in_streaming (the provider's declared default arrives in the
+// resolved profile, with a user's value over it) and turns stream usage off
+// only for the JSON spelling "false" — pi's rule for the same service fact, so
+// a typo cannot silently switch the request shape.
+func TestResolveRouteReadsTheStreamUsageServiceFact(t *testing.T) {
+	for _, tc := range []struct {
+		name, profile string
+		wantOmit      bool
+	}{
+		{"undeclared keeps the default", `{"p":{"provider":"cerebras"}}`, false},
+		{"true keeps the default", `{"p":{"provider":"cerebras","supports_usage_in_streaming":"true"}}`, false},
+		{"false omits stream_options", `{"p":{"provider":"cerebras","supports_usage_in_streaming":"false"}}`, true},
+		{"an unrecognized value keeps the default", `{"p":{"provider":"cerebras","supports_usage_in_streaming":"no"}}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			route, idle := resolveRoute(routeEnv(bridgedProviders, tc.profile, `{"claude":"p"}`))
+			if idle != "" {
+				t.Fatalf("a bridged route must serve, got idle: %s", idle)
+			}
+			if route.OmitStreamUsage != tc.wantOmit {
+				t.Errorf("OmitStreamUsage = %v, want %v", route.OmitStreamUsage, tc.wantOmit)
+			}
+		})
+	}
+}
+
 func TestResolveRouteDoesNotServePiCodexProfile(t *testing.T) {
 	_, idle := resolveRoute(routeEnv(`{}`, `{"codex":{"provider":"openai-codex"}}`, `{"pi":"codex"}`))
 	if !strings.Contains(idle, "not in the composed table") {

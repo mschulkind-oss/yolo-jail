@@ -124,6 +124,18 @@ func TestTranslateResponsesResponsePreservesToolIdentity(t *testing.T) {
 	}
 }
 
+// The non-streaming Responses answer maps its cached input the same way the
+// stream does: input_tokens is the uncached remainder.
+func TestTranslateResponsesResponseReportsCachedInputAsCacheReads(t *testing.T) {
+	out, err := TranslateResponsesResponse([]byte(`{"id":"resp_1","model":"terra","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":900,"input_tokens_details":{"cached_tokens":600},"output_tokens":30}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `"usage":{"input_tokens":300,"cache_read_input_tokens":600,"output_tokens":30}`; !strings.Contains(string(out), want) {
+		t.Fatalf("response usage: want %s in\n%s", want, out)
+	}
+}
+
 func TestTranslateResponsesResponseSkipsCompletedHostedWebSearch(t *testing.T) {
 	out, err := TranslateResponsesResponse([]byte(`{"id":"resp_1","model":"terra","status":"completed","output":[{"type":"web_search_call","id":"ws_1","status":"completed"},{"type":"message","content":[{"type":"output_text","text":"The answer."}]}]}`))
 	if err != nil {
@@ -156,6 +168,103 @@ func TestResponsesStreamTranslatorTextAndTool(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("stream missing %s:\n%s", want, got)
 		}
+	}
+}
+
+// responsesStreamEvents feeds each payload through one translator and returns
+// every event it emitted, in order.
+func responsesStreamEvents(t *testing.T, payloads ...string) []Event {
+	t.Helper()
+	tr := NewResponsesStreamTranslator()
+	var out []Event
+	for _, payload := range payloads {
+		events, err := tr.Chunk([]byte(payload))
+		if err != nil {
+			t.Fatalf("Chunk(%s): %v", payload, err)
+		}
+		out = append(out, events...)
+	}
+	end, err := tr.End()
+	if err != nil {
+		t.Fatalf("End: %v", err)
+	}
+	return append(out, end...)
+}
+
+// The Responses route's half of the streaming-usage defect: response.completed
+// carries the whole request's usage, and the bridge kept only output_tokens of
+// it. Responses' input_tokens INCLUDES input_tokens_details.cached_tokens, while
+// Anthropic's input_tokens is the uncached remainder, so the cached count moves
+// to cache_read_input_tokens and out of input_tokens.
+func TestResponsesStreamReportsInputAndCachedTokens(t *testing.T) {
+	evs := responsesStreamEvents(t,
+		`{"type":"response.created","response":{"id":"resp_u","model":"terra","usage":null}}`,
+		`{"type":"response.output_text.delta","delta":"hello"}`,
+		`{"type":"response.completed","response":{"id":"resp_u","model":"terra","status":"completed","usage":{"input_tokens":900,"input_tokens_details":{"cached_tokens":600},"output_tokens":30,"output_tokens_details":{"reasoning_tokens":10},"total_tokens":930}}}`,
+	)
+	if len(evs) < 2 {
+		t.Fatalf("too few events: %s", formatAll(evs))
+	}
+	assertEvents(t, evs[len(evs)-2:], []Event{
+		{Name: "message_delta", Data: []byte(`{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":300,"cache_read_input_tokens":600,"output_tokens":30}}`)},
+		{Name: "message_stop", Data: []byte(`{"type":"message_stop"}`)},
+	})
+}
+
+// A Responses stream that stops at the model's output limit ends in
+// response.incomplete, not response.completed, and that terminal event carries
+// the usage too. It used to be refused as an unsupported event, so the client got
+// an error event instead of a max_tokens stop, and the usage was lost with it.
+func TestResponsesStreamIncompleteIsAMaxTokensStopWithUsage(t *testing.T) {
+	evs := responsesStreamEvents(t,
+		`{"type":"response.created","response":{"id":"resp_i","model":"terra"}}`,
+		`{"type":"response.output_text.delta","delta":"partial"}`,
+		`{"type":"response.incomplete","response":{"id":"resp_i","model":"terra","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"usage":{"input_tokens":50,"output_tokens":64}}}`,
+	)
+	if len(evs) < 3 {
+		t.Fatalf("too few events: %s", formatAll(evs))
+	}
+	assertEvents(t, evs[len(evs)-3:], []Event{
+		{Name: "content_block_stop", Data: []byte(`{"type":"content_block_stop","index":0}`)},
+		{Name: "message_delta", Data: []byte(`{"type":"message_delta","delta":{"stop_reason":"max_tokens","stop_sequence":null},"usage":{"input_tokens":50,"output_tokens":64}}`)},
+		{Name: "message_stop", Data: []byte(`{"type":"message_stop"}`)},
+	})
+}
+
+// The output limit can cut a function call off mid-arguments, and then the
+// stream's terminal event is response.incomplete with a function_call block
+// still open. That is a max_tokens stop, as the chat-completions route maps
+// finish_reason "length" with a tool call open: reporting tool_use would send
+// Claude off to run a tool whose input is truncated JSON. An open function
+// call turns only a finished answer (end_turn) into tool_use.
+func TestResponsesStreamIncompleteInsideAFunctionCallIsAMaxTokensStop(t *testing.T) {
+	evs := responsesStreamEvents(t,
+		`{"type":"response.created","response":{"id":"resp_t","model":"terra"}}`,
+		`{"type":"response.output_item.added","item":{"type":"function_call","call_id":"call_w","name":"Write"}}`,
+		`{"type":"response.function_call_arguments.delta","delta":"{\"file_path\":\"/tmp/a\",\"content\":\"hel"}`,
+		`{"type":"response.incomplete","response":{"id":"resp_t","model":"terra","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"usage":{"input_tokens":50,"output_tokens":64}}}`,
+	)
+	if len(evs) < 3 {
+		t.Fatalf("too few events: %s", formatAll(evs))
+	}
+	assertEvents(t, evs[len(evs)-3:], []Event{
+		{Name: "content_block_stop", Data: []byte(`{"type":"content_block_stop","index":0}`)},
+		{Name: "message_delta", Data: []byte(`{"type":"message_delta","delta":{"stop_reason":"max_tokens","stop_sequence":null},"usage":{"input_tokens":50,"output_tokens":64}}`)},
+		{Name: "message_stop", Data: []byte(`{"type":"message_stop"}`)},
+	})
+}
+
+// The non-streaming answer follows the same rule as the stream, so a turn stops
+// for the same reason streamed or not: an incomplete response that holds a
+// function call is still a max_tokens stop, and a completed one is tool_use
+// (TestTranslateResponsesResponsePreservesToolIdentity).
+func TestTranslateResponsesResponseIncompleteWithAFunctionCallIsMaxTokens(t *testing.T) {
+	out, err := TranslateResponsesResponse([]byte(`{"id":"resp_1","model":"terra","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[{"type":"function_call","call_id":"call_1","name":"ls","arguments":"{\"path\":\".\"}"}],"usage":{"input_tokens":5,"output_tokens":3}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `"stop_reason":"max_tokens"`; !strings.Contains(string(out), want) {
+		t.Fatalf("want %s in\n%s", want, out)
 	}
 }
 

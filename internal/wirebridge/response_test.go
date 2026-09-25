@@ -33,6 +33,24 @@ func TestTranslateResponseRows(t *testing.T) {
 			want: `{"id":"chatcmpl-2","type":"message","role":"assistant","model":"qwen","content":[{"type":"tool_use","id":"call_9","name":"run","input":{"path":"a.go"}}],"stop_reason":"tool_use","stop_sequence":null,"usage":{"input_tokens":20,"output_tokens":9}}`,
 		},
 		{
+			// prompt_tokens COUNTS cached_tokens; Anthropic's input_tokens does
+			// not, so the cached part moves to cache_read_input_tokens. The
+			// streaming paths use the same mapping, so a turn reports the same
+			// numbers streamed or not.
+			name: "cached prompt tokens become cache reads, not input",
+			in:   `{"id":"c","model":"m","choices":[{"index":0,"message":{"role":"assistant","content":"x"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1200,"completion_tokens":42,"prompt_tokens_details":{"cached_tokens":1000}}}`,
+			want: `{"id":"c","type":"message","role":"assistant","model":"m","content":[{"type":"text","text":"x"}],"stop_reason":"end_turn","stop_sequence":null,"usage":{"input_tokens":200,"cache_read_input_tokens":1000,"output_tokens":42}}`,
+		},
+		{
+			// An upstream whose cached count exceeds its prompt count is
+			// inconsistent, and the subtraction would go negative; Anthropic's
+			// input_tokens is a count, so it stops at zero and the cached figure
+			// is passed on as reported.
+			name: "cached tokens above the prompt count leave input at zero, never negative",
+			in:   `{"id":"c","model":"m","choices":[{"index":0,"message":{"role":"assistant","content":"x"},"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":150}}}`,
+			want: `{"id":"c","type":"message","role":"assistant","model":"m","content":[{"type":"text","text":"x"}],"stop_reason":"end_turn","stop_sequence":null,"usage":{"input_tokens":0,"cache_read_input_tokens":150,"output_tokens":5}}`,
+		},
+		{
 			name: "missing usage maps to zeros",
 			in:   `{"id":"c","model":"m","choices":[{"index":0,"message":{"role":"assistant","content":"x"},"finish_reason":"stop"}]}`,
 			want: `{"id":"c","type":"message","role":"assistant","model":"m","content":[{"type":"text","text":"x"}],"stop_reason":"end_turn","stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}`,

@@ -354,6 +354,135 @@ func TestACompleteStreamReportsNoTruncation(t *testing.T) {
 	}
 }
 
+// An upstream that sends no usage (it ignored include_usage, or was not asked)
+// still gets its finished answer closed, at [DONE], and the log says once — not
+// once per request — that Claude will count zero tokens for its turns. Zero usage
+// arriving silently is the defect class the streamed-usage fix ends.
+func TestAStreamWithoutUsageIsClosedAndReportedOncePerUpstream(t *testing.T) {
+	up := &stubUpstream{t: t, status: 200, contentType: "text/event-stream", body: strings.Join([]string{
+		`data: {"id":"c","model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":"hi"},"finish_reason":null}]}`,
+		"",
+		`data: {"id":"c","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")}
+	upstream := httptest.NewServer(up.handler())
+	defer upstream.Close()
+	srv := httptest.NewServer(NewHandler(upstream.URL, "k"))
+	defer srv.Close()
+
+	logged := captureDiag(t)
+	for i := 0; i < 2; i++ {
+		resp, err := http.Post(srv.URL+"/v1/messages", "application/json",
+			strings.NewReader(`{"model":"m","max_tokens":8,"stream":true,"messages":[{"role":"user","content":"hi"}]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if strings.Contains(string(body), "event: error") || strings.Count(string(body), "event: message_stop") != 1 {
+			t.Fatalf("request %d: a finished answer with no usage must close normally:\n%s", i, body)
+		}
+	}
+	if n := strings.Count(logged(), "without reporting its usage"); n != 1 {
+		t.Errorf("the no-usage report must appear exactly once per upstream, got %d. Full log:\n%s", n, logged())
+	}
+	wantLines(t, logged(), upstream.URL)
+}
+
+// A usage chunk that arrives after the finish but does not decode (here a
+// string where a count belongs) costs the usage, not the answer: the client
+// gets its finished answer closed normally. But closing it with zero usage is the
+// silent-zero class the streamed-usage fix exists to end, so the log names the
+// upstream and the decode error, once per upstream as the no-usage report is.
+func TestAnUndecodableUsageChunkAfterTheFinishIsReportedOncePerUpstream(t *testing.T) {
+	up := &stubUpstream{t: t, status: 200, contentType: "text/event-stream", body: strings.Join([]string{
+		`data: {"id":"c","model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":"hi"},"finish_reason":null}]}`,
+		"",
+		`data: {"id":"c","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+		"",
+		`data: {"id":"c","model":"m","choices":[],"usage":{"prompt_tokens":"12","completion_tokens":3}}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")}
+	upstream := httptest.NewServer(up.handler())
+	defer upstream.Close()
+	srv := httptest.NewServer(NewHandler(upstream.URL, "k"))
+	defer srv.Close()
+
+	logged := captureDiag(t)
+	for i := 0; i < 2; i++ {
+		resp, err := http.Post(srv.URL+"/v1/messages", "application/json",
+			strings.NewReader(`{"model":"m","max_tokens":8,"stream":true,"messages":[{"role":"user","content":"hi"}]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if strings.Contains(string(body), "event: error") || strings.Count(string(body), "event: message_stop") != 1 {
+			t.Fatalf("request %d: a finished answer whose usage chunk did not decode must close normally:\n%s", i, body)
+		}
+	}
+	got := logged()
+	if n := strings.Count(got, "did not decode"); n != 1 {
+		t.Errorf("the undecodable-usage report must appear exactly once per upstream, got %d. Full log:\n%s", n, got)
+	}
+	wantLines(t, got, upstream.URL, "prompt_tokens")
+	if strings.Contains(got, "without reporting its usage") {
+		t.Errorf("an undecodable usage chunk is not an upstream that ignored the usage request:\n%s", got)
+	}
+}
+
+// A read error AFTER the finish chunk, while the translator waits on the usage
+// chunk, is not a truncated answer: the answer is whole, so the client gets
+// message_delta and message_stop rather than an error event, and the log names
+// the error and says the usage was lost with it (not that the upstream ignored
+// the request for usage).
+func TestAReadErrorAfterTheFinishClosesTheAnswerAndSaysSo(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, buf, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			t.Errorf("hijack: %v", err)
+			return
+		}
+		_, _ = buf.WriteString("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n" +
+			"Transfer-Encoding: chunked\r\n\r\n")
+		for _, c := range []string{
+			`data: {"id":"c","model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":"He"},"finish_reason":null}]}` + "\n\n",
+			`data: {"id":"c","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}` + "\n\n",
+		} {
+			fmt.Fprintf(buf, "%x\r\n%s\r\n", len(c), c)
+		}
+		_ = buf.Flush()
+		_ = conn.Close() // no terminating chunk: the reader sees an unexpected EOF
+	}))
+	defer upstream.Close()
+	srv := httptest.NewServer(NewHandler(upstream.URL, "k"))
+	defer srv.Close()
+
+	logged := captureDiag(t)
+	resp, err := http.Post(srv.URL+"/v1/messages", "application/json",
+		strings.NewReader(`{"model":"m","max_tokens":8,"stream":true,"messages":[{"role":"user","content":"hi"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if strings.Contains(string(body), "event: error") {
+		t.Errorf("a finished answer must not end in an error event:\n%s", body)
+	}
+	if !strings.Contains(string(body), "event: message_delta") || !strings.Contains(string(body), "event: message_stop") {
+		t.Errorf("a finished answer must be closed with message_delta and message_stop:\n%s", body)
+	}
+	got := logged()
+	wantLines(t, got, "ended in an error", "already finished")
+	if strings.Contains(got, "without reporting its usage") {
+		t.Errorf("a read error is not an upstream that ignored the usage request:\n%s", got)
+	}
+}
+
 // failingWriter is a client that cannot receive the response — a hung-up claude,
 // or a broken loopback pipe.
 type failingWriter struct {

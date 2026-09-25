@@ -12,7 +12,8 @@ import (
 // wire-bridge.md §4's table: message content becomes a text block,
 // tool_calls become tool_use blocks, finish_reason maps stop→end_turn,
 // length→max_tokens, tool_calls→tool_use and anything else→end_turn, and
-// usage maps prompt_tokens→input_tokens, completion_tokens→output_tokens.
+// usage maps through usageFromOpenAI, the same mapping every streaming path
+// uses, so a streamed turn and an unstreamed one report one set of numbers.
 //
 // Upstream reasoning content (a reasoning or reasoning_content field, or any
 // other field the bridge does not carry) is dropped by construction — the
@@ -55,14 +56,7 @@ func TranslateResponse(body []byte) ([]byte, error) {
 		})
 	}
 	out.StopReason = stopReasonFromFinish(choice.FinishReason)
-	if r.Usage != nil {
-		if r.Usage.PromptTokens != nil {
-			out.Usage.InputTokens = *r.Usage.PromptTokens
-		}
-		if r.Usage.CompletionTokens != nil {
-			out.Usage.OutputTokens = *r.Usage.CompletionTokens
-		}
-	}
+	out.Usage = usageFromOpenAI(r.Usage).message()
 	b, err := json.Marshal(out)
 	if err != nil {
 		return nil, fmt.Errorf("wirebridge: encoding anthropic response: %w", err)
@@ -98,9 +92,111 @@ type openaiRespToolCall struct {
 	} `json:"function"`
 }
 
+// openaiUsage is the chat-completions usage object. prompt_tokens COUNTS the
+// cached tokens that prompt_tokens_details.cached_tokens reports, which is the
+// one arithmetic fact usageFromOpenAI exists to get right.
 type openaiUsage struct {
-	PromptTokens     *int `json:"prompt_tokens"`
-	CompletionTokens *int `json:"completion_tokens"`
+	PromptTokens        *int `json:"prompt_tokens"`
+	CompletionTokens    *int `json:"completion_tokens"`
+	PromptTokensDetails *struct {
+		CachedTokens *int `json:"cached_tokens"`
+	} `json:"prompt_tokens_details"`
+}
+
+// tokenCounts is one upstream usage report in Anthropic's terms. A nil field is
+// a count the upstream did not report, which is different from a reported zero:
+// only a reported count may overwrite a number Claude already holds.
+//
+// The fields follow Anthropic's usage semantics, not OpenAI's. Anthropic's
+// input_tokens is the UNCACHED remainder of the prompt (the whole prompt is
+// input_tokens + cache_creation_input_tokens + cache_read_input_tokens), while
+// both OpenAI dialects count cached tokens inside their prompt figure. So the
+// cached count is subtracted from the prompt count and reported as cache reads,
+// and a translator that forwarded the prompt figure as input_tokens would bill
+// the cached part twice and double it in Claude's context total. OpenAI's wire
+// reports no cache WRITES, so cache_creation_input_tokens is never emitted.
+type tokenCounts struct {
+	Input     *int
+	CacheRead *int
+	Output    *int
+}
+
+// usageFromOpenAI maps a chat-completions usage object; nil in, nothing
+// reported out.
+func usageFromOpenAI(u *openaiUsage) tokenCounts {
+	if u == nil {
+		return tokenCounts{}
+	}
+	var cached *int
+	if u.PromptTokensDetails != nil {
+		cached = u.PromptTokensDetails.CachedTokens
+	}
+	return countsFromPrompt(u.PromptTokens, cached, u.CompletionTokens)
+}
+
+// countsFromPrompt is the arithmetic both dialects share: prompt includes
+// cached, so input = prompt - cached, never below zero.
+func countsFromPrompt(prompt, cached, output *int) tokenCounts {
+	c := tokenCounts{CacheRead: cached, Output: output}
+	if prompt != nil {
+		in := *prompt
+		if cached != nil {
+			in -= *cached
+		}
+		if in < 0 {
+			in = 0
+		}
+		c.Input = &in
+	}
+	return c
+}
+
+// merge lays a later report over an earlier one. Upstream usage reports are
+// running totals (an upstream that reports usage on every chunk reports the
+// request so far each time), so the latest reported value of each count wins
+// and an unreported one keeps what came before.
+func (c tokenCounts) merge(later tokenCounts) tokenCounts {
+	if later.Input != nil {
+		c.Input = later.Input
+	}
+	if later.CacheRead != nil {
+		c.CacheRead = later.CacheRead
+	}
+	if later.Output != nil {
+		c.Output = later.Output
+	}
+	return c
+}
+
+func (c tokenCounts) reported() bool {
+	return c.Input != nil || c.CacheRead != nil || c.Output != nil
+}
+
+// message renders the counts as a message's usage object (a non-streaming
+// response, and message_start), where input_tokens and output_tokens are always
+// present and cache reads appear only when the upstream reported them.
+func (c tokenCounts) message() anthropicUsage {
+	return anthropicUsage{InputTokens: intOr0(c.Input), CacheReadInputTokens: c.CacheRead,
+		OutputTokens: intOr0(c.Output)}
+}
+
+// delta renders the counts as message_delta's usage object. Anthropic's
+// message_delta usage is CUMULATIVE and carries input and cache counts beside
+// output_tokens; Claude Code merges each field it finds there over what
+// message_start said, which is why the bridge can report input tokens at the end
+// of a stream when OpenAI only reports them at the end. output_tokens is always
+// present (the field is required); the others appear only when reported, so an
+// upstream that sent no usage does not overwrite anything with a zero.
+func (c tokenCounts) delta() messageDeltaUsage {
+	return messageDeltaUsage{InputTokens: c.Input, CacheReadInputTokens: c.CacheRead,
+		OutputTokens: intOr0(c.Output)}
+}
+
+func intOr0(p *int) int {
+	if p == nil {
+		return 0
+	}
+	return *p
 }
 
 // anthropicMessage is the output shape; field order is the wire order.
@@ -115,9 +211,11 @@ type anthropicMessage struct {
 	Usage        anthropicUsage `json:"usage"`
 }
 
+// anthropicUsage is a message's usage object, in Anthropic's field order.
 type anthropicUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	InputTokens          int  `json:"input_tokens"`
+	CacheReadInputTokens *int `json:"cache_read_input_tokens,omitempty"`
+	OutputTokens         int  `json:"output_tokens"`
 }
 
 type anthropicTextBlock struct {

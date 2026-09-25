@@ -2,6 +2,7 @@ package wirebridge
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -65,7 +66,9 @@ func TestTranslateStreamTextOnly(t *testing.T) {
 		{Name: "content_block_delta", Data: []byte(`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"He"}}`)},
 		{Name: "content_block_delta", Data: []byte(`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"llo"}}`)},
 		{Name: "content_block_stop", Data: []byte(`{"type":"content_block_stop","index":0}`)},
-		{Name: "message_delta", Data: []byte(`{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":2}}`)},
+		// This upstream reports usage ON the finish chunk, so the message closes
+		// there, with the input count as well as the output count.
+		{Name: "message_delta", Data: []byte(`{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":3,"output_tokens":2}}`)},
 		{Name: "message_stop", Data: []byte(`{"type":"message_stop"}`)},
 	}
 	assertEvents(t, got, want)
@@ -82,6 +85,12 @@ func TestTranslateStreamToolCall(t *testing.T) {
 	got = append(got, mustChunk(t, s, `{"id":"chatcmpl-s2","model":"m","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"pa"}}]},"finish_reason":null}]}`)...)
 	got = append(got, mustChunk(t, s, `{"id":"chatcmpl-s2","model":"m","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"th\":\"b.go\"}"}}]},"finish_reason":null}]}`)...)
 	got = append(got, mustChunk(t, s, `{"id":"chatcmpl-s2","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`)...)
+	// No usage ever arrives, so the message closes at the stream's end.
+	end, err := s.End()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = append(got, end...)
 
 	want := []Event{
 		{Name: "message_start", Data: []byte(`{"type":"message_start","message":{"id":"chatcmpl-s2","type":"message","role":"assistant","content":[],"model":"m","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}}`)},
@@ -98,9 +107,9 @@ func TestTranslateStreamToolCall(t *testing.T) {
 	assertEvents(t, got, want)
 }
 
-// TestStreamUsageOnlyChunkThenFinish covers the standard openai tail — a
-// final usage-only chunk with "choices": [] — and that its usage lands in
-// message_delta.
+// TestStreamUsageOnlyChunkThenFinish covers a usage-only chunk ("choices": [])
+// that arrives BEFORE the finish: its usage is already in hand at the finish,
+// so the message closes there, with that usage.
 func TestStreamUsageOnlyChunkThenFinish(t *testing.T) {
 	s := NewStreamTranslator()
 	first := mustChunk(t, s, `{"id":"c","model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":"hi"},"finish_reason":null}]}`)
@@ -114,25 +123,128 @@ func TestStreamUsageOnlyChunkThenFinish(t *testing.T) {
 	fin := mustChunk(t, s, `{"id":"c","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`)
 	assertEvents(t, fin, []Event{
 		{Name: "content_block_stop", Data: []byte(`{"type":"content_block_stop","index":0}`)},
-		{Name: "message_delta", Data: []byte(`{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":7}}`)},
+		{Name: "message_delta", Data: []byte(`{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":5,"output_tokens":7}}`)},
 		{Name: "message_stop", Data: []byte(`{"type":"message_stop"}`)},
 	})
 }
 
-// TestStreamAfterFinishIsInert: chunks after message_stop are tolerated and
-// translate to nothing — including malformed ones, since the daemon never has
-// reason to feed anything past [DONE]. Before finish, a malformed chunk is an
-// error.
+// TestStreamUsageChunkAfterFinishIsReported is the recorded shape of an OpenAI
+// chat-completions stream that was asked for stream_options.include_usage:
+// every chunk carries "usage": null, the finish_reason chunk carries no usage,
+// and ONE more chunk follows it, with "choices": [] and the whole request's
+// usage. The bridge used to close the anthropic grammar on the finish chunk and
+// drop this one, so Claude saw output_tokens 0 and input_tokens 0 for every
+// bridged turn. Now message_delta waits for it and reports what Anthropic's own
+// stream reports there: input tokens (the uncached remainder, because OpenAI's
+// prompt_tokens INCLUDES its cached_tokens and Anthropic's input_tokens does
+// not), cache reads, and output tokens.
+func TestStreamUsageChunkAfterFinishIsReported(t *testing.T) {
+	s := NewStreamTranslator()
+	var got []Event
+	for _, payload := range []string{
+		`{"id":"chatcmpl-u1","object":"chat.completion.chunk","model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":"Hi"},"finish_reason":null}],"usage":null}`,
+		`{"id":"chatcmpl-u1","object":"chat.completion.chunk","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":null}`,
+		`{"id":"chatcmpl-u1","object":"chat.completion.chunk","model":"m","choices":[],"usage":{"prompt_tokens":1200,"completion_tokens":42,"total_tokens":1242,"prompt_tokens_details":{"cached_tokens":1000}}}`,
+	} {
+		got = append(got, mustChunk(t, s, payload)...)
+	}
+	assertEvents(t, got, []Event{
+		{Name: "message_start", Data: []byte(`{"type":"message_start","message":{"id":"chatcmpl-u1","type":"message","role":"assistant","content":[],"model":"m","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}}`)},
+		{Name: "content_block_start", Data: []byte(`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`)},
+		{Name: "content_block_delta", Data: []byte(`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}`)},
+		{Name: "content_block_stop", Data: []byte(`{"type":"content_block_stop","index":0}`)},
+		{Name: "message_delta", Data: []byte(`{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":200,"cache_read_input_tokens":1000,"output_tokens":42}}`)},
+		{Name: "message_stop", Data: []byte(`{"type":"message_stop"}`)},
+	})
+}
+
+// TestStreamAfterFinishIsInert: after a finish_reason the answer is whole, so a
+// malformed chunk while the translator waits on usage closes the message with
+// the usage it has rather than failing a finished answer; and after
+// message_stop, every chunk (malformed or not) and End translate to nothing.
+// Before a finish, a malformed chunk is an error (TestStreamBadChunk).
+//
+// The malformed chunk is also where the usage would have been, so closing
+// without it is not silent: Chunk returns the closing events AND a
+// *UsageLostError carrying the decode error, which the daemon logs.
 func TestStreamAfterFinishIsInert(t *testing.T) {
 	s := NewStreamTranslator()
 	mustChunk(t, s, `{"id":"c","model":"m","choices":[{"index":0,"delta":{"content":"x"},"finish_reason":"stop"}]}`)
-	trailing, err := s.Chunk([]byte(`not even json`))
+	// A usage chunk with a type mismatch: the shape an upstream actually sends
+	// wrong, rather than bytes that are not JSON at all.
+	trailing, err := s.Chunk([]byte(`{"id":"c","model":"m","choices":[],"usage":{"prompt_tokens":"12","completion_tokens":3}}`))
+	var lost *UsageLostError
+	if !errors.As(err, &lost) {
+		t.Fatalf("a malformed chunk after the finish must report the lost usage as a *UsageLostError, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "prompt_tokens") || lost.Unwrap() == nil {
+		t.Errorf("the lost-usage error must carry the decode error that caused it, got %v", err)
+	}
+	assertEvents(t, trailing, []Event{
+		{Name: "message_delta", Data: []byte(`{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":0}}`)},
+		{Name: "message_stop", Data: []byte(`{"type":"message_stop"}`)},
+	})
+	for _, payload := range []string{`still not json`, `{"id":"c","model":"m","choices":[],"usage":{"prompt_tokens":9,"completion_tokens":9}}`} {
+		if evs, err := s.Chunk([]byte(payload)); err != nil || len(evs) != 0 {
+			t.Fatalf("a chunk after message_stop must emit nothing: %s (err %v)", formatAll(evs), err)
+		}
+	}
+	if evs, err := s.End(); err != nil || len(evs) != 0 {
+		t.Fatalf("End after message_stop must emit nothing: %s (err %v)", formatAll(evs), err)
+	}
+}
+
+// TestStreamEndClosesAFinishWhoseUsageNeverCame: an upstream that ignores
+// include_usage sends the finish chunk and then [DONE]. The daemon calls End at
+// the sentinel, and that closes the message; the usage it never sent stays out
+// of message_delta rather than arriving as a zero input count.
+func TestStreamEndClosesAFinishWhoseUsageNeverCame(t *testing.T) {
+	s := NewStreamTranslator()
+	mustChunk(t, s, `{"id":"c","model":"m","choices":[{"index":0,"delta":{"content":"x"},"finish_reason":null}]}`)
+	fin := mustChunk(t, s, `{"id":"c","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"length"}]}`)
+	assertEvents(t, fin, []Event{
+		{Name: "content_block_stop", Data: []byte(`{"type":"content_block_stop","index":0}`)},
+	})
+	end, err := s.End()
 	if err != nil {
-		t.Fatalf("post-finish chunk must be tolerated, got %v", err)
+		t.Fatal(err)
 	}
-	if len(trailing) != 0 {
-		t.Fatalf("post-finish chunk must emit nothing, got %s", formatAll(trailing))
+	assertEvents(t, end, []Event{
+		{Name: "message_delta", Data: []byte(`{"type":"message_delta","delta":{"stop_reason":"max_tokens","stop_sequence":null},"usage":{"output_tokens":0}}`)},
+		{Name: "message_stop", Data: []byte(`{"type":"message_stop"}`)},
+	})
+}
+
+// TestStreamEndWithoutAFinishEmitsNothing: a stream that ended before any
+// finish_reason did not complete. End must not close it as though it had; the
+// daemon reports the truncation instead.
+func TestStreamEndWithoutAFinishEmitsNothing(t *testing.T) {
+	s := NewStreamTranslator()
+	mustChunk(t, s, `{"id":"c","model":"m","choices":[{"index":0,"delta":{"content":"x"},"finish_reason":null}]}`)
+	if evs, err := s.End(); err != nil || len(evs) != 0 {
+		t.Fatalf("End before any finish must emit nothing: %s (err %v)", formatAll(evs), err)
 	}
+}
+
+// TestStreamContinuousUsageReportsTheLatestTotals covers an upstream that
+// reports usage on every chunk (running totals): message_start carries the
+// first report, and message_delta the last one, closing at the finish chunk
+// because the usage is already in hand there. Every count changes between the
+// two reports, the prompt and cached counts included, so the latest report
+// must win for each field, not just for output tokens.
+func TestStreamContinuousUsageReportsTheLatestTotals(t *testing.T) {
+	s := NewStreamTranslator()
+	var got []Event
+	got = append(got, mustChunk(t, s, `{"id":"c","model":"m","choices":[{"index":0,"delta":{"content":"a"},"finish_reason":null}],"usage":{"prompt_tokens":50,"completion_tokens":1,"prompt_tokens_details":{"cached_tokens":0}}}`)...)
+	got = append(got, mustChunk(t, s, `{"id":"c","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":60,"completion_tokens":6,"prompt_tokens_details":{"cached_tokens":20}}}`)...)
+	assertEvents(t, got, []Event{
+		{Name: "message_start", Data: []byte(`{"type":"message_start","message":{"id":"c","type":"message","role":"assistant","content":[],"model":"m","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":50,"cache_read_input_tokens":0,"output_tokens":1}}}`)},
+		{Name: "content_block_start", Data: []byte(`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`)},
+		{Name: "content_block_delta", Data: []byte(`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"a"}}`)},
+		{Name: "content_block_stop", Data: []byte(`{"type":"content_block_stop","index":0}`)},
+		{Name: "message_delta", Data: []byte(`{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":40,"cache_read_input_tokens":20,"output_tokens":6}}`)},
+		{Name: "message_stop", Data: []byte(`{"type":"message_stop"}`)},
+	})
 }
 
 // TestStreamDropsReasoning pins WB-D5 on the streaming side: a reasoning

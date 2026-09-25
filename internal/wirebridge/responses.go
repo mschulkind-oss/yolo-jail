@@ -255,7 +255,7 @@ func TranslateResponsesResponse(body []byte) ([]byte, error) {
 				return nil, err
 			}
 			out.Content = append(out.Content, anthropicToolUseBlock{Type: "tool_use", ID: item.CallID, Name: item.Name, Input: input})
-			out.StopReason = "tool_use"
+			out.StopReason = responsesToolStop(out.StopReason)
 		case "reasoning":
 			// Responses reasoning items are opaque (and may carry encrypted state),
 			// not an Anthropic thinking block Claude can replay safely.
@@ -270,10 +270,7 @@ func TranslateResponsesResponse(body []byte) ([]byte, error) {
 			return nil, fmt.Errorf("wirebridge: unsupported Responses output item type %q", item.Type)
 		}
 	}
-	if r.Usage != nil {
-		out.Usage.InputTokens = r.Usage.InputTokens
-		out.Usage.OutputTokens = r.Usage.OutputTokens
-	}
+	out.Usage = r.Usage.counts().message()
 	b, err := json.Marshal(out)
 	if err != nil {
 		return nil, fmt.Errorf("wirebridge: encoding anthropic response: %w", err)
@@ -301,9 +298,28 @@ type responsesOutput struct {
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
 }
+
+// responsesUsage is the Responses usage object. Like chat completions'
+// prompt_tokens, its input_tokens COUNTS input_tokens_details.cached_tokens.
 type responsesUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	InputTokens        *int `json:"input_tokens"`
+	OutputTokens       *int `json:"output_tokens"`
+	InputTokensDetails *struct {
+		CachedTokens *int `json:"cached_tokens"`
+	} `json:"input_tokens_details"`
+}
+
+// counts maps the report into Anthropic's terms by the same arithmetic as the
+// chat-completions route (countsFromPrompt); nil in, nothing reported out.
+func (u *responsesUsage) counts() tokenCounts {
+	if u == nil {
+		return tokenCounts{}
+	}
+	var cached *int
+	if u.InputTokensDetails != nil {
+		cached = u.InputTokensDetails.CachedTokens
+	}
+	return countsFromPrompt(u.InputTokens, cached, u.OutputTokens)
 }
 
 func responsesStopReason(status string, details *struct {
@@ -315,16 +331,42 @@ func responsesStopReason(status string, details *struct {
 	return "end_turn"
 }
 
+// responsesToolStop is the stop reason of an answer that holds a function call:
+// tool_use when the answer finished (end_turn), and otherwise the reason it
+// stopped. An answer the output limit cut off stays a max_tokens stop with a
+// function call in it, as the chat-completions route maps finish_reason
+// "length" whatever is open: the call's arguments may be truncated JSON, and
+// tool_use would send Claude to run it. Both Responses paths, streamed and not,
+// decide it here, so a turn stops for the same reason either way.
+func responsesToolStop(reason string) string {
+	if reason == "end_turn" {
+		return "tool_use"
+	}
+	return reason
+}
+
 // ResponsesStreamTranslator maps the Responses SSE event grammar to the
 // Anthropic event grammar without buffering a completion.  One translator is
 // allocated per upstream request.
+//
+// The Responses stream needs no opt-in for usage: its terminal event —
+// response.completed, or response.incomplete when the output limit stopped it —
+// always carries the request's usage, and that event is where message_delta
+// and message_stop go out, with input, cache-read and output tokens mapped the
+// same way as the chat-completions route's (tokenCounts).
 type ResponsesStreamTranslator struct {
 	started, finished, textOpen, toolOpen bool
 	id, model, toolID, toolName           string
-	index, outputTokens                   int
+	index                                 int
 }
 
 func NewResponsesStreamTranslator() *ResponsesStreamTranslator { return &ResponsesStreamTranslator{} }
+
+// End is the upstream stream's end, called once after the last Chunk. The
+// Responses grammar closes on its own terminal event, so there is never a
+// deferred close to flush; a stream that ended without one did not complete,
+// and that is the daemon's to report.
+func (t *ResponsesStreamTranslator) End() ([]Event, error) { return nil, nil }
 func (t *ResponsesStreamTranslator) Chunk(payload []byte) ([]Event, error) {
 	if t.finished {
 		return nil, nil
@@ -395,9 +437,6 @@ func (t *ResponsesStreamTranslator) Chunk(payload []byte) ([]Event, error) {
 		if err := start(); err != nil {
 			return err
 		}
-		if usage != nil {
-			t.outputTokens = usage.OutputTokens
-		}
 		if t.textOpen || t.toolOpen {
 			ev, err := marshalEvent("content_block_stop", blockStopEvent{Type: "content_block_stop", Index: t.index})
 			if err != nil {
@@ -407,9 +446,9 @@ func (t *ResponsesStreamTranslator) Chunk(payload []byte) ([]Event, error) {
 		}
 		reason := responsesStopReason(status, details)
 		if t.toolOpen {
-			reason = "tool_use"
+			reason = responsesToolStop(reason)
 		}
-		ev, err := marshalEvent("message_delta", messageDeltaEvent{Type: "message_delta", Delta: messageDeltaBody{StopReason: reason}, Usage: messageDeltaUsage{OutputTokens: t.outputTokens}})
+		ev, err := marshalEvent("message_delta", messageDeltaEvent{Type: "message_delta", Delta: messageDeltaBody{StopReason: reason}, Usage: usage.counts().delta()})
 		if err != nil {
 			return err
 		}
@@ -449,7 +488,10 @@ func (t *ResponsesStreamTranslator) Chunk(payload []byte) ([]Event, error) {
 			return nil, err
 		}
 		out = append(out, ev)
-	case "response.completed":
+	case "response.completed", "response.incomplete":
+		// Both are terminal and both carry the usage. An incomplete response
+		// stopped at its output limit maps to max_tokens (responsesStopReason);
+		// refusing it as unknown lost the partial answer's stop and its usage.
 		if err := closeAndStop(e.Response.Status, e.Response.IncompleteDetails, e.Response.Usage); err != nil {
 			return nil, err
 		}

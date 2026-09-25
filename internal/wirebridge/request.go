@@ -17,7 +17,10 @@ import (
 // rename input_schema to parameters and never set strict (WB-D6); thinking
 // config and cache_control strip (WB-D15); max_tokens maps, stop_sequences
 // becomes stop, temperature and top_p map, top_k drops, the stream flag and
-// the model id pass through verbatim.
+// the model id pass through verbatim. A streamed request also asks for
+// stream_options.include_usage, because an OpenAI-compatible upstream reports
+// no usage in a stream unless asked, and Claude's cost and context figures are
+// built from it (TranslateRequestWith, ChatOptions.OmitStreamUsage).
 //
 // The request is never forwarded with anything this package does not
 // understand: an unrecognized content-block type, tool type, or role fails
@@ -33,6 +36,24 @@ func normalizeModel(model string) string {
 }
 
 func TranslateRequest(body []byte) ([]byte, error) {
+	return TranslateRequestWith(body, ChatOptions{})
+}
+
+// ChatOptions carries the facts about one chat-completions upstream that change
+// the request shape. The zero value is the default every shipped upstream takes.
+type ChatOptions struct {
+	// OmitStreamUsage leaves stream_options off a streamed request, for an
+	// upstream whose provider declares it does not accept the field (the
+	// provider option supports_usage_in_streaming set to "false"; the daemon
+	// reads it). Such an upstream reports no streamed usage, so Claude's counts
+	// for its turns stay zero: the price of an upstream that would otherwise
+	// refuse the request.
+	OmitStreamUsage bool
+}
+
+// TranslateRequestWith is TranslateRequest for an upstream whose ChatOptions
+// are not the defaults.
+func TranslateRequestWith(body []byte, opts ChatOptions) ([]byte, error) {
 	var req anthropicRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("wirebridge: decoding anthropic request: %w", err)
@@ -64,6 +85,12 @@ func TranslateRequest(body []byte) ([]byte, error) {
 	out.TopP = req.TopP
 	out.Stop = req.StopSequences
 	out.Stream = req.Stream
+	if req.Stream != nil && *req.Stream && !opts.OmitStreamUsage {
+		// OpenAI's documented opt-in: the stream gains one last chunk, after the
+		// finish_reason chunk, with "choices": [] and the request's usage. The
+		// StreamTranslator waits for that chunk before it closes the message.
+		out.StreamOptions = &openaiStreamOptions{IncludeUsage: true}
+	}
 	b, err := json.Marshal(out)
 	if err != nil {
 		return nil, fmt.Errorf("wirebridge: encoding openai request: %w", err)
@@ -105,14 +132,19 @@ type anthropicTool struct {
 // openaiRequest is the output shape. Field order is the wire order; there is
 // deliberately no strict and no reasoning_effort field anywhere below it.
 type openaiRequest struct {
-	Model       string          `json:"model,omitempty"`
-	Messages    []openaiMessage `json:"messages,omitempty"`
-	Tools       []openaiTool    `json:"tools,omitempty"`
-	MaxTokens   *int            `json:"max_tokens,omitempty"`
-	Temperature *float64        `json:"temperature,omitempty"`
-	TopP        *float64        `json:"top_p,omitempty"`
-	Stop        []string        `json:"stop,omitempty"`
-	Stream      *bool           `json:"stream,omitempty"`
+	Model         string               `json:"model,omitempty"`
+	Messages      []openaiMessage      `json:"messages,omitempty"`
+	Tools         []openaiTool         `json:"tools,omitempty"`
+	MaxTokens     *int                 `json:"max_tokens,omitempty"`
+	Temperature   *float64             `json:"temperature,omitempty"`
+	TopP          *float64             `json:"top_p,omitempty"`
+	Stop          []string             `json:"stop,omitempty"`
+	Stream        *bool                `json:"stream,omitempty"`
+	StreamOptions *openaiStreamOptions `json:"stream_options,omitempty"`
+}
+
+type openaiStreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 // openaiMessage is one output message of any role. Content is always present

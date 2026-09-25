@@ -44,10 +44,20 @@ const upstreamTimeout = 10 * time.Minute
 // chat-completions base URL with one bearer key. Exported so a test can
 // construct the whole serving surface without touching the environment — the
 // daemon's Main is a thin boot (route → key → bind → publish → Serve) around
-// exactly this handler.
+// exactly this handler, built through newChatHandler with the options the boot
+// route read off the provider. NewHandler takes the default ChatOptions, which
+// ask a streamed request's upstream for its usage.
 func NewHandler(upstreamBaseURL, apiKey string) http.Handler {
+	return newChatHandler(upstreamBaseURL, apiKey, wirebridge.ChatOptions{})
+}
+
+// newChatHandler is NewHandler for an upstream whose ChatOptions are not the
+// defaults (route.OmitStreamUsage, from the provider's declared
+// supports_usage_in_streaming).
+func newChatHandler(upstreamBaseURL, apiKey string, opts wirebridge.ChatOptions) http.Handler {
 	return newHandler(upstreamBaseURL, "/chat/completions", apiKey,
-		wirebridge.TranslateRequest, wirebridge.TranslateResponse,
+		func(body []byte) ([]byte, error) { return wirebridge.TranslateRequestWith(body, opts) },
+		wirebridge.TranslateResponse,
 		func() streamTranslator { return wirebridge.NewStreamTranslator() })
 }
 
@@ -110,8 +120,13 @@ func translateCodexResponsesRequest(body []byte) ([]byte, error) {
 	return out, nil
 }
 
+// streamTranslator is one request's upstream-stream translation. End is called
+// exactly once, when the upstream stream ends (the [DONE] sentinel, the body
+// closing, or a read error), because a translator may be holding the close of
+// the anthropic grammar for a usage chunk that has not come.
 type streamTranslator interface {
 	Chunk([]byte) ([]wirebridge.Event, error)
+	End() ([]wirebridge.Event, error)
 }
 
 func newHandler(upstreamBaseURL, path, apiKey string,
@@ -346,8 +361,17 @@ func upstreamErrorMessage(body []byte, status int) string {
 // the "data: " prefix, recognize the [DONE] sentinel, feed one payload at a
 // time to the StreamTranslator and write each Event.Format() verbatim —
 // because the library is I/O-free by design. After the sentinel the relay
-// stops reading: the anthropic grammar is closed by message_stop, and the
-// translator tolerates (drops) any straggler chunk a chatty provider sends.
+// stops reading, and the translator tolerates (drops) any straggler chunk a
+// chatty provider sends after message_stop.
+//
+// ⚠ THE RELAY READS PAST THE FINISH CHUNK, and tells the translator when the
+// stream ends. An upstream asked for stream_options.include_usage sends its
+// usage in a chunk AFTER the finish_reason chunk, so the chat-completions
+// translator holds message_delta + message_stop until that chunk arrives. When
+// the stream ends first — [DONE], EOF, or a read error after the finish — the
+// relay calls End, which closes the message with whatever usage was reported.
+// Skipping End turns every usage-less upstream's finished answer into the
+// truncation report below.
 //
 // ⚠ THE SCAN LOOP HAD TWO SILENT EXITS, and both produced the same symptom: a
 // client waiting on a message_stop that was never coming, with nothing in any log
@@ -361,7 +385,8 @@ func upstreamErrorMessage(body []byte, status int) string {
 //
 // So the relay now tracks whether the translator ever emitted message_stop, which
 // is the event that CLOSES the anthropic grammar (wirebridge's StreamTranslator
-// emits it on the first chunk carrying a finish_reason), and a stream that ends
+// emits it once a finish_reason and the usage have arrived, or at End after a
+// finish_reason), and a stream that ends
 // without one is reported to both audiences: an `error` event to the client, the
 // only legal way to fail inside SSE, and a line naming the cause to the log.
 func (h *bridgeHandler) relayStream(rec *statusRecorder, resp *http.Response) {
@@ -377,6 +402,24 @@ func (h *bridgeHandler) relayStream(rec *statusRecorder, resp *http.Response) {
 	// bufio's 64 KiB default.
 	sc.Buffer(make([]byte, 0, 64*1024), maxSSELine)
 	sawDone, sawStop, chunks := false, false, 0
+	// write is the one path an event takes to the client. It reports false when
+	// the client hung up: the recorder kept the error and ServeHTTP's request line
+	// reports it, so returning is not a silent exit — there is simply nobody left
+	// to tell.
+	write := func(evs []wirebridge.Event) bool {
+		for _, ev := range evs {
+			if ev.Name == "message_stop" {
+				sawStop = true
+			}
+			if _, err := rec.Write(ev.Format()); err != nil {
+				return false
+			}
+		}
+		if flusher != nil {
+			flusher.Flush()
+		}
+		return true
+	}
 	for sc.Scan() {
 		line := sc.Text()
 		if !strings.HasPrefix(line, "data:") {
@@ -392,6 +435,19 @@ func (h *bridgeHandler) relayStream(rec *statusRecorder, resp *http.Response) {
 		}
 		chunks++
 		evs, err := tr.Chunk([]byte(payload))
+		var lost *wirebridge.UsageLostError
+		if errors.As(err, &lost) {
+			// The chunk after the finish, where the usage would be, did not
+			// decode. The answer is whole and evs closes it, so it is written
+			// below like any other; what is lost is the usage, and closing with
+			// zero usage silently is the class the no-usage report below exists
+			// to end. Once per upstream, for the same reason as that report.
+			logOnce("undecodable-stream-usage:"+h.upstreamURL, "upstream %s sent a stream chunk "+
+				"after the finish that did not decode (%v), so the answer was closed without the "+
+				"usage that chunk may have carried and Claude counts zero tokens for such turns; "+
+				"reported once", h.upstreamURL, lost.Err)
+			err = nil
+		}
 		if err != nil {
 			// A chunk that does not decode is a mid-stream upstream fault:
 			// close the stream with an anthropic error EVENT (the only legal
@@ -401,29 +457,51 @@ func (h *bridgeHandler) relayStream(rec *statusRecorder, resp *http.Response) {
 			h.failStream(rec, flusher, "wire-bridge: upstream stream did not translate: "+err.Error())
 			return
 		}
-		for _, ev := range evs {
-			if ev.Name == "message_stop" {
-				sawStop = true
-			}
-			if _, err := rec.Write(ev.Format()); err != nil {
-				// claude hung up; stop relaying. The recorder kept the error and
-				// ServeHTTP's request line reports it, so this is not a silent
-				// return — there is simply nobody left to tell.
-				return
-			}
-		}
-		if flusher != nil {
-			flusher.Flush()
+		if !write(evs) {
+			return
 		}
 	}
-	if err := sc.Err(); err != nil {
+	scanErr := sc.Err()
+	// The upstream stream has ended, whichever way it ended, so the translator
+	// hears it: one that saw a finish_reason is holding message_stop for a usage
+	// chunk, and End is where it stops waiting and closes the message. When End
+	// emits anything, that is what it means — the answer finished and no usage
+	// was ever reported.
+	endEvs, endErr := tr.End()
+	if endErr != nil {
+		// End errs only when it had a message to close, so the client's stream is
+		// still open and an error event is still the legal way to end it.
+		logf("upstream stream could not be closed after %d chunks of %s: %v — closing the "+
+			"client's stream with an error event", chunks, h.upstreamURL, endErr)
+		h.failStream(rec, flusher, "wire-bridge: upstream stream did not translate: "+endErr.Error())
+		return
+	}
+	if !write(endEvs) {
+		return
+	}
+	closedWithoutUsage := len(endEvs) > 0
+	if closedWithoutUsage && scanErr == nil {
+		// Once per upstream, not per request: it is a fact about the upstream,
+		// and it is the silent-zero class this whole change exists to end, so it
+		// is not left silent either.
+		logOnce("no-stream-usage:"+h.upstreamURL, "upstream %s finished a stream without "+
+			"reporting its usage (it ignored stream_options.include_usage, or its provider "+
+			"declares supports_usage_in_streaming \"false\" so the bridge did not ask), so Claude "+
+			"counts zero tokens for such turns; reported once", h.upstreamURL)
+	}
+	if scanErr != nil {
 		// A read failure or an over-long data: line. Either way the stream the
-		// client is holding is INCOMPLETE, and the ceiling is worth naming
-		// because ErrTooLong is a configuration fact rather than an upstream one.
-		detail := err.Error()
-		if errors.Is(err, bufio.ErrTooLong) {
+		// client is holding is INCOMPLETE unless it had already finished, and the
+		// ceiling is worth naming because ErrTooLong is a configuration fact
+		// rather than an upstream one.
+		detail := scanErr.Error()
+		if errors.Is(scanErr, bufio.ErrTooLong) {
 			detail = fmt.Sprintf("a single upstream data: line exceeded the bridge's %d-byte "+
-				"ceiling (maxSSELine): %v", maxSSELine, err)
+				"ceiling (maxSSELine): %v", maxSSELine, scanErr)
+		}
+		if closedWithoutUsage {
+			detail += " — the answer had already finished, so it was closed without the usage " +
+				"the upstream had not yet sent"
 		}
 		logf("upstream stream ended in an error after %d chunks (%s): %s", chunks, h.upstreamURL, detail)
 		if !sawStop {

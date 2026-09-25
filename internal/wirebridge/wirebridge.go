@@ -37,7 +37,9 @@
 // more anthropic SSE events, in order, through the stateful StreamTranslator:
 // message_start on the first chunk, content_block_start / content_block_delta
 // / content_block_stop bookkeeping across chunks, then message_delta +
-// message_stop with the first chunk that carries a finish_reason. Events come
-// back as Event{Name, Data}; Event.Format renders the full "event:"/"data:"
-// wire pair so the daemon can write it verbatim.
+// message_stop once the finish_reason AND the usage have arrived (the usage
+// chunk comes after the finish chunk; see StreamTranslator). The daemon calls
+// End when the upstream stream ends, which closes a message whose usage never
+// came. Events come back as Event{Name, Data}; Event.Format renders the full
+// "event:"/"data:" wire pair so the daemon can write it verbatim.
 package wirebridge
