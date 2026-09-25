@@ -48,6 +48,8 @@ const (
 	keyType    = "type"
 	keyScope   = "scope"
 	keyDefault = "default"
+	// keyDisclose is a bool setting's launch disclosure (OQ-SSO10); see Setting.Disclose.
+	keyDisclose = "disclose"
 
 	keyCmd           = "cmd"
 	keyEnv           = "env"
@@ -167,7 +169,7 @@ var (
 	// "unknown key", tolerant says "ignoring unknown key"), and a settings
 	// declaration has exactly one — refusal, in both decoders. See parseSettings for
 	// why the version-boundary tolerance stops here.
-	settingDeclKeys = []string{keyType, keyScope, keyDefault, keyDescription}
+	settingDeclKeys = []string{keyType, keyScope, keyDefault, keyDescription, keyDisclose}
 	// `preamble` is a host_daemon key and DELIBERATELY not a top-level one: it
 	// describes the connection yolo serves in FRONT of a daemon, so it says
 	// nothing for a transport:"none" loophole and nothing for a manifest with no

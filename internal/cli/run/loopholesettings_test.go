@@ -8,7 +8,9 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // loopholesettings_test.go pins the LAUNCH half of
@@ -190,5 +192,104 @@ func TestStartLoopholesWritesTheSettingsFile(t *testing.T) {
 	if len(names) != 1 || names[0] != "sway" {
 		t.Errorf("settings file = %v — startLoopholes must resolve and write settings BEFORE "+
 			"the spawn loop, because a daemon's argv already names the file", got)
+	}
+}
+
+// discloseLoophole is a loophole owning one widening bool that declares a disclosure,
+// and one that does not — the OQ-SSO10 shape with no real loophole's name in it.
+func discloseLoophole() *loopholes.Loophole {
+	return &loopholes.Loophole{
+		Name: "acme",
+		Settings: []loopholes.Setting{
+			{Key: "wide", Type: loopholes.SettingTypeBool, Default: false,
+				Disclose: "serving everything, un-narrowed"},
+			{Key: "loud", Type: loopholes.SettingTypeBool, Default: false},
+		},
+	}
+}
+
+// TestWriteLoopholeSettingsDisclosesATrueWideningKey pins OQ-SSO10
+// (docs/design/sso-backed-bedrock.md): a bool setting's `disclose` sentence prints at
+// the launch whenever its RESOLVED value is true, as `loophole <name>: <sentence>`, on
+// the launch's stderr like every other disclosure (so a redirected stdout never swallows
+// it), and nothing prints when it is false, absent, or declares no sentence. Deleting the
+// print call in writeLoopholeSettings turns the "true" case red.
+func TestWriteLoopholeSettingsDisclosesATrueWideningKey(t *testing.T) {
+	cases := []struct {
+		name  string
+		cfg   *jsonx.OrderedMap
+		lines []string
+	}{
+		{"true discloses", nil, []string{"loophole acme: serving everything, un-narrowed"}},
+		{"false is silent", nil, nil},
+		{"absent is silent (the declared default is false)", nil, nil},
+		{"a true key with no sentence is silent", nil, nil},
+	}
+	cases[0].cfg = settingsCfg(t, "acme", "wide", true)
+	cases[1].cfg = settingsCfg(t, "acme", "wide", false)
+	cases[2].cfg = jsonx.NewOrderedMap()
+	cases[3].cfg = settingsCfg(t, "acme", "loud", true)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			redirectState(t)
+			o := &Options{}
+			fillDefaults(o)
+			var stdout, stderr strings.Builder
+			o.Stdout, o.Stderr = &stdout, &stderr
+			o.writeLoopholeSettings([]*loopholes.Loophole{discloseLoophole()}, tc.cfg)
+			for _, want := range tc.lines {
+				if !strings.Contains(stderr.String(), want) {
+					t.Errorf("stderr = %q, want the disclosure %q — a widening setting that is "+
+						"true must be disclosed at every launch (OQ-SSO1, OQ-SSO10)", stderr.String(), want)
+				}
+			}
+			if tc.lines == nil && strings.Contains(stderr.String(), "loophole acme:") {
+				t.Errorf("stderr = %q, want no disclosure", stderr.String())
+			}
+			if strings.Contains(stdout.String(), "loophole acme:") {
+				t.Errorf("the disclosure went to stdout (%q); a launch prints its notices on stderr",
+					stdout.String())
+			}
+		})
+	}
+}
+
+// TestShippedAWSAuthDisclosesUnnarrowed is the shipped instance: packs/aws-auth declares
+// the sentence on `unnarrowed`, so a launch with `"unnarrowed": true` names it, and the
+// ordinary narrowed configuration prints nothing. Fails if the manifest's `disclose` is
+// removed.
+func TestShippedAWSAuthDisclosesUnnarrowed(t *testing.T) {
+	mods := packLoopholeModules([]*packload.Pack{officialPack(t, "aws-auth")})
+	if len(mods) != 1 {
+		t.Fatalf("aws-auth loophole modules = %d, want 1", len(mods))
+	}
+	lp, err := loopholes.LoadPackLoophole(mods[0].Dir)
+	if err != nil {
+		t.Fatalf("loading the shipped aws-auth loophole: %v", err)
+	}
+	decl, ok := loopholedecl.SettingByKey(lp.Settings, "unnarrowed")
+	if !ok || decl.Disclose == "" {
+		t.Fatalf("packs/aws-auth's `unnarrowed` declares no `disclose` sentence (decl=%+v) — "+
+			"OQ-SSO10 rules that an un-narrowed session is disclosed at every launch", decl)
+	}
+	for _, tc := range []struct {
+		name       string
+		unnarrowed bool
+		want       bool
+	}{{"unnarrowed", true, true}, {"narrowed", false, false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			redirectState(t)
+			o := &Options{}
+			fillDefaults(o)
+			var stderr strings.Builder
+			o.Stdout, o.Stderr = &strings.Builder{}, &stderr
+			o.writeLoopholeSettings([]*loopholes.Loophole{lp},
+				settingsCfg(t, lp.Name, "profile", "p", "unnarrowed", tc.unnarrowed))
+			got := strings.Contains(stderr.String(), "loophole "+lp.Name+": "+decl.Disclose)
+			if got != tc.want {
+				t.Errorf("unnarrowed=%v: disclosed=%v, want %v (stderr %q)",
+					tc.unnarrowed, got, tc.want, stderr.String())
+			}
+		})
 	}
 }

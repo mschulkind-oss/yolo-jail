@@ -58,7 +58,9 @@ func (o *Options) writeLoopholeSettings(discovered []*loopholes.Loophole, cfg *j
 		if len(lp.Settings) == 0 {
 			continue
 		}
-		_, problems, err := loopholes.WriteSettings(lp, suppliedSettings(loopCfg, lp.Name))
+		supplied := suppliedSettings(loopCfg, lp.Name)
+		o.discloseLoopholeSettings(lp, supplied)
+		_, problems, err := loopholes.WriteSettings(lp, supplied)
 		for _, prob := range problems {
 			o.pr(o.Stdout).print("[yellow]Warning: " + prob + "[/yellow]")
 		}
@@ -70,6 +72,33 @@ func (o *Options) writeLoopholeSettings(discovered []*loopholes.Loophole, cfg *j
 			// fail-closed direction — but silently, which is what this line prevents.
 			o.pr(o.Stdout).print("[red]Could not write settings for loophole " + lp.Name +
 				": " + err.Error() + " — it will start with its declared defaults[/red]")
+		}
+	}
+}
+
+// discloseLoopholeSettings prints `loophole <name>: <sentence>` for every bool setting
+// whose declaration carries a `disclose` sentence and whose RESOLVED value is true
+// (docs/design/sso-backed-bedrock.md OQ-SSO10).
+//
+// Keyed on the DECLARATION, never on a loophole's name: the launch path renders every
+// loophole in one loop with no switch on a tool name (AGENTS.md), and this is how a key
+// that widens what a loophole hands out says so without one. It runs at every launch
+// because a host-singleton daemon's own spawn line prints once and then serves every
+// later launch in silence.
+//
+// A DISCLOSURE, so it has no quiet switch (docs/reference/report-tiers.md, OQ-RO3), and it
+// goes to stderr like every other launch notice. It reads the same resolution the file
+// write below uses (loopholes.ResolveSettings, which is pure), so what it says is what the
+// daemon is handed; the resolution's problems are printed once, by the write.
+func (o *Options) discloseLoopholeSettings(lp *loopholes.Loophole, supplied *jsonx.OrderedMap) {
+	values, _ := loopholes.ResolveSettings(lp, supplied)
+	out := o.pr(o.Stderr)
+	for _, decl := range lp.Settings {
+		if decl.Disclose == "" {
+			continue
+		}
+		if v, ok := values.Get(decl.Key); ok && v == true {
+			out.print("[bold yellow]loophole " + lp.Name + ": " + decl.Disclose + "[/bold yellow]")
 		}
 	}
 }

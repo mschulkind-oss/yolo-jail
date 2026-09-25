@@ -352,3 +352,68 @@ func TestSettingsFileNameIsSpelledOnce(t *testing.T) {
 			"it moves the file; that is a deliberate act, not a rename", loopholedecl.SettingsFileName)
 	}
 }
+
+// TestSettingDiscloseDecodesOnABool pins OQ-SSO10's vocabulary
+// (docs/design/sso-backed-bedrock.md): a bool declaration may carry a `disclose`
+// sentence, which the launch prints whenever the resolved value is true. Absent is
+// the common case and decodes to "".
+func TestSettingDiscloseDecodesOnABool(t *testing.T) {
+	raw := settingsManifest(t, map[string]any{
+		"wide":  map[string]any{"type": "bool", "disclose": "serving everything"},
+		"quiet": map[string]any{"type": "bool"},
+	}, nil)
+	for name, decode := range map[string]func() (*loopholedecl.Manifest, error){
+		"strict": func() (*loopholedecl.Manifest, error) { return loopholedecl.Decode(raw, "/loopholes/acme") },
+		"tolerant": func() (*loopholedecl.Manifest, error) {
+			m, _, err := loopholedecl.DecodeTolerant(raw, "/loopholes/acme")
+			return m, err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m, err := decode()
+			if err != nil {
+				t.Fatal(err)
+			}
+			wide, _ := loopholedecl.SettingByKey(m.Settings, "wide")
+			if wide.Disclose != "serving everything" {
+				t.Errorf("wide.Disclose = %q, want the declared sentence", wide.Disclose)
+			}
+			quiet, _ := loopholedecl.SettingByKey(m.Settings, "quiet")
+			if quiet.Disclose != "" {
+				t.Errorf("quiet.Disclose = %q, want empty for an absent key", quiet.Disclose)
+			}
+		})
+	}
+}
+
+// TestSettingDiscloseRefusals: `disclose` is bool-only in v1, because "the resolved
+// value is true" is the whole trigger and no other type has one; and it must be a
+// non-empty string, since an empty sentence would be a disclosure that says nothing.
+// Refused by BOTH decoders, like every settings-declaration problem.
+func TestSettingDiscloseRefusals(t *testing.T) {
+	cases := []struct {
+		name     string
+		decl     map[string]any
+		fragment string
+	}{
+		{"on-a-string", map[string]any{"type": "string", "disclose": "x"}, "only a bool"},
+		{"on-a-list", map[string]any{"type": "string_list", "disclose": "x"}, "only a bool"},
+		{"not-a-string", map[string]any{"type": "bool", "disclose": true}, "non-empty string"},
+		{"empty", map[string]any{"type": "bool", "disclose": ""}, "non-empty string"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := settingsManifest(t, map[string]any{"a": tc.decl}, nil)
+			err := errFrom(loopholedecl.Decode(raw, "/loopholes/acme"))
+			if err == nil {
+				t.Fatalf("accepted %v", tc.decl)
+			}
+			if !strings.Contains(err.Error(), tc.fragment) {
+				t.Errorf("refusal %q does not contain %q", err, tc.fragment)
+			}
+			if _, _, terr := loopholedecl.DecodeTolerant(raw, "/loopholes/acme"); terr == nil {
+				t.Errorf("the tolerant decoder accepted %v", tc.decl)
+			}
+		})
+	}
+}

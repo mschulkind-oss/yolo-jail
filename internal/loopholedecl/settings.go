@@ -130,6 +130,19 @@ type Setting struct {
 	// for an absent one. Nothing in core branches on it today; it exists so an
 	// authoring tool can render the declaration back without inventing a key.
 	DefaultSet bool
+	// Disclose is the sentence a launch prints, as `loophole <name>: <sentence>`,
+	// whenever this key's RESOLVED value is true. "" means the key discloses nothing.
+	//
+	// It is how a key that WIDENS what a loophole hands out says so at every launch
+	// without core naming the loophole (docs/design/sso-backed-bedrock.md OQ-SSO10):
+	// a host-singleton daemon prints its own spawn line once and then serves every
+	// later launch in silence, so the launch is the only place a widening is re-read
+	// each time. The launch prints it as a DISCLOSURE, which no flag hides
+	// (docs/reference/report-tiers.md, OQ-RO3).
+	//
+	// BOOL-ONLY in v1: "the value is true" is the whole trigger, and no other type has
+	// an obvious one. Widening the set later is additive, like the type set itself.
+	Disclose string
 }
 
 // SettingByKey finds a declaration by key. Linear over a list a manifest author
@@ -251,6 +264,21 @@ func parseSettings(manifestPath string, raw any) ([]Setting, error) {
 			description = s
 		}
 
+		disclose := ""
+		if dv, ok := decl.Get(keyDisclose); ok {
+			s, isStr := dv.(string)
+			if !isStr || strings.TrimSpace(s) == "" {
+				return nil, Errorf("%s: '%s.disclose' must be a non-empty string — the sentence"+
+					" a launch prints whenever this setting is true", manifestPath, path)
+			}
+			if typ != SettingTypeBool {
+				return nil, Errorf("%s: '%s.disclose' is allowed on only a bool setting (this one"+
+					" is %s): it is printed whenever the resolved value is true, and only a bool"+
+					" has that trigger", manifestPath, path, pytext.Repr(typ))
+			}
+			disclose = s
+		}
+
 		def, defSet := SettingZero(typ), false
 		if dv, ok := decl.Get(keyDefault); ok && dv != nil {
 			coerced, typeErr := CoerceSettingValue(typ, dv)
@@ -267,6 +295,7 @@ func parseSettings(manifestPath string, raw any) ([]Setting, error) {
 			Description: description,
 			Default:     def,
 			DefaultSet:  defSet,
+			Disclose:    disclose,
 		})
 	}
 	return out, nil

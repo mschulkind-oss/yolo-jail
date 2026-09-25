@@ -94,7 +94,12 @@
       "type": "bool",
       "scope": "user",
       "default": false,
-      "description": "serve the profile's permission set as-is, with no AssumeRole. The one widening, asked for by name and disclosed wherever this service reports"
+      "description": "serve the profile's permission set as-is, with no AssumeRole. The one widening, asked for by name and disclosed wherever this service reports",
+      // Printed by EVERY launch while this is true (OQ-SSO10): the daemon is a host
+      // singleton, so its own spawn line prints once and then serves later launches in
+      // silence. Wording kept beside awsauth.Narrowing.DisclosureLine's, which the daemon
+      // prints at spawn and the self-check grades as a NOTE.
+      "disclose": "serving UN-NARROWED credentials — the jail holds whatever the configured profile's permission set grants (settings.unnarrowed is true)"
     }
   },
 

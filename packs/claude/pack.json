@@ -189,6 +189,9 @@
   "name": "claude",
   "needs": [
     {
+      "pack": "aws-auth"
+    },
+    {
       "pack": "openai-auth"
     },
     {
