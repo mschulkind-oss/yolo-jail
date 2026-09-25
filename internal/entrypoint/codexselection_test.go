@@ -20,6 +20,7 @@ package entrypoint
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -200,6 +201,31 @@ func TestCodexDeriveWritesTheSelectionKeys(t *testing.T) {
 			wantProvider: "bare",
 			cataloged:    true,
 		},
+		{
+			// openai-codex is Codex's native first-party subscription provider (docs/design/provider-switching.md §4.1).
+			// Selecting it writes model = "gpt-6-sol" directly without model_provider, and does not emit
+			// openai-codex into model_providers table.
+			name: "native openai-codex provider writes model alone without model_provider",
+			providers: `{"openai-codex":{"capabilities":["web_search"],"endpoints":` +
+				`{"openai-responses":{"base_url":"https://chatgpt.com/backend-api/codex","wire_api":"openai-responses"}}},` +
+				`"llamacpp":{"base_url":"http://127.0.0.1:8080/v1"}}`,
+			profiles:     `{"codex":"codex"}`,
+			wire:         `{"codex": {"provider": "openai-codex"}}`,
+			wantProvider: "",
+			wantModel:    "gpt-6-sol",
+			guard:        "llamacpp",
+		},
+		{
+			name: "native openai-codex provider honors profile model option",
+			providers: `{"openai-codex":{"capabilities":["web_search"],"endpoints":` +
+				`{"openai-responses":{"base_url":"https://chatgpt.com/backend-api/codex","wire_api":"openai-responses"}}},` +
+				`"llamacpp":{"base_url":"http://127.0.0.1:8080/v1"}}`,
+			profiles:     `{"codex":"codex"}`,
+			wire:         `{"codex": {"provider": "openai-codex", "model": "gpt-6-astra"}}`,
+			wantProvider: "",
+			wantModel:    "gpt-6-astra",
+			guard:        "llamacpp",
+		},
 	}
 
 	for _, tc := range cases {
@@ -251,27 +277,26 @@ func TestCodexDeriveWritesTheSelectionKeys(t *testing.T) {
 	}
 }
 
-// TestCodexSelectionDeactivatesAcrossRenders is the end-to-end OQ-CS2 pair. The fresh
-// half is the "no active profile" case in the table above; this is the OTHER half, on a
-// home a selecting launch already wrote: a launch with no profile keeps the keys the
-// selection left. yolo can turn a selection on and cannot turn it off (§5.1) — which is
-// why the harness here is the multi-boot one (selectionRender, selectionapply_test.go)
-// and not renderCodexConfig, which starts fresh every call and can only ever test the
-// first boot.
+// TestCodexSelectionDeactivatesAcrossRenders pins OQ-PSW2: on deactivation, yolo clears
+// the selection keys it wrote (falling back to native defaults), and removes the selection
+// record.
 func TestCodexSelectionDeactivatesAcrossRenders(t *testing.T) {
 	r := newSelectionRender(t, reachableProviderJSON)
 
 	requireSelection(t, r.render(t, `{"codex":"llamacpp"}`), "llamacpp", "llama")
 
 	got := r.render(t, ``)
-	if absentOr(got["model_provider"]) != "llamacpp" || absentOr(got["model"]) != "llama" {
-		t.Errorf("after deactivation model_provider/model = %v/%v, want the selection left "+
-			"standing — deactivation clears nothing (docs/reference/providers.md "+
-			"OQ-CS2)", got["model_provider"], got["model"])
+	if got["model_provider"] != nil || got["model"] != nil {
+		t.Errorf("after deactivation model_provider/model = %v/%v, want nil/nil (cleared per OQ-PSW2)",
+			got["model_provider"], got["model"])
 	}
 	if _, leaked := got["selection"]; leaked {
 		t.Errorf("config.toml carries a literal `selection` table — the reserved namespace "+
 			"reached the file: %#v", got)
+	}
+	recPath := prismSelectionRecordPath(r.e, "codex", "config")
+	if _, err := os.Stat(recPath); !os.IsNotExist(err) {
+		t.Errorf("after clearing, codex.config selection record still exists at %s", recPath)
 	}
 }
 

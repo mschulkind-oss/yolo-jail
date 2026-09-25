@@ -45,13 +45,14 @@ local function codexWireAPI(canonical)
   return codexDialect[canonical]
 end
 
--- The provider's URL for the protocol codex speaks — `openai`, per the resolution table
--- in zai-plumbing.md §5. The single-protocol `base_url` shorthand wins; otherwise the
--- openai endpoint. Total over non-tables so the call site stays a one-line gate. Returns
--- nil when the provider names no URL an openai-speaking agent can use, which is what
--- keeps that gate honest: an endpoints-only provider still reaches the catalog (the
--- pre-endpoints gate on prov.base_url silently dropped it), while a provider whose only
--- endpoint speaks anthropic would emit an entry with no URL.
+-- The provider's URL for the protocol codex speaks — `openai-responses` (preferred) or
+-- `openai`, per docs/design/provider-switching.md §4.1. The single-protocol `base_url`
+-- shorthand wins; otherwise the openai-responses or openai endpoint. Total over non-tables
+-- so the call site stays a one-line gate. Returns nil when the provider names no URL an
+-- openai-speaking agent can use, which is what keeps that gate honest: an endpoints-only
+-- provider still reaches the catalog (the pre-endpoints gate on prov.base_url silently
+-- dropped it), while a provider whose only endpoint speaks anthropic would emit an entry
+-- with no URL.
 --
 -- ⚠ THE SHORTHAND ARM STAYS, AND IT IS NOT DEAD CODE. The key is REMOVED from user config
 -- (docs/reference/protocol-resolution.md), but `validateProviderShorthandRetired` is an
@@ -66,7 +67,7 @@ local function providerEndpoint(prov)
   if prov.base_url then
     return prov.base_url, prov.wire_api
   end
-  local ep = prov.endpoints and prov.endpoints.openai or nil
+  local ep = prov.endpoints and (prov.endpoints["openai-responses"] or prov.endpoints.openai) or nil
   if type(ep) == "table" and ep.base_url then
     return ep.base_url, ep.wire_api
   end
@@ -133,21 +134,25 @@ yolo.derive("codex", "config", function(ctx)
   if ctx.providers and next(ctx.providers) ~= nil then
     local provOut = {}
     for name, prov in pairs(ctx.providers) do
-      local baseUrl, api = codexReachable(prov)
-      if baseUrl then
-        local displayName = name
-        if type(prov.name) == "string" and prov.name ~= "" then
-          displayName = prov.name
+      -- openai-codex is Codex's native subscription provider backed by OAuth
+      -- credentials, not a custom third-party endpoint with an API key.
+      if name ~= "openai-codex" then
+        local baseUrl, api = codexReachable(prov)
+        if baseUrl then
+          local displayName = name
+          if type(prov.name) == "string" and prov.name ~= "" then
+            displayName = prov.name
+          end
+          local entry = {
+            name = displayName,
+            base_url = baseUrl,
+            wire_api = api,
+          }
+          if prov.api_key_env_name then
+            entry.env_key = prov.api_key_env_name
+          end
+          provOut[name] = entry
         end
-        local entry = {
-          name = displayName,
-          base_url = baseUrl,
-          wire_api = api,
-        }
-        if prov.api_key_env_name then
-          entry.env_key = prov.api_key_env_name
-        end
-        provOut[name] = entry
       end
     end
     if next(provOut) ~= nil then
@@ -182,16 +187,29 @@ yolo.derive("codex", "config", function(ctx)
   -- provider is not codex-reachable, the SAME gate that keeps it out of the catalog keeps
   -- it out of the selection: no keys at all, never a `model_provider` naming a provider
   -- whose row the catalog dropped — codex refuses that config at startup.
+  --
+  -- openai-codex (docs/design/provider-switching.md §4.1) is Codex's native first-party
+  -- subscription provider. When selected, the selection asserts `model` directly without
+  -- `model_provider`, allowing Codex CLI to authenticate natively via OAuth while clearing
+  -- any third-party `model_provider` residue.
   if ctx.selected_provider ~= nil and ctx.selected_provider ~= "" then
-    local p = ctx.providers and ctx.providers[ctx.selected_provider] or nil
-    if codexReachable(p) then
-      local sel = { model_provider = ctx.selected_provider }
-      local m = type(p) == "table" and p.models or nil
-      local alias = (ctx.profile and ctx.profile.model) or "default"
-      if type(m) == "table" and m[alias] then
-        sel.model = m[alias]
+    if ctx.selected_provider == "openai-codex" then
+      local model = (ctx.profile and ctx.profile.model)
+      if not model or model == "default" then
+        model = "gpt-6-sol"
       end
-      res.selection = sel
+      res.selection = { model = model }
+    else
+      local p = ctx.providers and ctx.providers[ctx.selected_provider] or nil
+      if codexReachable(p) then
+        local sel = { model_provider = ctx.selected_provider }
+        local m = type(p) == "table" and p.models or nil
+        local alias = (ctx.profile and ctx.profile.model) or "default"
+        if type(m) == "table" and m[alias] then
+          sel.model = m[alias]
+        end
+        res.selection = sel
+      end
     end
   end
 

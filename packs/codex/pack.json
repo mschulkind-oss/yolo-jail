@@ -8,6 +8,7 @@
       },
       "kind": "program",
       "protocols": [
+        "openai-responses",
         "openai"
       ],
       "update": [
@@ -98,6 +99,11 @@
         ]
       },
       "kind": "autonomy"
+    },
+    {
+      "kind": "profile",
+      "name": "codex",
+      "provider": "openai-codex"
     },
     {
       "at": ".codex",

@@ -27,7 +27,7 @@ import (
 //   - pi       prefers `prov.endpoints.openai`, then `openai-responses`.
 //   - opencode reads `prov.endpoints.openai`.
 //   - oh-omp   walks {"openai", "anthropic"} in that stable preference order.
-//   - codex    reads `prov.endpoints.openai`.
+//   - codex    prefers `prov.endpoints.openai-responses`, falls back to `prov.endpoints.openai`.
 //
 // A nil value means the pack DECLARES NOTHING, which §4.1 resolves as unconstrained: every
 // provider is direct. `agy` is the one shipped case — its derive composes no provider
@@ -38,7 +38,7 @@ var shippedProtocols = map[string][]string{
 	"pi":       {"openai", "openai-responses"},
 	"opencode": {"openai"},
 	"oh-omp":   {"openai", "anthropic"},
-	"codex":    {"openai"},
+	"codex":    {"openai-responses", "openai"},
 	"agy":      nil,
 }
 
@@ -163,6 +163,37 @@ func TestPiCodexProfilePassesProtocolResolution(t *testing.T) {
 	if _, err := AgentEnv(packs, providers, map[string]string{"pi": "codex"}, "pi", "codex",
 		func(string) (string, bool) { return "", false }, WithResolvedProfiles(resolved)); err != nil {
 		t.Fatalf("Pi's built-in Codex profile must pass protocol resolution: %v", err)
+	}
+}
+
+// Codex speaks openai-responses natively and authenticates against openai-auth's
+// openai-codex provider via OAuth broker. Selecting profile "codex" must pass protocol
+// resolution directly without requiring an adapter.
+func TestCodexCodexProfilePassesProtocolResolution(t *testing.T) {
+	var codex, auth *Pack
+	for _, p := range Embedded() {
+		switch p.Name {
+		case "codex":
+			codex = p
+		case "openai-auth":
+			auth = p
+		}
+	}
+	if codex == nil || auth == nil {
+		t.Fatalf("embedded packs: codex=%v openai-auth=%v", codex != nil, auth != nil)
+	}
+	packs := []*Pack{codex, auth}
+	providers, err := ComposeProviders(nil, packs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := ResolveProfiles(packs, nil, providers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AgentEnv(packs, providers, map[string]string{"codex": "codex"}, "codex", "codex",
+		func(string) (string, bool) { return "", false }, WithResolvedProfiles(resolved)); err != nil {
+		t.Fatalf("Codex's built-in Codex profile must pass protocol resolution: %v", err)
 	}
 }
 
