@@ -111,6 +111,72 @@ jobs:
           uname -m
           sudo -n true && echo "sudo -n: passwordless" || echo "sudo -n: WOULD PROMPT"
 
+      # Q3 (docs/design/macos-user-build-step-threat-model.md): WHICH PARTS OF THE macOS FLOOR
+      # ASSUME AN UNSANDBOXED DARWIN BUILD? A MEASUREMENT, and it can never fail this job.
+      #
+      # WHAT IT BUILDS is what every macos-user launch realizes before the workspace declares
+      # anything: `.#packages.<system>.yoloNoncontainerProfile` with YOLO_EXTRA_PACKAGES unset,
+      # i.e. the floor alone (darwinpkg.BuildFloorProfileArgv). The attribute name is VERIFIED
+      # three ways rather than trusted: it is `darwinpkg.FloorProfileAttr` in Go, flake.nix
+      # binds `packages.yoloNoncontainerProfile` (internal/darwinpkg/floor_drift_test.go fails
+      # if that binding goes), integration/macosusersandboxstep_test.go fails if this step stops
+      # naming the Go constant's value, and the step itself evaluates `<attr>.name` before it
+      # builds, so a renamed attr is a named error here rather than an empty "nothing failed".
+      #
+      # WHY IT RUNS FIRST. Only a derivation this runner BUILDS says anything about the
+      # sandbox; a path substituted from cache.nixos.org was built elsewhere. The launches below
+      # realize this same floor unsandboxed, so after them there would be nothing left to build.
+      # A derivation that fails here is simply built again, unsandboxed, by the first launch.
+      #
+      # `continue-on-error` because the answer is a LIST, and a failure is part of the list.
+      # `--keep-going` so one refusal does not hide the rest. `timeout-minutes` is a ceiling on
+      # waste inside the job's own 120: it is the floor build the first launch would otherwise
+      # pay, not an extra one, except for whatever the sandbox refuses.
+      #
+      # ⚠ `--option sandbox true` IS A RESTRICTED SETTING: the daemon honors it only from a
+      # trusted user and otherwise ignores it with a warning. The step greps for that warning
+      # and says VOID rather than reporting an unsandboxed build as a clean result.
+      - name: Q3 — build the macOS floor with the nix build sandbox ON (measurement only)
+        continue-on-error: true
+        timeout-minutes: 45
+        run: |
+          set -uo pipefail
+          sys="$(nix eval --impure --raw --expr builtins.currentSystem)"
+          attr=".#packages.${sys}.yoloNoncontainerProfile"
+          summary="${GITHUB_STEP_SUMMARY:-/dev/null}"
+          echo "Q3: attr=${attr}"
+          grep -E '^(trusted-users|sandbox|build-users-group)' /etc/nix/nix.conf || true
+          if ! name="$(env -u YOLO_EXTRA_PACKAGES nix eval --impure --accept-flake-config --raw "${attr}.name" 2>&1)"; then
+            echo "::error::Q3: ${attr} does not evaluate, so nothing was measured: ${name}"
+            exit 1
+          fi
+          echo "Q3: ${attr}.name = ${name}"
+          rc=0
+          env -u YOLO_EXTRA_PACKAGES nix build --impure --accept-flake-config \
+            --option sandbox true --keep-going --no-link --print-out-paths \
+            "${attr}" > /tmp/q3.out 2> /tmp/q3.err || rc=$?
+          tail -n 80 /tmp/q3.err
+          # Each list is captured before it is printed, so an empty one says so instead of
+          # printing nothing (grep exits 1 on no match; `|| true` keeps that from being a fault).
+          built="$(grep -m1 -oE '(these [0-9]+ derivations|this derivation) will be built' /tmp/q3.err || true)"
+          failed="$(grep -oE "(builder for|Cannot build) '/nix/store/[^']+[.]drv'" /tmp/q3.err | grep -oE "/nix/store/[^']+" | sort -u || true)"
+          refused="$(grep -E "not allowed when 'sandbox'" /tmp/q3.err | sort -u || true)"
+          {
+            echo "### Q3: the macOS floor built with \`--option sandbox true\` (measurement only)"
+            echo ""
+            echo "- attr: \`${attr}\` (\`${name}\`), nix build rc=${rc}"
+            if grep -q "ignoring the client-specified setting 'sandbox'" /tmp/q3.err; then
+              echo "- ⚠ **VOID**: the daemon ignored \`sandbox\` (a restricted setting, and this user is not trusted), so this build ran UNSANDBOXED and says nothing about Q3."
+            fi
+            echo "- built here: ${built:-nothing — every path was substituted, so nothing was sandboxed and this run answers nothing}"
+            echo "- builds that failed under the sandbox:"
+            if [ -n "$failed" ]; then printf '  - `%s`\n' $failed; else echo "  - none"; fi
+            echo "- derivations the sandbox policy refused outright (e.g. \`__noChroot\`):"
+            if [ -n "$refused" ]; then printf '%s\n' "$refused" | sed 's/^/  - /'; else echo "  - none"; fi
+            echo ""
+          } | tee -a "$summary"
+          exit "$rc"
+
       # The account the whole backend runs as. The suite will NOT create it — a test
       # run must not silently add a system account to somebody's Mac — so it is an
       # explicit step here, where the machine is ephemeral and the mutation is

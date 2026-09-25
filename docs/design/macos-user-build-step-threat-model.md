@@ -270,6 +270,34 @@ still runs as `_nixbld` unsandboxed.)* ⚠ **Bears on this since 2026-09-24:**
 unsandboxed `_nixbld` builder reachable from the agent directly, and a `--option sandbox true` on
 yolo's own argv would not reach an agent's `nix build`. Only the host daemon's `nix.conf` would.
 
+**The feasibility measurement exists, UNRUN (2026-09-25).** It is a step in
+[`macos-user.yml`](../../.github/workflows/macos-user.yml), `Q3 — build the macOS floor with the
+nix build sandbox ON (measurement only)`. The step is `continue-on-error` with a 45-minute cap,
+so it can never fail the job. It runs before any launch, because only a derivation the runner
+BUILDS says anything about the sandbox, and after the first launch the floor is already realized.
+It builds the floor every macos-user launch realizes first, `.#packages.<system>.yoloNoncontainerProfile`
+with `YOLO_EXTRA_PACKAGES` unset, adding `--option sandbox true --keep-going`. **The attribute was
+verified, not assumed**, in four places:
+
+- it is `darwinpkg.FloorProfileAttr`, the value `BuildFloorProfileArgv` builds;
+- `flake.nix` binds `packages.yoloNoncontainerProfile`, and `internal/darwinpkg/floor_drift_test.go`
+  fails if that binding goes;
+- `TestMacosUserQ3SandboxStepBuildsTheFloorFirst`
+  ([`macosusersandboxstep_test.go`](../../integration/macosusersandboxstep_test.go)) fails under
+  `-short` if the step stops naming that constant's value, stops clearing `YOLO_EXTRA_PACKAGES`,
+  or loses its `continue-on-error`, its cap or its VOID check;
+- the step evaluates `<attr>.name` before building, so a renamed attribute is a named error rather
+  than an empty list.
+
+**How to read it:** the job's step summary has a `Q3:` section. It says what was built on the
+runner, which builds failed under the sandbox, and which derivations the sandbox policy refused
+outright (such as `__noChroot`). ⚠ **The VOID rule:** `sandbox` is a restricted nix setting, so the
+daemon ignores it from an untrusted user and warns
+`ignoring the client-specified setting 'sandbox'`. When that warning appears, the summary says
+**VOID**. The build ran unsandboxed and answers nothing. A summary whose "built here" line says
+nothing was built also answers nothing, because every path was substituted. Neither case answers
+Vector C's half of this question, which lives in the daemon's `nix.conf`.
+
 **Answer:**
 > _(empty — fill in when decided)_
 
