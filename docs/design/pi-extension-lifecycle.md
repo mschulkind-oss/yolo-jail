@@ -258,11 +258,15 @@ transitive MCP/LSP step runs `yolo internal refresh-servers` before the agent's 
 >
 >   ⚠ **The stamp also throttles what the refresh reaches outside that store.**
 >   `pi update --extensions` reads its package list from `~/.pi/agent/settings.json` and a
->   project's `.pi/settings.json`. It also updates the git packages under `~/.pi/agent/git`. All
->   of those live in the workspace-scoped `~/.pi`. So a refresh in one workspace suppresses every
->   other workspace's refresh for the next hour. Within that hour, a workspace with its own git
->   packages or a different package list can still show Pi's update box, and it can reach a
->   package no refresh installed (see [OQ-4](#OQ-4)). The *cannot take the lock* branch stamps
+>   project's `.pi/settings.json`. It also updates the git packages under `~/.pi/agent/git`,
+>   which since 2026-09-25 is a machine-shared store too (`.pi-shared-git`,
+>   [`pi-git-extension-caching.md`](pi-git-extension-caching.md)). The package lists still live
+>   in the workspace-scoped `~/.pi`. So a refresh in one workspace suppresses every other
+>   workspace's refresh for the next hour, **except** that a changed package list is now due at
+>   once: the refresh declares `due_on_change: [".pi/agent/settings.json"]`, keyed on content
+>   ([`pack-system.md`](../reference/pack-system.md#program)). Within the hour, a workspace whose
+>   list is unchanged can still show Pi's update box, and it can reach a package no refresh
+>   installed (see [OQ-4](#OQ-4)). The *cannot take the lock* branch stamps
 >   machine-wide too, so one jail whose store mount failed suppresses the refresh in the others
 >   for an hour. Keying the stamp on the workspace would trade that for one refresh per workspace
 >   per hour. That choice is not ruled.

@@ -540,6 +540,21 @@ whether the store is empty.
 [`pi-extension-lifecycle.md`](../design/pi-extension-lifecycle.md#32-execution-tier-pre-launch-auto-refresh)
 is the design.
 
+`due_on_change`, optional, lists home-relative **files** whose content makes the refresh due
+regardless of the hourly stamp: pi declares `[".pi/agent/settings.json"]`. The launcher keys the
+content of every listed file (an absent file counts as its own content) and keeps one marker per
+key beside the refresh stamp. A key no refresh has succeeded for is due. It is keyed on content,
+not mtime, because yolo rewrites a composed file on every boot; and markers are per key, not per
+workspace, so two workspaces with different settings each refresh once and then stop. A refresh
+that exits non-zero records nothing, so the change stays due. A lock another jail holds is still
+skipped, with one exception: a launch whose content has never been refreshed with waits for the
+holder, bounded by the update timeout, because running the program instead would let it install
+what that content names outside the lock. It exists for the first-install race of a
+machine-shared store
+([`pi-git-extension-caching.md`](../design/pi-git-extension-caching.md#34-the-first-install-race)).
+`packdecl` refuses an empty list, an empty, absolute, escaping or unclean entry, and a
+duplicate.
+
 `platforms` is **where the vendor publishes a build**: a list of `<goos>` or
 `<goos>/<goarch>` entries, spelled as Go spells them. Absent means every platform, which is
 what almost every pack wants and what every manifest written before the key kept meaning. A

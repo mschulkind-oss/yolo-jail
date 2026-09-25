@@ -1,6 +1,6 @@
 # Companion Implementation Sketch: Pi Git Extension Caching
 
-**Status:** SKETCH, 2026-09-25 — incomplete, and unstable while questions are open.
+**Status:** SKETCH, 2026-09-25 — incomplete, and unstable while questions are open. The build it sketched landed the same day, with one addition this sketch does not cover: the `due_on_change` refresh trigger ([design §3.4](pi-git-extension-caching.md#34-the-first-install-race)). Read the design, not this, for what was built.
 
 > **Precedence Note:** This document is an implementation sketch holding codebase mapping,
 > sequencing notes, and test plans. On all questions of behavior and architecture,

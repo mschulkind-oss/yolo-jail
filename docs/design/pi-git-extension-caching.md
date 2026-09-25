@@ -1,32 +1,43 @@
 ---
 title: "Sharing Pi git extensions across workspaces: from cold clones to machine-scoped checkouts"
 date: 2026-09-25
-status: draft
+status: in-review
 tags: [pi, extensions, git, caching, machine-tier, storage]
-summary: "Architecture for machine-scoped Pi git extension storage, eliminating redundant full clones and multi-workspace cold startup delays via shared directory hooks and git fetch reconciliation."
+summary: "Pi git extension checkouts move into a machine-scoped `.pi-shared-git` store beside `.pi-shared-npm`, so a repository already on the machine is fetched rather than cloned per workspace. Sharing adds a first-install race the per-workspace store never had, closed by a content-keyed `due_on_change` refresh trigger. Built on the three leanings; their rulings and a fourth question are open."
 vantage:
   status-chip: true
 ---
 
 # Sharing Pi git extensions across workspaces: from cold clones to machine-scoped checkouts
 
-**Status:** DESIGN, 2026-09-25. Nothing built. Evidence verified at `74d830f2`.
+**Status:** DESIGN, 2026-09-25 — **BUILT provisionally** on the leanings of [OQ-1](#OQ-1)–[OQ-3](#OQ-3),
+whose rulings are still owed, and [OQ-4](#OQ-4) is new. Built: the `.pi-shared-git` store and hook,
+and the `due_on_change` refresh trigger that closes the first-install race
+([§3.4](#34-the-first-install-race)). **MEASURED:** pi 0.87.1's package manager, read (not run) at
+`dist/core/package-manager.js` in the jail's install: `installGit` and
+`cleanAndInstallGitDependencies` behave as [§2.1](#21-how-pi-manages-git-extensions-today) says. **UNMEASURED:** nothing has run against a
+real pi git extension (no network clone is possible from the build environment), so every
+latency figure below is an estimate, labeled where it appears.
 
 > **In short.** Pi's git extensions are currently trapped in the workspace-scoped state
 > directory, forcing every new jail to perform redundant, uncached network clones and cold
 > `npm install` cycles on startup. Lifting `~/.pi/agent/git` into a machine-scoped
 > `.pi-shared-git` store paired with a `shared_directory` hook mirrors the `.pi-shared-npm`
-> architecture, turning repetitive 30–60 second startup clones into sub-second `git fetch`
-> delta checks shared across all workspaces.
+> architecture, turning repetitive startup clones into `git fetch` delta checks shared across all workspaces.
+> Sharing one store adds a race the per-workspace store never had; a content-keyed refresh
+> trigger closes it ([§3.4](#34-the-first-install-race)).
 
-**Why it matters.** A user with multiple git extensions incurs 30–60+ seconds of blocking
-network clones and dependency builds every time a new workspace jail launches. These
+**Why it matters.** A user with multiple git extensions pays a full clone and dependency build
+per extension every time a new workspace jail launches (an estimated 30–60 s for a few
+extensions; unmeasured). These
 operations burn disk space, trigger launcher timeouts (`UPDATE_TIMEOUT=60`), and bypass
 cross-jail synchronization.
 
 **The shape.** A machine-scoped state contribution (`.pi-shared-git`) in `packs/pi/pack.json`
 paired with a `shared_directory` hook mapping `~/.pi/agent/git`, relying on Pi's native
-`updateGit` fetch reconciliation and YOLO's pre-launch mutual exclusion lock.
+`updateGit` fetch reconciliation and YOLO's pre-launch mutual exclusion lock, plus a
+`due_on_change` trigger on that refresh so a newly configured extension is installed under the
+lock rather than by pi itself.
 
 **Cost.** Workspaces sharing the machine-scoped git store share one active checkout per git
 repository in user scope; workspaces requiring isolated branch pins must use project-scoped
@@ -34,7 +45,8 @@ configuration (`.pi/settings.json`), which remains workspace-private.
 
 **Start at [§3](#3-the-proposed-architecture)** — the storage split and update flow. The rest falls out of it.
 
-**Needs your ruling:** [OQ-1](#OQ-1), [OQ-2](#OQ-2), [OQ-3](#OQ-3).
+**Needs your ruling:** [OQ-1](#OQ-1), [OQ-2](#OQ-2), [OQ-3](#OQ-3) (each built on its leaning),
+[OQ-4](#OQ-4) (new).
 
 **Reads with:** [`pi-extension-lifecycle.md`](pi-extension-lifecycle.md) (the npm store and prelaunch refresh foundation),
 [`pi-git-extension-caching-plan.md`](pi-git-extension-caching-plan.md) (the companion implementation sketch — incomplete while questions are open).
@@ -200,14 +212,15 @@ With `~/.pi/agent/git` mapped to `.pi-shared-git`, the lifecycle behavior in Pi'
      - Pi calls `updateGit(source, scope)`.
      - Pi detects existing checkout and runs `getLocalGitUpdateTarget()`.
      - Executes `git fetch origin` for the configured branch or ref.
-     - Compares commit hashes: if no remote updates exist, Pi exits in **~200 ms**.
+     - Compares commit hashes: if no remote updates exist, Pi exits quickly (an estimated ~200 ms; unmeasured).
      - If updates exist, Pi downloads only the delta packfile, resets `HEAD`, and refreshes
        dependencies.
 3. **Subsequent workspace launches under throttled stamp (< 1 hour)**:
    - Launcher skips pre-launch refresh.
    - Pi's interactive `resolve()` sees `existsSync(installedPath) === true`.
-   - Pi loads extensions directly from disk in **< 10 ms**. Zero git commands run. Zero network
-     requests.
+   - Pi loads extensions directly from disk (an estimated < 10 ms; unmeasured). Zero git commands
+     run. Zero network requests. **Unless the settings changed:** then the refresh is due at once
+     ([§3.4](#34-the-first-install-race)).
 
 ### 3.3 Concurrency Tier: Cross-Jail Mutual Exclusion
 
@@ -228,11 +241,53 @@ must not race during `git fetch`, `git reset`, or `npm install`.
      ```
    - Jail 2 skips the refresh and executes Pi immediately using the existing checkouts in
      `.pi-shared-git`.
-3. **Incomplete update protection**:
+3. **One exception to non-blocking, and why.** A launch that finds the lock held while its own
+   `~/.pi/agent/settings.json` content has never been refreshed with WAITS for the holder, bounded by
+   the launcher's `UPDATE_TIMEOUT` (60 s), then refreshes under the lock itself. Running pi straight
+   away would let pi install that content's new extensions outside the lock, into the store the
+   holder is writing ([§3.4](#34-the-first-install-race)). Every other held-lock launch still runs
+   what is installed, per [OQ-2](#OQ-2).
+4. **Incomplete update protection**:
    When Pi updates a git checkout with new commits, it writes `.<name>.pi-update-incomplete` before
    `git clean -fdx` and deletes it after `npm install` finishes.
    If an update is interrupted (power loss, SIGKILL), Pi automatically detects the marker on the
    next run and repairs dependencies (`repairMissingGitDependencies()`).
+
+### 3.4 The first-install race
+
+*Found while building; not in the first draft.* The pre-launch refresh is due only by its hourly
+stamp. Within the hour, an extension newly added to `~/.pi/agent/settings.json` is therefore
+installed by pi itself, at startup, with no lock. Per workspace that was harmless. With one shared
+`.pi-shared-git`, two jails launching together both run `installGit` for the same
+`<host>/<user>/<repo>`: the second `git clone` fails because the destination exists, and pi 0.87.1's
+error handler then runs `rmSync(targetDir, { recursive: true, force: true })`, deleting the first
+jail's checkout.
+
+**The fix: a content-keyed refresh trigger.** The pack `refresh` declaration gains
+`due_on_change`, a list of home-relative files; pi declares `[".pi/agent/settings.json"]`
+([`pack-system.md`](../reference/pack-system.md#program)). The launcher keys the content of every
+listed file (an absent file counts as its own content) and keeps one marker per key beside the
+refresh stamp (`<stamps>/refresh/<bin>.seen/`). A key no refresh has succeeded for makes the
+refresh due at once, so the first install of a new extension runs under the lock. The three
+choices that make it work:
+
+- **Content, not mtime.** yolo rewrites `settings.json` on every boot, so its mtime moves when
+  nothing changed.
+- **One marker per key, not per workspace.** Two workspaces with different settings each refresh
+  once and then stop. A single "last content" record would have them take turns forever.
+- **Success only.** A refresh that exits non-zero records nothing, so the change stays due and the
+  next launch retries under the lock. A store that cannot be locked at all records the key, like
+  the stamp it already writes, so a missing mount warns hourly rather than every launch.
+
+The second window is a launch that finds the lock HELD for content it has never refreshed with.
+It waits (the one exception to non-blocking, [§3.3](#33-concurrency-tier-cross-jail-mutual-exclusion)),
+because the holder is plausibly installing exactly that content. After `UPDATE_TIMEOUT` it gives up
+and runs what is installed, so a wedged holder costs one bounded wait and cannot hang a launch.
+
+**What it does not close.** A holder that dies mid-clone leaves its lock until `STALE_LOCK`
+(600 s); a launch in that window waits 60 s, then runs pi, which may race whatever the dead holder
+left. That needs a crashed launcher AND a new extension AND a launch within ten minutes of each
+other.
 
 ---
 
@@ -258,6 +313,8 @@ must not race during `git fetch`, `git reset`, or `npm install`.
 | **Contended launch during git update** | Refresh lock held by another jail | Launcher skips pre-launch refresh; execs Pi immediately | Second jail boots in <1s. If target checkout is mid-update, Pi reports load diagnostic and continues. |
 | **Corrupted git checkout in shared store** | `.git` index lock or broken object | `git fetch` returns non-zero; Pi update catches error | Other extensions load normally; error reported to stderr. |
 | **Interrupted git update (timeout / crash)** | `.<name>.pi-update-incomplete` marker present | On next run, Pi detects marker and runs `cleanAndInstallGitDependencies` | Self-healing on subsequent launch. |
+| **Two jails first-install one new extension at once** | settings content never refreshed with | The change is due; the first launch refreshes under the lock, the second waits for it (bounded), then finds the content recorded ([§3.4](#34-the-first-install-race)) | One clone, no deleted checkout |
+| **An update runs under a live session in another jail** | upstream moved; `git reset --hard`, `git clean -fdx`, `npm install` in the shared checkout | The other jail's pi keeps running on files that change under it, and its extension has no `node_modules` until the install ends | [OQ-4](#OQ-4) |
 | **Conflicting branch refs in user scope** | Workspaces specify different `@ref` for same repo | Last workspace to run update resets shared working tree to its configured ref | Handled via [OQ-3](#OQ-3); project-scoped packages are the clean boundary. |
 
 ---
@@ -322,6 +379,9 @@ must not race during `git fetch`, `git reset`, or `npm install`.
    `.pi-shared-npm/.yolo-update.lock` before spawning the process. Renaming or splitting the lock
    would require changing `packdecl.Refresh` and `prelaunchrefresh.go` for zero functional gain.
 
+   *Built on the leaning, provisionally, 2026-09-25; the ruling is still owed.* The shared lock
+   is unchanged, and it now serializes the git store's refresh too.
+
    **Answer:**
    > _(empty — fill in when decided)_
 
@@ -337,6 +397,11 @@ must not race during `git fetch`, `git reset`, or `npm install`.
    have new commits (infrequent), and lasts only 2–4 seconds. If a second jail starts in that
    exact window, Pi reports an extension load error for that session, while the agent session itself
    boots cleanly.
+
+   *Built on the leaning, provisionally, 2026-09-25; the ruling is still owed.* One refinement
+   was forced by [§3.4](#34-the-first-install-race): a launch whose settings content has never
+   been refreshed with waits for a held lock, bounded by `UPDATE_TIMEOUT`, because proceeding
+   lets pi's own unlocked install race the holder. Every other held-lock launch proceeds.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -354,6 +419,32 @@ must not race during `git fetch`, `git reset`, or `npm install`.
    them in project scope (`.pi/settings.json`), which installs to `<workspace>/.pi/git` without
    touching the shared machine store.
 
+   *Built on the leaning, provisionally, 2026-09-25; the ruling is still owed.* Nothing prevents
+   the conflict; the last refresh to run sets the shared checkout's ref.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+4. 💬 <a id="OQ-4"></a>**OQ-4: Is an update under a live session in another jail acceptable for
+   git, as it is for npm?** When upstream moves, pi's `updateGit` runs `git reset --hard`, then
+   `git clean -fdx` (which deletes the extension's `node_modules`), then `npm install`, in the one
+   shared checkout. A pi session running in another jail keeps the extension's already-loaded
+   modules, but any file it loads later changes under it, and during the install the extension
+   has no dependencies at all. The npm store makes the same trade in kind: an update replaces a
+   package under running sessions. **It is worse in degree for git:** npm replaces a package's
+   files, while `git clean -fdx` empties the dependency tree for the whole `npm install`, seconds
+   to a minute. Stakes: a mid-session extension failure in a jail the user is not looking at,
+   once per upstream move, at most hourly per the stamp.
+
+   (a) Accept it, as the npm store does, and say so. (b) Refresh only when no other pi session is
+   live, which yolo cannot see across jails without new machinery. (c) Stop sharing git checkouts
+   and keep only the fetch saving, which gives up the store.
+
+   _Leaning:_ (a). The window opens only when an upstream moved, and the npm store already
+   accepted the same class. The difference in degree is stated rather than hidden.
+
+   <!-- vantage: oq id=OQ-4 leaning="(a): accept it, as the npm store does, and state that git is worse in degree because git clean -fdx empties node_modules for the whole npm install." -->
+
    **Answer:**
    > _(empty — fill in when decided)_
 
@@ -366,3 +457,4 @@ must not race during `git fetch`, `git reset`, or `npm install`.
 | **OQ-1** | Retain `.pi-shared-npm/.yolo-update.lock` as the single refresh lock | — | [§6](#6-open-questions) | — |
 | **OQ-2** | Non-blocking launch during git dependency rebuilds | — | [§6](#6-open-questions) | — |
 | **OQ-3** | Last-writer-wins for user scope; project scope for isolated pins | — | [§6](#6-open-questions) | — |
+| **OQ-4** | An update under a live session in another jail: accepted as for npm? | — | [§6](#6-open-questions) | — |
