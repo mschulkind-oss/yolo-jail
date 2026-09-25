@@ -12,7 +12,7 @@ summary: "How a host-side `aws sso login` becomes Bedrock access inside a jail w
 human's own access is an `aws sso login` on the host, and how does the jail end up holding no
 more than Bedrock out of it — and still keep working after the human logs in again?
 
-**Status:** DESIGN, 2026-09-25 — OQ-SSO1–9 are DECIDED ([§13](#13-decision-ledger)) and
+**Status:** DESIGN, 2026-09-25 — [OQ-SSO1–9](#13-decision-ledger) are DECIDED and
 [OQ-SSO10](#OQ-SSO10), the launch-side disclosure, is OPEN;
 the service is partly BUILT, and [OQ-SSO8](#OQ-SSO8)'s pack-declared refusal is BUILT
 ([§12](#12-what-i-would-build-in-order) step 6). **MEASURED:** the refusal's code, and the AWS
@@ -1310,15 +1310,15 @@ Bedrock credential comes from. Two terms both use:
    `needs` `aws-auth`) would put that silence in front of every claude user who selects the
    `bedrock` profile.
 
-   <!-- vantage: oq id=OQ-SSO10 leaning="(a): an optional `disclose` sentence on a bool settings declaration, printed by writeLoopholeSettings whenever the resolved value is true, as a disclosure under OQ-RO3. It is the only option that keys on a declaration rather than a name, and OQ-SSO1 already rules the need, so it does not wait for a second consumer." -->
+   <!-- vantage: oq id=OQ-SSO10 leaning="(a): an optional `disclose` sentence on a bool settings declaration, printed by writeLoopholeSettings whenever the resolved value is true, as a disclosure under OQ-RO3. It is the only option that keys on a declaration rather than a name, and the need is already ruled, so it does not wait for a second consumer." -->
 
    _Leaning:_ (a).
 
    | Option | Verdict |
    | :--- | :--- |
-   | **(a) A `disclose` field on a `Setting` declaration** (`internal/loopholedecl/settings.go`), bool-typed keys only in v1. `(*Options).writeLoopholeSettings`, which already resolves every declared key for every active loophole, prints `loophole <name>: <sentence>` whenever the resolved value is `true`. `packs/aws-auth` declares it on `unnarrowed` | **Leaning.** Keys on a declaration, so the launch path stays free of tool names ([`AGENTS.md`](../../AGENTS.md)). A disclosure, so no flag hides it ([`OQ-RO3`](../reference/report-tiers.md#why-its-this-way)). The plan's objection was that no second consumer justifies a vocabulary change; but the need is already ruled by OQ-SSO1, and the only alternative shapes are a name switch or no disclosure |
+   | **(a) A `disclose` field on a `Setting` declaration** (`internal/loopholedecl/settings.go`), bool-typed keys only in v1. `(*Options).writeLoopholeSettings`, which already resolves every declared key for every active loophole, prints `loophole <name>: <sentence>` whenever the resolved value is `true`. `packs/aws-auth` declares it on `unnarrowed` | **Leaning.** Keys on a declaration, so the launch path stays free of tool names ([`AGENTS.md`](../../AGENTS.md)). A disclosure, so no flag hides it ([`OQ-RO3`](../reference/report-tiers.md#why-its-this-way)). The plan's objection was that no second consumer justifies a vocabulary change; but the need is already ruled by [`OQ-SSO1`](#13-decision-ledger), and the only alternative shapes are a name switch or no disclosure |
    | (b) The launch asks the running daemon (its `.host` socket) whether it serves un-narrowed | Keys on the daemon, not a name. But it costs a round trip per launch and says nothing when the daemon is not yet up, which is the first launch — the one that most needs it |
-   | (c) Ship step 5 without it; spawn log and self-check stay the only disclosure | Admits the gap OQ-SSO1 ruled out. Honest only if OQ-SSO1 is amended to say so |
+   | (c) Ship step 5 without it; spawn log and self-check stay the only disclosure | Admits the gap [`OQ-SSO1`](#13-decision-ledger) ruled out. Honest only if that ruling is amended to say so |
 
    **What it touches.** `internal/loopholedecl/settings.go` (the field, both decoders, the
    refusal of `disclose` on a non-bool key), `internal/cli/run/loopholesettings.go` (the print),
