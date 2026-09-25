@@ -183,9 +183,14 @@ repaired — never into silence. Both notches run the check, on every entry that
 environment: the jail launcher on a fresh launch, on an attach that rewrites the per-entry
 channel (below), and on every macos-user invocation; `yolo host --` on the environment it is
 about to exec, before it resolves the target. The composition is `ProviderCredentialGaps` in
-`internal/packload`; each notch supplies its own lookup and its own voice. A separate AWS check
-runs beside it on the jail notch — a launch delivering both AWS credential arms at once is
-refused, with no hatch (`internal/awschain`).
+`internal/packload`; each notch supplies its own lookup and its own voice. A second check runs
+just before it on the jail notch, at the same three entries: a launch that delivers a selected
+pack's `kind: "env"` contribution beside something that pack declares under `overridden_by` is
+refused, with no hatch, or warned about and let through when the pack declares that override
+`certain: false` (`EnvOverrideFindings`, also in `internal/packload`). Core names no variable
+there. `packs/aws-auth` declares the three for its credentials pointer: a Bedrock bearer and a
+static key pair refuse, and a `~/.aws` grant warns
+([`sso-backed-bedrock.md` OQ-SSO8](../design/sso-backed-bedrock.md#OQ-SSO8)).
 
 ## What crosses to the jail
 
@@ -375,6 +380,21 @@ model a selection names is resolved IN THE DERIVE — alias = the profile's `mod
 `default`, then the provider's `models` map; core resolves no model.
 Which ids yolo ships where an agent cannot default, a `models` kind for company packs, and how
 each picker renders the list are designed in [`model-lists-and-pickers.md`](../design/model-lists-and-pickers.md).
+
+> [!WARNING]
+> **Codex reads a provider's credential variable from `env_key`, and a plausible `api_key_env`
+> is silently ignored.** Codex's `ModelProviderInfo` has an `env_key` field and no
+> `api_key_env`, and it does not refuse unknown fields: an unknown key is reported only under
+> codex's opt-in `--strict-config`. So a catalog row carrying `api_key_env` — the spelling
+> yolo's own `api_key_env_name` invites — loads without complaint and binds no provider
+> credential. **The failure is a credential leak, not an anonymous request:** codex never reads
+> the provider's key and falls back to its own first-party OpenAI login (a ChatGPT sign-in or an
+> API key), sending that bearer — and, for a ChatGPT sign-in, its `ChatGPT-Account-ID` header —
+> to the provider's `base_url`. Only with no login does the request go out unauthenticated.
+> (Checked against the codex 0.145.0 source, and read rather than captured from a live request.)
+> The codex derive writes `env_key` from the provider's `api_key_env_name`.
+> `TestCodexDeriveUsesCodexCredentialField` in `internal/entrypoint` pins both halves: `env_key`
+> is written, and `api_key_env` is absent.
 
 A `models.<alias>` value is either the bare wire-id string (the shorthand) or an **object**:
 `id` (required — the wire id, which is usually not the alias), plus optional `name`,

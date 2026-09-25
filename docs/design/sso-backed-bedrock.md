@@ -3,7 +3,7 @@ title: "Bedrock from an SSO login, without handing over the account"
 date: 2026-09-17
 status: accepted
 tags: [aws, bedrock, sso, credentials, loopholes, packs, boundary]
-summary: "How a host-side `aws sso login` becomes Bedrock access inside a jail without the jail holding anything else the login can reach. Least privilege and transparent refresh turn out to be independent problems: narrowing happens host-side before the credential crosses, and refresh happens only when what crosses is a pointer rather than a value. Measured: all four shipped agents already implement the pull channel this needs, and all four read a static key pair before it. A bearer, a static key pair or a ~/.aws grant beside the pointer is refused at launch by a declaration in the pack, not by core (OQ-SSO8, built); the minted-bearer arm is retired (OQ-SSO9)."
+summary: "How a host-side `aws sso login` becomes Bedrock access inside a jail without the jail holding anything else the login can reach. Least privilege and transparent refresh turn out to be independent problems: narrowing happens host-side before the credential crosses, and refresh happens only when what crosses is a pointer rather than a value. Measured: all four shipped agents already implement the pull channel this needs, and all four read a static key pair before it. A bearer or a static key pair beside the pointer is refused at launch, and a ~/.aws grant is warned about, by a declaration in the pack, not by core (OQ-SSO8, built); the minted-bearer arm is retired (OQ-SSO9)."
 ---
 
 # Bedrock from an SSO login, without handing over the account
@@ -25,10 +25,11 @@ working tree it landed from (2026-09-25); vendor claims carry their dates in
 **Where things stand.**
 
 - **Built:** the host credential service, the jail-side adapter, `packs/aws-auth`, and the
-  refusal that stops a frozen bearer, a static key pair or a `~/.aws` grant sharing a jail with
-  the refreshing pointer — declared by the pack under `overridden_by` and evaluated by core with
-  no AWS variable in it ([OQ-SSO8](#OQ-SSO8)). Its `~/.aws` half still refuses a `~/.aws` that
-  holds no credentials, a false positive that awaits a ruling.
+  refusal that stops a frozen bearer or a static key pair sharing a jail with the refreshing
+  pointer — declared by the pack under `overridden_by` and evaluated by core with no AWS
+  variable in it ([OQ-SSO8](#OQ-SSO8)). A `~/.aws` grant beside the pointer is a WARNING rather
+  than a refusal, since a `~/.aws` holding no credentials does not override it (ruled and built
+  2026-09-25).
   [The plan's status](sso-backed-bedrock-plan.md) is the one place that tracks what landed.
 - **Ruled:** six questions on 2026-09-17 and [`OQ-SSO7`](#13-decision-ledger) (the three
   supported credentials) on 2026-09-24 — all in [§13](#13-decision-ledger).
@@ -782,9 +783,12 @@ provider already owns is how the Bedrock region got confusing in the first place
   evaluates the declaration without naming a variable ([OQ-SSO8](#OQ-SSO8)).
 - **Never grant `~/.aws` alongside this.** `fromIni` sits **ahead** of the container provider
   in the measured chain order, so a `host_files` mount of `~/.aws` does not merely duplicate
-  this feature, it *disables* it while looking like it works. Refused at launch by the same
-  declaration (its `host_file` entry), whenever the pointer is delivered and the grant renders
-  something into the jail.
+  this feature, it *disables* it while looking like it works — whenever `~/.aws` holds
+  credentials for the profile the SDK resolves. The same declaration's `host_file` entry
+  catches it, whenever the pointer is delivered and the grant renders something into the jail.
+  It WARNS rather than refuses: a `~/.aws` with no credentials for that profile does not
+  override the pointer, and a path cannot say which it is, so the entry is `certain: false`
+  ([OQ-SSO8](#OQ-SSO8), ruled 2026-09-25).
 - Never write a credential value into any jail-visible file, any agent settings block, or any
   environment variable.
 - **Never let the jail name the profile, role or policy it wants**, and never read those
@@ -1063,9 +1067,11 @@ delays nothing. It only sharpens step 2.
    First built for the bearer alone, in core (`internal/awschain`, since deleted); now
    `aws-auth`'s pointer carries an `overridden_by` declaration naming the bearer, the static pair
    unless `AWS_PROFILE` is also delivered, and a `~/.aws` grant, and core evaluates it
-   (`packload.EnvOverrideRefusal`) at the launch's three arms and in the `yolo check` prediction,
+   (`packload.EnvOverrideFindings`) at the launch's three arms and in the `yolo check` prediction,
    each with a test that fails when its call site is deleted. The pair shipped because
-   [§11](#11-evidence-and-how-to-re-check-it) measured every consumer environment-first.
+   [§11](#11-evidence-and-how-to-re-check-it) measured every consumer environment-first. The
+   `~/.aws` entry is declared `certain: false` since the same day's second ruling, so it warns
+   and never refuses ([OQ-SSO8](#OQ-SSO8)).
 7. ~~The N1 arm~~ — **deleted**: option D is retired ([OQ-SSO9](#OQ-SSO9)).
 8. **Fold into [`agent-credentials.md`](../reference/agent-credentials.md)** as a new delivery
    channel and retire this doc via `system-doc`.
@@ -1184,19 +1190,49 @@ Bedrock credential comes from. Two terms both use:
      live `yolo-user-env.sh` and then refuse, so a refused attach had already handed the jail
      both sides. Both pre-flights now run first.
 
-   ⚠ **One false positive is left, and it needs a ruling.** The `host_file` entry refuses any
-   grant that renders something under `~/.aws`. [§8](#8-behaviour-this-design-specifies)'s
-   *Forbidden* clause bans that outright, and the rule predates condition 3. But a `~/.aws`
-   with no credentials for the profile the SDK resolves does not override the pointer. A
-   config holding only a region, or only SSO profiles and no `[default]`, are two such cases.
-   In pi's vendored `@aws-sdk/credential-provider-ini` 3.973.15, `resolveProfileData` then
-   throws a `CredentialsProviderError`, whose `tryNextLink` defaults to true, and the chain
-   moves on to the container provider. That is MEASURED for pi. It is INFERRED for claude and
-   opencode, which ship the same chain ([§11](#11-evidence-and-how-to-re-check-it)), and for
-   codex's Rust profile provider. The two options are to keep
-   [§8](#8-behaviour-this-design-specifies)'s ban as a policy refusal and record it here as an
-   accepted exception to condition 3, rewording the entry's `because` as policy, or to narrow
-   or drop the entry. The shipped entry is unchanged until that ruling.
+   **The last false positive: the `~/.aws` grant, ruled and built 2026-09-25.** The `host_file`
+   entry refused any grant that rendered something under `~/.aws`, as
+   [§8](#8-behaviour-this-design-specifies)'s *Forbidden* clause, which predates condition 3,
+   bans. But a `~/.aws` with no credentials for the profile the SDK resolves does not override
+   the pointer. A config holding only a region, or only SSO profiles and no `[default]`, are two
+   such cases, and the 2026-09-25 build's nested verification stage refused a launch over a
+   `~/.aws/config` holding only a `[default]` section. In pi's vendored `@aws-sdk/credential-provider-ini` 3.973.15,
+   `resolveProfileData` then throws a `CredentialsProviderError`, whose `tryNextLink` defaults
+   to true, and the chain moves on to the container provider. That is MEASURED for pi. It is
+   INFERRED for claude and opencode, which ship the same chain
+   ([§11](#11-evidence-and-how-to-re-check-it)), and for codex's Rust profile provider.
+
+   The maintainer's ruling: *"I'm not that convinced that we should care about this, although
+   I guess warnings about this is nice … if we can know that it's just not going to launch or
+   it's just not going to work as configured, we should make it a fatal error … I really don't
+   want false positives."* So a finding is fatal only when the override is certain, and one
+   that may override is a warning: a disclosure line the launch always prints, never a refusal.
+
+   **Built the same day**, with core still vendor-free. An `overridden_by` entry takes an
+   optional **`certain`**, default true (`packdecl.EnvOverride.IsCertain`). A tripped certain
+   entry refuses as before. A tripped `certain: false` entry is a WARNING: the launch prints it
+   on stderr and continues, and `yolo check` reports a WARN. Nothing silences the print. The
+   entry states a fact about itself, and core reads the fact as a severity, identically for
+   every pack. `packs/aws-auth` declares its `~/.aws` entry `certain: false`, with a `because`
+   saying when the grant does and does not override.
+
+   The other shape the question allowed was narrowing the entry to what certainly overrides,
+   such as a rendered credentials file carrying keys for the profile the chain reads. It was
+   not taken, because no path can express it. Deciding it means reading the file and knowing
+   which profile the chain resolves (`AWS_PROFILE`, else `default`), both of which are AWS
+   facts. Putting them in core breaks condition 1, and putting them in the declaration needs a
+   content predicate that no other pack has asked for. So no `~/.aws` grant is certain, and
+   the whole entry warns. The cost is a false negative: a grant that does hold the resolved
+   profile's keys is warned about rather than refused. The ruling accepts false negatives.
+
+   Tests, one per case: certain (a delivered bearer refuses), uncertain (a rendered
+   `~/.aws/config` warns, and so does a key-carrying `~/.aws/credentials`) and absent (no grant
+   produces no finding). They are pinned in the evaluator
+   (`TestEnvOverrideCertaintyDecidesTheSeverity`, `TestShippedAWSAuthDeclaresTheThreeOverrides`),
+   at the launch (`TestEnvOverrideWarnsAboutARenderedHostFilesGrant`,
+   `TestEnvOverrideWarnsOnTheMacosUserLaunch` through `Run`,
+   `TestEnvOverrideWarningDoesNotHideARefusal`), and in `yolo check`
+   (`TestSectionPacksWarnsForAnUncertainOverride`).
 
 2. ✅ <a id="OQ-SSO9"></a>**OQ-SSO9: Now that the wire bridge signs, is option D retired?**
    Option D ([§4](#4-five-options)) is a short-term Bedrock API key the host service mints from
@@ -1276,5 +1312,5 @@ Bedrock credential comes from. Two terms both use:
 | OQ-SSO5 | **Ship the N1 bearer arm, and make the two arms mutually exclusive at load** — a config enabling both refuses the launch, naming which to drop. It earns its place as the no-IAM-change narrowing and as the fallback for a chain-less client; what it must never be is a quiet winner over the arm that refreshes. **Amended by [OQ-SSO9](#OQ-SSO9):** the arm is not shipped; the exclusivity stays, for a user-delivered bearer | 2026-09-17 | [§8](#8-behaviour-this-design-specifies) | — |
 | OQ-SSO6 | **A lapsed session is a MESSAGE, not a request.** The 4xx names the command and a human runs it; the jail never triggers a host login. The pack README says the request shape is [`boundary-broker.md`](boundary-broker.md)'s to build — this design is a good first consumer for that queue and a bad place to invent it, since half an approval mechanism living in a credential pack is exactly the second front door that doc exists to prevent | 2026-09-17 | [§7](#7-refresh--what-happens-when-you-log-in-again) | — |
 | OQ-SSO7 | **Three Bedrock credentials are supported**, ruled by the maintainer: *"We will support bearer tokens, we will support secret and key, and we also need to support sessions through single sign-on. That's the big one."* (1) a Bedrock API key as `AWS_BEARER_TOKEN_BEDROCK` — option B's push channel; (2) a static access key and secret as `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`, for example through `env_sources` — the maintainer's current setup, and not one of [§4](#4-five-options)'s five options, which all start from an SSO login; (3) an SSO session through an assumed role, served by `packs/aws-auth` over the container-credentials endpoint — option C, **the primary one**. Supporting (1) and (2) changes nothing in this design: both are existing channels, frozen at launch. [`bedrock-plumbing.md` §6.4](bedrock-plumbing.md#64-the-credential-three-are-supported) records what the ruling means for the endpoint side, including that (2) beside (3) is the same silent wrong answer as (1) beside (3) and was not refused then (it is since 2026-09-25, [OQ-SSO8](#OQ-SSO8)) | 2026-09-24 | [§4](#4-five-options) | (1) and (2): existing channels; (3): `packs/aws-auth` |
-| OQ-SSO8 | **Refuse, fatal, no hatch**, when a bearer or both halves of the static key pair are delivered beside `aws-auth`'s pointer. The maintainer's conditions: the rule is **declared by the pack**, and core hardcodes no AWS variable (the existing bearer refusal moves out of `internal/awschain`); fatal whenever the configured auth will certainly be overridden; **never a false positive**, false negatives accepted | 2026-09-25 | [OQ-SSO8](#OQ-SSO8) | 2026-09-25: `overridden_by` in `packs/aws-auth/pack.json`, evaluated by `packload.EnvOverrideRefusal`; `internal/awschain` deleted. Review fixes the same day: only what reaches the jail counts, and directory grants count per backend. Open: the `host_file` entry refuses a `~/.aws` with no credentials in it |
+| OQ-SSO8 | **Refuse, fatal, no hatch**, when a bearer or both halves of the static key pair are delivered beside `aws-auth`'s pointer. The maintainer's conditions: the rule is **declared by the pack**, and core hardcodes no AWS variable (the existing bearer refusal moves out of `internal/awschain`); fatal whenever the configured auth will certainly be overridden; **never a false positive**, false negatives accepted. A second ruling the same day, on the `~/.aws` grant: an override that only MAY happen is a **warning**, never a refusal | 2026-09-25 | [OQ-SSO8](#OQ-SSO8) | 2026-09-25: `overridden_by` in `packs/aws-auth/pack.json`, evaluated by `packload.EnvOverrideFindings`; `internal/awschain` deleted. Review fixes the same day: only what reaches the jail counts, and directory grants count per backend. Also 2026-09-25, on the last false positive: an entry may be `certain: false`, which warns instead of refusing, and the `~/.aws` entry is declared so |
 | OQ-SSO9 | **Retire option D**: yolo mints no Bedrock API key. The signing wire bridge covers every shipped agent; the gateway route is documented as API-key-only | 2026-09-25 | [OQ-SSO9](#OQ-SSO9) | — |

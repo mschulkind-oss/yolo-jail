@@ -434,11 +434,12 @@ and this design writes no credential anywhere.
 
 > [!WARNING]
 > **Never two at once.** Every measured client prefers a bearer, so credential 1 beside credential
-> 3 silently uses the frozen bearer. yolo refuses that launch, with no hatch (`internal/awschain`;
+> 3 silently uses the frozen bearer. Static keys beside the pointer fail the same way, because the
+> chain's environment provider comes first. yolo refuses both launches, with no hatch: the pair is
+> let through only when `AWS_PROFILE` is delivered beside it, which makes the JavaScript SDKs skip
+> the environment provider. The refusal is declared by `aws-auth` under `overridden_by`, not
+> hardcoded in core ([OQ-SSO8](sso-backed-bedrock.md#OQ-SSO8), built 2026-09-25;
 > [`sso-backed-bedrock.md` §8](sso-backed-bedrock.md#8-behaviour-this-design-specifies)).
-> ⚠ Static keys beside the pointer fail the same way, because the chain's environment provider
-> comes first. Nothing refuses that yet; [OQ-SSO8](sso-backed-bedrock.md#OQ-SSO8) ruled that it
-> will, declared by `aws-auth` rather than hardcoded in core, and never with a false positive.
 
 A bearer minted from `aws-auth`'s narrowed, role-chained session lives at most an hour (INFERRED
 from STS's caps). That is why the bridge signs rather than carrying a minted key. AWS's guidance on

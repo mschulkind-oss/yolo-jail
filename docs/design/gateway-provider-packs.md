@@ -12,8 +12,11 @@ vantage:
 
 **Status:** BUILT, 2026-09-15; re-checked against the tree 2026-09-24 — MEASURED: the two
 manifests, the codex credential-field fix and the per-agent projections are pinned by
-`internal/entrypoint/providerderive_test.go`. **NOT A GRADUATION CANDIDATE**: two of this doc's
-rulings were contradicted by a later change, and [OQ-GP4](#OQ-GP4) must be ruled before its
+`internal/entrypoint/providerderive_test.go`. UNMEASURED: no live OpenRouter or Kilo run — no
+agent session through either gateway is recorded, the one recorded request being a read of
+Kilo's model catalog on 2026-09-20 ([providers.md](../reference/providers.md#per-agent-delivery)).
+**NOT A GRADUATION CANDIDATE**: two of this doc's rulings were contradicted by a later change,
+and [OQ-GP4](#OQ-GP4) must be ruled before its
 durable half can move to the reference tree (the warning below). **Amended 2026-09-25:**
 [OQ-GP2](#decision-ledger)'s *"ship no models"* is narrowed by
 [OQ-BR3](model-lists-and-pickers.md#OQ-BR3) (the ledger note below); this doc's gateway packs
@@ -63,9 +66,10 @@ existing provider table, which every agent pack derives into its own dialect.
 
 **Needs your ruling:** [OQ-GP4](#OQ-GP4).
 
-**Reads with:** [`gateway-provider-packs-plan.md`](gateway-provider-packs-plan.md)
-(the implementation hand-off), [`gateway-providers.md`](../research/gateway-providers.md)
-(protocol evidence), and [`providers.md`](../reference/providers.md) (the existing system).
+**Reads with:** [`gateway-providers.md`](../research/gateway-providers.md) (protocol evidence)
+and [`providers.md`](../reference/providers.md) (the existing system). The implementation plan
+is retired; its one trap the reference lacked, codex's `env_key` credential field, is now in
+[`providers.md`](../reference/providers.md#per-agent-delivery).
 Also [`wire-bridge-gateway.md`](wire-bridge-gateway.md), whose direction
 [DIR-WG1](wire-bridge-gateway.md#DIR-WG1) (routing every agent's model traffic through the wire
 bridge) names OpenRouter model filtering as its motivating case, and whose
