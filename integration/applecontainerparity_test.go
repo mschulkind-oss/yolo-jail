@@ -480,16 +480,18 @@ func TestAppleContainerExplicitHostModeKeepsPublishedPorts(t *testing.T) {
 	requireJail(t)
 	bridge := acPublishedPortProbe(t, fix, "bridge")
 	host := acPublishedPortProbe(t, fix, "host")
-	evidence := fmt.Sprintf("default (bridge): %s\nexplicit host:    %s\nhost-mode warning printed: %v",
-		bridge.describe(), host.describe(), host.warned)
+	evidence := fmt.Sprintf("default (bridge): %s\nexplicit host:    %s\nhost-mode warning printed: %v\n"+
+		"address family: %s\n\nin-jail evidence, default (bridge):\n%s\n\nin-jail evidence, explicit host:\n%s",
+		bridge.describe(), host.describe(), host.warned, acPortFamilyFinding(bridge, host),
+		bridge.jailDiag, host.jailDiag)
 	switch {
-	case bridge.reached && host.reached:
+	case bridge.reached() && host.reached():
 		acParityRecord(t, fix, true, "a published port answers the Mac under an explicit "+
 			"`network.mode: host` exactly as under the default", evidence)
-	case bridge.reached:
+	case bridge.reached():
 		acParityRecord(t, fix, false, "the default publishes the port and an explicit host mode "+
 			"does NOT — the defect #10 fixed is back: asking for host mode drops `network.ports`", evidence)
-	case host.reached:
+	case host.reached():
 		acParityRecord(t, fix, false, "an explicit host mode published the port and the default "+
 			"did NOT — the reverse of the defect, and a different bug", evidence)
 	default:
@@ -500,83 +502,166 @@ func TestAppleContainerExplicitHostModeKeepsPublishedPorts(t *testing.T) {
 }
 
 // acPortResult is what one published-port launch showed.
+//
+// Each launch publishes TWO in-jail servers, because the first Mac run (2026-09-25, container
+// CLI 1.1.0) found every dial to a single IPv4-only socat answered by "connected, then EOF" in
+// BOTH modes: something on the Mac accepted the host port, and nothing answered behind it. That
+// is what a forwarder does when its connection into the container is refused. socat 1.8's
+// TCP-LISTEN binds IPv4 only (an IPv6 connect to it is refused), while Apple's own --publish
+// examples bind `::`. So one listener is IPv4-only and one is dual-stack, and which of them the
+// Mac reaches is the answer, not a guess. jailDiag is the jail's own view of the same ports, so
+// "the server was not running" can never pass for "the forwarder cannot reach it".
 type acPortResult struct {
-	mode    string
-	rc      int
+	mode     string
+	rc       int
+	warned   bool
+	v4       acListenerResult // socat TCP-LISTEN: IPv4 only
+	dual     acListenerResult // socat TCP6-LISTEN,ipv6only=0: IPv4 and IPv6
+	jailDiag string
+}
+
+// acListenerResult is the Mac's side of one published listener.
+type acListenerResult struct {
 	reached bool
 	dials   int
 	lastErr string
-	warned  bool
 }
+
+// reached reports whether EITHER listener answered: #10 asks whether a published port reaches
+// the Mac at all, and which family it needed is acPortFamilyFinding's question.
+func (r acPortResult) reached() bool { return r.v4.reached || r.dual.reached }
 
 func (r acPortResult) describe() string {
-	return fmt.Sprintf("reached=%v after %d dial(s), launch rc=%d, last error: %s",
-		r.reached, r.dials, r.rc, r.lastErr)
+	return fmt.Sprintf("IPv4-only listener: reached=%v after %d dial(s), last error: %s; "+
+		"dual-stack listener: reached=%v after %d dial(s), last error: %s; launch rc=%d",
+		r.v4.reached, r.v4.dials, r.v4.lastErr, r.dual.reached, r.dual.dials, r.dual.lastErr, r.rc)
 }
 
-// acPublishedPortJailPort is the jail side of the published port. Fixed, because the jail's
-// network namespace is its own; the host side is an ephemeral port picked per launch.
-const acPublishedPortJailPort = 18765
+// acPortFamilyFinding states what the two listeners, across both launches, say about the
+// family Apple Container's forwarder connects with.
+func acPortFamilyFinding(runs ...acPortResult) string {
+	var v4, dual bool
+	for _, r := range runs {
+		v4 = v4 || r.v4.reached
+		dual = dual || r.dual.reached
+	}
+	switch {
+	case v4:
+		return "an IPv4-only in-jail listener IS reached, so the family is not what blocks a published port"
+	case dual:
+		return "ONLY the dual-stack listener is reached: the forwarder connects over IPv6, so an " +
+			"in-jail server published on this backend must bind `::`, not 0.0.0.0"
+	default:
+		return "neither listener is reached, so the family is not the cause; read the in-jail evidence"
+	}
+}
 
-// acPublishedPortProbe launches one jail publishing a socat token server, and dials it from
-// this process while the jail waits.
+// The jail side of the two published ports. Fixed, because the jail's network namespace is its
+// own; the host sides are ephemeral ports picked per launch.
+const (
+	acPublishedPortJailPort     = 18765 // the IPv4-only listener
+	acPublishedPortDualJailPort = 18766 // the dual-stack listener
+)
+
+// acPublishedPortProbe launches one jail publishing two socat token servers, and dials each
+// from this process while the jail waits.
 //
-// THE JAIL WAITS FOR THE HOST, not the reverse: the dialer writes a marker into the workspace
-// (bind-mounted at /workspace) once it has an answer, and the jail's script exits on it, or on
-// its own bound. So the launch is never cut short while a dial is in flight, and a jail that
+// THE JAIL WAITS FOR THE HOST, not the reverse: the dialers write a marker into the workspace
+// (bind-mounted at /workspace) once both have an answer, and the jail's script exits on it, or
+// on its own bound. So the launch is never cut short while a dial is in flight, and a jail that
 // publishes nothing costs the bound and not the per-command timeout.
 func acPublishedPortProbe(t *testing.T, fix, mode string) acPortResult {
 	t.Helper()
-	hostPort := acFreeLoopbackPort(t)
+	v4Host, dualHost := acFreeLoopbackPort(t), acFreeLoopbackPort(t)
 	nonce := "YOLO-AC-PORT-" + acParityNonce()
-	dir := writeProject(t, fmt.Sprintf(`{"network": {"mode": %q, "ports": ["%d:%d"]}}`,
-		mode, hostPort, acPublishedPortJailPort))
+	v4Token, dualToken := nonce+"-V4", nonce+"-DUAL"
+	dir := writeProject(t, fmt.Sprintf(`{"network": {"mode": %q, "ports": ["%d:%d", "%d:%d"]}}`,
+		mode, v4Host, acPublishedPortJailPort, dualHost, acPublishedPortDualJailPort))
 	const marker = ".yolo-it-dialed"
 
 	stop := make(chan struct{})
-	var wg sync.WaitGroup
-	r := acPortResult{mode: mode, lastErr: "none"}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		defer func() { _ = os.WriteFile(filepath.Join(dir, marker), []byte("done\n"), 0o644) }()
-		addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(hostPort))
+	r := acPortResult{mode: mode, v4: acListenerResult{lastErr: "none"}, dual: acListenerResult{lastErr: "none"}}
+	var dialers sync.WaitGroup
+	dial := func(port int, token string, into *acListenerResult) {
+		defer dialers.Done()
+		addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 		for {
 			select {
 			case <-stop:
 				return
 			default:
 			}
-			r.dials++
+			into.dials++
 			if line, err := acDialLine(addr); err != nil {
-				r.lastErr = err.Error()
-			} else if strings.Contains(line, nonce) {
-				r.reached = true
+				into.lastErr = err.Error()
+			} else if strings.Contains(line, token) {
+				into.reached = true
 				return
 			} else {
-				r.lastErr = fmt.Sprintf("connected, read %q instead of the token", line)
+				into.lastErr = fmt.Sprintf("connected, read %q instead of the token", line)
 			}
 			time.Sleep(500 * time.Millisecond)
 		}
+	}
+	dialers.Add(2)
+	go dial(v4Host, v4Token, &r.v4)
+	go dial(dualHost, dualToken, &r.dual)
+	var marked sync.WaitGroup
+	marked.Add(1)
+	go func() {
+		defer marked.Done()
+		dialers.Wait()
+		_ = os.WriteFile(filepath.Join(dir, marker), []byte("done\n"), 0o644)
 	}()
 
-	script := strings.Join([]string{
-		fmt.Sprintf(`socat TCP-LISTEN:%d,fork,reuseaddr SYSTEM:'echo %s' &`, acPublishedPortJailPort, nonce),
-		`echo LISTENING`,
-		`for _ in $(seq 1 180); do [ -f /workspace/` + marker + ` ] && break; sleep 0.5; done`,
-		`echo "=== END ==="`,
-	}, "\n")
-	res := runYolo(t, dir, script, appleContainerEnv())
+	res := runYolo(t, dir, acPublishedPortScript(v4Token, dualToken, marker), appleContainerEnv())
 	close(stop)
-	wg.Wait()
+	marked.Wait()
 	r.rc = res.rc
 	r.warned = strings.Contains(res.combined(), `network.mode "host" is NOT honored on Apple Container`)
+	r.jailDiag = strings.TrimSpace(section(res.stdout, "=== DIAG ===", "=== END DIAG ==="))
 	if res.rc != 0 || !strings.Contains(res.stdout, "LISTENING") {
-		t.Fatalf("%s %s: the %s-mode launch did not start its server (rc=%d), so nothing was "+
+		t.Fatalf("%s %s: the %s-mode launch did not start its servers (rc=%d), so nothing was "+
 			"measured.\nstdout:\n%s\nstderr:\n%s", acParityTag, fix, mode, res.rc,
 			lastLines(res.stdout, 40), lastLines(res.stderr, 40))
 	}
 	return r
+}
+
+// acPublishedPortScript is the jail's half of acPublishedPortProbe: start both listeners, print
+// the jail's own view of them between the DIAG markers, then wait for the host's marker.
+//
+// The in-jail evidence is what separates the failure classes a Mac-side EOF cannot: whether
+// each socat is alive (its stderr when not), whether the kernel holds a LISTEN socket for each
+// port and in which family (/proc/net/tcp and tcp6; 18765 and 18766 are 0x494D and 0x494E), and
+// whether each server answers the jail itself on loopback and on every non-loopback address the
+// container has. A server that answers its own non-loopback address but not the Mac is reachable
+// in the container and lost in the forwarder.
+func acPublishedPortScript(v4Token, dualToken, marker string) string {
+	v4Port, dualPort := strconv.Itoa(acPublishedPortJailPort), strconv.Itoa(acPublishedPortDualJailPort)
+	return strings.Join([]string{
+		`socat TCP-LISTEN:` + v4Port + `,fork,reuseaddr SYSTEM:'echo ` + v4Token + `' 2>/tmp/yolo-it-socat-v4.err &`,
+		`v4pid=$!`,
+		`socat TCP6-LISTEN:` + dualPort + `,ipv6only=0,fork,reuseaddr SYSTEM:'echo ` + dualToken + `' 2>/tmp/yolo-it-socat-dual.err &`,
+		`dualpid=$!`,
+		`sleep 1`,
+		`echo LISTENING`,
+		`echo "=== DIAG ==="`,
+		`for l in v4:$v4pid dual:$dualpid; do name=${l%%:*}; pid=${l#*:}; ` +
+			`if kill -0 "$pid" 2>/dev/null; then echo "$name socat: alive"; ` +
+			`else echo "$name socat: DEAD — $(cat /tmp/yolo-it-socat-$name.err 2>&1)"; fi; done`,
+		`echo "LISTEN sockets (/proc/net/tcp, then tcp6):"`,
+		`awk '$4=="0A" && ($2 ~ /:494D$/ || $2 ~ /:494E$/) {print FILENAME": "$2}' /proc/net/tcp /proc/net/tcp6 2>&1`,
+		`addrs4=$(awk '/32 host/ {print f} {f=$2}' /proc/net/fib_trie 2>/dev/null | sort -u | grep -v '^127\.')`,
+		`addrs6=$(awk '$4=="00" {print $1}' /proc/net/if_inet6 2>/dev/null | sed 's/\(....\)/\1:/g; s/:$//')`,
+		`echo "non-loopback addresses: v4=[$(echo $addrs4)] v6=[$(echo $addrs6)]"`,
+		`for port in ` + v4Port + ` ` + dualPort + `; do ` +
+			`for a in TCP4:127.0.0.1 'TCP6:[::1]' $(for x in $addrs4; do echo TCP4:$x; done) $(for x in $addrs6; do echo "TCP6:[$x]"; done); do ` +
+			`echo "self-dial $a:$port -> $(timeout 4 socat -T2 - "$a:$port" </dev/null 2>&1 | head -1)"; done; done`,
+		`echo "=== END DIAG ==="`,
+		`for _ in $(seq 1 180); do [ -f /workspace/` + marker + ` ] && break; sleep 0.5; done`,
+		`echo "=== END ==="`,
+	}, "\n")
 }
 
 // acDialLine connects to addr and reads one line, bounded, so a dropped SYN or a silent peer
