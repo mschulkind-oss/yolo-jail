@@ -115,8 +115,8 @@ convergent, or single-writer, because two jails regenerate their configs concurr
 would otherwise fight.
 
 **Host code touches jail-writable state only beneath an `os.Root`.** A jail can write the
-workspace overlay and `<workspace>/.yolo` above it, so any path the host launcher reads,
-writes or copies there, or any directory above one, may be a link the last jail left. Open an
+workspace overlay and `<workspace>/.yolo` above it, so any path host code reads, writes,
+copies or removes there, or any directory above one, may be a link the last jail left. Open an
 `os.Root` on the narrowest jail-writable directory, refusing a link at the root itself, and
 name every path relative to it; a podman bind source that is a link is replaced, not merely
 refused. [Host code in jail-writable state](#host-code-in-jail-writable-state) has the rule,
@@ -658,7 +658,8 @@ would hand the jail the host's own directory, read-write.
 resolves every component itself and refuses one that leaves the root, including a component
 swapped for a link between two calls; it follows a link only when the link is relative and
 stays inside. The helpers are in `internal/cli/run/wsstatebeneath.go`, and, for the files
-directly under `.yolo`, in `internal/paths/statefile.go`:
+directly under `.yolo` and for host code outside the run pipeline, in
+`internal/paths/statefile.go`:
 
 | Operation | Helper | What a link does to it |
 | :--- | :--- | :--- |
@@ -669,6 +670,8 @@ directly under `.yolo`, in `internal/paths/statefile.go`:
 | Copy only into a missing file (migrations) | `copyFileIfMissing`, `copyLinkIfMissing` | the source must `Lstat` as a regular file and is never followed; anything at the target, a dangling link included, is an existing target; a link is copied as a link |
 | Read a host-consumed file | `readRegularFileIn` | a link at the file or its directory is not read |
 | A file directly under `.yolo` | `paths.OpenWorkspaceStateFile`, `paths.WriteWorkspaceStateFile`, `paths.OpenStateDirRoot` | a link at `.yolo` is refused, naming it; a link at the file is replaced by a regular file |
+| Open existing state without creating it | `paths.OpenWorkspaceStateSubdir` (`.yolo/home`, `.yolo/prism`), `paths.OpenStateSubdirRoot` (a child of an open root) | a link at `.yolo` or at the subdir is refused, naming it; a missing one is an ordinary not-exist error |
+| Read or write one file beneath an open root | `paths.ReadRegularFileBeneath`, `paths.OpenRegularFileBeneath`, `paths.WriteRegularFileBeneath` | a read refuses a link at the file, even one that stays inside the root; a write replaces it with a regular file and rewrites a regular one in place |
 
 Replacing a bind source rather than refusing it is deliberate. Refusing only the host's own
 `mkdir` still hands the link to podman, and a link at a bind source is never the jail's
@@ -731,43 +734,66 @@ too. `internal/cli/run/wsstatefiles_test.go`, `internal/config/snapshotlink_test
 and each case failed on the code before it. The manifest's read half guards what is parsed, not
 what the manifest says: the jail can write a regular manifest there as easily as a link.
 
-**Not converted yet.** Three host-side readers and writers of jail-writable state still use
-plain paths. They live outside the run pipeline, and each is a follow-up, not a ruling.
+**The capture at jail exit.** `captureOnTerminate` (`internal/cli/configcapture.go`) runs on the
+host when a jail exits, reading each capture surface under the overlay and its sidecars under
+`.yolo/prism`, and writing the `.overlay.json` and list-capture sidecars back. By plain path, a
+link at a surface or a directory above one read a host file into the overlay the next launch
+composes, and a link at a sidecar had `os.WriteFile` truncate the host file it named and write
+capture JSON into it. It now opens a root on `.yolo/home` and one on `.yolo/prism`
+(`paths.OpenWorkspaceStateSubdir`, which creates nothing and refuses a link at `.yolo` or at the
+subdir), and `captureSurfaceAt` (`internal/cli/configdiff.go`) names every file beneath one
+through `captureFile`. `internal/cli/configcapturelinks_test.go` plants a link at each file and at
+each directory on the way, dangling and not.
 
-**The capture at jail exit.** `captureOnTerminate`
-(`internal/cli/configcapture.go`, through `captureSurfaceAt` in `internal/cli/configdiff.go`)
-runs on the host when a jail exits. It reads each capture surface under the overlay and its
-sidecar files under `.yolo/prism` by plain path, and it writes the `.overlay.json` and
-list-capture sidecars there with `os.WriteFile`. So a link at a surface has it read a host file
-into the next launch's composed config, and a link at a sidecar has it truncate the host file the
-link names. The fix is the same: a root on the overlay and on `.yolo/prism`, and each file named
-beneath it.
-
-**`yolo prune --apply`.** `prune.PurgeAgentLogs` (`internal/prune/agentlogs.go`, through
-`purgeOldFilesUnder` in `cachepurge.go`) age-deletes regular files under each tracked
-workspace's `.yolo/home/copilot/logs` and `.yolo/home/gemini/tmp`, and `WalkDedupableWorkspaces`
-(`internal/prune/prune.go`) walks the overlay for dedup. The walk never follows a link it meets
-inside the tree, but it opens its starting directory by plain path, so a jail that replaces
-`.yolo/home/copilot` with a link to a host directory has prune delete that directory's old
-`logs/` files. The fix is a root on the overlay and each walk beneath it.
+**`yolo prune --apply`.** Prune runs as the host user over every tracked workspace's overlay and
+the machine store. The age purge (`PurgeAgentLogs`, `PurgeCacheByAge`, both through
+`purgeOldFilesUnder`) walks, checks and removes beneath a root: the overlay's is opened with
+`paths.OpenWorkspaceStateSubdir`, so a link at `.yolo`, `.yolo/home` or an agent's log dir is
+refused rather than walked into, and a directory swapped for a link between the walk and the
+removal is refused at the removal. By plain path it deleted the old files of the host directory
+the link named. The dedup (`WalkDedupableWorkspaces`, `WalkGlobalDedupable`,
+`HardlinkDuplicateFiles`) walks and hashes beneath a root too, and links with `linkat(2)` between
+two directory descriptors, each opened beneath its own root, checking that both names are still
+the files it hashed (`linkBeneath`, `internal/prune/dedupbeneath.go`). By plain path, a directory
+swapped for a link after the walk had it replace a host file with a hardlink to the jail's copy,
+or hardlink the host file into the jail's tree, handing the jail a writable name for its inode.
+The global cache and a relocated cache segment are opened as roots that FOLLOW a link at the root
+itself: each is a jail's mountpoint, which the jail cannot replace, and a user may relocate one on
+purpose. `internal/prune/jailwritable_test.go` covers each shape, dangling and not.
 
 **The Claude OAuth broker's credential file.** The host broker (`internal/oauthbroker`) reads
-`<state>/home/.claude-shared-credentials/.credentials.json` with `os.ReadFile` (`oauthFromCreds`)
-and writes it with a temp file beside it and a rename (`WriteTokens`). That file is in a
-jail-writable shared dir, so a link there to the host's own Claude credentials would have the
-broker spend the host login's refresh token upstream and hand the new tokens to the asking jail.
-This one crosses the credential boundary, so it is the first of the three to convert: a root on
-the shared dir and a regular-file-only read.
+`<state>/home/.claude-shared-credentials/.credentials.json`, a file in a shared dir every claude
+jail binds read-write, through `readCreds`: a root on the directory (`paths.OpenStateDirRoot`) and
+a regular-file-only open, with a link at the name refused and named. Every read goes through it:
+the token answer (`oauthFromCreds`), the self-check (`gradeSharedCreds`, which reports a link as a
+FAIL naming it) and the log line (`describeCreds`). By plain path, a link to the host's own Claude
+credentials had the broker serve their access token to every jail that asked. The write
+(`WriteTokens`) needed no change: it renames a fresh `O_EXCL` temp file over the name, which
+replaces a link rather than following it. `internal/oauthbroker/credslink_test.go` covers both.
+
+**The pack `files` retirement.** `preparePackFiles` removes the mountpoints the ownership manifest
+records and the configured packs no longer claim (`retirePackFileMountpoints`). The manifest is in
+`.yolo`, so the jail chooses every recorded path and its digest. The check that a mountpoint is
+unchanged and its removal are both made beneath a root on the overlay, opened refusing a link at
+it or at `.yolo`. The removal was an `os.Remove` by path after an `EvalSymlinks` containment check,
+which a link at `.yolo/home` itself passed (both sides resolved into the host directory), so a
+forged digest removed any host file whose content the jail knows; and a directory swapped for a
+link after the check had the removal delete the host file of that name.
+`internal/cli/run/packfilesretire_test.go` covers both.
+
+**Not converted yet.** Host-side `yolo config` at a workspace target (`configTarget` in
+`internal/cli/configtarget.go`, the verbs in `internal/cli/configdiff.go` and `configls.go`)
+still reads and writes that workspace's `.yolo/home` and `.yolo/prism` by plain path. `reset`
+runs there whenever the workspace's jail is not running, and writes the surface file and its
+baseline with `os.WriteFile`; `capture --force` writes the sidecars; `diff` and `ls` read.
+The fix is the capture's: roots from `paths.OpenWorkspaceStateSubdir` and each file named beneath
+one. It is a follow-up, not a ruling.
 
 **What this does not close.** podman resolves a bind source when the container is created, after
 the preparation has replaced any link, so a jail running CONCURRENTLY with a write path into this
 overlay can plant one in between. The launch lock rules out a second jail of this workspace; a jail
 whose own workspace contains this one is the remaining writer. Closing that needs bind sources
 podman opens by descriptor, which it does not offer.
-The same race reaches one removal: `preparePackFiles` deletes a pack `files` mountpoint the
-ownership manifest records by path, after `pathParentWithin` resolves its parent's links and checks
-it is still in the overlay. A concurrent writer that swaps that parent for a link between the check
-and the `os.Remove` has one host file of the same name removed; `os.Root.Remove` would close it.
 
 <a id="OQ-JH1"></a>**[`OQ-JH1`](#OQ-JH1) — may a user relocate `.yolo` or `.yolo/home` with a symbolic link?** The launch now
 refuses one, with no override, because it cannot tell a link the user made from one a jail made.
