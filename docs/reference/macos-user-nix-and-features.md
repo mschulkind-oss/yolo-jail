@@ -528,8 +528,10 @@ lock. Two are not, and both were fixed by moving the work rather than by warning
 retracted** — the installer it said this backend "deliberately does not run" now runs. The
 macos-user launch has a **provisioning stage**: a
 Seatbelt-confined step between the bootstrap and the agent that runs `mise install` and the
-generated bootstrap script, so `mise_tools` and `lsp_servers` install here the way they do
-everywhere else ([`macos-user-provisioning.md`](macos-user-provisioning.md)).
+generated bootstrap script, so `mise_tools` install here the way they do everywhere else
+([`macos-user-provisioning.md`](macos-user-provisioning.md)). (`lsp_servers` installed that way
+too until 2026-09-25, when the LSP install recipes were deleted on every backend; the key now
+renders config only, here as everywhere.)
 The launch warnings for both keys were retired with it, on the rule this page applies
 elsewhere: a warning describing a closed gap teaches the reader to distrust the ones still
 true. What remains undelivered here is `mcp_presets`, whose preset *wrappers* hardcode Linux

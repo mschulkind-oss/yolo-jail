@@ -175,7 +175,7 @@ The `--network` CLI flag does **not** override the config: a `network.mode` in `
 | `mcp_presets` | works | works | works | absent, warns — broken entry still written[^presetmac] | fresh launch |
 | `mcp_servers` | works | works | works | works — `command` must exist on your Mac | fresh launch |
 | `mcp_servers.requires_env` | works | works | works | **silently** drops gated servers[^reqenv] | fresh launch |
-| `lsp_servers` | works — known names only[^lsp] | works — known names only[^lsp] | works — known names only[^lsp] | works — last removal leaves it installed | fresh launch |
+| `lsp_servers` | works — config only, you bring the binary[^lsp] | works — config only, you bring the binary[^lsp] | works — config only, you bring the binary[^lsp] | works — config only, you bring the binary[^lsp] | fresh launch |
 | `security.blocked_tools` | works — blocker shims on PATH | works | works | works — but blocks the Mac's BSD tool[^bsd] | fresh launch |
 | `packs` † | works | works — workspace must be VM-shared[^vm-store] | works — staged copy, never re-read | works — some surfaces inert, said aloud[^packsmac] | fresh launch[^packspartial] |
 | `providers` | works | works | works — lost on re-entry[^reentry] | works | any entry[^reentry] |
@@ -204,7 +204,7 @@ Two things cut across the whole table. First, **`macos-user` has no re-entry**: 
 
 [^reqenv]: A server gated on `requires_env` is removed from every agent's config on `macos-user`, even when the variable *will* be in the agent's environment.
 
-[^lsp]: Only server names yolo has an install recipe for put anything on disk. A name outside that set appears in the agent's config and installs nothing, on every setup. `yolo config-ref` lists the recognized names.
+[^lsp]: yolo installs no language server on any setup: each declared server reaches the agents that read one (Claude through a generated plugin, Copilot natively), and its `command` must already be on `PATH` — bring it with `mise_tools`, a pack program or an absolute path. Until 2026-09-25 three names (`python`, `typescript`, `go`) had install recipes; those are deleted, and nothing uninstalls what they installed earlier. On the container backends the boot catalog reports that leftover as an orphan for `yolo programs remove`. On `macos-user` no boot catalog runs and `yolo programs` refuses inside the sandbox, so remove it by hand from the workspace's `.yolo/home/npm-global` and `.yolo/home/go/bin` ([`mcp-configuration.md`](mcp-configuration.md#binaries-are-the-users)).
 
 [^bsd]: `macos-user` runs against your Mac's own userland, so `sed -i` eats the next argument, `find -printf` and `tar --wildcards` are unknown, and `grep -P` and `ls --color` error out — scripts that pass on the container backends fail here. `security.blocked_tools` also measures the *sandbox* PATH, so a block replaces the BSD tool. Homebrew's GNU builds (`brew --prefix coreutils`) are not on the sandbox PATH under their plain names.
 

@@ -18,7 +18,6 @@ covers:
   - internal/entrypoint/darwin.go
   - internal/entrypoint/darwinhomelayout.go
   - internal/entrypoint/shell.go
-  - internal/config/lsp.go
   - internal/cli/run/run.go
   - internal/cli/run/flock.go
   - internal/cli/run/loopholeinert.go
@@ -29,7 +28,11 @@ summary: "macos-user provisions itself the way a container jail does, by two mec
 
 # macos-user provisions itself — a native floor, then a confined stage
 
-**Status:** CURRENT as of 2026-09-21, verified against `753bcb88`.
+**Status:** CURRENT as of 2026-09-21, verified against `753bcb88`. The `lsp_servers` passages
+were updated on 2026-09-25 for the deletion of the LSP install recipes
+([`mcp-configuration.md`](mcp-configuration.md#binaries-are-the-users)): yolo installs no
+language server on any backend now, so that key no longer starts, feeds or is checked by the
+stage.
 
 A container jail gets its tools from two places: an image **floor** that exists before any
 config asks for anything, and an imperative **stage** that runs inside the jail before the
@@ -267,9 +270,10 @@ decisions with stated reasons:
 | announce + the generated bootstrap script | ✅ | ✅ | by **absolute path**, not `~/.yolo-bootstrap.sh` — see below |
 | `~/.yolo-venv-precreate.sh` | ✅ | ❌ | its body tests `/workspace/mise.toml` and shells out to `/bin/python3`, so on a Mac it would find neither and exit 0 on every launch — a step that reports success having never run. Nothing generates it here either. **A Mac workspace configuring `_.python.venv` gets no pre-created venv.** |
 
-**The skip rule** (`ProvisionNeeded`): the stage runs when `mise_tools` **or** `lsp_servers` is
-non-empty, so a bare `yolo -- bash` in a workspace that declares no tools pays nothing — no
-extra privileged step, no sudo, no `mise install` against an empty config. The plan carries no
+**The skip rule** (`ProvisionNeeded`): the stage runs when `mise_tools` is non-empty, so a bare
+`yolo -- bash` in a workspace that declares no tools pays nothing — no extra privileged step, no
+sudo, no `mise install` against an empty config. `lsp_servers` counted too until the LSP install
+recipes were deleted; it only renders config now, so a stage started for it would do nothing. The plan carries no
 stage argv at all in that case, and every invariant is written to say nothing about an empty
 one.
 
@@ -278,15 +282,7 @@ on this backend — their bodies are Linux-absolute, and `RunDarwinBootstrap` wa
 so the npm packages behind them have nothing to be spawned by. Counting presets would start a
 stage whose only work is a download nothing can exec.
 
-> [!WARNING]
-> **One stranded case, stated rather than closed.** The generated script's **uninstall** loop
-> reads the sentinel of what the last run installed, so removing the *final* entry from
-> `lsp_servers` flips `ProvisionNeeded` to false and that loop never runs: the package stays in
-> the workspace's own npm prefix. Closing it needs a filesystem probe, and the plan is a pure
-> function of the config by deliberate choice — a dry run has to describe the launch without
-> touching the disk. Re-adding the key and removing it with a launch in between collects it.
-
-### The generated script and the LSP sentinel are sidecar files, not home files
+### The generated script is a sidecar file, not a home file
 
 On the container, `~/.yolo-bootstrap.sh` is a **bind** of
 `<workspace>/.yolo/home/yolo-bootstrap.sh`: the home path is the bind's appearance and the
@@ -302,18 +298,14 @@ execs it absolutely through `provision.StepRunBootstrapAt`. Nothing on this back
 composes itself — and a plan invariant asserts the argv names the exact path the generator
 writes, which is meaningful only while both come from that one function.
 
-**The LSP sentinel moved for the same reason, and it is the sharper case**
-(`entrypoint.lspSentinelExpr`): it records what the last run installed into a prefix
-(`~/.npm-global`) that the home split already made per-workspace, so a shared sentinel would
-claim installs living in another workspace's directory. The container's half is unchanged — its
-`$HOME/.yolo-installed-lsps` is already that workspace's file, by bind — which is why the
-generator renders a shell **expression** rather than a path.
+The LSP sentinel (`~/.yolo-installed-lsps`) moved to the sidecar for the same reason, and is
+deleted with the LSP install loop that kept it.
 
 ### The session env file is the stage's environment
 
 `ProvisionArgv` puts the protected set and the env file's *path* on the command line, and
-everything the launch **composed** — `env_sources`, provider credentials, git identity, the two
-LSP install lists — inside the root-owned `0600` file the argv is wrapped to read
+everything the launch **composed** — `env_sources`, provider credentials, git identity — inside
+the root-owned `0600` file the argv is wrapped to read
 (`ExecWithEnvFile`). The rule applies to **every argv the sandbox user runs under Seatbelt**, so
 both the stage and the agent launch are checked for it; the **bootstrap is excluded**, and bakes
 its generator environment onto its own argv. Two consequences a maintainer needs:
@@ -329,18 +321,16 @@ its generator environment onto its own argv. Two consequences a maintainer needs
 
 **`YOLO_BYPASS_SHIMS=1` is in the process environment**, not in an `sh -c '…'` prefix the way
 the container spells it. The bypass is not optional — the generated script runs `find`, which the
-`guardrails` pack blocks unconditionally with exit 127 (its `grep` blocker is gated on the
-recursive flags and does not catch the script's own `grep -qxF`) — and putting it in the environment
+`guardrails` pack blocks unconditionally with exit 127 — and putting it in the environment
 also frees the script to embed an absolute path without nesting quotes. The agent, a separate
 process, does not inherit it.
 
-**The two LSP install lists cross into both environments, and "both" is the whole invariant.**
-`YOLO_LSP_NPM_INSTALL` and `YOLO_LSP_GO_INSTALL` are resolved once per channel from
-`config.LSPInstalls` — the one recipe table both backends share — and set into the **bootstrap
-env** (where the catalog's orphan finders and the evergreen refresh set read them) *and* into
-the **session env file** (where the stage's install loop reads them). `PlanInvariants` fails a
-plan carrying only one crossing, because setting either alone is a launch that reports success
-and installs nothing.
+**No LSP install list crosses either environment any more.** `YOLO_LSP_NPM_INSTALL` and
+`YOLO_LSP_GO_INSTALL` used to be resolved from a shared recipe table into both the bootstrap env
+and the session env file, with a `PlanInvariants` check that both crossings were present. The
+table and every reader are deleted, so the plan composes neither, and
+`internal/macosuser/lspservers_test.go` pins that it does not. `YOLO_LSP_SERVERS`, the table
+that renders config, still rides the bootstrap env.
 
 ### No `sudo --login`, anywhere in this backend
 
@@ -472,7 +462,7 @@ tier otherwise.
 | Config key | Container | macos-user | Told? |
 | :--- | :--- | :--- | :--- |
 | `mise_tools` | installed by the stage | **installed**: the floor puts `mise` on the sandbox PATH, `MISE_DATA_DIR` names a real machine-wide store, and the stage runs `mise install` | no warning — the gap is closed |
-| `lsp_servers` | npm/go-installed by the stage | **installed**, since the two install variables cross into both environments | no warning — the gap is closed |
+| `lsp_servers` | config rendered, nothing installed — the binary is the user's | the same: config rendered, nothing installed, no stage started for it | no warning — the property is every backend's, not a gap of this one |
 | `mcp_presets` | npm-installed by the stage | wrappers not generated, packages not installed | warns — **from inside the bootstrap** (`RunDarwinBootstrap`), so `--dry-run` never shows it |
 | agent CLIs, `via: installer` | the launcher execs the vendor installer | **works** — `curl` and `bash` are at `/usr/bin` | n/a — nothing to tell |
 | agent CLIs, `via: npm` | the launcher execs `npm install -g` | the floor supplies node and npm, so the launcher can run — **not measured on hardware** | `GenerateAgentLaunchers` has no *generation*-time precondition, so nothing warns at launch; a failure lands on the user's first real command |
@@ -516,6 +506,10 @@ which really is still undelivered.
 > if the stage's call site is deleted; `PlanInvariants` fails when either LSP crossing is
 > deleted; and `integration/TestMacosUserDeclaredToolsArrive/lsp_servers` is the oracle,
 > because **the wiring is a source fact and the install is a hardware one.**
+>
+> (Superseded 2026-09-25: the LSP install recipes and every install path they fed are deleted
+> on every backend, so there is no LSP install left to wire, check or measure. The subtest and
+> the `PlanInvariants` check went with them.)
 
 ## What this backend does not do
 
@@ -670,16 +664,14 @@ $ nix eval --json '.#yoloNoncontainerFloorNames.aarch64-darwin'
 | Floor + declared profile attr | `yoloNoncontainerProfile` — what every macos-user launch builds | `internal/darwinpkg/darwinpkg.go` (`FloorProfileAttr`), `materialize.go` (`Materialize`) |
 | Floor profile GC root | `ProfileRootLink(home)`, the build's own `--out-link` | `internal/darwinpkg/gcroot.go` |
 | Stage step set | four of six: announce + `mise install --quiet`, announce + the generated script | `internal/macosuser/provision.go` (`ProvisionSetup`); the six in `internal/provision/provision.go` |
-| Stage skip rule | `mise_tools` **or** `lsp_servers` non-empty | `internal/macosuser/provision.go` (`ProvisionNeeded`) |
+| Stage skip rule | `mise_tools` non-empty | `internal/macosuser/provision.go` (`ProvisionNeeded`) |
 | Provisioning log | `<workspace>/.yolo/startup.log` | `internal/provision/provision.go` (`StartupLog`) |
 | Failure marker | `PROVISIONING FAILED` | `internal/provision/provision.go` (`FailedMarker`) |
 | Generated bootstrap script | `<workspace>/.yolo/home/yolo-bootstrap.sh` | `internal/entrypoint/darwinstage.go` (`DarwinBootstrapScriptPath`); `macosuser.ProvisionBootstrapScript` |
-| LSP sentinel | `<workspace>/.yolo/home/yolo-installed-lsps` here; `$HOME/.yolo-installed-lsps` on the container | `internal/entrypoint/shell.go` (`lspSentinelExpr`) |
 | mise data dir | `<account home>/.yolo/mise`, set explicitly as `MISE_DATA_DIR` | `internal/macosuser/macosuser.go` (`SandboxMiseData`, `sandboxEnvPairs`) |
 | Session Seatbelt profile | `/var/yolo-jail/profile-<session>.sb`, root-owned `0444` | `internal/macosuser/macosuser.go` (`SessionProfilePath`); installed by `orchestrator.go` |
 | Session env file | `/var/yolo-jail/env/<session>.env`, root-owned `0600`, named by `YOLO_DARWIN_ENV_FILE` | `internal/macosuser/envfile.go` (`SandboxEnvFile`, `SandboxEnvFileEnv`) |
 | Sandbox PATH, and the login copy | `macosuser.SandboxPath`, carried as `PATH` and as `YOLO_DARWIN_LOGIN_PATH` | `internal/macosuser/macosuser.go`; `internal/entrypoint/darwinhomelayout.go` (`DarwinLoginPathEnv`) |
-| LSP install channels | `YOLO_LSP_NPM_INSTALL`, `YOLO_LSP_GO_INSTALL` — both, in **both** environments | `internal/config` (`LSPInstalls`); `internal/macosuser/runplan.go` (`BuildRunPlan`, `PlanInvariants`) |
 | Shim bypass | `YOLO_BYPASS_SHIMS=1`, in the stage process's environment | `internal/macosuser/provision.go` (`ProvisionArgv`) |
 | Workspace launch lock | `<global storage>/locks/<session>.lock`, held bootstrap-through-stage | `internal/cli/run/flock.go` (`AcquireWorkspaceLockFor`) |
 | Prompt gate | `[ -t 0 ]` — ⚠ the `YOLO_PROVISION_PROMPT` clause beside it has **no writer** on any backend | `internal/provision/provision.go` (`Script`) |

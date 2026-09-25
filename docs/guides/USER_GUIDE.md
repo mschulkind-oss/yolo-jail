@@ -164,7 +164,7 @@ On first run, YOLO Jail will:
    - Podman: copied straight into podman's own storage; no tarball is written anywhere.
    - Apple Container: copied to a temporary OCI archive, `container image load`ed, and the archive removed.
    The copier is a `skopeo` build the flake produces itself (`nix build .#imageCopier`) — it carries a Nix-store source transport that a `brew install skopeo` does not have, so nothing on your `PATH` is used or needed. The first launch after a nixpkgs bump builds it (~2 minutes); after that it is a store lookup.
-3. **Install tools** — MCP servers, LSP servers, and utilities are installed into persistent storage (`~/.local/share/yolo-jail/home/`).
+3. **Install tools** — MCP servers and utilities are installed into persistent storage (`~/.local/share/yolo-jail/home/`). Language servers are not: you bring those yourself (see [LSP Servers](#lsp-servers)).
 4. **Start your command** — by default, an interactive shell.
 
 Subsequent runs skip steps 1–3 (everything is cached) and start in seconds on both platforms.
@@ -371,7 +371,7 @@ Dropping a pack removes its launcher and its staged files. **It has never remove
 installed** — so a jail is the union of every pack it has ever selected, and an npm package or a
 `~/.local/bin` binary can outlive the config line that asked for it by months. `yolo programs ls`
 names those *orphans* with their sizes (measured 448.6 MB in this repo's own jail), plus anything
-the install receipts and the LSP sentinel now disagree with the disk about. Every boot COUNTS the
+the install receipts now disagree with the disk about. Every boot COUNTS the
 same orphans, in one `boot catalog:` line, and writes the list itself to
 `<workspace>/.yolo/boot.log`.
 
@@ -380,8 +380,8 @@ Removal is deliberately awkward, in three ways:
 - **`remove` is a dry run** unless you pass `--apply`. It prints every path — the package
   directory, the `bin/` symlinks pointing into it, the `@scope` directory it would empty — so what
   you read is exactly what would go.
-- **Only an orphan can be removed.** Naming a program a pack, MCP preset, or LSP recipe still
-  declares is an error, not a no-op: drop the declaration first.
+- **Only an orphan can be removed.** Naming a program a pack or MCP preset still declares is an
+  error, not a no-op: drop the declaration first.
 - **`~/.local/bin` is also where you may have put things.** yolo cannot tell a tool you installed
   by hand from a dropped pack's leftovers — both are "installed and undeclared". Read the dry run.
 
@@ -624,7 +624,7 @@ Set a preset server to `null` in `mcp_servers` to disable it even when listed in
 
 ## LSP Servers
 
-YOLO Jail can hand LSP (Language Server Protocol) servers to the agents that read them. There are **no defaults** — nothing is installed or enabled until you declare it.
+YOLO Jail can hand LSP (Language Server Protocol) servers to the agents that read them. There are **no defaults**, and YOLO never installs a language server: you declare the server, and its binary has to be on `PATH` already.
 
 ### Adding Servers
 
@@ -647,7 +647,7 @@ Add language servers via `lsp_servers` in your config. The binary must already b
 | Agent | How it receives LSP |
 |-------|---------------------|
 | **Copilot** | natively, via `~/.copilot/lsp-config.json` — any server you declare |
-| **Claude Code** | via plugins; YOLO enables the official `pyright` / `typescript` / `gopls` plugin when you declare the matching server name |
+| **Claude Code** | via one plugin YOLO generates from your whole `lsp_servers` table — any server you declare |
 | **Codex, agy** | the agent has no LSP support |
 | **Pi, opencode** | not configured by YOLO today (both agents can take it — see [`mcp-configuration.md`](../reference/mcp-configuration.md#lsp-claudes-route-is-a-generated-plugin)) |
 
