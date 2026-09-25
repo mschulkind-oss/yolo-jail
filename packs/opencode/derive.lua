@@ -26,6 +26,19 @@ local function isLocalEndpoint(url)
          string.find(url, "://0%.0%.0%.0")
 end
 
+-- in_full declares a table this derive regenerates in full — ctx.in_full, the CO13 sentinel
+-- (docs/design/config-ownership-and-promotion.md): its entries track a live table, so one on
+-- disk this run did not produce is yolo's own stale output. A table returned without it is
+-- one the derive only asserts leaves of. The fallback is for an entrypoint older than the
+-- sentinel, which treated every non-empty table as regenerated in full anyway.
+-- It covers that direction ONLY: a NEWER entrypoint handed an OLDER copy of this file (packs
+-- are staged from the host yolo's embed) sees no declaration and adopts every table leaf by
+-- leaf, and only the launch's source-skew check (version.SourceSkew) refuses that pairing.
+local function in_full(ctx, t)
+  if ctx.in_full then return ctx.in_full(t) end
+  return t
+end
+
 yolo.derive("opencode", "config", function(ctx)
   local res = {}
 
@@ -42,7 +55,7 @@ yolo.derive("opencode", "config", function(ctx)
       if s.env ~= nil and next(s.env) ~= nil then e.environment = s.env end
       out[name] = e
     end
-    res.mcp = out
+    res.mcp = in_full(ctx, out)
   end
 
   -- 2. Providers
@@ -96,7 +109,7 @@ yolo.derive("opencode", "config", function(ctx)
       end
     end
     if next(provOut) ~= nil then
-      res.provider = provOut
+      res.provider = in_full(ctx, provOut)
     end
   end
 

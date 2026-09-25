@@ -1,3 +1,16 @@
+-- in_full declares a table this derive regenerates in full — ctx.in_full, the CO13 sentinel
+-- (docs/design/config-ownership-and-promotion.md). A table returned WITHOUT it is one this
+-- derive only asserts leaves of, and yolo claims nothing under it but those leaves. The
+-- fallback is for an entrypoint older than the sentinel, which treated every non-empty
+-- table as regenerated in full anyway.
+-- It covers that direction ONLY: a NEWER entrypoint handed an OLDER copy of this file (packs
+-- are staged from the host yolo's embed) sees no declaration and adopts every table leaf by
+-- leaf, and only the launch's source-skew check (version.SourceSkew) refuses that pairing.
+local function in_full(ctx, t)
+  if ctx.in_full then return ctx.in_full(t) end
+  return t
+end
+
 -- config (~/.claude.json, RMW): the mcpServers managed table — a passthrough of the
 -- servers this launch is eligible for.
 --
@@ -9,12 +22,16 @@
 -- every OTHER profile too, so a Kilo launch lost its search MCP to a source that has no
 -- native search. The declarations replacing it: packs/claude's program contribution says
 -- the claude subscription performs web_search, and each provider says for itself.
+--
+-- mcpServers is REGENERATED IN FULL, and says so (in_full): every entry comes from
+-- ctx.mcp_servers, so one on disk this run did not produce is yolo's own stale output and a
+-- server dropped from config must not come back.
 yolo.derive("claude", "config", function(ctx)
   local servers = {}
   for name, cfg in pairs(ctx.mcp_servers or {}) do
     servers[name] = cfg
   end
-  return { mcpServers = servers }
+  return { mcpServers = in_full(ctx, servers) }
 end)
 
 -- settings (~/.claude/settings.json): three derivations.
@@ -44,6 +61,12 @@ end)
 -- which also keeps the adoption drop off them: an empty computed table asserts no
 -- leaf and so claims none of the agent's own entries under the same key
 -- (agentcfg.dropComputedTables).
+--
+-- ⚠ NEITHER `env` NOR `modelPicker` IS in_full, and that is the point (CO13): yolo asserts
+-- ENABLE_LSP_TOOL and can never own the rest of a user's environment, and modelPicker's
+-- keys are a fixed pair, not entries tracking a live table. Not declared in full, each
+-- claims only the leaves it names — so an adopting render keeps the agent's own variables,
+-- and the host notch never treats `env` as a table to clear and rewrite.
 yolo.derive("claude", "settings", function(ctx)
   -- enabledPlugins IS NO LONGER WRITTEN AT ALL, and that is OQ-LSP1's option D
   -- (docs/reference/mcp-configuration.md#oq-lsp1). This used to map three hardcoded languages to three

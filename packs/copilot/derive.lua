@@ -1,8 +1,21 @@
 -- copilot has two dynamic surfaces and one env producer.
 
+-- in_full declares a table this derive regenerates in full — ctx.in_full, the CO13 sentinel
+-- (docs/design/config-ownership-and-promotion.md): its entries track a live table, so one on
+-- disk this run did not produce is yolo's own stale output. A table returned without it is
+-- one the derive only asserts leaves of. The fallback is for an entrypoint older than the
+-- sentinel, which treated every non-empty table as regenerated in full anyway.
+-- It covers that direction ONLY: a NEWER entrypoint handed an OLDER copy of this file (packs
+-- are staged from the host yolo's embed) sees no declaration and adopts every table leaf by
+-- leaf, and only the launch's source-skew check (version.SourceSkew) refuses that pairing.
+local function in_full(ctx, t)
+  if ctx.in_full then return ctx.in_full(t) end
+  return t
+end
+
 -- mcp: passthrough — canonical mcp_servers lands verbatim under mcpServers.
 yolo.derive("copilot", "mcp", function(ctx)
-  return { mcpServers = ctx.mcp_servers }
+  return { mcpServers = in_full(ctx, ctx.mcp_servers) }
 end)
 
 -- lsp: project each lsp_servers entry into copilot's dialect. Was computed[]
@@ -21,7 +34,7 @@ yolo.derive("copilot", "lsp", function(ctx)
     e.fileExtensions = s.fileExtensions or {}
     out[name] = e
   end
-  return { lspServers = out }
+  return { lspServers = in_full(ctx, out) }
 end)
 
 -- env: the provider environment copilot's own process launches with — copilot has no

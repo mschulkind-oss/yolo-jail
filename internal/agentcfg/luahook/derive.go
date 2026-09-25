@@ -13,7 +13,7 @@ package luahook
 // a sandboxed producer of a config value, never an effect
 // (docs/reference/pack-system.md §7).
 //
-// Two facilities the producer needs, both added here:
+// The facilities the producer needs, all added here:
 //
 //   - the live tables, exposed read-only as ctx.mcp_servers / ctx.lsp_servers.
 //     A derive is a pure function of these; it may not mutate them.
@@ -25,6 +25,14 @@ package luahook
 //     silent behavior change from the DSL. ctx.tombstone is a unique sentinel
 //     userdata that survives the round-trip and is decoded back to Go nil ONLY on
 //     the derive path, reproducing the DSL's tombstone semantics exactly.
+//   - the EMPTY-ARRAY sentinel, ctx.empty_array (see newDeriveSession).
+//   - the IN-FULL sentinel, ctx.in_full(t), which wraps a table the derive
+//     regenerates in full (CO13, docs/design/config-ownership-and-promotion.md
+//     #co13--how-a-derive-says-it-fills-a-computed-table-in-full--decided). It is the
+//     one sentinel that carries a DECLARATION rather than a value: the table decodes to
+//     the plain object it always was, and the key it sat under is reported beside the
+//     layer (DeriveOutput.InFull) instead of inside it, so no reader of a computed layer
+//     has anything new to strip.
 
 import (
 	"context"
@@ -145,13 +153,62 @@ type DeriveVM interface {
 	Derive(script string, ctx *DeriveCtx) (map[string]any, error)
 }
 
-// tombstoneName / emptyArrayName are the globals under which the two derive
+// DeriveOutput is one producer's whole answer: the computed layer, and the declarations
+// the derive made ABOUT that layer through the in-full sentinel.
+//
+// A struct beside the layer rather than a marker inside it, and that is the point of the
+// CO13 ruling that chose a sentinel over a reserved key: a marker inside the layer is a
+// new obligation on every reader of it (TakeSelection's call site, the host's table probe,
+// `yolo config render`), and a reader that forgets writes a literal key into a user's
+// file. The sentinel is stripped here, by the decoder that already strips the other two.
+type DeriveOutput struct {
+	// Layer is the computed layer, exactly what Derive returns. nil when the script
+	// registers no producer for this surface.
+	Layer map[string]any
+
+	// InFull are the TOP-LEVEL keys of Layer whose value the derive wrapped in
+	// ctx.in_full — the tables it declares it REGENERATES IN FULL, so that an entry under
+	// one that it did not produce this run is its own stale output rather than anyone
+	// else's. Sorted; nil when the derive declared none.
+	//
+	// A key a derive produced WITHOUT the wrapper is the other kind, a table it only
+	// ASSERTS LEAVES of (claude's `env`): yolo owns the keys it names and nothing else
+	// under it. That is the reading the two consumers of this field take for a table not
+	// declared in full — the stateful adoption (agentcfg's dropComputedTables, through
+	// Inputs.ComputedInFull) and the host's table probe (entrypoint.hostTableKeys) —
+	// because of the two ways to guess wrong it is the one that costs correctness rather
+	// than data: guessing "in full" wrongly deletes the agent's own entries, while guessing
+	// "leaves" wrongly keeps an entry yolo itself wrote on an earlier run.
+	//
+	// ⚠ NOT every reader of the computed layer consults it. The jail's rmw arm
+	// (entrypoint.regenerateManagedTables) still regenerates EVERY object-valued computed
+	// key wholesale, declared or not — a residual awaiting a ruling, unobservable for the
+	// shipped packs (docs/design/config-ownership-and-promotion.md, "Built 2026-09-25 —
+	// what shipped").
+	InFull []string
+}
+
+// tombstoneName / emptyArrayName are the globals under which the two VALUE
 // sentinels are exposed (as ctx.tombstone / ctx.empty_array), recognized by
 // identity when marshalling the derive's return back to Go.
+//
+// The third sentinel, ctx.in_full, has no global: it is a FUNCTION returning a fresh
+// userdata per call (inFullTable), recognized by the Go type it carries rather than by
+// one identity, since each wrapped table is a different value.
 const (
 	tombstoneName  = "yolo_tombstone_sentinel"
 	emptyArrayName = "yolo_empty_array_sentinel"
 )
+
+// inFullName is the ctx field the in-full sentinel is exposed under — named because the
+// error messages spell it and a typo there would send a pack author looking for a
+// function that does not exist.
+const inFullName = "in_full"
+
+// inFullTable is what ctx.in_full(t) returns: a userdata wrapping the table the derive
+// declared it regenerates in full. Unexported, and only buildDeriveCtxTable constructs
+// one, so a userdata carrying this type can only have come from the sentinel.
+type inFullTable struct{ table *lua.LTable }
 
 // deriveSession is ONE registration run of a derive script: the sandboxed VM, the ctx
 // table it exposes, and the producer tables the script's `yolo.derive` / `yolo.env` calls
@@ -273,10 +330,22 @@ func newDeriveSession(vm GopherLuaVM, script string, ctx *DeriveCtx) (*deriveSes
 // script (newDeriveSession), invokes the derive fn registered for (ctx.Agent,
 // ctx.Surface), and marshals the returned table back — converting the tombstone sentinel
 // to Go nil.
+//
+// It is DeriveLayer without the declarations, for the callers that consume a layer's
+// VALUES only (the env composition, previews). A caller that decides what an adopting or
+// host render may claim as yolo's own output needs DeriveLayer's InFull.
 func (vm GopherLuaVM) Derive(script string, ctx *DeriveCtx) (map[string]any, error) {
+	out, err := vm.DeriveLayer(script, ctx)
+	return out.Layer, err
+}
+
+// DeriveLayer is Derive plus the declarations the producer made about its layer
+// (DeriveOutput.InFull). A zero DeriveOutput and nil error is the identity: no producer
+// registered for this surface.
+func (vm GopherLuaVM) DeriveLayer(script string, ctx *DeriveCtx) (DeriveOutput, error) {
 	s, err := newDeriveSession(vm, script, ctx)
 	if err != nil {
-		return nil, err
+		return DeriveOutput{}, err
 	}
 	defer s.close()
 
@@ -290,24 +359,24 @@ func (vm GopherLuaVM) Derive(script string, ctx *DeriveCtx) (map[string]any, err
 		// No derive registered for this surface — the identity (no computed layer).
 		// The env spelling lands here the same way: an agent whose pack registered no
 		// yolo.env composes no environment.
-		return nil, nil
+		return DeriveOutput{}, nil
 	}
 	if err := s.L.CallByParam(lua.P{Fn: fn, NRet: 1, Protect: true}, s.ctxTable); err != nil {
-		return nil, wrapLuaErr(err)
+		return DeriveOutput{}, wrapLuaErr(err)
 	}
 	ret := s.L.Get(-1)
 	s.L.Pop(1)
 
 	tbl, isTable := ret.(*lua.LTable)
 	if !isTable {
-		return nil, fmt.Errorf("luahook: %s returned %s, want a table (the computed layer)",
+		return DeriveOutput{}, fmt.Errorf("luahook: %s returned %s, want a table (the computed layer)",
 			who, ret.Type())
 	}
-	out, err := deriveTableToGo(tbl, s.sentinel, s.emptyArr)
+	out, inFull, err := deriveTableToGo(tbl, s.sentinel, s.emptyArr)
 	if err != nil {
-		return nil, err
+		return DeriveOutput{}, err
 	}
-	return out, nil
+	return DeriveOutput{Layer: out, InFull: inFull}, nil
 }
 
 // DeriveRegistration is one `yolo.derive(agent, surface, fn)` a script performed: which
@@ -407,14 +476,25 @@ func guardUnknownAPI(L *lua.LState, yolo *lua.LTable, report func(name string)) 
 	L.SetMetatable(yolo, mt)
 }
 
-// buildDeriveCtxTable exposes the derive inputs: the two sentinels
-// (ctx.tombstone, ctx.empty_array), ctx.agent / ctx.surface, the resolved selection
-// (ctx.selected_provider, ctx.profile_name), and one read-only table per live source
-// (ctx.mcp_servers, ctx.lsp_servers).
+// buildDeriveCtxTable exposes the derive inputs: the three sentinels
+// (ctx.tombstone, ctx.empty_array, ctx.in_full), ctx.agent / ctx.surface, the resolved
+// selection (ctx.selected_provider, ctx.profile_name), and one read-only table per live
+// source (ctx.mcp_servers, ctx.lsp_servers).
 func buildDeriveCtxTable(L *lua.LState, ctx *DeriveCtx, sentinel, emptyArr *lua.LUserData) (*lua.LTable, error) {
 	t := L.NewTable()
 	L.SetField(t, "tombstone", sentinel)
 	L.SetField(t, "empty_array", emptyArr)
+	// ctx.in_full(t): declare that t is a table this derive REGENERATES IN FULL (CO13). It
+	// wraps rather than marks, so the declaration travels with the value to wherever the
+	// derive puts it and the decoder can refuse it anywhere but a top-level key. Anything
+	// but a table is refused at the call, where the line number still points at the mistake.
+	L.SetField(t, inFullName, L.NewFunction(func(L *lua.LState) int {
+		tbl := L.CheckTable(1)
+		ud := L.NewUserData()
+		ud.Value = inFullTable{table: tbl}
+		L.Push(ud)
+		return 1
+	}))
 	L.SetField(t, "agent", lua.LString(ctx.Agent))
 	L.SetField(t, "surface", lua.LString(ctx.Surface))
 	L.SetField(t, "selected_provider", lua.LString(ctx.SelectedProvider))
@@ -606,8 +686,13 @@ const (
 // equal to the tombstone sentinel decodes to Go nil (the RFC-7386 delete marker
 // the computed layer uses) instead of being dropped, and the empty-array sentinel
 // decodes to []any{} instead of the ambiguous empty {}.
-func deriveTableToGo(tbl *lua.LTable, sentinel, emptyArr *lua.LUserData) (map[string]any, error) {
+//
+// A top-level value wrapped in ctx.in_full decodes to the plain object it wraps, and its
+// key is returned in inFull (sorted) — the declaration leaves the layer here, so nothing
+// downstream ever sees the wrapper.
+func deriveTableToGo(tbl *lua.LTable, sentinel, emptyArr *lua.LUserData) (map[string]any, []string, error) {
 	out := map[string]any{}
+	var inFull []string
 	var iterErr error
 	tbl.ForEach(func(k, v lua.LValue) {
 		if iterErr != nil {
@@ -620,6 +705,16 @@ func deriveTableToGo(tbl *lua.LTable, sentinel, emptyArr *lua.LUserData) (map[st
 			iterErr = fmt.Errorf("luahook: derive produced a non-string top-level key %s", k.Type())
 			return
 		}
+		if wrapped, isInFull := inFullOf(v); isInFull {
+			obj, err := decodeInFull(string(ks), wrapped, sentinel, emptyArr)
+			if err != nil {
+				iterErr = err
+				return
+			}
+			out[string(ks)] = obj
+			inFull = append(inFull, string(ks))
+			return
+		}
 		gv, err := deriveValueToGo(v, sentinel, emptyArr)
 		if err != nil {
 			iterErr = err
@@ -627,15 +722,57 @@ func deriveTableToGo(tbl *lua.LTable, sentinel, emptyArr *lua.LUserData) (map[st
 		}
 		out[string(ks)] = gv
 	})
-	return out, iterErr
+	sort.Strings(inFull)
+	return out, inFull, iterErr
+}
+
+// inFullOf reports whether v is a ctx.in_full wrapper, and the table it wraps.
+func inFullOf(v lua.LValue) (*lua.LTable, bool) {
+	ud, ok := v.(*lua.LUserData)
+	if !ok {
+		return nil, false
+	}
+	w, ok := ud.Value.(inFullTable)
+	if !ok {
+		return nil, false
+	}
+	return w.table, true
+}
+
+// decodeInFull decodes the table a top-level ctx.in_full wrapped, refusing one that is not
+// an OBJECT. "Regenerated in full" is a claim about a table's ENTRIES, and every consumer
+// keys it on an object: an array has no entries to call stale, and the one ambiguous shape
+// — an empty table — decodes to an empty object here exactly as it does unwrapped, so
+// `ctx.in_full({})` means "yolo regenerates this table and has nothing in it this run".
+func decodeInFull(key string, tbl *lua.LTable, sentinel, emptyArr *lua.LUserData) (map[string]any, error) {
+	gv, err := deriveNestedTableToGo(tbl, sentinel, emptyArr)
+	if err != nil {
+		return nil, err
+	}
+	obj, isObj := gv.(map[string]any)
+	if !isObj {
+		return nil, fmt.Errorf("luahook: derive wrapped %q in ctx.%s, which declares a table "+
+			"of named entries regenerated in full; it holds a %T, not an object", key, inFullName, gv)
+	}
+	return obj, nil
 }
 
 // deriveValueToGo converts one Lua value, mapping the tombstone sentinel to Go
 // nil and the empty-array sentinel to []any{}, and recursing into tables so a
 // nested sentinel (a false flag under enabledPlugins; a defaulted args=[]) is
 // preserved.
+//
+// It is never handed a TOP-LEVEL value's in-full wrapper (deriveTableToGo takes those
+// first), so one arriving here is nested — and refused, because both consumers of the
+// declaration (agentcfg's adoption drop, the host's table probe) are keyed on a top-level
+// key. Honoring it silently at the wrong depth is the one reading worse than refusing.
 func deriveValueToGo(v lua.LValue, sentinel, emptyArr *lua.LUserData) (any, error) {
 	if ud, ok := v.(*lua.LUserData); ok {
+		if _, isInFull := ud.Value.(inFullTable); isInFull {
+			return nil, fmt.Errorf("luahook: derive used ctx.%s below the top level of the "+
+				"computed layer; it declares a TOP-LEVEL key regenerated in full, and a nested "+
+				"one has nothing that reads it", inFullName)
+		}
 		switch ud {
 		case sentinel:
 			return nil, nil // the tombstone: an explicit RFC-7386 delete
