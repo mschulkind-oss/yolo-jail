@@ -34,7 +34,9 @@
 package broker
 
 import (
+	"errors"
 	"io"
+	"io/fs"
 	"net"
 	"os"
 	"os/exec"
@@ -369,11 +371,20 @@ func BrokerSpawn(deps Deps) string {
 	_ = os.MkdirAll(filepath.Dir(deps.LockPath), 0o755)
 	lockF, err := os.OpenFile(deps.LockPath, os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
-		// Cannot take the lock file at all — best-effort, return the socket path.
+		// Cannot take the lock file at all, so nothing may be spawned — two launches
+		// racing without it would each start a daemon on one socket. The return value is
+		// unchanged; what changed is that the refusal SAYS so, instead of leaving the
+		// reachability witness to fail later naming the socket (host-daemon-ownership.md
+		// OQ-HD8).
+		reportLockFailure(deps, "open", err)
 		return deps.SocketPath
 	}
 	defer lockF.Close()
 	if err := syscall.Flock(int(lockF.Fd()), syscall.LOCK_EX); err != nil {
+		// Same refusal, same reason to say it. No test drives this branch: a blocking
+		// LOCK_EX on a descriptor just opened fails for an interrupted wait (EINTR) or a
+		// kernel out of lock records (ENOLCK), and a unit test can arrange neither.
+		reportLockFailure(deps, "lock", err)
 		return deps.SocketPath
 	}
 	if deps.PrepareLocked != nil {
@@ -480,14 +491,51 @@ func reportFailedSpawn(deps Deps, exited func() bool) {
 	if exited != nil && exited() {
 		reason = "exited at startup without binding its socket"
 	}
-	subject := "the host-wide daemon"
-	if deps.Name != "" {
-		subject = "the host-wide daemon for '" + deps.Name + "'"
-	}
 	richtext.Printer{W: deps.Out, Color: deps.Color}.Print(
-		"[yellow]Warning: " + subject + " " + reason +
+		"[yellow]Warning: " + singletonSubject(deps) + " " + reason +
 			" — every in-jail client of it will fail until it does. Expected " +
 			deps.SocketPath + "; see " + deps.LogPath + "[/yellow]")
+}
+
+// singletonSubject names the daemon a warning is about: the record's loophole when the
+// Deps carries one, the generic phrase otherwise (see reportFailedSpawn for why it is never
+// a hardcoded loophole name).
+func singletonSubject(deps Deps) string {
+	if deps.Name == "" {
+		return "the host-wide daemon"
+	}
+	return "the host-wide daemon for '" + deps.Name + "'"
+}
+
+// reportLockFailure writes lockFailureLine to deps.Out; a nil writer silences it, as it
+// silences every other warning here.
+func reportLockFailure(deps Deps, step string, err error) {
+	if deps.Out == nil {
+		return
+	}
+	richtext.Printer{W: deps.Out, Color: deps.Color}.Print(
+		"[yellow]" + lockFailureLine(deps, step, err) + "[/yellow]")
+}
+
+// lockFailureLine is the warning for a spawn refused because the singleton's lock could not
+// be taken: which file, the OS's reason, whose daemon, and what it means.
+//
+// ONE CAUSE IS NAMED beyond the OS's words, and only under a permission error: the
+// singleton's paths are fixed and carry no user component (paths.HostSingletonLock), so on a
+// host where two people share the directory, the second user's launch cannot open the first
+// user's 0644 lock file. That is docs/design/host-daemon-ownership.md OQ-HD8, whose answer
+// keeps this message fix for as long as the singleton ships. Under any other error the guess
+// would send the reader looking for a user who does not exist, so it is not made.
+func lockFailureLine(deps Deps, step string, err error) string {
+	line := "Warning: could not " + step + " the lock file " + deps.LockPath + " for " +
+		singletonSubject(deps) + ": " + err.Error() + " — nothing was started, and every " +
+		"in-jail client of it will fail until it is."
+	if errors.Is(err, fs.ErrPermission) {
+		line += " The lock's path has no user component, so the likeliest cause is another " +
+			"user on this host whose yolo created it first " +
+			"(docs/design/host-daemon-ownership.md OQ-HD8)."
+	}
+	return line
 }
 
 // brokerWaitForSocket ports _broker_wait_for_socket: poll until the socket

@@ -2,7 +2,10 @@ package broker
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -57,5 +60,65 @@ func TestSingletonDepsCarriesTheName(t *testing.T) {
 	}
 	if got := RealDeps().Name; got != BrokerLoopholeName {
 		t.Errorf("RealDeps().Name = %q, want %q", got, BrokerLoopholeName)
+	}
+}
+
+// TestSpawnSaysWhyItCouldNotTakeTheLock: BrokerSpawn used to RETURN SILENTLY when it could not
+// open its lock file — no daemon, no line, and the first symptom a reachability refusal
+// naming the socket rather than the lock. docs/design/host-daemon-ownership.md OQ-HD8 names
+// the case that makes this more than hypothetical (the singleton's paths carry no user
+// component, so a second user on one host cannot take the first one's 0644 lock) and its
+// answer keeps the message fix: "the leaning's message fix is still worth doing while the
+// singleton ships".
+//
+// The lock path's PARENT is a regular file here, which fails the open for every uid —
+// root included, which is what this suite runs as in a jail and which no permission bit
+// can refuse.
+func TestSpawnSaysWhyItCouldNotTakeTheLock(t *testing.T) {
+	st := &fakeState{spawnPID: 11}
+	deps := newFakeDeps(t, st)
+	deps.Name = "yjtest-locked-singleton"
+	blocker := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(blocker, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	deps.LockPath = filepath.Join(blocker, "broker.lock")
+	var buf bytes.Buffer
+	deps.Out = &buf
+
+	if got := BrokerSpawn(deps); got != deps.SocketPath {
+		t.Errorf("BrokerSpawn returned %q, want the socket path %q (the contract is unchanged)",
+			got, deps.SocketPath)
+	}
+	if st.spawnArgv != nil {
+		t.Errorf("BrokerSpawn spawned %v without holding its lock", st.spawnArgv)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		deps.LockPath,             // which file
+		"not a directory",         // why, in the OS's words
+		"yjtest-locked-singleton", // whose daemon
+		"nothing was started",     // what it means
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the lock-file failure does not say %q:\n%s", want, out)
+		}
+	}
+}
+
+// TestLockFailureNamesTheOtherUserOnPermission: the one cause worth naming beyond the OS's
+// words is OQ-HD8's, and it is named only when the error IS a permission refusal — a
+// "another user owns it" guess under ENOTDIR would send the reader looking for a user who
+// does not exist. Driven with a synthesized error because this suite runs as root in a jail,
+// where no permission bit refuses anything.
+func TestLockFailureNamesTheOtherUserOnPermission(t *testing.T) {
+	deps := Deps{Name: "yjtest-shared", LockPath: "/tmp/yolo-yjtest-shared.lock"}
+	perm := lockFailureLine(deps, "open", &os.PathError{Op: "open", Path: deps.LockPath, Err: syscall.EACCES})
+	if !strings.Contains(perm, "another user") || !strings.Contains(perm, "OQ-HD8") {
+		t.Errorf("a permission refusal on the lock does not name the two-users collision:\n%s", perm)
+	}
+	other := lockFailureLine(deps, "open", &os.PathError{Op: "open", Path: deps.LockPath, Err: syscall.ENOTDIR})
+	if strings.Contains(other, "another user") {
+		t.Errorf("a non-permission failure guesses at another user:\n%s", other)
 	}
 }
