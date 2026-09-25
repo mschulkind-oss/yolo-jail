@@ -1,3 +1,21 @@
+---
+status: current
+verified: 2026-09-25
+verified_commit: 71acddac
+covers:
+  - internal/config/config.go
+  - internal/config/validate.go
+  - internal/config/inherit.go
+  - internal/config/hostmanagement.go
+  - internal/cli/run/assemble.go
+  - internal/cli/run/assemble_parts.go
+  - internal/cli/run/loopholeinert.go
+  - internal/cli/run/backendlimits.go
+  - internal/macosuser/runplan.go
+tags: [config, backends, setups, podman, apple-container, macos-user]
+summary: "Every config key and every pack contribution kind, and what each of the four setups (a backend paired with a host OS) does with it. Also which edits a running jail picks up when you run yolo again and which need a fresh launch."
+---
+
 # Settings per setup
 
 Every config key, and what each of the four setups does with it. This is the detailed companion to the
