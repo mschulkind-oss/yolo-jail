@@ -61,6 +61,20 @@ func compose(t *testing.T, user *jsonx.OrderedMap, packs []*Pack) *jsonx.Ordered
 	return got
 }
 
+// A user model object must not erase facts shipped for a DIFFERENT model alias.
+// Its own facts, when present, override just the corresponding shipped facts.
+func TestShippedModelFactsSurviveUserModelObjects(t *testing.T) {
+	pack := &Pack{Name: "zai", Decl: declFrom(t, `{"contributes":[{"kind":"provider","name":"zai",
+	 "models":{"glm-5.3":"glm-5.3","glm-5.3-flash":"glm-5.3-flash"},
+	 "model_options":{"glm-5.3-flash":{"input":"text,image","reasoning":"false"}}}]}`)}
+	user := userProviders(t, `{"zai":{"models":{"glm-5.3":{"id":"glm-5.3","input":["text"]},
+	 "glm-5.3-flash":{"id":"glm-5.3-flash","reasoning":true}}}}`)
+	got := dump(t, compose(t, user, []*Pack{pack}))
+	if !strings.Contains(got, `"glm-5.3-flash": {"input": "text,image", "reasoning": "true"}`) {
+		t.Fatalf("model object erased shipped image input or failed to override reasoning: %s", got)
+	}
+}
+
 // TestComposeProvidersShipsUnderUserConfig pins the composition and its direction: the
 // pack's SERVICE facts arrive whole, and the user's config wins PER FIELD — an override
 // of one model alias or one endpoint's URL must not force restating the rest, which is

@@ -21,6 +21,11 @@
         "glm-5.3-flash": "glm-5.3-flash"
       },
       "name": "zai",
+      "model_options": {
+        "glm-5.3-flash": {
+          "input": "text,image"
+        }
+      },
       "options": {
         "api_timeout_ms": "3000000",
         "context_window": "1000000",

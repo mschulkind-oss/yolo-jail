@@ -194,6 +194,38 @@ func TestPiExplicitProfileScopesModelsAndNoProfilePreservesUserScope(t *testing.
 	}
 }
 
+// TestPiShippedZaiFlashAcceptsImages follows the shipped provider through host
+// composition and the Pi surface renderer, not a hand-built model fixture.
+func TestPiShippedZaiFlashAcceptsImages(t *testing.T) {
+	packs := make([]*packload.Pack, 0, 2)
+	for _, name := range []string{"pi", "zai"} {
+		p, err := embeddedPack(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		packs = append(packs, p)
+	}
+	providers, err := packload.ComposeProviders(nil, packs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newPioencodeRender(t, mustCompactJSON(t, providers))
+	r.render(t, `{"pi":"zai"}`)
+	catalog := r.piModels(t)["providers"].(map[string]any)
+	models := catalog["zai"].(map[string]any)["models"].([]any)
+	for _, raw := range models {
+		model := raw.(map[string]any)
+		if model["id"] != "glm-5.3-flash" {
+			continue
+		}
+		if want := []any{"text", "image"}; !reflect.DeepEqual(model["input"], want) {
+			t.Fatalf("shipped zai/glm-5.3-flash input = %#v, want %#v", model["input"], want)
+		}
+		return
+	}
+	t.Fatal("shipped zai/glm-5.3-flash missing from Pi catalog")
+}
+
 func mustCompactJSON(t *testing.T, value any) string {
 	t.Helper()
 	raw, err := jsonx.DumpsCompact(value)

@@ -368,6 +368,12 @@ type Contribution struct {
 	// "default"/"fast" → "glm-5.3[1m]". Alias names are open vocabulary: which aliases a
 	// provider's consumers read is the consumer's business, not core's.
 	Models map[string]string `json:"models,omitempty"`
+	// ModelOptions records per-alias facts in the same flat string vocabulary as
+	// the provider-wide Options fallback. A model's input modalities can differ
+	// from its siblings (GLM-5.3-Flash accepts images while GLM-5.3 does not).
+	// Consumers decide which facts they understand; a user may override an
+	// individual alias after the pack's facts are composed under their config.
+	ModelOptions map[string]map[string]string `json:"model_options,omitempty"`
 	// Options is the profile surface the provider DECLARES (docs/reference/providers.md,
 	// OQ-CS4): a FLAT map of option name to default value, read exactly like its neighbour
 	// Models — no `kind`, no `values`, no wrapper object. The flat form is the ruling (that
@@ -1051,6 +1057,7 @@ type ProviderContribution struct {
 	APIKeyEnvName string
 	Region        string
 	Models        map[string]string
+	ModelOptions  map[string]map[string]string
 	// Options is the profile surface this provider declares — the key set a profile for
 	// it may carry, with each option's default. The profile-schema owner (OQ-CS4); see
 	// the field's own comment on Contribution for why it is flat and what null means.
@@ -1081,6 +1088,7 @@ func (m *Manifest) Providers() []ProviderContribution {
 			APIKeyEnvName: c.APIKeyEnvName,
 			Region:        c.Region,
 			Models:        c.Models,
+			ModelOptions:  c.ModelOptions,
 			Options:       c.Options,
 			Capabilities:  c.Capabilities,
 		})
@@ -2668,6 +2676,14 @@ func validateContribution(label string, c Contribution) []string {
 	case KindProvider:
 		req("name", c.Name)
 		problems = append(problems, validateProviderEndpoints(label, c.Endpoints)...)
+		for alias, facts := range c.ModelOptions {
+			if _, exists := c.Models[alias]; !exists {
+				problems = append(problems, fmt.Sprintf("%s: model_options.%s needs a matching models alias", label, alias))
+			}
+			if len(facts) == 0 {
+				problems = append(problems, fmt.Sprintf("%s: model_options.%s has no facts", label, alias))
+			}
+		}
 		// The option NAMES are the one thing here worth checking: they are the key set
 		// every profile for this provider is measured against, so an empty one declares a
 		// key no profile can ever spell and the refusal downstream would quote it. The

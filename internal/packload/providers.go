@@ -150,7 +150,9 @@ func ComposeProviders(user *jsonx.OrderedMap, packs []*Pack, opts ...ComposeOpti
 // and a provider-wide fallback are one parser (packs/pi/derive.lua), and no reader learns
 // two shapes. It runs on EVERY return path, the adapter pass's rule: a pack-only launch
 // still composes through here, and normalization that only ran on the user path would be a
-// shape the pack layer could never produce anyway.
+// shape the pack layer could never produce anyway. When a pack already shipped
+// per-alias facts, lowering merges the user's object facts over them one field
+// at a time, preserving facts for other aliases.
 //
 // This is the ONE lowering site. A string alias is left untouched (the shorthand), and a
 // provider whose objects declare only `id` gets no `model_options` key at all.
@@ -173,6 +175,9 @@ func liftModelFacts(providers *jsonx.OrderedMap) {
 			continue
 		}
 		var lifted *jsonx.OrderedMap
+		if prior, ok := entry.Get("model_options"); ok {
+			lifted, _ = prior.(*jsonx.OrderedMap)
+		}
 		for _, alias := range models.Keys() {
 			raw, _ := models.Get(alias)
 			obj, ok := raw.(*jsonx.OrderedMap)
@@ -192,6 +197,12 @@ func liftModelFacts(providers *jsonx.OrderedMap) {
 			}
 			if lifted == nil {
 				lifted = jsonx.NewOrderedMap()
+			}
+			if prior, ok := lifted.Get(alias); ok {
+				if defaults, ok := prior.(*jsonx.OrderedMap); ok {
+					mergeUnder(defaults, facts)
+					continue
+				}
 			}
 			lifted.Set(alias, facts)
 		}
@@ -626,6 +637,22 @@ func shippedProviderEntry(prov packdecl.ProviderContribution) *jsonx.OrderedMap 
 			models.Set(alias, prov.Models[alias])
 		}
 		entry.Set("models", models)
+	}
+	if len(prov.ModelOptions) > 0 {
+		options := jsonx.NewOrderedMap()
+		aliases := make([]string, 0, len(prov.ModelOptions))
+		for alias := range prov.ModelOptions {
+			aliases = append(aliases, alias)
+		}
+		sort.Strings(aliases)
+		for _, alias := range aliases {
+			facts := jsonx.NewOrderedMap()
+			for _, key := range sortedMapKeys(prov.ModelOptions[alias]) {
+				facts.Set(key, prov.ModelOptions[alias][key])
+			}
+			options.Set(alias, facts)
+		}
+		entry.Set("model_options", options)
 	}
 	if len(prov.Endpoints) > 0 {
 		endpoints := jsonx.NewOrderedMap()

@@ -405,7 +405,12 @@ A `models.<alias>` value is either the bare wire-id string (the shorthand) or an
 value is an object, a pack's id string under that alias is gone, so an inferred `id = alias`
 would silently rewrite the wire id (cerebras' `default` → `qwen-3.8-27b`) the first time
 someone added one fact. `packload` lowers every object back to the string alias→id contract the
-derives read, moving the facts to an internal per-alias map — so no consumer learns two shapes:
+derives read, moving the facts to an internal per-alias map — so no consumer learns two shapes.
+A pack manifest keeps its `models` alias→id map in the string form and may ship the same
+per-alias facts in `model_options`: a flat map of string-valued facts keyed by a declared
+model alias. For example, the Z.ai pack ships `"glm-5.3-flash": {"input": "text,image"}`
+there; this marks only Flash as image-capable. When a user supplies object-form model facts,
+they override individual shipped facts without erasing other aliases' facts:
 
 ```jsonc
 "providers": {
