@@ -14,10 +14,16 @@ package run
 //
 // ⚠ NO VARIABLE, PACK OR LOOPHOLE IS NAMED HERE, and that is the ruling rather than a
 // style preference. This pre-flight began as the AWS exclusivity check, keyed on the
-// Bedrock bearer and the container-credentials pointer by name in core
-// (internal/awschain, deleted); OQ-SSO8 moved every fact about which variable beats which
-// into the pack that ships the channel. packs/aws-auth declares its three overrides; this
-// file evaluates whatever any selected pack declares.
+// Bedrock bearer and the container-credentials pointer by name in a core package that
+// OQ-SSO8 deleted, moving every fact about which variable beats which into the pack that
+// ships the channel. packs/aws-auth declares its three overrides; this file evaluates
+// whatever any selected pack declares.
+//
+// AN UNCERTAIN OVERRIDE WARNS HERE AND DOES NOT REFUSE (`certain: false` on the entry;
+// the maintainer's 2026-09-25 ruling under OQ-SSO8). checkEnvOverrides prints the warning
+// itself, before it returns, so every arm that asks it — all three — discloses the same
+// thing without a second branch at any call site; printEnvOverrideWarnings says why that
+// print has no quiet switch.
 
 import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -27,8 +33,12 @@ import (
 
 // checkEnvOverrides returns the refusal lines, or nil. A caller that gets lines MUST stop:
 // unlike checkProviderCredentials this pre-flight has no escape hatch, so there is no
-// verdict to carry back beside the lines (packload.EnvOverrideRefusal says why a hatch
+// verdict to carry back beside the lines (packload's envoverride.go says why a hatch
 // would be wrong here).
+//
+// It PRINTS the uncertain findings — the warnings — to stderr before returning, whether or
+// not it also returns a refusal: a launch refused for a bearer that also carries a possibly
+// overriding ~/.aws grant should hear about both, and one that is only warned continues.
 //
 // rt is the backend the launch runs on, which decides whether a DIRECTORY host_files grant
 // renders anything at all (hostFileDirsDeliver). argvPairs is the `-e K=V` map of the
@@ -40,9 +50,44 @@ func (o *Options) checkEnvOverrides(cfg *jsonx.OrderedMap, rt string, packs []*p
 	if channel == nil {
 		return nil
 	}
-	return packload.EnvOverrideRefusal(packs, packload.ProfileTable(channel.profiles),
+	findings := packload.EnvOverrideFindings(packs, packload.ProfileTable(channel.profiles),
 		channel.jailOriginLookup(o, argvPairs),
 		config.RenderedHostFilePaths(cfg, o.hostFileDirsDeliver(rt)))
+	var refusal []string
+	var warnings []packload.EnvOverrideFinding
+	for _, f := range findings {
+		if f.Certain {
+			refusal = append(refusal, f.Lines...)
+		} else {
+			warnings = append(warnings, f)
+		}
+	}
+	o.printEnvOverrideWarnings(warnings)
+	return refusal
+}
+
+// printEnvOverrideWarnings prints each uncertain finding to stderr: the verdict in bold
+// yellow, the rest in yellow, the shape printProviderRefusal gives a refusal in red.
+//
+// A DISCLOSURE, SO IT HAS NO QUIET SWITCH (docs/reference/report-tiers.md, OQ-RO3): the
+// warning is the whole of what the launch says about a jail that may be using the wrong
+// credential, and the ruling that made it a warning rather than a refusal traded the stop
+// for the line — a flag hiding the line would trade the line away too. It goes to stderr
+// like every other launch notice, so a redirected command's stdout never swallows it.
+func (o *Options) printEnvOverrideWarnings(findings []packload.EnvOverrideFinding) {
+	if len(findings) == 0 {
+		return
+	}
+	out := o.pr(o.Stderr)
+	for _, f := range findings {
+		for i, line := range f.Lines {
+			if i == 0 {
+				out.print("[bold yellow]" + line + "[/bold yellow]")
+				continue
+			}
+			out.print("[yellow]" + line + "[/yellow]")
+		}
+	}
 }
 
 // jailOriginLookup is deliverySource narrowed to what REACHES THE JAIL under the asked

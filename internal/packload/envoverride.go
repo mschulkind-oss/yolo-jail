@@ -1,16 +1,16 @@
 package packload
 
 // envoverride.go EVALUATES a pack's `overridden_by` declarations (packdecl.EnvOverride)
-// against one launch, and words the refusal. It is the whole of core's part in the rule:
-// it knows what a launch delivers and from where, and nothing about what any variable
-// means — that half is the pack's, down to the sentence the refusal quotes.
+// against one launch, and words the refusal or warning. It is the whole of core's part in
+// the rule: it knows what a launch delivers and from where, and nothing about what any
+// variable means — that half is the pack's, down to the sentence the refusal quotes.
 //
 // # Why core may not know the variables
 //
-// The rule's first home was internal/awschain, which named the Bedrock bearer variable
-// and the container-credentials pointer itself, and config.ValidateConfig, which knew
-// which home directory an AWS SDK reads. Both were facts about one ecosystem's resolution
-// order living in the launch path, and OQ-SSO8 (docs/design/sso-backed-bedrock.md, ruled
+// The rule's first home was a core package that named the Bedrock bearer variable and the
+// container-credentials pointer itself (deleted by OQ-SSO8), and config.ValidateConfig,
+// which knew which home directory an AWS SDK reads. Both were facts about one ecosystem's
+// resolution order living in the launch path, and OQ-SSO8 (docs/design/sso-backed-bedrock.md, ruled
 // 2026-09-25) moved them into the pack that owns the channel: *"this needs to be contained
 // within the pack. So we can't like hard code anything into core to look for this stuff."*
 // packs/aws-auth now declares all three overrides of its pointer; a made-up pack declaring
@@ -20,15 +20,23 @@ package packload
 //
 // The launch pre-flight (internal/cli/run/envoverrides.go, at all three arms) and the
 // `yolo check` prediction (internal/cli/check/envoverrides.go). Each assembles its own lookup
-// and rendered-path list and asks this function, so the prediction and the refusal it
+// and rendered-path list and asks EnvOverrideFindings, so the prediction and the refusal it
 // predicts cannot word one problem two ways.
 //
-// # Fatal, with no escape hatch
+// # Fatal when certain, with no escape hatch; a warning when not
 //
 // OQ-SSO8 condition 2, and OQ-SSO5 before it: a hatch here would not let a user proceed
 // with a known gap the way YOLO_ALLOW_MISSING_PROVIDERS does — it would let them proceed
 // into the silent wrong answer the rule exists to make loud. The remedy is one line of
 // config either way, and the refusal names both lines.
+//
+// That holds for a CERTAIN override (packdecl.EnvOverride.IsCertain). One the pack declares
+// uncertain — its condition is met by jails the consumer still serves correctly — is a
+// WARNING: the launch continues, and the finding is printed as a disclosure, which nothing
+// suppresses. The maintainer's ruling of 2026-09-25 draws the line: fatal *"if we can know
+// that it's just not going to launch or it's just not going to work as configured"*, and
+// *"I really don't want false positives"*. The words of a warning are this file's too, so
+// the launch and `yolo check` word it one way.
 
 import (
 	"fmt"
@@ -86,8 +94,35 @@ const (
 // delivery lookup has it.
 type OriginLookup func(name string) (where string, ok bool)
 
-// EnvOverrideRefusal reports every `overridden_by` declaration this launch trips, as the
-// lines of one refusal (the first the verdict), or nil when none is tripped.
+// EnvOverrideFinding is one tripped `overridden_by` entry: whether it refuses the launch, and
+// what to print. One finding is one problem, so a report that grades problems (`yolo check`)
+// gives each finding one line of its own and carries the rest as detail.
+type EnvOverrideFinding struct {
+	// Certain is the entry's certainty (packdecl.EnvOverride.IsCertain): true refuses the
+	// launch, false warns and lets it continue.
+	Certain bool
+	// Lines are the finding as printed: the verdict first, then the launch's facts (one per
+	// delivered thing, indented), the pack's own reason, and the remedy.
+	Lines []string
+}
+
+// EnvOverrideRefusal reports every CERTAIN `overridden_by` entry this launch trips, as the
+// lines of one refusal (the first the verdict), or nil when none is tripped. It is
+// EnvOverrideFindings narrowed to what refuses, for a caller that has nothing to do with a
+// warning; see there for when an entry is evaluated at all.
+func EnvOverrideRefusal(packs []*Pack, profiles map[string]string, look OriginLookup,
+	renderedHostFiles []string) []string {
+	var out []string
+	for _, f := range EnvOverrideFindings(packs, profiles, look, renderedHostFiles) {
+		if f.Certain {
+			out = append(out, f.Lines...)
+		}
+	}
+	return out
+}
+
+// EnvOverrideFindings reports every `overridden_by` entry this launch trips, certain and
+// uncertain alike, in pack and declaration order, or nil when none is tripped.
 //
 // A declaration is evaluated only when the contribution carrying it is DELIVERED — the pack
 // is in packs, and the contribution is unconditional or its `profile` gate is active in
@@ -100,15 +135,15 @@ type OriginLookup func(name string) (where string, ok bool)
 // jail destinations the launch's `host_files` would actually render on its backend
 // (config.RenderedHostFilePaths); a caller that cannot tell passes nil, which only ever
 // costs a false negative.
-func EnvOverrideRefusal(packs []*Pack, profiles map[string]string, look OriginLookup,
-	renderedHostFiles []string) []string {
+func EnvOverrideFindings(packs []*Pack, profiles map[string]string, look OriginLookup,
+	renderedHostFiles []string) []EnvOverrideFinding {
 	if look == nil {
 		look = func(string) (string, bool) { return "", false }
 	}
 	rendered := append([]string(nil), renderedHostFiles...)
 	sort.Strings(rendered)
 
-	var out []string
+	var out []EnvOverrideFinding
 	for _, p := range packs {
 		if p == nil || p.Decl == nil {
 			continue
@@ -128,7 +163,10 @@ func EnvOverrideRefusal(packs []*Pack, profiles map[string]string, look OriginLo
 				if len(facts) == 0 {
 					continue
 				}
-				out = append(out, overrideRefusalLines(p.Name, d, o, facts, removals)...)
+				out = append(out, EnvOverrideFinding{
+					Certain: o.IsCertain(),
+					Lines:   overrideFindingLines(p.Name, d, o, facts, removals),
+				})
 			}
 		}
 	}
@@ -167,13 +205,27 @@ func trippedHostFiles(o packdecl.EnvOverride, rendered []string) (facts, removal
 	return facts, removals
 }
 
-// overrideRefusalLines words one tripped declaration: the verdict naming the pack and what
+// overrideFindingLines words one tripped declaration: the verdict naming the pack and what
 // its contribution sets, the launch's facts, the pack's own reason, and the two remedies.
-func overrideRefusalLines(pack string, d packdecl.EnvOverrideDecl, o packdecl.EnvOverride,
+//
+// A certain entry's verdict is a refusal; an uncertain one's says MAY and that the launch
+// continues, and its remedy is conditional on the override being real — the warning's
+// whole point is that yolo cannot tell, so it must not tell the reader to act as if it
+// could.
+func overrideFindingLines(pack string, d packdecl.EnvOverrideDecl, o packdecl.EnvOverride,
 	facts, removals []string) []string {
-	lines := []string{fmt.Sprintf("Refusing to launch: pack %s's `kind: \"env\"` contribution "+
+	verdict := fmt.Sprintf("Refusing to launch: pack %s's `kind: \"env\"` contribution "+
 		"sets %s, and this launch also delivers what the pack declares OVERRIDES it — the "+
-		"agent would silently use that instead.", pack, strings.Join(d.Sets, ", "))}
+		"agent would silently use that instead.", pack, strings.Join(d.Sets, ", "))
+	remedy := "  Drop one. "
+	if !o.IsCertain() {
+		verdict = fmt.Sprintf("Warning: pack %s's `kind: \"env\"` contribution sets %s, and "+
+			"this launch also delivers what the pack declares MAY override it — if it does, "+
+			"the agent silently uses that instead. The launch continues.",
+			pack, strings.Join(d.Sets, ", "))
+		remedy = "  If it does, drop one. "
+	}
+	lines := []string{verdict}
 	lines = append(lines, facts...)
 	lines = append(lines, "  The pack says: "+strings.TrimSpace(o.Because))
 
@@ -188,7 +240,7 @@ func overrideRefusalLines(pack string, d packdecl.EnvOverrideDecl, o packdecl.En
 		stop = "or stop delivering pack " + pack + "'s contribution — it is delivered only " +
 			"while the `" + d.Profile + "` profile is active, so deselect that profile or the pack"
 	}
-	return append(lines, "  Drop one. "+drop+", "+stop+".")
+	return append(lines, remedy+drop+", "+stop+".")
 }
 
 // describeOrigin keeps an empty origin from rendering as an empty phrase: a caller that knows

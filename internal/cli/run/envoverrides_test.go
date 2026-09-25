@@ -29,6 +29,11 @@ package run
 // environment, so the jail would have held the pointer alone and the refusal was a false
 // positive (jailOriginLookup). TestEnvOverrideIgnoresTheShellYoloWasLaunchedFrom is the
 // regression test.
+//
+// ⚠ THE ~/.aws GRANT WARNS, IT DOES NOT REFUSE (2026-09-25): the shipped entry is
+// `certain: false`, so checkEnvOverrides prints it and returns no refusal. The warning is
+// printed INSIDE checkEnvOverrides, so the three call-site pins above cover it at every arm;
+// TestEnvOverrideWarnsOnTheMacosUserLaunch is its behavioral pin through Run.
 
 import (
 	"bytes"
@@ -630,50 +635,122 @@ func TestEnvOverrideReadsTheAssembledArgv(t *testing.T) {
 	}
 }
 
-// TestEnvOverrideSeesARenderedHostFilesGrant is the `~/.aws` half, moved here from
-// config.ValidateConfig: a source-less host_files entry seeding ~/.aws/credentials with a
-// key pair renders a file the SDK's shared-config provider resolves ahead of the pointer, so
-// it overrides it. Source-less on purpose: what decides whether the SDK answers is what it
-// finds under $HOME in the jail, and an inline seed is exactly as overriding as a mount.
+// TestEnvOverrideWarnsAboutARenderedHostFilesGrant is the `~/.aws` half, moved here from
+// config.ValidateConfig: a source-less host_files entry under ~/.aws renders a file the SDK's
+// shared-config provider reads ahead of the pointer. Source-less on purpose: what decides
+// whether the SDK answers is what it finds under $HOME in the jail, and an inline seed is
+// exactly as overriding as a mount.
 //
-// ⚠ THE FIXTURE HOLDS CREDENTIALS, and it used to hold only a region. A ~/.aws with no
-// credentials for the resolved profile does NOT override the pointer — the JavaScript SDKs'
-// fromIni throws with tryNextLink and the chain goes on to the container provider — so a
-// test that required refusing one pinned a false positive as intended behavior. The shipped
-// `host_file` entry still refuses that shape; whether it should is an open ruling
-// (docs/design/sso-backed-bedrock.md, OQ-SSO8), and this test does not decide it.
-func TestEnvOverrideSeesARenderedHostFilesGrant(t *testing.T) {
+// ⚠ IT WARNS AND DOES NOT REFUSE, since the 2026-09-25 ruling under OQ-SSO8. Whether such a
+// grant overrides depends on what the file holds for the profile the SDK resolves — a region-
+// only config does not, and the JavaScript SDKs' fromIni then throws with tryNextLink and the
+// chain reaches the container provider — and the declaration cannot see which. So packs/aws-auth
+// declares the entry `certain: false`, and both fixtures below launch with the warning: the
+// one holding a key pair (which does override) and the region-only one (which does not). The
+// returned refusal is empty for both, and the WARNING is on stderr.
+func TestEnvOverrideWarnsAboutARenderedHostFilesGrant(t *testing.T) {
+	for _, tc := range []struct{ name, path, content string }{
+		{"a credentials file with a key pair", "~/.aws/credentials",
+			"[default]\naws_access_key_id = AKIAEXAMPLE\naws_secret_access_key = example\n"},
+		{"a region-only config", "~/.aws/config", "[default]\nregion = us-east-1\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o := overrideOptions(t)
+			var stderr bytes.Buffer
+			o.Stderr = &stderr
+			o.Getenv = shellWith(nil)
+			o.ProfileName = "bedrock"
+			selected := awsAuthSelected(t)
+			cfg := newConfig()
+			cfg.Set("host_files", []any{newConfig("path", tc.path, "content", tc.content)})
+			lines := o.checkEnvOverrides(cfg, "podman", selected,
+				channelFor(t, o, cfg, selected, emptyEnv()), nil)
+			if len(lines) != 0 {
+				t.Errorf("a ~/.aws grant REFUSED the launch — it may be harmless, so it must "+
+					"only warn:\n%s", strings.Join(lines, "\n"))
+			}
+			dest := strings.TrimPrefix(tc.path, "~/")
+			got := stderr.String()
+			for _, want := range []string{
+				"Warning: pack aws-auth's",
+				"MAY override it",
+				"The launch continues.",
+				"A host_files entry renders ~/" + dest + " into the jail.",
+				"If it does, drop one. Remove the host_files entry for ~/" + dest,
+			} {
+				if !strings.Contains(got, want) {
+					t.Errorf("the grant warning does not say %q:\n%s", want, got)
+				}
+			}
+			if strings.Contains(got, "Refusing to launch") {
+				t.Errorf("the warning is worded as a refusal:\n%s", got)
+			}
+			if strings.Contains(got, "AKIAEXAMPLE") {
+				t.Errorf("the warning printed the grant's content:\n%s", got)
+			}
+		})
+	}
+}
+
+// TestEnvOverrideWarningDoesNotHideARefusal: a jail carrying a certain override AND an
+// uncertain one is refused for the first and warned about the second — the warning must not
+// replace the refusal, and the refusal must not swallow the warning.
+func TestEnvOverrideWarningDoesNotHideARefusal(t *testing.T) {
 	o := overrideOptions(t)
+	var stderr bytes.Buffer
+	o.Stderr = &stderr
 	o.Getenv = shellWith(nil)
 	o.ProfileName = "bedrock"
 	selected := awsAuthSelected(t)
 	cfg := newConfig()
-	cfg.Set("host_files", []any{newConfig(
-		"path", "~/.aws/credentials", "content",
-		"[default]\naws_access_key_id = AKIAEXAMPLE\naws_secret_access_key = example\n")})
-	lines := o.checkEnvOverrides(cfg, "podman", selected, channelFor(t, o, cfg, selected, emptyEnv()), nil)
+	cfg.Set("host_files", []any{newConfig("path", "~/.aws/config", "content", "[default]\n")})
+	lines := o.checkEnvOverrides(cfg, "podman", selected, channelFor(t, o, cfg, selected,
+		userEnvWith(map[string]string{bearerVar: "sk-bedrock-frozen"})), nil)
 	joined := strings.Join(lines, "\n")
-	for _, want := range []string{"A host_files entry renders ~/.aws/credentials into the jail.",
-		"Remove the host_files entry for ~/.aws/credentials", "pack aws-auth"} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("the grant refusal does not say %q:\n%s", want, joined)
-		}
+	if !strings.Contains(joined, bearerVar+" is delivered by "+packload.FromEnvSources) {
+		t.Errorf("the bearer's refusal is missing:\n%s", joined)
 	}
-	if strings.Contains(joined, "AKIAEXAMPLE") {
-		t.Errorf("the refusal printed the grant's content:\n%s", joined)
+	if strings.Contains(joined, "~/.aws") {
+		t.Errorf("the uncertain grant leaked into the refusal:\n%s", joined)
+	}
+	if !strings.Contains(stderr.String(), "A host_files entry renders ~/.aws/config into the jail.") {
+		t.Errorf("the grant warning was not printed beside the refusal:\n%s", stderr.String())
+	}
+}
+
+// TestEnvOverrideWarnsOnTheMacosUserLaunch is the warning through Run, on call site 1: a
+// ~/.aws/config file grant (a FILE entry, which macos-user does copy) with `-p bedrock`
+// launches — the handler is reached — and the warning is on stderr. A launch that printed
+// nothing here would be the silent wrong answer back again for the grant that does hold keys.
+func TestEnvOverrideWarnsOnTheMacosUserLaunch(t *testing.T) {
+	o, stderr, seen := overrideNativeLaunch(t, awsAuthUserConfig(
+		`, "host_files": [{"path": "~/.aws/config", "content": "[default]\nregion = us-east-1\n"}]`),
+		shellWith(nil))
+	if rc := Run(*o); rc != 0 || !seen.reached {
+		t.Fatalf("Run() = %d (reached=%v), want the launch to proceed: an uncertain override "+
+			"warns and never refuses\nstderr:\n%s", rc, seen.reached, stderr.String())
+	}
+	got := stderr.String()
+	for _, want := range []string{"Warning: pack aws-auth's", "MAY override it",
+		"A host_files entry renders ~/.aws/config into the jail."} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the launch did not print the grant warning %q:\n%s", want, got)
+		}
 	}
 }
 
 // TestEnvOverrideCountsADirectoryGrantOnlyWhereItIsBound: the canonical `~/.aws/` grant is a
 // DIRECTORY entry, and two backends never deliver one — macos-user copies files only, and
-// Apple Container below the read-only-bind floor declines the bind. On those a refusal over
-// it is a false positive: the jail gets no ~/.aws and the pointer serves.
+// Apple Container below the read-only-bind floor declines the bind. On those a finding over
+// it is a false positive: the jail gets no ~/.aws and the pointer serves. The shipped entry
+// is uncertain, so the finding is a WARNING on stderr and never a refusal; the backend rule
+// decides whether it is printed at all.
 func TestEnvOverrideCountsADirectoryGrantOnlyWhereItIsBound(t *testing.T) {
 	for _, tc := range []struct {
-		name   string
-		rt     string
-		ac     *acVersionProbe
-		refuse bool
+		name    string
+		rt      string
+		ac      *acVersionProbe
+		counted bool // the warning is printed
 	}{
 		{"podman binds it", "podman", nil, true},
 		{"macos-user never copies a tree", "macos-user", nil, false},
@@ -690,7 +767,8 @@ func TestEnvOverrideCountsADirectoryGrantOnlyWhereItIsBound(t *testing.T) {
 			if err := os.MkdirAll(filepath.Join(home, ".aws"), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			o := retireOptions(t, discardBuf())
+			var stderr bytes.Buffer
+			o := retireOptions(t, &stderr)
 			o.Getenv = shellWith(nil)
 			o.ProfileName = "bedrock"
 			o.acVersion = tc.ac
@@ -698,9 +776,12 @@ func TestEnvOverrideCountsADirectoryGrantOnlyWhereItIsBound(t *testing.T) {
 			cfg := newConfig()
 			lines := o.checkEnvOverrides(cfg, tc.rt, selected,
 				channelFor(t, o, cfg, selected, emptyEnv()), nil)
-			joined := strings.Join(lines, "\n")
-			if got := strings.Contains(joined, "renders ~/.aws into the jail"); got != tc.refuse {
-				t.Errorf("rt=%s: refused=%v, want %v:\n%s", tc.rt, got, tc.refuse, joined)
+			if len(lines) != 0 {
+				t.Errorf("rt=%s: a directory grant refused the launch — the shipped entry is "+
+					"uncertain and may only warn:\n%s", tc.rt, strings.Join(lines, "\n"))
+			}
+			if got := strings.Contains(stderr.String(), "renders ~/.aws into the jail"); got != tc.counted {
+				t.Errorf("rt=%s: warned=%v, want %v:\n%s", tc.rt, got, tc.counted, stderr.String())
 			}
 		})
 	}
@@ -719,6 +800,10 @@ func TestEnvOverrideLetsAMacosUserDirectoryGrantThrough(t *testing.T) {
 		t.Fatalf("Run() = %d (reached=%v), want the launch to proceed: a directory grant does "+
 			"not cross on macos-user, so it overrides nothing\nstderr:\n%s",
 			rc, seen.reached, stderr.String())
+	}
+	if strings.Contains(stderr.String(), "renders ~/.aws into the jail") {
+		t.Errorf("the launch warned about a directory grant macos-user never delivers:\n%s",
+			stderr.String())
 	}
 	for _, e := range seen.hostCtx.HostFiles {
 		if e.Path == ".aws" {

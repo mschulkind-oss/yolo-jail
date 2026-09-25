@@ -262,22 +262,28 @@ const AgentNameClaimKind = packdecl.Kind("agent")
 // because two packs refusing over one variable is not a conflict, and the per-kind
 // exhaustiveness tests that walk packdecl.KnownKinds() need no entry for a non-kind.
 //
-// NOT ReviewWorthy: it widens nothing. It is a refusal the pack asks for, so it belongs where
-// someone is deliberately inspecting a pack, never on the launch banner.
+// NOT ReviewWorthy: it widens nothing. It is a refusal (or, for an entry declared
+// `certain: false`, a warning) the pack asks for, so it belongs where someone is
+// deliberately inspecting a pack, never on the launch banner.
 const OverriddenByClaimKind = packdecl.Kind("overridden-by")
 
 // overrideClaimDetail is one `overridden_by` entry as a footprint line's detail: what the
-// launch is refused beside, and the gate under which the contribution is delivered at all.
+// launch is refused (or, for an uncertain entry, warned) beside, and the gate under which
+// the contribution is delivered at all.
 func overrideClaimDetail(d packdecl.EnvOverrideDecl, o packdecl.EnvOverride) string {
+	verb := "launch refused beside "
+	if !o.IsCertain() {
+		verb = "launch warned (may override) beside "
+	}
 	var detail string
 	switch {
 	case len(o.Vars) > 0:
-		detail = "launch refused beside " + strings.Join(o.Vars, " + ")
+		detail = verb + strings.Join(o.Vars, " + ")
 		if len(o.Unless) > 0 {
 			detail += " unless " + strings.Join(o.Unless, " or ") + " is also delivered"
 		}
 	default:
-		detail = "launch refused beside a host_files grant at ~/" + o.HostFile
+		detail = verb + "a host_files grant at ~/" + o.HostFile
 	}
 	if d.Profile != "" {
 		detail += " (when profile \"" + d.Profile + "\" is active)"
@@ -445,6 +451,14 @@ func FootprintOf(p *Pack) Footprint {
 		case packdecl.KindMount:
 			add(packdecl.KindMount, c.Host, "read-only → /ctx/"+c.Into, true)
 		case packdecl.KindEnv:
+			// UNGATED ONLY. A `profile`-gated contribution is claimed by its own loop below,
+			// with the gate in the Detail; claiming it here as well printed every gated
+			// variable twice in `pack footprint`, and the launch banner (which reads these
+			// claims) showed the copy with NO gate — a variable announced as set on a launch
+			// whose profile does not set it.
+			if c.Profile != "" {
+				continue
+			}
 			for _, k := range sortedMapKeys(c.Vars) {
 				add(packdecl.KindEnv, k, "="+c.Vars[k], false)
 			}
@@ -649,10 +663,10 @@ func FootprintOf(p *Pack) Footprint {
 	}
 
 	// config-list → one claim per contribution, keyed by the surface identity AND the array
-	// it appends to (docs/design/additive-config-lists.md). Reported for config-overlay's
-	// reason: "adds entries to a list in someone else's config file" is squarely a statement
-	// of what the pack does to its environment, and `pack lint` prints exactly this line, so
-	// it is also where an author sees the delivery before any launch.
+	// it appends to (docs/reference/pack-system.md#config-list-visibility). Reported for
+	// config-overlay's reason: "adds entries to a list in someone else's config file" is
+	// squarely a statement of what the pack does to its environment, and `pack lint` prints
+	// exactly this line, so it is also where an author sees the delivery before any launch.
 	//
 	// The TARGET is `agent/name#<pointer>` — the RFC 6901 §6 fragment form, `#` followed by the
 	// pointer as declared — because two packs appending to one surface at different paths make
@@ -1052,9 +1066,10 @@ func agentNameClaims(packs []*Pack) (map[string][]agentNameClaim, []string) {
 // have. So callers pass what they LOADED.
 //
 // NOT config.UseProfileCLINames, which answers a neighbouring question with a wider set: it
-// unions packload.Embedded(), deliberately not selection-gated (AGENTS.md), so it accepts
-// `codex` in a jail that never selected codex. That is right for the message it feeds ("no
-// pack installs a CLI named X" is a claim about the universe) and wrong for this one.
+// unions packload.Embedded(), deliberately not selection-gated
+// (docs/reference/providers.md#what-the-launch-checks-and-prints), so it accepts `codex` in a
+// jail that never selected codex. That is right for the message it feeds ("no pack installs a
+// CLI named X" is a claim about the universe) and wrong for this one.
 func AgentNames(packs []*Pack) []string {
 	_, order := agentNameClaims(packs)
 	sort.Strings(order)

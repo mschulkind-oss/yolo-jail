@@ -24,7 +24,8 @@
           ]
         },
         {
-          "because": "an AWS SDK reads ~/.aws (its shared-config provider) before the container-credentials pointer, so a jail holding both resolves whatever ~/.aws holds — the whole permission set, refresh token included — and the narrowed, refreshing service is skipped while everything looks like it works.",
+          "because": "an AWS SDK reads ~/.aws (its shared-config provider) before the container-credentials pointer, so when ~/.aws holds credentials for the profile the SDK resolves, the jail uses those — the whole permission set, a refresh token included — and the narrowed, refreshing service is skipped while everything looks like it works. A ~/.aws with no credentials for that profile, such as a region-only config, is skipped and the pointer serves; the grant's path cannot say which of the two this is, so the override is possible rather than certain.",
+          "certain": false,
           "host_file": ".aws"
         }
       ],

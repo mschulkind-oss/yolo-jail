@@ -261,10 +261,10 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	// cannot see, and why a directory grant counts only off macOS (!o.IsMacOS below).
 	overrideErrs, overrideWarns := envOverrideGap(loaded, merged, o.Workspace, !o.IsMacOS, r.configWarn)
 	for _, e := range overrideErrs {
-		r.fail(e, "")
+		r.fail(e.msg, e.note)
 	}
 	for _, w := range overrideWarns {
-		r.warn(w, "")
+		r.warn(w.msg, w.note)
 	}
 
 	// Drift last, so it reads as a summary rather than interleaving with per-pack

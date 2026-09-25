@@ -2,9 +2,10 @@ package check
 
 // envoverrides.go predicts the launch's ENV-OVERRIDE refusal: a jail that would carry a
 // selected pack's env contribution beside something that pack declares OVERRIDES it
-// (packdecl.EnvOverride — packs/aws-auth's pointer beside a bearer, a static key pair or a
-// ~/.aws grant) is refused before it starts (internal/cli/run/envoverrides.go;
-// docs/design/sso-backed-bedrock.md, OQ-SSO8).
+// (packdecl.EnvOverride — packs/aws-auth's pointer beside a bearer or a static key pair) is
+// refused before it starts, and one beside something the pack declares only MAY override it
+// (`certain: false` — aws-auth's ~/.aws grant) is warned about and launches
+// (internal/cli/run/envoverrides.go; docs/design/sso-backed-bedrock.md, OQ-SSO8).
 //
 // It shipped there and only there once already, so without this file a config `yolo check`
 // called clean was still refused at launch — the one thing `check` exists to prevent, and
@@ -63,26 +64,42 @@ package check
 // config.ValidateConfig error until the conflict moved into the pack's declaration
 // (OQ-SSO8), so it is part of the same refusal as the variables and is predicted with them.
 // It is also narrower than it was: it fires only while the contribution it overrides is
-// delivered, and only for a grant that renders something.
+// delivered, and only for a grant that renders something. And it is a WARN, not a FAIL,
+// since 2026-09-25: packs/aws-auth declares the entry `certain: false`, because a ~/.aws
+// with no credentials for the resolved profile leaves the pointer serving, and the launch
+// warns and continues on it — so the prediction does the same.
 
 import (
+	"strings"
+
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
+// overrideGapFinding is one tripped override as a report line: the verdict is the line's
+// message and the rest of the finding is its note, so one problem reads as ONE graded line
+// with its facts beneath it. It was one FAIL per LINE of the refusal until 2026-09-25, so a
+// single bearer beside the pointer counted as four failures, three of them fragments.
+type overrideGapFinding struct {
+	msg, note string
+}
+
 // envOverrideGap reports what the Packs block should say about the override gate, as
 // (errors, warnings) in this section's own vocabulary.
 //
-// Two outcomes, mirroring capabilityGap and protocolPairingGap so a reader does not have to
-// learn a third report vocabulary:
+// Three outcomes, mirroring capabilityGap and protocolPairingGap so a reader does not have
+// to learn another report vocabulary:
 //
 //   - Nothing tripped → NOTHING, not a PASS line. It matches the launch, which never
 //     announces a gate it did not trip, and it keeps the golden that pins section ordering
 //     and the pass/warn/fail counts from needing a bump for a line saying nothing happened.
-//   - Something tripped → a FAIL carrying the launch's own refusal text verbatim. The launch
-//     refusal is fatal and has NO ESCAPE HATCH, so there is no third "will continue anyway"
-//     outcome to report and no warning arm.
+//   - A CERTAIN override tripped → a FAIL carrying the launch's own refusal text verbatim,
+//     the verdict as the message and the facts, the pack's reason and the remedy as the
+//     note. The launch refusal is fatal and has NO ESCAPE HATCH.
+//   - An UNCERTAIN override tripped (`certain: false`) → a WARN in the same shape, carrying
+//     the launch's own warning text: the launch continues and prints it, so `check` exits 0
+//     on it too.
 //
 // configWarn receives the env_sources loader's own findings, GRADED and COUNTED rather than
 // printed beside the verdict — the sink rule protocols.go states, and what
@@ -91,7 +108,7 @@ import (
 // dirsDeliver is whether this platform's launch delivers a directory `host_files` grant; see
 // the backend note above.
 func envOverrideGap(packs []*packload.Pack, merged *jsonx.OrderedMap,
-	workspace string, dirsDeliver bool, configWarn func(string)) (errs []string, warns []string) {
+	workspace string, dirsDeliver bool, configWarn func(string)) (errs, warns []overrideGapFinding) {
 	// The hydrated secret channel. A dotenv file that cannot be read degrades to "delivered
 	// nothing" with a warning on configWarn, which is the loader's own contract; it never
 	// changes the verdict, because an unreadable source delivers no variable at launch either.
@@ -101,7 +118,7 @@ func envOverrideGap(packs []*packload.Pack, merged *jsonx.OrderedMap,
 	profiles := packload.ProfileTable(subMap(merged, "use_profiles"))
 	packEnv := packload.EnvVarsFor(packs, profiles)
 
-	lines := packload.EnvOverrideRefusal(packs, profiles, func(name string) (string, bool) {
+	findings := packload.EnvOverrideFindings(packs, profiles, func(name string) (string, bool) {
 		// The order is the launch's own (run/profilechannel.go's deliverySource, read through
 		// jailOriginLookup), minus the two channels named above. An EMPTY value is unset at
 		// every step, exactly as there: the launch drops an empty value rather than
@@ -114,5 +131,24 @@ func envOverrideGap(packs []*packload.Pack, merged *jsonx.OrderedMap,
 		}
 		return "", false
 	}, config.RenderedHostFilePaths(merged, dirsDeliver))
-	return lines, nil
+	for _, f := range findings {
+		g := overrideGapFinding{msg: f.Lines[0], note: overrideNote(f.Lines[1:])}
+		if f.Certain {
+			errs = append(errs, g)
+		} else {
+			warns = append(warns, g)
+		}
+	}
+	return errs, warns
+}
+
+// overrideNote joins a finding's detail lines into one note. The launch indents them under
+// its verdict; the reporter indents a note itself (NoteLines), so the launch's two leading
+// spaces are dropped here rather than doubled.
+func overrideNote(lines []string) string {
+	trimmed := make([]string, 0, len(lines))
+	for _, l := range lines {
+		trimmed = append(trimmed, strings.TrimSpace(l))
+	}
+	return strings.Join(trimmed, "\n")
 }

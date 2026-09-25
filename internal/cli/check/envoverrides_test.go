@@ -43,6 +43,17 @@ const (
 // `use_profiles` can select the gating profile the way a real config does.
 func overriddenPack(t *testing.T, agentBin, profile string) string {
 	t.Helper()
+	return overriddenPackWith(t, agentBin, profile, `[
+       {"vars": ["`+widgetToken+`"], "because": "the widget client sends WIDGET_TOKEN first"},
+       {"vars": ["`+widgetKey+`", "`+widgetSecret+`"], "unless": ["`+widgetProfile+`"],
+        "because": "the widget client signs with a static pair first"},
+       {"host_file": ".widget", "because": "the widget config dir answers first"}
+     ]`)
+}
+
+// overriddenPackWith is overriddenPack with the `overridden_by` list given.
+func overriddenPackWith(t *testing.T, agentBin, profile, overrides string) string {
+	t.Helper()
 	dir := t.TempDir()
 	manifest := `{
   "name": "widgetpack",
@@ -54,12 +65,7 @@ func overriddenPack(t *testing.T, agentBin, profile string) string {
     {"kind": "profile", "name": "` + profile + `", "provider": "` + profile + `"},
     {"kind": "env", "profile": "` + profile + `",
      "vars": {"` + widgetPointer + `": "http://127.0.0.1:1461/credentials"},
-     "overridden_by": [
-       {"vars": ["` + widgetToken + `"], "because": "the widget client sends WIDGET_TOKEN first"},
-       {"vars": ["` + widgetKey + `", "` + widgetSecret + `"], "unless": ["` + widgetProfile + `"],
-        "because": "the widget client signs with a static pair first"},
-       {"host_file": ".widget", "because": "the widget config dir answers first"}
-     ]}
+     "overridden_by": ` + overrides + `}
   ]
 }`
 	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
@@ -340,5 +346,75 @@ func TestEnvOverrideGapWordsItTheWayTheLaunchDoes(t *testing.T) {
 			t.Errorf("the section did not render the launch's own line verbatim:\nwant: %s\ngot:\n%s",
 				line, buf.String())
 		}
+	}
+}
+
+// TestSectionPacksReportsOneRefusalAsOneFail is the golden for the refusal's SHAPE in the
+// report: one tripped override is ONE [FAIL] — the verdict as its message — with the facts,
+// the pack's reason and the remedy as its note beneath it. It was one FAIL per line, so a
+// single bearer counted four failures and three of them read as fragments.
+func TestSectionPacksReportsOneRefusalAsOneFail(t *testing.T) {
+	pack := overriddenPack(t, "someagent", "gatedprofile")
+	packsFixture(t, `{"packs": ["file://`+pack+`"]}`)
+	name := filepath.Base(pack)
+
+	var buf bytes.Buffer
+	r := &reporter{w: &buf}
+	(&Options{Workspace: t.TempDir(), Getenv: func(string) string { return "" }}).sectionPacks(r, tokenDelivered())
+
+	if r.failed != 1 || r.warned != 0 {
+		t.Errorf("one tripped override must be exactly one FAIL: failed=%d warned=%d\n%s",
+			r.failed, r.warned, buf.String())
+	}
+	want := `  [FAIL] Refusing to launch: pack ` + name + `'s ` + "`kind: \"env\"`" + ` contribution sets WIDGET_POINTER, and this launch also delivers what the pack declares OVERRIDES it — the agent would silently use that instead.
+       -> WIDGET_TOKEN is delivered by env_sources (the secret channel).
+          The pack says: the widget client sends WIDGET_TOKEN first
+          Drop one. Remove WIDGET_TOKEN from env_sources (the secret channel), or stop delivering pack ` + name + `'s contribution — it is delivered only while the ` + "`gatedprofile`" + ` profile is active, so deselect that profile or the pack.
+`
+	if !strings.Contains(buf.String(), want) {
+		t.Errorf("the refusal's report shape changed:\n--- got ---\n%s\n--- want (a substring) ---\n%s",
+			buf.String(), want)
+	}
+}
+
+// TestSectionPacksWarnsForAnUncertainOverride: an entry the pack declares `certain: false`
+// is a WARN, never a FAIL — the launch warns and continues on it, so `check` must exit 0 on
+// it too (the maintainer's 2026-09-25 ruling under OQ-SSO8: no false positives). One
+// finding, one WARN, with the launch's own warning words; the absent case says nothing.
+func TestSectionPacksWarnsForAnUncertainOverride(t *testing.T) {
+	pack := overriddenPackWith(t, "someagent", "gatedprofile",
+		`[{"host_file": ".widget", "certain": false, "because": "the widget config dir answers first when it holds a key"}]`)
+	packsFixture(t, `{"packs": ["file://`+pack+`"]}`)
+	name := filepath.Base(pack)
+
+	withGrant := useProfiles("someagent", "gatedprofile")
+	entry := jsonx.NewOrderedMap()
+	entry.Set("path", "~/.widget/config")
+	entry.Set("content", "region = x\n")
+	withGrant.Set("host_files", []any{entry})
+
+	var buf bytes.Buffer
+	r := &reporter{w: &buf}
+	(&Options{Getenv: func(string) string { return "" }}).sectionPacks(r, withGrant)
+	if r.failed != 0 || r.warned != 1 {
+		t.Errorf("an uncertain override must be exactly one WARN and no FAIL: failed=%d warned=%d\n%s",
+			r.failed, r.warned, buf.String())
+	}
+	want := `  [WARN] Warning: pack ` + name + `'s ` + "`kind: \"env\"`" + ` contribution sets WIDGET_POINTER, and this launch also delivers what the pack declares MAY override it — if it does, the agent silently uses that instead. The launch continues.
+       -> A host_files entry renders ~/.widget/config into the jail.
+          The pack says: the widget config dir answers first when it holds a key
+          If it does, drop one. Remove the host_files entry for ~/.widget/config, or stop delivering pack ` + name + `'s contribution — it is delivered only while the ` + "`gatedprofile`" + ` profile is active, so deselect that profile or the pack.
+`
+	if !strings.Contains(buf.String(), want) {
+		t.Errorf("the warning's report shape changed:\n--- got ---\n%s\n--- want (a substring) ---\n%s",
+			buf.String(), want)
+	}
+
+	// The absent case: the same pack and selection with no grant says nothing at all.
+	buf.Reset()
+	r = &reporter{w: &buf}
+	(&Options{Getenv: func(string) string { return "" }}).sectionPacks(r, useProfiles("someagent", "gatedprofile"))
+	if r.failed != 0 || r.warned != 0 || strings.Contains(buf.String(), "WIDGET_POINTER") {
+		t.Errorf("no grant, no finding: failed=%d warned=%d\n%s", r.failed, r.warned, buf.String())
 	}
 }

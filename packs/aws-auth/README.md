@@ -65,10 +65,10 @@ your profile uses and how much session lifetime is left.
 ## What is NOT here, and must not be
 
 **Never grant `~/.aws` alongside this.** A `host_files` entry for `~/.aws` does not
-duplicate this pack — it **disables** it while looking like it works. `fromIni` sits
-*ahead* of the container-credentials provider in every SDK's chain, so the jail
-silently goes back to using the whole permission set and every narrowing you configured
-is inert.
+duplicate this pack. When it holds credentials for the profile the SDK resolves, it
+**disables** the pack while looking like it works. `fromIni` sits *ahead* of the
+container-credentials provider in every SDK's chain, so the jail silently goes back to
+using the whole permission set and every narrowing you configured is inert.
 
 That is the tempting option and it deserves naming rather than discovering. The design
 calls it [**option A, "mount the wallet"**](../../docs/design/sso-backed-bedrock.md#4-five-options),
@@ -90,23 +90,24 @@ and is left alone. The pair beside an `AWS_PROFILE` delivered into the same jail
 alone too, because the JavaScript SDKs then skip the environment provider — but codex's
 Rust SDK does not, so do not lean on that exception to keep both.
 
-**yolo refuses all three at launch.** The pointer's `env` contribution in
-[`pack.json`](pack.json) declares them under `overridden_by`, and whenever the pointer is
-delivered (the `bedrock` profile is active) a launch that also delivers the bearer, the
-pair, or a `host_files` entry that renders anything under `~/.aws` stops before the jail
-starts, names both sides, and says to drop one. There is no escape hatch: proceeding would
-be proceeding into the wrong credential. `yolo check` predicts the same refusal, and
-`yolo pack footprint aws-auth` lists the three lines. Core names none of these variables;
-the rule is this pack's declaration ([`OQ-SSO8`](../../docs/design/sso-backed-bedrock.md#OQ-SSO8)).
+**yolo refuses the bearer and the pair at launch, and warns about `~/.aws`.** The pointer's
+`env` contribution in [`pack.json`](pack.json) declares all three under `overridden_by`.
+Whenever the pointer is delivered (the `bedrock` profile is active), a launch that also
+delivers the bearer or the pair stops before the jail starts, names both sides, and says to
+drop one. There is no escape hatch: proceeding would be proceeding into the wrong credential.
+A `host_files` entry that renders anything under `~/.aws` gets a warning instead, and the
+launch continues. It overrides the pointer only when it holds credentials for the profile the
+SDK resolves, and a region-only config does not, so the entry is declared `certain: false`.
+The warning is printed on every such launch and cannot be switched off. `yolo check` predicts
+all three, the two refusals as FAIL and the grant as WARN, and `yolo pack footprint aws-auth`
+lists the three lines. Core names none of these variables; the rule is this pack's
+declaration ([`OQ-SSO8`](../../docs/design/sso-backed-bedrock.md#OQ-SSO8)).
 
 "Delivers" means into the jail, through `env_sources` or a pack. A variable exported only in
 the shell you run `yolo` from never reaches the jail, so it is not refused, and an
 `AWS_PROFILE` exported there does not excuse a pair that `env_sources` delivers. A directory
 grant such as `~/.aws/` counts only on a backend that delivers it: podman, and Apple
-Container from 1.1.0. macos-user never copies one. ⚠ The `~/.aws` rule is also broader than
-the chain: it refuses a `~/.aws` holding no credentials, such as a region-only config, which
-the SDKs would skip. Whether it should is an open question under
-[`OQ-SSO8`](../../docs/design/sso-backed-bedrock.md#OQ-SSO8).
+Container from 1.1.0. macos-user never copies one.
 
 **No authorization token, deliberately.** An SDK sends `Authorization` only when
 `AWS_CONTAINER_AUTHORIZATION_TOKEN` is set, and setting it here would buy nothing:

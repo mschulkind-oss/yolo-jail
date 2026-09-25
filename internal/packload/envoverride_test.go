@@ -188,6 +188,85 @@ func TestEnvOverrideHostFile(t *testing.T) {
 	}
 }
 
+// TestEnvOverrideCertaintyDecidesTheSeverity is the 2026-09-25 ruling on OQ-SSO8's last false
+// positive, on made-up names: a CERTAIN override refuses, an UNCERTAIN one (`certain: false`)
+// is a warning that lets the launch through, and an ABSENT one says nothing. The warning is a
+// finding of its own — EnvOverrideFindings carries it with Certain false — and never reaches
+// EnvOverrideRefusal, whose caller stops the launch on any line it gets back.
+func TestEnvOverrideCertaintyDecidesTheSeverity(t *testing.T) {
+	packs := []*Pack{widgetPack(t, "", `[
+	  {"vars": ["WIDGET_TOKEN"], "because": "the widget client reads WIDGET_TOKEN first"},
+	  {"host_file": ".widget", "certain": false,
+	   "because": "the widget config dir answers first when it holds a key"}
+	]`)}
+	for _, tc := range []struct {
+		name       string
+		env        map[string]string
+		grants     []string
+		wantRefuse bool
+		wantWarn   bool
+	}{
+		{"certain: the token is delivered", map[string]string{"WIDGET_TOKEN": FromEnvSources}, nil, true, false},
+		{"uncertain: the config dir is granted", nil, []string{".widget/config"}, false, true},
+		{"both at once", map[string]string{"WIDGET_TOKEN": FromEnvSources}, []string{".widget"}, true, true},
+		{"absent: neither is delivered", nil, []string{".widgetfoo"}, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := EnvOverrideFindings(packs, nil, delivered(tc.env), tc.grants)
+			var refused, warned bool
+			for _, f := range findings {
+				if len(f.Lines) == 0 {
+					t.Errorf("a finding with no lines: %+v", f)
+				}
+				if f.Certain {
+					refused = true
+				} else {
+					warned = true
+				}
+			}
+			if refused != tc.wantRefuse || warned != tc.wantWarn {
+				t.Errorf("refused=%v warned=%v, want refused=%v warned=%v: %+v",
+					refused, warned, tc.wantRefuse, tc.wantWarn, findings)
+			}
+			refusal := EnvOverrideRefusal(packs, nil, delivered(tc.env), tc.grants)
+			if (len(refusal) > 0) != tc.wantRefuse {
+				t.Errorf("EnvOverrideRefusal returned %d lines, want a refusal=%v:\n%s",
+					len(refusal), tc.wantRefuse, strings.Join(refusal, "\n"))
+			}
+			if joined := strings.Join(refusal, "\n"); strings.Contains(joined, "MAY override") {
+				t.Errorf("an uncertain finding reached the refusal, which stops the launch:\n%s", joined)
+			}
+		})
+	}
+}
+
+// TestEnvOverrideWarningWording: an uncertain finding must say MAY, say the launch continues,
+// and make its remedy conditional — telling a reader to drop a grant that may be harmless
+// would be the false positive in prose. It keeps the refusal's facts, the pack's words and
+// both remedies, and it must not open with the refusal's verdict.
+func TestEnvOverrideWarningWording(t *testing.T) {
+	packs := []*Pack{widgetPack(t, "gate", `[{"host_file": ".widget", "certain": false,
+	  "because": "the widget config dir answers first when it holds a key"}]`)}
+	findings := EnvOverrideFindings(packs, map[string]string{"widgetcli": "gate"}, delivered(nil),
+		[]string{".widget/config"})
+	if len(findings) != 1 || findings[0].Certain {
+		t.Fatalf("want one uncertain finding, got %+v", findings)
+	}
+	want := []string{
+		"Warning: pack widget's `kind: \"env\"` contribution sets WIDGET_POINTER, and this " +
+			"launch also delivers what the pack declares MAY override it — if it does, the agent " +
+			"silently uses that instead. The launch continues.",
+		"  A host_files entry renders ~/.widget/config into the jail.",
+		"  The pack says: the widget config dir answers first when it holds a key",
+		"  If it does, drop one. Remove the host_files entry for ~/.widget/config, or stop " +
+			"delivering pack widget's contribution — it is delivered only while the `gate` " +
+			"profile is active, so deselect that profile or the pack.",
+	}
+	if got := findings[0].Lines; strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("warning lines:\n got %q\nwant %q", got, want)
+	}
+}
+
 // TestEnvOverrideDescribesAnUnknownOrigin: a caller that knows a variable is delivered but
 // not from where still produces a readable sentence rather than "delivered by .".
 func TestEnvOverrideDescribesAnUnknownOrigin(t *testing.T) {
@@ -213,6 +292,11 @@ func TestEnvOverrideTakesNilInputs(t *testing.T) {
 // so the test fails if the pack or the rule stops refusing. The pack's pointer is gated on
 // the `bedrock` profile, which claude's bin carries here; aws-auth installs no CLI, so this
 // also exercises the wide pass.
+//
+// THE ~/.aws GRANT WARNS AND DOES NOT REFUSE, since 2026-09-25. A ~/.aws holding no
+// credentials for the resolved profile — a region-only config, the nested stage's case —
+// leaves the pointer in charge in the JavaScript SDKs, so refusing every grant was a false
+// positive; the entry is declared `certain: false` and the ruling makes that a warning.
 func TestShippedAWSAuthDeclaresTheThreeOverrides(t *testing.T) {
 	var aws *Pack
 	for _, p := range Embedded() {
@@ -233,27 +317,37 @@ func TestShippedAWSAuthDeclaresTheThreeOverrides(t *testing.T) {
 		env    map[string]string
 		grants []string
 		refuse bool
+		warn   bool
 	}{
-		{"the pointer alone — the pack's own shape", nil, nil, false},
-		{"a bearer", map[string]string{"AWS_BEARER_TOKEN_BEDROCK": FromEnvSources}, nil, true},
-		{"a lone access key id", map[string]string{"AWS_ACCESS_KEY_ID": FromEnvSources}, nil, false},
-		{"a lone secret", map[string]string{"AWS_SECRET_ACCESS_KEY": FromEnvSources}, nil, false},
+		{"the pointer alone — the pack's own shape", nil, nil, false, false},
+		{"a bearer", map[string]string{"AWS_BEARER_TOKEN_BEDROCK": FromEnvSources}, nil, true, false},
+		{"a lone access key id", map[string]string{"AWS_ACCESS_KEY_ID": FromEnvSources}, nil, false, false},
+		{"a lone secret", map[string]string{"AWS_SECRET_ACCESS_KEY": FromEnvSources}, nil, false, false},
 		{"the static pair", map[string]string{
-			"AWS_ACCESS_KEY_ID": FromEnvSources, "AWS_SECRET_ACCESS_KEY": FromEnvSources}, nil, true},
+			"AWS_ACCESS_KEY_ID": FromEnvSources, "AWS_SECRET_ACCESS_KEY": FromEnvSources}, nil, true, false},
 		{"the static pair plus AWS_PROFILE", map[string]string{
 			"AWS_ACCESS_KEY_ID": FromEnvSources, "AWS_SECRET_ACCESS_KEY": FromEnvSources,
-			"AWS_PROFILE": FromLaunchEnv}, nil, false},
+			"AWS_PROFILE": FromLaunchEnv}, nil, false, false},
 		{"a session token alone — optional to the environment provider", map[string]string{
-			"AWS_SESSION_TOKEN": FromEnvSources}, nil, false},
-		{"a ~/.aws grant", nil, []string{".aws"}, true},
-		{"a ~/.aws/config grant", nil, []string{".aws/config"}, true},
-		{"a ~/.awsfoo grant", nil, []string{".awsfoo"}, false},
+			"AWS_SESSION_TOKEN": FromEnvSources}, nil, false, false},
+		{"a ~/.aws grant", nil, []string{".aws"}, false, true},
+		{"a ~/.aws/config grant", nil, []string{".aws/config"}, false, true},
+		{"a ~/.awsfoo grant", nil, []string{".awsfoo"}, false, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			lines := EnvOverrideRefusal(packs, on, delivered(tc.env), tc.grants)
 			if (len(lines) > 0) != tc.refuse {
 				t.Errorf("refused=%v want %v:\n%s", len(lines) > 0, tc.refuse, strings.Join(lines, "\n"))
+			}
+			warned := false
+			for _, f := range EnvOverrideFindings(packs, on, delivered(tc.env), tc.grants) {
+				if !f.Certain {
+					warned = true
+				}
+			}
+			if warned != tc.warn {
+				t.Errorf("warned=%v want %v", warned, tc.warn)
 			}
 		})
 	}
@@ -274,7 +368,8 @@ func TestShippedAWSAuthDeclaresTheThreeOverrides(t *testing.T) {
 func TestFootprintReportsEachOverride(t *testing.T) {
 	fp := FootprintOf(widgetPack(t, "gate", `[
 	  {"vars": ["WIDGET_ID", "WIDGET_SECRET"], "unless": ["WIDGET_PROFILE"], "because": "x"},
-	  {"host_file": ".widget", "because": "y"}
+	  {"host_file": ".widget", "because": "y"},
+	  {"host_file": ".widgetrc", "certain": false, "because": "z"}
 	]`))
 	var got []string
 	for _, c := range fp.Claims {
@@ -292,6 +387,7 @@ func TestFootprintReportsEachOverride(t *testing.T) {
 	want := []string{
 		`launch refused beside WIDGET_ID + WIDGET_SECRET unless WIDGET_PROFILE is also delivered (when profile "gate" is active)`,
 		`launch refused beside a host_files grant at ~/.widget (when profile "gate" is active)`,
+		`launch warned (may override) beside a host_files grant at ~/.widgetrc (when profile "gate" is active)`,
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("override claims:\n got %q\nwant %q", got, want)
@@ -299,5 +395,66 @@ func TestFootprintReportsEachOverride(t *testing.T) {
 	if packdecl.KnownKind(OverriddenByClaimKind) {
 		t.Error("OverriddenByClaimKind is a registered contribution kind — it must stay a " +
 			"display label, or Collisions and the per-kind census tests start treating it as one")
+	}
+}
+
+// TestFootprintClaimsAGatedEnvVariableOnce is the regression test for `yolo pack footprint
+// aws-auth` printing AWS_CONTAINER_CREDENTIALS_FULL_URI twice: the contribution loop claimed
+// every env variable and the gated loop claimed the gated ones again, so a gated variable had
+// two claims — and the one with no gate is the one the launch banner printed, announcing a
+// variable as set on launches whose profile does not set it. One claim per variable, carrying
+// its gate; an ungated contribution keeps its bare claim.
+func TestFootprintClaimsAGatedEnvVariableOnce(t *testing.T) {
+	p := &Pack{Name: "widget", Decl: declFrom(t, `{"contributes": [
+	  {"kind": "env", "profile": "gate", "vars": {"WIDGET_POINTER": "http://127.0.0.1:1/creds"}},
+	  {"kind": "env", "vars": {"WIDGET_PLAIN": "1"}}
+	]}`)}
+	var got []string
+	for _, c := range FootprintOf(p).Claims {
+		if c.Kind == packdecl.KindEnv {
+			got = append(got, c.Target+" "+c.Detail)
+		}
+	}
+	want := []string{
+		"WIDGET_PLAIN =1",
+		`WIDGET_POINTER =http://127.0.0.1:1/creds when profile "gate" is active`,
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("env claims:\n got %q\nwant %q", got, want)
+	}
+}
+
+// TestShippedAWSAuthFootprintGolden pins every claim of the shipped aws-auth footprint, which
+// is what `yolo pack footprint aws-auth` and `yolo pack lint` print: one env line WITH its
+// gate, the loophole, and the three override lines — the ~/.aws one as a warning.
+func TestShippedAWSAuthFootprintGolden(t *testing.T) {
+	var aws *Pack
+	for _, p := range Embedded() {
+		if p.Name == "aws-auth" {
+			aws = p
+		}
+	}
+	if aws == nil {
+		t.Fatal("packs/aws-auth is not embedded")
+	}
+	var got []string
+	for _, c := range FootprintOf(aws).Claims {
+		if c.Kind == packdecl.KindLoophole {
+			// The loophole's argv detail is the manifest's, pinned by the loophole tests.
+			got = append(got, string(c.Kind)+" "+c.Target)
+			continue
+		}
+		got = append(got, string(c.Kind)+" "+c.Target+" "+c.Detail)
+	}
+	const uri = "AWS_CONTAINER_CREDENTIALS_FULL_URI"
+	want := []string{
+		`env ` + uri + ` =http://127.0.0.1:1461/credentials when profile "bedrock" is active`,
+		`loophole aws-auth`,
+		`overridden-by ` + uri + ` launch refused beside AWS_BEARER_TOKEN_BEDROCK (when profile "bedrock" is active)`,
+		`overridden-by ` + uri + ` launch refused beside AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY unless AWS_PROFILE is also delivered (when profile "bedrock" is active)`,
+		`overridden-by ` + uri + ` launch warned (may override) beside a host_files grant at ~/.aws (when profile "bedrock" is active)`,
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("aws-auth footprint:\n got:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }

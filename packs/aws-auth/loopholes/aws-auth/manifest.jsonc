@@ -15,10 +15,12 @@
 // below is what keeps the minted-credential cache from crossing with the state dir.
 //
 // ⚠ NEVER GRANT `~/.aws` ALONGSIDE THIS. `fromIni` sits AHEAD of the container
-// provider in every SDK's chain, so a `host_files` mount of ~/.aws does not duplicate
-// this loophole — it DISABLES it while looking like it works (design §8, Forbidden).
-// The launch refuses it, with the bearer and the static key pair: the pointer's `env`
-// contribution in ../../pack.json declares all three under `overridden_by` (OQ-SSO8).
+// provider in every SDK's chain, so a `host_files` mount of ~/.aws holding credentials
+// for the resolved profile does not duplicate this loophole — it DISABLES it while
+// looking like it works (design §8, Forbidden). The launch refuses the bearer and the
+// static key pair, and WARNS about the grant (a region-only ~/.aws does not override, so
+// the entry is `certain: false`): the pointer's `env` contribution in ../../pack.json
+// declares all three under `overridden_by` (OQ-SSO8).
 {
   "name": "aws-auth",
   "description": "Serve Bedrock-scoped AWS credentials to the jail from a host SSO session, minted per profile and narrowed before they cross.",
