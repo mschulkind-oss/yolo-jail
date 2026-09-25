@@ -195,6 +195,9 @@ func TestPiDeriveHandlesLocalProviderContextAndKey(t *testing.T) {
 
 // TestPiDeriveSettingsScopesDeclaredModels verifies that pi settings derive scopes enabledModels
 // to the declared curated models of the active provider instead of wildcarding, hiding uncurated models.
+// The list is DEFAULT-FIRST: pi starts a fresh session on the FIRST enabledModel whenever the
+// saved selection fails to resolve (dist/main.js, buildSessionOptions), so the provider's
+// default — here options.model's glm-5.3 — must lead, with the rest sorted.
 func TestPiDeriveSettingsScopesDeclaredModels(t *testing.T) {
 	script, s := deriveSurface(t, "pi", "pi/settings")
 
@@ -225,7 +228,7 @@ func TestPiDeriveSettingsScopesDeclaredModels(t *testing.T) {
 	if !ok {
 		t.Fatalf("enabledModels missing or not a slice: %#v", got)
 	}
-	want := []string{"zai/glm-4.6", "zai/glm-5.3", "zai/glm-5.3-flash"}
+	want := []string{"zai/glm-5.3", "zai/glm-4.6", "zai/glm-5.3-flash"}
 	if len(enabled) != len(want) {
 		t.Fatalf("enabledModels = %v, want %v", enabled, want)
 	}

@@ -43,13 +43,15 @@ func TestPiCodexProfileSelectsBuiltInProviderAndExplicitModel(t *testing.T) {
 			settings["defaultProvider"], settings["defaultModel"])
 	}
 	enabled, ok := settings["enabledModels"].([]any)
+	// Default-first: pi starts a fresh session on the FIRST enabledModel whenever the
+	// saved selection fails to resolve, so the default must lead the list.
 	wantEnabled := []any{
-		"openai-codex/gpt-6-astra",
 		"openai-codex/gpt-6-sol",
+		"openai-codex/gpt-6-astra",
 		"openai-codex/gpt-6-luna",
 	}
 	if !ok || !reflect.DeepEqual(enabled, wantEnabled) {
-		t.Fatalf("Pi enabledModels = %#v, want only GPT-6 models, most capable first %#v", settings["enabledModels"], wantEnabled)
+		t.Fatalf("Pi enabledModels = %#v, want only GPT-6 models, default first %#v", settings["enabledModels"], wantEnabled)
 	}
 	wantSubagents := map[string]any{
 		"defaultProvider": "openai-codex",
@@ -148,6 +150,9 @@ func TestPiExplicitProfileScopesModelsAndNoProfilePreservesUserScope(t *testing.
 	if !ok {
 		t.Fatalf("zai profile enabledModels missing: %#v", settings)
 	}
+	// This fixture carries no default (no profile model, no options.model, no
+	// `default` alias), so the list stays purely sorted — the no-default neighbor of
+	// the default-first order TestPiDeriveSettingsScopesDeclaredModels pins.
 	wantEnabled := []any{"zai/glm-4.6", "zai/glm-5.3", "zai/glm-5.3-flash"}
 	if !reflect.DeepEqual(enabled, wantEnabled) {
 		t.Fatalf("zai profile enabledModels = %#v, want %#v", enabled, wantEnabled)

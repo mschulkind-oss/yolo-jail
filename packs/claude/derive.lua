@@ -95,7 +95,10 @@ yolo.derive("claude", "settings", function(ctx)
   -- TWO ORDERS, ON PURPOSE, mirroring Claude's own picker (a `Default` row above
   -- the explicit models). modelPicker.options is the USER-FACING list and follows
   -- the STANDING RULE: most capable first — Astra (frontier), Sol (balanced),
-  -- Luna (fast); pi's enabledModels follows it too. availableModels is NOT a
+  -- Luna (fast). pi's enabledModels does NOT follow it: its FIRST entry is the model
+  -- pi starts a fresh session on whenever the saved selection fails to resolve
+  -- (packs/pi/derive.lua's standing rule), so that list leads with the default — Sol.
+  -- availableModels is NOT a
   -- display list: it is the enforcement set, and its FIRST entry is the model
   -- Claude Code's RETAINED built-in `Default` row resolves to. So it is ordered
   -- Default-first — Sol, the balanced model — which makes that row resolve to Sol

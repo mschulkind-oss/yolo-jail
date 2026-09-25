@@ -476,13 +476,21 @@ yolo.derive("pi", "settings", function(ctx)
     -- The subscription catalog currently exposes these as the supported GPT-6
     -- choices. Keep the list explicit: the provider wildcard would also make retired
     -- models selectable, and a future catalog entry needs an intentional policy decision.
-    -- STANDING RULE: order MOST CAPABLE FIRST — Astra, Sol, Luna. GPT-5.6 Terra has no
-    -- GPT-6 successor; Sol carries the balanced role now.
+    -- STANDING RULE: the DEFAULT LEADS — Sol first, then most capable first (Astra,
+    -- Luna). GPT-5.6 Terra has no GPT-6 successor; Sol carries the balanced role now.
+    -- The first slot is not presentation. pi starts a fresh session on the FIRST
+    -- enabledModel whenever the saved defaultProvider/defaultModel pair fails to
+    -- resolve — and a stale id is exactly that (dist/main.js, buildSessionOptions:
+    -- the saved default is used only when it resolves AND sits in scope, "otherwise
+    -- first scoped model"; verified against the installed pi 0.87.1, 2026-09-25) —
+    -- so the previous most-capable-first order started every such launch on Astra.
+    -- This is the same fix claude's availableModels carries for its retained Default
+    -- row: lead with the default, and the fallback lands on it too.
     local model = (ctx.profile and ctx.profile.model) or "gpt-6-sol"
     return {
       enabledModels = {
-        "openai-codex/gpt-6-astra",
         "openai-codex/gpt-6-sol",
+        "openai-codex/gpt-6-astra",
         "openai-codex/gpt-6-luna",
       },
       -- Pi-subagents has its own default, independent of Pi's chat selection.
@@ -545,6 +553,23 @@ yolo.derive("pi", "settings", function(ctx)
       end
     end
     table.sort(modelIds)
+    -- THE DEFAULT LEADS, for the same reason the codex list above leads with Sol:
+    -- pi starts a fresh session on the FIRST enabledModel whenever the saved
+    -- selection fails to resolve, so a purely sorted list put the alphabetically
+    -- first id there — glm-4.6, the OLDEST model zai serves, not its declared
+    -- default. Rotate the selection's model to the front; the rest keep their sorted
+    -- order, so the list stays deterministic. A nil defaultModel (no alias resolved)
+    -- leaves the sorted order untouched, and an id that is somehow absent from the
+    -- list rotates nothing rather than inventing an entry.
+    if sel.defaultModel then
+      for i, modelId in ipairs(modelIds) do
+        if modelId == sel.defaultModel then
+          table.remove(modelIds, i)
+          table.insert(modelIds, 1, modelId)
+          break
+        end
+      end
+    end
     for _, modelId in ipairs(modelIds) do
       table.insert(enabled, ctx.selected_provider .. "/" .. modelId)
     end
