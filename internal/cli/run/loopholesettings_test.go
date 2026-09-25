@@ -293,3 +293,50 @@ func TestShippedAWSAuthDisclosesUnnarrowed(t *testing.T) {
 		})
 	}
 }
+
+// TestStartLoopholesDisclosesAWideningSetting is OQ-SSO10 through the launch's real path:
+// startLoopholes → startLoopholesMatching → writeLoopholeSettings prints a true widening
+// setting's `disclose` sentence on the launch's stderr. The unit test above drives
+// writeLoopholeSettings directly; this one fails if the path from startLoopholes stops
+// reaching it. Same no-daemon fixture as TestStartLoopholesWritesTheSettingsFile.
+func TestStartLoopholesDisclosesAWideningSetting(t *testing.T) {
+	redirectState(t)
+	mod := filepath.Join(t.TempDir(), "acme")
+	if err := os.MkdirAll(mod, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mod, "manifest.jsonc"), []byte(`{
+		"name": "acme", "default_enabled": true, "transport": "none",
+		"settings": {"wide": {"type": "bool", "scope": "user", "default": false,
+			"disclose": "serving everything, un-narrowed"}}
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	origR := loopholes.RetiredUserLoopholesDir
+	loopholes.RetiredUserLoopholesDir = func() string { return t.TempDir() }
+	loopholes.SetPackModuleResolver(nil)
+	loopholes.SetPackModules([]loopholes.PackModule{{Dir: mod, HostExecApproved: true}})
+	t.Cleanup(func() {
+		loopholes.RetiredUserLoopholesDir = origR
+		loopholes.ResetPackModules()
+		loopholes.SetPackModuleResolver(resolvePackLoopholeModules)
+	})
+
+	cname := "yolo-settings-" + t.Name()
+	t.Cleanup(func() { _ = os.RemoveAll(hostServiceSocketsDir(cname, false)) })
+	o := &Options{}
+	fillDefaults(o)
+	var stderr strings.Builder
+	o.Stdout, o.Stderr = discardBuf(), &stderr
+	o.PathExists = func(string) bool { return false } // no cgroup delegate
+
+	for _, h := range o.startLoopholes(cname, "podman", settingsCfg(t, "acme", "wide", true)) {
+		if h.stop != nil {
+			h.stop()
+		}
+	}
+	if !strings.Contains(stderr.String(), "loophole acme: serving everything, un-narrowed") {
+		t.Errorf("stderr = %q: a launch with a true widening setting must disclose it (OQ-SSO10)",
+			stderr.String())
+	}
+}

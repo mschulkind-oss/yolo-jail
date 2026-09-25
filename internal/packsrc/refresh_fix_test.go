@@ -359,3 +359,35 @@ func TestResolutionErrorsSayWhatRepairsThem(t *testing.T) {
 		t.Errorf("unchecked-out %s: %v, want ErrNotCheckedOut", c2[:8], err)
 	}
 }
+
+// A CLONE THAT SUCCEEDS AHEAD OF A FETCH THAT FAILS keeps the pack usable from what the clone
+// brought: that is the cached copy, used with the fetch error warned about like any other.
+// The git wrapper passes every run through except `fetch`, so the very first refresh clones
+// the mirror and then fails its fetch. Fails if resolveCommit lets a recorded fetch failure
+// outrank a ref that resolves locally (the verifier's surviving mutation d2).
+func TestRefreshKeepsWhatACloneBroughtWhenItsFetchFails(t *testing.T) {
+	f := newRefreshFixture(t)
+	want := f.head(t)
+	f.store.Git = writeScript(t, `for a in "$@"; do
+  if [ "$a" = fetch ]; then echo "fatal: simulated fetch failure" >&2; exit 128; fi
+done
+exec git "$@"
+`)
+	o := f.refresh(t, false, RefreshPack{Name: "p", Source: f.source("main")})[0]
+	if o.Err != nil {
+		t.Fatalf("the pack is unusable although its clone succeeded: %+v", o)
+	}
+	if o.FetchErr == nil || !strings.Contains(o.FetchErr.Error(), "simulated fetch failure") {
+		t.Errorf("FetchErr = %v, want the failed fetch reported", o.FetchErr)
+	}
+	if o.Commit != want {
+		t.Errorf("Commit = %q, want the cloned %s", o.Commit, want)
+	}
+	if w := o.Warning(); !strings.Contains(w, "using the cached "+want[:8]) {
+		t.Errorf("Warning() = %q, want it to say the cloned commit is used", w)
+	}
+	a, _ := Parse(f.source("main"))
+	if res, err := f.store.Resolve(a, "p"); err != nil || res.Commit != want {
+		t.Errorf("resolution after the failed fetch: %+v, %v", res, err)
+	}
+}
