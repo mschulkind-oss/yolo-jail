@@ -171,17 +171,17 @@ func (r *reporter) hostFact(msg, whereToCheck string) {
 // reporter"; this is the latter, because the former would have meant a third count
 // and a badge nobody else uses.
 //
-// THIS CLOSES THE CONFIG-RESOLUTION HALF ONLY, and §3 names two producers:
-// "config resolution and loophole discovery". The loophole half is untouched and is
-// NOT a config.Warn sink at all — the supersedes did-you-mean (the best mismatch
-// diagnostic in the tree) goes through internal/loopholes' package-level warnf,
-// straight to os.Stderr (loopholes/runtime.go:27, called at discover.go:728). Worse
-// for `check` specifically: it never reaches that emission site, because the
-// loopholes section calls ValidateSet (sections_loopholes.go:60), which walks via
-// ValidateLoopholes + applySupersessions and deliberately bypasses Discover
-// (discover.go:821-822 says why). So that diagnostic is neither counted nor printed
-// here, and grading this channel did not change that. Relocating it is §7 step 4,
-// which needs OQ-RM2 ruled first.
+// THIS IS THE CONFIG-RESOLUTION HALF, and §3 names two producers: "config resolution
+// and loophole discovery". The loophole half is NOT a config.Warn sink at all — the
+// supersedes did-you-mean (the best mismatch diagnostic in the tree) goes through
+// internal/loopholes' package-level warnf, straight to os.Stderr, from Discover. And
+// `check` never reaches that emission site, because its loopholes section walks
+// through ValidateSet, which deliberately bypasses Discover (ValidateLoopholes' doc
+// comment says why). So that half is graded in the loopholes section instead
+// (checkLoopholes, from Set.SupersessionProblems), onto r.warn directly rather than
+// through here: it is a finding about the resolved loophole set, not a config
+// loader's. Relocating the MATCH to the launch path, where it could refuse, is §7
+// step 4, which needs OQ-RM2 ruled first.
 //
 // GRADING DOES NOT CHANGE THE EXIT CODE. Check() returns 1 on r.failed alone (its
 // three gates at check.go), and r.warned is read only by summaryFailWarn and

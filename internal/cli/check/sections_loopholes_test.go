@@ -1118,3 +1118,88 @@ func TestCheckLoopholesWithholdsAnUnapprovedPackSelfCheck(t *testing.T) {
 		t.Errorf("a WITHHELD self-check was rendered as a loophole that declares none:\n%s", out)
 	}
 }
+
+// recordSupersessions makes claims THE process's whole supersession record for one test,
+// restoring the previous record afterwards. Process-wide on purpose (it is the convergence
+// point every discovery surface reads), so the restore is mandatory rather than tidy.
+func recordSupersessions(t *testing.T, claims ...loopholes.PackSupersession) {
+	t.Helper()
+	restore := loopholes.SnapshotPackSupersessions()
+	loopholes.SetPackSupersessions(claims)
+	t.Cleanup(restore)
+}
+
+// TestCheckLoopholesGradesAnUnmatchedSupersession is the LOOPHOLE HALF of
+// docs/design/reference-mismatch-diagnostics.md §7 step 1: a `supersedes` claim that
+// matches no served capability used to reach nobody from `yolo check`. The did-you-mean
+// was written to stderr by Discover's warnf, and this section never calls Discover — it
+// walks through ValidateSet — so the best mismatch diagnostic in the tree was neither
+// printed nor counted by the command a user runs to find out what is wrong.
+//
+// It asserts the COUNT as well as the words, because an ungraded line under a summary
+// that does not count it is the defect §3 measured. And it asserts that a claim which
+// DID match draws no row, so the grading cannot turn into a line under every pack that
+// supersedes correctly.
+//
+// ⚠ THE CALL SITE IS WHAT THIS PINS: Set.SupersessionProblems has had its own tests in
+// internal/loopholes since it was written, and no production caller. Delete the call in
+// checkLoopholes and this goes red; the callee's tests stay green.
+func TestCheckLoopholesGradesAnUnmatchedSupersession(t *testing.T) {
+	moduleRoot := isolatedModuleDir(t)
+	writeLoopholeManifest(t, moduleRoot, "acme-broker",
+		`"name":"acme-broker","description":"acme-broker","transport":"none",`+
+			`"default_enabled":true,"serves":["acme-oauth-refresh"]`)
+	writeLoopholeManifest(t, moduleRoot, "acme-audio",
+		`"name":"acme-audio","description":"acme-audio","transport":"none",`+
+			`"default_enabled":true,"serves":["acme-audio"]`)
+	recordSupersessions(t,
+		loopholes.PackSupersession{Pack: "acme-bedrock", Capability: "acme-oauth-refersh",
+			Because: "Bedrock overrides the OAuth path"},
+		loopholes.PackSupersession{Pack: "acme-pulse", Capability: "acme-audio",
+			Because: "the pack ships its own audio bridge"})
+
+	r, out := runCheckLoopholes(t, t.TempDir())
+
+	for _, want := range []string{
+		"[WARN]",
+		"acme-oauth-refersh", // the unmatched string
+		"did you mean",       // the fix
+		"acme-bedrock",       // who claimed it
+		"keeps running",      // what actually happened
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the unmatched supersession did not reach a graded row with %q:\n%s", want, out)
+		}
+	}
+	// Exactly one warning: the typo. The claim that matched did what its author meant, so
+	// it is not a mismatch and must not be reported as one.
+	if r.warned != 1 {
+		t.Errorf("warned=%d, want 1 (the unmatched claim only):\n%s", r.warned, out)
+	}
+	if strings.Contains(out, "acme-pulse supersedes") || strings.Contains(out, "'acme-pulse' supersedes") {
+		t.Errorf("a supersession that MATCHED was reported as a problem:\n%s", out)
+	}
+	// Grading counts it; it refuses nothing (OQ-RM1 is unruled, and step 1 needed no ruling
+	// precisely because it does not touch the exit code).
+	if r.failed != 0 {
+		t.Errorf("failed=%d — an unmatched supersession is a [WARN], never a [FAIL]:\n%s", r.failed, out)
+	}
+}
+
+// TestCheckLoopholesGradesASupersessionWithNothingInstalled: the report must not sit
+// behind the "no loopholes installed" early return. A pack superseding a capability on a
+// machine that serves none is the case where the claim is most certainly doing nothing,
+// and the section used to answer it with a green row.
+func TestCheckLoopholesGradesASupersessionWithNothingInstalled(t *testing.T) {
+	isolatedModuleDir(t)
+	recordSupersessions(t, loopholes.PackSupersession{Pack: "acme-bedrock",
+		Capability: "acme-oauth-refresh", Because: "Bedrock overrides the OAuth path"})
+
+	r, out := runCheckLoopholes(t, t.TempDir())
+
+	if r.warned != 1 || !strings.Contains(out, "acme-oauth-refresh") ||
+		!strings.Contains(out, "declares `serves` at all") {
+		t.Errorf("a supersession on a machine with no loopholes was not graded (warned=%d):\n%s",
+			r.warned, out)
+	}
+}

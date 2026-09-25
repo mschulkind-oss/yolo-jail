@@ -58,6 +58,23 @@ func (o *Options) checkLoopholes(r *reporter) {
 	// them, and an unapproved pack is still refused WITH its reason (below, in the
 	// RC==nil branch). Only which loopholes this section can see changes.
 	entries, set := loopholes.ValidateSet()
+	// Every `supersedes` claim that matched no served capability, GRADED — the loophole
+	// half of docs/design/reference-mismatch-diagnostics.md §7 step 1. Discover warns
+	// these to stderr as it applies the claims, but this section walks through ValidateSet
+	// and never calls Discover, so until this row existed the did-you-mean reached neither
+	// the screen nor the summary of the one command a user runs to find out why a
+	// supersession did nothing. SupersessionProblems is PURE (it recomputes from the Set's
+	// records and claims), so asking here duplicates nothing.
+	//
+	// BEFORE the "no loopholes installed" return, because a claim on a machine that serves
+	// no capability at all is the case where it most certainly did nothing.
+	//
+	// A [WARN], never a [FAIL]: an unmatched claim leaves every loophole running, which is
+	// the status quo, and whether `check` should refuse a reference it had to resolve is
+	// OQ-RM1, unruled. Grading does not touch the exit code (see configWarn).
+	for _, problem := range set.SupersessionProblems() {
+		r.warn("pack supersession matched no served capability", problem)
+	}
 	if len(entries) == 0 {
 		r.ok(fmt.Sprintf("No loopholes installed (install one as a pack; %s is "+
 			"selected implicitly when it exists)", paths.LocalPackDir()))

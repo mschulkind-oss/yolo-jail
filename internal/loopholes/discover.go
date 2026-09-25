@@ -609,8 +609,9 @@ func NewSet(opts DiscoverOptions) Set {
 // PURE: it recomputes from the records and the claims rather than caching what
 // Discover warned about, so a caller may ask more than once without a duplicate
 // line. Discover itself warns each problem to stderr as it applies the claims; this
-// is the value-shaped seam for a surface that wants to render them (`yolo check`'s
-// loophole section is the obvious next reader).
+// is the value-shaped seam for a surface that wants to render them — `yolo check`'s
+// loophole section grades each one as a [WARN] row, because it walks through
+// ValidateSet and never reaches Discover's stderr line.
 func (s Set) SupersessionProblems() []string {
 	return unmatchedSupersessions(s.all, s.supersessions)
 }

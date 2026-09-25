@@ -8,17 +8,19 @@ summary: "Closing the gap between what stringly-typed-references-principle.md as
 
 # What a mistyped name does to you today
 
-**Status:** DESIGN, 2026-09-19 — three of [§7](#7-sequencing-by-user-visible-payoff)'s six steps
-are shipped whole, one is shipped by half, and two are unbuilt; all four questions are still
-unruled. Re-audited against the tree 2026-09-19, and the counts here are the audit's, not the
-2026-08-30 plan's. **Shipped whole: steps 2, 3 and 6**, all in the provider arc — the
+**Status:** DESIGN, 2026-09-25 — four of [§7](#7-sequencing-by-user-visible-payoff)'s six steps
+are shipped, and two are unbuilt; all four questions are still unruled. Re-audited against the
+tree 2026-09-19, and step 1's second half landed 2026-09-25. **Shipped: steps 1, 2, 3 and 6.**
+Steps 2, 3 and 6 are all in the provider arc — the
 selection-key validation (`86a56f6b`, then renamed with everything else to `use_profiles` in
 `43d24e9e`), the `wire_api` closed enum (`2ced4944`, `0f04632d`) plus the `base_url` userinfo
 refusal (`0bc29bd5`), and the credential preflight (`c77cfd05`, **with a scope deviation this doc
-owns** — see [§7](#7-sequencing-by-user-visible-payoff) step 6). **Shipped by half: step 1.** Its
-config-resolution half landed 2026-09-02 (`d6d8edc2`), which deleted `warningLine` — a test now
+owns** — see [§7](#7-sequencing-by-user-visible-payoff) step 6). Step 1 shipped in two halves:
+its config-resolution half landed 2026-09-02 (`d6d8edc2`), which deleted `warningLine` — a test now
 forbids re-declaring it — and routes every loader finding through the counted `[WARN]` path; its
-**loophole half is untouched**, and that is the remaining highest-payoff item in this doc.
+**loophole half landed 2026-09-25**, when `yolo check`'s Loopholes section began grading every
+unmatched `supersedes` claim as a `[WARN]` row (`checkLoopholes`, from
+`Set.SupersessionProblems()`).
 **Unbuilt: steps 4 and 5**, which is what [`OQ-RM2`](#OQ-RM2) and [`OQ-RM3`](#OQ-RM3) gate.
 Executes the amended
 [`stringly-typed-references-principle.md`](../reference/stringly-typed-references-principle.md) — its [§7](../reference/stringly-typed-references-principle.md#the-shape-of-the-enforcement-mechanism-by-mechanism) census
@@ -38,8 +40,9 @@ way you found out is that nothing happened. A fifth — capability supersession 
 an excellent message, and prints it to a channel the summary line does not count. So the work is not
 "add validation": it is **move three checks to a surface that can decide them, make one of them
 exist at all, and stop printing findings where nobody reads them.** No new mechanism, no new config
-key, no new manifest field. **What survives today: the buried-warning channel ([§3](#3-the-buried-warning-class-is-structural-not-stylistic), step 1) and the
-supersession relocation (step 4).**
+key, no new manifest field. **What survives today: the supersession relocation (step 4)** — the
+buried-warning channel ([§3](#3-the-buried-warning-class-is-structural-not-stylistic), step 1) is
+closed in `yolo check`.
 
 **The most important sections are [§1](#1-the-reproduction) (the four-line config that returns
 `[PASS]`), [§4](#4-every-message-before-and-after) (what each message becomes), and
@@ -63,12 +66,14 @@ Not an argument — a measurement, taken 2026-08-30 in this jail against `yolo` 
 > (a rename refusal in `internal/config/validate.go`, which names `use_profiles` in the message),
 > and rewritten with the current key (`use_profiles`) the same config
 > produces **three separate `[FAIL]` rows** — unknown CLI name `cloude`, unknown `wire_api` value,
-> `base_url` carrying userinfo — the exact opposite of the `[PASS]` measured here. The one
-> mechanism from this section still reproducing is the buried supersession warning ([§3](#3-the-buried-warning-class-is-structural-not-stylistic)), because
-> step 1's **loophole half** has not shipped — its config-resolution half has, so the
-> `env_sources` warnings [§3](#3-the-buried-warning-class-is-structural-not-stylistic) measures
-> alongside it now reach the summary. Read the rest of [§1](#1-the-reproduction) as the before
-> picture.
+> `base_url` carrying userinfo — the exact opposite of the `[PASS]` measured here. The buried
+> supersession warning ([§3](#3-the-buried-warning-class-is-structural-not-stylistic)) was the
+> last mechanism from this section still reproducing, and since 2026-09-25 it is a counted
+> `[WARN]` row in `yolo check`'s Loopholes section, as the `env_sources` warnings
+> [§3](#3-the-buried-warning-class-is-structural-not-stylistic) measures alongside it have been
+> since 2026-09-02. At launch it is still a stderr line, because it is still a report
+> ([§7](#7-sequencing-by-user-visible-payoff) step 4). Read the rest of
+> [§1](#1-the-reproduction) as the before picture.
 
 ```jsonc
 // yolo-jail.jsonc
@@ -120,13 +125,16 @@ $ yolo check --no-build
 
 ## 2. The three experiences a mismatch produces today
 
-*(Status 2026-09-02: the first row is EMPTY now — its three mechanisms all moved to the third row
-when [§7](#7-sequencing-by-user-visible-payoff) steps 2–3 shipped. The second row is the whole live problem.)*
+*(Status 2026-09-25: the first row is EMPTY — its three mechanisms all moved to the third row
+when [§7](#7-sequencing-by-user-visible-payoff) steps 2–3 shipped — and so is the second, as far as
+`yolo check` goes: both of its mechanisms are counted `[WARN]` rows since step 1's two halves
+shipped. At launch the supersession warning is still a stderr line; making it a refusal there is
+step 4.)*
 
 | What you get | Which mechanisms | What it costs you |
 | :--- | :--- | :--- |
 | **`[PASS]`, then nothing works** | ~~`use_profiles` keys, `wire_api`, `base_url`~~ — none left | The whole debugging distance. The symptom is an agent using the wrong endpoint or no profile at all, several layers from the typo. |
-| **A warning you will not see** | `supersedes` capability match, `env_sources` missing files | Printed, then buried — see [§3](#3-the-buried-warning-class-is-structural-not-stylistic). |
+| **A warning you will not see** | ~~`supersedes` capability match, `env_sources` missing files~~ — none left in `yolo check` (2026-09-02 and 2026-09-25) | Printed, then buried — see [§3](#3-the-buried-warning-class-is-structural-not-stylistic). |
 | **`[FAIL]`, named, with the fix** | every config **key**, and since 2026-09-01/02 the three reference checks above | Nothing. This is the model. |
 
 ---
@@ -136,20 +144,21 @@ when [§7](#7-sequencing-by-user-visible-payoff) steps 2–3 shipped. The second
 `yolo check` had two diagnostic channels and only one of them reached the summary. **The config
 half of that is closed** (`d6d8edc2`, 2026-09-02): `warningLine` is deleted, a test forbids
 re-declaring it, and every config-loader finding now goes through `configWarn` into the counted
-`[WARN]` path. **Loophole discovery is still the second channel** — the supersession did-you-mean
-below goes through `internal/loopholes`' package-level `warnf` straight to stderr, and `check`'s
-loopholes section never reaches that emission site at all because it walks
-`ValidateLoopholes` + `applySupersessions` and deliberately bypasses `Discover`. So the diagnostic
-this section exists to rescue is **still neither counted nor printed by `check`**, and grading the
-config channel did not move it.
+`[WARN]` path. **The loophole half is closed too** (2026-09-25). Loophole discovery still writes
+the supersession did-you-mean below through `internal/loopholes`' package-level `warnf` straight to
+stderr, and `check`'s loopholes section still never reaches that emission site, because it walks
+`ValidateLoopholes` + `applySupersessions` and deliberately bypasses `Discover`. So the section
+asks the resolved set instead — `Set.SupersessionProblems()`, which recomputes the same sentences
+from the same records and claims — and grades each one as a `[WARN]` row. The emission at
+discovery is unchanged, which is why a launch still prints it as a bare line.
 
 - `[WARN]` rows, emitted by the checker itself, increment the counter behind the summary line.
-- Bare `Warning:` lines on stderr — **loophole discovery only, now that config resolution is
-  graded** — do not.
+- Bare `Warning:` lines on stderr do not. **`yolo check` no longer depends on any**: both
+  producers [§3](#3-the-buried-warning-class-is-structural-not-stylistic) named are graded.
 
 The original measurement, and the reason it is kept: the `env_sources` half of it is now dead —
-those three warnings reach the summary — while the shape it illustrates is exactly what the
-loophole half still does. Measured 2026-08-30 in this jail against `yolo` 0.8.0+614, three bogus
+those three warnings reach the summary — while the shape it illustrates is what the loophole
+half did until 2026-09-25, and what a launch's output still does with it. Measured 2026-08-30 in this jail against `yolo` 0.8.0+614, three bogus
 `env_sources` entries:
 
 ```console
@@ -243,7 +252,7 @@ existing check or gives an existing namespace the check its neighbours already h
 
 | | |
 | :--- | :--- |
-| **Today** | a stderr `warning:` at discovery, uncounted by the summary; the launch proceeds with the loophole still running |
+| **Today** | a stderr `warning:` at discovery, and since 2026-09-25 a counted `[WARN]` row in `yolo check`'s Loopholes section ([§7](#7-sequencing-by-user-visible-payoff) step 1); the launch proceeds with the loophole still running |
 | **After** | the **same sentence**, as a launch refusal, and as a `[FAIL]` row in `yolo check`'s Loopholes section |
 | **Where** | the host launch path, which holds the complete bundled+pack+user+config set. Not the in-jail entrypoint, which cannot resolve it. |
 | **Stays a report** | `yolo loopholes list` and `status` — the commands you run *to diagnose this* must not be the commands it takes down. |
@@ -359,15 +368,21 @@ order.)*
 1. **Count the second channel.** Make bare `Warning:` lines reach `yolo check`'s summary, or route
    them through the reporter. **Everything else in this doc is worth less until findings are
    visible** — and this alone makes the supersedes diagnostic reach the user it was written for.
-   **HALF SHIPPED, and the shipped half is the one that does not carry the diagnostic.**
-   `d6d8edc2` (2026-09-02) took the second option — `warningLine` is gone, `configWarn` grades
-   every config-loader finding, and `internal/cli/check/warningchannel_test.go` fails if either
-   the function or an ungraded sink comes back. **The loophole half is untouched**: the
-   supersession did-you-mean goes through `internal/loopholes`' package-level `warnf` to stderr,
-   and `check`'s loopholes section bypasses `Discover`, so it reaches no counter and no `[WARN]`
-   row. `reporter.go`'s `configWarn` doc comment states the boundary and names this step. Still
-   the highest payoff per line in this doc, and it still needs no ruling — grading does not change
-   the exit code, which is why it never waited on [`OQ-RM1`](#OQ-RM1).
+   **SHIPPED, in two halves.** `d6d8edc2` (2026-09-02) took the second option for config
+   resolution — `warningLine` is gone, `configWarn` grades every config-loader finding, and
+   `internal/cli/check/warningchannel_test.go` fails if either the function or an ungraded sink
+   comes back. **The loophole half landed 2026-09-25**: the supersession did-you-mean still goes
+   through `internal/loopholes`' package-level `warnf` to stderr, and `check`'s loopholes section
+   still bypasses `Discover`, so `checkLoopholes` now reads `Set.SupersessionProblems()` off the
+   set `ValidateSet` returns and grades each unmatched claim as a `[WARN]` row — ahead of the
+   "no loopholes installed" return, since a claim on a machine serving nothing is the surest
+   no-op. `TestCheckLoopholesGradesAnUnmatchedSupersession` fails if that call is deleted (its
+   callee's tests in `internal/loopholes` do not). It needed no ruling — grading does not change
+   the exit code, which is why it never waited on [`OQ-RM1`](#OQ-RM1). The set it reads is only as
+   right as the lazy pack resolvers behind it, and those first lacked the `needs` closure the launch
+   applies (`packload.ResolveNeeds`), so a correct claim on a capability only a needs-pulled pack
+   serves was graded as matching nothing; they apply it now, and
+   `TestLazyResolversApplyTheNeedsClosure` (`internal/cli/run`) fails without it.
 2. **Selection-key validation.** *(Written as `pack_profiles`; the key is `use_profiles` since
    `43d24e9e`.)* **SHIPPED** — `86a56f6b` (key-namespace check), `5124dee3` (shape-check survives an
    unresolvable pack); live at `validateUseProfiles` (`internal/config/validate.go`, whose message
@@ -382,11 +397,10 @@ order.)*
 4. **Relocate the supersession match to the launch path.** Message unchanged; disposition and
    surface change. Needs [`OQ-RM2`](#OQ-RM2) ruled first. **NOT SHIPPED** —
    `internal/loopholes`' `unmatchedSupersessions` still carries its report-not-refuse argument
-   verbatim (*"the match half is reported here, loudly, with the fix in the sentence"*), and
-   `Set.SupersessionProblems()` has **no production caller anywhere in the tree** — searched
-   2026-09-19 across `internal/`, `cmd/` and `packs/`; the only calls are in
-   `internal/loopholes/supersede_test.go`. The value-shaped seam a refusing surface would consume
-   exists, and nothing consumes it.
+   verbatim (*"the match half is reported here, loudly, with the fix in the sentence"*).
+   `Set.SupersessionProblems()` has exactly one production caller since 2026-09-25, `yolo check`'s
+   `checkLoopholes` (step 1), and it REPORTS there; nothing on the launch path consumes the seam a
+   refusing surface would read.
 5. **The skew diagnostic.** Ships with or before step 4 — a refusal that cannot say "your image is
    old" is a worse refusal than the warning it replaces. **NOT SHIPPED**; needs [`OQ-RM3`](#OQ-RM3).
    Nothing on the launch path computes the two hashes — `imageIdentity` is still the test suite's
@@ -402,11 +416,8 @@ order.)*
    `internal/cli/run/providerpreflight.go`). [§4.5](#45-an-active-profile-whose-credential-was-never-hydrated)'s "Scope: Active profiles only" is
    therefore superseded; the shipped rule is broader and was chosen on review, not by accident.
 
-Steps 1–3 were independent of every design question in flight, which is presumably why 2 and 3 are
-the ones that shipped first. **Step 1's remaining half is still independent and still first by
-payoff** — routing loophole discovery's findings through the reporter needs no ruling, and until it
-lands the best diagnostic in the tree ([§3](#3-the-buried-warning-class-is-structural-not-stylistic))
-reaches nobody.
+Steps 1–3 were independent of every design question in flight, and all three have shipped. What is
+left — steps 4 and 5 — waits on [`OQ-RM2`](#OQ-RM2) and [`OQ-RM3`](#OQ-RM3).
 
 ---
 
