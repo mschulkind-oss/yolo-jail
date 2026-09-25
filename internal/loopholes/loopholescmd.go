@@ -400,7 +400,10 @@ func doctorState(set Set, r DoctorResult) string {
 		return "superseded"
 	case !set.MayRunHostCode(r.Loophole):
 		return "unapproved"
-	case !r.Loophole.RequirementsMet():
+	// `platforms` before the `requires` probe, as in Active(): RequirementsMet() folds in
+	// neither, so without this a loophole this machine cannot run fell through to its
+	// doctor_cmd's exit code and was graded `ok` or `fail` as if it were live here.
+	case !r.Loophole.SupportedHere(), !r.Loophole.RequirementsMet():
 		return "inactive"
 	case r.RC != nil && *r.RC == 0:
 		return "ok"

@@ -233,3 +233,30 @@ func TestShippedLoopholePlatformDeclarations(t *testing.T) {
 		}
 	}
 }
+
+// `yolo loopholes status` grades a loophole this machine cannot run as `inactive`, not
+// by its doctor_cmd's exit code: status runs every record's self-check, and an
+// unsupported one used to come back `fail` (or `ok`) as if it were live here — the same
+// defect `yolo check` had, on the command users reach for next.
+func TestDoctorStateGradesAnUnsupportedPlatformInactive(t *testing.T) {
+	other := "linux"
+	if runtime.GOOS == "linux" {
+		other = "darwin"
+	}
+	// SourceConfig, so the empty Set's origin gate admits it and only the platform
+	// decides; a pack record would stop at `unapproved` first.
+	lp := loadWithPlatforms(t, "elsewhered", []any{other})
+	lp.Enabled, lp.Source = true, SourceConfig
+	for _, rc := range []int{0, 1} {
+		rc := rc
+		if got := doctorState(Set{}, DoctorResult{Loophole: lp, RC: &rc}); got != "inactive" {
+			t.Errorf("rc=%d: doctorState = %q, want inactive", rc, got)
+		}
+	}
+	here := loadWithPlatforms(t, "hered", []any{runtime.GOOS})
+	here.Enabled, here.Source = true, SourceConfig
+	fail := 1
+	if got := doctorState(Set{}, DoctorResult{Loophole: here, RC: &fail}); got != "fail" {
+		t.Errorf("supported: doctorState = %q, want fail", got)
+	}
+}
