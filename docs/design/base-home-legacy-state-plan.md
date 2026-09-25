@@ -8,10 +8,9 @@ summary: "Build sketch for the per-jail read-only skeleton that replaces podman'
 
 # Per-jail home skeleton — build sketch
 
-**Status:** SKETCH, 2026-09-25 — every design question this sketch builds is settled; one
-found in the build is open ([OQ-BH15](base-home-legacy-state.md#OQ-BH15), which changes no step
-here), and a second, [OQ-BH16](base-home-legacy-state.md#OQ-BH16), found making the reaper
-work. **Every step BUILT 2026-09-25**: 1, 2 and 3 first, then 4, 4a and 5, then the review
+**Status:** SKETCH, 2026-09-25 — every design question this sketch builds is settled,
+including the two found in the build, [OQ-BH15](base-home-legacy-state.md#OQ-BH15) and
+[OQ-BH16](base-home-legacy-state.md#OQ-BH16), both BUILT the same day. **Every step BUILT 2026-09-25**: 1, 2 and 3 first, then 4, 4a and 5, then the review
 fixes and follow-ups below. `integration/homeskeleton_test.go` passed in a nested, rootful jail
 the same day, and **ROOTLESS in CI** on both arches (`ci.yml` run 36167524940 at `e56d871e`,
 `integration (ubuntu-latest)` and `integration (ubuntu-24.04-arm)`, the same jobs' concurrency
@@ -57,9 +56,9 @@ and lives in git history.
   (`resolveSelectedPacks`): embedded entries by name, configured ones from the pack store,
   then the `needs` closure, as staging does. A reservation now names the pack that holds it.
   `writable_home_dirs` keeps reserving `.claude` in every workspace, as the first segment of
-  core's redirect target `.claude/claude.json`; and `host_files`' surface-path reservation
-  (`builtinSurfacePaths`) still covers every shipped pack, which the ruling's wording
-  (directories) did not reach; that is [OQ-BH15](base-home-legacy-state.md#OQ-BH15).
+  core's redirect target `.claude/claude.json`; and `host_files`' surface-path reservation,
+  which the ruling's wording (directories) did not reach, followed it later as
+  [OQ-BH15](base-home-legacy-state.md#OQ-BH15) (`selectedSurfacePaths`, built 2026-09-25).
 - **Review fixes to steps 4 and 4a.** A `host_files` destination under a `writable_home_dirs`
   entry or a selected pack's shared dir is not staged (it was a second bind at one
   destination); Apple Container emits no `host_files` staging bind; the legacy migrations
@@ -179,9 +178,10 @@ Per [OQ-BH14](base-home-legacy-state.md#OQ-BH14):
   exited normally left it. The reaper keeps every tracked name, and `touchAgentStagingDir`
   refreshes the entry's mtime on every launch. So a workspace's `AgentsDir/<cname>` went
   unreaped for as long as the workspace was in use. **Fixed in the follow-ups:** the launch
-  removes the tracking file once the container is known gone. What is left, a workspace used
-  alone on its machine, whose own launches' housekeeping always keeps its name, is
-  [OQ-BH16](base-home-legacy-state.md#OQ-BH16).
+  removes the tracking file once the container is known gone. What was left, a workspace used
+  alone on its machine, whose own launches' housekeeping always keeps its name, is closed by
+  [OQ-BH16](base-home-legacy-state.md#OQ-BH16): each end removes the launch's own skeleton on
+  the same evidence (built 2026-09-25).
 - `jailcontent.PrepareSkills` clears only the contents of `skills-*` under `AgentsDir/<cname>`,
   so it never touches a sibling `home/`.
 - `EnsureGlobalStorage` has two callers: `ensureStorage` and `internal/cli/check/check.go`.

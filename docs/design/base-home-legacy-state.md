@@ -8,7 +8,9 @@ summary: "Podman mounts ONE machine-wide base, <state>/home, read-only at /home/
 
 # Why does every podman jail share one home? It should not — a per-jail skeleton instead
 
-**Status:** ACCEPTED, 2026-09-25: rewritten around a new premise after the maintainer's review,
+**Status:** DECIDED, 2026-09-25 — every question is ruled, and [OQ-BH15](#OQ-BH15) and
+[OQ-BH16](#OQ-BH16), the last two, are BUILT the same day; only the Apple Container seed's Mac
+run is still owed. The doc was rewritten around a new premise after the maintainer's review,
 then every open question settled the same day. **Steps 1–3 of [§8](#8-build-order-and-done-conditions)
 BUILT 2026-09-25** (the seed fixes, the podman skeleton, the refusal's deletion and the reworded
 `yolo check` report); `integration/homeskeleton_test.go` PASSED in a nested, rootful jail the
@@ -40,16 +42,15 @@ the machine's Claude refresh token, through the base (agy's dir likewise).
 
 ## Settled, 2026-09-25
 
-The five questions closed in one review ([§10](#10-decision-ledger)). **Two are open for you,
-both found in the build:** [OQ-BH15](#OQ-BH15), whether `host_files`' surface-path reservation
-narrows to the selected packs too (it is the one rule left that reads every shipped pack), and
-[OQ-BH16](#OQ-BH16), whether a launch removes its own skeleton when its jail ends, since on a
-machine where one workspace is used alone the reaper reaches that workspace's skeletons only
-through `yolo prune --apply`.
+The five questions closed in one review ([§10](#10-decision-ledger)). **The two found in the
+build are settled and BUILT too:** [OQ-BH15](#OQ-BH15), `host_files`' surface-path reservation
+narrows to the selected packs (it was the one rule left that read every shipped pack), and
+[OQ-BH16](#OQ-BH16), a launch removes its own skeleton when its jail ends, so a workspace used
+alone no longer waits for `yolo prune --apply`. **Nothing is open.**
 
 - **Yours:** [OQ-BH14](#OQ-BH14): name reservation covers only the **selected** packs'
-  directories, so [DIR-BH1](#10-decision-ledger)'s one remaining shipped-set rule is the
-  surface-path list that [OQ-BH15](#OQ-BH15) asks about. [OQ-BH10](#OQ-BH10): a new skeleton per
+  directories, and [OQ-BH15](#OQ-BH15) narrows the surface-path list the same way, so no
+  validation rule reads the shipped set any more ([DIR-BH1](#10-decision-ledger)). [OQ-BH10](#OQ-BH10): a new skeleton per
   fresh launch, never edited. [OQ-BH13](#OQ-BH13): the launch refusal and its hatch go with the
   skeleton; `yolo check` keeps a reworded report.
 - **Delegated to the build** ("an implementation detail"): [OQ-BH9](#OQ-BH9), the skeleton
@@ -176,8 +177,9 @@ exists and the workspace lock was free (`forgetGoneContainer`,
 `internal/cli/run/trackingcleanup.go`). Each of those three ends releases the launch's own lock
 first, the normal exit included: the lock's other release waits on a poll for the container to
 show as running, so a child that exits before it ever does would otherwise find its own lock
-held and keep the file. The reaper then does what [OQ-BH10](#OQ-BH10) assumed.
-What it still cannot reach is [OQ-BH16](#OQ-BH16).
+held and keep the file. The reaper then does what [OQ-BH10](#OQ-BH10) assumed. On the same known-gone evidence each end
+also removes the skeleton its launch built ([OQ-BH16](#OQ-BH16)), so the reaper is left only the
+launches that died with no teardown.
 
 ### 2.3 When it is built
 
@@ -302,10 +304,9 @@ unselected pack's dir is an ordinary path and the entry gets its normal skeleton
 - **Two reservations still hold in a workspace that selects no pack owning them.** `.claude`
   stays a reserved `writable_home_dirs` segment, because core's `~/.claude.json` redirect
   targets `.claude/claude.json`; that is core reserving its own link's target, not a pack's
-  directory. And `host_files` still refuses a destination any SHIPPED pack composes as a
-  surface (`builtinSurfacePaths`, e.g. `~/.codex/config.toml`) whatever the selection. That
-  list names files rather than directories, so this ruling did not reach it;
-  [OQ-BH15](#OQ-BH15) asks whether DIR-BH1 narrows it too.
+  directory. `host_files`' surface-path reservation, a list of files rather than directories,
+  follows the selection too since [OQ-BH15](#OQ-BH15) (`selectedSurfacePaths`): e.g.
+  `~/.codex/config.toml` is refused only while codex is selected.
 
 ### 2.9 Backends
 
@@ -380,7 +381,7 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
 | Rootless ID mapping makes the skeleton's owner or mode differ from today's | The same host user that creates `<state>/home` creates it; checked on a real rootless host ([§8](#8-build-order-and-done-conditions)) |
 | A pre-April base holds a pack's only credential, or a file someone hand-placed to seed every workspace; with `seedAgentDir` gone, each NEW workspace on that machine needs one login | Live credentials travel through the shared-credential dirs and brokers; the pack dirs are MEASURED empty on the maintainer's host. That nothing else is live is INFERRED ([§2.7](#27-the-seed)). The seed file is the one deliberate channel, and it stays |
 | The prune reaps a skeleton | Only when no container of that name is live or tracked, never the launching jail's own, past the one-hour floor. The next launch rebuilds it |
-| Skeletons pile up, one per fresh launch | The tracking file now goes when the launch sees its container gone, so the prune reaches an idle workspace's entry; a launch that starts no container removes its own ([§2.3](#23-when-it-is-built)). A workspace used alone on its machine is reached only by `yolo prune --apply` ([OQ-BH16](#OQ-BH16)) |
+| Skeletons pile up, one per fresh launch | The tracking file now goes when the launch sees its container gone, so the prune reaches an idle workspace's entry; a launch that starts no container removes its own ([§2.3](#23-when-it-is-built)). Each end of a launch that sees its container gone also removes the skeleton it built ([OQ-BH16](#OQ-BH16)); only a launch killed with no teardown leaves one for the reaper |
 
 ## 7. What died
 
@@ -605,7 +606,7 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
    > like the other packs don't exist … packs could come from anywhere and be added, removed,
    > whatever."* Consequences in [§2.8](#28-reservation-is-a-rule-about-config-names-not-about-directories).
 
-6. 💬 **OQ-BH15: Does `host_files`' surface-path reservation cover only the selected packs
+6. ✅ <a id="OQ-BH15"></a>**OQ-BH15: Does `host_files`' surface-path reservation cover only the selected packs
    too?** Found while building [OQ-BH14](#OQ-BH14), which ruled on directories. `host_files`
    still refuses a destination that ANY shipped pack composes as a surface
    (`builtinSurfacePaths`, `internal/config/hostfiles.go`), so `~/.codex/config.toml` is refused
@@ -614,7 +615,6 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
    with validation resolving the selection as `writable_home_dirs` now does
    (`resolveSelectedPacks`); (b) keep it as DIR-BH1's one named exception.
 
-   <!-- vantage: oq id=OQ-BH15 leaning="Narrow it to the selected packs. The two-writers case it guards is still refused at launch for every selected pack, embedded or configured, by config.SurfaceCollisions over the loaded packs, so narrowing loses no refusal a jail could hit; and OQ-BH14's reason (other packs are treated as if they do not exist) applies to a file as much as to a directory." -->
 
    _Leaning:_ (a). The collision it guards against, two writers for one file, is still refused
    at launch for every selected pack, embedded or configured, by `config.SurfaceCollisions` over
@@ -624,7 +624,24 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
    which the loader, validation and `SourceLessHostFilesFrom` all call, so each of them would
    need the selection.
 
-7. 💬 **OQ-BH16: Does a launch remove its own skeleton when its jail ends?** Found while
+   **How an unselected pack could have this effect at all.** Every shipped pack is compiled
+   into the yolo binary, and `packload.Embedded()` hands back all of them, selected or not. A few
+   readers need the whole shipped set on purpose: `yolo pack ls` and `footprint` describe packs
+   you have not selected, and `storage.EnsureGlobalStorage` runs before config is loaded.
+   `builtinSurfacePaths` is not one of those. It was written before selection-aware resolution
+   existed, and it is the last validation rule that reads the shipped set instead of your
+   selection.
+
+   **Answer:**
+   > **(a)**, by [DIR-BH1](#10-decision-ledger) (*"a non-selected pack can never have an
+   > impact"*), confirmed in review 2026-09-25: *"how does host files know about packs that are
+   > not selected? … why is there even a thing that can read a pack that is not selected?"* The
+   > reservation narrows to the selected packs, resolved the way `writable_home_dirs` resolves
+   > them (`resolveSelectedPacks`), and a two-writers collision stays refused at launch by
+   > `config.SurfaceCollisions`. **Built 2026-09-25** (`selectedSurfacePaths`,
+   > `internal/config/hostfiles.go`; `hostfilesselected_test.go`).
+
+7. ✅ <a id="OQ-BH16"></a>**OQ-BH16: Does a launch remove its own skeleton when its jail ends?** Found while
    making [OQ-BH10](#OQ-BH10)'s reaper reach skeletons at all
    ([§2.2](#22-where-it-lives-host-only-never-in-wsstate)). With the tracking file gone at exit,
    `PruneOrphanAgentStaging` reaps a workspace's whole `AGENTS_DIR/<cname>` once no container of
@@ -640,7 +657,6 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
    is the only launch that knows its name; (c) have the launch's housekeeping remove its own
    name's older skeletons, keeping the one its running container is bound from.
 
-   <!-- vantage: oq id=OQ-BH16 leaning="(b): remove the launch's own skeleton at exit, on the same known-gone evidence that now removes the tracking file. It removes only a directory no other launch knows, only after the one container that could hold it is gone, and leaves the reaper only launches that died without a teardown (SIGKILL, OOM)." -->
 
    _Leaning:_ (b). It removes only a directory no other launch knows the name of, and only after
    the one container that could hold it is known gone, so it leaves the reaper just the launches
@@ -649,6 +665,18 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
    rests on the tri-state probe that answer was chosen to avoid needing. (c) needs to know which
    skeleton the live container is bound from, one more liveness question. Not built: the build
    did what the ruling says and stopped there.
+
+   **Answer:**
+   > **(b)**, delegated in review 2026-09-25 (*"this is an implementation decision for you. This
+   > is correctness … it has to exist when it has to exist, and then it should get cleaned up when
+   > we can clean it up"*) and decided so. At each of the three ends that remove the tracking
+   > file, on the same evidence (the runtime answered that no container of that name exists, and
+   > the workspace lock was free), the launch also removes the skeleton it built. An "I could not
+   > ask" answer removes nothing, so the reaper keeps only the launches that died without a
+   > teardown (SIGKILL, OOM). Removing a skeleton whose container is known gone is not the
+   > modification [OQ-BH10](#OQ-BH10)'s "never modified afterwards" forbids. **Built
+   > 2026-09-25** (`forgetGoneContainer`, `internal/cli/run/trackingcleanup.go`, handed
+   > `in.homeSkeleton` by all three ends; `trackingcleanup_test.go`).
 
 ## 10. Decision Ledger
 
@@ -659,7 +687,7 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
 | R3 | **Fail closed**: no TTY or unconfirmed safety ⇒ do nothing, leave the marker unstamped, retry later. *Met trivially*: no migration, no marker | 2026-09-20 | [§7](#7-what-died) | — |
 | R4 | **Generic**: every pack state dir, every backend (podman, `container`, macos-user). *Still binds*: [§2.9](#29-backends) covers all three | 2026-09-20 | [§2.9](#29-backends) | — |
 | DIR-BH0 | **The maintainer's call:** no `yolo base-home --archive` verb; the user runs a printed `mv`. The verb was built and deleted the same day (commit `1f440af3`; the comment recording why, "Why a refusal and not a verb", is in `git show 1f440af3:internal/cli/run/basehomedisclosure.go`, a file step 3 deleted with the refusal) | 2026-09-21 | [OQ-BH13](#OQ-BH13) | yes |
-| DIR-BH1 | **Principle, the maintainer's:** *"a non-selected pack can never have an impact."* [OQ-BH14](#OQ-BH14) narrowed name reservation to the selected packs; one shipped-set rule remains, `host_files`' surface-path reservation, open as [OQ-BH15](#OQ-BH15) | 2026-09-25 | [§1](#1-the-question-and-the-answer) | yes, 2026-09-25: the skeleton, including core's dirs (`paths.HomeSkeletonCoreDirs` drops the pi pack's `.pi/agent`), and name reservation ([OQ-BH14](#OQ-BH14)). One shipped-set rule is left in config validation and was not ruled on: `host_files`' surface-path reservation ([§2.8](#28-reservation-is-a-rule-about-config-names-not-about-directories)) |
+| DIR-BH1 | **Principle, the maintainer's:** *"a non-selected pack can never have an impact."* [OQ-BH14](#OQ-BH14) narrowed name reservation to the selected packs; [OQ-BH15](#OQ-BH15) narrowed `host_files`' surface-path reservation the same way | 2026-09-25 | [§1](#1-the-question-and-the-answer) | yes, 2026-09-25: the skeleton, including core's dirs (`paths.HomeSkeletonCoreDirs` drops the pi pack's `.pi/agent`), and name reservation ([OQ-BH14](#OQ-BH14)). and `host_files`' surface-path reservation ([OQ-BH15](#OQ-BH15)); no config validation rule reads the shipped set |
 | DIR-BH2 | **Direction, the maintainer's:** *"So basically this directory seems like it's always empty and there's some complication with sharing across jails because then they could have different packs. Why is this not just per jail? It seems like it's nothing."* After the investigation: *"yes rewrite"*. What he directed: per jail, not shared, the doc rewritten around that. **This design's reading, not his words:** a `:ro` skeleton from the selected packs, `<state>/home` kept as the machine store, alternative B rejected ([§5](#5-alternatives-with-verdicts)) | 2026-09-25 | [§2](#2-the-design-a-per-jail-skeleton) | yes, podman, 2026-09-25 |
 | OQ-BH1 | **Superseded by DIR-BH2.** Archive location and retention: no archive exists; legacy bytes stay in place, unmounted | 2026-09-25 | [§7](#7-what-died) | — |
 | OQ-BH2 | **Superseded by DIR-BH2: no migration exists.** The same reason closes [OQ-BH3](#10-decision-ledger) (automatic move or confirmation), [OQ-BH6](#10-decision-ledger) (shadow layer, which a per-jail skeleton carries all the way, [§5](#5-alternatives-with-verdicts) A) and [OQ-BH8](#10-decision-ledger) (partial failure of a move). This row was trigger and marker | 2026-09-25 | [§7](#7-what-died) | — |
@@ -671,6 +699,8 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
 | OQ-BH12 | **Delegated to the build:** runtime-aware seed paths in `prepareWsState`, verified on a Mac, landing separately | 2026-09-25 | [§3](#3-the-apple-container-seed-defect) | host side, 2026-09-25 (`claudeJSONInWsState`, `preparePodmanBindSources`); the Mac run is owed |
 | OQ-BH13 | **The maintainer's ruling:** delete the launch refusal and `YOLO_ALLOW_LEGACY_BASE_HOME` with the skeleton; keep `yolo check`'s report, reworded | 2026-09-25 | [§8](#8-build-order-and-done-conditions) | yes, 2026-09-25 |
 | OQ-BH14 | **The maintainer's ruling:** reserve only the selected packs' directories; an unselected pack is treated as nonexistent | 2026-09-25 | [§2.8](#28-reservation-is-a-rule-about-config-names-not-about-directories) | yes, 2026-09-25 (`resolveSelectedPacks`, `reservedHomeSegments`, `StagingFor`; AGENTS.md's bullet rewritten) |
+| OQ-BH15 | **`host_files`' surface-path reservation covers only the selected packs**, by DIR-BH1; the launch's collision check still refuses two writers | 2026-09-25 | [OQ-BH15](#OQ-BH15) | yes, 2026-09-25 (`selectedSurfacePaths` over `resolveSelectedPacks`) |
+| OQ-BH16 | **A launch removes its own skeleton at exit** on the known-gone evidence that removes its tracking file; "could not ask" removes nothing (delegated, decided) | 2026-09-25 | [OQ-BH16](#OQ-BH16) | yes, 2026-09-25 (`forgetGoneContainer` removes the launch's skeleton) |
 
 ## Appendix A: Evidence
 
