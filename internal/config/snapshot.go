@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -282,11 +283,17 @@ func writeSnapshot(path, currentJSON string) error {
 // gets it the state dir's .gitignore (a bare MkdirAll skips it, so a workspace whose first
 // artifact was a config snapshot had an un-ignored .yolo) and the scope refusal, which for
 // these two is defence in depth — both are on the launch path, behind the guard.
+//
+// AND THE FILE IS WRITTEN BENEATH A ROOT ON `.yolo` (paths.WriteWorkspaceStateFile), never
+// by path: `.yolo` is jail-writable, and os.WriteFile followed a link the last jail left at
+// either name, truncating the host file it named and writing this config JSON into it. path
+// must name a file directly in the workspace's `.yolo`, which both destinations do.
 func writeWorkspaceSnapshot(workspace, path, currentJSON string) error {
-	if _, err := paths.EnsureWorkspaceStateDir(workspace); err != nil {
-		return err
+	ws := workspaceOrCwd(workspace)
+	if filepath.Dir(path) != paths.WorkspaceStateDir(ws) {
+		return fmt.Errorf("internal: workspace snapshot %s is not directly in %s", path, paths.WorkspaceStateDir(ws))
 	}
-	return os.WriteFile(path, []byte(currentJSON+"\n"), 0o644)
+	return paths.WriteWorkspaceStateFile(ws, filepath.Base(path), []byte(currentJSON+"\n"), 0o644)
 }
 
 // pyRstrip trims trailing whitespace using the same whitespace set as
