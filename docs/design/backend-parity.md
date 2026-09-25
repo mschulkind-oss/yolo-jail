@@ -423,9 +423,17 @@ The runner runs as the maintainer's account, and the test's isolated home re-lin
 test's hand-written `settings.json` as yolo's own render, and the surface composed without it by
 design. The cause is inferred from the log's shape: the copy was present under `YOLO_CTX_ROOT`.
 The test now hides that mark, and fails as "NOTHING WOULD BE MEASURED" if the mark still shows, so
-#3 waits on the next Mac run. #10's claim is vacuous there: neither network mode published the
-port, so `network.ports` does not reach the Mac on Apple Container at all. That one is under
-investigation. The macos-user checks #6, #7, #9 and #14 are still unrun: the last
+#3 waits on the next Mac run. #10's `DOES NOT HOLD` is **unresolved rather than a defect found**.
+Every dial to the host port, in both modes, connected and then got EOF: the forwarder accepted,
+and nothing answered behind it. yolo's `-p` argv is right. The probe could not tell Apple's
+forwarder from a test fault, because its one `socat TCP-LISTEN` binds IPv4 only, while Apple's
+`--publish` examples all bind `::`, and it never checked the server was alive. It now publishes an
+IPv4-only and a dual-stack listener, with the jail's own view of both, so the next run names the
+cause:
+- only dual-stack answers: an in-jail server must bind `::` on this backend, which the user guide
+  then says;
+- neither answers but the jail reaches itself: Apple's forwarder is at fault;
+- a listener is dead: the test is at fault. The macos-user checks #6, #7, #9 and #14 are still unrun: the last
 `macos-user.yml` run, on 2026-09-25, did not select them.
 
 ---
