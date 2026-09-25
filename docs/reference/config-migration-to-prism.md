@@ -36,7 +36,7 @@ Two paths, chosen by one signal — whether a trusted `last_render` sidecar exis
 | :--- | :--- |
 | The state machine, pure and file-free | `internal/agentcfg` (`ComposeStateful`, `StatefulInputs`, `StatefulOutput`) |
 | The merge primitives | `internal/agentcfg` (`mergeDiff`, `mergeAccumulate`, `deepMerge`, `dropNullLeaves`) |
-| The two narrowings an overlay passes through | `internal/agentcfg` (`dropComputedTables`, wholesale, adoption only; `narrowOverlay`/`dropOverriddenKeys`, leaf-level, both branches) |
+| The two narrowings an overlay passes through | `internal/agentcfg` (`dropComputedTables`, wholesale per declared in-full table, adoption only; `narrowOverlay`/`dropOverriddenKeys`, leaf-level, both branches) |
 | The boot caller: sidecar I/O, host source, orphan retirement | `internal/entrypoint` (`renderSurfaceStateful`, `renderSurfaceStatefulSurface`, `retireOrphanSidecars`) |
 | The non-stateful siblings | `internal/entrypoint` (`renderSurfaceComputed`, `renderSurfaceRMWSurface`) |
 | Discarding captured edits | `internal/cli` (`configReset`, `truncateSurfaceToPureRender`) |
@@ -166,9 +166,15 @@ null leaves dropped, then narrowed twice. What is left is the agent-owned state 
 about.
 
 **The two narrowings run at different granularities and neither subsumes the other.** First,
-*wholesale*: a top-level key the **computed** layer holds as an object is a table yolo regenerates
-in full, so whatever sits under it on disk is yolo's own previous output rather than a captured
-edit, and the whole subtree drops (`dropComputedTables`, adoption only). Second, *leaf-level*:
+*wholesale*: a top-level key the **computed** layer holds as a non-empty object, and whose derive
+**declares** it regenerates that table in full, is yolo's own previous output rather than a
+captured edit, so the whole subtree drops (`dropComputedTables`, adoption only). The declaration
+is the derive's `ctx.in_full(t)` sentinel, carried beside the layer as
+`agentcfg.Inputs.ComputedInFull`; an MCP table, a provider catalog and `mise`'s `[tools]` are
+declared, while claude's `env` is not — yolo asserts one variable there and owns none of the
+rest, so a table not declared in full is left to the second pass and keeps the agent's own leaves
+([`CO13`](../design/config-ownership-and-promotion.md#co13--how-a-derive-says-it-fills-a-computed-table-in-full--decided)).
+An empty computed table drops nothing, declared or not. Second, *leaf-level*:
 the shared pass both branches run strips every individual key a higher-ranking layer — computed,
 then managed — would override anyway (`narrowOverlay`, built on `dropOverriddenKeys`). Managed
 keys drop there because `managed` is re-asserted *after* the fold, so an adopted managed key could
