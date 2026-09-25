@@ -218,26 +218,27 @@ These are the only couplings, and every one is a real call site rather than a ca
 matter to [§3](#3-the-design-inside-yolo) for a different reason than they used to: each one is a place where *the target is
 currently implicit*, so each is a place a `Target` parameter either fixes or must not disturb.
 
-**(1) Reservation lists — 9 call sites, all `packload.Embedded*`.**
+**(1) Reservation lists.** Re-pointed 2026-09-25. This used to be one block of
+`packload.Embedded*` call sites, every shipped pack's dirs reserved whether selected or not. The
+maintainer's [`OQ-BH14`](base-home-legacy-state.md#28-reservation-is-a-rule-about-config-names-not-about-directories)
+ruling moved the writable-dir half onto the **selected** packs, and `packload.EmbeddedWritableDirs`
+is deleted. What each list reads now:
 
 ```
-internal/config/writablehome.go:84,88,108     reserved home dirs / segments  (EmbeddedWritableDirs)
-internal/config/hostfiles.go:712              builtinSurfacePaths            (Embedded)
-internal/config/hostfiles.go:1032             hostFileWritableRoots          (EmbeddedWritableDirs)
-internal/config/packs.go:422,444              name validation + suggestions   (EmbeddedNames)
-internal/storage/ensure.go:53                 GlobalHome mountpoint pre-creation
+internal/config/writablehome.go   reserved home dirs / segments   the SELECTED packs (resolveSelectedPacks in
+                                                                   validation; the launch's staged set)
+internal/config/hostfiles.go      hostFileWritableRoots           the SELECTED packs, passed in (StagingFor)
+internal/config/hostfiles.go      builtinSurfacePaths             every SHIPPED pack (packload.Embedded)
+internal/config/packs.go          name validation + suggestions   every SHIPPED pack (packload.EmbeddedNames)
+internal/storage/ensure.go        machine-store shared dirs        every SHIPPED pack (packload.EmbeddedSharedDirs)
 ```
 
-`hostFileWritableRoots` is a **package-level value built by a func literal evaluated at init
-time** (`hostfiles.go:1028`), which is why the embedded FS is registered by an `init()` in
-`internal/packreg` rather than from `main` — a main-time registration "would arrive too late
-and they would silently see no packs — reserving nothing, with no error"
-(`internal/packreg/packreg.go:17`). Any interface that makes the pack set *lazy* or *fallible*
-breaks this, silently, in the reserve-nothing direction. **This is the sharpest constraint on
-any refactor here** and it is not obvious.
-
-(`builtinSurfacePaths` is a `sync.Once` behind a function, so it is already lazy and would
-survive; the init-time one is the constraint.)
+The init-time constraint this section used to call the sharpest one is gone with it.
+`hostFileWritableRoots` was a package-level value built at init, which is why the embedded FS was
+registered from an `init()`, and a lazier or more fallible pack set would have made it reserve
+nothing, silently. It is now a function of the packs it is handed, and it reads no pack itself.
+`builtinSurfacePaths` was already lazy (a `sync.Once` behind a function) and still reads every
+shipped pack, a list [`OQ-BH15`](base-home-legacy-state.md#OQ-BH15) leaves open.
 
 **(2) In-jail rendering — `internal/entrypoint`, 1,027 non-test lines of `prism*.go` +
 `pack*.go`.** `LoadJailPacks` → `ConfigurePackSurfaces` → `renderDeclaredSurface`
@@ -586,6 +587,15 @@ untouched, one is where the whole design lives, and one is the one that must not
 generalized.**
 
 ### 4.1 Reservation lists — untouched, and deliberately so
+
+> [!NOTE]
+> **Overtaken 2026-09-25, in part.** The paragraphs below describe the lists as they stood when this
+> section was written: a union over every pack yolo ships, consumed at init time. The writable-dir
+> reservations now read the **selected** packs
+> ([`OQ-BH14`](base-home-legacy-state.md#28-reservation-is-a-rule-about-config-names-not-about-directories)),
+> and `hostFileWritableRoots` is a function of its argument rather than an init-time value, so the
+> constraint below binds nothing any more. [§1.2](#12-the-four-places-yolo-reaches-into-it) lists
+> what each one reads now. The conclusion stands: a `Target` changes none of them.
 
 The reservation lists are the union over every pack *yolo ships*, deliberately not the selected
 set (`hostfiles.go:1022-1024`: "a reservation gated on selection would let a `host_files` entry
@@ -1190,8 +1200,8 @@ available as anybody's mitigation.
    stated as a product position and defended somewhere other than the `FieldSet`.
    **Answer:** > _(empty — fill in when decided)_
 2. 💬 **9.6 (see below): do the reservation lists survive contact with a *configured*
-   pack?** **Narrowed, and the permissive half is gone** (2026-09-22): the lists are still
-   init-time and cover EMBEDDED packs only, but the outcome they were feared to produce — a silent
+   pack?** **Narrowed, and the permissive half is gone** (2026-09-22): the surface list still
+   covers EMBEDDED packs only, but the outcome they were feared to produce — a silent
    second writer — is refused where it becomes detectable, fatally
    (`config.SurfaceCollisions`). What is left is a *timing* question: that refusal lives in the run
    pipeline, so a collision with a configured pack's surface stops a launch rather than being caught
