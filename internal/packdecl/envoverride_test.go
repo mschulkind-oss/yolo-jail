@@ -51,6 +51,41 @@ func TestEnvOverrideDecodesAndProjects(t *testing.T) {
 	}
 }
 
+// TestEnvOverrideCertainty: `certain` decodes in all three spellings, and IsCertain reads
+// an ABSENT key as certain — every entry written before the key existed was declared to
+// refuse, and must keep refusing — while an explicit `false` is the one uncertain answer.
+func TestEnvOverrideCertainty(t *testing.T) {
+	m, problems := Decode([]byte(overrideManifest(`[
+	  {"vars": ["WIDGET_TOKEN"], "because": "absent"},
+	  {"vars": ["WIDGET_ID"], "certain": true, "because": "explicit true"},
+	  {"host_file": ".widget", "certain": false, "because": "explicit false"}
+	]`)))
+	if len(problems) > 0 {
+		t.Fatalf("a well-formed declaration was refused: %v", problems)
+	}
+	got := m.EnvOverrideContributions()[0].Overrides
+	for i, want := range []bool{true, true, false} {
+		if got[i].IsCertain() != want {
+			t.Errorf("overridden_by[%d] (%s): IsCertain() = %v, want %v",
+				i, got[i].Because, got[i].IsCertain(), want)
+		}
+	}
+	if (EnvOverride{}).IsCertain() != true {
+		t.Error("the zero EnvOverride must read as certain")
+	}
+}
+
+// TestEnvOverrideCertainIsTyped: `certain` is a bool, and a string there is refused at
+// decode rather than read as either answer — "no" and "false" would otherwise be one typo
+// apart from a refusal the author meant to be a warning.
+func TestEnvOverrideCertainIsTyped(t *testing.T) {
+	_, problems := Decode([]byte(overrideManifest(
+		`[{"host_file": ".widget", "certain": "false", "because": "x"}]`)))
+	if len(problems) == 0 {
+		t.Error(`"certain": "false" (a string) was accepted`)
+	}
+}
+
 // TestEnvOverrideContributionsSkipsUndeclaringEnv: an env contribution without the key is
 // not a declaration, and the projection must not hand the evaluator an empty one to walk.
 func TestEnvOverrideContributionsSkipsUndeclaringEnv(t *testing.T) {

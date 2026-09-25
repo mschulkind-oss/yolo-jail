@@ -2,8 +2,9 @@ package packdecl
 
 // envoverride.go is the `overridden_by` declaration on a `kind: "env"` contribution: the
 // pack's own statement of what, delivered into the same jail, makes a consumer ignore the
-// variables it sets. Core evaluates it (packload.EnvOverrideRefusal) and refuses the
-// launch; core names no variable of its own.
+// variables it sets. Core evaluates it (packload.EnvOverrideFindings) and refuses the
+// launch, or warns for an entry the pack declares uncertain; core names no variable of
+// its own.
 
 import (
 	"fmt"
@@ -14,7 +15,8 @@ import (
 // EnvOverride is one thing that, delivered beside an env contribution, OVERRIDES it: the
 // consumer the contribution is written for reads the other thing first, so the
 // contribution is silently unused while every request still succeeds. A launch that
-// would deliver both is REFUSED, fatally and with no escape hatch
+// would deliver both is REFUSED, fatally and with no escape hatch, when the override is
+// CERTAIN; when it is only possible (`certain: false`) the launch WARNS and continues
 // (docs/design/sso-backed-bedrock.md, OQ-SSO8).
 //
 // # Why the pack declares this, and core does not
@@ -31,9 +33,9 @@ import (
 // Exactly one of `vars` or `host_file` per entry, and `because` always:
 //
 //	{"vars": ["A", "B"], "unless": ["C"], "because": "…"}
-//	{"host_file": ".aws", "because": "…"}
+//	{"host_file": ".aws", "certain": false, "because": "…"}
 //
-// The four keys:
+// The five keys:
 //
 //   - `vars` — variables that override the contribution when ALL of them are delivered by
 //     the launch (a CONJUNCTION: aws-auth's static key pair is one entry, because either
@@ -47,9 +49,16 @@ import (
 //   - `host_file` — a home-relative JAIL path; a `host_files` entry whose destination is
 //     this path or anything under it overrides the contribution, when that entry would
 //     actually render something (config.RenderedHostFilePaths).
-//   - `because` — REQUIRED: the sentence the refusal quotes, saying why the other thing
-//     wins. It is the pack's knowledge, so it is the pack's words; core adds only the
-//     facts of the launch (what is delivered, from where) and the remedy.
+//   - `certain` — optional, default true. `false` says the entry MAY override the
+//     contribution rather than certainly does: the condition can be tripped by a jail the
+//     consumer still serves correctly, and nothing in the declaration can tell which
+//     jail this is. A certain entry refuses the launch; an uncertain one prints a WARNING
+//     and the launch continues. aws-auth's `~/.aws` grant is the case: a `~/.aws` holding
+//     credentials for the profile the SDK resolves beats the pointer, and one holding only
+//     a region does not, and a path cannot say which.
+//   - `because` — REQUIRED: the sentence the refusal or warning quotes, saying why the
+//     other thing wins. It is the pack's knowledge, so it is the pack's words; core adds
+//     only the facts of the launch (what is delivered, from where) and the remedy.
 //
 // # The rule the shape serves: never a false positive
 //
@@ -59,6 +68,17 @@ import (
 // thing, and prefer the narrower entry when unsure: a declaration that misses a case lets
 // one launch through with a silent wrong answer, and one that over-reaches refuses a
 // working jail with no way around it, because there is no hatch.
+//
+// `certain: false` is the other answer to "unsure", and the ruling that added it is the
+// maintainer's, 2026-09-25: *"if we can know that it's just not going to launch or it's
+// just not going to work as configured, we should make it a fatal error"*, and warnings
+// for the rest. So an entry whose condition sometimes overrides and sometimes does not is
+// not dropped, and not refused: it is declared uncertain, and the launch says so. The
+// warning is a disclosure, so no flag or variable suppresses it.
+//
+// Certainty is a FACT the pack states, and the severity is core's reading of it. Core
+// knows no AWS rule; it knows only that a certain override refuses and an uncertain one
+// warns, for every pack alike.
 //
 // # What is refused at decode, and why each one
 //
@@ -80,7 +100,12 @@ import (
 //
 // The tolerant decoder (DecodeTolerant) reads with json.Unmarshal, so an OLDER build
 // reading a manifest that declares `overridden_by` ignores the key — that build simply
-// does not refuse, which is a false negative and therefore the safe direction. Whoever adds
+// does not refuse, which is a false negative and therefore the safe direction. `certain`
+// skews LOUDLY instead, which is acceptable for the same reason: the host launcher and
+// `yolo check` decode a pack strictly (packload.LoadDir), so a build older than the key
+// refuses a manifest carrying it as an unknown field, naming it, rather than reading an
+// uncertain entry as a certain one. A shipped pack never meets that build, being embedded
+// in its own. Whoever adds
 // a THIRD condition beside `vars` and `host_file` must extend the tolerance first: this
 // build would see an entry with neither and report a problem, which is fatal on the boot
 // path (the `tier` incident's shape; validateSkillsTier states the same rule for its enum).
@@ -93,8 +118,20 @@ type EnvOverride struct {
 	// HostFile is a home-relative jail path whose `host_files` grant (at it, or under it)
 	// overrides the contribution. Clean, relative, no "~/" — HostFileEntry.Path's form.
 	HostFile string `json:"host_file,omitempty"`
+	// Certain is whether a tripped entry CERTAINLY overrides the contribution. Absent means
+	// true; read it through IsCertain, never directly. A pointer so an absent key and an
+	// explicit `false` stay distinguishable.
+	Certain *bool `json:"certain,omitempty"`
 	// Because is the pack's sentence saying why the other thing wins. Required.
 	Because string `json:"because,omitempty"`
+}
+
+// IsCertain reports whether this override, once tripped, certainly overrides the
+// contribution — so the launch refuses — rather than only possibly, so it warns. An
+// entry that does not say is certain: that is every entry written before the key existed,
+// and a refusal was what each of them was declared to produce.
+func (o EnvOverride) IsCertain() bool {
+	return o.Certain == nil || *o.Certain
 }
 
 // EnvOverrideDecl is one env contribution that declares overrides, as the evaluator
