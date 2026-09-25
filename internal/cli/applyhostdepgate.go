@@ -106,6 +106,16 @@ var depInstallRun = runDepInstallCommand
 // `installer` program — so splitting on spaces would mangle exactly the remedy the pack wrote
 // down. They run as the invoking user with the invoking environment, which is what makes
 // `sudo` in a hint behave the way the user's own shell would.
+//
+// IT RUNS THE COMMAND EXACTLY AS PRINTED, so a `via: installer` remedy pipes the URL's body
+// straight into sh, with none of the check the jail's launcher makes before it runs an
+// installer (_installer_body_kind in internal/entrypoint/shims.go refuses a web page, a
+// binary or non-text bytes, naming the URL). Here an ELF body surfaces only as a shell error
+// that does not name the URL, and a "#!" script with a NUL inside its first KiB runs. Giving
+// this path that check means running something other than the printed command (download,
+// check, then `sh <file>`), which docs/reference/report-tiers.md's dependency rule does not
+// allow as written: its point 3 promises "the exact command each install would run". So it
+// waits on a ruling.
 func runDepInstallCommand(cmd string, out io.Writer) error {
 	c := exec.Command("sh", "-c", cmd)
 	c.Stdout, c.Stderr = out, out
