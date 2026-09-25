@@ -17,7 +17,8 @@ summary: "An in-jail translating reverse proxy that manufactures an Anthropic-Me
 
 # The wire bridge — an Anthropic endpoint on the jail's loopback
 
-**Status:** CURRENT as of 2026-09-23, verified against `7ad8358c`. UNMEASURED on the host that
+**Status:** CURRENT as of 2026-09-23, verified against `7ad8358c`; [streamed usage](#streamed-usage)
+was rewritten 2026-09-25, after that verification, and is UNMEASURED against the live upstreams. UNMEASURED on the host that
 reported the listen-port collision: that the provider-table fix ends it is inferred from an
 in-process reproduction, and no launch there has been observed succeeding
 ([what can hold the listen port](#what-can-hold-the-listen-port-before-the-bridge-does)).
@@ -236,7 +237,8 @@ The bridge implements **what the agent sends**, not the whole Anthropic API.
 | upstream reasoning content | **drop, do not surface** | plain text deltas only |
 | token and stop-sequence limits | map | the upstream's equivalents |
 | stop reasons | map onto the upstream's finish reasons | finish reason |
-| usage | map through | usage |
+| usage | map into Anthropic's terms: the upstream's prompt count **minus** its cached count is `input_tokens`, the cached count is `cache_read_input_tokens`, completion tokens are `output_tokens`; streamed, all three ride `message_delta` ([streamed usage](#streamed-usage)) | usage |
+| the stream flag, on the chat-completions route | pass it, and also ask for `stream_options.include_usage`, unless the provider declares `supports_usage_in_streaming` `"false"` | the upstream's final usage chunk |
 | cache-control blocks | strip — silently ignored, never an error | — |
 | the model id | **passthrough**, normalized only for gateways: Claude's `[1m]` context suffix is stripped, and a bare `deepseek-…` id gains its `deepseek/` vendor prefix | model |
 
@@ -276,6 +278,90 @@ provider's key, read once at boot.
 > requires `store: false` and rejects `max_output_tokens`. The bridge always requests no
 > retention and omits Claude's token cap on this route; a model's own output limit remains in
 > force.
+
+<a id="streamed-usage"></a>
+
+### Streamed usage
+
+Claude builds its cost and context figures from the usage in the stream, so a bridged stream has
+to carry the upstream's real counts, in Anthropic's shape. Both routes now do, and the non-streaming
+answers use the same mapping, so one turn reports one set of numbers whether it streamed or not.
+
+**Where the counts go.** Anthropic's stream reports usage twice: in `message_start`, and in
+`message_delta`, whose usage is cumulative and may carry `input_tokens` and the cache counts beside
+`output_tokens`. An OpenAI upstream reports usage only at the end of its stream, so the bridge sends
+`message_start` with what the first chunk reported (for most upstreams, zeros) and puts the real
+counts in `message_delta`. That is enough for Claude: Claude Code 2.1.282's stream handler merges a
+`message_delta`'s `input_tokens`, `cache_read_input_tokens` and `cache_creation_input_tokens` over
+what `message_start` said whenever they are above zero (READ from the shipped binary's bundled
+script, not measured against a live turn).
+
+**The arithmetic.** Both OpenAI dialects count cached tokens *inside* their prompt figure
+(`prompt_tokens` and `prompt_tokens_details.cached_tokens` on chat completions; `input_tokens` and
+`input_tokens_details.cached_tokens` on Responses). Anthropic's `input_tokens` is the *uncached*
+remainder. So the bridge reports prompt minus cached as `input_tokens` and the cached count as
+`cache_read_input_tokens`. An upstream that reports more cached tokens than prompt tokens gets
+`input_tokens` 0, never a negative count. OpenAI's wire has no cache-write count, so
+`cache_creation_input_tokens` is never sent. In `message_delta`, a count the upstream never reported
+is left out rather than sent as zero. An upstream that reports usage on every chunk sends running
+totals, so each count takes the latest value reported for it.
+
+> [!WARNING]
+> **On the chat-completions route, the finish chunk is not the last chunk.** An upstream asked for
+> `stream_options.include_usage` sends `finish_reason` on one chunk with no usage, then one more
+> chunk with `"choices": []` and the request's usage, then `[DONE]`. So the translator closes the
+> open content block at the finish, but holds `message_delta` and `message_stop` until the usage
+> chunk arrives. When the stream ends without one (`[DONE]`, the body closing, or a read error after
+> the finish), the relay calls the translator's `End`, which closes the message with whatever usage
+> it has. An upstream that has already reported usage by the finish chunk gets both events there,
+> with no wait. A chunk after the finish that does not decode also closes the message with the usage
+> reported so far, because the answer is already whole; the translator returns a
+> `wirebridge.UsageLostError` beside those closing events, and the daemon log names the upstream and
+> the decode error, once per upstream.
+>
+> The bridge used to emit `message_stop` on the finish chunk, drop everything after it, never ask
+> for usage, and keep only the output count. Every bridged turn reached Claude with zero input
+> tokens. Do not move the close back onto the finish chunk, and do not skip `End`: without it every
+> upstream that sends no usage chunk ends in the truncation error below.
+
+**Asking for it.** A streamed chat-completions request carries `"stream_options":
+{"include_usage": true}`, because an OpenAI-compatible upstream sends no usage in a stream unless it
+is asked. A provider that declares the option `supports_usage_in_streaming` as `"false"` is not
+asked. That is the same service fact pi's derive reads as `supportsUsageInStreaming`
+([`packs/llamacpp/README.md`](../../packs/llamacpp/README.md#the-compat-facts--what-this-server-does-and-does-not-support)),
+read by the same rule: only the JSON spelling `"false"` turns it off. The bridge reads it from the
+selected profile's resolved options, which hold the provider's declared default with a user's value
+over it. For such an upstream Claude's counts stay zero, and the daemon log says so once per upstream.
+An upstream that rejects the field answers 400, which reaches Claude with the upstream's own message.
+The fix is to declare the option `"false"` for that provider, in the user config:
+`{"providers": {"<name>": {"options": {"supports_usage_in_streaming": "false"}}}}`. That value
+reaches the provider's resolved profiles (checked 2026-09-25 against `kilo`).
+
+**The shipped upstreams accept it.** The two chat-completions providers the shipped packs route
+through the bridge are `cerebras` (`https://api.cerebras.ai/v1`) and `kilo`
+(`https://api.kilo.ai/api/gateway`). Neither is gated, for these reasons (READ 2026-09-25, not
+measured against the live services):
+
+- **Cerebras.** Its official Python SDK, which is generated from its API definition, declares
+  `stream_options` with `include_usage` on chat completions
+  (`src/cerebras/cloud/sdk/types/chat/completion_create_params.py` in `Cerebras/cerebras-cloud-sdk-python`).
+  pi 0.87.1's built-in Cerebras models turn off `supportsStore` and `supportsDeveloperRole` but
+  leave `supportsUsageInStreaming` at its default of true, so pi sends the field on every streamed
+  Cerebras request. Cerebras's own API reference page does not list the parameter.
+- **Kilo.** Kilo's own pi provider for this gateway (`src/models.ts` in `Kilo-Org/kilo-pi-provider`)
+  sets `supportsStore: false` for its chat-completions models and leaves `supportsUsageInStreaming`
+  at pi's default, so Kilo's own client sends the field to the same base URL. Kilo's API reference
+  does not list the parameter, and documents usage as present "only in the final chunk".
+
+**The Responses route needs no opt-in.** Its terminal event always carries the usage. That event is
+`response.completed`, or `response.incomplete` when the output limit stopped the answer, which maps
+to `max_tokens`. `message_delta` and `message_stop` go out there, mapped as above. `response.incomplete`
+used to be refused as an unsupported event, which turned a partial answer into an error and lost its
+usage. The stop stays `max_tokens` when the limit cut off a function call: an open function call
+turns only a finished answer (`end_turn`) into `tool_use`, because the call's arguments may be
+truncated JSON that Claude would otherwise try to run. The chat-completions route maps
+`finish_reason` `"length"` to `max_tokens` whatever is open, and the non-streamed Responses answer
+follows the same rule as the stream.
 
 ## Lifecycle and failure behavior
 
@@ -380,10 +466,16 @@ The rest of the rule:
   The disclosure is a launch line and a briefing section. It is **not** a row in the pack
   banner, so a reader who sees only the banner learns nothing about a forwarded port.
 
-> [!WARNING]
-> **The launch-line half of that disclosure has no call-site test.** Only the helper is
-> pinned. Removing the `discloseImplicitProviderForwards` call from the launch pipeline leaves
-> the unit suite green. The briefing half is pinned by rendering the real briefing
+> [!NOTE]
+> **Both halves of that disclosure have call-site tests.** The launch line is pinned by
+> `TestRunContainerDisclosesImplicitProviderForwardsBeforeTheMerge`
+> (`internal/cli/run/providerforwarddisclosure_test.go`). The call sits after the image load,
+> where no unit test can drive a launch, so the test reads `runContainer`'s syntax tree, as
+> `currentimagecallsite_test.go` does. It fails if the call is deleted, moved out of the
+> bridge-mode block, moved below `mergeHostForwards` or below the host forwarders' start,
+> handed any list but the pre-merge `forwardHostPorts` and the channel's
+> `localProviderForwardSources`, given a printer that writes nowhere, or called from a second
+> function. The briefing half is pinned by rendering the real briefing
 > (`TestRenderedBriefingNamesAnImplicitProviderForward`).
 
 ### The invariant that keeps the adapter's address out of the user's map
@@ -536,6 +628,7 @@ only place the values themselves are stated.
 | Served path | `POST /v1/messages` and nothing else | `internal/wirebridged/handler.go` |
 | Upstream path | the provider's `openai` base URL plus `/chat/completions`; on the Codex route, the subscription base plus `/responses` | `wirebridged.NewHandler`, `wirebridged.CodexResponsesBaseURL` |
 | Upstream timeout | 10 minutes, the one timeout the daemon adds | `wirebridged.upstreamTimeout` |
+| Streamed-usage request field, chat-completions route (added 2026-09-25, after the commit this table was verified at) | `"stream_options": {"include_usage": true}` on every streamed request; left off when the selected profile's `supports_usage_in_streaming` is `"false"` | `wirebridge.TranslateRequestWith`, `wirebridge.ChatOptions`; the option read in `wirebridged.routeFor` |
 | Upstream error mapping | 4xx same-status; every 5xx, timeout or dial failure → 502 | `bridgeHandler.relayUpstreamError` |
 | Endpoint variable | `YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT`, emitted only when the daemon will serve | `run.serviceEndpointEnvArgs`, `wirebridged.WillServe` |
 | Ready-required daemons | `YOLO_JAIL_DAEMON_READY_NAMES=wire-bridge`, emitted beside the endpoint variable | `paths.JailDaemonReadyNamesEnv` |
