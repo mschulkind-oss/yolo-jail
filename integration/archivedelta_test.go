@@ -243,10 +243,19 @@ func startRemotePodman(t *testing.T) *remotePodman {
 		t.Skip("no podman on PATH")
 	}
 	dir := t.TempDir()
+	// The runroot and the socket live in a SHORT directory under /tmp, not in
+	// t.TempDir: podman refuses a runroot longer than 50 characters ("the
+	// specified runroot is longer than 50 characters"), and CI's TMPDIR
+	// (/home/runner/work/_temp/…) plus a test-named t.TempDir is always longer.
+	short, err := os.MkdirTemp("/tmp", "ypd")
+	if err != nil {
+		t.Fatalf("short runroot dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(short) })
 	p := &remotePodman{
-		sock:    filepath.Join(dir, "api.sock"),
+		sock:    filepath.Join(short, "api.sock"),
 		root:    filepath.Join(dir, "store"),
-		runRoot: filepath.Join(dir, "run"),
+		runRoot: filepath.Join(short, "run"),
 	}
 	var logBuf bytes.Buffer
 	p.svc = exec.Command("podman", "--root", p.root, "--runroot", p.runRoot,
