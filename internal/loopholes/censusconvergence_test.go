@@ -46,9 +46,13 @@ var convergenceExemptions = map[string]string{
 //	                       here; without the skip the test fails on any machine that has ever
 //	                       run a worktree-isolated agent, and the failure text looks exactly
 //	                       like a real convergence regression. 5+ live checkouts sit there.
+//	.yolo                  the workspace's jail state, whose home overlay holds whatever the
+//	                       agents working here left in their scratch space — including
+//	                       whole exported copies of this repo, with the same false offenders
+//	                       as .claude.
 var skippedTopLevelDirs = map[string]bool{
 	"vendor": true, ".git": true, "dist-go": true, "node_modules": true, "bin": true,
-	".claude": true,
+	".claude": true, ".yolo": true,
 }
 
 // isSkippedTopLevelDir reports whether dir is one of the skipped subtrees AT THE REPO ROOT.
