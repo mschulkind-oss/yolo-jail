@@ -8,11 +8,13 @@ summary: "Build hand-off for sso-backed-bedrock.md, written against the tree: th
 
 # Plan: Bedrock from a host SSO login
 
-**Status:** DECIDED, 2026-09-24 — steps **1–4 and 6 are built** (`internal/awsauth`,
+**Status:** DECIDED, 2026-09-24 — steps **1–4, 6 and 6a are built** (`internal/awsauth`,
 `internal/awsauthdaemon`, `internal/awscredadapter`, `packs/aws-auth`; step 6's exclusivity
-refusal and `~/.aws` grant conflict landed 2026-09-18), and [Blockers](#blockers) 7 — the
+refusal and `~/.aws` grant conflict landed 2026-09-18, and step 6a moved both into the pack's
+manifest and added the static key pair on 2026-09-25), and [Blockers](#blockers) 7 — the
 missing endpoint variable — was **fixed 2026-09-20** (`62e553a8`), so the chain is wired end to
-end in code (its census test is unit-level; no nested run is recorded since); steps 5, 7 and 8 are not built, and nothing has run on a real host. Ruled 2026-09-17, when
+end in code (its census test is unit-level; no nested run is recorded since); steps 5 and 8 are
+not built, step 7 is deleted, and nothing has run on a real host. Ruled 2026-09-17, when
 nothing was built; a sketch before that, and a **hand-off** promoted against the tree at
 `6ded2789`. See [Progress](#progress) for what landed and what a real host still has to
 settle.
@@ -22,9 +24,10 @@ supports three Bedrock credentials — a bearer (`AWS_BEARER_TOKEN_BEDROCK`), a 
 and secret, and an SSO session — and the SSO session is **the primary one**. This plan builds
 that one. The other two are existing `env_sources` channels and need nothing from it; the bearer
 had an arm here (step 7), retired by
-[`OQ-SSO9`](sso-backed-bedrock.md#OQ-SSO9). ⚠ Step 6's refusal covers the pointer beside a bearer
-only, and lives in core; [`OQ-SSO8`](sso-backed-bedrock.md#OQ-SSO8) ruled that it moves into
-`aws-auth`'s manifest and also covers a static key pair, never with a false positive.
+[`OQ-SSO9`](sso-backed-bedrock.md#OQ-SSO9). Step 6's refusal covered the pointer beside a bearer
+only, and lived in core; [`OQ-SSO8`](sso-backed-bedrock.md#OQ-SSO8) ruled that it moves into
+`aws-auth`'s manifest and also covers a static key pair, never with a false positive, and step
+6a built exactly that ([Progress](#progress)).
 
 **Design:** [`sso-backed-bedrock.md`](sso-backed-bedrock.md) — behaviour in
 [§8](sso-backed-bedrock.md#8-behaviour-this-design-specifies), order in
@@ -40,7 +43,7 @@ followed, and the commit says so. This file is advice, and the first thing to be
 
 | Path | Change |
 | :--- | :--- |
-| `packs/aws-auth/pack.json` | **BUILT** — `kind: "loophole"` (`from: loopholes/aws-auth`) + one `kind: "env"` gated on the `bedrock` profile ([Blockers](#blockers) 2) |
+| `packs/aws-auth/pack.json` | **BUILT** — `kind: "loophole"` (`from: loopholes/aws-auth`) + one `kind: "env"` gated on the `bedrock` profile ([Blockers](#blockers) 2), carrying the `overridden_by` declaration since step 6a |
 | `packs/aws-auth/loopholes/aws-auth/manifest.jsonc` | **BUILT** — `publishes: "socket"`, `scope: "host"`, `state_files: [".mount-sentinel"]`, a `settings` block, `doctor_cmd` |
 | `packs/aws-auth/README.md` | **BUILT** — the four items [§12](sso-backed-bedrock.md#12-what-i-would-build-in-order) step 4 owes it, plus the [`OQ-BR4`](./provider-credential-scope.md#OQ-BR4) instance |
 | `packs/embed.go` | **BUILT** — `all:aws-auth` added to the `//go:embed` list (explicit, test-enforced) |
@@ -50,10 +53,13 @@ followed, and the commit says so. This file is advice, and the first thing to be
 | `internal/cli/internal.go` | **BUILT** (`700d7699`) — one `case "aws-auth":` in `runInternalDaemon` |
 | `cmd/yolo-jaild/main.go` | **BUILT** — one `case "aws-credential-adapter":` plus the usage line |
 | `internal/cli/run/assemble_parts.go` | **BUILT** (`62e553a8`, 2026-09-20) — `hostScopedEndpoints` emits `YOLO_SERVICE_<NAME>_ENDPOINT` for every active host-scoped loophole, keyed on the manifest's scope rather than on a name ([Blockers](#blockers) 7) |
-| `internal/awschain/` | **BUILT** — the rule and its wording, keyed on the VARIABLE the chain reads and the CAPABILITY a loophole declares, never on a pack or loophole name ([Blockers](#blockers) 6) |
-| `internal/cli/run/awschannels.go` | **BUILT** — the exclusivity pre-flight (step 6), beside `providerpreflight.go`, at all THREE of its call sites |
-| `internal/cli/check/awschannels.go` | **BUILT** — the same refusal PREDICTED, calling `awschain` rather than restating it (`protocols.go`'s precedent, not `capabilities.go`'s) |
-| `internal/config/validate_loopholes.go` | **BUILT** — the `~/.aws`-grant conflict (step 6), reading `hostfiles.go`'s entries; an ERROR host-side, so `yolo check` and the launch both refuse ([Blockers](#blockers) 4) |
+| `internal/awschain/` | **DELETED** by step 6a. It held the rule keyed on the variables themselves, which [`OQ-SSO8`](sso-backed-bedrock.md#OQ-SSO8) moved into the pack |
+| `internal/packdecl/envoverride.go` | **BUILT** (step 6a) — the `overridden_by` schema on a `kind: "env"` contribution; its doc comment is the reference |
+| `internal/packload/envoverride.go` | **BUILT** (step 6a) — `EnvOverrideRefusal`, the generic evaluation and its wording, plus the delivery-channel phrases; names no variable |
+| `internal/config/renderedhostfiles.go` | **BUILT** (step 6a) — `RenderedHostFilePaths`, the `host_files` destinations a launch actually renders |
+| `internal/cli/run/envoverrides.go` | **BUILT** — the pre-flight (step 6 as `awschannels.go`, generalized by 6a), beside `providerpreflight.go`, at all THREE of its call sites |
+| `internal/cli/check/envoverrides.go` | **BUILT** — the same refusal PREDICTED, calling `packload.EnvOverrideRefusal` rather than restating it (`protocols.go`'s precedent, not `capabilities.go`'s) |
+| `internal/config/validate_loopholes.go` | the `~/.aws`-grant conflict built here in step 6 is **DELETED** by 6a; the grant is now the pack declaration's `host_file` entry, refused by the pre-flight above |
 | `packs/claude/pack.json` | `needs: [{"pack": "aws-auth"}]` (step 5) |
 | `integration/awsauth_test.go` | **new** — the end-to-end transport test ([Ships with](#ships-with)) |
 
@@ -154,8 +160,8 @@ Report a real-host result with `podman info --format '{{.Host.RootlessNetworkCmd
 | 3 | **BUILT**, and reachable since [Blockers](#blockers) 7's fix (`62e553a8`) — `internal/awscredadapter` + the `yolo-jaild` row; the manifest; `packs/embed.go`; the census rows | `yolo pack lint packs/aws-auth`; in a nested jail selecting the pack, `curl -s $AWS_CONTAINER_CREDENTIALS_FULL_URI` returns the four keys, or the 4xx `Code`/`Message` with no session | nested proves the transport is **wired**; that the jail reaches the front is **real rootless host** only |
 | 4 | **BUILT** — `packs/aws-auth/pack.json` (the gated `env` pointer) and README | `yolo pack footprint packs/aws-auth`: one env key, one loophole, no host grant | unit |
 | 5 | `needs` on `packs/claude`; done-conditions 1 and 4 | a claude turn on Bedrock; lapse, `aws sso login`, next turn succeeds with no relaunch | **real rootless host** (an SSO login, a browser, the forwarding hop) |
-| 6 | **BUILT** ([Progress](#progress)) — exclusivity refusal (the pointer **and** `AWS_BEARER_TOKEN_BEDROCK` both delivered), at the launch's three arms and predicted by `yolo check`; the `~/.aws`-grant conflict in `internal/config`, so `yolo check` and launch both refuse | each of the three call sites deleted in turn, one named test red for each (measured, not assumed); `just check-ci` **and** `env -u YOLO_VERSION go test -short ./...` | unit |
-| 6a | Move step 6's two refusals out of core into `aws-auth`'s manifest, per [`OQ-SSO8`](sso-backed-bedrock.md#OQ-SSO8): the pack declares which delivered variables override its pointer (the bearer; both halves of the static pair, unless `AWS_PROFILE` is also delivered) and the `~/.aws` grant that disables it; core refuses generically and names no AWS variable. First measure claude's, codex's and opencode's chain order, since a consumer that does not read the environment first would make the pair refusal a false positive | a manifest declaring a made-up variable is refused beside the pointer with no core change; a lone `AWS_ACCESS_KEY_ID` and the pair plus `AWS_PROFILE` both launch; `rg -n AWS_ internal/awschain` finds nothing, or the package is gone | unit; the call-site deletions of step 6, repeated |
+| 6 | **BUILT** ([Progress](#progress)) — exclusivity refusal (the pointer **and** `AWS_BEARER_TOKEN_BEDROCK` both delivered), at the launch's three arms and predicted by `yolo check`; the `~/.aws`-grant conflict in `internal/config`, so `yolo check` and launch both refuse. Both moved into the pack by 6a | each of the three call sites deleted in turn, one named test red for each (measured, not assumed); `just check-ci` **and** `env -u YOLO_VERSION go test -short ./...` | unit |
+| 6a | **BUILT** 2026-09-25 ([Progress](#progress)) — step 6's two refusals moved out of core into `aws-auth`'s manifest, per [`OQ-SSO8`](sso-backed-bedrock.md#OQ-SSO8): the pack declares which delivered variables override its pointer (the bearer; both halves of the static pair, unless `AWS_PROFILE` is also delivered) and the `~/.aws` grant that disables it; core refuses generically and names no AWS variable. The chain order of claude, codex and opencode was measured first — all environment-first ([design §11](sso-backed-bedrock.md#11-evidence-and-how-to-re-check-it)) — so the pair ships | a manifest declaring a made-up variable is refused beside its contribution with no core change (`TestEnvOverrideRefusesAMadeUpVariable`, `TestSectionPacksPredictsTheOverrideRefusal`); a lone `AWS_ACCESS_KEY_ID` and the pair plus `AWS_PROFILE` both launch (`TestEnvOverrideLetsTheNonOverridingShapesThrough`); a bearer or pair only in the invoking shell launches (`TestEnvOverrideIgnoresTheShellYoloWasLaunchedFrom`); a directory grant counts only where the backend binds it (`TestEnvOverrideCountsADirectoryGrantOnlyWhereItIsBound`); the package is gone | unit; the call-site deletions of step 6, repeated in a private copy — each named test red |
 | 7 | ~~N1 arm~~ — **deleted**: option D is retired ([`OQ-SSO9`](sso-backed-bedrock.md#OQ-SSO9), 2026-09-25). A user who wants the N1 narrowing mints the key on the host with AWS's generator and delivers it as a bearer | — | — |
 | 8 | Fold into [`agent-credentials.md`](../reference/agent-credentials.md); retire the design via `system-doc`; delete this file | `uvx vantage-check docs/` clean | — |
 
@@ -163,6 +169,78 @@ Report a real-host result with `podman info --format '{{.Host.RootlessNetworkCmd
 setups — the design says so); the census rows in step 3 (every later `just test-fast` is red).
 
 ## Progress
+
+**Step 6a's review, 2026-09-25**, found two false positives, one false negative, an ordering
+defect, and a source pin too weak to catch two weakenings. All are fixed with tests, and each
+fix was proved by mutation in a private copy of the tree: ten mutations, each turning its named
+test red. One more false positive needs a ruling and is not fixed (see the end of this entry).
+
+- **Only what reaches the jail counts.** The override lookup counted a variable found only in
+  the shell `yolo` was launched from, which no backend forwards. That refused a host-shell
+  bearer or key pair the jail would never see, and it let a host-shell `AWS_PROFILE` excuse a
+  pair delivered through `env_sources`. `jailOriginLookup` (`internal/cli/run/envoverrides.go`)
+  now drops that answer, and `yolo check` no longer reads its own environment for this rule.
+  The credential pre-flight still reads the launch environment, since a derive relays from it.
+  The call-site tests now deliver overrides through `env_sources`.
+- **A directory grant counts per backend.** `config.RenderedHostFilePaths` takes whether the
+  backend delivers directories: not on macos-user, and not on Apple Container below the
+  read-only-bind floor (`hostFileDirsDeliver`). `yolo check` counts a directory grant only off
+  macOS. Every call site passes its own `rt`, and a source pin checks that.
+- **The attach arm refuses before it writes** the running jail's `yolo-user-env.sh`. This covers
+  the credential pre-flight too, which had the same order.
+- **The container arm's source pin** now checks that the refusal returns 1, releases the lock,
+  and is handed `envPairs(runCmd)`. Two weakenings used to pass it.
+
+The `~/.aws` grant test now seeds a key pair rather than a region-only config. Refusing a
+`~/.aws` with no credentials in it is a false positive in the JavaScript SDKs. The shipped
+`host_file` entry still does so, pending a ruling recorded under
+[`OQ-SSO8`](sso-backed-bedrock.md#OQ-SSO8).
+
+**Step 6a landed 2026-09-25**, unit-verified, with every call site measured by deletion in a
+private copy of the tree. It moves step 6's two refusals into `packs/aws-auth/pack.json` and adds
+the third that [`OQ-SSO8`](sso-backed-bedrock.md#OQ-SSO8) ruled in — so the core half of this
+feature now knows no AWS variable at all.
+
+- **The measurement came first**, because the ruling made it a precondition: the static-pair
+  refusal is a false positive for any consumer that consults the container provider before the
+  environment. claude 2.1.282, codex 0.157.0 and opencode 1.18.32 were read from their published
+  packages; all three are environment-first, and only the JavaScript SDKs step aside for
+  `AWS_PROFILE` ([design §11](sso-backed-bedrock.md#11-evidence-and-how-to-re-check-it)). So the
+  pair shipped, with `unless: ["AWS_PROFILE"]`.
+- **`overridden_by`** — a key on a `kind: "env"` contribution (`internal/packdecl/envoverride.go`
+  is the schema reference): entries of `vars` (all delivered), optional `unless` (any delivered
+  steps aside), or `host_file` (a home-relative jail path), each with a mandatory `because` the
+  refusal quotes. Strictly decoded; refused on any other kind and in every shape that would do
+  nothing or refuse everything (a contribution overriding itself, an `unless` it always
+  delivers). `yolo pack lint` and `yolo pack footprint` print one `overridden-by` line per entry.
+- **`packload.EnvOverrideRefusal`** evaluates any pack's declaration and words the refusal; the
+  launch's three arms (`checkEnvOverrides`) and `yolo check` (`envOverrideGap`) assemble their
+  inputs and call it. The delivery-channel phrases moved with it from `internal/awschain`.
+- **`config.RenderedHostFilePaths`** answers which `host_files` destinations would actually land
+  in the jail, for the `host_file` half.
+
+**Three decisions this round.**
+
+1. **A DECLARATION IS EVALUATED ONLY WHILE ITS CONTRIBUTION IS DELIVERED** — unconditional, or
+   its `profile` gate active by the env fold's own rule. That is what "overridden" means, and it
+   is stricter than step 6 was for the `~/.aws` half: that rule fired whenever the loophole was
+   ENABLED, so `aws-auth` on without `-p bedrock` refused a `~/.aws` grant beside a pointer that
+   was not there. It also dropped the loophole from the rule, so `aws-auth` delivered with the
+   loophole off is refused beside a bearer, as it already was.
+2. **A GRANT COUNTS ONLY WHEN IT RENDERS SOMETHING** — a source-less entry, a source that exists
+   as the declared kind, or a `managed`/`defaults` layer to fall back to; the mount side skips a
+   missing bind source, so such an entry overrides nothing. This replaces step 6's in-jail
+   downgrade to a warning rather than keeping it. The downgrade guarded a nested launch against an
+   entry it could not fix, and there is none: an inherited user config carries no `host_files`
+   (`config.FilterInherit` drops the key), so a nested launch sees only its own workspace's
+   source-less entries, which the in-jail user can edit. The grant half is now a launch
+   pre-flight like the variables, not a `ValidateConfig` error, and `yolo check` reports it in
+   the Packs block with them.
+3. **`LoopholeInfo.Serves` and `DefaultEnabled` are removed** with the resolver copy that filled
+   them and the test that pinned that copy: the `~/.aws` validator was their only reader, and the
+   declaration keys on the POINTER's delivery rather than on the capability the loophole serves.
+
+---
 
 **Step 6 landed 2026-09-18**, unit-verified at both ends and with the call sites measured
 rather than asserted. It is the first step that lands a REFUSAL, so what it had to settle was
@@ -205,7 +283,7 @@ mostly about severity and about where a rule may be spelled.
    own history is a case study in.
 
 **What `yolo check` cannot see, stated where it is enforced**
-(`internal/cli/check/awschannels.go`): the assembled container argv (so a pack-shipped
+(`internal/cli/check/awschannels.go`, `envoverrides.go` since step 6a): the assembled container argv (so a pack-shipped
 loophole's `jail_env`), the provider environment (composing it runs the env-derive runner),
 and `-p` — which matters here more than for the pairing gate, because `packs/aws-auth`'s
 pointer is gated on the `bedrock` profile, so `-p bedrock` is exactly the flag that turns a

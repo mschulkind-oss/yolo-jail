@@ -3,7 +3,7 @@ title: "Bedrock from an SSO login, without handing over the account"
 date: 2026-09-17
 status: accepted
 tags: [aws, bedrock, sso, credentials, loopholes, packs, boundary]
-summary: "How a host-side `aws sso login` becomes Bedrock access inside a jail without the jail holding anything else the login can reach. Least privilege and transparent refresh turn out to be independent problems: narrowing happens host-side before the credential crosses, and refresh happens only when what crosses is a pointer rather than a value. Measured: all four shipped agents already implement the pull channel this needs. Two questions filed 2026-09-25 are open: whether static keys beside the pointer are refused the way a bearer is, and whether the minted-bearer arm retires now that the wire bridge signs."
+summary: "How a host-side `aws sso login` becomes Bedrock access inside a jail without the jail holding anything else the login can reach. Least privilege and transparent refresh turn out to be independent problems: narrowing happens host-side before the credential crosses, and refresh happens only when what crosses is a pointer rather than a value. Measured: all four shipped agents already implement the pull channel this needs, and all four read a static key pair before it. A bearer, a static key pair or a ~/.aws grant beside the pointer is refused at launch by a declaration in the pack, not by core (OQ-SSO8, built); the minted-bearer arm is retired (OQ-SSO9)."
 ---
 
 # Bedrock from an SSO login, without handing over the account
@@ -13,22 +13,27 @@ human's own access is an `aws sso login` on the host, and how does the jail end 
 more than Bedrock out of it — and still keep working after the human logs in again?
 
 **Status:** DESIGN, 2026-09-25 — every question is DECIDED ([OQ-SSO1–9](#13-decision-ledger));
-the service is partly BUILT. **MEASURED:** the exclusivity refusal's code and the AWS SDK chain order
+the service is partly BUILT, and [OQ-SSO8](#OQ-SSO8)'s pack-declared refusal is BUILT
+([§12](#12-what-i-would-build-in-order) step 6). **MEASURED:** the refusal's code, and the AWS
+credential chain order in the shipped claude, codex, opencode and pi
 ([§11](#11-evidence-and-how-to-re-check-it)). **UNMEASURED:** nothing here has run against a live
 `aws sso login` ([the pack README](../../packs/aws-auth/README.md)). Repo claims verified against
-`d4c0e7e3`, and those the 2026-09-25 questions add against `ee8154f2`; vendor claims carry their
-dates in [§11](#11-evidence-and-how-to-re-check-it).
+`d4c0e7e3`, those the 2026-09-25 questions add against `ee8154f2`, and step 6's against the
+working tree it landed from (2026-09-25); vendor claims carry their dates in
+[§11](#11-evidence-and-how-to-re-check-it).
 
 **Where things stand.**
 
 - **Built:** the host credential service, the jail-side adapter, `packs/aws-auth`, and the
-  refusal that stops a frozen bearer and the refreshing pointer sharing a jail.
+  refusal that stops a frozen bearer, a static key pair or a `~/.aws` grant sharing a jail with
+  the refreshing pointer — declared by the pack under `overridden_by` and evaluated by core with
+  no AWS variable in it ([OQ-SSO8](#OQ-SSO8)). Its `~/.aws` half still refuses a `~/.aws` that
+  holds no credentials, a false positive that awaits a ruling.
   [The plan's status](sso-backed-bedrock-plan.md) is the one place that tracks what landed.
 - **Ruled:** six questions on 2026-09-17 and [`OQ-SSO7`](#13-decision-ledger) (the three
   supported credentials) on 2026-09-24 — all in [§13](#13-decision-ledger).
-- **Not built:** the consumers' `needs`, moving the conflict refusals into the pack
-  ([OQ-SSO8](#OQ-SSO8)), and the fold into the reference docs
-  ([§12](#12-what-i-would-build-in-order) steps 5, 6 and 8). The minted-bearer arm (option D)
+- **Not built:** the consumers' `needs`, and the fold into the reference docs
+  ([§12](#12-what-i-would-build-in-order) steps 5 and 8). The minted-bearer arm (option D)
   is retired ([OQ-SSO9](#OQ-SSO9)).
 - **Ruled 2026-09-25:** the two questions the [`bedrock-plumbing.md`](bedrock-plumbing.md)
   review handed here. [OQ-SSO8](#OQ-SSO8): a bearer or a static key pair delivered beside
@@ -768,14 +773,18 @@ provider already owns is how the Bedrock region got confusing in the first place
 - **Never enable both arms in one jail.** `AWS_BEARER_TOKEN_BEDROCK` takes precedence over the
   credential chain in every client measured, so a jail with both configured uses the frozen
   bearer and the pull channel never runs — a silent wrong answer. Refuse the launch, naming
-  which one to drop. ⚠ **A static key pair beside the pointer is the same silent wrong answer,
-  one layer down, and nothing refuses it today:** the chain's environment provider runs ahead
-  of the container-credentials provider, so `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` in the
-  jail environment win and the service is never asked. [OQ-SSO8](#OQ-SSO8) refuses it too, and
-  moves both refusals out of core: `aws-auth` declares what overrides its pointer.
+  which one to drop. **A static key pair beside the pointer is the same silent wrong answer,
+  one layer down, and is refused the same way:** the chain's environment provider runs ahead
+  of the container-credentials provider in every consumer measured
+  ([§11](#11-evidence-and-how-to-re-check-it)), so `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`
+  in the jail environment win and the service is never asked. Both refusals are declared by
+  `aws-auth` itself, under `overridden_by` on the pointer's `env` contribution, and core
+  evaluates the declaration without naming a variable ([OQ-SSO8](#OQ-SSO8)).
 - **Never grant `~/.aws` alongside this.** `fromIni` sits **ahead** of the container provider
   in the measured chain order, so a `host_files` mount of `~/.aws` does not merely duplicate
-  this feature, it *disables* it while looking like it works.
+  this feature, it *disables* it while looking like it works. Refused at launch by the same
+  declaration (its `host_file` entry), whenever the pointer is delivered and the grant renders
+  something into the jail.
 - Never write a credential value into any jail-visible file, any agent settings block, or any
   environment variable.
 - **Never let the jail name the profile, role or policy it wants**, and never read those
@@ -915,8 +924,35 @@ Read 2026-09-24 in this jail, from pi 0.87.1's vendored `@aws-sdk/credential-pro
 | the chain's first link is `fromEnv`, and its last before the final error is `remoteProvider` (the container-credentials provider) — the order the 2026-09-17 read found, unchanged | `credential-provider-node/dist-es/defaultProvider.js` |
 | `fromEnv` answers when **both** `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` are set; `AWS_SESSION_TOKEN` is optional | `credential-provider-env/dist-cjs/index.js` (`if (accessKeyId && secretAccessKey)`) |
 | with `AWS_PROFILE` set, `fromEnv` is skipped and the SDK warns *"Multiple credential sources detected"* | `defaultProvider.js`, the first link |
-| the exclusivity refusal looks up `AWS_BEARER_TOKEN_BEDROCK` and `AWS_CONTAINER_CREDENTIALS_FULL_URI` only | `internal/awschain/awschain.go`, `ExclusivityRefusal` |
-| three launch call sites and one `yolo check` prediction reach it | `internal/cli/run/run.go` (`checkAWSCredentialChannels`), `internal/cli/check/awschannels.go` |
+| the exclusivity refusal looks up `AWS_BEARER_TOKEN_BEDROCK` and `AWS_CONTAINER_CREDENTIALS_FULL_URI` only | `internal/awschain/awschain.go`, `ExclusivityRefusal` — at `ee8154f2`; the package is deleted by [§12](#12-what-i-would-build-in-order) step 6, below |
+| three launch call sites and one `yolo check` prediction reach it | `internal/cli/run/run.go` (`checkAWSCredentialChannels`), `internal/cli/check/awschannels.go` — at `ee8154f2`; now `checkEnvOverrides` and `internal/cli/check/envoverrides.go` |
+
+**Added 2026-09-25, for [OQ-SSO8](#OQ-SSO8) condition 3 — the chain order in claude, codex and
+opencode, measured before the static-pair refusal shipped.** Read in this jail from the
+published linux-x64 packages, fetched with `npm pack` into a throwaway directory whose `HOME` and
+npm cache were that directory; nothing was installed or executed, and no request was made. pi was
+already measured (the table above).
+
+| Consumer | Artifact read | Environment provider before the container provider? | `AWS_PROFILE` makes it step aside? | Grade |
+| :--- | :--- | :--- | :--- | :--- |
+| claude 2.1.282 | `@anthropic-ai/claude-code-linux-x64@2.1.282`, `package/claude` (a Bun-compiled ELF carrying its bundle) | **Yes.** The default chain is `jZ=(e={})=>g([async()=>{…return …dvo(e)()},` then `fromSSO`, `fromIni`, `fromProcess`, `fromTokenFile`, `remoteProvider`; `dvo` answers `if(o&&r)` over `MRr="AWS_ACCESS_KEY_ID",DRr="AWS_SECRET_ACCESS_KEY"`. `fromNodeProviderChain` is `var x=(e={})=>jZ({...e})`, and the Bedrock client resolves through it (`providerChainResolver:()=>m0(Pe)`, `m0` → `tF`: *"resolving default AWS provider chain"*) whenever no bearer is set | **Yes:** `if(e.profile??process.env[m.ENV_PROFILE]){…throw new c.CredentialsProviderError("AWS_PROFILE is set, skipping fromEnv provider.",{…tryNextLink:!0})}` | MEASURED |
+| opencode 1.18.32 | `opencode-linux-x64@1.18.32`, `package/bin/opencode` (Bun-compiled) | **Yes.** The same chain, `U=(e={})=>M([async()=>{…return …v(e)()},` … `remoteProvider`, exported from `chunk-6eybp14c.js` as `X as fromNodeProviderChain` (`X=(e={})=>U({...e})`); its `fromEnv` answers `if(o&&r)` over `N="AWS_ACCESS_KEY_ID",a="AWS_SECRET_ACCESS_KEY"`. The `amazon-bedrock` loader sets `credentialProvider=F(j)` with `F` that export, unless a bearer is set (`if(!M&&!H)`) | **Yes**, by the same line; the loader also passes `AWS_PROFILE` in explicitly (`U?{profile:U}:{}`), with the same effect | MEASURED |
+| codex 0.157.0 | `@openai/codex@0.157.0-linux-x64`, `package/vendor/x86_64-unknown-linux-musl/bin/codex` (Rust); its build paths name `aws-config-1.8.12/src/default_provider/credentials.rs`, and that crate's published source was read | **Yes.** `CredentialsProviderChain::first_try("Environment", env_provider).or_else("Profile", …).or_else("WebIdentityToken", …).or_else("EcsContainer", ecs_provider).or_else("Ec2InstanceMetadata", …)`; the environment provider reads `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` (falling back to `SECRET_ACCESS_KEY`). The binary's strings carry `EnvironmentProfileEcsContainerEc2InstanceMetadata` in that order | **No:** the crate's environment provider never reads `AWS_PROFILE`, so the pair still wins beside it | MEASURED for the crate; INFERRED for codex's own wrapper, whose strings (*"Codex-managed Bedrock credentials … take priority over AWS environment credentials"*, then `AWS_BEARER_TOKEN_BEDROCK`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) name its sources but not, readably, their order |
+
+**What that decides.** Every consumer measured is environment-first, so a delivered pair beside
+the pointer is always an override and never a false positive — the static-pair rule ships.
+`AWS_PROFILE` makes the JavaScript SDKs (claude, opencode, pi) skip the pair, which is why the
+declaration carries `unless: ["AWS_PROFILE"]`; codex does not skip it, so the pair plus
+`AWS_PROFILE` is a false negative for codex, which the ruling accepts. The bearer's precedence was
+re-seen on the way — claude builds its chain resolver only when `AWS_BEARER_TOKEN_BEDROCK` is unset,
+and opencode's loader only when no bearer is set — and matches the rows above. The wire bridge's
+signer is unbuilt, so it stays INFERRED, as [OQ-SSO8](#OQ-SSO8) records.
+
+```console
+$ npm pack @anthropic-ai/claude-code-linux-x64@2.1.282 opencode-linux-x64@1.18.32 @openai/codex@0.157.0-linux-x64
+$ grep -c -a -F 'AWS_PROFILE is set, skipping fromEnv' package/claude     # after extracting each tarball
+$ curl -sSfL https://static.crates.io/crates/aws-config/aws-config-1.8.12.crate | tar -xz
+```
 
 **Added 2026-09-25, for [OQ-SSO9](#OQ-SSO9) — minting a bearer.** SOURCED, read 2026-09-24 by
 the Bedrock plumbing review, no request made: the `aws-bedrock-token-generator` READMEs (Python,
@@ -1023,10 +1059,13 @@ delays nothing. It only sharpens step 2.
    pack's ([`OQ-SSO6`](#13-decision-ledger)). Selecting the pack changes nothing observable
    until step 5.
 5. **`needs` on the consumers**, and done-conditions 1 and 4 — the headline, measured.
-6. **The conflict refusals, declared by the pack** ([OQ-SSO8](#OQ-SSO8)). Built today for the
-   bearer, in core (`internal/awschain`); the build moves it into `aws-auth`'s manifest and adds
-   the static pair, and the `~/.aws`-grant conflict follows the same way. Each with a test that
-   fails when its call site is deleted.
+6. **The conflict refusals, declared by the pack** ([OQ-SSO8](#OQ-SSO8)). **BUILT 2026-09-25.**
+   First built for the bearer alone, in core (`internal/awschain`, since deleted); now
+   `aws-auth`'s pointer carries an `overridden_by` declaration naming the bearer, the static pair
+   unless `AWS_PROFILE` is also delivered, and a `~/.aws` grant, and core evaluates it
+   (`packload.EnvOverrideRefusal`) at the launch's three arms and in the `yolo check` prediction,
+   each with a test that fails when its call site is deleted. The pair shipped because
+   [§11](#11-evidence-and-how-to-re-check-it) measured every consumer environment-first.
 7. ~~The N1 arm~~ — **deleted**: option D is retired ([OQ-SSO9](#OQ-SSO9)).
 8. **Fold into [`agent-credentials.md`](../reference/agent-credentials.md)** as a new delivery
    channel and retire this doc via `system-doc`.
@@ -1113,6 +1152,52 @@ Bedrock credential comes from. Two terms both use:
 
    The declaration's field name and shape are the build's to choose.
 
+   **Built 2026-09-25**, as `overridden_by` on a `kind: "env"` contribution
+   (`internal/packdecl/envoverride.go`, which is the schema reference). Condition 3's measurement
+   is in [§11](#11-evidence-and-how-to-re-check-it): claude, codex and opencode are all
+   environment-first, so the pair refusal is not a false positive for any of them. Two choices the
+   build made that the answer left open: a declaration is evaluated only while the contribution
+   carrying it is DELIVERED (its `profile` gate active), which also narrows the old `~/.aws` rule —
+   it used to fire whenever the loophole was enabled, pointer or not; and a `host_files` entry
+   counts only when it renders something (`config.RenderedHostFilePaths`), which replaces the old
+   in-jail downgrade to a warning. The downgrade is not needed because an inherited user config
+   carries no `host_files` at all (`config.FilterInherit` drops the key), so a nested launch sees
+   only its own workspace's entries, and `LoadHostFiles` takes only the source-less ones from
+   there, which the in-jail user can edit.
+
+   **Corrected in review, 2026-09-25**, all three toward condition 3:
+
+   - **"Delivered" means delivered INTO THE JAIL.** The first cut also counted a variable found
+     only in the shell `yolo` was launched from. No backend forwards that shell: the container
+     gets explicit `-e K=V` pairs and `yolo-user-env.sh`, and the macos-user sandbox starts under
+     `env -i`. So a bearer or key pair exported only on the host was refused beside a pointer the
+     jail would have used, which is a false positive. The reverse also held: an `AWS_PROFILE`
+     exported only there made the pair entry step aside for a pair delivered through
+     `env_sources`, which is a false negative in this question's own stakes case. Both the launch
+     and `yolo check` now ignore the invoking shell for this rule. The credential pre-flight
+     still reads it, because a derive can relay a credential from it.
+   - **A directory grant counts only where the backend delivers it.** macos-user never copies
+     one, and Apple Container below 1.1.0 declines the bind. So a `~/.aws/` grant there renders
+     nothing, and refusing over it was a false positive. `yolo check` counts a directory grant
+     only off macOS, because telling those backends apart takes the launch's runtime probe.
+   - **An attach refuses before it writes.** The attach arm used to rewrite the running jail's
+     live `yolo-user-env.sh` and then refuse, so a refused attach had already handed the jail
+     both sides. Both pre-flights now run first.
+
+   ⚠ **One false positive is left, and it needs a ruling.** The `host_file` entry refuses any
+   grant that renders something under `~/.aws`. [§8](#8-behaviour-this-design-specifies)'s
+   *Forbidden* clause bans that outright, and the rule predates condition 3. But a `~/.aws`
+   with no credentials for the profile the SDK resolves does not override the pointer. A
+   config holding only a region, or only SSO profiles and no `[default]`, are two such cases.
+   In pi's vendored `@aws-sdk/credential-provider-ini` 3.973.15, `resolveProfileData` then
+   throws a `CredentialsProviderError`, whose `tryNextLink` defaults to true, and the chain
+   moves on to the container provider. That is MEASURED for pi. It is INFERRED for claude and
+   opencode, which ship the same chain ([§11](#11-evidence-and-how-to-re-check-it)), and for
+   codex's Rust profile provider. The two options are to keep
+   [§8](#8-behaviour-this-design-specifies)'s ban as a policy refusal and record it here as an
+   accepted exception to condition 3, rewording the entry's `because` as policy, or to narrow
+   or drop the entry. The shipped entry is unchanged until that ruling.
+
 2. ✅ <a id="OQ-SSO9"></a>**OQ-SSO9: Now that the wire bridge signs, is option D retired?**
    Option D ([§4](#4-five-options)) is a short-term Bedrock API key the host service mints from
    the SSO session and writes into the jail's environment. Stakes: whether yolo builds and
@@ -1190,6 +1275,6 @@ Bedrock credential comes from. Two terms both use:
 | OQ-SSO4 | **User config scope only** for the profile, role and session policy. The allowlist-plus-workspace-choice variant is strictly additive later; shipping it first invents a second scope grammar for one feature | 2026-09-17 | [§8](#8-behaviour-this-design-specifies) | — |
 | OQ-SSO5 | **Ship the N1 bearer arm, and make the two arms mutually exclusive at load** — a config enabling both refuses the launch, naming which to drop. It earns its place as the no-IAM-change narrowing and as the fallback for a chain-less client; what it must never be is a quiet winner over the arm that refreshes. **Amended by [OQ-SSO9](#OQ-SSO9):** the arm is not shipped; the exclusivity stays, for a user-delivered bearer | 2026-09-17 | [§8](#8-behaviour-this-design-specifies) | — |
 | OQ-SSO6 | **A lapsed session is a MESSAGE, not a request.** The 4xx names the command and a human runs it; the jail never triggers a host login. The pack README says the request shape is [`boundary-broker.md`](boundary-broker.md)'s to build — this design is a good first consumer for that queue and a bad place to invent it, since half an approval mechanism living in a credential pack is exactly the second front door that doc exists to prevent | 2026-09-17 | [§7](#7-refresh--what-happens-when-you-log-in-again) | — |
-| OQ-SSO7 | **Three Bedrock credentials are supported**, ruled by the maintainer: *"We will support bearer tokens, we will support secret and key, and we also need to support sessions through single sign-on. That's the big one."* (1) a Bedrock API key as `AWS_BEARER_TOKEN_BEDROCK` — option B's push channel; (2) a static access key and secret as `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`, for example through `env_sources` — the maintainer's current setup, and not one of [§4](#4-five-options)'s five options, which all start from an SSO login; (3) an SSO session through an assumed role, served by `packs/aws-auth` over the container-credentials endpoint — option C, **the primary one**. Supporting (1) and (2) changes nothing in this design: both are existing channels, frozen at launch. [`bedrock-plumbing.md` §6.4](bedrock-plumbing.md#64-the-credential-three-are-supported) records what the ruling means for the endpoint side, including that (2) beside (3) is the same silent wrong answer as (1) beside (3) and is not refused today | 2026-09-24 | [§4](#4-five-options) | (1) and (2): existing channels; (3): `packs/aws-auth` |
-| OQ-SSO8 | **Refuse, fatal, no hatch**, when a bearer or both halves of the static key pair are delivered beside `aws-auth`'s pointer. The maintainer's conditions: the rule is **declared by the pack**, and core hardcodes no AWS variable (the existing bearer refusal moves out of `internal/awschain`); fatal whenever the configured auth will certainly be overridden; **never a false positive**, false negatives accepted | 2026-09-25 | [OQ-SSO8](#OQ-SSO8) | — |
+| OQ-SSO7 | **Three Bedrock credentials are supported**, ruled by the maintainer: *"We will support bearer tokens, we will support secret and key, and we also need to support sessions through single sign-on. That's the big one."* (1) a Bedrock API key as `AWS_BEARER_TOKEN_BEDROCK` — option B's push channel; (2) a static access key and secret as `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`, for example through `env_sources` — the maintainer's current setup, and not one of [§4](#4-five-options)'s five options, which all start from an SSO login; (3) an SSO session through an assumed role, served by `packs/aws-auth` over the container-credentials endpoint — option C, **the primary one**. Supporting (1) and (2) changes nothing in this design: both are existing channels, frozen at launch. [`bedrock-plumbing.md` §6.4](bedrock-plumbing.md#64-the-credential-three-are-supported) records what the ruling means for the endpoint side, including that (2) beside (3) is the same silent wrong answer as (1) beside (3) and was not refused then (it is since 2026-09-25, [OQ-SSO8](#OQ-SSO8)) | 2026-09-24 | [§4](#4-five-options) | (1) and (2): existing channels; (3): `packs/aws-auth` |
+| OQ-SSO8 | **Refuse, fatal, no hatch**, when a bearer or both halves of the static key pair are delivered beside `aws-auth`'s pointer. The maintainer's conditions: the rule is **declared by the pack**, and core hardcodes no AWS variable (the existing bearer refusal moves out of `internal/awschain`); fatal whenever the configured auth will certainly be overridden; **never a false positive**, false negatives accepted | 2026-09-25 | [OQ-SSO8](#OQ-SSO8) | 2026-09-25: `overridden_by` in `packs/aws-auth/pack.json`, evaluated by `packload.EnvOverrideRefusal`; `internal/awschain` deleted. Review fixes the same day: only what reaches the jail counts, and directory grants count per backend. Open: the `host_file` entry refuses a `~/.aws` with no credentials in it |
 | OQ-SSO9 | **Retire option D**: yolo mints no Bedrock API key. The signing wire bridge covers every shipped agent; the gateway route is documented as API-key-only | 2026-09-25 | [OQ-SSO9](#OQ-SSO9) | — |
