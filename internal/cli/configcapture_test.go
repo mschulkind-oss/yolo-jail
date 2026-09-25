@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // terminateWorkspace builds a host-side workspace the way a torn-down jail leaves
@@ -176,7 +177,7 @@ func TestCaptureOnTerminateIsANoOpWithoutABaseline(t *testing.T) {
 	}
 }
 
-// TestJailHomeHostPath pins, through jailHomeSurfaceRel and jailHomeHostLocation, the two backend layouts and the decline. The rule is
+// TestJailHomeHostPath pins, through jailHomeSurfaceRel and configTarget.surfaceStateFile, the two backend layouts and the decline. The rule is
 // load-bearing: get it wrong and capture either reads nothing (silent no-op) or
 // reads the wrong file.
 func TestJailHomeHostPath(t *testing.T) {
@@ -230,10 +231,11 @@ func TestJailHomeHostPath(t *testing.T) {
 		if want := filepath.FromSlash(tc.wantRel); got != want {
 			t.Errorf("jailHomeSurfaceRel(%s, %q) = %q, want %q", tc.runtime, tc.surface, got, want)
 		}
-		// The mapping half answers the same file, as a host path.
-		loc, ok := jailHomeHostLocation(ws, tc.runtime, tc.surface)
-		if want := filepath.Join(ws, ".yolo", "home", filepath.FromSlash(tc.wantRel)); !ok || loc != want {
-			t.Errorf("jailHomeHostLocation(%s, %q) = %q, %v, want %q", tc.runtime, tc.surface, loc, ok, want)
+		// A workspace target's `yolo config` verbs answer the same file, beneath the overlay.
+		f, ok := configTarget{notch: render.KindJail, workspace: ws, runtime: tc.runtime}.surfaceStateFile(tc.surface)
+		if want := filepath.Join(ws, ".yolo", "home", filepath.FromSlash(tc.wantRel)); !ok || !f.rooted() || f.path() != want {
+			t.Errorf("surfaceStateFile(%s, %q) = %q (rooted %v), %v, want %q", tc.runtime, tc.surface,
+				f.path(), f.rooted(), ok, want)
 		}
 	}
 }

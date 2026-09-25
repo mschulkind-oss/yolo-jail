@@ -29,7 +29,6 @@ package cli
 import (
 	"fmt"
 	"io"
-	"os"
 	"sort"
 	"strings"
 
@@ -115,7 +114,11 @@ func surfaceMode(s manifest.Surface) string {
 // than as absent (docs/reference/config-target-resolution.md#unknown-is-not-empty): the two
 // look alike and mean different things, and calling
 // the second the first is what sends a reader hunting for a render that was never coming.
-func configLs(t configTarget, args []string, out, errw io.Writer, color bool) int {
+func configLs(t configTarget, args []string, out, errw io.Writer, color bool) (rc int) {
+	// A link refused in the workspace's jail-writable state is named, and fails the listing:
+	// a count or a presence read through it would describe a file the verb did not read
+	// (stateRefusals).
+	defer func() { rc = t.reportRefusals("ls", errw, rc, true) }()
 	all := false
 	for _, a := range args {
 		switch {
@@ -173,7 +176,7 @@ func collectSurfaceRows(t configTarget, all bool) []surfaceRow {
 	for _, s := range surfaceManifest().Surfaces() {
 		key := s.Agent + "/" + s.Name
 		mode := surfaceMode(s)
-		_, reach := t.reachSurface(s.Path)
+		reach := t.reachSurface(s.Path)
 		row := surfaceRow{
 			Surface:     key,
 			Path:        s.Path,
@@ -186,8 +189,8 @@ func collectSurfaceRows(t configTarget, all bool) []surfaceRow {
 			Unreachable: reach == surfaceUnreachable,
 		}
 		if mode == "capture" {
-			row.Overlay = overlayKeyCountAt(t.overlayPath(s.Agent, s.Name))
-			row.ListEntries = listCaptureCountAt(t.listCapturePath(s.Agent, s.Name))
+			row.Overlay = overlayKeyCountAt(t.overlayFile(s.Agent, s.Name))
+			row.ListEntries = listCaptureCountAt(t.listCaptureFile(s.Agent, s.Name))
 		}
 		if all || row.HasFile {
 			rows = append(rows, row)
@@ -211,7 +214,7 @@ func hostFileRows(t configTarget) []surfaceRow {
 	}
 	var rows []surfaceRow
 	for _, e := range entries {
-		_, reach := t.reachSurface("~/" + e.Path)
+		reach := t.reachSurface("~/" + e.Path)
 		row := surfaceRow{
 			Surface:     "user/" + e.Slug(),
 			Path:        "~/" + e.Path,
@@ -226,7 +229,7 @@ func hostFileRows(t configTarget) []surfaceRow {
 			row.Codec = "(dir)"
 		}
 		if e.Mode == config.HostFileModeCapture {
-			row.Overlay = overlayKeyCountAt(t.overlayPath("user", e.Slug()))
+			row.Overlay = overlayKeyCountAt(t.overlayFile("user", e.Slug()))
 		}
 		rows = append(rows, row)
 	}
@@ -292,14 +295,14 @@ func hostFileLayers(e config.HostFileEntry) []string {
 // answer that verb has always been given. Every `yolo config` verb reads
 // overlayKeyCountAt(configTarget.overlayPath(...)) instead.
 func overlayKeyCount(agent, name string) int {
-	return overlayKeyCountAt(sealedWorkspaceStore().OverlayPath(agent, name))
+	return overlayKeyCountAt(captureFile{name: sealedWorkspaceStore().OverlayPath(agent, name)})
 }
 
-// overlayKeyCountAt is overlayKeyCount over an explicit sidecar path — what
-// capture-on-terminate needs, since it resolves the sidecar dir from the
-// workspace it is tearing down rather than from the cwd.
-func overlayKeyCountAt(path string) int {
-	data, err := os.ReadFile(path)
+// overlayKeyCountAt is overlayKeyCount over an explicit sidecar — what a resolved target
+// needs, since its store is the target's answer rather than the cwd's, and a jail's store is
+// read beneath a root (captureFile).
+func overlayKeyCountAt(f captureFile) int {
+	data, err := f.read()
 	if err != nil {
 		return 0
 	}

@@ -15,8 +15,10 @@ package cli
 // file that the file itself cannot account for — so it reads out of the same command.
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -137,8 +139,8 @@ func parseSurfaceIdentity(cmd, identity string, errw io.Writer) (agent, surface 
 // [OQ-CR4](docs/reference/config-target-resolution.md#oq-cr4) rules (a): a host-side `reset` of
 // a JAIL's captured edits exists, because the guard's premise — *"these surfaces resolve
 // against a real home"* — is true of a real home and false of a workspace's own home
-// overlay, which is what a workspace target now resolves (configTarget.surfaceFile, through
-// jailHomeHostLocation). Without it, discarding a stopped jail's captures required LAUNCHING
+// overlay, which is what a workspace target now resolves (configTarget.surfaceStateFile, through
+// jailHomeRel). Without it, discarding a stopped jail's captures required LAUNCHING
 // that jail, and a launch renders and captures first: the undo reachable only by performing
 // the act being undone.
 //
@@ -197,11 +199,12 @@ func capturedSurfaces(t configTarget, agent, surface string) []manifest.Surface 
 // surfaces are synthesized from the file names rather than the config — which also
 // means `reset user` can clean up after an entry the user has since removed.
 func userSidecarSurfaces(t configTarget, surface string) []manifest.Surface {
-	dir := t.sidecarDir()
-	if dir == "" {
+	if t.sidecarDir() == "" {
 		return nil
 	}
-	entries, err := os.ReadDir(dir)
+	// Through the store's own opener: at the jail notch a link at `.yolo` or at `.yolo/prism`
+	// is refused, and named by the verb, rather than listed.
+	entries, err := t.storeDir().readDir()
 	if err != nil {
 		return nil
 	}
@@ -242,7 +245,10 @@ func userSidecarSurfaces(t configTarget, surface string) []manifest.Surface {
 // The name was never the problem. *"What survives deleting every surface and regenerating
 // them"* IS a diff — current state against a regenerated baseline — so the word names this
 // exactly; it was only the second block that made the verb look mis-named.
-func configDiff(t configTarget, args []string, out, errw io.Writer, color bool) int {
+func configDiff(t configTarget, args []string, out, errw io.Writer, color bool) (rc int) {
+	// A link refused in the workspace's jail-writable state is named, and fails the report:
+	// its answer would otherwise describe a store it did not read (stateRefusals).
+	defer func() { rc = t.reportRefusals("diff", errw, rc, true) }()
 	agent, surface, _, rc := surfaceArgs("diff", args, out, errw)
 	if rc >= 0 {
 		return rc
@@ -254,8 +260,10 @@ func configDiff(t configTarget, args []string, out, errw io.Writer, color bool) 
 	// the same confident negative it prints for a store it really did read.
 	state, serr := t.storeState()
 	if state == storeUnreadable {
-		fmt.Fprintf(errw, "yolo config diff: cannot read the capture store %s: %v\n",
-			t.sidecarDir(), serr)
+		if !t.refusals.note(serr) {
+			fmt.Fprintf(errw, "yolo config diff: cannot read the capture store %s: %v\n",
+				t.sidecarDir(), serr)
+		}
 		return 1
 	}
 	pr := richtext.Printer{W: out, Color: color}
@@ -268,20 +276,20 @@ func configDiff(t configTarget, args []string, out, errw io.Writer, color bool) 
 
 	found := false
 	for _, s := range surfaces {
-		overlay := readOverlayValue(t.overlayPath(s.Agent, s.Name))
+		overlay := readOverlayValue(t.overlayFile(s.Agent, s.Name))
 		// The per-entry capture at the surface's config-list paths is captured divergence
 		// too — the same kind of state, kept in its own file only so no overlay reader
 		// mistakes it for a key — so it is reported here and nothing else about the lists
 		// is: which PACKS contributed entries is a property of the render, and belongs to
 		// `config ls` and `config render --explain` (OQ-CR7).
-		listLines := listCaptureDiffLines(t.listCapturePath(s.Agent, s.Name))
+		listLines := listCaptureDiffLines(t.listCaptureFile(s.Agent, s.Name))
 		if overlayIsEmpty(overlay) && len(listLines) == 0 {
 			continue
 		}
 		found = true
 		pr.Printf("[bold]# %s/%s → %s[/bold]", s.Agent, s.Name, surfacePathOrSidecar(s))
 		if !overlayIsEmpty(overlay) {
-			baseline := readLastRenderKeys(t.lastRenderPath(s.Agent, s.Name), s)
+			baseline := readLastRenderKeys(t.lastRenderFile(s.Agent, s.Name), s)
 			for _, line := range overlayDiffLines(overlay, baseline) {
 				pr.Print(line)
 			}
@@ -309,11 +317,11 @@ func configDiff(t configTarget, args []string, out, errw io.Writer, color bool) 
 // listCaptureDiffLines renders one line per captured list entry: the list path, `+` for an
 // entry an in-jail edit added and `-` for one it removed. Empty for a surface with no list
 // path, or one whose records are all empty (a list nobody edited in-jail).
-func listCaptureDiffLines(path string) []string {
-	if path == "" {
+func listCaptureDiffLines(f captureFile) []string {
+	if f.name == "" {
 		return nil
 	}
-	data, err := os.ReadFile(path)
+	data, err := f.read()
 	if err != nil {
 		return nil
 	}
@@ -412,7 +420,7 @@ func overlayDiffLines(overlay any, baseline map[string]string) []string {
 	return lines
 }
 
-// readLastRenderKeys decodes the last_render sidecar AT THE GIVEN PATH into per-key one-line
+// readLastRenderKeys decodes the GIVEN last_render sidecar into per-key one-line
 // JSON — path-taking for readProvenance's reason, one function over: there are two stores to
 // read, and the CHOICE of which belongs to the caller holding the resolved target. A reader
 // that resolved its own is how `diff` and `reset` came to describe different stores on an
@@ -435,12 +443,12 @@ func overlayDiffLines(overlay any, baseline map[string]string) []string {
 // would trade the TOML bug for a JSON one: an integer reaches the overlay side as a
 // jsonx integer literal ("5") and the codec side as float64 ("5.0"), so every
 // integer-valued key in a JSON surface would start misreporting instead.
-func readLastRenderKeys(lastRenderPath string, s manifest.Surface) map[string]string {
+func readLastRenderKeys(lastRender captureFile, s manifest.Surface) map[string]string {
 	baseline := map[string]string{}
-	if lastRenderPath == "" {
+	if lastRender.name == "" {
 		return baseline
 	}
-	data, err := os.ReadFile(lastRenderPath)
+	data, err := lastRender.read()
 	if err != nil {
 		return baseline
 	}
@@ -485,7 +493,11 @@ func readLastRenderKeys(lastRenderPath string, s manifest.Surface) map[string]st
 // first is not incidental — a baseline left pointing at the pre-reset render would have the
 // next boot diff the truncated file against it and capture the discard as an edit — and
 // neither is writing the new one: see reseedResetBaseline for what deleting it cost.
-func configReset(t configTarget, args []string, out, errw io.Writer, color bool) int {
+func configReset(t configTarget, args []string, out, errw io.Writer, color bool) (rc int) {
+	// A link refused in the workspace's jail-writable state is named. A refusal that stopped
+	// the reset has already set rc; one met by a count (a sidecar reset removes anyway) leaves
+	// it alone (stateRefusals).
+	defer func() { rc = t.reportRefusals("reset", errw, rc, false) }()
 	agent, surface, force, rc := surfaceArgs("reset", args, out, errw)
 	if rc >= 0 {
 		return rc
@@ -503,23 +515,38 @@ func configReset(t configTarget, args []string, out, errw io.Writer, color bool)
 	pr := richtext.Printer{W: out, Color: color}
 	cleared := 0
 	for _, s := range surfaces {
-		overlayPath, lastRenderPath := t.overlayPath(s.Agent, s.Name), t.lastRenderPath(s.Agent, s.Name)
-		if overlayPath == "" {
+		if t.overlayPath(s.Agent, s.Name) == "" {
 			// A target that keeps no capture store has no sidecars to discard, and a bare
 			// os.Remove("") would report a confusing ENOENT for a path nobody named.
 			continue
 		}
-		listCapturePath := t.listCapturePath(s.Agent, s.Name)
-		had, hadList := overlayKeyCountAt(overlayPath), listCaptureCountAt(listCapturePath)
+		// A LINK AT THE SURFACE, or at a directory above it, is refused BEFORE anything is
+		// discarded: the truncation below would otherwise write through it, and a reset that
+		// dropped the captures and then declined the surface would leave the next launch to
+		// adopt the very edits it was asked to discard.
+		if surf, ok := t.surfaceStateFile(s.Path); ok {
+			if err := surf.refuseLink("write"); err != nil {
+				if !t.refusals.note(err) {
+					fmt.Fprintf(errw, "yolo config reset: %s/%s: %v\n", s.Agent, s.Name, err)
+				}
+				return 1
+			}
+		}
+		overlayFile, lastRenderFile := t.overlayFile(s.Agent, s.Name), t.lastRenderFile(s.Agent, s.Name)
+		listCaptureFile := t.listCaptureFile(s.Agent, s.Name)
+		had, hadList := overlayKeyCountAt(overlayFile), listCaptureCountAt(listCaptureFile)
 		removedAny := false
 		// The list capture goes with the overlay: it IS captured edits (per entry, at the
 		// surface's config-list paths), and a reset that kept it would re-apply the discarded
-		// additions and removals on the next render.
-		for _, p := range []string{overlayPath, lastRenderPath, listCapturePath} {
-			if err := os.Remove(p); err == nil {
+		// additions and removals on the next render. A link the jail left at any of the three
+		// is removed itself, never followed.
+		for _, f := range []captureFile{overlayFile, lastRenderFile, listCaptureFile} {
+			if err := f.remove(); err == nil {
 				removedAny = true
 			} else if !os.IsNotExist(err) {
-				fmt.Fprintf(errw, "yolo config reset: %s: %v\n", filepath.Base(p), err)
+				if !t.refusals.note(err) {
+					fmt.Fprintf(errw, "yolo config reset: %s: %v\n", filepath.Base(f.path()), err)
+				}
 				return 1
 			}
 		}
@@ -540,7 +567,9 @@ func configReset(t configTarget, args []string, out, errw io.Writer, color bool)
 		// next boot, which is what a user means by "reset".
 		baseline, note, err := truncateSurfaceToPureRender(t, s)
 		if err != nil {
-			fmt.Fprintf(errw, "yolo config reset: %s/%s: %v\n", s.Agent, s.Name, err)
+			if !t.refusals.note(err) {
+				fmt.Fprintf(errw, "yolo config reset: %s/%s: %v\n", s.Agent, s.Name, err)
+			}
 			return 1
 		}
 		if note != "" {
@@ -551,8 +580,10 @@ func configReset(t configTarget, args []string, out, errw io.Writer, color bool)
 		}
 		// AND RE-SEED THE BASELINE THE TRUNCATION JUST MADE TRUE, rather than leaving the
 		// next render to infer one (OQ-CO7 D1). See reseedResetBaseline.
-		if err := reseedResetBaseline(t, lastRenderPath, baseline); err != nil {
-			fmt.Fprintf(errw, "yolo config reset: %s/%s: %v\n", s.Agent, s.Name, err)
+		if err := reseedResetBaseline(t, lastRenderFile, baseline); err != nil {
+			if !t.refusals.note(err) {
+				fmt.Fprintf(errw, "yolo config reset: %s/%s: %v\n", s.Agent, s.Name, err)
+			}
 			return 1
 		}
 		cleared++
@@ -617,7 +648,7 @@ func configReset(t configTarget, args []string, out, errw io.Writer, color bool)
 // means "the exact bytes yolo wrote last", so a baseline for a file that does not exist is a
 // lie the next render would act on — it would read the absent file as an empty one, diff it
 // against the baseline, and capture a tombstone for every key.
-func reseedResetBaseline(t configTarget, lastRenderPath string, baseline []byte) error {
+func reseedResetBaseline(t configTarget, lastRender captureFile, baseline []byte) error {
 	if len(baseline) == 0 {
 		return nil
 	}
@@ -625,17 +656,18 @@ func reseedResetBaseline(t configTarget, lastRenderPath string, baseline []byte)
 	// real home, 0644 in a workspace. Read through the Target rather than spelled here: a
 	// hand-copied 0644 would put a host user's own config bytes, credentials included, in a
 	// world-readable file.
-	return os.WriteFile(lastRenderPath, baseline, t.sidecarFileMode())
+	// A regular file in the store, whatever the jail left at the name (captureFile.write).
+	return lastRender.write(baseline, t.sidecarFileMode())
 }
 
-// readOverlayValue decodes the overlay sidecar AT path, or nil. Path-taking for
+// readOverlayValue decodes the GIVEN overlay sidecar, or nil. File-taking for
 // readLastRenderKeys' reason: which store is the resolved target's answer, not this
 // reader's.
-func readOverlayValue(path string) any {
-	if path == "" {
+func readOverlayValue(f captureFile) any {
+	if f.name == "" {
 		return nil
 	}
-	data, err := os.ReadFile(path)
+	data, err := f.read()
 	if err != nil {
 		return nil
 	}
@@ -757,14 +789,27 @@ func sortedKeys(m *jsonx.OrderedMap) []string {
 //     would preserve exactly the keys the user asked to discard — reset as a no-op, which is
 //     the failure the truncation exists to prevent.
 func truncateSurfaceToPureRender(t configTarget, s manifest.Surface) ([]byte, string, error) {
-	path, ok := t.surfaceFile(s.Path)
+	surf, ok := t.surfaceStateFile(s.Path)
 	if !ok {
 		// NOT RESOLVABLE AT THIS NOTCH (§4.1's last row). Never a fallback to the process
 		// home: host-side that is the invoking human's own dotfile, and truncating it is the
 		// class that put a jail's autonomy posture into a real home once.
 		return nil, "", nil
 	}
-	if _, err := os.Stat(path); err != nil {
+	// The plain form FOLLOWS a link, on purpose: at the host notch, or in-jail, the file is
+	// the process's own, and a real-home surface may be a link into a dotfiles repo. The
+	// rooted form, a jail's overlay read from the host, refuses one (captureFile).
+	if err := surf.refuseLink("write"); err != nil {
+		return nil, "", err
+	}
+	if !surf.rooted() {
+		if _, err := os.Stat(surf.name); err != nil {
+			if os.IsNotExist(err) {
+				return nil, "", nil
+			}
+			return nil, "", err
+		}
+	} else if _, err := surf.lstat(); err != nil {
 		if os.IsNotExist(err) {
 			return nil, "", nil
 		}
@@ -785,7 +830,7 @@ func truncateSurfaceToPureRender(t configTarget, s manifest.Surface) ([]byte, st
 		return nil, "", nil
 	}
 	if t.hostOwned() {
-		text, err := truncateHostSurfaceToPureRender(t, s, path)
+		text, err := truncateHostSurfaceToPureRender(t, s, surf.name)
 		return text, "", err
 	}
 	// THE HOST LAYER IS THE PREVIEW'S, which is [OQ-CR4] inheriting [OQ-CR6]'s answer — the
@@ -809,7 +854,7 @@ func truncateSurfaceToPureRender(t configTarget, s manifest.Surface) ([]byte, st
 	}
 	text := pureRenderText(sub, res.Encoded)
 	// Truncate in place: the file may be a bind-mount target whose inode matters.
-	if err := os.WriteFile(path, text, 0o644); err != nil {
+	if err := surf.write(text, 0o644); err != nil {
 		return nil, "", err
 	}
 	return text, note, nil
@@ -907,7 +952,11 @@ func truncateHostSurfaceToPureRender(t configTarget, s manifest.Surface, path st
 // re-render the surface, because re-rendering needs the computed layer, which is built
 // from jail paths (see renderSurface) — so a host-side re-render would write host paths
 // into the file. Capture needs none of that: it only compares what is there.
-func configCapture(t configTarget, args []string, out, errw io.Writer, color bool) int {
+func configCapture(t configTarget, args []string, out, errw io.Writer, color bool) (rc int) {
+	// A link refused in the workspace's jail-writable state is named. Capture replaces a link
+	// at a sidecar it writes rather than following it, so a refusal fails the verb only where
+	// it stopped the capture (a link at the surface, or at a directory) and has set rc.
+	defer func() { rc = t.reportRefusals("capture", errw, rc, false) }()
 	agent, surface, force, rc := surfaceArgs("capture", args, out, errw)
 	if rc >= 0 {
 		return rc
@@ -926,7 +975,9 @@ func configCapture(t configTarget, args []string, out, errw io.Writer, color boo
 	for _, s := range surfaces {
 		n, err := captureSurface(t, s)
 		if err != nil {
-			fmt.Fprintf(errw, "yolo config capture: %s/%s: %v\n", s.Agent, s.Name, err)
+			if !t.refusals.note(err) {
+				fmt.Fprintf(errw, "yolo config capture: %s/%s: %v\n", s.Agent, s.Name, err)
+			}
 			return 1
 		}
 		if n < 0 {
@@ -972,33 +1023,208 @@ type captureLocation struct {
 	listCapture captureFile
 }
 
-// captureFile is one file a capture reads or writes: name below root, or, with no root, name
-// as a plain path.
+// captureFile is one file a `yolo config` verb, or a capture, reads or writes: name below a
+// root, or, with no root, name as a plain path.
 //
-// The ROOTED form is the host's (capture-on-terminate): root is a root on a jail-writable
-// directory, the workspace overlay or `.yolo/prism`, so a read takes only a regular file (a
-// link the jail left there, dangling or not, is not followed) and a write replaces anything
-// else at name with a regular file, and a name that leaves the root through a linked directory
-// is refused either way (paths.ReadRegularFileBeneath, paths.WriteRegularFileBeneath;
-// docs/reference/jail-home.md, "Host code in jail-writable state"). The plain form is the
-// in-jail `yolo config capture`'s, where every path is the jail's own.
+// The ROOTED form is the host's, for a file in a workspace's jail-writable state: the capture
+// store `<workspace>/.yolo/prism`, or the workspace overlay `<workspace>/.yolo/home` that backs
+// the jail's home. The jail can leave a symbolic link at any name there, or at a directory on
+// the way, so the host never follows one (docs/reference/jail-home.md, "Host code in
+// jail-writable state"): a read takes only a regular file, a write replaces anything else at
+// name with a regular file, a remove takes the name itself, and a link at a directory on the
+// way, or at a name being read, is refused with errStateIsLink, naming it. The root is either
+// held by the caller (root: capture-on-terminate opens its two once) or opened for each access
+// (workspace and dir: the `yolo config` verbs, through configTarget), so a target carries no
+// open handle. The plain form is the in-jail verbs' and the host notch's, where every path is
+// the process's own.
 type captureFile struct {
 	root *os.Root
-	name string
+	// workspace and dir name the root to open for each access, when root is nil:
+	// <workspace>/.yolo/<dir>, opened through paths.OpenWorkspaceStateSubdir.
+	workspace, dir string
+	name           string
+	// refusals, when set, collects every link refusal read() meets, for the verbs whose
+	// readers swallow a read error (see stateRefusals).
+	refusals *stateRefusals
+}
+
+// errStateIsLink is why a verb refused a name in a workspace's jail-writable state.
+var errStateIsLink = errors.New("it is a symbolic link, and the jail can write the directory " +
+	"it is in, so yolo config does not follow it (remove the link; the next launch writes a " +
+	"real one)")
+
+func (f captureFile) rooted() bool { return f.root != nil || f.workspace != "" }
+
+// rootDir is the directory the root is on, for naming a path in a refusal.
+func (f captureFile) rootDir() string {
+	if f.root != nil {
+		return f.root.Name()
+	}
+	return filepath.Join(paths.WorkspaceStateDir(f.workspace), f.dir)
+}
+
+// path is the file's full path, for naming it.
+func (f captureFile) path() string {
+	if !f.rooted() {
+		return f.name
+	}
+	return filepath.Join(f.rootDir(), f.name)
+}
+
+// beneath runs fn on the root, after refusing a link at `.yolo`, at the root's own directory,
+// at a directory on the way to name, and, when leaf is set, at name itself. The rooted form
+// only: every caller checks rooted() first.
+func (f captureFile) beneath(op string, leaf bool, fn func(r *os.Root) error) error {
+	r := f.root
+	if r == nil {
+		opened, err := paths.OpenWorkspaceStateSubdir(f.workspace, f.dir)
+		if err != nil {
+			var linked *paths.LinkedStateDirError
+			if errors.As(err, &linked) {
+				return &fs.PathError{Op: op, Path: linked.Path, Err: errStateIsLink}
+			}
+			return err
+		}
+		defer opened.Close()
+		r = opened
+	}
+	parts := strings.Split(f.name, string(filepath.Separator))
+	n := len(parts) - 1
+	if leaf {
+		n = len(parts)
+	}
+	for i := 1; i <= n; i++ {
+		prefix := filepath.Join(parts[:i]...)
+		fi, err := r.Lstat(prefix)
+		if err != nil {
+			break // absent, or unreadable: fn meets it and reports it
+		}
+		if fi.Mode()&fs.ModeSymlink != 0 {
+			return &fs.PathError{Op: op, Path: filepath.Join(f.rootDir(), prefix), Err: errStateIsLink}
+		}
+	}
+	return fn(r)
 }
 
 func (f captureFile) read() ([]byte, error) {
-	if f.root == nil {
+	if !f.rooted() {
 		return os.ReadFile(f.name)
 	}
-	return paths.ReadRegularFileBeneath(f.root, f.name)
+	var data []byte
+	err := f.beneath("read", true, func(r *os.Root) (err error) {
+		data, err = paths.ReadRegularFileBeneath(r, f.name)
+		return err
+	})
+	f.refusals.note(err)
+	return data, err
 }
 
-func (f captureFile) write(data []byte) error {
-	if f.root == nil {
-		return os.WriteFile(f.name, data, 0o644)
+func (f captureFile) write(data []byte, perm fs.FileMode) error {
+	if !f.rooted() {
+		return os.WriteFile(f.name, data, perm)
 	}
-	return paths.WriteRegularFileBeneath(f.root, f.name, data, 0o644)
+	return f.beneath("write", false, func(r *os.Root) error {
+		return paths.WriteRegularFileBeneath(r, f.name, data, perm)
+	})
+}
+
+// remove removes name itself: a link there is removed, never followed.
+func (f captureFile) remove() error {
+	if !f.rooted() {
+		return os.Remove(f.name)
+	}
+	return f.beneath("remove", false, func(r *os.Root) error { return r.Remove(f.name) })
+}
+
+// lstat reports what is at name without following a link there.
+func (f captureFile) lstat() (fs.FileInfo, error) {
+	if !f.rooted() {
+		return os.Lstat(f.name)
+	}
+	var fi fs.FileInfo
+	err := f.beneath("read", false, func(r *os.Root) (err error) {
+		fi, err = r.Lstat(f.name)
+		return err
+	})
+	f.refusals.note(err)
+	return fi, err
+}
+
+// readDir lists the directory at name (for the store itself, ".").
+func (f captureFile) readDir() ([]fs.DirEntry, error) {
+	if !f.rooted() {
+		return os.ReadDir(f.name)
+	}
+	var entries []fs.DirEntry
+	err := f.beneath("read", false, func(r *os.Root) (err error) {
+		entries, err = fs.ReadDir(r.FS(), f.name)
+		return err
+	})
+	f.refusals.note(err)
+	return entries, err
+}
+
+// refuseLink returns the refusal of a link at name, or on the way to it, before a caller
+// that must not start an operation it cannot finish (reset, which discards the captures
+// only once it knows it can truncate the surface). nil for a plain file, and for an absent
+// one.
+func (f captureFile) refuseLink(op string) error {
+	if !f.rooted() {
+		return nil
+	}
+	err := f.beneath(op, true, func(*os.Root) error { return nil })
+	if errors.Is(err, errStateIsLink) {
+		return err
+	}
+	return nil
+}
+
+// stateRefusals collects the link refusals a verb's readers met, once per path, so the verb
+// can name them. Most of those readers swallow a read error by design (an absent sidecar is
+// no edits), and a refused link must not read as an absent file: the verb would print a
+// confident answer about a store it did not read.
+type stateRefusals struct {
+	seen map[string]bool
+	errs []error
+}
+
+// note records err when it is a link refusal, reporting whether it was. A nil log records
+// nothing and reports false, so its caller prints the error itself.
+func (l *stateRefusals) note(err error) bool {
+	if l == nil || !errors.Is(err, errStateIsLink) {
+		return false
+	}
+	key := err.Error()
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		key = pe.Path
+	}
+	if l.seen == nil {
+		l.seen = map[string]bool{}
+	}
+	if !l.seen[key] {
+		l.seen[key] = true
+		l.errs = append(l.errs, err)
+	}
+	return true
+}
+
+// reportRefusals prints every link refusal the verb met, and turns a successful rc into 1
+// when failed is set: `diff` and `ls` report on files they could not read, so their answer
+// is incomplete. `reset` and `capture` finished what they were asked to do, replacing or
+// removing the link rather than following it, so they name it and keep their rc.
+func (t configTarget) reportRefusals(cmd string, errw io.Writer, rc int, failed bool) int {
+	if t.refusals == nil || len(t.refusals.errs) == 0 {
+		return rc
+	}
+	for _, err := range t.refusals.errs {
+		fmt.Fprintf(errw, "yolo config %s: %v\n", cmd, err)
+	}
+	t.refusals.errs, t.refusals.seen = nil, nil
+	if failed && rc == 0 {
+		return 1
+	}
+	return rc
 }
 
 // captureSurface folds one surface's on-disk state into its overlay, returning the
@@ -1006,16 +1232,16 @@ func (f captureFile) write(data []byte) error {
 // comes off the RESOLVED TARGET, which is what makes this and the diff that reports it read
 // one store.
 func captureSurface(t configTarget, s manifest.Surface) (int, error) {
-	path, ok := t.surfaceFile(s.Path)
+	surf, ok := t.surfaceStateFile(s.Path)
 	if !ok {
 		return -1, nil // not resolvable at this notch: the same answer as "no baseline"
 	}
-	overlay, listCapture := t.overlayPath(s.Agent, s.Name), t.listCapturePath(s.Agent, s.Name)
+	overlay, listCapture := t.overlayFile(s.Agent, s.Name), t.listCaptureFile(s.Agent, s.Name)
 	captured, err := captureSurfaceAt(s, captureLocation{
-		surface:     captureFile{name: path},
-		lastRender:  captureFile{name: t.lastRenderPath(s.Agent, s.Name)},
-		overlay:     captureFile{name: overlay},
-		listCapture: captureFile{name: listCapture},
+		surface:     surf,
+		lastRender:  t.lastRenderFile(s.Agent, s.Name),
+		overlay:     overlay,
+		listCapture: listCapture,
 	})
 	if err != nil || !captured {
 		return -1, err
@@ -1058,27 +1284,27 @@ func captureSurfaceAt(s manifest.Surface, at captureLocation) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if err := at.overlay.write(append(out.OverlayJSON, '\n')); err != nil {
+	if err := at.overlay.write(append(out.OverlayJSON, '\n'), 0o644); err != nil {
 		return false, err
 	}
 	// The per-entry half, written only when the surface HAS a list path (the sidecar named
 	// one) — nil otherwise, and then no file is created.
 	if out.ListCaptureJSON != nil && at.listCapture.name != "" {
-		if err := at.listCapture.write(append(out.ListCaptureJSON, '\n')); err != nil {
+		if err := at.listCapture.write(append(out.ListCaptureJSON, '\n'), 0o644); err != nil {
 			return false, err
 		}
 	}
 	return true, nil
 }
 
-// listCaptureCountAt is how many captured list entries the list-capture sidecar at path
+// listCaptureCountAt is how many captured list entries the given list-capture sidecar
 // holds (adds plus removes), 0 when absent — the per-entry half of a surface's captured
 // edits, counted beside the overlay's keys.
-func listCaptureCountAt(path string) int {
-	if path == "" {
+func listCaptureCountAt(f captureFile) int {
+	if f.name == "" {
 		return 0
 	}
-	data, err := os.ReadFile(path)
+	data, err := f.read()
 	if err != nil {
 		return 0
 	}

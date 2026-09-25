@@ -501,8 +501,8 @@ func classifyPromoteSurface(t configTarget, s manifest.Surface, o promoteOptions
 	// captured values are taken from, because those values are written back into a
 	// hand-readable pack.json — encoding/json would turn a port number into a float.
 	// agentcfg's own reader is used where the ENGINE's answer is wanted (dead keys).
-	overlay := readOverlayValue(ps.OverlayPath)
-	states, isObject := overlayKeyStates(overlay, readLastRenderKeys(t.wsLastRenderPath(s.Agent, s.Name), s))
+	overlay := readOverlayValue(captureFile{name: ps.OverlayPath})
+	states, isObject := overlayKeyStates(overlay, readLastRenderKeys(captureFile{name: t.wsLastRenderPath(s.Agent, s.Name)}, s))
 	if !isObject {
 		if !overlayIsEmpty(overlay) {
 			ps.Note = "keyless surface (" + s.Codec + "): the whole file is one captured " +

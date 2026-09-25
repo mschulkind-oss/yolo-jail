@@ -30,7 +30,6 @@ package cli
 
 import (
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 
@@ -197,10 +196,10 @@ func listContributionRows(t configTarget, s manifest.Surface, lists []agentcfg.L
 	if len(lists) == 0 {
 		return nil
 	}
-	overlay := jsonx.Plain(readOverlayValue(t.overlayPath(s.Agent, s.Name)))
+	overlay := jsonx.Plain(readOverlayValue(t.overlayFile(s.Agent, s.Name)))
 	var records map[string]agentcfg.ListRecord
-	if path := t.listCapturePath(s.Agent, s.Name); path != "" {
-		if data, err := os.ReadFile(path); err == nil {
+	if f := t.listCaptureFile(s.Agent, s.Name); f.name != "" {
+		if data, err := f.read(); err == nil {
 			_, records = agentcfg.ListCaptureRecords(data)
 		}
 	}
@@ -256,7 +255,7 @@ func surfaceProvenance(t configTarget, s manifest.Surface) (winners map[string]s
 	notch := t.notch
 	switch notch {
 	case render.KindHost:
-		if w := readProvenance(t.provenancePath(s.Agent, s.Name)); w != nil {
+		if w := readProvenance(t.provenanceFile(s.Agent, s.Name)); w != nil {
 			return w, notch.String(), ""
 		}
 		// No mode split here: the host render is pure RMW and records every surface it
@@ -264,7 +263,7 @@ func surfaceProvenance(t configTarget, s manifest.Surface) (winners map[string]s
 		// a remedy, unlike the by-design absences below.
 		return nil, notch.String(), "no `yolo host apply --assert` has rendered it yet"
 	case render.KindJail:
-		if w := readProvenance(t.provenancePath(s.Agent, s.Name)); w != nil {
+		if w := readProvenance(t.provenanceFile(s.Agent, s.Name)); w != nil {
 			return w, notch.String(), ""
 		}
 		if s.ResolvedMode() == manifest.ModeRMW || s.ResolvedMode() == manifest.ModeComputed {
@@ -502,21 +501,21 @@ func anyLiveOverlay(rows []overlayContribution) bool {
 	return false
 }
 
-// readProvenance decodes a provenance record at path into key → winning layer. An absent
+// readProvenance decodes the given provenance record into key → winning layer. An absent
 // or malformed file yields nil, which callers read as "no render recorded here" rather than
 // "nothing won" — the two are different and conflating them would report an unrendered
 // surface as one where every overlay lost.
 //
-// Path-taking rather than (agent, name)-taking, because there are now two records to read
+// File-taking rather than (agent, name)-taking, because there are now two records to read
 // — the jail's per-workspace sidecar and the host's per-home one — and the CHOICE of which
 // belongs to the caller that knows which notch it is describing (surfaceProvenance). A
 // function that resolved the path itself would have to re-derive that decision, which is
 // how a reader ends up reporting one notch's outcome as the other's.
-func readProvenance(path string) map[string]string {
-	if path == "" {
+func readProvenance(f captureFile) map[string]string {
+	if f.name == "" {
 		return nil
 	}
-	data, err := os.ReadFile(path)
+	data, err := f.read()
 	if err != nil {
 		return nil
 	}

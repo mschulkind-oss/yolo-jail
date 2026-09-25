@@ -93,6 +93,10 @@ type configTarget struct {
 	// retargeted by this design. Unconstructed (and therefore storeless) at a host target,
 	// where there is no workspace to key on.
 	wsStore render.Target
+	// refusals collects the links this invocation's readers refused in the workspace's
+	// jail-writable state, for the verb to name (stateRefusals). A pointer, so every copy of
+	// the target a verb hands down records into one log.
+	refusals *stateRefusals
 	// runtime is the resolved container runtime, and it exists for exactly one question:
 	// WHERE a non-local workspace target's jail home holds a surface. The two container
 	// backends lay that home out differently (Apple Container binds ws_state AT the home;
@@ -111,6 +115,7 @@ func jailConfigTarget(workspace, chosenBy string) configTarget {
 		local:     processOwnsWorkspace(workspace),
 		store:     render.Jail(paths.Home(), workspace, nil),
 		wsStore:   render.Jail(paths.Home(), workspace, nil),
+		refusals:  &stateRefusals{},
 	}
 	if !t.local {
 		// Resolved the way `yolo ps` resolves it — env > the workspace's `runtime` key >
@@ -379,6 +384,52 @@ func (t configTarget) provenancePath(agent, name string) string {
 	return t.store.ProvenancePath(agent, name)
 }
 
+// storeFile is how a verb opens one of this target's store files, path being one of the
+// accessors above.
+//
+// AT THE JAIL NOTCH IT IS ROOTED on `<workspace>/.yolo/prism`, never a plain path: the store
+// is in the jail's writable state, and a host-side verb runs as the host user, so a link the
+// jail left at a sidecar, at `.yolo/prism` or at `.yolo` is refused rather than followed
+// (captureFile; docs/reference/jail-home.md, "Host code in jail-writable state"). The name is
+// the path's base because every store file sits directly in the store
+// (TestTheJailStoreIsWhereThePrismTwinsPutIt pins that the store is that directory). At the
+// host notch the store is in the machine store, which no jail can write, and in the jail that
+// owns the workspace every path is the process's own, so the plain path stands. An empty path (a target that keeps no store) is the zero captureFile.
+func (t configTarget) storeFile(path string) captureFile {
+	if path == "" {
+		return captureFile{}
+	}
+	if t.notch != render.KindJail || t.local {
+		return captureFile{name: path}
+	}
+	return captureFile{workspace: t.workspace, dir: "prism", name: filepath.Base(path), refusals: t.refusals}
+}
+
+// storeDir is the store itself, as storeFile opens it, for a listing.
+func (t configTarget) storeDir() captureFile {
+	dir := t.sidecarDir()
+	if dir == "" || t.notch != render.KindJail || t.local {
+		return captureFile{name: dir}
+	}
+	return captureFile{workspace: t.workspace, dir: "prism", name: ".", refusals: t.refusals}
+}
+
+func (t configTarget) overlayFile(agent, name string) captureFile {
+	return t.storeFile(t.overlayPath(agent, name))
+}
+
+func (t configTarget) lastRenderFile(agent, name string) captureFile {
+	return t.storeFile(t.lastRenderPath(agent, name))
+}
+
+func (t configTarget) listCaptureFile(agent, name string) captureFile {
+	return t.storeFile(t.listCapturePath(agent, name))
+}
+
+func (t configTarget) provenanceFile(agent, name string) captureFile {
+	return t.storeFile(t.provenancePath(agent, name))
+}
+
 // sidecarFileMode is the mode a re-seeded sidecar is written with: the STORE'S own, 0600 in a
 // real home and 0644 in a workspace. Off the Target that decided where the store is, because
 // a hand-copied 0644 would put a host user's own config bytes, credentials included, in a
@@ -397,16 +448,18 @@ func (t configTarget) hostOwned() bool {
 	return t.notch == render.KindHost && t.store.SidecarDir() != ""
 }
 
-// surfaceFile resolves a surface's declared path (`~/.claude/settings.json`) to the file THIS
-// target's home holds it at, with ok=false for a path this target cannot resolve.
+// surfaceStateFile resolves a surface's declared path (`~/.claude/settings.json`) to the file
+// THIS target's home holds it at, with ok=false for a path this target cannot resolve.
 //
 // Three cases, and the third is what §4.1's last row is about:
 //
 //   - the HOST target, or the jail that OWNS the workspace: the process home, through the
-//     same render.Target.ExpandHome the boot render resolves "~" with.
+//     same render.Target.ExpandHome the boot render resolves "~" with, as a plain path.
 //   - a NON-LOCAL workspace target: the host file backing that jail's home
-//     (<workspace>/.yolo/home/…), via jailHomeHostLocation — which is backend-aware and is
-//     the one definition of that mapping.
+//     (<workspace>/.yolo/home/…), via jailHomeRel — which is backend-aware and is the one
+//     definition of that mapping — ROOTED on the workspace overlay, because the jail can
+//     write it: a link there, or at a directory on the way, is refused rather than followed
+//     (captureFile).
 //   - a path no jail home holds (an absolute surface path): ok=false.
 //
 // ⚠ IT MUST NEVER FALL BACK TO THE PROCESS HOME for a workspace target, and that is the whole
@@ -414,11 +467,15 @@ func (t configTarget) hostOwned() bool {
 // through it reported every file the jail DID render as absent and every host dotfile the jail
 // never wrote as present — which is why `ls` had to decline the column and why its existence
 // filter stopped applying (§2.3 F2's four-row inflation).
-func (t configTarget) surfaceFile(surfacePath string) (string, bool) {
+func (t configTarget) surfaceStateFile(surfacePath string) (captureFile, bool) {
 	if t.notch == render.KindHost || t.local {
-		return expandHome(surfacePath), true
+		return captureFile{name: expandHome(surfacePath)}, true
 	}
-	return jailHomeHostLocation(t.workspace, t.runtime, surfacePath)
+	rel, ok := jailHomeRel(t.runtime, surfacePath)
+	if !ok {
+		return captureFile{}, false
+	}
+	return captureFile{workspace: t.workspace, dir: "home", name: rel, refusals: t.refusals}, true
 }
 
 // surfaceReach is what THIS target can honestly say about a surface's file. THREE answers,
@@ -446,20 +503,30 @@ const (
 // (run/prepare.go's prepareWsState). So a missing file inside a directory that exists is a
 // genuine absence, and a directory that does not exist means this workspace never backed that
 // home at all.
-func (t configTarget) reachSurface(surfacePath string) (string, surfaceReach) {
-	path, ok := t.surfaceFile(surfacePath)
+//
+// Presence is an Lstat, so a link the jail left at the surface counts as present and is not
+// followed. A link at a directory on the way is refused and named by the verb (the target's
+// refusals), and the surface reads as unreachable.
+func (t configTarget) reachSurface(surfacePath string) surfaceReach {
+	f, ok := t.surfaceStateFile(surfacePath)
 	if !ok {
-		return "", surfaceUnreachable
+		return surfaceUnreachable
 	}
-	if _, err := os.Lstat(path); err == nil {
-		return path, surfaceReachable
+	_, err := f.lstat()
+	if err == nil {
+		return surfaceReachable
+	}
+	if errors.Is(err, errStateIsLink) {
+		return surfaceUnreachable
 	}
 	if t.notch == render.KindJail && !t.local {
-		if st, err := os.Stat(filepath.Dir(path)); err != nil || !st.IsDir() {
-			return path, surfaceUnreachable
+		dir := f
+		dir.name = filepath.Dir(f.name)
+		if st, err := dir.lstat(); err != nil || !st.IsDir() {
+			return surfaceUnreachable
 		}
 	}
-	return path, surfaceMissing
+	return surfaceMissing
 }
 
 // surfaceFileExists reports whether this target's copy of a surface is present. Knowable at
@@ -467,8 +534,7 @@ func (t configTarget) reachSurface(surfacePath string) (string, surfaceReach) {
 // on the target, a workspace target's files are reachable host-side, so `ls` no longer has to
 // decline the column — and its existence filter applies again.
 func (t configTarget) surfaceFileExists(surfacePath string) bool {
-	_, reach := t.reachSurface(surfacePath)
-	return reach == surfaceReachable
+	return t.reachSurface(surfacePath) == surfaceReachable
 }
 
 // composeTarget is the render.Target a `yolo config` verb COMPOSES at, as distinct from the
@@ -522,22 +588,35 @@ const (
 // render.Target.SidecarDirMode's ⚠ measures exactly that), which is the permission case this
 // distinguishes.
 func (t configTarget) storeState() (storeState, error) {
-	dir := t.sidecarDir()
-	if dir == "" {
+	if t.sidecarDir() == "" {
 		return storeNone, nil
 	}
-	f, err := os.Open(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return storeAbsent, nil
+	// Through the store's own opener (storeDir), so at the jail notch a link at `.yolo` or at
+	// `.yolo/prism` is refused, and named, rather than listed.
+	readOne := func(f *os.File, err error) error {
+		if err != nil {
+			return err
 		}
+		defer f.Close()
+		if _, err := f.Readdirnames(1); err != nil && !errors.Is(err, io.EOF) {
+			return err
+		}
+		return nil
+	}
+	var err error
+	if dir := t.storeDir(); dir.rooted() {
+		err = dir.beneath("read", false, func(r *os.Root) error { return readOne(r.Open(".")) })
+	} else {
+		err = readOne(os.Open(dir.name))
+	}
+	switch {
+	case err == nil:
+		return storeReadable, nil
+	case os.IsNotExist(err):
+		return storeAbsent, nil
+	default:
 		return storeUnreadable, err
 	}
-	defer f.Close()
-	if _, err := f.Readdirnames(1); err != nil && !errors.Is(err, io.EOF) {
-		return storeUnreadable, err
-	}
-	return storeReadable, nil
 }
 
 // noCaptureReason is the sentence a verb prints when it found no captured edits and the store

@@ -645,7 +645,7 @@ only place the values themselves are stated.
 | Workspace markers | `.yolo/config-boot.json`, or any name `config.LoadWorkspaceConfig` reads | `internal/cli` (`workspaceMarked`, `workspaceConfigNames`) over `internal/config` |
 | Workspace capture store | `<workspace>/.yolo/prism` | `render.Target.SidecarDir` at the jail kind |
 | Host capture store | under the user's global storage, and **only** under `host_management: own` | `render.Target.SidecarDir` at the host kind |
-| Jail home overlay backing a workspace's surfaces | `<workspace>/.yolo/home/…`, backend-dependent within it | `internal/cli` (`jailHomeHostLocation`) |
+| Jail home overlay backing a workspace's surfaces | `<workspace>/.yolo/home/…`, backend-dependent within it | `internal/cli` (`jailHomeRel`, read through `configTarget.surfaceStateFile`) |
 | Host-layer report variable | `YOLO_HOST_LAYERS` | `packload.HostLayerEnvVar` |
 | Dispositions | four in `internal/packload`, plus `render` | `packload.HostLayerDisposition`, `entrypoint.HostLayerRender` |
 | The label's wire field | one list of `/ctx` destinations, embedded in the four-field report | `entrypoint.HostLayerWire` |
