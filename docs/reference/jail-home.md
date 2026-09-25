@@ -798,9 +798,15 @@ anything. Each refusal names the path and says the jail can write it, and `diff`
 rather than report a store they did not read. The host notch and the jail that owns the
 workspace keep plain paths, since there every file is the process's own.
 `internal/cli/configverblinks_test.go` plants a link at each file and at each directory on the
-way, dangling and not, per verb. Still by plain path: `yolo config promote`'s reads of the
-workspace store (`configpromote.go`) and `yolo apply --sealed`'s overlay count
-(`overlayKeyCount`).
+way, dangling and not, per verb. `yolo config promote` and `yolo apply --sealed` read the
+workspace store the same way. Promote opens its sidecars through `storeFile`
+(`wsOverlayFile`, `wsLastRenderFile`, `wsListCaptureFile`). A refused link
+fails its plan with exit 1 before anything is written. Its overlay write-back goes through the
+same `captureFile`, so a link the jail swaps in at the overlay is replaced, and a linked
+`.yolo/prism` abandons the promotion. The write-back stays atomic (`captureFile.replace`: a temp
+file and a rename, both beneath the root), where capture and reset truncate in place. `apply --sealed` counts captured keys
+through `sealedConfigTarget` (`overlayKeyCount`) and refuses to seal over a sidecar it could not
+read.
 
 **What this does not close.** podman resolves a bind source when the container is created, after
 the preparation has replaced any link, so a jail running CONCURRENTLY with a write path into this
