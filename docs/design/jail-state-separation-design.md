@@ -59,11 +59,15 @@ moved in August 2026 (#11798), and that is recorded there too.
      - `mise where rust` returned the shared entry path. That path's target was the other
        project's `.cargo/bin`.
 
-     So on this version the harm for rust is narrower than the reference's residue table
-     describes. The entry flips on every install or exec, and `where` names another project's
-     directory, but the toolchain does not break mid-session through a shim. This doc does not
-     re-verify that table or its fact 2, both in
+     So on this version the harm for rust is narrower than the reference's residue table used
+     to describe. The entry flips on every install or exec, and `where` names another project's
+     directory, but the toolchain does not break mid-session through a shim.
+   - **The reference's residue table was updated for this on 2026-09-25**, in
      [`../reference/jail-state-separation-design.md`](../reference/jail-state-separation-design.md#the-jailjail-residue-in-the-shared-store).
+     Two rows, and fact 2, now carry the 2026.8.6 behavior. The shim half above was re-run for
+     that update, and so was one more case: with the entry deleted, as a rust-less jail's prune
+     would, the next `cargo` shim run re-installed the version and re-created the entry, with
+     mise's auto-install at its default.
    - **Nearest reports, none of them this defect.**
      [#8943](https://github.com/jdx/mise/discussions/8943) (`[env]` Cargo home ignored; fixed
      by #11798).

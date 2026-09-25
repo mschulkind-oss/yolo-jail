@@ -133,18 +133,24 @@ Three facts determine every failure mode:
 2. **Symlink targets are strings, resolved in the reader's namespace at every traversal.** The
    target means "whatever that path is *in the jail doing the exec, right now*." Shims dispatch
    through the mise binary per exec, so there is no caching: a rewrite by one jail is visible to all
-   others on their very next command.
+   others on their very next command. ⚠ **For rust on mise 2026.8.6 the shims no longer read the
+   entry at all**, so a rewrite is visible only to what does read it; see the table.
 3. **Jails are mutually invisible through the store.** No jail can tell whether an entry it
    considers dangling is live for a sibling.
 
-The four cases follow:
+The four cases follow. The two rows marked **2026.8.6** were re-measured on 2026-09-25 for rust on
+mise 2026.8.6, the version this jail runs. The measurement ran in one mount namespace, with two
+projects whose `CARGO_HOME` strings differ, which is what two jails with different strings see.
+Upstream changed the rust backend in v2026.8.4 ([#11798](https://github.com/jdx/mise/pull/11798)), so
+the rows' earlier text described an older mise. No older version was re-run. The measurement and
+the upstream search are recorded under [`SS-6`](../design/jail-state-separation-design.md#ss-6).
 
 | Case | What happens |
 | :--- | :--- |
 | **Same version, same in-jail string** (the common case) | Two `{{config_root}}`-style projects both write the same target string, each resolving per-jail to its own backing. Rewrites are byte-identical no-ops. **No conflict at all** — the string-uniform/backing-per-side trick occurring naturally. |
-| **Same version, different strings** | A genuine fight. Last writer wins, and per fact 2 the loser's toolchain breaks **immediately mid-session**, then heals on its next install — which breaks the other side again. Requires that specific config mismatch at the same pinned version. |
+| **Same version, different strings** | A genuine fight over one entry. **2026.8.6:** every `mise install`, and every auto-installing `mise exec`, re-points the entry at its own project's `.cargo/bin`, so it flips on each one. The toolchain does **not** break mid-session: `mise which`, `mise env` and the `cargo` shim resolve each project's own Cargo home without reading the entry, and a shim run does not re-point it. What reads the entry is wrong: `mise where rust` returns the entry path, which resolves into the other project. Until 2026-09-25 this row said the loser's toolchain breaks immediately mid-session and heals on its next install. Requires that specific config mismatch at the same pinned version. |
 | **Unrelated jails** (no such tool) | The entry dangles in their view. Warning noise on a tolerant mise version; on an intolerant one it made *every* install fatal — which is a mise-version property, uniform and pinnable within jail-land. |
-| **A rust-less jail pruning "its" dangling entry** | Per fact 3 it deletes a link that is live for a running sibling, whose toolchain then vanishes mid-session. This is why the prune is gated. |
+| **A rust-less jail pruning "its" dangling entry** | Per fact 3 it deletes a link that is live for a running sibling. This is why the prune is gated. **2026.8.6:** with the entry deleted and mise's auto-install at its default, the sibling's next `cargo` shim run re-installed the version, re-created the entry pointing at its own project, and succeeded. So the sibling's command paid a reinstall instead of failing. With auto-install turned off, this is unmeasured. Until 2026-09-25 this row said the sibling's toolchain vanishes mid-session. |
 
 **The layered answer, as built:**
 
@@ -162,6 +168,8 @@ The four cases follow:
 > **Do not "simplify" the prune into the entrypoint.** Fact 3 is the whole reason the grant is
 > computed host-side. An unconditional in-jail prune deletes a symlink that is live for a running
 > sibling, and per fact 2 the sibling's toolchain vanishes *mid-session*, not at its next restart.
+> On mise 2026.8.6 the rust sibling's next command re-installs instead (see the table), but that
+> is one backend on one version with auto-install on, and the gate does not depend on it.
 > The same fail-safe shape guards the one-time migration: it **defers rather than prunes** when it
 > cannot establish that reclaiming is safe.
 
