@@ -381,6 +381,73 @@ func TestSectionPacksReportsTheStagedTreeWhenTheSourceIsNotVisible(t *testing.T)
 	}
 }
 
+// CHECK AND LAUNCH MUST AGREE ABOUT A PACK THAT DOES NOT LOAD
+// (docs/reference/pack-system.md#briefing-governance, roadmap row 9).
+//
+// Every packload.LoadDir problem is fatal at every launch site (run's stagePacks returns on
+// the first one). `yolo check` used to keep a pack only when LoadDir returned no problems
+// and drop one that had problems WITHOUT PRINTING THEM, so the pack passed check and the
+// launch refused it. The fixture is the shape that exposed it: `briefing/AGENTS.md`, a
+// repository's own instruction file inside the briefing directory — refused by LoadDir
+// itself (OQ-PB2) and by nothing config validation reads, so check's Packs section is the
+// only place it can surface before a launch.
+//
+// Both of check's LoadDir sites are covered, because they are two call sites: the staged
+// throwaway tree (a source visible from here) and the delivered tree under YOLO_PACK_ROOT
+// (a host-side source seen from inside a jail).
+func TestSectionPacksFailsOnALoadProblemTheLaunchRefuses(t *testing.T) {
+	writeReservedBriefingPack := func(t *testing.T, dir string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Join(dir, "briefing"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "briefing", "AGENTS.md"),
+			[]byte("Repository instructions.\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assertRefused := func(t *testing.T, r *reporter, out string) {
+		t.Helper()
+		if r.failed == 0 {
+			t.Fatalf("a pack the launch refuses (briefing/AGENTS.md) passed `yolo check`:\n%s", out)
+		}
+		for _, want := range []string{"briefing/AGENTS.md", "git mv"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("the failure must carry LoadDir's own message (%q) so check and the "+
+					"launch teach the same fix:\n%s", want, out)
+			}
+		}
+	}
+
+	t.Run("staged here", func(t *testing.T) {
+		pack := t.TempDir()
+		writeReservedBriefingPack(t, pack)
+		packsFixture(t, `{"packs": ["file://`+pack+`"]}`)
+
+		var buf bytes.Buffer
+		r := &reporter{w: &buf}
+		(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
+		assertRefused(t, r, buf.String())
+	})
+
+	t.Run("delivered under YOLO_PACK_ROOT", func(t *testing.T) {
+		missing := filepath.Join(t.TempDir(), "not-here")
+		packsFixture(t, `{"packs": ["file://`+missing+`"]}`)
+		root := t.TempDir()
+		writeReservedBriefingPack(t, filepath.Join(root, filepath.Base(missing)))
+
+		var buf bytes.Buffer
+		r := &reporter{w: &buf}
+		(&Options{Getenv: func(k string) string {
+			if k == "YOLO_PACK_ROOT" {
+				return root
+			}
+			return ""
+		}}).sectionPacks(r, jsonx.NewOrderedMap())
+		assertRefused(t, r, buf.String())
+	})
+}
+
 // The anti-vacuity control: with NO staged copy, the failure must survive. This is
 // what stops the fix above from becoming "never report a missing pack".
 func TestSectionPacksStillFailsWhenNothingWasStagedEither(t *testing.T) {

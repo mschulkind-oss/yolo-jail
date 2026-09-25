@@ -796,9 +796,10 @@ func LoadDir(root, name string) (*Pack, []string) {
 // depth, so one inside briefing/ is the dual-reader file P1 removes, one directory down.
 //
 // HERE, and at no second site, because a LoadDir problem is already fatal at every launch site
-// (run's stagePacks) and at `yolo pack lint`. NOT at `yolo check`: check/packs.go loads with
-// `len(probs) == 0` and drops a pack with problems without reporting them, so a pack carrying this
-// file passes check and is refused at launch — a gap in check, not a reason for a second site.
+// (run's stagePacks), at `yolo pack lint` and at `yolo check`, whose Packs section fails on every
+// LoadDir problem (check/packs.go loadStagedPack). Check used to drop a pack with problems without
+// reporting them, so a pack carrying this file passed check and was refused at launch; that gap
+// was closed in check, where it was, rather than answered with a second site.
 // The message is packdecl's, so the manifest's refusal of `from: "AGENTS.md"` and this one spell
 // the same move. Checked with or without a manifest: a manifest-less pack's briefing/ is the
 // convention too. Governance never reads such a file even for a caller that discards this
