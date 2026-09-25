@@ -181,9 +181,6 @@ func loadEmbeddedLocked() {
 	loadFallbackLocked()
 }
 
-// EmbeddedWritableDirs is the union of every embedded pack's writableDirs.
-func EmbeddedWritableDirs() []string { return WritableDirs(Embedded()) }
-
 // EmbeddedSharedDirs is the union of every embedded pack's sharedDirs.
 func EmbeddedSharedDirs() []string { return SharedDirs(Embedded()) }
 

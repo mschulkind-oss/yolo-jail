@@ -182,12 +182,12 @@ func ResolveProtocol(agent string, spoken []string, providerName string,
 // UnselectedAdaptations returns the conversions declared by packs yolo SHIPS and this
 // launch did NOT select — outcome 3's whole input, and nothing else's.
 //
-// IT READS THE EMBEDDED SET, which is deliberately not selection-gated (embedded.go states
-// the rule for the reservation lists, and this is the same shape of question: what is true
-// of everything yolo ships, regardless of what a particular jail loaded). The packs are
-// loaded once per process — from the build's shared content-addressed tree, adopted on first
-// use — and a launch has already loaded them by the time this runs, so this is a walk over
-// manifests in memory rather than a filesystem cost of its own.
+// IT READS THE EMBEDDED SET, which is deliberately not selection-gated here, because the
+// question is what is true of everything yolo ships, regardless of what a particular jail
+// loaded: outcome 3 names the pack to add. The packs are loaded once per process — from the
+// build's shared content-addressed tree, adopted on first use — and a launch has already
+// loaded them by the time this runs, so this is a walk over manifests in memory rather than
+// a filesystem cost of its own.
 //
 // WHAT IT BOUNDS, honestly: only a pack yolo ships can be named. A third-party pack the
 // user has not selected is invisible here, so its pairing gets outcome 4's message instead

@@ -95,7 +95,7 @@ func TestMiseDataDirFollowsTheHomeItIsGiven(t *testing.T) {
 func assertOutsideTheWorkspaceTier(t *testing.T, home, path string) {
 	t.Helper()
 	layout := entrypoint.DeriveDarwinHomeLayout(home, "/Users/Shared/yolo/proj/.yolo/home",
-		packload.EmbeddedWritableDirs(), packload.EmbeddedSharedDirs())
+		packload.WritableDirs(packload.Embedded()), packload.EmbeddedSharedDirs())
 	if len(layout.Links) == 0 {
 		t.Fatal("the layout derived no links — this assertion would pass vacuously")
 	}

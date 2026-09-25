@@ -110,8 +110,8 @@ func embeddedPack(name string) (*packload.Pack, error) {
 // These three entry points each used to run their own MaterializeEmbedded — into a shared
 // `yolo-embedded-packs-` temp dir that nothing removed, so `yolo check` re-extracted the
 // ~30-file tree three times per run and left the directory behind. The set is not
-// selection-gated and must not become so (AGENTS.md): `yolo check`'s dry-run probe renders
-// EVERY pack yolo ships, whatever this machine's config selects.
+// selection-gated and must not become so, because of what it is for: `yolo check`'s dry-run
+// probe renders EVERY pack yolo ships, whatever this machine's config selects.
 func embeddedPackSet() ([]*packload.Pack, error) {
 	packs := packload.Embedded()
 	if problems := packload.EmbeddedProblems(); len(problems) > 0 {

@@ -105,8 +105,8 @@ type DarwinHomeLayout struct {
 	// correction: it is not the pack hook that loses the credential.
 	Mirrors []DarwinHomeLink
 	// FileRedirects are the home-root FILES the container keeps as symlinks into a
-	// per-workspace directory (storage.EnsureGlobalStorage writes the same three into
-	// GlobalHome). Their targets are relative, spelled as the container spells them, and
+	// per-workspace directory (on podman, buildHomeSkeleton in internal/cli/run writes the
+	// same three into each jail's home skeleton). Their targets are relative, spelled as the container spells them, and
 	// they resolve through the Links above — so they are created after them.
 	FileRedirects []DarwinHomeLink
 }
