@@ -1,172 +1,98 @@
 ---
-title: "Base-home legacy state — implementation sketch"
+title: "Per-jail home skeleton — build sketch"
 date: 2026-09-20
 status: draft
-tags: [plan, sketch, base-home, storage, migration]
-summary: "Parking lot for the base-home legacy-state quarantine: archive directory naming, the marker code sketch, the seedAgentDir allowlist shape, and test ideas. No design decision lives here — the design is base-home-legacy-state.md and it wins on behavior."
+tags: [plan, sketch, base-home, jail-home, storage]
+summary: "Build sketch for the per-jail read-only skeleton that replaces podman's shared base home: the seed fixes that ship first, the skeleton builder and the writers it takes over, the tests and fixtures that move, and the traps found in the tree. No design decision lives here."
 ---
 
-# Base-home legacy state — implementation sketch
+# Per-jail home skeleton — build sketch
 
-**Status:** SKETCH, 2026-09-20 — incomplete, and unstable while questions are open.
+**Status:** SKETCH, 2026-09-24 — incomplete, and unstable while questions are open. Rewritten
+with the design; the previous quarantine sketch is superseded and lives in git history.
 
-**Design:** [`base-home-legacy-state.md`](base-home-legacy-state.md). **Precedence:** the
-design wins on behavior; this file is the first thing here to be wrong.
+**Design:** [`base-home-legacy-state.md`](base-home-legacy-state.md). **Precedence:** the design
+wins on behavior; this file is the first thing here to be wrong.
 
 **Reads with:** [`base-home-legacy-state.md`](base-home-legacy-state.md) (the design this
-sketches), [`jail-home.md`](../reference/jail-home.md) (the home layout it operates on).
+sketches) and [`jail-home.md`](../reference/jail-home.md) (the home layout it changes).
 
 ---
 
-## What this file is
+## Step 1 — the seed fixes (every backend, ship alone)
 
-A parking lot for material that surfaced while writing the design and is worth keeping, but
-is below the design's altitude and needs no ruling. **No design decision is made here.** If an
-entry rests on an unruled question, it carries the link and the work waits.
+- Delete `seedAgentDir` (`internal/cli/run/storagehelpers.go`) and its loop in `prepareWsState`
+  (`internal/cli/run/prepare.go`). ⚠ No test references `seedAgentDir` today, so nothing fails
+  when it goes; the new test is the one that proves it is gone. Plant a file in
+  `<state>/home/.copilot` and assert it does not reach `wsState/copilot`.
+- In `SyncClaudeJSONSeed` (`internal/storage/claudejson.go`), make the forward loop iterate
+  `claudeJSONSeedKeys` instead of `seedData.Keys()`. Test: a seed carrying `projects` and
+  `oauthAccount` forwards only `oauthAccount`, and a logged-in workspace still back-propagates.
 
-## Archive directory naming
+## Step 2 — the skeleton
 
-- Root: `filepath.Join(paths.GlobalStorage(), "archive", "base-home")`.
-- **Generation keyed by state dir, NOT by a render stamp.** `PruneHostArchive` deletes any
-  generation whose name `looksLikeArchiveStamp` parses — `YYYYMMDD-HHMMSS`
-  (`internal/prune/hostarchive.go:122-125`) — keeping the newest 3
-  (`internal/prune/prunecmd.go:268,548-549`). A stamp-shaped key would be silently pruned by
-  the 4th `yolo prune --apply`. Key on the state dir the way the `config` bucket keys on
-  `<agent>-<name>` (`internal/render/target.go:600`), which prune's own rule leaves alone.
-- Per entry: `<root>/<state-dir>/<basename>`, with collision suffixing; a re-appearing
-  identical file is reconciled through the manifest, not re-archived as `.2`.
-- Manifest: `<root>/manifest.json`, versioned, updated atomically **per entry** before the
-  next move ([design §5.3](base-home-legacy-state.md#53-disposition-archive-layout-and-manifest)).
-- **Do not reuse `hostskills.Archive` as-is:** its `EXDEV` fallback materializes symlinks and
-  reads whole files into memory (`internal/hostskills/archive.go:96-137`), contradicting the
-  migration's `Lstat`-only rule and risking an OOM on a large session store. Either grow the
-  helper with a link-preserving streaming mode or write the copy here.
+- **Root path:** blocked on [OQ-BH9](base-home-legacy-state.md#OQ-BH9). Under the leaning it is
+  `filepath.Join(paths.AgentsDir(), cname, "home")`, and a `paths` helper keeps the spelling in
+  one place.
+- **Builder:** one function taking the root, the selected packs, the config, the `host_files`
+  entries and `rt`. It runs for podman only, on the fresh-launch path, where `prepareWsState`
+  and `prepareHostFiles` run today. `prepareHostFiles` runs later in `run.go` than
+  `prepareWsState`, so either call the builder after both inputs exist, or split it into two
+  calls that share the root. Reconcile behavior is blocked on
+  [OQ-BH10](base-home-legacy-state.md#OQ-BH10).
+- **Re-point:** move the home loops, `fileMountpoints` and `HomeFileRedirects` out of
+  `storage.EnsureGlobalStorage`. It keeps the storage dirs, `EmbeddedSharedDirs` and the
+  credential migration. Also re-point the `GlobalHome` writes in `prepareWsState`
+  (`writable_home_dirs`, skills destinations, briefing `touchFile`s), in
+  `preparePackFilesGlobal` and in `prepareHostFiles`. `podmanBaseMounts` binds the root.
+- **Tests that move:** the golden argv in `assemble_test.go` (the `/home/agent:ro` line).
+  `hostfiles_test.go` asserts the `GlobalHome` link and mountpoint. `packfiles_test.go` has
+  `TestPrepareWsStateCreatesSkillsAndBriefingMountpointsInGlobalHome`.
+  `internal/storage/basehomecoredirs_test.go` pins the core dirs in `EnsureGlobalStorage`, and
+  moves to the builder. `internal/storage/shareddirs_test.go`, `sharedtier_test.go` and
+  `sharedtiermigrate_test.go` should stay green unchanged, because the shared dirs do not move.
+- **New tests:** every `-v` destination directly under `/home/agent` in the golden argv has a
+  skeleton entry or sits inside another bind. A call-site test fails if the builder's call in
+  the launch path is deleted. Attach leaves the skeleton unchanged. A fresh launch leaves
+  `<state>/home` byte-identical outside the shared dirs, the seed and the credential migration.
 
-Blocked on [OQ-BH1](base-home-legacy-state.md#OQ-BH1) for the bucket's retention and the
-opt-in delete verb.
+## Step 3 — the refusal and the check report
 
-## Marker code sketch
+Blocked on [OQ-BH13](base-home-legacy-state.md#OQ-BH13). Under the leaning:
 
-```go
-// A SEPARATE marker from StorageLayoutVersion. That one is written unconditionally
-// (internal/storage/ensure.go:277) and is already 2 on every host, so sharing it
-// stamps-without-apply.
-//
-// Detection is always-on and read-only; the marker gates only the apply.
-//   func DetectLegacyBaseHome(packs []*packload.Pack, cfg *jsonx.OrderedMap) []LegacyEntry
-//   func ApplyLegacyBaseHome(entries []LegacyEntry, stamp string) error
-//
-// Detection runs in the host-only path (insideJail short-circuit, ensure.go:257) on
-// every host command; apply runs where a TTY and the console exist, under an
-// unconditional non-blocking flock in GlobalStorage()/locks/. The lock is NOT held
-// across the prompt.
-//
-// The marker is written only after ApplyLegacyBaseHome returns success. A
-// zero-candidate apply discharges the debt and stamps; a transient failure leaves it
-// unstamped and retried; a deterministic per-entry failure is recorded as skipped and
-// does not block the marker (always-on detection re-reports it).
-```
+- `noteLegacyBaseHome` and `legacyBaseHomeHatch` (`internal/cli/run/basehomedisclosure.go`)
+  and their tests go, and `ensureStorage` returns only `EnsureGlobalStorage`'s error.
+- `internal/cli/check/basehomedisclosure.go` stays, reworded.
 
-Blocked on [OQ-BH2](base-home-legacy-state.md#OQ-BH2) (marker mechanism and where apply
-runs) and [OQ-BH3](base-home-legacy-state.md#OQ-BH3) (whether apply prompts).
+## Step 4 — the Apple Container seed
 
-## Classification predicate sketch
+Blocked on [OQ-BH12](base-home-legacy-state.md#OQ-BH12). It needs a Mac.
 
-```go
-// Derived at runtime from declarations that already exist — no new packdecl field
-// for v1.
-//
-//  0. skip/refuse any root that is not a real directory, and any path under a
-//     declared machine-scope shared dir (packload.EmbeddedSharedDirs) -> CREDENTIAL
-//  1. basename in the credential set derived from packs' shared_credentials hooks
-//     (from-path basenames) + {.credentials.json, auth.json, oauth_creds.json}
-//        -> CREDENTIAL
-//  2. relPath matches a declared config surface, joined through
-//     paths.HomeFileRedirects so "~/.claude.json" maps to ".claude/claude.json"
-//        -> CONFIG   (NB: .claude/claude.json still carries projects/mcpServers;
-//                     those keys need a separate reduction via claudeJSONSeedKeys)
-//  3. relPath under a declared content destination — the resolved skills/briefing/
-//     files destinations from packload.ResolveDestinations
-//        -> CONTENT
-//  4. otherwise -> RUNTIME (archive)
-//
-// The join is home-relative: a surface.Path like "~/.copilot/config.json" trims "~/"
-// and compares against the state dir's path. A directory-valued surface owns its
-// subtree. Symlinks are Lstat'd, never followed.
-```
+## Step 5 — docs and comments
 
-Blocked on [OQ-BH4](base-home-legacy-state.md#OQ-BH4) (core list vs packdecl field vs
-derive).
+- `jail-home.md`: reserving a name is not the same as creating a directory, and the base
+  section changes. `storage-and-config.md` changes too.
+- Rewrite the code comments that cite the pre-rewrite section numbers:
+  `internal/basehome/classify.go`, `internal/paths/basehomecore.go`,
+  `internal/storage/ensure.go`, `internal/cli/run/run.go`,
+  `internal/cli/check/basehomedisclosure.go`.
+- The comment in `internal/render/modes.go` says the jail home "is bind-mounted from
+  `paths.GlobalHome()`". The comment in `internal/config/loopholeplacement.go` calls
+  `GlobalHome` "the shared /home/agent backing tree".
 
-## seedAgentDir allowlist shape
+## Traps found in the tree
 
-```go
-// internal/cli/run/storagehelpers.go:42 — replace the "every top-level regular file"
-// loop with a predicate call. Lstat, NOT Stat: the current body follows symlinks
-// (storagehelpers.go:59) and would seed a link named like a credential whose target
-// is runtime.
-//
-//   for _, e := range entries {
-//       if e.IsDir() { continue }
-//       if !seedable(subdir, e.Name()) { continue }
-//       ... copyFile2 ...
-//   }
-//
-// seedable(subdir, name) = credentialName(name) || configSurface(subdir, name)
-//
-// NOTE: seedAgentDir already skips directories (storagehelpers.go:52), so nested
-// config surfaces (~/.pi/agent/*, ~/.gemini/antigravity-cli/*, ~/.oh-omp/agent/
-// models.yml) are not seeded by this predicate either. That is a known gap, not a
-// regression.
-//
-// Ships in the SAME change as the move: the seed runs later in the launch than
-// ensureStorage (run.go:129 vs run.go:1046 -> prepare.go:409), so a deferred move
-// would otherwise re-infect every workspace.
-```
-
-Blocked on [OQ-BH5](base-home-legacy-state.md#OQ-BH5) (how far prevention goes).
-
-## Shadow-layer sketch (if ruled)
-
-```go
-// podman: for each packload.EmbeddedWritableDirs() NOT in packload.WritableDirs(selected),
-// emit a nested mount over the base dir, e.g.:
-//   -v <wsState>/shadow/<dir>:/home/agent/<dir>
-// where <wsState>/shadow/<dir> is an empty per-workspace dir. Never over a selected pack's
-// real overlay (assemble.go:376-379).
-```
-
-Blocked on [OQ-BH6](base-home-legacy-state.md#OQ-BH6).
-
-## Test ideas
-
-- A fixture base home with a `.copilot/session-store.db` (+ `-wal`/`-shm`), a
-  `.copilot/config.json`, a `session-state/events.jsonl`, and a machine-scope credential dir;
-  assert only the runtime leaves move and the credential dir is untouched.
-- Assert the SQLite sibling set stays together (all three moved, or none).
-- Assert the top-level state dirs still exist after a move (the `:ro` mountpoint constraint).
-- Assert the marker is **not** written when a transient move fails, **not** written when the
-  apply is deferred (no TTY), **is** written on success, and is written on a zero-candidate run.
-- Assert a second run is a no-op (idempotence) and a resumed run continues past a moved entry.
-- Assert a deterministic per-entry failure (dangling symlink) is skipped and disclosed, and the
-  rest of the migration proceeds.
-- Assert `seedAgentDir` no longer copies a runtime file into `wsState`, and does not follow a
-  symlink whose target is runtime.
-- Assert the in-jail resolver (`insideJail`) short-circuits the apply.
-- Assert `hostskills.Archive`'s cross-device fallback is not exercised by this migration
-  unmodified (it materializes symlinks / reads whole files).
-- Assert the `base-home` archive bucket survives `yolo prune --apply` (non-stamp key).
-- A test that fails if the apply call site is deleted — pinning the callee while the caller is
-  unpinned is not a test.
-- A negative test for [§8](base-home-legacy-state.md#8-what-this-does-not-cover):
-  `PruneShadowedHome`'s registry does not gain a pack state dir.
-
-## Open threads
-
-- The 34 MB instance is host-only; no in-jail test can assert on it. The fixture is synthetic.
-- `.gemini/antigravity-cli/` is the mixed-directory test case; keep it in the fixture.
-- `.claude/claude.json` is CONFIG and is not moved, but its `projects`/`mcpServers` keys still
-  leak; the companion reduction is via `claudeJSONSeedKeys`
-  (`internal/storage/claudejson.go:10-13`).
-- Retired/unknown pack state dirs are a walk-set question, not just a classification one
-  ([design §1](base-home-legacy-state.md#1-the-base-home-is-a-union-and-the-union-is-the-defect)).
+- `PruneOrphanAgentStaging` removes the **whole** `AgentsDir/<cname>` once it is neither live
+  nor tracked and is older than one hour. The skeleton goes with it, which is fine because no
+  container holds it. `internal/cli/capturehost.go` also `RemoveAll`s `AgentsDir/<cname>` after
+  a capture.
+- `jailcontent.PrepareSkills` clears only the contents of `skills-*` under `AgentsDir/<cname>`,
+  so it never touches a sibling `home/`.
+- `EnsureGlobalStorage` has two callers: `ensureStorage` and `internal/cli/check/check.go`.
+- `prepareHostFiles` is gated on `rt != "container"`. `preparePackFilesGlobal` skips
+  `container` and `macos-user`. `macos-user` returns in `run.go` before `prepareWsState`.
+- The workspace flock's error path is fail-open (`internal/cli/run/flock.go`), so reconcile must
+  not remove anything when the lock was not acquired.
+- **Verification:** a nested jail covers the argv, the mountpoints and the EROFS root. It
+  cannot cover rootless ID mapping, because it forces `--userns=host`. That check needs a real
+  rootless host or CI, reported with `podman info --format '{{.Host.Security.Rootless}}'`.

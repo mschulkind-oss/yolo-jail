@@ -53,9 +53,10 @@ func EnsureGlobalStorage(migrate func()) error {
 	overlaySubdirs := append([]string{}, packload.EmbeddedWritableDirs()...)
 	overlaySubdirs = append(overlaySubdirs, packload.EmbeddedSharedDirs()...)
 	// The non-pack half is paths.BaseHomeCoreDirs, not an inline list: the base-home
-	// legacy-state sweep must EXCLUDE exactly what core provisions here
-	// (docs/design/base-home-legacy-state.md §5.1, §8), and a second copy of this list is
-	// a sweep that proposes archiving .ssh.
+	// legacy-state sweep must EXCLUDE exactly what core provisions here (the detection rule
+	// is `git show 33e53f0e:docs/design/base-home-legacy-state.md` §5.1; that sweep's fate is
+	// OQ-BH13 of the current doc, whose §2.1 skeleton also starts from this list), and a
+	// second copy of this list is a sweep that proposes archiving .ssh.
 	overlaySubdirs = append(overlaySubdirs, paths.BaseHomeCoreDirs()...)
 	for _, sub := range overlaySubdirs {
 		if err := os.MkdirAll(filepath.Join(globalHome, sub), 0o755); err != nil {
