@@ -9,8 +9,13 @@ summary: "Podman mounts ONE machine-wide base, <state>/home, read-only at /home/
 # Why does every podman jail share one home? It should not — a per-jail skeleton instead
 
 **Status:** ACCEPTED, 2026-09-25: rewritten around a new premise after the maintainer's review,
-then every open question settled the same day. Nothing built. MEASURED: what the base holds on two bases, EROFS on the home root, the jail
-writing through `/workspace/.yolo/home`, the machine credential file sitting in the base, and a
+then every open question settled the same day. **Steps 1–3 of [§8](#8-build-order-and-done-conditions)
+BUILT 2026-09-25** (the seed fixes, the podman skeleton, the refusal's deletion and the reworded
+`yolo check` report); a container run of `integration/homeskeleton_test.go` and the rootless
+check are still owed. **Steps 4, 4a and 5 BUILT 2026-09-25**: the Apple Container seed paths
+([OQ-BH12](#OQ-BH12), host side only; a Mac run is still owed), name reservation over the
+selected packs only ([OQ-BH14](#OQ-BH14)), and the reference docs and code comments.
+MEASURED: what the base holds on two bases, EROFS on the home root, the jail writing through `/workspace/.yolo/home`, the machine credential file sitting in the base, and a
 host `rmdir` detaching a bind (in a user+mount namespace; `internal/prune/shadowed.go` records
 the same failure in a real jail, 2026-07-04). UNMEASURED: the Apple Container seed defect (no
 Mac), rootless ID mapping of a host-built skeleton, and a jail without claude actually reading
@@ -32,11 +37,13 @@ the machine's Claude refresh token, through the base (agy's dir likewise).
 
 ## Settled, 2026-09-25
 
-Nothing is left for you to rule. The five questions closed in one review
-([§10](#10-decision-ledger)):
+The five questions closed in one review ([§10](#10-decision-ledger)). **One is open for you,
+found in the build:** [OQ-BH15](#OQ-BH15), whether `host_files`' surface-path reservation
+narrows to the selected packs too. It is the one rule left that reads every shipped pack.
 
-- **Yours:** [OQ-BH14](#OQ-BH14): name reservation covers only the **selected** packs, so
-  [DIR-BH1](#10-decision-ledger) has no exception left. [OQ-BH10](#OQ-BH10): a new skeleton per
+- **Yours:** [OQ-BH14](#OQ-BH14): name reservation covers only the **selected** packs'
+  directories, so [DIR-BH1](#10-decision-ledger)'s one remaining shipped-set rule is the
+  surface-path list that [OQ-BH15](#OQ-BH15) asks about. [OQ-BH10](#OQ-BH10): a new skeleton per
   fresh launch, never edited. [OQ-BH13](#OQ-BH13): the launch refusal and its hatch go with the
   skeleton; `yolo check` keeps a reworded report.
 - **Delegated to the build** ("an implementation detail"): [OQ-BH9](#OQ-BH9), the skeleton
@@ -124,7 +131,10 @@ one, now covers only the selected packs ([OQ-BH14](#OQ-BH14)).
 
 Built from **this launch's** loaded config and selected packs, and nothing else:
 
-- `paths.BaseHomeCoreDirs()`, in full, and the eight single-file mountpoints (`fileMountpoints`).
+- Core's own dirs, `paths.HomeSkeletonCoreDirs()`, and the eight single-file mountpoints
+  (`paths.HomeFileMountpoints()`). The core dirs are `paths.BaseHomeCoreDirs()` without the pi
+  pack's `.pi/agent`, which in a skeleton would put a `~/.pi` in every jail; the pi pack declares
+  `.pi` itself. `BaseHomeCoreDirs` keeps it for the legacy walk, since an old base holds it.
 - The mountpoints for the selected packs' `WritableDirs` and `SharedDirs`.
 - The three `paths.HomeFileRedirects()` links. A link whose target dir is not bound dangles and
   reads as absent, which is correct.
@@ -159,7 +169,9 @@ one-hour age floor).
   redirects) are **fatal**: each loop returns its error and `Run` exits 1. The config- and
   pack-driven ones (`prepareWsState`, `prepareHostFiles`, `preparePackFilesGlobal`) are
   **best-effort** (`_ =`). The skeleton keeps that split, and a failure names the path, since
-  podman's own error would name neither.
+  podman's own error would name neither. It also keeps their ORDER: every fatal entry, the
+  redirects included, is made before any best-effort one, so a pack entry landing on a redirect
+  name fails on its own, as a warning, instead of making the redirect fail the launch.
 
 ### 2.4 The three rules the shared base obeys by accident
 
@@ -243,6 +255,32 @@ claude-only jail probably fails with EROFS today (INFERRED, untested). Under the
 the same whatever the measurement shows: gate `StagingFor` on the selection too, so an
 unselected pack's dir is an ordinary path and the entry gets its normal skeleton link.
 
+**Built 2026-09-25.** The measurement was not taken; the fix does not depend on it.
+
+- `writable_home_dirs` reserves core's names plus the selected packs' writable and shared
+  dirs, and a refusal names the pack. The launch passes its staged set; validation, which
+  runs before staging, resolves the same selection from the user config and the pack store,
+  `needs` closure included (`resolveSelectedPacks`, `internal/config/selectedpacks.go`). A
+  configured pack the store cannot resolve reserves nothing, because staging refuses that
+  launch anyway.
+- `StagingFor` and its three readers (the workspace-overlay half, the skeleton, the argv)
+  take the same selected packs.
+- **Review fixes, 2026-09-25.** A destination under a selected pack's *shared* dir, or under a
+  `writable_home_dirs` entry, is already under a read-write bind and is not staged again:
+  staging it was a second bind at one destination, which podman refuses, and the ruling made
+  that easy to reach (`writable_home_dirs: [".codex"]` beside `~/.codex/x.json`). Apple
+  Container stages nothing: its home is the read-write `wsState` bind, and nothing on that
+  backend created the backing dir an emitted bind named. Validation loads a configured pack
+  with an `only`/`exclude` filter from a copy staged through the same filter, since the filter
+  can drop the manifest.
+- **Two reservations still hold in a workspace that selects no pack owning them.** `.claude`
+  stays a reserved `writable_home_dirs` segment, because core's `~/.claude.json` redirect
+  targets `.claude/claude.json`; that is core reserving its own link's target, not a pack's
+  directory. And `host_files` still refuses a destination any SHIPPED pack composes as a
+  surface (`builtinSurfacePaths`, e.g. `~/.codex/config.toml`) whatever the selection. That
+  list names files rather than directories, so this ruling did not reach it;
+  [OQ-BH15](#OQ-BH15) asks whether DIR-BH1 narrows it too.
+
 ### 2.9 Backends
 
 | Backend | Today | After |
@@ -265,6 +303,25 @@ A separate defect, there today whatever happens to podman. `prepareWsState` stri
 seed never reaches an Apple Container jail and never learns from one, and that backend's homes
 carry unused undotted dirs (`~/claude`, `~/npm-global`). MEASURED in a `/tmp` copy of HEAD;
 **UNMEASURED on hardware.** The fix is [OQ-BH12](#OQ-BH12).
+
+**Built 2026-09-25, host side.** On `rt=container`, `prepareWsState` syncs the seed with
+`wsState/.claude.json` (`claudeJSONInWsState`), creates the selected packs' dirs at their
+dotted names plus `go`, and creates none of podman's dot-stripped bind sources
+(`preparePodmanBindSources`). The one-time legacy migrations (`claude-projects` and the
+rest) write to the dotted paths there too (`wsStateHomePath`). Unit tests pin the paths
+(`internal/cli/run/acseed_test.go`). Whether a real Apple Container jail then boots logged in
+is still unmeasured; it needs a Mac, and the Apple Container parity CI workflow is the
+instrument.
+
+**Found in review, 2026-09-25: the seed wrote through links.** `SyncClaudeJSONSeed` read and
+wrote the workspace file with calls that follow a symlink, and that file is one the jail can
+replace: `wsState/claude/claude.json` on podman, and on Apple Container `wsState/.claude.json`,
+which is the jail's own `~/.claude.json`. A jail that planted a link there chose which host file
+the next fresh launch overwrote with the seed's JSON, and which host file's login the seed
+learned (the hazard [§2.2](#22-where-it-lives-host-only-never-in-wsstate) names). Fixed: a side
+that is not a regular file takes no part in the sync, the open is `O_NOFOLLOW`, and the write is
+a temp file renamed over the path. MEASURED as a unit test on both backends' paths
+(`TestTheSeedDoesNotWriteThroughAJailPlantedLink`, and `internal/storage/claudejsonlink_test.go`).
 
 ## 4. What this does not cover
 
@@ -324,29 +381,82 @@ carry unused undotted dirs (`~/claude`, `~/npm-global`). MEASURED in a `/tmp` co
 2. **The skeleton**: the builder, the writers re-pointed, the podman bind switched, the golden
    argv updated.
 3. **The refusal and the check report**, per [OQ-BH13](#OQ-BH13), in the same change as step 2.
-4. **The Apple Container seed fix**, per [OQ-BH12](#OQ-BH12). It needs a Mac.
+4. **The Apple Container seed fix**, per [OQ-BH12](#OQ-BH12). It needs a Mac. Beside it, the
+   plan's step 4a: **name reservation over the selected packs**, per [OQ-BH14](#OQ-BH14).
 5. **The docs**: `jail-home.md`, `storage-and-config.md`, and the code comments of [§7](#7-what-died).
 
-**Done when:**
+**Done when** (each followed by where it stands, 2026-09-25):
 
 - Mountinfo shows `/home/agent` bound `:ro` from the skeleton; `touch ~/.x` fails with EROFS.
+  *Test written, not yet run in a container: `TestPodmanHomeIsAPerJailReadOnlySkeleton`
+  (`integration/homeskeleton_test.go`).*
 - In a claude-only jail, `~/.codex`, `~/.copilot`, `~/.oh-omp`, `~/.pi-lens` and
-  `~/.gemini-shared-credentials` do not exist.
+  `~/.gemini-shared-credentials` do not exist. *Met at the builder
+  (`TestTheSkeletonCarriesOnlyTheSelectedPacksDirs`); the integration test above checks
+  `~/.codex`, `~/.copilot`, `~/.pi` and `~/.gemini-shared-credentials` in a container, not yet
+  run. `~/.pi` is checked because review found the first build put it in every jail, from core's
+  `.pi/agent` (`TestCoreSkeletonDirsNameNoPacksDir` now pins core's list).*
 - In a jail selecting neither claude nor agy (e.g. `packs: ["codex"]`), `~/.claude` and
   `~/.claude-shared-credentials` do not exist, `~/.claude.json` dangles, and no machine
-  `oauthAccount` or refresh token is readable anywhere under `~`.
+  `oauthAccount` or refresh token is readable anywhere under `~`. *The same two tests; the
+  "readable anywhere under `~`" half is asserted by neither.*
 - No other workspace's `writable_home_dirs`/`host_files` entries appear; a dropped `host_files`
   home-root link is gone at the next fresh launch. Attach leaves the skeleton byte-identical.
+  *Met: `TestEachFreshLaunchGetsANewSkeleton`, and `TestAttachLeavesTheSkeletonByteIdentical`,
+  which drives the real `attachExisting` up to its exec (a real runtime is the one step it does
+  not reach).*
 - A fresh launch writes nothing into `<state>/home` except the shared dirs, the seed file and
-  the credential migration; a snapshot test holds everything else byte-identical.
+  the credential migration; a snapshot test holds everything else byte-identical. *Met for the
+  writers the snapshot drives: `TestAFreshLaunchLeavesTheMachineStoreByteIdentical`,
+  `TestEnsureGlobalStorageProvisionsNoHome`. `TestOnlyTheListedFunctionsNameTheMachineStore`
+  pins the call sites: only the functions of `internal/cli/run` it lists may name
+  `paths.GlobalHome()`, and each one that writes is one the snapshot drives. Not pinned: a write
+  that spells the path another way, or one made in another package.*
 - A new claude workspace boots logged in and gets no `claude.json` key outside
-  `claudeJSONSeedKeys`. A file planted in `<state>/home/.copilot` reaches no workspace.
+  `claudeJSONSeedKeys`. A file planted in `<state>/home/.copilot` reaches no workspace. *Met
+  at the unit level: `TestSeedForwardsOnlyTheLoginKeys`, `TestALoggedInWorkspaceStillBackPropagates`,
+  `TestAFilePlantedInTheMachineStoreReachesNoWorkspace`; "boots logged in" is not run.*
 - A test over the golden argv fails if any destination directly under `/home/agent` has no
-  skeleton entry; another fails if the builder's call site in the launch path is deleted.
+  skeleton entry; another fails if the builder's call site in the launch path is deleted. *Met:
+  `TestEveryHomeBindHasASkeletonEntry`, `TestRunContainerBuildsTheSkeletonOnTheFreshPath`; each
+  was run against a private copy with its wiring removed, and failed. The call-site test pins the
+  builder's result into the argv input statement by statement, requires exactly one call, and
+  refuses any other caller in the package; its first cut checked only the field's name, and
+  review showed a dropped assignment passing it.*
 - **Rootless, on a real host or in CI; a nested jail cannot show this**, since it forces
   `--userns=host`. The report includes `podman info --format '{{.Host.Security.Rootless}}'` =
   `true`, a fresh launch boots, `stat -c '%u:%g %a'` of `/home/agent` and of a mountpoint match
-  today's, and a `writable_home_dirs` mount works.
+  today's, and a `writable_home_dirs` mount works. *Not yet: owed to CI, which runs the
+  integration suite rootless, or a real rootless host. The integration test exercises every
+  half but the `Rootless` line, which is the reporter's: its launches boot, it prints the `stat`
+  lines to compare, and its `writable_home_dirs` subtest writes through a rw bind nested in the
+  `:ro` skeleton.*
+- **Step 4:** a new Apple Container workspace boots logged in from the seed, and its home has
+  no undotted `~/claude` or `~/npm-global`. *Met on the host side only:
+  `TestAppleContainerSeedReachesTheJailsClaudeJSON`, `TestAppleContainerLoginIsLearnedByTheSeed`,
+  `TestPrepareWsStateLaysOutEachBackendsOwnPaths`, `TestLegacyMigrationsLandInEachBackendsLayout`,
+  `TestTheSeedDoesNotWriteThroughAJailPlantedLink`, and `runContainer`'s `rt` argument is pinned
+  by `TestRunContainerHandsTheSelectionToTheReservationReaders`. The boot is not run; it needs a
+  Mac.*
+- **Step 4a:** `writable_home_dirs: [".codex"]` passes in a claude-only workspace and is
+  refused once codex is selected, naming codex; a `host_files` entry under `~/.codex/` works
+  in a claude-only jail. *Met: `TestWritableHomeDirCodexIsLegalUntilCodexIsSelected` (through
+  `ValidateConfig`), `TestAConfiguredPacksDirIsReserved`, `TestStagingForKeysOnTheSelectedPacks`,
+  `TestAHostFilesEntryUnderAnUnselectedPacksDirValidates`, and
+  `TestAHostFilesEntryUnderAnUnselectedPacksDirIsStaged` (the backing dir, the skeleton
+  mountpoint and the bind, for claude-only and for codex selected);
+  `TestRunContainerHandsTheSelectionToTheReservationReaders` pins `runContainer`'s arguments,
+  and `TestTheSkeletonAndTheBindSourcesDeriveWritableHomeDirsFromTheSelection` the skeleton's
+  and the bind sources' own. The review fixes: `TestAWritableHomeDirCoversAHostFilesEntryUnderIt`,
+  `TestAHostFilesEntryUnderASelectedPacksSharedDirIsNotStaged`,
+  `TestAppleContainerStagesNoHostFilesWritableDir`, `TestAFilteredOutManifestReservesNothing`.
+  Each was run against a private copy with the old behavior or its wiring restored, and
+  failed. Not run in a container.*
+- **Step 5:** `jail-home.md`, `storage-and-config.md` and `agent-credentials.md` describe the
+  skeleton, the machine store, reservation and the seed; the code comments of [§7](#7-what-died)
+  are re-pointed. *Met; the bare `§` numbers in `internal/basehome` are re-pointed at the
+  pre-rewrite text (`git show 030c8f52:docs/design/base-home-legacy-state.md`) by that
+  package's header rather than one by one.*
 
 ## 9. Open Questions
 
@@ -432,6 +542,25 @@ carry unused undotted dirs (`~/claude`, `~/npm-global`). MEASURED in a `/tmp` co
    > like the other packs don't exist … packs could come from anywhere and be added, removed,
    > whatever."* Consequences in [§2.8](#28-reservation-is-a-rule-about-config-names-not-about-directories).
 
+6. 💬 **OQ-BH15: Does `host_files`' surface-path reservation cover only the selected packs
+   too?** Found while building [OQ-BH14](#OQ-BH14), which ruled on directories. `host_files`
+   still refuses a destination that ANY shipped pack composes as a surface
+   (`builtinSurfacePaths`, `internal/config/hostfiles.go`), so `~/.codex/config.toml` is refused
+   in a claude-only workspace, where nothing composes it. That is an unselected pack's effect,
+   which [DIR-BH1](#10-decision-ledger) rules out. Options: (a) narrow it to the selected packs,
+   with validation resolving the selection as `writable_home_dirs` now does
+   (`resolveSelectedPacks`); (b) keep it as DIR-BH1's one named exception.
+
+   <!-- vantage: oq id=OQ-BH15 leaning="Narrow it to the selected packs. The two-writers case it guards is still refused at launch for every selected pack, embedded or configured, by config.SurfaceCollisions over the loaded packs, so narrowing loses no refusal a jail could hit; and OQ-BH14's reason (other packs are treated as if they do not exist) applies to a file as much as to a directory." -->
+
+   _Leaning:_ (a). The collision it guards against, two writers for one file, is still refused
+   at launch for every selected pack, embedded or configured, by `config.SurfaceCollisions` over
+   the loaded packs. So narrowing loses no refusal a jail could hit, and
+   [OQ-BH14](#OQ-BH14)'s reason (the other packs are treated as if they do not exist) applies to
+   a file as much as to a directory. Against it: the list is read inside `checkHostFiles`,
+   which the loader, validation and `SourceLessHostFilesFrom` all call, so each of them would
+   need the selection.
+
 ## 10. Decision Ledger
 
 | ID | Ruling / Decision | Date | Settled in | Built |
@@ -440,19 +569,19 @@ carry unused undotted dirs (`~/claude`, `~/npm-global`). MEASURED in a `/tmp` co
 | R2 | **Move over delete**; any delete path is explicit opt-in. *Still binds*, the same way | 2026-09-20 | [§2.9](#29-backends) | — |
 | R3 | **Fail closed**: no TTY or unconfirmed safety ⇒ do nothing, leave the marker unstamped, retry later. *Met trivially*: no migration, no marker | 2026-09-20 | [§7](#7-what-died) | — |
 | R4 | **Generic**: every pack state dir, every backend (podman, `container`, macos-user). *Still binds*: [§2.9](#29-backends) covers all three | 2026-09-20 | [§2.9](#29-backends) | — |
-| DIR-BH0 | **The maintainer's call:** no `yolo base-home --archive` verb; the user runs a printed `mv`. The verb was built and deleted the same day (comment in `internal/cli/run/basehomedisclosure.go`, commit `1f440af3`) | 2026-09-21 | [OQ-BH13](#OQ-BH13) | yes |
-| DIR-BH1 | **Principle, the maintainer's:** *"a non-selected pack can never have an impact."* No exception remains: [OQ-BH14](#OQ-BH14) narrowed name reservation to the selected packs | 2026-09-25 | [§1](#1-the-question-and-the-answer) | — |
-| DIR-BH2 | **Direction, the maintainer's:** *"So basically this directory seems like it's always empty and there's some complication with sharing across jails because then they could have different packs. Why is this not just per jail? It seems like it's nothing."* After the investigation: *"yes rewrite"*. What he directed: per jail, not shared, the doc rewritten around that. **This design's reading, not his words:** a `:ro` skeleton from the selected packs, `<state>/home` kept as the machine store, alternative B rejected ([§5](#5-alternatives-with-verdicts)) | 2026-09-25 | [§2](#2-the-design-a-per-jail-skeleton) | — |
+| DIR-BH0 | **The maintainer's call:** no `yolo base-home --archive` verb; the user runs a printed `mv`. The verb was built and deleted the same day (commit `1f440af3`; the comment recording why, "Why a refusal and not a verb", is in `git show 1f440af3:internal/cli/run/basehomedisclosure.go`, a file step 3 deleted with the refusal) | 2026-09-21 | [OQ-BH13](#OQ-BH13) | yes |
+| DIR-BH1 | **Principle, the maintainer's:** *"a non-selected pack can never have an impact."* [OQ-BH14](#OQ-BH14) narrowed name reservation to the selected packs; one shipped-set rule remains, `host_files`' surface-path reservation, open as [OQ-BH15](#OQ-BH15) | 2026-09-25 | [§1](#1-the-question-and-the-answer) | yes, 2026-09-25: the skeleton, including core's dirs (`paths.HomeSkeletonCoreDirs` drops the pi pack's `.pi/agent`), and name reservation ([OQ-BH14](#OQ-BH14)). One shipped-set rule is left in config validation and was not ruled on: `host_files`' surface-path reservation ([§2.8](#28-reservation-is-a-rule-about-config-names-not-about-directories)) |
+| DIR-BH2 | **Direction, the maintainer's:** *"So basically this directory seems like it's always empty and there's some complication with sharing across jails because then they could have different packs. Why is this not just per jail? It seems like it's nothing."* After the investigation: *"yes rewrite"*. What he directed: per jail, not shared, the doc rewritten around that. **This design's reading, not his words:** a `:ro` skeleton from the selected packs, `<state>/home` kept as the machine store, alternative B rejected ([§5](#5-alternatives-with-verdicts)) | 2026-09-25 | [§2](#2-the-design-a-per-jail-skeleton) | yes, podman, 2026-09-25 |
 | OQ-BH1 | **Superseded by DIR-BH2.** Archive location and retention: no archive exists; legacy bytes stay in place, unmounted | 2026-09-25 | [§7](#7-what-died) | — |
 | OQ-BH2 | **Superseded by DIR-BH2: no migration exists.** The same reason closes [OQ-BH3](#10-decision-ledger) (automatic move or confirmation), [OQ-BH6](#10-decision-ledger) (shadow layer, which a per-jail skeleton carries all the way, [§5](#5-alternatives-with-verdicts) A) and [OQ-BH8](#10-decision-ledger) (partial failure of a move). This row was trigger and marker | 2026-09-25 | [§7](#7-what-died) | — |
-| OQ-BH4 | **Closed by this design, not by a ruling.** The launch path no longer classifies; the one remaining allowlist is `claudeJSONSeedKeys`, core-owned as today. The code comments citing this id (`internal/paths/basehomecore.go`, `internal/storage/basehomecoredirs_test.go`) point here | 2026-09-25 | [§2.7](#27-the-seed) | — |
-| OQ-BH5 | **Closed by this design, not by a ruling, split.** The seed half: delete `seedAgentDir` rather than allowlist it, its inputs since April being legacy-only (INFERRED). The posture half is now [OQ-BH13](#OQ-BH13) | 2026-09-25 | [§2.7](#27-the-seed) | — |
+| OQ-BH4 | **Closed by this design, not by a ruling.** The launch path no longer classifies; the one remaining allowlist is `claudeJSONSeedKeys`, core-owned as today. The code comment citing this id (`internal/paths/basehomecore.go`) points here | 2026-09-25 | [§2.7](#27-the-seed) | — |
+| OQ-BH5 | **Closed by this design, not by a ruling, split.** The seed half: delete `seedAgentDir` rather than allowlist it, its inputs since April being legacy-only (INFERRED). The posture half is now [OQ-BH13](#OQ-BH13) | 2026-09-25 | [§2.7](#27-the-seed) | yes, 2026-09-25 (`seedAgentDir` deleted) |
 | OQ-BH7 | **Superseded by DIR-BH2 for the container base**: no migration, so nothing to reuse [`OQ-HT2`](../reference/macos-user-home-tiers.md#oq-ht2)'s discard for; macos-user never mounts `<state>/home` or reaches `prepareWsState`. **Its macos-user half is dropped from this doc**: reopening [`OQ-HT2`](../reference/macos-user-home-tiers.md#oq-ht2) for an account used for real work belongs to [`../reference/macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md) | 2026-09-25 | [§4](#4-what-this-does-not-cover) | — |
-| OQ-BH9 | **Delegated to the build:** the skeleton lives under `paths.AgentsDir()/<cname>/`, reaped by `PruneOrphanAgentStaging` | 2026-09-25 | [§2.2](#22-where-it-lives-host-only-never-in-wsstate) | — |
-| OQ-BH10 | **The maintainer's ruling:** a new skeleton per fresh launch, never modified afterwards | 2026-09-25 | [§2.4](#24-the-three-rules-the-shared-base-obeys-by-accident) | — |
-| OQ-BH12 | **Delegated to the build:** runtime-aware seed paths in `prepareWsState`, verified on a Mac, landing separately | 2026-09-25 | [§3](#3-the-apple-container-seed-defect) | — |
-| OQ-BH13 | **The maintainer's ruling:** delete the launch refusal and `YOLO_ALLOW_LEGACY_BASE_HOME` with the skeleton; keep `yolo check`'s report, reworded | 2026-09-25 | [§8](#8-build-order-and-done-conditions) | — |
-| OQ-BH14 | **The maintainer's ruling:** reserve only the selected packs' directories; an unselected pack is treated as nonexistent | 2026-09-25 | [§2.8](#28-reservation-is-a-rule-about-config-names-not-about-directories) | — |
+| OQ-BH9 | **Delegated to the build:** the skeleton lives under `paths.AgentsDir()/<cname>/`, reaped by `PruneOrphanAgentStaging` | 2026-09-25 | [§2.2](#22-where-it-lives-host-only-never-in-wsstate) | yes, 2026-09-25 (`paths.HomeSkeletonRoot`) |
+| OQ-BH10 | **The maintainer's ruling:** a new skeleton per fresh launch, never modified afterwards | 2026-09-25 | [§2.4](#24-the-three-rules-the-shared-base-obeys-by-accident) | yes, 2026-09-25 (`buildHomeSkeleton`) |
+| OQ-BH12 | **Delegated to the build:** runtime-aware seed paths in `prepareWsState`, verified on a Mac, landing separately | 2026-09-25 | [§3](#3-the-apple-container-seed-defect) | host side, 2026-09-25 (`claudeJSONInWsState`, `preparePodmanBindSources`); the Mac run is owed |
+| OQ-BH13 | **The maintainer's ruling:** delete the launch refusal and `YOLO_ALLOW_LEGACY_BASE_HOME` with the skeleton; keep `yolo check`'s report, reworded | 2026-09-25 | [§8](#8-build-order-and-done-conditions) | yes, 2026-09-25 |
+| OQ-BH14 | **The maintainer's ruling:** reserve only the selected packs' directories; an unselected pack is treated as nonexistent | 2026-09-25 | [§2.8](#28-reservation-is-a-rule-about-config-names-not-about-directories) | yes, 2026-09-25 (`resolveSelectedPacks`, `reservedHomeSegments`, `StagingFor`; AGENTS.md's bullet rewritten) |
 
 ## Appendix A: Evidence
 

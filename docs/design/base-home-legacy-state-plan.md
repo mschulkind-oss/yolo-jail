@@ -8,8 +8,63 @@ summary: "Build sketch for the per-jail read-only skeleton that replaces podman'
 
 # Per-jail home skeleton — build sketch
 
-**Status:** SKETCH, 2026-09-25 — incomplete; every design question is now settled. Rewritten
-with the design; the previous quarantine sketch is superseded and lives in git history.
+**Status:** SKETCH, 2026-09-25 — every design question this sketch builds is settled; one
+found in the build is open ([OQ-BH15](base-home-legacy-state.md#OQ-BH15), which changes no step
+here). **Every step BUILT 2026-09-25**: 1, 2 and 3 first, then 4, 4a and 5, then the review
+fixes below. Still owed: a container run of `integration/homeskeleton_test.go`, the rootless
+check (CI or a real rootless host), and a Mac run of step 4. Rewritten with the design; the previous quarantine sketch is superseded
+and lives in git history.
+
+**Where the build departed from this sketch** (2026-09-25):
+
+- The builder is ONE call, `buildHomeSkeleton` (`internal/cli/run/homeskeleton.go`), made in
+  `runContainer` after `prepareHostFiles`, so both inputs exist and no split was needed. It sits
+  in its own `rt != "container"` arm right after the `assembleInput` literal, is handed
+  `in.packs`, `in.cfg` and `in.hostFiles`, and writes `in.homeSkeleton` itself, so the skeleton
+  and the argv binding it come from one value (moved there in review: the first cut assigned a
+  local that the literal then read, and a dropped assignment passed every test). Each call
+  makes a new `os.MkdirTemp` directory, timestamp-prefixed, under `paths.HomeSkeletonRoot(cname)`.
+- The redirects are built right after the core entries and BEFORE every best-effort one, the
+  order `EnsureGlobalStorage` used; the first cut built them last, so a pack `files` entry into
+  `.gitconfig` made the fatal link fail every launch (found in review). A best-effort file
+  mountpoint that finds a link or a directory in its place now warns instead of passing over
+  it.
+- Core's skeleton dirs are `paths.HomeSkeletonCoreDirs`, which is `paths.BaseHomeCoreDirs`
+  without the pi pack's `.pi/agent`: in a skeleton that entry put a `~/.pi` in every jail,
+  against DIR-BH1 (found in review). `BaseHomeCoreDirs` keeps it, because the legacy walk in
+  `internal/basehome` must still treat an old base's empty `.pi/agent` as core's.
+- `preparePackFilesGlobal` is gone; `packFilesSkeletonEntries` names the same targets for the
+  builder. The single-file mountpoint list moved from `storage.fileMountpoints` to
+  `paths.HomeFileMountpoints`. `storage.EnsureSymlink` now has no production caller.
+- `internal/storage/basehomecoredirs_test.go` became `TestTheSkeletonHoldsTheCoreEntries` (in
+  `internal/cli/run/homeskeleton_test.go`); `internal/storage/machinestore_test.go` pins what the
+  machine store holds instead. `TestRunCallsEnsureStorage` moved there too, since the v2 layout
+  migration still depends on that call.
+- Step 1 could not land as its own commit: deleting `seedAgentDir` and re-pointing
+  `prepareWsState`'s writes both edit `prepare.go`. The `SyncClaudeJSONSeed` half did.
+- The `yolo check` report's wording and its printed `mv` live in `basehome.Report.CleanupLines`.
+  The `mv` used to be printed only by the launch refusal.
+- **Step 4** also stops creating podman's dot-stripped bind sources on `rt=container`
+  (`preparePodmanBindSources` runs on podman only), since on that backend they were the stray
+  `~/claude` and `~/npm-global` the design names; `go`, which has no dot to strip, is still
+  created there. The seed's workspace path is one function, `claudeJSONInWsState`.
+- **Step 4a** resolves validation's selection in `internal/config/selectedpacks.go`
+  (`resolveSelectedPacks`): embedded entries by name, configured ones from the pack store,
+  then the `needs` closure, as staging does. A reservation now names the pack that holds it.
+  `writable_home_dirs` keeps reserving `.claude` in every workspace, as the first segment of
+  core's redirect target `.claude/claude.json`; and `host_files`' surface-path reservation
+  (`builtinSurfacePaths`) still covers every shipped pack, which the ruling's wording
+  (directories) did not reach; that is [OQ-BH15](base-home-legacy-state.md#OQ-BH15).
+- **Review fixes to steps 4 and 4a.** A `host_files` destination under a `writable_home_dirs`
+  entry or a selected pack's shared dir is not staged (it was a second bind at one
+  destination); Apple Container emits no `host_files` staging bind; the legacy migrations
+  follow each backend's layout (`wsStateHomePath`); validation loads a filtered configured pack
+  from a copy staged through its `only`/`exclude`; and `SyncClaudeJSONSeed` no longer reads or
+  writes through a link, a hole the Apple Container path made wider (the jail's own
+  `~/.claude.json`).
+- **Step 5** re-points `internal/basehome`'s bare `§` numbers once, in the package header
+  (`classify.go`), at `git show 030c8f52:docs/design/base-home-legacy-state.md`, the last text
+  before the rewrite, rather than editing each of them.
 
 **Design:** [`base-home-legacy-state.md`](base-home-legacy-state.md). **Precedence:** the design
 wins on behavior; this file is the first thing here to be wrong.
@@ -89,9 +144,10 @@ Per [OQ-BH14](base-home-legacy-state.md#OQ-BH14):
 - `jail-home.md`: reserving a name is not the same as creating a directory, and the base
   section changes. `storage-and-config.md` changes too.
 - Rewrite the code comments that cite the pre-rewrite section numbers:
-  `internal/basehome/classify.go`, `internal/paths/basehomecore.go`,
-  `internal/storage/ensure.go`, `internal/cli/run/run.go`,
-  `internal/cli/check/basehomedisclosure.go`.
+  `internal/basehome/classify.go`, `internal/storage/ensure.go`, `internal/cli/run/run.go`,
+  `internal/cli/check/basehomedisclosure.go`. (`internal/paths/basehomecore.go` was rewritten
+  in step 2's review.) `classify.go`'s `ProvisionedDir` comment also still says `EnsureGlobalStorage`
+  creates the core dirs because the base is bound `:ro`; neither is true any more.
 - The comment in `internal/render/modes.go` says the jail home "is bind-mounted from
   `paths.GlobalHome()`". The comment in `internal/config/loopholeplacement.go` calls
   `GlobalHome` "the shared /home/agent backing tree".
@@ -102,6 +158,15 @@ Per [OQ-BH14](base-home-legacy-state.md#OQ-BH14):
   nor tracked and is older than one hour. The skeleton goes with it, which is fine because no
   container holds it. `internal/cli/capturehost.go` also `RemoveAll`s `AgentsDir/<cname>` after
   a capture.
+- **Found while building: a skeleton can outlive its jail by a long time.** A tracking file is
+  removed only by a stale-container removal (`removeStaleContainer`), `yolo ps`
+  (`PruneStaleTrackingFiles`), `yolo check`'s cleanup and a capture; a `--rm` container that
+  exits normally leaves it. The reaper keeps every tracked name, and `touchAgentStagingDir`
+  refreshes the entry's mtime on every launch. So a workspace's `AgentsDir/<cname>` may go
+  unreaped for as long as the workspace is in use, and its skeletons collect at one per fresh
+  launch, a couple of dozen entries each. [OQ-BH10](base-home-legacy-state.md#OQ-BH10)'s ruling accepted
+  "a few 16K directories per workspace between reaps"; whether this pile-up is inside that is
+  the maintainer's call, not the build's.
 - `jailcontent.PrepareSkills` clears only the contents of `skills-*` under `AgentsDir/<cname>`,
   so it never touches a sibling `home/`.
 - `EnsureGlobalStorage` has two callers: `ensureStorage` and `internal/cli/check/check.go`.
