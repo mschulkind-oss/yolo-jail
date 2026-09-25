@@ -8,8 +8,9 @@ summary: "Six of the seven agents yolo ships can show extra text in their footer
 
 # Which provider is this session on? — yolo facts in every agent's footer
 
-**Status:** BUILT, 2026-09-25. Every question is ruled: six in that day's first review, and the two they opened
-([OQ-FT13](#OQ-FT13), [OQ-FT14](#OQ-FT14)) in the second. All seven build items are built: the bridge's
+**Status:** BUILT, 2026-09-25. Every question but one is ruled: six in that day's first review, and the two they
+opened ([OQ-FT13](#OQ-FT13), [OQ-FT14](#OQ-FT14)) in the second. One is open: [OQ-FT15](#OQ-FT15), how a one-launch
+`yolo host -p` reaches the host footer. All seven build items are built: the bridge's
 streamed-usage fix, the renderer, an adapter for each of the six agents with a hook, the host's profile read, and
 macos-user's jail marker ([as built](#21-as-built); [what I would build](#what-i-would-build-in-order)). Not yet
 seen under a live agent: a human checks each footer. MEASURED: each agent's hook ([appendix](#appendix-evidence)),
@@ -393,7 +394,8 @@ select a profile, a one-launch `-p` naming another is invisible too, and the foo
 `yolo host -p zai -- claude` with `use_profiles: {claude: bedrock}` shows `Bedrock` while the process carries z.ai's
 base URL, because that launch exports no table and the renderer tests only the agent's own switches (found in review;
 MEASURED with a stub `claude` that runs its filled status-line command). Closing it means `yolo host --` exporting its agent's selection, which is not
-built: a nested `yolo` the agent starts would read that variable as its launch env.
+built: a nested `yolo` the agent starts would read that variable as its launch env. How to export it is
+[OQ-FT15](#OQ-FT15).
 
 > [!WARNING]
 > **The renderer must read its own env, never `~/.config/yolo-user-env.sh`**, which every attach rewrites with the
@@ -480,6 +482,32 @@ in the [Decision Ledger](#decision-ledger).
    **Answer:** (a), ruled 2026-09-25 as leaned: *"Claude subscription: it already tells your Team login from
    Bedrock, since a home holds one login, and naming the plan means reading Claude's undocumented account cache on
    every run."*
+
+9. 💬 <a id="OQ-FT15"></a>**OQ-FT15: How should `yolo host --` tell the footer about a one-launch `-p`?** Opened
+   2026-09-25 from [§4](#4-where-the-facts-come-from-and-how-fresh-they-are)'s measured case:
+   `yolo host -p zai -- claude` with `use_profiles: {claude: bedrock}` shows `Bedrock`. Two facts decide the
+   options. First, the renderer takes all three tables from the env as soon as `YOLO_USE_PROFILES` is set
+   (`footer.WithHostTables`), so exporting the selection alone would leave it with no profiles or providers to
+   resolve it against. Second, outside a jail the renderer is the only reader of these three names in the
+   environment today: `overlayGateProfiles` (`internal/cli/host.go`) reads `YOLO_USE_PROFILES` only at the jail
+   notch, and the other readers run in-jail. Options:
+   (a) `yolo host --` exports the three tables it already composed for the launch, with only its own agent's
+   entry in `YOLO_USE_PROFILES`. The renderer needs no change. Cost: these are the jail's wire names, so any
+   later host-side reader of them would take one launch's selection for the user's table.
+   (b) `yolo host --` exports one footer-only variable naming the profile, for example `YOLO_FOOTER_PROFILE`
+   *(coined here)*, and the host arm of the renderer resolves it against the tables it already composes. No
+   other reader can mistake it for a launch table. Cost: a second name for the same fact, and a small change to
+   `hostFooterTables`.
+   (c) Leave it unbuilt, and document that a one-launch `-p` at the host shows the config's selection or
+   `(env)`. Cost: the footer can name the wrong provider, which is the one thing it exists to get right.
+
+   <!-- vantage: oq id=OQ-FT15 leaning="(b) a footer-only variable naming the profile, resolved by the host renderer against the tables it already composes: it fixes the measured wrong label without putting the jail's wire tables into a host process env." -->
+
+   _Leaning:_ (b). It fixes the measured wrong label without putting the jail's wire tables into a host
+   agent's env, where a later host reader could take them for the user's config.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
 
 ## Decision Ledger
 

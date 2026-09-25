@@ -585,6 +585,40 @@ listeners. These are the facts that survive:
   [what can hold the listen port](#what-can-hold-the-listen-port-before-the-bridge-does) has been
   worked through for that blast radius.
 
+## Open questions
+
+### <a id="oq-wb1"></a>💬 [`OQ-WB1`](#oq-wb1) — what does the Codex route do with `response.failed`?
+
+Opened 2026-09-25. *WB* stands for "wire bridge"; the prefix is new with this question. The Responses
+stream translator (`ResponsesStreamTranslator.Chunk`, `internal/wirebridge/responses.go`) handles
+`response.completed` and `response.incomplete` as terminal events and passes a fixed list of lifecycle
+markers. Every other event type reaches its default arm, which returns
+`unsupported Responses stream event`. That includes `response.failed`, the upstream's own way of saying
+the response failed, and a top-level `error` event, since the switch has no case for either. The daemon
+then closes the stream with an anthropic `error` event of type `api_error`, whose message is
+`wire-bridge: upstream stream did not translate: …` (`failStream`, `internal/wirebridged/handler.go`). So
+the agent is told the bridge could not translate a known event, and the upstream's own reason is lost:
+the struct the translator decodes has no field for the failed response's error.
+
+- **(a) Leave the refusal.** The stream still fails closed, in the spirit of [WB-D5](#wb-d5). Cost: the
+  message is wrong about the cause, and the upstream's reason reaches neither the agent nor the log.
+- **(b) Handle `response.failed` as a terminal failure.** Close any open block and end the stream with
+  an anthropic `error` event carrying the upstream's error message, still typed `api_error`. The same
+  arm takes a top-level `error` event. The log names the upstream's error code. This matches how the
+  daemon already treats a 4xx before the stream starts: the upstream's message goes to the agent and is
+  never logged.
+- **(c) As (b), and also map the upstream's error code to an anthropic error type** (a rate limit to
+  `rate_limit_error`, for example). Cost: the type changes how the agent retries, so the mapping needs
+  the set of codes the ChatGPT backend actually sends, which nothing here has measured.
+
+<!-- vantage: oq id=OQ-WB1 leaning="(b) handle response.failed and a top-level error event as a terminal failure that forwards the upstream's message as api_error. It fixes the misleading 'unsupported' message and loses nothing; mapping codes to anthropic error types waits until the codes are measured." -->
+
+_Leaning:_ **(b).** It replaces a misleading message with the upstream's own, and it changes no retry
+behavior, because the event type stays `api_error`. Mapping codes waits until the codes are measured.
+
+**Answer:**
+> _(empty — fill in when decided)_
+
 ## Why it's this way
 
 Rulings a future change would otherwise undo, with their original IDs.

@@ -22,8 +22,9 @@ summary: "How a jail gets its image and its own binaries: the image bakes nixpkg
 
 # Image delivery — what the image bakes, and what a launch mounts in
 
-**Status:** CURRENT as of 2026-09-24, verified against `f491d192`. ⚠ The two macOS delivery
-arms are built and **UNMEASURED at their launch call site** — see
+**Status:** CURRENT as of 2026-09-24, verified against `f491d192`. The two macOS delivery
+arms were **measured at their launch call site on 2026-09-25**, both passing at `22011184` (Apple
+Container on an arm64 Mac, Podman Machine on an Intel runner) — see
 [Archive destinations](#archive-destinations).
 
 A container jail runs on two things a launch assembles separately. The **image** is a nix-built
@@ -914,9 +915,11 @@ image reaper to do it ([`OQ-BF6`](../design/disk-levers-and-backfill.md#OQ-BF6))
 inspect could not run at all is kept and not counted, because "gone" and "could not ask" are
 different answers.
 
-The "one retry" rule rests, on this backend, on an **UNMEASURED** premise: that
-`container image load` exits nonzero when a manifest names a blob neither the archive nor its
-content store holds. The research reads that in Apple Container's import code (SOURCED). If it
+The "one retry" rule rests, on this backend, on a premise that was UNMEASURED until
+2026-09-25: that `container image load` exits nonzero when a manifest names a blob neither the
+archive nor its content store holds. The research read that in Apple Container's import code
+(SOURCED), and `TestMacArchiveFailClosedOnAppleContainer` measured it on `container` 1.1.0: exit
+1, no image left (results below). If it
 exited 0 instead, an over-claim would leave an image that inspects as present and fails at
 `container run`, and no retry would fire. An over-claim is narrow here, because a record is written
 only after a load of exactly those layers under exactly that content ref, and `just load` loads
@@ -944,28 +947,42 @@ ID as the docker-archive path (`41685f1d…`) and the research's manifest digest
 layout-plus-tar pass. On a Mac the first load is dominated by the 3.45 GB upload, which is
 unchanged.
 
-> [!WARNING]
-> **Neither Mac backend has run this.** What *is* measured on a Mac is older and indirect. On
-> 2026-09-19 a self-hosted arm64 Mac ran `container image load -i` against a skopeo-written
-> **gzip** `oci-archive`, through `just load`'s archive hop (a different caller), and the resulting
-> jail passed all six Apple Container parity tests. Apple Container now receives an
-> **uncompressed** archive, and a delta. The research reads its import code as accepting both
-> (SOURCED), so **the Apple Container half is UNMEASURED**. Three questions are open until the
-> [Mac commands](../research/macos-layer-reusing-image-delivery.md#what-only-a-mac-can-confirm)
-> run:
->
-> 1. Does `container image load` import a layout whose missing blobs its content store holds? If
->    it refuses, every Apple Container delta costs one retry and the launch still succeeds on the
->    full archive.
-> 2. Does it exit nonzero when a missing blob is in neither place? The retry depends on that
->    ([above](#the-delta-archive)).
-> 3. How long does its per-image ext4 unpack take?
->
-> The podman half is measured on Linux against a remote client, not through a Podman Machine VM.
-> No CI job builds `.#imageCopier` on
-> x86_64-darwin, where it is a **different skopeo** (the darwin nixpkgs input resolves an older
-> minor, under the same `nix:` patch). Until those run, treat a macOS delivery failure as the
-> mechanism's, not the host's.
+**MEASURED 2026-09-25 on both Mac backends, at commit `22011184`**, through real launches
+(`integration/TestMacArchiveDeliveryReusesLayers`, the same A/B pair as above). Each run
+passed:
+
+| Backend (run) | Delivery | Layers sent | Layers reused | Archive | `image.layer_copy` (copy + tar + load) | Whole launch |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| Apple Container 1.1.0, self-hosted arm64 Mac (Apple Container parity run `36095912087`) | A, first | 91 (3.2 GB) | 0 | 3.2 GB | 35.1 s | 45 s |
+| | B, `packages: ["hello"]` | 2 (26 MB) | 90 (3.2 GB) | 27 MB | 19.4 s | 30 s |
+| Podman Machine, GitHub `macos-26-intel` (nightly run `36128365198`, job `archive-delivery-macos`) | A, first | 91 (3.2 GB) | 0 | 3.2 GB | 988.1 s | 18 min 6 s |
+| | B, `packages: ["hello"]` | 2 (26 MB) | 90 (3.2 GB) | 27 MB | 48.3 s | 1 min 46 s |
+
+That answers the three questions this section left open for Apple Container:
+
+1. **`container image load` imports a layout whose missing blobs its content store holds.** B
+   arrived as a 27 MB archive with 90 layers reused, and the launch succeeded. ⚠ A's import was
+   not cold on that Mac: `yolo-jail:latest` from `just load` was already loaded, so the content
+   store held A's blobs, and A's 35 s is not a first-delivery cost.
+2. **It fails closed.** `TestMacArchiveFailClosedOnAppleContainer` handed `container image load`
+   (1.1.0) a delta naming a blob no store holds. It exited 1 with `missingContent(…)` and left
+   no image, so yolo's single retry with the full archive fires
+   ([above](#the-delta-archive)).
+3. **The per-image ext4 unpack is not isolated.** `image.layer_copy` spans the copy, the tar
+   and the load together, so B's 19.4 s is the whole delta delivery, not the unpack alone.
+
+On the Intel podman machine, A's first delivery is the full 3.2 GB upload into the VM, and it
+dominates the launch. The same job's [`OQ-LR2`](../research/macos-layer-reusing-image-delivery.md#OQ-LR2) step
+([the research](../research/macos-layer-reusing-image-delivery.md)) timed a cold
+`podman load` of A at 14 min 6 s uncompressed and 13 min 49 s from a 1.1 GB gzip archive, one
+sample each.
+
+**`.#imageCopier` has now been built on x86_64-darwin.** This section said no CI job built it
+there, where it is a **different skopeo** (the darwin nixpkgs input resolves an older minor,
+under the same `nix:` patch). The nightly's `archive-delivery-macos` job realizes it in
+`macArchiveRealize` (`integration/macarchivedelivery_test.go`), and on run `36128365198` it
+substituted 56 paths and built one derivation in 2 min 28 s. The two podman launches above ran
+through it.
 
 #### The image-copy lock
 

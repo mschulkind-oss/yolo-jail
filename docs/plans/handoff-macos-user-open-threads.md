@@ -3,7 +3,7 @@ title: "Handoff: what the first macos-user hardware run left open"
 status: in-review
 date: 2026-09-12
 tags: [macos-user, handoff, lsp, integration, provisioning]
-summary: "The macos-user manual-checks runbook was run end to end on hardware for the first time on 2026-09-12. All ten items now have a measurement, three defects were found and fixed that day, and seven threads were opened. Five are left: one test-suite design flaw that only bites a persistent Mac, one logging gap, and three automation gaps that are work nobody has done rather than problems. Two are closed: provider credentials on every argv this backend builds, and the one product defect (lsp_servers installed nothing here) — ruled and wired on 2026-09-13, leaving one Mac run of its integration subtest."
+summary: "The macos-user manual-checks runbook was run end to end on hardware for the first time on 2026-09-12. All ten items now have a measurement, three defects were found and fixed that day, and seven threads were opened. Five are left: one test-suite design flaw that only bites a persistent Mac, one logging gap, and three automation gaps that are work nobody has done rather than problems. Two are closed: provider credentials on every argv this backend builds, and the one product defect (lsp_servers installed nothing here) — wired on 2026-09-13, then closed by deletion on 2026-09-25 when yolo stopped installing language servers on any backend."
 ---
 
 # Handoff: what the first macos-user hardware run left open
@@ -45,7 +45,18 @@ session moved).
 
 ## 1. `lsp_servers` installs nothing on this backend — RULED AND WIRED 2026-09-13
 
-**This thread is closed as far as the source goes, and open only on hardware.**
+> [!NOTE]
+> **CLOSED BY DELETION, 2026-09-25.** yolo no longer installs a language server on any backend:
+> `lsp_servers` renders agent config only, and a configured `command` must already resolve on
+> `PATH` ([`OQ-LSP1`](../reference/mcp-configuration.md#oq-lsp1)). The recipe table
+> (`config.LSPInstalls`), both install variables and their crossings, `PlanInvariants`' check,
+> `lspinstall_test.go`, `lspinstallparity_test.go` and the `lsp_servers` subtest were deleted
+> with it, so the "one Mac run" this section waits on will never happen and is not owed. What
+> "installs nothing on this backend" named as a defect is now the ruled behavior on every
+> backend. The rest of the section is the 2026-09-13 record, and its role table names code that
+> no longer exists.
+
+**This thread was closed as far as the source went, and open only on hardware.**
 `TestMacosUserDeclaredToolsArrive/lsp_servers` was the one red in an otherwise green suite on
 2026-09-12; its three sibling subtests (`mise_tools`, `mise_store_is_machine_tier`,
 `npm_prefix_is_workspace_tier`) passed. Predicted from a source reading by runbook item 9's ⚠,
@@ -70,7 +81,12 @@ could not import `internal/cli/run`, which is why only one backend could compute
 all — and `macosuser.BuildRunPlan` now carries both variables into **both** environments the
 readers live in:
 
-| Role | Site |
+Every site in this table was deleted on 2026-09-25 (see the note at the top of this section),
+except two readers that survive with nothing left to read from it: `catalog.go` declares no
+LSP package (a leftover install is cataloged as an orphan), and `serverrefresh.go` refreshes
+only the MCP servers yolo installs.
+
+| Role | Site (as of 2026-09-13) |
 | :--- | :--- |
 | producer — shared by both backends | `internal/config/lsp.go` — `config.LSPInstalls` |
 | crossing — container | `internal/cli/run/assemble.go` — `-e YOLO_LSP_NPM_INSTALL=…`, `-e YOLO_LSP_GO_INSTALL=…` |

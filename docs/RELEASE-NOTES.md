@@ -26,6 +26,175 @@ was created on 2026-08-18, after that tag, which is why it has no released secti
 next cut is triggered by this file filling up or by a cadence is an open product question; see
 [`plans/further-roadmap-ideas.md`](plans/further-roadmap-ideas.md) §I5.)*
 
+### ⚠️ `lsp_servers` no longer installs a language server, and `programs.autoprune` may remove the old ones
+
+**What changed** (2026-09-25). `lsp_servers` now only renders agent config. yolo used to install
+three servers from a built-in recipe table: `pyright` and `typescript-language-server` with
+`npm install -g`, and `gopls` with `go install`. The table, its install step and its record of
+what it installed are deleted ([`OQ-LSP1`](reference/mcp-configuration.md#oq-lsp1)). A configured
+`command` must already resolve on `PATH`.
+
+**Who this bites.** Anyone whose `lsp_servers` names one of those three and has no other source
+for it. The servers yolo installed before stay where they were, in the workspace's npm prefix and
+in `~/go/bin`. Each boot now lists them as orphans (`boot catalog: …` lines, with sizes), since
+nothing declares them. If you set `programs.autoprune: true`, the next launch **removes** them,
+and the agent's language server stops starting. ⚠ Every entry in `~/go/bin` is now an orphan,
+because yolo installs nothing there any more, so autoprune also removes Go tools you installed
+there yourself.
+
+**What to do.** Install each server some other way: `mise_tools` (for example
+`{"npm:pyright": "latest", "go:golang.org/x/tools/gopls": "latest"}`), `packages`, or an absolute
+`command` path. Then the `command` resolves without yolo's help. Before you turn on `programs.autoprune`, run `yolo programs ls` in the jail
+to see what it would remove.
+
+### ⚠️ `aws-auth` refuses a launch that also delivers a Bedrock bearer or a static AWS key pair
+
+**What changed** (2026-09-25). A pack can now declare which variables override its `kind: "env"`
+contribution (`overridden_by`), and a launch that delivers both is refused. `aws-auth`'s env
+contribution, the credentials pointer delivered under its `bedrock` profile, declares two such
+overrides, each with a reason in its own `pack.json`:
+
+- `AWS_BEARER_TOKEN_BEDROCK`. Bedrock clients prefer the bearer over the credential chain, so
+  the aws-auth service is never asked.
+- A static `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` pair, unless `AWS_PROFILE` is also
+  set. The chain reads the pair before the container-credentials pointer, so the jail signs with
+  the long-lived key.
+
+A third override, a host `~/.aws` delivered through `host_files`, is a warning, since yolo cannot
+tell whether the file holds a key that wins. This replaces the narrower bearer-and-pointer refusal
+added on 2026-09-18, which was never in a tagged release.
+
+**Who this bites.** A setup that selects `aws-auth` with its `bedrock` profile active, and also
+delivers one of those variables into the jail. Without the profile the pointer is not delivered,
+and nothing is checked. It used to launch, and the agent
+quietly used the bearer or the static key instead of the credentials aws-auth serves. It now
+stops with `Refusing to launch: pack aws-auth's `kind: "env"` contribution sets …`. The message
+names what this launch delivers and the pack's reason.
+
+**What to do.** Drop one of the two, as the refusal says: stop delivering the variable, or stop
+delivering aws-auth's pointer. The refusal names each removal that would clear it. There is no
+override switch. `yolo check` reports the same finding before
+a launch.
+
+### ⚠️ A `writable_home_dirs` entry is refused when a selected pack declares that directory
+
+**What changed** (2026-09-25). `writable_home_dirs` may not claim a directory that a **selected**
+pack declares as writable or shared. The refusal names the pack:
+`first path segment … is already managed read-write by yolo (the selected pack <name> declares it)`.
+Before, the rule covered every shipped pack, selected or not
+([`OQ-BH14`](design/base-home-legacy-state.md#28-reservation-is-a-rule-about-config-names-not-about-directories)).
+
+**Who this bites.** Two opposite cases. An entry naming an unselected pack's directory, such as
+`".codex"` in a workspace that does not select codex, used to be refused and now passes. And one
+user-scope entry can now pass in one workspace and be refused in another, where that pack is
+selected. `.claude` stays reserved everywhere.
+
+**What to do.** Drop the entry in the workspace that selects the pack. The pack already makes
+that directory writable there.
+
+### The per-workspace home on podman starts from a per-jail skeleton, not the machine's base home
+
+**What changed** (2026-09-25). On podman, each jail's read-only `/home/agent` is now a skeleton
+built for that jail, instead of the machine-wide `<state>/home`. `<state>/home` stays as the
+machine store for shared credential directories and the Claude login seed. Nothing a jail reads
+comes from any other file in it. With it:
+
+- `seedAgentDir`, which copied files out of `<state>/home` into each new workspace, is deleted.
+- The Claude login seed now forwards only `oauthAccount` and `hasCompletedOnboarding` to a new
+  workspace. It used to forward every key the workspace lacked, so `projects` and `mcpServers`
+  from an old seed reached every new workspace.
+- The legacy-bytes launch refusal and its hatch, `YOLO_ALLOW_LEGACY_BASE_HOME`, are removed.
+  Neither was in a tagged release. `yolo check` still reports legacy bytes in `<state>/home`.
+
+Apple Container keeps binding the workspace's own state as its home, and macos-user is unchanged.
+
+**Who this bites.** A login or setting that existed only in an old `<state>/home`, from before
+per-workspace homes. A **new** workspace no longer copies it in, so that agent may ask you to
+log in once there. Existing workspaces keep what they already have.
+
+**What to do.** Log in once in the new workspace, if asked. Moving the legacy files out of
+`<state>/home`, as `yolo check` suggests, is optional cleanup.
+
+### The agent footer is on by default, and `yolo host apply` writes its status line once
+
+**What changed** (2026-09-25). Every agent with a footer hook now shows yolo's segment, which
+names the billing route and whether this is a jail or the host
+([`agent-footer.md`](design/agent-footer.md)). Claude and agy get a `statusLine` command. Copilot
+gets a footer script, pi and omp a status extension, and opencode a TUI plugin. Codex has no hook
+and is unchanged. The footer is a lowest-layer default, so a `statusLine` you set yourself wins.
+
+`yolo host apply` renders the same defaults. It fills `statusLine` in Claude's, agy's and
+copilot's settings, and `plugin` in opencode's `tui.jsonc`, **once, where the file has none**. It
+also writes `~/.copilot/yolo/footer.sh`, the pi and omp extensions and opencode's plugin file.
+
+**Who this bites.**
+
+- Claude users. Claude hides most of its keyboard hints whenever any status line is set, and no
+  setting keeps them.
+- Anyone who runs `yolo host apply`. Your real agents gain a footer and new files, where you had
+  no status line of your own.
+
+**What to do.** Nothing, to accept it. To replace it, set your own `statusLine` (in agy, also set
+`stack_with_default` as you want it). To keep yolo's facts in your own line, call
+`yolo internal footer` from your script. There is no switch that turns the footer off.
+
+### pi refreshes its extensions before it starts, at most once an hour
+
+**What changed** (2026-09-25). The pi launcher runs `pi update --extensions` before starting pi.
+It runs at most once an hour per machine, under a lock shared by every jail. On the container
+backends it is capped at 60 seconds and pi always starts afterward. If the refresh fails or times
+out, it runs what is installed and says so. If another jail holds the lock, it says that too. On
+macos-user the refresh is not time-bounded, because a stock macOS has no `timeout(1)`, so a hung
+registry hangs that launch.
+
+**Who this bites.** pi users. On the container backends the first pi launch in an hour can take
+up to a minute longer; on macos-user, as long as the registry takes.
+
+**What to do.** Nothing, to accept it. `agent_updates: false` turns it off along with yolo's
+other agent updates.
+
+### An installer URL that does not serve a shell script is refused
+
+**What changed** (2026-09-25). A pack's `installerUrl` is downloaded to a file and checked
+before it runs. A web page was already refused. Now a body that is binary, or neither a `#!`
+script nor text, is refused too. The launcher prints
+`⚠ <bin> installer URL is not a shell script — …` with the URL and a hint, and runs nothing.
+
+**Who this bites.** A pack whose installer URL started returning a binary or other non-text
+bytes. Before, such a body was handed to `bash`, which failed on it with a confusing error.
+
+**What to do.** Fix the URL in the pack, or tell the pack's author. The refusal prints the URL it
+fetched.
+
+### A launch warns when a pack's content is addressed to no agent in the jail
+
+**What changed** (2026-09-25). When a selected pack's briefing, skills or files contribution names
+an audience (its `agents` selector) and no destination in this jail matches it, the launch prints
+`Warning: pack <name>: … is addressed to … (its `agents` selector), and no …`. The content was
+already delivered to no agent. Now the launch says so. It never refuses.
+
+**Who this bites.** A pack whose `agents` selector names an agent no selected pack gives a
+destination for. The launch is unchanged apart from the warning.
+
+**What to do.** Follow the warning: the pack that owns the agent declares a matching `agent`
+destination, or the contribution's `agents` is corrected.
+
+### Claude over the wire bridge reports real token usage
+
+**What changed** (2026-09-25). A Claude turn routed through the wire bridge (to an OpenAI-shaped
+provider) now carries the upstream's usage. Before, every bridged turn reported zero input tokens,
+so Claude's cost and context figures were wrong. The bridge asks the upstream for streamed usage
+(`stream_options.include_usage`) and reports it in Anthropic's shape
+([`wire-bridge.md`](reference/wire-bridge.md#streamed-usage)). A Responses stream that stops at
+its output limit (`response.incomplete`) now ends as `max_tokens`, where it used to be an error.
+
+**Who this bites.** Bridged Claude users see real counts, which is the fix. A gateway that
+rejects `stream_options` would now fail those requests.
+
+**What to do.** Nothing, normally. For a provider that rejects `stream_options`, set
+`{"providers": {"<name>": {"options": {"supports_usage_in_streaming": "false"}}}}`, and the bridge
+stops asking.
+
 ### ⚠️ `copilot` checks for its own updates again, and `--yolo` moves under the autonomy notch
 
 **What changed** (2026-09-12). The `copilot` pack stopped passing `--no-auto-update`, and moved

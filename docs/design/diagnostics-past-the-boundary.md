@@ -158,7 +158,7 @@ holds throughout, which is the good news in this table.
 | :--- | :--- | :--- | :--- | :---: |
 | `<ws>/.yolo/boot.log` | `entrypoint.attachBootLog` (tee on `e.Stderr`, + `e.LogOnly`) | always-on | **1 generation** (`boot.log.prev`) | **yes** |
 | `<ws>/.yolo/launch.log` | `run.teeLog` | always-on | newest `perf.MaxRuns` launches (trimmed to one fewer at open, then appended) | yes (host-side) |
-| `<ws>/.yolo/host-perf.log` | `perf.FileSink` | recording gate | newest `perf.MaxRuns` = 50 runs | yes (host-side) |
+| `<ws>/.yolo/host-perf.log` | `hostPerfFileSink` → `paths.OpenWorkspaceStateFile` → `perf.FileSinkTo` | recording gate | newest `perf.MaxRuns` = 50 runs | yes (host-side) |
 | `<ws>/.yolo/housekeeping.log` | `run.housekeepingNote` | when a slot fires | **none** | yes (host-side) |
 | `<ws>/.yolo/startup.log` | a shell `tee` in the generated final command (`provision.StartupLog`) | always-on | **none** | only if provisioning was reached |
 | `<ws>/.yolo/receipts.jsonl` | `entrypoint.AppendReceiptLine` — the one sink that **returns** its error | when a capture realizes | **none** | yes |
@@ -180,7 +180,8 @@ Four facts follow, and each shapes [§4](#4-the-proposal):
    both in-jail append logs. `internal/perf/filesink.go` states the doctrine — *"a
    per-workspace diagnostic file must be self-limiting or it quietly becomes a
    disk-exhaustion bug on a directory the user cannot see into from the jail"* — and exports
-   `TrimRunsInFile` so there is one implementation. Those eight never adopted it, and a ninth
+   `TrimRunsInFile` (since replaced by `TrimRunsInOpenFile`, which trims through the open
+   descriptor so a link in `.yolo` is never followed) so there is one implementation. Those eight never adopted it, and a ninth
    — `~/.yolo-perf.log` — **re-implements it by hand** in `boot.go`. That is the drift
    `filesink.go`'s own comment predicts, arrived at in both available directions.
 3. **Two of the fourteen ever tell a human the sink itself failed** — `host-perf.log`
@@ -210,7 +211,7 @@ formed.
 | :--- | :--- | :--- |
 | **`127.0.0.1:8214` held before the bridge binds it.** Four hypotheses; the cause was a provider-table aliasing that let a pack's jail-loopback address into the user-provider table, so the in-jail `socat` took the port before the supervisor started | **the jail's own listener table, with owning PIDs and argv**, at the moment the bind failed. `ss -ltnp` on the host was empty because the host end is a UNIX socket | the boot snapshot, at readiness failure. **Half built 2026-09-19**: the skipped forward and the wire-bridge bind failure now name the holder from `internal/listeners`; the snapshot is not built |
 | **A ~10 s silent gap at teardown**, between the agent's goodbye and yolo's last two lines | a span or mark covering the gap — the host half already has the shape (a dangling `start` is the answer to "who is doing it"); what is missing is a span over that stretch | host `host-perf.log`; owned elsewhere — see [§7](#7-risks) R3. **Instrumented 2026-09-24** (`f491d192`): the gap is Window A, now split into podman's teardown and the `podman run` client lingering after its container is removed, with the lingering client sampled — see [`perf-logging.md`](../reference/perf-logging.md#window-a-attribution) |
-| **`dropComputedTables` blamed for the wrong remedy.** Dropping a user's `enabledPlugins` or `env` entry prints *"add under `mcp_servers` to keep it"* | the dropped key's own name in the remedy. The message is a `Fprintf` with the table name in the subject and `mcp_servers` hardcoded in the predicate | not a diagnostic-tier problem at all — a one-line defect, [§3.1](#31-one-of-the-six-is-not-this-designs-problem) |
+| **`dropComputedTables` blamed for the wrong remedy.** Dropping a user's `enabledPlugins` or `env` entry prints *"add under `mcp_servers` to keep it"* | the dropped key's own name in the remedy. The message is a `Fprintf` with the table name in the subject and `mcp_servers` hardcoded in the predicate | not a diagnostic-tier problem at all — a one-line defect, [§3.1](#31-one-of-the-six-is-not-this-designs-problem). ⚠ **Both examples are stale as of 2026-09-25, and the defect is not**: `enabledPlugins` is no longer written, and `env` is not declared in full (`CO13`), so neither reaches the message now. A declared table that is not an MCP table still does: copilot's `lspServers`, and the provider catalogs at a host apply |
 | **`supervisor.waitTimeout` abandons live goroutines** after 10 s and reports nothing, leaking a process that can hold a port — which is how the 8214 port came to be held | *that the deadline fired*, and which children had not settled. ⚠ **It was examined and deliberately left unfixed**, and the reason is this design's central constraint rather than an oversight: the only channel available is the per-daemon log that may itself be the wedged thing ([§4.1.1](#411-the-sink-may-not-be-the-resource-under-diagnosis-and-it-must-outlive-the-boot)) | a sink independent of any service — [OQ-DB5](#oq-db5) |
 | **The Apple Container stale-image loop** (three compounding faults) | which image identity the launch resolved, which it found loaded, and why it did not replace it — each as a recorded fact rather than an inference from a retry | host-side; `launch.log` already carries the disclosures, so this is a *coverage* gap in what the image path states, not a tier gap |
 | **A darwin-only `unlinkat …: bad file descriptor`** surfacing in an unrelated test. Cause: `os.NewFile` arms a finalizer unconditionally, so every daemon spawn minted a second owner of an inherited fd and a GC closed it. Fixed in `16ef96cb`/`281acc5a`; the `terminate`/`start` publish race found alongside it was a real but separate bug (`13ecc5da`), **not** this failure's cause | that a process held a descriptor it did not own. ⚠ **The only visible trace was GitHub's own orphan-process cleanup step** — the diagnosis came from CI infrastructure rather than from anything yolo emitted, which is this table's thesis arriving from outside the product | CI; out of scope for the tier, and named so the table is honest |
@@ -224,8 +225,9 @@ is how one gets built for the wrong three.
 The wrong-remedy message is worth stating precisely, because the fault was mis-attributed
 during the investigation and the mis-attribution points at the wrong file. `dropComputedTables`
 (`internal/agentcfg/staterender.go`) reports **nothing at all** — it silently drops keys from
-an adopted residue, and the over-drop it is known for is
-[`roadmap.md`](../plans/roadmap.md) row `0b`. The message naming `mcp_servers` comes from a
+an adopted residue. The over-drop it was known for (the roadmap's row `0b`, since removed) was
+fixed on 2026-09-25 by [`CO13`](config-ownership-and-promotion.md#built-2026-09-25--what-shipped):
+it now takes whole only a table its derive declares in full. The message naming `mcp_servers` comes from a
 different pass in a different package: `noteDroppedManagedEntries`
 (`internal/entrypoint/prism.go`), which interpolates the dropped table's name into the
 sentence and then hardcodes `mcp_servers` in the remedy clause, so `claude/settings`'
@@ -233,8 +235,9 @@ sentence and then hardcodes `mcp_servers` in the remedy clause, so `claude/setti
 
 It earns its row for one reason: **a remedy that names the wrong key is worse than no
 remedy**, and it is the same defect class as a give-up with no report — a diagnostic that
-is present, confident and wrong. The fix is one `Fprintf`, and it belongs to whoever closes
-row `0b`.
+is present, confident and wrong. The fix is one `Fprintf`. It was assigned to whoever closed
+row `0b`; `CO13` closed that row and left the message as it was, so it now has no owner.
+(Checked 2026-09-25: `noteDroppedManagedEntries` still hardcodes `mcp_servers`.)
 
 ### 3.2 The 8214 failure, as the worked case
 
@@ -498,7 +501,7 @@ own failure cases: `~/.yolo-socat.log`, `O_APPEND` with its fd inherited by ever
 caused the 8214 collision — and `<state>/logs/<cname>-socat.log`, whose *open error is
 discarded outright*, so a failure to create it is invisible in both directions.
 
-The remedy is not per-sink judgement; it is adopting `perf.TrimRunsInFile` or a byte cap at
+The remedy is not per-sink judgement; it is adopting `perf.TrimRunsInOpenFile` or a byte cap at
 each one, and deleting the hand-rolled copy in `entrypoint/boot.go`. That is a mechanical
 change gated on nothing here, and it does not wait on any ruling. `internal/crossaudit` is
 the model to copy: a stated total ceiling (4 MiB active + one archive, *"8 MiB of crossing

@@ -8,7 +8,10 @@ layer and names the code that decides it, then untangles the multiple-versions s
 the picture stops feeling accidental.
 
 **Status:** CURRENT — the four-layer model and the whole resolution story
-re-verified against this tree 2026-09-22; findings first gathered 2026-08-05.
+re-verified against this tree 2026-09-22; findings first gathered 2026-08-05. Updated
+2026-09-25 for the deletion of the LSP install recipes and for the per-program Node floor
+([`agent-program-runtimes.md`](../reference/agent-program-runtimes.md)), which takes an agent CLI
+that declares one out of the workspace pin's reach.
 Citations are by **file and symbol, never by line**: the line numbers this page used to
 carry all drifted, and a wrong one costs more than no pointer at all.
 
@@ -197,9 +200,12 @@ Installed into `~/.npm-global/bin` (`NPM_CONFIG_PREFIX`, set in
     with zero agents and zero configured presets. An environment that does not generate the
     preset *wrappers* installs nothing for them either — the wrapper is what an MCP client
     spawns, so the package without it is a download nothing can exec.
-  - LSP servers, gated on configured `lsp_servers`: `pyright` (python),
-    `typescript-language-server` + `typescript` (typescript) —
-    `internal/config/lsp.go`, installed in `shell.go`.
+  - **No LSP servers.** `lsp_servers` renders agent config and installs nothing, on any backend:
+    the recipe table that installed `pyright`, `typescript-language-server` + `typescript` and
+    `gopls` was deleted on 2026-09-25
+    ([`OQ-LSP1`](../reference/mcp-configuration.md#oq-lsp1)). A configured server's `command`
+    must already resolve on `PATH`. What the recipe installed earlier stays on disk and is
+    cataloged as an orphan at boot, for `yolo programs remove` (or `programs.autoprune`).
 - **Lazy per-program launchers** in `~/.yolo/bin/launch/`
   (`GenerateAgentLaunchers`, `internal/entrypoint/shims.go`): agent CLIs are **not**
   installed at boot — the launcher handles install *and* update on first use, which is why
@@ -209,10 +215,14 @@ Installed into `~/.npm-global/bin` (`NPM_CONFIG_PREFIX`, set in
 
 ### Layer 4 — Go binaries + native installers
 
-- **Go `go install`** into `~/go/bin` (`GOBIN`, `shell.go`): `gopls`
-  (`golang.org/x/tools/gopls`) when the `go` LSP is configured, installed by the
-  bootstrap's go branch. `staticcheck` comes via mise's `go:` backend (`mise.toml`), also
-  landing in `~/go/bin`. The `mcp-language-server` bridge that used to be installed here is
+- **Go `go install`** into `~/go/bin` (`GOBIN`, `shell.go`): **yolo installs nothing here
+  any more.** The bootstrap's go branch, which installed `gopls` (`golang.org/x/tools/gopls`)
+  when the `go` LSP was configured, was deleted with the LSP recipes on 2026-09-25, so every
+  `$GOBIN` entry, a `gopls` left from before included, is cataloged as an orphan at boot
+  (`catalogGoBinOrphans`, `internal/entrypoint/catalog.go`). This repo's own `staticcheck`
+  comes via mise's `go:` backend (`mise.toml`) and lands in the mise store
+  (`/mise/installs/go-honnef-co-go-tools-cmd-staticcheck/…`, checked 2026-09-25), not in
+  `~/go/bin`. The `mcp-language-server` bridge that used to be installed here is
   **gone**: it wrapped each configured LSP as an MCP server for the gemini agent, its only
   consumer, and every surviving agent consumes LSP servers natively.
 - **Native curl installer:** a pack declares `via: "installer"` plus the `url` — Claude's
@@ -295,7 +305,9 @@ cold start.
 
 | Consumer | Node it runs | Why |
 |---|---|---|
-| Bare `node`, shebangs, `npx`, agent CLIs | **mise** node | mise shims precede `/bin` in PATH ([§3](#3-path-resolution--precedence)) |
+| Bare `node`, shebangs, `npx` | **mise** node | mise shims precede `/bin` in PATH ([§3](#3-path-resolution--precedence)) |
+| An npm-delivered agent CLI whose `program` declares a `node_floor` (today only `pi`, `22.19`) | the node the launcher **resolved for that floor**: the image's `/bin/node` when it satisfies, else the newest satisfying one in the mise store | the generated launcher execs that absolute interpreter instead of the bin's `#!/usr/bin/env node`, so the workspace pin does not reach it ([`agent-program-runtimes.md`, Resolution](../reference/agent-program-runtimes.md#resolution)) |
+| Every other npm-delivered agent CLI (no `node_floor`) | **mise** node | its launcher ends in a bare `exec "$REAL_BIN"`, so the bin's `#!/usr/bin/env node` resolves through PATH |
 | MCP presets | **baked** `/bin/node` | wrapper still execs `/bin/node` explicitly |
 | Custom `mcp_servers` with a bare `node` | **mise** node | not wrapper-routed, so it resolves through PATH like any other bare name — harmless now that nix-ld links it env-free, and the reason the wrappers stopped being the fix |
 
@@ -374,8 +386,9 @@ shim** and falls through PATH to the baked `/bin`:
 | `npx` / `npm` | baked node's npm/npx | mise node's |
 | `python` / `python3` | **baked** `/bin/python3` (no mise shim) | `<mise shims>/python[3]` |
 | `go` | **baked** `/bin/go` (no mise shim) — nixos-unstable go | `<mise shims>/go` — the pinned version |
-| `gopls`, `staticcheck` | `$GOPATH/bin/…` (go install / mise `go:`) | — |
-| `pyright`, `tsserver`, `copilot` | `$NPM_CONFIG_PREFIX/bin/…` (npm global) | — |
+| `staticcheck` (this repo's mise `go:` pin) | its mise-store install, `/mise/installs/go-honnef-co-go-tools-cmd-staticcheck/<version>/bin/` (mise `go:`; `mise which staticcheck`) | — |
+| `gopls`, or anything else you `go install` | `$GOPATH/bin/…`, cataloged as an orphan at boot | — |
+| `copilot`, and any npm package you install globally yourself | `$NPM_CONFIG_PREFIX/bin/…` (npm global) | — |
 | `claude` | the **launcher**, `~/.yolo/bin/launch/claude`, which installs and then execs `~/.local/bin/claude` | — |
 | `/bin/node`, `/bin/python3`, `/bin/go` | absolute → **baked** Nix binaries | the image's, unchanged by a pin |
 
@@ -425,8 +438,8 @@ from the image:
   `mise install` fetches them ([`../guides/USER_GUIDE.md`](../guides/USER_GUIDE.md)). This is
   where project runtimes and versions live.
 - **npm globals / Go / native** = agent tooling that versions independently of the
-  image and of each other (MCP servers, LSP servers, the coding-agent CLIs). Kept
-  out of the image so a new copilot/pyright/claude doesn't require a rebuild;
+  image and of each other (MCP servers, the coding-agent CLIs). Kept
+  out of the image so a new copilot/claude doesn't require a rebuild;
   installed lazily so boot stays fast.
 
 The *node* duality used to be much sharper than it is, and the reason is the loader wiring
@@ -453,7 +466,7 @@ resolution on an MCP cold start — not for the loader.
 | A **native package baked for every jail** (a CLI, a library `.so`) | `"packages"` array in `yolo-jail.jsonc` (nixpkgs attr names) | workspace/user config | **Yes** — image rebuilds when the list changes |
 | Change the **baked runtime version** (`/bin/node`, chromium, …) | `coreFloorNames` / `fullPackages` in `flake.nix` | source | **Yes** — image rebuild; nested `yolo -- bash` validates it, host `just load` ships it |
 | Add an **MCP server** | `"mcp_presets"` / `"mcp_servers"` in `yolo-jail.jsonc` | config | No (a preset's npm package is installed by the bootstrap) |
-| Add an **LSP server** | `"lsp_servers"` in `yolo-jail.jsonc` | config | No (bootstrap installs pyright/tsserver/gopls as needed) |
+| Add an **LSP server** | `"lsp_servers"` in `yolo-jail.jsonc`, plus the server itself on `PATH` (a `mise_tools` entry, `packages`, or your own install) | config | Only if it comes from `packages`; yolo installs no language server |
 | Add/enable a **coding agent** (claude, copilot, …) | `"packs"` in `yolo-jail.jsonc`, by bare pack name | config | No (lazy-installed on first use) |
 
 Rule of thumb: **project runtimes → `mise.toml`; every-jail native packages →
@@ -477,9 +490,12 @@ before restarting.
 - Workspace mise pins: `mise.toml`.
 - mise store mount: `internal/cli/run/assemble.go`, `assemble_parts.go`.
 - Provisioning (`mise install`): `internal/cli/run/command.go`.
-- Bootstrap (npm/go installs, the preset gate): `internal/entrypoint/shell.go`
+- Bootstrap (the preset npm installs and the Node-floor install): `internal/entrypoint/shell.go`
   (`GenerateBootstrapScript`, `mcpPresetNpmPackages`).
-- LSP install recipes: `internal/config/lsp.go` (`config.LSPInstalls`, shared by both backends).
+- LSP servers: none installed. The recipe table (`internal/config/lsp.go`, `config.LSPInstalls`)
+  was deleted on 2026-09-25; `lsp_servers` only renders config
+  ([`OQ-LSP1`](../reference/mcp-configuration.md#oq-lsp1)), and the boot catalog's orphan
+  finders (`internal/entrypoint/catalog.go`) name what it left behind.
 - Program install specs: each pack's `packs/<name>/pack.json` (`kind: "program"` — `via`,
   `package` for npm or `url` for an installer, `update`); the schema and its doc comments
   are `internal/packdecl`.

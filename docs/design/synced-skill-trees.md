@@ -15,7 +15,9 @@ DELETED most of this design. ✅ **All three of [§12](#12-what-i-would-build-in
 2026-09-22**: the fence, the notice, and the recovery's REPORT half (which is all R1 asked to ship —
 the *offer* to put a tree back is deliberately not built, per [§7](#7-homes-that-are-already-wrong)).
 One question remains
-([OQ-ST5](#OQ-ST5), which belongs to the config-ownership axis rather than this one;
+([OQ-ST5](#OQ-ST5), which belongs to the config-ownership axis rather than this one, and is
+unblocked since [`CO13`](config-ownership-and-promotion.md#13-decision-ledger) was built on
+2026-09-25;
 [OQ-ST2](#OQ-ST2) was ruled and is now built). [OQ-ST1](#OQ-ST1) and [OQ-ST4](#OQ-ST4) DISSOLVED
 with the snapshot and the drift report; [§4.3](#43-what-was-deleted-with-the-snapshot-and-why)
 records what went and why. The fence — the fix for the measured data loss — is untouched and
@@ -49,7 +51,8 @@ rests on, and [§4.1](#41-the-fence--the-part-that-is-not-optional)'s fence is w
 
 **Needs your ruling:** [OQ-ST5](#OQ-ST5) only — and it belongs to the config-ownership axis
 rather than this one, so it should be ruled beside
-[`CO13`](config-ownership-and-promotion.md#13-decision-ledger). ST1 and ST4 dissolved with the
+[`CO13`](config-ownership-and-promotion.md#13-decision-ledger). `CO13` was built on 2026-09-25,
+so [OQ-ST5](#OQ-ST5) is no longer waiting on anything but the ruling. ST1 and ST4 dissolved with the
 snapshot; ST2 and ST3 were ruled 2026-09-20. ⚠ **P3's justification was corrected the same day**:
 it is mode-dependent and fails at `host_management: none`, so the principle now rests on the
 host-read boundary instead.
@@ -600,8 +603,11 @@ work, the section decides what the work is.)
    `dropComputedTables`' doc comment used to say closing the case needs *"a leaf-level signal
    this function does not have"*; MEASURED against the shipped pack, it does have one. A
    `ctx.tombstone` decodes to a PRESENT key with a nil value, so the computed table's key set
-   IS the set of leaves the derive asserted. What is missing is the OTHER half — whether yolo
-   fills the table in full — and that is [`OQ-CO13`](config-ownership-and-promotion.md#13-decision-ledger).
+   IS the set of leaves the derive asserted. What was missing is the OTHER half — whether yolo
+   fills the table in full — and that is [`CO13`](config-ownership-and-promotion.md#13-decision-ledger),
+   **built 2026-09-25** as the `ctx.in_full` derive sentinel
+   ([what shipped](config-ownership-and-promotion.md#built-2026-09-25--what-shipped)). (This
+   line used to give `CO13` a question prefix it does not carry.)
 2. **An EMPTY computed table no longer takes anything**, so the `assert`-posture trap above is
    narrower than measured: it needs the derive to be asserting something under that key on that
    boot. With no LSP configured, `claude/settings` asserts nothing under either key.
@@ -740,10 +746,15 @@ is what should happen to a leaf yolo has never asserted, which is [OQ-ST5](#OQ-S
 > granularity is not missing in the same way the first is, and the two are no longer symmetric.
 > What is missing there is a different record: whether the derive fills the table in FULL, which
 > decides whether an unasserted leaf is the user's or yolo's own stale output
-> ([`OQ-CO13`](config-ownership-and-promotion.md#13-decision-ledger)). The narrowing this section
+> ([`CO13`](config-ownership-and-promotion.md#13-decision-ledger)). The narrowing this section
 > describes has shipped for the one case that needs no such record — a computed table asserting
-> NOTHING — and is blocked on it for every other
+> NOTHING — and was blocked on it for every other
 > ([the drop-narrowing ruling](config-ownership-and-promotion.md#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule)).
+> ⚠ **Unblocked 2026-09-25**: the record exists now (`ctx.in_full`), and a table its derive does
+> not declare in full claims only the leaves it names, at the jail's `stateful` adoption and at
+> the host's table probe
+> ([what shipped](config-ownership-and-promotion.md#built-2026-09-25--what-shipped)). What is
+> left is [OQ-ST5](#OQ-ST5)'s ruling for a table that IS declared in full.
 
 ### 8.6 What is not covered, and what stays lost
 
@@ -927,10 +938,15 @@ once the signal exists.
    such declaration reddens six tests across two packages.
 
    That missing declaration is [`CO13`](config-ownership-and-promotion.md#13-decision-ledger),
-   **decided 2026-09-20** — a third derive sentinel beside `ctx.tombstone` / `ctx.empty_array`.
-   So this question is no longer blocked on an unknown; it is waiting on that being built.
+   **decided 2026-09-20 and built 2026-09-25** — `ctx.in_full`, a third derive sentinel beside
+   `ctx.tombstone` / `ctx.empty_array`
+   ([what shipped](config-ownership-and-promotion.md#built-2026-09-25--what-shipped)). **So
+   this question is unblocked**: it waits on the ruling alone. A table NOT declared in full
+   already gets (a) — the leaf pass keeps every key the derive did not write. Until this is
+   ruled, a table declared in full keeps the behavior it had before the build: a first-migration
+   adoption takes it whole.
 
-   **What is actually being asked, once CO13 exists.** For a table the derive declares it fills
+   **What is actually being asked, now that CO13 exists.** For a table the derive declares it fills
    **in full**, is a key the derive did not write **(a) preserved**, **(b) refused**, or
    **(c) dropped reversibly**?
 

@@ -49,10 +49,10 @@ What remains needs either root, a kernel, or a human at a password prompt.
 > **THE TWIN SUITE IS GREEN ON HARDWARE**, re-run after the three fixes: `executed=6 skipped=0`,
 > every twin passing, and **one** subtest red —
 > `TestMacosUserDeclaredToolsArrive/lsp_servers`, which item 9's ⚠ predicted from a source
-> reading and this run confirmed. That was
-> [§0.4](#04-reading-a-red-job) shape 3, not a Mac problem. Its three siblings passed. ⚠ **The
-> wiring defect behind it was closed on 2026-09-13** and the subtest has not been re-run since,
-> so its next Mac run is the measurement, not this paragraph. The remaining open threads are
+> reading and this run confirmed. Its three siblings passed. ⚠ **That subtest no longer
+> exists.** Its wiring defect was closed on 2026-09-13, and on 2026-09-25 yolo stopped installing
+> language servers on every backend ([`OQ-LSP1`](../../reference/mcp-configuration.md#oq-lsp1)),
+> so the subtest went with the recipe table it tested and item 9 is `mise_tools` only. The remaining open threads are
 > collected in [`../handoff-macos-user-open-threads.md`](../handoff-macos-user-open-threads.md).
 >
 > ⚠ **Defect 2 is why "single-line is immune" was wrong** (it was published in what is now
@@ -76,7 +76,7 @@ What remains needs either root, a kernel, or a human at a password prompt.
 >
 > **Read items 6-9 in order and stop at the first failure.** They are a dependency chain, not
 > a list: no floor means no `mise` and no `npm`, which means the stage's first line fails,
-> which means `mise_tools` and `lsp_servers` install nothing. A failure at item 6 explains
+> which means `mise_tools` install nothing. A failure at item 6 explains
 > every later one, and reporting them as four bugs would be reporting one.
 
 > [!NOTE]
@@ -119,7 +119,7 @@ rather than by a list somebody maintains.
 | 6 | `TestMacosUserFloorReachesTheSandboxPath` | nothing |
 | 7 | `TestMacosUserProvisioningStageRunsAndRecordsItself` | nothing that can be spelled — its ⚠ cwd sub-item is **struck**, its ⚠ timing sub-item is now a logged number |
 | 8 | `TestMacosUserAFailingProvisioningStageDoesNotAbortTheLaunch`, which covers a third half the item only implied | **both halves the item names**: the exec-layer fault injection and the interactive veto |
-| 9 | `TestMacosUserDeclaredToolsArrive` (four subtests, one launch) | nothing — but ⚠ the `lsp_servers` subtest was red on 2026-09-12 and its defect was wired shut on 2026-09-13, un-re-run; see the item |
+| 9 | `TestMacosUserDeclaredToolsArrive` (three subtests, one launch) | nothing. Its fourth subtest, `lsp_servers`, was deleted on 2026-09-25 with the LSP install recipes; see the item |
 | 10 | (a) `TestMacosUserLayoutRefusesAnOccupiedSidecarMirror` | (b) never, deliberately: it poisons an account home permanently |
 
 Six of the ten run unattended. **Four do not, and two of those four are the ones that
@@ -201,9 +201,9 @@ Three shapes, and they want different readers:
    consequences. The job deliberately does not stop at the first failure: `go test` orders by
    source position, not by that chain, so failing fast would stop at an arbitrary one and hide
    the items that do not depend on it.
-3. **Only the `lsp_servers` subtest failed.** This was the known 2026-09-12 state and not a Mac
-   problem. Its wiring defect was closed on 2026-09-13, so a red here is now a real finding —
-   see item 9's ⚠ for what to read first.
+3. ~~**Only the `lsp_servers` subtest failed.**~~ This was the known 2026-09-12 state and not a
+   Mac problem. The subtest was deleted on 2026-09-25, when yolo stopped installing language
+   servers, so a run can no longer take this shape.
 
 ### 0.5 What would close items 1-4
 
@@ -633,9 +633,10 @@ stage reaches the network, that it can write into the sidecar symlinks, and that
 it the way `sudo --login` does. Item 4 is the one to watch: a mangled script does not error,
 it provisions nothing and exits 0, so the evidence is the LOG's content, never the exit code.
 
-⚠ **Also time it** ([the one claim still unmeasured](../../reference/macos-user-provisioning.md#the-one-unmeasured-claim--what-a-first-stage-costs)): `time` the first launch of an LSP-configured workspace. Every `mise install` plus one
-`npm install -g` per server runs in series before the agent starts, and nobody knows what that
-costs. **The twin now carries this**, as two logged numbers — before the stage, and the stage
+⚠ **Also time it** ([the one claim still unmeasured](../../reference/macos-user-provisioning.md#the-one-unmeasured-claim--what-a-first-stage-costs)): `time` the first launch of a workspace that declares `mise_tools`. Every `mise install` runs in
+series before the agent starts, and nobody knows what that costs. (This said "an LSP-configured
+workspace" and counted one `npm install -g` per server until 2026-09-25, when the LSP install
+recipes were deleted.) **The twin now carries this**, as two logged numbers — before the stage, and the stage
 plus the agent — split at the banner, which is the stage's own first instruction. The first
 green nightly is the measurement.
 
@@ -714,15 +715,22 @@ session. Nothing in yolo needs modifying to run this check.
 
 ---
 
-## 9. `mise_tools` and `lsp_servers` actually arrive — NEW 2026-09-12, NEVER RUN
+## 9. `mise_tools` actually arrive — NEW 2026-09-12, NEVER RUN
+
+> [!NOTE]
+> **Retitled 2026-09-25: this item was *`mise_tools` and `lsp_servers` actually arrive*.** yolo
+> no longer installs a language server on any backend: `lsp_servers` renders agent config and
+> nothing else ([`OQ-LSP1`](../../reference/mcp-configuration.md#oq-lsp1)), so there is no
+> `lsp_servers` install left to verify here. The `lsp_servers` paragraphs below are kept as the
+> record of what the 2026-09-12 run found and the 2026-09-13 wiring did; the wiring
+> (`YOLO_LSP_NPM_INSTALL`, `YOLO_LSP_GO_INSTALL`, `macosuser.PlanInvariants`' check) is deleted.
 
 ```console
-$ YOLO_RUNTIME=macos-user yolo -- bash -lc 'mise ls --installed; ls ~/.yolo/mise/installs; ls ~/.npm-global/bin'
+$ YOLO_RUNTIME=macos-user yolo -- bash -lc 'mise ls --installed; ls ~/.yolo/mise/installs'
 ```
 
-**Expect:** the declared tools are installed; the mise store is under **`~/.yolo/mise`**, in
-the ACCOUNT home; and `~/.npm-global` (a symlink into `<workspace>/.yolo/home`) holds the LSP
-binaries.
+**Expect:** the declared tools are installed, and the mise store is under **`~/.yolo/mise`**, in
+the ACCOUNT home.
 
 **MEASURED 2026-09-12 — the `mise_tools` half PASSES, which is the half the verdict turns on.**
 Both declared tools installed from scratch (`neovim` nightly and `pipx:swarf` latest) under
@@ -749,9 +757,10 @@ workspace. A per-workspace mise store is the inverse of every other backend, and
 workspace's launch is what would reveal it.
 
 > [!NOTE]
-> **Automated twin: `integration/TestMacosUserDeclaredToolsArrive`** — four subtests over ONE
-> launch, since a macos-user launch builds a native closure and then installs from the network,
-> so four questions in four launches would cost four of those. Nothing of this item is left
+> **Automated twin: `integration/TestMacosUserDeclaredToolsArrive`** — three subtests over ONE
+> launch (`mise_tools`, `mise_store_is_machine_tier`, `npm_prefix_is_workspace_tier`), since a
+> macos-user launch builds a native closure and then installs from the network, so three
+> questions in three launches would cost three of those. Nothing of this item is left
 > manual, the ⚠ tier check included: it asserts `~/.yolo/mise` is a real directory in the account
 > home **after** asserting its sibling `~/.yolo/bin` is a symlink, because without that contrast
 > "not a symlink" also passes on a launch where the layout never ran at all. Every failure
@@ -776,10 +785,10 @@ workspace's launch is what would reveal it.
 > npm/go servers row, and
 > [the retired warnings](../../reference/macos-user-provisioning.md#the-two-retired-warnings-and-the-rule-that-retired-them).
 >
-> ⚠ **That is a source fact and not an install.** Nothing off a Mac can run the loop, so this
-> subtest is still the oracle: a green run is what retires the caveat, and a red one now means
-> the install failed rather than that it was never asked for. Read
-> `<workspace>/.yolo/startup.log`, which every failure attaches.
+> ⚠ **Superseded 2026-09-25, before any Mac re-ran it.** The recipe table, both variables and
+> the subtest were deleted when yolo stopped installing language servers
+> ([`OQ-LSP1`](../../reference/mcp-configuration.md#oq-lsp1)), so the 2026-09-13 wiring was never
+> measured on hardware and no longer needs to be.
 
 ---
 
@@ -852,11 +861,12 @@ route.
   provisioning stage runs `mise install` and the generated bootstrap script before the agent
   starts. Until a Mac says otherwise, treat an absence here as a bug WORTH reporting, with the
   contents of `<workspace>/.yolo/startup.log`.
-- ~~**`lsp_servers` are not installed.**~~ **WIRED 2026-09-13, and unverified on hardware** —
-  this entry was struck through on 2026-09-12, restored the same day on a source reading, and
-  measured red that evening. Both variables the install loop reads now cross, in the two places
-  item 9's ⚠ named. Until a Mac says otherwise, treat an absence here as a bug WORTH reporting,
-  with the contents of `<workspace>/.yolo/startup.log`.
+- **`lsp_servers` are not installed — on any backend, by design, since 2026-09-25.**
+  `lsp_servers` renders agent config only, and a configured `command` must already resolve on
+  `PATH` ([`OQ-LSP1`](../../reference/mcp-configuration.md#oq-lsp1)); put the server in
+  `mise_tools` or `packages`. Do not report its absence. (History: this entry was struck through
+  on 2026-09-12, restored the same day, measured red that evening, and wired on 2026-09-13; the
+  wiring was deleted with the recipes, unmeasured on hardware.)
 - **`per_side_paths`, `resources`, `cache_relocations`** are read and ignored, each
   for a structural reason (no mount namespace, no cgroups, no binds). Each warns.
 - ~~**One home for every workspace.**~~ **FIXED 2026-09-12, and unverified on hardware** —

@@ -74,7 +74,7 @@ The survey that forced all of it — the inventory, the coverage matrix, the nix
 [`provisioner-evidence.md`](provisioner-evidence.md), and you need it to **check** the argument
 rather than to follow it.
 
-**Needs your ruling:** [`OQ-PS1`](#OQ-PS1), [`OQ-PS5`](#OQ-PS5), [`OQ-PS6`](#OQ-PS6), [`OQ-PS7`](#OQ-PS7), [`OQ-PS8`](#OQ-PS8), [`OQ-PS9`](#OQ-PS9), [`OQ-PS10`](#OQ-PS10), [`OQ-PS11`](#OQ-PS11), [`OQ-PS12`](#OQ-PS12), [`OQ-NX4`](#OQ-NX4), [`OQ-NX5`](#OQ-NX5), [`OQ-NX8`](#OQ-NX8), [`OQ-NX9`](#OQ-NX9).
+**Needs your ruling:** [`OQ-PS1`](#OQ-PS1), [`OQ-PS5`](#OQ-PS5), [`OQ-PS6`](#OQ-PS6), [`OQ-PS7`](#OQ-PS7), [`OQ-PS8`](#OQ-PS8), [`OQ-PS9`](#OQ-PS9), [`OQ-PS10`](#OQ-PS10), [`OQ-PS11`](#OQ-PS11), [`OQ-PS12`](#OQ-PS12), [`OQ-PS13`](#OQ-PS13), [`OQ-NX4`](#OQ-NX4), [`OQ-NX5`](#OQ-NX5), [`OQ-NX8`](#OQ-NX8), [`OQ-NX9`](#OQ-NX9).
 
 > [!NOTE]
 > **Scope note — this doc absorbed
@@ -1371,6 +1371,36 @@ recommendation the doc rests on.
     on a Linux host that is about to launch a container.
 
     <!-- vantage: oq id=OQ-NX9 leaning="The profile-report half shipped 2026-09-14 as sectionPackageProfile, gated on PrimBakedImage being absent. Only the nix daemon probes are still open, and they can wait for OQ-PS1 — they diagnose an installation, not a notch." -->
+
+    **Answer:**
+    > _(empty — fill in when decided)_
+
+14. 💬 <a id="OQ-PS13"></a>**OQ-PS13: Does the dependency gate's installer run get the launcher's body
+    check?** Opened 2026-09-25, when the gap was recorded at the site (`5a44129d`). For a `via: installer`
+    program the gate's remedy is `curl -fsSL <url> | sh` (`packdecl`'s remedy string,
+    `internal/packdecl/contributes.go`), and `runDepInstallCommand`
+    ([`applyhostdepgate.go`](../../internal/cli/applyhostdepgate.go)) runs it with `sh -c` exactly as
+    printed. The jail's launcher downloads the same kind of URL to a file first and refuses a body that is a
+    web page, a binary or non-text bytes, naming the URL (`_installer_body_kind`,
+    `internal/entrypoint/shims.go`). So at the host a binary body reaches `sh` and fails with a shell error
+    that does not name the URL, and a `#!` script with a NUL byte in its first KiB runs. The conflict: the
+    check needs a download-then-run shape, and [`report-tiers.md`](../reference/report-tiers.md)'s dependency
+    rule, point 3, promises the prompt lists *"the exact command each install would run"*.
+    **Options:**
+    (a) Leave it. The printed command is what runs, and the host user reads it before answering. Cost: two
+    remedies for one installer URL behave differently at the two notches.
+    (b) Print and run a download-check-run command instead: fetch to a temp file, apply the same body check,
+    then `sh <file>`. The prompt shows that longer command, so point 3 still holds as written. Cost: the
+    printed remedy is no longer the one-liner a user would paste, and the check exists twice, once in the
+    launcher's shell and once in Go.
+    (c) Keep printing the one-liner, but run it through yolo's own download and check, and amend point 3 to
+    say the prompt shows the install's *source* rather than its literal command. Cost: the promise the
+    prompt makes gets weaker.
+
+    _Leaning:_ **(b).** It keeps point 3 true without rewording it, and a refusal that names the URL is
+    what the jail already gives for the same fault.
+
+    <!-- vantage: oq id=OQ-PS13 leaning="(b) print and run a download-check-run command, so the prompt still shows the exact command and the host refuses a non-script body naming the URL, as the jail does." -->
 
     **Answer:**
     > _(empty — fill in when decided)_

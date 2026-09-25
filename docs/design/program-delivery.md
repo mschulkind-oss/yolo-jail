@@ -3,16 +3,17 @@ title: "How executable content gets into a jail — and what makes two jails the
 date: 2026-09-06
 status: in-review
 tags: [packs, uniformity, delivery, pinning, npm, mise, image, evergreen]
-summary: "Four delivery classes, one of which kept no record and was never re-derived — and all divergence lived there. Amended 2026-09-03 with a second axis: a dependency serves either the AGENT (evergreen, updated at its own invocation) or the PROJECT (pinned, reproducible), and the delivery mechanism does not tell you which. Largely implemented by 2026-09-04; one question open."
+summary: "Four delivery classes, one of which kept no record and was never re-derived — and all divergence lived there. Amended 2026-09-03 with a second axis: a dependency serves either the AGENT (evergreen, updated at its own invocation) or the PROJECT (pinned, reproducible), and the delivery mechanism does not tell you which. Largely implemented by 2026-09-04; two questions open."
 ---
 
 # How executable content gets into a jail — and what makes two jails the same
 
 **Status:** DESIGN, 2026-08-24 — decided then, amended 2026-09-03, **largely implemented by
-2026-09-04**, and one question is still live;
+2026-09-04**, and two questions are live;
 compacted 2026-09-06; cross-checked against its sibling designs 2026-09-24. Every other question
-is ruled and sits in the [Decision Ledger](#decision-ledger), and **one question is open** — [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split), which asks whether two ruled-but-unbuilt steps of
-[§10](#10-what-i-would-build-in-order) still have a subject. **In the tree:** the receipts and the boot orphan catalog
+is ruled and sits in the [Decision Ledger](#decision-ledger), and **two questions are open** — [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split), which asks whether two ruled-but-unbuilt steps of
+[§10](#10-what-i-would-build-in-order) still have a subject, and [OQ-PD20](#oq-pd20), which asks whether `$GOBIN` stays a boot-catalog
+orphan class that `programs.autoprune` removes now that yolo installs nothing there. **In the tree:** the receipts and the boot orphan catalog
 (`af46c9b4`), the mise half (`a16403e2`), the [§6.2](#62-pay-the-enum-tolerance-before-the-next-mechanism-arrives) tolerance (`0a4d241c`), the offline
 reconcile (`43f28ce8`), the removal act and `yolo programs` (`3a4f1bbf`, `c127f4ad`, `3ac165e4`),
 evergreen agent updates with B2's PATH move and A7's version prune (merge `208a5e43`), and install
@@ -24,7 +25,7 @@ jail, dated), **READ FROM CODE** (traced but not observed running) or **NOT MEAS
 was re-verified as an ancestor of `HEAD` on 2026-09-06 — a rebase had left earlier revisions of
 this doc, and the roadmap, citing SHAs that resolve as objects but are not ancestors.
 
-**Needs your ruling:** [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split).
+**Needs your ruling:** [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split), [OQ-PD20](#oq-pd20).
 
 > [!IMPORTANT]
 > **AMENDED 2026-09-03 — the doc reopened, and [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) is the amendment.** This document
@@ -76,7 +77,7 @@ supersedes.
 **Reads with:** [`trust-paths.md`](trust-paths.md) (the trust half, and the two questions this doc
 supersedes), [`jail-notch-readiness.md`](jail-notch-readiness.md) (an open design that would install
 declared programs eagerly at launch while leaving [OQ-PD12a](#decision-ledger)'s lazy *refresh*
-untouched), [`agent-program-runtimes.md`](agent-program-runtimes.md) (a declared Node floor per
+untouched), [`../reference/agent-program-runtimes.md`](../reference/agent-program-runtimes.md) (a declared Node floor per
 `program`, built 2026-09-22, whose interpreter install is eager at boot for the same
 readiness-not-currency reason), [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md) (the measured cost of
 baking — every "why don't we just bake it" answer is priced there),
@@ -1778,7 +1779,7 @@ needed it, which was the point.
 
 ## Open Questions
 
-**One open — [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split).** Every other question is ruled and in the [Decision Ledger](#decision-ledger):
+**Two open — [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split) and [OQ-PD20](#oq-pd20).** Every other question is ruled and in the [Decision Ledger](#decision-ledger):
 the 2026-08-24 set, the 2026-09-03 amendment's rulings with its B2 revision and the two questions
 it opened, and the two from 2026-09-04 (the capture build opened [OQ-PD17](#decision-ledger), and
 ruling it surfaced [OQ-PD18](#decision-ledger)). Their deliberation scaffolding was compacted 2026-09-06; the reasoning that
@@ -1833,6 +1834,57 @@ agent dependencies by [`OQ-PD6`](#decision-ledger)'s own amendment; step three's
 record nothing obeys does not need to reach further than the thing it observes. What survives is one
 concrete question — *how does yolo pin pnpm, given mise is closed to it and nobody remembers why?* —
 which is small, real, and not what either step proposed to build.
+
+**Answer:**
+> _(empty — fill in when decided)_
+
+### <a id="oq-pd20"></a>💬 [`OQ-PD20`](#oq-pd20) — does `$GOBIN` stay an orphan class now that yolo installs nothing there?
+
+Opened 2026-09-25, when the LSP recipe table was deleted
+([`OQ-LSP1`](../reference/mcp-configuration.md#oq-lsp1)).
+
+**The setup.** The boot catalog has three finders, one per place a yolo-run install lands
+(`InstalledOrphans`, `internal/entrypoint/catalog.go`): the npm prefix, `~/.local/bin`, and
+`$GOPATH/bin`. The jail's `$GOPATH` is `~/go` unless the environment sets one
+(`internal/entrypoint/env.go`). The recipe table's go arm was the only thing in yolo that ever ran
+`go install` into that directory. No `via` value installs a Go module, so with the arm gone
+`catalogGoBinOrphans` passes an EMPTY declared set: **every** `$GOBIN` entry is an orphan, by
+construction.
+
+**The problem.** That was right for what the arm left behind. A `gopls` installed before the
+deletion has no record anywhere, and without this class it is invisible to `yolo programs ls` and
+`yolo programs remove`. But the finder cannot tell that `gopls` from a tool the user put there
+themselves with `go install`, which is the ordinary way to get a Go tool. So today:
+
+- every boot reports the user's own Go tools as "installed but not declared by anything";
+- `yolo programs remove --apply` removes them; and
+- with `programs.autoprune: true`, **every boot deletes them**. The option's contract
+  ([OQ-PD4](#decision-ledger)) is "the bytes minus the declarations", and nothing can declare a
+  `$GOBIN` entry.
+
+The `~/.local/bin` class has the same shape (a `pipx` or `uv tool` install lands there), but there a
+pack can declare the name. For `$GOBIN`, nothing can.
+
+**Options.**
+
+- **(a) Keep the class as it is.** It is honest about what the catalog can see, and autoprune is
+  opt-in. Cost: turning autoprune on destroys every user-installed Go tool at the next boot.
+- **(b) Keep the class in the catalog and `yolo programs ls`, but exclude it from autoprune.** A
+  `$GOBIN` entry is then removed only by an explicit `yolo programs remove --apply`, whose plan names
+  it first. This keeps the pre-deletion leftovers collectable without making the boot destroy
+  anything yolo did not install.
+- **(c) Retire the class for good, after one migration window.** Delete `catalogGoBinOrphans` and
+  `OrphanGoBin` once the pre-deletion `gopls` leftovers are presumed collected. `$GOBIN` then becomes
+  the user's own directory, the same as any tool yolo never installs into. Cost: a leftover that
+  survives the window stays for the life of the home, which is the invisibility the finder was kept
+  to prevent.
+
+<!-- vantage: oq id=OQ-PD20 leaning="(b) now, (c) later. Autoprune must never delete bytes yolo did not install, and nothing yolo runs installs into $GOBIN any more. The explicit verb keeps the leftovers collectable. Retire the class once a release has passed since the recipe table's deletion." -->
+
+_Leaning:_ **(b) now, then (c) after a release.** The rule autoprune should keep is that a boot
+never deletes bytes yolo did not install, and since 2026-09-25 nothing yolo runs installs into
+`$GOBIN`. The explicit verb still collects the leftovers, because its plan names each path before it
+removes anything. Once a tagged release has shipped past the deletion, retire the class.
 
 **Answer:**
 > _(empty — fill in when decided)_
