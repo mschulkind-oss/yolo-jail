@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
@@ -49,7 +50,7 @@ var jailRuntimes = []string{"podman", "container"}
 //
 //   - WHERE the jail home holds a surface. Apple Container binds ws_state AT the home, so
 //     `~/.claude/settings.json` keeps its dot; podman nests a per-dir overlay with the dot
-//     STRIPPED (jailHomeHostLocation, whose own test pins both arms). A fixture that spells
+//     STRIPPED (jailHomeRel, whose own test pins both arms). A fixture that spells
 //     the podman path writes a file production correctly never looks at, so the truncation
 //     silently found nothing and `reset` looked like it had left the edit behind.
 //   - WHICH PROBE and therefore WHICH PARSER reads the liveness stub. `container ls` is a
@@ -92,12 +93,12 @@ func runningJailStdout(rt, ws string) string {
 // the file is. Spelling it is what made these tests podman-only.
 func jailSurfaceFile(t *testing.T, ws, rt, surfacePath string) string {
 	t.Helper()
-	path, ok := jailHomeHostLocation(ws, rt, surfacePath)
+	rel, ok := jailHomeRel(rt, surfacePath)
 	if !ok {
 		t.Fatalf("the jail home maps no location for %q on %s, so this test would assert "+
 			"about a path production never resolves", surfacePath, rt)
 	}
-	return path
+	return filepath.Join(paths.WorkspaceHomeState(ws), rel)
 }
 
 // A STOPPED JAIL'S CAPTURES ARE DISCARDABLE FROM THE HOST, with no --force. Both halves run:
