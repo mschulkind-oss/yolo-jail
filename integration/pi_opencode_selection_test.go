@@ -87,7 +87,7 @@ func TestPiAndOpencodeSelectionFollowTheActiveProfile(t *testing.T) {
 	// ProviderCredentialGaps). Set before any launch.
 	t.Setenv("ZAI_API_KEY", "integration-probe-not-a-real-key")
 
-	t.Run("a profile at both CLIs writes both selections, and no profile clears nothing", func(t *testing.T) {
+	t.Run("a profile at both CLIs writes both selections, and no profile clears what yolo wrote", func(t *testing.T) {
 		dir := writeProject(t, `{}`)
 		packHome(t, piAndOpencodePacks)
 
@@ -131,27 +131,28 @@ func TestPiAndOpencodeSelectionFollowTheActiveProfile(t *testing.T) {
 		// "config" (providers_test.go); its catalog row is read from the same file.
 		requireCataloged(t, ocConfig.raw, "provider", "zai", "opencode.json")
 
-		// The second launch on the SAME workspace, with no profile: OQ-CS2 is a statement
-		// about a launch, and the never-clear half of it is only observable on a home a
-		// selecting launch already wrote. yolo can turn a selection on and cannot turn it
-		// off — a second launch that reverted these keys would be re-asserting a computed
-		// key, which is exactly what the reserved namespace exists to stop.
+		// The second launch on the SAME workspace, with no profile. OQ-PSW2
+		// (docs/design/provider-switching.md, ruled 2026-09-25) replaced OQ-CS2's
+		// never-clear: a deselect clears the keys yolo wrote, so each agent falls back to
+		// its native default or the host layer, and only an interactive user edit
+		// survives. Nothing here edited the files, so both pairs are yolo's and both clear.
+		// Observable only on a home a selecting launch already wrote.
 		r = runYolo(t, dir, "true")
 		if r.rc != 0 {
 			t.Fatalf("unprofiled relaunch failed: rc %d\n%s", r.rc, r.combined())
 		}
 
 		piSettings = readPioencodeSurface(t, dir, "pi", "agent", "settings.json")
-		if piSettings.provider != "zai" || piSettings.model != "glm-5.3" {
-			t.Errorf("after an unprofiled relaunch pi's pair = %q/%q, want the selection the "+
-				"first launch wrote left standing — deactivation clears nothing "+
-				"(docs/reference/providers.md — Selection: write on activation, OQ-CS2)",
+		if piSettings.provider != "" || piSettings.model != "" {
+			t.Errorf("after an unprofiled relaunch pi's pair = %q/%q, want both cleared — "+
+				"yolo wrote them and nobody edited them, so a deselect clears them "+
+				"(OQ-PSW2; docs/reference/providers.md, Selection)",
 				piSettings.provider, piSettings.model)
 		}
 		ocConfig = readPioencodeSurface(t, dir, "config", "opencode", "opencode.json")
-		if ocConfig.slashJoin != "zai/glm-5.3" {
-			t.Errorf("after an unprofiled relaunch opencode's model = %q, want the selection "+
-				"the first launch wrote left standing (OQ-CS2)", ocConfig.slashJoin)
+		if ocConfig.slashJoin != "" {
+			t.Errorf("after an unprofiled relaunch opencode's model = %q, want it cleared "+
+				"(OQ-PSW2)", ocConfig.slashJoin)
 		}
 	})
 
