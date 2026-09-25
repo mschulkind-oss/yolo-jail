@@ -1,14 +1,17 @@
 package storage
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/user"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -59,18 +62,7 @@ func EnsureGlobalStorage(migrate func()) error {
 		}
 	}
 
-	// Migrate credentials from old single-file location to new shared dir.
-	oldCred := filepath.Join(globalHome, ".claude", ".credentials.json")
-	newCred := filepath.Join(globalHome, ".claude-shared-credentials", ".credentials.json")
-	if isRegularFile(oldCred) && !isSymlink(oldCred) {
-		if info, err := os.Stat(newCred); os.IsNotExist(err) || (err == nil && info.Size() == 0) {
-			_ = copyFile(oldCred, newCred)
-		}
-		_ = os.Remove(oldCred) // may have restrictive perms — leave for now
-	}
-	if !pathExists(newCred) {
-		_ = touch(newCred)
-	}
+	ensureSharedCredentials(globalHome)
 
 	if migrate != nil {
 		migrate()
@@ -111,39 +103,6 @@ func EnsureCacheRelocations(relocations []config.CacheRelocation) error {
 		}
 	}
 	return nil
-}
-
-// EnsureSymlink ensures link is a relative symlink to target (a path relative to
-// link's parent), migrating a pre-existing regular file's data into the target
-// location first.
-func EnsureSymlink(link, target string) error {
-	if isSymlink(link) {
-		cur, err := os.Readlink(link)
-		if err == nil && cur != target {
-			if err := os.Remove(link); err != nil {
-				return err
-			}
-			return os.Symlink(target, link)
-		}
-		return nil
-	}
-	if pathExists(link) {
-		// Migrate data from old regular file to new target location.
-		real := filepath.Join(filepath.Dir(link), target)
-		if !pathExists(real) {
-			if err := os.MkdirAll(filepath.Dir(real), 0o755); err != nil {
-				return err
-			}
-			_ = copyFile(link, real) // unreadable (bad perms) — skip data
-		}
-		// Replace file with symlink; can't replace ⇒ leave as-is (no error).
-		if err := os.Remove(link); err != nil {
-			return nil //nolint:nilerr // Python: except OSError: pass
-		}
-		_ = os.Symlink(target, link)
-		return nil
-	}
-	return os.Symlink(target, link)
 }
 
 // HostMiseDir returns the host's own mise data dir (~/.local/share/mise). Host-
@@ -251,34 +210,89 @@ func isSymlink(p string) bool {
 	return err == nil && info.Mode()&os.ModeSymlink != 0
 }
 
-func isRegularFile(p string) bool {
-	info, err := os.Stat(p)
-	return err == nil && info.Mode().IsRegular()
+// sharedCredentialsDir and sharedCredentialsFile name the Claude credential file in the machine
+// store's shared dir, the rw bind source of every claude jail's ~/.claude-shared-credentials.
+const (
+	sharedCredentialsDir  = ".claude-shared-credentials"
+	sharedCredentialsFile = ".credentials.json"
+)
+
+// ensureSharedCredentials makes <globalHome>/.claude-shared-credentials/.credentials.json a
+// regular file, first migrating the legacy <globalHome>/.claude/.credentials.json into it when
+// the shared one is missing or empty. Best-effort, as it always was: a failure leaves the file
+// missing, and the jail's Claude logs in again.
+//
+// THE SHARED DIR IS JAIL-WRITABLE (every claude jail binds it read-write), so this runs beneath
+// an os.Root on it (paths.OpenStateDirRoot, refusing the dir itself as a link) and never follows
+// a link at the file's name. Before, a link-following stat and an O_CREATE touch created the
+// target of a dangling link the jail had left there, as the host user, on the next launch or
+// `yolo check`, and the migration copied the legacy credential into a host file of the jail's
+// choosing (docs/reference/jail-home.md, "Host code in jail-writable state"). A non-regular file
+// at the name is replaced: the jail sees it only through the bind, so removing it loses
+// nothing but the link.
+func ensureSharedCredentials(globalHome string) {
+	r, err := paths.OpenStateDirRoot(filepath.Join(globalHome, sharedCredentialsDir))
+	if err != nil {
+		return
+	}
+	defer r.Close()
+
+	fi, err := r.Lstat(sharedCredentialsFile)
+	if err == nil && !fi.Mode().IsRegular() {
+		if r.Remove(sharedCredentialsFile) != nil {
+			return
+		}
+		err = fs.ErrNotExist
+	}
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return
+	}
+	missingOrEmpty := err != nil || fi.Size() == 0
+
+	// Migrate credentials from the old single-file location into the shared dir.
+	oldCred := filepath.Join(globalHome, ".claude", sharedCredentialsFile)
+	if old, oldInfo := openRegularNoFollow(oldCred); old != nil {
+		if missingOrEmpty {
+			if err == nil { // an empty regular file is there: replace it, O_EXCL below
+				_ = r.Remove(sharedCredentialsFile)
+			}
+			_ = copyIntoNew(r, sharedCredentialsFile, old, oldInfo.Mode().Perm())
+		}
+		old.Close()
+		_ = os.Remove(oldCred) // may have restrictive perms — leave for now
+	}
+	if _, err := r.Lstat(sharedCredentialsFile); errors.Is(err, fs.ErrNotExist) {
+		if f, err := r.OpenFile(sharedCredentialsFile, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644); err == nil {
+			_ = f.Close()
+		}
+	}
 }
 
-func touch(p string) error {
-	f, err := os.OpenFile(p, os.O_CREATE, 0o644)
+// openRegularNoFollow opens p for reading only when p itself is a regular file, not a link to
+// one, and returns nil when it is anything else or missing.
+func openRegularNoFollow(p string) (*os.File, os.FileInfo) {
+	f, err := os.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
-		return err
+		return nil, nil
 	}
-	return f.Close()
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		f.Close()
+		return nil, nil
+	}
+	return f, info
 }
 
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-	out, err := os.Create(dst)
+// copyIntoNew creates name beneath r, which must not exist, and copies in into it; a partial
+// copy is removed.
+func copyIntoNew(r *os.Root, name string, in io.Reader, perm os.FileMode) error {
+	out, err := r.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
 	if err != nil {
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {
 		out.Close()
+		_ = r.Remove(name)
 		return err
 	}
 	return out.Close()

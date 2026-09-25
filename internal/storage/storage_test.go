@@ -104,32 +104,6 @@ func TestDetectHostTimezone(t *testing.T) {
 	}
 }
 
-func TestEnsureSymlinkMigratesRegularFile(t *testing.T) {
-	dir := t.TempDir()
-	link := filepath.Join(dir, ".gitconfig")
-	must(t, os.WriteFile(link, []byte("[user]\n\tname = matt\n"), 0o644))
-	target := filepath.Join(".config", "git", "config")
-	must(t, EnsureSymlink(link, target))
-	// link is now a symlink pointing at the relative target.
-	if !isSymlink(link) {
-		t.Fatal("link should be a symlink after migration")
-	}
-	got, _ := os.Readlink(link)
-	if got != target {
-		t.Errorf("readlink = %q, want %q", got, target)
-	}
-	// Data migrated to the real location.
-	real := filepath.Join(dir, target)
-	if data, _ := os.ReadFile(real); string(data) != "[user]\n\tname = matt\n" {
-		t.Errorf("migrated data = %q", data)
-	}
-	// Idempotent: a second call is a no-op (same target).
-	must(t, EnsureSymlink(link, target))
-	if got, _ := os.Readlink(link); got != target {
-		t.Errorf("second call changed link to %q", got)
-	}
-}
-
 func TestFindDanglingMiseSymlinks(t *testing.T) {
 	dir := t.TempDir()
 	installs := filepath.Join(dir, "installs", "node")
