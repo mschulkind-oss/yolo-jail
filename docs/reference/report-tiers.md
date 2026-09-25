@@ -410,6 +410,12 @@ Six properties an implementer would otherwise decide by accident:
 > fatal built on a probe that can silently report *present* would be worse than no fatal at all.
 > The seam is a `var` for test overriding, which is the only way the answer changes.
 
+> [!NOTE]
+> **The probe resolves against the process PATH, which at the host notch is the caller's.** So the
+> same `yolo host` gives a different verdict from a terminal and from a desktop launcher that never
+> ran shell activation. [`host-launch-environment.md`](../design/host-launch-environment.md#3-one-authority--the-seam) proposes one
+> composed host PATH for the probe and the exec alike.
+
 ## What this does not license
 
 - **Not color or glyphs.** [`cli-visual-polish.md`](../plans/cli-visual-polish.md) owns them; the

@@ -48,7 +48,8 @@ and why "just use wrappers for everything" does not collapse the problem.
 which endpoint), [`envsource-relative-paths.md`](envsource-relative-paths.md) (what a relative
 `env_sources` path points at — the secret channel this composition hydrates),
 [`../design/host-render-target.md`](../design/host-render-target.md) (the host as one notch of
-the confinement dial), [`pack-system.md`](pack-system.md) (the contribution model). For the
+the confinement dial), [`pack-system.md`](pack-system.md) (the contribution model),
+[`host-launch-environment.md`](../design/host-launch-environment.md) (the proposal to stop inheriting the caller's PATH). For the
 `host_wrappers` key and every flag, run `yolo config-ref` and `yolo host --help`.
 
 ---
@@ -220,7 +221,9 @@ parsing to discover whether a verb was present at all.
    effective `env` for the active workspace.
 3. **Compose the process environment** — start from the current environment, hydrate
    `env_sources` (the secret channel), overlay the resolved `env`, then **apply removals**: a
-   `null` is an `unset`, not an empty string.
+   `null` is an `unset`, not an empty string. PATH is inherited whole today, so the target and
+   every dependency probe resolve against whatever PATH the caller held; [`host-launch-environment.md`](../design/host-launch-environment.md)
+   proposes composing it instead.
 4. **Exec** the target with that environment.
 
 > [!WARNING]
@@ -289,8 +292,9 @@ exit.
 - **Not wrappers instead of config surfaces.** Wrappers are universal on payload and partial on
   invocation — the same partiality as config files, rotated 90°. Dropping Channel 1 trades a gap
   declarable at apply time for one the user discovers at runtime inside an IDE.
-- **Not a jail mechanism.** `kind: "env"` is refused at the host notch wholesale; what crosses
-  to the host is a profile's `env` and the provider's key name.
+- **Not a second env fold.** Packs' `kind: "env"` contributions reach the host through the same
+  fold the jail reduces (`packload.EnvFold`: each pack's static keys, then its profile-gated keys
+  whose gate is satisfied), and `hostfoldparity_test.go` pins the two notches to one winner per key.
 
 ## Why it's this way
 

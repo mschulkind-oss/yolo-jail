@@ -256,7 +256,7 @@ classified by whether it is part of the definition:
 | **Locked** (reproducible, pinned) | nixpkgs + the image (`flake.lock`); the pack set with per-pack commit pins and host-access approvals (`packs.lock.json`) | `flake.lock` revs |
 | **Declared** (named by the definition) | `yolo-jail.jsonc`; pack `contributes[]` — surfaces, `defaults`/`managed`, `derive`; inline `env_sources` entries | `flake.nix` |
 | **Declared-impure** (named, but the *content* is external machine state) | the user config `~/.config/yolo-jail/config.jsonc`; `include_if_found` targets; `env_sources` dotenv *files* (secret values); `mise_tools` (versions declared, toolchains fetched); the **`host` layer** (§below) | a fixed-output derivation — impure, but *named* |
-| **Undeclared** (participates, nothing names it) | `yolo-jail.local.jsonc` (auto-merged, gitignored); the **capture overlay** (outranks every declared layer, nothing declares *it*) | `--impure`, silently |
+| **Undeclared** (participates, nothing names it) | `yolo-jail.local.jsonc` (auto-merged, gitignored); the **capture overlay** (outranks every declared layer, nothing declares *it*); the invoking process's PATH at the host notch ([`host-launch-environment.md`](../design/host-launch-environment.md) proposes moving it to Declared-impure) | `--impure`, silently |
 
 Two inputs left this table on 2026-09-11: the workspace `yolo-jail.config.lua` (Declared) and
 the user `~/.config/yolo-jail/config.lua` (Declared-impure) were the Lua config transform's two
