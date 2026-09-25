@@ -48,7 +48,7 @@ it is already written down.
 
 **Reads with:** [`program-delivery.md`](program-delivery.md) (owns the launcher and
 [`OQ-PD12a`](program-delivery.md#decision-ledger), the lazy ruling this must not contradict),
-[`agent-program-runtimes.md`](agent-program-runtimes.md) (the same split, ruled for an interpreter),
+[`../reference/agent-program-runtimes.md`](../reference/agent-program-runtimes.md) (the same split, ruled for an interpreter),
 [`../reference/host-apply-staleness.md`](../reference/host-apply-staleness.md) (the host's launch
 gate, and what it deliberately does *not* answer).
 
@@ -73,8 +73,8 @@ jobs**: the launcher's cold branch installs, and its warm branch refreshes.
 > [!IMPORTANT]
 > **Splitting the two is what makes this buildable without reopening a shipped ruling.** Install
 > eagerly, refresh lazily. The same split was already ruled for an interpreter
-> ([`agent-program-runtimes.md`](agent-program-runtimes.md),
-> [`OQ-AR2`](agent-program-runtimes.md#decision-ledger)), and the tree already draws
+> ([`../reference/agent-program-runtimes.md`](../reference/agent-program-runtimes.md),
+> [`OQ-AR2`](../reference/agent-program-runtimes.md#oq-ar2)), and the tree already draws
 > the line in a comment: *"Agent CLIs … are NOT installed here. Lazy-install launchers … install
 > them on first use, keeping boot fast. … Only MCP/LSP tools that agents depend on are installed
 > here"* (the bootstrap script `GenerateBootstrapScript` emits, in
@@ -130,12 +130,20 @@ runs host-side as a dry run under `yolo check` (the generator list in
 [`check/entrypoint.go`](../../internal/cli/check/entrypoint.go)), so a generator that installed
 would install on an observe verb.
 
-**There is now a built precedent in this stage.** [`OQ-AR2`](agent-program-runtimes.md#decision-ledger)'s
+**There is now a built precedent in this stage.** [`OQ-AR2`](../reference/agent-program-runtimes.md#oq-ar2)'s
 eager interpreter install shipped 2026-09-22 in the bootstrap script, after `mise install`: it
-installs `node@<floor>` for a declared floor nothing satisfies, then refuses if one is still
-unmet. That is the same split this doc proposes — install eagerly, refresh lazily — applied to a
-program's interpreter rather than to the program itself, so it is the nearest template for where
-a declared-program install would sit.
+installs `node@<floor>` for a declared floor nothing satisfies. Its refusal
+([`OQ-AR3`](../reference/agent-program-runtimes.md#oq-ar3)) did NOT ship as a refusal that day: the
+bootstrap printed the message and exited 1, and `provision.Script` degrades every non-vetoed failure
+to status 0, so the target ran anyway. Since 2026-09-25 the bootstrap exits `provision.RefusedStatus`,
+the one status `provision.Script` passes through without asking
+([`provision.go`](../../internal/provision/provision.go)), and the launch stops before the target on
+both backends. That is the same split this doc proposes — install eagerly, refresh lazily — applied
+to a program's interpreter rather than to the program itself, so it is the nearest template for
+where a declared-program install would sit. ⚠ It is a template with two holes, both recorded as open
+questions rather than fixed: a failed `mise install` skips the bootstrap, so no floor is checked
+([`OQ-AR6`](agent-program-runtimes.md#OQ-AR6)), and macos-user runs no stage at all unless
+`mise_tools` asks for one ([`OQ-AR5`](agent-program-runtimes.md#OQ-AR5)).
 
 ## 4. What this does not license
 
@@ -192,8 +200,8 @@ a declared-program install would sit.
    *"an offline boot fails here routinely and simply retries next launch"*. But a jail that started
    without the program its pack declared is the unready environment this doc exists to stop. Stakes:
    whether "ready" is a promise or a best effort at this notch — and note
-   [`agent-program-runtimes.md`](agent-program-runtimes.md)'s
-   [`OQ-AR3`](agent-program-runtimes.md#decision-ledger) already ruled **refuse** for
+   [`../reference/agent-program-runtimes.md`](../reference/agent-program-runtimes.md)'s
+   [`OQ-AR3`](../reference/agent-program-runtimes.md#oq-ar3) already ruled **refuse** for
    the adjacent case of an unsatisfiable interpreter floor.
 
    <!-- vantage: oq id=OQ-JR1 leaning="Degrade on a network failure, refuse on a declared-program failure that leaves nothing runnable — the distinction being whether the jail can still do the job it was selected for. A blanket refusal makes an offline cold boot unusable; a blanket degrade re-creates the exact false success this doc opens with." -->

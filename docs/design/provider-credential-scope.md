@@ -559,4 +559,4 @@ Vendor, measured in this jail against the **installed** packages: 2026-09-22 at 
 
 ⚠ **`pi --version` runs the evergreen launcher, which can upgrade pi in place.** One probe on
 2026-09-21 took this jail from 0.85.1 to 0.87.0, so a pi number is a claim about the version it
-was read at; [`agent-program-runtimes.md`](agent-program-runtimes.md) records an older one.
+was read at; [`../reference/agent-program-runtimes.md`](../reference/agent-program-runtimes.md#the-principle--an-agents-interpreter-belongs-to-the-pack) records an older one.

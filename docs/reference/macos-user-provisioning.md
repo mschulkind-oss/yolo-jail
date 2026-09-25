@@ -384,10 +384,20 @@ lock is a courtesy against a self-inflicted race, not a safety property worth re
 ### A failing stage does not abort the launch
 
 `provision.Script` wraps the body in a tee-to-log, the `PROVISIONING FAILED` marker, a red
-console line and a continue/abort prompt. Its **exit status says exactly one thing: whether the
-human asked to stop.** Every failure it survives — including every non-interactive one, where
-there is nobody to ask — completes with status 0, because a jail whose tools did not install is
-still a jail the user asked for and the record is in the log. Only the `n` answer propagates.
+console line and a continue/abort prompt. Its **exit status says one of exactly two things:
+the human asked to stop, or a step refused the launch.** Every other failure it survives —
+including every non-interactive one, where there is nobody to ask — completes with status 0,
+because a jail whose tools did not install is still a jail the user asked for and the record is
+in the log. Only the `n` answer and `provision.RefusedStatus` propagate.
+
+**The one exception is a refusal.** `provision.RefusedStatus` (78, `sysexits.h`'s `EX_CONFIG`)
+is the status a step exits with to refuse the launch, and the script passes it through with no
+prompt, at a terminal or not — a "continue anyway?" there would be the escape hatch the ruling
+forbids. Today one step produces it: the generated bootstrap, when a selected pack declares a
+Node floor that nothing available satisfies even after the stage tried to install one
+([`OQ-AR3`](agent-program-runtimes.md#oq-ar3), how it refuses:
+[The refusal](agent-program-runtimes.md#the-refusal)). The marker is
+still written first, so the discriminator below can tell a refusal from a stage that never ran.
 
 > [!WARNING]
 > **The process's exit status is a different question, and conflating the two inverted the
@@ -400,6 +410,9 @@ still a jail the user asked for and the record is in the log. Only the `n` answe
 and only if the script ran (`runProvisionStage`):
 
 - non-zero **and** the marker is in this launch's log → a deliberate veto: abort, naming the log.
+- `provision.RefusedStatus` **and** the marker → the stage ran and refused the launch with nobody
+  asked: abort, calling it a refusal rather than a veto nobody gave. The reason is already on
+  the console and in the log.
 - non-zero **and no marker** → the stage never ran, so the status came from the exec layer: warn
   that the declared tools are *not* installed, and launch anyway.
 
