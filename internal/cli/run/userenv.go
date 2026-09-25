@@ -1,7 +1,6 @@
 package run
 
 import (
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -83,11 +82,15 @@ const channelSectionHeader = entrypoint.EntryChannelSectionHeader
 func writeUserEnvFile(userEnvFile string, userEnv *jsonx.OrderedMap, channel *packChannel) {
 	// The parent must exist for the ATTACH write in particular: the fresh path runs
 	// prepareWsState first, an attach does not — it counts on the launch that created
-	// the jail, and mkdir is cheaper than that assumption.
-	_ = os.MkdirAll(filepath.Dir(userEnvFile), 0o755)
+	// the jail, and mkdir is cheaper than that assumption. writeFileBeneathMode creates it.
+	//
+	// BENEATH the file's directory (wsState), never a plain path write, and the mode is set
+	// through the open file: the jail can replace this file with a link, and a write and chmod
+	// that followed it would put these secrets in, and narrow, a host file of its choosing
+	// (wsstatebeneath.go).
+	dir, name := filepath.Dir(userEnvFile), filepath.Base(userEnvFile)
 	if channel == nil && (userEnv == nil || userEnv.Len() == 0) {
-		_ = os.WriteFile(userEnvFile, nil, userEnvFileMode)
-		_ = os.Chmod(userEnvFile, userEnvFileMode)
+		_ = writeFileBeneathMode(dir, name, nil, userEnvFileMode)
 		return
 	}
 	var b strings.Builder
@@ -123,8 +126,7 @@ func writeUserEnvFile(userEnvFile string, userEnv *jsonx.OrderedMap, channel *pa
 			b.WriteString(exportPlain(v.Key, v.Value))
 		}
 	}
-	_ = os.WriteFile(userEnvFile, []byte(b.String()), userEnvFileMode)
-	_ = os.Chmod(userEnvFile, userEnvFileMode)
+	_ = writeFileBeneathMode(dir, name, []byte(b.String()), userEnvFileMode)
 }
 
 // exportDefault renders one overridable env_sources default: the environment

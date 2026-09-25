@@ -374,8 +374,21 @@ func blockedToolRecords(blocked []any) []jailcontent.BlockedTool {
 // used to create in that shared base (writable_home_dirs, pack `files`, skills and briefing
 // destinations) are the podman home skeleton's now (buildHomeSkeleton, homeskeleton.go):
 // created there, they showed up in every jail on the machine.
+//
+// EVERY OPERATION HERE IS BENEATH AN os.Root opened on wsState (wsstatebeneath.go), because
+// the jail can write every path it touches, and wsState and `.yolo` themselves: a link the
+// jail left at one would carry the host's write, or its read, wherever it points. So a linked
+// wsState or `.yolo` gets nothing written below it (Run has already refused that launch; this
+// is the same check where the writes are), a podman bind source that is a link is replaced by
+// a real one and the launch says so, and the migrations and the seed sync never follow one.
 func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, loadedPacks []*packload.Pack, rt string) string {
 	wsState := paths.WorkspaceHomeState(o.Workspace)
+	out := o.pr(o.Stdout)
+	if linked := linkedWorkspaceState(o.Workspace); linked != "" {
+		out.print("[yellow]Warning: " + (&linkedStateRootError{Path: linked}).Error() +
+			"; nothing was prepared in this workspace's jail state[/yellow]")
+		return wsState
+	}
 	// Through the chokepoint rather than a bare MkdirAll of wsState's parent: this is the
 	// WIDEST creator of <workspace>/.yolo in the pipeline (the whole home overlay hangs off
 	// it), so it is the one that most wants the state dir's own .gitignore and its refusal
@@ -384,7 +397,13 @@ func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, loadedPacks []*packload.
 	// same way the mkdirs below are: the launch fails on the missing bind source with a
 	// message naming the path, which is the failure a human can act on.
 	_, _ = paths.EnsureWorkspaceStateDir(o.Workspace)
-	_ = os.MkdirAll(wsState, 0o755)
+	ws, err := openStateRoot(wsState)
+	if err != nil {
+		out.print("[yellow]Warning: " + err.Error() +
+			"; nothing was prepared in this workspace's jail state[/yellow]")
+		return wsState
+	}
+	defer ws.Close()
 
 	// THE TWO CONTAINER BACKENDS LAY wsState OUT DIFFERENTLY, and each path here follows the
 	// layout this launch's backend reads (the design's OQ-BH12,
@@ -397,12 +416,17 @@ func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, loadedPacks []*packload.
 	// created there at all: they are sources of binds that backend never makes, and each one
 	// showed up in its jails as a stray undotted entry (~/claude, ~/npm-global, ~/ssh) that
 	// nothing in the jail reads.
+	//
+	// A link in wsState is the jail user's own on Apple Container, where wsState IS the home
+	// and the guest resolves every link in it, so there a dir is only created beneath the root
+	// and a link is left alone. On podman a link at a bind source is replaced (bindSourceDirBeneath
+	// says why), and each replacement is named.
 	if rt == "container" { // parity: Honored — the same pack dirs, at the dotted paths Apple Container's whole-home wsState bind reads
 		for _, dir := range append([]string{"go"}, packload.WritableDirs(loadedPacks)...) {
-			_ = os.MkdirAll(filepath.Join(wsState, filepath.FromSlash(dir)), 0o755)
+			_ = ws.MkdirAll(filepath.FromSlash(dir), 0o755)
 		}
 	} else {
-		preparePodmanBindSources(wsState, cfg, loadedPacks)
+		printReplacedLinks(out, wsState, preparePodmanBindSources(ws, cfg, loadedPacks))
 	}
 
 	// Mountpoints for the PACK-DECLARED `files` trees below writable pack state: they belong
@@ -436,18 +460,13 @@ func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, loadedPacks []*packload.
 	if hasWritableDir(loadedPacks, ".claude") {
 		syncClaudeJSONSeed(
 			filepath.Join(paths.GlobalHome(), ".claude", "claude.json"),
-			claudeJSONInWsState(wsState, rt))
-		migrateOldOverlay(filepath.Join(wsState, "claude-projects"), wsStateHomePath(wsState, rt, ".claude/projects"))
+			ws, claudeJSONRelInWsState(rt))
+		migrateOldOverlay(ws, "claude-projects", ws, wsStateHomeRel(rt, ".claude/projects"))
 		// claude-settings.json → ~/.claude/settings.json (only if new absent).
-		oldSettings := filepath.Join(wsState, "claude-settings.json")
-		newSettings := wsStateHomePath(wsState, rt, ".claude/settings.json")
-		if isFile(oldSettings) && !fileExists(newSettings) {
-			_ = os.MkdirAll(filepath.Dir(newSettings), 0o755)
-			_ = copyFile2(oldSettings, newSettings)
-		}
+		_ = copyFileIfMissing(ws, "claude-settings.json", ws, wsStateHomeRel(rt, ".claude/settings.json"))
 	}
 	if hasWritableDir(loadedPacks, ".copilot") {
-		migrateOldOverlay(filepath.Join(wsState, "copilot-sessions"), wsStateHomePath(wsState, rt, ".copilot/session-state"))
+		migrateOldOverlay(ws, "copilot-sessions", ws, wsStateHomeRel(rt, ".copilot/session-state"))
 	}
 
 	// THE MACHINE-WIDE TIER, RESCUED OUT OF THE PER-WORKSPACE ONE (#39).
@@ -472,8 +491,13 @@ func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, loadedPacks []*packload.
 	// this is a no-op everywhere else (migrateOldOverlay returns on a missing or empty
 	// source), and gating on rt would make a repair that is about a DIRECTORY depend on
 	// which backend happens to be launching now — the same coupling that caused the bug.
+	//
+	// Both sides are jail-writable, so neither is followed through a link (rescueSharedDir):
+	// the source is this workspace's overlay, and the machine-wide dir is bound read-write
+	// into every jail with the pack — following a link at the source would publish a host
+	// tree to all of them.
 	for _, dir := range packload.SharedDirs(loadedPacks) {
-		migrateOldOverlay(filepath.Join(wsState, dir), filepath.Join(paths.GlobalHome(), dir))
+		rescueSharedDir(ws, filepath.FromSlash(dir), filepath.Join(paths.GlobalHome(), dir))
 	}
 	return wsState
 }
@@ -487,29 +511,39 @@ func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, loadedPacks []*packload.
 // "statfs …: no such file or directory" when a bind source is missing, which reads as a yolo
 // bug rather than a missing directory.
 //
+// Each is created beneath ws, and a symbolic link at one, or above one, is REPLACED by a real
+// directory or file (bindSourceDirBeneath, bindSourceFileBeneath): podman resolves a bind
+// source on the host, so a link the jail left at wsState/claude pointing at the host's
+// ~/.claude would bind the host's own directory read-write into the next jail. It returns the
+// replaced paths, relative to wsState, for the launch to name.
+//
 // Podman only. Apple Container binds none of them (prepareWsState says what it gets instead).
-func preparePodmanBindSources(wsState string, cfg *jsonx.OrderedMap, loadedPacks []*packload.Pack) {
-	_ = os.MkdirAll(filepath.Join(wsState, "ssh"), 0o700)
+func preparePodmanBindSources(ws *os.Root, cfg *jsonx.OrderedMap, loadedPacks []*packload.Pack) (replaced []string) {
+	dir := func(rel string, perm os.FileMode) {
+		r, _ := bindSourceDirBeneath(ws, rel, perm)
+		replaced = append(replaced, r...)
+	}
+	dir("ssh", 0o700)
 
 	// Backing dirs for the PACK-DECLARED writable dirs.
 	var overlaySubdirs []string
 	for _, dir := range packload.WritableDirs(loadedPacks) {
-		overlaySubdirs = append(overlaySubdirs, strings.TrimPrefix(dir, "."))
+		overlaySubdirs = append(overlaySubdirs, filepath.FromSlash(strings.TrimPrefix(dir, ".")))
 	}
 	for _, subdir := range append([]string{
 		"npm-global", "local", "go", "yolo-bin", "config",
 		filepath.Join("pi", "agent"),
 	}, overlaySubdirs...) {
-		_ = os.MkdirAll(filepath.Join(wsState, subdir), 0o755)
+		dir(subdir, 0o755)
 	}
 
 	// Writable home dirs (config writable_home_dirs): the BACKING dir under
 	// <wsState>/writable-home/<path>, which podman binds over /home/agent/<path>. A missing
 	// bind source kills the container. The mountpoint that bind needs inside the :ro home
 	// root is the skeleton's (buildHomeSkeleton). The paths are already validated
-	// (relative, no '..', no reserved segment), so MkdirAll can never escape wsState.
+	// (relative, no '..', no reserved segment), and the root refuses one that escapes anyway.
 	for _, rel := range config.WritableHomeDirs(cfg, loadedPacks) {
-		_ = os.MkdirAll(filepath.Join(wsState, config.WritableHomeBackingSubdir, rel), 0o755)
+		dir(filepath.Join(config.WritableHomeBackingSubdir, filepath.FromSlash(rel)), 0o755)
 	}
 
 	// The single-file bind sources.
@@ -518,8 +552,11 @@ func preparePodmanBindSources(wsState string, cfg *jsonx.OrderedMap, loadedPacks
 		"yolo-perf.log", "yolo-socat.log", "yolo-entrypoint.lock",
 		"yolo-ca-bundle.crt",
 	} {
-		touchFile(filepath.Join(wsState, fname))
+		if r, _ := bindSourceFileBeneath(ws, fname); r {
+			replaced = append(replaced, fname)
+		}
 	}
+	return replaced
 }
 
 // claudeJSONInWsState is where this workspace's ~/.claude.json lives in wsState on backend
@@ -533,10 +570,16 @@ func preparePodmanBindSources(wsState string, cfg *jsonx.OrderedMap, loadedPacks
 //     backend was the defect the design's §3 records: the seed never reached an Apple
 //     Container jail and never learned from one.
 func claudeJSONInWsState(wsState, rt string) string {
+	return filepath.Join(wsState, claudeJSONRelInWsState(rt))
+}
+
+// claudeJSONRelInWsState is claudeJSONInWsState relative to wsState, for the sync beneath
+// wsState's os.Root.
+func claudeJSONRelInWsState(rt string) string {
 	if rt == "container" { // parity: Honored — the same file, at the path Apple Container's whole-home wsState bind puts it
-		return filepath.Join(wsState, ".claude.json")
+		return ".claude.json"
 	}
-	return filepath.Join(wsState, "claude", "claude.json")
+	return filepath.Join("claude", "claude.json")
 }
 
 // wsStateHomePath is where the home path homeRel (slash-separated, relative to /home/agent,
@@ -545,10 +588,15 @@ func claudeJSONInWsState(wsState, rt string) string {
 // puts every home path there, and under the dot-stripped bind source on podman, which binds
 // wsState/claude at ~/.claude.
 func wsStateHomePath(wsState, rt, homeRel string) string {
+	return filepath.Join(wsState, wsStateHomeRel(rt, homeRel))
+}
+
+// wsStateHomeRel is wsStateHomePath relative to wsState.
+func wsStateHomeRel(rt, homeRel string) string {
 	if rt == "container" { // parity: Honored — the same home path, at the spelling Apple Container's whole-home wsState bind reads
-		return filepath.Join(wsState, filepath.FromSlash(homeRel))
+		return filepath.FromSlash(homeRel)
 	}
-	return filepath.Join(wsState, filepath.FromSlash(strings.TrimPrefix(homeRel, ".")))
+	return filepath.FromSlash(strings.TrimPrefix(homeRel, "."))
 }
 
 // hasWritableDir reports whether any loaded pack declared dir writable.
@@ -559,16 +607,6 @@ func hasWritableDir(packs []*packload.Pack, dir string) bool {
 		}
 	}
 	return false
-}
-
-func touchFile(p string) {
-	if fileExists(p) {
-		return
-	}
-	f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY, 0o644)
-	if err == nil {
-		_ = f.Close()
-	}
 }
 
 // briefingHostOverlay returns the host-home path a briefing `after` prepends (its
@@ -633,8 +671,13 @@ const (
 
 // readHandoff returns the content of <workspace>/.yolo/handover.md, or "" when the host
 // filed no handoff for this launch. Reading does not consume — see consumeHandoff.
+//
+// A pointer that is not a regular file, or one in a linked `.yolo`, is not read
+// (readRegularFileIn): `.yolo` is writable from the jail, and this content becomes a section
+// of the jail's own briefing, so reading through a link the jail planted there would copy any
+// host file it names into the jail.
 func readHandoff(workspace string) string {
-	data, err := os.ReadFile(filepath.Join(paths.WorkspaceStateDir(workspace), handoffPointer))
+	data, err := readRegularFileIn(paths.WorkspaceStateDir(workspace), handoffPointer)
 	if err != nil {
 		return ""
 	}
@@ -655,9 +698,17 @@ func readHandoff(workspace string) string {
 // The rename is best-effort in the other direction too: if it fails (a read-only .yolo,
 // say), the handoff still surfaced this launch and resurfaces on the next one — the
 // pre-consumption behavior, which is noisy but never loses the task.
+//
+// The rename is beneath a root on `.yolo` (paths.OpenStateDirRoot), which refuses a linked
+// `.yolo`: the directory is jail-writable, and through a link there the rename moved a host
+// directory's own handover.md. A link AT either name is renamed or replaced, never followed.
 func consumeHandoff(workspace string) bool {
-	dir := paths.WorkspaceStateDir(workspace)
-	return os.Rename(filepath.Join(dir, handoffPointer), filepath.Join(dir, handoffConsumed)) == nil
+	r, err := paths.OpenStateDirRoot(paths.WorkspaceStateDir(workspace))
+	if err != nil {
+		return false
+	}
+	defer r.Close()
+	return r.Rename(handoffPointer, handoffConsumed) == nil
 }
 
 // noteHandoffConsumed consumes the pointer and says so on stderr.

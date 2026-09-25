@@ -90,24 +90,35 @@ func (o *Options) awaitRunningContainer(cname, rt string) string {
 // findExistingContainer returns the container ID/name if it exists, running OR
 // stopped.
 func (o *Options) findExistingContainer(cname, rt string) string {
+	id, _ := o.probeExistingContainer(cname, rt, 0)
+	return id
+}
+
+// probeExistingContainer is findExistingContainer with the TRI-STATE kept rather than
+// collapsed: known is true only when the runtime answered (it ran, within timeout, and
+// exited 0). So ("", true) is "no container of this name exists" and ("", false) is "could
+// not ask", which findExistingContainer reads the same way and forgetGoneContainer must not.
+// The id is what findExistingContainer has always returned, whatever the exit code.
+func (o *Options) probeExistingContainer(cname, rt string, timeout time.Duration) (string, bool) {
 	if rt == "container" {
-		res := o.Exec([]string{"container", "ls", "--all"}, "", nil, 0)
+		res := o.Exec([]string{"container", "ls", "--all"}, "", nil, timeout)
 		if !res.Ran {
-			return ""
+			return "", false
 		}
 		for _, line := range tableBody(res.Stdout) {
 			parts := strings.Fields(line)
 			if len(parts) > 0 && parts[0] == cname {
-				return cname
+				return cname, true
 			}
 		}
-		return ""
+		return "", !res.Timeout && res.RC == 0
 	}
-	res := o.Exec([]string{rt, "ps", "-a", "-q", "--filter", "name=^/" + cname + "$"}, "", nil, 0)
+	res := o.Exec([]string{rt, "ps", "-a", "-q", "--filter", "name=^/" + cname + "$"}, "", nil, timeout)
 	if !res.Ran {
-		return ""
+		return "", false
 	}
-	return strings.TrimSpace(res.Stdout)
+	id := strings.TrimSpace(res.Stdout)
+	return id, id != "" || (!res.Timeout && res.RC == 0)
 }
 
 // removeStaleContainer force-removes a container and clears its tracking.

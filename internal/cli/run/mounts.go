@@ -124,8 +124,13 @@ func (o *Options) venvShadowMountArgs(cfg *jsonx.OrderedMap, wsState string) []s
 		// about ownership, emptiness and concurrent jails every single time. This
 		// comment is the fix: the next person to wonder where node_modules came
 		// from finds the answer here instead of suspecting npm or an agent.
-		backing := filepath.Join(wsState, "venv-shadows", strings.ReplaceAll(rel, "/", "__"))
-		_ = os.MkdirAll(backing, 0o755)
+		//
+		// The backing dir is a BIND SOURCE in the jail-writable wsState, and podman binds
+		// whatever a link there points to, so it is made a real directory beneath wsState
+		// (ensureBindSourceDir, wsstatebeneath.go), replacing a link the jail left at it.
+		backingRel := filepath.Join("venv-shadows", strings.ReplaceAll(rel, "/", "__"))
+		backing := filepath.Join(wsState, backingRel)
+		printReplacedLinks(out, wsState, ensureBindSourceDir(wsState, backingRel))
 		args = append(args, "-v", backing+":/workspace/"+rel)
 	}
 	return args

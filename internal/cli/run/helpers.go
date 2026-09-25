@@ -2,7 +2,6 @@ package run
 
 import (
 	"os"
-	"path/filepath"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -147,16 +146,24 @@ func acMaterialize(src, targetRel, wsState string) {
 // pack root is the worst of the three outcomes: the jail comes up rendering SOME packs
 // and looking provisioned. The destination is therefore removed again, so the caller's
 // only two states are "the whole tree arrived" and "nothing did, loudly".
+//
+// THE REMOVE AND THE COPY ARE BENEATH wsState (openStateRoot, copyTreeBeneath): wsState IS the
+// jail's home on this backend, so through a linked wsState the RemoveAll deleted a host
+// directory of the jail's choosing, and a link left inside the tree would carry the copy out.
 func acMaterializeTree(src, targetRel, wsState string) error {
-	dst := filepath.Join(wsState, targetRel)
-	if err := os.RemoveAll(dst); err != nil {
+	r, err := openStateRoot(wsState)
+	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	defer r.Close()
+	if err := r.RemoveAll(targetRel); err != nil {
 		return err
 	}
-	if err := copyTree(src, dst); err != nil {
-		_ = os.RemoveAll(dst)
+	if err := mkdirParentBeneath(r, targetRel); err != nil {
+		return err
+	}
+	if err := copyTreeBeneath(src, r, targetRel); err != nil {
+		_ = r.RemoveAll(targetRel)
 		return err
 	}
 	return nil

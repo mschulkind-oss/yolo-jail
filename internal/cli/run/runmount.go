@@ -86,31 +86,25 @@ func IsBindMountpoint(path string, mountTargets map[string]struct{}) bool {
 // rootless podman can't use it as a bind source, so it's copied to a plain file
 // at wsState/rel and that stable inode is mounted instead; a copy failure falls
 // back to the direct mount. On a real host the file is plain → direct mount, no
-// nil to use the real copy).
-func ROFileMountArg(hostFile, containerPath, wsState, rel string, mountTargets map[string]struct{}, copyFile func(src, dst string) error) []string {
+// copy. copyFile is the test seam (nil for the real copy, copyFileBeneath).
+//
+// THE COPY IS BENEATH wsState (copyFileBeneath): wsState is writable from the jail, so a
+// link left at rel, or at a directory above it, would carry the copy onto a host file, and
+// podman would then bind the link's target. A link at rel is replaced; one above it refuses
+// the copy, which falls back to the direct mount.
+func ROFileMountArg(hostFile, containerPath, wsState, rel string, mountTargets map[string]struct{}, copyFile func(src, root, rel string) error) []string {
 	src := hostFile
 	if IsBindMountpoint(hostFile, mountTargets) {
-		deref := filepath.Join(wsState, rel)
-		if err := os.MkdirAll(filepath.Dir(deref), 0o755); err == nil {
-			cp := copyFile
-			if cp == nil {
-				cp = copyFileReal
-			}
-			if err := cp(hostFile, deref); err == nil {
-				src = deref
-			}
-			// copy failure → keep src = hostFile (best-effort direct mount).
+		cp := copyFile
+		if cp == nil {
+			cp = copyFileBeneath
 		}
+		if err := cp(hostFile, wsState, rel); err == nil {
+			src = filepath.Join(wsState, rel)
+		}
+		// copy failure → keep src = hostFile (best-effort direct mount).
 	}
 	return []string{"-v", src + ":" + containerPath + ":ro"}
-}
-
-func copyFileReal(src, dst string) error {
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(dst, data, 0o644)
 }
 
 // splitLines splits on '\n' (mountinfo/proc lines are LF-delimited).

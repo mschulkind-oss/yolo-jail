@@ -1,7 +1,6 @@
 package run
 
 import (
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -77,7 +76,9 @@ func appleContainerBaseMounts(rt string, runFlags []string, workspace string, in
 	// a limit and that the single-home bind exists to respect it.)
 	//
 	// storage.EnsureGlobalStorage MkdirAlls every EmbeddedSharedDirs() under GlobalHome
-	// on every backend, so the host side exists before this argv runs.
+	// on every backend, and runContainer's ensureSharedDirSources the selected packs' own (a
+	// configured pack's included) on both container backends, so the host side exists
+	// before this argv runs.
 	//
 	// NO MOUNTPOINT IS PRE-CREATED under wsState, and that is checked rather than
 	// assumed: nothing creates <wsState>/.cache either, yet the GlobalCache mount
@@ -319,16 +320,17 @@ func (o *Options) gitIdentityMountArgs(rt, wsState string, mountTargets map[stri
 		excludesInJail = jailIgnore
 	}
 	content := composeGitconfig(name, email, excludesInJail)
+	// Both writes are BENEATH wsState (writeFileBeneath, wsstatebeneath.go), never a plain path
+	// write: the jail can leave a link at either file, or above the Apple Container one, for this
+	// write to follow onto a host file, and podman would then bind the link's target.
 	if rt == "container" {
 		// Apple Container mounts the whole wsState at /home/agent, so write the
 		// composed file straight into the materialize location (parallels
 		// acMaterialize, which copies into <wsState>/<rel>).
-		dst := filepath.Join(wsState, ".config", "git", "config")
-		_ = os.MkdirAll(filepath.Dir(dst), 0o755)
-		_ = os.WriteFile(dst, []byte(content), 0o644)
+		_ = writeFileBeneath(wsState, filepath.Join(".config", "git", "config"), []byte(content), 0o644)
 	} else {
 		staged := filepath.Join(wsState, "yolo-gitconfig")
-		_ = os.WriteFile(staged, []byte(content), 0o644)
+		_ = writeFileBeneath(wsState, "yolo-gitconfig", []byte(content), 0o644)
 		args = append(args, "-v", staged+":/home/agent/.config/git/config:ro")
 	}
 	return args

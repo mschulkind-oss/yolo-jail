@@ -66,6 +66,20 @@ func Run(opts Options) (rc int) {
 		return 1
 	}
 
+	// THE LINKED-STATE GUARD, still before the launch log, whose tee is the first write under
+	// <workspace>/.yolo. `.yolo` and `.yolo/home` are both writable from inside the jail
+	// (through the workspace bind), so either can be a link the last jail left: every host
+	// write below it would follow it, and podman would bind whatever the bind sources under
+	// it then resolve to (wsstatebeneath.go, linkedWorkspaceState).
+	if linked := linkedWorkspaceState(o.Workspace); linked != "" {
+		o.pr(o.Stderr).print("[bold red]Refusing to launch: " + linked + " is a symbolic " +
+			"link. The jail can write this workspace's .yolo, so a link there would carry " +
+			"the launcher's writes, and the container's binds, to wherever it points.[/bold red]")
+		o.pr(o.Stderr).print("[dim]Remove the link (rm " + linked + "); yolo recreates the " +
+			"directory on the next launch. There is no override for this one.[/dim]")
+		return 1
+	}
+
 	// PERSIST THE LAUNCHER'S HALF (report-tiers.md, the launch stream). Everything this process
 	// prints from here on is teed into <workspace>/.yolo/launch.log, beside the
 	// entrypoint's boot.log, so the half of a launch that used to vanish when the
@@ -1206,7 +1220,19 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// a missing bind source kills the whole container, and the symlink hatch must
 	// exist in the home skeleton (below) before the :ro home root is applied.
 	if rt != "container" {
-		prepareHostFiles(wsState, hostFiles, loadedPacks, config.WritableHomeDirs(cfg, loadedPacks))
+		printReplacedLinks(out, wsState,
+			prepareHostFiles(wsState, hostFiles, loadedPacks, config.WritableHomeDirs(cfg, loadedPacks)))
+	}
+	// The machine-scope shared dirs' bind SOURCES, for THIS launch's selection and on both
+	// container backends, since both bind them from the machine store (shareddirsources.go).
+	// storage.EnsureGlobalStorage creates only the shipped packs' ones, before any config is
+	// loaded, so a CONFIGURED pack's shared dir had no source and podman refused the whole
+	// container with a bare statfs error. Fatal for that reason, and before the skeleton, so
+	// the refusal leaves nothing behind.
+	if err := ensureSharedDirSources(loadedPacks); err != nil {
+		out.printf("[bold red]%s[/bold red]", err.Error())
+		lock.Close()
+		return 1
 	}
 
 	// --- Assemble the ordered argv ---
@@ -1253,11 +1279,17 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 			lock.Close()
 			return 1
 		}
+		// The best-effort entries that could not be made, each naming its path: the jail
+		// still boots, and this line is the only place the missing mountpoint is said
+		// (TestTheSkeletonsWarningsArePrinted).
 		for _, w := range sk.warnings {
 			out.printf("[yellow]Warning: %s[/yellow]", w)
 		}
 		in.homeSkeleton = sk.dir
 	}
+	// FROM HERE TO THE CONTAINER START, EVERY RETURN DISCARDS THE SKELETON: no container ever
+	// held it, so leaving it would be one more directory for the reaper from a launch that
+	// never ran (discardUnheldSkeleton; TestNoReturnAfterTheSkeletonLeaksIt pins each one).
 	sp = o.Perf.Span("launch.assemble_argv")
 	runCmd := o.assembleRunCmd(in)
 	sp.End()
@@ -1283,6 +1315,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// why there is no verdict to weigh here.
 	if lines := o.checkEnvOverrides(cfg, rt, loadedPacks, channel, envPairs(runCmd)); len(lines) > 0 {
 		o.printProviderRefusal(lines)
+		discardUnheldSkeleton(cname, in.homeSkeleton)
 		lock.Close()
 		return 1
 	}
@@ -1292,6 +1325,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		// A set escape hatch turns the refusal into a loud continuation, so the verdict —
 		// not the presence of output — is what ends the launch.
 		if refuse {
+			discardUnheldSkeleton(cname, in.homeSkeleton)
 			return 1
 		}
 	}
@@ -1317,7 +1351,8 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		portSocketDir = o.fwdSocketDir(cname)
 	}
 
-	// Tracking + owner-PID + window title.
+	// Tracking + owner-PID + window title. The tracking file is removed again by
+	// forgetGoneContainer, on each of the three ends below, once the container is known gone.
 	_ = runtimeWriteTracking(cname, o.Workspace)
 	o.writeOwnerPID(cname)
 
@@ -1403,6 +1438,11 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		sp = o.Perf.Span("terminate.stop_loopholes")
 		o.stopLoopholes(hostServices, socketsDir, cname, rt)
 		sp.End()
+		// After stopJail and after this launch's lock is released: the tracking file goes
+		// only once the runtime says no container of this name is left (trackingcleanup.go).
+		sp = o.Perf.Span("terminate.clear_tracking")
+		o.forgetGoneContainer(cname, rt)
+		sp.End()
 		// E3, after stopJail so the jail is not still writing the surfaces we read.
 		sp = o.Perf.Span("terminate.capture_config")
 		o.captureConfigOnTerminate(rt)
@@ -1472,15 +1512,25 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		out.printf("[bold red]Configured runtime '%s' not found on PATH.[/bold red]", rt)
 		out.print("[dim]Run `yolo check` to validate runtime availability before restarting.[/dim]")
 		cleanupPortForwarding(socatProcs, portSocketDir)
+		// The runtime never started, so no container ever held this skeleton.
+		discardUnheldSkeleton(cname, in.homeSkeleton)
 		// Release the lock BEFORE stop_loopholes (its guard takes the same lock
-		// non-blocking, and on_started never ran).
+		// non-blocking, and on_started never ran) and before the tracking cleanup, which
+		// takes it the same way.
 		lock.Close()
 		o.stopLoopholes(hostServices, socketsDir, cname, rt)
+		o.forgetGoneContainer(cname, rt)
 		clearOwnerPID(cname)
 		return 1
 	}
 
-	// Normal exit teardown.
+	// Normal exit teardown. Release the lock FIRST: onStarted releases it only after
+	// awaitRunningContainer, which polls for up to five seconds, and the proxy returns as soon
+	// as the child exits without waiting for that goroutine. A child that exits before its
+	// container is ever seen running (podman refusing the argv, a container dying in the first
+	// poll) would otherwise reach the tracking cleanup with this launch's own lock still held,
+	// and its non-blocking take would decline, leaving the file and the skeleton behind.
+	lock.Close()
 	o.teardownAfterExit(socatProcs, portSocketDir, hostServices, socketsDir, cname, rt, rc)
 	o.emitTimingReport(rc, cname, rt)
 	return rc
@@ -1499,6 +1549,12 @@ func (o *Options) teardownAfterExit(socatProcs []*exec.Cmd, portSocketDir string
 	sp.End()
 	sp = o.Perf.Span("shutdown.stop_loopholes")
 	o.stopLoopholes(hostServices, socketsDir, cname, rt)
+	sp.End()
+	// The tracking file, once the runtime says the `--rm` container is gone. Before this a
+	// normal exit left it, so prune.PruneOrphanAgentStaging kept the jail's AGENTS_DIR entry,
+	// and every skeleton in it, for as long as the file lasted (trackingcleanup.go).
+	sp = o.Perf.Span("shutdown.clear_tracking")
+	o.forgetGoneContainer(cname, rt)
 	sp.End()
 	// E3: the container is `--rm` and now gone, so fold this session's in-jail config
 	// edits into their overlay sidecars from the host side, before anyone can ask

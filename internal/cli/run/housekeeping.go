@@ -54,11 +54,9 @@ import (
 // Best-effort: a launch must never fail because housekeeping could not write a
 // note about itself.
 func (o *Options) housekeepingNote(format string, args ...any) {
-	dir, err := paths.EnsureWorkspaceStateDir(o.Workspace)
-	if err != nil {
-		return
-	}
-	f, err := os.OpenFile(filepath.Join(dir, "housekeeping.log"),
+	// Beneath a root on `.yolo` (paths.OpenWorkspaceStateFile), never by path: the directory
+	// is jail-writable, and a link left at the name would take the note to the file it names.
+	f, err := paths.OpenWorkspaceStateFile(o.Workspace, "housekeeping.log",
 		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return

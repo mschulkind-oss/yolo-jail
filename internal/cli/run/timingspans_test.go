@@ -255,6 +255,7 @@ func TestTeardownChainEmitsShutdownSpans(t *testing.T) {
 		"shutdown.cleanup_port_forwarding",
 		"shutdown.stop_loopholes",
 		"shutdown.container_check",
+		"shutdown.clear_tracking",
 		"shutdown.capture_config",
 		"shutdown.oom_check",
 	} {

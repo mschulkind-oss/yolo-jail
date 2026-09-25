@@ -112,8 +112,11 @@ func packFilesTargets(packs []*packload.Pack) []packFilesTarget {
 				for _, a := range c.Agents {
 					alias, ok := aliasByAgent[a]
 					if !ok {
-						// The agent is enabled but declares no slot; delivered nowhere, and
-						// reported by the pre-flight, not silently dropped here.
+						// The agent is enabled but declares no slot, so this name delivers
+						// nowhere. The launch warns about it in reportUnmatchedAudiences
+						// (unmatchedaudience.go) — but only when NO name the contribution
+						// lists has a slot: a miss beside a match is not reported, which is
+						// `yolo host apply`'s granularity too.
 						continue
 					}
 					out = append(out, packFilesTarget{
@@ -393,22 +396,33 @@ func archiveLegacyPackFileMountpoints(wsState string, current map[string]packFil
 	return archived
 }
 
+// archiveLegacyPackFileMountpoint moves rel below wsState to `.yolo/archive/pack-files/legacy`,
+// and returns where it went. Both sides are named beneath one root on `.yolo`
+// (wsstatebeneath.go): the directory is jail-writable, and through a link the jail left at
+// `.yolo/archive` the MkdirAll and the rename put directories and the file in a host
+// directory of its choosing.
 func archiveLegacyPackFileMountpoint(wsState, rel string) (string, error) {
-	dest := filepath.Join(filepath.Dir(wsState), "archive", "pack-files", "legacy", rel)
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+	stateDir := filepath.Dir(wsState)
+	r, err := openDirRefusingLink(stateDir)
+	if err != nil {
+		return "", err
+	}
+	defer r.Close()
+	dest := filepath.Join("archive", "pack-files", "legacy", rel)
+	if err := r.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return "", err
 	}
 	base := dest
 	for i := 2; ; i++ {
-		if _, err := os.Lstat(dest); os.IsNotExist(err) {
+		if _, err := r.Lstat(dest); os.IsNotExist(err) {
 			break
 		}
 		dest = fmt.Sprintf("%s.%d", base, i)
 	}
-	if err := os.Rename(filepath.Join(wsState, rel), dest); err != nil {
+	if err := r.Rename(filepath.Join(filepath.Base(wsState), rel), dest); err != nil {
 		return "", err
 	}
-	return dest, nil
+	return filepath.Join(stateDir, dest), nil
 }
 
 func pathUnderAny(rel string, roots []string) bool {
@@ -476,25 +490,38 @@ func pathParentWithin(path, root string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
+// loadPackFilesMountpointManifest reads the ownership manifest at path, which sits in the
+// jail-writable `.yolo`. Only a regular file is read (readRegularFileIn): a link the jail left
+// at the name is not followed to a host file.
 func loadPackFilesMountpointManifest(path string) *packFilesMountpointManifest {
 	m := &packFilesMountpointManifest{Entries: map[string]packFilesMountpoint{}}
-	body, err := os.ReadFile(path)
+	body, err := readRegularFileIn(filepath.Dir(path), filepath.Base(path))
 	if err != nil || json.Unmarshal(body, m) != nil || m.Entries == nil {
 		m.Entries = map[string]packFilesMountpoint{}
 	}
 	return m
 }
 
+// savePackFilesMountpointManifest writes the manifest at path through a temp file renamed
+// over it, both beneath a root on the manifest's directory, `.yolo`: a link the jail left at
+// the temp name is replaced (writeBeneath), where os.WriteFile truncated the host file it
+// named and wrote the manifest into it.
 func savePackFilesMountpointManifest(path string, m *packFilesMountpointManifest) error {
 	body, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, append(body, '\n'), 0o644); err != nil {
+	r, err := openDirRefusingLink(filepath.Dir(path))
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	defer r.Close()
+	name := filepath.Base(path)
+	tmp := name + ".tmp"
+	if err := writeBeneath(r, tmp, 0o644, 0, writeBytes(append(body, '\n'))); err != nil {
+		return err
+	}
+	return r.Rename(tmp, name)
 }
 
 func packFilesMountpointUnchanged(path string, owned packFilesMountpoint) bool {

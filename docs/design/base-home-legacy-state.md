@@ -11,10 +11,13 @@ summary: "Podman mounts ONE machine-wide base, <state>/home, read-only at /home/
 **Status:** ACCEPTED, 2026-09-25: rewritten around a new premise after the maintainer's review,
 then every open question settled the same day. **Steps 1–3 of [§8](#8-build-order-and-done-conditions)
 BUILT 2026-09-25** (the seed fixes, the podman skeleton, the refusal's deletion and the reworded
-`yolo check` report); a container run of `integration/homeskeleton_test.go` and the rootless
-check are still owed. **Steps 4, 4a and 5 BUILT 2026-09-25**: the Apple Container seed paths
-([OQ-BH12](#OQ-BH12), host side only; a Mac run is still owed), name reservation over the
-selected packs only ([OQ-BH14](#OQ-BH14)), and the reference docs and code comments.
+`yolo check` report); `integration/homeskeleton_test.go` PASSED in a nested, rootful jail the
+same day, and the rootless check is owed to CI. **Steps 4, 4a and 5 BUILT 2026-09-25**: the
+Apple Container seed paths ([OQ-BH12](#OQ-BH12), host side only; a Mac run is still owed), name
+reservation over the selected packs only ([OQ-BH14](#OQ-BH14)), and the reference docs and code
+comments. **Review follow-ups BUILT 2026-09-25** ([§8](#8-build-order-and-done-conditions),
+last bullet): the reaper can now reach a jail's skeletons, a refused launch leaves none, and a
+configured pack's shared dir gets its bind source.
 MEASURED: what the base holds on two bases, EROFS on the home root, the jail writing through `/workspace/.yolo/home`, the machine credential file sitting in the base, and a
 host `rmdir` detaching a bind (in a user+mount namespace; `internal/prune/shadowed.go` records
 the same failure in a real jail, 2026-07-04). UNMEASURED: the Apple Container seed defect (no
@@ -37,9 +40,12 @@ the machine's Claude refresh token, through the base (agy's dir likewise).
 
 ## Settled, 2026-09-25
 
-The five questions closed in one review ([§10](#10-decision-ledger)). **One is open for you,
-found in the build:** [OQ-BH15](#OQ-BH15), whether `host_files`' surface-path reservation
-narrows to the selected packs too. It is the one rule left that reads every shipped pack.
+The five questions closed in one review ([§10](#10-decision-ledger)). **Two are open for you,
+both found in the build:** [OQ-BH15](#OQ-BH15), whether `host_files`' surface-path reservation
+narrows to the selected packs too (it is the one rule left that reads every shipped pack), and
+[OQ-BH16](#OQ-BH16), whether a launch removes its own skeleton when its jail ends, since on a
+machine where one workspace is used alone the reaper reaches that workspace's skeletons only
+through `yolo prune --apply`.
 
 - **Yours:** [OQ-BH14](#OQ-BH14): name reservation covers only the **selected** packs'
   directories, so [DIR-BH1](#10-decision-ledger)'s one remaining shipped-set rule is the
@@ -159,6 +165,20 @@ jails for skills and briefings, and already reaped by liveness (`PruneOrphanAgen
 which reaps nothing when liveness is unknown, never the launching jail's own dir, and has a
 one-hour age floor).
 
+**Found in review, 2026-09-25: the reaper could not reach it.** `PruneOrphanAgentStaging`
+keeps every name that is live **or tracked**, and a `--rm` jail's tracking file
+(`CONTAINER_DIR/<cname>`, the container-to-workspace map `yolo ps` reads) survived every normal
+exit: only a stale-container removal, `yolo ps`, `yolo check`'s cleanup and a capture removed
+it. So a workspace in use kept its entry and gained one skeleton per fresh launch. **Fixed:** a
+launch removes the tracking file when it sees its jail end (normal exit, the signal arm, a
+runtime that never started), and only when the runtime answered that no container of that name
+exists and the workspace lock was free (`forgetGoneContainer`,
+`internal/cli/run/trackingcleanup.go`). Each of those three ends releases the launch's own lock
+first, the normal exit included: the lock's other release waits on a poll for the container to
+show as running, so a child that exits before it ever does would otherwise find its own lock
+held and keep the file. The reaper then does what [OQ-BH10](#OQ-BH10) assumed.
+What it still cannot reach is [OQ-BH16](#OQ-BH16).
+
 ### 2.3 When it is built
 
 - **Only on the fresh-launch path, and only for podman**, where `prepareWsState` and
@@ -172,6 +192,12 @@ one-hour age floor).
   podman's own error would name neither. It also keeps their ORDER: every fatal entry, the
   redirects included, is made before any best-effort one, so a pack entry landing on a redirect
   name fails on its own, as a warning, instead of making the redirect fail the launch.
+- **A launch that does not start a container leaves no skeleton** (found in review,
+  2026-09-25). A fatal entry removes the builder's own partial directory, and every return
+  between the build and the container start (two pre-flights that read the assembled argv, and
+  a runtime that never started) removes the skeleton first (`discardUnheldSkeleton`). No
+  container ever held that directory, so [§2.4](#24-the-three-rules-the-shared-base-obeys-by-accident)'s
+  rule 2 does not apply to it.
 
 ### 2.4 The three rules the shared base obeys by accident
 
@@ -354,6 +380,7 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
 | Rootless ID mapping makes the skeleton's owner or mode differ from today's | The same host user that creates `<state>/home` creates it; checked on a real rootless host ([§8](#8-build-order-and-done-conditions)) |
 | A pre-April base holds a pack's only credential, or a file someone hand-placed to seed every workspace; with `seedAgentDir` gone, each NEW workspace on that machine needs one login | Live credentials travel through the shared-credential dirs and brokers; the pack dirs are MEASURED empty on the maintainer's host. That nothing else is live is INFERRED ([§2.7](#27-the-seed)). The seed file is the one deliberate channel, and it stays |
 | The prune reaps a skeleton | Only when no container of that name is live or tracked, never the launching jail's own, past the one-hour floor. The next launch rebuilds it |
+| Skeletons pile up, one per fresh launch | The tracking file now goes when the launch sees its container gone, so the prune reaches an idle workspace's entry; a launch that starts no container removes its own ([§2.3](#23-when-it-is-built)). A workspace used alone on its machine is reached only by `yolo prune --apply` ([OQ-BH16](#OQ-BH16)) |
 
 ## 7. What died
 
@@ -388,18 +415,28 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
 **Done when** (each followed by where it stands, 2026-09-25):
 
 - Mountinfo shows `/home/agent` bound `:ro` from the skeleton; `touch ~/.x` fails with EROFS.
-  *Test written, not yet run in a container: `TestPodmanHomeIsAPerJailReadOnlySkeleton`
-  (`integration/homeskeleton_test.go`).*
+  *Met in a nested jail, 2026-09-25: `TestPodmanHomeIsAPerJailReadOnlySkeleton`
+  (`integration/homeskeleton_test.go`) passed, all three subtests (`claude only`, `codex only`,
+  `writable_home_dirs`). That podman was rootful (a nested jail forces `--userns=host`), so the
+  rootless bullet below is still owed.*
 - In a claude-only jail, `~/.codex`, `~/.copilot`, `~/.oh-omp`, `~/.pi-lens` and
   `~/.gemini-shared-credentials` do not exist. *Met at the builder
   (`TestTheSkeletonCarriesOnlyTheSelectedPacksDirs`); the integration test above checks
-  `~/.codex`, `~/.copilot`, `~/.pi` and `~/.gemini-shared-credentials` in a container, not yet
-  run. `~/.pi` is checked because review found the first build put it in every jail, from core's
-  `.pi/agent` (`TestCoreSkeletonDirsNameNoPacksDir` now pins core's list).*
+  `~/.codex`, `~/.copilot`, `~/.pi` and `~/.gemini-shared-credentials` in a container, and
+  passed in the nested run above. `~/.pi` is checked because review found the first build put
+  it in every jail, from core's `.pi/agent` (`TestCoreSkeletonDirsNameNoPacksDir` now pins
+  core's list).*
 - In a jail selecting neither claude nor agy (e.g. `packs: ["codex"]`), `~/.claude` and
   `~/.claude-shared-credentials` do not exist, `~/.claude.json` dangles, and no machine
   `oauthAccount` or refresh token is readable anywhere under `~`. *The same two tests; the
-  "readable anywhere under `~`" half is asserted by neither.*
+  integration test passed in the nested run above. The "readable anywhere under `~`" half is
+  now asserted by its `codex only` subtest, which plants a machine login in the store first (a
+  seed `oauthAccount` and a shared refresh token) and searches all of `~`, links followed, for
+  any `.credentials.json` and for the planted values. The plant goes into a machine store
+  PRIVATE to the test: the harness's isolated home links the whole state dir back to the
+  machine's, so a plant through it would overwrite the developer's real Claude login
+  (`TestPlantMachineLoginLeavesTheRealStoreAlone` pins that it cannot). That assertion was
+  added after the nested run and has not run yet.*
 - No other workspace's `writable_home_dirs`/`host_files` entries appear; a dropped `host_files`
   home-root link is gone at the next fresh launch. Attach leaves the skeleton byte-identical.
   *Met: `TestEachFreshLaunchGetsANewSkeleton`, and `TestAttachLeavesTheSkeletonByteIdentical`,
@@ -430,7 +467,7 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
   integration suite rootless, or a real rootless host. The integration test exercises every
   half but the `Rootless` line, which is the reporter's: its launches boot, it prints the `stat`
   lines to compare, and its `writable_home_dirs` subtest writes through a rw bind nested in the
-  `:ro` skeleton.*
+  `:ro` skeleton. Its nested pass on 2026-09-25 was rootful and settles none of this bullet.*
 - **Step 4:** a new Apple Container workspace boots logged in from the seed, and its home has
   no undotted `~/claude` or `~/npm-global`. *Met on the host side only:
   `TestAppleContainerSeedReachesTheJailsClaudeJSON`, `TestAppleContainerLoginIsLearnedByTheSeed`,
@@ -457,6 +494,31 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
   are re-pointed. *Met; the bare `§` numbers in `internal/basehome` are re-pointed at the
   pre-rewrite text (`git show 030c8f52:docs/design/base-home-legacy-state.md`) by that
   package's header rather than one by one.*
+- **Review follow-ups, 2026-09-25**, each with the test that pins it. *Met at the unit level;
+  none needs a container except the first, whose container half is the reaper's ordinary
+  work.*
+  - A jail's tracking file goes once its container is known gone, so the reaper reaches its
+    skeletons ([§2.2](#22-where-it-lives-host-only-never-in-wsstate)):
+    `TestANormalExitForgetsAGoneContainersTracking` drives the real teardown and then the real
+    reaper; `TestTrackingStaysUnlessTheContainerIsKnownGone` covers every answer short of
+    "gone"; `TestEveryEndOfTheLaunchForgetsTheContainer` pins the signal arm and the
+    runtime-never-started branch.
+  - A launch that starts no container leaves no skeleton ([§2.3](#23-when-it-is-built)):
+    `TestAFatalSkeletonFailureLeavesNoDirectory`, `TestDiscardUnheldSkeletonRemovesOnlyASkeleton`,
+    `TestNoReturnAfterTheSkeletonLeaksIt`.
+  - The builder's best-effort warnings reach the launch output: `TestTheSkeletonsWarningsArePrinted`.
+  - A CONFIGURED pack's machine-scope shared dir gets its bind source in the machine store on
+    both container backends; `storage.EnsureGlobalStorage` creates only the shipped packs'
+    ones, before config loads (`ensureSharedDirSources`, `internal/cli/run/shareddirsources.go`):
+    `TestAConfiguredPacksSharedDirGetsABindSource`, `TestRunContainerCreatesTheSharedDirSources`.
+  - Validation writes nothing into the pack store: `resolveSelectedPacks` resolves with
+    `packsrc.Store.ResolveExisting`, not the launch's `Resolve`, which checks a missing tree out
+    and removes an incomplete one first (`TestValidationLeavesThePackStoreAlone`).
+  - Dead code deleted: `storage.EnsureSymlink` and `packload.EmbeddedWritableDirs`, which had no
+    production caller, and `internal/config/zz_probe_test.go`, which asserted nothing.
+
+  Each wiring test was run against a private copy of the tree with its call site removed, and
+  failed.
 
 ## 9. Open Questions
 
@@ -473,7 +535,7 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
    > (a), decided by the build. The maintainer delegated it: *"This is an implementation
    > detail that I don't care about."*
 
-2. ✅ **OQ-BH10: Edit one skeleton in place, add only, or a new one per launch?** Decides
+2. ✅ <a id="OQ-BH10"></a>**OQ-BH10: Edit one skeleton in place, add only, or a new one per launch?** Decides
    whether a dropped mountpoint or `host_files` link ever goes away, and whether a launch can
    detach a live jail's bind. Options: (a) reconcile in place, removing only when a new
    tri-state probe says no `cname` container exists and the flock was acquired
@@ -561,6 +623,32 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
    which the loader, validation and `SourceLessHostFilesFrom` all call, so each of them would
    need the selection.
 
+7. 💬 **OQ-BH16: Does a launch remove its own skeleton when its jail ends?** Found while
+   making [OQ-BH10](#OQ-BH10)'s reaper reach skeletons at all
+   ([§2.2](#22-where-it-lives-host-only-never-in-wsstate)). With the tracking file gone at exit,
+   `PruneOrphanAgentStaging` reaps a workspace's whole `AGENTS_DIR/<cname>` once no container of
+   that name is live and the entry is an hour old. It runs from `yolo prune` and from a host
+   launch's housekeeping slot (debounced, `reapSmallAutomaticClasses`), but the slot always
+   keeps the launching jail's OWN name. So on a machine
+   where one workspace is used alone, that workspace's skeletons, one per fresh launch, go only
+   when someone runs `yolo prune --apply`. With two or more workspaces, any other workspace's
+   launch reaps the idle one. Options: (a) accept that, as within the ruling's "a few 16K
+   directories per workspace between reaps"; (b) at each of the three ends that now remove the
+   tracking file, on the same evidence (the runtime answered that no container of that name
+   exists, and the workspace lock was free), also remove the skeleton this launch built, which
+   is the only launch that knows its name; (c) have the launch's housekeeping remove its own
+   name's older skeletons, keeping the one its running container is bound from.
+
+   <!-- vantage: oq id=OQ-BH16 leaning="(b): remove the launch's own skeleton at exit, on the same known-gone evidence that now removes the tracking file. It removes only a directory no other launch knows, only after the one container that could hold it is gone, and leaves the reaper only launches that died without a teardown (SIGKILL, OOM)." -->
+
+   _Leaning:_ (b). It removes only a directory no other launch knows the name of, and only after
+   the one container that could hold it is known gone, so it leaves the reaper just the launches
+   that died without any teardown (SIGKILL, OOM). Against it: it is a launch removing a
+   skeleton, which [OQ-BH10](#OQ-BH10)'s answer ("never modified afterwards") did not provide for, and it
+   rests on the tri-state probe that answer was chosen to avoid needing. (c) needs to know which
+   skeleton the live container is bound from, one more liveness question. Not built: the build
+   did what the ruling says and stopped there.
+
 ## 10. Decision Ledger
 
 | ID | Ruling / Decision | Date | Settled in | Built |
@@ -578,7 +666,7 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
 | OQ-BH5 | **Closed by this design, not by a ruling, split.** The seed half: delete `seedAgentDir` rather than allowlist it, its inputs since April being legacy-only (INFERRED). The posture half is now [OQ-BH13](#OQ-BH13) | 2026-09-25 | [§2.7](#27-the-seed) | yes, 2026-09-25 (`seedAgentDir` deleted) |
 | OQ-BH7 | **Superseded by DIR-BH2 for the container base**: no migration, so nothing to reuse [`OQ-HT2`](../reference/macos-user-home-tiers.md#oq-ht2)'s discard for; macos-user never mounts `<state>/home` or reaches `prepareWsState`. **Its macos-user half is dropped from this doc**: reopening [`OQ-HT2`](../reference/macos-user-home-tiers.md#oq-ht2) for an account used for real work belongs to [`../reference/macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md) | 2026-09-25 | [§4](#4-what-this-does-not-cover) | — |
 | OQ-BH9 | **Delegated to the build:** the skeleton lives under `paths.AgentsDir()/<cname>/`, reaped by `PruneOrphanAgentStaging` | 2026-09-25 | [§2.2](#22-where-it-lives-host-only-never-in-wsstate) | yes, 2026-09-25 (`paths.HomeSkeletonRoot`) |
-| OQ-BH10 | **The maintainer's ruling:** a new skeleton per fresh launch, never modified afterwards | 2026-09-25 | [§2.4](#24-the-three-rules-the-shared-base-obeys-by-accident) | yes, 2026-09-25 (`buildHomeSkeleton`) |
+| OQ-BH10 | **The maintainer's ruling:** a new skeleton per fresh launch, never modified afterwards | 2026-09-25 | [§2.4](#24-the-three-rules-the-shared-base-obeys-by-accident) | yes, 2026-09-25 (`buildHomeSkeleton`); the reaping half became true the same day, when a launch started removing a gone jail's tracking file (`forgetGoneContainer`, [§2.2](#22-where-it-lives-host-only-never-in-wsstate)). What the reaper still cannot reach is [OQ-BH16](#OQ-BH16) |
 | OQ-BH12 | **Delegated to the build:** runtime-aware seed paths in `prepareWsState`, verified on a Mac, landing separately | 2026-09-25 | [§3](#3-the-apple-container-seed-defect) | host side, 2026-09-25 (`claudeJSONInWsState`, `preparePodmanBindSources`); the Mac run is owed |
 | OQ-BH13 | **The maintainer's ruling:** delete the launch refusal and `YOLO_ALLOW_LEGACY_BASE_HOME` with the skeleton; keep `yolo check`'s report, reworded | 2026-09-25 | [§8](#8-build-order-and-done-conditions) | yes, 2026-09-25 |
 | OQ-BH14 | **The maintainer's ruling:** reserve only the selected packs' directories; an unselected pack is treated as nonexistent | 2026-09-25 | [§2.8](#28-reservation-is-a-rule-about-config-names-not-about-directories) | yes, 2026-09-25 (`resolveSelectedPacks`, `reservedHomeSegments`, `StagingFor`; AGENTS.md's bullet rewritten) |

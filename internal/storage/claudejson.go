@@ -2,8 +2,10 @@ package storage
 
 import (
 	"io"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"strconv"
 	"syscall"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -33,19 +35,32 @@ var claudeJSONSeedKeys = []string{"oauthAccount", "hasCompletedOnboarding"}
 // Never raises: a parse/IO error degrades to a no-op for that direction (an
 // unparseable file reads as {}). Output uses json.dumps(indent=2) + "\n".
 //
-// NEITHER PATH IS FOLLOWED THROUGH A LINK, and a side that is a link, or anything else that
-// is not a regular file, takes no part in the sync: it is not read and not written. wsPath
-// is a file the JAIL can replace (wsState/claude/claude.json is bound read-write at
-// ~/.claude/claude.json on podman, and on Apple Container wsState/.claude.json IS the jail's
-// ~/.claude.json), while this runs on the host, as the host user. Following a link there
-// let a jail choose which host file the forward pass overwrote with the seed's JSON, and
-// which host file's login the reverse pass copied into the machine seed
+// THE WORKSPACE SIDE IS NAMED BENEATH ws, an os.Root on the workspace overlay (wsRel is
+// relative to it), and NEITHER SIDE IS FOLLOWED THROUGH A LINK: a side that is a link, or
+// anything else that is not a regular file, takes no part in the sync, and is not read and not
+// written. The workspace file is one the JAIL can replace (wsState/claude/claude.json is bound
+// read-write at ~/.claude/claude.json on podman, and on Apple Container wsState/.claude.json IS
+// the jail's ~/.claude.json), and so is every directory above it, while this runs on the host,
+// as the host user. Following a link at the file let a jail choose which host file the forward
+// pass overwrote with the seed's JSON, and which host file's login the reverse pass copied
+// into the machine seed; following one ABOVE it (wsState/claude -> a host directory) let the
+// forward pass create <that directory>/claude.json holding the seed's login. The root refuses
+// every path that leaves it, so the second is closed by construction
 // (docs/design/base-home-legacy-state.md#22-where-it-lives-host-only-never-in-wsstate names
-// jail-planted links in wsState as the hazard). A missing file is still fine: it reads as
-// {}, and the forward pass creates it.
-func SyncClaudeJSONSeed(seedPath, wsPath string) {
-	seedData, seedOK := readJSONDict(seedPath)
-	wsData, wsOK := readJSONDict(wsPath)
+// jail-planted links in wsState as the hazard). A missing file is still fine: it reads as {},
+// and the forward pass creates it.
+//
+// The seed side is a host path no jail can write (<state>/home/.claude is mounted into none),
+// and is opened as a root on its own directory.
+func SyncClaudeJSONSeed(seedPath string, ws *os.Root, wsRel string) {
+	seedDir, seedName := filepath.Dir(seedPath), filepath.Base(seedPath)
+	seedRoot, err := os.OpenRoot(seedDir)
+	seedData, seedOK := jsonx.NewOrderedMap(), os.IsNotExist(err)
+	if err == nil {
+		defer seedRoot.Close()
+		seedData, seedOK = readJSONDict(seedRoot, seedName)
+	}
+	wsData, wsOK := readJSONDict(ws, wsRel)
 	if !wsOK {
 		// Nothing learned from, and nothing written into, a workspace side that is not a
 		// regular file.
@@ -66,7 +81,7 @@ func SyncClaudeJSONSeed(seedPath, wsPath string) {
 			}
 		}
 		if merged {
-			writeJSONDict(wsPath, wsData)
+			writeJSONDict(ws, wsRel, wsData)
 		}
 	}
 
@@ -78,27 +93,44 @@ func SyncClaudeJSONSeed(seedPath, wsPath string) {
 				seedData.Set(key, val)
 			}
 		}
-		writeJSONDict(seedPath, seedData)
+		if seedRoot == nil {
+			if os.MkdirAll(seedDir, 0o755) != nil {
+				return
+			}
+			if seedRoot, err = os.OpenRoot(seedDir); err != nil {
+				return
+			}
+			defer seedRoot.Close()
+		}
+		writeJSONDict(seedRoot, seedName, seedData)
 	}
 }
 
-// readJSONDict reads path as a JSON object, returning an empty OrderedMap on any
+// readJSONDict reads name below r as a JSON object, returning an empty OrderedMap on any
 // error or when the top-level value is not an object
 // "data if isinstance(data, dict) else {}").
 //
-// ok is false when path EXISTS and is not a regular file — a symlink, a directory, a FIFO —
-// and the caller must then leave that side alone (SyncClaudeJSONSeed says why). The open is
-// O_NOFOLLOW, and the OPENED file is checked, so a link swapped in after a Stat is refused
-// too; O_NONBLOCK keeps a planted FIFO from hanging the launch on the open.
-func readJSONDict(path string) (m *jsonx.OrderedMap, ok bool) {
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+// ok is false when name EXISTS and is not a regular file — a symlink, a directory, a FIFO —
+// or cannot be reached below r (a linked directory above it that leaves the root), and the
+// caller must then leave that side alone (SyncClaudeJSONSeed says why). The OPENED file is
+// checked to be the one that was Lstat'ed, so a link swapped in between is refused too;
+// O_NONBLOCK keeps a planted FIFO from hanging the launch on the open.
+func readJSONDict(r *os.Root, name string) (m *jsonx.OrderedMap, ok bool) {
+	fi, err := r.Lstat(name)
 	if err != nil {
-		// Missing is the ordinary first-launch state. Anything else that fails the open
-		// (ELOOP: a link) must not be written either.
+		// Missing is the ordinary first-launch state. Anything else (a path that leaves
+		// the root through a linked directory) must not be written either.
 		return jsonx.NewOrderedMap(), os.IsNotExist(err)
 	}
+	if !fi.Mode().IsRegular() {
+		return jsonx.NewOrderedMap(), false
+	}
+	f, err := r.OpenFile(name, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return jsonx.NewOrderedMap(), false
+	}
 	defer f.Close()
-	if st, err := f.Stat(); err != nil || !st.Mode().IsRegular() {
+	if st, err := f.Stat(); err != nil || !st.Mode().IsRegular() || !os.SameFile(fi, st) {
 		return jsonx.NewOrderedMap(), false
 	}
 	data, err := io.ReadAll(f)
@@ -115,36 +147,57 @@ func readJSONDict(path string) (m *jsonx.OrderedMap, ok bool) {
 	return jsonx.NewOrderedMap(), true
 }
 
-// writeJSONDict writes m as json.dumps(m, indent=2) + "\n", best-effort
+// writeJSONDict writes m as json.dumps(m, indent=2) + "\n" at name below r, best-effort
 // (mkdir -p the parent, ignore IO errors — matches the Python except: pass).
 //
-// A REPLACE, never a write through: the bytes go to a new temp file beside path, which is
-// then renamed over it. A rename replaces a link rather than following it, so even a link
-// planted between readJSONDict's check and this write is replaced, never written through.
-// An existing regular file keeps its mode; a new one is 0644, as before.
-func writeJSONDict(path string, m *jsonx.OrderedMap) {
+// A REPLACE, never a write through: the bytes go to a new temp file beside name, created
+// O_EXCL, which is then renamed over it, all below r. A rename replaces a link rather than
+// following it, so even a link planted between readJSONDict's check and this write is
+// replaced, never written through. An existing regular file keeps its mode; a new one is
+// 0644, as before.
+func writeJSONDict(r *os.Root, name string, m *jsonx.OrderedMap) {
 	s, err := jsonx.DumpsIndent(m, 2)
 	if err != nil {
 		return
 	}
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return
+	dir := filepath.Dir(name)
+	if dir != "." {
+		if err := r.MkdirAll(dir, 0o755); err != nil {
+			return
+		}
 	}
 	mode := os.FileMode(0o644)
-	if fi, err := os.Lstat(path); err == nil && fi.Mode().IsRegular() {
+	if fi, err := r.Lstat(name); err == nil && fi.Mode().IsRegular() {
 		mode = fi.Mode().Perm()
 	}
-	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
+	tmp, tmpName, err := createTempBeneath(r, dir, "."+filepath.Base(name)+".tmp-")
 	if err != nil {
 		return
 	}
-	tmpName := tmp.Name()
 	_, werr := tmp.WriteString(s + "\n")
+	merr := tmp.Chmod(mode)
 	cerr := tmp.Close()
-	if werr != nil || cerr != nil || os.Chmod(tmpName, mode) != nil || os.Rename(tmpName, path) != nil {
-		_ = os.Remove(tmpName)
+	if werr != nil || merr != nil || cerr != nil || r.Rename(tmpName, name) != nil {
+		_ = r.Remove(tmpName)
 	}
+}
+
+// createTempBeneath is os.CreateTemp below r: a new file in dir named prefix plus a random
+// suffix, created O_EXCL (so never through a link), returning it and its name below r.
+func createTempBeneath(r *os.Root, dir, prefix string) (*os.File, string, error) {
+	var err error
+	for range 10 {
+		name := filepath.Join(dir, prefix+strconv.FormatUint(rand.Uint64(), 36))
+		var f *os.File
+		f, err = r.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err == nil {
+			return f, name, nil
+		}
+		if !os.IsExist(err) {
+			break
+		}
+	}
+	return nil, "", err
 }
 
 // truthy reports whether m[key] is present and Python-truthy. The only values

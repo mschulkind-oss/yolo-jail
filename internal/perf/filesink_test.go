@@ -100,3 +100,59 @@ func TestFileSinkFailureWarnsOnceAndStaysQuiet(t *testing.T) {
 		t.Errorf("sink warned more than once: %q", errb.String())
 	}
 }
+
+// TestTrimRunsInOpenFileTrimsThroughTheDescriptor pins the descriptor half the launch log and
+// the host perf log now use (their files sit in jail-writable `.yolo`, so they are never
+// reopened by path): the trim keeps the newest n runs, and a write after it lands at the new
+// end rather than past the old length.
+func TestTrimRunsInOpenFileTrimsThroughTheDescriptor(t *testing.T) {
+	for _, flag := range []int{os.O_RDWR | os.O_APPEND, os.O_RDWR} {
+		path := filepath.Join(t.TempDir(), "launch.log")
+		var b strings.Builder
+		for i := 0; i < 5; i++ {
+			fmt.Fprintf(&b, "=== run %d ===\nbody %d\n", i, i)
+		}
+		if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		f, err := os.OpenFile(path, flag, 0o644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		TrimRunsInOpenFile(f, "=== run", 2)
+		fmt.Fprint(f, "=== run 5 ===\n")
+		f.Close()
+
+		got, _ := os.ReadFile(path)
+		want := "=== run 3 ===\nbody 3\n=== run 4 ===\nbody 4\n=== run 5 ===\n"
+		if string(got) != want {
+			t.Errorf("flag %#o: after the trim and one write the file holds\n%q\nwant\n%q", flag, got, want)
+		}
+	}
+}
+
+// TestFileSinkToTrimsAndWritesThroughTheFile is FileSink's behavior for a caller-opened file.
+func TestFileSinkToTrimsAndWritesThroughTheFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "host-perf.log")
+	var b strings.Builder
+	for i := 0; i < MaxRuns+3; i++ {
+		fmt.Fprintf(&b, "%s run %d ===\n", runPrefix, i)
+	}
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_APPEND, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sink := FileSinkTo(f, "yolo-ws-abcd1234", time.Now())
+	sink(Event{Kind: KindMark, Name: "child.exited", At: time.Now()})
+
+	got, _ := os.ReadFile(path)
+	if n := strings.Count(string(got), runPrefix); n != MaxRuns {
+		t.Errorf("file holds %d runs, want %d", n, MaxRuns)
+	}
+	if !strings.HasSuffix(string(got), "mark   child.exited\n") || !strings.Contains(string(got), "jail=yolo-ws-abcd1234") {
+		t.Errorf("the sink did not append this run through the file:\n%s", got)
+	}
+}

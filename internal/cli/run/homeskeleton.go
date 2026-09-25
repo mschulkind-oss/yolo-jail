@@ -26,7 +26,13 @@ package run
 //     bind inside. So every fresh launch builds a NEW directory and nothing ever edits or
 //     removes an old one (the maintainer's OQ-BH10 ruling). Old skeletons go when the jail's
 //     whole AGENTS_DIR/<cname> does, through prune.PruneOrphanAgentStaging, which declines
-//     when liveness is unknown and never reaps a live or tracked jail's entry.
+//     when liveness is unknown and never reaps a live or TRACKED jail's entry. That reaper
+//     can reach an entry only because the launch now drops the jail's tracking file once it
+//     observes the container gone (forgetGoneContainer, trackingcleanup.go); before that, a
+//     --rm jail's tracking file outlived every normal exit and its skeletons piled up.
+//     The one removal a launch makes is of a skeleton NO container ever held: its own
+//     partial directory when building fails, or the one it built before a refusal or a
+//     runtime that never started (discardUnheldSkeleton).
 //  3. <state>/home STAYS as the machine store (above).
 //
 // FATAL AND BEST-EFFORT, split the way the writers this replaces split it
@@ -83,22 +89,29 @@ func buildHomeSkeleton(root string, packs []*packload.Pack, cfg *jsonx.OrderedMa
 	if err != nil {
 		return homeSkeleton{}, fmt.Errorf("cannot create a home skeleton under %s: %w", root, err)
 	}
+	// A FATAL FAILURE TAKES ITS PARTIAL DIRECTORY WITH IT. The launch refuses, so no
+	// container ever binds this directory, and nothing else knows its name: left behind it
+	// is one more skeleton for the reaper, from a launch that never ran.
+	fail := func(err error) (homeSkeleton, error) {
+		_ = os.RemoveAll(dir)
+		return homeSkeleton{}, err
+	}
 	// os.MkdirTemp creates 0700. The shared base this replaces was 0755, and /home/agent's
 	// mode is what the jail's own tools see, so it stays what it was.
 	if err := os.Chmod(dir, 0o755); err != nil {
-		return homeSkeleton{}, fmt.Errorf("cannot set the mode of the home skeleton %s: %w", dir, err)
+		return fail(fmt.Errorf("cannot set the mode of the home skeleton %s: %w", dir, err))
 	}
 	b := skeletonBuilder{dir: dir}
 
 	// --- FATAL: what storage.EnsureGlobalStorage used to put in the shared base ---
 	for _, rel := range skeletonDirs(packs) {
 		if err := b.mkdir(rel); err != nil {
-			return homeSkeleton{}, err
+			return fail(err)
 		}
 	}
 	for _, rel := range paths.HomeFileMountpoints() {
 		if err := b.touch(rel); err != nil {
-			return homeSkeleton{}, err
+			return fail(err)
 		}
 	}
 	// The three redirects, links into per-workspace binds (paths.HomeFileRedirects). A link
@@ -112,7 +125,7 @@ func buildHomeSkeleton(root string, packs []*packload.Pack, cfg *jsonx.OrderedMa
 	// inside the skeleton, so a later MkdirAll that runs into one stays inside it too.
 	for _, r := range paths.HomeFileRedirects() {
 		if err := b.symlink(r.Name, r.Target); err != nil {
-			return homeSkeleton{}, err
+			return fail(err)
 		}
 	}
 
@@ -164,6 +177,24 @@ func buildHomeSkeleton(root string, packs []*packload.Pack, cfg *jsonx.OrderedMa
 		warn(b.symlink(entry.Path, entry.SymlinkTarget()))
 	}
 	return sk, nil
+}
+
+// discardUnheldSkeleton removes a skeleton that no container ever held: the one this launch
+// built and then started no container on, because a pre-flight after the build refused the
+// launch or the runtime never started. Without it every such launch left one more directory
+// under AGENTS_DIR/<cname>/home for the reaper, which reaches it only once the whole entry is
+// neither live nor tracked.
+//
+// Rule 2 does not stand in the way: it forbids removing a mountpoint under a LIVE jail, and
+// this directory was made by os.MkdirTemp for this launch alone and never named in a started
+// container's argv. It removes only a direct child of paths.HomeSkeletonRoot(cname), so a
+// wrong argument cannot reach anything else, and a failure only leaves the directory to the
+// reaper, so it is not reported.
+func discardUnheldSkeleton(cname, dir string) {
+	if dir == "" || filepath.Dir(dir) != paths.HomeSkeletonRoot(cname) {
+		return
+	}
+	_ = os.RemoveAll(dir)
 }
 
 // skeletonDirs is every directory a skeleton gets whatever the config says: core's own

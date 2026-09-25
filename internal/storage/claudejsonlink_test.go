@@ -48,6 +48,21 @@ func readLinkFixture(t *testing.T, path string) *jsonx.OrderedMap {
 	return m
 }
 
+// syncWorkspace runs the sync the way the launcher does: the workspace side named rel below
+// an os.Root opened on wsState, the overlay the jail can write.
+func syncWorkspace(t *testing.T, seed, wsState, rel string) {
+	t.Helper()
+	if err := os.MkdirAll(wsState, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r, err := os.OpenRoot(wsState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	SyncClaudeJSONSeed(seed, r, rel)
+}
+
 const loggedInSeed = `{"oauthAccount": {"emailAddress": "seed@example.invalid"}, "hasCompletedOnboarding": true}`
 
 // A link at the workspace path is left alone: its target is neither read nor written, and
@@ -82,7 +97,7 @@ func TestTheSeedSyncNeverWritesThroughALink(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			SyncClaudeJSONSeed(seed, ws)
+			syncWorkspace(t, seed, filepath.Join(dir, "ws"), filepath.Join("claude", "claude.json"))
 
 			// The link takes no part in the sync, so it is not replaced either.
 			if fi, err := os.Lstat(ws); err != nil || fi.Mode()&os.ModeSymlink == 0 {
@@ -118,7 +133,7 @@ func TestTheSeedDoesNotLearnALoginThroughALink(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	SyncClaudeJSONSeed(seed, ws)
+	syncWorkspace(t, seed, filepath.Join(dir, "ws"), ".claude.json")
 
 	if _, ok := readLinkFixture(t, seed).Get("oauthAccount"); ok {
 		t.Error("the seed learned an oauthAccount read through a link the workspace planted")
@@ -140,7 +155,7 @@ func TestTheSeedSyncNeverWritesThroughASeedLink(t *testing.T) {
 	ws := filepath.Join(dir, "ws", "claude", "claude.json")
 	writeLinkFixture(t, ws, `{"oauthAccount": {"emailAddress": "ws@example.invalid"}}`)
 
-	SyncClaudeJSONSeed(seed, ws)
+	syncWorkspace(t, seed, filepath.Join(dir, "ws"), filepath.Join("claude", "claude.json"))
 
 	if got, _ := os.ReadFile(victim); string(got) != "not json\n" {
 		t.Errorf("the reverse pass wrote through the seed link into %s: %q", victim, got)
@@ -163,7 +178,7 @@ func TestTheSeedSyncStillUpdatesARegularFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	SyncClaudeJSONSeed(seed, ws)
+	syncWorkspace(t, seed, filepath.Join(dir, "ws"), filepath.Join("claude", "claude.json"))
 
 	got := readLinkFixture(t, ws)
 	for _, key := range []string{"oauthAccount", "projects"} {
@@ -176,12 +191,40 @@ func TestTheSeedSyncStillUpdatesARegularFile(t *testing.T) {
 	}
 	// A fresh workspace (no file yet) is created.
 	fresh := filepath.Join(dir, "fresh", "claude", "claude.json")
-	SyncClaudeJSONSeed(seed, fresh)
+	syncWorkspace(t, seed, filepath.Join(dir, "fresh"), filepath.Join("claude", "claude.json"))
 	if _, ok := readLinkFixture(t, fresh).Get("oauthAccount"); !ok {
 		t.Error("a new workspace's claude.json was not created from the seed")
 	}
 	entries, _ := os.ReadDir(filepath.Dir(ws))
 	if len(entries) != 1 {
 		t.Errorf("the write left a temp file beside claude.json: %v", entries)
+	}
+}
+
+// A link ABOVE the workspace file is refused too, not only one AT it. wsState/claude is a
+// directory the jail can replace with a link to a host directory, and the file below it is
+// then missing there, which reads as the ordinary first launch: the forward pass created
+// <host dir>/claude.json holding the seed's login (found in review, 2026-09-25).
+func TestTheSeedSyncNeverWritesThroughALinkedParent(t *testing.T) {
+	dir := t.TempDir()
+	seed := filepath.Join(dir, "machine", ".claude", "claude.json")
+	writeLinkFixture(t, seed, loggedInSeed)
+	hostDir := filepath.Join(dir, "host")
+	if err := os.MkdirAll(hostDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wsState := filepath.Join(dir, "ws")
+	if err := os.MkdirAll(wsState, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(hostDir, filepath.Join(wsState, "claude")); err != nil {
+		t.Fatal(err)
+	}
+
+	syncWorkspace(t, seed, wsState, filepath.Join("claude", "claude.json"))
+
+	if entries, _ := os.ReadDir(hostDir); len(entries) != 0 {
+		t.Errorf("the sync wrote %v into a host directory through the workspace's linked "+
+			"claude/ directory", entries)
 	}
 }

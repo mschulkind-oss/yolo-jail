@@ -14,7 +14,6 @@ package run
 // matches the /ctx/host-user/<slug> mount emitted here.
 
 import (
-	"os"
 	"path/filepath"
 	"sort"
 
@@ -240,9 +239,15 @@ func hasPathPrefix(p, dir string) bool {
 // packs and writableHomeDirs are the launch's selected packs and validated writable_home_dirs
 // entries, the same values the skeleton and the argv read, so the three cannot disagree about
 // which entries are staged.
-func prepareHostFiles(wsState string, entries []config.HostFileEntry, packs []*packload.Pack, writableHomeDirs []string) {
+//
+// replaced is every link it replaced at a backing dir, relative to wsState, for the caller to
+// name (printReplacedLinks): the launch says so at every bind source it replaces a link at.
+func prepareHostFiles(wsState string, entries []config.HostFileEntry, packs []*packload.Pack, writableHomeDirs []string) (replaced []string) {
+	// Beneath wsState, which the jail can write (wsstatebeneath.go): each backing dir is a podman
+	// bind source, so a link the jail left at one, or above one, is replaced by a real directory
+	// rather than followed, and the yolo-home dir is never created through a link.
 	for _, rel := range hostFileWritableDirs(entries, packs, writableHomeDirs) {
-		_ = os.MkdirAll(filepath.Join(wsState, config.WritableHomeBackingSubdir, rel), 0o755)
+		replaced = append(replaced, ensureBindSourceDir(wsState, filepath.Join(config.WritableHomeBackingSubdir, filepath.FromSlash(rel)))...)
 	}
 
 	var needConfigDir bool
@@ -255,8 +260,9 @@ func prepareHostFiles(wsState string, entries []config.HostFileEntry, packs []*p
 		// The link targets live under the per-workspace .config overlay, whose
 		// backing dir is <wsState>/config. Create the yolo-home subdir there so the
 		// entrypoint's write lands in an existing directory.
-		_ = os.MkdirAll(filepath.Join(wsState, "config", "yolo-home"), 0o755)
+		_ = mkdirAllBeneath(wsState, filepath.Join("config", "yolo-home"))
 	}
+	return replaced
 }
 
 // sortedHostFiles returns the entries ordered by destination Path without

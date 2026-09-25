@@ -55,7 +55,7 @@ func TestSeedForwardsOnlyTheLoginKeys(t *testing.T) {
   "mcpServers": {"legacy": {"command": "/bin/true"}}
 }`)
 
-	SyncClaudeJSONSeed(seed, ws)
+	syncWorkspace(t, seed, filepath.Join(dir, "ws"), filepath.Join("claude", "claude.json"))
 
 	got := readSeedJSON(t, ws)
 	if _, ok := got.Get("oauthAccount"); !ok {
@@ -78,7 +78,7 @@ func TestSeedDoesNotOverwriteAWorkspaceKey(t *testing.T) {
 	writeSeedJSON(t, seed, `{"oauthAccount": {"emailAddress": "machine@example.invalid"}, "hasCompletedOnboarding": true}`)
 	writeSeedJSON(t, ws, `{"oauthAccount": {"emailAddress": "workspace@example.invalid"}}`)
 
-	SyncClaudeJSONSeed(seed, ws)
+	syncWorkspace(t, seed, dir, "ws.json")
 
 	got := readSeedJSON(t, ws)
 	acct, _ := got.Get("oauthAccount")
@@ -106,7 +106,7 @@ func TestALoggedInWorkspaceStillBackPropagates(t *testing.T) {
   "mcpServers": {"mine": {"command": "/bin/true"}}
 }`)
 
-	SyncClaudeJSONSeed(seed, ws)
+	syncWorkspace(t, seed, filepath.Join(dir, "ws"), filepath.Join("claude", "claude.json"))
 
 	gotSeed := readSeedJSON(t, seed)
 	for _, key := range claudeJSONSeedKeys {

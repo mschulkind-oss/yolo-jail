@@ -1024,6 +1024,8 @@ func TestOnlyTheListedFunctionsNameTheMachineStore(t *testing.T) {
 			"nothing; the snapshot below drives it",
 		"appleContainerBaseMounts": "names Apple Container's shared-dir bind SOURCES in the " +
 			"argv, and writes nothing",
+		"ensureSharedDirSources": "creates those SOURCES for the selected packs' machine-scope " +
+			"shared dirs, and nothing else; the snapshot below drives it",
 	}
 	files, err := filepath.Glob("*.go")
 	if err != nil {
@@ -1150,6 +1152,9 @@ func TestAFreshLaunchLeavesTheMachineStoreByteIdentical(t *testing.T) {
 	}
 	_ = o.prepareWsState(cfg, staged.packs, "podman")
 	prepareHostFiles(wsState, hostFiles, staged.packs, config.WritableHomeDirs(cfg, staged.packs))
+	if err := ensureSharedDirSources(staged.packs); err != nil {
+		t.Fatalf("ensureSharedDirSources: %v", err)
+	}
 	skeleton := buildSkeletonForTest(t, cname, staged.packs, cfg, hostFiles)
 	_ = o.assembleRunCmd(&assembleInput{
 		cfg: cfg, rt: "podman", cname: cname, imageRef: goldenImageRef, jailPrefix: goldenJailPrefix,

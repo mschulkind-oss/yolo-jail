@@ -5,14 +5,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"syscall"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // workspaceLock is a held exclusive flock on a lock file (the per-workspace race
-// guard). Close releases the lock + closes the fd (idempotent).
+// guard). Close releases the lock + closes the fd (idempotent, and safe to call from two
+// goroutines at once: runContainer's onStarted releases it on the proxy's goroutine while the
+// normal-exit arm may release it on the launch's own).
 type workspaceLock struct {
+	mu     sync.Mutex
 	f      *os.File
 	closed bool
 }
@@ -101,7 +105,12 @@ var flockSyscall = syscall.Flock
 // Close releases the flock and closes the fd. Idempotent (guarded here for the
 // multiple teardown paths).
 func (l *workspaceLock) Close() {
-	if l == nil || l.closed {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.closed {
 		return
 	}
 	l.closed = true

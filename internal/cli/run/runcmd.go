@@ -551,8 +551,8 @@ func slowSpanNoticeSink(notice func(string)) perf.Sink {
 // hostPerfFileSink is the <workspace>/.yolo/host-perf.log sink, or a no-op sink when that
 // directory may not exist.
 //
-// THE DIRECTORY IS THE POINT. perf.FileSink MkdirAll's its parent, so this constructor is a
-// creator of <workspace>/.yolo — and `yolo stop` reaches it (TimingLogFor) with the cwd as
+// THE DIRECTORY IS THE POINT. paths.OpenWorkspaceStateFile creates its parent (through
+// paths.EnsureWorkspaceStateDir), so this constructor is a creator of <workspace>/.yolo — and `yolo stop` reaches it (TimingLogFor) with the cwd as
 // the workspace, outside the launch pipeline and therefore behind no launch guard. A
 // `yolo stop` typed in the home, on a machine with `perf_logging: true`, minted a stray
 // ~/.yolo/host-perf.log: a marker that hijacks workspaceRoot()'s upward walk for every later
@@ -571,8 +571,18 @@ func hostPerfFileSink(ws, cname string, stderr io.Writer, notice func(string)) p
 			" may not exist (this directory is not a workspace)")
 		return func(perf.Event) {}
 	}
-	return perf.FileSink(filepath.Join(paths.WorkspaceStateDir(ws), HostPerfLogName),
-		cname, stderr, time.Now())
+	// Beneath a root on `.yolo`, never by path (paths.OpenWorkspaceStateFile): the directory is
+	// jail-writable, and a link the last jail left at the name would take the trim's rewrite
+	// and every appended span to the host file it names.
+	f, err := paths.OpenWorkspaceStateFile(ws, HostPerfLogName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0o644)
+	if err != nil {
+		if stderr != nil {
+			fmt.Fprintf(stderr, "yolo: timing log unavailable at %s: %v (continuing without it)\n",
+				filepath.Join(paths.WorkspaceStateDir(ws), HostPerfLogName), err)
+		}
+		return func(perf.Event) {}
+	}
+	return perf.FileSinkTo(f, cname, time.Now())
 }
 
 // TimingLogFor is the subcommand-facing constructor: the same RECORDING gate and

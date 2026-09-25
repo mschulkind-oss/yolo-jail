@@ -47,12 +47,22 @@ func FileSink(path, cname string, errw io.Writer, now time.Time) Sink {
 		warnOnce(errw, path, err)
 		return func(Event) {}
 	}
-	TrimRunsInFile(path, runPrefix, MaxRuns-1)
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	// Read-write, because FileSinkTo trims through this descriptor.
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		warnOnce(errw, path, err)
 		return func(Event) {}
 	}
+	return FileSinkTo(f, cname, now)
+}
+
+// FileSinkTo is FileSink for a file the caller has already opened, O_APPEND and read-write:
+// it trims the file to the newest MaxRuns-1 runs through that descriptor (TrimRunsInOpenFile),
+// then appends this run's header. It is how a caller whose file sits in jail-writable state
+// opens it without a path (internal/cli/run's host perf log, which opens it beneath an
+// os.Root so a link the jail left at the name is never followed). The sink owns f from here.
+func FileSinkTo(f *os.File, cname string, now time.Time) Sink {
+	TrimRunsInOpenFile(f, runPrefix, MaxRuns-1)
 	fmt.Fprintf(f, "%s (%s) jail=%s ===\n", runPrefix, now.Format("2006-01-02 15:04:05"), cname)
 
 	var mu sync.Mutex // one write per event, under the sink's own lock
@@ -83,18 +93,23 @@ func formatLine(e Event) string {
 	}
 }
 
-// TrimRunsInFile keeps the newest n run blocks of path, a run block being
-// everything from one occurrence of prefix to the next. Read-modify-rewrite,
-// exactly once per run, at open — never at exit. Failures are silent: the
-// worst case is a file that grows past its bound, which the next open trims.
+// TrimRunsInOpenFile keeps the newest n run blocks of f, a run block being everything from
+// one occurrence of prefix to the next. f must be open read-write (O_APPEND is fine): it is
+// read from the start and, when it holds more than n runs, truncated and the newest n written
+// back, so the file is never reopened by path (the callers' files sit in jail-writable
+// `.yolo`, where a second open by path would follow a link the jail left). Exactly once per
+// run, at open, never at exit. Failures are silent: the worst case is a file that grows past
+// its bound, which the next open trims.
 //
-// It is EXPORTED because it is the retention idiom every per-workspace
-// diagnostic file in <workspace>/.yolo shares, and "the same retention the perf
-// log has" has to mean the same code or it means whatever the second copy drifts
-// into. The launch log (internal/cli/run/launchlog.go) is the second caller;
-// MaxRuns is the bound both of them pass.
-func TrimRunsInFile(path, prefix string, n int) {
-	content, err := os.ReadFile(path)
+// It is EXPORTED because it is the retention idiom every per-workspace diagnostic file in
+// <workspace>/.yolo shares, and "the same retention the perf log has" has to mean the same
+// code or it means whatever the second copy drifts into. The launch log
+// (internal/cli/run/launchlog.go) is the second caller; MaxRuns is the bound both pass.
+func TrimRunsInOpenFile(f *os.File, prefix string, n int) {
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return
+	}
+	content, err := io.ReadAll(f)
 	if err != nil {
 		return
 	}
@@ -102,8 +117,14 @@ func TrimRunsInFile(path, prefix string, n int) {
 	if len(runs) <= n {
 		return
 	}
-	trimmed := prefix + strings.Join(runs[len(runs)-n:], prefix)
-	_ = os.WriteFile(path, []byte(trimmed), 0o644)
+	trimmed := []byte(prefix + strings.Join(runs[len(runs)-n:], prefix))
+	if f.Truncate(0) == nil {
+		// O_APPEND puts this write at the new end, which is offset 0; without it the
+		// offset still sits past what was read, so rewind first either way.
+		if _, err := f.Seek(0, io.SeekStart); err == nil {
+			_, _ = f.Write(trimmed)
+		}
+	}
 }
 
 // warnOnce is the whole error story for the file sink: say it, then never say

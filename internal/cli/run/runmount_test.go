@@ -93,7 +93,7 @@ func TestROFileMountArgDeref(t *testing.T) {
 		t.Errorf("deref content = %q", data)
 	}
 	// Copy failure -> fall back to direct mount.
-	failCopy := func(_, _ string) error { return os.ErrPermission }
+	failCopy := func(_, _, _ string) error { return os.ErrPermission }
 	args = ROFileMountArg(host, "/c", ws, "sub2/cfg.json", targets, failCopy)
 	if !reflect.DeepEqual(args, []string{"-v", host + ":/c:ro"}) {
 		t.Errorf("copy-fail fallback = %v", args)

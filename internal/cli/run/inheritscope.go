@@ -31,7 +31,6 @@ package run
 //     is the existing mechanism for noticing, and it now covers this file too.
 
 import (
-	"os"
 	"path/filepath"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -176,8 +175,12 @@ func (o *Options) userConfigMountArgs(rt, wsState string) []string {
 			" — classify them in internal/config/inherit.go[/yellow]")
 	}
 	for _, f := range files {
-		staged := filepath.Join(wsState, "inherit-"+f.scope.String()+".jsonc")
-		if err := os.WriteFile(staged, []byte(f.body), 0o644); err != nil {
+		// Both writes are BENEATH wsState (writeFileBeneath, wsstatebeneath.go): the jail can
+		// leave a link at either destination, or above the Apple Container one, for a plain
+		// write to follow onto a host file, and podman would then bind the link's target.
+		stagedName := "inherit-" + f.scope.String() + ".jsonc"
+		staged := filepath.Join(wsState, stagedName)
+		if err := writeFileBeneath(wsState, stagedName, []byte(f.body), 0o644); err != nil {
 			// Same reasoning as above, per file. The mount is SKIPPED rather than emitted
 			// anyway, because podman dies on a bind source that does not exist ("statfs
 			// …: no such file or directory") — so emitting it would turn a degraded user
@@ -191,10 +194,7 @@ func (o *Options) userConfigMountArgs(rt, wsState string) []string {
 			// Apple Container mounts the whole wsState at /home/agent and cannot
 			// bind a single file, so the content is copied to its destination inside
 			// that tree instead.
-			dst := filepath.Join(wsState, f.rel)
-			if os.MkdirAll(filepath.Dir(dst), 0o755) == nil {
-				_ = os.WriteFile(dst, []byte(f.body), 0o644)
-			}
+			_ = writeFileBeneath(wsState, filepath.FromSlash(f.rel), []byte(f.body), 0o644)
 			continue
 		}
 		// SINGLE-FILE bind (R8): the enclosing ~/.config/yolo-jail stays the jail's

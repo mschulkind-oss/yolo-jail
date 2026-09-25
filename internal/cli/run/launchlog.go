@@ -31,7 +31,7 @@ package run
 // launch and the question is "did it work last time?". A HOST accumulates launches
 // across every workspace, so the shape that fits is the perf log's: one appended run
 // block per launch, trimmed to the newest perf.MaxRuns at open. Same directory, same
-// bound, one implementation (perf.TrimRunsInFile).
+// bound, one implementation (perf.trimRuns, through perf.TrimRunsInOpenFile).
 //
 // # Why it is never fatal, and never prints
 //
@@ -58,7 +58,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -114,22 +113,23 @@ func attachLaunchLog(o *Options) *launchLog {
 	if o.Workspace == "" {
 		return nil
 	}
-	// EnsureWorkspaceStateDir rather than a bare MkdirAll: this is the EARLIEST thing in a
-	// launch that creates <workspace>/.yolo — before staging, before the config load, in
-	// every backend and on a launch that goes on to refuse — so it is where the directory
-	// gets the .gitignore that keeps the secrets below out of the user's next commit.
-	dir, err := paths.EnsureWorkspaceStateDir(o.Workspace)
+	// EnsureWorkspaceStateDir (inside OpenWorkspaceStateFile) rather than a bare MkdirAll:
+	// this is the EARLIEST thing in a launch that creates <workspace>/.yolo — before
+	// staging, before the config load, in every backend and on a launch that goes on to
+	// refuse — so it is where the directory gets the .gitignore that keeps the secrets below
+	// out of the user's next commit.
+	//
+	// And it opens the file BENEATH a root on `.yolo` (paths.OpenWorkspaceStateFile), never
+	// by path: `.yolo` is jail-writable, and a link the last jail left at launch.log took this
+	// launch's every line, which quote the jail-writable workspace config, to the host file it
+	// named.
+	f, err := paths.OpenWorkspaceStateFile(o.Workspace, LaunchLogName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0o644)
 	if err != nil {
 		return nil
 	}
-	path := filepath.Join(dir, LaunchLogName)
 	// Trim at open, never at exit: a launch that hangs or is killed still leaves its
 	// lines on disk, and the signal teardown's os.Exit would skip a rewrite anyway.
-	perf.TrimRunsInFile(path, launchRunPrefix, perf.MaxRuns-1)
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return nil
-	}
+	perf.TrimRunsInOpenFile(f, launchRunPrefix, perf.MaxRuns-1)
 	l := &launchLog{f: f}
 	l.writeHeader(o)
 	o.Stdout = teeLog{w: o.Stdout, log: f}
