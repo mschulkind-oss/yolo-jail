@@ -416,6 +416,18 @@ comment or launch line already makes. Three of those four (#6, #7, #14) were REW
 2026-08-24, so each asserts today's behavior, not the original fix. So a red there is a defect or
 a stale claim, and the failure message names the comment to read.
 
+**First Mac run of the experiments, 2026-09-25** (`apple-container.yml` run 36170072271,
+`container` 1.1.0): #2, #4 and #8 **HOLD**. #3's `DOES NOT HOLD` is **not a measurement of #3**.
+The runner runs as the maintainer's account, and the test's isolated home re-links the machine's
+`~/.local/share/yolo-jail`. So the Mac's real host-render mark (`host-provenance/`) labeled the
+test's hand-written `settings.json` as yolo's own render, and the surface composed without it by
+design. The cause is inferred from the log's shape: the copy was present under `YOLO_CTX_ROOT`.
+The test now hides that mark, and fails as "NOTHING WOULD BE MEASURED" if the mark still shows, so
+#3 waits on the next Mac run. #10's claim is vacuous there: neither network mode published the
+port, so `network.ports` does not reach the Mac on Apple Container at all. That one is under
+investigation. The macos-user checks #6, #7, #9 and #14 are still unrun: the last
+`macos-user.yml` run, on 2026-09-25, did not select them.
+
 ---
 
 ## 6. The second shared fix: compose the briefing from what was APPLIED

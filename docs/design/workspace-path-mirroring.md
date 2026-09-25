@@ -9,8 +9,8 @@ summary: "Two questions, one verdict. Mirroring just the workspace is a good ide
 # Should the jail mount the workspace at the host's own path?
 
 **Status:** DESIGN, 2026-09-23 — sketched 2026-09-04 and **reopened and extended the same day** (see
-the postscript); ten questions owe a ruling, and an eleventh, [`OQ-WP12`](#OQ-WP12), was answered
-by another design's ruling ([Decision Ledger](#decision-ledger)). [`OQ-WP9`](#OQ-WP9)'s candidate
+the postscript); nine questions owe a ruling. [`OQ-WP12`](#OQ-WP12) was answered by another design's ruling,
+and [`OQ-WP5`](#OQ-WP5) by measurement on 2026-09-25 ([Decision Ledger](#decision-ledger)). [`OQ-WP9`](#OQ-WP9)'s candidate
 oracle was measured on 2026-09-25: it is cheap, and it cannot tell the sides apart. No mirroring is built, and my recommendation is
 still that none should be, but the reason has changed completely. The one piece that was worth
 doing regardless, `-trimpath` in `scripts/build-go.sh`, shipped 2026-09-09 (`6bfcfe7b`,
@@ -24,7 +24,7 @@ expired, and deserves a fresh answer rather than a citation.
 > than refreshed. Resolve each by the symbol or quoted text beside it; where a claim rests on
 > code, re-check it before reusing it.
 
-**Needs your ruling:** [OQ-WP1](#OQ-WP1), [OQ-WP3](#OQ-WP3), [OQ-WP4](#OQ-WP4), [OQ-WP5](#OQ-WP5), [OQ-WP6](#OQ-WP6), [OQ-WP7](#OQ-WP7), [OQ-WP8](#OQ-WP8), [OQ-WP9](#OQ-WP9), [OQ-WP10](#OQ-WP10), [OQ-WP11](#OQ-WP11) — [OQ-WP8](#OQ-WP8) is the closure question.
+**Needs your ruling:** [OQ-WP1](#OQ-WP1), [OQ-WP3](#OQ-WP3), [OQ-WP4](#OQ-WP4), [OQ-WP6](#OQ-WP6), [OQ-WP7](#OQ-WP7), [OQ-WP8](#OQ-WP8), [OQ-WP9](#OQ-WP9), [OQ-WP10](#OQ-WP10), [OQ-WP11](#OQ-WP11) — [OQ-WP8](#OQ-WP8) is the closure question.
 
 > **Postscript, 2026-09-04 — the question got bigger, and my central argument became a
 > variable.** [§1](#1-verdict-and-the-five-claims-it-rests-on)–[§11](#11-risks) answer a **narrow** question: mount the *workspace* at the host path,
@@ -727,10 +727,11 @@ What macos-user *does* prove is worth something, and it is a cost argument, not 
 one: the `${workspace}` seam works, and the host-path form is already exercised in production
 code.
 
-### 7.3 Apple Container: probably fine, genuinely unverified
+### 7.3 Apple Container: measured, and supported
 
-**NOT MEASURED**, and I have no hardware. The good news is that AC's three known limits are
-not the ones a rename would trip. Mirroring is **mount-count-neutral** — it renames one
+**MEASURED 2026-09-25** on `container` 1.1.0 ([`OQ-WP5`](#OQ-WP5)): a directory arrives at every deep
+destination shape a mirror would produce. The reasoning that predicted it still explains why:
+AC's three known limits are not the ones a rename would trip. Mirroring is **mount-count-neutral** — it renames one
 destination and adds none, which matters because the mount-count pressure is what forced the
 single-writable-`/home/agent` shape (`internal/cli/run/assemble_parts.go`; the
 often-quoted "~22" limit is [not something this repo measures](../guides/macos.md)). Nesting
@@ -742,10 +743,9 @@ a regular-file bind arrives and honors `:ro` ([`../guides/macos.md`](../guides/m
 per-setting table). yolo still gates `:ro` on that version and still copies single files by
 choice. Neither fact is touched by a destination rename either way.
 
-What remains is that nobody has confirmed an arbitrary deep destination on AC. That is
+What remained was that nobody had confirmed an arbitrary deep destination on AC. That is
 exactly [`OQ-MP2`](../research/mise-host-jail-path-mismatch.md#-oq-mp2-does-apple-container-support-arbitrary-same-path-bind-targets--moot-2026-07-03), asked in July and closed **moot** rather than answered — and un-mooting
-option A re-opens it. See [`OQ-WP5`](#open-questions), whose measurement now exists and is
-unrun (2026-09-25). Second-order: `workspace_readonly` and
+option A re-opens it. [`OQ-WP5`](#OQ-WP5) has now measured it: supported, on `container` 1.1.0 (2026-09-25). Second-order: `workspace_readonly` and
 the per-side shadows build `"/workspace/"+rel` destinations
 (`internal/cli/run/mounts.go`), so mirroring moves those strings too, on a backend
 where they are already degraded.
@@ -871,7 +871,7 @@ underestimated.
 | R1 | Machine-shared stores gain a per-workspace fanout; the mise dangling-symlink class returns in the jail↔jail direction ([§4.2](#42-the-re-opened-class)) | High — it is the class the 2026-07 bundle closed | None structural. Per-tool neutral paths (the `CARGO_HOME=/mise/cargo` move) treat each instance; that is the whack-a-mole the neutral-path decision ended |
 | R2 | The prose tax is paid forever, not once ([§6.3](#63-the-prose-tax--the-part-that-does-not-end), P3) | High, and easiest to miss because it is not a code cost | None. It is inherent to replacing a constant with a per-machine variable |
 | R3 | The container backends and `macos-user` diverge *more*, because macos-user refuses a workspace under a user home — the exact path mirroring would produce on a Mac ([§7.2](#72-macos-user-does-not-mirror-the-path-a-mac-user-would-want)) | High, and I did not expect it | None. It is a direct conflict between two backends' path rules, not a gap to fill |
-| R3a | Apple Container may not express an arbitrary deep destination ([§7.3](#73-apple-container-probably-fine-genuinely-unverified)) | Unknown — unverified since July, though the known AC limits are not the ones a rename trips | Verify on hardware before committing ([`OQ-WP5`](#OQ-WP5)); AC has no fallback spelling |
+| R3a | Apple Container may not express an arbitrary deep destination ([§7.3](#73-apple-container-measured-and-supported)) | **Retired 2026-09-25** — measured supported on `container` 1.1.0 ([`OQ-WP5`](#OQ-WP5)) | None needed. AC still has no fallback spelling, so a later AC release that regresses it has no workaround |
 | R4 | Path-keyed agent history is stranded at the old key ([§8](#8-migration)) | Medium, one-time, user-visible | Storage-layout-version bump + an announced loss; no migration is possible for a vendor-owned key |
 | R5 | Two unconverted call sites change behaviour rather than erroring: `configls.go` (fails closed) and `load.go` (stops recognising its own workspace) | Medium | Both are named in [§6.1](#61-the-code-side-is-smaller-than-folklore-says); convert with the mount, not after |
 | R6 | Workspace-scope `mounts` entries that are inert today become live ([§4.4](#44-trust-one-undocumented-fail-safe-and-nothing-else)) | Low — measured to fail closed on the worst shape | Give workspace `mounts` a scope rule, which [`trust-paths.md`](trust-paths.md) arguably already wants ([`OQ-WP4`](#OQ-WP4)) |
@@ -1341,7 +1341,7 @@ and it already has a home in the tree.
    **Answer:**
    > _(empty — fill in when decided)_
 
-5. 💬 <a id="OQ-WP5"></a>**OQ-WP5: Does Apple Container support an arbitrary deep bind destination?**
+5. ✅ <a id="OQ-WP5"></a>**OQ-WP5: Does Apple Container support an arbitrary deep bind destination?**
    Unanswered since [`OQ-MP2`](../research/mise-host-jail-path-mismatch.md#-oq-mp2-does-apple-container-support-arbitrary-same-path-bind-targets--moot-2026-07-03) closed it as moot in July. It does not block the *no*, but it
    would block a future *yes*, and it is cheap to measure for whoever next has AC hardware
    in front of them. `docs/design/backend-parity.md` is where the answer belongs.
@@ -1349,7 +1349,7 @@ and it already has a home in the tree.
    _Leaning:_ Unverified, and I would guess yes (AC does ordinary directory binds), but a
    guess is exactly what this repo's doc norms forbid recording as fact.
 
-   **The measurement exists, UNRUN (2026-09-25).** It is
+   **The measurement is**
    `TestAppleContainerBindsADeepDestination` in
    [`applecontainerparity_test.go`](../../integration/applecontainerparity_test.go). It is
    selected by `apple-container.yml`'s `^TestAppleContainer` subset, and it is an experiment:
@@ -1363,10 +1363,13 @@ and it already has a home in the tree.
    this question yes. `NOT SUPPORTED for [...]` names the shapes that failed. Either way,
    record the `container` version the line prints.
 
-   <!-- vantage: oq id=OQ-WP5 leaning="Unverified. I would guess Apple Container does support an arbitrary deep bind destination, but a guess is exactly what this repo's doc norms forbid recording as fact. It blocks a future yes, not this no." -->
-
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Yes, measured 2026-09-25.** `AC-WP5 VERDICT: SUPPORTED` on `container` CLI 1.1.0, in
+   > `apple-container.yml` run 36170072271 on the self-hosted arm64 runner. All three shapes
+   > arrived with `--read-only`, and the host saw the in-container write each time. For the
+   > nested shape the mountpoint was created on the host inside the parent bind. Nothing about
+   > Apple Container blocks a mirrored workspace destination. This settles a fact, not the
+   > design: mirroring is still the no of [`OQ-WP8`](#OQ-WP8).
 
 6. 💬 **OQ-WP6: Is the interesting proposal actually "mirror all three path spaces"?**
    P1 says mirroring the workspace alone cannot make the two sides agree, because home and
@@ -1536,13 +1539,14 @@ and it already has a home in the tree.
 
 ## Decision Ledger
 
-Two questions are settled — [`OQ-WP2`](#decision-ledger), by building it, and
-[`OQ-WP12`](#OQ-WP12), by another design's ruling; every other question above is live. The rows after it are *inherited* rulings this doc is built on top of, recorded so they are not
+Three questions are settled — [`OQ-WP2`](#decision-ledger), by building it,
+[`OQ-WP12`](#OQ-WP12), by another design's ruling, and [`OQ-WP5`](#OQ-WP5), by measurement; every other question above is live. The rows after it are *inherited* rulings this doc is built on top of, recorded so they are not
 silently re-litigated:
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
 | OQ-WP2 | **`-trimpath` in `scripts/build-go.sh`, independent of the verdict** — shipped 2026-09-09 (`6bfcfe7b`) as the leaning proposed, with its own test pinning the flag against `flake.nix`'s hermetic build (`internal/entrypoint/gobuildflags_test.go`). The measurement behind it outgrew [§3.1](#31-confirmed-jail-built-go-binaries-carry-workspace-source-paths): a jail-run build can bake the HOST's absolute source paths into a shipped binary, because Go's build cache reuses compile actions recorded under another directory — so the flag keeps the maintainer's home layout out of an artifact, not just dead paths | 2026-09-09 | [§3.1](#31-confirmed-jail-built-go-binaries-carry-workspace-source-paths), [§10](#10-alternatives-each-with-a-verdict) alternative D |
+| OQ-WP5 | **Apple Container supports an arbitrary deep bind destination** — measured, not ruled: `AC-WP5 VERDICT: SUPPORTED` on `container` 1.1.0, all three shapes | 2026-09-25 | [OQ-WP5](#OQ-WP5), `apple-container.yml` run 36170072271 |
 | OQ-WP12 | **Answered by reference to [`OQ-HT4`](../reference/macos-user-home-tiers.md#oq-ht4).** The shared home was reopened in the macos-user home-tier design and both tiers were restored: `HOME` stays `/Users/_yolojail` (machine tier), the workspace tier is symlinks into `<workspace>/.yolo/home`, and the cross-workspace transcript leak is closed by that layout | 2026-09-11 | [`../reference/macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md) |
 | OQ-MP1 | Same-path workspace mount ("option A") rejected; superseded by the state-separation bundle | 2026-07-03 | [`../research/mise-host-jail-path-mismatch.md`](../research/mise-host-jail-path-mismatch.md) · this doc [§2.3](#23-the-prior-art-and-why-it-is-not-the-answer) re-examines it, because two of its three reasons have expired |
 | [`OQ-2`](#decision-ledger) (env-manager) | Host management is user-scoped; the workspace contributes nothing, so `${workspace}` surfaces are refused at the host notch | 2026-08-01 | `docs/plans/environment-manager-plan.md` · [§12.7](#127-the-notch-model--no-statement-anywhere-names-paths-as-the-obstacle) relies on it: mirroring cannot supply a referent the design says must not exist |

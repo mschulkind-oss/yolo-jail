@@ -995,7 +995,12 @@ containers/storage locks for itself, the five copies demonstrably ran to complet
 
 The **image-copy lock** *(coined here)* is a machine-wide `flock` under the state dir's `locks/`,
 taken after the copier is built and before the copy, and released as soon as the store write is done
-— before the tags and the report, which are names and cannot collide. Its rules:
+— before the tags and the report, which are names and cannot collide. **Measured under contention
+on rootless podman, 2026-09-25** (`ci.yml` run 36167524940, both arches,
+`TestImageCopyLockSerializesConcurrentLaunches`): of three launches started together, exactly one
+copied and the other two were `delivered by a concurrent launch`. Each launch carried an
+`image.copy_lock` span of 2–3 s. The test evicts names but keeps layers, so it measures the
+serialization, not a cold-store copy. Its rules:
 
 - **The image is inspected again under the lock.** The first inspect decided a copy was needed; if
   the peer this launch queued behind was delivering the *same* content ref, that decision is stale.

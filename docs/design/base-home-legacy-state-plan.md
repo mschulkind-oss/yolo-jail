@@ -13,8 +13,10 @@ found in the build is open ([OQ-BH15](base-home-legacy-state.md#OQ-BH15), which 
 here), and a second, [OQ-BH16](base-home-legacy-state.md#OQ-BH16), found making the reaper
 work. **Every step BUILT 2026-09-25**: 1, 2 and 3 first, then 4, 4a and 5, then the review
 fixes and follow-ups below. `integration/homeskeleton_test.go` passed in a nested, rootful jail
-the same day. Still owed: the rootless check (CI or a real rootless host), a run of that test's
-new anywhere-under-`~` search, and a Mac run of step 4. Rewritten with the design; the previous quarantine sketch is superseded
+the same day, and **ROOTLESS in CI** on both arches (`ci.yml` run 36167524940 at `e56d871e`,
+`integration (ubuntu-latest)` and `integration (ubuntu-24.04-arm)`, the same jobs' concurrency
+test reporting `podman rootless=true`), its anywhere-under-`~` search included: the codex-only jail
+found no Claude credential file. Still owed: a Mac run of step 4. Rewritten with the design; the previous quarantine sketch is superseded
 and lives in git history.
 
 **Where the build departed from this sketch** (2026-09-25):

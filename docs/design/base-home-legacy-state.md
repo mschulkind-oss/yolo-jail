@@ -12,7 +12,7 @@ summary: "Podman mounts ONE machine-wide base, <state>/home, read-only at /home/
 then every open question settled the same day. **Steps 1–3 of [§8](#8-build-order-and-done-conditions)
 BUILT 2026-09-25** (the seed fixes, the podman skeleton, the refusal's deletion and the reworded
 `yolo check` report); `integration/homeskeleton_test.go` PASSED in a nested, rootful jail the
-same day, and the rootless check is owed to CI. **Steps 4, 4a and 5 BUILT 2026-09-25**: the
+same day, and ROOTLESS in CI on both arches the same evening (`ci.yml` run 36167524940). **Steps 4, 4a and 5 BUILT 2026-09-25**: the
 Apple Container seed paths ([OQ-BH12](#OQ-BH12), host side only; a Mac run is still owed), name
 reservation over the selected packs only ([OQ-BH14](#OQ-BH14)), and the reference docs and code
 comments. **Review follow-ups BUILT 2026-09-25** ([§8](#8-build-order-and-done-conditions),
@@ -21,8 +21,8 @@ configured pack's shared dir gets its bind source.
 MEASURED: what the base holds on two bases, EROFS on the home root, the jail writing through `/workspace/.yolo/home`, the machine credential file sitting in the base, and a
 host `rmdir` detaching a bind (in a user+mount namespace; `internal/prune/shadowed.go` records
 the same failure in a real jail, 2026-07-04). UNMEASURED: the Apple Container seed defect (no
-Mac), rootless ID mapping of a host-built skeleton, and a jail without claude actually reading
-the credential file (inferred from the mounts). Evidence: [Appendix A](#appendix-a-evidence).
+Mac) and a jail without claude actually reading the credential file (inferred from the mounts).
+Rootless ID mapping of a host-built skeleton was MEASURED in CI, 2026-09-25. Evidence: [Appendix A](#appendix-a-evidence).
 
 > **In short.** The shared base home is left over from an older design, and sharing it is the
 > bug. Give each podman jail its own read-only skeleton, built from the packs that jail
@@ -417,8 +417,8 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
 - Mountinfo shows `/home/agent` bound `:ro` from the skeleton; `touch ~/.x` fails with EROFS.
   *Met in a nested jail, 2026-09-25: `TestPodmanHomeIsAPerJailReadOnlySkeleton`
   (`integration/homeskeleton_test.go`) passed, all three subtests (`claude only`, `codex only`,
-  `writable_home_dirs`). That podman was rootful (a nested jail forces `--userns=host`), so the
-  rootless bullet below is still owed.*
+  `writable_home_dirs`). That podman was rootful (a nested jail forces `--userns=host`); the
+  rootless bullet below was met in CI the same evening.*
 - In a claude-only jail, `~/.codex`, `~/.copilot`, `~/.oh-omp`, `~/.pi-lens` and
   `~/.gemini-shared-credentials` do not exist. *Met at the builder
   (`TestTheSkeletonCarriesOnlyTheSelectedPacksDirs`); the integration test above checks
@@ -463,11 +463,12 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
 - **Rootless, on a real host or in CI; a nested jail cannot show this**, since it forces
   `--userns=host`. The report includes `podman info --format '{{.Host.Security.Rootless}}'` =
   `true`, a fresh launch boots, `stat -c '%u:%g %a'` of `/home/agent` and of a mountpoint match
-  today's, and a `writable_home_dirs` mount works. *Not yet: owed to CI, which runs the
-  integration suite rootless, or a real rootless host. The integration test exercises every
-  half but the `Rootless` line, which is the reporter's: its launches boot, it prints the `stat`
-  lines to compare, and its `writable_home_dirs` subtest writes through a rw bind nested in the
-  `:ro` skeleton. Its nested pass on 2026-09-25 was rootful and settles none of this bullet.*
+  today's, and a `writable_home_dirs` mount works. *Met in CI, 2026-09-25: `ci.yml` run
+  36167524940 at `e56d871e`, on `ubuntu-latest` and `ubuntu-24.04-arm`, whose jobs report
+  `podman rootless=true`. All three subtests passed on both. The skeleton is mounted `ro`, and a
+  write to the home root fails with EROFS. `/home/agent` and `/home/agent/.config` stat
+  `0:0 755`, the jail user's own, because jail root maps to the host user who built the skeleton.
+  The `writable_home_dirs` subtest wrote through its rw bind nested in the `:ro` skeleton.*
 - **Step 4:** a new Apple Container workspace boots logged in from the seed, and its home has
   no undotted `~/claude` or `~/npm-global`. *Met on the host side only:
   `TestAppleContainerSeedReachesTheJailsClaudeJSON`, `TestAppleContainerLoginIsLearnedByTheSeed`,
