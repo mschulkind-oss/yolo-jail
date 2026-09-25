@@ -21,10 +21,10 @@ changelog; this is the subset that bites.
 
 ## Unreleased
 
-*(Everything below has landed since **v0.8.0**, tagged 2026-08-13 — the last version cut. This file
-was created on 2026-08-18, after that tag, which is why it has no released sections yet. Whether the
-next cut is triggered by this file filling up or by a cadence is an open product question; see
-[`plans/further-roadmap-ideas.md`](plans/further-roadmap-ideas.md) §I5.)*
+*(Everything in this section has landed since **v0.10.0**, the latest tag (2026-09-18). Both
+v0.9.0 and v0.10.0 were cut without this file being split into version sections. The sections
+below were assigned on 2026-09-25 by two checks that agree: `git merge-base --is-ancestor` on each
+entry's commit, and the headings `git show <tag>:docs/RELEASE-NOTES.md` carries at each tag.)*
 
 ### ⚠️ `lsp_servers` no longer installs a language server, and `programs.autoprune` may remove the old ones
 
@@ -194,6 +194,15 @@ rejects `stream_options` would now fail those requests.
 **What to do.** Nothing, normally. For a provider that rejects `stream_options`, set
 `{"providers": {"<name>": {"options": {"supports_usage_in_streaming": "false"}}}}`, and the bridge
 stops asking.
+
+## v0.10.0 — 2026-09-18
+
+*(No entry in this file landed between v0.9.0 and v0.10.0.)*
+
+## v0.9.0 — 2026-09-15
+
+*(Everything in this section landed between **v0.8.0** (2026-08-13) and v0.9.0. This file was
+created on 2026-08-18, after v0.8.0, so it has no section for that version or any earlier one.)*
 
 ### ⚠️ `copilot` checks for its own updates again, and `--yolo` moves under the autonomy notch
 
@@ -452,7 +461,7 @@ artifact digest, act, time).
 this repo's own first catalog named five orphans, not the two the design doc knew about — three
 LSP servers stranded when `lsp_servers` left the config and their sentinel record was lost.
 
-**Update (2026-09-04, `36ea2780`/`6dda9ea6`/`dbd2e925`): the explicit act now exists**, and the
+**Update (2026-09-04): the explicit act now exists**, and the
 default is still that nothing is removed. In a jail, `yolo programs ls` reports the orphans and
 their sizes, `yolo programs remove` prints every path removing them would unlink, and
 `yolo programs remove --apply` does it. `"programs": {"autoprune": true}` in your USER config
