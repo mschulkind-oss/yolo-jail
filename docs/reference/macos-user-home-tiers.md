@@ -324,6 +324,9 @@ live directory. The per-declaration census and its rulings are
 - **`cache_relocations`** — a bind onto other storage, and the "just symlink it" workaround is
   refuted by target evaluation plus the profile's `/Volumes` read-deny. Warned on the same
   condition, from the same function.
+- **Context mounts** (`mounts`, a pack's `mount`) — not delivered, and warned per entry.
+  [`context-mounts.md`](../design/context-mounts.md#3-delivering-context-dirs-on-macos-user)
+  proposes delivering them by root-owned link plus Seatbelt rules.
 - **`writable_home_dirs`** — not a gap: the home is natively writable, so the knob has no target.
 - **No PID, network or mount namespace**, and every jail runs as the same `_yolojail` uid, so a
   host daemon cannot tell which jail is calling. Concurrent jails with *different* profiles do
