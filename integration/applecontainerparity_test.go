@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -324,6 +325,17 @@ func TestAppleContainerRescuesAStrandedSharedDir(t *testing.T) {
 func TestAppleContainerReadsHostGrantArrives(t *testing.T) {
 	const fix = "#3"
 	dir := appleContainerWorkspace(t)
+	// The machine's host-render mark would otherwise label this home's hand-written
+	// settings.json "yolo's own render", and the surface would compose without it for a
+	// reason that is not #3 (hostprovenanceisolation_test.go). MEASURED 2026-09-25: run
+	// 36170072271 on the maintainer's Mac reported DOES NOT HOLD with the copy present
+	// under YOLO_CTX_ROOT, the one shape that label produces.
+	privateHostProvenance(t, os.Getenv("HOME"), hostHome)
+	if entrypoint.HostSurfaceRendered(os.Getenv("HOME"), claudeSettingsSurface) {
+		t.Fatalf("%s %s: this home still carries a host-render mark for claude/settings, so "+
+			"the launcher would drop its settings.json as yolo's own render — NOTHING WOULD BE "+
+			"MEASURED about #3 (privateHostProvenance did not take)", acParityTag, fix)
+	}
 	nonce := acParityNonce()
 	settings := filepath.Join(os.Getenv("HOME"), ".claude", "settings.json")
 	if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
