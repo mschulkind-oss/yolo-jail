@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 )
 
 // buildVersion is stamped at build time via -ldflags -X (see
@@ -118,6 +120,7 @@ func gitDescribe(repoRoot string) string {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "describe", "--tags", "--dirty", "--always")
 	cmd.Dir = repoRoot
+	cmd.Env = packsrc.CleanGitEnv(os.Environ()) // describe repoRoot, not a hook's repo (srcskew.go's gitOut)
 	out, err := cmd.Output()
 	if err == nil {
 		raw = strings.TrimSpace(string(out))

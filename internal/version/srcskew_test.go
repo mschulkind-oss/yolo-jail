@@ -188,3 +188,24 @@ func TestImageSourcePathsMatchTheFlake(t *testing.T) {
 			got, want)
 	}
 }
+
+// TestSourceSkewIgnoresAnInheritedGitDir: SourceSkew asks git about the repo it is
+// POINTED at, whatever git state the process inherited. A pre-commit hook in a
+// linked worktree exports an absolute GIT_DIR (and GIT_INDEX_FILE), and a yolo run
+// from any git hook inherits the same; without the strip, git answers for the
+// hook's repository and the skew check silently reports nothing (measured
+// 2026-09-25: this package's skew test went red under a worktree's hook).
+func TestSourceSkewIgnoresAnInheritedGitDir(t *testing.T) {
+	root, commit := gitRepo(t)
+	installed := commit("internal/entrypoint/env.go", "package entrypoint // v1\n")
+	commit("internal/entrypoint/env.go", "package entrypoint // v2\n")
+
+	other, _ := gitRepo(t)
+	t.Setenv("GIT_DIR", filepath.Join(other, ".git"))
+	t.Setenv("GIT_INDEX_FILE", filepath.Join(other, ".git", "index"))
+
+	withStamp(t, installed)
+	if skew := SourceSkew(root); skew == nil {
+		t.Fatal("SourceSkew = nil under an inherited GIT_DIR, want the skew of the repo it was pointed at")
+	}
+}

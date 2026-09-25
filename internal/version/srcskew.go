@@ -2,11 +2,14 @@ package version
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"path"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 )
 
 // ImageSourcePaths are the repo-relative paths whose CONTENT decides what the jail
@@ -148,6 +151,11 @@ func gitOut(repoRoot string, args ...string) (string, bool) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = repoRoot
+	// The question is about repoRoot, never about whatever repository git state the
+	// process inherited: a git hook (a worktree's pre-commit, or any hook that runs
+	// yolo) exports GIT_DIR/GIT_INDEX_FILE, and a leaked one makes git answer for
+	// the hook's repo, so the skew check would silently report nothing.
+	cmd.Env = packsrc.CleanGitEnv(os.Environ())
 	out, err := cmd.Output()
 	if err != nil {
 		return "", false
