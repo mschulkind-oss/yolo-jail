@@ -12,6 +12,8 @@ summary: "What the machine-wide OpenAI credential service still needs: the macos
 2026-09-18 (`36c47baa`, `4de78ac0`; step 10's endpoint-withholding half was declined there, with
 its reason), step 9 waits on [OQ-OA6](openai-auth-broker.md#OQ-OA6), step 4's last clause waits
 on [OQ-OA7](openai-auth-broker.md#OQ-OA7), and step 12 is the checks nothing automated reaches.
+Step 12's first automated check, `TestOpenAIAuthBrokerRoundTripsAnImportedToken`, was written
+2026-09-25 and **has not run yet**.
 
 **Design:** [`openai-auth-broker.md`](openai-auth-broker.md)
 
@@ -52,7 +54,8 @@ on [OQ-OA7](openai-auth-broker.md#OQ-OA7), and step 12 is the checks nothing aut
 this file is advice — the first thing here to be wrong. Never twist the code to match it.
 
 **What is left:** the `macos-user` refresh consumer (9, waiting on
-[OQ-OA6](openai-auth-broker.md#OQ-OA6)) · the checks nothing automated reaches (12). The
+[OQ-OA6](openai-auth-broker.md#OQ-OA6)) · the checks nothing automated reaches (12; its
+reachability test is written and unrun). The
 measured Codex floor is recorded in
 [`../research/openai-subscription-auth.md`](../research/openai-subscription-auth.md) (2026-09-25).
 Apple Container's disclosure (10,
@@ -70,7 +73,7 @@ dead `127.0.0.1:1460` override as one of its four measured cases, and is blocked
 | :--- | :--- | :--- | :--- |
 | 1 | Credential transaction | **done, differs** | `openaiauth.Broker`: `withLock` (`syscall.Flock`), reload under lock, `DecisionStale` on a caller-generation mismatch, `writeState`'s 0600-in-0700 atomic rename, `TokenFingerprint`, `context.WithoutCancel` around redemption. `TestConcurrentCallersRedeemExactlyOnce` is the race. **Differs:** a NEW package, not a generalization of `internal/oauthbroker`, whose `withRefreshLock` is still a second flock transaction — see Blockers. |
 | 2 | Host service transport | **done, differs** | **Differs:** the service ships from `packs/openai-auth`, not from the Codex pack. `packs/codex/pack.json` and `packs/pi/pack.json` each carry an unconditional `needs` on it. `TestStagePacksJoinsOpenAIAuthForCodex` and `TestStageRunPacksPreservesNeededOpenAIAuthState` exercise the real selection call site. |
-| 3 | Codex adapter | **done** | `internal/openaiauthadapter` serves the native token-endpoint shape, JSON and form bodies both (`readTokenRequest`, fixed 2026-09-22); the manifest's `jail_daemon` binds `127.0.0.1:1460`; `packs/codex/pack.json` sets `CODEX_REFRESH_TOKEN_URL_OVERRIDE` at that URL. The version floor is **measured** (0.56.0, the warning above), so a launch-time refusal would be dead code. The floor is **recorded** (2026-09-25) in [`../research/openai-subscription-auth.md`](../research/openai-subscription-auth.md) §1.2, beside its 0.154.0 provenance line. |
+| 3 | Codex adapter | **done** | `internal/openaiauthadapter` serves the native token-endpoint shape, JSON and form bodies both (`readTokenRequest`, fixed 2026-09-22); the manifest's `jail_daemon` binds `127.0.0.1:1460`; `packs/codex/pack.json` sets `CODEX_REFRESH_TOKEN_URL_OVERRIDE` at that URL. The version floor is **measured** (0.56.0, the warning above), so a launch-time refusal would be dead code. The floor is **recorded** (2026-09-25) in [`../research/openai-subscription-auth.md`](../research/openai-subscription-auth.md) [§1.2](../research/openai-subscription-auth.md#12-codex-refresh-is-careful-inside-one-process-not-across-processes), beside its 0.154.0 provenance line. |
 | 4 | Pi adapter | **done, one clause owed a ruling** | `packs/pi/extensions/yolo-openai-auth.js` registers the `openai-codex` provider (`login`/`refreshToken`/`getApiKey`), shells to `yolo internal openai-auth-client`, and puts `yolo-broker:<generation>` in Pi's `refresh` field — never the canonical token. The design's ask-once-more-after-unauthorized ([§2](openai-auth-broker.md#2-one-writer-and-two-views)) is **measured unbuildable** (the warning above): pi has no 401 refresh path and the extension API exposes no status. Whether the design drops it is [OQ-OA7](openai-auth-broker.md#OQ-OA7). |
 | 5 | Callback relay and login | **partial, differs** | `openaiauthdaemon.StartLogin`: PKCE, exact-path `/auth/callback`, state compared before the code is taken, a second callback refused 409, `listenLoginPort` binding 1455 then 1457 with the redirect URI naming the port it got. **Differs:** no state registry and no routing to a jail — the host daemon owns the whole flow and the jail's `login` action only streams the URL back, which makes the design's relay unnecessary rather than unbuilt. **Missing:** a third concurrent login has no port. |
 | 6 | Backend transport | **partial** | Podman: `hostServicesMountArgs` emits the services-dir bind plus `YOLO_SERVICE_OPENAI_AUTH_BROKER_ENDPOINT`, and the adapter joins `YOLO_JAIL_DAEMONS` through `runtimeArgsFor`. `macos-user`: the arm calls `startLoopholesDisclosed` with the whole pack set, refuses the launch when this service did not start, sets the variable to the **host** path, and `macosuser.EndpointGrantCommands` ACL-grants it (`PlanInvariants` refuses a plan that carries an endpoint without a grant). Apple Container reports the loophole inert (step 10). **Missing:** step 9. |
@@ -141,6 +144,19 @@ stays in `YOLO_JAIL_DAEMONS` turns an unreachable front into no front at all.
   every host-scoped endpoint on AC **except** this one — and the disposition is `unknown`,
   which never escalates, so the fatal witness does not refuse it. What changed is that
   `notePackLoopholesInert` names the loophole and the measured reason at launch.
+- **A private state dir does not give a test its own broker.** The singleton's socket, PID file
+  and spawn lock are fixed `/tmp` paths keyed by the loophole name alone
+  (`paths.HostSingletonSocket`), and both a launch (`startHostSingleton`) and
+  `yolo openai-auth` (`ensureSingleton`) reuse whichever singleton is alive, whatever
+  `--state-file` it was started with. So an import into "this test's" state can land in a
+  developer's real grant. `integration/openaiauth_test.go` proves ownership from
+  `/proc/<pid>/cmdline` before it imports anything, and of the singletons it did not start it
+  stops only one whose state file does not exist. The reuse runs the other way too: while the
+  test's singleton is alive, every launch and `yolo openai-auth` command on the machine uses it,
+  so a concurrent codex or Pi jail is served the forged token and a concurrent login lands in the
+  test's private state dir, which the test deletes. So the test also skips whenever the
+  machine's own state file exists, live singleton or not; on a machine with no grant, the
+  forged token reaching a concurrent launch is the exposure that remains.
 - **Do not mount the state directory anywhere.** The nonempty `state_files` list is the
   fail-closed boundary that keeps `credentials.json` out of the jail; an empty or absent
   list mounts the whole directory. `prepareOpenAIAuthMountSentinel` exists to give that
@@ -183,6 +199,25 @@ prove it — read *Instruments* below before believing a green.
     both arches) for reachability; a **human at a real machine** for the browser and the
     expiry crossing, because both need a ChatGPT account and real wall-clock time.
 
+    **The reachability half is written, 2026-09-25, and has not run:**
+    `TestOpenAIAuthBrokerRoundTripsAnImportedToken` in `integration/openaiauth_test.go`. It
+    imports a forged Codex login (random tokens, the access token a JWT expiring in a day, so the
+    broker serves it from cache and nothing calls OpenAI) into a private state dir through
+    `yolo openai-auth import`, launches a jail whose `packs` is `["codex"]`, and POSTs Codex's JSON
+    refresh request to the jail's `CODEX_REFRESH_TOKEN_URL_OVERRIDE`, asserting that it is
+    `http://127.0.0.1:1460/oauth/token` (the manifest's `jail_daemon` listen address). In the same
+    launch it runs Pi's route, `yolo internal openai-auth-client token`, which reaches the
+    endpoint with no adapter in between. It asserts, by hash and in the jail, that both routes
+    return the imported access token, that the Codex view's refresh field is the `yolo-broker:1`
+    marker, that Pi's view reports `cached`, and that the canonical state and the singleton's PID
+    are unchanged afterwards. It stops the singleton it started, and first stops any grantless
+    singleton it found live (see Traps). It **skips** on a machine whose own broker state file
+    exists, whether or not a singleton is alive, and on one whose live singleton has a state file
+    (either may be a real grant — see Traps), and in a nested jail whose loopback already answers
+    on 1460. It logs `podman info --format '{{.Host.Security.Rootless}}'`. A green
+    run on the rootless CI job, reported with that value, closes the reachability half; the browser
+    login and the expiry crossing stay with a human.
+
 ## Instruments — what each one cannot prove
 
 - **A nested jail proves nothing here.** Podman-in-podman forces `--net=host`, so the
@@ -207,10 +242,11 @@ prove it — read *Instruments* below before believing a green.
 - **Unit, steps 10 and 11: shipped with them** — `packhostdisclosure_test.go` for the AC
   inert line, `internal/openaiauthdaemon/hostactions_test.go` and
   `internal/openaiauthhost/operator_test.go` for import and logout.
-- **Integration: there is nothing today.** `integration/` contains no OpenAI-broker test at
-  all. Step 12's first artifact is one: a jail whose `packs` selects `codex`, asserting a
-  brokered `token` round-trip through the published endpoint. That is the test that would
-  catch this breaking end to end, and it is the one the whole unit suite cannot represent.
+- **Integration: step 12's first artifact is written and has not run.**
+  `TestOpenAIAuthBrokerRoundTripsAnImportedToken` (`integration/openaiauth_test.go`) is a jail
+  whose `packs` selects `codex`, asserting a brokered refresh round trip through the published
+  endpoint, as step 12 describes. That is the test that would catch this breaking end to end, and
+  it is the one the whole unit suite cannot represent.
 - **Docs that now describe the old thing** — all written before the macos-user lifecycle was
   generalized, all claiming the two macOS backends carry exactly one loophole, and all still
   correct about Apple Container: [`../reference/agent-credentials.md`](../reference/agent-credentials.md)
