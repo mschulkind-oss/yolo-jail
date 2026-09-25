@@ -3,6 +3,7 @@ package integration
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -747,15 +748,59 @@ func acPortMacDiag(stop <-chan struct{}, addrFile string, v4Host, dualHost int, 
 		}()
 	}
 	probes.Wait()
+	lines = append(lines, acPortRoute(jailIP), acPortInspect(name), acPortListeners(v4Host, dualHost))
+	return strings.Join(lines, "\n")
+}
+
+// acPortInspect is what `container inspect` says about the container's published ports and
+// networks, and only that: the whole document runs to kilobytes of init-process argv, and
+// the third Mac run (2026-09-25) cut it off before either field.
+func acPortInspect(name string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "container", "inspect", name).CombinedOutput()
-	inspect := strings.TrimSpace(string(out))
-	if len(inspect) > 3000 {
-		inspect = inspect[:3000] + " …(truncated)"
+	if err != nil {
+		return fmt.Sprintf("container inspect %s: %v: %s", name, err, lastLines(string(out), 5))
 	}
-	lines = append(lines, fmt.Sprintf("container inspect %s (err=%v):\n%s", name, err, inspect))
-	return strings.Join(lines, "\n")
+	var docs []map[string]any
+	if err := json.Unmarshal(out, &docs); err != nil || len(docs) == 0 {
+		return fmt.Sprintf("container inspect %s: unparseable (%v): %.400s", name, err, out)
+	}
+	pick := map[string]any{}
+	if cfg, ok := docs[0]["configuration"].(map[string]any); ok {
+		pick["configuration.publishedPorts"] = cfg["publishedPorts"]
+		pick["configuration.networks"] = cfg["networks"]
+	}
+	pick["networks"] = docs[0]["networks"]
+	pick["status"] = docs[0]["status"]
+	b, _ := json.MarshalIndent(pick, "", "  ")
+	return fmt.Sprintf("container inspect %s, published ports and networks:\n%s", name, b)
+}
+
+// acPortRoute is the Mac kernel's route to the container. The third Mac run's direct dials
+// failed "no route to host" on the directly attached vmnet subnet. If a route through the
+// bridge exists and connect still fails that way, the refusal is a policy on this process
+// (macOS Local Network privacy returns exactly EHOSTUNREACH), not a missing route. The
+// runner's root-run nix daemon does reach the Linux builder on the same subnet.
+func acPortRoute(jailIP string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "route", "-n", "get", jailIP).CombinedOutput()
+	return fmt.Sprintf("route -n get %s (err=%v):\n%s", jailIP, err, strings.TrimSpace(string(out)))
+}
+
+// acPortListeners names the Mac process holding each published host port and the address it
+// bound, which the dials can only infer (the third run found the port accepting on the vmnet
+// gateway and refused on loopback).
+func acPortListeners(ports ...int) string {
+	args := []string{"-nP", "-sTCP:LISTEN"}
+	for _, p := range ports {
+		args = append(args, "-iTCP:"+strconv.Itoa(p))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "lsof", args...).CombinedOutput()
+	return fmt.Sprintf("lsof %s (err=%v):\n%s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 }
 
 // acPortMacProbe dials one Mac-side target up to acPortMacTries times and says what happened.
