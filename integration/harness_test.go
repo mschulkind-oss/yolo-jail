@@ -173,48 +173,42 @@ func warmJail() {
 	if detectRuntime() == "" {
 		return // ensureJailImage already reported the absence
 	}
-	// NOT ON DARWIN, and this is a retreat rather than a tuning choice.
+	// ⚠ DARWIN IS WARMED AGAIN, AS OF 2026-09-25, AND THAT IS A MEASUREMENT IN FLIGHT RATHER
+	// THAN A VERDICT. From 2026-08-23 until then this function returned early on darwin.
 	//
-	// A warmup shells out to `yolo run`, which calls AutoLoadImage, and the run path never
-	// sets SkipBuild — it is a dormant seam by design ("a missing flake is fatal, not a
-	// degraded cached-image launch", run/imageload.go). So a launch that needs an image
-	// REALISES one, and on darwin it always needed one.
+	// The skip rested on two measurements taken against behavior that no longer exists: on
+	// the 2026-08-22 nightly the warmup burned 20m7s before being killed, and on 2026-08-23 —
+	// with the budget already bounded — exactly 12m0s, its darwin ceiling then. Both warmed
+	// NOTHING: the captured output was pages of `Fetching bash-5.3p9`, a full closure
+	// substitution, because a darwin host could not vouch for a Linux-built image and so every
+	// launch there REALISED one. Both halves of that are gone. OQ-IP1 made the image identity
+	// a content hash any host computes (docs/reference/image-staging-vs-baking.md#why-its-this-way),
+	// and the stock short-circuit returns before the build when the runtime already holds a
+	// matching stock image (internal/image/stockimage.go), which is what every nightly shard's
+	// `Load jail image` step preloads. The nightly went green on 2026-09-24 with the skip still
+	// in place, so tonight's is the first run that can say what a darwin warmup costs now.
 	//
-	// ⚠ THE REASON THAT USED TO BE TRUE IS NOW FALSE, and the skip is kept on evidence
-	// rather than on it. The old reason was that the image identity was a darwin derivation
-	// whose store path a Linux-runner-built image could never carry — which is why the skew
-	// check downgraded itself to a warning here. Both halves are gone: OQ-IP1 made the
-	// identity a content hash any host computes
-	// (docs/reference/image-staging-vs-baking.md#why-its-this-way), the downgrade
-	// is deleted, and the stock short-circuit now returns before the build when the runtime
-	// already holds a matching stock image (internal/image/stockimage.go). A darwin warmup
-	// may therefore be cheap now.
+	// HOW TO READ THAT RUN (docs/reference/agent-install-in-ci.md#suite-warmup): each shard
+	// prints either `[integration] warmed the jail in <d> on darwin` — the warmup earned its
+	// place if the first container test in that shard got cheaper by about <d> — or a
+	// DEGRADED `warmup jail failed after <d>` line. A failure AT warmupTimeout's bound with
+	// `Fetching …` output is the 2026-08-23 shape again, and the skip should come back with
+	// that run cited; a failure for any other reason is a separate defect to read.
 	//
-	// It is NOT re-enabled here, because nothing has measured that. The two measurements
-	// below are what this skip rests on, and they were taken against the old behavior; the
-	// honest state is "the premise changed, the measurement has not been redone". Redo it on
-	// a nightly that gets past the image chain, and delete this skip if the warmup earns its
-	// place — do not delete it on the strength of the paragraph above.
+	// ⚠ THE APPLE CONTAINER PARITY JOB WARMS TOO, DELIBERATELY, AND ITS LINE IS NOT THAT
+	// EVIDENCE. apple-container.yml's parity step sets no YOLO_RUNTIME, so detectRuntime
+	// answers "container" on that Mac and this function proceeds. The premise above does not
+	// hold there: tagStockImage returns early for "container", so there is no stock
+	// short-circuit and that backend builds on every launch. What its warmup buys is the
+	// ordinary one — the cold build and load land here instead of in the first parity test's
+	// budget. Its `warmed …`/DEGRADED line is read for that job alone, and never cited for or
+	// against bringing the nightly's skip back. If it measurably costs that job more than it
+	// moves, the remedy is a warmupSkipReason case for appleContainerDeclareEnv (flipping that
+	// row of TestWarmupSkipReason), not a GOOS skip.
 	//
-	// Measured, twice: on the 2026-08-22 nightly the warmup burned 20m7s before being killed,
-	// and on 2026-08-23 — with the budget already bounded — exactly 12m0s, its darwin ceiling.
-	// Both warmed NOTHING. Its captured output is pages of `Fetching bash-5.3p9`,
-	// `Fetching coreutils-9.11`: a full closure substitution, not the container start this is
-	// meant to pre-pay. Bounding the waste was right and did not make the warmup work.
-	//
-	// So the premise fails here. On linux CI the image matches the source tree, no build
-	// runs, and the warmup earns its place (1m56s, moving 116s of one-time cost out of the
-	// first test — docs/reference/agent-install-in-ci.md#oq-ci4). On darwin the first container
-	// test absorbs the image realisation instead, which is exactly what it did on the green
-	// 2026-08-23 nightly. Twelve minutes a night for nothing is worse than an honest
-	// attribution gap on one platform.
-	if goruntime.GOOS == "darwin" {
-		log.Printf("[integration] skipping the jail warmup on darwin: measured at 12m0s of " +
-			"waste on 2026-08-23, when a warmup here was a full nix build rather than a " +
-			"container start. The first container test absorbs the cost instead. NOTE: the " +
-			"reason that cost was unavoidable (a darwin host could not vouch for a " +
-			"Linux-built image) no longer holds — this skip is now awaiting a re-measurement, " +
-			"not a standing verdict.")
+	// ONE CARVE-OUT SURVIVES, and it is about a job, not a platform: warmupSkipReason.
+	if why := warmupSkipReason(os.Getenv); why != "" {
+		log.Printf("[integration] skipping the jail warmup: %s", why)
 		return
 	}
 	dir, err := os.MkdirTemp("", "yolo-warmup-")
@@ -272,9 +266,34 @@ func warmJail() {
 		return
 	}
 	// Printed unconditionally: this number is the whole point of the change, and the only
-	// way to tell from a CI log whether warmup is actually absorbing anything.
-	log.Printf("[integration] warmed the jail in %s — one-time container costs are paid "+
-		"here, outside any test's timing", elapsed)
+	// way to tell from a CI log whether warmup is actually absorbing anything. The GOOS is
+	// in the line because the darwin number is the one being measured (see the top of this
+	// function), and a shard log read out of context should not need its runner label.
+	log.Printf("[integration] warmed the jail in %s on %s — one-time container costs are "+
+		"paid here, outside any test's timing", elapsed, goruntime.GOOS)
+}
+
+// warmupSkipReason says why this run takes NO warmup, or "" when it takes one.
+//
+// THE ONE CARVE-OUT IS A JOB WHOSE SUBJECT IS IMAGE DELIVERY. A warmup is a real `yolo run`,
+// and a launch whose runtime lacks the image DELIVERS it — which is exactly what the Mac
+// archive-delivery jobs (macarchivedelivery_test.go, declared by macArchiveDeclareEnv) exist
+// to observe from a known-empty store. nightly-macos.yml's `archive-delivery-macos` job
+// deliberately preloads nothing, so a warmup there would be a full 3.45 GB first load cut off
+// at warmupTimeout: minutes of waste per step, and worse, a killed load can leave orphaned
+// layers behind that the OQ-LR2 "cold" first-load timing would then silently reuse.
+//
+// PURE over the environment it is handed, so both directions are testable from Linux
+// (TestWarmupSkipReason), and warmJail's call of it is pinned by reading the source
+// (TestWarmJailConsultsItsSkipRule) — the rule's own test passes whether or not anything
+// calls it.
+func warmupSkipReason(getenv func(string) string) string {
+	if v := strings.TrimSpace(getenv(macArchiveDeclareEnv)); v != "" {
+		return macArchiveDeclareEnv + "=" + v + " declares an image-delivery job, and a " +
+			"warmup launch would deliver the image itself — pre-paying the very first load " +
+			"those tests measure"
+	}
+	return ""
 }
 
 // moduleRoot returns the repository root — the parent of this file's directory

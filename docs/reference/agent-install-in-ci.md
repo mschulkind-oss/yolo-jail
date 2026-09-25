@@ -17,7 +17,8 @@ summary: "How the integration suite tests agent-CLI installation without letting
 **Status:** CURRENT as of 2026-09-23, verified against `7ad8358c`. MEASURED in CI on Linux: the
 Pack Installs workflow was green at `7ad8358c` (run 35820702398) and on its 2026-09-21 weekly
 schedule (run 35620029721). **Not measured on macOS:** the macOS nightly runs no vendor install,
-and its warmup is skipped ([Suite warmup](#suite-warmup)).
+and its warmup, skipped there until 2026-09-25, runs again and is being measured
+([Suite warmup](#suite-warmup)).
 
 Installing an agent CLI is a real yolo feature, and it has broken for real. It is also the one
 part of the integration suite whose result can be decided by someone else: a vendor's release,
@@ -296,11 +297,35 @@ are comparable.
 - `warmupTimeout` bounds it far below a test's budget. A warmup is worth waiting for only while it
   costs less than the misattribution it removes, and a failed one has to be cheap because nothing
   depends on it.
-- **It is skipped on darwin.** There, a warmup realised a full image rather than starting a
-  container, and it spent its whole bound warming nothing. The reason that made the realisation
-  unavoidable no longer holds, but nobody has re-measured, so the skip stands on the old
-  measurement. On macOS the first container test still absorbs the one-time cost: Mode B is
-  unfixed on that platform.
+- **It runs on darwin again, and that measurement is IN FLIGHT (2026-09-25).** Until then it was
+  skipped there. On the 2026-08-22 and 2026-08-23 nightlies a darwin warmup realised a full image
+  rather than starting a container, and it spent its whole bound warming nothing. Two changes
+  removed the reason for that. [OQ-IP1](image-staging-vs-baking.md#why-its-this-way) made the
+  image identity a content hash that any host computes, and the stock short-circuit returns
+  before the build when the runtime already holds a matching image, which every nightly shard's
+  `Load jail image` step preloads. Nobody has measured the result yet, so the next macOS nightly is
+  the measurement. **How to read it:** each shard's log carries one of two lines.
+  - `[integration] warmed the jail in <d> on darwin`: the warmup ran. It earned its place if the
+    first container test in that shard got cheaper by about `<d>`.
+  - `[integration] DEGRADED: warmup jail failed after <d> (…)`: the warmup failed. A failure at
+    `warmupTimeout`'s bound whose output is pages of `Fetching …` is the 2026-08-23 shape again,
+    and the skip should come back, citing that run. A failure for any other reason is a separate
+    defect.
+- **The Apple Container parity job warms too, deliberately, and its line is not that evidence.**
+  `apple-container.yml`'s parity step sets no `YOLO_RUNTIME`, so the harness picks `container` on
+  that Mac and warms it. The premise above does not hold there: yolo gives Apple Container images
+  no stock name, so that backend has no stock short-circuit and builds on every launch
+  (`tagStockImage` in `internal/image/stockimage.go`). Its warmup buys only the ordinary benefit:
+  the cold build and load land before the first parity test instead of inside that test's budget.
+  Read its `warmed the jail in <d> on darwin` or `DEGRADED` line for that job alone. Neither line is
+  a reason to bring the nightly's skip back. If the warmup costs that job more than it moves, the
+  remedy is a `warmupSkipReason` case for `YOLO_TEST_APPLE_CONTAINER`, with its row of
+  `TestWarmupSkipReason` flipped, and not a platform skip.
+- **The one skip left is a job, not a platform.** `warmupSkipReason` skips the warmup when
+  `YOLO_TEST_MAC_ARCHIVE_DELIVERY` declares an image-delivery job. Such a job exists to observe a
+  first load from a known-empty store, and a warmup launch would pay that load itself. The skip
+  prints `[integration] skipping the jail warmup: …`. `TestWarmupSkipReason` pins the rule, and
+  `TestWarmJailConsultsItsSkipRule` pins `warmJail`'s call of it.
 
 ### What runs on macOS
 
@@ -355,7 +380,7 @@ place the values themselves are stated.
 | Per-command jail deadline, default | 300s | `defaultJailTimeoutSeconds`, `integration/harness_test.go` |
 | Per-command deadline, override | `YOLO_TEST_JAIL_TIMEOUT` (integer seconds); Pack Installs and the macOS nightly set 1200 | `jailTimeout`; `.github/workflows/packs.yml`, `.github/workflows/nightly-macos.yml` |
 | Warmup bound | 5 minutes, or the per-command deadline if smaller | `warmupTimeout`, `integration/harness_test.go` |
-| Warmup platforms | every GOOS except `darwin` | `warmJail` |
+| Warmup skipped | only when `YOLO_TEST_MAC_ARCHIVE_DELIVERY` is set (an image-delivery job); every GOOS warms | `warmupSkipReason`, `integration/harness_test.go` |
 | npm mechanism specimen | `cowsay@1.6.0` | `pinnedNpmPackage`, `integration/installmechanism_test.go` |
 | Installer fixture URL | `file:///ctx/packs/local-installer-fixture/install.sh` | `TestInstallerProgramRunsThePacksOwnScript` |
 | Unversioned npm spec | `<pkg>@latest` | `npmInstallSpec`, `internal/entrypoint` |
