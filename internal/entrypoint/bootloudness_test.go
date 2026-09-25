@@ -133,6 +133,29 @@ func TestBoundedStepNoticesASuccessThatTookRealTime(t *testing.T) {
 	mustContain(t, "a slow but successful bounded step", stderr, "the-slow-step", "took")
 }
 
+// TestBoundedStepNoticesASubMillisecondSlowStep: the threshold is compared against the
+// unrounded time. Rounding to the printed millisecond first made a step that took less than
+// half a millisecond read as 0s, so on a fast runner the slow notice never fired (CI run
+// 36201802094). A fake clock makes the step take 100µs against a 50µs threshold.
+func TestBoundedStepNoticesASubMillisecondSlowStep(t *testing.T) {
+	prevNotice, prevNow := boundedStepSlowNotice, boundedStepNow
+	t.Cleanup(func() { boundedStepSlowNotice, boundedStepNow = prevNotice, prevNow })
+	boundedStepSlowNotice = 50 * time.Microsecond
+	base := time.Unix(1_000_000, 0)
+	calls := 0
+	boundedStepNow = func() time.Time {
+		calls++
+		if calls == 1 {
+			return base
+		}
+		return base.Add(100 * time.Microsecond)
+	}
+
+	e, stderr, _ := loudEnv(t)
+	runBoundedStep(e, "the-fast-slow-step", time.Minute, exec.Command("true"))
+	mustContain(t, "a sub-millisecond step past a sub-millisecond threshold", stderr, "the-fast-slow-step", "took")
+}
+
 // TestBoundedStepKeepsAQuickSuccessOffTheTerminal is the other half of the same ruling: the
 // positive record belongs in boot.log, so the log answers "did it happen?", and NOT on the
 // terminal, where a line per healthy step is the noise OQ-RO3's readable launch protects.

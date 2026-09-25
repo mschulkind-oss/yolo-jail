@@ -643,6 +643,10 @@ var errTimeout = errors.New("timeout")
 // not a const, so a test can reach the branch without sleeping for it.
 var boundedStepSlowNotice = 2 * time.Second
 
+// boundedStepNow is runBoundedStep's clock, a variable only so a test can time a step
+// below the millisecond the notice prints at, which no real command reliably is.
+var boundedStepNow = time.Now
+
 // runBoundedStep runs one bounded boot subprocess and REPORTS WHAT HAPPENED. It is
 // the answer to this package's densest silent-decision shape: a `_ =
 // runWithTimeoutSeconds(cmd, 30)` spends up to thirty seconds of the user's launch
@@ -660,9 +664,13 @@ var boundedStepSlowNotice = 2 * time.Second
 // Callers keep the best-effort POLARITY they had: nothing here refuses a boot. What
 // changes is that the degradation is visible.
 func runBoundedStep(e *Env, what string, limit time.Duration, cmd *exec.Cmd) {
-	start := time.Now()
+	start := boundedStepNow()
 	err := runWithTimeout(cmd, limit)
-	elapsed := time.Since(start).Round(time.Millisecond)
+	took := boundedStepNow().Sub(start)
+	// Compared unrounded, printed rounded: rounding first turned a sub-half-millisecond
+	// step into 0s, so on a fast machine the slow-notice branch could never fire (CI run
+	// 36201802094 failed TestBoundedStepNoticesASuccessThatTookRealTime that way).
+	elapsed := took.Round(time.Millisecond)
 	switch {
 	case errors.Is(err, errTimeout):
 		e.warn(fmt.Sprintf("Warning: %s timed out after %s and was killed; "+
@@ -670,7 +678,7 @@ func runBoundedStep(e *Env, what string, limit time.Duration, cmd *exec.Cmd) {
 	case err != nil:
 		e.warn(fmt.Sprintf("Warning: %s failed after %s: %v; "+
 			"the boot continues without it", what, elapsed, err))
-	case elapsed >= boundedStepSlowNotice:
+	case took >= boundedStepSlowNotice:
 		e.warn(fmt.Sprintf("Note: %s took %s (bound %s)", what, elapsed, limit))
 	default:
 		e.note(fmt.Sprintf("%s: ok in %s", what, elapsed))
