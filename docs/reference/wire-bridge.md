@@ -89,9 +89,10 @@ witness that makes an unpublishable endpoint fatal).
   witness); the *trust* is not, and the vocabulary says so.
 - **Not a gateway.** One upstream, chosen by the launch's own selection machinery. No routing
   tables, no failover, no budgets, no model remapping beyond what translation requires. A gateway
-  is a product; a bridge is a shim. That is the bridge as built: rulings of 2026-09-24 (unbuilt)
-  amend it with SigV4 signing, routing by model id and opt-in failover, and an all-traffic mode is
-  proposed, all in [`wire-bridge-gateway.md`](../design/wire-bridge-gateway.md).
+  is a product; a bridge is a shim. That was the bridge as first built. SigV4 signing for a
+  Bedrock upstream is now built ([Auth](#the-protocol-surface)); routing by model id, opt-in
+  failover and an all-traffic mode are ruled and unbuilt, all in
+  [`wire-bridge-gateway.md`](../design/wire-bridge-gateway.md).
 
 ## `kind: "service"` — the vocabulary it landed as
 
@@ -246,7 +247,24 @@ The bridge implements **what the agent sends**, not the whole Anthropic API.
 is the boundary and every process in it already reads the same environment file. (The agent's
 derive still emits an auth token beside the loopback URL; it rides the launch exactly as it does
 for any other provider, and the bridge discards it.) Outbound: a bearer header carrying the
-provider's key, read once at boot.
+provider's key, read once at boot, for every upstream but one kind. An upstream whose host is
+`bedrock-runtime.<region>.amazonaws.com` is **signed with SigV4** instead (`internal/sigv4`,
+built 2026-09-25), because the decision keys on the upstream host
+([OQ-WG1](../design/wire-bridge-gateway.md#OQ-WG1)). Its credential chain is the AWS SDK's order:
+a static `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` pair, then the `aws-auth` pointer
+`AWS_CONTAINER_CREDENTIALS_FULL_URI`, then `AWS_BEARER_TOKEN_BEDROCK` sent unsigned as a bearer.
+Exactly one is used per request, so a signature and a bearer never travel together.
+- The variables are read once at boot from the key channel below; the credential behind the
+  pointer is fetched lazily, single-flight, and cached until five minutes before its
+  `Expiration`.
+- No source set: the route idles unpublished. A source set but unusable per request: no source
+  resolves is a 401 naming all three; `aws-auth` unreachable is a 503 naming it and
+  `aws sso login`; `aws-auth`'s own refusal is a 401 carrying its message.
+- AWS refusing a signature or session token as expired gets one refresh and one retry. Any other
+  AWS error is relayed with AWS's own message.
+- A Bedrock address the pattern does not name, such as a FIPS or VPC endpoint, is sent unsigned
+  and fails with AWS's error, until [OQ-BR2](../design/providers-and-profiles-redesign.md#OQ-BR2)'s
+  marker lets the signer key on the provider instead.
 
 > [!WARNING]
 > **`count_tokens` refuses rather than answering.** No estimate, no zero-stub. A measured
@@ -587,9 +605,11 @@ listeners. These are the facts that survive:
 
 ## Open questions
 
-### <a id="oq-wb1"></a>💬 [`OQ-WB1`](#oq-wb1) — what does the Codex route do with `response.failed`?
+### <a id="oq-wb1"></a>✅ [`OQ-WB1`](#oq-wb1) — what does the Codex route do with `response.failed`? — **RULED (b), BUILT 2026-09-25**
 
-Opened 2026-09-25. *WB* stands for "wire bridge"; the prefix is new with this question. The Responses
+Opened 2026-09-25. *WB* stands for "wire bridge"; the prefix is new with this question. **What
+follows is the defect as it stood before the ruling was built**; the answer below says what the bridge
+does now. The Responses
 stream translator (`ResponsesStreamTranslator.Chunk`, `internal/wirebridge/responses.go`) handles
 `response.completed` and `response.incomplete` as terminal events and passes a fixed list of lifecycle
 markers. Every other event type reaches its default arm, which returns
@@ -611,13 +631,24 @@ the struct the translator decodes has no field for the failed response's error.
   `rate_limit_error`, for example). Cost: the type changes how the agent retries, so the mapping needs
   the set of codes the ChatGPT backend actually sends, which nothing here has measured.
 
-<!-- vantage: oq id=OQ-WB1 leaning="(b) handle response.failed and a top-level error event as a terminal failure that forwards the upstream's message as api_error. It fixes the misleading 'unsupported' message and loses nothing; mapping codes to anthropic error types waits until the codes are measured." -->
 
 _Leaning:_ **(b).** It replaces a misleading message with the upstream's own, and it changes no retry
 behavior, because the event type stays `api_error`. Mapping codes waits until the codes are measured.
 
 **Answer:**
-> _(empty — fill in when decided)_
+> **(b)**, ruled in review 2026-09-25: handle `response.failed` and a top-level `error` event as a
+> terminal failure that forwards the upstream's message as `api_error`. It fixes the misleading
+> "unsupported" message and loses nothing; mapping codes to anthropic error types waits until the
+> codes are measured.
+
+**Built 2026-09-25.** `ResponsesStreamTranslator.Chunk` (`internal/wirebridge/responses.go`) treats
+`response.failed` and a top-level `error` event, flat or with a nested `error` object, as terminal: it
+closes any open block and returns an `*UpstreamFailedError` with the upstream's code and message.
+`relayStream` (`internal/wirebridged/handler.go`) writes the close, logs the event and the code, never the
+message, and ends the stream with an `api_error` event carrying `UpstreamFailedError.ClientMessage`. That
+is the upstream's message verbatim, or a sentence naming the code when the upstream sent none. Pinned by
+`TestResponsesStreamFailedIsATerminalUpstreamError`, `TestResponsesStreamTopLevelErrorIsATerminalUpstreamError`,
+`TestResponsesStreamFailedWithoutAMessageStillSaysWhat` and `TestResponsesStreamFailedForwardsTheUpstreamsMessage`.
 
 ## Why it's this way
 
@@ -628,7 +659,7 @@ Rulings a future change would otherwise undo, with their original IDs.
 | <a id="wb-d1"></a>[**WB-D1**](#wb-d1) — one protocol pair AT A TIME | A second pair is a second cost case, and bundling them makes the first one unreviewable. ⚠ **This cell read “exactly one protocol pair” until 2026-09-18, and the doc has contradicted it since the Codex route landed** — its own second paragraph says *“Two routes exist”*, and [`packs/wire-bridge/pack.json`](../../packs/wire-bridge/pack.json) declares two `adapter` contributions. Re-read as a rule about how a pair is ADDED rather than how many may exist, which is the reason the cell gives and which the second pair honoured by arriving on its own review. If that reading is wrong the ruling needs restating rather than re-wording — the contradiction is recorded here rather than resolved silently. |
 | <a id="wb-d2"></a>[**WB-D2**](#wb-d2) — the URL reaches the agent as the provider's `endpoints.anthropic`, one writer owns it, and the agent's derive is untouched | The ruling holds; **the writer moved on 2026-09-18.** It used to be each consuming provider's manifest, which made the adapter's port a fact stated by every one of its N consumers; it is the adapter's own `address` now, composed into the provider entry by core ([`protocol-resolution.md`](protocol-resolution.md)). What the ruling protects is untouched: one writer for the address, and a derive that could see the bridge would make composition responsible for a fact selection already decides. |
 | <a id="wb-d3"></a>[**WB-D3**](#wb-d3) — the dependency is real manifest vocabulary, auto-included at selection and printed | The rejected shape expressed dependency as an *error message the user must act on* rather than a declaration the launcher acts on. A mechanism the manifest cannot state is the wrong mechanism. |
-| <a id="wb-d4"></a>[**WB-D4**](#wb-d4) — inbound auth: none; outbound: the `0600` env file read once at boot | The jail is the boundary, and a second inbound scheme would protect the jail from itself. |
+| <a id="wb-d4"></a>[**WB-D4**](#wb-d4) — inbound auth: none; outbound: the `0600` env file read once at boot — a bearer key, or for a Bedrock upstream the SigV4 credential chain those variables name (amended 2026-09-25, [Part 1](../design/wire-bridge-gateway.md#2-part-1--the-bridge-signs-its-own-upstream-requests-ruled)) | The jail is the boundary, and a second inbound scheme would protect the jail from itself. The file stays the one place the bridge learns a credential; the signer only resolves, per request, what those variables point at, so an SSO session refreshes inside a running jail. |
 | <a id="wb-d5"></a>[**WB-D5**](#wb-d5) — upstream reasoning is dropped, and an unknown block type fails **closed** with a named 400 | A silently-mistranslated request is the failure mode that cannot be debugged; naming the block keeps drift visible at first request. |
 | <a id="wb-d6"></a>[**WB-D6**](#wb-d6) — strict mode is never sent upstream | Agent tool schemas contain what strict mode rejects. |
 | <a id="wb-d7"></a>[**WB-D7**](#wb-d7) — build in-repo, stdlib only | The hermetic build stays hermetic, and the surveyed off-the-shelf options were a framework where a shim was needed, or dormant, or solving a different problem. |

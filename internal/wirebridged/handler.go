@@ -40,6 +40,13 @@ import (
 // wall clock it is willing to wait out.
 const upstreamTimeout = 10 * time.Minute
 
+// upstreamTransport is the RoundTripper every upstream request goes through; nil is
+// net/http's default. It is a variable for one reason — a test must drive a route to a
+// real AWS hostname (bedrock-runtime.<region>.amazonaws.com, the only host the signer
+// signs for) through the production serve path without the request leaving the
+// process — and it is never rebound in production.
+var upstreamTransport http.RoundTripper
+
 // NewHandler returns the bridge's http.Handler against one upstream
 // chat-completions base URL with one bearer key. Exported so a test can
 // construct the whole serving surface without touching the environment — the
@@ -134,7 +141,7 @@ func newHandler(upstreamBaseURL, path, apiKey string,
 	translateResponse func([]byte) ([]byte, error), newStream func() streamTranslator) http.Handler {
 	return &bridgeHandler{
 		upstreamURL: strings.TrimSuffix(upstreamBaseURL, "/") + path,
-		apiKey:      apiKey, client: &http.Client{Timeout: upstreamTimeout},
+		apiKey:      apiKey, client: &http.Client{Timeout: upstreamTimeout, Transport: upstreamTransport},
 		translateRequest: translateRequest, translateResponse: translateResponse, newStream: newStream,
 	}
 }
@@ -151,6 +158,10 @@ type bridgeHandler struct {
 	newStream         func() streamTranslator
 	accessToken       func() (token, accountID string, err error)
 	retryUnauthorized bool
+	// signer is set for a Bedrock upstream (signing.go): every request is signed
+	// with SigV4, or carries AWS_BEARER_TOKEN_BEDROCK when that is the only source,
+	// and apiKey is unused.
+	signer *bedrockSigner
 }
 
 func (h *bridgeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -212,9 +223,21 @@ func (h *bridgeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.doUpstream(r, translated)
 	if err != nil {
-		writeAnthropicError(rec, http.StatusBadGateway, "api_error",
-			"wire-bridge: upstream unavailable: "+err.Error())
+		writeUpstreamFailure(rec, err)
 		return
+	}
+	if h.signer != nil && expiredRejection(resp) {
+		// AWS refused the signature or the session token as EXPIRED, so the request
+		// did not run: refresh once and retry once (wire-bridge-gateway.md §2.1). A
+		// second expiry is relayed, like any other AWS error.
+		logf("upstream rejected the credential as expired; refreshing it and retrying once (%s)", h.upstreamURL)
+		_ = resp.Body.Close()
+		h.signer.chain.Invalidate()
+		resp, err = h.doUpstream(r, translated)
+		if err != nil {
+			writeUpstreamFailure(rec, err)
+			return
+		}
 	}
 	if resp.StatusCode == http.StatusUnauthorized && h.retryUnauthorized {
 		// A RETRY IS A DECISION, so it is reported: without this line a route
@@ -231,7 +254,7 @@ func (h *bridgeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = resp.Body.Close()
 		resp, err = h.doUpstream(r, translated)
 		if err != nil {
-			writeAnthropicError(rec, http.StatusBadGateway, "api_error", "wire-bridge: upstream unavailable: "+err.Error())
+			writeUpstreamFailure(rec, err)
 			return
 		}
 		if resp.StatusCode == http.StatusUnauthorized {
@@ -295,7 +318,7 @@ func (h *bridgeHandler) doUpstream(in *http.Request, translated []byte) (*http.R
 		return nil, fmt.Errorf("build upstream request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if key != "" {
+	if h.signer == nil && key != "" {
 		req.Header.Set("Authorization", "Bearer "+key)
 	}
 	if accountID != "" {
@@ -315,7 +338,24 @@ func (h *bridgeHandler) doUpstream(in *http.Request, translated []byte) (*http.R
 	if probe.Stream {
 		req.Header.Set("Accept", "text/event-stream")
 	}
+	// Signed LAST, after every header is set, because SigV4 signs the headers present.
+	if h.signer != nil {
+		if err := h.signer.authorize(req, translated); err != nil {
+			return nil, err
+		}
+	}
 	return h.client.Do(req)
+}
+
+// writeUpstreamFailure renders a doUpstream error: a credential failure at the status
+// and type it chose (signing.go), anything else as the 502 family.
+func writeUpstreamFailure(rec *statusRecorder, err error) {
+	var ce *credentialError
+	if errors.As(err, &ce) {
+		writeAnthropicError(rec, ce.status, ce.typ, ce.message)
+		return
+	}
+	writeAnthropicError(rec, http.StatusBadGateway, "api_error", "wire-bridge: upstream unavailable: "+err.Error())
 }
 
 // relayUpstreamError maps an upstream failure onto the anthropic error shape
@@ -345,13 +385,22 @@ func (h *bridgeHandler) relayUpstreamError(rec *statusRecorder, resp *http.Respo
 }
 
 func upstreamErrorMessage(body []byte, status int) string {
+	// Two shapes: OpenAI's {"error":{"message":…}}, and AWS's top-level {"message":…}
+	// (or "Message"), which is what bedrock-runtime answers a refused request with —
+	// an access-denied or signature error the human has to read.
 	var shape struct {
 		Error struct {
 			Message string `json:"message"`
 		} `json:"error"`
+		Message    string `json:"message"`
+		AWSMessage string `json:"Message"`
 	}
-	if json.Unmarshal(body, &shape) == nil && shape.Error.Message != "" {
-		return shape.Error.Message
+	if json.Unmarshal(body, &shape) == nil {
+		for _, m := range []string{shape.Error.Message, shape.Message, shape.AWSMessage} {
+			if m != "" {
+				return m
+			}
+		}
 	}
 	return fmt.Sprintf("wire-bridge: upstream returned %d", status)
 }

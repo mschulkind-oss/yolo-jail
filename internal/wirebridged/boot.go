@@ -54,6 +54,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/sigv4"
 	"github.com/mschulkind-oss/yolo-jail/internal/wirebridge"
 )
 
@@ -224,6 +225,26 @@ func serve(ctx context.Context, route route, e *entrypoint.Env) int {
 		}
 		handler = NewCodexResponsesHandler(route.UpstreamBaseURL, endpoint)
 		keySource = "OpenAI credential service access-token views"
+	} else if route.SignRegion != "" {
+		// A Bedrock upstream: the credential chain is snapshotted from the key channel
+		// now and resolved lazily per request (signing.go). A jail with no source at
+		// all idles, as a missing key does: the bridge never serves unauthenticated.
+		env := sigv4.EnvFrom(func(name string) string {
+			v, _ := resolveKey(name, e.Home)
+			return v
+		})
+		if !hasAWSCredentialSource(env) {
+			logf("idling: provider %q's upstream is Bedrock (%s), and none of its credential sources "+
+				"is set — a static AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY pair, the aws-auth pointer "+
+				"AWS_CONTAINER_CREDENTIALS_FULL_URI, or AWS_BEARER_TOKEN_BEDROCK — in %s or this "+
+				"process's environment", route.ProviderName, route.UpstreamBaseURL, userEnvFilePath(e.Home))
+			signalNotReady(ServiceName, "Bedrock upstream has no credential source")
+			return idleUntilStopped(ctx)
+		}
+		handler = newSignedChatHandler(route.UpstreamBaseURL,
+			wirebridge.ChatOptions{OmitStreamUsage: route.OmitStreamUsage},
+			&bedrockSigner{region: route.SignRegion, chain: &sigv4.Chain{Env: env}})
+		keySource = "SigV4 for bedrock in " + route.SignRegion + ", from " + env.String()
 	} else {
 		key, keySource = resolveKey(route.KeyEnvName, e.Home)
 		if key == "" && route.KeyEnvName != "" {
@@ -442,6 +463,11 @@ type route struct {
 	// by the same rule: only the JSON spelling "false" turns it off, and an
 	// absent or unrecognized value keeps the default, which asks for usage.
 	OmitStreamUsage bool
+	// SignRegion is set when the upstream's host is bedrock-runtime.<region>.amazonaws.com
+	// (sigv4.BedrockRuntimeRegion): the route signs every request with SigV4 for that
+	// region instead of carrying a bearer key (signing.go; OQ-WG1 keys the decision on
+	// the host). Empty for every other upstream.
+	SignRegion string
 }
 
 // streamUsageOption is the provider option that states whether an upstream
@@ -450,7 +476,7 @@ type route struct {
 const streamUsageOption = "supports_usage_in_streaming"
 
 func credentialDescription(route route, source string) string {
-	if route.CodexAccessToken {
+	if route.CodexAccessToken || route.SignRegion != "" {
 		return source
 	}
 	if route.KeyEnvName == "" {
@@ -682,6 +708,7 @@ func routeFor(providers *jsonx.OrderedMap, useProfiles map[string]string,
 			UpstreamBaseURL: openaiURL,
 			KeyEnvName:      entryString(entry, "", "api_key_env_name"),
 			OmitStreamUsage: resolved[profileName].Options[streamUsageOption] == "false",
+			SignRegion:      bedrockSignRegion(openaiURL),
 		}, ""
 	}
 	return route{}, skip
