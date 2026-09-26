@@ -93,8 +93,12 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v7
 
+      # `always`, not uv's default `automatic`: on an OIDC failure (this file or the
+      # `pypi` environment renamed) `automatic` falls back to an unauthenticated upload
+      # and reports "Missing credentials", which points at a token this repository never
+      # had. tools/build-wheels/publishworkflow_test.go pins the flag.
       - name: Publish to PyPI
-        run: uv publish dist/* --check-url https://pypi.org/simple/
+        run: uv publish dist/* --check-url https://pypi.org/simple/ --trusted-publishing always
 
   # Build both OCI image variants on Linux and push them to the Cachix cache
   # so macOS users download the prebuilt image instead of needing a Linux
