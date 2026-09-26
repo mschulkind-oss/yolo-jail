@@ -211,6 +211,45 @@ func TestARelocationRewriteLeavesTheStoreEntryUntouched(t *testing.T) {
 	}
 }
 
+// THE macos-user DESTINATION IS A HOME OF LINKS. Its account home reaches the installed-program
+// surfaces through symlinks into the workspace sidecar (docs/reference/macos-user-home-tiers.md:
+// `.local` -> <ws>/.yolo/home/local), so a manifest's `.local` directory lands on a link. That
+// link is an existing directory of the home, and materialize leaves an existing directory alone:
+// it must not chmod the sidecar through the link — which on a Mac is a directory the sandbox user
+// may not own — and it must not replace the link with a real directory.
+func TestRelocatingIntoALinkedHomeLeavesTheLinksAlone(t *testing.T) {
+	_, _, entry := recordRelocatable(t, rewriteInstaller, nil)
+	to := t.TempDir()
+	sidecar := filepath.Join(t.TempDir(), "local")
+	must(t, os.Mkdir(sidecar, 0o700))
+	must(t, os.Chmod(sidecar, 0o700))
+	must(t, os.Symlink(sidecar, filepath.Join(to, ".local")))
+
+	if _, err := Materialize(MaterializeOptions{Entry: entry, Home: to}); err != nil {
+		t.Fatalf("materialize into a linked home: %v", err)
+	}
+	fi, err := os.Lstat(filepath.Join(to, ".local"))
+	must(t, err)
+	if fi.Mode()&fs.ModeSymlink == 0 {
+		t.Fatalf("the home's .local link was replaced by a %v", fi.Mode())
+	}
+	si, err := os.Stat(sidecar)
+	must(t, err)
+	if si.Mode().Perm() != 0o700 {
+		t.Errorf("materialize chmodded the sidecar THROUGH the link to %v", si.Mode().Perm())
+	}
+	// The files went where the link points, and the rewritten link names the home's path,
+	// not the sidecar's — the same logical path a launch resolves.
+	if _, err := os.Stat(filepath.Join(sidecar, "share", "vendor", "1.0.0", "vendor")); err != nil {
+		t.Errorf("the vendor did not land in the sidecar: %v", err)
+	}
+	link, err := os.Readlink(filepath.Join(sidecar, "bin", "vendor"))
+	must(t, err)
+	if want := to + "/.local/share/vendor/1.0.0/vendor"; link != want {
+		t.Errorf("the vendor link -> %q, want %q", link, want)
+	}
+}
+
 // EVERY WAY A REFERENCE CAN FAIL TO BE REWRITTEN IS A REFUSAL BEFORE THE HOME IS TOUCHED. Each
 // case edits a real recorded manifest into a shape the contract cannot honor, and each must be
 // ErrNotRelocatable, name the obstacle, and leave the destination empty.

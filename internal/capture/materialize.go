@@ -150,11 +150,12 @@ func (r *MaterializeResult) Mechanism() string {
 // manifest is sorted by path, and a parent's path is a prefix of its children's.)
 //
 // An existing destination FILE or SYMLINK is replaced; an existing DIRECTORY is left exactly
-// as it is, mode included. That asymmetry is deliberate: the directories a capture names are
-// shared with the rest of the home (`.local`, `.local/bin`, `.npm-global/lib`) and stomping
-// their modes would be this function editing a home it was only asked to add to, while the
-// files and links are the captured program's own and a stale one is what a re-materialize is
-// for.
+// as it is, mode included — and where the manifest names a directory, a symlink that resolves
+// to one IS an existing directory (dirExists). That asymmetry is deliberate: the directories a
+// capture names are shared with the rest of the home (`.local`, `.local/bin`,
+// `.npm-global/lib`) and stomping their modes would be this function editing a home it was
+// only asked to add to, while the files and links are the captured program's own and a stale
+// one is what a re-materialize is for.
 func Materialize(opts MaterializeOptions) (*MaterializeResult, error) {
 	if opts.Entry == nil {
 		return nil, errors.New("capture materialize: no entry")
@@ -441,8 +442,18 @@ func replaceable(dst string) error {
 
 // dirExists reports whether dst is already a directory, so a materialize can leave an
 // existing home directory's mode alone.
+//
+// IT FOLLOWS A SYMLINK, and that is the macos-user home. That backend's account home reaches
+// the installed-program surfaces through links into the workspace sidecar
+// (docs/reference/macos-user-home-tiers.md, `.local` -> <ws>/.yolo/home/local), so the manifest's
+// `.local` directory lands on a link. The link resolves to a directory the home already has.
+// Treating it as absent would chmod the sidecar through the link: an edit to a directory the
+// materialize was only asked to add to, and, where the sandbox user does not own that
+// directory, an EPERM that fails the whole materialize. (Who owns it is NOT MEASURED: the
+// bootstrap creates it as the sandbox user when it is missing, but a workspace another backend
+// or the host already populated has the workspace owner's.)
 func dirExists(dst string) bool {
-	fi, err := os.Lstat(dst)
+	fi, err := os.Stat(dst)
 	return err == nil && fi.IsDir()
 }
 
