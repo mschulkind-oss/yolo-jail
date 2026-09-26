@@ -257,6 +257,42 @@ func TestSetStatusReportsAnEmptySetRatherThanInventingOne(t *testing.T) {
 	}
 }
 
+// TestSetStatusHonorsNoColor pins the bare `yolo host-daemon status` report's own
+// printer: color requested and a terminal stood in, it colors with NO_COLOR unset (the
+// control) and stays plain with NO_COLOR=1 (https://no-color.org). The empty set is the
+// arm PrintSetStatus prints itself; a member is printed through PrintStatus, which
+// TestColorMarkupHonorsNoColor pins. Both are driven so neither can bypass the gate.
+func TestSetStatusHonorsNoColor(t *testing.T) {
+	healthy := &lifeState{alive: map[int]bool{7: true}, reachOK: true}
+	memberDeps, _ := newDeps(t, healthy)
+	_ = os.WriteFile(memberDeps.Life.PIDFilePath, []byte("7\n"), 0o644)
+	_ = os.WriteFile(memberDeps.Life.SocketPath, nil, 0o644)
+	for _, set := range []struct {
+		name    string
+		members []Singleton
+	}{{"empty set", nil}, {"one member", []Singleton{{Name: "yjtest-up", Declared: true}}}} {
+		t.Run(set.name, func(t *testing.T) {
+			for _, tc := range []struct {
+				noColor  string
+				wantANSI bool
+			}{{"", true}, {"1", false}} {
+				t.Setenv("NO_COLOR", tc.noColor)
+				var buf bytes.Buffer
+				PrintSetStatus(SetDeps{
+					Out: &buf, Err: &buf,
+					Color: true, IsTTYStdout: func() bool { return true },
+					Set: set.members,
+					For: func(s Singleton) CLIDeps { d := memberDeps; d.Singleton = s; return d },
+				})
+				if got := strings.Contains(buf.String(), "\x1b["); got != tc.wantANSI {
+					t.Errorf("NO_COLOR=%q: the set report carries ANSI = %v, want %v:\n%q",
+						tc.noColor, got, tc.wantANSI, buf.String())
+				}
+			}
+		})
+	}
+}
+
 // TestARunningDaemonIsManageableWithoutADeclaration is mode 5 of
 // host-daemon-ownership.md §6 made actionable: a singleton survives the pack being
 // deselected and the loophole being disabled, so a set derived ONLY from this

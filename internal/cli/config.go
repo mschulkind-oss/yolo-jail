@@ -201,27 +201,36 @@ func configRunW(args []string, out, errw io.Writer) int {
 		return 1
 	}
 	fmt.Fprintln(errw, t.disclosure())
-	switch verb {
-	case "render":
-		return configRender(t, rest, out, errw, colorForWriter(out))
-	case "ls":
-		return configLs(t, rest, out, errw, colorForWriter(out))
-	case "diff":
-		return configDiff(t, rest, out, errw, colorForWriter(out))
-	case "reset":
-		return configReset(t, rest, out, errw, colorForWriter(out))
-	case "capture":
-		return configCapture(t, rest, out, errw, colorForWriter(out))
-	case "promote":
-		return configPromote(t, rest, out, errw, colorForWriter(out))
-	case "drift":
-		return configDrift(rest, out, errw, colorForWriter(out))
-	case "dump":
+	if verb == "dump" {
 		return configDump(rest, out, errw)
-	default:
+	}
+	run, ok := configColorVerbs[verb]
+	if !ok {
 		fmt.Fprintf(errw, "yolo config: unknown subcommand %q\n\n%s\n", verb, configUsage)
 		return 2
 	}
+	return run(t, rest, out, errw, colorForWriter(out))
+}
+
+// configColorVerbs is every `yolo config` verb that prints in color, each handed the
+// target and THE color decision configRunW makes once, through colorForWriter. `dump`
+// is not here because it prints JSON, which never colors.
+//
+// ONE CALL DECIDES COLOR FOR ALL SEVEN. Each verb used to make its own call at its own
+// case, so six of the seven could stop consulting the gate with no test failing.
+// TestEveryConfigVerbTakesTheOneColorDecision swaps each entry for a recorder and
+// fails when a verb is dispatched outside this table.
+var configColorVerbs = map[string]func(t configTarget, args []string, out, errw io.Writer, color bool) int{
+	"render":  configRender,
+	"ls":      configLs,
+	"diff":    configDiff,
+	"reset":   configReset,
+	"capture": configCapture,
+	"promote": configPromote,
+	// drift compares this workspace against its own boot baseline, so it takes no target.
+	"drift": func(_ configTarget, args []string, out, errw io.Writer, color bool) int {
+		return configDrift(args, out, errw, color)
+	},
 }
 
 // notchlessVerbs are the `yolo config` verbs no notch selects, with the reason each one gives
