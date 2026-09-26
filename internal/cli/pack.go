@@ -19,7 +19,6 @@ package cli
 // worse than no linter.
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -36,6 +35,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packstage"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
 // packUsage is what `yolo pack --help` prints, and it is also the destination the
@@ -1567,17 +1567,10 @@ func packInstall(out, errw io.Writer, color bool) int {
 // test so `yes | yolo pack install` could not answer it — is gone (OQ-TP9). If a future
 // prompt needs a human rather than an answer, it must bring its own terminal check back:
 // this function cannot tell a person from a pipe and does not try.
+//
+// The reading is tty.Confirm's, default no, so every prompt yolo prints shares one grammar.
 func promptYesNo(out io.Writer, stdin io.Reader, prompt string) bool {
-	if stdin == nil {
-		return false
-	}
-	_, _ = out.Write([]byte(prompt))
-	scanner := bufio.NewScanner(stdin)
-	if !scanner.Scan() {
-		return false
-	}
-	answer := strings.ToLower(strings.TrimSpace(scanner.Text()))
-	return answer == "y" || answer == "yes"
+	return tty.Confirm(out, stdin, prompt, false)
 }
 
 // packStatus reports configured packs against the lockfile, including DRIFT — a
