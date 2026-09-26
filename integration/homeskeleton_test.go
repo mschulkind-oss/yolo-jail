@@ -115,22 +115,15 @@ echo "SEARCH done"
 		if !strings.Contains(","+opts+",", ",ro,") {
 			t.Errorf("/home/agent is mounted %q, want read-only", opts)
 		}
-		// The host side: the skeleton the jail shows is one this launch built, under the
-		// root the reaper removes with the jail's AGENTS_DIR entry.
-		skelRoot := filepath.Join(os.Getenv("HOME"), ".local", "share", "yolo-jail", "agents", cname, "home")
-		entries, err := os.ReadDir(skelRoot)
-		if err != nil || len(entries) == 0 {
-			t.Errorf("no skeleton on the host under %s: %v", skelRoot, err)
-		} else {
-			found := false
-			for _, e := range entries {
-				if strings.HasSuffix(root, "/"+e.Name()) {
-					found = true
-				}
-			}
-			if !found {
-				t.Errorf("the jail's home root %q is none of the host's skeletons under %s", root, skelRoot)
-			}
+		// The host side, after the jail has exited: the skeleton it was bound from is GONE.
+		// A launch removes the skeleton it built once the runtime answers that its container
+		// no longer exists (OQ-BH16, docs/design/base-home-legacy-state.md). mountinfo names
+		// the bind SOURCE, the skeleton's host path, so it can be checked directly.
+		if _, err := os.Stat(root); err == nil {
+			t.Errorf("the skeleton %s this jail was bound from still exists after its exit — "+
+				"a launch removes its own skeleton once its container is known gone (OQ-BH16)", root)
+		} else if !os.IsNotExist(err) {
+			t.Errorf("stat %s: %v", root, err)
 		}
 
 		touched := false
