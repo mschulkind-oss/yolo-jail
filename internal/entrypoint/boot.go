@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
+	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 	"io"
 	"os"
 	"os/exec"
@@ -461,6 +462,21 @@ func BootPath(e *Env) string {
 	}, ":")
 }
 
+// executingLine is the "⚡ Executing: <command>" hand-over execBash prints for an
+// exec-into command — the attach path; a fresh launch's generated script prints its own
+// (run.executingBanner). Cyan unless color is off.
+//
+// The caller passes the NO_COLOR half of the one gate (tty.NoColor) over the JAIL's
+// environment, and nothing else: the line was never terminal-gated, and the jail's
+// environment is where the launcher's NO_COLOR arrives (run.Options.noColorEnvArgs, which
+// an attach's exec carries too).
+func executingLine(command string, color bool) string {
+	if !color {
+		return "⚡ Executing: " + command + "\n"
+	}
+	return "\033[1;36m⚡ Executing: " + command + "\033[0m\n"
+}
+
 // execBash set the final PATH, echo the command for the
 // exec-into-existing path, source yolo-user-env.sh + activate mise, and exec
 // bash --rcfile ~/.bashrc -c <activated command>. Never returns on success.
@@ -471,8 +487,7 @@ func execBash(e *Env, command string) error {
 
 	isNewContainerCmd := strings.Contains(command, "yolo-bootstrap")
 	if command != "bash" && !isNewContainerCmd {
-		// \033[1;36m⚡ Executing: <command>\033[0m\n
-		fmt.Fprintf(os.Stderr, "\033[1;36m⚡ Executing: %s\033[0m\n", command)
+		fmt.Fprint(os.Stderr, executingLine(command, !tty.NoColor(os.Getenv)))
 	}
 
 	userEnvFile := filepath.Join(e.Home, ".config", "yolo-user-env.sh")

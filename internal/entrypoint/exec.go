@@ -8,6 +8,9 @@ import "syscall"
 // available on every Unix target (linux + darwin), so no build-tag split is
 // needed: the entrypoint only ever RUNS in-jail (Linux), but this compiles for
 // the darwin cross-build check too.
-func sysExec(argv0 string, argv []string, env []string) error {
+//
+// A var so a test can drive execBash to its exec without the exec replacing the
+// test binary; production never reassigns it.
+var sysExec = func(argv0 string, argv []string, env []string) error {
 	return syscall.Exec(argv0, argv, env)
 }

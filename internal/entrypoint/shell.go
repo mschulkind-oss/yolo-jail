@@ -193,7 +193,9 @@ func GenerateBashrc(e *Env) error {
 // The bashrc template is split at the two interpolation points (host_dir and
 // mise_shims) and the conditional agent-aliases block.
 
-const bashrcPart1 = `# YOLO Jail Prompt
+const bashrcPart1 = `# YOLO Jail Prompt — colored unless NO_COLOR is set to a non-empty value
+# (https://no-color.org). The launcher carries the host's NO_COLOR into the jail.
+if [ -z "${NO_COLOR:-}" ]; then
 YELLOW='\[\033[1;33m\]'
 RED='\[\033[1;31m\]'
 GREEN='\[\033[1;32m\]'
@@ -201,6 +203,9 @@ BLUE='\[\033[1;34m\]'
 MAGENTA='\[\033[1;35m\]'
 CYAN='\[\033[1;36m\]'
 NC='\[\033[0m\]'
+else
+YELLOW='' RED='' GREEN='' BLUE='' MAGENTA='' CYAN='' NC=''
+fi
 
 JAIL_BANNER="${RED}🔒 YOLO-JAIL${NC}"
 HOST_INFO="${CYAN}(host: `
@@ -285,8 +290,9 @@ fi
 # under the workspace, on its own, with no on-disk mark — see boot.go's "Workspace mise
 # trust — REMOVED" note for why the mark was worse than redundant.
 
-# Aliases
-alias ls='ls --color=auto'
+# Aliases. ls colors only on request — the --color alias is the request, so it is not
+# made under NO_COLOR (GNU ls does not read the variable itself).
+[ -z "${NO_COLOR:-}" ] && alias ls='ls --color=auto'
 alias ll='ls -alF'
 `
 
