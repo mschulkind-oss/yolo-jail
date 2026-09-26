@@ -8,7 +8,7 @@ loopback, crosses no boundary, reads no host state, and holds no grant, which is
 exactly why it is declared as a service (a daemon in a namespace, an endpoint
 file, a restart policy, a reachability witness) rather than wearing loophole
 vocabulary it would misuse — see
-[wire-bridge.md](../../docs/reference/wire-bridge.md) §2, where the kind ruling and
+[wire-bridge.md](../../docs/reference/wire-bridge.md), where the kind ruling and
 the loophole/service decomposition are written down.
 
 ## The user story: nothing to configure
@@ -36,14 +36,16 @@ the conversion between them
 ([protocol-resolution.md](../../docs/reference/protocol-resolution.md#the-four-outcomes)).
 The daemon staged here answers at that address: it speaks the Anthropic Messages
 wire to the agent, translates to Cerebras's chat-completions upstream, and reads
-the credential once at boot from `yolo-user-env.sh`. Nothing about the setup
+the credential once at boot from the env file of the agent it serves (the credential
+gate puts a provider's key there and nowhere else; `yolo-user-env.sh` after it, for a
+key no provider claims). Nothing about the setup
 grows a second step, and no provider has to name a yolo-internal port.
 
 Selected but with no active profile routed at a bridged provider (claude riding
 zai, say), the daemon boots, reads the same selection table every agent honors,
 finds nothing to serve, and idles healthy — one stderr line, no listener, no
 endpoint file. That laziness is what makes the coarse bin condition precise
-(wire-bridge.md §3.2/§3.4).
+([wire-bridge.md](../../docs/reference/wire-bridge.md#coarse-condition-lazy-daemon)).
 
 The listen port lives ONLY in this pack's own `adapter` declarations (`8214` for
 `openai → anthropic`, `8215` for `openai-responses → anthropic`, both clear of
@@ -54,7 +56,7 @@ user-declared provider unable to be bridged at all. `count_tokens` deliberately
 answers 404 so claude uses its own estimator instead of a fabricated count, and
 inbound requests carry no auth because the jail is the boundary. What the bridge
 never does: dial anything but the boot-selected upstream, listen off loopback,
-log a body or a key (wire-bridge.md §5).
+log a body or a key ([wire-bridge.md](../../docs/reference/wire-bridge.md)).
 
 ## Verifying
 

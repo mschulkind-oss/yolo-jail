@@ -476,8 +476,11 @@ profile.
   kills nor adopts ([OQ-PC3](#oq-pc3)).
 - **The key channel.** On the chat-completions route the credential crosses as it does for every
   non-first-party agent: the launcher writes a `0600` environment file from hydrated env sources,
-  and the bridge reads that file at startup, once, into memory. One writer, one reader; the daemon
-  never appears in a process listing with the key. Its own process environment is the fallback
+  and the bridge reads that file at startup, once, into memory. Since the credential gate
+  ([`providers.md`](providers.md#the-credential-gate)) a provider's key sits in the env file of
+  the agent that selected it, so a route reads the file of the agent it is served for
+  (`~/.config/yolo-agent-env/<agent>.sh`), then the shared `yolo-user-env.sh`. One writer, one
+  reader; the daemon never appears in a process listing with the key. Its own process environment is the fallback
   for notches where the file may not exist, and a file that exists but cannot be read is reported
   rather than silently skipped. The Codex route reads no key at all: it asks the OpenAI credential
   service for an access-only token view per request, and a 401 gets exactly one fresh view before

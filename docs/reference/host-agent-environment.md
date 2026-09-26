@@ -294,7 +294,13 @@ exit.
   declarable at apply time for one the user discovers at runtime inside an IDE.
 - **Not a second env fold.** Packs' `kind: "env"` contributions reach the host through the same
   fold the jail reduces (`packload.EnvFold`: each pack's static keys, then its profile-gated keys
-  whose gate is satisfied), and `hostfoldparity_test.go` pins the two notches to one winner per key.
+  whose gate fires for the launched agent), and `hostfoldparity_test.go` pins the two notches to
+  one winner per key.
+- **Not a second credential gate.** Which `env_sources` values the host adds is the jail's own
+  answer, `packload.ScopeCredentials` over this notch's one-agent table: a value a provider
+  claims reaches the agent only when its profile selects that provider, and the launch says what
+  it withheld ([`providers.md`](providers.md#the-credential-gate)). The shell the host notch
+  inherits is the user's and passes through untouched.
 
 ## Why it's this way
 

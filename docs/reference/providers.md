@@ -4,6 +4,10 @@ verified: 2026-09-23
 verified_commit: 7ad8358c
 covers:
   - internal/packdecl/contributes.go
+  - internal/packdecl/envnames.go
+  - internal/packload/credentialscope.go
+  - internal/cli/run/agentenvfiles.go
+  - internal/entrypoint/agentenv.go
   - internal/packload/providers.go
   - internal/packload/profiles.go
   - internal/packload/deriveenv.go
@@ -126,8 +130,11 @@ that needs both declares both.
 
 **A pack never carries a credential value, and the schema offers no slot for one.** A pack is a
 distribution artifact, fetched and approved at a commit. The only credential-shaped field is
-`api_key_env_name`, which holds a variable NAME by contract; the value travels `env_sources`
-and is hydrated at launch; a `base_url` carrying userinfo is refused. This is a recommendation
+`api_key_env_name`, which holds a variable NAME by contract, or a list of names for a provider
+whose credential arrives in several variables (Bedrock's bearer, key pair and SSO pointer); the
+value travels `env_sources` and is hydrated at launch, and reaches only an agent that selected
+the provider ([the credential gate](#the-credential-gate)); a `base_url` carrying userinfo is
+refused. This is a recommendation
 backed by the schema, not a scanner — content scanning is a product category of its own, and
 yolo does not ship one.
 
@@ -170,18 +177,21 @@ What a composed entry is required to bring — its credential — is
 
 ## The credential preflight
 
-A launch refuses when a provider its table **catalogs** has no deliverable credential. Catalog
-membership is the whole trigger ([OQ-PT4](#oq-pt4)): a composed entry carrying at least one
-endpoint demands that the variable its `api_key_env_name` names be set in what the launch would
-deliver — *"in the dictionary means you need the key."* Three consequences follow:
+A launch refuses when a provider some agent's profile **selects**, and its table **catalogs**,
+has no deliverable credential. A composed entry carrying at least one endpoint
+([OQ-PT4](#oq-pt4)) and selected by an agent demands that the ONE variable its
+`api_key_env_name` points at be set in what the launch would deliver. Three consequences follow:
 
-- The scope is the launch's **selected** set ([OQ-13](#pv-oq-13)), never the active profile.
-  Selecting a provider pack is the intent; a pack whose provider has no key has already put an
-  entry in the catalog of every agent that speaks its protocol, and that entry fails at the
-  first request.
-- An entry with no endpoint (Bedrock: the ambient AWS chain, no pointer) demands nothing, and a
+- The scope is the **selected provider** ([`OQ-CN3`](../design/provider-credential-scope.md#OQ-CN3),
+  ruled 2026-09-26, narrowing the selected-pack scope of [OQ-13](#pv-oq-13) deliberately). The
+  credential gate delivers a provider's key only to an agent that selected it, so a key for a
+  provider nobody selected is a key nobody will deliver — and a key nobody will deliver is not a
+  missing credential. A selected pack whose provider no agent selects still catalogs its entry;
+  what an agent does with a catalog row it has no key for is its own (pi hides it, and opencode
+  is narrowed to its selected provider, [below](#the-credential-gate)).
+- An entry with no endpoint (Bedrock: the ambient AWS chain) demands nothing, and a
   `null`-dropped provider leaves the table and stops being required. A cataloged entry that
-  names no `api_key_env_name` (a keyless loopback server) demands nothing either.
+  points at no single variable — none, or a list of several — demands nothing either.
 - A profile's `provider` creates no requirement of its own: a provider the table does not hold
   reaches no derive, so there is no delivery to demand a key for.
 
@@ -219,19 +229,22 @@ rewritten whole by each entry; `writeUserEnvFile` in `internal/cli/run`):
   the one lowering (below). In-jail derives and the host notch read the same resolved shape;
   no user-config parsing happens in-jail.
 
-The same section carries the pack env fold and the provider shape vars (the derived
-`ANTHROPIC_*` / `COPILOT_*` blocks, credential included) as plain-form `export K='v'`
-lines, which the boot's hydrate applies OVER the environment — the def-form
-`export K=${K:-'v'}` lines above them (env_sources defaults) keep the opposite
-precedence. That file, not the `podman run` argv, is the channel's only container-side
-crossing: an argv `-e` would freeze one launch's providers into the container's
+The same section carries the SHARED pack env fold (every pack's unconditional `kind: "env"`)
+as plain-form `export K='v'` lines, which the boot's hydrate applies OVER the environment —
+the def-form `export K=${K:-'v'}` lines above them (the env_sources no provider claims) keep
+the opposite precedence. What the credential gate scopes to ONE agent — its provider's claimed
+env_sources, the profile-gated env its selection satisfies, and its env derive's shape vars
+(the `ANTHROPIC_*` / `COPILOT_*` blocks, credential included) — is not in this file at all;
+it crosses in that agent's own env file ([the credential gate](#the-credential-gate)). These
+files, not the `podman run` argv, are the channel's only container-side crossing: an argv `-e`
+would freeze one launch's providers into the container's
 environment, where every later `podman exec` inherits them as stale state — the failure
 per-entry delivery exists to prevent (`yolo -p <name> -- claude` against a running jail
 must deliver THIS entry's profile; the attach rewrites the file and the exec'd boot
 re-hydrates it). Consequences worth knowing:
 
-- A provider credential no longer rides a `ps`-visible argv line; it lands in the 0600
-  file with every other hydrated secret. The argv-exposure trade-off this reference
+- A provider credential no longer rides a `ps`-visible argv line; it lands in a 0600
+  file — the selecting agent's own. The argv-exposure trade-off this reference
   used to record is retired by the same move.
 - An attach to a jail launched BEFORE the file crossing carries the tables in its
   frozen environment, which its older entrypoint lets beat the file — so the attach
@@ -241,11 +254,59 @@ re-hydrates it). Consequences worth knowing:
   ordinary launch); a config-side drift warns and proceeds; a matching or empty
   selection is a plain re-entry and stays silent.
 - The macos-user backend has no attach and no frozen copy; it still layers the same
-  channel into its per-invocation plan env.
+  channel into its per-invocation plan env, narrowed to the one program it launches.
 
 The three are a launcher↔jail contract: a change to any of them must move both halves in one
 commit. The source-skew gate cannot see env-var contracts — and the FILE contract is the
 same hazard one layer down.
+
+## The credential gate
+
+A profile's credentials and gated env reach **only the agent that selected it**
+([`OQ-BR4`](../design/provider-credential-scope.md#OQ-BR4), ruled 2026-09-25;
+[`OQ-CN1`–`OQ-CN6`](../design/provider-credential-scope.md#6-open-questions), ruled
+2026-09-26). One function decides it — `packload.ScopeCredentials`, called by the jail notch's
+`composePackChannel` and by the host notch's `composeHostVars` — over three kinds of value:
+
+| Value | Who receives it |
+| :--- | :--- |
+| An `env_sources` value whose name a composed provider **claims** (lists in its `api_key_env_name`) | each agent whose selected profile resolves to a claiming provider; no other process, a bare shell included |
+| An `env_sources` value no provider claims (`GH_TOKEN`, anything else) | every process, as before |
+| A `profile`-gated `kind: "env"` contribution | the pack's own agent when it selected that profile; for a pack that installs no CLI (`aws-auth`, `llamacpp`), every agent that selected it |
+| An env derive's output (the shape vars) | its own agent, and the derive's copy of the table carries the `api_key` of that agent's provider only |
+
+`packs/claude`'s `bedrock` provider claims `AWS_BEARER_TOKEN_BEDROCK`, `AWS_ACCESS_KEY_ID`,
+`AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_PROFILE` and
+`AWS_CONTAINER_CREDENTIALS_FULL_URI`, so an AWS pair hydrated for one agent's Bedrock profile no
+longer reaches pi's Bedrock support (or any shell) unless pi selected Bedrock. A provider with
+ONE variable keeps the string spelling; a derive sees `api_key_env_name` only when it names
+exactly one variable (`packload.ProvidersForDerive`), so a multi-route provider points an agent
+at none of them.
+
+Where each answer lands is the vehicle's:
+
+- **Container backends.** `yolo-user-env.sh` carries the shared values; each profiled agent's
+  own values go to `<workspace>/.yolo/home/agent-env/<agent>.sh` (0600), bound `:ro` at
+  `~/.config/yolo-agent-env/` on podman and copied there on Apple Container. The agent's
+  launcher in `~/.yolo/bin/launch` sources its own file immediately before the pre-launch
+  authentication step and the exec (`agentEnvShellFn` in `internal/entrypoint`), and the
+  launch-flag wrapper does the same. An attach rewrites the directory whole, so an agent that
+  lost its profile loses its file. The wire bridge reads a served agent's key from that agent's
+  file (`resolveKey` in `internal/wirebridged`).
+- **macos-user.** One command per invocation, so the delivery is **per launch**: the session
+  carries the shared values plus the launched program's own, and says so when another agent
+  had values it cannot carry. `macosuser.buildPlan` no longer hydrates `env_sources` itself.
+- **The host notch.** `yolo host -- <agent>` composes one process: the shared values plus that
+  agent's. The shell it inherits is the user's and passes through untouched.
+
+Every arm discloses what it scoped or withheld, by name and never by value
+(`CredentialScope.Disclosure`). The files are readable by every process of the jail's uid, as
+the shared file is: the gate decides what each agent's **environment** carries, and an agent
+started by another agent inherits that agent's environment, as any child does. The menu half of
+[`OQ-CN4`](../design/provider-credential-scope.md#OQ-CN4) is each agent's own key:
+opencode's derive writes `enabled_providers: [<selected provider>]` beside its selected model;
+claude's single `ANTHROPIC_BASE_URL` already reaches one provider per launch; pi's
+`enabledModels` is a soft shortlist and restricts nothing.
 
 ## The canonical wire_api vocabulary
 
@@ -289,7 +350,8 @@ table, string, math libraries only; no `os`, no `io`). Two registrations:
 - `yolo.derive(agent, surface, fn)` — the file half. Runs in-jail at boot for each declared
   surface, returning that surface's computed layer.
 - `yolo.env(agent, fn)` — the env half. Runs **host-side only**: its output crosses
-  per-entry through the `yolo-user-env.sh` channel section on the container backends,
+  per-entry through the agent's own env file on the container backends
+  ([the credential gate](#the-credential-gate)),
   `yolo host` has no jail at all, and the macos-user backend fixes its plan env before
   the bootstrap runs. One runner (`AgentEnv`) serves both notches — that shared
   implementation is what keeps `yolo -- claude` and `yolo host -- claude` composing the same
@@ -338,8 +400,8 @@ launch host-side. There is deliberately no second reporting channel.
 > [!NOTE]
 > **Retired 2026-09-05 — the credential no longer rides the argv.** The env derive's output
 > used to cross as `-e ANTHROPIC_AUTH_TOKEN=<secret>`, visible in `ps` to anything on the
-> host that could see the launcher's process; per-entry file delivery moved it into
-> `yolo-user-env.sh` (0600) with every other hydrated secret. The recorded trade-off — "an
+> host that could see the launcher's process; per-entry file delivery moved it into a 0600
+> file, which since the credential gate is the selecting agent's own. The recorded trade-off — "an
 > env var must reach the container somehow" — was true of the argv crossing and is not the
 > only crossing: the live-mounted file reaches a running jail at least as well, and an
 > attach reaches it ONLY that way.
@@ -760,7 +822,7 @@ the optionality.
 | Kind | Active when | Why that key |
 | :--- | :--- | :--- |
 | `config-overlay` | the name is the profile active for the **target surface's owning agent** (the `agent` half of `agent/name`) | the surface names an agent, so the surface is what the gate asks |
-| `env` | the name is active for a bin **this pack** installs — else for **any bin** the launch installs | an env has no surface to name an agent; the second pass is what makes a CLI-less pack's gated env reachable (`packs/aws-auth` and `packs/llamacpp` ship this case) |
+| `env` | per AGENT: the name is the profile that agent selected, and the pack is either the one installing that agent's CLI or a pack installing no CLI at all | an env has no surface to name an agent, so the delivery names one: the agent's own env file ([the credential gate](#the-credential-gate)). The CLI-less arm is what keeps a CLI-less pack's gated env reachable (`packs/aws-auth` and `packs/llamacpp` ship this case), for each agent that selected it |
 
 Every other kind **refuses** the field, because a modifier nothing reads is an
 accepted-and-ignored declaration. That includes the kinds that cross the boundary — `mount`,
@@ -768,23 +830,23 @@ accepted-and-ignored declaration. That includes the kinds that cross the boundar
 flag that switched one on would be a claim the reviewer never saw. A profile stays inside the
 claims its pack already made.
 
-The env half folds **per pack, in delivery order**: the pack's unconditional `env` keys, then
-its satisfied gated ones, so a pack's variant overrides its own default without a load error
-([OQ-8](#pv-oq-8)), while a *later* pack's unconditional value still beats an *earlier* pack's
-gated one. `packload.EnvFold` is the one definition of that order, and both notches reduce the
-same sequence. Provider variables from the agent's env derive are layered after the fold, as
-the more specific intent. Env values are literal strings; a removal has no spelling in a pack's
-env map (only a derive's `ctx.tombstone` removes).
+The env half folds **per agent and per pack, in delivery order**: the pack's unconditional
+`env` keys, then its gated ones satisfied for that agent, so a pack's variant overrides its own
+default without a load error ([OQ-8](#pv-oq-8)), while a *later* pack's unconditional value
+still beats an *earlier* pack's gated one. `packload.EnvFold(packs, profiles, agent)` is the one
+definition of that order, agent `""` being the shared fold every process receives, and both
+notches reduce the same sequence. Provider variables from the agent's env derive are layered
+after the fold, as the more specific intent. Env values are literal strings; a removal has no
+spelling in a pack's env map (only a derive's `ctx.tombstone` removes, which the per-agent env
+file spells as `unset`).
 
-> [!WARNING]
-> **The env gate's wide pass fires across agents.** Because the second pass matches any bin the
-> launch installs, `-p pi=bedrock` satisfies `packs/claude`'s `bedrock`-gated env as well as
-> pi's. That is current behavior and a defect — not the design's rule, which scoped a gate to the
-> pack that owns the CLI. **Ruled 2026-09-25, unbuilt**
-> ([`OQ-BR4`](../design/provider-credential-scope.md#OQ-BR4)): a satisfied gate delivers to each
-> agent whose selected profile satisfies it and to no other, and the CLI-less case stays reachable.
-> Building it needs a per-agent delivery vehicle, which is
-> [`OQ-CN6`](../design/provider-credential-scope.md#OQ-CN6).
+> [!NOTE]
+> **The launch-wide "wide pass" is gone (trap D2, closed).** It matched a gated env against any
+> bin the launch installed, so `-p codex=bedrock` fired `packs/claude`'s
+> `CLAUDE_CODE_USE_BEDROCK` jail-wide. Ruled out by
+> [`OQ-BR4`](../design/provider-credential-scope.md#OQ-BR4) and built with the credential
+> gate: a satisfied gate delivers to each agent whose selected profile satisfies it and to no
+> other, and the CLI-less case stays reachable.
 
 The config-overlay half composes the provider's facts rather than restating them
 ([OQ-PT3](#oq-pt3)): a pack that routes an agent through a provider ships the provider entry
@@ -892,7 +954,8 @@ the same line.
   sees every request ([`OQ-WG3`](../design/wire-bridge-gateway.md#OQ-WG3), ruled, not built).
 - **No value schema for options** — a typechecker in core is `wire_api`'s enum one layer up.
 - **No credential VALUE in any composed or wire table.** The name crosses; the value is
-  hydrated per derive invocation and in `yolo-user-env.sh` (0600) only.
+  hydrated per derive invocation and in the 0600 env files (`yolo-user-env.sh` for an
+  unclaimed value, the selecting agent's own file for a claimed one) only.
 
 > [!WARNING]
 > **Three derives currently breach that last line.** The pi, opencode and copilot derives fall

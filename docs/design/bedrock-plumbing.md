@@ -671,7 +671,8 @@ R6 to R11 moved with the bridge, model-list and search designs.
    cheaply.
 5. **The opencode and pi native bindings**, each with a provenance comment naming the version read.
 6. **Close the gate leaks**, per [`provider-credential-scope.md`](provider-credential-scope.md) and
-   [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md).
+   [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md). The D2 half is
+   BUILT (2026-09-26, the credential gate); the D5 half is the redesign's.
 7. **The hand-written API-key provider and mantle recipes** in the user guide, with P1 stated where users hit it.
 8. **The direction**, once [OQ-BR9](#OQ-BR9) rules:
    1. the signer ([`wire-bridge-gateway.md`](wire-bridge-gateway.md));
@@ -702,7 +703,7 @@ R6 to R11 moved with the bridge, model-list and search designs.
    It sets which ids the built-in pack targets ([OQ-BR3](model-lists-and-pickers.md#OQ-BR3)). It
    makes `-p codex=bedrock` the ordinary gesture, which
    [OQ-BR4](provider-credential-scope.md#OQ-BR4)'s ruling (*"no I don't want it to leak"*) makes
-   safe once built. The provider must not declare `web_search`, since on runtime that is false.
+   safe, and which is built (2026-09-26). The provider must not declare `web_search`, since on runtime that is false.
    [OQ-PP2](providers-and-profiles-redesign.md#OQ-PP2) may later reshape providers, and does not
    block this.
 

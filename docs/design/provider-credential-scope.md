@@ -3,7 +3,7 @@ title: "What reaches which agent: a profile's credentials and env stay with the 
 date: 2026-09-22
 status: accepted
 tags: [providers, profiles, credentials, env-sources, delivery, notches, bedrock]
-summary: "When one agent selects a provider, yolo today delivers that provider's credentials and profile-gated variables to every agent in the jail, through four channels that all end in one shared env file. OQ-BR4 is ruled (2026-09-25): nothing leaks, delivery is as specific as possible. OQ-CN1 to OQ-CN6 are ruled (2026-09-26), all as leaned: one gate in composePackChannel that all three delivery vehicles read, a pre-flight narrowed with it, and a per-agent env file, sourced by that agent's launcher, as the vehicle. None of it is built."
+summary: "When one agent selected a provider, yolo delivered that provider's credentials and profile-gated variables to every agent in the jail, through four channels that all ended in one shared env file. OQ-BR4 is ruled (2026-09-25): nothing leaks, delivery is as specific as possible. OQ-CN1 to OQ-CN6 are ruled (2026-09-26), all as leaned, and BUILT 2026-09-26: one gate (packload.ScopeCredentials) that all three delivery vehicles read, a pre-flight narrowed with it, and a per-agent env file, sourced by that agent's launcher, as the container vehicle. Measured by tests only."
 vantage:
   status-chip: true
 ---
@@ -15,27 +15,39 @@ credentials and settings. Should claude, pi, or a plain shell in the same jail g
 maintainer ruled no. This doc works out how yolo delivers a provider's credentials and
 profile-gated variables to the agent that selected it, and to no other.
 
-**Status:** DECIDED, 2026-09-26. [OQ-BR4](#OQ-BR4) was ruled 2026-09-25 and
-[OQ-CN1](#OQ-CN1)–[OQ-CN6](#OQ-CN6) on 2026-09-26, all as leaned. No gate is built. MEASURED: the
-leak, in this jail on 2026-09-22 ([§2.1](#21-delivery-is-profile-blind-by-construction)), and
-pi's `enabledModels`, read statically from installed pi 0.87.1
-([§2.4.1](#241-what-pis-enabledmodels-actually-constrains)). Code claims re-verified 2026-09-24;
-they cite a symbol, never a line. UNMEASURED: whether a per-agent env file reaches every way an
-agent is started ([OQ-CN6](#OQ-CN6)).
+**Status:** BUILT, 2026-09-26, at `6b3eadae` (the gate, all three vehicles, the narrowed
+pre-flight and trap D2's close) and `fbb5ac8c` (opencode's menu key, [OQ-CN4](#OQ-CN4)'s menu
+half). [OQ-BR4](#OQ-BR4) was ruled 2026-09-25 and [OQ-CN1](#OQ-CN1)–[OQ-CN6](#OQ-CN6) on
+2026-09-26, all as leaned. MEASURED BY TESTS ONLY: the short suite runs the shipped packs through
+the real composition (`composePackChannel`, `deliverChannel`), generates the real launchers from
+the shipped manifests, and RUNS them against fake programs that report the environment they were
+handed — done conditions 1–3 in `internal/cli/run`'s `TestGateDoneCondition1PiOnZaiSeesNoAWS` and
+`TestGateDoneConditions2And3CodexOnBedrock`; the host notch through `hostMain` to its exec in
+`internal/cli`'s `TestHostGate*`; macos-user through `Run` to its handler seam. Each gate's call
+site was deleted in turn and a test failed ([§5](#5-what-done-looks-like-and-what-i-would-build)).
+UNMEASURED: no real container launch, nested jail, macos-user session or Apple Container
+has run it, so whether the per-agent file reaches EVERY way an agent is started (an absolute-path
+exec bypasses the launcher) is still the open fact [OQ-CN6](#OQ-CN6) named. Earlier: the leak
+was measured in this jail on 2026-09-22 ([§2.1](#21-delivery-is-profile-blind-by-construction)),
+and pi's `enabledModels` read statically from installed pi 0.87.1
+([§2.4.1](#241-what-pis-enabledmodels-actually-constrains)).
 
-**Where things stand.** Today a profile picks which provider an agent *uses*, not which
-credentials and variables it can *see*, so one agent's selection reaches every agent.
+**Where things stand.** A profile used to pick which provider an agent *uses*, not which
+credentials and variables it can *see*, so one agent's selection reached every agent.
 [OQ-BR4](#OQ-BR4) (ruled 2026-09-25, [§7](#7-decision-ledger)) says it must not: *"no I don't
 want it to leak … as specific as possible … certainly not Claude Code gets Bedrock"* because
-another agent selected it. Nothing is built yet, and it cannot be built on today's vehicles:
-every hydrated credential, every agent's shape variables and every satisfied pack `env` gate
-land in one file that every process in the jail reads
-([§2.7](#27-one-shared-file-five-readers)). [OQ-CN6](#OQ-CN6) picks the per-agent vehicle.
+another agent selected it. It is built: one function decides what reaches which agent, the
+shared `yolo-user-env.sh` keeps only what every process may see, and each profiled agent's own
+values cross in a per-agent env file its launcher sources ([§5](#5-what-done-looks-like-and-what-i-would-build),
+[`providers.md`, the credential gate](../reference/providers.md#the-credential-gate)).
+[§2](#2-what-happens-today-precisely) and [§3](#3-where-the-gate-can-sit) are the pre-gate analysis that ruling rested on, kept as the record of why.
 
 **Needs your ruling:** none.
 
 **Start at [§2.7](#27-one-shared-file-five-readers) and [§3](#3-where-the-gate-can-sit):** why
-nothing is per-agent today, and where the gate can sit. That choice decides the rest.
+nothing was per-agent before the gate, and where the gate could sit. That choice decided the
+rest; [§5](#5-what-done-looks-like-and-what-i-would-build) and the ledger's implementation rows
+say what was built.
 
 **Reads with:** [`../reference/providers.md`](../reference/providers.md) (the catalog,
 composition and selection this gates), [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md)
@@ -107,6 +119,11 @@ zai, and `-p codex=bedrock` gives codex Bedrock without giving it to claude.
 - **A secrets manager.** `env_sources` stays what it is.
 
 ## 2. What happens today, precisely
+
+> [!NOTE]
+> **This section and [§3](#3-where-the-gate-can-sit) describe the code BEFORE the gate**, re-verified 2026-09-24, and are
+> kept as the analysis the rulings rest on. What was built is
+> [§5](#5-what-done-looks-like-and-what-i-would-build) and the ledger's implementation rows.
 
 ### 2.1 Delivery is profile-blind by construction
 
@@ -370,16 +387,32 @@ reaches two agents.
 5. All three vehicles meet 1–3, or a vehicle that cannot says so as a disclosure
    ([OQ-CN5](#OQ-CN5), [OQ-CN6](#OQ-CN6)).
 
-**What I would build, in order.** Only step 2 is ruled; the rest waits on its question.
+**Where each condition is shown, by tests only** (2026-09-26, at `6b3eadae` and `fbb5ac8c`):
 
-1. **The per-agent vehicle** ([OQ-CN6](#OQ-CN6)). Every later step writes into it.
-2. **Close D2** (build step 6 of [`bedrock-plumbing.md`](bedrock-plumbing.md), its D2 half): the env fold delivers a
-   satisfied gate only to agents whose profile satisfies it, with a deletion-sensitive test. The
-   D5 half is [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md)'s.
-3. **The key→provider list** ([OQ-CN1](#OQ-CN1)), with `bedrock` declaring its variables.
-4. **The one gate** ([OQ-CN2](#OQ-CN2)), feeding the env vehicles and `hydrateProviders`.
-5. **The pre-flight narrowed with it** ([OQ-CN3](#OQ-CN3)), at all three call sites.
-6. **The disclosure line**, and each agent's menu key where yolo does not set it ([OQ-CN4](#OQ-CN4)).
+| Condition | Vehicle | Test |
+| :--- | :--- | :--- |
+| 1 | container: pi's launcher run against a fake pi, and a bare shell | `TestGateDoneCondition1PiOnZaiSeesNoAWS` (`internal/cli/run`); pi's `models.json` in `TestPiModelsJSONCarriesNoMultiRouteCredential` (`internal/entrypoint`) |
+| 2, 3 | container: codex's and claude's launchers, and a bare shell, with `aws-auth` selected; claude selecting `bedrock` as the control | `TestGateDoneConditions2And3CodexOnBedrock` |
+| 1–3 | host notch, through `hostMain` to its exec | `TestHostGatePiOnZaiSeesNoAWS`, `TestHostGateCodexOnBedrockAndClaudeUnselected` (`internal/cli`) |
+| 1, 5 | macos-user, through `Run` to its handler seam | `TestMacosUserLaunchCarriesOnlyTheLaunchedAgentsCredentials` |
+| 4 | every gate's call site | deleted one at a time; each deletion failed at least one test (the list is in the build report) |
+| 5 | macos-user's per-launch limit | the disclosure `noteMacosUserCredentialScope` prints, pinned by the macos-user test above |
+
+**What I would build, in order** — all six steps BUILT 2026-09-26, in one change:
+
+1. ✅ **The per-agent vehicle** ([OQ-CN6](#OQ-CN6)): `<workspace>/.yolo/home/agent-env/<agent>.sh`,
+   written by `deliverChannel` on a fresh launch and an attach, bound `:ro` at
+   `~/.config/yolo-agent-env`, sourced by the agent's launcher (`agentEnvShellFn`).
+2. ✅ **Close D2**: `packload.EnvFold` takes the agent; the launch-wide second pass is deleted
+   (`gateFiresFor`). The D5 half is still [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md)'s.
+3. ✅ **The key→provider list** ([OQ-CN1](#OQ-CN1)): `packdecl.EnvNames`; `bedrock` lists its
+   variables.
+4. ✅ **The one gate** ([OQ-CN2](#OQ-CN2)): `packload.ScopeCredentials`, called by
+   `composePackChannel` and `composeHostVars`, and the lookup `hydrateProviders` reads through.
+5. ✅ **The pre-flight narrowed with it** ([OQ-CN3](#OQ-CN3)): `ProviderCredentialGaps` takes the
+   selected providers, at the three jail call sites and the host notch.
+6. ✅ **The disclosure line** on every arm, and opencode's menu key
+   ([OQ-CN4](#OQ-CN4)); claude needs no new key (CN-D17 in [§7](#7-decision-ledger)).
 
 ## 6. Open Questions
 
@@ -512,24 +545,59 @@ reaches two agents.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| OQ-BR4 | **A profile's gated env reaches only the agent that selected it; nothing leaks.** *"no I don't want it to leak … as specific as possible … certainly not Claude Code gets Bedrock"* because another agent selected it. Moved from [`bedrock-plumbing.md`](bedrock-plumbing.md) with its id. The leaning (scope by agent, as `packoverlay.Collect` does) is the ruling's shape; accepting the leak with a briefing note is rejected. The same comment's direction, all traffic through the wire bridge, is [DIR-WG1](wire-bridge-gateway.md#DIR-WG1) | 2026-09-25 | [§2.6](#26-the-pack-env-gate-is-the-same-leak-through-a-second-door-trap-d2) | — |
-| OQ-CN1 | **Grow `api_key_env_name` into a list on the provider declaration.** | 2026-09-26 | [OQ-CN1](#OQ-CN1) | — |
-| OQ-CN2 | **Gate once in `composePackChannel` and let all three vehicles read the narrowed set, including the rendered-config path.** | 2026-09-26 | [OQ-CN2](#OQ-CN2) | — |
-| OQ-CN3 | **Narrow the pre-flight with the gate: a key nobody will deliver is not a missing credential, and refusing a launch over one is the defect this doc is fixing, one layer up.** | 2026-09-26 | [OQ-CN3](#OQ-CN3) | — |
-| OQ-CN4 | **Both, named separately.** | 2026-09-26 | [OQ-CN4](#OQ-CN4) | — |
-| OQ-CN5 | **All three, because the host notch is the highest-stakes one and shipping the container first would leave the weakest boundary unfixed while the doc reads as done.** | 2026-09-26 | [OQ-CN5](#OQ-CN5) | — |
-| OQ-CN6 | **A per-agent env file, written from CN2's single gate in `composePackChannel` and sourced by that agent's launcher.** | 2026-09-26 | [OQ-CN6](#OQ-CN6) | — |
+| OQ-BR4 | **A profile's gated env reaches only the agent that selected it; nothing leaks.** *"no I don't want it to leak … as specific as possible … certainly not Claude Code gets Bedrock"* because another agent selected it. Moved from [`bedrock-plumbing.md`](bedrock-plumbing.md) with its id. The leaning (scope by agent, as `packoverlay.Collect` does) is the ruling's shape; accepting the leak with a briefing note is rejected. The same comment's direction, all traffic through the wire bridge, is [DIR-WG1](wire-bridge-gateway.md#DIR-WG1) | 2026-09-25 | [§2.6](#26-the-pack-env-gate-is-the-same-leak-through-a-second-door-trap-d2) | ✅ `6b3eadae` |
+| OQ-CN1 | **Grow `api_key_env_name` into a list on the provider declaration.** | 2026-09-26 | [OQ-CN1](#OQ-CN1) | ✅ `6b3eadae` |
+| OQ-CN2 | **Gate once in `composePackChannel` and let all three vehicles read the narrowed set, including the rendered-config path.** | 2026-09-26 | [OQ-CN2](#OQ-CN2) | ✅ `6b3eadae` |
+| OQ-CN3 | **Narrow the pre-flight with the gate: a key nobody will deliver is not a missing credential, and refusing a launch over one is the defect this doc is fixing, one layer up.** | 2026-09-26 | [OQ-CN3](#OQ-CN3) | ✅ `6b3eadae` |
+| OQ-CN4 | **Both, named separately.** | 2026-09-26 | [OQ-CN4](#OQ-CN4) | ✅ `6b3eadae` (withholding), `fbb5ac8c` (opencode's menu key) |
+| OQ-CN5 | **All three, because the host notch is the highest-stakes one and shipping the container first would leave the weakest boundary unfixed while the doc reads as done.** | 2026-09-26 | [OQ-CN5](#OQ-CN5) | ✅ `6b3eadae` |
+| OQ-CN6 | **A per-agent env file, written from CN2's single gate in `composePackChannel` and sourced by that agent's launcher.** | 2026-09-26 | [OQ-CN6](#OQ-CN6) | ✅ `6b3eadae` |
+| CN-D1 | *Implementation decision.* `api_key_env_name` is a string or a non-empty list of distinct valid names (`packdecl.EnvNames`, one rule for manifests and user `providers`). One name keeps the string spelling on every surface; a list of several points an agent at none of them (`KeyEnvName`), so the derives read a view with the one name or none (`ProvidersForDerive`) and the pre-flight and the wire bridge read `KeyEnvName`. Picking the first of several would, for Bedrock, compose a bearer into claude's `ANTHROPIC_AUTH_TOKEN` | 2026-09-26 | [providers.md](../reference/providers.md#the-credential-gate) | ✅ `6b3eadae` |
+| CN-D2 | *Implementation decision.* `bedrock` claims `AWS_BEARER_TOKEN_BEDROCK`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_PROFILE` and `AWS_CONTAINER_CREDENTIALS_FULL_URI`: [`OQ-SSO7`](sso-backed-bedrock.md#13-decision-ledger)'s three routes as the clients spell them, plus the other two of pi's four spellings ([§2.4](#24-the-agents-disagree-about-what-a-credential-even-decides)) | 2026-09-26 | [providers.md](../reference/providers.md#the-credential-gate) | ✅ `6b3eadae` |
+| CN-D3 | *Implementation decision.* An `env_sources` value no provider claims stays shared, delivered to every process as before. The gate scopes provider credentials; a user's other variables (`GH_TOKEN`) are not a provider's | 2026-09-26 | [providers.md](../reference/providers.md#the-credential-gate) | ✅ `6b3eadae` |
+| CN-D4 | *Implementation decision.* The per-agent env gate (`gateFiresFor`): an agent pack's gated env reaches its own agent when that agent selected the profile; a CLI-less pack's reaches every agent that selected it; a table key naming no CLI any selected pack installs activates nothing. So `-p codex=bedrock` gives codex nothing of claude's either — "as specific as possible" — and the override pre-flight asks the same rule (`gateDelivered`) | 2026-09-26 | [§5](#5-what-done-looks-like-and-what-i-would-build) | ✅ `6b3eadae` |
+| CN-D5 | *Implementation decision.* One gate function, `packload.ScopeCredentials`, with two call sites: `composePackChannel` (the jail, whose result the container and macos-user vehicles read) and `composeHostVars` (the host notch, which composes from user scope only and never went through `composePackChannel`). The same arrangement `EnvFold` and `AgentEnv` already had | 2026-09-26 | [providers.md](../reference/providers.md#the-credential-gate) | ✅ `6b3eadae` |
+| CN-D6 | *Implementation decision.* The gate classifies NAMES, not sources: a claimed name is withheld from another provider's agent whether `env_sources` or the launch environment holds it, so the env derive's relay cannot hand one agent another's key | 2026-09-26 | [providers.md](../reference/providers.md#the-credential-gate) | ✅ `6b3eadae` |
+| CN-D7 | *Implementation decision.* The container vehicle: `<workspace>/.yolo/home/agent-env/<agent>.sh`, mode 0600 in a 0700 directory, bound `:ro` at `~/.config/yolo-agent-env` on podman and copied there on Apple Container. `deliverChannel` writes it beside the shared file on a fresh launch and an attach, replacing the directory's contents whole; a directory bind shows an attach's rewrite to the running jail | 2026-09-26 | [§5](#5-what-done-looks-like-and-what-i-would-build) | ✅ `6b3eadae` |
+| CN-D8 | *Implementation decision.* A per-agent file only ADDS: no `unset` of values another agent holds. An agent started by another inherits that agent's environment, as any child does, and an unset list would also erase a value the user exported by hand in a jail shell. A derive's tombstone is spelled `unset`, which this bash-sourced file can say and the shared file cannot | 2026-09-26 | [providers.md](../reference/providers.md#the-credential-gate) | ✅ `6b3eadae` |
+| CN-D9 | *Implementation decision.* The file grammar is the shared file's: `env_sources` values def-form (`export K=${K:-'v'}`), composed values plain-form; a derive key that is not a variable name is not written | 2026-09-26 | [providers.md](../reference/providers.md#the-credential-gate) | ✅ `6b3eadae` |
+| CN-D10 | *Implementation decision.* The npm and native launchers source the file after install and update and before the pre-launch authentication step, which reads a profile-gated switch (pi's `YOLO_AUTH_PRELAUNCH_PI_FLAG`) from it; the launch-flag wrapper sources it before its exec. The path is `$HOME`-relative, as the templates' install prefixes are | 2026-09-26 | [providers.md](../reference/providers.md#the-credential-gate) | ✅ `6b3eadae` |
+| CN-D11 | *Implementation decision.* The wire bridge reads a served route's key from the file of the agent the route serves (`route.Agent`, `viaRoute.Agent`), then the shared file, then its own environment | 2026-09-26 | [wire-bridge.md](../reference/wire-bridge.md) | ✅ `6b3eadae` |
+| CN-D12 | *Implementation decision.* macos-user delivers PER LAUNCH: the session env carries the shared values plus the launched program's own (the basename of its argv[0]), with `env_sources` last to keep that backend's precedence; `macosuser.buildPlan` no longer hydrates `env_sources`; the launch says so when another agent had values it cannot carry | 2026-09-26 | [providers.md](../reference/providers.md#the-credential-gate) | ✅ `6b3eadae` |
+| CN-D13 | *Implementation decision.* The host notch gates what yolo ADDS. The shell `yolo host` inherits is the user's and passes through untouched | 2026-09-26 | [providers.md](../reference/providers.md#the-credential-gate) | ✅ `6b3eadae` |
+| CN-D14 | *Implementation decision.* The pre-flight's selected set is every provider some agent's profile resolves to (`SelectedProviders`) | 2026-09-26 | [providers.md](../reference/providers.md#the-credential-preflight) | ✅ `6b3eadae` |
+| CN-D15 | *Implementation decision.* "Delivered", for the env-override pre-flight and `yolo check`'s prediction of it, means reaching SOME process through the gate; `yolo check` composes the same gate with `NoDerives`, running no pack code | 2026-09-26 | [providers.md](../reference/providers.md#the-credential-gate) | ✅ `6b3eadae` |
+| CN-D16 | *Implementation decision.* The disclosure is one line naming the rule, then one line per group of variables with the same claimant and recipients ("`… (provider zai): pi only`", "`… withheld from every process`"), names only, printed only when a claimed credential was hydrated, on the fresh launch, the attach, macos-user and the host notch | 2026-09-26 | [providers.md](../reference/providers.md#the-credential-gate) | ✅ `6b3eadae` |
+| CN-D17 | *Implementation decision.* The menu half: opencode's `enabled_providers` names the selected provider, under the selection beside `model` and only when a model is written; claude gets no new key, its env derive already pointing it at exactly one endpoint per launch, and an enforced MODEL allowlist is [`OQ-BR13`](model-lists-and-pickers.md#OQ-BR13); pi's `enabledModels` is unchanged and restricts nothing | 2026-09-26 | [providers.md](../reference/providers.md#the-credential-gate) | ✅ `fbb5ac8c` |
 
 ## 8. Downstream edits
 
 Done 2026-09-25: [`providers.md`](../reference/providers.md#the-profile-modifier)'s wide-pass
 WARNING, [`packs/aws-auth/README.md`](../../packs/aws-auth/README.md)'s jail-wide pointer note
-and [`sso-backed-bedrock-plan.md`](sso-backed-bedrock-plan.md)'s links now cite the
-[OQ-BR4](#OQ-BR4) ruling. None is owed.
+and [`sso-backed-bedrock-plan.md`](sso-backed-bedrock-plan.md)'s links cited the
+[OQ-BR4](#OQ-BR4) ruling.
+
+Done 2026-09-26, with the build: [`providers.md`](../reference/providers.md#the-credential-gate)
+gained the credential gate's section and lost the wide-pass WARNING, and its pre-flight, crossing
+and derive sections describe the narrowed behavior;
+[`pack-system.md`](../reference/pack-system.md), [`wire-bridge.md`](../reference/wire-bridge.md),
+[`agent-credentials.md`](../reference/agent-credentials.md),
+[`host-agent-environment.md`](../reference/host-agent-environment.md) and
+[`jail-home.md`](../reference/jail-home.md) name the per-agent file where they describe its
+neighbors; `packs/aws-auth`, `packs/cerebras` and `packs/wire-bridge`'s READMEs, and the user
+guide's configuration and settings-per-setup pages, say who receives a key;
+[`bedrock-plumbing.md`](bedrock-plumbing.md)'s build step 6 marks its D2 half built, and
+[`sso-backed-bedrock-plan.md`](sso-backed-bedrock-plan.md)'s profile-gated-env note names the
+per-agent rule. None is owed.
 
 ## 9. Evidence
 
-Code, re-verified 2026-09-24. Each claim names the symbol that carries it:
+Code, re-verified 2026-09-24, BEFORE the gate — the anchors of
+[§2](#2-what-happens-today-precisely) and [§3](#3-where-the-gate-can-sit)'s analysis, true at
+`9b70559f`. The gate changed most of them: `profileActive` and `installsActiveBin` are deleted,
+`writeUserEnvFile` writes the gate's shared half, `ProviderCredentialGaps` takes the selected
+providers, and `macosuser.buildPlan` no longer calls `ResolveEnvSources`. Each claim names the
+symbol that carried it:
 
 | Claim | Anchor |
 | :--- | :--- |

@@ -106,10 +106,12 @@ untouched; `packs/` is already in the `goSrc` fileset.
   escape hatch loudly. Mirror it for the exclusivity refusal.
 - **`needs`:** `packload.ResolveNeeds` (`internal/packload/needs.go`) — embedded packs only, join
   never override; `packs/claude/pack.json` already names `openai-auth` and `wire-bridge`.
-- **Profile-gated env:** `packload.EnvFold` + `profileActive` (`internal/packload/packload.go`).
-  The wide pass fires for a CLI-less pack when *any* selected pack's active profile has the name
-  — the `packs/zai` case — so an `aws-auth` env gated on `"profile": "bedrock"` activates on
-  `-p bedrock` with claude.
+- **Profile-gated env:** `packload.EnvFold` + `gateFiresFor` (`internal/packload/packload.go`),
+  per agent since the credential gate
+  ([`provider-credential-scope.md`](provider-credential-scope.md), built 2026-09-26): a CLI-less
+  pack's gated env reaches each agent whose selected profile has the name — the `packs/zai`
+  case — so an `aws-auth` env gated on `"profile": "bedrock"` reaches claude on
+  `-p claude=bedrock`, and only claude.
 
 ## Traps
 

@@ -18,7 +18,7 @@ entry joins whenever claude or copilot is in the launch — that pack declares t
 `openai → anthropic` conversion and the address it serves, and the resolver composes
 that address into this provider's entry
 ([protocol-resolution.md](../../docs/reference/protocol-resolution.md#the-four-outcomes);
-[wire-bridge.md](../../docs/reference/wire-bridge.md) §3). The manifest used to carry
+[wire-bridge.md](../../docs/reference/wire-bridge.md)). The manifest used to carry
 the bridge's loopback URL itself, which asserted a fact only the bridge could make true. The one alias is
 `qwen-3.8-27b` (public since 2026-09-03; agentic-coding tuned, parallel tool calls +
 strict schemas, 64K context free / 128K paid, ~1500 tok/s). `gpt-oss-120b` is
@@ -46,10 +46,11 @@ CEREBRAS_API_KEY=csk-…                # the ONLY secret, spelled once
 ```
 
 Put the key in the env file (an `env_sources` channel) when claude or copilot is in
-the launch: the bridge reads its credential from the jail's 0600 `yolo-user-env.sh`
-at boot, so a key that lives only in the invoking environment reaches the agents but
-not the daemon — and a bridge that cannot authenticate refuses the launch at the
-witness rather than serve unauthenticated upstream traffic.
+the launch: the bridge reads its credential at boot from the 0600 env file of the agent
+that selected cerebras (the credential gate delivers `CEREBRAS_API_KEY` to that agent
+alone), so a key that lives only in the invoking environment reaches the agents but not
+the daemon — and a bridge that cannot authenticate refuses the launch at the witness
+rather than serve unauthenticated upstream traffic.
 
 Then `yolo -p cerebras` (or the persistent spelling, `"use_profiles": {"pi": "cerebras"}`).
 
@@ -61,11 +62,15 @@ Then `yolo -p cerebras` (or the persistent spelling, `"use_profiles": {"pi": "ce
 | opencode | a `cerebras` catalog entry — `baseURL` and `apiKey: "{env:CEREBRAS_API_KEY}"` under `options` — plus `model = "cerebras/qwen-3.8-27b"` when a profile is selected. Cerebras's own integrations index lists OpenCode as a supported client. | its derive, reading `YOLO_PROVIDERS` (the `openai` endpoint) |
 | copilot | BYOK env routed through the wire bridge: `COPILOT_PROVIDER_BASE_URL` at the adapter's declared address, `COPILOT_PROVIDER_TYPE=anthropic`, `COPILOT_MODEL=qwen-3.8-27b`, `COPILOT_PROVIDER_API_KEY` — its derive prefers the anthropic endpoint of any provider declaring one (D-3), and the bridge speaks that wire | the copilot pack's env derive; the bridge from its `needs`-joined pack |
 | claude | routed at the bridge's declared address, the key as `ANTHROPIC_AUTH_TOKEN`, auto-compact sized to the 64K window — Cerebras has no native Anthropic-compatible endpoint, so the pairing resolves through the `wire-bridge` pack's `openai → anthropic` adaptation, joined automatically through this pack's `needs` entry. Without that pack the launch REFUSES rather than composing an address nothing serves | its derive, reading `YOLO_PROVIDERS`; the address from the adapter's own declaration |
-| codex | **nothing — no entry and no selection** | codex speaks `responses` only and the bridge translates exactly one pair, anthropic ↔ chat-completions — codex-on-cerebras stays unwireable ([wire-bridge.md](../../docs/reference/wire-bridge.md) §7) |
+| codex | **nothing — no entry and no selection** | codex speaks `responses` only and the bridge translates exactly one pair, anthropic ↔ chat-completions — codex-on-cerebras stays unwireable ([wire-bridge.md](../../docs/reference/wire-bridge.md)) |
 | agy | **nothing, ever** | Google-locked: its only custom-endpoint hook speaks the Gemini protocol (design doc's audit table) |
 
-A launch that selects this pack and never hydrates `CEREBRAS_API_KEY` **refuses
-outright** (the credential preflight follows catalog membership, OQ-PT4).
+A launch in which some agent's profile selects cerebras and that never hydrates
+`CEREBRAS_API_KEY` **refuses outright** (the credential preflight demands the key of a
+cataloged provider an agent selected:
+[`OQ-PT4`](../../docs/reference/providers.md#oq-pt4), narrowed by
+[`OQ-CN3`](../../docs/design/provider-credential-scope.md#OQ-CN3)). Selecting the pack with no
+agent on cerebras demands nothing, since the key would reach nobody.
 `YOLO_ALLOW_MISSING_PROVIDERS=1` continues loudly instead.
 
 ## Selection

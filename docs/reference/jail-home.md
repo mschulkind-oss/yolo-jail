@@ -163,7 +163,9 @@ On the podman backend, in tiers:
 │
 ├─[4] :ro  staged content, layered over the overlays
 │        briefings, skills trees, pack `files` trees, granted host files,
-│        the user config for nested jails
+│        the user config for nested jails, and the per-agent env files
+│        (.config/yolo-agent-env <- <workspace>/.yolo/home/agent-env; the
+│        credential gate's per-agent half, providers.md#the-credential-gate)
 │
 └─ siblings outside /home/agent
      /workspace       the workspace, rw

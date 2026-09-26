@@ -112,7 +112,8 @@ A few pointers for the rows above:
   `claude` in the jail. A project's `yolo-jail.jsonc` cannot set `packs`. See
   [Packs, and the host services they bring](#packs-and-the-host-services-they-bring).
 - **Use an API key or another provider:** list a dotenv file in `env_sources`, add the provider's pack,
-  and pick it with `yolo -p <profile> -- <agent>`. See
+  and pick it with `yolo -p <profile> -- <agent>`. The key reaches only the agent whose profile
+  selects that provider, never another agent or a plain shell. See
   [Gateway providers and curated models](configuration.md#gateway-providers-and-curated-models).
 - **Push from the jail:** create a key inside with `ssh-keygen` and add it to the repository as a deploy
   key, or put a `GH_TOKEN` in an `env_sources` file.

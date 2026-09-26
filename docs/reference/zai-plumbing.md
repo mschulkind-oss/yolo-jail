@@ -132,10 +132,12 @@ Then `yolo -p zai` (or `-p claude=zai -- claude`) routes every selected agent th
 Overrides — a different region, an extra model alias — are lines of `providers.zai` in user config,
 composed **over** the pack's facts; authoring a whole provider is never required.
 
-**A selected `packs/zai` with no key refuses the launch outright**, at both notches, rather than
-starting an agent that will 401 on its first call. That makes the shipped pack set no longer
-credential-silent, which is recorded as the one deliberate exception by
-`TestShippedPacksRequireNoCredential`.
+**A launch in which some agent's profile selects zai, with no key, refuses outright**, at both
+notches, rather than starting an agent that will 401 on its first call. Selecting the pack with
+no agent on zai demands nothing, because the credential gate would deliver the key to nobody
+([`providers.md`, the credential gate](providers.md#the-credential-gate); narrowed by
+[`OQ-CN3`](../design/provider-credential-scope.md#OQ-CN3)). The key reaches only the agents
+that selected zai — never a shell or another agent.
 
 ## What this does not license
 

@@ -46,9 +46,13 @@ Then `yolo -p zai` (or the persistent spelling, `"use_profiles": {"claude": "zai
 | copilot | BYOK env: `COPILOT_PROVIDER_BASE_URL` = the **anthropic** route (the derive prefers it, D-3), `COPILOT_PROVIDER_TYPE=anthropic`, `COPILOT_MODEL=glm-5.3`, `COPILOT_PROVIDER_API_KEY` — no `WIRE_API`, which speaks only to the openai type | the copilot pack's env derive |
 | codex | **nothing — no entry and no selection** | codex speaks `responses` only and z.ai's openai route speaks chat completions only, so no `wire_api` value makes the pairing work — the derive emits no entry rather than one that 404s at first request ([the provider reference](../../docs/reference/providers.md)), and the same reachability gate keeps the selection off with it. Codex has no z.ai route; the anthropic endpoint is claude's, via claude's env derive. |
 
-A launch that selects this pack and never hydrates `ZAI_API_KEY` **refuses outright**
-(`yolo run`'s pre-flight) — the alternative is a jail whose first API call fails
-somewhere unattributable. `YOLO_ALLOW_MISSING_PROVIDERS=1` continues loudly instead.
+A launch in which some agent's profile selects zai and that never hydrates `ZAI_API_KEY`
+**refuses outright** (`yolo run`'s pre-flight) — the alternative is a jail whose first API
+call fails somewhere unattributable. `YOLO_ALLOW_MISSING_PROVIDERS=1` continues loudly
+instead. Selecting the pack with no agent on zai demands nothing: the key reaches only an agent
+whose profile selects zai, never a shell or another agent
+([the credential gate](../../docs/reference/providers.md#the-credential-gate)), so an
+unselected provider's key would reach nobody.
 
 ## Selection
 

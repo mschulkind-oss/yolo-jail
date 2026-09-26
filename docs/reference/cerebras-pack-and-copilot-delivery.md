@@ -170,8 +170,9 @@ What it declares, and the reasoning that should survive a future edit:
 
 > [!WARNING]
 > **Put the key in an `env_sources` channel, not only in the invoking environment, whenever claude
-> or copilot is in the launch.** The bridge reads its upstream credential from the jail's private
-> env file at boot, so a key that exists only in the invoking environment reaches the agents and
+> or copilot is in the launch.** The bridge reads its upstream credential at boot from the private
+> env file of the agent that selected the provider (the credential gate puts the key there and
+> nowhere else, [`providers.md`](providers.md#the-credential-gate)), so a key that exists only in the invoking environment reaches the agents and
 > not the daemon — and a bridge that cannot authenticate refuses the launch rather than serving
 > unauthenticated upstream traffic.
 

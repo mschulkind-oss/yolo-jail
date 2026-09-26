@@ -126,27 +126,20 @@ endpoint file on the hop the adapter makes, not a header on the hop it serves.
 
 ## Properties worth knowing before you are surprised by them
 
-**⚠ The pointer is jail-wide, not claude-only, and that is a known defect: ruled, not yet fixed.**
-An `env` contribution's `profile` gate keys on a BIN: the profile active for a bin the
-pack installs, else the profile active for **any** bin. `aws-auth` installs no CLI — it
-is CLI-less, which is exactly what that second pass exists for — so the gate resolves
-through it, and `bedrock` is a profile `packs/claude` ships. The consequence is that
-`yolo -p bedrock -- claude` sets `AWS_CONTAINER_CREDENTIALS_FULL_URI` for **everything
-in the jail**: codex, pi, opencode and any script the agent runs will each pick up
-SSO-minted credentials from this adapter, whether or not you chose Bedrock for them.
+**The pointer reaches only the agents that selected `bedrock`.** An `env` contribution's
+`profile` gate is answered per agent (the credential gate,
+[`OQ-BR4`](../../docs/design/provider-credential-scope.md#OQ-BR4), built): `aws-auth`
+installs no CLI, so its gated pointer goes to every agent whose selected profile is
+`bedrock` — `yolo -p codex=bedrock` gives codex `AWS_CONTAINER_CREDENTIALS_FULL_URI` — and to
+no other process, a bare shell included. In a container jail it crosses in that agent's own
+env file, sourced by its launcher; on macos-user it rides the session of the agent the
+invocation launches. The processes an agent spawns inherit it, as they inherit anything in the
+agent's environment. **Do not "fix" the gate by narrowing it to the pack's own bins**: that
+would break this pack outright, because CLI-less is the case the gate's CLI-less arm exists
+for.
 
-That is [`OQ-BR4`](../../docs/design/provider-credential-scope.md#OQ-BR4), **ruled
-2026-09-25 and not yet built**: nothing leaks, and delivery is as specific as possible, so
-the pointer will reach each agent that selected `bedrock` and no other. Until that lands the
-pointer stays jail-wide. Until now the worked example was a flag (`CLAUDE_CODE_USE_BEDROCK=1`
-reaching another CLI); a credential endpoint is a different severity, which is why it is
-written down here rather than left to be discovered. **Do not "fix" it by narrowing the gate
-to the pack's own bins**: that would break this pack outright, because CLI-less is the case
-the wide pass exists for. The fix scopes by agent, and needs a per-agent delivery vehicle
-([`OQ-CN6`](../../docs/design/provider-credential-scope.md#OQ-CN6)).
-
-What limits the blast radius in the meantime is the narrowing you configure above: the
-credentials every one of those processes can reach are exactly the ones `role_arn` and
+What limits the blast radius inside one agent is the narrowing you configure above: the
+credentials that agent and its children can reach are exactly the ones `role_arn` and
 `session_policy` allow. That is the same argument as the netns one below, one layer up.
 
 **A nested jail shares this endpoint.** Podman-in-podman forces `--net=host`, so a

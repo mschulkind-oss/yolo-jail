@@ -1042,6 +1042,12 @@ config's `env_sources` is the channel, kept out of a distributable pack on purpo
 shown on the launch banner anyway, because it changes what the agent inside the jail sees,
 which is the other thing a user checks a launch for.
 
+An unconditional `env` reaches every process of the jail. A **`profile:`-gated** one reaches
+only the agents whose selected profile satisfies it — the pack's own agent, or, for a pack
+that installs no CLI, every agent that selected that profile — through each agent's own env
+file, and no shell or other agent sees it
+([`providers.md`, the credential gate](providers.md#the-credential-gate)).
+
 An `env` contribution may also declare **`overridden_by`**: what, delivered into the same jail,
 makes a consumer ignore its variables — other variables (all of them delivered, unless one of an
 `unless` list is too), or a `host_files` grant under a home path — each with a `because` the
@@ -1228,8 +1234,9 @@ PATH**, or a launcher would be reachable from the blockers' position.
 #### `provider` and `profile`
 
 A `provider` declares a service's facts — endpoints by protocol, wire protocol, model
-aliases, the *name* of the environment variable holding the credential, and the options a
-profile may tune. A `profile` is a selection and nothing else: `{name, provider}`.
+aliases, the *name* of the environment variable holding the credential (or a list of names,
+for a credential that arrives in several variables; the credential gate delivers each only to
+an agent that selected the provider), and the options a profile may tune. A `profile` is a selection and nothing else: `{name, provider}`.
 Everything a profile used to carry as a body is now an ordinary contribution gated by the
 `profile:` modifier, which is accepted on `env` and `config-overlay` and refused by name on
 every other kind.
