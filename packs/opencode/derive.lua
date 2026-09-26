@@ -193,6 +193,18 @@ yolo.derive("opencode", "config", function(ctx)
           smallID = modelID
         end
         sel.small_model = ctx.selected_provider .. "/" .. smallID
+        -- THE MENU FOLLOWS THE SELECTION (docs/design/provider-credential-scope.md OQ-CN4,
+        -- "both, named separately"): the credential gate withholds every other provider's
+        -- key from opencode, and opencode registers a catalog row without an auth check, so
+        -- without this its menu would still offer providers it can no longer call.
+        -- enabled_providers is opencode's own HARD key — "When set, ONLY these providers
+        -- will be enabled" — so this is the ergonomic half of the ruling, never a model list:
+        -- it names the provider the profile selected and nothing else. It rides the
+        -- selection beside `model` for two reasons: a deselect clears it with the model
+        -- (OQ-PSW2), and it is written only when a model is, since narrowing the providers
+        -- while opencode starts on its own persisted choice would disable the provider that
+        -- choice names.
+        sel.enabled_providers = { ctx.selected_provider }
         res.selection = sel
       end
     end
