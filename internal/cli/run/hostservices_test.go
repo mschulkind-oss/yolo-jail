@@ -713,10 +713,12 @@ func TestConfigLoopholeComesUpBehindFront(t *testing.T) {
 	fillDefaults(o)
 	var buf strings.Builder
 	o.Stdout = &buf
-	// No cgroup delegate (its gate is a PathExists probe), no containers to
-	// enumerate (Ran:false), no journal (absent key).
+	// No cgroup delegate (its gate is a PathExists probe), no journal (absent key), and
+	// a runtime that ANSWERS "no such container": the teardown below removes the sockets
+	// dir only on an answer, so a runtime that cannot be asked (Ran:false) would leave
+	// it in /tmp and fail the last assertion.
 	o.PathExists = func(string) bool { return false }
-	o.Exec = func([]string, string, []string, time.Duration) ExecResult { return ExecResult{} }
+	o.Exec = func([]string, string, []string, time.Duration) ExecResult { return ExecResult{Ran: true} }
 
 	cname := "yolo-e2e-" + sha1Hex8(home)
 	socketsDir := hostServiceSocketsDir(cname, false)

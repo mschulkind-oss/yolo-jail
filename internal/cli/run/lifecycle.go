@@ -170,6 +170,14 @@ func (o *Options) stopJail(cname, rt string) {
 // Conservative — only reaps what it can prove orphaned
 // (a live jail with a dead recorded owner PID). Apple Container has no owner-PID
 // lifecycle yet, so it's a no-op there.
+//
+// The orphan's host-services dir goes with it. Its owner died without its teardown, so
+// nothing else removes the dir, and the endpoint files in it name fronts that died with
+// the owner. It goes through stopLoopholes' own guard stack (the orphan's relaunch lock,
+// then the tri-state existence probe) rather than a bare rmtree, because the orphan's
+// workspace may be relaunching while this reap runs: a relaunch that holds the lock, or
+// whose container exists but is not yet running, keeps the dir
+// (TestReapingAnOrphanKeepsTheDirOfARelaunch).
 func (o *Options) reapOrphanedJails(rt string) {
 	if rt == "container" {
 		return
@@ -191,6 +199,7 @@ func (o *Options) reapOrphanedJails(rt string) {
 		if !o.PIDAlive(pid) {
 			out.printf("[dim]Reaping orphaned jail %s (owner pid %d is gone)...[/dim]", name, pid)
 			o.stopJail(name, rt)
+			o.stopLoopholes(nil, hostServiceSocketsDir(name, o.IsMacOS), name, rt)
 		}
 	}
 }

@@ -1119,16 +1119,22 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// disagree, and the disagreement is what made a daemon nobody's surfaces named. A
 	// jail that does not get the broker's address must not leave a broker running on the
 	// host either.
+	//
+	// THE HOST-SERVICES DIR IS NOT CREATED HERE, and it used to be, on both arms of this
+	// gate. startLoopholesMatching's first statement creates it, broker or no broker, and
+	// that call precedes the container start, so the bind source still exists when podman
+	// needs it. What the second creation here added was a leak: the refusals between this
+	// line and the spawn (a host_files collision, the skeleton, the provider pre-flights…)
+	// never reach stopLoopholes, so each refused launch left an empty
+	// /tmp/yolo-host-services-<8hex> behind (TestARefusedFreshLaunchLeavesNoHostServicesDir,
+	// and TestOnlyTheSpawnCreatesTheHostServicesDir keeps the spawn the only creator).
+	// Every RETURN after the spawn reaches stopLoopholes. A process death does not: no
+	// signal handler is installed until runWithProxy, so Ctrl-C at the reclaim prompt
+	// (maybeOfferReclaim) between the spawn and the proxy exits with the dir in place,
+	// the same outcome as a SIGKILLed launch (docs/reference/jail-home.md).
 	socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
 	if rt != "container" && brokerLoopholeActive(cfg) {
-		mkdirHostServicesDir(socketsDir)
 		o.brokerEnsure()
-	} else if rt != "container" {
-		// The services dir is NOT the broker's — every loophole's endpoint file lands
-		// there and the assembler mounts it unconditionally — so it is created either
-		// way. Folding it into the gate above would leave the mount naming a directory
-		// that does not exist on any launch where the broker is off.
-		mkdirHostServicesDir(socketsDir)
 	}
 
 	// Store-prune gate (host-only; never from inside a jail — an inner CLI can't

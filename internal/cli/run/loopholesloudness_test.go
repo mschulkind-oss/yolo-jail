@@ -77,8 +77,11 @@ func TestStopLoopholesSaysWhenItTearsDownUnlocked(t *testing.T) {
 	var buf strings.Builder
 	o := &Options{Stdout: &buf}
 	fillDefaults(o)
-	// The container check runs after the lock failure and must not shell out.
-	o.Exec = func([]string, string, []string, time.Duration) ExecResult { return ExecResult{} }
+	// The container check runs after the lock failure and must not shell out. It
+	// ANSWERS "no such container" (Ran, exit 0, nothing listed): a runtime that could
+	// not be asked makes the teardown keep the dir, which is a different branch
+	// (TestTeardownRemovesTheHostServicesDirOnlyOnAnAnswer).
+	o.Exec = func([]string, string, []string, time.Duration) ExecResult { return ExecResult{Ran: true} }
 	o.stopLoopholes(nil, socketsDir, "yolo-ws-loud0000", "podman")
 	for _, want := range []string{"Warning", "relaunch lock", "yolo-ws-loud0000", "without it"} {
 		if !strings.Contains(buf.String(), want) {

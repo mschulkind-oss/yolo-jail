@@ -365,9 +365,25 @@ func (o *Options) cgroupDelegateHonored(set loopholes.Set) bool {
 // stopLoopholes tears down handles WITH THE FROZEN GUARD STACK (do not
 // reorder): stop each handle, then — when cname/rt are given — take the
 // per-workspace flock NON-BLOCKING; if busy, a relaunch is mid-flight → leave the
-// sockets dir alone. Else, if the container is STILL RUNNING, leave it alone.
-// Else retire the fronted daemons' host-only upstream sockets and rmtree the
-// sockets dir.
+// sockets dir alone. Else, if a container of this name STILL EXISTS, running or
+// not, or the runtime cannot be asked whether one does, leave it alone. Else
+// retire the fronted daemons' host-only upstream sockets and rmtree the sockets
+// dir.
+//
+// EXISTS, not "is running". A relaunch drops the workspace lock once its container
+// is seen running or once onStarted's bounded poll gives up, whichever comes first,
+// so a relaunch whose container is still `created` can hold no lock and show no
+// running container while its fronts are live and its endpoint files are published
+// here. Only the existence probe (`ps -a`) sees it — the rule forgetGoneContainer
+// already keeps in this same chain.
+//
+// Nothing else publishes into that dir, so "no container of this jail's name
+// exists" is the whole liveness question. A host-wide singleton serving other
+// jails never writes there: its rendezvous is keyed by the loophole name
+// (paths.HostSingletonSocket), and each jail's endpoint file for it is published
+// by that jail's own front, in the yolo process that launched the jail. The one exception is macos-user, whose
+// caller passes no cname and so skips both guards; two sessions of one workspace
+// share the dir there (docs/design/host-daemon-ownership.md, OQ-HD10).
 //
 // THE RELAY REAP THAT USED TO SIT HERE IS GONE with internal/brokerrelay: a
 // SIGTERM-and-wait on a pid file, an unlink of the relay's own socket, and an
@@ -440,14 +456,34 @@ func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt 
 	}()
 
 	if cname != "" {
-		// A MARK, not a span: this findRunningContainer runs podman ps with
-		// timeout 0 (lifecycle.go), so if the runtime hangs here this mark is
-		// the last line in the timing file — the dangling record that names
-		// where the prompt went to die (design H4, OQ-T2).
+		// A MARK, not a span: this probe runs the runtime's ps with timeout 0
+		// (lifecycle.go), so if the runtime hangs here this mark is the last
+		// line in the timing file — the dangling record that names where the
+		// prompt went to die (gap T2 in docs/reference/perf-logging.md, which
+		// owns the bound).
 		o.Perf.Mark("shutdown.container_check")
-		if o.findRunningContainer(cname, rt) != "" {
-			out.printf("[dim]Container %s is still running; leaving its "+
+		// TRI-STATE, not findExistingContainer's collapsed answer, which reads "the
+		// runtime could not be asked" as "no container", and the rmtree below would
+		// then delete a possibly-live jail's endpoint files on no answer at all.
+		//
+		// BOTH early returns also keep the fronted daemons' upstream sockets, on
+		// purpose: frontSocketFile keys them by this jail's hash, which a relaunch of
+		// the workspace reuses, so while a container of this name may exist they may
+		// be a live relaunch's. Declining costs one directory and a few socket files
+		// in /tmp: the next launch of this workspace unlinks each stale endpoint and
+		// upstream socket before its spawn (reportStaleRemoval) and removes both at
+		// its own teardown.
+		id, known := o.probeExistingContainer(cname, rt, 0)
+		if id != "" {
+			out.printf("[dim]Container %s still exists; leaving its "+
 				"sockets dir alone.[/dim]", cname)
+			return
+		}
+		if !known {
+			out.printf("[yellow]Warning: could not ask %s whether container %s still "+
+				"exists; leaving its host-services dir %s in place. The next launch of "+
+				"this workspace reuses it and removes it when that launch ends.[/yellow]",
+				rt, cname, socketsDir)
 			return
 		}
 	}

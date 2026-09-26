@@ -380,15 +380,16 @@ func TestBrokerLifecycleIsGatedOnTheLoopholeRecord(t *testing.T) {
 			"(OQ-2: a nested jail runs its own broker). Nothing on the argv path reads the " +
 			"socket now, so what this still holds is the ENSURE, not its position")
 	}
-	// And the services DIR is created either way: it holds every loophole's endpoint
-	// file and the assembler mounts it unconditionally, so folding it into the gate
-	// would make the mount name a directory that does not exist whenever the broker is
-	// off. Asserted because it is the exact mistake the narrowing invites.
-	if strings.Count(src, "mkdirHostServicesDir(socketsDir)") < 2 {
-		t.Error("mkdirHostServicesDir is inside the broker gate. That directory is not the " +
-			"broker's — every loophole publishes its endpoint file there and the assembler " +
-			"mounts it on every launch — so a jail with the broker off would mount a path " +
-			"that does not exist")
+	// The services DIR is not this gate's business at all any more. It used to be created
+	// on both arms here, and this test counted the two calls so that nobody folded the
+	// creation into the broker gate. The creation moved to startLoopholesMatching, which
+	// makes it on every launch, broker or not, and nowhere else may
+	// (TestOnlyTheSpawnCreatesTheHostServicesDir): a creation up here leaked an empty dir
+	// on every refusal between this line and the spawn.
+	if strings.Contains(src, "mkdirHostServicesDir(") {
+		t.Error("run.go creates the host-services dir again. The spawn (startLoopholesMatching) " +
+			"creates it on every launch; a second, earlier creation leaves an empty " +
+			"/tmp/yolo-host-services-<8hex> behind every refusal that lands before the spawn")
 	}
 	// AND NOTHING SPAWNS A RELAY. The deletion is asserted rather than assumed: a
 	// resurrected per-jail relay would splice the same endpoint file the front now
