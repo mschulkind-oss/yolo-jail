@@ -339,7 +339,9 @@ func buildWheel(bins map[string][]byte, version, platformTag, outputDir, root st
 	}
 
 	distInfo := importName + "-" + version + ".dist-info"
-	files = append(files, fileEntry{distInfo + "/METADATA", []byte(generateMetadata(version, string(readme)))})
+	// PyPI renders this README at pypi.org/project/yolo-jail/, where a repository-relative
+	// link 404s, so its links are pinned to the release tag first (readmelinks.go).
+	files = append(files, fileEntry{distInfo + "/METADATA", []byte(generateMetadata(version, pinReadmeLinks(string(readme), version)))})
 	files = append(files, fileEntry{distInfo + "/WHEEL", []byte(generateWheelMetadata(platformTag))})
 	files = append(files, fileEntry{distInfo + "/entry_points.txt", []byte(generateEntryPoints())})
 	// Apache-2.0 §4 redistribution obligations: ship LICENSE + NOTICE inside the
