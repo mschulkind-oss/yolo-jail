@@ -82,7 +82,8 @@ jobs:
           base="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}"
           if ! sh scripts/changelog-section.sh --link-base "$base" --unwrap "$version" > "$RUNNER_TEMP/notes.md"; then
             echo "::error::${GITHUB_REF_NAME} has no usable CHANGELOG.md section — it was not cut with 'just release'."
-            echo "Delete this tag, write the [${version}] section, and cut it again with: just release ${version}"
+            echo "Nothing was built or published. A tag is never moved, so ${GITHUB_REF_NAME} is not reused:"
+            echo "write the section for the next version and cut that with: just release <next version>"
             exit 1
           fi
           echo "Release notes: $(wc -l < "$RUNNER_TEMP/notes.md") lines from the [${version}] section"
