@@ -215,8 +215,12 @@ func newAWSAuthFixture(t *testing.T, configure func(bin string) string) awsAuthF
 // awsAuthCurlScript curls the pointer from inside the jail and leaves the status on stdout
 // and the body in the workspace, where the host reads it back. It waits for the adapter's
 // port first, because the supervisor starts it at boot and a slow start must not read as a
-// channel fault.
+// channel fault. The pointer is claude's alone under the credential gate (the bedrock profile
+// claims AWS_CONTAINER_CREDENTIALS_FULL_URI; docs/reference/providers.md#the-credential-gate), so
+// the script reads it the way claude's launcher does, by sourcing claude's own env file: a bare
+// shell carries none of it.
 const awsAuthCurlScript = `set -u
+. ~/.config/yolo-agent-env/claude.sh
 uri=${AWS_CONTAINER_CREDENTIALS_FULL_URI:-}
 if [ -z "$uri" ]; then echo "POINTER=unset"; exit 3; fi
 echo "POINTER=$uri"
