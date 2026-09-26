@@ -507,6 +507,9 @@ func TestPrinterColorGate(t *testing.T) {
 // requested AND stdout is a TTY. Piped output (IsTTYStdout=false) stays byte-
 // identical stripped text — the output-parity contract — even with Color=true.
 func TestRunColorGateHonorsTTY(t *testing.T) {
+	// The gate also reads NO_COLOR from the process environment; pinned empty so the
+	// color+TTY case below is not decided by the shell the suite runs in.
+	t.Setenv("NO_COLOR", "")
 	render := func(color, tty bool) string {
 		o, _ := baseOpts(t)
 		o.Color = color
@@ -531,6 +534,35 @@ func TestRunColorGateHonorsTTY(t *testing.T) {
 	}
 	if piped != plain {
 		t.Errorf("piped Color output must be byte-identical to color-off output\ncolor:\n%q\nplain:\n%q", piped, plain)
+	}
+}
+
+// TestRunColorGateHonorsNoColor: Color requested and stdout a TTY, a non-empty
+// NO_COLOR (https://no-color.org) still leaves the report plain — and
+// byte-identical to the color-off run, so the veto costs nothing but the escapes.
+// The unset case is the control: it must color, or the veto passes vacuously.
+func TestRunColorGateHonorsNoColor(t *testing.T) {
+	render := func(color bool, noColor string) string {
+		t.Setenv("NO_COLOR", noColor)
+		o, _ := baseOpts(t)
+		o.Color = color
+		o.IsTTYStdout = func() bool { return true }
+		var buf bytes.Buffer
+		o.Out = &buf
+		Run(o)
+		return buf.String()
+	}
+	if got := render(true, ""); !strings.Contains(got, "\x1b[") {
+		t.Fatalf("control: Color+TTY with NO_COLOR unset emitted no ANSI:\n%q", got)
+	}
+	vetoed := render(true, "1")
+	if strings.Contains(vetoed, "\x1b[") {
+		t.Errorf("NO_COLOR=1 did not disable prune's color — the gate no longer consults "+
+			"tty.Color:\n%q", vetoed)
+	}
+	if plain := render(false, "1"); vetoed != plain {
+		t.Errorf("NO_COLOR output must be byte-identical to color-off output\nvetoed:\n%q\nplain:\n%q",
+			vetoed, plain)
 	}
 }
 

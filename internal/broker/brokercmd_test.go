@@ -297,6 +297,50 @@ func TestColorMarkupRendersANSI(t *testing.T) {
 	}
 }
 
+// TestColorMarkupHonorsNoColor is TestColorMarkupRendersANSI with NO_COLOR set:
+// the same `status` report, requested and on a terminal, stays plain when the
+// NO_COLOR convention (https://no-color.org) asks. The unset run is the control.
+//
+// MUTATION: restore `deps.Color && deps.IsTTYStdout()` in newPrinter and the
+// NO_COLOR run fails.
+func TestColorMarkupHonorsNoColor(t *testing.T) {
+	for _, tc := range []struct {
+		noColor  string
+		wantANSI bool
+	}{{"", true}, {"1", false}} {
+		t.Setenv("NO_COLOR", tc.noColor)
+		st := &lifeState{alive: map[int]bool{1: true}, reachOK: true}
+		deps, buf := newDeps(t, st)
+		deps.Color = true
+		deps.IsTTYStdout = func() bool { return true }
+		_ = os.WriteFile(deps.Life.PIDFilePath, []byte("1\n"), 0o644)
+		_ = os.WriteFile(deps.Life.SocketPath, nil, 0o644)
+		PrintStatus(deps)
+		if got := strings.Contains(buf.String(), "\x1b["); got != tc.wantANSI {
+			t.Errorf("NO_COLOR=%q: status carries ANSI = %v, want %v:\n%q",
+				tc.noColor, got, tc.wantANSI, buf.String())
+		}
+	}
+}
+
+// TestSingletonDepsColorHonorsNoColor pins the OTHER broker gate: SingletonDeps
+// resolves the lifecycle engine's Color once, at construction, and that decision
+// must go through tty.Color too — a terminal colors, NO_COLOR does not.
+func TestSingletonDepsColorHonorsNoColor(t *testing.T) {
+	saved := isTTYStdoutReal
+	isTTYStdoutReal = func() bool { return true }
+	t.Cleanup(func() { isTTYStdoutReal = saved })
+
+	t.Setenv("NO_COLOR", "")
+	if !SingletonDeps("yjtest-color", nil).Color {
+		t.Fatal("control: on a terminal with NO_COLOR unset, SingletonDeps did not request color")
+	}
+	t.Setenv("NO_COLOR", "1")
+	if SingletonDeps("yjtest-color", nil).Color {
+		t.Error("NO_COLOR=1: SingletonDeps still requested color — its gate no longer consults tty.Color")
+	}
+}
+
 // TestColorGate exercises the TTY gate on the printer directly: markup renders
 // to ANSI only when Color AND IsTTYStdout() are both true; otherwise style tags
 // are stripped to plain text with NO escapes, and literal brackets like [y/N]

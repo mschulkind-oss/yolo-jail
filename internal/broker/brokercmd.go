@@ -289,17 +289,18 @@ type printer struct{ rt richtext.Printer }
 func (p printer) print(msg string)               { p.rt.Print(msg) }
 func (p printer) printf(format string, a ...any) { p.rt.Printf(format, a...) }
 
-// newPrinter builds a printer for deps.Out, resolving the color gate: ANSI is
-// emitted only when deps.Color is set AND stdout is a real terminal, so a
-// pipe/redirect stays clean.
+// newPrinter builds a printer for deps.Out, resolving the color gate through
+// tty.Color: ANSI is emitted only when deps.Color is set AND stdout is a real
+// terminal AND NO_COLOR is unset or empty, so a pipe/redirect stays clean.
 func newPrinter(deps CLIDeps) printer {
-	color := deps.Color && deps.IsTTYStdout != nil && deps.IsTTYStdout()
+	color := tty.Color(nil, deps.Color, deps.IsTTYStdout != nil && deps.IsTTYStdout())
 	return printer{rt: richtext.Printer{W: deps.Out, Color: color}}
 }
 
 // isTTYStdoutReal reports whether os.Stdout is a real terminal (the shared
 // internal/tty ioctl probe), mirroring builder/macosuser real-Deps, so color
-// reaches only a terminal.
-func isTTYStdoutReal() bool {
+// reaches only a terminal. A var so a test can stand a terminal in for the
+// pipe `go test` gives it, and so reach SingletonDeps' own color decision.
+var isTTYStdoutReal = func() bool {
 	return tty.IsTerminalFile(os.Stdout)
 }

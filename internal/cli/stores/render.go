@@ -9,6 +9,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
 // renderText writes the human inventory: a frame header, one section per store
@@ -20,7 +21,8 @@ import (
 // is the columns, because the questions differ — prune answers "what would go",
 // this answers "what is there, and does anything own it".
 func renderText(rep Report, o Options) {
-	p := printer{richtext.Printer{W: o.Out, Color: o.Color && o.IsTTYStdout()}}
+	// The one color gate: requested, stdout a terminal, and no NO_COLOR veto.
+	p := printer{richtext.Printer{W: o.Out, Color: tty.Color(nil, o.Color, o.IsTTYStdout())}}
 
 	p.line("[bold]yolo stores[/bold]  (inventory — this command deletes, moves and mutates nothing)")
 	p.line(fmt.Sprintf("Frame: [bold]%s[/bold] — %s", rep.Frame, rep.FrameNote))

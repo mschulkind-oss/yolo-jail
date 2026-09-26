@@ -15,6 +15,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
+	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
@@ -24,12 +25,13 @@ import (
 func Check(opts Options) int {
 	fillDefaults(&opts)
 	o := &opts
-	// Gate color on a real terminal: o.Color merely requests it, but ANSI must
-	// never leak to a pipe/redirect (the cli-color-audit gate rule). The
+	// Gate color through the one gate (tty.Color): o.Color merely requests it,
+	// ANSI must never leak to a pipe/redirect (the cli-color-audit gate rule),
+	// and a non-empty NO_COLOR in o.Getenv's environment vetoes it. The
 	// injectable IsTTYStdout seam defaults to the shared ioctl probe on
 	// os.Stdout; a test buffer or a redirect reports false, so goldens stay
-	// Color=false. Mirrors run's `Color && IsTTYStdout()`.
-	color := o.Color && o.IsTTYStdout()
+	// Color=false. Mirrors run's gate.
+	color := tty.Color(o.Getenv, o.Color, o.IsTTYStdout())
 	// In JSON mode the human report is DISCARDED, not reshaped (outfmt.Sink), and
 	// color goes with it — there is no terminal to decorate. The sections are
 	// unchanged and still run; only where their prose lands changes.

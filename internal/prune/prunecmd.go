@@ -41,6 +41,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
 // Options configures a prune Run. The seams (Exec, Now, DetectRuntime, path
@@ -76,13 +77,14 @@ type Options struct {
 	Format string // --format json
 	// --- seams ---
 	// Color requests ANSI styling. It is honored ONLY when stdout is a real
-	// terminal (Color && IsTTYStdout()): piped/redirected output stays byte-
-	// identical stripped text, so parity is on the ANSI-stripped text and the
-	// numbers/decisions/lists are identical regardless (goldens pin Color=false).
+	// terminal and NO_COLOR is unset or empty (tty.Color, the one gate):
+	// piped/redirected output stays byte-identical stripped text, so parity is on
+	// the ANSI-stripped text and the numbers/decisions/lists are identical
+	// regardless (goldens pin Color=false).
 	Color bool
-	// IsTTYStdout reports whether stdout is a real terminal. nil => a real
-	// os.Stdout isatty probe (the same TCGETS ioctl the run package uses, NOT a
-	// char-device mode check). Injectable so tests drive the color gate directly.
+	// IsTTYStdout reports whether stdout is a real terminal. nil => the shared
+	// internal/tty ioctl probe on os.Stdout (NOT a char-device mode check).
+	// Injectable so tests drive the color gate directly.
 	IsTTYStdout func() bool
 	// Out is where the report is written. nil => os.Stdout.
 	Out io.Writer
@@ -228,7 +230,7 @@ func fillDefaults(o *Options) {
 		o.Out = os.Stdout
 	}
 	if o.IsTTYStdout == nil {
-		o.IsTTYStdout = func() bool { return isTTY(os.Stdout) }
+		o.IsTTYStdout = func() bool { return tty.IsTerminalFile(os.Stdout) }
 	}
 	if o.DetectRuntime == nil {
 		o.DetectRuntime = func() string {
@@ -316,14 +318,15 @@ const (
 // code (always 0 — prune never fails the process).
 func Run(opts Options) int {
 	fillDefaults(&opts)
-	// Honest color gate: ANSI only when requested AND stdout is a real terminal,
-	// so piped output stays plain stripped text (the output contract).
+	// Honest color gate: ANSI only when requested AND stdout is a real terminal
+	// AND NO_COLOR does not veto it (tty.Color), so piped output stays plain
+	// stripped text (the output contract).
 	// In JSON mode the human report is DISCARDED, not reshaped (jsonSink): the
 	// text form is the contract existing readers have, and the same single pass
 	// fills the report struct on the side. Color goes with it — there is no
 	// terminal to decorate.
 	p := &printer{richtext.Printer{W: outfmt.Sink(opts.Out, opts.Format),
-		Color: opts.Color && !outfmt.IsJSON(opts.Format) && opts.IsTTYStdout()}}
+		Color: tty.Color(nil, opts.Color && !outfmt.IsJSON(opts.Format), opts.IsTTYStdout())}}
 	apply := opts.Apply
 
 	rt := opts.DetectRuntime()

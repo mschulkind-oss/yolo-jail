@@ -148,3 +148,41 @@ func TestWarnIfNoPacksKeysOffPacksNotAgents(t *testing.T) {
 		t.Errorf("notice missing the no-agent claim:\n%s", got)
 	}
 }
+
+// TestLaunchNoticesHonorNoColor drives a real launch notice (the no-packs notice,
+// through Options.pr) with color requested and a terminal: it colors when the
+// launch environment has no NO_COLOR, and stays plain when NO_COLOR is set
+// (https://no-color.org). The environment is o.Getenv — the one every launch
+// decision reads — so the fixture's fake environment is what the gate sees.
+//
+// MUTATION: restore `o.Color && o.IsTTYStdout()` in Options.pr and the NO_COLOR
+// case fails; the unset case is the control that keeps it from passing vacuously.
+func TestLaunchNoticesHonorNoColor(t *testing.T) {
+	for _, tc := range []struct {
+		noColor  string
+		wantANSI bool
+	}{{"", true}, {"1", false}} {
+		userPacksConfig(t, `{}`)
+		var errBuf bytes.Buffer
+		o := goldenOptions("/ws", t.TempDir())
+		o.Stderr = &errBuf
+		o.Stdout = discardBuf()
+		o.Color = true
+		o.IsTTYStdout = func() bool { return true }
+		o.Getenv = func(k string) string {
+			if k == "NO_COLOR" {
+				return tc.noColor
+			}
+			return ""
+		}
+		o.warnIfNoPacks()
+		got := errBuf.String()
+		if !strings.Contains(got, "no coding agent") {
+			t.Fatalf("NO_COLOR=%q: the notice itself is missing:\n%q", tc.noColor, got)
+		}
+		if hasANSI := strings.Contains(got, "\x1b["); hasANSI != tc.wantANSI {
+			t.Errorf("NO_COLOR=%q: notice carries ANSI = %v, want %v:\n%q",
+				tc.noColor, hasANSI, tc.wantANSI, got)
+		}
+	}
+}

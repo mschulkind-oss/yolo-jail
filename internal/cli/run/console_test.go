@@ -21,7 +21,10 @@ const (
 func TestPrinterColorGating(t *testing.T) {
 	mk := func(color, tty bool) string {
 		var b strings.Builder
-		o := &Options{Color: color, IsTTYStdout: func() bool { return tty }, Stdout: &b}
+		// Getenv pinned: the gate reads NO_COLOR through it, so an unpinned (nil) seam
+		// would make this test's answer the environment the suite runs in.
+		o := &Options{Color: color, IsTTYStdout: func() bool { return tty }, Stdout: &b,
+			Getenv: func(string) string { return "" }}
 		o.pr(&b).print("[green]hi[/green]")
 		return b.String()
 	}
@@ -49,6 +52,7 @@ func TestConfigDiffColored(t *testing.T) {
 		Color:       true,
 		IsTTYStdout: func() bool { return true },
 		IsTTYStdin:  func() bool { return true },
+		Getenv:      func(string) string { return "" }, // no ambient NO_COLOR
 		Stdout:      &out,
 		Stdin:       strings.NewReader("y\n"),
 	}

@@ -50,6 +50,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/execx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
 // BrokerSingletonSocket / BrokerSingletonPIDFile / BrokerSingletonLock are the Claude
@@ -232,7 +233,9 @@ func SingletonDeps(name string, argv []string) Deps {
 		Pgrep:      RealPgrepStrays,
 		Spawn:      realSpawn,
 		Out:        os.Stdout,
-		Color:      isTTYStdoutReal(),
+		// Resolved here, through the one gate, because this layer never probes
+		// the terminal again (see Deps.Color).
+		Color: tty.Color(nil, true, isTTYStdoutReal()),
 	}
 }
 

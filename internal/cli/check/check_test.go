@@ -146,6 +146,36 @@ func TestColorGatedOnTTY(t *testing.T) {
 	}
 }
 
+// TestColorHonorsNoColor is the NO_COLOR half of the gate, driven through Check
+// itself: color requested and a terminal, but a non-empty NO_COLOR in the
+// injected environment still leaves the report plain (https://no-color.org).
+// The control run must color, or the veto assertion would pass on a report that
+// never colored at all.
+func TestColorHonorsNoColor(t *testing.T) {
+	run := func(noColor string) string {
+		t.Setenv("HOME", t.TempDir())
+		var out bytes.Buffer
+		o := baseOptions(t, &out)
+		o.Color = true
+		o.IsTTYStdout = func() bool { return true }
+		o.Getenv = func(k string) string {
+			if k == "NO_COLOR" {
+				return noColor
+			}
+			return ""
+		}
+		Check(o)
+		return out.String()
+	}
+	if got := run(""); !strings.Contains(got, "\x1b[") {
+		t.Fatalf("control: Color=true on a terminal with NO_COLOR unset rendered no ANSI:\n%q", got)
+	}
+	if got := run("1"); strings.Contains(got, "\x1b[") {
+		t.Errorf("NO_COLOR=1 did not disable check's color — its gate no longer consults "+
+			"tty.Color:\n%q", got)
+	}
+}
+
 // TestExitCodePolarity checks the 0/1 exit contract on a clean fixture (a live
 // podman + resolvable repo + valid config => no failures => exit 0 is hard to
 // fabricate without a real repo; instead assert the no-fail path returns 0 by

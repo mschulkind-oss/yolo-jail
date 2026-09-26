@@ -260,3 +260,32 @@ func TestAnUnreadableStoreDoesNotFailTheCommand(t *testing.T) {
 		t.Errorf("recorded %+v, want one sample marked unknown", samples)
 	}
 }
+
+// TestRunHonorsNoColor drives Run's text report through its one color gate
+// (tty.Color): requested and on a terminal it colors, and a non-empty NO_COLOR
+// (https://no-color.org) turns that off. The first case is the control — without
+// it, a report that never colored would pass the veto case.
+//
+// MUTATION: restore `o.Color && o.IsTTYStdout()` in renderText and the NO_COLOR
+// case fails.
+func TestRunHonorsNoColor(t *testing.T) {
+	for _, tc := range []struct {
+		noColor  string
+		wantANSI bool
+	}{{"", true}, {"1", false}} {
+		t.Setenv("NO_COLOR", tc.noColor)
+		o, _ := testOptions(t)
+		o.NoRecord = true
+		o.Color = true
+		o.IsTTYStdout = func() bool { return true }
+		out := new(strings.Builder)
+		o.Out = out
+
+		Run(o)
+
+		if got := strings.Contains(out.String(), "\x1b["); got != tc.wantANSI {
+			t.Errorf("NO_COLOR=%q: report carries ANSI = %v, want %v:\n%q",
+				tc.noColor, got, tc.wantANSI, out.String())
+		}
+	}
+}

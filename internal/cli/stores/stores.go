@@ -139,7 +139,8 @@ type Options struct {
 	// Errs is where a diagnostic goes (never a store figure). nil => os.Stderr.
 	Errs io.Writer
 	// Color requests ANSI styling, honored only when IsTTYStdout() as well, so
-	// piped output stays byte-stable plain text.
+	// piped output stays byte-stable plain text, and only when NO_COLOR is
+	// unset or empty (tty.Color, the one gate).
 	Color       bool
 	IsTTYStdout func() bool
 	// Now is the clock seam (sample timestamps, walk deadlines, growth rates).
