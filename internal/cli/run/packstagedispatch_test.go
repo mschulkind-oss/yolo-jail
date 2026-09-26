@@ -147,29 +147,66 @@ func TestPackRootIsEmptyWhenNoPacksAreConfigured(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
 
+	// Read inside the backend call: the launch's pack tree is its own and goes when Run returns.
 	var got string
+	var entries []os.DirEntry
+	var readErr error
 	gotSet := false
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, packRoot, _ string, _ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		got, gotSet = packRoot, true
+		entries, readErr = os.ReadDir(got)
 		return 0
 	}
 	Run(*o)
 	if !gotSet {
 		t.Fatal("Run() never reached the macos-user handler")
 	}
-	// stagePacks still creates its root (the container path binds it unconditionally),
-	// so what is asserted here is that the ROOT IS EMPTY of packs — the backend gets a
-	// tree with nothing in it, and the plan builder is what turns that into "none".
-	entries, err := os.ReadDir(got)
-	if err != nil {
-		t.Fatalf("staged root %s: %v", got, err)
+	// stagePacks still creates its tree (the container path binds it unconditionally),
+	// so what is asserted here is that the TREE IS EMPTY of packs — the backend gets a
+	// tree with no pack in it, and the plan builder is what turns that into "none". The
+	// tree's own record (packTreeRecordName) is a file the jail's loader skips.
+	if readErr != nil {
+		t.Fatalf("staged root %s: %v", got, readErr)
 	}
-	if len(entries) != 0 {
-		var names []string
-		for _, e := range entries {
+	var names []string
+	for _, e := range entries {
+		if e.Name() != packTreeRecordName {
 			names = append(names, e.Name())
 		}
+	}
+	if len(names) != 0 {
 		t.Errorf("no packs configured but the staged root holds %v", names)
+	}
+}
+
+// TestAMacosUserLaunchDiscardsItsPackTreeAtReturn: on macos-user the sandbox copies the launch's
+// pack tree at its bootstrap and the host daemons that read from it stop when the arm returns,
+// so nothing holds the tree afterwards and Run removes it (discardUnheldPackTree, deferred in
+// Run). Without that every native launch left one tree behind under AGENTS_DIR/<cname>.
+func TestAMacosUserLaunchDiscardsItsPackTreeAtReturn(t *testing.T) {
+	home := packHome(t)
+	writeUserPacks(t, home, `["claude"]`)
+	ws := t.TempDir()
+
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
+	o.DryRun = true
+	var got string
+	existed := false
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, packRoot, _ string, _ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+		got = packRoot
+		existed = isDir(filepath.Join(packRoot, officialStagingDir, "claude"))
+		return 0
+	}
+	if rc := Run(*o); rc != 0 {
+		t.Fatalf("Run() = %d\nstdout:\n%s\nstderr:\n%s", rc, stdout.String(), stderr.String())
+	}
+	if !existed {
+		t.Fatalf("the backend was handed %q with no claude staged in it, so this test proves nothing", got)
+	}
+	if _, err := os.Stat(got); !os.IsNotExist(err) {
+		t.Errorf("the launch's pack tree %s outlived the launch (%v); nothing holds it once the "+
+			"macos-user arm has returned", got, err)
 	}
 }
 

@@ -360,8 +360,8 @@ func (o *Options) reapSmallAutomaticClasses(rt, launchingCname string) {
 	// briefing its next start would have reused.
 	//
 	// ⚠ THIS LAUNCH'S OWN NAME, because the sweep ran inside the launch that had
-	// just staged into that directory. stagePacks writes AGENTS_DIR/<cname>/packs
-	// early (run.go), the container is not created until the very end, and this slot
+	// just staged into that directory. stagePacks writes its pack tree under
+	// AGENTS_DIR/<cname> early (run.go), the container is not created until the very end, and this slot
 	// sits between them — so the jail was neither live nor tracked at exactly the
 	// moment its own staging was judged an orphan. Measured 2026-09-09 on a real
 	// host: `Error: statfs …/agents/yolo-yolo-jail-887995ca/packs: no such file or

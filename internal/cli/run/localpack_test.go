@@ -65,12 +65,14 @@ func TestJailStagesTheLocalPack(t *testing.T) {
 //
 // It matches on the STAGING slug rather than on `~/.config/yolo-jail/local`, because the jail
 // path stages every configured pack through packstage: the source handed to skills staging is
-// the staged copy under <agents>/<cname>/packs/<slug>/skills, never the original tree. Keying
-// on the original path is what made the first cut of these tests fail while the feature worked.
+// the staged copy in the launch's own pack tree, <agents>/<cname>/pack-trees/<tree>/<slug>/skills,
+// never the original tree. Keying on the original path is what made the first cut of these tests
+// fail while the feature worked.
 func stagedLocalPackDir(dirs []string) string {
-	want := filepath.Join("packs", config.LocalPackName, "skills")
+	want := string(filepath.Separator) + filepath.Join(config.LocalPackName, "skills")
 	for _, d := range dirs {
-		if strings.HasSuffix(d, want) {
+		tree := filepath.Dir(filepath.Dir(d))
+		if strings.HasSuffix(d, want) && filepath.Base(filepath.Dir(tree)) == "pack-trees" {
 			return d
 		}
 	}

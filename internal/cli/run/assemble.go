@@ -67,9 +67,10 @@ type assembleInput struct {
 	// source; every construction that leaves it empty is a test.
 	jailPrefix jailPrefix
 	agentsPath string // AGENTS_DIR/<cname> (briefings + skills staging)
-	// packStaging is AGENTS_DIR/<cname>/packs — the staged pack trees the entrypoint
-	// renders from, so it sees the same declarations the host read. Delivered :ro at
-	// /ctx/packs on podman and as a per-launch COPY under ws_state on Apple Container,
+	// packStaging is this launch's own pack tree (packtree.go: one per launch under
+	// AGENTS_DIR/<cname>/pack-trees, never edited afterwards) — the staged packs the
+	// entrypoint renders from, so it sees the same declarations the host read. Delivered :ro
+	// at /ctx/packs on podman and as a per-launch COPY under ws_state on Apple Container,
 	// which ignored :ro below acROBindsFloor; either way the jail is TOLD where by YOLO_PACK_ROOT.
 	packStaging string
 	// capturesDir is the machine-wide install-capture store (paths.CapturesDir), bound
@@ -790,22 +791,21 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// ⚠ THE `:ro` HALF DOES NOT SURVIVE ON APPLE CONTAINER, and the arm below says what
 	// replaces it. Below acROBindsFloor that backend accepts `-v src:dest:ro` and IGNORES the suffix
 	// (roBindsUnsupported), so there is no read-only bind to fall back to — a bind would
-	// hand the jail WRITE access to the launcher's own AGENTS_DIR/<cname>/packs, which is
-	// the tree the HOST reads next launch, which is the escalation above happening rather
-	// than being prevented. So the tree is COPIED into ws_state instead: the copy is
-	// rebuilt from the host tree on every launch and host-side composition never reads
-	// it, so the next boot's grants are decided from bytes the jail cannot reach. What is
+	// hand the jail WRITE access to the launcher's own pack tree, which is the tree the HOST
+	// reads again on every attach to this jail (runningJailPackView), which is the escalation
+	// above happening rather than being prevented. So the tree is COPIED into ws_state
+	// instead: the copy is made from the host tree at the fresh launch and host-side
+	// composition never reads it, so what an attach composes is decided from bytes the jail
+	// cannot reach. What is
 	// genuinely lost is within-session integrity of the jail's own copy — an agent can
 	// rewrite the manifests it renders its OWN surfaces from, which is a subset of what it
 	// can already do by writing its own home.
 	//
-	// THE SECOND THING A COPY LOSES IS THE ATTACH REFRESH, and it is named rather than
-	// hidden: a bind makes a re-staged tree visible under a LIVE jail, so dropping a pack
-	// from config and re-attaching stops delivering it (pruneDroppedPackStaging's own
-	// comment relies on that). This arm runs only on a fresh launch, so on Apple Container
-	// a live jail keeps the copy it booted with until the next one. Strictly better than
-	// the tree never arriving at all, which is what this branch used to do, and re-staging
-	// under a live jail is the attach path's call to make, not the assembler's.
+	// A COPY USED TO LOSE THE ATTACH REFRESH, which a bind carried: an attach re-staged the
+	// tree a podman jail binds. Nothing refreshes it now on either backend (OQ-PK2 (c),
+	// packtree.go): a running jail keeps the pack tree it booted with, so this arm running
+	// only on a fresh launch is the same behavior podman has. The host keeps the tree the copy
+	// was made from until the container is known gone, since an attach reads it.
 	if in.packStaging != "" {
 		if rt == "container" { // parity: HonoredBy — the jail still gets the pack tree, as a per-launch ws_state COPY rather than a :ro bind AC would ignore
 			if err := acMaterializeTree(in.packStaging, acPackRootRel, in.wsState); err != nil {

@@ -86,9 +86,9 @@ const (
 // ADDING A CONTRACT is up to three edits, all in this file: the tag's constant, its entry
 // here, and, only when some attach depends on it, a need in attachContractFor. A contract no
 // attach asks about still belongs here, since the tag is what a LATER build's attach will read
-// to learn this jail has it. The per-launch pack trees of pack-system.md's OQ-PK2 are the next
-// candidate: an attach that stops re-staging needs a tag only if it must treat a jail that still
-// binds the shared staging differently.
+// to learn this jail has it. The per-launch pack trees of pack-system.md's OQ-PK2 needed none: an
+// attach no longer writes any pack tree, so it asks nothing of the jail's binaries, and it finds
+// the tree an older jail binds on the host side (packtree.go's runningJailPackTree).
 var launchContractTags = []string{contractEntryChannel, contractAgentEnvFiles}
 
 // launchContractTagsValue is ContractTagsEnv's value for a launch: the tags, comma-joined.

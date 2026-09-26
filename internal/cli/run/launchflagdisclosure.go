@@ -100,3 +100,36 @@ func (o *Options) noteLaunchFlagInjection(inj *packload.LaunchInjection) {
 	out.print("[yellow]  yolo will run: " + shquoteJoin(inj.After) + "[/yellow]")
 	out.print("[yellow]  added by pack " + inj.Pack + ": " + strings.Join(inj.Flags, " ") + "[/yellow]")
 }
+
+// injectLaunchFlagsForAttach is the injection for an attach into a jail whose packs differ from
+// the configured ones (OQ-PK2 (c): the jail keeps the packs it booted with, and its own launch
+// flags are the ones that apply to a command exec'd in it). It returns the command the attach
+// runs, built exactly as runContainer builds targetCmd.
+//
+// It discloses ONLY WHEN THE ATTACH'S COMMAND DIFFERS from disclosed, the one Run built and
+// already disclosed from the configured packs: a second copy of an identical disclosure is noise,
+// and a command that changed is the one fact the reader needs. When the jail's packs add nothing
+// where the configured ones did, that is said too, since the line above it promised a flag.
+//
+// The one other caller of the injector, and inside this file for the reason the wrapper is: the
+// rewrite is reachable only through a path that has disclosed it
+// (TestLaunchFlagInjectionHasOneDisclosedCallSite).
+func (o *Options) injectLaunchFlagsForAttach(packs []*packload.Pack, argv []string, disclosed string) string {
+	if len(argv) == 0 {
+		return disclosed
+	}
+	out, inj := packload.InjectLaunchFlags(packs, argv)
+	cmd := shquoteJoin(out)
+	if cmd == disclosed {
+		return cmd
+	}
+	if inj != nil {
+		o.pr(o.Stderr).print("[bold yellow]This jail keeps the packs it booted with, so for this " +
+			"attach:[/bold yellow]")
+		o.noteLaunchFlagInjection(inj)
+	} else {
+		o.pr(o.Stderr).print("[yellow]This jail keeps the packs it booted with, and they add no " +
+			"launch flag: this attach runs " + cmd + " as you typed it.[/yellow]")
+	}
+	return cmd
+}

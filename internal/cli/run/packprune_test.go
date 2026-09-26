@@ -1,25 +1,25 @@
 package run
 
-// packprune_test.go pins the prune half of "the MOUNT is the filter" for CONFIGURED
-// packs: a slug the config no longer names must lose its staged tree.
+// packprune_test.go pins "the MOUNT is the filter" under ONE PACK TREE PER LAUNCH
+// (packtree.go, docs/reference/pack-system.md#oq-pk2): a pack the config no longer selects is
+// absent from the next launch's tree, and staging never touches a tree another launch staged.
 //
-// This is not a tidiness property. The in-jail entrypoint renders every pack it finds
-// under YOLO_PACK_ROOT and cannot read the config to learn which ones were selected, so a
-// leftover staging dir is a fully ACTIVE pack — its surfaces render, its hooks run, its
-// shims generate. That is how the bug was found: a deleted test pack kept regenerating a
-// broken `fzf` shim across launches, after the user had removed both the pack and its
-// config entry.
+// This is not a tidiness property. The in-jail entrypoint renders every pack it finds under
+// YOLO_PACK_ROOT and cannot read the config to learn which ones were selected, so a leftover
+// directory in a staged tree is a fully ACTIVE pack — its surfaces render, its hooks run, its
+// shims generate. That is how the original bug was found: a deleted test pack kept
+// regenerating a broken `fzf` shim across launches, after the user had removed both the pack
+// and its config entry. The shared tree needed two prunes to keep that from happening; a fresh
+// tree per launch needs none, and these tests are what hold it to that.
 
 import (
 	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/config"
-	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // localPackDir writes a minimal local pack (manifest + one marker file) and returns its
@@ -40,205 +40,176 @@ func localPackDir(t *testing.T, name string) string {
 	return root
 }
 
-// stagingOptions returns Options whose console output is captured, so a test can assert
-// the prune REPORTS what it removed (no silent caps) as well as that it removed it.
+// stagingOptions returns Options whose console output is captured.
 func stagingOptions(t *testing.T) (*Options, *bytes.Buffer) {
 	t.Helper()
 	var out bytes.Buffer
 	return &Options{Workspace: t.TempDir(), Stdout: &out}, &out
 }
 
-// TestStagePacksPrunesDroppedConfiguredPack is the defect itself: `stagePacks` cleared
-// _official and only _official, so removing a USER's pack from `packs` left its staged
-// copy behind and it kept rendering forever.
-func TestStagePacksPrunesDroppedConfiguredPack(t *testing.T) {
+// packTreesUnder lists the tree directories under cname's pack-tree root.
+func packTreesUnder(t *testing.T, cname string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(paths.PackTreeRoot(cname))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, e := range entries {
+		if e.IsDir() {
+			out = append(out, filepath.Join(paths.PackTreeRoot(cname), e.Name()))
+		}
+	}
+	return out
+}
+
+// TestADroppedConfiguredPackIsAbsentFromTheNextTree is the defect itself, under the new model:
+// removing a USER's pack from `packs` must stop it rendering at the next launch. The next
+// launch stages a NEW tree that holds only what it selected, and the earlier launch's tree —
+// which a running jail may still bind — is left exactly as it was.
+func TestADroppedConfiguredPackIsAbsentFromTheNextTree(t *testing.T) {
 	home := packHome(t)
 	keep := localPackDir(t, "keeper")
 	drop := localPackDir(t, "dropped")
 	writeUserPacks(t, home, `["file://`+keep+`", "file://`+drop+`"]`)
 
-	o, out := stagingOptions(t)
-	stagingRoot, loaded, _, err := o.stagePacks("yolo-test-prune")
+	o, _ := stagingOptions(t)
+	first, loaded, _, err := o.stagePacks("yolo-test-prune")
 	if err != nil {
-		t.Fatalf("first pass: %v", err)
+		t.Fatalf("first launch: %v", err)
 	}
 	if len(loaded) != 2 {
-		t.Fatalf("first pass: want 2 packs staged, got %d", len(loaded))
+		t.Fatalf("first launch: want 2 packs staged, got %d", len(loaded))
 	}
 	for _, slug := range []string{"keeper", "dropped"} {
-		if !isDir(filepath.Join(stagingRoot, slug)) {
-			t.Fatalf("first pass did not stage %s", slug)
+		if !isDir(filepath.Join(first, slug)) {
+			t.Fatalf("first launch did not stage %s", slug)
 		}
 	}
+	before := snapshotTree(t, first, nil)
 
-	// Drop one. The tree of the pack that is gone must go with it; the other must be
-	// untouched and still carry its content.
 	writeUserPacks(t, home, `["file://`+keep+`"]`)
-	out.Reset()
-	stagingRoot, loaded, _, err = o.stagePacks("yolo-test-prune")
+	second, loaded, _, err := o.stagePacks("yolo-test-prune")
 	if err != nil {
-		t.Fatalf("second pass: %v", err)
+		t.Fatalf("second launch: %v", err)
+	}
+	if second == first {
+		t.Fatalf("the second launch staged into the first launch's tree %s; every launch must "+
+			"stage a tree of its own", first)
+	}
+	if filepath.Dir(second) != paths.PackTreeRoot("yolo-test-prune") {
+		t.Fatalf("the tree %s is not under the pack-tree root %s", second, paths.PackTreeRoot("yolo-test-prune"))
 	}
 	if len(loaded) != 1 || loaded[0].Name != "keeper" {
-		t.Fatalf("second pass: want [keeper], got %d packs", len(loaded))
+		t.Fatalf("second launch: want [keeper], got %d packs", len(loaded))
 	}
-	if _, statErr := os.Stat(filepath.Join(stagingRoot, "dropped")); !os.IsNotExist(statErr) {
-		t.Errorf("the dropped pack's staged tree survived (%v) — the entrypoint renders every "+
-			"pack under YOLO_PACK_ROOT, so it would still generate shims and run hooks", statErr)
+	if _, statErr := os.Stat(filepath.Join(second, "dropped")); !os.IsNotExist(statErr) {
+		t.Errorf("the dropped pack is in the next launch's tree (%v) — the entrypoint renders "+
+			"every pack under YOLO_PACK_ROOT, so it would still generate shims and run hooks", statErr)
 	}
-	if body, rerr := os.ReadFile(filepath.Join(stagingRoot, "keeper", "marker.txt")); rerr != nil ||
+	if body, rerr := os.ReadFile(filepath.Join(second, "keeper", "marker.txt")); rerr != nil ||
 		strings.TrimSpace(string(body)) != "keeper" {
-		t.Errorf("the KEPT pack's content did not survive the prune: %v / %q", rerr, body)
+		t.Errorf("the KEPT pack's content is not in the next tree: %v / %q", rerr, body)
 	}
-	// NO SILENT CAPS: the user has to be able to see that the deactivation took.
-	if !strings.Contains(out.String(), "dropped") {
-		t.Errorf("prune did not report the removed pack; a user who dropped one would be left "+
-			"wondering whether it is still active:\n%s", out.String())
+	if d := diffSnapshots(before, snapshotTree(t, first, nil)); len(d) != 0 {
+		t.Errorf("the second launch's staging changed the first launch's tree, which a running "+
+			"jail may bind:\n  %s", strings.Join(d, "\n  "))
 	}
 }
 
-// TestStagePacksKeepsUnresolvableFetchedPack is the constraint that rules out the simpler
-// clear-everything-and-restage: a fetched pack that could not be reached THIS launch is
-// still configured, so its staged tree must survive. Wiping it would silently discard
-// content the user still wants on every offline launch.
-//
-// Launch is strictly offline (C5), so an unfetched git pack is a fatal error naming
-// `yolo pack install` — and the prune must already have spared it by then.
-func TestStagePacksKeepsUnresolvableFetchedPack(t *testing.T) {
+// TestADroppedEmbeddedPackIsAbsentFromTheNextTree is the same rule for an EMBEDDED pack, the job
+// the old prune of _official did: the next tree's _official holds only what the next launch
+// selected (the needs closure's additions included, which is why claude brings openai-auth and
+// wire-bridge along and a bare config brings nothing).
+func TestADroppedEmbeddedPackIsAbsentFromTheNextTree(t *testing.T) {
 	home := packHome(t)
-	// A previous launch staged it; nothing has been fetched into the store since.
+	writeUserPacks(t, home, `["claude"]`)
 	o, _ := stagingOptions(t)
-	writeUserPacks(t, home, `[]`)
-	stagingRoot, _, _, err := o.stagePacks("yolo-test-unresolvable")
+	first, _, _, err := o.stagePacks("yolo-test-prune-embedded")
 	if err != nil {
-		t.Fatalf("bootstrap pass: %v", err)
+		t.Fatalf("first launch: %v", err)
 	}
-	staged := filepath.Join(stagingRoot, "acme")
-	if err := os.MkdirAll(staged, 0o755); err != nil {
-		t.Fatal(err)
+	if !isDir(filepath.Join(first, officialStagingDir, "claude")) {
+		t.Fatalf("the first launch staged no claude under %s", first)
 	}
-	if err := os.WriteFile(filepath.Join(staged, "marker.txt"), []byte("acme\n"), 0o644); err != nil {
-		t.Fatal(err)
+	writeUserPacks(t, home, `[]`)
+	second, loaded, _, err := o.stagePacks("yolo-test-prune-embedded")
+	if err != nil {
+		t.Fatalf("second launch: %v", err)
 	}
+	if len(loaded) != 0 {
+		t.Fatalf("an empty config loaded %d packs", len(loaded))
+	}
+	if entries, _ := os.ReadDir(filepath.Join(second, officialStagingDir)); len(entries) != 0 {
+		t.Errorf("the next launch's tree still holds embedded packs nobody selected: %v", entries)
+	}
+	if !isDir(filepath.Join(first, officialStagingDir, "claude")) {
+		t.Error("the next launch removed claude from the first launch's tree, which a running jail may bind")
+	}
+}
 
-	writeUserPacks(t, home, `["git+ssh://example.invalid/org/repo//acme?ref=v1"]`)
-	if _, _, _, err := o.stagePacks("yolo-test-unresolvable"); err == nil {
+// TestARefusedStagingLeavesNoTreeAndTouchesNoOther: a launch whose staging refuses — here an
+// unfetched git pack, fatal because a launch never fetches outside its refresh — takes its own
+// partial tree with it, and the tree an earlier launch staged is untouched. Under the shared tree
+// this was the constraint that ruled out clear-then-restage (an unreachable git remote is not a
+// deactivation signal); a tree per launch meets it by construction.
+func TestARefusedStagingLeavesNoTreeAndTouchesNoOther(t *testing.T) {
+	home := packHome(t)
+	local := localPackDir(t, "acme")
+	writeUserPacks(t, home, `["file://`+local+`"]`)
+	o, _ := stagingOptions(t)
+	const cname = "yolo-test-unresolvable"
+	first, _, _, err := o.stagePacks(cname)
+	if err != nil {
+		t.Fatalf("first launch: %v", err)
+	}
+	before := snapshotTree(t, first, nil)
+
+	writeUserPacks(t, home, `["file://`+local+`", "git+ssh://example.invalid/org/repo//gone?ref=v1"]`)
+	if _, _, _, err := o.stagePacks(cname); err == nil {
 		t.Fatal("an unfetched git pack must fail the launch (C5: launch never fetches)")
 	}
-	if _, statErr := os.Stat(filepath.Join(staged, "marker.txt")); statErr != nil {
-		t.Errorf("a CONFIGURED but unresolvable pack was pruned (%v) — an unreachable git "+
-			"remote is not a deactivation signal, and discarding the tree would lose the "+
-			"pack's content on every offline launch", statErr)
+	if trees := packTreesUnder(t, cname); len(trees) != 1 || trees[0] != first {
+		t.Errorf("after a refused staging the pack-tree root holds %v, want only the first "+
+			"launch's %s: a refused launch must take its partial tree with it", trees, first)
+	}
+	if d := diffSnapshots(before, snapshotTree(t, first, nil)); len(d) != 0 {
+		t.Errorf("a refused staging changed another launch's tree:\n  %s", strings.Join(d, "\n  "))
 	}
 }
 
-// TestPackStagingRootInodeSurvivesPrune is packstage rule 3 at this call site: CLEAR
-// CONTENTS, NEVER THE DIR. A running jail's /ctx/packs bind captured the staging root's
-// inode, so the obvious os.RemoveAll(stagingRoot) would silently detach that mount — the
-// jail would keep reading a tree nothing writes to any more. Unit-testable only as the
-// inode identity, which is exactly what the mount pins.
-func TestPackStagingRootInodeSurvivesPrune(t *testing.T) {
+// TestAStagedTreeRecordsItsPacksInLoadOrder: the tree's own record (packTreeRecordName) names
+// every pack it holds, by the name and in the order the launch loaded them, and loadPackTree
+// reads the same set back — the names and the order an attach needs to compose what the
+// jail's launch composed.
+func TestAStagedTreeRecordsItsPacksInLoadOrder(t *testing.T) {
 	home := packHome(t)
-	drop := localPackDir(t, "ephemeral")
-	writeUserPacks(t, home, `["file://`+drop+`"]`)
-
+	local := localPackDir(t, "zeta")
+	writeUserPacks(t, home, `["file://`+local+`", "claude"]`)
 	o, _ := stagingOptions(t)
-	stagingRoot, _, _, err := o.stagePacks("yolo-test-inode")
-	if err != nil {
-		t.Fatalf("first pass: %v", err)
-	}
-	before := dirInode(t, stagingRoot)
-
-	writeUserPacks(t, home, `[]`)
-	if _, _, _, err := o.stagePacks("yolo-test-inode"); err != nil {
-		t.Fatalf("second pass: %v", err)
-	}
-	after := dirInode(t, stagingRoot)
-	if before != after {
-		t.Errorf("staging root inode changed %d -> %d: the dir was removed and recreated, "+
-			"which detaches a running jail's /ctx/packs bind (packstage rule 3)", before, after)
-	}
-	if _, statErr := os.Stat(filepath.Join(stagingRoot, "ephemeral")); !os.IsNotExist(statErr) {
-		t.Errorf("the prune under test did not actually run (%v), so the inode check above "+
-			"proves nothing", statErr)
-	}
-}
-
-// TestPruneDroppedPackStagingLeavesNonDirectories: the prune only removes real
-// directories. Nothing yolo writes puts a file or a symlink at the top of the staging
-// root, so an unrecognized entry there is somebody else's — and it cannot render as a
-// pack anyway (LoadJailPacks skips every non-directory entry).
-func TestPruneDroppedPackStagingLeavesNonDirectories(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "stray.txt"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(root, officialStagingDir, "claude"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(root, "gone"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(root, "here"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	pruned, err := pruneDroppedPackStaging(root, map[string]bool{"here": true})
+	tree, loaded, _, err := o.stagePacks("yolo-test-record")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pruned) != 1 || pruned[0] != "gone" {
-		t.Fatalf("pruned = %v, want [gone]", pruned)
-	}
-	for _, keep := range []string{"stray.txt", officialStagingDir, "here"} {
-		if _, statErr := os.Stat(filepath.Join(root, keep)); statErr != nil {
-			t.Errorf("prune removed %s, which it must leave alone: %v", keep, statErr)
-		}
-	}
-	// _official is rebuilt by the caller from the embed.FS, so the prune must not race it.
-	if !isDir(filepath.Join(root, officialStagingDir, "claude")) {
-		t.Error("prune reached into _official, which the caller owns")
-	}
-}
-
-// livePackSlugs must count an EMBEDDED entry out (it lives under _official, not at
-// <root>/<slug>) and a fetched entry in, regardless of whether it can be resolved.
-func TestLivePackSlugsCountsConfiguredNotResolvable(t *testing.T) {
-	home := packHome(t)
-	local := localPackDir(t, "mine")
-	writeUserPacks(t, home,
-		`["claude", "file://`+local+`", "git+ssh://example.invalid/o/r//remote?ref=v1"]`)
-
-	entries, err := config.LoadPacks(nil)
+	reread, err := loadPackTree(tree)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("loadPackTree: %v", err)
 	}
-	embedded := map[string]*packload.Pack{}
-	for _, p := range packload.Embedded() {
-		embedded[p.Name] = p
+	var want, got []string
+	for _, p := range loaded {
+		want = append(want, p.Name+"@"+p.Root)
 	}
-	live := livePackSlugs(entries, embedded)
-	if live["claude"] {
-		t.Error("an embedded pack is staged under _official, so it must not appear as a slug")
+	for _, p := range reread {
+		got = append(got, p.Name+"@"+p.Root)
 	}
-	for _, want := range []string{"mine", "remote"} {
-		if !live[want] {
-			t.Errorf("configured pack %q missing from the live set — it would be pruned", want)
-		}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("the tree reads back as\n  %s\nwant the launch's own load order\n  %s",
+			strings.Join(got, "\n  "), strings.Join(want, "\n  "))
 	}
-}
-
-// dirInode returns the inode number of a directory, which is the identity a bind mount
-// captures at container start.
-func dirInode(t *testing.T, path string) uint64 {
-	t.Helper()
-	fi, err := os.Lstat(path)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := os.Stat(filepath.Join(tree, packTreeRecordName)); err != nil {
+		t.Errorf("the tree carries no record: %v", err)
 	}
-	st, ok := fi.Sys().(*syscall.Stat_t)
-	if !ok {
-		t.Skip("no syscall.Stat_t on this platform")
-	}
-	return st.Ino
 }

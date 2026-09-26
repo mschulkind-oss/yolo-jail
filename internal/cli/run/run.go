@@ -258,13 +258,16 @@ func Run(opts Options) (rc int) {
 	// second implementation. Pinned by TestPacksAreStagedBeforeBackendDispatch.
 	cname := runtime.FromWorkspace(o.Workspace)
 	o.stagingCfg = cfg
-	// Staging takes the workspace launch lock (stageRunPacks); this is the release for every
-	// return that does not reach an arm's own, earlier one. Idempotent.
+	// Each arm takes the workspace launch lock where it first touches what the workspace's
+	// launches share (holdLaunchLock); this is the release for every return that does not reach
+	// an arm's own, earlier one. Idempotent.
 	defer o.releaseLaunchLock()
 	staged, stagedOK := o.stageRunPacks(cname)
 	if !stagedOK {
 		return 1
 	}
+	// This launch's pack tree goes at return unless a started container holds it (packtree.go).
+	defer o.discardUnheldPackTree(cname)
 
 	// PACK LAUNCH FLAGS, ABOVE THE DISPATCH — the same B-0 move pack staging made, for
 	// the same reason. The injection used to sit inside runContainer, which the
@@ -596,6 +599,17 @@ func Run(opts Options) (rc int) {
 		// nobody runs. Composing writes only into the host-side staging dir, which pack
 		// staging above already does on a dry-run for the same reason; RunMacosUser
 		// still returns before executing a single staged command.
+		//
+		// THE WORKSPACE LAUNCH LOCK OPENS HERE on this backend, and not before staging, where
+		// the staging-race fix had put it. The skills and briefing staging written below, and
+		// the home-overlay and context trees built from it, are per-WORKSPACE directories
+		// under AGENTS_DIR/<cname>, rebuilt by each launch and copied for the sandbox by the
+		// orchestrator's stage, so two launches of the workspace must not interleave between
+		// this write and that copy. The orchestrator is handed this hold
+		// (AcquireWorkspaceLockFor) and releases it before the agent. What no longer needs it
+		// is everything above: the pack tree is this launch's own (packtree.go), so its
+		// staging and the host daemons started from it above cannot race another launch's.
+		o.holdLaunchLock(cname)
 		staging, err := o.refreshJailBriefings(cname, cfg, rt, staged)
 		if err != nil {
 			o.pr(o.Stderr).printf("[bold red]%s[/bold red]", err.Error())
@@ -699,23 +713,41 @@ type stagedPacks struct {
 // loopholeretire.go for why `yolo host apply` and the host-render archive sweep cannot see it).
 // Never fatal: a bookkeeping failure over the host state dir must not cost the user a jail.
 //
-// It runs on EVERY invocation, attach included, for the same reason the staged-tree prune
-// does: config says the pack is gone, and a state dir holding a CA private key should not
-// wait for the next fresh launch to be retired.
+// It runs on EVERY invocation, attach included: config says the pack is gone, and a state dir
+// holding a CA private key should not wait for the next fresh launch to be retired.
 //
-// THE WORKSPACE LAUNCH LOCK IS TAKEN FIRST, and is still held when this returns: staging
-// writes the workspace's shared tree and the rest of the launch reads it back, so a second
-// launch of the workspace must wait here until this one's window closes rather than restage
-// under it (holdLaunchLock has the window and who closes it on each backend).
+// NO LOCK IS TAKEN HERE ANY MORE. Staging writes a NEW pack tree of this launch's own
+// (packtree.go), which no other launch knows the name of, so two launches of one workspace
+// stage at once without touching each other's trees. The workspace launch lock used to open
+// here, when staging rewrote one shared tree that the other launch was still reading; it now
+// opens where each backend first touches what the workspace's launches still share
+// (holdLaunchLock lists where).
+//
+// The tree is recorded as this launch's own (Options.packTree), so Run's deferred
+// discardUnheldPackTree removes it at any return that did not hand it to a started container.
 func (o *Options) stageRunPacks(cname string) (stagedPacks, bool) {
-	o.holdLaunchLock(cname)
 	root, packs, briefings, err := o.stagePacks(cname)
 	if err != nil {
 		o.pr(o.Stdout).printf("[bold red]%s[/bold red]", err.Error())
 		return stagedPacks{}, false
 	}
+	o.packTree = root
 	o.recordAndRetirePackLoopholes(packs)
 	return stagedPacks{root: root, packs: packs, briefings: briefings}, true
+}
+
+// discardUnheldPackTree removes this launch's own pack tree unless a started container holds it.
+// Run defers it once staging has produced the tree: on a refusal, an attach (which reads the
+// running jail's tree and needs its own staging only to compare), a macos-user launch (whose
+// sandbox copied the tree at its bootstrap and whose host daemons, which run from it, stop before
+// this runs) and a --dry-run, no container ever holds it. A fresh container launch marks the tree
+// held just before the container starts; from then on it goes only once the runtime answers that
+// the container is gone (forgetGoneContainer).
+func (o *Options) discardUnheldPackTree(cname string) {
+	if o.packTreeHeld {
+		return
+	}
+	discardPackTree(cname, o.packTree)
 }
 
 // warnIfNoPacks prints the empty-packs notice when the user has no packs configured.
@@ -920,8 +952,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	injectedArgs []string, channel *packChannel, jailDaemons []loopholes.JailDaemonSpec) int {
 	out := o.pr(o.Stdout)
 	// Staged above the dispatch (see Run): this path consumes the result rather than
-	// producing it. packStaging is the tree /ctx/packs binds; loadedPacks is what the
-	// mount assembler reads declarations from.
+	// producing it. packStaging is this launch's own pack tree, the one /ctx/packs binds on a
+	// fresh launch; loadedPacks is what the mount assembler reads declarations from. An attach
+	// binds nothing and reads the running jail's tree instead (attachExisting).
 	packStaging, loadedPacks := staged.root, staged.packs
 
 	// Command construction (needed for both exec and run paths).
@@ -929,14 +962,21 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// The flags are already in injectedArgs: Run resolves them above the backend dispatch,
 	// from the staged set and the launch's effective profile table, and this arm consumes
 	// that one result rather than repeating the fold (see the note at the injection site).
-	// That placement is also why this construction serves the ATTACH path into an
-	// already-running jail unchanged: staging runs on attach too, so the set the injection
-	// read is the set the jail is running.
+	// An ATTACH into a jail whose packs differ from the configured ones injects its own
+	// (runningJailPackView), since a running jail keeps the packs it booted with.
 	fullCommand := append([]string{}, injectedArgs...)
 	targetCmd := "bash"
 	if len(fullCommand) > 0 {
 		targetCmd = shquoteJoin(fullCommand)
 	}
+
+	// THE WORKSPACE LAUNCH LOCK, from here on both paths (holdLaunchLock): the attach decision,
+	// the skills and briefing refresh into the workspace's shared staging, the attach's contract
+	// gate, and on a fresh launch everything up to its container running. Not before staging any
+	// more: the pack tree is this launch's own (packtree.go), so there is nothing shared to
+	// protect until here. Before the orphan sweep, so a reaped orphan of THIS workspace leaves
+	// its host-services dir to this relaunch (stopLoopholes' guard).
+	o.holdLaunchLock(cname)
 
 	// Sweep jails orphaned by an uncatchable kill before the attach decision.
 	sp := o.Perf.Span("launch.reap_orphaned_jails")
@@ -948,23 +988,14 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		existingCID = o.findRunningContainer(cname, rt)
 	}
 
-	// Refresh the per-jail skills + AGENTS/CLAUDE staging on every invocation.
-	sp = o.Perf.Span("launch.refresh_jail_briefings")
-	agentsPath, err := o.refreshJailBriefings(cname, cfg, rt, staged)
-	sp.End()
-	if err != nil {
-		out.printf("[bold red]%s[/bold red]", err.Error())
-		return 1
-	}
-
 	if existingCID != "" {
 		// The attach's window over the workspace's shared staging ends inside attachExisting,
-		// once its contract gate has passed (contracttags.go): it restaged and refreshed above,
-		// and the exec reads none of it back. Held across the attach session, the lock would
-		// make every other terminal in the workspace wait for this one to exit. Held through the
-		// gate, because a gate that restarts the jail continues below as a fresh launch, and the
-		// stopped jail's teardown leaves its host-services dir alone only for a launch holding
-		// the lock.
+		// once its contract gate has passed (contracttags.go) and it has refreshed the skills
+		// and briefing staging from the running jail's own pack tree; the exec reads none of
+		// it back. Held across the attach session, the lock would make every other terminal in
+		// the workspace wait for this one to exit. Held through the gate, because a gate that
+		// restarts the jail continues below as a fresh launch, and the stopped jail's teardown
+		// leaves its host-services dir alone only for a launch holding the lock.
 		//
 		// A launch that WAITED for the lock found this jail because the launch it waited for
 		// started it, so it gets the raced banner, as it did when it waited further down.
@@ -993,11 +1024,10 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// and splitting them across streams would let a piped log show one without the
 	// other.
 	//
-	// NORMALLY ALREADY HELD: Run's staging took it (stageRunPacks → holdLaunchLock), because
-	// the launch's window over the workspace's shared staging opens there, and this path uses
-	// that hold rather than taking the file a second time — which, in one process, would wait
-	// on itself. The acquisition below is for a caller that reached this function without
-	// staging through Run, and for a launch whose staging could not open the lock file.
+	// NORMALLY ALREADY HELD: this function took it above the attach decision (holdLaunchLock),
+	// and this path uses that hold rather than taking the file a second time — which, in one
+	// process, would wait on itself. The acquisition below is for a launch whose hold could not
+	// open the lock file.
 	lock := o.launchLock
 	if lock == nil || lock.isClosed() {
 		lockDir := filepath.Join(paths.GlobalStorage(), "locks")
@@ -1055,6 +1085,23 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 				}
 			}
 		}
+	}
+
+	// No container of this name will be attached to from here: this is a fresh launch. So the
+	// shared staging tree a jail launched before per-launch pack trees bound can go, once the
+	// runtime answers that no container of the name exists (packtree.go).
+	o.retireLegacyPackStaging(cname, rt)
+
+	// Refresh the per-jail skills + AGENTS/CLAUDE staging from this launch's own pack tree. An
+	// attach refreshes from the running jail's tree instead, inside attachExisting, so this
+	// runs only once no attach site has taken the launch.
+	sp = o.Perf.Span("launch.refresh_jail_briefings")
+	agentsPath, err := o.refreshJailBriefings(cname, cfg, rt, staged)
+	sp.End()
+	if err != nil {
+		out.printf("[bold red]%s[/bold red]", err.Error())
+		lock.Close()
+		return 1
 	}
 
 	// Retire jail-made workspace venvs from the old shared-store model.
@@ -1416,6 +1463,15 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// forgetGoneContainer, on each of the three ends below, once the container is known gone.
 	_ = runtimeWriteTracking(cname, o.Workspace)
 	o.writeOwnerPID(cname)
+	// THE PACK TREE CHANGES HANDS here: from now on the container holds it, so Run's deferred
+	// discard leaves it, and it goes with the tracking file once the container is known gone.
+	// The live-tree record names it for a later attach, which takes the lock this launch holds
+	// until its container is running, so no attach can find the container without the record.
+	if err := writeLivePackTree(cname, packStaging); err != nil {
+		out.printf("[yellow]Warning: could not record the pack tree this jail boots from (%s); "+
+			"an attach to it will compose from the configured packs instead[/yellow]", err.Error())
+	}
+	o.packTreeHeld = true
 
 	// Start host-side port forwarding BEFORE the container.
 	var socatProcs []*exec.Cmd
@@ -1573,8 +1629,10 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		out.printf("[bold red]Configured runtime '%s' not found on PATH.[/bold red]", rt)
 		out.print("[dim]Run `yolo check` to validate runtime availability before restarting.[/dim]")
 		cleanupPortForwarding(socatProcs, portSocketDir)
-		// The runtime never started, so no container ever held this skeleton.
+		// The runtime never started, so no container ever held this skeleton or pack tree.
 		discardUnheldSkeleton(cname, in.homeSkeleton)
+		forgetLivePackTree(cname, packStaging)
+		discardPackTree(cname, packStaging)
 		// Release the lock BEFORE stop_loopholes (its guard takes the same lock
 		// non-blocking, and on_started never ran) and before the tracking cleanup, which
 		// takes it the same way.
@@ -1827,6 +1885,13 @@ func startedLoophole(handles []loopholeDaemon, name string) bool {
 // values the fresh path consumes — because an attach is an ENTRY: it delivers the
 // per-entry channel (deliverChannelOnAttach below), not nothing.
 //
+// BUT THE JAIL KEEPS THE PACKS IT BOOTED WITH (OQ-PK2 (c), packtree.go). staged is this launch's
+// own staging of the config, which nothing binds, so it is what a RESTART continues with and
+// nothing else: every host-side reader of the attach reads the running jail's own tree
+// (runningJailPackView) — the channel it delivers, the command it execs, the skills and briefing
+// it refreshes, the loophole record behind the briefing — and this attach writes nothing into
+// that tree. When the configured packs differ from the jail's, it says so and names the restart.
+//
 // release ends the caller's hold on the workspace launch lock. It runs once the attach has
 // settled on going ahead, before the exec, and on a refusal; it does NOT run when the contract
 // gate restarts the jail. restarted is true exactly then: the jail is stopped and gone, nothing
@@ -1849,6 +1914,21 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// is visible at a glance (audit §B#4.
 	baked, _ := runtime.BakedYoloVersionFromInspectEnv(envLines)
 	o.emitLaunchBanner(rt, cname, nil, baked)
+	// THE RUNNING JAIL'S PACKS, before the gate: what this entry delivers is composed over
+	// them, and the gate asks whether the jail can receive what this entry delivers. A
+	// composition the jail's packs cannot satisfy refuses here, before anything is written.
+	view, err := o.runningJailPackView(cname, cfg, staged, channel, targetCmd)
+	if err != nil {
+		errOut := o.pr(o.Stderr)
+		errOut.printf("[bold red]Refusing to attach: %s[/bold red]", err.Error())
+		errOut.print("[dim]This jail keeps the packs it booted with, and what you selected needs " +
+			"the configured ones. 'yolo stop' from this workspace once its sessions are done, " +
+			"then launch again.[/dim]")
+		o.noteBootedPackSetDiffers(view)
+		releaseLock()
+		return 1, false
+	}
+	channel, targetCmd = view.channel, view.targetCmd
 	// THE CONTRACT GATE (contracttags.go). What this entry would deliver decides the tags it
 	// needs; a tag the jail lacks means the jail's binaries cannot receive it, and the attach
 	// never proceeds on its own then: the acknowledgment, a restart, or a refusal.
@@ -1876,12 +1956,31 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 		// got the gate's fuller account above instead.
 		o.warnIfJailIsOlderThanTheLauncher(baked)
 	}
+	// Going ahead. The host-side readers switch to the jail's own packs, and the skills and
+	// briefing staging the jail binds is refreshed from them, still under the lock: another
+	// launch of the workspace writes the same staging. This launch's own pack tree has done its
+	// job (the comparison and the pre-flights) and goes; nothing ever bound it.
+	if view.unreadable == "" {
+		adoptPackRecords(view.staged.packs)
+	}
+	sp := o.Perf.Span("launch.refresh_jail_briefings")
+	_, refreshErr := o.refreshJailBriefings(cname, cfg, rt, view.staged)
+	sp.End()
+	discardPackTree(cname, o.packTree)
+	if refreshErr != nil {
+		o.pr(o.Stderr).printf("[bold red]%s[/bold red]", refreshErr.Error())
+		releaseLock()
+		return 1, false
+	}
 	releaseLock()
 	if raced {
 		out.printf("[bold cyan]Attaching to jail started by another process [dim](%s)[/dim]...[/bold cyan]", cname)
 	} else {
 		out.printf("[bold cyan]Attaching to existing jail [dim](%s)[/dim]...[/bold cyan]", cname)
 	}
+	// What this attach did NOT deliver: the configured packs, when they differ from the ones
+	// the jail booted with (OQ-PK2 (c)'s notice).
+	o.noteBootedPackSetDiffers(view)
 	// Attach gets the notice too, and that is not symmetry for its own sake: once a
 	// jail is up, attaching is how a user re-enters it, so a fresh-launch-only notice
 	// is one a user with a long-lived jail may never see.
@@ -1892,7 +1991,7 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// running jail parsed and validated the selection, composed the channel, and
 	// dropped it, silently.
 	if deliver {
-		if rc := o.deliverChannelOnAttach(cname, rt, cfg, staged, channel); rc != 0 {
+		if rc := o.deliverChannelOnAttach(cname, rt, cfg, view.staged, channel); rc != 0 {
 			return rc, false
 		}
 	}
@@ -1928,8 +2027,8 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// reproduces HERE the delay is inside the runtime's exec — a different
 	// suspect list than the fresh-launch arm's, and the spans say which arm
 	// you are in.
-	sp := o.Perf.Span("attach.exec")
-	rc, err := runWithProxy(runCmd, nil, nil, o)
+	sp = o.Perf.Span("attach.exec")
+	rc, err = runWithProxy(runCmd, nil, nil, o)
 	sp.End()
 	if err != nil {
 		out.printf("[bold red]Configured runtime '%s' not found on PATH.[/bold red]", rt)

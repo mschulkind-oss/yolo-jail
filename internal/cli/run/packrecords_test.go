@@ -2,6 +2,7 @@ package run
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -51,10 +52,13 @@ func TestASubLaunchLeavesTheParentLaunchsPackRecordsAlone(t *testing.T) {
 	o := dispatchOptions(t, ws, "podman", &stdout, &stderr, nil)
 	o.CapturesDir = func() string { return t.TempDir() }
 
-	parentRoot := filepath.Join(paths.AgentsDir(), yoloruntime.FromWorkspace(ws), "packs")
+	// The parent's own pack tree is one of those under its pack-tree root, and the only
+	// launch staging there is the parent's.
+	parentRoot := paths.PackTreeRoot(yoloruntime.FromWorkspace(ws))
 
 	var beforeMods, afterMods []loopholes.PackModule
 	var beforeSkills, afterSkills []jailcontent.PackSkillSource
+	var missingAfter []string
 	subRC, subs := 0, 0
 	o.AutoCapture = func([]string, string) {
 		beforeMods, beforeSkills = loopholes.PackModules(), jailcontent.PackSkillDirs()
@@ -68,6 +72,14 @@ func TestASubLaunchLeavesTheParentLaunchsPackRecordsAlone(t *testing.T) {
 		sub.AcceptConfigChanges = true
 		subRC = Run(*sub)
 		afterMods, afterSkills = loopholes.PackModules(), jailcontent.PackSkillDirs()
+		// Read NOW, while the parent is still mid-launch: the parent's own pack tree is its
+		// own and goes when the parent's Run returns, so a stat after that would say nothing
+		// about what the sub-launch left.
+		for _, m := range afterMods {
+			if _, err := os.Stat(m.Dir); err != nil {
+				missingAfter = append(missingAfter, fmt.Sprintf("%s (%v)", m.Dir, err))
+			}
+		}
 	}
 
 	Run(*o)
@@ -101,11 +113,9 @@ func TestASubLaunchLeavesTheParentLaunchsPackRecordsAlone(t *testing.T) {
 	}
 	// And the user-visible half: the sub-launch's own cleanup deletes its staging root,
 	// so an inherited record names directories that are GONE.
-	for _, m := range afterMods {
-		if _, err := os.Stat(m.Dir); err != nil {
-			t.Errorf("after the sub-launch the record names a module dir that does not "+
-				"exist: %s (%v) — this is the twenty-line warning burst verbatim", m.Dir, err)
-		}
+	for _, m := range missingAfter {
+		t.Errorf("after the sub-launch the record names a module dir that does not "+
+			"exist: %s — this is the twenty-line warning burst verbatim", m)
 	}
 
 	// The same leak with a silent symptom: PrepareSkills reads this record, and

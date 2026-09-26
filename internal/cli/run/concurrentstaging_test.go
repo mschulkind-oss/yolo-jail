@@ -2,7 +2,7 @@ package run
 
 // concurrentstaging_test.go reproduces the race the first macOS run of
 // TestMacosUserTwoConcurrentLaunchesOfOneWorkspace found (CI run 36240337031, commit
-// 6eb92400): two launches of ONE workspace share AGENTS_DIR/<cname>/packs, and each launch's
+// 6eb92400): two launches of ONE workspace shared AGENTS_DIR/<cname>/packs, and each launch's
 // staging cleared that tree and rebuilt it while the other launch was staging into it and
 // reading from it. Launch B died with
 //
@@ -19,8 +19,10 @@ package run
 //
 // The ruled behavior these pin (docs/design/pi-git-extension-caching.md OQ-2 and OQ-3, and
 // docs/reference/pack-system.md#concurrent-launches-of-one-workspace): a launch's result never
-// depends on another launch's; it WAITS for what it needs rather than failing or reading a
-// half-built tree.
+// depends on another launch's. The first fix made the second launch WAIT at staging; ONE PACK
+// TREE PER LAUNCH (packtree.go, OQ-PK2 (c)) removed the need to, since no launch writes a tree
+// another launch staged, and these tests now pin that directly. The same file pins the attach
+// half: an attach reads the running jail's tree and writes nothing into it.
 
 import (
 	"bytes"
@@ -33,6 +35,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -52,17 +55,17 @@ func claudeBrokerModuleDir(t *testing.T, loaded []*packload.Pack) string {
 	return ""
 }
 
-// TestASecondLaunchWaitsForTheFirstLaunchsStagedTree is the deterministic half: launch A has
+// TestASecondLaunchNeverTouchesTheFirstLaunchsTree is the deterministic half: launch A has
 // staged and is still reading what it staged (its host daemons start, its skills and context
 // trees are built, and on macos-user the orchestrator copies the tree for the sandbox — all
 // AFTER staging returns). Launch B of the same workspace starts then, with a config that has
 // changed since (claude dropped).
 //
-// Before the fix B ran straight through, and its clear of _official took A's claude tree out
-// from under A: the "is not a directory" warning, on demand. B must instead WAIT until A's
-// launch no longer reads the staged tree — then do its own staging, which is the moment its
-// config change is allowed to land.
-func TestASecondLaunchWaitsForTheFirstLaunchsStagedTree(t *testing.T) {
+// Before per-launch trees B restaged the shared tree, and its clear of _official took A's
+// claude tree out from under A: the "is not a directory" warning, on demand. The first fix made
+// B WAIT for A. Now B stages a tree of its own: it neither waits nor touches A's, and ITS config
+// change lands in ITS tree only.
+func TestASecondLaunchNeverTouchesTheFirstLaunchsTree(t *testing.T) {
 	home := packHome(t)
 	writeUserPacks(t, home, `["claude"]`)
 	ws := t.TempDir()
@@ -75,57 +78,52 @@ func TestASecondLaunchWaitsForTheFirstLaunchsStagedTree(t *testing.T) {
 	if !ok {
 		t.Fatalf("launch A's staging failed:\n%s", outA.String())
 	}
-	t.Cleanup(a.releaseLaunchLock)
 	moduleDir := claudeBrokerModuleDir(t, stagedA.packs)
 	if !isDir(moduleDir) {
 		t.Fatalf("launch A staged no claude-oauth-broker module dir at %s", moduleDir)
 	}
+	beforeA := snapshotTree(t, stagedA.root, nil)
 
-	// Launch B, the same workspace, a config that no longer selects claude.
+	// Launch B, the same workspace, a config that no longer selects claude, run to completion
+	// while A still reads its tree.
 	writeUserPacks(t, home, `[]`)
 	var outB syncBuffer
 	b := &Options{Workspace: ws, Stdout: &outB, Stderr: &outB}
 	fillDefaults(b)
-	done := make(chan bool, 1)
+	done := make(chan stagedPacks, 1)
 	go func() {
-		_, okB := b.stageRunPacks(cname)
-		b.releaseLaunchLock()
-		done <- okB
+		stagedB, okB := b.stageRunPacks(cname)
+		if !okB {
+			stagedB = stagedPacks{}
+		}
+		done <- stagedB
 	}()
-
-	// Give B every chance to run to completion; before the fix it does, in milliseconds.
-	bFinishedEarly := false
+	var stagedB stagedPacks
 	select {
-	case <-done:
-		bFinishedEarly = true
-	case <-time.After(2 * time.Second):
+	case stagedB = <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("launch B's staging did not finish while launch A held its tree; staging a tree " +
+			"of its own needs no other launch to be done")
+	}
+	if stagedB.root == "" {
+		t.Fatalf("launch B's staging failed:\n%s", outB.String())
+	}
+	if stagedB.root == stagedA.root {
+		t.Fatalf("both launches staged into %s", stagedA.root)
 	}
 	if !isDir(moduleDir) {
-		t.Errorf("launch B re-staged the workspace's tree while launch A was still reading it: "+
-			"%s is gone, which is the CI warning \"loophole module dir … is not a directory, so "+
-			"that loophole is NOT active\" — A's result depended on B's", moduleDir)
+		t.Errorf("launch B's staging removed %s from launch A's tree: the CI warning \"loophole "+
+			"module dir … is not a directory, so that loophole is NOT active\" — A's result "+
+			"depended on B's", moduleDir)
 	}
-	if bFinishedEarly {
-		t.Errorf("launch B finished staging while launch A still held its staged tree; it must " +
-			"wait for A rather than restage under it")
+	if d := diffSnapshots(beforeA, snapshotTree(t, stagedA.root, nil)); len(d) != 0 {
+		t.Errorf("launch B's staging changed launch A's tree:\n  %s", strings.Join(d, "\n  "))
 	}
-
-	// A's launch no longer reads the staged tree (its container started, or its sandbox
-	// bootstrap copied the tree): B proceeds, and ITS config — no claude — takes effect.
-	a.releaseLaunchLock()
-	if bFinishedEarly {
-		return
+	if isDir(filepath.Join(stagedB.root, officialStagingDir, "claude")) {
+		t.Error("launch B's tree holds claude, which B's config does not select")
 	}
-	select {
-	case okB := <-done:
-		if !okB {
-			t.Errorf("launch B's staging failed once A released:\n%s", outB.String())
-		}
-	case <-time.After(30 * time.Second):
-		t.Fatal("launch B never finished staging after launch A released the workspace")
-	}
-	if !strings.Contains(outB.String(), "Waiting for concurrent jail launch in workspace") {
-		t.Errorf("launch B waited without saying so; a silent wait reads as a hang:\n%s", outB.String())
+	if strings.Contains(outB.String(), "Waiting for concurrent jail launch") {
+		t.Errorf("launch B waited to stage; staging takes no lock any more:\n%s", outB.String())
 	}
 }
 
@@ -153,8 +151,8 @@ func (s *syncBuffer) String() string {
 const stagingHelperWorkspaceEnv = "YOLO_TEST_STAGING_HELPER_WORKSPACE"
 
 // TestStagingHelperProcess is not a test: it is ONE LAUNCH's staging, run as its own process by
-// TestTwoProcessesStagingOneWorkspaceAtOnceBothSucceed, because two launches are two processes
-// and the lock that serializes them is a kernel lock between them. It stages the way Run does,
+// TestTwoProcessesStagingOneWorkspaceAtOnceBothSucceed, because two launches are two processes,
+// which share nothing but the filesystem. It stages the way Run does,
 // then reads what it staged over a short window — the reads a launch makes after staging —
 // and fails if any of it went missing or never arrived.
 func TestStagingHelperProcess(t *testing.T) {
@@ -169,7 +167,6 @@ func TestStagingHelperProcess(t *testing.T) {
 	if !ok {
 		t.Fatalf("staging failed:\n%s", out.String())
 	}
-	defer o.releaseLaunchLock()
 	moduleDir := claudeBrokerModuleDir(t, staged.packs)
 	for i := 0; i < 10; i++ {
 		for _, p := range staged.packs {
@@ -189,7 +186,8 @@ func TestStagingHelperProcess(t *testing.T) {
 // processes of one workspace, started at the same moment with the same config, stage and then
 // read. Before the fix each process's clear of _official raced the other's copy into it, and
 // one died with `unlinkat …/_official/claude: directory not empty` or read a tree the other had
-// just removed. Both must succeed, every time.
+// just removed. Both must succeed, every time, and with per-launch trees they do without any
+// lock between them.
 func TestTwoProcessesStagingOneWorkspaceAtOnceBothSucceed(t *testing.T) {
 	if os.Getenv(stagingHelperWorkspaceEnv) != "" {
 		t.Skip("running as a helper child")
@@ -263,34 +261,28 @@ func snapshotStaging(t *testing.T, root string) map[string]stagingEntry {
 	return out
 }
 
-// TestAnAttachWithAnUnchangedConfigLeavesTheLiveJailsStagingUntouched is the other half of the
-// same defect, the one that needs no second launch at all: every invocation re-stages the
-// workspace's tree, an ATTACH to a running podman jail included, and the jail has that tree
-// BOUND — /ctx/packs itself, each pack's `files` tree and single files, the loophole module dirs
-// a jail daemon runs from, every skills destination and every briefing file. The re-stage used
-// to clear _official, clear each configured pack's dir and each skills dir, and copy again: a
-// bind of a directory that is removed and recreated shows the removed one, which is empty, and a
-// reader walking one mid-copy saw half of it. So an attach with a config identical to the one the
-// jail booted with emptied the jail's own binds.
-//
-// With nothing changed, an attach must change nothing: every path keeps its inode, no file is
-// rewritten, and none appears or goes.
-func TestAnAttachWithAnUnchangedConfigLeavesTheLiveJailsStagingUntouched(t *testing.T) {
-	home := packHome(t)
+// attachStagingFixture sets up the state an ATTACH meets: a jail launched from this workspace
+// (a fresh launch's staging, briefing refresh and live-tree record, the three things its fresh
+// path leaves on the host) with a configured pack carrying a `files` tree, a single `files` file
+// and a skill, beside claude (a loophole module dir, a skills destination, a briefing) and pi
+// (single-file `files`). It returns the jail's tree, the treepack source (so a test can change
+// it) and the workspace.
+func attachStagingFixture(t *testing.T) (home, ws, tree, local string) {
+	t.Helper()
+	home = packHome(t)
 	emptyLoopholeDirs(t)
 	jailcontent.SetPackSkillDirs(nil)
 	jailcontent.SetPackSkillTargets(nil)
 	t.Cleanup(func() { jailcontent.SetPackSkillDirs(nil); jailcontent.SetPackSkillTargets(nil) })
 
-	// A configured pack with a `files` tree, a single `files` file and a skill, beside claude
-	// (a loophole module dir, a skills destination, a briefing) and pi (single-file `files`).
-	local := filepath.Join(t.TempDir(), "treepack")
+	local = filepath.Join(t.TempDir(), "treepack")
 	for rel, body := range map[string]string{
 		"tree/a.txt":              "a",
 		"tree/sub/b.txt":          "b",
 		"one.json":                "{}",
 		"skills/extra/SKILL.md":   "---\nname: extra\ndescription: x\n---\nbody\n",
 		"skills/extra/ref/doc.md": "doc",
+		"briefing/rules.md":       "BOOTED-RULE\n",
 	} {
 		p := filepath.Join(local, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -306,32 +298,123 @@ func TestAnAttachWithAnUnchangedConfigLeavesTheLiveJailsStagingUntouched(t *test
 	]}`)
 	writeUserPacks(t, home, `["claude", "pi", "file://`+local+`"]`)
 
-	ws := t.TempDir()
+	ws = t.TempDir()
 	cname := yoloruntime.FromWorkspace(ws)
-	o := goldenOptions(ws, home)
-	o.Stdout, o.Stderr = discardBuf(), discardBuf()
-	cfg := newConfig()
-
-	// The fresh launch.
+	var out bytes.Buffer
+	o := dispatchOptions(t, ws, "podman", &out, &out, nil)
+	cfg, ok := o.loadAndValidateConfig()
+	if !ok {
+		t.Fatalf("the fixture's config does not validate:\n%s", out.String())
+	}
+	o.stagingCfg = cfg
 	staged, ok := o.stageRunPacks(cname)
 	if !ok {
-		t.Fatal("stageRunPacks failed")
+		t.Fatalf("the fresh launch's staging failed:\n%s", out.String())
 	}
 	if _, err := o.refreshJailBriefings(cname, cfg, "podman", staged); err != nil {
 		t.Fatalf("refreshJailBriefings: %v", err)
 	}
-	o.releaseLaunchLock()
+	if err := writeLivePackTree(cname, staged.root); err != nil {
+		t.Fatal(err)
+	}
+	return home, ws, staged.root, local
+}
+
+// attachRun is what attachThroughRun observed.
+type attachRun struct {
+	stdout, stderr string
+	// execArgv is the argv the attach handed the runtime, as the fake runtime received it.
+	execArgv string
+	// treesAtExec is the workspace's pack-tree root, listed by the fake runtime at the moment
+	// of the exec, which is the moment the attach's session starts.
+	treesAtExec []string
+}
+
+// attachThroughRun drives a real attach through Run: the runtime reports this workspace's jail
+// running and its environment carrying this build's contract tags. The one runtime command Run
+// really executes, the attach's exec, reaches a fake `podman` on PATH that records its argv and
+// what the pack-tree root holds at that moment, and exits 0.
+func attachThroughRun(t *testing.T, ws string, mutate func(*Options)) attachRun {
+	t.Helper()
+	cname := yoloruntime.FromWorkspace(ws)
+	bin := t.TempDir()
+	rec := t.TempDir()
+	script := "#!/bin/sh\nprintf '%s ' \"$@\" > '" + filepath.Join(rec, "argv") + "'\n" +
+		"ls '" + paths.PackTreeRoot(cname) + "' > '" + filepath.Join(rec, "trees") + "' 2>/dev/null\n"
+	if err := os.WriteFile(filepath.Join(bin, "podman"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+":/bin:/usr/bin")
+	var out, errOut bytes.Buffer
+	o := dispatchOptions(t, ws, "podman", &out, &errOut, nil)
+	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+		joined := strings.Join(argv, " ")
+		switch {
+		case len(argv) >= 2 && argv[1] == "info":
+			return ExecResult{Ran: true, RC: 0, Stdout: "host: {}"}
+		case len(argv) >= 2 && argv[1] == "ps" && strings.Contains(joined, "name=^/"+cname+"$"):
+			return ExecResult{Ran: true, RC: 0, Stdout: "abc123\n"}
+		case len(argv) >= 2 && argv[1] == "inspect":
+			return ExecResult{Ran: true, RC: 0, Stdout: "YOLO_VERSION=9.9.9-test\n" +
+				entrypointContractTagsLine() + "\n"}
+		}
+		return ExecResult{Ran: true, RC: 0}
+	}
+	if mutate != nil {
+		mutate(o)
+	}
+	_ = Run(*o)
+	if !strings.Contains(out.String(), "Attaching to existing jail") {
+		t.Fatalf("the launch did not take the attach arm, so this test says nothing about it\n"+
+			"stdout:\n%s\nstderr:\n%s", out.String(), errOut.String())
+	}
+	r := attachRun{stdout: out.String(), stderr: errOut.String()}
+	argv, err := os.ReadFile(filepath.Join(rec, "argv"))
+	if err != nil {
+		t.Fatalf("the attach never exec'd the runtime:\nstdout:\n%s\nstderr:\n%s", r.stdout, r.stderr)
+	}
+	r.execArgv = strings.TrimSpace(string(argv))
+	trees, _ := os.ReadFile(filepath.Join(rec, "trees"))
+	for _, l := range strings.Split(strings.TrimSpace(string(trees)), "\n") {
+		if l != "" {
+			r.treesAtExec = append(r.treesAtExec, l)
+		}
+	}
+	return r
+}
+
+// entrypointContractTagsLine is the contract-tags entry a jail this build launched carries, so the
+// fixture's jail can receive whatever the attach delivers and the contract gate stays out of it.
+func entrypointContractTagsLine() string {
+	return entrypoint.ContractTagsEnv + "=" + launchContractTagsValue()
+}
+
+// TestAnAttachWithAnUnchangedConfigLeavesTheLiveJailsStagingUntouched is the other half of the
+// same defect, the one that needs no second launch at all. A podman jail has its staging BOUND —
+// /ctx/packs itself, each pack's `files` tree and single files, the loophole module dirs a jail
+// daemon runs from, every skills destination and every briefing file — and every attach used to
+// re-stage it: first by clearing and copying (a bind of a directory that is removed and recreated
+// shows the removed one, which is empty), then by sync. Now an attach stages nothing into it at
+// all (packtree.go), and refreshes the skills and briefing staging from the jail's own tree.
+//
+// With nothing changed, an attach must change nothing under AGENTS_DIR/<cname>: every path keeps
+// its inode, no file is rewritten, none appears or goes — the attach's own staging of the config,
+// which it needs only to compare, included — and it says nothing about packs.
+func TestAnAttachWithAnUnchangedConfigLeavesTheLiveJailsStagingUntouched(t *testing.T) {
+	_, ws, tree, _ := attachStagingFixture(t)
+	cname := yoloruntime.FromWorkspace(ws)
 	root := filepath.Join(paths.AgentsDir(), cname)
 	before := snapshotStaging(t, root)
 	// The fixture must really contain what the assertion is about, or it proves nothing.
-	for _, rel := range []string{
-		"packs/_official/claude/loopholes/claude-oauth-broker",
-		"packs/_official/pi/extensions/yolo-footer.js",
-		"packs/treepack/tree/sub/b.txt",
-		"packs/treepack/one.json",
+	rel := func(p string) string { r, _ := filepath.Rel(root, p); return r }
+	for _, want := range []string{
+		filepath.Join(tree, "_official", "claude", "loopholes", "claude-oauth-broker"),
+		filepath.Join(tree, "_official", "pi", "extensions", "yolo-footer.js"),
+		filepath.Join(tree, "treepack", "tree", "sub", "b.txt"),
+		filepath.Join(tree, "treepack", "one.json"),
 	} {
-		if _, ok := before[filepath.FromSlash(rel)]; !ok {
-			t.Fatalf("the fresh launch staged no %s; the fixture no longer exercises it", rel)
+		if _, ok := before[rel(want)]; !ok {
+			t.Fatalf("the fresh launch staged no %s; the fixture no longer exercises it", rel(want))
 		}
 	}
 	var skillFiles, briefingFiles int
@@ -350,17 +433,7 @@ func TestAnAttachWithAnUnchangedConfigLeavesTheLiveJailsStagingUntouched(t *test
 
 	// Let a coarse filesystem clock tick, so a rewrite cannot hide behind an equal mtime.
 	time.Sleep(20 * time.Millisecond)
-
-	// The attach: the same config, re-staged and refreshed, as runContainer does before its
-	// attach decision.
-	staged, ok = o.stageRunPacks(cname)
-	if !ok {
-		t.Fatal("stageRunPacks failed on the attach")
-	}
-	if _, err := o.refreshJailBriefings(cname, cfg, "podman", staged); err != nil {
-		t.Fatalf("refreshJailBriefings on the attach: %v", err)
-	}
-	o.releaseLaunchLock()
+	stderr := attachThroughRun(t, ws, nil).stderr
 	after := snapshotStaging(t, root)
 
 	for rel, b := range before {
@@ -379,6 +452,153 @@ func TestAnAttachWithAnUnchangedConfigLeavesTheLiveJailsStagingUntouched(t *test
 	for rel := range after {
 		if _, ok := before[rel]; !ok {
 			t.Errorf("%s appeared under the staging after an attach with an unchanged config", rel)
+		}
+	}
+	if strings.Contains(stderr, "configured packs differ") || strings.Contains(stderr, "could not find the pack tree") {
+		t.Errorf("an attach whose config matches the jail's packs said they differ:\n%s", stderr)
+	}
+}
+
+// TestAnAttachWritesNothingIntoTheRunningJailsPackTree is OQ-PK2 (c)'s guard, and the pin the
+// release-decode allowlist cites (packs/releasedecode_test.go): with the config CHANGED since the
+// jail booted — a pack dropped, a pack's content changed — an attach still writes nothing into
+// the tree the jail binds, so a jail an older yolo launched never reads a newer yolo's packs. It
+// discards the tree it staged to compare, and it tells the user what differs and that a restart
+// picks it up.
+func TestAnAttachWritesNothingIntoTheRunningJailsPackTree(t *testing.T) {
+	home, ws, tree, local := attachStagingFixture(t)
+	cname := yoloruntime.FromWorkspace(ws)
+	before := snapshotTree(t, tree, nil)
+	agents := filepath.Join(paths.AgentsDir(), cname)
+
+	// pi dropped; treepack's `files`, skill and briefing prose all changed.
+	for rel, body := range map[string]string{
+		"tree/a.txt":            "CHANGED",
+		"skills/extra/SKILL.md": "---\nname: extra\ndescription: x\n---\nCONFIGURED-SKILL\n",
+		"briefing/rules.md":     "CONFIGURED-RULE\n",
+	} {
+		if err := os.WriteFile(filepath.Join(local, filepath.FromSlash(rel)), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeUserPacks(t, home, `["claude", "file://`+local+`"]`)
+	r := attachThroughRun(t, ws, nil)
+
+	if d := diffSnapshots(before, snapshotTree(t, tree, nil)); len(d) != 0 {
+		t.Errorf("an attach wrote into the pack tree the running jail binds:\n  %s", strings.Join(d, "\n  "))
+	}
+	// Its own staging is discarded BEFORE the session starts, not when the session ends: an attach
+	// session can last all day, and nothing ever binds that tree.
+	if len(r.treesAtExec) != 1 || r.treesAtExec[0] != filepath.Base(tree) {
+		t.Errorf("when the attach exec'd, the pack-tree root held %v, want only the jail's %s",
+			r.treesAtExec, filepath.Base(tree))
+	}
+	if trees := packTreesUnder(t, cname); len(trees) != 1 || trees[0] != tree {
+		t.Errorf("after the attach the pack-tree root holds %v, want only the jail's %s", trees, tree)
+	}
+	for _, want := range []string{"configured packs differ", "removed pi", "changed treepack", "yolo stop"} {
+		if !strings.Contains(r.stderr, want) {
+			t.Errorf("the attach's notice does not say %q:\n%s", want, r.stderr)
+		}
+	}
+	// The skills and briefing staging the jail binds are refreshed FROM THE JAIL'S TREE: the
+	// configured skill and prose are not delivered, the booted ones stay.
+	var skillBodies, briefingBodies []string
+	_ = filepath.Walk(agents, func(p string, fi os.FileInfo, err error) error {
+		if err != nil || fi.IsDir() || strings.Contains(p, "pack-trees") {
+			return nil
+		}
+		b, _ := os.ReadFile(p)
+		if strings.HasSuffix(p, filepath.Join("extra", "SKILL.md")) {
+			skillBodies = append(skillBodies, string(b))
+		}
+		if strings.Contains(string(b), "RULE") {
+			briefingBodies = append(briefingBodies, string(b))
+		}
+		return nil
+	})
+	if len(skillBodies) == 0 || len(briefingBodies) == 0 {
+		t.Fatalf("the fixture's skill (%d copies) or briefing prose (%d files) never reached the staging, "+
+			"so this proves nothing about what the attach refreshed", len(skillBodies), len(briefingBodies))
+	}
+	for _, b := range skillBodies {
+		if strings.Contains(b, "CONFIGURED-SKILL") {
+			t.Errorf("the attach delivered the configured pack's skill into the running jail's skills staging:\n%s", b)
+		}
+	}
+	for _, b := range briefingBodies {
+		if strings.Contains(b, "CONFIGURED-RULE") || !strings.Contains(b, "BOOTED-RULE") {
+			t.Errorf("the attach's briefing refresh did not compose from the jail's own packs:\n%s", b)
+		}
+	}
+}
+
+// TestAnAttachExecsWithTheJailsOwnLaunchFlags: the command an attach execs carries the launch
+// flags of the packs the jail booted with, not the configured ones — here the config dropped
+// copilot, and a command exec'd into a jail that still has it gets copilot's flag, disclosed.
+func TestAnAttachExecsWithTheJailsOwnLaunchFlags(t *testing.T) {
+	home := packHome(t)
+	emptyLoopholeDirs(t)
+	writeUserPacks(t, home, `["copilot"]`)
+	ws := t.TempDir()
+	cname := yoloruntime.FromWorkspace(ws)
+	var out bytes.Buffer
+	fresh := dispatchOptions(t, ws, "podman", &out, &out, nil)
+	cfg, ok := fresh.loadAndValidateConfig()
+	if !ok {
+		t.Fatalf("config:\n%s", out.String())
+	}
+	fresh.stagingCfg = cfg
+	staged, ok := fresh.stageRunPacks(cname)
+	if !ok {
+		t.Fatalf("staging:\n%s", out.String())
+	}
+	if err := writeLivePackTree(cname, staged.root); err != nil {
+		t.Fatal(err)
+	}
+
+	writeUserPacks(t, home, `[]`)
+	r := attachThroughRun(t, ws, func(o *Options) { o.Args = []string{"copilot", "chat"} })
+	if !strings.Contains(r.execArgv, "copilot --yolo chat") {
+		t.Errorf("the attach exec'd %q; the jail still has copilot, so its launch flag applies", r.execArgv)
+	}
+	if !strings.Contains(r.stderr, "yolo CHANGED the command you asked for") {
+		t.Errorf("the attach injected a flag without disclosing it:\n%s", r.stderr)
+	}
+}
+
+// TestAnAttachToAJailLaunchedBeforePerLaunchTreesLeavesItsSharedTreeAlone: a jail an older yolo
+// launched binds the ONE shared staging tree, AGENTS_DIR/<cname>/packs, which every launch used to
+// re-stage. An attach by this yolo must leave it byte-identical — it is the tree an older jail's
+// boot re-reads on the attach, and handing it this tree's packs is the boot failure the
+// release-decode allowlist names — and read it as the jail's packs.
+func TestAnAttachToAJailLaunchedBeforePerLaunchTreesLeavesItsSharedTreeAlone(t *testing.T) {
+	home := packHome(t)
+	writeUserPacks(t, home, `["claude"]`)
+	ws := t.TempDir()
+	cname := yoloruntime.FromWorkspace(ws)
+	// What an older launch left: a shared tree holding an embedded pack that this config no
+	// longer selects, and no record and no per-launch tree.
+	legacy := paths.LegacyPackStagingDir(cname)
+	if err := os.MkdirAll(filepath.Join(legacy, officialStagingDir, "journal"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writePack(t, filepath.Join(legacy, officialStagingDir, "journal"), `{"name":"journal"}`)
+	before := snapshotTree(t, legacy, nil)
+
+	r := attachThroughRun(t, ws, nil)
+	stdout, stderr := r.stdout, r.stderr
+
+	if d := diffSnapshots(before, snapshotTree(t, legacy, nil)); len(d) != 0 {
+		t.Errorf("an attach changed the shared tree an older jail binds:\n  %s", strings.Join(d, "\n  "))
+	}
+	if trees := packTreesUnder(t, cname); len(trees) != 0 {
+		t.Errorf("the attach left its own staging behind: %v", trees)
+	}
+	for _, want := range []string{"added aws-auth, claude,", "removed journal"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("the attach did not read the older jail's shared tree as its packs (no %q):\nstderr:\n%s\nstdout:\n%s",
+				want, stderr, stdout)
 		}
 	}
 }

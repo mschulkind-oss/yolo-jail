@@ -246,8 +246,8 @@ func StagedPackRoot(cname, sd string) string {
 // Replace-by-rename, like StageBinaryCommands and for a related reason: the tree
 // must flip atomically from the previous launch's pack set to this one, and a `cp`
 // over a live directory would leave a union of the two — a pack the user dropped
-// from `packs` would keep rendering, which is precisely the bug pruneDroppedPackStaging
-// exists to prevent on the host side. The destination is removed BEFORE the rename
+// from `packs` would keep rendering, which is precisely the bug a fresh pack tree per launch
+// rules out on the host side (docs/reference/pack-system.md#oq-pk2). The destination is removed BEFORE the rename
 // because `mv src dst` moves src INSIDE dst when dst is an existing directory; that
 // one is not a nicety, it is the difference between replacing the tree and nesting
 // it one level deeper every launch.

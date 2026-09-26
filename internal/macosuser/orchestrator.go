@@ -565,11 +565,13 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// or it covers the wrong half.
 	//
 	// ON A LAUNCH THE LOCK IS ALREADY HELD by the time this runs: the run pipeline takes it
-	// before pack staging (run.holdLaunchLock), because the host-side staging this backend
-	// copies below is written there and read back here, and a second launch restaging in
-	// between is the race docs/reference/pack-system.md#concurrent-launches-of-one-workspace
-	// records. The seam then hands back THAT hold (run.AcquireWorkspaceLockFor), so the
-	// release below is what ends the launch's whole window, before the agent as always.
+	// before it writes the per-workspace skills and briefing staging (run.holdLaunchLock),
+	// because the home-overlay and context trees this backend copies below are built from
+	// that staging, and a second launch rewriting it in between would hand this session the
+	// other launch's content. The pack tree is not in that window: each launch stages its own
+	// (docs/reference/pack-system.md#oq-pk2), so the copy below reads a tree no other launch
+	// writes. The seam then hands back THAT hold (run.AcquireWorkspaceLockFor), so the release
+	// below is what ends the launch's whole window, before the agent as always.
 	release := func() {}
 	if deps.LockWorkspace != nil {
 		if r := deps.LockWorkspace(opts.Workspace, plan.Cname); r != nil {

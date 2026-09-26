@@ -40,7 +40,7 @@ package run
 //     requirement and §8's benefit are the same property seen from two sides.
 //
 // The launch is where deselection is actually observed — it is the thing that reads `packs`,
-// compares it to what is staged, and prunes (run/packs.go's pruneDroppedPackStaging). So the
+// stages the selection into a tree of its own (run/packtree.go). So the
 // detector belongs beside that comparison, and this runs immediately after it, from
 // stageRunPacks.
 //

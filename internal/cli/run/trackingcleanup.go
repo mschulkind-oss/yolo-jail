@@ -55,6 +55,12 @@ const trackingProbeTimeout = 10 * time.Second
 // the one container that could hold it is gone. That is not the edit of a live skeleton the
 // design's rule 2 forbids. A skeleton this declines to remove stays for the reaper, which then
 // holds only launches that died with no teardown at all (SIGKILL, OOM).
+//
+// THE PACK TREE the container booted from goes on the same evidence, and for the same reasons
+// (packtree.go, OQ-PK2 (c)): it is this launch's own (Options.packTree), handed to the container
+// just before it started (Options.packTreeHeld), and no other launch binds it. The live-tree
+// record goes with it only while it still names this tree, since a launch that restarted the
+// jail has written its own.
 func (o *Options) forgetGoneContainer(cname, rt, skeleton string) {
 	if cname == "" {
 		return
@@ -71,6 +77,10 @@ func (o *Options) forgetGoneContainer(cname, rt, skeleton string) {
 	// The same path guard as a skeleton no container ever held: a direct child of this
 	// cname's skeleton root, never anything else.
 	discardUnheldSkeleton(cname, skeleton)
+	if o.packTreeHeld {
+		forgetLivePackTree(cname, o.packTree)
+		discardPackTree(cname, o.packTree)
+	}
 }
 
 // tryWorkspaceLock takes cname's workspace lock (the file acquireWorkspaceLock blocks on)

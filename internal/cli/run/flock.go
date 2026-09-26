@@ -143,11 +143,11 @@ func (l *workspaceLock) Close() {
 // against a self-inflicted race and not a safety property worth refusing a launch over.
 //
 // A LOCK THIS PROCESS ALREADY HOLDS IS HANDED OVER, NOT TAKEN AGAIN. The launch takes this
-// same lock before it stages (holdLaunchLock), so by the time the backend asks for it the
-// process holds it — and a second flock on a second descriptor of the same file waits on the
-// first one, which in one process is a wait for ever. The backend gets the held lock's
-// release instead, and calling it at its own release point (before the agent starts) is what
-// ends the launch's window there.
+// same lock before it writes the workspace's shared content staging (holdLaunchLock), so by the
+// time the backend asks for it the process holds it — and a second flock on a second descriptor
+// of the same file waits on the first one, which in one process is a wait for ever. The backend
+// gets the held lock's release instead, and calling it at its own release point (before the
+// agent starts) is what ends the launch's window there.
 func AcquireWorkspaceLockFor(workspace, cname string, warn, waiting func(string)) func() {
 	if held := heldLaunchLocks.lookup(launchLockPath(cname)); held != nil {
 		return held.Close
@@ -205,37 +205,43 @@ func (r *launchLockRegistry) forget(path string, l *workspaceLock) {
 	}
 }
 
-// holdLaunchLock takes the per-workspace launch lock for this launch BEFORE it stages
-// anything, unless this launch already holds it.
+// holdLaunchLock takes the per-workspace launch lock for this launch, unless it already holds
+// it.
 //
-// THE WINDOW IS THE WORKSPACE'S SHARED STAGING, which is why it opens here and not where it
-// used to (runContainer's fresh path, and the macos-user orchestrator's bootstrap). Two
-// launches of one workspace share one AGENTS_DIR/<cname>: the staged packs, the skills and
-// briefing staging, and on macos-user the home-overlay and /ctx trees. Each launch writes them
-// and then READS THEM BACK well after writing: its host daemons start from the staged loophole
-// module dirs, its skills are copied out of the staged packs, and the container binds them or
-// the sandbox bootstrap copies them. Staging used to run before any lock, so a second launch
-// restaged under the first one's reads. The first macOS run of
-// TestMacosUserTwoConcurrentLaunchesOfOneWorkspace measured it as `unlinkat
-// …/packs/_official/claude: directory not empty` in one launch and "loophole module dir … is
-// not a directory" in the other (docs/reference/pack-system.md#concurrent-launches-of-one-workspace).
+// THE WINDOW IS WHAT THE WORKSPACE'S LAUNCHES STILL SHARE. Two launches of one workspace share
+// one AGENTS_DIR/<cname>: the skills and briefing staging a podman jail binds, and on macos-user
+// the home-overlay and /ctx trees its sandbox copies. On podman and Apple Container they also
+// share one container name, so the attach-or-create decision has to be made by one launch at a
+// time. Each launch writes the shared staging and then READS IT BACK — the container binds it,
+// or the sandbox's stage copies it — so a second launch rewriting it in between would hand the
+// first one the second's content.
 //
-// So the lock is held from here until the launch no longer touches that staging, and released
-// by whichever arm ends the window:
+// THE PACK TREE IS NOT IN THE WINDOW ANY MORE. The lock used to open before pack staging,
+// because staging rewrote one shared tree that the other launch's host daemons and copies were
+// still reading: the first macOS run of TestMacosUserTwoConcurrentLaunchesOfOneWorkspace
+// measured `unlinkat …/packs/_official/claude: directory not empty` in one launch and "loophole
+// module dir … is not a directory" in the other
+// (docs/reference/pack-system.md#concurrent-launches-of-one-workspace). Each launch now stages a
+// tree of its own that no other launch knows the name of (packtree.go, OQ-PK2 (c)), so staging,
+// and on macos-user the host-daemon start that reads from it, run outside the lock.
 //
-//   - podman and Apple Container, fresh launch: once the container is running (runContainer's
-//     onStarted), or at any return before that, as before.
-//   - podman and Apple Container, attach: before the attach execs (runContainer's attach
-//     branch).
-//   - macos-user: by the orchestrator, before the agent starts. It asks for this lock through
-//     AcquireWorkspaceLockFor, which hands the held one over.
+// So the lock opens, and is released, per backend:
+//
+//   - podman and Apple Container: at the top of runContainer, before the orphan sweep and the
+//     attach decision. A fresh launch releases it once the container is running (onStarted),
+//     or at any return before that. An attach releases it once its contract gate has passed
+//     and it has refreshed the skills and briefing staging, before the exec
+//     (attachExisting); a gate that restarts the jail keeps it into the fresh launch.
+//   - macos-user: in Run's native arm, before refreshJailBriefings writes the staging its
+//     overlay and context trees are built from, and released by the orchestrator before the
+//     agent starts. It asks for this lock through AcquireWorkspaceLockFor, which hands the held
+//     one over.
 //   - every other return: Run's deferred releaseLaunchLock.
 //
 // A second launch of the workspace therefore WAITS, with the "Waiting for concurrent jail
-// launch" notice, instead of restaging under the first. That is the ruled behavior: a launch's
-// result never depends on another's, and it waits for what it needs
-// (docs/design/pi-git-extension-caching.md OQ-2). Its own staging then runs in full, and with
-// an unchanged config it changes nothing on disk (internal/treesync).
+// launch" notice, instead of rewriting the staging under the first. That is the ruled behavior:
+// a launch's result never depends on another's, and it waits for what it needs
+// (docs/design/pi-git-extension-caching.md OQ-2).
 //
 // The degraded mode is acquireWorkspaceLock's: a lock file that cannot be opened warns and
 // leaves this launch unserialised, because a workspace lock is a courtesy and not a reason to

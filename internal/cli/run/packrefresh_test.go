@@ -73,16 +73,19 @@ func TestLaunchFetchesANeverInstalledGitPack(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
+	// Read inside the backend call: the launch's pack tree is its own and goes when Run returns.
 	var staged string
+	var stagedErr error
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, packRoot, _ string, _ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		staged = packRoot
+		_, stagedErr = os.Stat(filepath.Join(staged, "gp", "skills", "gpskill", "SKILL.md"))
 		return 0
 	}
 	if rc := Run(*o); rc != 0 {
 		t.Fatalf("Run() = %d, want 0\nstdout:\n%s\nstderr:\n%s", rc, stdout.String(), stderr.String())
 	}
-	if _, err := os.Stat(filepath.Join(staged, "gp", "skills", "gpskill", "SKILL.md")); err != nil {
-		t.Errorf("the never-installed git pack was not staged under %q: %v\nstdout:\n%s", staged, err, stdout.String())
+	if staged == "" || stagedErr != nil {
+		t.Errorf("the never-installed git pack was not staged under %q: %v\nstdout:\n%s", staged, stagedErr, stdout.String())
 	}
 	if !strings.Contains(stdout.String(), "Fetched pack gp: main → ") {
 		t.Errorf("the launch did not disclose the fetch:\n%s", stdout.String())

@@ -131,16 +131,16 @@ func acMaterialize(src, targetRel, wsState string) {
 // (appleContainerBaseMounts puts GlobalCache at /home/agent/.cache, and packFilesMountArgs
 // binds a `files` directory). Because this backend ACCEPTS `-v src:dest:ro` and IGNORES
 // the suffix (roBindsUnsupported states the measurement). For the staged pack tree that
-// is not a cosmetic downgrade: the tree a bind would expose is the launcher's own
-// AGENTS_DIR/<cname>/packs, which the HOST reads on the next launch to decide host-file
-// grants and mounts — so a writable bind is precisely the "an agent that could rewrite a
-// manifest could grant its own pack a host file on the next boot" escalation that the
-// podman arm's `:ro` exists to prevent. A copy leaves the host's own tree untouched.
+// is not a cosmetic downgrade: the tree a bind would expose is the launcher's own pack
+// tree, which the HOST reads again on every attach to this jail to compose what it delivers
+// (runningJailPackView) — so a writable bind is precisely the "an agent that could rewrite a
+// manifest could grant its own pack a host file" escalation that the podman arm's `:ro`
+// exists to prevent. A copy leaves the host's own tree untouched.
 //
 // REPLACE, NEVER MERGE, which is the same rule macosuser.StagePackCommands states for the
 // same content on the other no-mounts backend: a pack the user dropped from `packs` must
 // stop rendering, and a copy over a live directory would leave the union of two launches
-// — the exact bug pruneDroppedPackStaging exists to prevent on the host side.
+// — the bug a fresh pack tree per launch rules out on the host side (packtree.go).
 //
 // FAIL-CLOSED ON A PARTIAL TREE. copyTree stops at its first error, and a half-copied
 // pack root is the worst of the three outcomes: the jail comes up rendering SOME packs

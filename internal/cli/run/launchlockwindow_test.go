@@ -1,10 +1,10 @@
 package run
 
-// launchlockwindow_test.go pins WHERE the per-workspace launch lock's window closes on each arm
-// — the call sites holdLaunchLock's doc comment lists. Staging opens the window
-// (concurrentstaging_test.go has the race that made it open there); each arm must close it at
-// the point it stops reading the workspace's shared staging, and no later, or a second
-// terminal in the workspace waits for the first one's whole session.
+// launchlockwindow_test.go pins WHERE the per-workspace launch lock's window opens and closes on
+// each arm — the call sites holdLaunchLock's doc comment lists. Each arm opens it where it first
+// touches what the workspace's launches share (no longer at staging: the pack tree is per launch,
+// packtree.go) and must close it at the point it stops reading the workspace's shared staging,
+// and no later, or a second terminal in the workspace waits for the first one's whole session.
 
 import (
 	"bytes"
@@ -43,8 +43,8 @@ func launchLockHeld(t *testing.T, path string) bool {
 }
 
 // TestTheMacosUserBackendIsHandedTheLaunchLockStagingTook: the macos-user arm is dispatched with
-// the lock staging took STILL HELD (the backend's own host-side reads of the staging — the
-// daemons' module dirs, the copies it stages for the sandbox — happen inside it), and the
+// the launch lock STILL HELD — taken before the arm wrote the per-workspace content staging, whose
+// copies the backend stages for the sandbox inside the same hold — and the
 // backend's own acquisition, through the seam the front door wires (AcquireWorkspaceLockFor), is
 // HANDED that hold. Taking the file a second time in one process would wait on itself for ever,
 // and releasing what it was handed must release the launch's hold, since that release — before
@@ -132,12 +132,19 @@ func TestAnAttachReleasesTheLaunchLockBeforeItsSession(t *testing.T) {
 	})
 	o := dispatchOptions(t, ws, "podman", &stdout, &stderr, nil)
 	o.Stdout = watched
-	inspected := false
+	inspected, decided := false, false
 	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 		switch {
 		case len(argv) >= 2 && argv[1] == "info":
 			return ExecResult{Ran: true, RC: 0, Stdout: "host: {}"}
 		case len(argv) >= 2 && argv[1] == "ps" && strings.Contains(strings.Join(argv, " "), "name=^/"+cname+"$"):
+			// THE ATTACH DECISION is made under the lock: with the pack tree per launch, the
+			// lock no longer opens at staging, and this is the first thing it must cover.
+			decided = true
+			if !launchLockHeld(t, lockPath) {
+				t.Error("the attach-or-create decision was made without the workspace launch lock: " +
+					"two launches could both decide to create the workspace's one container")
+			}
 			return ExecResult{Ran: true, RC: 0, Stdout: "abc123\n"}
 		case len(argv) >= 2 && argv[1] == "inspect":
 			inspected = true
@@ -156,7 +163,7 @@ func TestAnAttachReleasesTheLaunchLockBeforeItsSession(t *testing.T) {
 		t.Fatalf("the launch did not take the attach arm, so this test says nothing about it\n"+
 			"stdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
 	}
-	if !inspected {
+	if !inspected || !decided {
 		t.Fatalf("the attach arm asked the runtime nothing, so the lock was never read at it\n"+
 			"stdout:\n%s", stdout.String())
 	}
