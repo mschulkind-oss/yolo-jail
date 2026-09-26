@@ -138,7 +138,7 @@ podman machine start
 
 On macOS, image builds use the NixOS binary cache by default — no builder to set up. If you add packages that aren't in the cache (or build offline), the from-source Linux build is offloaded automatically to a throwaway container on the container runtime you already have running. See [macOS guide](userguide/guides/macos.md).
 
-For development, see [CONTRIBUTING.md](https://github.com/mschulkind-oss/.github/blob/main/CONTRIBUTING.md).
+For development, see [Contributing](#contributing).
 
 ## Quick Start
 
@@ -354,7 +354,25 @@ Run `yolo check` after **every** config edit, especially when handing work from 
 
 ## Contributing
 
-See [CONTRIBUTING.md](https://github.com/mschulkind-oss/.github/blob/main/CONTRIBUTING.md) for development setup and guidelines.
+yolo-jail is a Go module, and [AGENTS.md](AGENTS.md) is the guide to developing it: the
+architecture, the build and test traps, and the file that enforces each rule. From a clone:
+
+```bash
+just setup           # the toolchain mise.toml pins (Go, just, staticcheck, uv), and the Go module deps
+just install-hooks   # a pre-commit hook that runs the same gate CI runs
+just check-ci        # that gate: go vet and staticcheck for linux and darwin, gofmt, the changelog
+                     # and user-guide checks, and the short test suite
+```
+
+The gate also needs `python3` on your `PATH`, for the user-guide checks. Commit messages follow
+[Conventional Commits](https://www.conventionalcommits.org/). Changes a user can notice are
+described under `[Unreleased]` in [CHANGELOG.md](CHANGELOG.md), which becomes the release notes.
+
+The organization's [code of conduct](https://github.com/mschulkind-oss/.github/blob/main/CODE_OF_CONDUCT.md)
+and [security policy](https://github.com/mschulkind-oss/.github/blob/main/SECURITY.md) apply here. Its
+[contributing guide](https://github.com/mschulkind-oss/.github/blob/main/CONTRIBUTING.md) describes the
+pull-request process; its toolchain and code-quality sections are written for the organization's Python
+projects and do not apply to this one.
 
 ## Documentation
 
