@@ -5,7 +5,7 @@ packs cluster, and **seven questions are live** in its stages. Created 2026-07-2
 2026-08-23** (header + Stage E + Stage G); **re-checked 2026-09-24** against the tree and the
 designs it points at (E5's trigger fired, `file:line` anchors replaced by symbols).
 
-**Needs your ruling:** [E1](#-e1--collapse-host_files-modes-43-copy-merges-into-readonly), [E2](#-e2--readonly-as-a-real-ro-mount-instead-of-0o444), [E5](#-e5--manageddefaults-array-append-pinning), [S5](#-s5--a-jail-resolves-a-skill-name-collision-silently), [OQ-CO](#-oq-co--two-packs-writing-one-config-overlay-key-is-silent-last-one-wins), [OQ-S4](#-oq-s4--should-the-jail-narrow-its-skills-fan-out-to-match-the-host), [OQ-E4](#-oq-e4--do-stateful-surfaces-get-comment-preservation-too).
+**Needs your ruling:** [E1](#E1), [E2](#E2), [E5](#E5), [S5](#S5), [OQ-CO](#OQ-CO), [OQ-S4](#OQ-S4), [OQ-E4](#OQ-E4).
 
 **Why this exists.** The design work produced 8 docs / ~4,800 lines, and the actionable items
 ended up spread across three of them. This file is the only place that answers *"what do I
@@ -46,7 +46,7 @@ Spot-checked against the tree, re-checked 2026-09-24:
 
 **So the one substantive open stage left in this file is Stage E**, which as of today holds
 **seven open questions** — the parked `host_files` follow-ups plus four questions
-(`S5`, `OQ-CO`, [`OQ-S4`](#-oq-s4--should-the-jail-narrow-its-skills-fan-out-to-match-the-host), [`OQ-E4`](#-oq-e4--do-stateful-surfaces-get-comment-preservation-too)) that until now had no doc home anywhere and were being
+(`S5`, `OQ-CO`, [`OQ-S4`](#OQ-S4), [`OQ-E4`](#OQ-E4)) that until now had no doc home anywhere and were being
 restated in [roadmap.md](roadmap.md) instead of linked from it.
 
 ---
@@ -240,15 +240,15 @@ boundary through the middle of a single manifest, so the capability lives in yol
 
 **Restamped 2026-08-23.** This stage is now two things at once: the parked `host_files`
 follow-ups (E1–E5) it always held, and **four questions that had no design-doc home anywhere**
-— `S5`, `OQ-CO`, [`OQ-S4`](#-oq-s4--should-the-jail-narrow-its-skills-fan-out-to-match-the-host), [`OQ-E4`](#-oq-e4--do-stateful-surfaces-get-comment-preservation-too). Those four were carried as a single line in
+— `S5`, `OQ-CO`, [`OQ-S4`](#OQ-S4), [`OQ-E4`](#OQ-E4). Those four were carried as a single line in
 [roadmap.md](roadmap.md) ("the small ones with no design-doc home"), which breaks that file's
 own governing rule: *a question lives in its design doc, with stakes and a leaning, and the
 roadmap links to it by ID*. They live here now, in full, so the roadmap can cite them and stop
 restating them. **This section is their doc.**
 
 > [!IMPORTANT]
-> **IDs are an API — do not renumber these into the E-series.** `S5`, `OQ-CO`, [`OQ-S4`](#-oq-s4--should-the-jail-narrow-its-skills-fan-out-to-match-the-host) and
-> [`OQ-E4`](#-oq-e4--do-stateful-surfaces-get-comment-preservation-too) keep the exact spellings they were born with in the deleted `outstanding-work.md`
+> **IDs are an API — do not renumber these into the E-series.** `S5`, `OQ-CO`, [`OQ-S4`](#OQ-S4) and
+> [`OQ-E4`](#OQ-E4) keep the exact spellings they were born with in the deleted `outstanding-work.md`
 > (last intact at commit `58ae8227`, 2026-08-13). They are cited today by
 > [shipped-2026-08-12.md](shipped-2026-08-12.md) (§S4 and the E4 entry) and by
 > `internal/cli/run/packskillsdelivery_test.go`. `S5` in particular is an S-series pack ID,
@@ -263,7 +263,7 @@ carries none, deliberately.
 | **E1** | `host_files` modes 4→3 (`copy` merges into `readonly`) | **open** — one decision with E2 + OQ-B |
 | **E2** | `readonly` as a real `:ro` mount instead of `0o444` | **open** — one decision with E1 + OQ-B |
 | ✅ E3 | Capture timing | **SHIPPED 2026-08-15** — both halves. See below |
-| ✅ E4 | Comment preservation on `json`/`toml` surfaces | **mostly shipped 2026-08-12**; the one live residue is [`OQ-E4`](#-oq-e4--do-stateful-surfaces-get-comment-preservation-too) |
+| ✅ E4 | Comment preservation on `json`/`toml` surfaces | **mostly shipped 2026-08-12**; the one live residue is [`OQ-E4`](#OQ-E4) |
 | **E5** | `managed`/`defaults` array-append pinning | **open** — speculative; the named trigger has not fired |
 | **S5** | A jail resolves a skill-name collision silently | **open** — live gap, the only place the S1 silent loss survives |
 | **OQ-CO** | Two packs writing one `config-overlay` key | **open** — nothing blocked; no shipped pack collides |
@@ -272,7 +272,7 @@ carries none, deliberately.
 
 ---
 
-### 💬 **E1 — collapse `host_files` modes 4→3 (`copy` merges into `readonly`)**
+### <a id="E1"></a>💬 **E1 — collapse `host_files` modes 4→3 (`copy` merges into `readonly`)**
 
 Also **E2** and **[`pack-host-management-plan.md`](pack-host-management-plan.md) OQ-B**: *these three are one decision.* See
 the shared block below.
@@ -300,7 +300,7 @@ mode and the case for merging them collapses.
 **Answer:**
 > _(empty — fill in when decided)_
 
-### 💬 **E2 — `readonly` as a real `:ro` mount instead of `0o444`**
+### <a id="E2"></a>💬 **E2 — `readonly` as a real `:ro` mount instead of `0o444`**
 
 **This is the same underlying decision as E1 and as `OQ-B` in
 [pack-host-management-plan.md](pack-host-management-plan.md#open-questions) (still open 2026-09-24). Decide all three
@@ -360,9 +360,9 @@ lost today, only observability lags"*. Verified against the tree 2026-08-23:
 Nothing left to decide. Kept as a row rather than deleted because the E-numbers are cited
 elsewhere.
 
-### ✅ **E4 — comment preservation. Mostly shipped 2026-08-12; the residue is [`OQ-E4`](#-oq-e4--do-stateful-surfaces-get-comment-preservation-too).**
+### ✅ **E4 — comment preservation. Mostly shipped 2026-08-12; the residue is [`OQ-E4`](#OQ-E4).**
 
-**Why `E4` is absent from the roadmap's list while [`OQ-E4`](#-oq-e4--do-stateful-surfaces-get-comment-preservation-too) is present.** They are not the same
+**Why `E4` is absent from the roadmap's list while [`OQ-E4`](#OQ-E4) is present.** They are not the same
 item. `E4` was "comment preservation on `json`/`toml` surfaces" across all modes; three of its
 four cases are now closed, and the fourth was promoted to its own question ID:
 
@@ -371,12 +371,12 @@ four cases are now closed, and the fourth was promoted to its own question ID:
 | `rmw` | **preserve** — shipped | `internal/entrypoint/tomltrivia.go`, whose header reads *"tomltrivia.go is E4's `rmw` half"*; drops are reported by key via `HostRenderResult.Formatting` (`internal/entrypoint/hostrender.go`) |
 | `computed` | **do not preserve, and that is correct** | yolo is sole author, so any comment would be one *yolo wrote* — a different feature |
 | `json` (any mode) | **provably vacuous** | strict JSON has no comment syntax, so a commented file never decodes and the RMW path refuses it byte-untouched; now pinned by a test |
-| `stateful` | **still open** → **[`OQ-E4`](#-oq-e4--do-stateful-surfaces-get-comment-preservation-too)** | see below |
+| `stateful` | **still open** → **[`OQ-E4`](#OQ-E4)** | see below |
 
 Full argument: [host-file-staging.md](host-file-staging.md) §*"What shipped: option 3, for
 `rmw` only"*, and [shipped-2026-08-12.md](shipped-2026-08-12.md) §E4.
 
-### 💬 **E5 — `managed`/`defaults` array-append pinning**
+### <a id="E5"></a>💬 **E5 — `managed`/`defaults` array-append pinning**
 
 `managed`/`defaults` merge is RFC-7386 object merge at every depth
 (`internal/agentcfg/engine.go`, re-checked 2026-09-24), which means **an array in a
@@ -410,7 +410,7 @@ left of E5 is narrower: **does any surface need a `managed` or `defaults` array 
 **Answer:**
 > _(empty — fill in when decided)_
 
-### 💬 **S5 — a jail resolves a skill-name collision SILENTLY**
+### <a id="S5"></a>💬 **S5 — a jail resolves a skill-name collision SILENTLY**
 
 **Context for a reader who has never seen the roadmap.** Two selected packs can each ship a
 skill directory with the same name aimed at the same destination (`~/.claude/skills/review`
@@ -450,7 +450,7 @@ a session.
 **Answer:**
 > _(empty — fill in when decided)_
 
-### 💬 **OQ-CO — two packs writing one `config-overlay` key is silent last-one-wins**
+### <a id="OQ-CO"></a>💬 **OQ-CO — two packs writing one `config-overlay` key is silent last-one-wins**
 
 **Context.** `config-overlay` is the kind that lets pack B contribute keys to a surface pack A
 owns (the `matt-fzf` → `claude/settings` `fileSuggestion` case). Overlays fold in after the
@@ -499,7 +499,7 @@ key and rely on order — I have not found one.
 **Answer:**
 > _(empty — fill in when decided)_
 
-### 💬 **[OQ-S4](#-oq-s4--should-the-jail-narrow-its-skills-fan-out-to-match-the-host) — should the jail narrow its skills fan-out to match the host?**
+### <a id="OQ-S4"></a>💬 **[OQ-S4](#OQ-S4) — should the jail narrow its skills fan-out to match the host?**
 
 **Or, stated as the real question: does a declaration NARROW delivery, or only ADD to it?**
 
@@ -550,7 +550,7 @@ what a *borrowed* destination is.
 **Answer:**
 > _(empty — fill in when decided)_
 
-### 💬 **[OQ-E4](#-oq-e4--do-stateful-surfaces-get-comment-preservation-too) — do `stateful` surfaces get comment preservation too?**
+### <a id="OQ-E4"></a>💬 **[OQ-E4](#OQ-E4) — do `stateful` surfaces get comment preservation too?**
 
 **Context.** The residue of E4 above. `rmw` preserves comments (shipped 2026-08-12,
 `internal/entrypoint/tomltrivia.go`); `computed` correctly does not; `json` is provably

@@ -818,14 +818,21 @@ overlay can plant one in between. The launch lock rules out a second jail of thi
 whose own workspace contains this one is the remaining writer. Closing that needs bind sources
 podman opens by descriptor, which it does not offer.
 
-<a id="OQ-JH1"></a>**[`OQ-JH1`](#OQ-JH1) — may a user relocate `.yolo` or `.yolo/home` with a symbolic link?** The launch now
-refuses one, with no override, because it cannot tell a link the user made from one a jail made.
-A user who moved the overlay to another disk that way (the machine-store directories are
-routinely large) is refused on the next launch. Options: (a) keep the refusal and document a bind
-mount as the way to relocate, since a mountpoint `Lstat`s as a directory; (b) accept a link whose
-target is recorded host-side, outside every jail-writable directory, as the user's; (c) add a
-`YOLO_ALLOW_*` hatch. Leaning (a): a hatch would be for yolo's own safety check rather than a
-broken config, and (b) adds a host-side record for a layout nothing documents.
+- 💬 <a id="OQ-JH1"></a>**[`OQ-JH1`](#OQ-JH1) — may a user relocate `.yolo` or `.yolo/home` with a symbolic link?** The launch now
+  refuses one, with no override, because it cannot tell a link the user made from one a jail made.
+  A user who moved the overlay to another disk that way (the machine-store directories are
+  routinely large) is refused on the next launch. Options: (a) keep the refusal and document a bind
+  mount as the way to relocate, since a mountpoint `Lstat`s as a directory; (b) accept a link whose
+  target is recorded host-side, outside every jail-writable directory, as the user's; (c) add a
+  `YOLO_ALLOW_*` hatch.
+
+  <!-- vantage: oq id=OQ-JH1 leaning="(a): keep the refusal and document a bind mount as the way to relocate. A hatch would be for yolo's own safety check rather than a broken config, and (b) adds a host-side record for a layout nothing documents." -->
+
+  _Leaning:_ **(a)**, keep the refusal and document a bind mount as the way to relocate. A hatch
+  would be for yolo's own safety check rather than a broken config, and (b) adds a host-side
+  record for a layout nothing documents.
+
+  **Answer:**
 
 ## Lifecycle
 

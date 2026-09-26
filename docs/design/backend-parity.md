@@ -19,12 +19,14 @@ executable without its `Cell` type ([§4.1](#41-what-shipped-instead-the-census-
 Every code claim was verified against the tree on 2026-08-24
 unless dated otherwise.
 
+**Needs your ruling:** [OQ-BP-1](#OQ-BP-1) (whether the census data structure is worth building), [OQ-BP-3](#OQ-BP-3) (whether a `Warned` disposition needs to be suppressible).
+
 > [!NOTE]
 > **2026-09-09: [OQ-BP-2](#decision-ledger) was answered by CODE, not by a ruling** — skills and briefings have been
 > delivered to macos-user since 2026-09-03 (`ef0282ab`), on the leaning's own terms, and the
 > question sat open for six days describing a gap that no longer existed. Recorded in the
 > [Decision Ledger](#decision-ledger); [Open Questions](#open-questions) item 2 has the chain and the smaller warning that
-> survives. **Three questions were live that day** — [OQ-BP-1](#open-questions) (the census), [OQ-BP-3](#open-questions) (suppressible
+> survives. **Three questions were live that day** — [OQ-BP-1](#OQ-BP-1) (the census), [OQ-BP-3](#OQ-BP-3) (suppressible
 > warnings) and [OQ-BP-4](#open-questions) (the Apple Container loophole skip). The census in [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset) is
 > untouched by this: the fix moved one cell from `Warned` to `HonoredBy`, which is the
 > [§3](#3-the-dispositions--the-most-important-section) vocabulary doing exactly what [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset) argues it is for.
@@ -60,7 +62,7 @@ user-facing consequence).
 **Build the census ([§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset)), but do the briefing fix ([§6](#6-the-second-shared-fix-compose-the-briefing-from-what-was-applied)) first** — it is smaller and it closes
 the sub-class the census structurally cannot reach. *(Status 2026-09-02: the briefing fix is
 DONE — `28ddea11` shipped it the day this verdict was written; see [§6](#6-the-second-shared-fix-compose-the-briefing-from-what-was-applied). The census is the whole
-remainder, and it waits on OQ-BP-1.)*
+remainder, and it waits on [OQ-BP-1](#OQ-BP-1).)*
 
 Three claims, argued below:
 
@@ -229,7 +231,7 @@ CODE SITE, enumerated out of the tree, so only the CARVE-OUTS are maintained —
 [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset) proposes a table per
 `(backend, config key or pack kind)` that a human keeps in step with the code.
 
-**What it does NOT deliver, so read [OQ-BP-1](#open-questions) as still open.** It cannot see a
+**What it does NOT deliver, so read [OQ-BP-1](#OQ-BP-1) as still open.** It cannot see a
 divergence with **no branch** (issue #39 was an ABSENT mount, and an absent thing has no line to
 mark), it marks a branch that is DECLARED AND WRONG as classified (#44's site is declared), it
 ignores forks on `o.IsMacOS` / `runtime.GOOS` / a capability probe, and its scope is
@@ -337,7 +339,7 @@ user granted read-only.
 ### 5.1 Confirmed drops I deliberately did NOT warn about
 
 Six of the twenty-one are real and left silent on purpose, because **fourteen new launch lines
-is well past the number OQ-BP-3 asks about**, and warning about a drop whose absence is the
+is well past the number [OQ-BP-3](#OQ-BP-3) asks about**, and warning about a drop whose absence is the
 correct outcome trains the reader to skip the ones that matter.
 
 | Mechanism | Backend | Why no warning |
@@ -623,7 +625,7 @@ an agent plans around it.
    [§5.1](#51-confirmed-drops-i-deliberately-did-not-warn-about)'s standing caveat, with the
    consequence that a wrong right-set fails closed as a jail that cannot reach its own broker.
 
-1. 💬 **OQ-BP-1: Is the census worth 2–3 days, given it cannot catch the two worst findings?**
+1. 💬 <a id="OQ-BP-1"></a>**[OQ-BP-1](#OQ-BP-1): Is the census worth 2–3 days, given it cannot catch the two worst findings?**
    [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset)'s residue is real: the P0s in [§5](#5-what-is-already-fixed-2026-08-24) (`reads-host`, `host_files`) emitted an argv and were
    *wrong*, not silent, and a census marks both Honored. What it buys is that the other
    nineteen become unwritable.
@@ -731,7 +733,7 @@ an agent plans around it.
    carries the per-loophole census that says how far "as fully as possible" reaches, and the
    measurement that has to come first.
 
-4. 💬 **OQ-BP-3: Does a `Warned` disposition need to be suppressible?**
+4. 💬 <a id="OQ-BP-3"></a>**[OQ-BP-3](#OQ-BP-3): Does a `Warned` disposition need to be suppressible?**
 Fourteen new launch lines exist as of today — the number was ten when this question was
    written, and it grew by four in the same afternoon, which is itself part of the answer. A
    user on macos-user who has read them once may not want them every launch, and a warning

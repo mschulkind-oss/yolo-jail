@@ -18,6 +18,8 @@ directed-agent split, and the restart axis all live there and describe shipped b
 each concerns a shipped mechanism working as designed rather than a gap, and none blocks
 anything. Read the reference first; each question below assumes it.
 
+**Needs your ruling:** [CFP-1](#CFP-1) (whether `:ro` for a Derived surface needs host-side composition, per-surface or blanket), [CFP-2](#CFP-2) (a documented degradation table for `macos-user` and Apple Container), [CFP-3](#CFP-3) (whether per-workspace is the right scope for the capture overlay sidecars).
+
 **Related decisions tracked elsewhere:** the `0o444`-vs-`:ro` question for `host_files` is
 `E1`/`E2` in [`../plans/BACKLOG.md`](../plans/BACKLOG.md) and `OQ-B` in
 [`../plans/pack-host-management-plan.md`](../plans/pack-host-management-plan.md). **CFP-1 is
@@ -30,7 +32,7 @@ deliberately not a fourth ID for it** — it is the narrower consequence questio
 
 IDs (`CFP-*`) minted 2026-08-23.
 
-1. 💬 **CFP-1: Does `:ro` for a Derived surface need host-side composition — and is that
+1. 💬 <a id="CFP-1"></a>**[CFP-1](#CFP-1): Does `:ro` for a Derived surface need host-side composition — and is that
    per-surface or blanket?** Yes to the first half, and it is the cost nobody has priced: you
    cannot compose into a `:ro` mount, so a `:ro` posture gives up `managed`/`defaults`
    and the overlay for that surface and moves its rendering to the host CLI. **This is the
@@ -49,7 +51,7 @@ IDs (`CFP-*`) minted 2026-08-23.
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 **CFP-2: Should `macos-user` and Apple Container get a documented degradation table?** Both
+2. 💬 <a id="CFP-2"></a>**[CFP-2](#CFP-2): Should `macos-user` and Apple Container get a documented degradation table?** Both
    can lose `:ro`. Apple Container honors a read-only bind only from version 1.1.0
    (`acROBindsFloor`, `internal/cli/run/backendcaps.go`); below that yolo skips a `mounts` entry
    or a `host_files` directory rather than binding it writable, and `workspace_readonly` paths stay
@@ -72,7 +74,7 @@ IDs (`CFP-*`) minted 2026-08-23.
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **CFP-3: Is per-workspace the right scope for the capture overlay sidecars?** They live
+3. 💬 <a id="CFP-3"></a>**[CFP-3](#CFP-3): Is per-workspace the right scope for the capture overlay sidecars?** They live
    under `<workspace>/.yolo/prism/`, so the same host file composed in two workspaces can diverge
    invisibly in different directions. Unexamined rather than obviously wrong. It is the same scope
    question a sidecar-relocation decision would be blocked on: is a captured edit per-workspace or

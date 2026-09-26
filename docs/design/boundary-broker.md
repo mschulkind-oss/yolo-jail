@@ -5,10 +5,7 @@ approval queue or `yolo approve` verb exists under `internal/` or `cmd/`), and f
 [§9](#9-open-questions-for-the-maintainer) are the maintainer's. Where the answer is "this already
 exists," it says so.
 
-**Needs your ruling:** four, all in [§9](#9-open-questions-for-the-maintainer) — OQ-A, OQ-C, OQ-E and [OQ-B1b](#9-open-questions-for-the-maintainer).
-OQ-A (is the synchronous version enough) sizes B2; OQ-C asks whether the jail sees the result or
-just success; OQ-E is where the human answers, the packaging half only; the last is whether to
-vendor unYOLO's policy engine or re-derive it.
+**Needs your ruling:** [OQ-A](#OQ-A) (is the synchronous version enough — it sizes B2), [OQ-C](#OQ-C) (does the jail see the result or just success), [OQ-E](#OQ-E) (where the human answers — the packaging half only), [OQ-B1b](#OQ-B1b) (vendor unYOLO's policy engine, or re-derive it).
 
 **The thesis, from the maintainer:**
 
@@ -421,7 +418,7 @@ credential pack.
 if synchronous-only suffices, most of [§7](#7-what-i-would-build-in-order) step 3 never gets written. OQ-B is settled and OQ-D was
 delegated; both are in [§9.1](#91-decision-ledger) so they stop being counted as open here.
 
-1. 💬 **OQ-A — is the synchronous version enough?** Most of the complexity here is durability. If
+1. 💬 <a id="OQ-A"></a>**[OQ-A](#OQ-A) — is the synchronous version enough?** Most of the complexity here is durability. If
    the human is usually at the keyboard, a blocking ask with a timeout may cover the real need —
    and step 3 never has to happen. **This is the question that sizes B2.**
 
@@ -439,7 +436,7 @@ delegated; both are in [§9.1](#91-decision-ledger) so they stop being counted a
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 **OQ-C — does the jail see the RESULT or just success?** A PR comment returns a URL, which is
+2. 💬 <a id="OQ-C"></a>**[OQ-C](#OQ-C) — does the jail see the RESULT or just success?** A PR comment returns a URL, which is
    useful; a credential-bearing response would defeat the "action crosses, credential does not"
    rule. This is a real API-shape decision, not a detail: it decides whether every verb needs a
    response schema or none do.
@@ -456,7 +453,7 @@ delegated; both are in [§9.1](#91-decision-ledger) so they stop being counted a
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **OQ-E — where does the human answer?** A foreground `yolo approve`, a TUI, a notification,
+3. 💬 <a id="OQ-E"></a>**[OQ-E](#OQ-E) — where does the human answer?** A foreground `yolo approve`, a TUI, a notification,
    the existing `yolo ps`-style view? A UX decision that constrains the state design, so it is
    worth answering before step 3 rather than after.
 
@@ -472,7 +469,7 @@ delegated; both are in [§9.1](#91-decision-ledger) so they stop being counted a
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. 💬 **[OQ-B1b](#9-open-questions-for-the-maintainer) — vendor unYOLO's policy engine, or re-derive it?** [§10.6](#106-recommendation--build-b1b-vendor-the-policy-engine-do-not-adopt-gh-broker)'s verdict is *build B1b,
+4. 💬 <a id="OQ-B1b"></a>**[OQ-B1b](#OQ-B1b) — vendor unYOLO's policy engine, or re-derive it?** [§10.6](#106-recommendation--build-b1b-vendor-the-policy-engine-do-not-adopt-gh-broker)'s verdict is *build B1b,
    do not adopt `gh-broker`* — but it leaves one piece genuinely open, and it sizes **B1b alone**
    rather than the whole broker. `authorization/policy` + `authorization/budget` + `internal/copyx`
    are MIT, **stdlib-only**, ~2,100 lines with a 1,456-line test file, and drop into `vendor/` with
@@ -795,7 +792,7 @@ wholesale, not ignore.** The four decisive facts, in order of weight:
 test file, and drop into `vendor/` with **no new module requirements** and no change to the `goSrc`
 fileset. Given [§10.4](#104-maturity--the-decisive-negative)'s no-compatibility policy, copying at a pinned SHA is strictly safer than a
 module dependency, and it is the one piece where copying plausibly beats re-deriving. **This is a
-genuine fork in the road and it is the maintainer's call — tracked as [`💬 OQ-B1b`](#9-open-questions-for-the-maintainer) in [§9](#9-open-questions-for-the-maintainer).**
+genuine fork in the road and it is the maintainer's call — tracked as [`💬 OQ-B1b`](#OQ-B1b) in [§9](#9-open-questions-for-the-maintainer).**
 (It used to point at "the B1b row in `roadmap.md`", which was never a row: the roadmap cites
 questions by ID and holds none of its own, so the pointer resolved to nothing in either direction.)
 

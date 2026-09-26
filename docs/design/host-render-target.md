@@ -2,7 +2,7 @@
 
 **Status:** DESIGN, 2026-07-27 — largely implemented, and two questions still live: steps 1, 3, 4, 5 and 6 of [§8](#8-what-i-would-actually-do-in-order) have shipped.
 
-**Needs your ruling:** [9.2 and 9.6](#still-live).
+**Needs your ruling:** [9.2](#9.2) (does a host target defeat the sandbox's purpose), [9.6](#9.6) (do the reservation lists survive contact with a *configured* pack).
 
 **Step 3 completed 2026-09-17**: the two render paths are collapsed onto `render.Target`, and
 `agentcfg.Compose*` now has no non-test caller outside `internal/render` and `internal/agentcfg`.
@@ -1193,14 +1193,14 @@ mechanism** — which is why shipping steps 1–6 did not close them. 9.4 is in 
 tree answered it, and **it answered it the other way**, so the `program`-refusal is no longer
 available as anybody's mitigation.
 
-1. 💬 **9.2 (see below): does a host target defeat the sandbox's purpose?** Still open;
+1. 💬 <a id="9.2"></a>**[9.2](#9.2) (see below): does a host target defeat the sandbox's purpose?** Still open;
    it decides whether `yolo host apply` is a narrow convenience or the recommended way to
    configure agents. _Leaning:_ narrow — but **the mitigation this leaning used to name is gone**.
    `program` below `jail` is confirm-gated now (9.4), so what bounds the posture is the prompt, the
    printed commands and the fatal decline, not a refusal. If the answer is "narrow", it has to be
    stated as a product position and defended somewhere other than the `FieldSet`.
    **Answer:** > _(empty — fill in when decided)_
-2. 💬 **9.6 (see below): do the reservation lists survive contact with a *configured*
+2. 💬 <a id="9.6"></a>**[9.6](#9.6) (see below): do the reservation lists survive contact with a *configured*
    pack?** **Narrowed, and the permissive half is gone** (2026-09-22): the surface list still
    covers EMBEDDED packs only, but the outcome they were feared to produce — a silent
    second writer — is refused where it becomes detectable, fatally

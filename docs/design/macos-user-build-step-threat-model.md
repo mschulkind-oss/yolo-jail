@@ -18,6 +18,8 @@ surface Q2 asks about is live rather than proposed. Q3 (the build sandbox) also 
 by Vector A — **and, since 2026-09-24, by a second route this doc did not have**
 ([Vector C](#vector-c--the-agent-is-itself-a-daemon-client-since-2026-09-24)).
 
+**Needs your ruling:** [Q2](#Q2) (keep `--accept-flake-config`, or drop it), [Q3](#Q3) (the macOS nix build sandbox for yolo-triggered builds).
+
 **Scope:** the `macos-user` backend only (native macOS user + Seatbelt, **no VM**).
 **Reads with:** [macos-no-vm-direction.md](../reference/macos-no-vm-direction.md) (why macos-user
 exists and how packages are materialized), [security-shim.md](../reference/security-shim.md)
@@ -241,7 +243,7 @@ all, and `YOLO_REPO_ROOT` is the explicit act the leaning wanted to require. Don
 hygiene, not security, but the security property is what it is. Nothing further to build here;
 reopen only if a cwd-relative resolution source is ever reintroduced.
 
-### 💬 Q2 — is `--accept-flake-config` worth the substituter-poisoning surface?
+### <a id="Q2"></a>💬 Q2 — is `--accept-flake-config` worth the substituter-poisoning surface?
 
 Dropping it (H4) reintroduces the "ignoring untrusted flake configuration" noise
 and loses the project's own cachix on untrusted-user hosts, forcing from-source
@@ -256,7 +258,7 @@ A's territory.)*
 **Answer:**
 > _(empty — fill in when decided)_
 
-### 💬 Q3 — do we want the macOS nix build sandbox on for yolo-triggered builds?
+### <a id="Q3"></a>💬 Q3 — do we want the macOS nix build sandbox on for yolo-triggered builds?
 
 Turning it on (e.g. `--option sandbox true` on the darwin materialization) shrinks
 the `_nixbld` blast radius, at some compatibility cost for packages that assume an

@@ -17,9 +17,7 @@ extensions to support?
 extensions and of pi 0.87.1, read from the published packages (versions in
 [Appendix A](#appendix-a-evidence)). **UNMEASURED:** no extension was run; no agent was started.
 
-**Needs your ruling:** [OQ-XM1](#OQ-XM1) (the core helper), [OQ-XM2](#OQ-XM2) (the role
-vocabulary), [OQ-XM3](#OQ-XM3) (the `subagents` block yolo already ships), [OQ-XM4](#OQ-XM4)
-(an env convention, or not yet), [OQ-XM5](#OQ-XM5) (the upstream proposal).
+**Needs your ruling:** [OQ-XM1](#OQ-XM1) (the core helper), [OQ-XM2](#OQ-XM2) (the role vocabulary), [OQ-XM3](#OQ-XM3) (the `subagents` block yolo already ships), [OQ-XM4](#OQ-XM4) (an env convention, or not yet), [OQ-XM5](#OQ-XM5) (the upstream proposal).
 
 **Reads with:** [`model-lists-and-pickers.md` §6](../design/model-lists-and-pickers.md#6-tier-aliases-default-fast-balanced)
 (the tier aliases this reuses), [`pi-model-selection-ux.md`](pi-model-selection-ux.md) ([OQ-PM1](pi-model-selection-ux.md#OQ-PM1),

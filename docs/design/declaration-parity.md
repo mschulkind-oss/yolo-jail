@@ -134,7 +134,7 @@ clause of the principle, not an exception to it.
   correct — `writable_home_dirs` on a backend whose home is writable in one bind has nothing
   to say ([DP-A11](#4-aligned-and-why-the-catalog-leads-with-it)).
 - **Not "add a warning everywhere."** That collides with
-  [OQ-BP-3](backend-parity.md#open-questions), which is live and owned elsewhere:
+  [OQ-BP-3](backend-parity.md#OQ-BP-3), which is live and owned elsewhere:
   *"a warning people learn to skip is worse than none."* See [OQ-DP5](#OQ-DP5).
 
 ### Defined terms
@@ -698,7 +698,7 @@ carries three costs that have to be paid deliberately rather than discovered:
   forbidden outright by [`../../AGENTS.md`](../../AGENTS.md): it folds in the dirs a launcher
   installs INTO, so evergreen delivery works exactly once per home and then goes silent.
 - **The disclosure would have to stay at generation time.** A wrapper that prints on every
-  invocation is the wallpaper [OQ-BP-3](backend-parity.md#open-questions) names. So the
+  invocation is the wallpaper [OQ-BP-3](backend-parity.md#OQ-BP-3) names. So the
   boot-time line this section adds is what a wrapper would need too — the delivery moves, the
   disclosure does not.
 - **The host rewrite would still have to exist.** It is the only producer that reaches every
@@ -1152,11 +1152,11 @@ below, which is why the tense in this paragraph is the tense it is.
   cmd` and `yolo apply` disagreeing about one value — was on the table and was not taken.
 - **Not Phase 7.** Nothing here builds the `guest` notch, on either platform. What
   [OQ-DP3](#decision-ledger) ruled is that the notch stop *looking* built.
-- **Not a replacement for the backend census.** [OQ-BP-1](backend-parity.md#open-questions) is
+- **Not a replacement for the backend census.** [OQ-BP-1](backend-parity.md#OQ-BP-1) is
   live and owned there; this doc adds the second input and the entry-point input, and would
   feed the same table. If the census is built, most of [§5](#5-silently-broken) becomes
   unwritable — that is an argument FOR it, made here and ruled there.
-- **Not "warn about all of it."** [OQ-BP-3](backend-parity.md#open-questions) is live:
+- **Not "warn about all of it."** [OQ-BP-3](backend-parity.md#OQ-BP-3) is live:
   *"a warning people learn to skip is worse than none."* [OQ-DP5](#OQ-DP5) offers three
   shapes that are better than a warning, all three of which already ship somewhere in the tree.
 - **Not a doc-fix sprint.** The five [§5.5](#55-doc-drift-the-same-failure-in-a-different-file)
@@ -1347,7 +1347,7 @@ approval, not a decision — see [§3](#3-the-four-dispositions-and-how-to-walk-
 
 3. ✅ **OQ-DP5: When a site cannot honor a declaration, what does it SAY?**
    A warning is the obvious answer, and the tree has already ruled against it:
-   [OQ-BP-3](backend-parity.md#open-questions) is live and says *"a warning people learn to skip
+   [OQ-BP-3](backend-parity.md#OQ-BP-3) is live and says *"a warning people learn to skip
    is worse than none."* Every "add a line" in [§6](#6-alignable-with-the-mechanism-and-its-cost)
    collides with that. **Three better shapes already ship in this repo, so the menu is not
    hypothetical:**
@@ -1385,7 +1385,7 @@ approval, not a decision — see [§3](#3-the-four-dispositions-and-how-to-walk-
    > user-declarable expected absence wherever the USER can decide it, (c) a third disposition
    > held as data for anything genuinely unbuilt. The three ship already, so this adopts shapes
    > rather than inventing one, and it keeps faith with
-   > [`OQ-BP-3`](backend-parity.md#open-questions) — *"a warning people learn to skip is worse
+   > [`OQ-BP-3`](backend-parity.md#OQ-BP-3) — *"a warning people learn to skip is worse
    > than none"* — which every "add a line" in
    > [§6](#6-alignable-with-the-mechanism-and-its-cost) would have collided with.
    >
@@ -1481,6 +1481,6 @@ approval, not a decision — see [§3](#3-the-four-dispositions-and-how-to-walk-
 | OQ-DP2 | **Mechanism first**, as `jailcontent.ConfinementProfile` already rules — and thread the mechanism into the briefing so both printing surfaces read one function. `run.prepare` already computes it, to set `NoContainer`. | 2026-09-12 | [§2.3](#23-nocontainer-was-the-mechanism-input-smuggled-into-a-notch-shaped-function--fixed-2026-09-13), [§11](#11-what-i-would-build-in-order) step 1 |
 | OQ-DP3 | **Refuse**, reusing `cli.applyMain`'s existing Phase 7 sentence verbatim, and consume `--at` in `cli.parseRunArgs`. ~10 lines; the alternative (honor the notch) IS Phase 7. Briefing-only was the weaker option and was not taken. | 2026-09-12 | [§10](#10-what-this-does-not-propose), [§11](#11-what-i-would-build-in-order) step 2 |
 | OQ-DP4 | **Build the delivery** — *"yes, build, however we can make it work … let's make it work."* Mechanism is the implementer's; [`../reference/macos-user-home-tiers.md`'s Seatbelt section](../reference/macos-user-home-tiers.md#seatbelt-does-the-read-only-half-of-a-bind-and-the-launcher-does-the-other) wins over `render.refusalReasons`' *"a copy goes silently stale"*, which survives only for a LIVE `mount` and is honored there as a stated delta. ⚠ The copy must run in the host CLI, never in the pure plan builder — a credential-boundary constraint the ruling does not override. | 2026-09-12 | [§6.1](#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured), [DP-L1](#6-alignable-with-the-mechanism-and-its-cost), [DP-D12](#7-ruled-divergent-and-the-ones-i-would-re-open) |
-| OQ-DP5 | **No warning — adopt the three shapes that already ship, and extend the census vocabulary to config keys.** (a) a coded decline with one banner line for what yolo decides (`hostcas`), (b) a user-declarable expected absence wherever the USER can decide it (`platforms: ["linux"]`), (c) a third disposition held as DATA for anything genuinely unbuilt (`render.hostUnimplemented`, whose own comment says *"an empty map is the end state"*). This keeps faith with [`OQ-BP-3`](backend-parity.md#open-questions) — *"a warning people learn to skip is worse than none"* — which every "add a line" in [§6](#6-alignable-with-the-mechanism-and-its-cost) collided with. ⚠ (c) has the best track record of the three: four of its five entries were found by the no-silent-skip test rather than by a human. The second half is ruled with it and is not separable: the machinery is keyed on `packdecl.Kind` and blind to `packages`/`mounts`/`network`/`resources` ([DP-B31](#54-the-host-notch-and-the-entry-point)), so it extends to config keys on `internal/config/inherit.go`'s shape — a per-key classification table with a drift test. Until that lands [DP-L16](#6-alignable-with-the-mechanism-and-its-cost) is not expressible at all. | 2026-09-13 | [OQ-DP5](#OQ-DP5), [§6](#6-alignable-with-the-mechanism-and-its-cost), [DP-B31](#54-the-host-notch-and-the-entry-point) |
+| OQ-DP5 | **No warning — adopt the three shapes that already ship, and extend the census vocabulary to config keys.** (a) a coded decline with one banner line for what yolo decides (`hostcas`), (b) a user-declarable expected absence wherever the USER can decide it (`platforms: ["linux"]`), (c) a third disposition held as DATA for anything genuinely unbuilt (`render.hostUnimplemented`, whose own comment says *"an empty map is the end state"*). This keeps faith with [`OQ-BP-3`](backend-parity.md#OQ-BP-3) — *"a warning people learn to skip is worse than none"* — which every "add a line" in [§6](#6-alignable-with-the-mechanism-and-its-cost) collided with. ⚠ (c) has the best track record of the three: four of its five entries were found by the no-silent-skip test rather than by a human. The second half is ruled with it and is not separable: the machinery is keyed on `packdecl.Kind` and blind to `packages`/`mounts`/`network`/`resources` ([DP-B31](#54-the-host-notch-and-the-entry-point)), so it extends to config keys on `internal/config/inherit.go`'s shape — a per-key classification table with a drift test. Until that lands [DP-L16](#6-alignable-with-the-mechanism-and-its-cost) is not expressible at all. | 2026-09-13 | [OQ-DP5](#OQ-DP5), [§6](#6-alignable-with-the-mechanism-and-its-cost), [DP-B31](#54-the-host-notch-and-the-entry-point) |
 | OQ-DP6 | **DISSOLVED, not answered — there was no decision left to take.** Two rulings on 2026-09-12 removed it from both ends: *"all agents take their default at the host notch by default"*, so the host posture contributes no flags by design (`render.HostProfile()` already returns `AgentAutonomy: false`); and *"let's get rid of the launch kind then, it's messy and no longer needed"*. Its one shipped consumer was copilot's `--yolo`, which was mis-declared as a plain `launch` contribution and so escaped the autonomy notch policy entirely — it moved under `autonomy`, where that policy governs it, and `--no-auto-update` was dropped outright (*"let agents be agents"*). ⚠ The maintainer's instinct that a host-shim ruling already covered this was HALF right and worth keeping: `host-agent-environment.md`'s [`HE-P2`](../reference/host-agent-environment.md#he-p2)/[`OQ-5`](../reference/host-agent-environment.md#oq-5) did ship, but a wrapper injects ENVIRONMENT, not flags (`hostwrap.Body` is `exec yolo host -- <bin> "$@"`), so it never answered this. What answered it was deleting the vocabulary. | 2026-09-12 | [DP-L5](#6-alignable-with-the-mechanism-and-its-cost) (withdrawn), [DP-B23](#54-the-host-notch-and-the-entry-point), [DP-B24](#54-the-host-notch-and-the-entry-point) |
 | OQ-DP7 | **UNIFY ALL PATHS** — *"yes, unify all paths."* Close the third spelling (`~/.yolo/bin/launch`) and pay for the installer/wrapper split it requires. The conditional is spent: ruling the spelling DIVERGENT is withdrawn as an outcome, so the split is a line item rather than a question. ⚠ **Unify the INJECTOR and the RECORD, not the spellings** — all three keep existing and all three inject from one place, extending what [DP-B42](#562-the-rows) did for the first two on 2026-09-13. A single injection POINT is refused by two facts: the host argv rewrite is the only producer reaching every backend and entry point and the only one disclosing while the user can still Ctrl-C, and the shell alias cannot serve macos-user, whose account shell is zsh ([DP-B43](#56-one-declaration-two-mechanisms-the-argv-rewrite-and-the-shell-alias)). ⚠ **No partial injector may ship before the split**: [`entrypoint.launcherShadows`](../../internal/entrypoint/launchercollision.go) writes no launcher for a name `/bin` or a declared `mise_tools` entry provides, so shipping early would deliver the bypass for most packs and silently drop it for the baked ones. Accepted costs, not dissolved: the flags reach commands nobody typed at yolo, and [DP-B23](#54-the-host-notch-and-the-entry-point) is sharpened — one production fold, hardcoded autonomous posture. | 2026-09-13 | [§5.6.1](#561-can-they-be-one-path), [DP-B42](#562-the-rows), [DP-B44](#56-one-declaration-two-mechanisms-the-argv-rewrite-and-the-shell-alias) |

@@ -47,7 +47,7 @@ Ordered by what pays for itself soonest.
 roadmap points at held live questions carrying neither a status emoji nor an explicit ID, so no count
 of "what is open" could be taken except by reading ~9,000 lines. Worse, IDs failed to resolve **in
 both directions**: [`boundary-broker.md` §10.6](../design/boundary-broker.md#106-recommendation--build-b1b-vendor-the-policy-engine-do-not-adopt-gh-broker) called a fork in the
-road *"the maintainer's call — see the B1b row in [`roadmap.md`](roadmap.md)"*, and the roadmap cited [`OQ-B1b`](../design/boundary-broker.md#9-open-questions-for-the-maintainer) back
+road *"the maintainer's call — see the B1b row in [`roadmap.md`](roadmap.md)"*, and the roadmap cited [`OQ-B1b`](../design/boundary-broker.md#OQ-B1b) back
 at the doc. Neither existed.
 
 **Then the deeper pass found it is a whole vocabulary, not a few typos.** The roadmap was

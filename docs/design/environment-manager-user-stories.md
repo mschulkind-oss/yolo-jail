@@ -12,7 +12,7 @@ a dated verdict; read those before hunting for a bug. **Eleven questions are sti
 document**, and Q7 decides whether Linux `guest` is a promise or a hypothesis. IDs are cited from
 [`../plans/roadmap.md`](../plans/roadmap.md) — do not renumber them.
 
-**Needs your ruling:** [Q1, Q1a, Q1b and Q2–Q9](#open-questions).
+**Needs your ruling:** [Q1](#Q1), [Q1a](#Q1a), [Q1b](#Q1b), [Q2](#Q2), [Q3](#Q3), [Q4](#Q4), [Q5](#Q5), [Q6](#Q6), [Q7](#Q7), [Q8](#Q8), [Q9](#Q9).
 
 > **Verification pass — 2026-08-23.** [§1](#1-maya--staff-engineer-rust-cli-wants-a-guarantee-not-a-diff)–[§5](#5-lisa--head-of-engineering-filling-in-a-security-questionnaire-doesnt-read-code) keep their original present tense: they describe the
 > product **as it was on 2026-07-27**, which is what makes them readable as stories. What changed
@@ -993,7 +993,7 @@ been *partly overtaken by shipped code*, and each of those now carries a `_Shipp
 saying what moved and what the question still decides. **IDs are cited by id from
 [`../plans/roadmap.md`](../plans/roadmap.md) — do not renumber, do not delete.**
 
-1. 💬 **Q1 — whether the capture overlay may outrank the definition at all.**
+1. 💬 <a id="Q1"></a>**[Q1](#Q1) — whether the capture overlay may outrank the definition at all.**
    This is the closure question, and it is the biggest one in the document. Capture is a real
    feature — humans and agents edit config in-jail, and silently discarding those edits is hostile
    — but a captured value wins over every declared layer while nothing declares *it*. Story 1 is
@@ -1031,7 +1031,7 @@ saying what moved and what the question still decides. **IDs are cited by id fro
    **Answer:**
    > _(empty — fill in when decided)_
 
-1a. 💬 **Q1a — whether `--sealed` is a flag or the default.**
+1a. 💬 <a id="Q1a"></a>**[Q1a](#Q1a) — whether `--sealed` is a flag or the default.**
    As a flag, the property is off until a user knows to ask, and nobody arriving from nix expects
    to opt into purity. As the default, capture and `yolo-jail.local.jsonc` — both deliberate,
    both shipped — become errors on first use.
@@ -1053,7 +1053,7 @@ saying what moved and what the question still decides. **IDs are cited by id fro
    **Answer:**
    > _(empty — fill in when decided)_
 
-1b. 💬 **Q1b — how far the "inert key" handoff goes.**
+1b. 💬 <a id="Q1b"></a>**[Q1b](#Q1b) — how far the "inert key" handoff goes.**
    Story 2 step 1 wants an inert `packages` to probe whether the dep is present anyway and print a
    remedy. That needs two things yolo lacks: a mapping from nixpkgs attr to native package manager
    formula, and the *binaries* a package provides (`packages: ["postgresql"]` → `psql`, not
@@ -1086,7 +1086,7 @@ saying what moved and what the question still decides. **IDs are cited by id fro
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 **Q2 — whether `apply` may report a shortfall as success.**
+2. 💬 <a id="Q2"></a>**[Q2](#Q2) — whether `apply` may report a shortfall as success.**
    `surfaces 0 rendered` is the shipped `macos-user` behavior (BACKLOG G3) and it printed as a
    normal success line in story 2. The 2026-07-26 ruling made generator *failure* fatal, but an
    absent generator isn't a failure.
@@ -1110,7 +1110,7 @@ saying what moved and what the question still decides. **IDs are cited by id fro
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **Q3 — whether `diff` is a top-level verb at all.**
+3. 💬 <a id="Q3"></a>**[Q3](#Q3) — whether `diff` is a top-level verb at all.**
    The first draft of story 1 was built on comparing two machines, and rewriting it around closure
    removed the need: a binding definition makes "compare my environments" a question you stop
    asking, and nix ships no such verb. What survives is `yolo config diff`, which already exists
@@ -1131,7 +1131,7 @@ saying what moved and what the question still decides. **IDs are cited by id fro
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. 💬 **Q4 — whether a rendered briefing must be stamped with its notch.**
+4. 💬 <a id="Q4"></a>**[Q4](#Q4) — whether a rendered briefing must be stamped with its notch.**
    Story 4's briefing is a real file in a real directory at `host`, and it outlives the run. A
    `host` briefing read inside a jail is merely confusing; a `jail` briefing read on the host is
    how someone loses `~/.pyenv`.
@@ -1155,7 +1155,7 @@ saying what moved and what the question still decides. **IDs are cited by id fro
    **Answer:**
    > _(empty — fill in when decided)_
 
-5. 💬 **Q5 — whether the user config can set a confinement floor.**
+5. 💬 <a id="Q5"></a>**[Q5](#Q5) — whether the user config can set a confinement floor.**
    Lisa needs to distribute "this machine may not run at `host`." [§8](yolo-as-environment-manager.md#8-what-this-costs) currently calls `host`
    over-use a product-discipline risk with no technical fix, which is true for one user and
    insufficient for 31.
@@ -1175,7 +1175,7 @@ saying what moved and what the question still decides. **IDs are cited by id fro
    **Answer:**
    > _(empty — fill in when decided)_
 
-6. 💬 **Q6 — whether `describe` gets an exposure view, or exposure gets its own verb.**
+6. 💬 <a id="Q6"></a>**[Q6](#Q6) — whether `describe` gets an exposure view, or exposure gets its own verb.**
    Story 5 wants nouns (which files, which credentials, which direction the network goes), and
    `describe`'s current shape is counts. Bolting `--exposure` onto `describe` keeps one verb;
    splitting it admits that "what is this environment" and "what can it reach" are different
@@ -1199,7 +1199,7 @@ saying what moved and what the question still decides. **IDs are cited by id fro
    **Answer:**
    > _(empty — fill in when decided)_
 
-7. 💬 **Q7 — whether Linux `guest` (bwrap + Landlock) is a promise or a hypothesis.**
+7. 💬 <a id="Q7"></a>**[Q7](#Q7) — whether Linux `guest` (bwrap + Landlock) is a promise or a hypothesis.**
    The design's three-row table lists it as the Linux mechanism for the middle notch, and that
    row is the evidence the dial is real rather than a story told about two macOS backends. No such
    code exists.
@@ -1229,7 +1229,7 @@ saying what moved and what the question still decides. **IDs are cited by id fro
    **Answer:**
    > _(empty — fill in when decided)_
 
-8. 💬 **Q8 — what `yolo --at host` prints as its banner.**
+8. 💬 <a id="Q8"></a>**[Q8](#Q8) — what `yolo --at host` prints as its banner.**
    Today launch prints `YOLO JAIL — AGENT BRIEFING` and a "WHAT YOU KEEP (shared with the host)"
    section built entirely around the container. At `host` every line of it is wrong, and the
    design's "the name stays" argument depends on `jail` reading as a *level* rather than the
@@ -1251,7 +1251,7 @@ saying what moved and what the question still decides. **IDs are cited by id fro
    **Answer:**
    > _(empty — fill in when decided)_
 
-9. 💬 **Q9 — whether the notch names are defensible as terminology.**
+9. 💬 <a id="Q9"></a>**[Q9](#Q9) — whether the notch names are defensible as terminology.**
    The middle notch was `sandbox` in the first draft of these stories, and it does not survive
    scrutiny (design doc [§4.0](yolo-as-environment-manager.md#40-why-the-middle-notch-is-not-called-sandbox)): "sandbox" is the industry's *generic* term for the whole column —
    Kubernetes' `PodSandbox`, gVisor, Firecracker, Chrome's seccomp/Seatbelt renderer — so it names

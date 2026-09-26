@@ -4,7 +4,7 @@
 2026-08-23 and again 2026-09-24: the `packs` key, host-side fetch, the lockfile, the origin gate and
 `yolo pack {install,status,lint,footprint}` are all in the tree, so read this for its **landscape
 research and its scope verdict**, not as a plan. The live questions are
-[OQ-ACP1](#-oq-acp1--what-happens-when-two-people-attach-to-the-same-jail-with-different-pack-sets), [OQ-ACP2](#-oq-acp2--whether-opencodes-skills-gap-should-be-closed-by-writing-into-workspace) and [OQ-ACP4](#-oq-acp4--whether-pruning-needs-usage-telemetry-to-be-anybodys-job) at the end;
+[OQ-ACP1](#OQ-ACP1), [OQ-ACP2](#OQ-ACP2) and [OQ-ACP4](#OQ-ACP4) at the end;
 [OQ-ACP3](#-oq-acp3--whether-the-prism-should-become-a-standalone-tool-that-also-manages-host-configs) is answered by reference ([Decision ledger](#decision-ledger)). *(The old header said
 "ROADMAP item: 5" — a numbering the 2026-08-17 restructure retired; the roadmap holds states and OQ
 IDs now.)*
@@ -22,11 +22,11 @@ IDs now.)*
 > - **Skills reach every agent pack.** Each agent pack declares its own skills destination.
 >   opencode's included: `packs/opencode` has delivered to `.config/opencode/skills` since
 >   2026-08-31, so the "DROPPED" cells in [§6](#6-projection-what-actually-reaches-which-agent)
->   and the premise of [OQ-ACP2](#-oq-acp2--whether-opencodes-skills-gap-should-be-closed-by-writing-into-workspace) are gone.
+>   and the premise of [OQ-ACP2](#OQ-ACP2) are gone.
 > - **Code paths.** `internal/agents` is now `internal/jailcontent`, and the file:line citations
 >   in the body are from 2026-07; treat them as history.
 
-**Needs your ruling:** [OQ-ACP1](#-oq-acp1--what-happens-when-two-people-attach-to-the-same-jail-with-different-pack-sets), [OQ-ACP2](#-oq-acp2--whether-opencodes-skills-gap-should-be-closed-by-writing-into-workspace), [OQ-ACP4](#-oq-acp4--whether-pruning-needs-usage-telemetry-to-be-anybodys-job).
+**Needs your ruling:** [OQ-ACP1](#OQ-ACP1), [OQ-ACP2](#OQ-ACP2), [OQ-ACP4](#OQ-ACP4).
 **Research base:** [`../research/agent-config-distribution.md`](../research/agent-config-distribution.md)
 (14 agents surveyed, 6 distribution mechanisms, measured git plumbing).
 
@@ -1551,7 +1551,7 @@ Recorded so scope creep is visible:
 ## Open Questions
 
 > [!IMPORTANT]
-> **[OQ-ACP1](#-oq-acp1--what-happens-when-two-people-attach-to-the-same-jail-with-different-pack-sets), [OQ-ACP2](#-oq-acp2--whether-opencodes-skills-gap-should-be-closed-by-writing-into-workspace) and [OQ-ACP4](#-oq-acp4--whether-pruning-needs-usage-telemetry-to-be-anybodys-job) are still live, and they are the only
+> **[OQ-ACP1](#OQ-ACP1), [OQ-ACP2](#OQ-ACP2) and [OQ-ACP4](#OQ-ACP4) are still live, and they are the only
 > reason this doc is not purely historical** (checked 2026-09-24). The `OQ-ACP` prefix was
 > verified free across `docs/` when the names were given. [OQ-ACP3](#-oq-acp3--whether-the-prism-should-become-a-standalone-tool-that-also-manages-host-configs) is answered by
 > reference and now sits under [Answered questions](#answered-questions); the older answered
@@ -1599,7 +1599,7 @@ widening the boundary.
 > copy-paste worse, and threat-model-identical. See
 > `three-decisions.md` (archived 2026-09-09; superseded by `docs/reference/pack-system.md`) (`three-decisions.md`, archived 2026-09-09 — superseded by [`pack-system.md`](../reference/pack-system.md)).
 
-### 💬 [OQ-ACP1](#-oq-acp1--what-happens-when-two-people-attach-to-the-same-jail-with-different-pack-sets) — what happens when two people attach to the same jail with different pack sets
+### <a id="OQ-ACP1"></a>💬 [OQ-ACP1](#OQ-ACP1) — what happens when two people attach to the same jail with different pack sets
 
 `refreshJailBriefings` runs on **every** invocation including attach, so an
 attach re-renders skills and briefings from the *attaching* user's config —
@@ -1616,7 +1616,7 @@ the three.
 **Answer:**
 > _(empty — fill in when decided)_
 
-### 💬 [OQ-ACP2](#-oq-acp2--whether-opencodes-skills-gap-should-be-closed-by-writing-into-workspace) — whether opencode's skills gap should be closed by writing into `/workspace`
+### <a id="OQ-ACP2"></a>💬 [OQ-ACP2](#OQ-ACP2) — whether opencode's skills gap should be closed by writing into `/workspace`
 
 opencode has no user-level skills directory; `.agents/skills/` is project-scoped.
 The only way to give it real skills is to write into the workspace tree — which
@@ -1640,7 +1640,7 @@ becomes the dominant complaint, the right fix is upstream in opencode.
 **Answer:**
 > _(empty — fill in when decided)_
 
-### 💬 [OQ-ACP4](#-oq-acp4--whether-pruning-needs-usage-telemetry-to-be-anybodys-job) — whether pruning needs usage telemetry to be anybody's job
+### <a id="OQ-ACP4"></a>💬 [OQ-ACP4](#OQ-ACP4) — whether pruning needs usage telemetry to be anybody's job
 
 A shared corpus rots: it accumulates, quality drops, engineers stop trusting it
 and revert to their own config — the organizational death of this feature, and no
@@ -1784,6 +1784,6 @@ until `include_if_found` distributes a baseline `packs` list.
 | A pack must also be a valid Claude plugin | **No, but it may be one.** Their format, our resolution | 2026-07-25 | [Answered questions](#whether-a-pack-should-be-required-to-also-be-a-valid-claude-plugin) |
 | The committable lockfile ships in phase 1 | **Yes**, beside the spec in `~/.config/yolo-jail/` | 2026-07-25 | [Answered questions](#whether-the-committable-lockfile-should-just-ship-in-phase-1) |
 | [**OQ-ACP3**](#-oq-acp3--whether-the-prism-should-become-a-standalone-tool-that-also-manages-host-configs) | **By reference: not a standalone tool; host configs yes, inside yolo** | 2026-07-27 | [`host-render-target.md` §2.3](../design/host-render-target.md#23-extraction-settled-and-the-answer-is-no) and [ruling 9.1](../design/host-render-target.md#decision-ledger) |
-| [**OQ-ACP1**](#-oq-acp1--what-happens-when-two-people-attach-to-the-same-jail-with-different-pack-sets) | — open | — | — |
-| [**OQ-ACP2**](#-oq-acp2--whether-opencodes-skills-gap-should-be-closed-by-writing-into-workspace) | — open; its opencode premise is gone, and [`OQ-WS4`](../design/workspace-skills.md#OQ-WS4) is filed to answer the rest | — | — |
-| [**OQ-ACP4**](#-oq-acp4--whether-pruning-needs-usage-telemetry-to-be-anybodys-job) | — open | — | — |
+| [**OQ-ACP1**](#OQ-ACP1) | — open | — | — |
+| [**OQ-ACP2**](#OQ-ACP2) | — open; its opencode premise is gone, and [`OQ-WS4`](../design/workspace-skills.md#OQ-WS4) is filed to answer the rest | — | — |
+| [**OQ-ACP4**](#OQ-ACP4) | — open | — | — |

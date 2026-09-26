@@ -24,6 +24,8 @@ incremental denies, and [§8.4](#84-pin-the-agent-launch-argv--tiny-cost-real-bu
 [§3.1](#31-the-base-posture-is-inverted) moved with them. **Re-checked 2026-09-24:** the [§8.1](#81-a-policy-assertion-suite-for-macos-user--highest-value-moderate-cost)
 suite has since executed on a macOS runner, and all fifteen cases pass.
 
+**Needs your ruling:** [OQ-AS1](#OQ-AS1) (how far the `macos-user` Seatbelt profile moves toward deny-default), [OQ-AS2](#OQ-AS2) (whether yolo publishes a per-agent investigation series), [OQ-AS3](#OQ-AS3) (whether `mounts` and `env_sources` become user-scope-only).
+
 **Reads with:** [`sandbox-comparison.md`](sandbox-comparison.md), which does the same job for
 Claude Code's own built-in sandbox and states the default-deny argument this doc does not
 repeat.

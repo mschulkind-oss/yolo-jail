@@ -8,6 +8,8 @@ jail↔jail store residue and its gated prune, the migration, and the `SS-1`…`
 This file exists only to hold the one question that is still open, so that a reference doc does not
 carry a live `💬`. Nothing else belongs here.
 
+**Needs your ruling:** [SS-6](#ss-6) (file the upstream mise issue for the project-agnostic store key).
+
 **SS-6, 2026-09-25:** mise's issues, pull requests and Discussions were searched, and no report
 of this defect exists. A draft for you to file is under the question. Upstream's own behavior
 moved in August 2026 (#11798), and that is recorded there too.

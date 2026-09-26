@@ -7,10 +7,10 @@ to cold storage was verified on the maintainer's host (2026-07-22). Item 11
 deferred** — the maintainer flagged a worry that the whole `cache_relocations`
 mechanism may sit at the wrong level of abstraction. Do not build item 11 until
 that is resolved; see [Is `cache_relocations` the right
-level? — **OQ-CR1**](#-oq-cr1--is-cache_relocations-the-right-level-held) under Open Questions.
+level? — **OQ-CR1**](#OQ-CR1) under Open Questions.
 **Filed:** 2026-07-21. Code citations re-checked 2026-09-24 and given by file or symbol, not line.
 
-**Needs your ruling:** [OQ-CR1](#-oq-cr1--is-cache_relocations-the-right-level-held), [OQ-CR2](#-oq-cr2--whether-the-relocation-should-also-be-reflected-host-side), [OQ-CR3](#-oq-cr3--whether-cache_relocations-should-accept-a-per-workspace-override-for-read-only-sharing) — all three HELD; CR1 and CR2 resolve together.
+**Needs your ruling:** [OQ-CR1](#OQ-CR1), [OQ-CR2](#OQ-CR2), [OQ-CR3](#OQ-CR3) — all three HELD; CR1 and CR2 resolve together.
 
 ## The problem
 
@@ -309,7 +309,7 @@ stub. So prune does not over-report freed bytes — it goes **blind**.
     normally clear this to build. **It is held instead:** the maintainer is not
     sure `cache_relocations` sits at the right level of abstraction, and does not
     want a command locked around it until that resolves — see [Is
-    `cache_relocations` the right level? — **OQ-CR1**](#-oq-cr1--is-cache_relocations-the-right-level-held).
+    `cache_relocations` the right level? — **OQ-CR1**](#OQ-CR1).
     (Design note for whenever it does land: a jail left running across a
     relocation keeps its old empty mount until restart — podman bind mounts are
     `rprivate` — which reads exactly like cache corruption, so the command must
@@ -424,11 +424,11 @@ _Leaning was:_ refuse to relocate while jails are up.
 ## Open Questions
 
 All three are **HELD** rather than merely unscheduled — the roadmap carries this doc in 🧊 because
-what is undecided is whether we want the feature, not when. **[OQ-CR1](#-oq-cr1--is-cache_relocations-the-right-level-held) gates item 11**, and [OQ-CR2](#-oq-cr2--whether-the-relocation-should-also-be-reflected-host-side) is
+what is undecided is whether we want the feature, not when. **[OQ-CR1](#OQ-CR1) gates item 11**, and [OQ-CR2](#OQ-CR2) is
 the same decision seen from the host side (the doc says so below); answering CR1 without CR2 is
 answering half of one question.
 
-### 💬 [OQ-CR1](#-oq-cr1--is-cache_relocations-the-right-level-held) — is `cache_relocations` the right level? (HELD)
+### <a id="OQ-CR1"></a>💬 [OQ-CR1](#OQ-CR1) — is `cache_relocations` the right level? (HELD)
 
 **This one gates item 11 — do not build `yolo cache relocate` until it is
 answered.** The maintainer is not yet convinced the mechanism sits at the right
@@ -446,7 +446,7 @@ it. Plausible "lower" levels the same need might be better served at:
   `cache/<subdir>` would move the bytes with zero yolo involvement, and every
   host tool (`du`, backups, the container runtime) would see one truth. This is
   the same fork as [the host-side-reflection
-  question — **OQ-CR2**](#-oq-cr2--whether-the-relocation-should-also-be-reflected-host-side) below —
+  question — **OQ-CR2**](#OQ-CR2) below —
   the two are really one decision. The blocker is the [threat
   model](#threat-model-why-user-scope-is-the-whole-design): a *yolo-managed*
   host symlink is the rejected arbitrary-path primitive, and a *yolo-managed*
@@ -473,7 +473,7 @@ alongside the host-side-reflection question; they resolve together.
 **Answer:**
 > _(empty — held for further consideration; see above)_
 
-### 💬 [OQ-CR2](#-oq-cr2--whether-the-relocation-should-also-be-reflected-host-side) — whether the relocation should also be reflected host-side
+### <a id="OQ-CR2"></a>💬 [OQ-CR2](#OQ-CR2) — whether the relocation should also be reflected host-side
 
 Today's design is container-only: host `cache/<subdir>` is an empty stub and
 `yolo prune` learns about the real bytes from the config (work items 7–8). The
@@ -488,14 +488,14 @@ uninstall?) — a large step up in responsibility for a cosmetic gain. Teaching
 prune is ~30 lines. But it does mean third-party tools stay wrong, so this is a
 real fork rather than an obvious call. **Now folded into the larger held
 question** — [Is `cache_relocations` the right
-level? — **OQ-CR1**](#-oq-cr1--is-cache_relocations-the-right-level-held) — because "yolo consumes a
+level? — **OQ-CR1**](#OQ-CR1) — because "yolo consumes a
 host-declared layout" is exactly this reflection done by the human instead of by
 yolo. They resolve together.
 
 **Answer:**
 > _(empty — held; resolves with the level-of-abstraction question above)_
 
-### 💬 [OQ-CR3](#-oq-cr3--whether-cache_relocations-should-accept-a-per-workspace-override-for-read-only-sharing) — whether `cache_relocations` should accept a per-workspace override for read-only sharing
+### <a id="OQ-CR3"></a>💬 [OQ-CR3](#OQ-CR3) — whether `cache_relocations` should accept a per-workspace override for read-only sharing
 
 A plausible follow-on: point several machines' jails at one NFS-mounted model
 cache. That is a different feature (shared, possibly read-only, contention on

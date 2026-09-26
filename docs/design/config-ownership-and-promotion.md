@@ -144,7 +144,7 @@ cite them:
   "the host is different" feel arbitrary: the host is differently *confined*,
   which says nothing about who owns its files.
 - **P3 — Capture is a staging area, not a terminal layer.** This adopts the
-  leaning already recorded as `Q1` in
+  leaning already recorded as [`Q1`](environment-manager-user-stories.md#Q1) in
   [`environment-manager-user-stories.md`](environment-manager-user-stories.md#open-questions).
   A value that wins the merge while nothing declares it is a hole in the
   definition; the fix is to make declaring it easy, not to stop capturing.
@@ -2041,7 +2041,7 @@ After adoption, a removal is ordinary and reported, exactly as it is in a jail.
   [§5.4](#54-promotion-moves-a-key-down-the-stack) works *around* it deliberately
   rather than reordering it.
 - **No sealing-by-default.** Whether `apply --sealed` is a flag or the default is
-  `Q1a` in [`environment-manager-user-stories.md`](environment-manager-user-stories.md#open-questions)
+  [`Q1a`](environment-manager-user-stories.md#Q1a) in [`environment-manager-user-stories.md`](environment-manager-user-stories.md#open-questions)
   and stays there. This doc only adds one more thing `--sealed` refuses.
 - **Packs are not made mandatory.** `host_management: assert` — hand-edit the
   host file, no pack — remains fully supported and is the right answer for a
