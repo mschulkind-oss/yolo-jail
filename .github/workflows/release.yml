@@ -1,5 +1,5 @@
-# Release — tag-triggered goreleaser + homebrew tap update (★ step 2 of the Go
-# transition; shape copied from mschulkind-oss/swarf).
+# Release — tag-triggered goreleaser + homebrew tap update (shape copied from
+# mschulkind-oss/swarf).
 #
 # Releasing = `just release <version>`, which refuses unless CHANGELOG.md has a
 # written section for that version and the tree is clean, then pushes the v* tag

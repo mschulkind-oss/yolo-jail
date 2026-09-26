@@ -1,9 +1,6 @@
-# goreleaser config — ★ step 2 of the Go transition (docs/implementation/
-# go-port-remaining-work.md). Shape copied from mschulkind-oss/swarf, adapted:
-# like swarf, yolo-jail ships ONE host-facing binary: yolo (host CLI, which
-# also hosts the daemons via the hidden `yolo internal daemon <name>`
-# subcommands). The standalone host-daemon binaries were retired — their logic
-# lives in internal/* Main funcs reached through `yolo internal daemon <name>`.
+# goreleaser config. Shape copied from mschulkind-oss/swarf, adapted: like
+# swarf, yolo-jail ships ONE host-facing binary: yolo (host CLI, which also
+# hosts the daemons via the hidden `yolo internal daemon <name>` subcommands).
 # yolo-ps is the in-jail client for the host-processes loophole; it ships only
 # inside the NIX IMAGE (inert on the host — no service socket) and so is NOT
 # distributed through the host channels. The in-jail daemons (yolo-entrypoint,
@@ -16,8 +13,7 @@
 # that section, passed as --release-notes; see the note where `changelog:` was.
 #
 # Version stamping: internal/version resolves a baked stamp before live
-# `git describe` (divergence D18), so these ldflags are what a released binary
-# reports. buildVersion is intentionally unexported — -X reaches it fine.
+# `git describe`, so these ldflags are what a released binary reports. buildVersion is intentionally unexported — -X reaches it fine.
 version: 2
 
 before:
