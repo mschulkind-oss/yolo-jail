@@ -345,8 +345,9 @@ Reported, not fixed (they live in files under concurrent development):
    contradicted the *MOUNT is the filter* invariant in the repo's own
    [Agent Developer Guide](../../../AGENTS.md), which then read the clear as
    covering every dropped pack when it covered `_official` only. That invariant has since been
-   rewritten around this finding — a dropped pack now has to be UNSTAGED or it
-   keeps rendering, and `pruneDroppedPackStaging` does it per configured slug.
+   rewritten around this finding, and the shared staging dir is gone: each launch
+   stages a new tree of its own, so a dropped pack is simply absent from the next
+   launch's tree ([per-launch pack trees, OQ-PK2](../../reference/pack-system.md#oq-pk2)).
 4. **`yolo config ls` cannot show a configured pack's surface mode.** It merges
    *embedded* packs only (documented in `internal/cli/surfaces.go`), so the
    `stateful`-vs-`rmw` question this pack used to turn on is not answerable from

@@ -2400,8 +2400,10 @@ another launch reads, so pack staging needs neither the lock nor the sync.
 (`holdLaunchLock`, [`flock.go`](../../internal/cli/run/flock.go)) now covers:
 
 1. **The attach-or-create decision** on podman and Apple Container. A workspace has one
-   container name, and two launches deciding at once could both create it. This was the lock's
-   job before the staging fix too. It is taken at the top of `runContainer`, before the orphan
+   container name, and two launches deciding at once could both create it. Before the staging
+   fix (`84e6d661`) the lock covered only the create side: a launch took it after its first
+   attach look and its config-change prompt, and then looked again. Since that fix the whole
+   decision is inside the window. It is taken at the top of `runContainer`, before the orphan
    sweep, so a reaped orphan of this workspace leaves its host-services dir to this relaunch.
 2. **The skills and briefing staging** under `AGENTS_DIR/<cname>`. Every launch of the workspace
    writes it — a fresh launch, and an attach refreshing it from the running jail's tree — and a
@@ -2429,8 +2431,10 @@ start, which runs from the launch's own tree: two launches' spawns can contend a
 its own, as it would have before the staging fix.
 
 **What it costs.** A second launch of a podman workspace waits for the first launch's attach
-decision and fresh window (config-change prompt, image load, host-service start), as it did
-before the staging fix, and no longer for its staging.
+decision and fresh window (config-change prompt, image load, host-service start), and an attach
+waits for any other launch's window. That has been so since the staging fix put the attach
+decision and the config-change prompt inside the lock; before it, only the create side was. It no
+longer waits for the other launch's staging.
 
 **What is left:**
 

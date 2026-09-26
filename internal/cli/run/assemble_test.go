@@ -782,8 +782,8 @@ func TestAppleContainerDeliversThePackTreeIntoTheJail(t *testing.T) {
 // TestAppleContainerPackTreeReplacesThePreviousLaunchs pins the rm-before-copy half of
 // acMaterializeTree, which is the same rule macosuser.StagePackCommands states for the
 // same content: ws_state PERSISTS across launches, so a merge would keep delivering a
-// pack the user dropped from `packs` forever — the jail-side twin of the bug
-// pruneDroppedPackStaging exists to prevent on the host.
+// pack the user dropped from `packs` forever — the jail-side twin of the bug a per-launch pack
+// tree prevents on the host (packtree.go: a dropped pack is absent from the next launch's tree).
 //
 // It fails if the RemoveAll goes, while the test above stays green: a leftover tree is
 // invisible to "can the jail read what I staged".
