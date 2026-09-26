@@ -1,16 +1,16 @@
-// Package tomlx provides TOML parsing parity for the load-bearing places the
-// port needs it (go-port plan §3 internal/tomlx): mise.toml / mise.jail.toml
+// Package tomlx decodes TOML where yolo reads it: mise.toml / mise.jail.toml
 // venv discovery (feeds the venv-shadow mount set and a jail-made-venv rmtree),
-// agents_md's pyproject.toml read, and codex's ~/.codex/config.toml (the one
-// agent config that is TOML, not JSON).
+// and the TOML agent-config surfaces the composition codec reads and writes,
+// such as codex's ~/.codex/config.toml.
 //
 // Backed by github.com/BurntSushi/toml (the de-facto standard, vendored) rather
 // than hand-written — TOML is genuinely complex and a vetted parser is the
-// happy path. The parity surface is the SHAPES the port reads (str vs dict
-// entries, nested env._.python.venv, later-file-wins), pinned by a fixture
-// corpus in the test.
+// happy path. What this package must get right is the SHAPES its callers read
+// (str vs dict entries, nested env._.python.venv, later-file-wins), pinned by a
+// fixture corpus in the test.
 //
-// Source of truth: Python tomllib observed behavior over the real config shapes.
+// The corpus's expected values were first taken from Python tomllib's observed
+// behavior over the real config shapes.
 package tomlx
 
 import (

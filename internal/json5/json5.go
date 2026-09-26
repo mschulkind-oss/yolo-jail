@@ -4,19 +4,18 @@
 // jsonx integer|float), so a json5-parsed config round-trips through
 // jsonx.DumpsSnapshot/DumpsCompact byte-identically.
 //
-// Hard requirement (go-port plan §14, user decision): comments and trailing
-// commas MUST be supported. This parser also supports the rest of the JSON5
-// grammar pyjson5 accepts — single quotes, unquoted (identifier) object keys,
-// hex integers, leading +, leading/trailing-dot floats, Infinity/-Infinity/NaN,
-// and string line continuations — so any config that uses them stays parity-
-// correct rather than ledger-accepted. Divergences (if any surface via the
-// oracle) used to be recorded in docs/design/go-port-divergences.md, which was
-// ARCHIVED with the rest of the go-port scaffolding in 2c229fbc — git has it.
-// The live record is TestLedgeredDivergences in internal/jsonx, which guards each
-// accepted divergence by behavior instead of describing it in prose.
+// Hard requirement (the maintainer's ruling): comments and trailing commas
+// MUST be supported. This parser also supports the rest of the JSON5 grammar
+// pyjson5 accepts — single quotes, unquoted (identifier) object keys, hex
+// integers, leading +, leading/trailing-dot floats, Infinity/-Infinity/NaN, and
+// string line continuations — so a config written for the Python yolo still
+// decodes the same. Accepted divergences from pyjson5 used to be recorded in
+// docs/design/go-port-divergences.md, which was ARCHIVED with the rest of the
+// go-port scaffolding in 2c229fbc — git has it. The live record is
+// TestLedgeredDivergences in internal/jsonx, which guards each accepted
+// divergence by behavior instead of describing it in prose.
 //
-// Dependency-free (hand-written lexer/parser) — keeps the module's zero-dep
-// property (no vendor/ churn).
+// Hand-written (its own lexer and parser) rather than a vendored dependency.
 //
 // Source of truth: pyjson5 observed behavior. Where a summary disagrees with
 // pyjson5, pyjson5 wins.

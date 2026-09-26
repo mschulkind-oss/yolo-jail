@@ -42,9 +42,8 @@ fi
 # pass VERSION/COMMIT in the environment (the shipping pipeline does this so the
 # bundle's image binaries carry the release version even though a Homebrew
 # source tarball has no .git). Otherwise best-effort from git — stamp EMPTY when
-# git is unavailable (never the literal "unknown": a stamp is authoritative
-# (D18), and an "unknown" stamp would shadow the binary's live-describe
-# fallback).
+# git is unavailable (never the literal "unknown": a stamp is authoritative,
+# and an "unknown" stamp would shadow the binary's live-describe fallback).
 VERSION="${VERSION:-$(git describe --tags --dirty --always 2>/dev/null || true)}"
 COMMIT="${COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || true)}"
 

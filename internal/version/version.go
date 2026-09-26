@@ -17,7 +17,7 @@ import (
 // scripts/build-go.sh, .goreleaser.yaml, the homebrew formula in
 // .github/workflows/release.yml, and tools/build-wheels for the PyPI
 // wheels). It's the installed-wheel analog of setuptools-scm's baked
-// version: when present it IS the binary's version (D18) — git describe is
+// version: when present it IS the binary's version — git describe is
 // only consulted for unstamped `go build`/`go install` binaries.
 var buildVersion = ""
 
@@ -97,7 +97,7 @@ func gitDescribe(repoRoot string) string {
 		return raw
 	}
 
-	// "unknown" guard: pre-D18 scripts/build-go.sh stamped the literal
+	// "unknown" guard: an older scripts/build-go.sh stamped the literal
 	// string "unknown" when describe failed at build time; never let that
 	// legacy stamp shadow a live describe.
 	if buildVersion != "" && buildVersion != "unknown" {

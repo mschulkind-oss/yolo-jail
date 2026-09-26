@@ -13,8 +13,8 @@ import (
 )
 
 // hydrationCorpus is the writer->reader round-trip corpus for the
-// yolo-user-env.sh export-line grammar (go-port plan section 1.1 frozen
-// contract). It exercises the ${KEY:-'value'} default form (launch env wins),
+// yolo-user-env.sh export-line grammar, a contract between the host that
+// writes the file and the entrypoint that reads it. It exercises the ${KEY:-'value'} default form (launch env wins),
 // the embedded single-quote escape, bare/single/double forms, comments, and
 // blank lines. The plain-form lines (SINGLE, DOUBLE, BARE) are the per-entry
 // CHANNEL grammar — they override launch env, the def-form default's inverse —

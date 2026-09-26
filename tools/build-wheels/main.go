@@ -1,7 +1,8 @@
 // Command build-wheels builds per-platform PyPI wheels that wrap the Go host
-// binaries. Byte-faithful Go port of scripts/build_wheels.py (itself derived
-// from Simon Willison's go-to-wheel, Apache-2.0 — same wheel layout and
-// platform tags). The wheel-building machinery stays list-driven (see the
+// binaries. It writes, byte for byte, the wheels the retired Python builder
+// wrote (`git show e4227c9c^:scripts/build_wheels.py`), which was itself derived
+// from Simon Willison's go-to-wheel (Apache-2.0): the same wheel layout and
+// platform tags. The wheel-building machinery stays list-driven (see the
 // binaries slice) even though the yolo-jail package currently ships a single
 // console script (yolo).
 //
@@ -92,7 +93,7 @@ var platforms = map[string]platform{
 	"darwin-arm64":     {"darwin", "arm64", "macosx_11_0_arm64"},
 }
 
-// metadataFields is ordered to match the METADATA_FIELDS dict insertion order.
+// metadataFields is in the order the wheels' METADATA has always listed them.
 var metadataFields = []struct{ k, v string }{
 	{"Summary", "Describe your agentic development environment once — agents, config, skills, tools and credentials — and run it anywhere from a sealed jail to your own shell."},
 	{"Author", "Matt Schulkind"},
@@ -227,9 +228,9 @@ func compileBinaries(version, goos, goarch, goBinary, commit, tmpDir, root strin
 	return out, nil
 }
 
-// generateInitPy renders yolo_jail/__init__.py. The template is copied
-// byte-for-byte from build_wheels.py's f-string (Python source shipped inside
-// the wheel — it must match exactly so the parity diff passes).
+// generateInitPy renders yolo_jail/__init__.py, the Python source shipped
+// inside the wheel that backs its console script. The text is the retired
+// Python builder's template, unchanged.
 func generateInitPy(version string) string {
 	var wrappers []string
 	for _, b := range binaries {
@@ -323,7 +324,7 @@ func generateRecord(files []fileEntry) string {
 
 // buildWheel assembles one wheel. File insertion order == RECORD order; RECORD
 // is generated over the full list (including its own placeholder entry) and its
-// content is then filled in, exactly as build_wheels.py did.
+// content is then filled in.
 func buildWheel(bins map[string][]byte, version, platformTag, outputDir, root string) (string, error) {
 	readme, err := os.ReadFile(filepath.Join(root, "README.md"))
 	if err != nil {

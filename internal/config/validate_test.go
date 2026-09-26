@@ -10,8 +10,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
-// Unit tests for ValidateConfig's cache_relocations rules. Other validators are
-// covered by the differential oracle; these are the filesystem-touching ones.
+// Unit tests for ValidateConfig's cache_relocations rules, the ones that touch
+// the filesystem.
 
 // validateCache runs ValidateConfig over a config containing only
 // cache_relocations and returns just the cache_relocations errors.

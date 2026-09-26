@@ -444,8 +444,8 @@ func BrokerSpawn(deps Deps) string {
 	// SingletonDeps both apply execx.SelfExecArgv before they get here).
 	pid, exited, err := deps.Spawn(deps.Argv, deps.LogPath)
 	if err != nil {
-		// Popen would raise in Python; return the socket path and let the
-		// caller's liveness re-check report the failure (divergence D12).
+		// Return the socket path anyway: the caller's liveness re-check is
+		// what reports a daemon that never started.
 		return deps.SocketPath
 	}
 	_ = os.WriteFile(deps.PIDFilePath, []byte(strconv.Itoa(pid)+"\n"), 0o644)
