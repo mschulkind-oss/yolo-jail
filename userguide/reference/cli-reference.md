@@ -47,6 +47,13 @@ the jail alongside your terminal's `TERM`, so the jail's prompt, the lines a lau
 while it provisions, and any tool inside the jail that follows the convention stay plain too.
 An empty value (`NO_COLOR=`) counts as unset.
 
+Each `yolo` that attaches to a running jail decides for its own session. Attach with
+`NO_COLOR` set and that session is plain. Attach without it and that session is colored,
+even if the jail was started with `NO_COLOR` set.
+
+The red kitty tab or tmux pane border that marks a jail's terminal loses its red under
+`NO_COLOR`. The `🔒 JAIL` label stays.
+
 One exception to the terminal rule today: the provisioning lines a launch prints from inside
 the jail are colored even when you redirect them. `NO_COLOR` turns those off as well.
 
