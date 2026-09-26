@@ -44,12 +44,21 @@ end
 yolo.derive("oh-omp", "models", function(ctx)
   local providers = {}
   for name, prov in pairs(ctx.providers or {}) do
-    local baseUrl, api = providerEndpoint(prov)
+    -- openai-codex is one of OMP's BUILT-IN providers (its ChatGPT subscription client), so it
+    -- is never catalogued here (docs/design/pi-codex-provider-shadowing.md OQ-1, OQ-2): OMP
+    -- applies a models.yml row's baseUrl to the built-in provider of the same name, so a row
+    -- redirects the subscription client. Excluded by name, as packs/codex and packs/pi do —
+    -- including a via row, since a via profile routes a provider yolo catalogues.
+    local native = (name == "openai-codex")
+    local baseUrl, api = nil, nil
+    if not native then
+      baseUrl, api = providerEndpoint(prov)
+    end
     -- VIA (docs/design/wire-bridge-gateway.md OQ-WG6/WG7): the selected provider's row points
     -- at this agent's route on the service its profile names, speaking chat-completions, the
     -- protocol the via route passes through to the provider's own `openai` endpoint. The
     -- service holds the upstream credential and ignores inbound auth (WB-D4).
-    if ctx.via_url ~= nil and ctx.via_url ~= "" and name == ctx.selected_provider then
+    if not native and ctx.via_url ~= nil and ctx.via_url ~= "" and name == ctx.selected_provider then
       baseUrl, api = ctx.via_url, "openai-completions"
     end
     if baseUrl and api then
