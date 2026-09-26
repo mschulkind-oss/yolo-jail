@@ -10,8 +10,8 @@ vantage:
 
 # Sharing pi git extensions across jails: immutable per-commit trees, never one shared checkout
 
-**Status:** DECIDED, 2026-09-26 — **redesigned after review on 2026-09-25**, and [OQ-5](#OQ-5) ruled on 2026-09-26 (npm gets the same design, git first). The redesign is not
-built. What `c402dd43` built from the first draft is half withdrawn: its `.pi-shared-git` shared
+**Status:** DESIGN, 2026-09-26 — **redesigned after review on 2026-09-25**, and [OQ-5](#OQ-5) ruled on 2026-09-26 (npm gets the same design, git first). The redesign is
+built and green on the branch `wip/pi-extension-store` but **not on main**: [OQ-6](#OQ-6), the rewrite hook against [`OQ-LT2`](../reference/pack-system.md#oq-lt2), must be ruled first. What `c402dd43` built from the first draft is half withdrawn: its `.pi-shared-git` shared
 checkout is REVERTED, with the boot step that removes the link it left BUILT
 ([§3.10](#310-migration-from-what-c402dd43-shipped)), and its `due_on_change` refresh trigger
 stays ([§3.12](#312-the-refresh-trigger-that-stays)). Until the redesign is built, each workspace
@@ -39,7 +39,7 @@ git extensions again, as it did before `c402dd43`.
 
 **Start at [§3](#3-the-design--share-content-never-state)**, the store and how a jail reaches it.
 
-**Needs your ruling:** none. [OQ-5](#OQ-5) is ruled: the npm store gets the same immutable-tree design, built after git in the same build.
+**Needs your ruling:** [OQ-6](#OQ-6), whether the pi pack may rewrite its own `packages` list after the merge. Every earlier question is ruled.
 
 **Reads with:**
 - [`pack-pi-resources.md`](pack-pi-resources.md): pack-shipped trees registered as local pi
@@ -368,7 +368,38 @@ unlocked. It is independent of the store's shape, so it stays either way.
 | **Core rewriting `git:` entries itself** | **Rejected.** Core would parse a vendor's grammar; the pack does it in `yolo.finalize` ([§3.2](#32-pointing-pi-at-a-tree)) |
 | **Immutable trees, pointers, local packages** | **Chosen** |
 
-## 6. Open question
+## 6. Open questions
+
+1. 💬 <a id="OQ-6"></a>**[OQ-6](#OQ-6): may the pi pack rewrite its own surface after the merge,
+   when [`OQ-LT2`](../reference/pack-system.md#oq-lt2) said not to reintroduce a post-merge script
+   slot?** [§3.2](#32-pointing-pi-at-a-tree) needs each `git:`, `https://` and `npm:` entry in
+   pi's `packages` list turned into a local pointer path, because a local path is pi's only way to
+   load a package it never installs or updates ([§5](#5-alternatives)). That list is the user's:
+   it comes from the host layer and captured edits, which a derive never sees, so only a step
+   after the merge can rewrite it. The build did that with `yolo.finalize`, recorded as
+   implementation decision PG-D2, without noticing it contradicts [`OQ-LT2`](../reference/pack-system.md#oq-lt2)'s last sentence. The
+   ruling also names the other road: *"a declarative `filter`/`replace` op is designed against a
+   real case or not at all"*, and this is a real case.
+   - **(a)** Amend [`OQ-LT2`](../reference/pack-system.md#oq-lt2): a pack's own `yolo.finalize` on its own surface is the one allowed
+     post-fold step. It runs in the derive's sandbox, is deterministic, and runs in every compose,
+     the capture's included. No user- or config-supplied script. Built and tested; ships as is.
+   - **(b)** Keep [`OQ-LT2`](../reference/pack-system.md#oq-lt2) as written and replace the Lua hook with a declarative rewrite op in
+     `pack.json`: pattern-to-template rules the pack supplies, applied by core to one array. It
+     needs per-capture transforms (a ref's `/` escaped, `@HEAD` and `@latest` defaults), so it is a
+     small vocabulary core owns. The store, the launcher step and garbage collection are unchanged.
+   - **(c)** No rewrite: the user writes pointer paths, or a `yolo` command converts the entries
+     once. No post-merge step of any kind; every `pi install git:X` in a jail stays unshared until
+     converted.
+
+   _Leaning:_ **(a)**. The rewrite parses four source forms and escapes refs, which a declarative
+   op can express only by growing the filter vocabulary the transform removal retired, and the
+   sandbox it would replace already exists for derives. The narrowing (pack-owned, its own
+   surface, deterministic, never user-supplied) keeps what [`OQ-LT2`](../reference/pack-system.md#oq-lt2) protected: no script over a raw
+   file the host owns, and no config key that runs code.
+   <!-- vantage: oq id=OQ-6 leaning="(a): amend OQ-LT2 so a pack's own yolo.finalize on its own surface is the one allowed post-fold step — deterministic, in the derive sandbox, in every compose including the capture's, never user- or config-supplied. Built and tested. (b), a declarative pattern-to-template op in pack.json, needs per-capture transforms and so grows the filter vocabulary the transform removal retired." -->
+
+   **Answer:**
+
 
 1. ✅ <a id="OQ-5"></a>**[OQ-5](#OQ-5): does the npm store move to the same shape now?**
    [§3.11](#311-the-npm-store): `.pi-shared-npm` breaks [OQ-3](#OQ-3) and [OQ-4](#OQ-4) in the same
