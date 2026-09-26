@@ -1100,20 +1100,22 @@ each, because a deleted question is one the next reader re-derives.
    ([`pack-system.md`](../reference/pack-system.md#concurrent-launches-of-one-workspace)), and the
    fix moves the per-workspace lock, which changes the first prediction below.
 
-   **What the code predicts, READ FROM CODE 2026-09-25 and revised 2026-09-26**, recorded so that
-   the run can confirm or refute it:
+   **What the code predicts, READ FROM CODE 2026-09-25 and revised twice on 2026-09-26**,
+   recorded so that the run can confirm or refute it:
 
-   - **The courtesy lock is now in the spawn path, for one workspace.** It used not to be:
-     `run.go`'s macos-user arm starts the host daemons through `startLoopholesDisclosed` *before*
-     it calls the orchestrator, and the orchestrator was what took the lock. Since the staging
-     fix, the lock is taken before pack staging (`holdLaunchLock`) and handed to the orchestrator,
-     which releases it before the agent. So the second launch of a workspace waits, printing the
-     notice, and starts its host daemons only after the first launch's window has closed. By then
-     the first launch's broker is alive, and `BrokerSpawn`'s liveness check finds it. The
-     prediction is still `ONE BROKER`, with `WORKSPACE-LOCK` showing one launch waited. That
-     means this pair no longer contends `paths.HostSingletonLock`, so it cannot show what that
-     flock does on its own. It also does not show that removing the flock is safe, because the
-     courtesy lock still warns and continues when it cannot be taken.
+   - **The courtesy lock is out of the spawn path again.** `run.go`'s macos-user arm starts the
+     host daemons through `startLoopholesDisclosed` *before* it takes the per-workspace launch
+     lock. For part of 2026-09-26 it was the other way round: the staging fix took the lock
+     before pack staging, so a second launch waited through the first one's daemon start, met
+     its broker alive, and could not contend `paths.HostSingletonLock` at all. Per-launch pack
+     trees ([`OQ-PK2`](../reference/pack-system.md#oq-pk2), built) removed the reason: each
+     launch's daemons run from that launch's own tree, so nothing they read is shared, and the
+     lock now opens only before the content staging the orchestrator copies (`holdLaunchLock`).
+     So the two launches' spawns can race again, the pair measures the spawn flock on its own,
+     and `WORKSPACE-LOCK` now says only whether one launch waited for the other's content
+     staging and bootstrap. The prediction is `ONE BROKER` by way of the flock, and a second
+     spawn would be the flock failing. A `WORKSPACE-LOCK` wait still does not show that removing
+     the flock is safe, because the courtesy lock warns and continues when it cannot be taken.
    - **The pair collides over per-workspace state that the flock does not guard.** Both launches
      publish into one host-services dir, because the cname is the same. `startHostSingleton`
      unlinks the endpoint file before publishing its own. The macos-user arm's deferred

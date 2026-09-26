@@ -8,7 +8,7 @@ summary: "When a host yolo updates, running containers retain their original bin
 
 # Why host-jail version skew breaks running sessions — and how to prevent contract drift
 
-**Status:** DESIGN, 2026-09-26. [OQ-SK1](#OQ-SK1)–[OQ-SK3](#OQ-SK3) ruled the same day (never silent: a terminal restart prompt, a refusal elsewhere, one explicit acknowledgment; named tags); [OQ-SK4](#OQ-SK4) is open. **The attach gate is BUILT** for the contracts an attach delivers today, the provider/profile channel and the per-agent env files, together with the CI check that decodes the shipped packs with the last release's reader ([what was built](#what-was-built-2026-09-26), [ledger](#decision-ledger)). Pack-contract skew is NOT closed yet: an attach still re-stages the host's packs until [`OQ-PK2`](../reference/pack-system.md#oq-pk2)'s per-launch trees land. Layer 2 (pack `requires_capabilities`) is not built, and those trees make it unnecessary. MEASURED on a real podman, against a stand-in older jail: a container named for the workspace whose frozen environment an older launch would have left. Without a terminal the attach refused and counted the live sessions (`TestAttachRefusesAJailThatCannotReceiveTheSelection`). At a real pty, answering `y` stopped the jail, and the same launch started a fresh one carrying the tags and ran the command (`TestAttachRestartsAnOlderJailAtATerminal`). The acknowledgment is unit-tested only, and no jail an actual older yolo launched has been attached to. Evidence verified at `7b572b6c`; [what changed since](#findings-since-filing-2026-09-26) is checked at `7da7993b`.
+**Status:** DESIGN, 2026-09-26. [OQ-SK1](#OQ-SK1)–[OQ-SK3](#OQ-SK3) ruled the same day (never silent: a terminal restart prompt, a refusal elsewhere, one explicit acknowledgment; named tags); [OQ-SK4](#OQ-SK4) is open. **The attach gate is BUILT** for the contracts an attach delivers today, the provider/profile channel and the per-agent env files, together with the CI check that decodes the shipped packs with the last release's reader ([what was built](#what-was-built-2026-09-26), [ledger](#decision-ledger)). **Pack-contract skew on attach is CLOSED** by [`OQ-PK2`](../reference/pack-system.md#oq-pk2)'s per-launch pack trees, built the same day: an attach writes into no pack tree, so a jail an older yolo launched never reads a newer yolo's packs, and the release-decode allowlist now cites that guard with a test that pins it ([closed](#pack-contract-skew-closed-2026-09-26)). Layer 2 (pack `requires_capabilities`) is not built, and those trees make it unnecessary. MEASURED on a real podman, against a stand-in older jail: a container named for the workspace whose frozen environment an older launch would have left. Without a terminal the attach refused and counted the live sessions (`TestAttachRefusesAJailThatCannotReceiveTheSelection`). At a real pty, answering `y` stopped the jail, and the same launch started a fresh one carrying the tags and ran the command (`TestAttachRestartsAnOlderJailAtATerminal`). The acknowledgment is unit-tested only, and no jail an actual older yolo launched has been attached to. Evidence verified at `7b572b6c`; [what changed since](#findings-since-filing-2026-09-26) is checked at `7da7993b`.
 
 > **In short.** When an existing container is attached to after a host update, the
 > host re-stages current packs into an immutable prefix whose binaries predate them.
@@ -356,6 +356,10 @@ The entrypoint injects a persistent skew indicator into:
 - *Verdict:* **Rejected.** Attaching is explicitly how users apply changes to `yolo-jail.jsonc`,
   switch profiles (`yolo -p <name>`), or receive skill edits. Freezing packs would mean
   any config change requires an explicit container destruction.
+- *Reversed* by the maintainer's [`OQ-PK2`](../reference/pack-system.md#oq-pk2) ruling (c) on
+  2026-09-26, and built: a running jail keeps its pack tree, an attach says what differs, and a
+  restart picks it up. A profile selection still reaches a running jail on attach, composed over
+  the packs that jail has.
 
 ### Alternative 2: Defensive shell wrappers around all pack commands
 - *Concept:* Require every pack command to be wrapped in shell error suppression:
@@ -450,10 +454,25 @@ The gate for what an attach delivers today, and a check on what the next release
 
 **Not built, and why.** In-session visibility beyond stderr waits on [OQ-SK4](#OQ-SK4). Layer 2's
 pack `requires_capabilities` would ask each pack contract to be declared twice, and per-launch
-pack trees remove the need, since an attach then hands an old jail no new manifest at all. **Until
-those trees land, an attach to a v0.10.0 jail still re-stages this tree's packs, and that jail
-still fails to boot.** The release-decode entries cite that guard in advance, and the change that
-builds the trees pins it.
+pack trees remove the need, since an attach hands an old jail no new manifest at all.
+
+### Pack-contract skew, closed (2026-09-26)
+
+[`OQ-PK2`](../reference/pack-system.md#oq-pk2) is built (the mechanism and its ledger are there,
+in the doc that owns the ruling). Every launch stages a tree of its own and an attach re-stages
+nothing, so the boot an attach re-runs in a jail reads the tree that jail booted with. A jail
+launched before the change binds the one shared tree every launch used to re-stage, and nothing
+writes that tree any more, so a v0.10.0 jail attached to after the next install keeps booting on
+the packs v0.10.0 staged. The three release-decode entries now name the test that fails if that
+stops being true (`TestAnAttachToAJailLaunchedBeforePerLaunchTreesLeavesItsSharedTreeAlone`), and
+[SK-D12](#decision-ledger) records the fix that let the check find it. The attach also stops
+delivering anything composed from packs the jail does not have: it composes over the jail's own
+tree, and a selection only the configured packs satisfy refuses, naming the restart. No contract
+tag was added: an attach that writes no pack tree asks nothing of an older jail's binaries.
+MEASURED on a real podman: a jail launched with `zai` still saw it at `/ctx/packs` after the config
+dropped it and an attach ran, and the attach said so
+(`TestAnAttachKeepsThePackTreeTheJailBootedWith`). Still not attached to: a jail an actual older
+yolo launched.
 
 ## Open Questions
 
@@ -547,3 +566,4 @@ made to build them, and none changes what they rule.
 | SK-D9 | *Implementation decision.* Under the acknowledgment, the host degrades by writing no part of this entry's channel. Writing the shared half alone would strip every scoped credential the jail holds while naming agents as recipients (CN-D18's reasoning). `YOLO_ALLOW_ATTACH_SKEW` counts when set to any non-empty value, as every `YOLO_ALLOW_*` does. The disclosure goes to stderr and nowhere else, since [OQ-SK4](#OQ-SK4) is open | 2026-09-26 | ✅ `1fe963d2` |
 | SK-D10 | *Implementation decision.* The prompt and its account go to stdout, as the config-change prompt's do. Refusals and the acknowledgment's disclosure go to stderr, as the credential gate's attach refusals did | 2026-09-26 | ✅ `1fe963d2` |
 | SK-D11 | *Implementation decision.* The release-decode check lives in `packs/` and runs in the short suite, so the pre-commit gate and CI's `check-go` run it. The baseline is `git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD^`, so a release commit is compared with the release before it. The old tree comes from `git archive`, and the probe builds with `GOFLAGS=-mod=vendor GOTOOLCHAIN=local GOPROXY=off`, calling `packload.TolerateSkew` and then `LoadDir`, as every in-jail boot since v0.9.0 has. HEAD's copies of those two are pinned (`TestReleaseDecodeProbeAPIIsStable`). Allowlist entries are keyed by release and carry a guard, plus an optional `pinnedBy` test that must exist. An unlisted break fails, and so does a listed one that no longer occurs. Entries for another release are logged as removable, so the next tag needs no edit. Under GitHub Actions a missing tag fails the check instead of skipping it | 2026-09-26 | ✅ `88533921` |
+| SK-D12 | *Implementation decision.* Each v0.10.0 entry's `pinnedBy` names `TestAnAttachToAJailLaunchedBeforePerLaunchTreesLeavesItsSharedTreeAlone`, the case a jail a release launched is in; the same guard for a jail this tree launched is `TestAnAttachWritesNothingIntoTheRunningJailsPackTree`. The check finds the module root from the package directory `go test` runs it in, not from `git rev-parse --show-toplevel`: inside a git hook, which is where the pre-commit gate runs it, git exports `GIT_DIR` without a work tree, and `--show-toplevel` answers `packs/`, so the first pin cited failed the gate while passing from a shell | 2026-09-26 | ✅ `299b04e3`, `1eb8bcc6` |

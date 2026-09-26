@@ -171,9 +171,12 @@ every one. The four that carry meaning for how a jail behaves:
 - **`mise/`** — the jail-land mise store, mounted at `/mise`. Shared by every jail. **The
   host's own mise installation is never a party to this** and is never mounted.
 - **`agents/<container-name>/`** — the per-jail staging tree for composed briefings and
-  merged skills, rebuilt on every invocation and mounted `:ro`, and, under `home/`, the
-  podman jail's home skeletons: a new one per fresh launch, bound `:ro` at `/home/agent`,
-  never edited, and reaped with the whole entry.
+  merged skills, rebuilt on every invocation and mounted `:ro`; under `home/`, the podman
+  jail's home skeletons: a new one per fresh launch, bound `:ro` at `/home/agent`, never
+  edited, and reaped with the whole entry; and under `pack-trees/`, the staged packs: a new
+  tree per launch, bound `:ro` at `/ctx/packs`, never edited, gone once its container is
+  known gone ([`OQ-PK2`](pack-system.md#oq-pk2)). A `packs/` directory there is the one
+  shared tree a jail launched before per-launch trees still binds; nothing writes it.
 
 Also worth knowing by name, because each is a distinct on-disk contract rather than a
 cache: `approvals/` (never mounted), `captures/` (the machine-wide install-capture store,

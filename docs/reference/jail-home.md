@@ -352,7 +352,10 @@ orientation, not an inventory.
   ([`OQ-HD10`](../design/host-daemon-ownership.md#OQ-HD10)).
 - **Pack manifests at `/ctx/packs`** — `:ro`, and that is load-bearing rather than
   tidiness: a manifest is an *input* to composition, and an agent that could rewrite one
-  in-jail could grant its own pack a host file on the next boot.
+  in-jail could grant its own pack a host file on the next boot, or hand the next attach
+  a declaration it composes from. The source is this launch's own pack tree, one per launch
+  and never edited, so the jail sees the packs it booted with until it stops
+  ([`OQ-PK2`](pack-system.md#oq-pk2)).
 - **Workspace-side shadows** — `workspace_readonly` re-mounts, per-side venv shadows backed
   by the workspace state dir, and `/dev/null` over a couple of files whose presence would
   confuse a tool.
@@ -1000,7 +1003,7 @@ themselves are stated.
 | Host-service socket dir, in-jail | `/run/yolo-services` | `paths.JailHostServicesDir` |
 | Host-service dir, host side | `/tmp/yolo-host-services-<8hex>`, built in `paths.HostSingletonDir` | `paths.HostServicesDir` |
 | Staged content root, per jail | `<global storage>/agents/<container name>/` | `paths.AgentsDir` |
-| Pack manifest mount | `/ctx/packs`, `:ro`, with `YOLO_PACK_ROOT` | `internal/cli/run/assemble.go` (`packCtxDir`) |
+| Pack manifest mount | `/ctx/packs`, `:ro`, with `YOLO_PACK_ROOT`; source `<global storage>/agents/<container name>/pack-trees/<UTC stamp>-<random>`, one per launch | `internal/cli/run/assemble.go` (`packCtxDir`), `paths.PackTreeRoot`, `internal/cli/run/packtree.go` |
 | Vestigial mount | `~/.yolo-entrypoint.lock` — mounted, touched and reserved; nothing `flock`s it | `assemble_parts.go`, `paths.HomeFileMountpoints`, `config/writablehome.go` |
 | The real launch lock | one host-side `flock` per workspace, under the state dir's `locks/` | `internal/cli/run/flock.go` |
 

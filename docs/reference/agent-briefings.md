@@ -25,8 +25,9 @@ model runs end to end in a real container in CI's integration jobs, which were g
 commit.
 
 Every coding agent reads an instruction file at session start. yolo **composes one per
-destination**, host-side, on every invocation, stages it under a per-jail directory, and
-bind-mounts it read-only where the agent expects it. Which destinations exist is entirely
+destination**, host-side, on every invocation (on an attach, from the packs the running jail
+booted with), stages it under a per-jail directory, and bind-mounts it read-only where the agent
+expects it. Which destinations exist is entirely
 pack data: a pack's `briefing` contribution names its own `into` path, and a jail with no
 packs gets no briefing at all.
 
@@ -533,7 +534,9 @@ mounted read-only at that contribution's `into`. Staging is **rebuilt every invo
 clearing contents *inside* each directory.
 
 **Two layers, in this order:** the built-in skill suite, then every selected pack's skills in
-config order. A pack may therefore override a built-in — a legitimate reason to ship one — and
+config order. On an attach the pack layer comes from the packs the running jail booted with, not
+the configured ones, since a running jail keeps its pack tree
+([`OQ-PK2`](pack-system.md#oq-pk2)). A pack may therefore override a built-in — a legitimate reason to ship one — and
 because the conventional local pack is appended last among packs, a personal skill still
 outranks every shared pack's.
 

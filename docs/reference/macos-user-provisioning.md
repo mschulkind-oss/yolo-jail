@@ -691,6 +691,6 @@ $ nix eval --json '.#yoloNoncontainerFloorNames.aarch64-darwin'
 | Session env file | `/var/yolo-jail/env/<session>.env`, root-owned `0600`, named by `YOLO_DARWIN_ENV_FILE` | `internal/macosuser/envfile.go` (`SandboxEnvFile`, `SandboxEnvFileEnv`) |
 | Sandbox PATH, and the login copy | `macosuser.SandboxPath`, carried as `PATH` and as `YOLO_DARWIN_LOGIN_PATH` | `internal/macosuser/macosuser.go`; `internal/entrypoint/darwinhomelayout.go` (`DarwinLoginPathEnv`) |
 | Shim bypass | `YOLO_BYPASS_SHIMS=1`, in the stage process's environment | `internal/macosuser/provision.go` (`ProvisionArgv`) |
-| Workspace launch lock | `<global storage>/locks/<session>.lock`, held from pack staging until just before the agent | `internal/cli/run/flock.go` (`holdLaunchLock`, `AcquireWorkspaceLockFor`) |
+| Workspace launch lock | `<global storage>/locks/<session>.lock`, held from the content staging (skills, briefings, the overlay and context trees) until just before the agent; pack staging and the host daemons run outside it, each launch having its own pack tree | `internal/cli/run/flock.go` (`holdLaunchLock`, `AcquireWorkspaceLockFor`) |
 | Prompt gate | `[ -t 0 ]` — ⚠ the `YOLO_PROVISION_PROMPT` clause beside it has **no writer** on any backend | `internal/provision/provision.go` (`Script`) |
 | CI schedule and caps | nightly 07:00 UTC on `macos-latest`; `timeout-minutes` and `YOLO_TEST_MACOS_USER_TIMEOUT` are ceilings on waste | [`.github/workflows/macos-user.yml`](../../.github/workflows/macos-user.yml) |

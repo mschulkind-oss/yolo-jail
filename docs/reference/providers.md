@@ -246,6 +246,11 @@ re-hydrates it). Consequences worth knowing:
 - A provider credential no longer rides a `ps`-visible argv line; it lands in a 0600
   file — the selecting agent's own. The argv-exposure trade-off this reference
   used to record is retired by the same move.
+- **An attach composes its channel over the packs the running jail booted with**, not the
+  configured ones, since a running jail keeps its pack tree
+  ([`OQ-PK2`](pack-system.md#oq-pk2)). A selection only a newly configured pack can satisfy —
+  a profile only it declares — refuses the attach before anything is written, naming the
+  restart.
 - **An attach first asks whether the running jail can receive this delivery**, by comparing
   the contract tags the container froze at launch (`YOLO_CONTRACT_TAGS`) with the tags this
   entry needs ([`attach-skew-and-contract-guardrails.md`](../design/attach-skew-and-contract-guardrails.md#what-was-built-2026-09-26)).

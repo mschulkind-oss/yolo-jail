@@ -870,7 +870,7 @@ and the `MISE_*` env in `internal/cli/run/assemble.go`:
 | the base home | machine-global, **read-only** | `paths.GlobalHome()` mounted `:ro` (`assemble_parts.go:107`) |
 | the image | machine-global by **name**, per-config by **content** | one `localhost/yolo-jail:latest` tag; `packages:` is workspace-settable |
 | the pack store / the pack lockfile | machine-global store / **user-scope** lockfile | `paths.PacksDir()` / `~/.config/yolo-jail/packs.lock.json` |
-| pack trees, skills, surfaces | per workspace, **derived** | cleared and re-staged every launch |
+| pack trees, skills, surfaces | per workspace, **derived** | cleared and re-staged every launch (since [`OQ-PK2`](../reference/pack-system.md#oq-pk2), 2026-09-26: a new pack tree per launch, never edited) |
 
 **So the pin the premise imagines, the bytes it would govern, and the cache and stamps that mediate
 them are three different lifetimes.** One file cannot be all three scopes — which

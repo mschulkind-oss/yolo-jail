@@ -55,15 +55,18 @@ writable/shared dirs, host-file grants, composed `surfaces`, launch flags and na
 renders every one in a single loop (`entrypoint/packsurfaces.go`) with **no switch on any tool name**.
 Three things to know before debugging it:
 
-- **The MOUNT is the filter.** The entrypoint renders every pack under `YOLO_PACK_ROOT`, so `stagePacks`
-  copies only the SELECTED packs in. A dropped pack must therefore be UNSTAGED or it keeps rendering:
-  every unselected `_official/<name>` is removed, and each configured pack's dir is pruned when its slug
-  leaves `packs` — never the staging root itself, whose inode a live jail's `/ctx/packs` bind captured
-  (`packstage` rule 3). A pack still configured but unresolvable this launch (offline git remote) is KEPT.
-  ⚠ **Re-staging is a SYNC, never clear-and-copy** (`internal/treesync`): every attach re-stages under a
-  live jail that binds into the tree, so an unchanged file or dir must keep its inode. And **the
-  per-workspace launch lock opens BEFORE staging** (`holdLaunchLock`), because the launch reads the
-  staging back long after writing it; a second launch of the workspace waits there
+- **The MOUNT is the filter, and each launch stages its OWN tree.** The entrypoint renders every pack
+  under `YOLO_PACK_ROOT`, so `stagePacks` copies only the SELECTED packs, into a NEW tree under
+  `AGENTS_DIR/<cname>/pack-trees` that nothing edits afterwards; a dropped pack is simply absent from the
+  next launch's tree ([`OQ-PK2`](docs/reference/pack-system.md#oq-pk2),
+  [`packtree.go`](internal/cli/run/packtree.go)). ⚠ **An attach NEVER re-stages**: it stages a tree of its
+  own only to compare and run the pre-flights, reads the RUNNING jail's tree (found through
+  `pack-trees/.live`) for every host-side reader — channel, launch flags, skills and briefing refresh —
+  says when the two differ, and discards its own. A tree goes only once its container is KNOWN gone
+  (`forgetGoneContainer`, tri-state), like the home skeleton. The shared `AGENTS_DIR/<cname>/packs` a jail
+  launched before this binds is never written, and is retired by the first fresh container launch that
+  finds no container of the name. **The launch lock no longer opens at staging** (`holdLaunchLock`): it
+  covers what launches still share — the attach decision and the skills/briefing staging
   ([concurrent launches](docs/reference/pack-system.md#concurrent-launches-of-one-workspace)).
 - **Name reservation covers only the SELECTED packs**, by the maintainer's ruling
   ([`OQ-BH14`](docs/design/base-home-legacy-state.md#28-reservation-is-a-rule-about-config-names-not-about-directories)):
