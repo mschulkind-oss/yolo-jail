@@ -4,6 +4,10 @@ node = "24"
 # go.mod) can't silently diverge.  Bump both together.
 go = "1.26"
 just = "latest"
+# uv supplies `uvx`, which `just check-ci` runs for vantage-check (CHANGELOG.md and the
+# user guide). Nothing else provides it, so without this line a fresh clone's
+# `just setup` leaves the gate unable to run.
+uv = "latest"
 # staticcheck is the Go lint gate (playbook: lint = go vet + staticcheck).
 #
 # CGO_ENABLED=0 makes it a STATIC binary, and the lint gate depends on that. mise's
