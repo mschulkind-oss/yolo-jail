@@ -25,13 +25,13 @@ How much the agent is confined is one setting of that declaration:
 
 - **Declarative:** Agents, config, skills, house rules, MCP/LSP and packages come from packs and one config file, rendered the same way wherever the agent runs
 - **Configurable:** Per-project config via [`yolo-jail.jsonc`](yolo-jail.jsonc), user defaults via `~/.config/yolo-jail/config.jsonc`
-- **Agent-Ready:** MCP presets (Chrome DevTools, Sequential Thinking) and LSP servers (Pyright, TypeScript) — enable by name
+- **Agent-Ready:** MCP presets (Chrome DevTools, Sequential Thinking) you enable by name, and the LSP servers you declare, wired into the agents that support them
 - **Confinement you choose:** A container jail by default, with no access to host credentials; a sandboxed macOS account; or your own machine
 - **Optimized:** Pre-installed with modern, fast tools (`rg`, `fd`, `bat`, `eza`, `jq`, `delta`, `fzf`)
-- **Restricted:** Blocked tools return clear errors with suggestions (e.g., `rg` instead of `grep`)
+- **Restricted, when you ask:** Tools you block return clear errors with suggestions — the `guardrails` pack points recursive `grep` at `rg` — and nothing is blocked by default
 - **Reproducible:** Defined entirely via Nix Flakes
 - **Container Reuse:** Same workspace reuses the same container via `exec`
-- **Runtime Flexible:** Works with podman (Linux/macOS) and Apple Container (macOS native)
+- **Runtime Flexible:** Works with podman (Linux/macOS), Apple Container (macOS native), or a sandboxed macOS user account with no VM
 - **Cross-Platform:** Full support for Linux and macOS (Apple Silicon and Intel)
 
 ## Prerequisites
@@ -151,7 +151,7 @@ cd ~/code/my-project
 # Start an interactive shell in the jail
 yolo
 
-# Or run a command directly (agent installation is being reworked; see the Agents section)
+# Or run an agent directly (each needs its pack in your user config's "packs"; see Agents)
 yolo -- claude           # Claude Code in YOLO mode
 yolo -- copilot          # Copilot with --yolo auto-injected
 yolo -- opencode         # opencode.ai agent (auto-approve)
@@ -200,7 +200,7 @@ Each coding agent authenticates itself inside the jail — see the per-agent
 auth column in [Agents](#agents). Agents that take a provider API key
 (opencode, pi, codex) can instead read it from [`env_sources`](#configuration).
 
-These tokens are stored in `~/.local/share/yolo-jail/home/` (same path on Linux and macOS) and persist across jail restarts. On both platforms, a host-side systemd timer (installed by `just deploy`) periodically refreshes the shared Claude OAuth token so jails never race the refresh flow.
+These logins persist across jail restarts. Each workspace keeps its own, under `<workspace>/.yolo/home/`, unless a pack shares one across every workspace on the machine: the claude pack does that for Claude's OAuth login, so one `/login` serves every jail. Its `claude-oauth-broker` loophole refreshes that shared token on the host when a jail first needs it, so jails never race the refresh flow. [The jail home](docs/reference/jail-home.md#sharing-semantics) has the full layout.
 
 ## Configuration
 
@@ -323,6 +323,13 @@ The `runtime` config picks how the agent is isolated:
   the agent runs in a Linux container. Strongest boundary (kernel/VM
   isolation, resource caps). On macOS this means a lightweight Linux VM —
   **native arm64 on Apple Silicon (no emulation)**; see [macOS guide](userguide/guides/macos.md).
+- **`macos-user`** (macOS only, and only when you name it) — the agent runs as a
+  dedicated hidden macOS user under Apple Seatbelt: no VM and no Linux image, so
+  it starts fastest, but the boundary is weaker than a container's. See the
+  [macOS guide](userguide/guides/macos.md).
+
+With no confinement at all, `yolo host` renders the same description onto your
+own machine instead; see [Why?](#why).
 
 ## Security
 
