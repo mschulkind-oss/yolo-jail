@@ -323,8 +323,31 @@ orientation, not an inventory.
 - **Git identity and the global gitignore** — host-composed and mounted `:ro` together
   (`gitIdentityMountArgs`): a composed `[user]`/`[core]` config, plus the host's
   `core.excludesFile` when it resolves to a real file.
-- **Host-service sockets** — a per-jail host directory bound at `/run/yolo-services`,
-  carrying the cgroup-delegate socket and each loophole daemon's relay.
+- **Host-service endpoints** — a per-jail host directory, `/tmp/yolo-host-services-<8hex>`
+  (the suffix is `paths.JailShortHash` of the container name), bound read-write at
+  `/run/yolo-services`. It holds each host service's
+  [endpoint file](loophole-transport.md#the-endpoint-file-is-a-credential), the cgroup
+  delegate's socket, and the socket of a config loophole that declares no transport. The
+  spawn (`startLoopholesMatching`) creates it,
+  `0700`, and nothing earlier in the launch does, so a launch refused before its host
+  services start leaves no directory behind. The launch's teardown (`stopLoopholes`)
+  removes it only once the runtime answers that no container of that name exists, running
+  or not. It stays in place while a relaunch holds the workspace lock, while a container of
+  that name still exists, and when the runtime cannot be asked, and the next launch of the
+  workspace reuses it. "Exists" rather than "runs" because a relaunch releases the
+  workspace lock when its bounded wait for a running container gives up, so its container
+  can still be only created while its endpoint files are already here. No host-wide
+  daemon writes here, because a singleton's socket is keyed by the loophole name
+  (`paths.HostSingletonSocket`). A launch that dies without its teardown (`SIGKILL`, OOM,
+  or Ctrl-C at the reclaim prompt, which follows the spawn and precedes the launch's
+  signal handler) leaves the directory behind. If its jail outlived it, the next launch on
+  the machine reaps that jail (`reapOrphanedJails`) and removes the directory through the
+  same checks.
+  ⚠ If the jail is gone too, nothing sweeps the directory until that workspace's next
+  launch ends, or the host reboots. ⚠ On
+  macos-user the teardown removes it without either check, which can delete the endpoint
+  files of a second live session in the same workspace
+  ([`OQ-HD10`](../design/host-daemon-ownership.md#OQ-HD10)).
 - **Pack manifests at `/ctx/packs`** — `:ro`, and that is load-bearing rather than
   tidiness: a manifest is an *input* to composition, and an agent that could rewrite one
   in-jail could grant its own pack a host file on the next boot.
@@ -973,6 +996,7 @@ themselves are stated.
 | Scratch dirs, and the mode key | `/tmp`, `/var/tmp`, `/var/lib/containers`, `/var/cache/containers`, `/run`, `/dev/shm`; `ephemeral_storage` | `run.ScratchMountArgs` |
 | In-jail install prefix | `/opt/yolo-jail/bin` + `/opt/yolo-jail/share/yolo-jail`, both `:ro` | `run.jailPrefixMountArgs` |
 | Host-service socket dir, in-jail | `/run/yolo-services` | `paths.JailHostServicesDir` |
+| Host-service dir, host side | `/tmp/yolo-host-services-<8hex>`, built in `paths.HostSingletonDir` | `paths.HostServicesDir` |
 | Staged content root, per jail | `<global storage>/agents/<container name>/` | `paths.AgentsDir` |
 | Pack manifest mount | `/ctx/packs`, `:ro`, with `YOLO_PACK_ROOT` | `internal/cli/run/assemble.go` (`packCtxDir`) |
 | Vestigial mount | `~/.yolo-entrypoint.lock` — mounted, touched and reserved; nothing `flock`s it | `assemble_parts.go`, `paths.HomeFileMountpoints`, `config/writablehome.go` |
@@ -992,3 +1016,6 @@ Forward-facing rulings a maintainer would otherwise undo, with their original id
 | `DIR-BH2` / [`OQ-BH10`](../design/base-home-legacy-state.md#10-decision-ledger) | Each podman jail gets its **own** read-only skeleton, a new one per fresh launch, never edited | A shared base leaked one workspace's config and every unselected pack's dirs, and a claude-less jail could read the machine's Claude credential file through it. Editing a skeleton in place would need a liveness answer the launch path cannot give. |
 | [`OQ-BH14`](../design/base-home-legacy-state.md#10-decision-ledger) | Name reservation covers only the **selected** packs | Packs come from anywhere and are added and removed at will, so the shipped set never covered what a jail could select; reserving it was an unselected pack's effect. |
 | `C8` | The in-jail binaries and flake bundle are **mounted**, not baked | It takes the Go sources out of the image derivation, so a Go-only commit costs no image rebuild. The security delta — what executes in the jail is host-mutable with no rebuild — is the trade being made deliberately; see [`image-staging-vs-baking.md`](image-staging-vs-baking.md#the-security-delta). |
+| `HSD-1` | The host-services dir has **one creator, the spawn**, and the teardown removes it **only when the runtime answers** that no container of that name exists, running or not. (`HSD` stands for host-services dir, an id coined for this ledger.) | A second creation earlier in the launch had no teardown on the refusal paths between it and the spawn, so every refused launch left an empty directory in `/tmp`. The teardown used to read "could not ask the runtime" as "not running" and delete a possibly-live jail's endpoint files on no evidence. It asks whether a container exists, not whether one runs, because a relaunch releases the workspace lock once its bounded wait for a running container gives up, and a container that is only created is invisible to the running-only listing. That is the rule the tracking-file cleanup (`forgetGoneContainer`) already follows in the same teardown. Declining costs one directory, which the next launch of the workspace reuses. |
+| `HSD-2` | The host-services dir is built in `paths.HostSingletonDir`, not in a literal `/tmp` | The two are the same directory in production. A test package that isolates its host singletons (`testsupport.IsolateHostSingletons`) then carries these dirs into its private directory too. Before that, tests that started host services and never stopped them left empty `/tmp/yolo-host-services-<8hex>` dirs on every run. |
+| `HSD-3` | Reaping an orphaned jail also removes its host-services dir, by calling the launch teardown (`stopLoopholes`) with the orphan's name rather than deleting the directory directly | The orphan's owner died without its teardown, so nothing else removes the directory, and its endpoint files name listeners that died with the owner. Going through the teardown keeps its checks, the orphan's relaunch lock and then the container existence probe, which matter because a relaunch of the orphan's workspace publishes into the same directory. The cost is one `shutdown.container_check` timing mark inside the launch's reap span. |
