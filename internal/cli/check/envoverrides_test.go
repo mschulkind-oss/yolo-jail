@@ -135,6 +135,37 @@ func TestSectionPacksPredictsNoOverrideForAWithheldCredential(t *testing.T) {
 	}
 }
 
+// THE POSITIVE TWIN of the withheld cell: the override's variable is claimed by the provider
+// the agent SELECTED, so the gate delivers it to that agent beside the pointer it overrides,
+// the launch refuses, and `check` must FAIL. It fails only if the prediction resolves the
+// selection's profiles to providers — without that every agent's provider is empty, every
+// claimed credential counts as undelivered, and `check` exits 0 on a config the launch
+// refuses (run's TestEnvOverrideIgnoresACredentialTheGateWithholds has both cells too).
+func TestSectionPacksPredictsTheOverrideOfADeliveredClaimedCredential(t *testing.T) {
+	dir := t.TempDir()
+	manifest := `{"name": "widgetpack", "contributes": [
+    {"kind": "program", "bin": "someagent", "via": "npm", "package": "@example/someagent",
+     "protocols": ["openai"]},
+    {"kind": "provider", "name": "gatedprofile", "api_key_env_name": "` + widgetToken + `",
+     "endpoints": {"openai": {"base_url": "https://api.example.test/v1"}}},
+    {"kind": "profile", "name": "gatedprofile", "provider": "gatedprofile"},
+    {"kind": "env", "profile": "gatedprofile",
+     "vars": {"` + widgetPointer + `": "http://127.0.0.1:1461/credentials"},
+     "overridden_by": [{"vars": ["` + widgetToken + `"], "because": "the token wins"}]}]}`
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	packsFixture(t, `{"packs": ["file://`+dir+`"]}`)
+
+	var buf bytes.Buffer
+	r := &reporter{w: &buf}
+	(&Options{Workspace: t.TempDir(), Getenv: func(string) string { return "" }}).sectionPacks(r, tokenDelivered())
+	if r.failed == 0 {
+		t.Errorf("the selected provider's own token is delivered beside the pointer it overrides, "+
+			"so the launch refuses and `check` must FAIL:\n%s", buf.String())
+	}
+}
+
 // The launch refuses a jail carrying the contribution and its override, so `check` must
 // FAIL. A warning would be this file's own defect with the sign flipped: `yolo check`
 // exiting 0 on a config that cannot start a jail.

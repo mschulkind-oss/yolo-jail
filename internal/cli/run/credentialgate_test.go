@@ -53,6 +53,12 @@ type gateJail struct {
 	t       *testing.T
 	home    string
 	fakeBin string
+	// nodeDir is the directory of the node this test process found, put on the run's PATH
+	// for pi's `#!/usr/bin/env node` fake: when the launcher resolved no node of its own
+	// (no /bin/node, no mise store — a CI runner whose node is /usr/local/bin's), the
+	// shebang is what finds one, and /usr/bin:/bin alone would fail the test instead of
+	// running it.
+	nodeDir string
 }
 
 // launchGateJail composes the channel for packs under the given selection, delivers it, and
@@ -148,9 +154,11 @@ func (j *gateJail) agentEnv(agent string) map[string]string {
 	out := filepath.Join(j.home, agent+".env")
 	switch agent {
 	case "pi": // npm, under its declared node floor: the fake must be a node program
-		if _, err := exec.LookPath("node"); err != nil {
+		node, err := exec.LookPath("node")
+		if err != nil {
 			t.Skip("node not found; pi's launcher execs its program under node")
 		}
+		j.nodeDir = filepath.Dir(node)
 		writeExec(t, filepath.Join(j.home, ".npm-global", "bin", "pi"), "#!/usr/bin/env node\n"+
 			"require('fs').writeFileSync(process.env.ENV_OUT, Object.entries(process.env)"+
 			".map(([k, v]) => k + '=' + v).join('\\n') + '\\n')\n")
@@ -181,7 +189,11 @@ func (j *gateJail) run(script, arg0, out string) {
 		args = append(args, arg0)
 	}
 	cmd := exec.Command("bash", args...)
-	cmd.Env = []string{"HOME=" + j.home, "PATH=" + j.fakeBin + ":/usr/bin:/bin", "ENV_OUT=" + out}
+	path := j.fakeBin + ":/usr/bin:/bin"
+	if j.nodeDir != "" {
+		path = j.fakeBin + ":" + j.nodeDir + ":/usr/bin:/bin"
+	}
+	cmd.Env = []string{"HOME=" + j.home, "PATH=" + path, "ENV_OUT=" + out}
 	if b, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("running %q: %v\n%s", script, err, b)
 	}
@@ -410,8 +422,10 @@ func TestMacosUserLaunchCarriesOnlyTheLaunchedAgentsCredentials(t *testing.T) {
 	for _, tc := range []struct {
 		launched string
 		wantZai  bool
-	}{{"pi", true}, {"claude", false}} {
-		t.Run(tc.launched, func(t *testing.T) {
+	}{{"pi", true}, {"claude", false},
+		// CN-D12 names the BASENAME of argv[0]: an absolute path to pi is still pi.
+		{"/opt/agents/bin/pi", true}} {
+		t.Run(strings.ReplaceAll(tc.launched, "/", "_"), func(t *testing.T) {
 			home := packHome(t)
 			writeUserConfig(t, home, `{"packs": ["claude", "pi", "zai"], "env_sources": [`+
 				`{"AWS_ACCESS_KEY_ID": "AKIA-gate", "AWS_SECRET_ACCESS_KEY": "secret-gate", `+
@@ -452,5 +466,40 @@ func TestMacosUserLaunchCarriesOnlyTheLaunchedAgentsCredentials(t *testing.T) {
 					"delivers per launch:\n%s", tc.launched, errs)
 			}
 		})
+	}
+}
+
+// TRAP D2 ON THE macos-user VEHICLE: launching one agent carries ITS gated pack env and no
+// other agent's. Two agents each select a profile that gates env — claude on bedrock
+// (claude's own CLAUDE_CODE_USE_BEDROCK, and aws-auth's pointer, CLI-less, to every agent that
+// selected bedrock) and codex on zai — so a launchEnv that merged every agent's PackEnv would
+// hand codex claude's flag and the credential adapter's address.
+func TestMacosUserLaunchOmitsAnotherAgentsGatedEnv(t *testing.T) {
+	home := packHome(t)
+	writeUserConfig(t, home, `{"packs": ["claude", "codex", "zai", "aws-auth"], "env_sources": [`+
+		`{"ZAI_API_KEY": "tok-gate"}]}`)
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, t.TempDir(), "macos-user", &stdout, &stderr, nil)
+	o.Args = []string{"codex"}
+	o.UseProfiles = map[string]string{"claude": "bedrock", "codex": "zai"}
+	var got *jsonx.OrderedMap
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _, _ string,
+		_ macosuser.HostContext, _ bool, packEnv *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+		got = packEnv
+		return 0
+	}
+	if rc := Run(*o); rc != 0 {
+		t.Fatalf("Run() = %d\nstdout:\n%s\nstderr:\n%s", rc, stdout.String(), stderr.String())
+	}
+	if got == nil {
+		t.Fatal("Run never handed the macos-user backend a launch env")
+	}
+	for _, k := range []string{"CLAUDE_CODE_USE_BEDROCK", "AWS_CONTAINER_CREDENTIALS_FULL_URI"} {
+		if v := envAt(got, k); v != "" {
+			t.Errorf("a codex launch on macos-user carries claude's gated %s=%q", k, v)
+		}
+	}
+	if envAt(got, "ZAI_API_KEY") != "tok-gate" {
+		t.Errorf("codex selected zai, so its own launch must carry its key")
 	}
 }

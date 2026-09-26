@@ -80,3 +80,43 @@ func isIdleVia(h any) bool {
 	_, idle := h.(idleViaHandler)
 	return idle
 }
+
+// A BEDROCK ROUTE SIGNS WITH THE SERVED AGENT'S OWN AWS CREDENTIALS. The gate puts the AWS
+// pair (bedrock claims it) only in the file of the agent that selected bedrock, so both SigV4
+// lookups — the adapter route's and a via route's — must read that agent's file, or a
+// bridged Bedrock launch idles for want of a pair it was handed. The control puts the pair in
+// ANOTHER agent's file only, which the route must not borrow.
+func TestABedrockRouteSignsWithTheServedAgentsOwnPair(t *testing.T) {
+	for _, k := range []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
+		"AWS_PROFILE", "AWS_CONTAINER_CREDENTIALS_FULL_URI", "AWS_BEARER_TOKEN_BEDROCK"} {
+		t.Setenv(k, "")
+	}
+	const upstream = "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1"
+	pair := "export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-'AKIA-claude'}\n" +
+		"export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-'secret-claude'}"
+	adapter := route{Agent: "claude", ProviderName: "bedrock", UpstreamBaseURL: upstream, SignRegion: "us-east-1"}
+	via := viaRoute{Agent: "claude", ProviderName: "bedrock"}
+	up := newViaUpstream(upstream)
+	if up.SignRegion == "" {
+		t.Fatalf("fixture: %s must read as a Bedrock host", upstream)
+	}
+
+	for _, tc := range []struct {
+		name, holder string
+		serves       bool
+	}{{"the pair in the served agent's file", "claude", true},
+		{"the pair only in another agent's file", "pi", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			writeAgentKey(t, home, tc.holder, pair)
+			_, _, reason := adapterHandler(adapter, entrypoint.NewEnv(map[string]string{"HOME": home}))
+			if (reason == "") != tc.serves {
+				t.Errorf("adapter route: serves = %v, want %v (reason %q)", reason == "", tc.serves, reason)
+			}
+			h, line := viaUpstreamHandler(via, up, home)
+			if isIdleVia(h) == tc.serves {
+				t.Errorf("via route: serves = %v, want %v (%s)", !isIdleVia(h), tc.serves, line)
+			}
+		})
+	}
+}

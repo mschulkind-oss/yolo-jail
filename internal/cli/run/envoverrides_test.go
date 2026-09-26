@@ -537,8 +537,21 @@ func seedLiveChannelFile(t *testing.T, o *Options) (string, []byte) {
 	if err := os.WriteFile(envFile, before, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// And the previous entry's per-agent file, live-bound beside it: a refused attach must
+	// leave it alone too, or it could revoke an agent's credential, or switch claude's shape
+	// vars to a provider with no token, in the running jail it refused.
+	agentFile := filepath.Join(filepath.Dir(envFile), agentEnvStateDir, "claude.sh")
+	if err := os.MkdirAll(filepath.Dir(agentFile), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(agentFile, previousAgentFile, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	return envFile, before
 }
+
+// previousAgentFile is the per-agent file seedLiveChannelFile leaves as the previous entry's.
+var previousAgentFile = []byte("# the previous entry's claude file\nexport PREVIOUS_AGENT_ENTRY='1'\n")
 
 func assertLiveChannelFileUnchanged(t *testing.T, envFile string, before []byte) {
 	t.Helper()
@@ -549,6 +562,13 @@ func assertLiveChannelFileUnchanged(t *testing.T, envFile string, before []byte)
 	if !bytes.Equal(after, before) {
 		t.Errorf("a refused attach rewrote the RUNNING jail's channel file — every new process "+
 			"in it now sources the refused channel:\n%s", after)
+	}
+	dir := filepath.Join(filepath.Dir(envFile), agentEnvStateDir)
+	entries, _ := os.ReadDir(dir)
+	agentAfter, err := os.ReadFile(filepath.Join(dir, "claude.sh"))
+	if err != nil || !bytes.Equal(agentAfter, previousAgentFile) || len(entries) != 1 {
+		t.Errorf("a refused attach rewrote the RUNNING jail's per-agent env files (%d now, "+
+			"err %v) — claude's launcher now sources the refused channel:\n%s", len(entries), err, agentAfter)
 	}
 }
 

@@ -152,10 +152,8 @@ func TestAttachRefusesATypedProfileOnAPreGateJail(t *testing.T) {
 	if strings.Contains(out, "claude only") {
 		t.Errorf("the refusal must not disclose a scope this jail cannot receive:\n%s", out)
 	}
+	// Neither live file, the shared one or claude's own, is touched.
 	assertLiveChannelFileUnchanged(t, envFile, before)
-	if _, err := os.Stat(filepath.Join(paths.WorkspaceHomeState(o.Workspace), agentEnvStateDir)); !os.IsNotExist(err) {
-		t.Errorf("a refused attach must write no per-agent files: %v", err)
-	}
 }
 
 // A CONFIG-ONLY selection against a pre-gate jail warns by name and delivers NOTHING, so the

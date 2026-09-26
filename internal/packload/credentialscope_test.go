@@ -9,6 +9,7 @@ package packload
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -189,12 +190,17 @@ func TestTheShippedBedrockProviderClaimsItsCredentialRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	names := strings.Join(CredentialEnvNames(providerEntry(table, "bedrock")), ",")
-	for _, want := range []string{"AWS_BEARER_TOKEN_BEDROCK", "AWS_ACCESS_KEY_ID",
-		"AWS_SECRET_ACCESS_KEY", "AWS_CONTAINER_CREDENTIALS_FULL_URI"} {
-		if !strings.Contains(names, want) {
-			t.Errorf("bedrock claims %s, missing %s", names, want)
-		}
+	// The EXACT CN-D2 list, as a set: OQ-SSO7's three routes as the clients spell them plus
+	// the other two of pi's four Bedrock spellings. Dropping AWS_PROFILE, say, would leave it
+	// shared to every process, and pi's amazon-bedrock authenticates from it — the §2.1 leak
+	// reopened through that one name.
+	got := append([]string(nil), CredentialEnvNames(providerEntry(table, "bedrock"))...)
+	sort.Strings(got)
+	want := []string{"AWS_ACCESS_KEY_ID", "AWS_BEARER_TOKEN_BEDROCK",
+		"AWS_CONTAINER_CREDENTIALS_FULL_URI", "AWS_PROFILE", "AWS_SECRET_ACCESS_KEY",
+		"AWS_SESSION_TOKEN"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("bedrock claims %v, want exactly %v (CN-D2)", got, want)
 	}
 	if KeyEnvName(providerEntry(table, "bedrock")) != "" {
 		t.Error("bedrock lists several routes, so it must point no agent at any one of them")
