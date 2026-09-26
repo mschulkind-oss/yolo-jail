@@ -140,6 +140,15 @@ type Options struct {
 	// staging; nil in a caller that stages without a config (every such caller is a test),
 	// where only the flags select.
 	stagingCfg *jsonx.OrderedMap
+	// launchLock is this launch's hold on the per-workspace launch lock, taken by
+	// stageRunPacks BEFORE staging and released where the launch stops reading and writing
+	// the workspace's shared staging trees (holdLaunchLock has the window, per backend).
+	// nil until staging, and in a caller that never stages.
+	launchLock *workspaceLock
+	// launchLockWaited records that taking launchLock meant waiting for another launch of
+	// this workspace to finish its window — so a jail found running afterwards is the one
+	// THAT launch started, and the attach says so.
+	launchLockWaited bool
 	// Args is ctx.args — the command after `--` (empty → interactive bash).
 	Args []string
 

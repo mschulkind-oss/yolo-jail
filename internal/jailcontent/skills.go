@@ -6,15 +6,16 @@ import (
 	"path/filepath"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/treesync"
 )
 
 // PrepareSkills stages per-agent skills dirs on the host for :ro bind mounting.
 // Each pack-declared destination's staging dir gets the built-in skill suite
 // (builtinskills.FS) plus every selected pack's skills. Returns the staging
 // directory (AGENTS_DIR/<cname>).
-// CRITICAL: entries are cleared *inside* each skills_dir — the dir itself is NEVER rmtree+mkdir'd, because a
-// running jail's bind mount captured its inode and a fresh inode would silently
-// detach attach-time refreshes.
+// CRITICAL: each skills_dir is SYNCED to its new content (prepareSkillTarget) — the dir itself
+// is NEVER rmtree+mkdir'd, because a running jail's bind mount captured its inode and a fresh
+// inode would silently detach attach-time refreshes, and an unchanged skill is never touched.
 // packSkillDirs are the per-pack `skills/` sources to layer in, in config
 // order (C3). Threaded as a package-level var rather than a parameter so the
 // existing four-arg signature and its callers stay untouched; the CLI sets it once
@@ -125,46 +126,75 @@ func PrepareSkills(cname, homeDir string, agentNames []string) (string, error) {
 	}
 
 	for _, target := range packSkillTargets {
-		skillsDir := filepath.Join(staging, target.Staging)
-		if err := os.MkdirAll(skillsDir, 0o755); err != nil {
-			return "", err
-		}
-		// Clear entries INSIDE skillsDir — never remove skillsDir itself.
-		if err := clearDirContents(skillsDir); err != nil {
-			return "", err
-		}
-		// 1. Built-in skill suite (every skills-bearing agent gets it).
-		if err := writeBuiltinSkills(skillsDir); err != nil {
-			return "", err
-		}
-		// 2. PACK skills (C3), in config order — LAST, and that is now the whole of the
-		//    precedence rather than the middle of it. A pack may override a built-in (a
-		//    legitimate reason to ship one), and the CONVENTIONAL LOCAL PACK is appended last
-		//    by config.LoadPacks, so a personal skill still outranks every shared pack's. The
-		//    layer that used to follow this one read the DESTINATION and is gone — see
-		//    SkillTarget for why that was circular.
-		for _, src := range packSkillDirs {
-			// THE AUDIENCE FILTER, and it is the whole `skills` half of
-			// docs/reference/agent-briefings.md#audiences-what-varies-per-destination. The list is global, so this is the only point at which
-			// "who is this content for?" can be asked — and it is asked against the string
-			// the DESTINATION declared about itself, never anything derived (OQ-BA2).
-			if !sourceAddressesAgent(src.Agents, target.Agent) {
-				continue
-			}
-			if err := copySkillSubdirs(src.Dir, skillsDir); err != nil {
-				return "", err
-			}
-		}
-		// 3. yolo's OWN LSP plugin, LAST — see writeLSPPlugin for why this is not one of the
-		//    layers above and why last is the only position that holds. Written into every
-		//    skills destination: Claude is the agent that reads a plugin, and a destination
-		//    that is not Claude's simply has a directory no tool there looks for, which is
-		//    cheaper than teaching this loop which agent is which (core knows no agents).
-		if err := writeLSPPlugin(skillsDir); err != nil {
+		if err := prepareSkillTarget(target, filepath.Join(staging, target.Staging)); err != nil {
 			return "", err
 		}
 	}
 	return staging, nil
+}
+
+// prepareSkillTarget composes one destination's skills tree and SYNCS it into its staging
+// dir, which a podman jail binds at the destination.
+//
+// COMPOSED ASIDE, THEN SYNCED, and never cleared-and-refilled in place, which is what this did
+// until the concurrent-launch fix (docs/reference/pack-system.md#concurrent-launches-of-one-workspace).
+// Every invocation stages skills, an attach to a running jail included, and clearing the bound
+// dir emptied the live agent's skills until the copy caught up — every skill, on every attach,
+// whether or not anything had changed. The layers are built in a private scratch tree in the
+// same order as before, so precedence is untouched, and treesync then changes only what
+// differs. skillsDir itself is never removed (the bind captured it).
+func prepareSkillTarget(target SkillTarget, skillsDir string) error {
+	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
+		return err
+	}
+	scratchRoot, err := os.MkdirTemp("", "yolo-skills-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(scratchRoot)
+	composed := filepath.Join(scratchRoot, "skills")
+	if err := os.Mkdir(composed, 0o755); err != nil {
+		return err
+	}
+	if err := composeSkillLayers(target, composed); err != nil {
+		return err
+	}
+	_, err = treesync.Sync(composed, skillsDir)
+	return err
+}
+
+// composeSkillLayers writes one destination's skills layers into skillsDir, in precedence
+// order: yolo's built-in suite, then every pack's skills addressed to this destination, then
+// yolo's own LSP plugin.
+func composeSkillLayers(target SkillTarget, skillsDir string) error {
+	// 1. Built-in skill suite (every skills-bearing agent gets it).
+	if err := writeBuiltinSkills(skillsDir); err != nil {
+		return err
+	}
+	// 2. PACK skills (C3), in config order — LAST, and that is now the whole of the
+	//    precedence rather than the middle of it. A pack may override a built-in (a
+	//    legitimate reason to ship one), and the CONVENTIONAL LOCAL PACK is appended last
+	//    by config.LoadPacks, so a personal skill still outranks every shared pack's. The
+	//    layer that used to follow this one read the DESTINATION and is gone — see
+	//    SkillTarget for why that was circular.
+	for _, src := range packSkillDirs {
+		// THE AUDIENCE FILTER, and it is the whole `skills` half of
+		// docs/reference/agent-briefings.md#audiences-what-varies-per-destination. The list is global, so this is the only point at which
+		// "who is this content for?" can be asked — and it is asked against the string
+		// the DESTINATION declared about itself, never anything derived (OQ-BA2).
+		if !sourceAddressesAgent(src.Agents, target.Agent) {
+			continue
+		}
+		if err := copySkillSubdirs(src.Dir, skillsDir); err != nil {
+			return err
+		}
+	}
+	// 3. yolo's OWN LSP plugin, LAST — see writeLSPPlugin for why this is not one of the
+	//    layers above and why last is the only position that holds. Written into every
+	//    skills destination: Claude is the agent that reads a plugin, and a destination
+	//    that is not Claude's simply has a directory no tool there looks for, which is
+	//    cheaper than teaching this loop which agent is which (core knows no agents).
+	return writeLSPPlugin(skillsDir)
 }
 
 // sourceAddressesAgent reports whether a source naming `agents` belongs in the staging dir of
@@ -186,20 +216,6 @@ func sourceAddressesAgent(agents []string, agent string) bool {
 		}
 	}
 	return false
-}
-
-// clearDirContents removes every entry inside dir, leaving dir itself intact.
-func clearDirContents(dir string) error {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return err
-	}
-	for _, e := range entries {
-		if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // copySkillSubdirs copies skill subdirectories from src into dst, following

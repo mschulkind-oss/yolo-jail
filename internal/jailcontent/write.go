@@ -13,9 +13,9 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/provision"
 )
 
-// writeBuiltinSkills copies the embedded built-in skill trees into dst. dst is an already-
-// cleared skills-staging dir; existing entries are not removed here (the caller
-// clears inside dst first, preserving its inode for the live bind mount).
+// writeBuiltinSkills copies the embedded built-in skill trees into dst, the private scratch
+// tree a destination's skills are composed in (prepareSkillTarget), which then syncs the result
+// into the bound staging dir.
 func writeBuiltinSkills(dst string) error {
 	return fs.WalkDir(builtinskills.FS, ".", func(p string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -41,10 +41,22 @@ func writeBuiltinSkills(dst string) error {
 // multi-linked (st_nlink > 1, e.g. after a `yolo prune` hardlink-dedup), in
 // which case it unlinks first so a fresh inode is allocated (breaking the link
 // rather than clobbering every fused sibling).
+//
+// A briefing that already holds exactly this content is NOT rewritten. Every invocation writes
+// every briefing, an attach to a running jail included, and a rewrite in place is a truncation
+// the live agent can read between (docs/reference/pack-system.md#concurrent-launches-of-one-workspace):
+// skipping the unchanged write is what makes an attach with an unchanged config invisible to
+// the jail it attaches to. A changed briefing is still rewritten in place, since that is how the
+// live bind sees it.
 func WriteBriefing(path, content string) error {
 	if fi, err := os.Lstat(path); err == nil {
-		if st, ok := fi.Sys().(*syscall.Stat_t); ok && st.Nlink > 1 {
+		st, ok := fi.Sys().(*syscall.Stat_t)
+		if ok && st.Nlink > 1 {
 			_ = os.Remove(path) // best-effort: ignore removal errors
+		} else if fi.Mode().IsRegular() && fi.Size() == int64(len(content)) {
+			if have, rerr := os.ReadFile(path); rerr == nil && string(have) == content {
+				return nil
+			}
 		}
 	}
 	return os.WriteFile(path, []byte(content), 0o644)

@@ -245,11 +245,18 @@ caller outside the run package, for this exact reason: "that backend has no atta
 launches on one workspace really do run two stages; the container serialises the same
 window with the same lock and then attaches instead"
 ([`flock.go`](../../internal/cli/run/flock.go)). Two things stop that from being the
-answer, and both are in the same comment: the lock is taken around **provisioning**, not
+answer, and both are in the same comment: the lock is taken around a launch's **prelude**, not
 around a daemon's life, and a lock it cannot take **warns and returns a no-op release**,
 because "a workspace lock is a courtesy against a self-inflicted race and not a safety
 property worth refusing a launch over". A courtesy lock is a different object from
 `paths.HostSingletonLock`, which owns a socket. [OQ-HD10](#OQ-HD10).
+
+⚠ **The prelude grew on 2026-09-26**, after this section was written. The lock used to be
+taken around provisioning alone. It is now taken before pack staging, because of a staging
+race the first run of this doc's own experiment hit
+([`pack-system.md`](../reference/pack-system.md#concurrent-launches-of-one-workspace)). So on
+macos-user it now spans the host-daemon start for one workspace. That is still a courtesy
+lock, so the conclusion above stands.
 
 ---
 
@@ -1027,7 +1034,8 @@ each, because a deleted question is one the next reader re-derives.
      taken it **warns and returns a no-op release**, because "a workspace lock is a
      courtesy against a self-inflicted race and not a safety property worth refusing a
      launch over". `paths.HostSingletonLock` owns a socket; a courtesy lock around a stage
-     is not the same object.
+     is not the same object. (Since 2026-09-26 it wraps the whole prelude, from pack staging
+     on: see the first run's record below.)
 
    ⚠ **And the spawn flock may be doing unasked duty elsewhere**, which is a second thing
    retiring it would remove. `BrokerSpawn` holds it across the spawn *and* the
@@ -1053,7 +1061,7 @@ each, because a deleted question is one the next reader re-derives.
    workspace lock already exists": the ruling's argument is about a *refresh* lock, this is
    a *spawn* lock, and the lock that does exist warns and continues.
 
-   **The measurement exists, UNRUN (2026-09-25).** It is
+   **The measurement exists, and its first run answered nothing (2026-09-26).** It is
    `TestMacosUserTwoConcurrentLaunchesOfOneWorkspace` in
    [`macosuserspawnlock_test.go`](../../integration/macosuserspawnlock_test.go), and it runs in
    `macos-user.yml`'s `^TestMacosUser` step. It is an experiment: every answer passes. It is red
@@ -1083,16 +1091,29 @@ each, because a deleted question is one the next reader re-derives.
    - `HD10 VERDICT`: the spawn answer, plus what the surviving session's endpoint looked like
      after the other session ended.
 
-   **What the code predicts, READ FROM CODE 2026-09-25**, recorded so that the run can confirm or
-   refute it:
+   **The first run, MEASURED (CI run 36240337031, commit `6eb92400`)**, was red for the "never
+   up at the same time" reason, and the cause was not spawn. Launch B exited 1 while staging,
+   with `unlinkat …/packs/_official/claude: directory not empty`. Launch A warned that its
+   `claude-oauth-broker` module dir "is not a directory, so that loophole is NOT active". Both
+   were a race over the workspace's shared pack staging, which ran before any lock and cleared
+   `_official/` wholesale. So the run measured neither `SPAWN` nor `ENDPOINT`. The race is fixed
+   ([`pack-system.md`](../reference/pack-system.md#concurrent-launches-of-one-workspace)), and the
+   fix moves the per-workspace lock, which changes the first prediction below.
 
-   - **The courtesy lock is not in the spawn path at all.** `run.go`'s macos-user arm starts the
-     host daemons through `startLoopholesDisclosed` *before* it calls the orchestrator. The
-     orchestrator is what takes the per-workspace lock (`macosuser` `deps.LockWorkspace`, wired
-     to `workspaceLockSeam` → `run.AcquireWorkspaceLockFor`). So today the spawn flock
-     (`paths.HostSingletonLock`, taken in `broker.BrokerSpawn`, which re-checks liveness inside
-     it) is the only thing between the two spawns. The prediction is `ONE BROKER`, and removing
-     the flock would leave nothing in its place.
+   **What the code predicts, READ FROM CODE 2026-09-25 and revised 2026-09-26**, recorded so that
+   the run can confirm or refute it:
+
+   - **The courtesy lock is now in the spawn path, for one workspace.** It used not to be:
+     `run.go`'s macos-user arm starts the host daemons through `startLoopholesDisclosed` *before*
+     it calls the orchestrator, and the orchestrator was what took the lock. Since the staging
+     fix, the lock is taken before pack staging (`holdLaunchLock`) and handed to the orchestrator,
+     which releases it before the agent. So the second launch of a workspace waits, printing the
+     notice, and starts its host daemons only after the first launch's window has closed. By then
+     the first launch's broker is alive, and `BrokerSpawn`'s liveness check finds it. The
+     prediction is still `ONE BROKER`, with `WORKSPACE-LOCK` showing one launch waited. That
+     means this pair no longer contends `paths.HostSingletonLock`, so it cannot show what that
+     flock does on its own. It also does not show that removing the flock is safe, because the
+     courtesy lock still warns and continues when it cannot be taken.
    - **The pair collides over per-workspace state that the flock does not guard.** Both launches
      publish into one host-services dir, because the cname is the same. `startHostSingleton`
      unlinks the endpoint file before publishing its own. The macos-user arm's deferred

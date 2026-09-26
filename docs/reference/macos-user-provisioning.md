@@ -373,10 +373,15 @@ The launch takes the per-workspace lock through a `Deps` seam wired to
 call moved and the implementation did not. A second flock over there would be the third
 hand-rolled copy in the tree and the one nothing compares to the others.
 
-**The window is bootstrap-through-stage**, and the lock is taken above the first side effect to
-cover it: the bootstrap generates the very script the stage execs, into the same sidecar, so a
-second launch bootstrapping in between would have this one exec its script. It is **released
-before the agent** — holding it across the session would make a second terminal in the same
+**The window must at least cover bootstrap-through-stage**: the bootstrap generates the very
+script the stage execs, into the same sidecar, so a second launch bootstrapping in between would
+have this one exec its script. **Since 2026-09-26 it opens earlier, at pack staging**: the run
+pipeline takes the lock before it stages, and the seam hands that hold to the orchestrator
+instead of taking the file again, because the host-side staging this backend copies for the
+sandbox is written there and read back here
+([concurrent launches](pack-system.md#concurrent-launches-of-one-workspace)). So on this backend
+the window also spans the native nix build and the host-daemon start. It is **released before
+the agent** — holding it across the session would make a second terminal in the same
 workspace block until the first ended, a serialisation no backend has and which reads as a
 hang. A lock that cannot be taken still launches, on the container's own reasoning: a workspace
 lock is a courtesy against a self-inflicted race, not a safety property worth refusing over.
@@ -686,6 +691,6 @@ $ nix eval --json '.#yoloNoncontainerFloorNames.aarch64-darwin'
 | Session env file | `/var/yolo-jail/env/<session>.env`, root-owned `0600`, named by `YOLO_DARWIN_ENV_FILE` | `internal/macosuser/envfile.go` (`SandboxEnvFile`, `SandboxEnvFileEnv`) |
 | Sandbox PATH, and the login copy | `macosuser.SandboxPath`, carried as `PATH` and as `YOLO_DARWIN_LOGIN_PATH` | `internal/macosuser/macosuser.go`; `internal/entrypoint/darwinhomelayout.go` (`DarwinLoginPathEnv`) |
 | Shim bypass | `YOLO_BYPASS_SHIMS=1`, in the stage process's environment | `internal/macosuser/provision.go` (`ProvisionArgv`) |
-| Workspace launch lock | `<global storage>/locks/<session>.lock`, held bootstrap-through-stage | `internal/cli/run/flock.go` (`AcquireWorkspaceLockFor`) |
+| Workspace launch lock | `<global storage>/locks/<session>.lock`, held from pack staging until just before the agent | `internal/cli/run/flock.go` (`holdLaunchLock`, `AcquireWorkspaceLockFor`) |
 | Prompt gate | `[ -t 0 ]` — ⚠ the `YOLO_PROVISION_PROMPT` clause beside it has **no writer** on any backend | `internal/provision/provision.go` (`Script`) |
 | CI schedule and caps | nightly 07:00 UTC on `macos-latest`; `timeout-minutes` and `YOLO_TEST_MACOS_USER_TIMEOUT` are ceilings on waste | [`.github/workflows/macos-user.yml`](../../.github/workflows/macos-user.yml) |

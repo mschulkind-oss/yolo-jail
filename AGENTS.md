@@ -57,9 +57,14 @@ Three things to know before debugging it:
 
 - **The MOUNT is the filter.** The entrypoint renders every pack under `YOLO_PACK_ROOT`, so `stagePacks`
   copies only the SELECTED packs in. A dropped pack must therefore be UNSTAGED or it keeps rendering:
-  `_official/` is cleared wholesale, and each configured pack's dir is pruned when its slug leaves `packs` —
-  contents-only, never the staging root itself, whose inode a live jail's `/ctx/packs` bind captured
+  every unselected `_official/<name>` is removed, and each configured pack's dir is pruned when its slug
+  leaves `packs` — never the staging root itself, whose inode a live jail's `/ctx/packs` bind captured
   (`packstage` rule 3). A pack still configured but unresolvable this launch (offline git remote) is KEPT.
+  ⚠ **Re-staging is a SYNC, never clear-and-copy** (`internal/treesync`): every attach re-stages under a
+  live jail that binds into the tree, so an unchanged file or dir must keep its inode. And **the
+  per-workspace launch lock opens BEFORE staging** (`holdLaunchLock`), because the launch reads the
+  staging back long after writing it; a second launch of the workspace waits there
+  ([concurrent launches](docs/reference/pack-system.md#concurrent-launches-of-one-workspace)).
 - **Name reservation covers only the SELECTED packs**, by the maintainer's ruling
   ([`OQ-BH14`](docs/design/base-home-legacy-state.md#28-reservation-is-a-rule-about-config-names-not-about-directories)):
   an unselected pack is treated as if it does not exist. A `writable_home_dirs` entry may not claim a

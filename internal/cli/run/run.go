@@ -259,6 +259,9 @@ func Run(opts Options) (rc int) {
 	// second implementation. Pinned by TestPacksAreStagedBeforeBackendDispatch.
 	cname := runtime.FromWorkspace(o.Workspace)
 	o.stagingCfg = cfg
+	// Staging takes the workspace launch lock (stageRunPacks); this is the release for every
+	// return that does not reach an arm's own, earlier one. Idempotent.
+	defer o.releaseLaunchLock()
 	staged, stagedOK := o.stageRunPacks(cname)
 	if !stagedOK {
 		return 1
@@ -700,7 +703,13 @@ type stagedPacks struct {
 // It runs on EVERY invocation, attach included, for the same reason the staged-tree prune
 // does: config says the pack is gone, and a state dir holding a CA private key should not
 // wait for the next fresh launch to be retired.
+//
+// THE WORKSPACE LAUNCH LOCK IS TAKEN FIRST, and is still held when this returns: staging
+// writes the workspace's shared tree and the rest of the launch reads it back, so a second
+// launch of the workspace must wait here until this one's window closes rather than restage
+// under it (holdLaunchLock has the window and who closes it on each backend).
 func (o *Options) stageRunPacks(cname string) (stagedPacks, bool) {
+	o.holdLaunchLock(cname)
 	root, packs, briefings, err := o.stagePacks(cname)
 	if err != nil {
 		o.pr(o.Stdout).printf("[bold red]%s[/bold red]", err.Error())
@@ -950,7 +959,15 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	}
 
 	if existingCID != "" {
-		return o.attachExisting(cname, rt, targetCmd, cfg, staged, channel, false)
+		// The attach's window over the workspace's shared staging ends here: it restaged and
+		// refreshed above, and the exec below reads none of it back. Held across the attach
+		// session, the lock would make every other terminal in the workspace wait for this one
+		// to exit.
+		//
+		// A launch that WAITED for the lock found this jail because the launch it waited for
+		// started it, so it gets the raced banner, as it did when it waited further down.
+		o.releaseLaunchLock()
+		return o.attachExisting(cname, rt, targetCmd, cfg, staged, channel, o.launchLockWaited)
 	}
 
 	// --- Fresh launch: config-change approval ---
@@ -969,18 +986,28 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// the reader — why the terminal paused, and what it did when the pause ended —
 	// and splitting them across streams would let a piped log show one without the
 	// other.
-	lockDir := filepath.Join(paths.GlobalStorage(), "locks")
-	_ = os.MkdirAll(lockDir, 0o755)
-	lockSpan := o.Perf.Span("launch.acquire_workspace_lock")
-	lock, lerr := acquireWorkspaceLock(filepath.Join(lockDir, cname+".lock"), o.Workspace,
-		lockNotices{
-			warn:    func(msg string) { out.printf("[dim]Warning: %s[/dim]", msg) },
-			waiting: func(msg string) { out.printf("[bold cyan]%s[/bold cyan]", msg) },
-		})
-	lockSpan.End()
-	if lerr != nil {
-		out.printf("[bold red]%s[/bold red]", lerr.Error())
-		return 1
+	//
+	// NORMALLY ALREADY HELD: Run's staging took it (stageRunPacks → holdLaunchLock), because
+	// the launch's window over the workspace's shared staging opens there, and this path uses
+	// that hold rather than taking the file a second time — which, in one process, would wait
+	// on itself. The acquisition below is for a caller that reached this function without
+	// staging through Run, and for a launch whose staging could not open the lock file.
+	lock := o.launchLock
+	if lock == nil || lock.isClosed() {
+		lockDir := filepath.Join(paths.GlobalStorage(), "locks")
+		_ = os.MkdirAll(lockDir, 0o755)
+		lockSpan := o.Perf.Span("launch.acquire_workspace_lock")
+		var lerr error
+		lock, lerr = acquireWorkspaceLock(filepath.Join(lockDir, cname+".lock"), o.Workspace,
+			lockNotices{
+				warn:    func(msg string) { out.printf("[dim]Warning: %s[/dim]", msg) },
+				waiting: func(msg string) { out.printf("[bold cyan]%s[/bold cyan]", msg) },
+			})
+		lockSpan.End()
+		if lerr != nil {
+			out.printf("[bold red]%s[/bold red]", lerr.Error())
+			return 1
+		}
 	}
 
 	// Re-check after acquiring the lock — another process may have won.

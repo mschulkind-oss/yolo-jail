@@ -386,9 +386,11 @@ Four things are still one-per-machine, and each is deliberate or named.
   block until the first ended.
 - **`yolo stop` has nothing to stop and there is no attach.** Every invocation is a fresh sandbox
   (`internal/cli/stop.go`), so two launches on one workspace really do run two bootstraps and two
-  provisioning stages. That window — bootstrap through stage, since the bootstrap generates the
-  very script the stage execs into the same sidecar — is what the workspace lock covers. A lock
-  that cannot be taken warns and degrades rather than refusing the launch.
+  provisioning stages. The workspace lock covers that window — bootstrap through stage, since the
+  bootstrap generates the very script the stage execs into the same sidecar — and, since
+  2026-09-26, everything from pack staging on
+  ([concurrent launches](pack-system.md#concurrent-launches-of-one-workspace)). A lock that cannot
+  be taken warns and degrades rather than refusing the launch.
 - **The overlay copy is agent-writable where a bind is `:ro`.** `noteMacosUserContentGaps` says so
   on every launch that selected a pack — a packless launch delivers no content and prints nothing.
   That is the one difference the layout cannot close, because it is about the enforcement primitive
@@ -492,5 +494,5 @@ against the stamp at the top.
 | Machine-wide cache | `~/.cache` in the account home — deliberately not linked | `internal/entrypoint/darwinhomelayout.go` (by absence); container analogue `paths.GlobalCache` |
 | Login-rc PATH indirection | `YOLO_DARWIN_LOGIN_PATH`, re-prepended in `.zprofile`, `.zshrc`, `.bash_profile` | `internal/entrypoint/darwinhomelayout.go` (`DarwinLoginPathEnv`), `internal/entrypoint/darwin.go` (`WriteLoginRC`) |
 | Staged content tree | `/var/yolo-jail/home-overlay/<cname>`, root-owned, named by `YOLO_DARWIN_HOME_OVERLAY` | `internal/macosuser/macosuser.go` (`StagedHomeOverlay`, `StageHomeOverlayCommands`), copied by `internal/entrypoint/darwin.go` (`InstallHomeOverlay`) |
-| Per-workspace launch lock | `<global storage>/locks/<cname>.lock`, held bootstrap-through-stage, released before the agent | `internal/cli/run/flock.go` (`AcquireWorkspaceLockFor`), seam `internal/macosuser/orchestrator.go` (`Deps.LockWorkspace`) |
+| Per-workspace launch lock | `<global storage>/locks/<cname>.lock`, held from pack staging, released before the agent | `internal/cli/run/flock.go` (`AcquireWorkspaceLockFor`), seam `internal/macosuser/orchestrator.go` (`Deps.LockWorkspace`) |
 | The supported reset | `sudo rm -rf /Users/_yolojail && yolo macos-setup` | no single site prints both halves: the `rm -rf` by `occupiedLayoutError` (`internal/entrypoint/darwinhomelayout.go`), the reprovision by the missing-home refusal (`internal/macosuser/orchestrator.go`, which is what makes the second half necessary), and the two joined only in [runbook item 5](../plans/runbooks/macos-user-manual-checks.md#5-the-per-workspace-home-layout--new-2026-09-12-never-run) |

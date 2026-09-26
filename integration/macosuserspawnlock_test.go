@@ -41,10 +41,14 @@ import (
 //     Whatever the answer, the broker the pair spawned is stopped at cleanup, because it runs
 //     under this test's temp HOME but answers on the machine-wide socket.
 //   - WORKSPACE-LOCK: whether either launch printed the per-workspace lock's waiting notice.
-//     READ FROM CODE, and the reason this line is not the answer: that lock is taken inside
-//     the macos-user orchestrator (macosuser.Run's LockWorkspace), AFTER run.go's native arm
-//     has already started the host daemons through startLoopholesDisclosed. So it cannot be
-//     what serializes spawn, whatever it prints.
+//     READ FROM CODE: since the staging-race fix (2026-09-26,
+//     docs/reference/pack-system.md#concurrent-launches-of-one-workspace) that lock is taken
+//     BEFORE pack staging and held until the orchestrator releases it before the agent, so on
+//     this backend it spans run.go's native arm's startLoopholesDisclosed. A launch that
+//     printed the notice therefore started its host daemons after the other launch's window
+//     closed, and its spawn met a broker already alive rather than contending the spawn flock.
+//     It is still the courtesy lock that warns and continues when it cannot be taken, which
+//     is why it does not by itself answer OQ-HD10.
 //   - ENDPOINT DURING: what each session's claude-oauth-broker endpoint variable named, and
 //     whether the file was readable and its host:port dialable while both sessions were up.
 //   - ENDPOINT AFTER: the same probe in the LONGER session after the shorter one's `yolo`
@@ -195,7 +199,8 @@ func TestMacosUserTwoConcurrentLaunchesOfOneWorkspace(t *testing.T) {
 		"once); alive after both exited: %v; pid file now: %q",
 		spawn, stopNote, samples.distinct(), samples.max, final, strings.TrimSpace(string(pidFile)))
 	t.Logf("HD10 WORKSPACE-LOCK: A printed the waiting notice: %v; B printed it: %v "+
-		"(taken after the host daemons start, so it is not what serializes spawn)", waited(rA), waited(rB))
+		"(taken before pack staging, so it spans the host-daemon start: a launch that waited "+
+		"spawned after the other's window closed)", waited(rA), waited(rB))
 	t.Logf("HD10 ENDPOINT DURING: A %s | B %s", hd10Probe(fa, "A_DURING"), hd10Probe(fb, "B_DURING"))
 	t.Logf("HD10 ENDPOINT AFTER B EXITED: A saw the exit marker: %s; A %s",
 		fa["A_SAW_B_EXIT"], hd10Probe(fa, "A_AFTER"))
@@ -394,9 +399,10 @@ func hd10SpawnVerdict(exercised bool, distinct []int, maxAtOnce int) string {
 		return "NO BROKER — neither launch left a claude-oauth-broker running long enough to " +
 			"sample, so the spawn itself failed or was skipped; read the WARNINGS line"
 	case len(distinct) == 1:
-		return "ONE BROKER — the pair raced to spawn and exactly one daemon was ever seen; " +
-			"on this backend the spawn flock is the only lock around that code (the " +
-			"workspace lock is taken later), so it or the liveness re-check inside it did the work"
+		return "ONE BROKER — exactly one daemon was ever seen; the workspace launch lock spans " +
+			"the host-daemon start, so if WORKSPACE-LOCK shows a launch waited, that lock kept " +
+			"the second spawn out of the first's window and the second found the broker alive; " +
+			"if neither waited, the spawn flock or the liveness re-check inside it did the work"
 	case maxAtOnce >= 2:
 		return fmt.Sprintf("TWO SPAWNS AT ONCE — %d brokers were alive together: the spawn was "+
 			"NOT serialized, and two daemons share one single-use refresh token", maxAtOnce)

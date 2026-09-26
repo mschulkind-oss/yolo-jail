@@ -27,6 +27,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/packstage"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/treesync"
 	"github.com/mschulkind-oss/yolo-jail/internal/wirebridged"
 	"github.com/mschulkind-oss/yolo-jail/packs"
 )
@@ -148,6 +149,13 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 		return "", nil, nil, err
 	}
 	defer os.RemoveAll(scratch)
+	// And a second, for the CONFIGURED packs' private copies (see the staging loop below): kept
+	// apart from the materialized embed so no pack slug can land on an embedded pack's name.
+	configuredScratch, err := os.MkdirTemp("", "yolo-configured-packs-")
+	if err != nil {
+		return "", nil, nil, err
+	}
+	defer os.RemoveAll(configuredScratch)
 	available, problems := packload.MaterializeEmbedded(packs.FS, scratch)
 	for _, prob := range problems {
 		// A broken OFFICIAL pack is a yolo bug, not a user error, so it is fatal rather
@@ -160,20 +168,25 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 	}
 
 	officialRoot := filepath.Join(stagingRoot, officialStagingDir)
-	// Clear it: a pack DROPPED from config must stop being mounted, and a leftover tree
-	// would keep rendering as if it were still selected.
+	// A pack DROPPED from config must stop being mounted, and a leftover tree would keep
+	// rendering as if it were still selected — so every _official/<name> this launch does not
+	// select is removed, by pruneUnselectedOfficial below, once the selection closure has said
+	// what the full set is.
 	//
-	// Wholesale removal is safe HERE and only here, because _official is DERIVED — it is
-	// materialized fresh out of the binary's embed.FS every launch, so there is nothing in
-	// it that re-copying does not reproduce. A CONFIGURED pack's tree is a copy of an
-	// external source, so it gets the selective prune below instead. Neither one may touch
-	// stagingRoot itself (packstage rule 3): a running jail's /ctx/packs bind captured that
-	// dir's inode, and recreating it silently detaches the mount.
-	if err := os.RemoveAll(officialRoot); err != nil {
-		return "", nil, nil, err
-	}
-	// The SAME rule for configured packs, which is what the comment above always claimed
-	// and only _official ever got: remove the staged tree of every slug the config no
+	// IT WAS A WHOLESALE CLEAR HERE, and that was the race the first macOS run of
+	// TestMacosUserTwoConcurrentLaunchesOfOneWorkspace measured (holdLaunchLock, and
+	// docs/reference/pack-system.md#concurrent-launches-of-one-workspace). _official is DERIVED
+	// — materialized fresh out of the binary's embed.FS every launch — so clearing it LOSES no
+	// content, which was the whole of the argument for it. It does lose the INODES: every
+	// invocation, an attach to a running jail included, removed and recreated the directories
+	// that jail had bound (a pack's `files` trees, the loophole module dirs a jail daemon runs
+	// from), and a bind of a removed directory shows an empty one. Each selected pack is now
+	// SYNCED into place instead (treesync), which changes nothing on disk when nothing changed.
+	// Neither this nor the configured-pack prune below touches stagingRoot itself (packstage
+	// rule 3): a running jail's /ctx/packs bind captured that dir's inode.
+	//
+	// The SAME dropped-pack rule for configured packs, which the wholesale clear always
+	// claimed and only _official ever got: remove the staged tree of every slug the config no
 	// longer names. Observed live before this existed — a deleted test pack kept
 	// regenerating a broken `fzf` shim across launches, because the mount is the filter and
 	// a leftover directory is therefore a fully ACTIVE pack (surfaces render, hooks run,
@@ -186,8 +199,8 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 	//
 	// This runs on the ATTACH path too (refreshJailBriefings is called on every
 	// invocation), so dropping a pack from config and re-attaching removes its tree from
-	// under a live jail's /ctx/packs — the same thing the _official clear above has always
-	// done, and the honest one: config says the pack is gone.
+	// under a live jail's /ctx/packs — the same thing pruneUnselectedOfficial does for an
+	// embedded pack, and the honest one: config says the pack is gone.
 	pruned, err := pruneDroppedPackStaging(stagingRoot, livePackSlugs(entries, byName))
 	if err != nil {
 		return "", nil, nil, err
@@ -209,7 +222,7 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 			continue
 		}
 		dest := filepath.Join(officialRoot, p.Name)
-		if err := copyTree(p.Root, dest); err != nil {
+		if _, err := treesync.Sync(p.Root, dest); err != nil {
 			return "", nil, nil, fmt.Errorf("official pack %s: %w", p.Name, err)
 		}
 		selected, probs := packload.LoadDir(dest, p.Name)
@@ -240,13 +253,22 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 			return "", nil, nil, err
 		}
 		dest := filepath.Join(stagingRoot, entry.Slug())
+		// Staged into a PRIVATE scratch copy first and then synced into place, for the reason
+		// _official is synced (above): packstage.Stage clears its destination and copies
+		// again, and done straight into the mounted tree that emptied a live jail's binds
+		// into this pack on every attach. The scratch copy is where packstage's rules run
+		// (no escaping symlink, the exec bit carried); the sync only moves their result.
+		scratchDest := filepath.Join(configuredScratch, entry.Slug())
 		res, err := packstage.Stage(packstage.Spec{
 			Root:    root,
-			Dest:    dest,
+			Dest:    scratchDest,
 			Only:    entry.Only,
 			Exclude: entry.Exclude,
 		})
 		if err != nil {
+			return "", nil, nil, fmt.Errorf("packs: %s: %w", entry.Name, err)
+		}
+		if _, err := treesync.Sync(scratchDest, dest); err != nil {
 			return "", nil, nil, fmt.Errorf("packs: %s: %w", entry.Name, err)
 		}
 		// NO SILENT CAPS: a pack that staged nothing is almost always an `only`/
@@ -292,8 +314,8 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 	//
 	// The additions stage through the _official path — an added pack is always
 	// EMBEDDED (needs and via may name only the embedded official set; the closure
-	// refuses anything wider, WB-D9 and WG-I7), and _official is derived content, cleared
-	// and rebuilt wholesale every launch, so there is no prune interaction. Staging
+	// refuses anything wider, WB-D9 and WG-I7) — and they are part of the selected set
+	// pruneUnselectedOfficial keeps, which is why that prune runs after this loop. Staging
 	// here rather than trusting the load is the mount-is-the-filter rule: the
 	// entrypoint renders every pack under YOLO_PACK_ROOT, so an added pack whose
 	// tree never lands is an added pack that does nothing.
@@ -313,7 +335,7 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 	}
 	for _, p := range added {
 		dest := filepath.Join(officialRoot, p.Name)
-		if err := copyTree(p.Root, dest); err != nil {
+		if _, err := treesync.Sync(p.Root, dest); err != nil {
 			return "", nil, nil, fmt.Errorf("official pack %s: %w", p.Name, err)
 		}
 		joined, probs := packload.LoadDir(dest, p.Name)
@@ -323,6 +345,11 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 		loaded = append(loaded, joined)
 		skillDirs = append(skillDirs, o.packSkillSourceDirs(joined)...)
 		briefings = append(briefings, o.packBriefingProses(joined.Name, joined)...)
+	}
+	// The dropped embedded packs go now that the selected set is complete — the job the
+	// wholesale clear of _official used to do before anything was staged.
+	if err := pruneUnselectedOfficial(officialRoot, loaded); err != nil {
+		return "", nil, nil, err
 	}
 
 	// THERE USED TO BE A CONSENT PRE-FLIGHT HERE, ahead of the mechanical ones below: every
@@ -1022,6 +1049,41 @@ func pruneDroppedPackStaging(stagingRoot string, live map[string]bool) ([]string
 	return pruned, nil
 }
 
+// pruneUnselectedOfficial removes every entry of the staged _official tree that is not one of
+// this launch's selected embedded packs — the dropped-pack half of "the mount is the filter"
+// for embedded packs, which the wholesale clear of _official used to provide.
+//
+// The kept set is read off the LOADED packs rather than the config, so it includes what the
+// selection closure added. Only officialRoot's children are ever removed; officialRoot itself
+// and every kept pack's tree are left exactly as the sync made them.
+func pruneUnselectedOfficial(officialRoot string, loaded []*packload.Pack) error {
+	keep := map[string]bool{}
+	for _, p := range loaded {
+		if filepath.Dir(p.Root) == officialRoot {
+			keep[filepath.Base(p.Root)] = true
+		}
+	}
+	entries, err := os.ReadDir(officialRoot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	for _, e := range entries {
+		if keep[e.Name()] {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(officialRoot, e.Name())); err != nil {
+			// FAIL-CLOSED, like the configured-pack prune: a tree that could not be removed
+			// is a pack that WILL render in the jail after the user dropped it.
+			return fmt.Errorf("packs: removing the staged tree of dropped official pack %s: %w",
+				e.Name(), err)
+		}
+	}
+	return nil
+}
+
 // PackRoot resolves a pack entry to a directory on disk.
 //
 // IT DOES NOT FETCH. The launch's fetch is RefreshConfiguredPacks (packrefresh.go), which
@@ -1094,8 +1156,10 @@ func (o *Options) packBriefingProses(name string, p *packload.Pack) []jailconten
 	return out
 }
 
-// copyTree copies a staged pack tree to dest at mode 0o644, or 0o755 for a file whose
-// source carries an execute bit.
+// copyTree copies a staged tree to dest at mode 0o644, or 0o755 for a file whose source
+// carries an execute bit. Pack staging itself no longer copies — it SYNCS (treesync, which
+// applies this same mode rule), so a re-stage leaves unchanged entries alone under a live
+// jail's binds; copyTree is left for trees nothing binds (the macos-user home overlay).
 //
 // The exec bit is PRESERVED here, matching packstage's rule for a configured pack: the
 // trust question an exec bit raises is "may this content ship an executable at all", and

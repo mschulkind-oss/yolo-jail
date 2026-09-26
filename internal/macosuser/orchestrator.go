@@ -554,6 +554,13 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// sidecar, so a second launch bootstrapping between our bootstrap and our stage would
 	// have us exec its script. The window the lock has to cover is bootstrap-through-stage
 	// or it covers the wrong half.
+	//
+	// ON A LAUNCH THE LOCK IS ALREADY HELD by the time this runs: the run pipeline takes it
+	// before pack staging (run.holdLaunchLock), because the host-side staging this backend
+	// copies below is written there and read back here, and a second launch restaging in
+	// between is the race docs/reference/pack-system.md#concurrent-launches-of-one-workspace
+	// records. The seam then hands back THAT hold (run.AcquireWorkspaceLockFor), so the
+	// release below is what ends the launch's whole window, before the agent as always.
 	release := func() {}
 	if deps.LockWorkspace != nil {
 		if r := deps.LockWorkspace(opts.Workspace, plan.Cname); r != nil {

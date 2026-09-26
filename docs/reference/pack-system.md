@@ -12,6 +12,8 @@ covers:
   - internal/entrypoint/packhooks.go
   - internal/entrypoint/launchercollision.go
   - internal/cli/run/packs.go
+  - internal/cli/run/flock.go
+  - internal/treesync/
   - internal/cli/run/packhostgrants.go
   - internal/cli/run/packloopholes.go
   - internal/cli/pack.go
@@ -33,7 +35,9 @@ tags: [packs, config, kinds, manifest, prism, trust, disclosure]
 **Status:** CURRENT as of 2026-09-24. Verified in full against `7ad8358c` (2026-09-23); every
 commit since that touches a path this doc covers was re-checked against `f491d192`. The
 [fetch section](#fetch-refresh-lock) was rewritten on 2026-09-25 for the launch-time fetch
-([`OQ-PF1`](#oq-pf1)), in the same change that builds it, so no commit has verified it yet. MEASURED in CI at `7ad8358c`
+([`OQ-PF1`](#oq-pf1)), in the same change that builds it, so no commit has verified it yet. The
+[concurrent-launch section](#concurrent-launches-of-one-workspace) was written on 2026-09-26 in
+the change that fixes the staging race it describes, and is likewise unverified by a later commit. MEASURED in CI at `7ad8358c`
 (run 35820702335): a pack's `briefing/` prose reaches a real container and its root `AGENTS.md`
 does not (`TestPackDeliversSkillAndBriefing`). UNMEASURED: no launched jail has been observed
 routing one pack's `briefing/` files to *different* agents. The container audience test routes a
@@ -163,13 +167,21 @@ new named hook in core.
   sandbox; see [the derive slot](#derive-determinism).
 
 - **The MOUNT is the filter.** The entrypoint renders every pack it finds under the mounted
-  pack root, so staging only the selected packs — and clearing the tree first — is what
-  makes a dropped pack stop rendering.
+  pack root, so staging only the selected packs — and removing every pack no longer
+  selected — is what makes a dropped pack stop rendering.
 
-- **Clear a staging destination's CONTENTS, never the directory itself.** A running jail's
-  bind mount captured that directory's inode, and recreating it silently detaches the
-  mount. `packstage` rule 2 states it; `PrepareSkills` and the generated-script dirs
-  document it independently.
+- **Never replace a staging directory a live jail may have bound, nor anything in it that did
+  not change.** A running jail's bind mount captured that directory's inode, and recreating it
+  silently detaches the mount. `packstage` rule 2 states it for the root; the pack trees and
+  the skills staging are re-staged by SYNC ([`internal/treesync`](../../internal/treesync/treesync.go)),
+  so an unchanged file or directory keeps its inode
+  ([concurrent launches](#concurrent-launches-of-one-workspace)). The generated-script dirs
+  document the same rule independently.
+
+- **Two launches of one workspace never stage at once.** The per-workspace launch lock is
+  taken before staging and held until the launch has stopped reading the staging back, so a
+  second launch waits instead of re-staging under the first
+  ([concurrent launches](#concurrent-launches-of-one-workspace)).
 
 > [!WARNING]
 > **Name reservation covers only the SELECTED packs** — the maintainer's
@@ -2310,13 +2322,17 @@ reason. The dry run says it would refuse.
 ### Host-side staging, then jail-side render
 
 - The host stages only the **selected** packs into the mounted pack tree (`YOLO_PACK_ROOT`),
-  clearing it first, because **the mount is the filter**.
-- A dropped pack must be UNSTAGED or it keeps rendering. The embedded root is cleared
-  wholesale (it is derived from the binary's embed). Each configured pack's directory is
-  pruned when its slug leaves `packs` — **contents-only, never the staging root itself**. A
-  pack still configured but unresolvable this launch (an offline git remote) is **KEPT**, not
-  pruned: clear-then-restage would discard a pack the user still wants merely because it could
-  not be fetched.
+  and removes every pack it no longer selects, because **the mount is the filter**.
+- A dropped pack must be UNSTAGED or it keeps rendering. Under the embedded root
+  (`_official/`), every pack the launch did not select is removed once the
+  [`needs` closure](#needs--conditional-pack-dependency) has completed the set. Each configured
+  pack's directory is pruned when its slug leaves `packs`. Neither touches the staging root
+  itself. A pack still configured but unresolvable this launch (an offline git remote) is
+  **KEPT**, not pruned: clear-then-restage would discard a pack the user still wants merely
+  because it could not be fetched.
+- A selected pack is **synced** into place, never cleared and copied again: a file or directory
+  whose content did not change is not touched. A live jail binds into this tree, so a re-stage
+  must not replace what it bound ([concurrent launches](#concurrent-launches-of-one-workspace)).
 - A declared pack that cannot be staged is a **fatal** error, and resolution failure is
   reported by name with the command that fixes it. A jail must not come up silently missing a
   pack it was told to load, and an empty pack view is **not** a deactivation signal.
@@ -2334,6 +2350,110 @@ sidecars under `<workspace>/.yolo/prism/`. **A running jail is never re-rendered
 edit to a composed file is folded into its overlay by the next boot's render
 ([`config-migration-to-prism.md`](config-migration-to-prism.md)), so only observability waits for a
 restart, and nothing is lost.
+
+### Concurrent launches of one workspace
+
+Two launches of one workspace share one per-workspace staging directory,
+`AGENTS_DIR/<cname>`: the staged packs, the skills and briefing staging, and on macos-user the
+home-overlay and `/ctx` trees. On macos-user the two launches are two sandboxes. On podman and
+Apple Container the second attaches to the jail the first started, and every attach re-stages
+too. Each launch writes the staging and then **reads it back well after writing**: its host
+daemons start from the staged loophole module dirs, its skills are copied out of the staged
+packs, and then the container binds the trees or the sandbox bootstrap copies them.
+
+**What went wrong, MEASURED.** The first macOS run of
+`TestMacosUserTwoConcurrentLaunchesOfOneWorkspace` (CI run 36240337031, commit `6eb92400`)
+failed before either session was up. Launch B exited 1 with
+`unlinkat …/agents/<cname>/packs/_official/claude: directory not empty`, and launch A warned
+that its `claude-oauth-broker` module dir "is not a directory, so that loophole is NOT
+active". Staging ran before any lock, and it cleared `_official/` wholesale, so each launch's
+clear raced the other's copy into it and removed what the other was about to read.
+`TestTwoProcessesStagingOneWorkspaceAtOnceBothSucceed`
+([`concurrentstaging_test.go`](../../internal/cli/run/concurrentstaging_test.go)) reproduces
+the same `unlinkat` on Linux, because the staging code is backend-agnostic.
+
+**A second defect, found in the same reading and needing no second launch.** Every attach
+re-staged by clearing and copying: `_official/`, each configured pack's directory and each
+skills directory. A bind mount captures an inode, and a directory that is removed and recreated
+under a live bind leaves the jail looking at the removed one, which is empty. So an attach with
+an **unchanged** config emptied the live jail's `files` trees and loophole module dirs, and its
+agent saw its skills vanish until the copy caught up.
+
+**The implementation decision** (2026-09-26), in two parts:
+
+1. **The per-workspace launch lock opens at staging** (`holdLaunchLock`,
+   [`flock.go`](../../internal/cli/run/flock.go)), not at the fresh path's container creation
+   or the macos-user bootstrap, where it used to. It is released where the launch stops
+   reading and writing the shared staging:
+
+   | Arm | Released |
+   | :--- | :--- |
+   | podman, Apple Container: fresh launch | once the container is running (`onStarted`), as before |
+   | podman, Apple Container: attach | before the attach execs |
+   | macos-user | by the orchestrator before the agent starts. Its own acquisition, `run.AcquireWorkspaceLockFor`, is handed the lock the process already holds, because a second `flock` on the same file in one process waits on itself |
+   | any other return | `Run`'s deferred release |
+
+   A second launch therefore **waits**, printing `Waiting for concurrent jail launch in
+   workspace …`, instead of re-staging under the first. That is the ruled behavior: a launch's
+   result never depends on another launch, and it waits for what it needs
+   ([`OQ-2`](../design/pi-git-extension-caching.md#OQ-2)). A launch that waited and then finds
+   the jail running gets the `Attaching to jail started by another process` banner.
+
+2. **Re-staging is a sync** ([`internal/treesync`](../../internal/treesync/treesync.go)). The
+   destination root is never replaced. A directory present on both sides is recursed into. A
+   file whose bytes and mode match is not touched. A changed file is written to a temporary
+   sibling and renamed over the old one, so a reader never sees it truncated. An entry the
+   source lacks is removed. The embedded packs sync straight from the materialized embed. A
+   configured pack is staged into a private scratch copy, where `packstage`'s rules run, and
+   synced from there. Each skills destination is composed in scratch and synced. A briefing
+   whose content is unchanged is not rewritten (`jailcontent.WriteBriefing`). With an unchanged
+   config, a second launch or an attach changes nothing on disk.
+
+**Why a lock and a sync, and not per-launch immutable trees.** A new tree per launch would
+also close the race, but a running podman jail would then keep the pack tree it booted with,
+and an attach after a config change would no longer reach it. That changes what a live session
+sees, which is a product decision ([below](#open-does-a-running-jail-keep-the-pack-tree-it-booted-with)).
+The lock and the sync keep today's attach behavior exactly.
+
+**What it costs.** A second launch of the workspace waits for the first launch's whole
+prelude: its staging, config-change prompt, image load or native nix build, and host-daemon
+start. The builds are the same derivations, so the second launch's own build is then warm.
+On macos-user the lock now spans the host-daemon start, which changes what
+[`OQ-HD10`](../design/host-daemon-ownership.md#OQ-HD10)'s experiment measures for one
+workspace.
+
+**What is left:**
+
+- **A changed config still reaches a live podman jail on attach.** This is today's behavior,
+  kept on purpose. The sync applies it one file at a time. A single-file bind keeps the old
+  file, as it always did. The first launch's lock is released once its container is running,
+  which can be before its entrypoint has finished reading `/ctx/packs`. So a changed-config
+  attach landing in that window can give the booting jail a mix of the two configs. It never
+  gives it a truncated file or an emptied directory.
+- **A lock file that cannot be opened** warns and leaves the launch unserialised, because the
+  workspace lock is a courtesy (`acquireWorkspaceLock`).
+- **Not verified on the macOS backend.** The unit tests above run on Linux. Whether
+  `TestMacosUserTwoConcurrentLaunchesOfOneWorkspace` now reaches its sessions is for the next
+  macos-user CI run to show.
+
+#### Open: does a running jail keep the pack tree it booted with?
+
+**Not ruled.** Today an attach re-stages the tree a live podman jail has bound, so after a config
+change the jail's `/ctx/packs` shows the new pack set. Nothing in the jail is re-rendered from
+it ([above](#host-side-staging-then-jail-side-render)).
+
+- **(a) Keep the attach refresh.** This is what shipped, with the residual boot-window mix
+  above.
+- **(b) One immutable tree per launch.** The jail binds its own tree at `/ctx/packs` and keeps
+  it until it stops. Its trees are collected when its container is known gone, the way the home
+  skeleton is ([`OQ-BH10`](../design/base-home-legacy-state.md#OQ-BH10)). This closes the
+  boot-window mix, and it drops the lock's reason to span the macos-user host-daemon start.
+- **(c) (b), plus a notice on attach** when the config's pack set differs from the one the jail
+  booted with.
+
+**Recommendation: (c).** Under (a) a live jail is inconsistent after a changed-config attach:
+the launchers, config and shims a dropped pack rendered at boot stay, while its tree goes.
+Under (b) the jail stays whole until it restarts, and the notice says a restart is needed.
 
 ## The credential boundary: disclosure, not consent
 

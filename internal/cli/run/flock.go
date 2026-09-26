@@ -19,6 +19,9 @@ type workspaceLock struct {
 	mu     sync.Mutex
 	f      *os.File
 	closed bool
+	// path is set only on a lock registered as this process's LAUNCH lock (holdLaunchLock), so
+	// that Close can take it back out of heldLaunchLocks.
+	path string
 }
 
 // lockNotices are the two console seams acquireWorkspaceLock speaks through.
@@ -114,6 +117,9 @@ func (l *workspaceLock) Close() {
 		return
 	}
 	l.closed = true
+	if l.path != "" {
+		heldLaunchLocks.forget(l.path, l)
+	}
 	_ = l.f.Close() // closing the fd releases the flock
 }
 
@@ -135,10 +141,20 @@ func (l *workspaceLock) Close() {
 // The failure mode is the same one acquireWorkspaceLock already chose: a lock that cannot
 // be taken WARNS and returns a no-op release, because a workspace lock is a courtesy
 // against a self-inflicted race and not a safety property worth refusing a launch over.
+//
+// A LOCK THIS PROCESS ALREADY HOLDS IS HANDED OVER, NOT TAKEN AGAIN. The launch takes this
+// same lock before it stages (holdLaunchLock), so by the time the backend asks for it the
+// process holds it — and a second flock on a second descriptor of the same file waits on the
+// first one, which in one process is a wait for ever. The backend gets the held lock's
+// release instead, and calling it at its own release point (before the agent starts) is what
+// ends the launch's window there.
 func AcquireWorkspaceLockFor(workspace, cname string, warn, waiting func(string)) func() {
+	if held := heldLaunchLocks.lookup(launchLockPath(cname)); held != nil {
+		return held.Close
+	}
 	lockDir := filepath.Join(paths.GlobalStorage(), "locks")
 	_ = os.MkdirAll(lockDir, 0o755)
-	lock, err := acquireWorkspaceLock(filepath.Join(lockDir, cname+".lock"), workspace,
+	lock, err := acquireWorkspaceLock(launchLockPath(cname), workspace,
 		lockNotices{warn: warn, waiting: waiting})
 	if err != nil {
 		if warn != nil {
@@ -148,4 +164,118 @@ func AcquireWorkspaceLockFor(workspace, cname string, warn, waiting func(string)
 		return func() {}
 	}
 	return lock.Close
+}
+
+// launchLockPath is the per-workspace launch lock's file, <global storage>/locks/<cname>.lock:
+// the one file every acquisition of it names.
+func launchLockPath(cname string) string {
+	return filepath.Join(paths.GlobalStorage(), "locks", cname+".lock")
+}
+
+// heldLaunchLocks is every per-workspace launch lock THIS PROCESS holds, by lock-file path —
+// the record AcquireWorkspaceLockFor consults to hand a held lock over instead of waiting on
+// it. Only holdLaunchLock registers and Close forgets, so an entry is exactly a lock whose
+// flock this process holds right now.
+var heldLaunchLocks = &launchLockRegistry{m: map[string]*workspaceLock{}}
+
+type launchLockRegistry struct {
+	mu sync.Mutex
+	m  map[string]*workspaceLock
+}
+
+func (r *launchLockRegistry) hold(path string, l *workspaceLock) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.m[path] = l
+}
+
+func (r *launchLockRegistry) lookup(path string) *workspaceLock {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.m[path]
+}
+
+// forget removes path's entry only while it still names l, so a late Close of an earlier
+// holder cannot drop the entry of the holder after it.
+func (r *launchLockRegistry) forget(path string, l *workspaceLock) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.m[path] == l {
+		delete(r.m, path)
+	}
+}
+
+// holdLaunchLock takes the per-workspace launch lock for this launch BEFORE it stages
+// anything, unless this launch already holds it.
+//
+// THE WINDOW IS THE WORKSPACE'S SHARED STAGING, which is why it opens here and not where it
+// used to (runContainer's fresh path, and the macos-user orchestrator's bootstrap). Two
+// launches of one workspace share one AGENTS_DIR/<cname>: the staged packs, the skills and
+// briefing staging, and on macos-user the home-overlay and /ctx trees. Each launch writes them
+// and then READS THEM BACK well after writing: its host daemons start from the staged loophole
+// module dirs, its skills are copied out of the staged packs, and the container binds them or
+// the sandbox bootstrap copies them. Staging used to run before any lock, so a second launch
+// restaged under the first one's reads. The first macOS run of
+// TestMacosUserTwoConcurrentLaunchesOfOneWorkspace measured it as `unlinkat
+// …/packs/_official/claude: directory not empty` in one launch and "loophole module dir … is
+// not a directory" in the other (docs/reference/pack-system.md#concurrent-launches-of-one-workspace).
+//
+// So the lock is held from here until the launch no longer touches that staging, and released
+// by whichever arm ends the window:
+//
+//   - podman and Apple Container, fresh launch: once the container is running (runContainer's
+//     onStarted), or at any return before that, as before.
+//   - podman and Apple Container, attach: before the attach execs (runContainer's attach
+//     branch).
+//   - macos-user: by the orchestrator, before the agent starts. It asks for this lock through
+//     AcquireWorkspaceLockFor, which hands the held one over.
+//   - every other return: Run's deferred releaseLaunchLock.
+//
+// A second launch of the workspace therefore WAITS, with the "Waiting for concurrent jail
+// launch" notice, instead of restaging under the first. That is the ruled behavior: a launch's
+// result never depends on another's, and it waits for what it needs
+// (docs/design/pi-git-extension-caching.md OQ-2). Its own staging then runs in full, and with
+// an unchanged config it changes nothing on disk (internal/treesync).
+//
+// The degraded mode is acquireWorkspaceLock's: a lock file that cannot be opened warns and
+// leaves this launch unserialised, because a workspace lock is a courtesy and not a reason to
+// refuse a launch.
+func (o *Options) holdLaunchLock(cname string) {
+	if o.launchLock != nil && !o.launchLock.isClosed() {
+		return
+	}
+	out := o.pr(o.Stdout)
+	sp := o.Perf.Span("launch.acquire_workspace_lock")
+	defer sp.End()
+	path := launchLockPath(cname)
+	_ = os.MkdirAll(filepath.Dir(path), 0o755)
+	lock, err := acquireWorkspaceLock(path, o.Workspace, lockNotices{
+		warn: func(msg string) { out.printf("[dim]Warning: %s[/dim]", msg) },
+		waiting: func(msg string) {
+			o.launchLockWaited = true
+			out.printf("[bold cyan]%s[/bold cyan]", msg)
+		},
+	})
+	if err != nil {
+		out.printf("[dim]Warning: could not open the workspace lock (%s); concurrent launches "+
+			"in this workspace are not serialised[/dim]", err.Error())
+		o.launchLock = nil
+		return
+	}
+	lock.path = path
+	heldLaunchLocks.hold(path, lock)
+	o.launchLock = lock
+}
+
+// releaseLaunchLock ends this launch's hold on the workspace launch lock. Idempotent, and a
+// no-op for a launch that holds none.
+func (o *Options) releaseLaunchLock() {
+	o.launchLock.Close()
+}
+
+// isClosed reports whether Close has run.
+func (l *workspaceLock) isClosed() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.closed
 }
