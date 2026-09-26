@@ -138,6 +138,17 @@ yolo.derive("codex", "config", function(ctx)
       -- credentials, not a custom third-party endpoint with an API key.
       if name ~= "openai-codex" then
         local baseUrl, api = codexReachable(prov)
+        -- VIA (docs/design/wire-bridge-gateway.md §4.1, WG-I20/WG-I22): when codex's active
+        -- profile routes through a service, the SELECTED provider's row points at codex's own
+        -- route on it, ctx.via_url, which passes codex's Responses requests through to the
+        -- provider's own Responses endpoint. Only a provider codex can reach at all rides it:
+        -- the same gate as the catalog, so a chat-only provider still gets no row. Every
+        -- other row is untouched — via is one profile's choice.
+        local viaRow = (baseUrl ~= nil and ctx.via_url ~= nil and ctx.via_url ~= "" and
+          name == ctx.selected_provider)
+        if viaRow then
+          baseUrl = ctx.via_url
+        end
         if baseUrl then
           local displayName = name
           if type(prov.name) == "string" and prov.name ~= "" then
@@ -148,7 +159,12 @@ yolo.derive("codex", "config", function(ctx)
             base_url = baseUrl,
             wire_api = api,
           }
-          if prov.api_key_env_name then
+          -- A via row names no env_key: the service holds the provider's credential and
+          -- drops an inbound Authorization (WG-I5), so codex needs no key for it. With
+          -- neither env_key nor requires_openai_auth, codex sends no Authorization at all
+          -- (codex 0.157.0, model-provider/src/auth.rs resolve_provider_auth), and it no
+          -- longer refuses to start when the variable is absent from its environment.
+          if prov.api_key_env_name and not viaRow then
             entry.env_key = prov.api_key_env_name
           end
           provOut[name] = entry
