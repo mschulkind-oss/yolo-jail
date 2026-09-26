@@ -484,7 +484,7 @@ func userEnvWith(vars map[string]string) *jsonx.OrderedMap {
 // refused attach had already put the bearer beside the pointer in the live jail.
 func TestAttachRefusesAnOverriddenContribution(t *testing.T) {
 	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "aws-auth")}
-	o, cfg, channel, stderr := attachFixture(t, "YOLO_VERSION=9.9.9-test\n",
+	o, cfg, channel, stderr := attachFixture(t, currentJailEnv,
 		packs, userEnvWith(map[string]string{bearerVar: "sk-bedrock-frozen"}),
 		func(o *Options, _ *jsonx.OrderedMap) {
 			o.Getenv = shellWith(nil)
@@ -512,7 +512,7 @@ func TestAttachRefusesAnOverriddenContribution(t *testing.T) {
 // the running jail a provider with no token while telling this entry "no".
 func TestAttachCredentialRefusalLeavesTheLiveFileAlone(t *testing.T) {
 	packs := zaiSelected(t)
-	o, cfg, channel, stderr := attachFixture(t, "YOLO_VERSION=9.9.9-test\n",
+	o, cfg, channel, stderr := attachFixture(t, currentJailEnv,
 		packs, emptyEnv(), func(o *Options, _ *jsonx.OrderedMap) { o.ProfileName = "zai" })
 	envFile, before := seedLiveChannelFile(t, o)
 

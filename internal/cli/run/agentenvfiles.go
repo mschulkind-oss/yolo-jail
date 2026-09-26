@@ -134,6 +134,22 @@ func agentEnvDirBeneath(r *os.Root, dir string) error {
 	return r.Chmod(dir, agentEnvDirMode)
 }
 
+// agentsWithOwnValues lists, sorted, the agents this entry's gate scoped anything to — the
+// agents that get a file of their own. Empty for a channel with no scope.
+func (c *packChannel) agentsWithOwnValues() []string {
+	if c == nil || c.scope == nil {
+		return nil
+	}
+	var out []string
+	for _, agent := range c.scope.Agents() {
+		if !c.scope.Agent(agent).Empty() {
+			out = append(out, agent)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // agentEnvFileContent renders one agent's file, "" when the gate scoped nothing to it. The
 // grammar is the shared file's, and so is the precedence it carries: env_sources values are
 // def-form defaults (`export K=${K:-'v'}`) the environment may beat, and what the launch

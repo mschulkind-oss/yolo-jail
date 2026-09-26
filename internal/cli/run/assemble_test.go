@@ -519,6 +519,8 @@ func podmanLinuxGolden(home string) []string {
 		"-e", "YOLO_MCP_PRESETS=[]",
 		// Empty because no user config declares `agent_updates`; the jail defaults OPEN.
 		"-e", "YOLO_AGENT_UPDATES=",
+		// The per-agent env marker an attach reads to know this jail sources the files.
+		"-e", "YOLO_AGENT_ENV_FILES=1",
 		// The three provider/profile wire tables are NOT on the argv: they cross in
 		// yolo-user-env.sh's channel section with the pack env fold and the shape
 		// vars (writeUserEnvFile), so the container's frozen environment holds no

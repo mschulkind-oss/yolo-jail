@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
@@ -1912,6 +1913,27 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 //     its launch-time providers and the warning says so. Refusing here would hold
 //     a workspace's day-to-day re-entry hostage to a one-time upgrade.
 //
+// A PRE-GATE JAIL (launched after per-entry delivery but before the credential gate,
+// detected by the ABSENCE of entrypoint.AgentEnvFilesEnv from an environment the inspect
+// did return) reads the shared file on every entry but has no per-agent env directory and
+// launchers that never source one. The shared half of this delivery reaches it; the
+// per-agent half cannot. When this entry scopes nothing to any agent, that loses nothing and
+// the delivery runs as below. When it does, the split is the pre-change jail's, for the same
+// reasons, with the gate's rule on top — nothing is ever written back into the shared file:
+//
+//   - the selection was TYPED: refuse, naming the agents that would start without what it
+//     scopes to them and the restart. A typed '-p' whose credentials cannot arrive is the
+//     silently-inert selector OQ-CS6 killed.
+//   - it came from config only: WARN by name and proceed WITHOUT delivery, so the jail keeps
+//     the environment its last entry delivered. Delivering the shared half alone would
+//     strip every scoped credential and shape variable from the agents that selected them,
+//     and point claude at a different provider with nothing but a line to say so.
+//
+// Neither prints the gate's per-agent disclosure: "zai: claude only" would describe a
+// delivery this jail cannot receive. An inspect that returned nothing proves nothing, so it
+// is treated as a current jail — the same "cannot prove, do not refuse" rule the frozen
+// probe above follows.
+//
 // On a POST-CHANGE jail the delivery runs unless a pre-flight refuses it: the
 // env-override check, then the CREDENTIAL PRE-FLIGHT — the same checks the fresh
 // path runs (§6.2, OQ-13), the second of whose attach exemption existed because
@@ -1946,6 +1968,23 @@ func (o *Options) deliverChannelOnAttach(cname, rt string, cfg *jsonx.OrderedMap
 			"it ('yolo stop', then rerun yolo) to pick the selection up.[/yellow]")
 		return 0
 	}
+	if scoped := channel.agentsWithOwnValues(); len(scoped) > 0 && jailPredatesAgentEnvFiles(envLines) {
+		names := strings.Join(scoped, ", ")
+		if o.ProfileName != "" || len(o.UseProfiles) > 0 {
+			out.printf("[bold red]Refusing to attach: this jail was launched by an older yolo "+
+				"whose launchers read no per-agent env file, so what this selection scopes "+
+				"to %s alone (its provider's credentials and settings) cannot reach it.[/bold red]", names)
+			out.print("[dim]Restart the jail to gain per-agent delivery: 'yolo stop' from " +
+				"this workspace (finishing its running sessions), then rerun yolo — the " +
+				"next launch is fresh.[/dim]")
+			return 1
+		}
+		out.printf("[yellow]This jail predates per-agent credential delivery: what the "+
+			"configured selection scopes to %s alone cannot reach it, so this entry delivers "+
+			"nothing and the jail keeps the environment its last entry gave it. Restart it "+
+			"('yolo stop', then rerun yolo) to pick the selection up.[/yellow]", names)
+		return 0
+	}
 	// The two pre-flights run BEFORE the write, not after it. The file is the RUNNING
 	// jail's, live-mounted: every new shell and agent process in it sources what was last
 	// written. A refusal after the write would have told this entry "no" while already
@@ -1975,6 +2014,22 @@ func (o *Options) deliverChannelOnAttach(cname, rt string, cfg *jsonx.OrderedMap
 	// sentence; providers.md#pv-oq-10's rule (never "honored") travels with it.
 	o.noteUseProfiles(channel.profiles, staged.packs)
 	return 0
+}
+
+// jailPredatesAgentEnvFiles reports whether a container-inspect env listing proves the jail
+// was launched before the per-agent env files: the inspect returned an environment, and the
+// marker every current launch freezes into it (entrypoint.AgentEnvFilesEnv) is not there. An
+// empty listing — an inspect that failed, or a runtime whose inspect does not answer — proves
+// nothing and reports false.
+func jailPredatesAgentEnvFiles(envLines []string) bool {
+	inspected := false
+	for _, l := range envLines {
+		if strings.TrimSpace(l) != "" {
+			inspected = true
+			break
+		}
+	}
+	return inspected && envLineValue(envLines, entrypoint.AgentEnvFilesEnv) == ""
 }
 
 // envLineValue returns the value of KEY= in a container-inspect env listing, or "".

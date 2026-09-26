@@ -1050,6 +1050,12 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		// empty when the key is absent — the jail defaults OPEN either way, so an older
 		// host that emits nothing and this one emitting "" read identically.
 		"-e", entrypoint.AgentUpdatesEnv+"="+config.AgentUpdatesWire(),
+		// THE PER-AGENT ENV MARKER (entrypoint.AgentEnvFilesEnv): this jail's launchers
+		// source ~/.config/yolo-agent-env/<agent>.sh. FROZEN into the container on
+		// purpose, since that is the one record of this launch a later attach can
+		// inspect: a jail an older yolo launched carries none, and the attach then says
+		// what it cannot deliver instead of writing files nothing in that jail reads.
+		"-e", entrypoint.AgentEnvFilesEnv+"=1",
 		// The three provider/profile wire tables are NOT here: they cross in
 		// yolo-user-env.sh's channel section (writeUserEnvFile's doc) with the shared
 		// pack env fold, the per-agent values in each agent's own env file

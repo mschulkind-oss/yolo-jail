@@ -270,7 +270,7 @@ func TestAppleContainerWritesOwnerOnlyAgentFilesAtTheJailsPath(t *testing.T) {
 // the jail did not get. The shared file's in-home copy had the same staleness.
 func TestAppleContainerAttachRevokesADeselectedAgentsFile(t *testing.T) {
 	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "pi"), officialPack(t, "zai")}
-	o, cfg, channel, stderr := attachFixture(t, "YOLO_VERSION=9.9.9-test\n", packs, awsAndZaiKeys(),
+	o, cfg, channel, stderr := attachFixture(t, currentJailEnv, packs, awsAndZaiKeys(),
 		func(o *Options, _ *jsonx.OrderedMap) { o.UseProfiles = map[string]string{"pi": "zai"} })
 	ws := paths.WorkspaceHomeState(o.Workspace)
 	deliverChannel(ws, "container", channel) // the fresh launch
@@ -282,7 +282,7 @@ func TestAppleContainerAttachRevokesADeselectedAgentsFile(t *testing.T) {
 	o.UseProfiles = nil
 	deselected := channelFor(t, o, cfg, packs, awsAndZaiKeys())
 	if rc := o.deliverChannelOnAttach("yolo-ws-abcd1234", "container", cfg,
-		stagedPacks{root: "/ctx/packs", packs: packs}, deselected, []string{"YOLO_VERSION=9.9.9-test"}); rc != 0 {
+		stagedPacks{root: "/ctx/packs", packs: packs}, deselected, strings.Split(currentJailEnv, "\n")); rc != 0 {
 		t.Fatalf("the attach refused: rc=%d\n%s", rc, stderr.String())
 	}
 	if _, err := os.Stat(pi); !os.IsNotExist(err) {

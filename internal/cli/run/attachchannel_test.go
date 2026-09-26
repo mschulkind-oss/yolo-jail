@@ -73,11 +73,11 @@ func configSelects(cfg *jsonx.OrderedMap, cli, profile string) {
 // delivers the same thing.
 func TestAttachDeliversTheChannelFile(t *testing.T) {
 	packs := zaiSelected(t)
-	o, cfg, channel, stderr := attachFixture(t, "YOLO_VERSION=9.9.9-test\n",
+	o, cfg, channel, stderr := attachFixture(t, currentJailEnv,
 		packs, hydratedKey(), func(o *Options, _ *jsonx.OrderedMap) { o.ProfileName = "zai" })
 
 	rc := o.deliverChannelOnAttach("yolo-ws-abcd1234", "podman", cfg,
-		stagedPacks{root: "/ctx/packs", packs: packs}, channel, []string{"YOLO_VERSION=9.9.9-test"})
+		stagedPacks{root: "/ctx/packs", packs: packs}, channel, strings.Split(currentJailEnv, "\n"))
 	if rc != 0 {
 		t.Fatalf("delivery refused a healthy attach: rc=%d\n%s", rc, stderr.String())
 	}
@@ -114,6 +114,96 @@ func TestAttachDeliversTheChannelFile(t *testing.T) {
 	}
 	if out := stderr.String(); !strings.Contains(out, "ZAI_API_KEY (provider zai): claude only") {
 		t.Errorf("the attach must disclose the credential gate's scope, as the fresh launch does:\n%s", out)
+	}
+}
+
+// currentJailEnv is the frozen environment of a jail THIS yolo launched: no wire tables (they
+// cross in the file), and the per-agent env marker every current launch freezes in
+// (entrypoint.AgentEnvFilesEnv), which tells an attach the per-agent files reach it.
+const currentJailEnv = "YOLO_VERSION=9.9.9-test\nYOLO_AGENT_ENV_FILES=1\n"
+
+// preGateEnv is the frozen environment of a jail launched after per-entry delivery and
+// before the credential gate: no frozen tables, and no per-agent env marker — that yolo
+// bound no agent-env directory and wrote launchers that source none.
+const preGateEnv = "YOLO_VERSION=0.10.0\n"
+
+// A TYPED selection whose per-agent half cannot reach a pre-gate jail refuses, before any
+// write: the new host would otherwise rewrite the live shared file without claude's shape
+// vars and zai key (the gate keeps them out of it), write claude a file that jail never
+// sources, and print "ZAI_API_KEY (provider zai): claude only" — while claude starts
+// pointed at Anthropic first-party.
+func TestAttachRefusesATypedProfileOnAPreGateJail(t *testing.T) {
+	packs := zaiSelected(t)
+	o, cfg, channel, stderr := attachFixture(t, preGateEnv, packs, hydratedKey(),
+		func(o *Options, _ *jsonx.OrderedMap) { o.ProfileName = "zai" })
+	envFile, before := seedLiveChannelFile(t, o)
+
+	rc := o.attachExisting("yolo-ws-abcd1234", "podman", "true", cfg,
+		stagedPacks{root: "/ctx/packs", packs: packs}, channel, false)
+	if rc != 1 {
+		t.Fatalf("a typed profile a pre-gate jail cannot receive must refuse, rc=%d\n%s", rc, stderr.String())
+	}
+	out := stderr.String()
+	for _, want := range []string{"Refusing to attach", "claude", "'yolo stop'"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the refusal must name %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "claude only") {
+		t.Errorf("the refusal must not disclose a scope this jail cannot receive:\n%s", out)
+	}
+	assertLiveChannelFileUnchanged(t, envFile, before)
+	if _, err := os.Stat(filepath.Join(paths.WorkspaceHomeState(o.Workspace), agentEnvStateDir)); !os.IsNotExist(err) {
+		t.Errorf("a refused attach must write no per-agent files: %v", err)
+	}
+}
+
+// A CONFIG-ONLY selection against a pre-gate jail warns by name and delivers NOTHING, so the
+// jail keeps what its last entry gave it — the pre-change jail's config-drift rule. A plain
+// attach with nothing scoped to any agent still delivers, since the shared half is all it
+// has, and a pre-gate jail reads that; so does an attach whose inspect proved nothing.
+func TestAttachToAPreGateJailWarnsAndKeepsItsEnvironment(t *testing.T) {
+	packs := zaiSelected(t)
+	t.Run("config selection scoping values to claude", func(t *testing.T) {
+		o, cfg, channel, stderr := attachFixture(t, preGateEnv, packs, hydratedKey(),
+			func(_ *Options, cfg *jsonx.OrderedMap) { configSelects(cfg, "claude", "zai") })
+		envFile, before := seedLiveChannelFile(t, o)
+		rc := o.deliverChannelOnAttach("yolo-ws-abcd1234", "podman", cfg,
+			stagedPacks{root: "/ctx/packs", packs: packs}, channel, strings.Split(preGateEnv, "\n"))
+		if rc != 0 {
+			t.Fatalf("untyped selection must warn, not refuse: rc=%d\n%s", rc, stderr.String())
+		}
+		out := stderr.String()
+		if !strings.Contains(out, "predates per-agent credential delivery") || !strings.Contains(out, "claude") {
+			t.Errorf("the warning must say which agent this entry cannot reach:\n%s", out)
+		}
+		if strings.Contains(out, "claude only") {
+			t.Errorf("no per-agent disclosure for a jail that cannot receive the file:\n%s", out)
+		}
+		assertLiveChannelFileUnchanged(t, envFile, before)
+	})
+	for _, tc := range []struct{ name, env string }{
+		{"nothing scoped to any agent", preGateEnv},
+		{"an inspect that returned nothing", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o, cfg, channel, stderr := attachFixture(t, tc.env, packs, hydratedKey(), nil)
+			if tc.env == "" {
+				configSelects(cfg, "claude", "zai")
+				channel = channelFor(t, o, cfg, packs, hydratedKey())
+			}
+			rc := o.deliverChannelOnAttach("yolo-ws-abcd1234", "podman", cfg,
+				stagedPacks{root: "/ctx/packs", packs: packs}, channel, strings.Split(tc.env, "\n"))
+			if rc != 0 {
+				t.Fatalf("rc=%d\n%s", rc, stderr.String())
+			}
+			if out := stderr.String(); strings.Contains(out, "predates per-agent") {
+				t.Errorf("nothing proves this jail predates the files, so nothing is warned:\n%s", out)
+			}
+			if _, err := os.Stat(filepath.Join(paths.WorkspaceHomeState(o.Workspace), "yolo-user-env.sh")); err != nil {
+				t.Errorf("the shared half must still be delivered: %v", err)
+			}
+		})
 	}
 }
 
@@ -245,7 +335,7 @@ func TestAttachToAPreChangeJailWarnsOnConfigDrift(t *testing.T) {
 func TestAttachRunsTheCredentialPreflight(t *testing.T) {
 	packs := zaiSelected(t)
 	// No hydrated key and no ZAI_API_KEY in the invoking environment.
-	o, cfg, channel, stderr := attachFixture(t, "YOLO_VERSION=9.9.9-test\n",
+	o, cfg, channel, stderr := attachFixture(t, currentJailEnv,
 		packs, emptyEnv(), func(o *Options, _ *jsonx.OrderedMap) { o.ProfileName = "zai" })
 
 	rc := o.attachExisting("yolo-ws-abcd1234", "podman", "true", cfg,

@@ -253,6 +253,14 @@ re-hydrates it). Consequences worth knowing:
   take, and the remedy names the two-command restart series — `yolo stop`, then an
   ordinary launch); a config-side drift warns and proceeds; a matching or empty
   selection is a plain re-entry and stays silent.
+- An attach to a jail launched after that but BEFORE [the credential gate](#the-credential-gate)
+  reads the shared file on every entry but has no per-agent env directory, and its launchers
+  source none. A current launch freezes `YOLO_AGENT_ENV_FILES=1` into the container, so an
+  attach that inspects an environment without it knows the per-agent half cannot arrive. When
+  this entry scopes nothing to any agent, the delivery runs as usual. When it does, a TYPED
+  `-p` refuses, naming the agents and the restart, and a config-only selection warns by name
+  and delivers nothing, so the jail keeps what its last entry gave it. Neither prints the
+  gate's "`… only`" disclosure, which would describe a delivery that jail cannot receive.
 - The macos-user backend has no attach and no frozen copy; it still layers the same
   channel into its per-invocation plan env, narrowed to the one program it launches.
 

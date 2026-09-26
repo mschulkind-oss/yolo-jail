@@ -24,6 +24,15 @@ import "path/filepath"
 // reads a served agent's key out of it.
 const AgentEnvDirRel = ".config/yolo-agent-env"
 
+// AgentEnvFilesEnv marks a container whose jail reads the per-agent env files: the host
+// launcher that created it sets it to "1" in the container's frozen environment, beside the
+// directory's bind. Nothing in the jail reads it. It is for the NEXT host yolo that attaches:
+// a container's frozen environment is the one fact about its launch an attach can inspect,
+// and a jail an older yolo launched has neither the bind nor launchers that source the file,
+// so its absence tells deliverChannelOnAttach that a per-agent delivery cannot reach that
+// jail (provider-credential-scope.md, OQ-CN6).
+const AgentEnvFilesEnv = "YOLO_AGENT_ENV_FILES"
+
 // AgentEnvFile is the env file of one agent (its CLI name) under home.
 func AgentEnvFile(home, agent string) string {
 	return filepath.Join(home, AgentEnvDirRel, agent+".sh")
