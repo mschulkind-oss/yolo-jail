@@ -41,12 +41,15 @@ protocol its provider serves is refused, naming any shipped pack that translates
   ending your session.
 - **Re-entering a jail an older yolo started asks before going on** when that jail cannot take
   the profile you selected. At a terminal, `Restart jail now? [Y/n]` says how many sessions a
-  restart ends. Elsewhere, yolo stops and tells you to run `yolo stop` first. It used to warn
-  and start the session without the profile. `YOLO_ALLOW_ATTACH_SKEW=1` re-enters anyway.
+  restart ends. Elsewhere, yolo stops and tells you to run `yolo stop` first (`container stop`
+  on Apple Container). It used to warn and start the session without the profile.
+  `YOLO_ALLOW_ATTACH_SKEW=1` re-enters anyway.
 - **A running jail keeps the packs it started with.** Re-entering it after you change `packs`, or
   after upgrading yolo, no longer swaps its packs underneath it, which could stop a jail an older
   yolo started from booting. yolo says which packs differ and that `yolo stop`, then a new
-  launch, picks them up, and refuses a profile only a newly added pack provides.
+  launch, picks them up. A profile only a newly added pack provides, or a jail whose packs this
+  yolo cannot read, such as one an earlier release started with the claude pack, gets the same
+  restart question.
 - **Git packs are fetched at launch**, and a `?ref=<branch>` pack follows its branch within the
   hour. Pin a tag or commit for any pack that runs code on your machine.
 - **`lsp_servers` installs nothing.** Install servers through `mise_tools` or `packages`. Run

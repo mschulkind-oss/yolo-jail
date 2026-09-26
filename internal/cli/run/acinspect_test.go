@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // acInspectPayload is AC's inspect answer for a jail frozen with env, in the measured shape
@@ -124,5 +125,40 @@ func TestTheContractGatePassesACurrentAppleContainerJail(t *testing.T) {
 	body, err := os.ReadFile(envFile)
 	if err != nil || !strings.Contains(string(body), "zai") {
 		t.Errorf("the attach did not deliver the selection into the live channel file (%v):\n%s", err, body)
+	}
+}
+
+// TestAnAppleContainerAttachDoesNotTakeTheSharedTreeForTheBootedOne: a jail Apple Container
+// launched before per-launch pack trees copied the shared tree into its home at that launch, and
+// every attach since re-staged the shared tree, so it holds what the config said at the last
+// entry. Read as the jail's packs it would describe the wrong set with no warning; the attach
+// instead says it cannot find the tree the jail booted with.
+func TestAnAppleContainerAttachDoesNotTakeTheSharedTreeForTheBootedOne(t *testing.T) {
+	packs := zaiSelected(t)
+	o, cfg, channel, errBuf := attachFixture(t, "", packs, hydratedKey(), nil)
+	current := "YOLO_VERSION=9.9.9-test\n" + entrypointContractTagsLine() + "\n"
+	o.Exec = acRuntime(t, current)
+	o.Stdout = &bytes.Buffer{}
+	legacy := paths.LegacyPackStagingDir("yolo-ws-abcd1234")
+	if err := os.MkdirAll(filepath.Join(legacy, officialStagingDir, "claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writePack(t, filepath.Join(legacy, officialStagingDir, "claude"), `{"name":"claude"}`)
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "container"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	if rc, _ := o.attachExisting("yolo-ws-abcd1234", "container", "true", cfg,
+		stagedPacks{root: "/ctx/packs", packs: packs}, channel, false, nil); rc != 0 {
+		t.Fatalf("rc=%d\n%s", rc, errBuf)
+	}
+	out := errBuf.String()
+	if !strings.Contains(out, "could not find the pack tree this jail booted with") ||
+		!strings.Contains(out, "Apple Container") {
+		t.Errorf("the attach took the shared tree for the one an Apple Container jail booted with:\n%s", out)
+	}
+	if strings.Contains(out, "configured packs differ") {
+		t.Errorf("the attach compared against the shared tree:\n%s", out)
 	}
 }

@@ -107,18 +107,20 @@ func firstOfList(key string) func(any) any {
 // OQ-PK2's per-launch pack trees (docs/reference/pack-system.md#oq-pk2), built. Every launch
 // stages a tree of its own and an attach writes into none, so a jail keeps the tree it booted
 // with; a jail launched before the change binds the one shared tree every launch used to
-// re-stage, and nothing writes that tree any more (internal/cli/run/packtree.go).
-// pinAttachLeavesAnOlderJailsTree pins exactly that case, the one a jail a release launched is
-// in; TestAnAttachWritesNothingIntoTheRunningJailsPackTree pins the same for a jail this tree
-// launched.
+// re-stage, and nothing writes that tree any more (internal/cli/run/packtree.go). Nor does an
+// attach compose from this tree's packs in that jail's place: where this build cannot read the
+// jail's tree it takes the attach-skew disposition instead.
+// pinAttachLeavesAnOlderJailsTree pins exactly that case, on the last release's real packs, the
+// case a jail a release launched is in; TestAnAttachWritesNothingIntoTheRunningJailsPackTree pins
+// the first half for a jail this tree launched.
 const guardNoRestageOnAttach = "an attach never re-stages (one immutable pack tree per launch, " +
 	"pack-system.md OQ-PK2), so a jail an older yolo launched never reads this tree's packs; " +
 	"only a fresh launch does, and a fresh launch mounts this tree's binaries"
 
 // pinAttachLeavesAnOlderJailsTree is the test that fails if the guard stops holding: an attach by
-// this tree to a jail launched before per-launch trees must leave that jail's shared tree
-// byte-identical.
-const pinAttachLeavesAnOlderJailsTree = "TestAnAttachToAJailLaunchedBeforePerLaunchTreesLeavesItsSharedTreeAlone"
+// this tree to a jail the last release launched, its shared tree holding that release's own
+// packs, must leave that tree byte-identical and never compose from this tree's packs instead.
+const pinAttachLeavesAnOlderJailsTree = "TestAnAttachToAJailTheLastReleaseLaunchedNeverRidesAlong"
 
 // knownReleaseBreaks is the allowlist. Measured against v0.10.0 on 2026-09-26: claude's bedrock
 // provider declares api_key_env_name as a list where v0.10.0's packdecl declares a string, and pi

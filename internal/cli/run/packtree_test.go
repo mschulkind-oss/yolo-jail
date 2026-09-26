@@ -115,7 +115,7 @@ func TestALateTeardownLeavesALaterLaunchsRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	forgetLivePackTree(cname, earlier)
-	if dir, _ := runningJailPackTree(cname); dir != later {
+	if dir, _ := runningJailPackTree(cname, "podman"); dir != later {
 		t.Errorf("after the earlier launch's teardown the running jail's tree reads as %q, want %q", dir, later)
 	}
 }
@@ -143,39 +143,46 @@ func TestDiscardPackTreeReachesOnlyThisWorkspacesTrees(t *testing.T) {
 }
 
 // TestRunningJailPackTreeFindsTheBootedTree: the record's tree when it is there; the shared tree an
-// older launch left when the record is missing or names a tree that is gone; nothing when neither.
+// older launch left when the record is missing or names a tree that is gone; nothing when neither,
+// with why. On Apple Container the shared tree is never the answer: that backend copied it at the
+// jail's launch and older attaches re-staged it since, so it need not be what the jail has.
 func TestRunningJailPackTreeFindsTheBootedTree(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	const cname = "yolo-tree-find"
-	if dir, _ := runningJailPackTree(cname); dir != "" {
-		t.Fatalf("with nothing on disk the running jail's tree reads as %q", dir)
+	if dir, why := runningJailPackTree(cname, "podman"); dir != "" || !strings.Contains(why, "no record") {
+		t.Fatalf("with nothing on disk the running jail's tree reads as %q (%q)", dir, why)
 	}
 	legacy := paths.LegacyPackStagingDir(cname)
 	if err := os.MkdirAll(legacy, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if dir, isLegacy := runningJailPackTree(cname); dir != legacy || !isLegacy {
-		t.Errorf("with only the shared tree it reads as %q (legacy %v), want %q", dir, isLegacy, legacy)
+	if dir, why := runningJailPackTree(cname, "podman"); dir != legacy || why != "" {
+		t.Errorf("with only the shared tree it reads as %q (%q), want %q", dir, why, legacy)
+	}
+	if dir, why := runningJailPackTree(cname, "container"); dir != "" || !strings.Contains(why, "Apple Container") {
+		t.Errorf("on Apple Container the shared tree reads as the booted one: %q (%q)", dir, why)
 	}
 	tree := newTreeForTest(t, cname, "claude")
 	if err := writeLivePackTree(cname, tree); err != nil {
 		t.Fatal(err)
 	}
-	if dir, isLegacy := runningJailPackTree(cname); dir != tree || isLegacy {
-		t.Errorf("with a record it reads as %q (legacy %v), want the recorded %q", dir, isLegacy, tree)
+	for _, rt := range []string{"podman", "container"} {
+		if dir, why := runningJailPackTree(cname, rt); dir != tree || why != "" {
+			t.Errorf("%s: with a record it reads as %q (%q), want the recorded %q", rt, dir, why, tree)
+		}
 	}
 	if err := os.RemoveAll(tree); err != nil {
 		t.Fatal(err)
 	}
-	if dir, _ := runningJailPackTree(cname); dir != legacy {
+	if dir, _ := runningJailPackTree(cname, "podman"); dir != legacy {
 		t.Errorf("with a record naming a gone tree it reads as %q, want the shared %q", dir, legacy)
 	}
 	// A record can never name a path outside the root.
 	if err := os.WriteFile(paths.LivePackTreeRecord(cname), []byte("../../elsewhere\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if dir, _ := runningJailPackTree(cname); dir != legacy {
+	if dir, _ := runningJailPackTree(cname, "podman"); dir != legacy {
 		t.Errorf("a record naming %q was followed: %q", "../../elsewhere", dir)
 	}
 }
@@ -435,9 +442,9 @@ func TestTheMacosUserArmTakesTheLockAfterItsHostDaemons(t *testing.T) {
 }
 
 // TestAnAttachRefusesASelectionOnlyTheConfiguredPacksSatisfy: the jail keeps the packs it booted
-// with, so a profile only a newly configured pack declares cannot be delivered into it. The
-// attach refuses before the contract gate and before any write, names the restart, and says
-// what differs.
+// with, so a profile only a newly configured pack declares cannot be delivered into it. Without a
+// terminal the attach refuses before the contract gate and before any write, names the restart,
+// and says what differs (the rest of the disposition: packskew_test.go).
 func TestAnAttachRefusesASelectionOnlyTheConfiguredPacksSatisfy(t *testing.T) {
 	home := packHome(t)
 	writeUserPacks(t, home, `["claude"]`)
@@ -481,7 +488,8 @@ func TestAnAttachRefusesASelectionOnlyTheConfiguredPacksSatisfy(t *testing.T) {
 	if strings.Contains(stdout.String(), "Attaching to existing jail") {
 		t.Errorf("the attach went ahead:\n%s", stdout.String())
 	}
-	for _, want := range []string{"Refusing to attach", "zai", "yolo stop", "added zai"} {
+	for _, want := range []string{"Refusing to attach", "launched without zai", "yolo stop",
+		"Added to your config since it launched: zai"} {
 		if !strings.Contains(stderr.String(), want) {
 			t.Errorf("the refusal does not say %q:\n%s", want, stderr.String())
 		}

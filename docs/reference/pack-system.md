@@ -2487,9 +2487,12 @@ Under (b) the jail stays whole until it restarts, and the notice says a restart 
 [`attachpacktree_test.go`](../../integration/attachpacktree_test.go)). A running jail sees the
 packs it booted with at `/ctx/packs` for as long as it runs, however the config changes. An
 attach after a change prints, on stderr, which packs were added, removed or changed and that
-`yolo stop` then a launch picks them up; a selection only the configured packs can satisfy (a
-profile only a newly added pack declares) refuses the attach, naming the restart. The mechanism
-choices, each made to build the ruling and none changing it:
+`yolo stop` then a launch picks them up. A selection only the configured packs can satisfy (a
+profile only a newly added pack declares), and a jail tree this yolo cannot read, take the
+attach-skew disposition ([OQ-SK1](../design/attach-skew-and-contract-guardrails.md#OQ-SK1)): the
+restart prompt at a terminal, a refusal naming the restart elsewhere, and
+`YOLO_ALLOW_ATTACH_SKEW=1` to attach delivering nothing. The mechanism choices, each made to build
+the ruling and none changing it:
 
 1. *Implementation decision.* **Where a tree lives.** `AGENTS_DIR/<cname>/pack-trees/<UTC
    stamp>-<random>` (`paths.PackTreeRoot`, `os.MkdirTemp`, mode 0755), with the old layout
@@ -2509,9 +2512,11 @@ choices, each made to build the ruling and none changing it:
    Apple Container copies the tree into a home the jail can write, and host code must never read
    that copy (`run.acPackRootRel` says why), so only a host record identifies the host tree there,
    and one mechanism serves both backends. A missing record, or one naming a gone tree, falls back
-   to the shared tree a jail launched before this change binds; neither leaves the attach
-   composing from the configured packs, as every attach did before, with a warning that it cannot
-   say whether they differ. The jail's tree is untouched either way.
+   to the shared tree a jail launched before this change binds, except on Apple Container (item
+   13). When neither is there, the attach composes from the configured packs, as every attach did
+   before, with a warning that it could not find the jail's tree and cannot say whether they
+   differ. A tree that is there and will not load is item 11's case, not this one. The jail's tree
+   is untouched either way.
 4. *Implementation decision.* **An attach still stages the config**, into a tree of its own that
    nothing binds. It needs it to compare with the jail's tree, and it keeps refusing a config
    whose packs fail the pre-flights, as every attach did. It is discarded once the attach commits,
@@ -2540,7 +2545,8 @@ choices, each made to build the ruling and none changing it:
    ([`OQ-BH16`](../design/base-home-legacy-state.md#OQ-BH16)).
 8. *Implementation decision.* **The shared tree a pre-change jail binds** (`AGENTS_DIR/<cname>/packs`,
    `paths.LegacyPackStagingDir`) is never written. An attach to such a jail reads it, naming a
-   configured pack by the config entry whose slug its directory carries. The first fresh container
+   configured pack by the config entry whose slug its directory carries (on podman; item 13 says
+   why not on Apple Container), and takes item 11's disposition when it will not load. The first fresh container
    launch whose runtime answers that no container of the name exists removes it, since only such a
    container could bind it. A macos-user launch never removes it: it has no liveness question it
    can ask about an older native session, so the reaper does.
@@ -2549,6 +2555,35 @@ choices, each made to build the ruling and none changing it:
    (`launchContractTags`' comment records this).
 10. *Implementation decision.* **The lock's new placement** is the table above: the pack tree left
     the window, and what stayed in it is what the launches still share.
+11. *Implementation decision.* **A jail tree that is there and will not load is a known
+    difference**, and takes the attach-skew disposition rather than item 3's warning. It is the
+    common legacy case, not a corner: this build's loader refuses v0.10.0's claude, which declares
+    the `claude_plugins` hook this build removed, so every jail v0.10.0 launched with claude binds a
+    tree this build cannot read. Composing from the configured packs there delivered the newer
+    shape, claude's list-valued `api_key_env_name`, into a jail whose derive reads it as a string,
+    which is the ride-along [OQ-SK1](../design/attach-skew-and-contract-guardrails.md#OQ-SK1) rules
+    out. Not a tolerant read of the old tree: the host's loader is strict by design, `TolerateSkew`
+    is process-wide and in-jail only, and a read that drops what it does not know composes from a
+    guess at the jail's packs. Under the acknowledgment such an attach writes nothing: no channel,
+    and no skills or briefing refresh, since the only packs to refresh from are the configured
+    ones. Pinned on the last release's real packs
+    (`TestAnAttachToAJailTheLastReleaseLaunchedNeverRidesAlong`), which the release-decode allowlist
+    cites.
+12. *Implementation decision.* **A selection the jail's packs cannot serve takes the same
+    disposition**, where the first build refused it outright. OQ-SK1's terminal arm applies to
+    every attach that cannot be made compatible, so at a terminal the attach asks
+    `Restart jail now? [Y/n]` and a yes continues into the fresh launch, still holding the lock, as
+    a missing contract tag does. The headline names the packs the jail lacks (`this jail was
+    launched without zai`), since the composition's own error tells the user to declare a profile
+    their configured pack already declares. Under the acknowledgment the command still carries the
+    jail's own launch flags.
+13. *Implementation decision.* **On Apple Container the shared tree is not the booted set.** That
+    backend copied it into the jail's home at the fresh launch, and every attach before per-launch
+    trees re-staged the shared tree afterwards, so it holds whatever the config said at the last
+    entry. An Apple Container attach with no live-tree record therefore takes item 3's warning
+    rather than reading the shared tree as the jail's packs. Every restart remedy an attach names
+    there is `container stop <name>`, since `yolo stop` cannot see an Apple Container jail
+    ([G11](../plans/setup-support-gaps.md)).
 ## The credential boundary: disclosure, not consent
 
 **Host access is six crossings**: a host file read (a `reads-host` contribution, or a config

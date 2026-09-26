@@ -16,7 +16,9 @@ package run
 //     and then discards it. Every host-side reader on the attach (the channel, the launch
 //     flags, the skills and briefing refresh, the loophole record) reads the RUNNING jail's
 //     tree instead (runningJailPackView), and when the two trees differ the attach says so
-//     and says a restart picks the change up (noteBootedPackSetDiffers).
+//     and says a restart picks the change up (noteBootedPackSetDiffers). A jail tree that will
+//     not load, or whose packs cannot serve the selection, is not read around: the attach takes
+//     the contract gate's disposition (attachPackSkew, settleAttachSkew).
 //   - A TREE GOES ONLY ONCE ITS CONTAINER IS KNOWN GONE: the launch that started the container
 //     removes it at the three ends where it sees the container go (forgetGoneContainer), on
 //     the runtime's answer that no container of that name exists. "Could not ask" removes
@@ -161,22 +163,33 @@ func forgetLivePackTree(cname, dir string) {
 
 // runningJailPackTree finds the pack tree cname's running jail booted from: the tree the
 // live-tree record names, when that tree is still there; else the shared staging tree a jail
-// launched before per-launch trees binds, when that is there. "" when neither is, which the
-// caller reports rather than guesses around.
-func runningJailPackTree(cname string) (dir string, legacy bool) {
+// launched before per-launch trees binds, when that is there. "" when neither is, with unfound
+// saying why, which the caller reports rather than guesses around.
+//
+// ON APPLE CONTAINER THE SHARED TREE IS NOT THE BOOTED SET. That backend copied it into the
+// jail's home at the fresh launch only, and every attach before per-launch trees re-staged the
+// shared tree afterwards, so it holds whatever the config said at the last entry, which need not
+// be what the jail copied. Only a live-tree record names an Apple Container jail's tree.
+func runningJailPackTree(cname, rt string) (dir, unfound string) {
 	if raw, err := os.ReadFile(paths.LivePackTreeRecord(cname)); err == nil {
 		name := strings.TrimSpace(string(raw))
 		if name != "" && filepath.IsLocal(name) && filepath.Base(name) == name {
 			tree := filepath.Join(paths.PackTreeRoot(cname), name)
 			if isDir(tree) {
-				return tree, false
+				return tree, ""
 			}
 		}
 	}
-	if legacyDir := paths.LegacyPackStagingDir(cname); isDir(legacyDir) {
-		return legacyDir, true
+	legacyDir := paths.LegacyPackStagingDir(cname)
+	switch {
+	case !isDir(legacyDir):
+		return "", "no record of it under " + paths.PackTreeRoot(cname)
+	case rt == "container": // parity: Warned — AC copied this tree at launch and older attaches re-staged it; the attach says it cannot find the booted tree
+		return "", legacyDir + " is the shared tree Apple Container copied from when this jail " +
+			"launched, and attaches before per-launch pack trees re-staged it since, so it need not " +
+			"hold the packs the jail has"
 	}
-	return "", false
+	return legacyDir, ""
 }
 
 // loadPackTree loads the packs a staged tree holds, in the order and under the names its launch
@@ -205,7 +218,7 @@ func loadPackTree(root string) ([]*packload.Pack, error) {
 		}
 		p, problems := packload.LoadDir(filepath.Join(root, rel), e.Name)
 		if len(problems) > 0 {
-			return nil, fmt.Errorf("pack %s: %s", e.Name, problems[0])
+			return nil, errors.New(problems[0]) // LoadDir's problems already name the pack
 		}
 		out = append(out, p)
 	}
@@ -240,7 +253,7 @@ func loadUnrecordedPackTree(root string) ([]*packload.Pack, error) {
 			}
 			p, problems := packload.LoadDir(filepath.Join(dir, ent.Name()), name)
 			if len(problems) > 0 {
-				return nil, fmt.Errorf("pack %s: %s", name, problems[0])
+				return nil, errors.New(problems[0]) // LoadDir's problems already name the pack
 			}
 			out = append(out, p)
 		}
@@ -358,7 +371,8 @@ func diffPackSets(configured, booted []*packload.Pack) packSetDiff {
 // composes from it.
 type attachPackView struct {
 	// staged is the running jail's tree and the packs loaded from it; the configured staging
-	// when the jail's tree could not be read (unreadable).
+	// when the jail's tree could not be found (unfound); empty when it would not load
+	// (unreadable).
 	staged stagedPacks
 	// channel is this entry's provider/profile channel, composed over staged.packs.
 	channel *packChannel
@@ -366,11 +380,26 @@ type attachPackView struct {
 	targetCmd string
 	// diff is how the configured packs differ from staged.packs.
 	diff packSetDiff
-	// legacy is true when the jail binds the shared staging a launch before per-launch trees
-	// wrote.
-	legacy bool
-	// unreadable says why the jail's tree could not be read, or "" when it was.
-	unreadable string
+	// unfound says why the jail's tree could not be found, or "" when it was.
+	unfound string
+	// unreadable is true when the jail's tree was found and would not load. Nothing is composed
+	// over it, and nothing is refreshed from it.
+	unreadable bool
+}
+
+// attachPackSkew is why an attach cannot compose what it delivers over the running jail's packs:
+// the jail's tree is there and would not load, or what this entry selects fails over the packs in
+// it. Either is a KNOWN difference between the jail and this entry, so the attach takes the
+// contract gate's disposition (settleAttachSkew): never a ride-along on the configured packs.
+type attachPackSkew struct {
+	// dir is the jail's tree.
+	dir string
+	// unreadable: the tree would not load, and err says why. Otherwise err is the composition's
+	// refusal over the packs it holds.
+	unreadable bool
+	err        error
+	// diff is how the configured packs differ from the jail's, when the tree loaded.
+	diff packSetDiff
 }
 
 // runningJailPackView builds the pack set an attach to cname's running jail reads: the jail's
@@ -381,31 +410,31 @@ type attachPackView struct {
 // When the two trees hold the same packs with the same content, what Run composed is already the
 // jail's (the declarations are byte-identical), so it is reused. When they differ, the channel is
 // composed again over the jail's packs, with the environment Run already hydrated (a second
-// env_sources pass could prompt twice), and a composition that refuses is returned as the error:
-// the jail has the packs it booted with, and a selection only the configured packs can satisfy
-// cannot be delivered into it.
+// env_sources pass could prompt twice), and the launch flags are injected again.
 //
-// A tree that cannot be found or read is not a refusal. The view is then the configured staging,
-// as every attach read before per-launch trees, and unreadable says why, which the attach prints:
-// it can no longer say whether the two differ.
-func (o *Options) runningJailPackView(cname string, cfg *jsonx.OrderedMap, fresh stagedPacks,
-	channel *packChannel, targetCmd string) (attachPackView, error) {
-	dir, legacy := runningJailPackTree(cname)
+// A tree that cannot be FOUND is not a refusal. The view is then the configured staging, as every
+// attach read before per-launch trees, and unfound says why, which the attach prints: it can no
+// longer say whether the two differ. A tree that is found and WILL NOT LOAD is a different fact:
+// the jail has packs this yolo's loader refuses, which is what every jail v0.10.0 launched with
+// claude binds (that release's claude declares a hook this build removed). Composing from the
+// configured packs then would deliver into that jail exactly what OQ-PK2 (c) keeps from it, so it
+// is returned as a skew, with the refusal of a selection only the configured packs satisfy.
+func (o *Options) runningJailPackView(cname, rt string, cfg *jsonx.OrderedMap, fresh stagedPacks,
+	channel *packChannel, targetCmd string) (attachPackView, *attachPackSkew) {
+	dir, unfound := runningJailPackTree(cname, rt)
 	if dir == "" {
-		return attachPackView{staged: fresh, channel: channel, targetCmd: targetCmd,
-			unreadable: "no record of it under " + paths.PackTreeRoot(cname)}, nil
+		return attachPackView{staged: fresh, channel: channel, targetCmd: targetCmd, unfound: unfound}, nil
 	}
 	booted, err := loadPackTree(dir)
 	if err != nil {
-		return attachPackView{staged: fresh, channel: channel, targetCmd: targetCmd,
-			unreadable: fmt.Sprintf("%s could not be read: %v", dir, err)}, nil
+		return attachPackView{channel: channel, targetCmd: targetCmd, unreadable: true},
+			&attachPackSkew{dir: dir, unreadable: true, err: err}
 	}
 	view := attachPackView{
 		staged:    stagedPacks{root: dir, packs: booted, briefings: quietPackBriefings(booted)},
 		channel:   channel,
 		targetCmd: targetCmd,
 		diff:      diffPackSets(fresh.packs, booted),
-		legacy:    legacy,
 	}
 	if view.diff.empty() {
 		return view, nil
@@ -416,11 +445,47 @@ func (o *Options) runningJailPackView(cname string, cfg *jsonx.OrderedMap, fresh
 	}
 	c, err := o.composePackChannel(cfg, booted, userEnv)
 	if err != nil {
-		return view, err
+		return view, &attachPackSkew{dir: dir, err: err, diff: view.diff}
 	}
 	view.channel = c
 	view.targetCmd = o.injectLaunchFlagsForAttach(booted, o.Args, targetCmd)
 	return view, nil
+}
+
+// packSkew words an attachPackSkew for the disposition: the headline names the packs the jail
+// lacks, not the composition's own remedy, which tells the user to declare what their configured
+// pack already declares.
+func (o *Options) packSkew(baked string, s *attachPackSkew) attachSkew {
+	lines := o.versionSkewLines(baked)
+	if s.unreadable {
+		lines = append(lines, fmt.Sprintf("  • This yolo could not read the pack tree it booted from, %s: %v.", s.dir, s.err))
+		return attachSkew{
+			jail:  "booted from packs this yolo cannot read, so nothing this entry delivers can be composed over them",
+			lines: lines,
+			keeps: ", and its skills and briefing are not refreshed from your configured packs",
+		}
+	}
+	d := s.diff
+	jail := "cannot take what this entry selects with the packs it was launched with"
+	switch {
+	case len(d.Added) > 0:
+		jail = "was launched without " + strings.Join(d.Added, ", ") + ", and what this entry selects " +
+			"cannot be composed over the packs it has"
+	case len(d.Changed) > 0:
+		jail = "has other copies of " + strings.Join(d.Changed, ", ") + " than your config, and what " +
+			"this entry selects cannot be composed over the packs it has"
+	}
+	if len(d.Added) > 0 {
+		lines = append(lines, "  • Added to your config since it launched: "+strings.Join(d.Added, ", ")+".")
+	}
+	if len(d.Changed) > 0 {
+		lines = append(lines, "  • Changed since it launched: "+strings.Join(d.Changed, ", ")+".")
+	}
+	if len(d.Removed) > 0 {
+		lines = append(lines, "  • Removed from your config since it launched: "+strings.Join(d.Removed, ", ")+".")
+	}
+	lines = append(lines, fmt.Sprintf("  • Over the packs it has: %v.", s.err))
+	return attachSkew{jail: jail, lines: lines}
 }
 
 // adoptPackRecords points the process-wide pack records at the running jail's packs, for the
@@ -459,17 +524,18 @@ func quietPackBriefings(packs []*packload.Pack) []jailcontent.PackBriefing {
 // noteBootedPackSetDiffers is the attach's NOTICE (OQ-PK2 (c)): the jail keeps the packs it booted
 // with, so a configured change reaches it only through a restart, and the attach says which packs
 // differ. Stderr, since the attach's stdout opens with its "Attaching" line and then belongs to the
-// command. Silent when nothing differs.
-func (o *Options) noteBootedPackSetDiffers(view attachPackView) {
+// command. Silent when nothing differs, and for a tree that would not load, whose account the
+// disposition already gave.
+func (o *Options) noteBootedPackSetDiffers(rt, cname string, view attachPackView) {
 	out := o.pr(o.Stderr)
-	if view.unreadable != "" {
+	if view.unfound != "" {
 		out.printf("[yellow]Warning: could not find the pack tree this jail booted with (%s), so this "+
 			"attach composes from your configured packs and cannot say whether they differ from "+
-			"the jail's.[/yellow]", view.unreadable)
+			"the jail's.[/yellow]", view.unfound)
 		return
 	}
 	d := view.diff
-	if d.empty() {
+	if view.unreadable || d.empty() {
 		return
 	}
 	var parts []string
@@ -486,8 +552,8 @@ func (o *Options) noteBootedPackSetDiffers(view attachPackView) {
 		parts = append(parts, "could not compare "+strings.Join(d.Unreadable, ", "))
 	}
 	out.printf("[yellow]Notice: your configured packs differ from the ones this jail booted with "+
-		"(%s). The jail keeps its own until it restarts: 'yolo stop' from this workspace once its "+
-		"sessions are done, then launch again, picks the change up.[/yellow]", strings.Join(parts, "; "))
+		"(%s). The jail keeps its own until it restarts: %s once its sessions are done, then "+
+		"launch again, picks the change up.[/yellow]", strings.Join(parts, "; "), stopRemedy(rt, cname))
 }
 
 // retireLegacyPackStaging removes the shared staging tree a launch before per-launch trees wrote

@@ -1891,6 +1891,9 @@ func startedLoophole(handles []loopholeDaemon, name string) bool {
 // (runningJailPackView) — the channel it delivers, the command it execs, the skills and briefing
 // it refreshes, the loophole record behind the briefing — and this attach writes nothing into
 // that tree. When the configured packs differ from the jail's, it says so and names the restart.
+// When the jail's tree will not load, or its packs cannot serve what this entry selects, the
+// attach takes the contract gate's disposition (settleAttachSkew) before anything is written.
+// Only a tree it cannot FIND leaves it composing from the configured packs, with a warning.
 //
 // release ends the caller's hold on the workspace launch lock. It runs once the attach has
 // settled on going ahead, before the exec, and on a refusal; it does NOT run when the contract
@@ -1915,57 +1918,78 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	baked, _ := runtime.BakedYoloVersionFromInspectEnv(envLines)
 	o.emitLaunchBanner(rt, cname, nil, baked)
 	// THE RUNNING JAIL'S PACKS, before the gate: what this entry delivers is composed over
-	// them, and the gate asks whether the jail can receive what this entry delivers. A
-	// composition the jail's packs cannot satisfy refuses here, before anything is written.
-	view, err := o.runningJailPackView(cname, cfg, staged, channel, targetCmd)
-	if err != nil {
-		errOut := o.pr(o.Stderr)
-		errOut.printf("[bold red]Refusing to attach: %s[/bold red]", err.Error())
-		errOut.print("[dim]This jail keeps the packs it booted with, and what you selected needs " +
-			"the configured ones. 'yolo stop' from this workspace once its sessions are done, " +
-			"then launch again.[/dim]")
-		o.noteBootedPackSetDiffers(view)
-		releaseLock()
-		return 1, false
-	}
-	channel, targetCmd = view.channel, view.targetCmd
-	// THE CONTRACT GATE (contracttags.go). What this entry would deliver decides the tags it
-	// needs; a tag the jail lacks means the jail's binaries cannot receive it, and the attach
-	// never proceeds on its own then: the acknowledgment, a restart, or a refusal.
-	contract := attachContractFor(channel, envLines)
-	deliver := !contract.standIn
-	if missing := contract.missingFrom(envLines); len(missing) > 0 {
-		switch o.settleAttachSkew(cname, rt, baked, missing) {
+	// them, and the gate asks whether the jail can receive what this entry delivers. A jail
+	// whose tree will not load, or whose packs cannot serve what this entry selects, is a known
+	// difference, and takes the gate's own disposition before anything is written: the
+	// acknowledgment, a restart, or a refusal (settleAttachSkew). Never the configured packs in
+	// its place: those are what OQ-PK2 (c) keeps from a running jail.
+	view, packSkew := o.runningJailPackView(cname, rt, cfg, staged, channel, targetCmd)
+	deliver := true
+	if packSkew != nil {
+		switch o.settleAttachSkew(cname, rt, o.packSkew(baked, packSkew)) {
 		case skewRestarted:
 			return 0, true
 		case skewAcknowledged:
-			// The host-side degradation: nothing of this entry's channel is written, so the
-			// jail keeps what its last entry gave it. A partial write would be worse than
-			// none — the shared half alone strips every scoped value the jail now holds.
+			// The same degradation as a missing contract: nothing of this entry's channel is
+			// written. The command still carries the jail's own launch flags, where its packs
+			// could be read.
 			deliver = false
+			if !view.unreadable {
+				view.targetCmd = o.injectLaunchFlagsForAttach(view.staged.packs, o.Args, targetCmd)
+			}
 		default:
 			releaseLock()
 			return 1, false
 		}
-	} else {
-		// THE SKEW LINE, for a jail that is older but can take everything this entry
-		// delivers. The banner prints the baked version; this prints the DIFFERENCE, which
-		// is the actionable half: since flake-bundle generations an old jail keeps WORKING
-		// across a host install, so nothing else would tell the user their session is
-		// running last week's yolo-entrypoint (attachskew.go). A jail missing a contract
-		// got the gate's fuller account above instead.
-		o.warnIfJailIsOlderThanTheLauncher(rt, cname, baked)
+	}
+	channel, targetCmd = view.channel, view.targetCmd
+	// THE CONTRACT GATE (contracttags.go). What this entry would deliver decides the tags it
+	// needs; a tag the jail lacks means the jail's binaries cannot receive it, and the attach
+	// never proceeds on its own then: the acknowledgment, a restart, or a refusal. An entry
+	// that already delivers nothing asks nothing of the jail's binaries.
+	if deliver {
+		contract := attachContractFor(channel, envLines)
+		deliver = !contract.standIn
+		if missing := contract.missingFrom(envLines); len(missing) > 0 {
+			switch o.settleAttachSkew(cname, rt, o.contractSkew(baked, missing)) {
+			case skewRestarted:
+				return 0, true
+			case skewAcknowledged:
+				// The host-side degradation: nothing of this entry's channel is written, so the
+				// jail keeps what its last entry gave it. A partial write would be worse than
+				// none — the shared half alone strips every scoped value the jail now holds.
+				deliver = false
+			default:
+				releaseLock()
+				return 1, false
+			}
+		} else {
+			// THE SKEW LINE, for a jail that is older but can take everything this entry
+			// delivers. The banner prints the baked version; this prints the DIFFERENCE, which
+			// is the actionable half: since flake-bundle generations an old jail keeps WORKING
+			// across a host install, so nothing else would tell the user their session is
+			// running last week's yolo-entrypoint (attachskew.go). A jail missing a contract
+			// got the gate's fuller account above instead.
+			o.warnIfJailIsOlderThanTheLauncher(rt, cname, baked)
+		}
 	}
 	// Going ahead. The host-side readers switch to the jail's own packs, and the skills and
 	// briefing staging the jail binds is refreshed from them, still under the lock: another
 	// launch of the workspace writes the same staging. This launch's own pack tree has done its
 	// job (the comparison and the pre-flights) and goes; nothing ever bound it.
-	if view.unreadable == "" {
+	//
+	// A tree that would not load refreshes nothing: its packs are unknown here, and the
+	// configured ones are what the jail must not be handed. Its skills and briefing stay as its
+	// last entry left them, which the acknowledgment said.
+	if view.unfound == "" && !view.unreadable {
 		adoptPackRecords(view.staged.packs)
 	}
-	sp := o.Perf.Span("launch.refresh_jail_briefings")
-	_, refreshErr := o.refreshJailBriefings(cname, cfg, rt, view.staged)
-	sp.End()
+	var refreshErr error
+	if !view.unreadable {
+		sp := o.Perf.Span("launch.refresh_jail_briefings")
+		_, refreshErr = o.refreshJailBriefings(cname, cfg, rt, view.staged)
+		sp.End()
+	}
 	discardPackTree(cname, o.packTree)
 	if refreshErr != nil {
 		o.pr(o.Stderr).printf("[bold red]%s[/bold red]", refreshErr.Error())
@@ -1980,7 +2004,7 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	}
 	// What this attach did NOT deliver: the configured packs, when they differ from the ones
 	// the jail booted with (OQ-PK2 (c)'s notice).
-	o.noteBootedPackSetDiffers(view)
+	o.noteBootedPackSetDiffers(rt, cname, view)
 	// Attach gets the notice too, and that is not symmetry for its own sake: once a
 	// jail is up, attaching is how a user re-enters it, so a fresh-launch-only notice
 	// is one a user with a long-lived jail may never see.
@@ -2027,8 +2051,8 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// reproduces HERE the delay is inside the runtime's exec — a different
 	// suspect list than the fresh-launch arm's, and the spans say which arm
 	// you are in.
-	sp = o.Perf.Span("attach.exec")
-	rc, err = runWithProxy(runCmd, nil, nil, o)
+	sp := o.Perf.Span("attach.exec")
+	rc, err := runWithProxy(runCmd, nil, nil, o)
 	sp.End()
 	if err != nil {
 		out.printf("[bold red]Configured runtime '%s' not found on PATH.[/bold red]", rt)

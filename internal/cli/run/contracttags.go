@@ -34,7 +34,11 @@ import (
 // contract and read by the attach that depends on it, with no central counter for two branches
 // to collide on.
 //
-// THE DISPOSITION (OQ-SK1, OQ-SK3). A missing tag never proceeds on its own:
+// THE DISPOSITION (OQ-SK1, OQ-SK3). A missing tag never proceeds on its own, and neither does
+// the other skew an attach can find, a running jail whose packs cannot serve this entry: a tree
+// this build cannot read, or a selection that fails over the packs the jail has
+// (packtree.go's attachPackSkew). Both are known differences, worded by contractSkew and
+// packSkew, and both take the same three arms:
 //
 //   - AllowAttachSkewEnv set: the one acknowledgment. The attach proceeds, says loudly on
 //     stderr what differs and what is withheld, and degrades on the host: this entry's channel
@@ -294,16 +298,37 @@ const (
 	skewRefused
 )
 
-// settleAttachSkew applies the disposition to an attach whose jail lacks at least one tag it
-// needs. It never returns "proceed as normal": every outcome is the acknowledgment, a restart,
-// or a refusal.
-func (o *Options) settleAttachSkew(cname, rt, baked string, missing []contractNeed) skewDisposition {
+// attachSkew is one reason an attach cannot deliver what this entry would into the running jail,
+// worded for the disposition. Two kinds reach it: a missing contract tag (contractSkew) and a pack
+// set the jail cannot serve this entry from (packSkew, packtree.go).
+type attachSkew struct {
+	// jail completes the sentence "this jail …": what is wrong with it for this entry.
+	jail string
+	// lines say what differs, one indented line each.
+	lines []string
+	// keeps, when set, extends the acknowledgment's "the channel is withheld whole" with what
+	// else the jail keeps as its last entry left it.
+	keeps string
+}
+
+// contractSkew words missing contract tags for the disposition.
+func (o *Options) contractSkew(baked string, missing []contractNeed) attachSkew {
+	return attachSkew{
+		jail:  "was launched by an older yolo and cannot receive what this entry delivers",
+		lines: o.attachSkewLines(baked, missing),
+	}
+}
+
+// settleAttachSkew applies the disposition to an attach that cannot deliver what this entry
+// would: a jail missing a contract tag it needs, or one whose packs cannot serve it. It never
+// returns "proceed as normal": every outcome is the acknowledgment, a restart, or a refusal.
+func (o *Options) settleAttachSkew(cname, rt string, skew attachSkew) skewDisposition {
 	if o.Getenv(AllowAttachSkewEnv) != "" {
-		o.discloseAcknowledgedAttachSkew(cname, rt, baked, missing)
+		o.discloseAcknowledgedAttachSkew(cname, rt, skew)
 		return skewAcknowledged
 	}
 	if o.IsTTYStdin() && o.IsTTYStdout() {
-		if !o.askToRestartJail(cname, rt, baked, missing) {
+		if !o.askToRestartJail(cname, rt, skew) {
 			err := o.pr(o.Stderr)
 			err.print("[bold red]Refusing to attach: the jail was not restarted.[/bold red]")
 			err.printf("[dim]%s once its sessions are done, then launch again; or attach without "+
@@ -315,21 +340,26 @@ func (o *Options) settleAttachSkew(cname, rt, baked string, missing []contractNe
 		}
 		return skewRestarted
 	}
-	o.refuseAttachSkew(cname, rt, baked, missing)
+	o.refuseAttachSkew(cname, rt, skew)
 	return skewRefused
+}
+
+// versionSkewLines is the two versions, when both are known and differ, or the jail's alone.
+func (o *Options) versionSkewLines(baked string) []string {
+	host := o.yoloVersion("")
+	switch {
+	case baked != "" && host != "" && host != "unknown" && host != baked:
+		return []string{fmt.Sprintf("  This jail runs yolo %s; this launcher is %s.", baked, host)}
+	case baked != "":
+		return []string{fmt.Sprintf("  This jail runs yolo %s.", baked)}
+	}
+	return nil
 }
 
 // attachSkewLines words what differs: the two versions when both are known, then each missing
 // contract and what it withholds.
 func (o *Options) attachSkewLines(baked string, missing []contractNeed) []string {
-	var lines []string
-	host := o.yoloVersion("")
-	switch {
-	case baked != "" && host != "" && host != "unknown" && host != baked:
-		lines = append(lines, fmt.Sprintf("  This jail runs yolo %s; this launcher is %s.", baked, host))
-	case baked != "":
-		lines = append(lines, fmt.Sprintf("  This jail runs yolo %s.", baked))
-	}
+	lines := o.versionSkewLines(baked)
 	for _, n := range missing {
 		lines = append(lines, fmt.Sprintf("  • It lacks %s: %s.", n.tag, n.lacks))
 		for _, w := range n.withheld {
@@ -341,11 +371,10 @@ func (o *Options) attachSkewLines(baked string, missing []contractNeed) []string
 
 // refuseAttachSkew is the non-interactive refusal, in the credential gate's attach style: the
 // headline, what differs, then the restart and the acknowledgment, each with its cost.
-func (o *Options) refuseAttachSkew(cname, rt, baked string, missing []contractNeed) {
+func (o *Options) refuseAttachSkew(cname, rt string, skew attachSkew) {
 	out := o.pr(o.Stderr)
-	out.print("[bold red]Refusing to attach: this jail was launched by an older yolo and cannot " +
-		"receive what this entry delivers.[/bold red]")
-	for _, l := range o.attachSkewLines(baked, missing) {
+	out.printf("[bold red]Refusing to attach: this jail %s.[/bold red]", skew.jail)
+	for _, l := range skew.lines {
 		out.print(l)
 	}
 	out.printf("[dim]Restart the jail to pick it up: %s, then launch again — the next launch is "+
@@ -356,11 +385,10 @@ func (o *Options) refuseAttachSkew(cname, rt, baked string, missing []contractNe
 
 // askToRestartJail is the terminal arm: what differs, what a restart ends, and the question.
 // Enter means yes (the ruled `[Y/n]`); end of input means no, since nobody answered.
-func (o *Options) askToRestartJail(cname, rt, baked string, missing []contractNeed) bool {
+func (o *Options) askToRestartJail(cname, rt string, skew attachSkew) bool {
 	out := o.pr(o.Stdout)
-	out.print("[bold yellow]⚠  This jail was launched by an older yolo and cannot receive what " +
-		"this entry delivers.[/bold yellow]")
-	for _, l := range o.attachSkewLines(baked, missing) {
+	out.printf("[bold yellow]⚠  This jail %s.[/bold yellow]", skew.jail)
+	for _, l := range skew.lines {
 		out.print(l)
 	}
 	out.printf("Restarting stops the jail, ending %s, and this launch then starts it fresh.",
@@ -370,16 +398,16 @@ func (o *Options) askToRestartJail(cname, rt, baked string, missing []contractNe
 
 // discloseAcknowledgedAttachSkew is the acknowledgment's loud line: what differs, what is
 // withheld, and that the jail keeps what its last entry gave it.
-func (o *Options) discloseAcknowledgedAttachSkew(cname, rt, baked string, missing []contractNeed) {
+func (o *Options) discloseAcknowledgedAttachSkew(cname, rt string, skew attachSkew) {
 	out := o.pr(o.Stderr)
-	out.printf("[bold yellow]⚠  %s is set: attaching to a jail launched by an older yolo, which "+
-		"cannot receive what this entry delivers.[/bold yellow]", AllowAttachSkewEnv)
-	for _, l := range o.attachSkewLines(baked, missing) {
+	out.printf("[bold yellow]⚠  %s is set: attaching to this jail, which %s.[/bold yellow]",
+		AllowAttachSkewEnv, skew.jail)
+	for _, l := range skew.lines {
 		out.print(l)
 	}
 	out.printf("[bold yellow]This entry delivers nothing: its provider/profile channel is withheld "+
-		"whole, and the jail keeps the environment its last entry gave it. %s, then a launch, ends "+
-		"the difference.[/bold yellow]", stopRemedy(rt, cname))
+		"whole%s, and the jail keeps the environment its last entry gave it. %s, then a launch, "+
+		"ends the difference.[/bold yellow]", skew.keeps, stopRemedy(rt, cname))
 }
 
 // jailSessionsPhrase words what stopping the jail ends: every session in it, with the count
