@@ -2455,6 +2455,17 @@ longer waits for the other launch's staging.
   READ FROM CODE, not run on a Mac.
 - **A lock file that cannot be opened** warns and leaves the launch unserialised, because the
   workspace lock is a courtesy (`acquireWorkspaceLock`).
+- **A host-scoped singleton that names `{loophole_dir}` in its `host_daemon.cmd` resolves it
+  inside the launch's own tree**, and that tree goes once the launch's container is known gone,
+  while the singleton, by design, outlives the jail that started it (`internal/broker`). A
+  singleton that reads its module dir after it starts (a lazy import, a data file) then loses it;
+  under the shared tree the dir lasted until the pack left `packs`. No shipped pack is affected:
+  the shipped singletons self-exec `yolo internal daemon …`, and the one shipped `{loophole_dir}`,
+  the audio pack's, is a per-jail bind. **Needs a ruling**, since each remedy changes something a
+  pack author sees or adds a store: keep a tree while a singleton spawned from it lives (which
+  also needs the orphan-staging reaper to honour that veto); resolve the token, for host scope
+  only, against a stable content-addressed copy with its own liveness collection; or refuse the
+  token in a host-scoped `cmd` and say why.
 - **Not verified on the macOS backends.** The unit and integration tests run on Linux podman.
   Whether `TestMacosUserTwoConcurrentLaunchesOfOneWorkspace` reaches its sessions, and whether an
   Apple Container attach finds its tree through the host record, are for a Mac run to show.
