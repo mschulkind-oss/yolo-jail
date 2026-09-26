@@ -410,9 +410,9 @@ func TestValidateAgentsAbsentIsClean(t *testing.T) {
 //
 // The non-nil check is kept but is no longer load-bearing, and this comment says so on
 // purpose: it used to guard ResolveAgents' nil -> DefaultAgents fallback, which is gone,
-// and every YOLO_AGENTS encoder builds its list with make(…, len(x)) so nil already
-// serializes as `[]`. Left as a cheap shape pin, not as a hazard guard — a reader who
-// finds it should not conclude the old fallback is still out there.
+// along with the YOLO_AGENTS env var nil could have been serialized into as `null`. Left
+// as a cheap shape pin, not as a hazard guard — a reader who finds it should not conclude
+// the old fallback is still out there.
 func TestSelectedAgentsIsEmptyAndNonNil(t *testing.T) {
 	for _, src := range []string{`{}`, `{"agents": ["claude"]}`, `{"agents": []}`} {
 		got := SelectedAgents(decode(t, src))

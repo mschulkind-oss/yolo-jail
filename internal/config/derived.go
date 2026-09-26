@@ -78,11 +78,10 @@ func EffectivePackages(config *jsonx.OrderedMap, platform string) []any {
 // to say it was has been corrected rather than deleted, because the claim is the kind a
 // future reader would otherwise re-derive wrongly. It once mattered: ResolveAgents
 // treated nil as "unspecified" and substituted DefaultAgents, so nil here resurrected
-// claude in every caller. That fallback is GONE — nil and empty both yield no agents
-// through ResolveAgents and SharedDirsFor, and every YOLO_AGENTS encoder on the way out
-// (run.jsonDumpsStrings, check.jsonDumpStrings, macosuser.BuildRunPlan) builds its list
-// with make(…, len(x)), so nil already serializes as `[]`, not `null`. Non-nil is now
-// merely the tidier of two equivalent returns; nothing depends on it.
+// claude in every caller. That fallback is GONE, with ResolveAgents itself, and so is
+// YOLO_AGENTS, the env var the list used to be serialized into, where nil could have come
+// out as `null` rather than `[]`. Non-nil is now merely the tidier of two equivalent
+// returns; nothing depends on it.
 func SelectedAgents(*jsonx.OrderedMap) []string { return []string{} }
 
 // MergeMiseTools merges config.mise_tools over the defaults. Returns an

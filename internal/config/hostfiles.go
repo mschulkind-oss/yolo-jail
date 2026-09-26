@@ -925,7 +925,7 @@ func validateHostFiles(config *jsonx.OrderedMap, workspace string, errs *[]strin
 
 // MarshalHostFiles renders resolved entries as the compact JSON that travels in
 // the YOLO_HOST_FILES env var — the same single-source-of-truth pattern as
-// YOLO_MCP_SERVERS / YOLO_AGENTS. The host CLI resolves host_files exactly once
+// YOLO_MCP_SERVERS. The host CLI resolves host_files exactly once
 // (LoadHostFiles) and hands the result to the entrypoint through this string, so
 // the entrypoint never re-reads config and the slugs it derives are guaranteed to
 // match the /ctx/host-user/<slug> mount points the CLI emitted.

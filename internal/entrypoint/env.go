@@ -1,10 +1,8 @@
-// Package entrypoint generates the in-jail PID-1 bootstrap content — shims,
-// .bashrc, the six agents' config files, managed-MCP sidecars, mise
-// config.toml, MCP wrappers, and the bootstrap/venv-precreate/cglimit/
-// journalctl/yolo-ps/yolo-wrapper script bodies.
-// This package is dependency-light: it builds only on internal/* foundation
-// packages (jsonx, tomlx, shquote,
-// agents, fsx) — no third-party deps beyond what those vendor.
+// Package entrypoint is the jail's boot: cmd/yolo-entrypoint hands its argv to
+// Main, which generates the files a session needs — shims, launchers, .bashrc,
+// each selected pack's surfaces, MCP wrappers, mise config, the bootstrap and
+// venv-precreate scripts — and then execs bash. `yolo apply --host` runs the
+// same renderers against the real home (RenderHostPack and its siblings).
 package entrypoint
 
 import (
@@ -17,13 +15,13 @@ import (
 
 // Env captures the container environment the pure generators read. Modeling the
 // path constants and env lookups as an explicit struct — instead of reading
-// os.Getenv globally — makes the generators pure functions of their inputs,
-// which is exactly what the tree golden harness needs to drive two
-// implementations into fake HOMEs under an identical, committed env matrix.
+// os.Getenv globally — makes the generators pure functions of their inputs, so
+// a test can run them into a fake HOME under an env it states, as bashn_test.go
+// does for every scenario in testdata/entrypoint_matrix.json.
 // The Vars map holds the YOLO_* / other environment variables each generator
-// consults (YOLO_BLOCK_CONFIG, YOLO_AGENTS, YOLO_MCP_*, YOLO_LSP_SERVERS,
-// YOLO_MISE_TOOLS, YOLO_HOST_DIR, YOLO_REPO_ROOT, etc.). Getenv returns "" for
-// an absent key; Lookup reports presence.
+// consults (YOLO_BLOCK_CONFIG, YOLO_PACK_ROOT, YOLO_MCP_*, YOLO_LSP_SERVERS,
+// YOLO_MISE_TOOLS, YOLO_HOST_DIR, etc.). Getenv returns "" for an absent key;
+// Lookup reports presence.
 type Env struct {
 	// Home is $JAIL_HOME (falling back to $HOME, then /home/agent) — the base
 	// of every path constant below.
