@@ -225,12 +225,22 @@ func lastRelease(t *testing.T) (root, tag string) {
 	if err != nil {
 		unavailable("no git on PATH to read the last release from")
 	}
-	out, err := exec.Command(git, "rev-parse", "--show-toplevel").Output()
+	// The MODULE root, found from this package's directory, which is where `go test` runs it —
+	// not `git rev-parse --show-toplevel`. Inside a git hook (the pre-commit gate runs this test)
+	// git exports GIT_DIR without GIT_WORK_TREE, and --show-toplevel then answers the current
+	// directory, packs/, so every pinnedBy lookup below searched packs/internal and found nothing.
+	wd, err := os.Getwd()
 	if err != nil {
+		t.Fatal(err)
+	}
+	root = filepath.Dir(wd)
+	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
+		t.Fatalf("this test runs from packs/, so %s should be the module root, and it holds no go.mod: %v", root, err)
+	}
+	if err := exec.Command(git, "-C", root, "rev-parse", "--git-dir").Run(); err != nil {
 		unavailable("not a git checkout, so there is no last release to read")
 	}
-	root = strings.TrimSpace(string(out))
-	out, err = exec.Command(git, "-C", root, "describe", "--tags", "--abbrev=0", "--match", "v[0-9]*", "HEAD^").Output()
+	out, err := exec.Command(git, "-C", root, "describe", "--tags", "--abbrev=0", "--match", "v[0-9]*", "HEAD^").Output()
 	if err != nil {
 		unavailable("no release tag is reachable from HEAD^ (a shallow clone, or no tags fetched)")
 	}
