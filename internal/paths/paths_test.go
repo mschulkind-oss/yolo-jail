@@ -188,6 +188,20 @@ func TestJailShortHashAndHostServicesDir(t *testing.T) {
 	}
 }
 
+// TestHostServicesDirFollowsTheSingletonDir: a test package's host-singleton isolation
+// (testsupport.IsolateHostSingletons) must carry the per-jail host-services dirs with it,
+// or every test that starts host services writes /tmp/yolo-host-services-<8hex> on the
+// machine path and the ones that never tear down leave it there.
+func TestHostServicesDirFollowsTheSingletonDir(t *testing.T) {
+	prev := HostSingletonDir
+	t.Cleanup(func() { HostSingletonDir = prev })
+	HostSingletonDir = "/tmp/ys-isolated"
+	if got, want := HostServicesDir("yolo-ws-abcd1234", false),
+		"/tmp/ys-isolated/yolo-host-services-0420db18"; got != want {
+		t.Errorf("HostServicesDir = %q, want %q: it does not follow HostSingletonDir", got, want)
+	}
+}
+
 func TestUserConfigPathFallsBackToJSON(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)

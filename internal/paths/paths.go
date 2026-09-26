@@ -389,10 +389,18 @@ const DefaultHostSingletonDir = "/tmp"
 // parallel and two packages' daemons on the one machine-wide path take each other's
 // socket. The spawned daemon learns its socket from its argv (`--socket`), so the
 // redirect reaches it without any environment variable. Nothing in production writes it.
+//
+// The per-jail host-services dirs (HostServicesDir) are built in it too, for the same
+// reason: they sit at deterministic machine-wide /tmp paths, keyed by a container name a
+// test chooses, and a test package that starts host services without tearing them down
+// used to leave empty /tmp/yolo-host-services-<8hex> dirs behind on every run. Redirected,
+// they land in the package's private directory and go with it.
 var HostSingletonDir = DefaultHostSingletonDir
 
 // HostServicesDir returns the per-jail host-side directory holding this jail's
-// published endpoint files: /tmp/yolo-host-services-<8hex>.
+// published endpoint files: /tmp/yolo-host-services-<8hex>. /tmp is HostSingletonDir,
+// which is /tmp in production and a private directory in a test package that isolates
+// its host singletons.
 //
 // THE DIRECTORY IS SECRET-BEARING (see JailHostServicesDir, its in-jail mount
 // point) and it sits at a fully deterministic path under a world-writable /tmp,
@@ -404,7 +412,7 @@ var HostSingletonDir = DefaultHostSingletonDir
 // they assert. On macOS /tmp is a symlink to /private/tmp and the resolved form is
 // used, so a path here matches what the kernel reports.
 func HostServicesDir(cname string, isMacOS bool) string {
-	base := "/tmp"
+	base := HostSingletonDir
 	if isMacOS {
 		if r, err := filepath.EvalSymlinks(base); err == nil {
 			base = r
