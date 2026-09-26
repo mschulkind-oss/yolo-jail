@@ -82,6 +82,14 @@ type DeriveCtx struct {
 	// the agent's own choice of model stays untouched.
 	Profile map[string]string
 
+	// ViaURL is the agent's per-agent route on the service its active profile's `via`
+	// names (docs/design/wire-bridge-gateway.md OQ-WG7 (d)), exposed as ctx.via_url; ""
+	// when the agent uses its own client. A derive that writes an OpenAI-protocol base URL
+	// writes THIS instead of the provider's when it is set; the service forwards to the
+	// provider's own endpoint. Per agent, never a composed-table fact: the provider table
+	// is jail-wide and `via` is one agent's choice.
+	ViaURL string
+
 	// Tables are the live config tables a derive may read, keyed by source name
 	// (manifest.SourceMCPServers / SourceLSPServers). Exposed read-only as
 	// ctx.<name>. Absent source => an empty table (a jail with no MCP configured
@@ -499,6 +507,7 @@ func buildDeriveCtxTable(L *lua.LState, ctx *DeriveCtx, sentinel, emptyArr *lua.
 	L.SetField(t, "surface", lua.LString(ctx.Surface))
 	L.SetField(t, "selected_provider", lua.LString(ctx.SelectedProvider))
 	L.SetField(t, "profile_name", lua.LString(ctx.ProfileName))
+	L.SetField(t, "via_url", lua.LString(ctx.ViaURL))
 	// ctx.profile, always a table. Keys are sorted because a Go map has no order and a
 	// derive that iterates it must not see a different order between runs.
 	profile := L.NewTable()

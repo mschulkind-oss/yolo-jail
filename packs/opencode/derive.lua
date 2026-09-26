@@ -63,6 +63,14 @@ yolo.derive("opencode", "config", function(ctx)
     local provOut = {}
     for name, prov in pairs(ctx.providers) do
       local baseUrl = providerEndpoint(prov)
+      -- VIA (docs/design/wire-bridge-gateway.md OQ-WG6/WG7): the selected provider's entry
+      -- points at this agent's route on the service its profile names. opencode already speaks
+      -- chat-completions to every provider here (@ai-sdk/openai-compatible), the protocol the
+      -- via route passes through to the provider's own `openai` endpoint.
+      local viaRow = (ctx.via_url ~= nil and ctx.via_url ~= "" and name == ctx.selected_provider)
+      if viaRow then
+        baseUrl = ctx.via_url
+      end
       if baseUrl then
         local models = {}
         local cw = nil

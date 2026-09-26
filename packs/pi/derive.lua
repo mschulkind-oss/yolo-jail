@@ -298,6 +298,15 @@ yolo.derive("pi", "models", function(ctx)
   local providers = {}
   for name, prov in pairs(ctx.providers) do
     local baseUrl, api = piReachable(prov)
+    -- VIA (docs/design/wire-bridge-gateway.md OQ-WG6/WG7): when this agent's active profile
+    -- routes through a service, the SELECTED provider's row points at the per-agent route the
+    -- service serves, and speaks chat-completions there, the protocol the via route passes
+    -- through to the provider's own `openai` endpoint. Every other row is untouched: via is
+    -- one profile's choice, and only the selected provider rides it.
+    local viaRow = (ctx.via_url ~= nil and ctx.via_url ~= "" and name == ctx.selected_provider)
+    if viaRow then
+      baseUrl, api = ctx.via_url, "openai-completions"
+    end
     if baseUrl then
       local isKilo = (name == "kilo" or isKiloEndpoint(baseUrl))
       local modelList = {}

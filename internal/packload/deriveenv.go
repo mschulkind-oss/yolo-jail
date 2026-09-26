@@ -144,6 +144,7 @@ func AgentEnv(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map[string
 		ProfileName:      profile,
 		SelectedProvider: selected,
 		Profile:          cfg.profileOptions(profile),
+		ViaURL:           ViaURLFor(cfg.resolved[profile], agent),
 		// The built-in source's capabilities, resolved the same way the surface path
 		// resolves them (surfaceSelectionFor) — `owner` is by construction the pack bin
 		// ownership would find. It changes nothing HERE, because this ctx carries no

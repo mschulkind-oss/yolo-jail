@@ -81,8 +81,15 @@ func (e *Env) LoadProfiles() map[string]packload.ResolvedProfile {
 			if !isStr {
 				continue
 			}
-			if key == "provider" {
+			switch key {
+			case "provider":
 				p.Provider = s
+				continue
+			case packload.WireViaKey:
+				p.Via = s
+				continue
+			case packload.WireViaBaseKey:
+				p.ViaBase = s
 				continue
 			}
 			p.Options[key] = s

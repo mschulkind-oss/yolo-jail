@@ -260,6 +260,10 @@ type surfaceSelection struct {
 	// applies (luahook.sourceCapabilities) — resolving it here would put the rule in the
 	// caller the same way the per-agent Lua branches used to.
 	NativeCapabilities []string
+	// ViaURL is this agent's per-agent route on the service its active profile's `via`
+	// names (OQ-WG7 (d)) — ctx.via_url; "" when the profile is not a via profile, or its
+	// service is not in the launch (the host notch).
+	ViaURL string
 }
 
 // surfaceSelectionFor resolves one surface's selection: packload.ProviderFor — the ONE
@@ -283,6 +287,7 @@ func surfaceSelectionFor(packs []*packload.Pack, resolved map[string]packload.Re
 		Profile:            profiles[s.Agent],
 		Provider:           packload.ProviderFor(resolved, profiles[s.Agent]),
 		NativeCapabilities: packload.NativeCapabilities(packs, s.Agent),
+		ViaURL:             packload.ViaURLFor(resolved[profiles[s.Agent]], s.Agent),
 	}
 }
 
@@ -322,6 +327,7 @@ func deriveComputedLayer(e *Env, surface manifest.Surface, deriveScript string, 
 		SelectedProvider:   sel.Provider,
 		Profile:            activeProfileOptions(e, sel.Profile),
 		NativeCapabilities: sel.NativeCapabilities,
+		ViaURL:             sel.ViaURL,
 		Tables:             tables,
 		UnknownAPI:         func(name string) { e.warnOnce(unknownDeriveAPINote(surface.Agent, name)) },
 	})

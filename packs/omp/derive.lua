@@ -45,6 +45,13 @@ yolo.derive("oh-omp", "models", function(ctx)
   local providers = {}
   for name, prov in pairs(ctx.providers or {}) do
     local baseUrl, api = providerEndpoint(prov)
+    -- VIA (docs/design/wire-bridge-gateway.md OQ-WG6/WG7): the selected provider's row points
+    -- at this agent's route on the service its profile names, speaking chat-completions, the
+    -- protocol the via route passes through to the provider's own `openai` endpoint. The
+    -- service holds the upstream credential and ignores inbound auth (WB-D4).
+    if ctx.via_url ~= nil and ctx.via_url ~= "" and name == ctx.selected_provider then
+      baseUrl, api = ctx.via_url, "openai-completions"
+    end
     if baseUrl and api then
       local entry = { baseUrl = baseUrl, api = api, authHeader = true }
       if prov.api_key_env_name then
