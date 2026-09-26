@@ -33,7 +33,14 @@ const viaProviders = `{
   "resp": {"endpoints": {
     "openai": {"base_url": "https://resp.example/v1", "wire_api": "openai-responses"}}},
   "anthro": {"endpoints": {
-    "anthropic": {"base_url": "https://anthro.example", "wire_api": "anthropic"}}}
+    "anthropic": {"base_url": "https://anthro.example", "wire_api": "anthropic"}}},
+  "openai-codex": {"endpoints": {
+    "openai-responses": {"base_url": "https://chatgpt.com/backend-api/codex", "wire_api": "openai-responses"}}},
+  "both": {"api_key_env_name": "BOTH_KEY", "endpoints": {
+    "openai": {"base_url": "https://chat.both.example/v1", "wire_api": "openai-chat-completions"},
+    "openai-responses": {"base_url": "https://resp.both.example/v1", "wire_api": "openai-responses"}}},
+  "bedresp": {"endpoints": {
+    "openai": {"base_url": "https://bedrock-runtime.us-west-2.amazonaws.com/openai/v1", "wire_api": "openai-responses"}}}
 }`
 
 func viaResolved(base string) map[string]packload.ResolvedProfile {
@@ -45,6 +52,9 @@ func viaResolved(base string) map[string]packload.ResolvedProfile {
 		"nobase": {Provider: "zai", Via: ServiceName},
 		"presp":  {Provider: "resp", Via: ServiceName, ViaBase: base},
 		"panth":  {Provider: "anthro", Via: ServiceName, ViaBase: base},
+		"psub":   {Provider: "openai-codex", Via: ServiceName, ViaBase: base},
+		"pboth":  {Provider: "both", Via: ServiceName, ViaBase: base},
+		"pbr":    {Provider: "bedresp", Via: ServiceName, ViaBase: base},
 	}
 }
 
@@ -65,24 +75,28 @@ func TestViaRoutesForBuildsOneRoutePerViaAgent(t *testing.T) {
 	for _, r := range plan.Routes {
 		byAgent[r.Agent] = r
 	}
-	if r := byAgent["pi"]; r.UpstreamBaseURL != "https://api.z.ai/api/paas/v4" || r.KeyEnvName != "ZAI_API_KEY" || r.SignRegion != "" {
-		t.Errorf("pi route = %+v", r)
+	if r := byAgent["pi"]; r.Chat.BaseURL != "https://api.z.ai/api/paas/v4" || r.KeyEnvName != "ZAI_API_KEY" ||
+		r.Chat.SignRegion != "" || r.Responses.BaseURL != "" {
+		t.Errorf("pi route = %+v, want zai's chat-completions endpoint and no Responses upstream", r)
 	}
-	if r := byAgent["opencode"]; r.SignRegion != "us-east-1" || r.KeyEnvName != "" {
-		t.Errorf("opencode (Bedrock) route = %+v, want a signing region and no key", r)
+	// bed's openai endpoint declares no wire_api, so it is both wires' upstream.
+	if r := byAgent["opencode"]; r.Chat.SignRegion != "us-east-1" || r.Chat != r.Responses || r.KeyEnvName != "" {
+		t.Errorf("opencode (Bedrock) route = %+v, want one signed upstream for both wires and no key", r)
 	}
 }
 
 // TestViaRoutesForNamesWhatItSkips: every via profile that cannot be served is named,
-// never silently dropped.
+// never silently dropped — including the ChatGPT subscription, whose credential a via
+// route does not carry (WG-I21), and a provider offering neither OpenAI wire.
 func TestViaRoutesForNamesWhatItSkips(t *testing.T) {
 	plan := viaRoutesFor(mustProviders(t, viaProviders),
-		map[string]string{"a": "nobase", "b": "presp", "c": "panth"}, viaResolved("http://127.0.0.1:8216"))
+		map[string]string{"a": "nobase", "c": "panth", "codex": "psub"}, viaResolved("http://127.0.0.1:8216"))
 	if len(plan.Routes) != 0 || plan.ListenAddr != "" {
 		t.Fatalf("plan = %+v, want nothing to serve", plan)
 	}
 	joined := strings.Join(plan.Skipped, "\n")
-	for _, want := range []string{"resolved no via_address", "speaks openai-responses", "declares no openai endpoint"} {
+	for _, want := range []string{"resolved no via_address", "declares no chat-completions or Responses endpoint",
+		"openai-codex (via for codex) is the ChatGPT subscription"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("skip reasons lack %q:\n%s", want, joined)
 		}
@@ -311,7 +325,7 @@ func TestViaPassthroughStreamsUnchanged(t *testing.T) {
 		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}},
 			Body: io.NopCloser(strings.NewReader(sse))}
 	}}
-	h := newPassthroughHandler(viaRoute{Agent: "pi", UpstreamBaseURL: "https://api.z.ai/v4"}, "k", nil)
+	h := newPassthroughHandler("pi", "https://api.z.ai/v4", "k", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/chat/completions", strings.NewReader(`{"stream":true}`)))
 	if rec.Body.String() != sse {
@@ -331,7 +345,7 @@ func TestViaPassthroughErrorsAreOpenAIShaped(t *testing.T) {
 		return nil, fmt.Errorf("dial tcp: connection refused")
 	})
 	t.Cleanup(func() { upstreamTransport = old })
-	h := newPassthroughHandler(viaRoute{Agent: "pi", UpstreamBaseURL: "https://api.z.ai/v4"}, "k", nil)
+	h := newPassthroughHandler("pi", "https://api.z.ai/v4", "k", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/chat/completions", strings.NewReader(`{}`)))
 	var doc struct {
@@ -343,12 +357,192 @@ func TestViaPassthroughErrorsAreOpenAIShaped(t *testing.T) {
 	}
 
 	signer := &bedrockSigner{region: "us-east-1", chain: &sigv4.Chain{Env: sigv4.Env{}}}
-	h = newPassthroughHandler(viaRoute{Agent: "pi", UpstreamBaseURL: bedrockBase}, "", signer)
+	h = newPassthroughHandler("pi", bedrockBase, "", signer)
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/chat/completions", strings.NewReader(`{}`)))
 	if rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), `"error"`) ||
 		strings.Contains(rec.Body.String(), `"type":"error"`) {
 		t.Errorf("no credential: %d %s, want a 401 in OpenAI's shape", rec.Code, rec.Body)
+	}
+}
+
+// stubStreamBody is an upstream response body the test drives: Read yields what the
+// test writes to w, then the error it closes w with; Close reports that the handler is
+// done with it (the handler closes the body on its way out, after any log line).
+type stubStreamBody struct {
+	r      *io.PipeReader
+	closed chan struct{}
+}
+
+func (b *stubStreamBody) Read(p []byte) (int, error) { return b.r.Read(p) }
+func (b *stubStreamBody) Close() error {
+	close(b.closed)
+	return b.r.Close()
+}
+
+func newStubStream() (*stubStreamBody, *io.PipeWriter) {
+	pr, pw := io.Pipe()
+	return &stubStreamBody{r: pr, closed: make(chan struct{})}, pw
+}
+
+func waitClosed(t *testing.T, b *stubStreamBody) {
+	t.Helper()
+	select {
+	case <-b.closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the handler never finished with the upstream body")
+	}
+}
+
+// TestViaAbortsAStreamItsUpstreamCutShort pins WG-I24's first half: an upstream that
+// fails after the status line went out makes the agent's read FAIL, and the daemon log
+// names the cut and its cause. Before it the agent read a clean end of stream, which a
+// chat-completions client takes as a finished reply, and nothing was logged.
+func TestViaAbortsAStreamItsUpstreamCutShort(t *testing.T) {
+	logs := captureDiag(t)
+	up := withUpstream(t)
+	body, pw := newStubStream()
+	up.responses = []func() *http.Response{func() *http.Response {
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: body}
+	}}
+	addr := startResponsesPlan(t, map[string]string{"pi": "pz"})
+	const ev = "data: {\"choices\":[{\"delta\":{\"content\":\"a\"}}]}\n\n"
+	go func() {
+		_, _ = io.WriteString(pw, ev)
+		_ = pw.CloseWithError(fmt.Errorf("read tcp: connection reset by peer"))
+	}()
+
+	req, _ := http.NewRequest(http.MethodPost, "http://"+addr+"/agent/pi/chat/completions", strings.NewReader(`{"stream":true}`))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	got, rerr := io.ReadAll(resp.Body)
+	if rerr == nil {
+		t.Errorf("the agent read %q and then a clean end of stream; want a failed read, so a truncated reply is never taken as finished", got)
+	}
+	if string(got) != ev {
+		t.Errorf("bytes before the cut = %q, want %q", got, ev)
+	}
+	waitClosed(t, body)
+	if l := logs(); !strings.Contains(l, "via route for pi: upstream https://api.z.ai/api/paas/v4: the response stream ended early after") ||
+		!strings.Contains(l, "connection reset by peer") {
+		t.Errorf("the daemon log does not name the cut and its cause:\n%s", l)
+	}
+}
+
+// TestViaIsSilentWhenTheAgentClosesAStream: the agent closing its own request mid-stream
+// (an interrupted turn) is no fault, so it is neither aborted nor logged as one (WG-I24).
+func TestViaIsSilentWhenTheAgentClosesAStream(t *testing.T) {
+	logs := captureDiag(t)
+	up := withUpstream(t)
+	body, pw := newStubStream()
+	up.responses = []func() *http.Response{func() *http.Response {
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: body}
+	}}
+	addr := startResponsesPlan(t, map[string]string{"codex": "pr"})
+	go func() { _, _ = io.WriteString(pw, "event: response.created\ndata: {}\n\n") }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+addr+"/agent/codex/responses", strings.NewReader(codexResponsesBody))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resp.Body.Read(make([]byte, 64)); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	_ = resp.Body.Close()
+	select {
+	case <-up.requests[0].Context().Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("the agent's close never reached the upstream request")
+	}
+	_ = pw.CloseWithError(fmt.Errorf("upstream request canceled"))
+	waitClosed(t, body)
+	if l := logs(); strings.Contains(l, "ended early") {
+		t.Errorf("the agent's own close was logged as an upstream fault:\n%s", l)
+	}
+}
+
+func withViaHeaderTimeout(t *testing.T, d time.Duration) {
+	t.Helper()
+	old := viaHeaderTimeout
+	viaHeaderTimeout = d
+	t.Cleanup(func() { viaHeaderTimeout = old })
+}
+
+// TestViaBoundsTheWaitForResponseHeaders pins WG-I24's second half: an upstream that
+// sends no response headers within viaHeaderTimeout gets the agent an OpenAI-shaped 504
+// saying so, and the daemon log names it.
+func TestViaBoundsTheWaitForResponseHeaders(t *testing.T) {
+	logs := captureDiag(t)
+	withViaHeaderTimeout(t, 50*time.Millisecond)
+	old := upstreamTransport
+	upstreamTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		<-r.Context().Done()
+		return nil, r.Context().Err()
+	})
+	t.Cleanup(func() { upstreamTransport = old })
+	addr := startResponsesPlan(t, map[string]string{"codex": "pr"})
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Post("http://"+addr+"/agent/codex/responses", "application/json", strings.NewReader(codexResponsesBody))
+	if err != nil {
+		t.Fatalf("the route never answered an upstream that sends no headers: %v", err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	var doc struct {
+		Error struct{ Message, Type string } `json:"error"`
+	}
+	if resp.StatusCode != http.StatusGatewayTimeout || json.Unmarshal(b, &doc) != nil || doc.Error.Type != "api_error" ||
+		!strings.Contains(doc.Error.Message, "https://router.example/api/v1 sent no response headers in time (50ms)") {
+		t.Errorf("got %d %s, want an OpenAI-shaped 504 naming the upstream and the bound", resp.StatusCode, b)
+	}
+	if l := logs(); !strings.Contains(l, "via route for codex: upstream https://router.example/api/v1 sent no response headers in time") {
+		t.Errorf("the daemon log does not name the timeout:\n%s", l)
+	}
+}
+
+// TestViaLetsAStreamOutliveTheHeaderTimeout: once headers arrive, the stream runs for as
+// long as the upstream keeps sending (WG-I24). Before it the whole exchange sat under a
+// ten-minute Client.Timeout, which net/http applies to reading the body too, so a long
+// reply was cut mid-stream.
+func TestViaLetsAStreamOutliveTheHeaderTimeout(t *testing.T) {
+	withViaHeaderTimeout(t, 50*time.Millisecond)
+	up := withUpstream(t)
+	body, pw := newStubStream()
+	up.responses = []func() *http.Response{func() *http.Response {
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: body}
+	}}
+	addr := startResponsesPlan(t, map[string]string{"codex": "pr"})
+	const ev1 = "event: response.created\ndata: {}\n\n"
+	const ev2 = "event: response.completed\ndata: {}\n\n"
+	go func() {
+		_, _ = io.WriteString(pw, ev1)
+		time.Sleep(300 * time.Millisecond) // six times the header bound
+		_, _ = io.WriteString(pw, ev2)
+		_ = pw.Close()
+	}()
+
+	req, _ := http.NewRequest(http.MethodPost, "http://"+addr+"/agent/codex/responses", strings.NewReader(codexResponsesBody))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, rerr := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || rerr != nil || string(got) != ev1+ev2 {
+		t.Errorf("got %d %q (read error %v), want the whole stream past the header bound", resp.StatusCode, got, rerr)
+	}
+	// A whole-exchange Client.Timeout of ANY length cuts a stream that outlives it, and
+	// ten minutes cannot be waited out in a unit test, so the production constructor's
+	// client is checked for one as well.
+	if c := newPassthroughHandler("codex", "https://router.example/api/v1", "", nil).client; c.Timeout != 0 {
+		t.Errorf("the via pass-through's client has Timeout %s, which also bounds the body's read", c.Timeout)
 	}
 }
 
@@ -446,7 +640,7 @@ func TestViaRoutesSignOnlyExactBedrockHosts(t *testing.T) {
 			`","wire_api":"openai-chat-completions"}}}}`)
 		plan := viaRoutesFor(providers, map[string]string{"pi": "pp"},
 			map[string]packload.ResolvedProfile{"pp": {Provider: "p", Via: ServiceName, ViaBase: "http://127.0.0.1:8216"}})
-		if len(plan.Routes) != 1 || plan.Routes[0].SignRegion != want {
+		if len(plan.Routes) != 1 || plan.Routes[0].Chat.SignRegion != want {
 			t.Errorf("%s: routes %+v, want sign region %q", host, plan.Routes, want)
 		}
 	}
@@ -459,7 +653,7 @@ func TestViaRoutesSignOnlyExactBedrockHosts(t *testing.T) {
 // this is the case that proves the header is dropped rather than replaced.
 func TestViaPassthroughForwardsWhatItIsGiven(t *testing.T) {
 	up := withUpstream(t)
-	h := newPassthroughHandler(viaRoute{Agent: "pi", UpstreamBaseURL: "http://127.0.0.1:8080/v1"}, "", nil)
+	h := newPassthroughHandler("pi", "http://127.0.0.1:8080/v1", "", nil)
 	const body = "  {\"model\": \"qwen\"}\n"
 	req := httptest.NewRequest(http.MethodPost, "/embeddings?dims=8", strings.NewReader(body))
 	req.Header.Set("Authorization", "Bearer local")
