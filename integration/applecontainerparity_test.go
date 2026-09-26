@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -12,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -474,33 +477,63 @@ func TestAppleContainerBriefingAdvertisesNoLoopholes(t *testing.T) {
 //
 // So it is asked twice, default first as the CONTROL. If the default cannot publish either, the
 // record says `-p` does not work on this backend at all, which is a different and larger finding
-// than #10.
+// than #10. When the Mac-side evidence carries macOS Local Network privacy's signature, the
+// evidence says so first, with the fix (acLocalNetworkFinding), and a verdict in which neither
+// mode reached the Mac defers to it (acPortVerdict): that answer is about the runner's
+// permissions, not about yolo.
 func TestAppleContainerExplicitHostModeKeepsPublishedPorts(t *testing.T) {
 	const fix = "#10"
 	requireAppleContainer(t)
 	requireJail(t)
 	bridge := acPublishedPortProbe(t, fix, "bridge")
 	host := acPublishedPortProbe(t, fix, "host")
+	evidence := acPortEvidence(bridge, host)
+	holds, finding := acPortVerdict(bridge, host)
+	acParityRecord(t, fix, holds, finding, evidence)
+}
+
+// acPortVerdict is the #10 verdict: whether the fix holds, and the finding line printed with it.
+//
+// When neither mode reached the Mac and the Mac-side evidence carries Local Network privacy's
+// signature, the finding defers to the DIAGNOSIS the evidence opens with (acLocalNetworkFinding)
+// instead of calling `-p` itself the finding: that run measured the runner's permissions, and a
+// verdict line blaming `-p` above a diagnosis blaming the runner would contradict it. The verdict
+// is DOES NOT HOLD either way, since no port was reached.
+func acPortVerdict(bridge, host acPortResult) (bool, string) {
+	switch {
+	case bridge.reached() && host.reached():
+		return true, "a published port answers the Mac under an explicit " +
+			"`network.mode: host` exactly as under the default"
+	case bridge.reached():
+		return false, "the default publishes the port and an explicit host mode " +
+			"does NOT — the defect #10 fixed is back: asking for host mode drops `network.ports`"
+	case host.reached():
+		return false, "an explicit host mode published the port and the default " +
+			"did NOT — the reverse of the defect, and a different bug"
+	case acLocalNetworkFinding(bridge, host) != "":
+		return false, "NEITHER mode published the port, and the Mac-side evidence carries macOS " +
+			"Local Network privacy's signature, so this run says nothing yet about #10 or about " +
+			"`-p` on this backend — see the DIAGNOSIS the evidence opens with"
+	default:
+		return false, "NEITHER mode published the port: `network.ports` does not " +
+			"reach the Mac on this backend at all, so #10's claim is vacuous here and the larger " +
+			"finding is `-p` itself"
+	}
+}
+
+// acPortEvidence is the #10 verdict's evidence: both launches' dial timelines, the family
+// finding, and each side's diagnostics — headed by the Local Network privacy diagnosis when the
+// Mac-side evidence carries its signature.
+func acPortEvidence(bridge, host acPortResult) string {
 	evidence := fmt.Sprintf("default (bridge): %s\nexplicit host:    %s\nhost-mode warning printed: %v\n"+
 		"address family: %s\n\nin-jail evidence, default (bridge):\n%s\n\nin-jail evidence, explicit host:\n%s"+
 		"\n\nMac-side evidence, default (bridge):\n%s\n\nMac-side evidence, explicit host:\n%s",
 		bridge.describe(), host.describe(), host.warned, acPortFamilyFinding(bridge, host),
-		bridge.jailDiag, host.jailDiag, bridge.macDiag, host.macDiag)
-	switch {
-	case bridge.reached() && host.reached():
-		acParityRecord(t, fix, true, "a published port answers the Mac under an explicit "+
-			"`network.mode: host` exactly as under the default", evidence)
-	case bridge.reached():
-		acParityRecord(t, fix, false, "the default publishes the port and an explicit host mode "+
-			"does NOT — the defect #10 fixed is back: asking for host mode drops `network.ports`", evidence)
-	case host.reached():
-		acParityRecord(t, fix, false, "an explicit host mode published the port and the default "+
-			"did NOT — the reverse of the defect, and a different bug", evidence)
-	default:
-		acParityRecord(t, fix, false, "NEITHER mode published the port: `network.ports` does not "+
-			"reach the Mac on this backend at all, so #10's claim is vacuous here and the larger "+
-			"finding is `-p` itself", evidence)
+		bridge.jailDiag, host.jailDiag, bridge.mac, host.mac)
+	if lnp := acLocalNetworkFinding(bridge, host); lnp != "" {
+		evidence = lnp + "\n\n" + evidence
 	}
+	return evidence
 }
 
 // acPortResult is what one published-port launch showed.
@@ -520,31 +553,118 @@ type acPortResult struct {
 	v4       acListenerResult // socat TCP-LISTEN: IPv4 only
 	dual     acListenerResult // socat TCP6-LISTEN,ipv6only=0: IPv4 and IPv6
 	jailDiag string
-	// macDiag is the Mac's view beyond the published port, gathered once the jail has written
-	// its address (acPortMacDiag): the container's own vmnet address dialed directly, the
-	// published host port dialed on the vmnet gateway and on [::1], and what `container
-	// inspect` says was published. It separates "Apple never bound the host port" from "Apple
-	// bound it somewhere other than 127.0.0.1" from "the vmnet path itself is down", which the
-	// second Mac run (2026-09-25: both listeners alive and self-reachable, every Mac dial
-	// refused) could not.
-	macDiag string
+	// mac is the Mac's view beyond the published port, gathered once the jail has written its
+	// address (acPortMacDiag): the container's own vmnet address dialed directly, the published
+	// host port dialed on the vmnet gateway and on [::1], the route to the container, and what
+	// `container inspect` and `lsof` say was published. It separates "Apple never bound the host
+	// port" from "Apple bound it somewhere other than 127.0.0.1" from "the vmnet path itself is
+	// down", which the second Mac run (2026-09-25: both listeners alive and self-reachable, every
+	// Mac dial refused) could not.
+	mac acMacEvidence
 }
 
-// acListenerResult is the Mac's side of one published listener.
+// acListenerResult is the Mac's side of one dialed target: EVERY dial it made, in order.
+//
+// Every dial, not the last one. The fourth Mac run's record (run 36193230191) kept only each
+// listener's last error, and the last loopback dials land after the jail has exited, so its
+// "refused" read as "nothing listens on the Mac's loopback" while `lsof` showed the `container`
+// process listening there (backend-parity.md §5.4). So each dial keeps its time, the jail's phase
+// when it started, and the KIND of answer, and describe prints them run-length encoded:
+// "while the jail ran: 12× accepted, then reset", then "after the jail's script ended: 3×
+// refused".
 type acListenerResult struct {
+	addr    string // host:port dialed; empty when there was no address to dial
 	reached bool
-	dials   int
-	lastErr string
+	dials   []acDial
 }
+
+// acDial is one dial's outcome.
+type acDial struct {
+	at    time.Duration // since the probe started (acProbeClock.start)
+	phase acPhase       // the jail's phase when the dial started
+	kind  string        // an acKind* label, or a verbatim one for an answer none of them names
+}
+
+// acPhase is where the jail was when a dial started, read from the marker files it writes into
+// the workspace the Mac shares with it (acJailPhase).
+type acPhase string
+
+const (
+	acPhaseStarting acPhase = "before the jail reported listening" // no acPortListenFile yet
+	acPhaseRunning  acPhase = "while the jail ran"                 // acPortListenFile written: both servers started and given a second to bind
+	acPhaseEnded    acPhase = "after the jail's script ended"      // acPortExitFile written: the container is going away
+)
+
+// The kinds of answer a dial can get. The connect-time kinds are what the Mac's kernel or a
+// policy said before any byte was exchanged; the "accepted" kinds mean something on the far
+// side took the connection and then did not answer with the token. EHOSTUNREACH with a live
+// route is the Local Network privacy signature (acMacEvidence.localNetworkDenied).
+const (
+	acKindReached     = "REACHED"
+	acKindRefused     = "refused (ECONNREFUSED)"
+	acKindNoRoute     = "no route to host (EHOSTUNREACH)"
+	acKindNetUnreach  = "network unreachable (ENETUNREACH)"
+	acKindConnReset   = "reset during connect (ECONNRESET)"
+	acKindConnTimeout = "connect timed out"
+	acKindEOF         = "accepted, then EOF"
+	acKindReset       = "accepted, then reset (ECONNRESET)"
+	acKindSilent      = "accepted, then no reply before the read deadline"
+)
 
 // reached reports whether EITHER listener answered: #10 asks whether a published port reaches
 // the Mac at all, and which family it needed is acPortFamilyFinding's question.
 func (r acPortResult) reached() bool { return r.v4.reached || r.dual.reached }
 
 func (r acPortResult) describe() string {
-	return fmt.Sprintf("IPv4-only listener: reached=%v after %d dial(s), last error: %s; "+
-		"dual-stack listener: reached=%v after %d dial(s), last error: %s; launch rc=%d",
-		r.v4.reached, r.v4.dials, r.v4.lastErr, r.dual.reached, r.dual.dials, r.dual.lastErr, r.rc)
+	return fmt.Sprintf("launch rc=%d\n%s\n%s", r.rc,
+		acIndent(r.v4.describe("IPv4-only listener"), "  "),
+		acIndent(r.dual.describe("dual-stack listener"), "  "))
+}
+
+// describe is one target's record: a headline, then its timeline, one line per run of dials
+// that shared a phase and a kind.
+func (r acListenerResult) describe(label string) string {
+	head := label + " " + r.addr + ": "
+	switch {
+	case r.addr == "":
+		return label + ": no address to dial"
+	case r.reached:
+		head += fmt.Sprintf("REACHED on dial %d", len(r.dials))
+	case len(r.dials) == 0:
+		head += "never dialed"
+	default:
+		head += fmt.Sprintf("not reached in %d dial(s)", len(r.dials))
+	}
+	lines := []string{head}
+	for _, l := range r.timeline() {
+		lines = append(lines, "    "+l)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// timeline run-length encodes the dials by phase and kind, in order, each run with the time
+// span it covered.
+func (r acListenerResult) timeline() []string {
+	var out []string
+	for i := 0; i < len(r.dials); {
+		first := r.dials[i]
+		j := i
+		for j+1 < len(r.dials) && r.dials[j+1].phase == first.phase && r.dials[j+1].kind == first.kind {
+			j++
+		}
+		span := fmt.Sprintf("t=%.1fs", first.at.Seconds())
+		if j > i {
+			span = fmt.Sprintf("t=%.1fs–%.1fs", first.at.Seconds(), r.dials[j].at.Seconds())
+		}
+		out = append(out, fmt.Sprintf("%s: %d× %s (%s)", first.phase, j-i+1, first.kind, span))
+		i = j + 1
+	}
+	return out
+}
+
+// acIndent prefixes every line of s.
+func acIndent(s, prefix string) string {
+	return prefix + strings.ReplaceAll(s, "\n", "\n"+prefix)
 }
 
 // acPortFamilyFinding states what the two listeners, across both launches, say about the
@@ -564,6 +684,61 @@ func acPortFamilyFinding(runs ...acPortResult) string {
 	default:
 		return "neither listener is reached, so the family is not the cause; read the in-jail evidence"
 	}
+}
+
+// acLocalNetworkFinding names macOS Local Network privacy, with the fix, when any launch's
+// Mac-side evidence carries its signature (acMacEvidence.localNetworkDenied), and is empty
+// otherwise.
+//
+// The diagnosis is about THIS test process, which is the one binary whose dial is recorded; the
+// step to the container helpers behind the published port is inferred, and the text says so.
+// Measured on the runner's Mac on 2026-09-25 (backend-parity.md §5.4, `b4a48e99`): every
+// non-Apple binary tried got EHOSTUNREACH to the container and to the LAN hosts dialed while a
+// route existed, and still reached the Mac's own vmnet address and the LAN gateway; Apple's own
+// binaries reached all of them. Both verdicts still pass: this is still an experiment.
+//
+// When a published port DID answer in either launch, whatever forwards it reaches the container,
+// so the inference about the helpers is refuted and the text says instead that the denial is this
+// process's own and does not decide #10. That is the likely shape of the run after the helpers are
+// granted Local Network access and the `go test` binary is not.
+func acLocalNetworkFinding(runs ...acPortResult) string {
+	var where []string
+	published := false
+	for _, r := range runs {
+		published = published || r.reached()
+		if r.mac.localNetworkDenied() {
+			where = append(where, fmt.Sprintf("%s launch: the container at %s, route on %s",
+				r.mode, r.mac.route.dest, r.mac.route.iface))
+		}
+	}
+	if len(where) == 0 {
+		return ""
+	}
+	head := "DIAGNOSIS — macOS LOCAL NETWORK PRIVACY. This test process got EHOSTUNREACH dialing " +
+		"the container's own address while the Mac holds a live, directly attached route to it (" +
+		strings.Join(where, "; ") + "). That is Local Network privacy's signature: macOS refuses a " +
+		"binary it has not granted Local Network access before any packet leaves the Mac " +
+		"(Apple TN3179), and the self-hosted runner's Mac measured exactly that for every " +
+		"non-Apple binary tried on 2026-09-25 (docs/design/backend-parity.md §5.4)."
+	if published {
+		return head + " A published port DID answer, so whatever forwards it reaches the " +
+			"container: the denial is this test process's own and does not decide #10. For the " +
+			"direct dials to measure the vmnet path as well, grant Local Network access to the " +
+			"process running `go test`; whether a grant to the runner covers the `go test` binary " +
+			"it spawns, relinked every run, is unmeasured."
+	}
+	return head + " The Homebrew " +
+		"`container` helpers (container-apiserver, container-runtime-linux, " +
+		"container-network-vmnet) are ad-hoc signed, non-Apple binaries in the same class, so the " +
+		"forwarder behind a published port is expected to be refused the same dial, which would " +
+		"show on the published port as accepted, then reset; that step is inferred, not measured.\n" +
+		"FIX, ON THE MAC AND NOT IN YOLO: grant Local Network access (System Settings → Privacy & " +
+		"Security → Local Network) to the runner and to the container helpers, or install Apple's " +
+		"Developer-ID-signed `container` package in place of Homebrew's build, then rerun. A grant " +
+		"is keyed to a code signature, so an ad-hoc-signed binary's grant may not survive a " +
+		"rebuild or a `brew upgrade`; whether a grant to the runner covers the `go test` binary it " +
+		"spawns, relinked every run, is unmeasured. Until then this experiment measures the " +
+		"runner's Local Network permissions, not #10."
 }
 
 // The jail side of the two published ports. Fixed, because the jail's network namespace is its
@@ -588,37 +763,23 @@ func acPublishedPortProbe(t *testing.T, fix, mode string) acPortResult {
 	dir := writeProject(t, fmt.Sprintf(`{"network": {"mode": %q, "ports": ["%d:%d", "%d:%d"]}}`,
 		mode, v4Host, acPublishedPortJailPort, dualHost, acPublishedPortDualJailPort))
 	const marker = ".yolo-it-dialed"
+	clock := acProbeClock{start: time.Now(), dir: dir}
 
 	stop := make(chan struct{})
-	r := acPortResult{mode: mode, v4: acListenerResult{lastErr: "none"}, dual: acListenerResult{lastErr: "none"}}
+	r := acPortResult{mode: mode}
 	var dialers sync.WaitGroup
-	dial := func(port int, token string, into *acListenerResult) {
-		defer dialers.Done()
-		addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
-		for {
-			select {
-			case <-stop:
-				return
-			default:
-			}
-			into.dials++
-			if line, err := acDialLine(addr); err != nil {
-				into.lastErr = err.Error()
-			} else if strings.Contains(line, token) {
-				into.reached = true
-				return
-			} else {
-				into.lastErr = fmt.Sprintf("connected, read %q instead of the token", line)
-			}
-			time.Sleep(500 * time.Millisecond)
-		}
-	}
 	dialers.Add(3)
-	go dial(v4Host, v4Token, &r.v4)
-	go dial(dualHost, dualToken, &r.dual)
 	go func() {
 		defer dialers.Done()
-		r.macDiag = acPortMacDiag(stop, filepath.Join(dir, acPortAddrFile), v4Host, dualHost, v4Token, dualToken)
+		r.v4 = acPollListener(stop, acLoopbackAddr(v4Host), v4Token, clock, 500*time.Millisecond, 0)
+	}()
+	go func() {
+		defer dialers.Done()
+		r.dual = acPollListener(stop, acLoopbackAddr(dualHost), dualToken, clock, 500*time.Millisecond, 0)
+	}()
+	go func() {
+		defer dialers.Done()
+		r.mac = acPortMacDiag(stop, clock, v4Host, dualHost, v4Token, dualToken)
 	}()
 	var marked sync.WaitGroup
 	marked.Add(1)
@@ -627,10 +788,10 @@ func acPublishedPortProbe(t *testing.T, fix, mode string) acPortResult {
 		dialers.Wait()
 		_ = os.WriteFile(filepath.Join(dir, marker), []byte("done\n"), 0o644)
 	}()
+	halt := acHaltOnCleanup(t, stop, marked.Wait)
 
 	res := runYolo(t, dir, acPublishedPortScript(v4Token, dualToken, marker), appleContainerEnv())
-	close(stop)
-	marked.Wait()
+	halt()
 	r.rc = res.rc
 	r.warned = strings.Contains(res.combined(), `network.mode "host" is NOT honored on Apple Container`)
 	r.jailDiag = strings.TrimSpace(section(res.stdout, "=== DIAG ===", "=== END DIAG ==="))
@@ -642,6 +803,82 @@ func acPublishedPortProbe(t *testing.T, fix, mode string) acPortResult {
 	return r
 }
 
+// acHaltOnCleanup returns halt, which closes stop once and then waits for the dialers (wait).
+// acPublishedPortProbe calls it right after the launch, and t.Cleanup calls it again: a launch
+// that dies in runCommand's t.Fatalf (a timeout, a yolo that failed to start, a failed image
+// build) skips the explicit call, because Fatalf is runtime.Goexit. Without the cleanup, the two
+// loopback polls, which have no dial cap, would dial at 2 Hz and grow their records until the
+// test binary exits. The cleanup is registered after writeProject's, so it runs first (cleanups
+// are LIFO) and the dialers' marker is written before the workspace is removed.
+func acHaltOnCleanup(t *testing.T, stop chan struct{}, wait func()) func() {
+	t.Helper()
+	var once sync.Once
+	halt := func() {
+		once.Do(func() { close(stop) })
+		wait()
+	}
+	t.Cleanup(halt)
+	return halt
+}
+
+func acLoopbackAddr(port int) string { return net.JoinHostPort("127.0.0.1", strconv.Itoa(port)) }
+
+// acProbeClock stamps each dial with its time since the probe started and the jail's phase.
+type acProbeClock struct {
+	start time.Time
+	dir   string // the workspace the jail writes its marker files into
+}
+
+func (c acProbeClock) stamp() acDial {
+	return acDial{at: time.Since(c.start), phase: acJailPhase(c.dir)}
+}
+
+// acJailPhase reads the jail's phase from the marker files acPublishedPortScript writes into
+// the shared workspace: its listen file once both servers are started and given a second to
+// bind, its exit file as the script's last act.
+//
+// Not the address file, which the jail writes only after its whole in-jail diagnostic, more than
+// a second after the servers came up: a dial in that window would have been stamped as made
+// before anything listened, which is the misreading the phases exist to prevent.
+func acJailPhase(dir string) acPhase {
+	if _, err := os.Stat(filepath.Join(dir, acPortExitFile)); err == nil {
+		return acPhaseEnded
+	}
+	if _, err := os.Stat(filepath.Join(dir, acPortListenFile)); err == nil {
+		return acPhaseRunning
+	}
+	return acPhaseStarting
+}
+
+// acPollListener dials addr every `every` until the token answers, stop closes, or maxDials dials
+// have been made (maxDials 0 is no bound), and returns every dial it made.
+func acPollListener(stop <-chan struct{}, addr, token string, clock acProbeClock, every time.Duration, maxDials int) acListenerResult {
+	r := acListenerResult{addr: addr}
+	for n := 1; ; n++ {
+		select {
+		case <-stop:
+			return r
+		default:
+		}
+		d := clock.stamp()
+		line, err := acDialLine(addr)
+		d.kind = acDialKind(line, err, token)
+		r.dials = append(r.dials, d)
+		if d.kind == acKindReached {
+			r.reached = true
+			return r
+		}
+		if maxDials > 0 && n >= maxDials {
+			return r
+		}
+		select {
+		case <-stop:
+			return r
+		case <-time.After(every):
+		}
+	}
+}
+
 // acPublishedPortScript is the jail's half of acPublishedPortProbe: start both listeners, print
 // the jail's own view of them between the DIAG markers, then wait for the host's marker.
 //
@@ -651,6 +888,11 @@ func acPublishedPortProbe(t *testing.T, fix, mode string) acPortResult {
 // whether each server answers the jail itself on loopback and on every non-loopback address the
 // container has. A server that answers its own non-loopback address but not the Mac is reachable
 // in the container and lost in the forwarder.
+//
+// Its two phase markers are how the Mac tells the phases apart (acJailPhase): acPortListenFile
+// as it prints LISTENING, once both servers are started and given a second to bind, and
+// acPortExitFile as the script's last act, so a dial made while the container is going away is
+// never read as one made while it served.
 func acPublishedPortScript(v4Token, dualToken, marker string) string {
 	v4Port, dualPort := strconv.Itoa(acPublishedPortJailPort), strconv.Itoa(acPublishedPortDualJailPort)
 	return strings.Join([]string{
@@ -659,6 +901,7 @@ func acPublishedPortScript(v4Token, dualToken, marker string) string {
 		`socat TCP6-LISTEN:` + dualPort + `,ipv6only=0,fork,reuseaddr SYSTEM:'echo ` + dualToken + `' 2>/tmp/yolo-it-socat-dual.err &`,
 		`dualpid=$!`,
 		`sleep 1`,
+		`echo listening > /workspace/` + acPortListenFile,
 		`echo LISTENING`,
 		`echo "=== DIAG ==="`,
 		`for l in v4:$v4pid dual:$dualpid; do name=${l%%:*}; pid=${l#*:}; ` +
@@ -678,12 +921,20 @@ func acPublishedPortScript(v4Token, dualToken, marker string) string {
 			`echo "self-dial $a:$port -> $(timeout 4 socat -T2 - "$a:$port" </dev/null 2>&1 | head -1)"; done; done`,
 		`echo "=== END DIAG ==="`,
 		`for _ in $(seq 1 180); do [ -f /workspace/` + marker + ` ] && break; sleep 0.5; done`,
+		`echo ended > /workspace/` + acPortExitFile,
 		`echo "=== END ==="`,
 	}, "\n")
 }
 
+// acReadErr marks an acDialLine error that came AFTER the connection was accepted, so a dial's
+// kind can tell "something accepted, then reset" from "the connect itself was reset".
+type acReadErr struct{ err error }
+
+func (e acReadErr) Error() string { return "connected, then " + e.err.Error() }
+func (e acReadErr) Unwrap() error { return e.err }
+
 // acDialLine connects to addr and reads one line, bounded, so a dropped SYN or a silent peer
-// cannot hold the poll.
+// cannot hold the poll. A failure after the connect is an acReadErr.
 func acDialLine(addr string) (string, error) {
 	c, err := net.DialTimeout("tcp", addr, 2*time.Second)
 	if err != nil {
@@ -693,19 +944,132 @@ func acDialLine(addr string) (string, error) {
 	_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
 	line, err := bufio.NewReader(c).ReadString('\n')
 	if err != nil && line == "" {
-		return "", fmt.Errorf("connected, then %w", err)
+		return "", acReadErr{err}
 	}
 	return strings.TrimSpace(line), nil
+}
+
+// acDialKind names what one acDialLine call got: an acKind* label, a wrong reply quoted, or,
+// for an error none of the labels names, the error itself.
+func acDialKind(line string, err error, token string) string {
+	var accepted acReadErr
+	afterAccept := errors.As(err, &accepted)
+	switch {
+	case err == nil && strings.Contains(line, token):
+		return acKindReached
+	case err == nil:
+		return fmt.Sprintf("accepted, read %q instead of the token", line)
+	case afterAccept && errors.Is(err, io.EOF):
+		return acKindEOF
+	case afterAccept && errors.Is(err, syscall.ECONNRESET):
+		return acKindReset
+	case afterAccept && acIsTimeout(err):
+		return acKindSilent
+	case afterAccept:
+		return "accepted, then " + acInnermost(accepted.err).Error()
+	case errors.Is(err, syscall.ECONNREFUSED):
+		return acKindRefused
+	case errors.Is(err, syscall.EHOSTUNREACH):
+		return acKindNoRoute
+	case errors.Is(err, syscall.ENETUNREACH):
+		return acKindNetUnreach
+	case errors.Is(err, syscall.ECONNRESET):
+		return acKindConnReset
+	case acIsTimeout(err):
+		return acKindConnTimeout
+	default:
+		return "other: " + err.Error()
+	}
+}
+
+// acInnermost unwraps err to the bottom of its chain: for a read error, the errno, without the
+// *net.OpError around it. That wrapper prints the connection's local address, whose ephemeral
+// port changes on every dial, so a kind built from it would never repeat and timeline could merge
+// no run of such dials.
+func acInnermost(err error) error {
+	for {
+		u := errors.Unwrap(err)
+		if u == nil {
+			return err
+		}
+		err = u
+	}
+}
+
+func acIsTimeout(err error) bool {
+	var ne net.Error
+	return errors.Is(err, os.ErrDeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout())
 }
 
 // acPortAddrFile is where the jail writes "<its first IPv4> <default gateway> <hostname>" for
 // acPortMacDiag, in the workspace the Mac shares with it.
 const acPortAddrFile = ".yolo-it-addr"
 
+// acPortListenFile is written as the jail prints LISTENING, once both servers are started and
+// given a second to bind, marking acPhaseRunning.
+const acPortListenFile = ".yolo-it-listening"
+
+// acPortExitFile is the jail script's last write, marking acPhaseEnded.
+const acPortExitFile = ".yolo-it-ended"
+
+// acMacEvidence is the Mac-side diagnostic acPortResult.mac describes.
+type acMacEvidence struct {
+	missing   string // why there is no Mac-side evidence, when there is none
+	probes    []acMacProbe
+	route     acRoute
+	inspect   string
+	listeners string
+}
+
+// acMacProbe is one Mac-side diagnostic target and what its dials got.
+type acMacProbe struct {
+	label     string
+	container bool // dials the container's own address rather than a published host port
+	result    acListenerResult
+}
+
+func (e acMacEvidence) String() string {
+	if e.missing != "" {
+		return e.missing
+	}
+	lines := make([]string, 0, len(e.probes)+3)
+	for _, p := range e.probes {
+		lines = append(lines, p.result.describe(p.label))
+	}
+	lines = append(lines, e.route.text, e.inspect, e.listeners)
+	return strings.Join(lines, "\n")
+}
+
+// localNetworkDenied reports Local Network privacy's signature: no dial to the container's own
+// address reached it, at least one failed EHOSTUNREACH, and the Mac holds a LIVE route to it on
+// a directly attached interface (acRoute.live). A missing route, or one through a gateway, is a
+// different fault, and so is a refusal: the policy's answer is specifically EHOSTUNREACH, before
+// any packet leaves the Mac.
+func (e acMacEvidence) localNetworkDenied() bool {
+	if !e.route.live {
+		return false
+	}
+	dialed, unreachable := false, false
+	for _, p := range e.probes {
+		if !p.container {
+			continue
+		}
+		if p.result.reached {
+			return false
+		}
+		for _, d := range p.result.dials {
+			dialed = true
+			unreachable = unreachable || d.kind == acKindNoRoute
+		}
+	}
+	return dialed && unreachable
+}
+
 // acPortMacDiag waits for the jail's address file, then gathers the Mac-side evidence
-// acPortResult.macDiag describes. Every dial is bounded (acPortMacTries), so it adds seconds,
-// not the launch's whole bound, and it gives up with a line saying so if the file never comes.
-func acPortMacDiag(stop <-chan struct{}, addrFile string, v4Host, dualHost int, v4Token, dualToken string) string {
+// acPortResult.mac describes. Every dial is bounded (acPortMacTries), so it adds seconds, not
+// the launch's whole bound, and it gives up with a line saying so if the file never comes.
+func acPortMacDiag(stop <-chan struct{}, clock acProbeClock, v4Host, dualHost int, v4Token, dualToken string) acMacEvidence {
+	addrFile := filepath.Join(clock.dir, acPortAddrFile)
 	var fields []string
 	for deadline := time.Now().Add(60 * time.Second); ; time.Sleep(500 * time.Millisecond) {
 		if b, err := os.ReadFile(addrFile); err == nil {
@@ -715,41 +1079,51 @@ func acPortMacDiag(stop <-chan struct{}, addrFile string, v4Host, dualHost int, 
 		}
 		select {
 		case <-stop:
-			return "the jail exited before writing " + acPortAddrFile + "; no Mac-side evidence"
+			return acMacEvidence{missing: "the jail exited before writing " + acPortAddrFile + "; no Mac-side evidence"}
 		default:
 		}
 		if time.Now().After(deadline) {
-			return "the jail never wrote " + acPortAddrFile + " within 60s; no Mac-side evidence"
+			return acMacEvidence{missing: "the jail never wrote " + acPortAddrFile + " within 60s; no Mac-side evidence"}
 		}
 	}
 	jailIP, gw, name := fields[0], fields[1], fields[2]
 	type target struct {
 		label, host string
+		container   bool
 		port        int
 		token       string
 	}
 	targets := []target{
-		{"container address, IPv4-only listener", jailIP, acPublishedPortJailPort, v4Token},
-		{"container address, dual-stack listener", jailIP, acPublishedPortDualJailPort, dualToken},
-		{"published port on the vmnet gateway, IPv4-only", gw, v4Host, v4Token},
-		{"published port on the vmnet gateway, dual-stack", gw, dualHost, dualToken},
-		{"published port on [::1], IPv4-only", "::1", v4Host, v4Token},
-		{"published port on [::1], dual-stack", "::1", dualHost, dualToken},
+		{"container address, IPv4-only listener", jailIP, true, acPublishedPortJailPort, v4Token},
+		{"container address, dual-stack listener", jailIP, true, acPublishedPortDualJailPort, dualToken},
+		{"published port on the vmnet gateway, IPv4-only", gw, false, v4Host, v4Token},
+		{"published port on the vmnet gateway, dual-stack", gw, false, dualHost, dualToken},
+		{"published port on [::1], IPv4-only", "::1", false, v4Host, v4Token},
+		{"published port on [::1], dual-stack", "::1", false, dualHost, dualToken},
 	}
 	// Concurrently, and each into its own slot, so the whole diagnostic costs one probe's
 	// worst case rather than six in a row, and still prints in this fixed order.
-	lines := make([]string, len(targets))
-	var probes sync.WaitGroup
+	probes := make([]acMacProbe, len(targets))
+	var wg sync.WaitGroup
 	for i, tg := range targets {
-		probes.Add(1)
+		probes[i] = acMacProbe{label: tg.label, container: tg.container}
+		if tg.host == "" || tg.host == "-" {
+			continue
+		}
+		wg.Add(1)
 		go func() {
-			defer probes.Done()
-			lines[i] = acPortMacProbe(tg.label, tg.host, tg.port, tg.token)
+			defer wg.Done()
+			addr := net.JoinHostPort(tg.host, strconv.Itoa(tg.port))
+			probes[i].result = acPollListener(stop, addr, tg.token, clock, time.Second, acPortMacTries)
 		}()
 	}
-	probes.Wait()
-	lines = append(lines, acPortRoute(jailIP), acPortInspect(name), acPortListeners(v4Host, dualHost))
-	return strings.Join(lines, "\n")
+	wg.Wait()
+	return acMacEvidence{
+		probes:    probes,
+		route:     acPortRoute(jailIP),
+		inspect:   acPortInspect(name),
+		listeners: acPortListeners(v4Host, dualHost),
+	}
 }
 
 // acPortInspect is what `container inspect` says about the container's published ports and
@@ -777,16 +1151,56 @@ func acPortInspect(name string) string {
 	return fmt.Sprintf("container inspect %s, published ports and networks:\n%s", name, b)
 }
 
-// acPortRoute is the Mac kernel's route to the container. The third Mac run's direct dials
-// failed "no route to host" on the directly attached vmnet subnet. If a route through the
-// bridge exists and connect still fails that way, the refusal is a policy on this process
-// (macOS Local Network privacy returns exactly EHOSTUNREACH), not a missing route. The
-// runner's root-run nix daemon does reach the Linux builder on the same subnet.
-func acPortRoute(jailIP string) string {
+// acRoute is the Mac kernel's route to the container, as `route -n get` prints it.
+type acRoute struct {
+	dest  string
+	text  string // the command and its output, for the record
+	iface string
+	// live is a route that exists and delivers directly: the command succeeded, names an
+	// interface, and its flags carry UP and not GATEWAY. On macOS every address has SOME route
+	// once a default route exists, so "a route exists" alone would say nothing; a directly
+	// attached one (bridge100 for the vmnet subnet) is what makes an EHOSTUNREACH a policy on
+	// this process rather than a missing path.
+	live bool
+}
+
+// acPortRoute asks the Mac kernel for its route to the container. The third Mac run's direct
+// dials failed "no route to host" on the directly attached vmnet subnet, and a hand-run
+// `route -n get` named bridge100 throughout: that pairing is what measured Local Network
+// privacy (acMacEvidence.localNetworkDenied).
+func acPortRoute(jailIP string) acRoute {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "route", "-n", "get", jailIP).CombinedOutput()
-	return fmt.Sprintf("route -n get %s (err=%v):\n%s", jailIP, err, strings.TrimSpace(string(out)))
+	return acParseRoute(jailIP, string(out), err)
+}
+
+// acParseRoute reads `route -n get`'s "key: value" lines (macOS's route(8) format).
+func acParseRoute(dest, out string, err error) acRoute {
+	r := acRoute{dest: dest, text: fmt.Sprintf("route -n get %s (err=%v):\n%s", dest, err, strings.TrimSpace(out))}
+	if err != nil {
+		return r
+	}
+	var flags []string
+	for _, line := range strings.Split(out, "\n") {
+		key, val, ok := strings.Cut(strings.TrimSpace(line), ":")
+		if !ok {
+			continue
+		}
+		switch strings.TrimSpace(key) {
+		case "interface":
+			r.iface = strings.TrimSpace(val)
+		case "flags":
+			flags = strings.Split(strings.Trim(strings.TrimSpace(val), "<>"), ",")
+		}
+	}
+	up, gateway := false, false
+	for _, f := range flags {
+		up = up || f == "UP"
+		gateway = gateway || f == "GATEWAY"
+	}
+	r.live = r.iface != "" && up && !gateway
+	return r
 }
 
 // acPortListeners names the Mac process holding each published host port and the address it
@@ -803,30 +1217,8 @@ func acPortListeners(ports ...int) string {
 	return fmt.Sprintf("lsof %s (err=%v):\n%s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 }
 
-// acPortMacProbe dials one Mac-side target up to acPortMacTries times and says what happened.
-func acPortMacProbe(label, host string, port int, token string) string {
-	if host == "" || host == "-" {
-		return label + ": no address to dial"
-	}
-	addr := net.JoinHostPort(host, strconv.Itoa(port))
-	last := "none"
-	for i := 1; i <= acPortMacTries; i++ {
-		line, err := acDialLine(addr)
-		switch {
-		case err != nil:
-			last = err.Error()
-		case strings.Contains(line, token):
-			return fmt.Sprintf("%s %s: REACHED on try %d", label, addr, i)
-		default:
-			last = fmt.Sprintf("connected, read %q instead of the token", line)
-		}
-		time.Sleep(time.Second)
-	}
-	return fmt.Sprintf("%s %s: not reached in %d tries, last: %s", label, addr, acPortMacTries, last)
-}
-
-// acPortMacTries bounds each Mac-side diagnostic dial: the jail is already listening when its
-// address file appears, so a path that works answers on the first try or two.
+// acPortMacTries bounds each Mac-side diagnostic target's dials: the jail is already listening
+// when its address file appears, so a path that works answers on the first try or two.
 const acPortMacTries = 5
 
 // acFreeLoopbackPort asks the kernel for a free port and releases it. A small race, and a
