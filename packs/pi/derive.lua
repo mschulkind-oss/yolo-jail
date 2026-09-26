@@ -297,13 +297,23 @@ yolo.derive("pi", "models", function(ctx)
   end
   local providers = {}
   for name, prov in pairs(ctx.providers) do
-    local baseUrl, api = piReachable(prov)
+    -- openai-codex is pi's BUILT-IN subscription provider, so it is never catalogued here
+    -- (docs/design/pi-codex-provider-shadowing.md OQ-1, OQ-2): packs/openai-auth declares a
+    -- Responses address on it, and a row written from that shadows pi's own client, which
+    -- then authenticates with the ambient OPENAI_API_KEY and gets 401s. Excluded by name, as
+    -- packs/codex/derive.lua does; the settings derive still selects it by name.
+    local native = (name == "openai-codex")
+    local baseUrl, api = nil, nil
+    if not native then
+      baseUrl, api = piReachable(prov)
+    end
     -- VIA (docs/design/wire-bridge-gateway.md OQ-WG6/WG7): when this agent's active profile
     -- routes through a service, the SELECTED provider's row points at the per-agent route the
     -- service serves, and speaks chat-completions there, the protocol the via route passes
     -- through to the provider's own `openai` endpoint. Every other row is untouched: via is
     -- one profile's choice, and only the selected provider rides it.
-    local viaRow = (ctx.via_url ~= nil and ctx.via_url ~= "" and name == ctx.selected_provider)
+    local viaRow = (not native and ctx.via_url ~= nil and ctx.via_url ~= "" and
+      name == ctx.selected_provider)
     if viaRow then
       baseUrl, api = ctx.via_url, "openai-completions"
     end
@@ -386,8 +396,8 @@ yolo.derive("pi", "models", function(ctx)
       -- map. So one address-only provider deleted every other provider's catalog row, which
       -- surfaced as `models: must be array` plus "No models match pattern" for a model the
       -- same file named. Every provider that declares an address and no model list is in
-      -- this class: openai-codex (packs/openai-auth declares the Responses address and no
-      -- models), kilo whenever no profile names one, and a user's own `endpoints.openai`.
+      -- this class: kilo whenever no profile names one, and a user's own `endpoints.openai`
+      -- (openai-codex was too, and is now never catalogued at all — see the loop's head).
       -- Omitting it is also the right STATEMENT — pi merges a models.json row into its
       -- built-in catalog for that provider (core/provider-composer.js, applyModelsJson),
       -- so "no models of my own" leaves pi's own list intact and still applies the address.
