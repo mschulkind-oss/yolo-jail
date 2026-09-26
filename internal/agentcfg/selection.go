@@ -164,8 +164,25 @@ func ApplySelection(selection, file, record map[string]any) (lift, next map[stri
 // user's in-jail edit, which is how a host settings.json rendered into a jail's file once
 // made `-p` inert for pi forever (OQ-SW1, docs/design/provider-switching.md).
 func ApplySelectionOver(selection, file, record map[string]any, hostOwned map[string]bool) (lift, next map[string]any) {
+	lift, next, _ = ApplySelectionReport(selection, file, record, hostOwned)
+	return lift, next
+}
+
+// SelectionClear is one key a deselect cleared: a value yolo's selection wrote, still in the
+// file unedited, whose profile is no longer selected, so it is omitted from the render
+// (OQ-PSW2) and falls back to the native default or the host layer.
+type SelectionClear struct {
+	Key   string
+	Value any // the value that was cleared, as the file held it
+}
+
+// ApplySelectionReport is ApplySelectionOver that also reports every key the deactivated arm
+// cleared, sorted by key. It is the ONE implementation of the arm: the report is what the arm
+// did, never a second reading of the same rule, so a boot log line (OQ-PSW4) cannot drift
+// from the clear it describes.
+func ApplySelectionReport(selection, file, record map[string]any, hostOwned map[string]bool) (lift, next map[string]any, cleared []SelectionClear) {
 	if len(selection) == 0 && len(record) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	lift = map[string]any{}
 	next = map[string]any{}
@@ -188,6 +205,7 @@ func ApplySelectionOver(selection, file, record map[string]any, hostOwned map[st
 				if isSelectionValue(cur) {
 					if wrote, ok := record[k]; ok && sameScalar(cur, wrote) {
 						delete(next, k)
+						cleared = append(cleared, SelectionClear{Key: k, Value: cur})
 					} else {
 						lift[k] = cur
 					}
@@ -240,7 +258,7 @@ func ApplySelectionOver(selection, file, record map[string]any, hostOwned map[st
 			}
 		}
 	}
-	return lift, next
+	return lift, next, cleared
 }
 
 // HostOwnedKeys names the top-level keys whose value in the surface file belongs to the

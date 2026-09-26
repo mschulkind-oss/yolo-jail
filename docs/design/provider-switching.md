@@ -11,7 +11,7 @@ summary: "When you stop passing a profile, codex, pi and opencode keep the provi
 **The question this doc answers.** When a user stops selecting a profile, should yolo clear the
 model id it wrote into the agent's config, and should it say so when it does?
 
-**Status:** DECIDED, 2026-09-25 — every ruling is in: [`OQ-PSW4`](#OQ-PSW4) was ruled that day and is unbuilt; [`OQ-SW1`](#OQ-SW1) was ruled and BUILT the same day, through the boot render only (no live launch has run it). [`OQ-PSW2`](#decision-ledger) is ruled (deselecting clears what yolo wrote, by omission, falling back to the native default or the host layer), and its clear is in the tree: `ApplySelection`'s deactivated arm, landed in `6983734f`.
+**Status:** DECIDED, 2026-09-25 — every ruling is in: [`OQ-PSW4`](#OQ-PSW4) was ruled that day and BUILT 2026-09-26 (the clear is silent on the terminal and recorded in `boot.log`); [`OQ-SW1`](#OQ-SW1) was ruled and BUILT the same day, through the boot render only (no live launch has run it). [`OQ-PSW2`](#decision-ledger) is ruled (deselecting clears what yolo wrote, by omission, falling back to the native default or the host layer), and its clear is in the tree: `ApplySelection`'s deactivated arm, landed in `6983734f`.
 
 - **Omission keeps a host-file value**, and the clear holds on the launch after it.
 - **A tombstone deletes the host value for one launch**, and the value comes back on the next.
@@ -25,7 +25,7 @@ host-layer value is refused ([`OQ-SW1`](#OQ-SW1)). Code claims cite a symbol, ne
 The rule this revises is [`OQ-CS2`](../reference/providers.md#oq-cs2) in the providers reference.
 The alias and shipped-model questions moved out on 2026-09-25 ([Where the rest went](#where-the-rest-went)).
 
-**Needs your ruling:** none. [`OQ-PSW4`](#OQ-PSW4) (silent unless `--verbose`) and [`OQ-SW1`](#OQ-SW1) (a selection outranks a host-layer value) were ruled 2026-09-25 and are unbuilt.
+**Needs your ruling:** none. [`OQ-PSW4`](#OQ-PSW4) (silent on the terminal, recorded in `boot.log`) and [`OQ-SW1`](#OQ-SW1) (a selection outranks a host-layer value) were ruled 2026-09-25 and are built.
 
 **The most important section is [§4](#4-the-fourth-row-clear-what-yolo-wrote-keep-what-the-user-wrote).**
 It covers the only live defect.
@@ -365,6 +365,14 @@ first-party providers) moved to [`model-lists-and-pickers.md`](model-lists-and-p
    > in the entrypoint, and `--verbose` does not reach the jail today
    > ([`OQ-DB1`](diagnostics-past-the-boundary.md#oq-db1)), so until that lands the line never prints.
    > That is consistent with the default, just not yet with the verbose half.
+   >
+   > **Built 2026-09-26, without waiting on OQ-DB1:** every key a deselect clears is recorded in
+   > the jail's `boot.log` only, never the terminal, as `selection: cleared <agent>/<surface>
+   > <key> (was <value>): the profile that set it is no longer selected`
+   > (`entrypoint.noteSelectionClears`, fed by `agentcfg.ApplySelectionReport`, the one
+   > implementation of the deactivated arm). A kept user edit records nothing. When [`OQ-DB1`](diagnostics-past-the-boundary.md#oq-db1) gives
+   > the jail a verbosity, promoting that line to the terminal is a change at that one call site;
+   > it is an optional follow-up, not a blocker.
 
 2. ✅ <a id="OQ-SW1"></a>**OQ-SW1: Should a selection outrank a value that came from your host
    config, not from an in-jail edit?** The id is coined here: `SW` stands for switching.
@@ -425,7 +433,7 @@ first-party providers) moved to [`model-lists-and-pickers.md`](model-lists-and-p
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
 | OQ-PSW2 | **Deselecting a profile clears yolo's written selection keys via omission**, allowing the surface to fall back to the native mechanism or host layer. The selection record entry is dropped. | 2026-09-25 | [§4](#4-the-fourth-row-clear-what-yolo-wrote-keep-what-the-user-wrote) | 2026-09-25: the deactivated arm of `ApplySelection` clears a value equal to the record and drops the record entry; `writeSelectionRecord` removes an emptied record |
-| OQ-PSW4 | **The clear is silent except under `--verbose`**; the verbose line waits on `--verbose` reaching the jail ([`OQ-DB1`](diagnostics-past-the-boundary.md#oq-db1)) | 2026-09-25 | [OQ-PSW4](#OQ-PSW4) | — |
+| OQ-PSW4 | **The clear is silent on the terminal and recorded in `boot.log`**; promoting that line under an in-jail `--verbose` ([`OQ-DB1`](diagnostics-past-the-boundary.md#oq-db1)) is an optional one-call-site follow-up | 2026-09-25 | [OQ-PSW4](#OQ-PSW4) | 2026-09-26: `entrypoint.noteSelectionClears`, fed by `agentcfg.ApplySelectionReport` |
 | OQ-SW1 | **B: a selection outranks a host-layer value.** A file value equal to the host layer's, with no record claiming it, is the host's and the selection overrides it; a differing value is still the user's in-jail edit | 2026-09-25 | [OQ-SW1](#OQ-SW1) | 2026-09-25: `agentcfg.HostOwnedKeys` names a file value as the host's when it equals the host layer now, or is unchanged since a previous render whose provenance named the host; `ApplySelectionOver` overrides it (`internal/entrypoint/selectionhostlayer_test.go`) |
 | OQ-CS2 | **Never write the selection key when no profile is active**, because an interactive in-agent choice must survive the next launch. This is the rule [`OQ-PSW2`](#decision-ledger) narrowed. | undated there | [providers.md](../reference/providers.md#oq-cs2) | yes |
 | OQ-PSW3 | **Answered by the [`OQ-BR3`](model-lists-and-pickers.md#OQ-BR3) ruling**, which says to ship model defaults in a built-in pack. The row lives in [model-lists-and-pickers.md](model-lists-and-pickers.md#OQ-PSW3). | 2026-09-25 | [`model-lists-and-pickers.md`](model-lists-and-pickers.md#OQ-PSW3) | — |

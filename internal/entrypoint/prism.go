@@ -109,6 +109,30 @@ func readSelectionRecord(e *Env, agent, name string) map[string]any {
 	return agentcfg.ParseSelectionRecord(data)
 }
 
+// noteSelectionClears records, in the boot log only, each key a deselect cleared (OQ-PSW4,
+// docs/design/provider-switching.md: "no print, except in verbose mode"). The terminal stays
+// silent. This is the one call site for the record, so promoting it to the terminal under
+// in-jail verbosity, once OQ-DB1 gives the jail one, is a change here alone.
+//
+// The value is printed: a selection key carries a provider or model choice the agent's own
+// config file already holds in plain text, never a credential (credentials reach an agent
+// through its environment, not through the selection namespace). It is capped so a long
+// list reads as one line.
+func noteSelectionClears(e *Env, surface manifest.Surface, cleared []agentcfg.SelectionClear) {
+	for _, c := range cleared {
+		v, err := json.Marshal(c.Value)
+		val := string(v)
+		if err != nil {
+			val = fmt.Sprint(c.Value)
+		}
+		if len(val) > 200 {
+			val = val[:200] + "…"
+		}
+		e.note(fmt.Sprintf("selection: cleared %s/%s %s (was %s): the profile that set it is no longer selected",
+			surface.Agent, surface.Name, c.Key, val))
+	}
+}
+
 // writeSelectionRecord persists a surface's selection record, best-effort and only
 // when there is something to record. An EMPTY record is never written: a surface
 // whose derive emits no selection keeps no selection state at all, so the sidecar
@@ -500,7 +524,8 @@ func composeStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, 
 			agentcfg.DecodeSurfaceObject(surface.Codec, lastRenderBytes),
 			readProvenanceRecord(e, surface.Agent, surface.Name))
 	}
-	lift, next := agentcfg.ApplySelectionOver(selection, fileObj, selectionRecord, hostOwned)
+	lift, next, cleared := agentcfg.ApplySelectionReport(selection, fileObj, selectionRecord, hostOwned)
+	noteSelectionClears(e, surface, cleared)
 	if len(lift) > 0 {
 		computed = mergeSurfaceRoot(computed, lift)
 	}
