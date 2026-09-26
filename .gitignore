@@ -29,6 +29,9 @@ build/
 /yolo-serial
 /build-wheels
 .DS_Store
+# CPython's import cache. `just check-ci` writes one under scripts/ every run: its
+# scripts/test-check-*.py import the scripts they test.
+__pycache__/
 .research/
 yolo-jail.local.jsonc
 
