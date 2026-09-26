@@ -1,10 +1,13 @@
 // Command build-wheels builds per-platform PyPI wheels that wrap the Go host
-// binaries. It writes, byte for byte, the wheels the retired Python builder
-// wrote (`git show e4227c9c^:scripts/build_wheels.py`), which was itself derived
-// from Simon Willison's go-to-wheel (Apache-2.0): the same wheel layout and
-// platform tags. The wheel-building machinery stays list-driven (see the
-// binaries slice) even though the yolo-jail package currently ships a single
-// console script (yolo).
+// binaries. It replaced a Python builder
+// (`git show e4227c9c^:scripts/build_wheels.py`), itself derived from Simon
+// Willison's go-to-wheel (Apache-2.0), and keeps that builder's wheel layout,
+// platform tags, WHEEL Generator line and ldflags. The METADATA has moved on
+// since: its Summary was rewritten, and the README it carries as the PyPI
+// description has its links pinned to the release tag (readmelinks.go).
+//
+// The wheel-building machinery stays list-driven (see the binaries slice) even
+// though the yolo-jail package currently ships a single console script (yolo).
 //
 // Windows is deliberately absent: the Go tree uses unix-only syscalls and the
 // tool has no Windows story.
