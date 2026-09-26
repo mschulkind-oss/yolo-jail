@@ -8,11 +8,11 @@ summary: "Six of the seven agents yolo ships can show extra text in their footer
 
 # Which provider is this session on? — yolo facts in every agent's footer
 
-**Status:** BUILT, 2026-09-25. Every question but one is ruled: six in that day's first review, and the two they
-opened ([OQ-FT13](#OQ-FT13), [OQ-FT14](#OQ-FT14)) in the second. One is open: [OQ-FT15](#OQ-FT15), how a one-launch
-`yolo host -p` reaches the host footer. All seven build items are built: the bridge's
-streamed-usage fix, the renderer, an adapter for each of the six agents with a hook, the host's profile read, and
-macos-user's jail marker ([as built](#21-as-built); [what I would build](#what-i-would-build-in-order)). Not yet
+**Status:** DESIGN, 2026-09-26 — one question is open, [OQ-FT15](#OQ-FT15): how a one-launch `yolo host -p`
+reaches the host footer. Nothing for it is built. Every other question is ruled: six in 2026-09-25's first review,
+and the two they opened ([OQ-FT13](#OQ-FT13), [OQ-FT14](#OQ-FT14)) in the second. Everything they rule was BUILT
+on 2026-09-25, all seven build items: the bridge's streamed-usage fix, the renderer, an adapter for each of the six
+agents with a hook, the host's profile read, and macos-user's jail marker ([as built](#21-as-built); [what I would build](#what-i-would-build-in-order)). Not yet
 seen under a live agent: a human checks each footer. MEASURED: each agent's hook ([appendix](#appendix-evidence)),
 this jail's env and the renderer's cost at both notches. UNMEASURED: that Claude's status-line command runs in a jail
 and inherits its env, that opencode draws the plugin's text from `tui.jsonc`, and anything about macos-user, which

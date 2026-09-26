@@ -36,14 +36,12 @@ restated, because it was never literally true.
 **Start at [§3.1](#31-does-dp-d15-still-hold).** It is the re-opened ruling, and everything
 macos-specific hangs off its answer.
 
-**Needs your ruling:** [OQ-CX1](#OQ-CX1), [OQ-CX2](#OQ-CX2), [OQ-CX3](#OQ-CX3),
-[OQ-CX4](#OQ-CX4), [OQ-CX5](#OQ-CX5), [OQ-CX6](#OQ-CX6), [OQ-CX7](#OQ-CX7), [OQ-CX8](#OQ-CX8),
-[OQ-CX9](#OQ-CX9).
+**Needs your ruling:** [OQ-CX1](#OQ-CX1), [OQ-CX2](#OQ-CX2), [OQ-CX3](#OQ-CX3), [OQ-CX4](#OQ-CX4), [OQ-CX5](#OQ-CX5), [OQ-CX6](#OQ-CX6), [OQ-CX7](#OQ-CX7), [OQ-CX8](#OQ-CX8), [OQ-CX9](#OQ-CX9).
 
-**Reads with:** [`declaration-parity.md`](declaration-parity.md) (DP-D15, DP-B1, DP-B2 and §6.1,
+**Reads with:** [`declaration-parity.md`](declaration-parity.md) (DP-D15, DP-B1, DP-B2 and [§6.1](declaration-parity.md#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured),
 the rulings this doc re-opens and the probes it relies on),
 [`../reference/macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md) (the Seatbelt
-"read-only half of a bind" argument this generalizes), [`trust-paths.md`](trust-paths.md) (OQ-TP9,
+"read-only half of a bind" argument this generalizes), [`trust-paths.md`](trust-paths.md) ([OQ-TP9](trust-paths.md#decision-ledger),
 why pack grants are disclosure-only), [`workspace-config-trust.md`](workspace-config-trust.md)
 (owns where an rw mount may be declared; [§2.2](#22-where-an-rw-mount-may-be-declared-deferred)).
 **No `-plan.md` sketch exists yet.** It was deferred because this doc was written under a
@@ -220,7 +218,7 @@ last-writer-wins, the same as two host processes. Tools that need exclusion alre
 
 **Not in v1** ([OQ-CX4](#OQ-CX4)). A pack `mount` stays read-only. A pack asking for rw would need
 a new footprint sentence ("WRITES to a path in YOUR HOME"). With the approval gate gone
-(OQ-TP9), a selected pack would get a writable path into the user's home on disclosure alone, and
+([OQ-TP9](trust-paths.md#decision-ledger)), a selected pack would get a writable path into the user's home on disclosure alone, and
 no shipped pack needs it.
 
 ### 2.8 The AGENTS.md invariant, restated
@@ -250,7 +248,7 @@ binds. What the invariant actually protects is narrower, and it should say so:
 ### 3.1 Does DP-D15 still hold?
 
 DP-D15 (ruled 2026-09-12) refuses the launch because "we can't do /ctx by copying, some of these
-directories are huge". The premise that made copying the only option was §6.1's finding that the
+directories are huge". The premise that made copying the only option was [§6.1](declaration-parity.md#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured)'s finding that the
 symlink "fails twice, and neither failure is Seatbelt's". The MAC half was fixable. The DAC half
 was not: a foreign uid, and a home that need not be world-traversable.
 
@@ -263,11 +261,11 @@ new ACL. A link names it, and a generated allow opens it. So the proposal narrow
 - **Refuse fatally, as DP-D15 ruled**, otherwise, keyed on the declaration being present. That
   refusal also gets built; it is unbuilt today.
 
-This is [OQ-CX5](#OQ-CX5). If DP-D15 is kept unchanged, §3 reduces to building the refusal.
+This is [OQ-CX5](#OQ-CX5). If DP-D15 is kept unchanged, [§3](#3-delivering-context-dirs-on-macos-user) reduces to building the refusal.
 
 ### 3.2 Where the bytes are named
 
-- **Not `/ctx`.** A new top-level directory needs `/etc/synthetic.conf` and a reboot (§6.1).
+- **Not `/ctx`.** A new top-level directory needs `/etc/synthetic.conf` and a reboot ([§6.1](declaration-parity.md#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured)).
 - **Not the sandbox home.** It is one link set per machine (concurrent launches contend, last one
   wins; see [home tiers](../reference/macos-user-home-tiers.md)), and it is agent-writable, so the
   agent could re-point a name.
@@ -293,7 +291,7 @@ Every link is created by the root-owned staging step with an **absolute target e
 resolved source**. The agent cannot re-point it, because the link and its parent are root-owned.
 That property keeps the *name* honest. **It is not security.** The agent can create its own
 symlink anywhere in the writable set, pointing anywhere, and nothing is gained, because Seatbelt
-evaluates the **target** of every access, absolute or relative (measured: §6.1's Probe 1). So:
+evaluates the **target** of every access, absolute or relative (measured: [§6.1](declaration-parity.md#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured)'s Probe 1). So:
 
 - A relative escape (`$YOLO_CONTEXT_DIR/src/../../..`, or a `../`-target link inside the source)
   resolves, and it is judged where it lands.
@@ -306,7 +304,7 @@ evaluates the **target** of every access, absolute or relative (measured: §6.1'
 ### 3.4 The Seatbelt rules
 
 The rules are generated from **resolved** paths only. A rule on an unresolved path matches nothing
-(§6.1's Probe 2; `/tmp` vs `/private/tmp`). Each rule carries a `#seatbelt-test-id:<name>#`.
+([§6.1](declaration-parity.md#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured)'s Probe 2; `/tmp` vs `/private/tmp`). Each rule carries a `#seatbelt-test-id:<name>#`.
 Ordering is last-match-wins, and it must be:
 
 1. The existing base: `(allow default)`, the `file-write*` root deny plus the writable set, the
@@ -365,7 +363,7 @@ in `SandboxGroup` does not widen it, plus `search` on each ancestor. What it cos
   the profile's `/Users` deny. The runbook's measured `EACCES` on `~/.ssh` would then rest on
   `.ssh`'s own mode alone.
 
-§6.1 declined this for exactly these reasons, and nothing here changes them. They are what the
+[§6.1](declaration-parity.md#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured) declined this for exactly these reasons, and nothing here changes them. They are what the
 ruling would be accepting.
 
 ### 3.6 `/Volumes` and TCC
@@ -389,7 +387,7 @@ v1 refuses both ([OQ-CX8](#OQ-CX8)).
 - **Two modes for one set of bytes** ([§3.4](#34-the-seatbelt-rules)): refused.
 - **Custom destinations outside `/ctx`** ([§3.2](#32-where-the-bytes-are-named)): refused.
 - **Subtree readability** ([§3.5](#35-the-dac-half)): stated, not hidden.
-- **Liveness is *better* than DP-L1's copy.** The bytes are live, so the snapshot delta §6.1
+- **Liveness is *better* than DP-L1's copy.** The bytes are live, so the snapshot delta [§6.1](declaration-parity.md#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured)
   worried about for a growing log dir does not arise.
 - **Concurrency of the name.** `StagedCtxRoot` is per workspace and replaced each launch, so a
   second concurrent launch of the *same* workspace with different `mounts` re-points the first
@@ -427,7 +425,7 @@ not merely if the callee changes.
 |---|---|---|---|
 | **1** | rw on podman and Apple Container: the object form, the trust-predicate hook (its computation is [`workspace-config-trust.md`](workspace-config-trust.md)'s), the refusal set, the launch disclosure, per-entry briefing labels | the assembled argv from `Run`'s assembler carries `src:dest` with no `:ro` for an rw entry, and `:ro` for every other entry; an rw element the trust predicate rejects fails `yolo check`, and the launch refuses it; each refusal fires from `Run` on a fixture `$HOME`; the disclosure line appears on the launch stream **with `YOLO_NO_BANNER=1` set**; the briefing from `prepare` carries both labels | no |
 | **2** | `YOLO_CONTEXT_DIR` on every backend; the briefing prints it | the container argv carries `YOLO_CONTEXT_DIR=/ctx` on podman **and** Apple Container; the macos-user `RunPlan` bootstrap env carries it | no |
-| **3** | build DP-D15's fatal refusal for anything §3 does not deliver, and fix the banner contradiction (DP-B2) | a macos-user plan with a declared, undeliverable mount refuses from `Run`; with no `mounts` key it does not refuse; the banner stops announcing a read that does not happen | no |
+| **3** | build DP-D15's fatal refusal for anything [§3](#3-delivering-context-dirs-on-macos-user) does not deliver, and fix the banner contradiction (DP-B2) | a macos-user plan with a declared, undeliverable mount refuses from `Run`; with no `mounts` key it does not refuse; the banner stops announcing a read that does not happen | no |
 | **4** | macos-user ro delivery: links in `StagedCtxRoot`, Seatbelt rules, DAC preflight, siting | `SeatbeltProfile` output from the **plan builder** (not a direct call) contains each allow and deny with its test-id, in the [§3.4](#34-the-seatbelt-rules) order; `PlanInvariants` refuses a plan with a context link lacking a matching allow, or a ro source inside the writable set | **yes** (below) |
 | **5** | macos-user rw delivery (shared root only) | as step 4, for the write allow, plus a nested-ro-in-rw case | **yes** |
 | **6** | pack rw, only if [OQ-CX4](#OQ-CX4) rules for it | the footprint sentence and the argv | no |
@@ -473,7 +471,7 @@ rootless host or CI.
 | macos-user: copy the tree | **Rejected** by DP-D15 (size). |
 | macos-user: links in the sandbox home or workspace sidecar | **Rejected.** Agent-writable names, plus machine-wide contention. |
 | macos-user: no link, hand the agent the resolved path | **Viable, and weaker.** It has the same enforcement but no `/ctx`-shaped name, so pack text naming `/ctx/<into>` cannot resolve through `remapCtx`. |
-| macos-user: ACL grants for home sources | **Deferred** to [OQ-CX7](#OQ-CX7). §6.1's reasons stand. |
+| macos-user: ACL grants for home sources | **Deferred** to [OQ-CX7](#OQ-CX7). [§6.1](declaration-parity.md#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured)'s reasons stand. |
 | Lock a shared rw dir | **Rejected.** No tool expects it, and a stale lock is its own outage. |
 
 ## 7. Risks
@@ -532,7 +530,7 @@ rootless host or CI.
 4. 💬 <a id="OQ-CX4"></a>**[OQ-CX4](#OQ-CX4): may a pack declare a rw `mount`?**
    ([§2.7](#27-packs).)
 
-   _Leaning:_ **not in v1**. There is no approval gate any more (OQ-TP9), so a selected pack
+   _Leaning:_ **not in v1**. There is no approval gate any more ([OQ-TP9](trust-paths.md#decision-ledger)), so a selected pack
    would write into the user's home on disclosure alone, and no shipped pack needs it. Revisit
    with a concrete pack.
 
@@ -574,7 +572,7 @@ rootless host or CI.
    literals inside the home.
 
    _Leaning:_ **(a) for v1**. (c) extends `ancestorLiterals` into homes, which it refuses
-   deliberately, and whether a `literal` allows listing the directory is unmeasured. (b) is §6.1's
+   deliberately, and whether a `literal` allows listing the directory is unmeasured. (b) is [§6.1](declaration-parity.md#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured)'s
    declined consent surface. If the refusal proves intolerable, prefer (b) over (c).
 
    <!-- vantage: oq id=OQ-CX7 leaning="(a) for v1: refuse home-sited sources. (c) extends ancestorLiterals into homes, which it deliberately refuses; (b) is §6.1's declined consent surface. If the refusal proves intolerable, prefer (b) over (c)." -->
@@ -625,7 +623,7 @@ All of these are symbols, checked against the working tree on 2026-09-25.
   is the AGENT". `packload.Pack.HonoredMounts` refuses nothing. The footprint sentence is in
   `internal/packload/footprint.go`. It is absent from the briefing: `MountDescriptions` is built from
   config `mounts` only.
-- **The existing scope precedent** (input to workspace-config-trust.md). `config.validateCacheRelocations` and
+- **The existing scope precedent** (input to [`workspace-config-trust.md`](workspace-config-trust.md)). `config.validateCacheRelocations` and
   `config.LoadCacheRelocations`: the key is read from user config only, and a workspace-scoped key
   is a `yolo check` error.
 - **The credential-boundary predicate.** `paths.WorkspaceScopeBreach` and `paths.scopeExempt`
@@ -659,6 +657,6 @@ All of these are symbols, checked against the working tree on 2026-09-25.
 - **The briefing.** `jailcontent.BriefingContent` (`internal/jailcontent/briefing.go`) renders
   "## Additional Context Mounts (read-only)", splits on the first colon, and has the conditional
   Limitations bullet.
-- **Rulings re-opened or relied on.** DP-D15, DP-B1, DP-B2, DP-L1 and §6.1 in
-  [`declaration-parity.md`](declaration-parity.md). OQ-TP9 in [`trust-paths.md`](trust-paths.md).
-  OQ-RO3 in [`../reference/report-tiers.md`](../reference/report-tiers.md).
+- **Rulings re-opened or relied on.** DP-D15, DP-B1, DP-B2, DP-L1 and [§6.1](declaration-parity.md#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured) in
+  [`declaration-parity.md`](declaration-parity.md). [OQ-TP9](trust-paths.md#decision-ledger) in [`trust-paths.md`](trust-paths.md).
+  [OQ-RO3](../reference/report-tiers.md#why-its-this-way) in [`../reference/report-tiers.md`](../reference/report-tiers.md).

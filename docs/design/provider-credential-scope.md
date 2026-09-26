@@ -3,7 +3,7 @@ title: "What reaches which agent: a profile's credentials and env stay with the 
 date: 2026-09-22
 status: accepted
 tags: [providers, profiles, credentials, env-sources, delivery, notches, bedrock]
-summary: "When one agent selects a provider, yolo today delivers that provider's credentials and profile-gated variables to every agent in the jail, through four channels that all end in one shared env file. OQ-BR4 is ruled (2026-09-25): nothing leaks, delivery is as specific as possible. The gate has four candidate layers, three delivery vehicles and a shipped pre-flight that refuses the key it would withhold, and it needs a per-agent vehicle that does not exist yet (OQ-CN6)."
+summary: "When one agent selects a provider, yolo today delivers that provider's credentials and profile-gated variables to every agent in the jail, through four channels that all end in one shared env file. OQ-BR4 is ruled (2026-09-25): nothing leaks, delivery is as specific as possible. OQ-CN1 to OQ-CN6 are ruled (2026-09-26), all as leaned: one gate in composePackChannel that all three delivery vehicles read, a pre-flight narrowed with it, and a per-agent env file, sourced by that agent's launcher, as the vehicle. None of it is built."
 vantage:
   status-chip: true
 ---
@@ -32,7 +32,7 @@ every hydrated credential, every agent's shape variables and every satisfied pac
 land in one file that every process in the jail reads
 ([§2.7](#27-one-shared-file-five-readers)). [OQ-CN6](#OQ-CN6) picks the per-agent vehicle.
 
-**Needs your ruling:** none. [OQ-CN1](#OQ-CN1)–[OQ-CN6](#OQ-CN6) were ruled 2026-09-26 as leaned; the gate is unbuilt.
+**Needs your ruling:** none.
 
 **Start at [§2.7](#27-one-shared-file-five-readers) and [§3](#3-where-the-gate-can-sit):** why
 nothing is per-agent today, and where the gate can sit. That choice decides the rest.

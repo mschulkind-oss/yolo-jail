@@ -34,9 +34,7 @@ visible before it breaks anything.
 **Start at [§2.1](#21-the-criterion--decision-inputs-versus-carried-variables).** It holds the
 criterion that decides what is composed and what passes through; the rest follows from it.
 
-**Needs your ruling:** [OQ-HE1](#oq-he1), [OQ-HE2](#oq-he2), [OQ-HE3](#oq-he3),
-[OQ-HE4](#oq-he4), [OQ-HE5](#oq-he5), [OQ-HE6](#oq-he6), [OQ-HE7](#oq-he7), [OQ-HE8](#oq-he8),
-[OQ-HE9](#oq-he9), [OQ-HE10](#oq-he10).
+**Needs your ruling:** [OQ-HE1](#oq-he1), [OQ-HE2](#oq-he2), [OQ-HE3](#oq-he3), [OQ-HE4](#oq-he4), [OQ-HE5](#oq-he5), [OQ-HE6](#oq-he6), [OQ-HE7](#oq-he7), [OQ-HE8](#oq-he8), [OQ-HE9](#oq-he9), [OQ-HE10](#oq-he10).
 
 **Reads with:**
 - [`host-tool-provisioning.md`](host-tool-provisioning.md): whether yolo installs the floor this
@@ -447,6 +445,8 @@ append the ruling superseded.
 **Leaning: strict**, with stage 1's notices as the migration path. The ruling's objection to
 opportunism reads as an objection to yolo guessing, and a fixed guess is still a guess.
 
+<!-- vantage: oq id=OQ-HE1 leaning="Strict: an unset host_path resolves to the baseline alone once enforced, with stage 1's notices as the migration path. The ruling's objection to opportunism reads as an objection to yolo guessing, and the generous form's fixed guess (the baseline plus existence-filtered hint locations) is still a guess." -->
+
 > **Answer:**
 
 ### <a id="oq-he2"></a>💬 [`OQ-HE2`](#oq-he2) — may a pack declare the directory its program installs into? — **OPEN**
@@ -458,6 +458,8 @@ user-scope rule withholds from a workspace.
 
 **Leaning:** not in this design. If adopted later, shipped packs only.
 
+<!-- vantage: oq id=OQ-HE2 leaning="Not in this design: no pack declares the directory its program installs into, because a fetched pack could then add PATH entries to host launches, the capability the user-scope rule withholds from a workspace. If adopted later, shipped packs only." -->
+
 > **Answer:**
 
 ### <a id="oq-he3"></a>💬 [`OQ-HE3`](#oq-he3) — ship the `{"mise": "shims"}` typed entry, or plain directories only? — **OPEN**
@@ -466,6 +468,8 @@ Option B in [§2.3](#23-tool-managers--mise-and-the-shim-is-not-installed-proble
 
 **Leaning: B.** It is the only option that keeps mise's per-directory versioning and makes the
 probe's *present* true.
+
+<!-- vantage: oq id=OQ-HE3 leaning="B: ship the typed mise-shims entry, not plain directories only. It is the only option that keeps mise's per-directory versioning and makes the probe's present true." -->
 
 > **Answer:**
 
@@ -476,6 +480,8 @@ It serves a systemd unit or CI job that wants a different path without editing t
 **Leaning:** it exists, and it **replaces** `host_path` whole. That way the composed value never
 mixes two authorities, and `yolo check` names which one won.
 
+<!-- vantage: oq id=OQ-HE4 leaning="YOLO_HOST_PATH exists, and it replaces host_path whole, so the composed value never mixes two authorities and yolo check names which one won." -->
+
 > **Answer:**
 
 ### <a id="oq-he5"></a>💬 [`OQ-HE5`](#oq-he5) — offer `{"inherit": "PATH"}`? — **OPEN**
@@ -484,6 +490,8 @@ The ruling permits a *named* dependence on the launch environment, and this entr
 It is also the off-ramp for anyone who wants today's behavior.
 
 **Leaning: offer it.** `yolo check` labels it as the one non-deterministic entry.
+
+<!-- vantage: oq id=OQ-HE5 leaning="Offer the inherit-PATH entry: it is the named dependence on the launch environment the ruling permits, and the off-ramp for anyone who wants today's behavior. yolo check labels it as the one non-deterministic entry." -->
 
 > **Answer:**
 
@@ -498,6 +506,8 @@ every `export ANTHROPIC_API_KEY` user.
 environment; name it in `env_sources`," and enforcement comes with PATH's stage 3. The key itself
 still reaches the child as a carried variable either way.
 
+<!-- vantage: oq id=OQ-HE6 leaning="Stage the ambient credential fallback the same way as PATH: stage 1 reports that a key resolved from the invoking environment and should be named in env_sources, and enforcement comes with PATH's stage 3. The key itself still reaches the child as a carried variable either way." -->
+
 > **Answer:**
 
 ### <a id="oq-he7"></a>💬 [`OQ-HE7`](#oq-he7) — does the ruling extend to jail launches' host-side lookups? — **OPEN**
@@ -507,6 +517,8 @@ ambient PATH.
 
 **Leaning:** yes, in its own doc. It reuses this resolver's baseline, but it is a different
 command and a different migration.
+
+<!-- vantage: oq id=OQ-HE7 leaning="Yes, in its own doc: the ruling extends to the host-side lookups of jail launches. That doc reuses this resolver's baseline, but it is a different command and a different migration." -->
 
 > **Answer:**
 
@@ -519,6 +531,8 @@ without it in the baseline, remedies fall to `nix`.
 **Leaning:** read `/etc/paths` and `/etc/paths.d`, and include Homebrew's fixed prefixes when
 present. They are fixed locations, not launch environment.
 
+<!-- vantage: oq id=OQ-HE8 leaning="Read /etc/paths and /etc/paths.d, and include Homebrew's fixed prefixes when present. They are fixed locations, not launch environment." -->
+
 > **Answer:**
 
 ### <a id="oq-he9"></a>💬 [`OQ-HE9`](#oq-he9) — when does stage 3 flip the default? — **OPEN**
@@ -526,6 +540,8 @@ present. They are fixed locations, not launch environment.
 **Leaning:** setting `host_path` is the per-user opt-in (stage 2) from the first release. The
 default flips in a later release named at the time. It does not flip on a timer, and not before
 `yolo check`'s host launch section has shipped.
+
+<!-- vantage: oq id=OQ-HE9 leaning="Setting host_path is the per-user opt-in (stage 2) from the first release. The default flips in a later release named at the time, not on a timer, and not before yolo check's host launch section has shipped." -->
 
 > **Answer:**
 

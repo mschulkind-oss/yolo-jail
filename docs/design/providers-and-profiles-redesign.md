@@ -51,7 +51,7 @@ maintainer did not rule it:
   supported both through its native Converse client and through the bridge.
 - **Not ruled:** everything below.
 
-**Needs your ruling:**
+**Needs your ruling:** [OQ-BR2](#OQ-BR2), [OQ-BR8](#OQ-BR8), [OQ-PP1](#OQ-PP1), [OQ-PP2](#OQ-PP2), [OQ-PP3](#OQ-PP3), in this order:
 
 1. [OQ-BR2](#OQ-BR2) — the marker. It gates builds, so it comes first. _Leaning (⚠ changed
    2026-09-25):_ rule its substance now (a declared, open-vocabulary field, in both schemas),

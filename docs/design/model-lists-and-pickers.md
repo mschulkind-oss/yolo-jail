@@ -39,8 +39,7 @@ current.
   Those two carried the old prefix `PS`, as `PS1` and `PS3`, until later that day, when that doc's series was
   renamed `OQ-PSW` because [`provisioner-sets.md`](provisioner-sets.md) also uses `OQ-PS`.
 
-**Needs your ruling.** Rule [OQ-ML2](#OQ-ML2) first: it decides how many ids the other
-questions are about.
+**Needs your ruling:** [OQ-ML2](#OQ-ML2) first, because it decides how many ids the other questions are about; then [OQ-ML1](#OQ-ML1), [OQ-BR12](#OQ-BR12), [OQ-BR13](#OQ-BR13), [OQ-BR14](#OQ-BR14), [OQ-PSW1](#OQ-PSW1) and [OQ-BR15](#OQ-BR15).
 
 - [OQ-ML1](#OQ-ML1): the shape of the built-in picks pack. Leaning: one yolo-shipped pack that
   adds `models` entries to other packs' providers, joined through `needs`, and yielding to any
@@ -65,7 +64,7 @@ questions are about.
 [`wire-bridge-gateway.md`](wire-bridge-gateway.md#OQ-WG3), which reads this doc's effective
 list. Which vendors each agent can call on Bedrock, and the per-agent filter table:
 [`bedrock-plumbing.md`](bedrock-plumbing.md#OQ-BR9). Clearing a model id when you stop
-selecting a profile: [`provider-switching.md`](provider-switching.md#OQ-PSW2). Withholding a
+selecting a profile: [`provider-switching.md`](provider-switching.md#decision-ledger). Withholding a
 credential so that a menu shrinks: [`provider-credential-scope.md`](provider-credential-scope.md#OQ-CN4).
 What a provider and a profile should mean at all:
 [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md).

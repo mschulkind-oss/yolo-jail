@@ -8,12 +8,15 @@ summary: "A stub. The Node floor, its resolution, the launcher splice and the re
 
 # Agent program runtimes — the three questions left open
 
-**Status:** GRADUATED, 2026-09-25 — the settled body of this doc moved to
+**Status:** DESIGN, 2026-09-26 — three open questions, and none of their fixes is built. The
+settled body of this doc GRADUATED on 2026-09-25 to
 [`../reference/agent-program-runtimes.md`](../reference/agent-program-runtimes.md): the principle,
 the `node_floor` declaration, the resolution order and why resolving is split from installing, the
 launcher's exec prefix, the refusal, what is measured, and the rulings [`OQ-AR1`](../reference/agent-program-runtimes.md#oq-ar1)–[`OQ-AR4`](../reference/agent-program-runtimes.md#oq-ar4) and
 [`AR-L2`](../reference/agent-program-runtimes.md#ar-l2) in its [Why it's this way](../reference/agent-program-runtimes.md#why-its-this-way)
 table. The companion plan, `agent-program-runtimes-plan.md`, was deleted with the graduation.
+
+**Needs your ruling:** [OQ-AR5](#OQ-AR5), [OQ-AR6](#OQ-AR6), [OQ-AR7](#OQ-AR7).
 
 **This file is what remains: three open questions.** The first two are cases where a jail
 starts although [`OQ-AR3`](../reference/agent-program-runtimes.md#oq-ar3) says it should not; the

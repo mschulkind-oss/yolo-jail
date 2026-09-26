@@ -1,16 +1,18 @@
 ---
 title: "Gateway packs expose stable endpoints while users curate selectable models"
 date: 2026-09-15
-status: accepted
+status: in-review
 tags: [providers, packs, openrouter, kilo, models]
-summary: "A settled design for opt-in OpenRouter and Kilo packs whose model lists are supplied by user configuration."
+summary: "A built design for opt-in OpenRouter and Kilo packs whose model lists are supplied by user configuration. One question is open: OQ-GP4, whether the Kilo special-casing a later change added to the pi and claude derives stays."
 vantage:
   status-chip: true
 ---
 
 # Gateway packs expose stable endpoints while users curate selectable models
 
-**Status:** BUILT, 2026-09-15; re-checked against the tree 2026-09-24 — MEASURED: the two
+**Status:** DESIGN, 2026-09-26 — one question is open, [OQ-GP4](#OQ-GP4): whether the Kilo
+special-casing in the pi and claude derives stays. Everything else was BUILT on 2026-09-15 and
+re-checked against the tree 2026-09-24 — MEASURED: the two
 manifests, the codex credential-field fix and the per-agent projections are pinned by
 `internal/entrypoint/providerderive_test.go`. UNMEASURED: no live OpenRouter or Kilo run — no
 agent session through either gateway is recorded, the one recorded request being a read of

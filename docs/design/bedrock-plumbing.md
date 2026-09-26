@@ -27,7 +27,8 @@ agent can read it.
 - UNMEASURED: no request has reached Bedrock from any agent, through the bridge, or with any of
   the three credentials.
 
-**Needs your ruling:** rule these two together, because the second leans on the first.
+**Needs your ruling:** [OQ-BR9](#OQ-BR9) and [OQ-BR1](#OQ-BR1), together, because the second
+leans on the first.
 - [OQ-BR9](#OQ-BR9): one `bedrock` provider holding every model family? Leaning yes.
 - [OQ-BR1](#OQ-BR1): what you type. Leaning `-p bedrock` everywhere, plus one name that forces the
   bridge. It holds only if [OQ-BR9](#OQ-BR9) goes A.
@@ -35,19 +36,20 @@ agent can read it.
 ## The Bedrock and provider design set
 
 Yes, the weekly list's three rows are one set of questions. On 2026-09-25 they, and the rest of
-this doc's former questions, were split across these eight docs. **34 questions are open across the
-set.** Rule them in this order, because each later doc leans on the earlier ones:
+this doc's former questions, were split across these eight docs. Rule what is still open in this
+order, because each later doc leans on the earlier ones. Each doc's own **Needs your ruling** line
+names what is open there.
 
-| Order | Doc | Its one question | Open |
+| Order | Doc | Its one question | Ruled |
 | :--- | :--- | :--- | :--- |
-| 1 | [`provider-switching.md`](provider-switching.md) | what happens to the model id yolo wrote when you drop a profile ([OQ-PSW2](provider-switching.md#OQ-PSW2), [OQ-PSW4](provider-switching.md#OQ-PSW4)) | 2 |
-| 2 | this doc | one Bedrock provider, and what you type ([OQ-BR9](#OQ-BR9) with [OQ-BR1](#OQ-BR1)) | 2 |
-| 3 | [`provider-credential-scope.md`](provider-credential-scope.md) | which credentials and env a profile lets through to which agent ([OQ-CN6](provider-credential-scope.md#OQ-CN6) with [OQ-CN2](provider-credential-scope.md#OQ-CN2) first) | 6 |
-| 4 | [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md) | what a provider and a profile should mean ([OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2), then [OQ-BR8](providers-and-profiles-redesign.md#OQ-BR8), then the PP questions) | 5 |
-| 5 | [`model-lists-and-pickers.md`](model-lists-and-pickers.md) | which models each picker shows, and which yolo picks ([OQ-ML2](model-lists-and-pickers.md#OQ-ML2) first) | 7 |
-| 6 | [`wire-bridge-gateway.md`](wire-bridge-gateway.md) | how the bridge signs, and sending all traffic through it ([OQ-WG1](wire-bridge-gateway.md#OQ-WG1) first) | 5 |
-| 7 | [`bedrock-web-search.md`](bedrock-web-search.md) | web search on Bedrock profiles | 5 |
-| 8 | [`sso-backed-bedrock.md`](sso-backed-bedrock.md) | the SSO credential's last two edges ([OQ-SSO8](sso-backed-bedrock.md#OQ-SSO8), [OQ-SSO9](sso-backed-bedrock.md#OQ-SSO9)), both ruled 2026-09-25 | 0 |
+| 1 | [`provider-switching.md`](provider-switching.md) | what happens to the model id yolo wrote when you drop a profile ([OQ-PSW2](provider-switching.md#decision-ledger), [OQ-PSW4](provider-switching.md#OQ-PSW4)) | 2026-09-25 |
+| 2 | this doc | one Bedrock provider, and what you type ([OQ-BR9](#OQ-BR9) with [OQ-BR1](#OQ-BR1)) | — |
+| 3 | [`provider-credential-scope.md`](provider-credential-scope.md) | which credentials and env a profile lets through to which agent ([OQ-CN6](provider-credential-scope.md#OQ-CN6) with [OQ-CN2](provider-credential-scope.md#OQ-CN2) first) | 2026-09-26 |
+| 4 | [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md) | what a provider and a profile should mean ([OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2), then [OQ-BR8](providers-and-profiles-redesign.md#OQ-BR8), then the PP questions) | — |
+| 5 | [`model-lists-and-pickers.md`](model-lists-and-pickers.md) | which models each picker shows, and which yolo picks ([OQ-ML2](model-lists-and-pickers.md#OQ-ML2) first) | — |
+| 6 | [`wire-bridge-gateway.md`](wire-bridge-gateway.md) | how the bridge signs, and sending all traffic through it ([OQ-WG1](wire-bridge-gateway.md#OQ-WG1) first) | 2026-09-25 |
+| 7 | [`bedrock-web-search.md`](bedrock-web-search.md) | web search on Bedrock profiles | — |
+| 8 | [`sso-backed-bedrock.md`](sso-backed-bedrock.md) | the SSO credential's last two edges ([OQ-SSO8](sso-backed-bedrock.md#OQ-SSO8), [OQ-SSO9](sso-backed-bedrock.md#OQ-SSO9)) | 2026-09-25 |
 
 ## Where the split ended up
 
@@ -684,7 +686,7 @@ R6 to R11 moved with the bridge, model-list and search designs.
 
 ## 13. Open Questions
 
-1. 💬 **OQ-BR9: One Bedrock provider, holding every model family, in its own pack?** With mantle
+1. 💬 <a id="OQ-BR9"></a>**[OQ-BR9](#OQ-BR9): One Bedrock provider, holding every model family, in its own pack?** With mantle
    not shipped, the question is whether one runtime provider carries every family the org selected,
    and who owns it ([§6.1](#61-the-provider-shape-one-bedrock-provider-or-two)). Stakes: whether a
    new vendor is a list entry or a new provider plus profile; whether `-p bedrock` means one thing
@@ -714,7 +716,7 @@ R6 to R11 moved with the bridge, model-list and search designs.
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 **OQ-BR1: What does a user type to put an agent on Bedrock, and is "native client or wire
+2. 💬 <a id="OQ-BR1"></a>**[OQ-BR1](#OQ-BR1): What does a user type to put an agent on Bedrock, and is "native client or wire
    bridge" something they name?** The maintainer, 2026-09-25, on the earlier version: *"I have no
    idea what any of these are. This is very unclear … maybe bedrock-codex would be the native,
    which is really only useful against the codex agent? would you want that against claude code?

@@ -23,6 +23,10 @@ daemon actually run — are blocked on [OQ-DP8](declaration-parity.md#OQ-DP8) an
 > per declared daemon. The silence is fixed; the absence is not, and the absence is what steps
 > 3 and 4 are for.
 
+**Needs your ruling:** none in this plan. The two rulings that steps 3 and 4 wait on are filed as
+open questions in [`declaration-parity.md`](declaration-parity.md#open-questions); see
+[Blockers](#blockers).
+
 ## What this is for, if you have no context
 
 **The rule.** A loophole's two halves are independently present, and the jail half is decided by the
@@ -338,6 +342,6 @@ now logs `spawn failed:` and obeys the restart policy, so step 4's first run is 
 
 **Adjacent:** whether an official pack can ship an executable at all — an embedded pack's files
 come back `0444` from `embed.FS`. That bounds the `hello-daemon` subject to a path-configured pack
-and is [`OQ-BP5`](broker-as-a-pack.md#OQ-BP5), routed through [`roadmap.md`](../plans/roadmap.md)'s 💬 table.
+and is [`OQ-BP5`](broker-as-a-pack.md#OQ-BP5), routed through [`roadmap.md`](../plans/roadmap.md)'s table of questions awaiting a ruling.
 It still holds after the embedded tree became one leased on-disk tree per build: that tree is
 sealed read-only (`packload.sealEmbeddedTree`), so its files are still `0444`.

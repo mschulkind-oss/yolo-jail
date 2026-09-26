@@ -32,16 +32,15 @@ local file themselves. That cost is real ([§4.3](#43-the-honest-cost-the-human-
 **Start at [§2](#2-two-actors-and-the-one-thing-each-can-write).** The rest falls out of which actor can write
 which file.
 
-**Needs your ruling:** [OQ-WT1](#OQ-WT1), [OQ-WT2](#OQ-WT2), [OQ-WT3](#OQ-WT3), [OQ-WT4](#OQ-WT4),
-[OQ-WT5](#OQ-WT5), [OQ-WT6](#OQ-WT6), [OQ-WT7](#OQ-WT7), [OQ-WT8](#OQ-WT8), [OQ-WT9](#OQ-WT9).
+**Needs your ruling:** [OQ-WT1](#OQ-WT1), [OQ-WT2](#OQ-WT2), [OQ-WT3](#OQ-WT3), [OQ-WT4](#OQ-WT4), [OQ-WT5](#OQ-WT5), [OQ-WT6](#OQ-WT6), [OQ-WT7](#OQ-WT7), [OQ-WT8](#OQ-WT8), [OQ-WT9](#OQ-WT9); and [OQ-AS3](../research/agent-safehouse.md#OQ-AS3), which is filed in `agent-safehouse.md` and which [OQ-WT8](#OQ-WT8) asks whether to absorb.
 
 **Reads with:** [`context-mounts.md`](context-mounts.md) (owns the *mount* mechanics; this doc owns only its
-§2.2 trust predicate), [`config-safety.md`](../reference/config-safety.md) (the config-change approval gate that
+[§2.2](context-mounts.md#22-where-an-rw-mount-may-be-declared-deferred) trust predicate), [`config-safety.md`](../reference/config-safety.md) (the config-change approval gate that
 already exists, and that this design has to justify itself against),
 [`gate-placement-principle.md`](../reference/gate-placement-principle.md) (Test 1, which every option is
 scored on), [`trust-paths.md`](trust-paths.md) ([OQ-TP6](trust-paths.md#decision-ledger) and
 [OQ-TP9](trust-paths.md#decision-ledger)), [`agent-safehouse.md`](../research/agent-safehouse.md)
-([OQ-AS3](../research/agent-safehouse.md#OQ-AS3) and §7.2/§9, the argument this doc answers). **No `-plan.md`
+([OQ-AS3](../research/agent-safehouse.md#OQ-AS3) and [§7.2](../research/agent-safehouse.md#72-where-they-genuinely-disagree)/[§9](../research/agent-safehouse.md#9-negative-space--what-not-to-adopt), the argument this doc answers). **No `-plan.md`
 sketch exists.** It was deferred because this doc was written under a one-new-file constraint.
 
 ---
@@ -140,7 +139,7 @@ somebody judged this gate not enough.
 | Key | Workspace scope today | Why (from the refusal text) |
 |---|---|---|
 | `mounts` (ro only) | allowed, behind the approval gate | none; [OQ-AS3](../research/agent-safehouse.md#OQ-AS3) asks |
-| `env_sources` | allowed, behind the approval gate | none; OQ-AS3 asks |
+| `env_sources` | allowed, behind the approval gate | none; [OQ-AS3](../research/agent-safehouse.md#OQ-AS3) asks |
 | `devices`, `gpu`, `kvm`, `network` | allowed, behind the approval gate | not argued anywhere found |
 | `cache_relocations` (rw host mount) | refused | agent-editable, so no rw host mounts |
 | source-bearing `host_files` | refused | travels with the repo and is agent-editable |
@@ -152,8 +151,8 @@ somebody judged this gate not enough.
 | `host_wrappers`, `host_apply_on_launch`, `host_management`, `promotion_target` | refused | acts on the real home or host `PATH`, machine-wide |
 | `perf_logging` | refused | read before workspace config loads |
 
-The first three rows are the whole ro-context surface. OQ-AS3 already asks whether the first two leave
-workspace scope. **This doc does not absorb OQ-AS3. It pairs with it** ([OQ-WT8](#OQ-WT8)). AS3 decides
+The first three rows are the whole ro-context surface. [OQ-AS3](../research/agent-safehouse.md#OQ-AS3) already asks whether the first two leave
+workspace scope. **This doc does not absorb [OQ-AS3](../research/agent-safehouse.md#OQ-AS3). It pairs with it** ([OQ-WT8](#OQ-WT8)). AS3 decides
 where ro reach may sit; this doc decides what a trust record adds. If AS3 rules ro reach user-scope-only, this
 doc's local-file-plus-trust route is the natural place for a per-workspace ro mount to go.
 
@@ -170,7 +169,7 @@ asks us to name the actor. There are three, and they write different files:
 | **The in-jail agent** | the committed file (unless `workspace_readonly` is set), **always** the local file, and in-workspace includes | **no** |
 
 Both non-human actors fail Test 1, so a gate on each passes the test. This is where a trust record parts company
-with the one OQ-TP9 deleted. The fetched-pack prompt guarded an act that already required a user-scope write, so
+with the one [OQ-TP9](trust-paths.md#decision-ledger) deleted. The fetched-pack prompt guarded an act that already required a user-scope write, so
 it refused an actor who had passed a stronger gate. A grant in workspace scope requires no such write. The
 Safehouse comparison reached the same answer about Safehouse's own trust gate
 ([§7.2 A](../research/agent-safehouse.md#72-where-they-genuinely-disagree): "For Safehouse's gate the answer is
@@ -232,7 +231,7 @@ A `yolo trust` verb records that the human approved a workspace's grants. At lau
 record refuses. Grants may sit in either workspace file.
 
 - **Stops:** the agent. Its edit changes the grant set, so the hash misses and the launch refuses. **Stops the
-  author only by prompting**, and on a cloned repo that prompt is the Safehouse gate §9 advised against: a stranger's
+  author only by prompting**, and on a cloned repo that prompt is the Safehouse gate [§9](../research/agent-safehouse.md#9-negative-space--what-not-to-adopt) advised against: a stranger's
   repo can *ask* for a writable host path, and a busy human answers. The y reflex that
   [OQ-S1](../reference/config-safety.md#oq-s1) warns about lands exactly here.
 - **Friction:** one `yolo trust` per change to the grant set.
@@ -289,7 +288,7 @@ Recommend **C**, and **ice it** until an rw mount is actually wanted
 
 The grant builder reads the local file **directly**, the way `LoadCacheRelocations` reads the user file, and never
 from the merged map. The merge does not record which file an element came from, and a builder that cannot say
-where an element came from cannot apply this table (context-mounts §2.2). `yolo check` applies the same table.
+where an element came from cannot apply this table ([`context-mounts.md` §2.2](context-mounts.md#22-where-an-rw-mount-may-be-declared-deferred)). `yolo check` applies the same table.
 
 ### 4.2 The trust record
 
@@ -355,7 +354,7 @@ and Test 2 ([OQ-WT9](#OQ-WT9)).
 
 There is no rw grant form today, so no record exists to migrate, and no config can hold a grant until the feature
 ships. Existing local files, and this repo's committed ro `mounts` entry, are untouched by this design. Moving ro
-mounts is OQ-AS3's to decide.
+mounts is [OQ-AS3](../research/agent-safehouse.md#OQ-AS3)'s to decide.
 
 ### 4.8 What done looks like
 
@@ -373,10 +372,10 @@ mounts is OQ-AS3's to decide.
 
 - **No trust for the committed file, ever,** under C. The maintainer's "never in a git-committed file" becomes a
   refusal rather than a prompt.
-- **No change to the approval gate**, to ro `mounts`, or to `env_sources`. Those belong to OQ-AS3.
+- **No change to the approval gate**, to ro `mounts`, or to `env_sources`. Those belong to [OQ-AS3](../research/agent-safehouse.md#OQ-AS3).
 - **No "trust this workspace" blanket.** Trust attaches to a grant set, so a trusted workspace does not trust its
   next grant.
-- **No env var** to trust or skip trust, for the reason OQ-D2 gave for `--accept-config-changes`.
+- **No env var** to trust or skip trust, for the reason [OQ-D2](../reference/config-safety.md#oq-d2) gave for `--accept-config-changes`.
 - **No trust store in the workspace**, including under `.yolo/`, which the jail can write.
 
 ## 6. What a trusted grant could unlock
@@ -391,9 +390,9 @@ says "agent-editable" (a record the agent cannot write would answer that reason)
 | `cache_relocations` | agent-editable | yes |
 | source-bearing `host_files` | agent-editable, travels with the repo | yes |
 | provider `base_url` | agent-editable; steers inference and credentials | yes, but it is an exfiltration channel ([OQ-WT7](#OQ-WT7)) |
-| ro `mounts`, `env_sources` | none today | only if OQ-AS3 moves them |
+| ro `mounts`, `env_sources` | none today | only if [OQ-AS3](../research/agent-safehouse.md#OQ-AS3) moves them |
 | `programs`, `agent_updates` | agent-editable | technically; the payoff is unclear |
-| `packs` (OQ-MP7's safe subset) | install-shaped; [OQ-MP7](mcp-presets-removal.md#OQ-MP7) ruled the axis to be host reach, not install | a different question: MP7 wants a subset a **committed** file may declare |
+| `packs` ([OQ-MP7](mcp-presets-removal.md#OQ-MP7)'s safe subset) | install-shaped; [OQ-MP7](mcp-presets-removal.md#OQ-MP7) ruled the axis to be host reach, not install | a different question: MP7 wants a subset a **committed** file may declare |
 | `host_wrappers`, `host_apply_on_launch`, `host_management`, `promotion_target` | act on the real home or host `PATH`, machine-wide | **no**; a machine-wide effect is not per-workspace |
 | `perf_logging` | read before workspace config loads | **no**; the ordering is structural |
 | loophole install, `env`, `doctor_cmd`, `settings` | agent-editable; `env` and `doctor_cmd` reach a host daemon | not proposed: host execution is the axis [OQ-MP7](mcp-presets-removal.md#OQ-MP7) reopened, and it needs its own ruling |
@@ -494,7 +493,7 @@ says "agent-editable" (a record the agent cannot write would answer that reason)
    **Answer:**
    > _(empty — fill in when decided)_
 
-8. 💬 <a id="OQ-WT8"></a>**[OQ-WT8](#OQ-WT8): Does this doc absorb OQ-AS3, or pair with it?**
+8. 💬 <a id="OQ-WT8"></a>**[OQ-WT8](#OQ-WT8): Does this doc absorb [OQ-AS3](../research/agent-safehouse.md#OQ-AS3), or pair with it?**
 
    _Leaning:_ **Pair.** AS3 stays the question of whether ro `mounts` and `env_sources` leave workspace scope. This
    doc adds a third answer to it: "local file plus trust". AS3 can then rule without this doc being built.

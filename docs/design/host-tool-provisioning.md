@@ -37,8 +37,7 @@ jail's reach. On macOS, the three installer-recipe agents stay uncovered until
 **Start at [§3](#3-the-host-prefix).** The prefix's two rules, *only floor names on PATH* and *never
 jail-reachable*, are what make putting it first safe.
 
-**Needs your ruling:** [OQ-HP1](#OQ-HP1), [OQ-HP2](#OQ-HP2), [OQ-HP3](#OQ-HP3), [OQ-HP4](#OQ-HP4),
-[OQ-HP5](#OQ-HP5), [OQ-HP6](#OQ-HP6).
+**Needs your ruling:** [OQ-HP1](#OQ-HP1), [OQ-HP2](#OQ-HP2), [OQ-HP3](#OQ-HP3), [OQ-HP4](#OQ-HP4), [OQ-HP5](#OQ-HP5), [OQ-HP6](#OQ-HP6).
 
 **Reads with:**
 - [`host-tool-provisioning-plan.md`](host-tool-provisioning-plan.md): the implementation sketch.
