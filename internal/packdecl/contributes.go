@@ -357,7 +357,12 @@ type Contribution struct {
 	// env_sources or the invoking environment, and the pack ships only where to look.
 	// The `_name` is the value's type read out loud (providers.md#pv-oq-6), the same distinction
 	// the `providers` config key draws with `api_key_env`.
-	APIKeyEnvName string `json:"api_key_env_name,omitempty"`
+	//
+	// A LIST when the provider's credential arrives in several variables (OQ-CN1,
+	// docs/design/provider-credential-scope.md): every name is one the credential gate
+	// delivers only to an agent that selected this provider. See EnvNames for why one name
+	// stays a string and why several point an agent at none of them.
+	APIKeyEnvName EnvNames `json:"api_key_env_name,omitempty"`
 	// Region is the region a regional provider is reached through — Bedrock's address
 	// half, where "where is this service" is a region plus a well-known host rather than
 	// a base URL. It is a service fact for the same reason an endpoint is: it says where
@@ -1068,7 +1073,7 @@ type ProviderEndpoint struct {
 type ProviderContribution struct {
 	Name          string
 	Endpoints     map[string]ProviderEndpoint
-	APIKeyEnvName string
+	APIKeyEnvName EnvNames
 	Region        string
 	Models        map[string]string
 	ModelOptions  map[string]map[string]string
@@ -2774,6 +2779,7 @@ func validateContribution(label string, c Contribution) []string {
 	case KindProvider:
 		req("name", c.Name)
 		problems = append(problems, validateProviderEndpoints(label, c.Endpoints)...)
+		problems = append(problems, c.APIKeyEnvName.Problems(label)...)
 		for alias, facts := range c.ModelOptions {
 			if _, exists := c.Models[alias]; !exists {
 				problems = append(problems, fmt.Sprintf("%s: model_options.%s needs a matching models alias", label, alias))

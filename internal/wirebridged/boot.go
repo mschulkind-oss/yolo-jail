@@ -272,7 +272,7 @@ func adapterHandler(route route, e *entrypoint.Env) (http.Handler, string, strin
 		// now and resolved lazily per request (signing.go). A jail with no source at
 		// all idles, as a missing key does: the bridge never serves unauthenticated.
 		env := sigv4.EnvFrom(func(name string) string {
-			v, _ := resolveKey(name, e.Home)
+			v, _ := resolveKey(name, e.Home, route.Agent)
 			return v
 		})
 		if !hasAWSCredentialSource(env) {
@@ -280,19 +280,19 @@ func adapterHandler(route route, e *entrypoint.Env) (http.Handler, string, strin
 				"credential sources is set — a static AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY pair, "+
 				"the aws-auth pointer AWS_CONTAINER_CREDENTIALS_FULL_URI, or AWS_BEARER_TOKEN_BEDROCK — "+
 				"in %s or this process's environment", route.ProviderName, route.UpstreamBaseURL,
-				userEnvFilePath(e.Home))
+				keyChannelDescription(e.Home, route.Agent))
 		}
 		return newSignedChatHandler(route.UpstreamBaseURL,
 				wirebridge.ChatOptions{OmitStreamUsage: route.OmitStreamUsage},
 				&bedrockSigner{region: route.SignRegion, chain: &sigv4.Chain{Env: env}}),
 			"SigV4 for bedrock in " + route.SignRegion + ", from " + env.String(), ""
 	}
-	key, keySource := resolveKey(route.KeyEnvName, e.Home)
+	key, keySource := resolveKey(route.KeyEnvName, e.Home, route.Agent)
 	if key == "" && route.KeyEnvName != "" {
 		return nil, "", fmt.Sprintf("provider %q names credential variable %s, and it is set "+
 			"neither in %s nor in this process's environment — the bridge never serves "+
 			"unauthenticated upstream traffic (wire-bridge.md §5)",
-			route.ProviderName, route.KeyEnvName, userEnvFilePath(e.Home))
+			route.ProviderName, route.KeyEnvName, keyChannelDescription(e.Home, route.Agent))
 	}
 	return newChatHandler(route.UpstreamBaseURL, key,
 		wirebridge.ChatOptions{OmitStreamUsage: route.OmitStreamUsage}), keySource, ""
@@ -558,6 +558,9 @@ func idleUntilStopped(ctx context.Context) int {
 // read ONCE from the composed table and never again (§5: the upstream is never
 // taken from request content).
 type route struct {
+	// Agent is the agent whose profile selected this route's provider — whose own env
+	// file holds the provider's credential since the credential gate (keyfile.go).
+	Agent            string
 	ProviderName     string
 	ListenAddr       string
 	UpstreamBaseURL  string
@@ -768,7 +771,7 @@ func routeFor(providers *jsonx.OrderedMap, useProfiles map[string]string,
 					}
 				}
 			}
-			return route{ProviderName: providerName, ListenAddr: listenAddr,
+			return route{Agent: agent, ProviderName: providerName, ListenAddr: listenAddr,
 				UpstreamBaseURL: CodexResponsesBaseURL, CodexAccessToken: true}, ""
 		}
 
@@ -810,10 +813,14 @@ func routeFor(providers *jsonx.OrderedMap, useProfiles map[string]string,
 		}
 
 		return route{
+			Agent:           agent,
 			ProviderName:    providerName,
 			ListenAddr:      listenAddr,
 			UpstreamBaseURL: openaiURL,
-			KeyEnvName:      entryString(entry, "", "api_key_env_name"),
+			// The ONE variable the provider points at (packload.KeyEnvName): a provider
+			// listing several credential variables (OQ-CN1) points at none, and a Bedrock
+			// upstream signs from the AWS names instead (SignRegion).
+			KeyEnvName:      packload.KeyEnvName(entry),
 			OmitStreamUsage: resolved[profileName].Options[streamUsageOption] == "false",
 			SignRegion:      bedrockSignRegion(openaiURL),
 		}, ""

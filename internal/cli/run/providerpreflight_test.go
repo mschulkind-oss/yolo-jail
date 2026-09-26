@@ -57,6 +57,19 @@ func zaiPackFixture(t *testing.T, name, provider, keyEnv string) *packload.Pack 
 // emptyEnv is a hydrated env_sources map that delivered nothing.
 func emptyEnv() *jsonx.OrderedMap { return jsonx.NewOrderedMap() }
 
+// zaiSelectedByAcme is the zai fixture beside an agent pack whose CLI, acme, selects it on
+// o. Since the pre-flight narrowed with the credential gate (OQ-CN3,
+// docs/design/provider-credential-scope.md) a key is demanded only for a provider SOME
+// agent's profile selects — a cataloged provider nobody selected has its key delivered to
+// nobody — so every refusal this file pins needs that agent.
+func zaiSelectedByAcme(t *testing.T, o *Options) []*packload.Pack {
+	t.Helper()
+	o.UseProfiles = map[string]string{"acme": "zai"}
+	acme := inlinePack(t, "acme", `{"name":"acme","contributes":[`+
+		`{"kind":"program","bin":"acme","via":"npm","package":"@acme/acme","protocols":["openai"]}]}`)
+	return []*packload.Pack{acme, zaiPackFixture(t, "zai", "zai", "ZAI_API_KEY")}
+}
+
 // channelFor is composePackChannel with the refusal channel turned into a test failure:
 // every test below asks what the pre-flight says about a table that COMPOSED. The refusal
 // the composition itself can produce — a user base_url merged over a pack that ships
@@ -84,7 +97,8 @@ func TestCheckProviderCredentialsRefusesAnUnhydratedKey(t *testing.T) {
 		}
 		return ""
 	}
-	lines, refuse := o.checkProviderCredentials(newConfig(), []*packload.Pack{zaiPackFixture(t, "zai", "zai", "ZAI_API_KEY")}, channelFor(t, o, newConfig(), []*packload.Pack{zaiPackFixture(t, "zai", "zai", "ZAI_API_KEY")}, emptyEnv()), nil)
+	packs := zaiSelectedByAcme(t, o)
+	lines, refuse := o.checkProviderCredentials(newConfig(), packs, channelFor(t, o, newConfig(), packs, emptyEnv()), nil)
 	if len(lines) == 0 || !refuse {
 		t.Fatalf("a selected provider pack with no key hydrated must refuse the launch "+
 			"(lines=%d refuse=%v)", len(lines), refuse)
@@ -120,18 +134,18 @@ func TestCheckProviderCredentialsRefusesAnUnhydratedKey(t *testing.T) {
 func TestCheckProviderCredentialsFollowCatalogMembership(t *testing.T) {
 	home := retireHome(t)
 	writeUserPacks(t, home, `[]`)
-	packs := []*packload.Pack{zaiPackFixture(t, "zai", "zai", "ZAI_API_KEY")}
-
 	dropped := jsonx.NewOrderedMap()
 	dropped.Set("zai", nil) // the user's "no" — the entry leaves the composed table
 	cfg := newConfig("providers", dropped)
 	o := retireOptions(t, discardBuf())
+	packs := zaiSelectedByAcme(t, o)
 	if lines, refuse := o.checkProviderCredentials(cfg, packs, channelFor(t, o, cfg, packs, emptyEnv()), nil); len(lines) != 0 || refuse {
 		t.Errorf("a provider the user null-dropped left the catalog and must not be required "+
 			"(lines=%d refuse=%v):\n%s", len(lines), refuse, strings.Join(lines, "\n"))
 	}
 
 	o = retireOptions(t, discardBuf())
+	o.UseProfiles = map[string]string{"acme": "zai"}
 	lines, refuse := o.checkProviderCredentials(newConfig(), packs, channelFor(t, o, newConfig(), packs, emptyEnv()), nil)
 	if len(lines) == 0 || !refuse {
 		t.Fatalf("the same pack with its provider cataloged must still refuse "+
@@ -179,7 +193,11 @@ func TestCheckProviderCredentialsHatchLiftsTheRefusal(t *testing.T) {
 		}
 		return ""
 	}
-	lines, refuse := o.checkProviderCredentials(newConfig(), []*packload.Pack{zaiPackFixture(t, "zai", "zai", "ZAI_API_KEY")}, channelFor(t, o, newConfig(), []*packload.Pack{zaiPackFixture(t, "zai", "zai", "ZAI_API_KEY")}, emptyEnv()), nil)
+	packs := zaiSelectedByAcme(t, o)
+	lines, refuse := o.checkProviderCredentials(newConfig(), packs, channelFor(t, o, newConfig(), packs, emptyEnv()), nil)
+	if len(lines) == 0 {
+		t.Fatal("the hatch must still print what it is suppressing")
+	}
 	got := strings.Join(lines, "\n")
 	if !strings.HasPrefix(got, "Warning: "+paths.AllowMissingProvidersEnv+" is set") {
 		t.Errorf("the override must say what it is suppressing, first line:\n%s", lines[0])
@@ -205,22 +223,29 @@ func TestCheckProviderCredentialsHatchLiftsTheRefusal(t *testing.T) {
 func TestCheckProviderCredentialsSilentOnceTheKeyArrives(t *testing.T) {
 	home := retireHome(t)
 	writeUserPacks(t, home, `[]`)
-	packs := []*packload.Pack{zaiPackFixture(t, "zai", "zai", "ZAI_API_KEY")}
-
 	hydrated := jsonx.NewOrderedMap()
 	hydrated.Set("ZAI_API_KEY", "sk-envsource")
 	o := retireOptions(t, discardBuf())
+	packs := zaiSelectedByAcme(t, o)
+	// The control: the same selected launch with NO key refuses, so the silences below are
+	// the key arriving, not the check being inert (a cataloged provider nobody selected is
+	// silent too since OQ-CN3, which is exactly the vacuous pass this guards against).
+	if _, refuse := o.checkProviderCredentials(newConfig(), packs, channelFor(t, o, newConfig(), packs, emptyEnv()), nil); !refuse {
+		t.Fatal("control: the selected launch with no key must refuse")
+	}
 	if lines, refuse := o.checkProviderCredentials(newConfig(), packs, channelFor(t, o, newConfig(), packs, hydrated), nil); len(lines) != 0 || refuse {
 		t.Errorf("a key from env_sources must satisfy the check:\n%s", strings.Join(lines, "\n"))
 	}
 
 	assembled := envPairs([]string{"-e", "SOME_OTHER=1", "-e", "ZAI_API_KEY=sk-argv", "-e", "YOLO_VERSION=9"})
 	o = retireOptions(t, discardBuf())
+	o.UseProfiles = map[string]string{"acme": "zai"}
 	if lines, refuse := o.checkProviderCredentials(newConfig(), packs, channelFor(t, o, newConfig(), packs, emptyEnv()), assembled); len(lines) != 0 || refuse {
 		t.Errorf("a key already on the assembled argv must satisfy the check:\n%s", strings.Join(lines, "\n"))
 	}
 
 	o = retireOptions(t, discardBuf())
+	o.UseProfiles = map[string]string{"acme": "zai"}
 	o.Getenv = func(name string) string {
 		if name == "ZAI_API_KEY" {
 			return "sk-shell"
@@ -242,7 +267,8 @@ func TestCheckProviderCredentialsTreatsAnEmptyValueAsMissing(t *testing.T) {
 	hydrated := jsonx.NewOrderedMap()
 	hydrated.Set("ZAI_API_KEY", "")
 	o := retireOptions(t, discardBuf())
-	if lines, refuse := o.checkProviderCredentials(newConfig(), []*packload.Pack{zaiPackFixture(t, "zai", "zai", "ZAI_API_KEY")}, channelFor(t, o, newConfig(), []*packload.Pack{zaiPackFixture(t, "zai", "zai", "ZAI_API_KEY")}, hydrated), nil); len(lines) == 0 || !refuse {
+	packs := zaiSelectedByAcme(t, o)
+	if lines, refuse := o.checkProviderCredentials(newConfig(), packs, channelFor(t, o, newConfig(), packs, hydrated), nil); len(lines) == 0 || !refuse {
 		t.Fatal("an empty credential variable must not satisfy the check")
 	}
 }
@@ -274,10 +300,13 @@ func TestCheckProviderCredentialsExistenceOnlyWithoutAKeyVariable(t *testing.T) 
 	}
 }
 
-// providers.md#pv-oq-13's scope is the SELECTED pack. A pack that ships a provider and needs a key is
-// inert when this launch does not select it — which is the ordinary case for a shared
-// workspace config that names more providers than any one machine has keys for. Pinned as
-// a contrast in both directions, so the silence cannot be the check being inert.
+// The scope is the SELECTED PROVIDER (OQ-CN3, narrowing providers.md#pv-oq-13's selected
+// pack). A pack that ships a provider and needs a key is inert when this launch does not
+// select the pack — the ordinary case for a shared workspace config naming more providers
+// than one machine has keys for — and, since the credential gate, inert too when the pack
+// is selected but no agent's profile selects its provider, because the gate delivers that
+// key to nobody. Pinned as a contrast in all three directions, so the silence cannot be the
+// check being inert.
 func TestCheckProviderCredentialsIgnoresAnUnselectedPack(t *testing.T) {
 	home := retireHome(t)
 	writeUserPacks(t, home, `[]`)
@@ -289,8 +318,14 @@ func TestCheckProviderCredentialsIgnoresAnUnselectedPack(t *testing.T) {
 		t.Fatalf("a launch that does not select the requiring pack must stay silent:\n%s",
 			strings.Join(lines, "\n"))
 	}
-	if lines, refuse := o.checkProviderCredentials(newConfig(), append(selected, requireing), channelFor(t, o, newConfig(), append(selected, requireing), emptyEnv()), nil); len(lines) == 0 || !refuse {
-		t.Fatalf("the same launch with the requiring pack SELECTED must refuse (lines=%d refuse=%v)",
+	both := append(selected, requireing)
+	if lines, refuse := o.checkProviderCredentials(newConfig(), both, channelFor(t, o, newConfig(), both, emptyEnv()), nil); len(lines) != 0 || refuse {
+		t.Fatalf("the requiring pack selected with NO agent on its provider owes no key — the "+
+			"gate delivers it to nobody (OQ-CN3):\n%s", strings.Join(lines, "\n"))
+	}
+	o.UseProfiles = map[string]string{"pi": "zai"}
+	if lines, refuse := o.checkProviderCredentials(newConfig(), both, channelFor(t, o, newConfig(), both, emptyEnv()), nil); len(lines) == 0 || !refuse {
+		t.Fatalf("pi selecting the provider must make its key a requirement (lines=%d refuse=%v)",
 			len(lines), refuse)
 	}
 }

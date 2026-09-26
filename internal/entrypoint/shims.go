@@ -1314,7 +1314,7 @@ elif _update_due; then
     _locked_update || true
 fi
 
-` + agentAuthPrelaunchShellFn + `
+` + agentEnvShellFn + agentAuthPrelaunchShellFn + `
 # --- transitive MCP server refresh (§3.5, OQ-PD12a) ---------------------------------
 # The servers this agent connects to inherit ITS trigger: a server exists only to serve an
 # agent, so there is no boot step and no timer — the refresh happens here, at the moment
@@ -1851,7 +1851,7 @@ if [ "${` + InstallOnlyEnv + `:-}" = "1" ]; then
     exit 1
 fi
 
-` + agentAuthPrelaunchShellFn + `
+` + agentEnvShellFn + agentAuthPrelaunchShellFn + `
 
 # --- transitive MCP server refresh (§3.5, OQ-PD12a) ---------------------------------
 # The servers this agent connects to inherit ITS trigger: a server exists only to serve an

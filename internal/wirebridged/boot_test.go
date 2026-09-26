@@ -557,7 +557,7 @@ func TestKeyFromUserEnvFile(t *testing.T) {
 func TestResolveKeyFallsBackToProcessEnv(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("WIREBRIDGE_TEST_KEY", "from-env")
-	if got, _ := resolveKey("WIREBRIDGE_TEST_KEY", dir); got != "from-env" {
+	if got, _ := resolveKey("WIREBRIDGE_TEST_KEY", dir, ""); got != "from-env" {
 		t.Errorf("fallback = %q, want the process environment's value", got)
 	}
 	// The file wins over the environment when both are present.
@@ -568,16 +568,16 @@ func TestResolveKeyFallsBackToProcessEnv(t *testing.T) {
 	if err := os.WriteFile(path, []byte("export WIREBRIDGE_TEST_KEY=${WIREBRIDGE_TEST_KEY:-'from-file'}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got, source := resolveKey("WIREBRIDGE_TEST_KEY", dir)
+	got, source := resolveKey("WIREBRIDGE_TEST_KEY", dir, "")
 	if got != "from-file" || !strings.HasSuffix(source, "yolo-user-env.sh") {
 		t.Errorf("resolveKey = %q from %q, want the file's value from the file", got, source)
 	}
 	// No variable named: not a miss — a serve-without-credential provider.
-	if got, source := resolveKey("", dir); got != "" || source != "" {
+	if got, source := resolveKey("", dir, ""); got != "" || source != "" {
 		t.Errorf("an empty keyEnvName is the no-credential case, got %q from %q", got, source)
 	}
 	// A named variable that is nowhere: the zero result that idles the daemon.
-	if got, source := resolveKey("WIREBRIDGE_TEST_NOWHERE", dir); got != "" || source != "" {
+	if got, source := resolveKey("WIREBRIDGE_TEST_NOWHERE", dir, ""); got != "" || source != "" {
 		t.Errorf("a named-but-absent variable must be a miss, got %q from %q", got, source)
 	}
 }

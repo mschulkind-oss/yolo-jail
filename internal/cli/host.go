@@ -242,6 +242,18 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 		}
 	}
 
+	// THE CREDENTIAL GATE'S DISCLOSURE (docs/design/provider-credential-scope.md §4, "no
+	// silent narrowing"): a launch that withholds a credential the user configured says so,
+	// on stderr like every other line here, names only. The same wording the jail notch
+	// prints, because it is the same gate's answer.
+	for i, line := range launch.credentialScopeLines() {
+		if i == 0 {
+			fmt.Fprintf(errw, "yolo host: %s\n", line)
+			continue
+		}
+		fmt.Fprintln(errw, line)
+	}
+
 	target, err := resolveHostTarget(os.Getenv("PATH"), cmd[0])
 	if err != nil {
 		fmt.Fprintf(errw, "yolo host: %v\n", err)
@@ -324,6 +336,30 @@ type hostComposition struct {
 	// it walked (relative ones already dropped, with their own warning) and the invoking
 	// shell's environment.
 	consulted []string
+	// scope is the CREDENTIAL GATE's answer for this one-agent launch
+	// (packload.ScopeCredentials, docs/design/provider-credential-scope.md OQ-CN5): the
+	// same function the jail notch's composePackChannel calls, over this notch's user-scope
+	// inputs. vars were composed from it; the pre-flight narrows by it and the exec path
+	// discloses it. Nil only when the composition refused before reaching the gate.
+	scope *packload.CredentialScope
+}
+
+// selectedProviders is the provider this launch's agent selected, as the narrowed
+// pre-flight reads it (OQ-CN3) — none when the composition refused before the gate.
+func (c *hostComposition) selectedProviders() []string {
+	if c.scope == nil {
+		return nil
+	}
+	return c.scope.SelectedProviders()
+}
+
+// credentialScopeLines is the gate's disclosure for this launch (packload's wording, the
+// jail notch's lines), nil when nothing the user configured was scoped.
+func (c *hostComposition) credentialScopeLines() []string {
+	if c.scope == nil {
+		return nil
+	}
+	return c.scope.Disclosure()
 }
 
 // environ applies the composition over the environment this process inherited — the env
@@ -344,7 +380,7 @@ func (c *hostComposition) credentialGaps(getenv func(string) string) []string {
 		}
 	}
 	consulted := append([]string(nil), c.consulted...)
-	return packload.ProviderCredentialGaps(c.packs, c.providers, func(name string) (string, bool) {
+	return packload.ProviderCredentialGaps(c.packs, c.providers, c.selectedProviders(), func(name string) (string, bool) {
 		if v := idx[name]; v != "" {
 			return v, true
 		}
@@ -509,33 +545,15 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 		}
 	}
 
-	// (1) the pack env fold, PER PACK — each pack's static `kind: "env"` keys, then the
-	// keys of its `profile`-gated env contributions whose gate is satisfied (providers.md#pv-oq-8). The
-	// sequence is packload.EnvFold's, the ONE fold the jail notch reduces through
-	// packload.EnvVarsFor: folding it here as all-static-then-all-gated instead gave a
-	// key that pack A's gated env and pack B's static both write two answers (the jail
-	// said the later pack's static wins, the host the earlier pack's gated value).
-	// hostFoldParity_test.go pins the two notches to the same winner.
-	//
-	// Keys are sorted within each pack, because a map has no order and an `export` script
-	// that reshuffles between runs is a diff nobody can read.
-	//
-	// Assignments only, and that is the OQ-PT8 shrink rather than a shortcut: the only
-	// env map here that could spell a removal was the profile body's, whose
-	// null-means-unset decoder died with the body. What a removal still has is (2)'s
-	// env_sources nulls, held for (4) below.
-	for _, e := range packload.EnvFold(packs, agentTable) {
-		vars = append(vars, agentenv.Var{Key: e.Key, Value: e.Value})
-	}
-
-	// (2) the secret channel. The loader anchors relative entries beside the file that
-	// declared them (config.AnchorEnvSources), so a user-config relative entry arrives
-	// here absolute and legal. What is still refused is an UNANCHORED relative entry —
-	// one from a hand-built config or a pre-ruling artifact — because the only
-	// resolution left for it is the CURRENT DIRECTORY, which a workspace controls: cd
-	// into a cloned repo, `yolo host -- claude`, and the repo's .env feeds a host
-	// process. That would re-open, through the filesystem, the exact boundary the
-	// user-scope-only cfg closes; hostScopedEnvSources is the backstop.
+	// The secret channel, hydrated BEFORE the fold because the credential gate below reads
+	// it. The loader anchors relative entries beside the file that declared them
+	// (config.AnchorEnvSources), so a user-config relative entry arrives here absolute and
+	// legal. What is still refused is an UNANCHORED relative entry — one from a hand-built
+	// config or a pre-ruling artifact — because the only resolution left for it is the
+	// CURRENT DIRECTORY, which a workspace controls: cd into a cloned repo,
+	// `yolo host -- claude`, and the repo's .env feeds a host process. That would re-open,
+	// through the filesystem, the exact boundary the user-scope-only cfg closes;
+	// hostScopedEnvSources is the backstop.
 	scoped := hostScopedEnvSources(cfg, warn)
 	// ONE pass for (2) and (4): the assignments and the removals are the same ordered
 	// walk, and asking for them separately would read every dotenv file twice and warn
@@ -546,39 +564,73 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 	// inherited. The providers.md#the-credential-preflight pre-flight quotes the list verbatim, so a refusal says where it
 	// looked and not only that the key never arrived.
 	c.consulted = append(config.DescribeEnvSources(workspace, scoped), "the invoking shell's environment")
-	for _, k := range userEnv.Keys() {
-		v, _ := userEnv.Get(k)
+
+	// THE CREDENTIAL GATE (docs/design/provider-credential-scope.md; OQ-CN5 ruled that the
+	// host notch ships with the jail's, since it composes for a process outside every
+	// sandbox). The same packload.ScopeCredentials the jail notch's composePackChannel
+	// calls, over this notch's inputs: a provider's claimed credential reaches this agent
+	// only when its profile selects that provider, a gated env only when its own selection
+	// satisfies it, and its env derive hydrates only its own provider's key. The shell this
+	// process inherited is the user's, not a yolo channel, so it passes through untouched
+	// (environ); what the gate governs is what yolo ADDS to it. It also runs the agent's
+	// own pack's env derive — packload.AgentEnv, the ONE runner the jail notch reduces
+	// through too (OQ-CS8), so the two notches cannot disagree about what a resolved
+	// profile delivers. A GIT PACK CONTRIBUTES HERE TOO: loadedHostPacks resolves through
+	// resolveConfiguredPack, which reads a git pack from the pack store the way a launch
+	// does. One the store does not have is dropped and warned about above.
+	scope, err := packload.ScopeCredentials(packload.ScopeInput{
+		Packs:      packs,
+		Providers:  providers,
+		Profiles:   agentTable,
+		Resolved:   resolvedProfiles,
+		EnvSources: userEnv,
+		Fallback:   os.LookupEnv,
+	})
+	if err != nil {
+		c.err = err
+		return c
+	}
+	c.scope = scope
+	delivery := scope.Agent(agent)
+
+	// (1) the pack env fold, PER PACK — each pack's static `kind: "env"` keys, then the
+	// keys of its `profile`-gated env contributions whose gate fires for THIS agent
+	// (providers.md#pv-oq-8). The sequence is packload.EnvFold's, the ONE fold the jail
+	// notch reduces through packload.EnvVarsFor: folding it here as
+	// all-static-then-all-gated instead gave a key that pack A's gated env and pack B's
+	// static both write two answers (the jail said the later pack's static wins, the host
+	// the earlier pack's gated value). hostFoldParity_test.go pins the two notches to the
+	// same winner.
+	//
+	// Keys are sorted within each pack, because a map has no order and an `export` script
+	// that reshuffles between runs is a diff nobody can read.
+	//
+	// Assignments only, and that is the OQ-PT8 shrink rather than a shortcut: the only
+	// env map here that could spell a removal was the profile body's, whose
+	// null-means-unset decoder died with the body. What a removal still has is (2)'s
+	// env_sources nulls, held for (4) below.
+	fold := packload.EnvFold(packs, agentTable, agent)
+	if delivery != nil {
+		fold = delivery.Fold
+	}
+	for _, e := range fold {
+		vars = append(vars, agentenv.Var{Key: e.Key, Value: e.Value})
+	}
+
+	// (2) the secret channel, as the gate delivers it to this agent: every unclaimed entry
+	// and its own provider's claimed ones, in hydration order.
+	sources := scope.EnvSourcesFor(agent)
+	for _, k := range sources.Keys() {
+		v, _ := sources.Get(k)
 		if s, ok := v.(string); ok {
 			vars = append(vars, agentenv.Var{Key: k, Value: s})
 		}
 	}
 
-	// (3) the profile's provider vars, composed by the agent's OWN pack: the env-derive
-	// producer its derive.lua registers, run by packload.AgentEnv — the ONE runner the
-	// jail notch's channel reduces through too (OQ-CS8) — so the two notches cannot
-	// disagree about what a resolved profile delivers. A credential resolves through
-	// what this launch actually carries: the hydrated env_sources above, then the
-	// environment this process inherited.
-	//
-	// A GIT PACK CONTRIBUTES HERE TOO: loadedHostPacks resolves through
-	// resolveConfiguredPack, which reads a git pack from the pack store the way a launch
-	// does, so an agent pack that lives in git derives its env at this notch as at the jail.
-	// One the store does not have is dropped and warned about above.
-	lookup := func(name string) (string, bool) {
-		if v, ok := userEnv.Get(name); ok {
-			if s, isStr := v.(string); isStr && s != "" {
-				return s, true
-			}
-		}
-		return os.LookupEnv(name)
+	// (3) the profile's provider vars, the env derive's output the gate composed.
+	if delivery != nil {
+		vars = append(vars, delivery.Shape...)
 	}
-	providerVars, err := packload.AgentEnv(packs, providers, agentTable,
-		agent, profileName, lookup, packload.WithResolvedProfiles(resolvedProfiles))
-	if err != nil {
-		c.err = err
-		return c
-	}
-	vars = append(vars, providerVars...)
 
 	// (4) removals last, so an unset beats every assignment above no matter which source
 	// made it — the env_sources nulls from the same pass as (2) (the same scoped config,

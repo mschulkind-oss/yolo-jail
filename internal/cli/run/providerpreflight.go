@@ -18,12 +18,14 @@ import (
 // refusal into a LOUD CONTINUATION, and a caller that only looked at len(lines) would exit
 // on the notice (measured — this is the bug the first nested launch caught).
 //
-// Scoped to the SELECTED set, not to the active profile, per providers.md#pv-oq-13: "configured but never
-// selected stays inert" is withdrawn, because a variant that resolved to nothing has
-// already written a config pointing at a provider the launch never delivered, and the
-// symptom is the mysterious auth failure providers.md#the-credential-preflight records rather than anything yolo says.
-// The packs argument IS the selected set — the same slice staging produced — so an
-// unselected pack cannot reach this.
+// Scoped to the SELECTED PROVIDERS since the credential gate (OQ-CN3, ruled 2026-09-26,
+// docs/design/provider-credential-scope.md): a cataloged provider no agent's profile
+// selects is no requirement, because the gate delivers its key to nobody, and refusing a
+// launch over a key nobody will deliver was the gate's defect one layer up. That reopens
+// providers.md#pv-oq-13's pack scoping deliberately. What still refuses is a provider some
+// agent selected whose key never arrived — the mysterious first-request failure
+// providers.md#the-credential-preflight records. The packs argument IS the selected pack
+// set — the same slice staging produced — so an unselected pack cannot reach this.
 //
 // WHY NOT in stagePacks beside the other bespoke pre-flights: the question it answers is
 // "does the environment this launch composes carry the key", so it belongs with the
@@ -48,8 +50,12 @@ func (o *Options) checkProviderCredentials(cfg *jsonx.OrderedMap, packs []*packl
 	channel *packChannel, argvPairs map[string]string) (lines []string, refuse bool) {
 	consulted := config.DescribeEnvSources(o.Workspace, cfg)
 	consulted = append(consulted, "the environment yolo was launched from")
+	// NARROWED WITH THE GATE (OQ-CN3): the providers some agent selected are the only ones
+	// whose key this launch delivers to anybody, so they are the only ones it may demand.
+	// The SAME scope the vehicles deliver from, so the check and the delivery cannot
+	// disagree about who gets a credential.
 	facts := packload.ProviderCredentialGaps(packs, channel.providers,
-		channel.deliveryLookup(o, argvPairs), consulted)
+		channel.scope.SelectedProviders(), channel.deliveryLookup(o, argvPairs), consulted)
 	if len(facts) == 0 {
 		return nil, false
 	}

@@ -108,7 +108,7 @@ func TestLaunchEnvCarriesTheResolvedProfilesTable(t *testing.T) {
 	home := writeProfilesConfig(t, `{"zai-fast": {"provider": "zai", "model": "fast"}}`)
 	o := goldenOptions("/ws", home)
 	c := channelFor(t, o, newConfig(), []*packload.Pack{optionsZaiPack(t)}, emptyEnv())
-	env := c.launchEnv()
+	env := c.launchEnv("")
 	v, ok := env.Get("YOLO_PROFILES")
 	if !ok {
 		t.Fatalf("launchEnv carries no YOLO_PROFILES; keys=%v", env.Keys())

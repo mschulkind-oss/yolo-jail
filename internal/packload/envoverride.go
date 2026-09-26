@@ -125,8 +125,9 @@ func EnvOverrideRefusal(packs []*Pack, profiles map[string]string, look OriginLo
 // uncertain alike, in pack and declaration order, or nil when none is tripped.
 //
 // A declaration is evaluated only when the contribution carrying it is DELIVERED — the pack
-// is in packs, and the contribution is unconditional or its `profile` gate is active in
-// profiles by the env fold's own rule (profileActive). An undelivered contribution has
+// is in packs, and the contribution is unconditional or its `profile` gate fires for some
+// agent of the launch by the env fold's own per-agent rule (gateDelivered over
+// gateFiresFor). An undelivered contribution has
 // nothing to be overridden, and refusing over it is the false positive OQ-SSO8 forbids: a
 // user who selects packs/aws-auth without the `bedrock` profile has no pointer in the jail.
 //
@@ -149,7 +150,7 @@ func EnvOverrideFindings(packs []*Pack, profiles map[string]string, look OriginL
 			continue
 		}
 		for _, d := range p.Decl.EnvOverrideContributions() {
-			if d.Profile != "" && !profileActive(packs, p, d.Profile, profiles) {
+			if d.Profile != "" && !gateDelivered(packs, p, d.Profile, profiles) {
 				continue
 			}
 			for _, o := range d.Overrides {

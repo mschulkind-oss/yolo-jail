@@ -388,9 +388,12 @@ func activeProfileOptions(e *Env, name string) map[string]string {
 // produce the table and a pack only says which one it wants and what shape it needs.
 func liveTables(e *Env) map[string]map[string]any {
 	return map[string]map[string]any{
-		manifest.SourceMCPServers:  prismMap(e.LoadMCPServers()),
-		manifest.SourceLSPServers:  prismMap(LoadLSPServers(e)),
-		manifest.SourceProviders:   prismMap(e.LoadProviders()),
+		manifest.SourceMCPServers: prismMap(e.LoadMCPServers()),
+		manifest.SourceLSPServers: prismMap(LoadLSPServers(e)),
+		// The derive's VIEW of the table (packload.ProvidersForDerive): a provider that
+		// lists several credential variables (OQ-CN1) points a derive at none of them,
+		// so every derive keeps splicing one name into `${…}`.
+		manifest.SourceProviders:   prismMap(packload.ProvidersForDerive(e.LoadProviders())),
 		manifest.SourceUseProfiles: prismMap(e.LoadUseProfiles()),
 	}
 }

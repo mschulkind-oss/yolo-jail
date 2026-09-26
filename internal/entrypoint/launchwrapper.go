@@ -220,6 +220,7 @@ if [ -z "$REAL_BIN" ]; then
     exit 127
 fi
 
+` + agentEnvShellFn + `
 _yolo_launch_argv "$@"
 exec "$REAL_BIN" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}
 `

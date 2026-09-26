@@ -16,10 +16,12 @@ package run
 // trees, one layer down.
 //
 // The composition is therefore hoisted ABOVE the backend dispatch, and each arm consumes
-// the result: the container arm writes it into yolo-user-env.sh's channel section
-// (writeUserEnvFile — per-entry delivery, on a fresh launch and an attach alike), the
-// macos-user arm layers it into its plan env and relays the two wire tables to its
-// bootstrap. One composition means the
+// the result: the container arm writes it into yolo-user-env.sh's channel section and
+// each agent's own env file (deliverChannel — per-entry delivery, on a fresh launch and an
+// attach alike), the macos-user arm layers it into its plan env and relays the two wire
+// tables to its bootstrap. What reaches WHICH agent is the credential gate's answer
+// (packload.ScopeCredentials, composed here once; docs/design/provider-credential-scope.md).
+// One composition means the
 // two backends cannot answer differently about what a profile delivers — which is the same
 // property packload.ProfileTable's launch-flag injection already claims for the two
 // spellings of one launch.
@@ -29,7 +31,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agentenv"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -47,19 +48,20 @@ type packChannel struct {
 	// entries over every selected pack's `kind: "provider"` service facts. Emitted as
 	// YOLO_PROVIDERS and read by the env derive below.
 	providers *jsonx.OrderedMap
-	// packEnv is the pack env fold over the profile table (packload.EnvVarsFor): each
-	// selected pack's static `kind: "env"` values with its selected variant's own
-	// literals folded on top (providers.md#pv-oq-8).
-	packEnv map[string]string
-	// shapeVars are the provider environment variables the active profiles compose, per
-	// profiled agent, in the order the channel file writes them (packload.AgentEnv over
-	// profiles.Keys() — the env-derive runner). This is the half that routes a hydrated
-	// credential into the agent's process env (providers.md#pv-oq-14, since superseded by #oq-cs8).
-	shapeVars []agentenv.Var
-	// userEnv is the hydrated env_sources this launch would deliver — the secret channel
-	// both the env derive's credential and the credential pre-flight consult. Hydrated
-	// once, here, because the container arm also writes it to yolo-user-env.sh and two
-	// hydrations would read every dotenv file twice and warn twice.
+	// scope is THE CREDENTIAL GATE's answer for this launch (packload.ScopeCredentials,
+	// docs/design/provider-credential-scope.md OQ-CN2): the env_sources and pack env every
+	// process may see, and per profiled agent what only that agent receives — its
+	// provider's claimed credentials, the gated env its own selection satisfies, and its
+	// pack's env derive's output (the shape vars, composed through the gate's lookup).
+	// Every vehicle reads it and none re-derives it: the container arm writes the shared
+	// half into yolo-user-env.sh and each agent's half into its own env file
+	// (agentenvfiles.go), and the macos-user arm layers the shared half plus the launched
+	// agent's (launchEnv).
+	scope *packload.CredentialScope
+	// userEnv is the hydrated env_sources BEFORE the gate — the secret channel the gate
+	// scopes. Hydrated once, here, because two hydrations would read every dotenv file
+	// twice and warn twice. No writer delivers it whole any more: the shared file carries
+	// scope.SharedEnvSources(), and each agent's file its own claimed entries.
 	userEnv *jsonx.OrderedMap
 	// resolvedProfiles is every profile name this launch could activate, resolved to its
 	// provider and option map (packload.ResolveProfiles). Emitted as YOLO_PROFILES and
@@ -124,30 +126,33 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 	c := &packChannel{
 		profiles:                    profiles,
 		providers:                   providers,
-		packEnv:                     packload.EnvVarsFor(packs, packload.ProfileTable(profiles)),
 		userEnv:                     userEnv,
 		resolvedProfiles:            resolved,
 		localProviderForwards:       localProviderForwards(cfgMap(cfg, "providers")),
 		localProviderForwardSources: localProviderForwardSources(cfgMap(cfg, "providers")),
 	}
-	// The provider environment, one pass over the profile table in table order — the
-	// same iteration the channel file writer makes, so the two spellings emit the same
-	// vars in the same order. Each agent's OWN pack composes its variables (the
-	// env-derive runner, OQ-CS8): the producer reads the composed table, with the
-	// selected provider's credential hydrated into its copy only, and the launch relays
-	// what it emitted. The credential resolves through what this launch carries — the
-	// hydrated env_sources, then the environment yolo was launched from — so the relay
-	// does not claim a credential the launch would not have carried.
-	lookup := c.shapeLookup(o)
-	for _, agent := range profiles.Keys() {
-		profile := mapStr(profiles, agent)
-		vars, err := packload.AgentEnv(packs, providers, packload.ProfileTable(profiles),
-			agent, profile, lookup, packload.WithResolvedProfiles(resolved))
-		if err != nil {
-			return nil, err
-		}
-		c.shapeVars = append(c.shapeVars, vars...)
+	// THE CREDENTIAL GATE, ONCE (OQ-CN2): the one decision of what reaches which agent,
+	// which every vehicle reads. It also runs each profiled agent's env derive (the
+	// env-derive runner, OQ-CS8), with that agent's selected provider's credential — and
+	// no other provider's — hydrated into the derive's copy of the table. A credential
+	// resolves through what this launch carries: the hydrated env_sources, then the
+	// environment yolo was launched from, so the relay does not claim a credential the
+	// launch would not have carried.
+	scope, err := packload.ScopeCredentials(packload.ScopeInput{
+		Packs:      packs,
+		Providers:  providers,
+		Profiles:   packload.ProfileTable(profiles),
+		Resolved:   resolved,
+		EnvSources: userEnv,
+		Fallback: func(name string) (string, bool) {
+			v := o.Getenv(name)
+			return v, v != ""
+		},
+	})
+	if err != nil {
+		return nil, err
 	}
+	c.scope = scope
 	return c, nil
 }
 
@@ -185,22 +190,6 @@ func (o *Options) checkProfileDeclarations(profiles *jsonx.OrderedMap,
 		return nil
 	}
 	return fmt.Errorf("packs: %s", strings.Join(problems, "\npacks: "))
-}
-
-// shapeLookup is the lookup the provider environment resolves a credential through: the
-// hydrated env_sources, then the environment yolo itself was launched from. It
-// deliberately does NOT see the channel's own outputs — a credential must not resolve
-// through a variable another part of this composition set.
-func (c *packChannel) shapeLookup(o *Options) func(string) (string, bool) {
-	return func(name string) (string, bool) {
-		if s := mapStr(c.userEnv, name); s != "" {
-			return s, true
-		}
-		if v := o.Getenv(name); v != "" {
-			return v, true
-		}
-		return "", false
-	}
 }
 
 // deliveryLookup is what "set in this launch's environment" means to the credential
@@ -252,21 +241,25 @@ func (c *packChannel) deliveryLookup(o *Options, argvPairs map[string]string) fu
 // because the credential pre-flight asks what the relay can draw on; nothing forwards it
 // into the jail under its own name. So the env-override pre-flight reads this through
 // jailOriginLookup (envoverrides.go), which drops that answer.
+//
+// "DELIVERED" MEANS TO SOME PROCESS OF THE LAUNCH, since the credential gate (OQ-CN2):
+// the shared set or any one agent's. A hydrated credential the gate withholds from every
+// agent is NOT delivered, so it answers nothing here — an override between two variables
+// nobody receives overrides nothing — and the credential pre-flight never asks about one,
+// having been narrowed to the selected providers (OQ-CN3).
 func (c *packChannel) deliverySource(o *Options, argvPairs map[string]string,
 	name string) (value, origin string, ok bool) {
-	if s := mapStr(c.userEnv, name); s != "" {
+	if s := mapStr(c.userEnv, name); s != "" && c.scope.DeliversEnvSource(name) {
 		return s, packload.FromEnvSources, true
 	}
 	if v, found := argvPairs[name]; found && v != "" {
 		return v, packload.FromContainerArgv, true
 	}
-	if v := c.packEnv[name]; v != "" {
+	if v, found := c.scope.DeliveredPackEnv(name); found && v != "" {
 		return v, packload.FromPackEnv, true
 	}
-	for _, v := range c.shapeVars {
-		if v.Key == name && v.Value != "" {
-			return v.Value, packload.FromProfileEnv, true
-		}
+	if v, found := c.scope.DeliveredShape(name); found && v != "" {
+		return v, packload.FromProfileEnv, true
 	}
 	if v := o.Getenv(name); v != "" {
 		return v, packload.FromLaunchEnv, true
@@ -274,38 +267,65 @@ func (c *packChannel) deliverySource(o *Options, argvPairs map[string]string,
 	return "", "", false
 }
 
-// launchEnv flattens the channel into launch-environment form: the form the macos-user
-// arm layers into its plan env. The container arm writes the same content into the
-// channel section of yolo-user-env.sh
-// and never calls this.
+// launchEnv flattens the channel into the launch environment of ONE PROGRAM: the form the
+// macos-user arm layers into its plan env, for the program its invocation starts. agent is
+// that program's name (the basename of its argv[0]); a shell, or any name no profile
+// selects, receives the shared half only.
 //
-// The order mirrors the container argv's, because layering order is semantics for a key
-// two sources both set: the pack env fold first (sorted — a map has no order and the
-// environment it becomes must not reshuffle between runs), then the provider env vars in
-// table order, so a provider var is the more specific intent and wins (providers.md#pv-oq-8's rule at the
-// env boundary rather than the fold's), then the two wire tables.
+// PER LAUNCH, NOT PER AGENT, and the macos-user arm discloses it
+// (noteMacosUserCredentialScope): this backend runs one command per invocation under one
+// session env file, so there is no second launcher to carry a second agent's values. The
+// launched agent's own values reach every process of its session — as any agent's reach
+// its children on every backend — and another agent started inside the session receives
+// none of its own (OQ-CN6's "a vehicle that cannot express per-agent delivery stays per
+// launch and says so").
 //
-// The shape vars' Unset half is skipped, exactly as the container env block skips it:
-// `env -i K=V…` starts from nothing, so there is nothing to remove, and spelling a
-// removal here would need a convention neither backend has.
-func (c *packChannel) launchEnv() *jsonx.OrderedMap {
+// The order is the backend's own precedence, unchanged by the gate: the pack env fold
+// first (sorted — a map has no order and the environment it becomes must not reshuffle
+// between runs), then the agent's provider env vars, so a provider var is the more
+// specific intent and wins (providers.md#pv-oq-8's rule at the env boundary rather than
+// the fold's), then the three wire tables, then env_sources LAST, in hydration order —
+// which is where macosuser.buildPlan layered its own hydration before the gate took that
+// call away, so a user's own dotenv entry still beats every channel value on this backend.
+//
+// The shape vars' Unset half is skipped: `env -i K=V…` starts from nothing, so there is
+// nothing to remove, and spelling a removal here would need a convention neither backend
+// has.
+func (c *packChannel) launchEnv(agent string) *jsonx.OrderedMap {
 	env := jsonx.NewOrderedMap()
-	keys := make([]string, 0, len(c.packEnv))
-	for k := range c.packEnv {
+	packEnv := map[string]string{}
+	for k, v := range c.scope.SharedPackEnv() {
+		packEnv[k] = v
+	}
+	d := c.scope.Agent(agent)
+	if d != nil {
+		for k, v := range d.PackEnv {
+			packEnv[k] = v
+		}
+	}
+	keys := make([]string, 0, len(packEnv))
+	for k := range packEnv {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		env.Set(k, c.packEnv[k])
+		env.Set(k, packEnv[k])
 	}
-	for _, v := range c.shapeVars {
-		if v.Unset || v.Key == "" {
-			continue
+	if d != nil {
+		for _, v := range d.Shape {
+			if v.Unset || v.Key == "" {
+				continue
+			}
+			env.Set(v.Key, v.Value)
 		}
-		env.Set(v.Key, v.Value)
 	}
 	env.Set("YOLO_PROVIDERS", jsonDumpsOrEmptyObj(c.providers))
 	env.Set("YOLO_PROFILES", jsonDumpsOrEmptyObj(packload.ProfilesWireTable(c.resolvedProfiles)))
 	env.Set("YOLO_USE_PROFILES", jsonDumpsOrEmptyObj(c.profiles))
+	sources := c.scope.EnvSourcesFor(agent)
+	for _, k := range sources.Keys() {
+		v, _ := sources.Get(k)
+		env.Set(k, v)
+	}
 	return env
 }

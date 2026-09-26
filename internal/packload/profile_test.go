@@ -41,7 +41,7 @@ func TestProfileEnvDeliversAndDeclarationCarriesTheOverlay(t *testing.T) {
 	p := profileFixture(t)
 	bedrock := map[string]string{"claude": "bedrock"}
 
-	env := EnvVarsFor([]*Pack{p}, bedrock)
+	env := EnvVarsFor([]*Pack{p}, bedrock, "claude")
 	if env["PROFILE"] != "from-profile" {
 		t.Errorf("the gated env must deliver when the profile is active, got %v", env)
 	}
@@ -55,10 +55,10 @@ func TestProfileEnvDeliversAndDeclarationCarriesTheOverlay(t *testing.T) {
 	}
 
 	// The gate actually gates: no profile selected, nothing delivers.
-	if got := EnvVarsFor([]*Pack{p}, nil); got["SHARED"] != "from-env" || got["PROFILE"] != "" {
+	if got := EnvVarsFor([]*Pack{p}, nil, "claude"); got["SHARED"] != "from-env" || got["PROFILE"] != "" {
 		t.Errorf("no profile selected: static env only, got %v", got)
 	}
-	if got := EnvVarsFor([]*Pack{p}, map[string]string{"claude": "nobody"}); got["PROFILE"] != "" {
+	if got := EnvVarsFor([]*Pack{p}, map[string]string{"claude": "nobody"}, "claude"); got["PROFILE"] != "" {
 		t.Errorf("an undeclared profile selected must deliver nothing, got %v", got)
 	}
 }
@@ -70,7 +70,7 @@ func TestProfileEnvDeliversAndDeclarationCarriesTheOverlay(t *testing.T) {
 func TestProfileEnvFoldsOverStatic(t *testing.T) {
 	p := profileFixture(t)
 
-	got := EnvVarsFor([]*Pack{p}, map[string]string{"claude": "bedrock"})
+	got := EnvVarsFor([]*Pack{p}, map[string]string{"claude": "bedrock"}, "claude")
 	if got["PROFILE"] != "from-profile" {
 		t.Errorf("the profile's env must be folded in: %v", got)
 	}
@@ -82,30 +82,64 @@ func TestProfileEnvFoldsOverStatic(t *testing.T) {
 	}
 }
 
-// The env fold's GATE is two-pass, and the second pass is the fix: a pack that installs
-// no CLI (packs/zai is the shipped one) can never satisfy a gate keyed to its own bins,
-// so the wide pass asks whether the profile is active for ANY bin the launch installs.
-// The first pass is why the narrow answer still wins when the pack DOES install the CLI.
+// A pack that installs no CLI (packs/zai, aws-auth) can never satisfy a gate keyed to its
+// own bins, so its gated env reaches EVERY agent that selected its profile — and, since the
+// per-agent gate (OQ-BR4), only those: the shared fold and an agent that selected nothing
+// get none of it.
 func TestProfileEnvGateReachesACLIlessPack(t *testing.T) {
 	zai := &Pack{Name: "zai", Decl: declFrom(t, `{"contributes":[
 	  {"kind":"profile","name":"zai","provider":"zai"},
 	  {"kind":"env","profile":"zai","vars":{"ZAI_DELIVERED":"1"}}]}`)}
 	pi := &Pack{Name: "pi", Decl: declFrom(t, `{"contributes":[
 	  {"kind":"program","bin":"pi","via":"npm","package":"@acme/pi"}]}`)}
+	codex := &Pack{Name: "codex", Decl: declFrom(t, `{"contributes":[
+	  {"kind":"program","bin":"codex","via":"npm","package":"@acme/codex"}]}`)}
+	packs := []*Pack{zai, pi, codex}
+	table := map[string]string{"pi": "zai"}
 
-	// zai installs nothing, so only the wide pass can fire — keyed to the bin pi installs.
-	got := EnvVarsFor([]*Pack{zai, pi}, map[string]string{"pi": "zai"})
-	if got["ZAI_DELIVERED"] != "1" {
-		t.Errorf("a CLI-less pack's gated env must fold when its profile is active for ANY "+
-			"installed bin (the wide pass), got %v", got)
+	if got := EnvVarsFor(packs, table, "pi"); got["ZAI_DELIVERED"] != "1" {
+		t.Errorf("a CLI-less pack's gated env must reach the agent that selected its "+
+			"profile, got %v", got)
+	}
+	if got := EnvVarsFor(packs, table, "codex"); got["ZAI_DELIVERED"] != "" {
+		t.Errorf("an agent that did not select the profile must not receive it: %v", got)
+	}
+	if got := EnvVarsFor(packs, table, ""); got["ZAI_DELIVERED"] != "" {
+		t.Errorf("the SHARED fold — what every process sees — must carry no gated env: %v", got)
 	}
 	// Active for a bin NOBODY installs: no activation, gated env stays out.
-	if got := EnvVarsFor([]*Pack{zai, pi}, map[string]string{"claude": "zai"}); got["ZAI_DELIVERED"] != "" {
+	if got := EnvVarsFor(packs, map[string]string{"claude": "zai"}, "claude"); got["ZAI_DELIVERED"] != "" {
 		t.Errorf("a profile keyed to no installed CLI must not fold: %v", got)
 	}
 	// No table at all: the same.
-	if got := EnvVarsFor([]*Pack{zai, pi}, nil); got["ZAI_DELIVERED"] != "" {
+	if got := EnvVarsFor(packs, nil, "pi"); got["ZAI_DELIVERED"] != "" {
 		t.Errorf("no profile selected must fold no gated env: %v", got)
+	}
+}
+
+// TRAP D2 (docs/design/provider-credential-scope.md §2.6): an AGENT pack's gated env reaches
+// its own agent and nobody else. `-p codex=bedrock` in a jail that also installs claude used
+// to fire claude's CLAUDE_CODE_USE_BEDROCK jail-wide through the launch-wide second pass;
+// under the per-agent gate neither codex, claude nor the shared fold receives it, and claude
+// receives it only when claude itself selected bedrock.
+func TestAnAgentPacksGatedEnvReachesOnlyItsOwnAgent(t *testing.T) {
+	claude := &Pack{Name: "claude", Decl: declFrom(t, `{"contributes":[
+	  {"kind":"program","bin":"claude","via":"npm","package":"@acme/claude"},
+	  {"kind":"profile","name":"bedrock","provider":"bedrock"},
+	  {"kind":"env","profile":"bedrock","vars":{"CLAUDE_CODE_USE_BEDROCK":"1"}}]}`)}
+	codex := &Pack{Name: "codex", Decl: declFrom(t, `{"contributes":[
+	  {"kind":"program","bin":"codex","via":"npm","package":"@acme/codex"}]}`)}
+	packs := []*Pack{claude, codex}
+
+	codexOnly := map[string]string{"codex": "bedrock"}
+	for _, agent := range []string{"codex", "claude", ""} {
+		if got := EnvVarsFor(packs, codexOnly, agent); got["CLAUDE_CODE_USE_BEDROCK"] != "" {
+			t.Errorf("-p codex=bedrock: fold for %q carries claude's gated flag — trap D2 is "+
+				"open again: %v", agent, got)
+		}
+	}
+	if got := EnvVarsFor(packs, map[string]string{"claude": "bedrock"}, "claude"); got["CLAUDE_CODE_USE_BEDROCK"] != "1" {
+		t.Errorf("claude selecting bedrock must still receive its own gated flag, got %v", got)
 	}
 }
 
@@ -128,7 +162,7 @@ func TestEnvFoldIsPerPack(t *testing.T) {
 		key, val string
 	}
 	var got []step
-	for _, e := range EnvFold([]*Pack{alpha, beta}, map[string]string{"claude": "p"}) {
+	for _, e := range EnvFold([]*Pack{alpha, beta}, map[string]string{"claude": "p"}, "claude") {
 		got = append(got, step{e.Key, e.Value})
 	}
 	want := []step{
@@ -150,7 +184,7 @@ func TestEnvFoldIsPerPack(t *testing.T) {
 	}
 
 	// The reduction the jail notch consumes answers the same winner the sequence implies.
-	if v := EnvVarsFor([]*Pack{alpha, beta}, map[string]string{"claude": "p"}); v["SHARED"] != "static" {
+	if v := EnvVarsFor([]*Pack{alpha, beta}, map[string]string{"claude": "p"}, "claude"); v["SHARED"] != "static" {
 		t.Errorf("EnvVarsFor SHARED = %q, want beta's static (later pack) to beat alpha's gated entry", v["SHARED"])
 	}
 }

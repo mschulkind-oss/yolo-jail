@@ -553,6 +553,32 @@ func TestValidateProviders(t *testing.T) {
 	}
 }
 
+// OQ-CN1 (docs/design/provider-credential-scope.md): a user's provider entry may list its
+// credential variables, by the same rule a pack manifest follows (packdecl.EnvNames) — a
+// non-empty list of valid, distinct names.
+func TestValidateProviderCredentialVariableList(t *testing.T) {
+	ok := `{"providers": {"routes": {"api_key_env_name": ["ROUTE_BEARER", "ROUTE_ID"]}}}`
+	errs, _ := ValidateConfig(decode(t, ok), t.TempDir(), nil)
+	for _, e := range errs {
+		if strings.Contains(e, "api_key_env_name") {
+			t.Errorf("a list of valid names must pass, got: %s", e)
+		}
+	}
+	for _, bad := range []string{`[]`, `["OK", 3]`, `["BAD-NAME"]`, `["DUP", "DUP"]`} {
+		body := `{"providers": {"routes": {"api_key_env_name": ` + bad + `}}}`
+		errs, _ := ValidateConfig(decode(t, body), t.TempDir(), nil)
+		found := false
+		for _, e := range errs {
+			if strings.Contains(e, "config.providers.routes.api_key_env_name") {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("api_key_env_name %s must be refused, got: %v", bad, errs)
+		}
+	}
+}
+
 // model_options is now the INTERNAL normalized form, so the user-facing spelling under test is
 // the object form of a `models.<alias>` value. Core checks the closed field set, the required
 // wire `id`, and each fact's JSON type; what a fact means stays the derive's business.

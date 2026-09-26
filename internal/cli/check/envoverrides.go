@@ -108,7 +108,8 @@ type overrideGapFinding struct {
 // dirsDeliver is whether this platform's launch delivers a directory `host_files` grant; see
 // the backend note above.
 func envOverrideGap(packs []*packload.Pack, merged *jsonx.OrderedMap,
-	workspace string, dirsDeliver bool, configWarn func(string)) (errs, warns []overrideGapFinding) {
+	workspace string, dirsDeliver bool, configWarn func(string),
+	userProfiles func() (map[string]packload.UserProfile, error)) (errs, warns []overrideGapFinding) {
 	// The hydrated secret channel. A dotenv file that cannot be read degrades to "delivered
 	// nothing" with a warning on configWarn, which is the loader's own contract; it never
 	// changes the verdict, because an unreadable source delivers no variable at launch either.
@@ -116,17 +117,40 @@ func envOverrideGap(packs []*packload.Pack, merged *jsonx.OrderedMap,
 	// The CONFIG's profile table — the `use_profiles` selection, which is the only one a
 	// launch-less command has. See the `-p` note above.
 	profiles := packload.ProfileTable(subMap(merged, "use_profiles"))
-	packEnv := packload.EnvVarsFor(packs, profiles)
+
+	// "DELIVERED" IS THE CREDENTIAL GATE'S ANSWER, as it is at launch
+	// (docs/design/provider-credential-scope.md, OQ-CN2): a variable reaches the jail when
+	// it reaches SOME process of it — the shared set or one agent's — so a credential the
+	// gate withholds from every agent overrides nothing, and a gated env fires only for an
+	// agent that selected its profile. The same packload.ScopeCredentials the launch calls,
+	// over the same inputs protocols.go composes, with NoDerives set: this verb runs no
+	// pack's code (the FromProfileEnv note above). A table that does not compose, or
+	// profiles that do not resolve, degrade to a gate with no provider claims — the launch
+	// refuses those first and says why. No adapter-address overrides are read: they move
+	// where an adapted endpoint answers, never which variable a provider claims, and
+	// protocols.go's read of them is the one this section grades.
+	providers, err := packload.ComposeProviders(subMap(merged, "providers"), packs)
+	if err != nil {
+		providers = nil
+	}
+	var resolved map[string]packload.ResolvedProfile
+	if declared, derr := userProfiles(); derr == nil {
+		resolved, _ = packload.ResolveProfiles(packs, declared, providers)
+	}
+	scope, _ := packload.ScopeCredentials(packload.ScopeInput{
+		Packs: packs, Providers: providers, Profiles: profiles, Resolved: resolved,
+		EnvSources: userEnv, NoDerives: true,
+	})
 
 	findings := packload.EnvOverrideFindings(packs, profiles, func(name string) (string, bool) {
 		// The order is the launch's own (run/profilechannel.go's deliverySource, read through
 		// jailOriginLookup), minus the two channels named above. An EMPTY value is unset at
 		// every step, exactly as there: the launch drops an empty value rather than
 		// composing an empty token.
-		if str(userEnv, name) != "" {
+		if str(userEnv, name) != "" && scope.DeliversEnvSource(name) {
 			return packload.FromEnvSources, true
 		}
-		if packEnv[name] != "" {
+		if v, ok := scope.DeliveredPackEnv(name); ok && v != "" {
 			return packload.FromPackEnv, true
 		}
 		return "", false

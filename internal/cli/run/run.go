@@ -423,7 +423,13 @@ func Run(opts Options) (rc int) {
 		// ⚠ NEVER EXECUTED ON HARDWARE. Every line of this is pinned by unit tests and none
 		// of it has run on a Mac; the self-hosted arm64 runner
 		// (docs/plans/runbooks/mac-actions-runner.md) is where that changes.
-		launchEnv := channel.launchEnv()
+		// ONE AGENT'S LAUNCH ENV: this backend runs one command under one session env file,
+		// so the credential gate's per-agent half can reach only the program this invocation
+		// starts (launchEnv's doc; noteMacosUserCredentialScope says so on the terminal).
+		launched := filepath.Base(agentArgv[0])
+		launchEnv := channel.launchEnv(launched)
+		o.noteCredentialScope(channel)
+		o.noteMacosUserCredentialScope(channel, launched)
 		if o.DryRun {
 			// A plan render starts nothing, so the spawn boundary is not crossed: there is
 			// no host EXECUTION to disclose (a line saying otherwise would name daemons this
@@ -546,11 +552,11 @@ func Run(opts Options) (rc int) {
 				return 1
 			}
 		}
-		// The channel crosses in launch-env form — the pack env fold, the shape vars and
-		// the two wire tables, flattened in the container argv's layering order. The
-		// backend layers it into its plan env ahead of env_sources (the container's
-		// precedence) and relays the two wire tables to its bootstrap, so the native
-		// derives read the same provider table a container jail's do.
+		// The channel crosses in launch-env form — the pack env fold, the launched agent's
+		// shape vars, the wire tables and the gate-narrowed env_sources last (launchEnv).
+		// The backend layers it into its plan env and relays the two wire tables to its
+		// bootstrap, so the native derives read the same provider table a container
+		// jail's do.
 		//
 		// The staged tree crosses as a PATH, not as the loaded declarations: the native
 		// bootstrap re-reads the manifests itself (LoadJailPacks), exactly as the
@@ -1093,15 +1099,18 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	wsState := o.prepareWsState(cfg, loadedPacks, rt)
 	sp.End()
 
-	// yolo-user-env.sh (frozen writer). The map is the channel's hydration, not a second
-	// ResolveEnvSources pass: one walk, one set of warnings, and the file cannot describe
-	// a channel the pre-flight below checked a different copy of. The channel rides the
-	// same file — its ONLY crossing (per-entry delivery, the writer's doc): the argv
-	// carries none of it, so the container's frozen environment holds no provider state
-	// for a later exec to inherit, and this same write is what an attach performs to
-	// deliver a different profile into a running jail.
+	// yolo-user-env.sh (frozen writer) and the per-agent env files, both from the ONE
+	// credential gate's answer (deliverChannel, OQ-CN6): the shared file carries what every
+	// process may see, each profiled agent's file what only it receives. The map is the
+	// channel's hydration, not a second ResolveEnvSources pass: one walk, one set of
+	// warnings, and the files cannot describe a channel the pre-flight below checked a
+	// different copy of. These files are the channel's ONLY crossing (per-entry delivery,
+	// the writer's doc): the argv carries none of it, so the container's frozen environment
+	// holds no provider state for a later exec to inherit, and this same write is what an
+	// attach performs to deliver a different profile into a running jail.
 	userEnv := channel.userEnv
-	writeUserEnvFile(filepath.Join(wsState, "yolo-user-env.sh"), userEnv, channel)
+	deliverChannel(wsState, channel)
+	o.noteCredentialScope(channel)
 
 	// Broker singleton + relay: ensure BEFORE building the argv (the sockets-dir
 	// mount + broker env are emitted by the assembler when the socket exists).
@@ -1868,8 +1877,8 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 
 // deliverChannelOnAttach delivers this entry's provider/profile channel into the
 // RUNNING jail, and refuses only the one state in which a typed selection cannot
-// work. The mechanism is the fresh path's own: writeUserEnvFile over the channel,
-// into the live-mounted yolo-user-env.sh — the bind shows the rewrite inside the
+// work. The mechanism is the fresh path's own: deliverChannel over the channel,
+// into the live-mounted yolo-user-env.sh and agent env files — the binds show the rewrite inside the
 // jail instantly, and the exec'd yolo-entrypoint re-runs the boot, whose FIRST step
 // (hydrate) applies the plain-form channel lines over whatever the entry's
 // environment holds. Per-session by construction: an already-running session's
@@ -1954,12 +1963,13 @@ func (o *Options) deliverChannelOnAttach(cname, rt string, cfg *jsonx.OrderedMap
 		}
 	}
 	// The SAME write the fresh path performs (run.go's lifecycle phase): one
-	// composition, one writer, the file the boot hydrates and every shell sources.
-	// What this entry did not compose is revoked by the rewrite — including a
-	// previous entry's shape vars, which an override-only channel would have left
-	// behind. The bind is live; no argv changes.
-	writeUserEnvFile(filepath.Join(paths.WorkspaceHomeState(o.Workspace), "yolo-user-env.sh"),
-		channel.userEnv, channel)
+	// composition, one writer (deliverChannel), the shared file the boot hydrates and
+	// every shell sources plus each agent's own env file its launcher sources. What
+	// this entry did not compose is revoked by the rewrite — including a previous
+	// entry's shape vars and a deselected agent's whole file, which an override-only
+	// channel would have left behind. Both binds are live; no argv changes.
+	deliverChannel(paths.WorkspaceHomeState(o.Workspace), channel)
+	o.noteCredentialScope(channel)
 	// WHERE THE SELECTIONS LANDED, on this arm too — the disclosure line the fresh
 	// path prints beside its banner. An attach that delivers a profile owes the same
 	// sentence; providers.md#pv-oq-10's rule (never "honored") travels with it.

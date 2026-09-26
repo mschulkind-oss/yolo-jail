@@ -38,7 +38,7 @@ func TestGatewayProviderPacksDeclareOnlyStableFacts(t *testing.T) {
 				t.Fatalf("%s contributes %d providers, want one", tt.pack, len(providers))
 			}
 			provider := providers[0]
-			if provider.Name != tt.pack || provider.APIKeyEnvName != tt.key {
+			if provider.Name != tt.pack || provider.APIKeyEnvName.KeyPointer() != tt.key {
 				t.Fatalf("provider = %+v, want %q with %s", provider, tt.pack, tt.key)
 			}
 			if len(provider.Models) != 0 {

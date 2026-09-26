@@ -226,12 +226,19 @@ func (o agentEnvOpts) profileOptions(name string) map[string]string {
 
 // hydrateProviders deep-copies the composed providers table into the plain value model
 // the derive ctx exposes, resolving each entry's credential into the copy: an entry that
-// names an api_key_env_name the lookup finds carries api_key = that value, and one that
-// does not carries no api_key at all. The copy is the whole point — the credential
+// points at one api_key_env_name the lookup finds carries api_key = that value, and one
+// that does not carries no api_key at all. The copy is the whole point — the credential
 // crosses into the derive invocation only (the table the launch relays stays
 // secret-free, D8), and the input table is never mutated.
+//
+// The table is ProvidersForDerive's view, so every entry's api_key_env_name is the ONE
+// variable it points at or absent (OQ-CN1: a multi-route provider points at none). The
+// lookup is the CREDENTIAL GATE's (CredentialScope.LookupFor) on every launch path: it
+// answers nothing for a variable another provider claims, so an agent's derive sees the
+// api_key of the provider its own profile selects and of no other (OQ-CN2's
+// rendered-config half — the environment half is the same gate's delivery).
 func hydrateProviders(providers *jsonx.OrderedMap, lookup func(string) (string, bool)) map[string]any {
-	root, _ := plainValue(providers).(map[string]any)
+	root, _ := plainValue(ProvidersForDerive(providers)).(map[string]any)
 	if root == nil {
 		root = map[string]any{}
 	}

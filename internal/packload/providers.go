@@ -521,22 +521,6 @@ type providerRequirement struct {
 	provider string
 }
 
-// entryString reads one string field out of a composed provider entry, "" when the
-// entry is absent or the field is not a string. The composed table is what the derives
-// read, so it is also what the pre-flight reads: a user override of api_key_env_name
-// re-points the check at the variable the launch would actually have hydrated.
-func entryString(entry *jsonx.OrderedMap, key string) string {
-	if entry == nil {
-		return ""
-	}
-	v, ok := entry.Get(key)
-	if !ok {
-		return ""
-	}
-	s, _ := v.(string)
-	return s
-}
-
 // ProviderCredentialGaps is the SELECTED-PACK CREDENTIAL PRE-FLIGHT
 // (docs/reference/providers.md#the-credential-preflight, #pv-oq-13; the requirement itself re-ruled
 // by OQ-PT4): every provider the composed table CATALOGS — present and carrying an
@@ -564,14 +548,31 @@ func entryString(entry *jsonx.OrderedMap, key string) string {
 // remedy: the lead is the refusing notch's voice, and the remedy names the channels only
 // that notch knows — including the escape hatch (paths.AllowMissingProvidersEnv), which a
 // refusal must name and an override notice must not re-offer.
-func ProviderCredentialGaps(packs []*Pack, providers *jsonx.OrderedMap,
+//
+// NARROWED WITH THE CREDENTIAL GATE (OQ-CN3, ruled 2026-09-26;
+// docs/design/provider-credential-scope.md §3.2): selected is the set of providers some
+// agent's profile selects (CredentialScope.SelectedProviders), and a cataloged provider
+// outside it is no requirement. The gate delivers a provider's credential only to an agent
+// that selected it, so a key for a provider nobody selected is a key nobody will deliver,
+// and a key nobody will deliver is not a missing credential — refusing the launch over one
+// was the gate's own defect one layer up. That reopens the pack-scoping ruling above
+// (#pv-oq-13) deliberately: what still refuses is a SELECTED provider whose key is absent,
+// which is exactly the mysterious-first-request failure that ruling was about.
+func ProviderCredentialGaps(packs []*Pack, providers *jsonx.OrderedMap, selected []string,
 	lookup func(string) (string, bool), consulted []string) []string {
+	isSelected := make(map[string]bool, len(selected))
+	for _, name := range selected {
+		isSelected[name] = true
+	}
 	var facts []string
 	for _, req := range requiredProviders(packs, providers) {
+		if !isSelected[req.provider] {
+			continue // nobody selected it, so the gate delivers its key to nobody
+		}
 		entry := providerEntry(providers, req.provider)
-		keyName := entryString(entry, "api_key_env_name")
+		keyName := KeyEnvName(entry)
 		if keyName == "" {
-			continue // cataloged and needs no credential pointer
+			continue // cataloged and needs no single credential pointer
 		}
 		if v, ok := lookup(keyName); ok && v != "" {
 			continue
@@ -625,8 +626,20 @@ func quoted(s string) string {
 // into fresh OrderedMaps, and Capabilities is copied into a fresh []any.
 func shippedProviderEntry(prov packdecl.ProviderContribution) *jsonx.OrderedMap {
 	entry := jsonx.NewOrderedMap()
-	if prov.APIKeyEnvName != "" {
-		entry.Set("api_key_env_name", prov.APIKeyEnvName)
+	// One name composes as the string every consumer has always read; several compose as a
+	// list (OQ-CN1), the same shape a user's own entry spells it in — []any, the JSONC
+	// decoder's, so the user layer's list REPLACES the pack's in mergeUnder rather than
+	// meeting a type only pack defaults ever have.
+	switch len(prov.APIKeyEnvName) {
+	case 0:
+	case 1:
+		entry.Set("api_key_env_name", prov.APIKeyEnvName[0])
+	default:
+		names := make([]any, 0, len(prov.APIKeyEnvName))
+		for _, n := range prov.APIKeyEnvName {
+			names = append(names, n)
+		}
+		entry.Set("api_key_env_name", names)
 	}
 	if prov.Region != "" {
 		entry.Set("region", prov.Region)
@@ -804,7 +817,7 @@ func sortedEndpointProtocols(endpoints map[string]packdecl.ProviderEndpoint) []s
 // providerClaimDetail describes a shipped provider in one footprint line: the protocols
 // it names, how many model aliases, and — spelled out, because it is the fact a reader
 // is checking for — that the credential is a variable NAME the user supplies.
-func providerClaimDetail(endpoints map[string]packdecl.ProviderEndpoint, models map[string]string, apiKeyEnvName string) string {
+func providerClaimDetail(endpoints map[string]packdecl.ProviderEndpoint, models map[string]string, apiKeyEnvName packdecl.EnvNames) string {
 	protos := sortedEndpointProtocols(endpoints)
 	var parts []string
 	if len(protos) > 0 {
@@ -813,8 +826,12 @@ func providerClaimDetail(endpoints map[string]packdecl.ProviderEndpoint, models 
 	if n := len(models); n > 0 {
 		parts = append(parts, strconv.Itoa(n)+" model alias(es)")
 	}
-	if apiKeyEnvName != "" {
-		parts = append(parts, "key from $"+apiKeyEnvName+" (user-supplied)")
+	switch len(apiKeyEnvName) {
+	case 0:
+	case 1:
+		parts = append(parts, "key from $"+apiKeyEnvName[0]+" (user-supplied)")
+	default:
+		parts = append(parts, "credential from $"+strings.Join(apiKeyEnvName, ", $")+" (user-supplied)")
 	}
 	if len(parts) == 0 {
 		return "name only (no endpoints declared)"

@@ -399,6 +399,19 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	} else {
 		runCmd = append(runCmd, "-v", userEnvFile+":/home/agent/.config/yolo-user-env.sh")
 	}
+	// --- the per-agent env files (written by deliverChannel; OQ-CN6) ---
+	// What the credential gate scopes to ONE agent, each file sourced by that agent's
+	// launcher (agentenvfiles.go). A DIRECTORY bind, so an attach's rewrite shows in the
+	// running jail, and `:ro`, because nothing in the jail has a reason to write what the
+	// launcher delivers. Apple Container ignores `:ro` (roBindsUnsupported) and binds
+	// wsState over the home anyway, so it gets the tree copied into place, the
+	// yolo-user-env.sh arrangement above.
+	agentEnvDir := filepath.Join(in.wsState, agentEnvStateDir)
+	if rt == "container" { // parity: HonoredBy — Apple Container gets the per-agent env tree copied into the wsState it binds at /home/agent, the yolo-user-env.sh arrangement
+		_ = acMaterializeTree(agentEnvDir, entrypoint.AgentEnvDirRel, in.wsState)
+	} else {
+		runCmd = append(runCmd, "-v", agentEnvDir+":/home/agent/"+entrypoint.AgentEnvDirRel+":ro")
+	}
 
 	// --- container cwd ---
 	// The in-jail CLI no longer needs a source bind: the image bakes the flake
@@ -1025,9 +1038,10 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 	}
 	// The channel (providers, profile tables, pack env fold, shape vars) is composed
 	// ONCE above the backend dispatch and does NOT pass through this block: its
-	// container-backend crossing is yolo-user-env.sh's channel section (writeUserEnvFile
-	// at the run.go call site), and the macos-user arm delivers the same channel to its
-	// own plan env and bootstrap.
+	// container-backend crossing is yolo-user-env.sh's channel section plus each agent's
+	// own env file (deliverChannel at the run.go call sites — the credential gate's
+	// per-agent half), and the macos-user arm delivers the same channel to its own plan
+	// env and bootstrap.
 	env = append(env,
 		"-e", "YOLO_HOST_DIR="+o.Workspace,
 		"-e", "YOLO_VERSION="+in.yoloVersion,
@@ -1043,8 +1057,9 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		// host that emits nothing and this one emitting "" read identically.
 		"-e", entrypoint.AgentUpdatesEnv+"="+config.AgentUpdatesWire(),
 		// The three provider/profile wire tables are NOT here: they cross in
-		// yolo-user-env.sh's channel section (writeUserEnvFile's doc) with the pack env
-		// fold and the shape vars, so the container's frozen environment holds no
+		// yolo-user-env.sh's channel section (writeUserEnvFile's doc) with the shared
+		// pack env fold, the per-agent values in each agent's own env file
+		// (deliverChannel), so the container's frozen environment holds no
 		// provider state for a later exec to inherit — per-entry delivery. The channel
 		// below is still composed once, above the backend dispatch, and is what the
 		// file section and the macos-user plan env both consume.
@@ -1095,7 +1110,7 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 	// case. The macos-user arm still delivers the same list to its plan env. What
 	// neither spelling delivers is the variant's own literal env (claude's
 	// CLAUDE_CODE_USE_BEDROCK) — that rides the pack env fold, through the same profile
-	// table, into the same file section.
+	// table, into the env file of the one agent whose selection it gates.
 	//
 	// No YOLO_REPO_ROOT: the in-jail CLI resolves its repo root the same way the
 	// host does — exe-relative to the baked /opt/yolo-jail bundle, or the

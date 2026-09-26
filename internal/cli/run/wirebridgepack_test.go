@@ -294,7 +294,7 @@ func TestAUserMovesTheBridgesAddress(t *testing.T) {
 		t.Fatal(err)
 	}
 	var got string
-	for _, v := range c.shapeVars {
+	for _, v := range c.scope.Agent("claude").Shape {
 		if v.Key == "ANTHROPIC_BASE_URL" {
 			got = v.Value
 		}

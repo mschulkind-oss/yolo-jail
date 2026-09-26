@@ -81,7 +81,7 @@ func TestUnknownWireAPIIsAuthoringFatalAndSkewSkipped(t *testing.T) {
 	if len(provs) != 1 {
 		t.Fatalf("want the provider to survive, got %+v", provs)
 	}
-	if provs[0].Name != "acme" || provs[0].APIKeyEnvName != "ACME_API_KEY" {
+	if provs[0].Name != "acme" || provs[0].APIKeyEnvName.KeyPointer() != "ACME_API_KEY" {
 		t.Errorf("the provider's own facts must survive the skip: %+v", provs[0])
 	}
 	if ep := provs[0].Endpoints["glm"]; ep.BaseURL != "https://api.acme.dev/glm" || ep.WireAPI != "" {

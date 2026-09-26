@@ -45,7 +45,7 @@ func TestShrunkenProfileDeliversBothChannelsTheOldBodyDid(t *testing.T) {
 	bedrock := map[string]string{"claude": "bedrock"}
 
 	// Channel 1: the pack env fold, as the jail notch consumes it.
-	env := packload.EnvVarsFor(packs, bedrock)
+	env := packload.EnvVarsFor(packs, bedrock, "claude")
 	if env["CLAUDE_CODE_USE_BEDROCK"] != "1" {
 		t.Errorf("channel 1 (pack env fold) must deliver CLAUDE_CODE_USE_BEDROCK=1, got %v", env)
 	}
@@ -72,13 +72,13 @@ func TestShrunkenProfileDeliversBothChannelsTheOldBodyDid(t *testing.T) {
 	}
 
 	// The gate is one selection for both channels: nothing selected, neither delivers.
-	if got := packload.EnvVarsFor(packs, nil); got["CLAUDE_CODE_USE_BEDROCK"] != "" {
+	if got := packload.EnvVarsFor(packs, nil, "claude"); got["CLAUDE_CODE_USE_BEDROCK"] != "" {
 		t.Errorf("no profile selected: the env half must not deliver, got %v", got)
 	}
 	if got := packoverlay.Collect(packs, true, nil).For("claude", "settings"); len(got) != 0 {
 		t.Errorf("no profile selected: the overlay half must not be placed, got %+v", got)
 	}
-	if got := packload.EnvVarsFor(packs, map[string]string{"claude": "nobody"}); got["CLAUDE_CODE_USE_BEDROCK"] != "" {
+	if got := packload.EnvVarsFor(packs, map[string]string{"claude": "nobody"}, "claude"); got["CLAUDE_CODE_USE_BEDROCK"] != "" {
 		t.Errorf("an undeclared profile selected: the env half must not deliver, got %v", got)
 	}
 	if got := packoverlay.Collect(packs, true, map[string]string{"claude": "nobody"}).

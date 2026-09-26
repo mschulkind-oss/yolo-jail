@@ -217,12 +217,13 @@ func TestZaiPackShipsTheCatalogTheDerivesRead(t *testing.T) {
 
 // TestZaiPackRefusesALaunchWithNoKey and is quiet once it arrives: the pack's own README
 // contract, and the reason a selected pack may ship a credential pointer at all. The check
-// is keyed on the SELECTED pack, so the pack selected and the variable never hydrated is the
-// refusal, not a warning.
+// is keyed on the SELECTED PROVIDER (OQ-CN3): the pack selected, `-p zai` selecting its
+// provider for claude, and the variable never hydrated is the refusal, not a warning.
 func TestZaiPackRefusesALaunchWithNoKey(t *testing.T) {
-	packs := []*packload.Pack{officialPack(t, "zai")}
+	packs := zaiSelected(t)
 
 	o := retireOptions(t, discardBuf())
+	o.ProfileName = "zai"
 	lines, refuse := o.checkProviderCredentials(bareConfig(), packs, channelFor(t, o, bareConfig(), packs, emptyEnv()), nil)
 	if !refuse {
 		t.Fatal("a selected zai pack with no key hydrated must refuse the launch")
@@ -235,6 +236,7 @@ func TestZaiPackRefusesALaunchWithNoKey(t *testing.T) {
 	}
 
 	o = retireOptions(t, discardBuf())
+	o.ProfileName = "zai"
 	if lines, refuse := o.checkProviderCredentials(bareConfig(), packs, channelFor(t, o, bareConfig(), packs, hydratedKey()), nil); len(lines) != 0 || refuse {
 		t.Errorf("the key the README says to drop in must satisfy the check:\n%s",
 			strings.Join(lines, "\n"))

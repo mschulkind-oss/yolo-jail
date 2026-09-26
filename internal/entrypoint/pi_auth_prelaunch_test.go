@@ -22,7 +22,7 @@ func TestPiCodexProfileSeedsFreshAuthBeforeNpmLauncherExec(t *testing.T) {
 		t.Fatal(err)
 	}
 	profiles := map[string]string{"pi": "codex"}
-	env := packload.EnvVarsFor([]*packload.Pack{pi, codex}, profiles)
+	env := packload.EnvVarsFor([]*packload.Pack{pi, codex}, profiles, "pi")
 	for key, want := range map[string]string{
 		"YOLO_AUTH_PRELAUNCH_PI_FLAG":    "--pi-auth",
 		"YOLO_AUTH_PRELAUNCH_PI_PATH":    ".pi/agent/auth.json",
@@ -33,7 +33,7 @@ func TestPiCodexProfileSeedsFreshAuthBeforeNpmLauncherExec(t *testing.T) {
 			t.Fatalf("profile env %s = %q, want %q", key, env[key], want)
 		}
 	}
-	if got := packload.EnvVarsFor([]*packload.Pack{pi}, nil)["YOLO_AUTH_PRELAUNCH_PI_FLAG"]; got != "" {
+	if got := packload.EnvVarsFor([]*packload.Pack{pi}, nil, "pi")["YOLO_AUTH_PRELAUNCH_PI_FLAG"]; got != "" {
 		t.Fatalf("unprofiled Pi unexpectedly enables auth prelaunch: %q", got)
 	}
 

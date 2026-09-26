@@ -164,7 +164,7 @@ func TestValidateContributes(t *testing.T) {
 		// to everyone who installs it).
 		{"good provider", Contribution{Kind: KindProvider, Name: "acme",
 			Endpoints:     map[string]ProviderEndpoint{"openai": {BaseURL: "https://api.acme.dev/v4", WireAPI: "openai-chat-completions"}},
-			APIKeyEnvName: "ACME_API_KEY", Models: map[string]string{"default": "acme-large"}}, ""},
+			APIKeyEnvName: EnvNames{"ACME_API_KEY"}, Models: map[string]string{"default": "acme-large"}}, ""},
 		{"provider no name", Contribution{Kind: KindProvider,
 			Endpoints: map[string]ProviderEndpoint{"openai": {BaseURL: "https://api.acme.dev/v4"}}},
 			"needs \"name\""},
@@ -670,7 +670,7 @@ func TestProviderDecodesIntoDistinctProviders(t *testing.T) {
 		t.Fatalf("want 2 providers (the exclusivity is per NAME, not per pack), got %d: %+v", len(got), got)
 	}
 	zai := got[0]
-	if zai.Name != "acme" || zai.APIKeyEnvName != "ACME_API_KEY" {
+	if zai.Name != "acme" || zai.APIKeyEnvName.KeyPointer() != "ACME_API_KEY" {
 		t.Errorf("name/credential pointer lost: %+v", zai)
 	}
 	if zai.Region != "eu-central-1" {
@@ -723,7 +723,7 @@ func TestProviderNameDeclaredTwiceByOnePackIsRefused(t *testing.T) {
 func TestProviderMakesNoHostCrossing(t *testing.T) {
 	m := &Manifest{Contributes: []Contribution{{Kind: KindProvider, Name: "acme",
 		Endpoints:     map[string]ProviderEndpoint{"openai": {BaseURL: "https://api.acme.dev/v4"}},
-		APIKeyEnvName: "ACME_API_KEY"}}}
+		APIKeyEnvName: EnvNames{"ACME_API_KEY"}}}}
 	if c := hostCrossings(m); len(c) != 0 {
 		t.Errorf("a provider reads nothing from the host, got %v", c)
 	}

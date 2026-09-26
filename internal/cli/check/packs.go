@@ -297,7 +297,7 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	// `needs` delivers here exactly as it does at launch. envoverrides.go states why this
 	// calls the launch's own rule instead of restating it, which two delivery channels it
 	// cannot see, and why a directory grant counts only off macOS (!o.IsMacOS below).
-	overrideErrs, overrideWarns := envOverrideGap(loaded, merged, o.Workspace, !o.IsMacOS, r.configWarn)
+	overrideErrs, overrideWarns := envOverrideGap(loaded, merged, o.Workspace, !o.IsMacOS, r.configWarn, userProfiles)
 	for _, e := range overrideErrs {
 		r.fail(e.msg, e.note)
 	}

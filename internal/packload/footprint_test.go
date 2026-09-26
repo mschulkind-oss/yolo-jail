@@ -106,7 +106,7 @@ func TestHostCrossingsAreHonoredAndDisclosedForEveryPack(t *testing.T) {
 		t.Errorf("want the reads-host granted and nothing refused, got %d granted / %d refused",
 			len(g), len(r))
 	}
-	if v := EnvVarsFor([]*Pack{p}, nil); v["ACME_MODE"] != "fast" {
+	if v := EnvVarsFor([]*Pack{p}, nil, ""); v["ACME_MODE"] != "fast" {
 		t.Errorf("env must be honored: %v", v)
 	}
 

@@ -375,7 +375,7 @@ func TestProviderCredentialGapsFollowCatalogMembership(t *testing.T) {
 	// Cataloged, and the credential never arrived: the refusal, naming the provider, the
 	// variable and the pack whose entry demands it. (Two lines: the fact, then the
 	// consulted-channels line the function always appends.)
-	facts := ProviderCredentialGaps([]*Pack{zai}, compose(t, nil, []*Pack{zai}), lookup, nil)
+	facts := ProviderCredentialGaps([]*Pack{zai}, compose(t, nil, []*Pack{zai}), []string{"zai"}, lookup, nil)
 	if len(facts) != 2 {
 		t.Fatalf("a cataloged provider with an unset credential must refuse, got %+v", facts)
 	}
@@ -391,13 +391,13 @@ func TestProviderCredentialGapsFollowCatalogMembership(t *testing.T) {
 	// requires provider "bedrock", and the composed providers table has no entry by that
 	// name", the user's own "no" read back as a fault.
 	user := userProviders(t, `{"zai":null}`)
-	if facts := ProviderCredentialGaps([]*Pack{zai}, compose(t, user, []*Pack{zai}), lookup, nil); facts != nil {
+	if facts := ProviderCredentialGaps([]*Pack{zai}, compose(t, user, []*Pack{zai}), []string{"zai"}, lookup, nil); facts != nil {
 		t.Errorf("a null-dropped provider is not required:\n%s", strings.Join(facts, "\n"))
 	}
 
 	// A provider with no endpoint composes whole and still demands nothing, with nothing
 	// hydrated at all: it reaches no agent's catalog, so there is no key to demand.
-	if facts := ProviderCredentialGaps([]*Pack{bedrock}, compose(t, nil, []*Pack{bedrock}), lookup, nil); facts != nil {
+	if facts := ProviderCredentialGaps([]*Pack{bedrock}, compose(t, nil, []*Pack{bedrock}), []string{"bedrock"}, lookup, nil); facts != nil {
 		t.Errorf("a provider with no endpoint must demand no credential:\n%s", strings.Join(facts, "\n"))
 	}
 
@@ -409,7 +409,7 @@ func TestProviderCredentialGapsFollowCatalogMembership(t *testing.T) {
 	keyed := &Pack{Name: "keyed", Decl: declFrom(t, `{"contributes":[
 	  {"kind":"provider","name":"keyed","api_key_env_name":"KEYED_KEY",
 	   "region":"us-east-1"}]}`)}
-	if facts := ProviderCredentialGaps([]*Pack{keyed}, compose(t, nil, []*Pack{keyed}), lookup, nil); facts != nil {
+	if facts := ProviderCredentialGaps([]*Pack{keyed}, compose(t, nil, []*Pack{keyed}), []string{"keyed"}, lookup, nil); facts != nil {
 		t.Errorf("a provider with a credential pointer but no endpoint reaches no catalog "+
 			"and must demand nothing:\n%s", strings.Join(facts, "\n"))
 	}
@@ -419,7 +419,7 @@ func TestProviderCredentialGapsFollowCatalogMembership(t *testing.T) {
 	// looking for one.
 	user = userProviders(t, `{"mine":{"api_key_env_name":"MINE_KEY",
 	  "endpoints":{"openai":{"base_url":"https://mine.example/v4"}}}}`)
-	facts = ProviderCredentialGaps(nil, compose(t, user, nil), lookup, nil)
+	facts = ProviderCredentialGaps(nil, compose(t, user, nil), []string{"mine"}, lookup, nil)
 	if len(facts) != 2 {
 		t.Fatalf("a user-declared cataloged provider must refuse too, got %+v", facts)
 	}
@@ -427,5 +427,27 @@ func TestProviderCredentialGapsFollowCatalogMembership(t *testing.T) {
 		if !strings.Contains(facts[0], want) {
 			t.Errorf("the fact must name %q: %s", want, facts[0])
 		}
+	}
+}
+
+// OQ-CN3 (docs/design/provider-credential-scope.md): the pre-flight narrows WITH the
+// credential gate. A cataloged provider no agent selected owes no key, because the gate
+// delivers its key to nobody — refusing over it is the gate's own defect one layer up. The
+// same cataloged provider, selected, still refuses.
+func TestProviderCredentialGapsDemandOnlySelectedProviders(t *testing.T) {
+	zai := shippedZaiPack(t)
+	lookup := func(string) (string, bool) { return "", false }
+	table := compose(t, nil, []*Pack{zai})
+
+	if facts := ProviderCredentialGaps([]*Pack{zai}, table, nil, lookup, nil); facts != nil {
+		t.Errorf("a cataloged provider NO agent selected must demand nothing:\n%s",
+			strings.Join(facts, "\n"))
+	}
+	if facts := ProviderCredentialGaps([]*Pack{zai}, table, []string{"cerebras"}, lookup, nil); facts != nil {
+		t.Errorf("selecting ANOTHER provider must not make zai's key a requirement:\n%s",
+			strings.Join(facts, "\n"))
+	}
+	if facts := ProviderCredentialGaps([]*Pack{zai}, table, []string{"zai"}, lookup, nil); len(facts) == 0 {
+		t.Error("a SELECTED cataloged provider whose key never arrived must still refuse")
 	}
 }

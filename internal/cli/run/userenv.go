@@ -27,9 +27,14 @@ const channelSectionHeader = entrypoint.EntryChannelSectionHeader
 // '\” (the `'` → `'\”` replacement).
 //
 // THE CHANNEL SECTION. A non-nil channel appends the provider/profile environment
-// this entry composed — the three wire tables (YOLO_PROVIDERS, YOLO_PROFILES,
-// YOLO_USE_PROFILES), the pack env fold, and the provider shape vars — as
-// UNCONDITIONAL `export K='v'` lines. The two grammars are the precedence, read
+// this entry composed that EVERY process may see — the three wire tables
+// (YOLO_PROVIDERS, YOLO_PROFILES, YOLO_USE_PROFILES) and the ungated pack env fold —
+// as UNCONDITIONAL `export K='v'` lines. What the credential gate scopes to one agent
+// (a provider's claimed credentials, a profile-gated env, the shape vars) is NOT
+// here: this file's first reader exports it into every process of the jail, so those
+// values go to that agent's own env file instead (agentenvfiles.go, OQ-CN6), and
+// userEnv is the gate's shared half (deliverChannel) rather than the hydration. The
+// two grammars are the precedence, read
 // off the line by every consumer: def-form `${K:-'v'}` is a default the
 // environment may beat, plain-form `'v'` is this entry's value and beats
 // everything, container environment included. That inversion is the point of the
@@ -37,14 +42,14 @@ const channelSectionHeader = entrypoint.EntryChannelSectionHeader
 // so it can never be a def-form default and the file can never hold a second,
 // stale copy of a previous entry's providers.
 //
-// This file is the channel's ONLY crossing (per-entry env delivery,
-// agent-auth-modes.md §4.3): the podman argv carries none of it, so the
+// This file and the per-agent files are the channel's ONLY crossings (per-entry env
+// delivery, agent-auth-modes.md §4.3): the podman argv carries none of it, so the
 // container's frozen environment holds no provider state for a later exec to
 // inherit. The bind is live — writing the file in place is visible inside a
 // running jail, which is how an attach delivers (write, then `podman exec`; the
 // exec'd entrypoint re-runs the boot and hydrates the fresh file). The line
 // order is frozen to match the argv spelling this replaced: tables (in wire
-// order), then the pack env fold (sorted), then the shape vars (channel order).
+// order), then the shared pack env fold (sorted).
 // The three tables are written even when empty — `{}` crosses "none" and
 // revokes what a previous entry selected.
 //
@@ -59,9 +64,10 @@ const channelSectionHeader = entrypoint.EntryChannelSectionHeader
 // is rewritten whole, so what the new entry did not compose is gone. Returns
 // the file path.
 //
-// MODE 0600, NOT 0644. This file holds every hydrated env_sources VALUE in
-// plaintext — API keys, in practice, and since the channel moved here, the
-// provider tokens the shape vars relay — and it was world-readable until
+// MODE 0600, NOT 0644. This file holds hydrated env_sources VALUES in plaintext —
+// API keys, in practice, though since the credential gate only the ones no provider
+// claims (the claimed ones, and the provider tokens the shape vars relay, sit in the
+// per-agent files at the same mode) — and it was world-readable until
 // 2026-09-01 (measured in a live jail: `-rw-r--r--` holding two provider keys).
 // packs/zai's README tells the user to keep that key in a file that is
 // "untracked, 0600", and yolo's own copy of the value was downgrading the mode
@@ -109,21 +115,14 @@ func writeUserEnvFile(userEnvFile string, userEnv *jsonx.OrderedMap, channel *pa
 		b.WriteString(exportPlain("YOLO_PROFILES",
 			jsonDumpsOrEmptyObj(packload.ProfilesWireTable(channel.resolvedProfiles))))
 		b.WriteString(exportPlain("YOLO_USE_PROFILES", jsonDumpsOrEmptyObj(channel.profiles)))
-		keys := make([]string, 0, len(channel.packEnv))
-		for k := range channel.packEnv {
+		shared := channel.scope.SharedPackEnv()
+		keys := make([]string, 0, len(shared))
+		for k := range shared {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			b.WriteString(exportPlain(k, channel.packEnv[k]))
-		}
-		for _, v := range channel.shapeVars {
-			// Unset has no file spelling and no producer emits it today — the
-			// old argv loop skipped it with the same silence.
-			if v.Unset {
-				continue
-			}
-			b.WriteString(exportPlain(v.Key, v.Value))
+			b.WriteString(exportPlain(k, shared[k]))
 		}
 	}
 	_ = writeFileBeneathMode(dir, name, []byte(b.String()), userEnvFileMode)

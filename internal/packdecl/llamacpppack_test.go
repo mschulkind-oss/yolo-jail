@@ -83,7 +83,7 @@ func TestLlamacppShipsOneProviderAndTheProfileOverIt(t *testing.T) {
 // credential variable, so the launch's credential pre-flight requires nothing of it. The
 // hosted case is served by the user adding `api_key_env_name` in their own config.
 func TestLlamacppNamesNoCredentialVariable(t *testing.T) {
-	if got := llamacppManifest(t).Providers()[0].APIKeyEnvName; got != "" {
+	if got := llamacppManifest(t).Providers()[0].APIKeyEnvName; len(got) != 0 {
 		t.Errorf("api_key_env_name = %q — a keyless llama-server would now refuse every "+
 			"launch that could not deliver that variable", got)
 	}

@@ -168,7 +168,7 @@ func HydrateEntryChannel(e *Env) bool {
 // grammars are the precedence, read off the line itself: a def-form
 // `export K=${K:-'v'}` line is an env_sources DEFAULT the launch-time env beats,
 // and a plain-form `export K='v'` line is the per-entry CHANNEL (writeUserEnvFile's
-// section — provider tables, pack env, provider shape vars) and beats everything,
+// section — provider tables and the ungated pack env) and beats everything,
 // the container's frozen environment included. That override is what makes an
 // attach deliver: the launcher rewrites the file immediately before the exec, and
 // this hydration is the first thing the exec'd boot does, so stale channel keys

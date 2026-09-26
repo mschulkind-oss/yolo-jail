@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agentenv"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 func TestWriteUserEnvFileBytes(t *testing.T) {
@@ -125,26 +125,30 @@ func TestWriteUserEnvFileNarrowsAnExistingWideFile(t *testing.T) {
 	}
 }
 
-// testChannel builds the smallest channel the writer consumes, in the shape
-// composePackChannel produces. The JSON table values are asserted with Contains
-// (their exact bytes are jsonx.DumpsCompact's business); the LINE grammar and the
-// ORDER are this file's frozen contract, and those are asserted exactly.
-func testChannel() *packChannel {
+// testChannel builds the smallest channel the writer consumes, composed through the real
+// credential gate (packload.ScopeCredentials) the way composePackChannel composes it: a
+// pack with one UNCONDITIONAL env value, so the shared half carries a pack env line, and a
+// profile table naming claude. The JSON table values are asserted with Contains (their
+// exact bytes are jsonx.DumpsCompact's business); the LINE grammar and the ORDER are this
+// file's frozen contract, and those are asserted exactly.
+func testChannel(t *testing.T) *packChannel {
+	t.Helper()
 	providers := jsonx.NewOrderedMap()
 	zai := jsonx.NewOrderedMap()
 	zai.Set("api_key_env_name", "ZAI_API_KEY")
 	providers.Set("zai", zai)
 	profiles := jsonx.NewOrderedMap()
 	profiles.Set("claude", "zai")
-	return &packChannel{
-		profiles:  profiles,
-		providers: providers,
-		packEnv:   map[string]string{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"},
-		shapeVars: []agentenv.Var{
-			{Key: "ANTHROPIC_BASE_URL", Value: "https://api.z.ai/api/anthropic"},
-			{Key: "ANTHROPIC_AUTH_TOKEN", Value: "sk-it's"},
-		},
+	shared := inlinePack(t, "shared", `{"name":"shared","contributes":[`+
+		`{"kind":"env","vars":{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":"1"}}]}`)
+	scope, err := packload.ScopeCredentials(packload.ScopeInput{
+		Packs: []*packload.Pack{shared}, Providers: providers,
+		Profiles: packload.ProfileTable(profiles),
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
+	return &packChannel{profiles: profiles, providers: providers, scope: scope}
 }
 
 // TestWriteUserEnvFileChannelSection pins the per-entry channel's landing: the
@@ -153,20 +157,21 @@ func testChannel() *packChannel {
 // (overridable default) for env_sources. The grammar is the precedence: bash
 // sourcing and hydrateEnvFromUserEnvFile both read "plain form beats the
 // environment, def form does not" off the line itself, which is what makes the
-// file a per-ENTRY delivery rather than a second frozen copy.
+// file a per-ENTRY delivery rather than a second frozen copy. What the credential gate
+// scopes to one agent is not in this file at all; agentenvfiles_test.go pins where it goes.
 func TestWriteUserEnvFileChannelSection(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "yolo-user-env.sh")
 	env := jsonx.NewOrderedMap()
-	env.Set("ZAI_API_KEY", "sk-secret")
-	writeUserEnvFile(p, env, testChannel())
+	env.Set("SHARED_SETTING", "sk-secret")
+	writeUserEnvFile(p, env, testChannel(t))
 	got, err := os.ReadFile(p)
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := string(got)
 	// env_sources half unchanged: def-form, overridable.
-	if !strings.Contains(s, "export ZAI_API_KEY=${ZAI_API_KEY:-'sk-secret'}\n") {
+	if !strings.Contains(s, "export SHARED_SETTING=${SHARED_SETTING:-'sk-secret'}\n") {
 		t.Errorf("env_sources line must stay def-form:\n%s", s)
 	}
 	// The three wire tables, in the frozen order, plain-form.
@@ -182,19 +187,12 @@ func TestWriteUserEnvFileChannelSection(t *testing.T) {
 	if !strings.Contains(s, "YOLO_USE_PROFILES='{\"claude\": \"zai\"}'\n") {
 		t.Errorf("effective table value wrong:\n%s", s)
 	}
-	// packEnv (sorted) then shapeVars (channel order), both plain-form, after the tables.
+	// The shared pack env (sorted), plain-form, after the tables.
 	if !strings.Contains(s, "export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC='1'\n") {
-		t.Errorf("packEnv line missing:\n%s", s)
+		t.Errorf("shared pack env line missing:\n%s", s)
 	}
-	if !strings.Contains(s, "export ANTHROPIC_BASE_URL='https://api.z.ai/api/anthropic'\n") {
-		t.Errorf("shape var line missing:\n%s", s)
-	}
-	// Single quotes escape the same way in both grammars.
-	if !strings.Contains(s, `export ANTHROPIC_AUTH_TOKEN='sk-it'\''s'`+"\n") {
-		t.Errorf("shape var quoting wrong:\n%s", s)
-	}
-	if strings.Index(s, "YOLO_USE_PROFILES='") > strings.Index(s, "ANTHROPIC_BASE_URL='") {
-		t.Errorf("packEnv/shapeVars must follow the tables:\n%s", s)
+	if strings.Index(s, "YOLO_USE_PROFILES='") > strings.Index(s, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC='") {
+		t.Errorf("the pack env must follow the tables:\n%s", s)
 	}
 	// The channel section is marked, so a reader can tell composed lines from
 	// overridable ones without parsing every export.
@@ -211,7 +209,7 @@ func TestWriteUserEnvFileChannelSection(t *testing.T) {
 func TestWriteUserEnvFileChannelRevokesOnRemoval(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "yolo-user-env.sh")
-	writeUserEnvFile(p, jsonx.NewOrderedMap(), testChannel())
+	writeUserEnvFile(p, jsonx.NewOrderedMap(), testChannel(t))
 	// Next entry: no profiles active, no pack env, no shape vars.
 	writeUserEnvFile(p, jsonx.NewOrderedMap(), &packChannel{
 		profiles:  jsonx.NewOrderedMap(),
@@ -240,7 +238,7 @@ func TestWriteUserEnvFileChannelRevokesOnRemoval(t *testing.T) {
 func TestWriteUserEnvFileNilChannelTruncates(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "yolo-user-env.sh")
-	writeUserEnvFile(p, jsonx.NewOrderedMap(), testChannel())
+	writeUserEnvFile(p, jsonx.NewOrderedMap(), testChannel(t))
 	writeUserEnvFile(p, jsonx.NewOrderedMap(), nil)
 	got, err := os.ReadFile(p)
 	if err != nil {

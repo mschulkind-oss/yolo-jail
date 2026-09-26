@@ -533,6 +533,9 @@ func podmanLinuxGolden(home string) []string {
 	)
 	// yolo-user-env.sh mount.
 	add("-v", wsState+"/yolo-user-env.sh:/home/agent/.config/yolo-user-env.sh")
+	// The per-agent env files (the credential gate's container vehicle, OQ-CN6): a
+	// directory, `:ro`, beside the shared file.
+	add("-v", wsState+"/agent-env:/home/agent/.config/yolo-agent-env:ro")
 	// container cwd only — no repo source bind (the image bakes the flake bundle
 	// at /opt/yolo-jail; internal/reporoot resolves it exe-relative in-jail).
 	add("--workdir", "/workspace")

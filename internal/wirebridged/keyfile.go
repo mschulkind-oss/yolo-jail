@@ -1,29 +1,46 @@
 package wirebridged
 
-// keyfile.go is the key channel (wire-bridge.md §5): the launcher writes
-// yolo-user-env.sh (0600) from the hydrated env_sources, and the bridge reads
+// keyfile.go is the key channel (wire-bridge.md §5): the launcher writes the
+// credential into a 0600 file from the hydrated env_sources, and the bridge reads
 // that file ONCE at boot, then holds the value in memory. One writer, one
 // reader; the daemon never appears in `ps` with the key. The daemon's own
 // process environment is the fallback (§5: `yolo host`-style notches where the
 // file may not exist), and no key means a healthy idle — never a request
 // served upstream without the credential it was configured to carry.
+//
+// THE FILE IS THE SERVED AGENT'S OWN, since the credential gate
+// (docs/design/provider-credential-scope.md, OQ-CN6): a provider credential the
+// gate scopes to the agent that selected the provider no longer sits in the shared
+// yolo-user-env.sh, it sits in that agent's env file (entrypoint.AgentEnvFile). A
+// route is always served for one agent — the one whose profile selected the
+// provider — so the bridge reads that agent's file first, and the shared file after
+// it for a credential no provider claims. That is the §6 constraint the ruling kept:
+// the bridge still reaches the key of every provider it serves.
 
 import (
 	"os"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 )
 
-// resolveKey finds the provider credential: the yolo-user-env.sh file first
-// (the channel every non-claude agent already reads), then this process's own
-// environment. Returns the key and, for the startup log line, WHERE it came
-// from — the source is safe to log, the value never is. An empty keyEnvName
-// means the provider names no credential at all; that is not a miss but a
-// "serve without Authorization" (the pre-flight's existence-only rule for a
-// provider with no api_key_env_name), so the zero result is reserved for "a
-// variable was named and is nowhere".
-func resolveKey(keyEnvName, home string) (key, source string) {
+// resolveKey finds the provider credential: the served agent's own env file
+// first, then the shared yolo-user-env.sh, then this process's own environment.
+// Returns the key and, for the startup log line, WHERE it came from — the source
+// is safe to log, the value never is. An empty keyEnvName means the provider
+// names no credential at all; that is not a miss but a "serve without
+// Authorization" (the pre-flight's existence-only rule for a provider with no
+// api_key_env_name), so the zero result is reserved for "a variable was named and
+// is nowhere". An empty agent skips the agent file.
+func resolveKey(keyEnvName, home, agent string) (key, source string) {
 	if keyEnvName == "" {
 		return "", ""
+	}
+	if agent != "" {
+		path := entrypoint.AgentEnvFile(home, agent)
+		if v, ok := keyFromUserEnvFile(path, keyEnvName); ok {
+			return v, path
+		}
 	}
 	path := userEnvFilePath(home)
 	if v, ok := keyFromUserEnvFile(path, keyEnvName); ok {
@@ -33,6 +50,15 @@ func resolveKey(keyEnvName, home string) (key, source string) {
 		return v, "process environment"
 	}
 	return "", ""
+}
+
+// keyChannelDescription names the files resolveKey reads for agent, for a
+// refusal that has to say where it looked.
+func keyChannelDescription(home, agent string) string {
+	if agent == "" {
+		return userEnvFilePath(home)
+	}
+	return entrypoint.AgentEnvFile(home, agent) + " or " + userEnvFilePath(home)
 }
 
 // reportUnreadableKeyFile is the DEGRADATION NOTICE for the key channel: falling

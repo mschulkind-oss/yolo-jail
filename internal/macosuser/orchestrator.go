@@ -138,19 +138,21 @@ type Options struct {
 	// named to the bootstrap as YOLO_PACK_ROOT. Empty means this launch staged no
 	// packs, and the bootstrap is told nothing rather than pointed at an absent dir.
 	HostPackRoot string
-	// PackEnv is the launch's composed profile/provider channel in launch-env form: the
-	// pack env fold, the provider env vars, and the two wire tables
-	// (YOLO_PROVIDERS, YOLO_USE_PROFILES). The run pipeline composes it above the
-	// backend dispatch and hands it to BOTH arms — the container arm emits the same
-	// env — so a `-p` launch composes the same environment natively
-	// that it does in a container. Nil is the pre-channel shape and layers nothing.
+	// PackEnv is the launch's composed channel in launch-env form, for the ONE program this
+	// invocation starts: the pack env fold, the provider env vars, the three wire tables
+	// (YOLO_PROVIDERS, YOLO_PROFILES, YOLO_USE_PROFILES), and the hydrated env_sources LAST
+	// — all of it already narrowed by the credential gate
+	// (docs/design/provider-credential-scope.md; the run pipeline's packChannel.launchEnv)
+	// to the shared values plus what that program's own profile scopes to it. The run
+	// pipeline composes the channel above the backend dispatch, so a `-p` launch composes
+	// the same environment natively that it does in a container. Nil is the pre-channel
+	// shape and layers nothing.
 	//
-	// Layered into the plan env BEFORE env_sources and SandboxEnv, which is the
-	// container's precedence: there the channel rides the `-e` base env and
-	// yolo-user-env.sh (sourced later by the rc files) overrides it, so a user's own
-	// dotenv entry beats a pack's default here too. Its two wire tables are ALSO relayed
-	// into the bootstrap env (BuildRunPlan), because the native bootstrap renders pack
-	// surfaces and derives from them exactly as the container boot does.
+	// Layered into the plan env BEFORE SandboxEnv. env_sources closes the map, so a user's
+	// own dotenv entry beats a pack's default here, as it did when this package hydrated
+	// env_sources itself. Its two wire tables are ALSO relayed into the bootstrap env
+	// (BuildRunPlan), because the native bootstrap renders pack surfaces and derives from
+	// them exactly as the container boot does.
 	PackEnv *jsonx.OrderedMap
 	// SandboxEnv is an optional caller-supplied env layered last, under only the
 	// jail marker buildPlan sets over everything; nil is the common case.
@@ -188,9 +190,9 @@ func MacosSandboxEnv(deps Deps, cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
 	return env
 }
 
-// buildPlan starts from the sandbox env, merges env_sources (swallowing any
-// error — a bad entry must not crash the plan), layers the caller's sandbox_env,
-// sets the jail marker over all of them, then builds the plan.
+// buildPlan starts from the sandbox env, layers the composed channel (PackEnv, which
+// carries the gate-narrowed env_sources last), layers the caller's sandbox_env, sets the
+// jail marker over all of them, then builds the plan.
 func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	env := MacosSandboxEnv(deps, opts.Config)
 	// Trust the workspace's mise configs, for the same reason the container gets this on its
@@ -274,11 +276,14 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 			"A host symlink is not a workaround here: the sandbox profile denies writes " +
 			"outside the workspace and sandbox home, and denies reads under /Volumes.")
 	}
-	resolved := config.ResolveEnvSources(opts.Workspace, opts.Config, func(msg string) { out.print(msg) })
-	for _, k := range resolved.Keys() {
-		v, _ := resolved.Get(k)
-		env.Set(k, v)
-	}
+	// NO env_sources HYDRATION HERE ANY MORE. This backend used to call
+	// config.ResolveEnvSources itself and layer EVERY hydrated value — the second delivery
+	// vehicle of docs/design/provider-credential-scope.md §2.3, bypassing the credential
+	// gate. Its env_sources now arrive inside PackEnv, already narrowed by the gate to what
+	// the launched program may see, and LAST in it (the run pipeline's launchEnv), which
+	// is exactly where this layer used to sit: a user's own dotenv entry still beats every
+	// channel value. One hydration per launch also means one set of "file not found"
+	// warnings rather than two.
 	if opts.SandboxEnv != nil {
 		for _, k := range opts.SandboxEnv.Keys() {
 			v, _ := opts.SandboxEnv.Get(k)

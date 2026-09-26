@@ -1168,9 +1168,25 @@ func validateProviders(config *jsonx.OrderedMap, workspace string, errs, warns *
 			}
 		}
 		if a, ok := cfg.Get("api_key_env_name"); ok && a != nil {
-			if s, ok := asStr(a); !ok || !envVarNameRe.MatchString(s) {
-				add(errs, fmt.Sprintf("%s.api_key_env_name: invalid env var name %s (must match [A-Za-z_][A-Za-z0-9_]*)",
-					path, pyReprValue(a)))
+			// One variable name, or a list of them (OQ-CN1,
+			// docs/design/provider-credential-scope.md). The rule is packdecl's, so a pack
+			// manifest and this entry cannot accept different values for one field of one
+			// composed table. A lone string keeps its old wording, which tests and users
+			// already know.
+			names, ok := packdecl.EnvNamesFromValue(a)
+			switch {
+			case !ok:
+				add(errs, fmt.Sprintf("%s.api_key_env_name: expected an env var name or a "+
+					"non-empty list of them, got %s", path, pyReprValue(a)))
+			case isStr(a):
+				if !envVarNameRe.MatchString(names[0]) {
+					add(errs, fmt.Sprintf("%s.api_key_env_name: invalid env var name %s (must match [A-Za-z_][A-Za-z0-9_]*)",
+						path, pyReprValue(a)))
+				}
+			default:
+				for _, p := range names.Problems(path) {
+					add(errs, p)
+				}
 			}
 		}
 		if m, ok := cfg.Get("models"); ok && m != nil {

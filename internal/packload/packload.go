@@ -582,34 +582,34 @@ type EnvFoldEntry struct {
 	Value string
 }
 
-// EnvFold is the pack env fold as the ORDERED OPERATION SEQUENCE both notches consume:
-// for each pack in delivery order, its unconditional `kind: "env"` keys sorted, then the
-// keys of each `profile`-gated env contribution that gate is satisfied for, that pack's
-// in declaration order, each map sorted.
+// EnvFold is the pack env fold ONE AGENT receives, as the ORDERED OPERATION SEQUENCE both
+// notches consume: for each pack in delivery order, its unconditional `kind: "env"` keys
+// sorted, then the keys of each `profile`-gated env contribution whose gate fires for
+// `agent`, that pack's in declaration order, each map sorted. agent "" is the SHARED fold —
+// what every process of the launch receives — and no gate fires for it.
 //
-// The GATE is the OQ-PT8 shrink's consumer — a profile's env used to ride the
-// `kind: "profile"` body, and it lives on the gated contribution now. A gate is
-// satisfied when the profile is active for a bin the pack installs, or — the second
-// pass, profileActive's wide half — when it is active for ANY bin at all, which is
-// what makes a CLI-less pack's gated env reachable: packs/zai installs nothing, so
-// keying on its own bins could never fire (the reachability defect
-// docs/reference/providers.md measures for the kind). The gate asks the launch's
-// table, not the target surface's agent — an env has no surface to name one, which is
-// the one way it differs from config-overlay's gate (packoverlay.go).
+// THE GATE IS PER AGENT (OQ-BR4, ruled 2026-09-25; docs/design/provider-credential-scope.md
+// §2.6): a satisfied gate delivers its variables to each agent whose selected profile
+// satisfies it, and to no other. gateFiresFor is the rule. It REPLACED a launch-wide
+// answer whose second, "wide" pass fired when the profile was active for any bin at all:
+// that pass existed so a CLI-less pack's gated env could fire, and it made
+// `-p codex=bedrock` fire claude's gated CLAUDE_CODE_USE_BEDROCK jail-wide (trap D2). The
+// CLI-less reach survives, scoped: aws-auth's pointer goes to every agent that selected
+// `bedrock`, and only to them. An env still has no surface to name an agent, which is why
+// the caller names one — the vehicle that delivers per agent (OQ-CN6) is what gives the
+// config-overlay gate's `profiles[key.Agent]` (packoverlay.go) an env counterpart.
 //
-// It is the one definition of the OQ-8 order (providers.md#pv-oq-8), and the order is the whole point:
-// unconditional then gated PER PACK, so a later pack's unconditional value beats an
-// earlier pack's gated one — the cross-pack rule is unchanged by the gate. EnvVarsFor is
-// this sequence reduced over a map (the jail notch's form: the env starts empty, so a
-// removal is a delete), and the host notch composes the process env it will exec from
-// the same sequence (internal/cli host.go). Reducing it twice, once per notch, is what
-// keeps a key that pack A's gated env and pack B's static both write resolving to ONE
-// winner.
+// It is the one definition of the OQ-8 order (providers.md#pv-oq-8), and the order is the
+// whole point: unconditional then gated PER PACK, so a later pack's unconditional value
+// beats an earlier pack's gated one — the cross-pack rule is unchanged by the gate.
+// EnvVarsFor is this sequence reduced over a map, and the host notch composes the process
+// env it will exec from the same sequence (internal/cli host.go), so a key that pack A's
+// gated env and pack B's static both write resolves to ONE winner at both notches.
 //
 // Literal strings only, so this is not origin-gated. Which pack wins a key TWO packs write
 // is delivery order, not something this fold resolves; a collision is reported by the
 // footprint's env-key claims.
-func EnvFold(packs []*Pack, profiles map[string]string) []EnvFoldEntry {
+func EnvFold(packs []*Pack, profiles map[string]string, agent string) []EnvFoldEntry {
 	var out []EnvFoldEntry
 	for _, p := range packs {
 		static := p.Decl.EnvContributions()
@@ -617,7 +617,7 @@ func EnvFold(packs []*Pack, profiles map[string]string) []EnvFoldEntry {
 			out = append(out, EnvFoldEntry{Key: k, Value: static[k]})
 		}
 		for _, gated := range p.Decl.ProfiledEnvContributions() {
-			if !profileActive(packs, p, gated.Profile, profiles) {
+			if !gateFiresFor(packs, p, gated.Profile, profiles, agent) {
 				continue
 			}
 			for _, k := range sortedMapKeys(gated.Vars) {
@@ -628,42 +628,55 @@ func EnvFold(packs []*Pack, profiles map[string]string) []EnvFoldEntry {
 	return out
 }
 
-// profileActive answers the env fold's gate: is `name` active for a bin `p` installs,
-// or — the pass that reaches a pack installing nothing — for any bin the launch
-// installs at all? The two passes are in that order because the pack's own claim is the
-// more specific question, and the wide one is what keeps the answer from depending on
-// who happens to install the CLI the profile steers. The launch's bins, not the table's
-// keys, are what the wide pass walks: a caller hands this fold a table it built (the
-// host notch's single-agent one), and a key that names no installed CLI is no activation.
-func profileActive(packs []*Pack, p *Pack, name string, profiles map[string]string) bool {
-	if name == "" || len(profiles) == 0 {
+// gateFiresFor answers the env gate for ONE agent: `name` must be the profile agent
+// selected, and p must be either the pack that installs agent's CLI or a pack that
+// installs no CLI at all. The second arm is the CLI-less reach (aws-auth, zai, llamacpp:
+// a pack whose gated env serves whichever agent selected its profile); the first is what
+// keeps an agent pack's gated env on its own agent, so `-p codex=bedrock` gives codex
+// nothing of claude's. A table key naming a CLI no pack of the launch installs is no
+// activation for either arm — the rule the launch-wide gate this replaced also kept, and
+// the one the host notch leans on, since it keys its one-agent table by whatever basename
+// it was asked to run.
+func gateFiresFor(packs []*Pack, p *Pack, name string, profiles map[string]string, agent string) bool {
+	if name == "" || agent == "" || profiles[agent] != name {
 		return false
 	}
-	if p.installsActiveBin(name, profiles) {
-		return true
+	bins := p.InstallBins()
+	if len(bins) == 0 {
+		for _, other := range packs {
+			for _, bin := range other.InstallBins() {
+				if bin == agent {
+					return true
+				}
+			}
+		}
+		return false
 	}
-	for _, other := range packs {
-		if other.installsActiveBin(name, profiles) {
+	for _, bin := range bins {
+		if bin == agent {
 			return true
 		}
 	}
 	return false
 }
 
-// installsActiveBin reports whether any bin THIS pack installs has `name` active.
-func (p *Pack) installsActiveBin(name string, profiles map[string]string) bool {
-	for _, bin := range p.InstallBins() {
-		if profiles[bin] == name {
+// gateDelivered reports whether p's gate on `name` fires for SOME agent of the launch —
+// whether the contribution reaches any process at all. The env-override pre-flight asks
+// it, because an override between two variables nobody receives overrides nothing.
+func gateDelivered(packs []*Pack, p *Pack, name string, profiles map[string]string) bool {
+	for agent := range profiles {
+		if gateFiresFor(packs, p, name, profiles, agent) {
 			return true
 		}
 	}
 	return false
 }
 
-// EnvVarsFor is the pack env fold as a map — the launch's CLI-keyed profile table
-// applied (providers.md#pv-oq-8), so each pack's gated env folds AFTER its unconditional `env` and a
-// gated value later-wins over its own pack's default: the gate is the more specific
-// intent, declared after the baseline, and overriding it is not a collision.
+// EnvVarsFor is one agent's pack env fold as a map (agent "" for the shared fold) — the
+// launch's CLI-keyed profile table applied (providers.md#pv-oq-8), so each pack's gated env
+// folds AFTER its unconditional `env` and a gated value later-wins over its own pack's
+// default: the gate is the more specific intent, declared after the baseline, and
+// overriding it is not a collision.
 //
 // The fold carries no UNSET any more, and that is the OQ-PT8 shrink, not a shortcut:
 // the only env map that could spell one was the profile body's, whose null-means-unset
@@ -673,9 +686,9 @@ func (p *Pack) installsActiveBin(name string, profiles map[string]string) bool {
 // THE REDUCTION, not a second fold: applied in order over a map, EnvFold's operations
 // yield exactly this result, which is why the jail and the host cannot disagree about who
 // wrote a key last.
-func EnvVarsFor(packs []*Pack, profiles map[string]string) map[string]string {
+func EnvVarsFor(packs []*Pack, profiles map[string]string, agent string) map[string]string {
 	var out map[string]string
-	for _, e := range EnvFold(packs, profiles) {
+	for _, e := range EnvFold(packs, profiles, agent) {
 		if out == nil {
 			out = map[string]string{}
 		}
@@ -743,6 +756,19 @@ var tolerateUnknownFields bool
 // TolerateSkew switches this process's manifest reads to the version-tolerant decoder. The
 // entrypoint calls it at startup; the host CLI never does.
 func TolerateSkew() { tolerateUnknownFields = true }
+
+// OverrideSkewTolerance sets the switch TolerateSkew sets and returns the function that
+// restores the previous value. It exists for a HOST-side test that drives the jail's own
+// generators (entrypoint.GenerateAgentLaunchers reads the staged tree through
+// LoadJailPacks, which calls TolerateSkew): without the restore, every later test in that
+// process would read manifests tolerantly and a strict-load refusal it pins would vanish.
+// OverrideEmbeddedCacheDir is the same shape for the same reason. Production code never
+// calls it.
+func OverrideSkewTolerance(tolerant bool) (restore func()) {
+	prev := tolerateUnknownFields
+	tolerateUnknownFields = tolerant
+	return func() { tolerateUnknownFields = prev }
+}
 
 func LoadDir(root, name string) (*Pack, []string) {
 	decl := &packdecl.Manifest{}

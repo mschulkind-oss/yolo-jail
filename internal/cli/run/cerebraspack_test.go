@@ -161,12 +161,15 @@ func TestCerebrasPackComposesTheBridgedClaudeRoute(t *testing.T) {
 }
 
 // TestCerebrasPackRefusesALaunchWithNoKey: the pack's README contract, same as zai's —
-// catalog membership demands the credential (OQ-PT4), naming what it wants; quiet once
-// the key arrives.
+// a SELECTED cataloged provider demands the credential (OQ-PT4, narrowed to the selected
+// providers by OQ-CN3), naming what it wants; quiet once the key arrives.
 func TestCerebrasPackRefusesALaunchWithNoKey(t *testing.T) {
-	packs := []*packload.Pack{officialPack(t, "cerebras")}
+	packs := []*packload.Pack{
+		officialPack(t, "claude"), officialPack(t, "cerebras"), officialPack(t, "wire-bridge"),
+	}
 
 	o := retireOptions(t, discardBuf())
+	o.ProfileName = "cerebras"
 	lines, refuse := o.checkProviderCredentials(bareConfig(), packs,
 		channelFor(t, o, bareConfig(), packs, emptyEnv()), nil)
 	if !refuse {
@@ -180,6 +183,7 @@ func TestCerebrasPackRefusesALaunchWithNoKey(t *testing.T) {
 	}
 
 	o = retireOptions(t, discardBuf())
+	o.ProfileName = "cerebras"
 	if lines, refuse := o.checkProviderCredentials(bareConfig(), packs,
 		channelFor(t, o, bareConfig(), packs, cerebrasKey()), nil); len(lines) != 0 || refuse {
 		t.Errorf("the key the README says to drop in must satisfy the check:\n%s",

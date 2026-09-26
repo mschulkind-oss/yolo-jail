@@ -154,7 +154,7 @@ func viaRoutesFor(providers *jsonx.OrderedMap, useProfiles map[string]string,
 		plan.Routes = append(plan.Routes, viaRoute{
 			Agent:        agent,
 			ProviderName: r.Provider,
-			KeyEnvName:   entryString(entry, "", "api_key_env_name"),
+			KeyEnvName:   packload.KeyEnvName(entry),
 			Chat:         newViaUpstream(chat),
 			Responses:    newViaUpstream(responses),
 		})
@@ -547,7 +547,7 @@ func viaHandlerFor(plan viaPlan, home string) (http.Handler, []string) {
 func viaUpstreamHandler(rt viaRoute, up viaUpstream, home string) (http.Handler, string) {
 	if up.SignRegion != "" {
 		env := sigv4.EnvFrom(func(name string) string {
-			v, _ := resolveKey(name, home)
+			v, _ := resolveKey(name, home, rt.Agent)
 			return v
 		})
 		if !hasAWSCredentialSource(env) {
@@ -562,11 +562,11 @@ func viaUpstreamHandler(rt viaRoute, up viaUpstream, home string) (http.Handler,
 			"→ " + up.BaseURL + " (provider " + rt.ProviderName + ", SigV4 for bedrock in " +
 				up.SignRegion + ", from " + env.String() + ")"
 	}
-	key, source := resolveKey(rt.KeyEnvName, home)
+	key, source := resolveKey(rt.KeyEnvName, home, rt.Agent)
 	if key == "" && rt.KeyEnvName != "" {
 		reason := "the via route for " + rt.Agent + " needs $" + rt.KeyEnvName +
 			" (provider " + rt.ProviderName + "), and it is set neither in " +
-			userEnvFilePath(home) + " nor in the daemon's environment"
+			keyChannelDescription(home, rt.Agent) + " nor in the daemon's environment"
 		return idleViaHandler{reason: reason}, "idle: " + reason
 	}
 	cred := "none"

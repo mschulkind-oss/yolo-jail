@@ -596,7 +596,7 @@ func TestAnUnreadableCredentialChannelReportsTheDegradation(t *testing.T) {
 	}
 	t.Setenv("WIREBRIDGE_DIAG_FALLBACK", "from-env")
 	logged := captureDiag(t)
-	key, source := resolveKey("WIREBRIDGE_DIAG_FALLBACK", home)
+	key, source := resolveKey("WIREBRIDGE_DIAG_FALLBACK", home, "")
 	if key != "from-env" || source != "process environment" {
 		t.Fatalf("resolveKey = %q from %q, want the environment fallback", key, source)
 	}
@@ -608,7 +608,7 @@ func TestAnUnreadableCredentialChannelReportsTheDegradation(t *testing.T) {
 // otherwise the report above cannot mean anything.
 func TestAnAbsentCredentialChannelIsSilent(t *testing.T) {
 	logged := captureDiag(t)
-	resolveKey("WIREBRIDGE_DIAG_MISSING", t.TempDir())
+	resolveKey("WIREBRIDGE_DIAG_MISSING", t.TempDir(), "")
 	if got := logged(); got != "" {
 		t.Errorf("an absent channel file is the expected case, not a degradation:\n%s", got)
 	}

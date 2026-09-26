@@ -87,17 +87,33 @@ func TestAttachDeliversTheChannelFile(t *testing.T) {
 		t.Fatalf("the attach never wrote the channel file: %v", err)
 	}
 	s := string(b)
+	if !strings.Contains(s, "export YOLO_USE_PROFILES=") {
+		t.Errorf("channel file missing the selection table:\n%s", s)
+	}
+	// The provider environment claude's profile composed is CLAUDE's alone (the credential
+	// gate, OQ-CN6): the attach writes it into claude's own env file, never the shared one.
+	for _, gone := range []string{"ANTHROPIC_AUTH_TOKEN", "tok-9"} {
+		if strings.Contains(s, gone) {
+			t.Errorf("the shared channel file carries %s — every process would see it:\n%s", gone, s)
+		}
+	}
+	ab, err := os.ReadFile(filepath.Join(paths.WorkspaceHomeState(o.Workspace), agentEnvStateDir, "claude.sh"))
+	if err != nil {
+		t.Fatalf("the attach never wrote claude's own env file: %v", err)
+	}
 	for _, want := range []string{
-		"export YOLO_USE_PROFILES=",
 		"export ANTHROPIC_BASE_URL='https://api.z.ai/api/anthropic'",
 		"export ANTHROPIC_AUTH_TOKEN='tok-9'",
 	} {
-		if !strings.Contains(s, want) {
-			t.Errorf("channel file missing %s:\n%s", want, s)
+		if !strings.Contains(string(ab), want) {
+			t.Errorf("claude's env file missing %s:\n%s", want, ab)
 		}
 	}
 	if out := stderr.String(); !strings.Contains(out, "Profile zai: declared: zai") {
 		t.Errorf("the attach must print where the selection landed:\n%s", out)
+	}
+	if out := stderr.String(); !strings.Contains(out, "ZAI_API_KEY (provider zai): claude only") {
+		t.Errorf("the attach must disclose the credential gate's scope, as the fresh launch does:\n%s", out)
 	}
 }
 

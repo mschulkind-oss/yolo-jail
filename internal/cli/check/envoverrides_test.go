@@ -105,6 +105,36 @@ func tokenDelivered() *jsonx.OrderedMap {
 		map[string]string{widgetToken: "frozen-token-value"})
 }
 
+// A credential the gate WITHHOLDS overrides nothing (docs/design/provider-credential-scope.md,
+// OQ-CN2): the override's variable is claimed by a provider no agent selected, so the launch
+// delivers it to no process and does not refuse — and `check`, predicting through the same
+// packload.ScopeCredentials, must not refuse either. Reading the raw hydration here, as this
+// file did before the gate, would FAIL a config that launches fine.
+func TestSectionPacksPredictsNoOverrideForAWithheldCredential(t *testing.T) {
+	dir := t.TempDir()
+	manifest := `{"name": "widgetpack", "contributes": [
+    {"kind": "program", "bin": "someagent", "via": "npm", "package": "@example/someagent",
+     "protocols": ["openai"]},
+    {"kind": "provider", "name": "gatedprofile",
+     "endpoints": {"openai": {"base_url": "https://api.example.test/v1"}}},
+    {"kind": "provider", "name": "elsewhere", "api_key_env_name": "` + widgetToken + `"},
+    {"kind": "profile", "name": "gatedprofile", "provider": "gatedprofile"},
+    {"kind": "env", "profile": "gatedprofile",
+     "vars": {"` + widgetPointer + `": "http://127.0.0.1:1461/credentials"},
+     "overridden_by": [{"vars": ["` + widgetToken + `"], "because": "the token wins"}]}]}`
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	packsFixture(t, `{"packs": ["file://`+dir+`"]}`)
+
+	var buf bytes.Buffer
+	r := &reporter{w: &buf}
+	(&Options{Workspace: t.TempDir(), Getenv: func(string) string { return "" }}).sectionPacks(r, tokenDelivered())
+	if r.failed != 0 {
+		t.Errorf("an override by a credential no agent receives must not FAIL the check:\n%s", buf.String())
+	}
+}
+
 // The launch refuses a jail carrying the contribution and its override, so `check` must
 // FAIL. A warning would be this file's own defect with the sign flipped: `yolo check`
 // exiting 0 on a config that cannot start a jail.
@@ -306,6 +336,10 @@ func TestSectionPacksPredictsTheHostFilesGrant(t *testing.T) {
 	}
 }
 
+// noUserProfiles is a user-profile loader that declares nothing — the launch-less
+// prediction's input for a fixture whose profiles the packs alone declare.
+func noUserProfiles() (map[string]packload.UserProfile, error) { return nil, nil }
+
 // TestEnvOverrideGapWordsItTheWayTheLaunchDoes is the anti-drift pin behind this file's ⚠:
 // the prediction is not a second copy of the rule, so its text is byte-identical to what
 // packload.EnvOverrideRefusal hands the launch. If someone reimplements the message here,
@@ -314,7 +348,7 @@ func TestEnvOverrideGapWordsItTheWayTheLaunchDoes(t *testing.T) {
 	pack := overriddenPack(t, "someagent", "gatedprofile")
 	packsFixture(t, `{"packs": ["file://`+pack+`"]}`)
 
-	errs, warns := envOverrideGap(nil, tokenDelivered(), t.TempDir(), true, func(string) {})
+	errs, warns := envOverrideGap(nil, tokenDelivered(), t.TempDir(), true, func(string) {}, noUserProfiles)
 	if len(warns) != 0 {
 		t.Errorf("this gate has no escape hatch, so it has no warning arm: %v", warns)
 	}

@@ -500,24 +500,29 @@ func (e errFake) Error() string { return string(e) }
 //
 //  1. the channel reaches the launch env at all (a `-p` launch that composes the variant
 //     env on the container and nothing here is the defect);
-//  2. it layers BEFORE env_sources, the container's precedence — there the channel rides
-//     the `-e` base env and yolo-user-env.sh (sourced later by the rc files) overrides it,
-//     so a user's own dotenv entry must beat a pack's default here too;
-//  3. the two wire tables are relayed into the BOOTSTRAP env, because the native
-//     bootstrap renders the pack surfaces and derives from them. Without the relay the
-//     agent would run the selected variant's environment against config written as if no
-//     variant were selected — the silent half of the same defect.
+//  2. the channel is the WHOLE of what this backend delivers from the run pipeline's
+//     composition: buildPlan hydrates no env_sources of its own any more, because the
+//     credential gate (docs/design/provider-credential-scope.md, OQ-CN5) narrows them
+//     above the dispatch and the channel carries them — so an env_sources entry the
+//     channel does not carry must NOT reach the sandbox. Re-adding a hydration here is the
+//     second delivery vehicle §2.3 names, bypassing the gate, and it fails this test;
+//  3. the order is kept as handed over — env_sources LAST in the channel is what makes a
+//     user's own dotenv entry beat a pack's default here (the run pipeline's launchEnv).
 func TestPackEnvReachesTheLaunchEnvAheadOfEnvSources(t *testing.T) {
 	opts := newOpts("/Users/Shared/proj")
 	opts.Config = jsonx.NewOrderedMap()
 	inline := jsonx.NewOrderedMap()
 	inline.Set("ZAI_API_KEY", "from-envsource")
+	inline.Set("AWS_ACCESS_KEY_ID", "withheld-by-the-gate")
 	opts.Config.Set("env_sources", []any{inline})
 	opts.PackEnv = jsonx.NewOrderedMap()
 	opts.PackEnv.Set("ZAI_API_KEY", "from-pack")
 	opts.PackEnv.Set("ANTHROPIC_BASE_URL", "https://api.z.ai/api/anthropic")
 	opts.PackEnv.Set("YOLO_PROVIDERS", `{"zai": {}}`)
 	opts.PackEnv.Set("YOLO_USE_PROFILES", `{"claude": "zai"}`)
+	// The channel's env_sources half, last, as launchEnv writes it: the gate kept ZAI_API_KEY
+	// (claude selected zai) and withheld the AWS pair (nobody selected bedrock).
+	opts.PackEnv.Set("ZAI_API_KEY", "from-envsource")
 
 	plan := buildPlan(mockDeps(nil), opts, nil)
 	env := plan.EnvFileContent
@@ -525,19 +530,18 @@ func TestPackEnvReachesTheLaunchEnvAheadOfEnvSources(t *testing.T) {
 		"ANTHROPIC_BASE_URL='https://api.z.ai/api/anthropic'",
 		"YOLO_PROVIDERS='{\"zai\": {}}'",
 		"YOLO_USE_PROFILES='{\"claude\": \"zai\"}'",
+		"ZAI_API_KEY='from-envsource'",
 	} {
 		if !strings.Contains(env, want) {
-			t.Errorf("the composed channel never reached the launch env; env file = %s", env)
+			t.Errorf("the composed channel never reached the launch env (%s); env file = %s", want, env)
 		}
 	}
-	// The precedence half: env_sources wins over the channel, as yolo-user-env.sh wins
-	// over the container's `-e` base env. Order in the file IS the precedence, because a
-	// later `export` overwrites an earlier one — so the last value must be the dotenv's.
-	if !strings.Contains(env, "ZAI_API_KEY='from-envsource'") {
-		t.Errorf("env_sources must still win over the channel; env file = %s", env)
+	if strings.Contains(env, "AWS_ACCESS_KEY_ID") || strings.Contains(env, "withheld-by-the-gate") {
+		t.Errorf("buildPlan delivered an env_sources entry the channel did not carry — a second "+
+			"hydration bypassing the credential gate; env file = %s", env)
 	}
-	if strings.LastIndex(env, "ZAI_API_KEY='from-pack'") > strings.LastIndex(env, "ZAI_API_KEY='from-envsource'") {
-		t.Errorf("the channel must not override a user's own env_sources entry: %s", env)
+	if strings.Contains(env, "from-pack") {
+		t.Errorf("the channel's own later env_sources value must win: %s", env)
 	}
 	// AND NONE OF IT IS ON A COMMAND LINE. The delivery moved for a reason; a test that
 	// only followed it to the file would pass for a launch that put the values in BOTH

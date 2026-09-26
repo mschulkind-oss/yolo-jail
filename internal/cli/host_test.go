@@ -841,10 +841,12 @@ func TestHostEnvStillResolvesAbsoluteEnvSourceFiles(t *testing.T) {
 // variant naming it — the shape packs/zai would have (zai-plumbing.md §7). It installs no
 // CLI, which is the ordinary provider pack.
 
-// The host half of the selected-pack credential pre-flight (providers.md#the-credential-preflight, #pv-oq-13): selecting a
-// provider pack with no key hydrated refuses the exec, naming the variable, the provider
-// and where it looked. rc 1 is the pre-flight's own exit; rc 127 below is PATH resolution
-// failing, which is how the two are told apart.
+// The host half of the credential pre-flight (providers.md#the-credential-preflight,
+// #pv-oq-13, narrowed to the SELECTED provider by OQ-CN3): selecting a provider (`-p zai`)
+// whose key was never hydrated refuses the exec, naming the variable, the provider and
+// where it looked. rc 1 is the pre-flight's own exit; rc 127 below is PATH resolution
+// failing, which is how the two are told apart. The same pack with nothing selected owes
+// no key — the gate delivers it to nobody — and goes on to PATH resolution.
 func TestHostExecRefusesASelectedPackWithNoKey(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -855,7 +857,7 @@ func TestHostExecRefusesASelectedPackWithNoKey(t *testing.T) {
 	userCfg(t, home, `{}`)
 
 	var out, errw bytes.Buffer
-	if rc := hostMain([]string{"--", "no-such-agent-binary"}, &out, &errw, false, nil); rc != 1 {
+	if rc := hostMain([]string{"-p", "zai", "--", "no-such-agent-binary"}, &out, &errw, false, nil); rc != 1 {
 		t.Fatalf("rc = %d, want the pre-flight's 1 (stderr: %s)", rc, errw.String())
 	}
 	got := errw.String()
@@ -866,6 +868,12 @@ func TestHostExecRefusesASelectedPackWithNoKey(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("the refusal must name %q:\n%s", want, got)
 		}
+	}
+
+	errw.Reset()
+	if rc := hostMain([]string{"--", "no-such-agent-binary"}, &out, &errw, false, nil); rc != 127 {
+		t.Fatalf("with no profile selected the pre-flight owes no key (OQ-CN3) and the "+
+			"exec must reach PATH resolution: rc = %d (stderr: %s)", rc, errw.String())
 	}
 }
 
@@ -881,7 +889,7 @@ func TestHostExecProceedsOnceTheKeyIsHydrated(t *testing.T) {
 	userCfg(t, home, `{"env_sources": [{"ZAI_API_KEY": "sk-zai"}]}`)
 
 	var out, errw bytes.Buffer
-	if rc := hostMain([]string{"--", "no-such-agent-binary"}, &out, &errw, false, nil); rc != 127 {
+	if rc := hostMain([]string{"-p", "zai", "--", "no-such-agent-binary"}, &out, &errw, false, nil); rc != 127 {
 		t.Fatalf("rc = %d, want the PATH miss's 127 — the pre-flight must have passed (stderr: %s)",
 			rc, errw.String())
 	}
@@ -901,7 +909,7 @@ func TestHostExecHatchLiftsTheRefusal(t *testing.T) {
 	userCfg(t, home, `{}`)
 
 	var out, errw bytes.Buffer
-	if rc := hostMain([]string{"--", "no-such-agent-binary"}, &out, &errw, false, nil); rc != 127 {
+	if rc := hostMain([]string{"-p", "zai", "--", "no-such-agent-binary"}, &out, &errw, false, nil); rc != 127 {
 		t.Fatalf("rc = %d, want 127 — the hatch must let the launch reach PATH resolution (stderr: %s)",
 			rc, errw.String())
 	}

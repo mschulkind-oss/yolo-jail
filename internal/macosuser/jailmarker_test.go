@@ -34,17 +34,15 @@ func TestSandboxCarriesTheJailMarker(t *testing.T) {
 }
 
 // TestJailMarkerIsTheLaunchersLastWord: no composed layer can take the marker away, since it
-// is the one fact every `yolo` in the sandbox asks "am I in a jail?" of. An env_sources entry
-// and the caller's own sandbox env both set it empty here, and the file still carries the
-// launcher's value.
+// is the one fact every `yolo` in the sandbox asks "am I in a jail?" of. The composed channel
+// (which carries the env_sources the credential gate let through, last) and the caller's own
+// sandbox env both set it empty here, and the file still carries the launcher's value.
 func TestJailMarkerIsTheLaunchersLastWord(t *testing.T) {
 	t.Setenv("YOLO_VERSION", "")
 	ws := t.TempDir()
-	if err := os.WriteFile(filepath.Join(ws, "dotenv"), []byte("YOLO_VERSION=\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	opts := newOpts(ws)
-	opts.Config.Set("env_sources", []any{filepath.Join(ws, "dotenv")})
+	opts.PackEnv = jsonx.NewOrderedMap()
+	opts.PackEnv.Set("YOLO_VERSION", "")
 	opts.SandboxEnv = jsonx.NewOrderedMap()
 	opts.SandboxEnv.Set("YOLO_VERSION", "")
 	var out bytes.Buffer

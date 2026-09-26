@@ -1,8 +1,6 @@
 package run
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -42,17 +40,21 @@ type assembled struct {
 	in   *assembleInput
 }
 
-// channelFile writes the channel section exactly as the launch's lifecycle phase does
-// and returns the file's bytes.
+// channelFile delivers the channel exactly as the launch's lifecycle phase does
+// (deliverChannel) and returns everything it wrote: the shared yolo-user-env.sh, then each
+// agent's own env file in agent order. Since the credential gate (OQ-CN6) a profiled
+// agent's provider environment lands in ITS file, so "what did the launch deliver" is the
+// union; a test about WHICH process gets a value reads the files one by one
+// (deliveredFiles, agentenvfiles_test.go).
 func (a assembled) channelFile(t *testing.T) string {
 	t.Helper()
-	p := filepath.Join(t.TempDir(), "yolo-user-env.sh")
-	writeUserEnvFile(p, nil, a.in.envChannel(a.o))
-	b, err := os.ReadFile(p)
-	if err != nil {
-		t.Fatal(err)
+	shared, agents := deliveredFiles(t, a.in.envChannel(a.o))
+	var b strings.Builder
+	b.WriteString(shared)
+	for _, agent := range sortedKeys(agents) {
+		b.WriteString(agents[agent])
 	}
-	return string(b)
+	return b.String()
 }
 
 // channelEnv is the file twin of envArgValues: the plain-form `export K='v'` values
