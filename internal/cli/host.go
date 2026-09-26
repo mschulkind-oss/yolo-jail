@@ -493,6 +493,13 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 		c.err = err
 		return c
 	}
+	// VIA IS INERT AT THE HOST NOTCH (WG-I8, WG-I12): no jail daemon runs here, so no via
+	// route is served whatever the pack set holds. ResolveProfiles gives a via profile a
+	// via_address whenever its service pack is selected, and a user who lists wire-bridge in
+	// `packs` explicitly selects it at this notch too, so the env derive below would be handed
+	// a ctx.via_url nothing serves. packload.ViaInert clears the address, and ViaURLFor, the
+	// predicate both notches' derive paths ask, answers "" for every agent.
+	resolvedProfiles = packload.ViaInert(resolvedProfiles)
 	if profileName != "" {
 		declared := packload.DeclaredProfileNames(packs, userProfiles)
 		if i := sort.SearchStrings(declared, profileName); i >= len(declared) || declared[i] != profileName {

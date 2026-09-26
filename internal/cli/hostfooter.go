@@ -58,7 +58,9 @@ func hostFooterTables() footer.Tables {
 	if err != nil {
 		return t
 	}
-	t.Profiles = footerJSON(packload.ProfilesWireTable(resolved))
+	// Inert via, as composeHostVars makes it (WG-I12): the host notch serves no via route, so
+	// its table carries no via address, whatever the pack set holds.
+	t.Profiles = footerJSON(packload.ProfilesWireTable(packload.ViaInert(resolved)))
 	return t
 }
 
