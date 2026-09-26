@@ -93,8 +93,8 @@ protocol its provider serves is refused, naming any shipped pack that translates
 - Two launches of one workspace at once could fail with `directory not empty`, or start with
   part of a pack missing; the second now waits for the first. Attaching to a running jail no
   longer empties and re-copies the pack files it has mounted.
-- `yolo init` wrote a workspace config saying grep and find are blocked by default, and offering
-  no `macos-user` runtime.
+- `yolo init` wrote a workspace config saying grep and find are blocked by default, and both it and
+  `yolo init-user-config` wrote a config offering no `macos-user` runtime.
 - The links on yolo-jail's PyPI page led nowhere. They now open that release's files on GitHub.
 
 ### Security

@@ -8,7 +8,8 @@
   // User-level defaults merged into every project config.
   // Lists are merged (deduplicated), scalars are overridden by workspace config.
   //
-  // Container runtime: "podman" or "container" (Apple)
+  // Isolation backend: "podman", "container" (Apple Container), or
+  // "macos-user" (a sandboxed macOS account, no VM; never auto-detected)
   // (also settable via YOLO_RUNTIME env var)
   // "runtime": "podman",
   // "packages": ["sqlite", "postgresql"],
